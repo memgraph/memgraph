@@ -586,119 +586,18 @@ for dataset, queries in benchmarks:
 
         if len(args.mixed_workload) >= 5:
             mixed_workload(vendor, client, dataset, group, queries)
-
-        for query, funcname in queries[group]:
-            log.info(
-                "Running query:",
-                "{}/{}/{}/{}".format(
-                    group, query, funcname, WITHOUT_FINE_GRAINED_AUTHORIZATION
-                ),
-            )
-            func = getattr(dataset, funcname)
-
-            query_statistics = tail_latency(vendor, client, func)
-
-            config_key = [
-                dataset.NAME,
-                dataset.get_variant(),
-                args.vendor_name,
-                group,
-                query,
-            ]
-            count = get_query_cache_count(vendor, client, func, config_key)
-
-            # Benchmark run.
-            print("Sample query:", get_queries(func, 1)[0][0])
-            print(
-                "Executing benchmark with",
-                count,
-                "queries that should " "yield a single-threaded runtime of",
-                args.single_threaded_runtime_sec,
-                "seconds.",
-            )
-            print(
-                "Queries are executed using",
-                args.num_workers_for_benchmark,
-                "concurrent clients.",
-            )
-            vendor.start_benchmark()
-            if args.warmup_run:
-                warmup(client)
-            ret = client.execute(
-                queries=get_queries(func, count),
-                num_workers=args.num_workers_for_benchmark,
-            )[0]
-            usage = vendor.stop()
-            ret["database"] = usage
-            ret["query_statistics"] = query_statistics
-
-            # Output summary.
-            print()
-            print("Executed", ret["count"], "queries in", ret["duration"], "seconds.")
-            print("Queries have been retried", ret["retries"], "times.")
-            print("Database used {:.3f} seconds of CPU time.".format(usage["cpu"]))
-            print(
-                "Database peaked at {:.3f} MiB of memory.".format(
-                    usage["memory"] / 1024.0 / 1024.0
-                )
-            )
-            print(
-                "{:<31} {:>20} {:>20} {:>20}".format("Metadata:", "min", "avg", "max")
-            )
-            metadata = ret["metadata"]
-            for key in sorted(metadata.keys()):
-                print(
-                    "{name:>30}: {minimum:>20.06f} {average:>20.06f} "
-                    "{maximum:>20.06f}".format(name=key, **metadata[key])
-                )
-            log.success("Throughput: {:02f} QPS".format(ret["throughput"]))
-
-            # Save results.
-            results_key = [
-                dataset.NAME,
-                dataset.get_variant(),
-                group,
-                query,
-                WITHOUT_FINE_GRAINED_AUTHORIZATION,
-            ]
-            results.set_value(*results_key, value=ret)
-
-    ## If there is need for authorization testing.
-    if args.with_authorization:
-        print("Running query with authorization")
-        vendor.start_benchmark()
-        client.execute(
-            queries=[
-                ("CREATE USER user IDENTIFIED BY 'test';", {}),
-                ("GRANT ALL PRIVILEGES TO user;", {}),
-                ("GRANT CREATE_DELETE ON EDGE_TYPES * TO user;", {}),
-                ("GRANT CREATE_DELETE ON LABELS * TO user;", {}),
-            ]
-        )
-        client = runners.Client(
-            args.client_binary,
-            args.temporary_directory,
-            args.bolt_port,
-            username="user",
-            password="test",
-        )
-        vendor.stop()
-
-        for group in sorted(queries.keys()):
+        else:
             for query, funcname in queries[group]:
-
                 log.info(
                     "Running query:",
                     "{}/{}/{}/{}".format(
-                        group, query, funcname, WITH_FINE_GRAINED_AUTHORIZATION
+                        group, query, funcname, WITHOUT_FINE_GRAINED_AUTHORIZATION
                     ),
                 )
                 func = getattr(dataset, funcname)
 
                 query_statistics = tail_latency(vendor, client, func)
 
-                # Get number of queries to execute.
-                # TODO: implement minimum number of queries, `max(10, num_workers)`
                 config_key = [
                     dataset.NAME,
                     dataset.get_variant(),
@@ -708,6 +607,20 @@ for dataset, queries in benchmarks:
                 ]
                 count = get_query_cache_count(vendor, client, func, config_key)
 
+                # Benchmark run.
+                print("Sample query:", get_queries(func, 1)[0][0])
+                print(
+                    "Executing benchmark with",
+                    count,
+                    "queries that should " "yield a single-threaded runtime of",
+                    args.single_threaded_runtime_sec,
+                    "seconds.",
+                )
+                print(
+                    "Queries are executed using",
+                    args.num_workers_for_benchmark,
+                    "concurrent clients.",
+                )
                 vendor.start_benchmark()
                 if args.warmup_run:
                     warmup(client)
@@ -722,11 +635,7 @@ for dataset, queries in benchmarks:
                 # Output summary.
                 print()
                 print(
-                    "Executed",
-                    ret["count"],
-                    "queries in",
-                    ret["duration"],
-                    "seconds.",
+                    "Executed", ret["count"], "queries in", ret["duration"], "seconds."
                 )
                 print("Queries have been retried", ret["retries"], "times.")
                 print("Database used {:.3f} seconds of CPU time.".format(usage["cpu"]))
@@ -747,28 +656,125 @@ for dataset, queries in benchmarks:
                         "{maximum:>20.06f}".format(name=key, **metadata[key])
                     )
                 log.success("Throughput: {:02f} QPS".format(ret["throughput"]))
+
                 # Save results.
                 results_key = [
                     dataset.NAME,
                     dataset.get_variant(),
                     group,
                     query,
-                    WITH_FINE_GRAINED_AUTHORIZATION,
+                    WITHOUT_FINE_GRAINED_AUTHORIZATION,
                 ]
                 results.set_value(*results_key, value=ret)
 
-        # Clean up database from any roles and users job
-        vendor.start_benchmark()
-        ret = client.execute(
-            queries=[
-                ("REVOKE LABELS * FROM user;", {}),
-                ("REVOKE EDGE_TYPES * FROM user;", {}),
-                ("DROP USER user;", {}),
-            ]
-        )
-        print("Cleanup status: ")
-        print(ret)
-        vendor.stop()
+        ## If there is need for authorization testing.
+        if args.with_authorization:
+            print("Running query with authorization")
+            vendor.start_benchmark()
+            client.execute(
+                queries=[
+                    ("CREATE USER user IDENTIFIED BY 'test';", {}),
+                    ("GRANT ALL PRIVILEGES TO user;", {}),
+                    ("GRANT CREATE_DELETE ON EDGE_TYPES * TO user;", {}),
+                    ("GRANT CREATE_DELETE ON LABELS * TO user;", {}),
+                ]
+            )
+            client = runners.Client(
+                args.client_binary,
+                args.temporary_directory,
+                args.bolt_port,
+                username="user",
+                password="test",
+            )
+            vendor.stop()
+
+            for group in sorted(queries.keys()):
+                for query, funcname in queries[group]:
+
+                    log.info(
+                        "Running query:",
+                        "{}/{}/{}/{}".format(
+                            group, query, funcname, WITH_FINE_GRAINED_AUTHORIZATION
+                        ),
+                    )
+                    func = getattr(dataset, funcname)
+
+                    query_statistics = tail_latency(vendor, client, func)
+
+                    # Get number of queries to execute.
+                    # TODO: implement minimum number of queries, `max(10, num_workers)`
+                    config_key = [
+                        dataset.NAME,
+                        dataset.get_variant(),
+                        args.vendor_name,
+                        group,
+                        query,
+                    ]
+                    count = get_query_cache_count(vendor, client, func, config_key)
+
+                    vendor.start_benchmark()
+                    if args.warmup_run:
+                        warmup(client)
+                    ret = client.execute(
+                        queries=get_queries(func, count),
+                        num_workers=args.num_workers_for_benchmark,
+                    )[0]
+                    usage = vendor.stop()
+                    ret["database"] = usage
+                    ret["query_statistics"] = query_statistics
+
+                    # Output summary.
+                    print()
+                    print(
+                        "Executed",
+                        ret["count"],
+                        "queries in",
+                        ret["duration"],
+                        "seconds.",
+                    )
+                    print("Queries have been retried", ret["retries"], "times.")
+                    print(
+                        "Database used {:.3f} seconds of CPU time.".format(usage["cpu"])
+                    )
+                    print(
+                        "Database peaked at {:.3f} MiB of memory.".format(
+                            usage["memory"] / 1024.0 / 1024.0
+                        )
+                    )
+                    print(
+                        "{:<31} {:>20} {:>20} {:>20}".format(
+                            "Metadata:", "min", "avg", "max"
+                        )
+                    )
+                    metadata = ret["metadata"]
+                    for key in sorted(metadata.keys()):
+                        print(
+                            "{name:>30}: {minimum:>20.06f} {average:>20.06f} "
+                            "{maximum:>20.06f}".format(name=key, **metadata[key])
+                        )
+                    log.success("Throughput: {:02f} QPS".format(ret["throughput"]))
+                    # Save results.
+                    results_key = [
+                        dataset.NAME,
+                        dataset.get_variant(),
+                        group,
+                        query,
+                        WITH_FINE_GRAINED_AUTHORIZATION,
+                    ]
+                    results.set_value(*results_key, value=ret)
+
+            # Clean up database from any roles and users job
+            vendor.start_benchmark()
+            ret = client.execute(
+                queries=[
+                    ("REVOKE LABELS * FROM user;", {}),
+                    ("REVOKE EDGE_TYPES * FROM user;", {}),
+                    ("DROP USER user;", {}),
+                ]
+            )
+            print("Cleanup status: ")
+            print(ret)
+            vendor.stop()
 
 
 # Save configuration.

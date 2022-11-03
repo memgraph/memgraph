@@ -43,7 +43,7 @@ def run_full_benchmarks(vendor, binary, dataset_size):
         # Mixed workload per query, 30% write cold
         [
             "--export-results",
-            vendor + "_cold_mixed_per_query.json",
+            vendor + "_cold_mixed_query.json",
             "pokec/" + dataset_size + "/mixed/*/*",
             "--mixed-workload",
             "100 30 0 0 0 70",
@@ -51,7 +51,7 @@ def run_full_benchmarks(vendor, binary, dataset_size):
         # Mixed workload per query, 30% write warm
         [
             "--export-results",
-            vendor + "_warm_mixed_per_query.json",
+            vendor + "_warm_mixed_query.json",
             "pokec/" + dataset_size + "/mixed/*/*",
             "--warmup-run",
             "--mixed-workload",
@@ -60,7 +60,7 @@ def run_full_benchmarks(vendor, binary, dataset_size):
         # Mixed workload per full group 30% write, 70% read cold
         [
             "--export-results",
-            vendor + "_cold_mixed_group.json",
+            vendor + "_cold_mixed_group_30_70.json",
             "pokec/" + dataset_size + "/mixed/*/*",
             "--mixed-workload",
             "100 30 70 0 0",
@@ -68,7 +68,7 @@ def run_full_benchmarks(vendor, binary, dataset_size):
         # Mixed workload per full group 30% write, 70% read warm
         [
             "--export-results",
-            vendor + "_warm_mixed_group.json",
+            vendor + "_warm_mixed_group_30_70.json",
             "pokec/" + dataset_size + "/mixed/*/*",
             "--warmup-run",
             "--mixed-workload",
@@ -77,7 +77,7 @@ def run_full_benchmarks(vendor, binary, dataset_size):
         # Mixed workload per full group 50% write, 50% read cold
         [
             "--export-results",
-            vendor + "_warm_mixed_group.json",
+            vendor + "_cold_mixed_group_50_50.json",
             "pokec/" + dataset_size + "/mixed/*/*",
             "--mixed-workload",
             "100 50 50 0 0",
@@ -85,7 +85,7 @@ def run_full_benchmarks(vendor, binary, dataset_size):
         # Mixed workload per full group 50% write, 50% read warm
         [
             "--export-results",
-            vendor + "_warm_mixed_group.json",
+            vendor + "_warm_mixed_group_50_50.json",
             "pokec/" + dataset_size + "/mixed/*/*",
             "--warmup-run",
             "--mixed-workload",
@@ -94,15 +94,15 @@ def run_full_benchmarks(vendor, binary, dataset_size):
         # Mixed workload per full group 70% write, 30% read cold
         [
             "--export-results",
-            vendor + "_warm_mixed_group.json",
+            vendor + "_cold_mixed_group_70_30.json",
             "pokec/" + dataset_size + "/mixed/*/*",
             "--mixed-workload",
             "100 70 30 0 0",
         ],
-        # Mixed workload per full group 70% write, 30% read cold
+        # Mixed workload per full group 70% write, 30% read warm
         [
             "--export-results",
-            vendor + "_warm_mixed_group.json",
+            vendor + "_warm_mixed_group_70_30.json",
             "pokec/" + dataset_size + "/mixed/*/*",
             "--warmup-run",
             "--mixed-workload",
