@@ -86,8 +86,8 @@ class MachineManager {
     coordinator_handle_ = std::jthread([coordinator = std::move(coordinator_worker)]() mutable { coordinator.Run(); });
   }
 
-  MachineManager(MachineManager &&) = default;
-  MachineManager &operator=(MachineManager &&) = default;
+  MachineManager(MachineManager &&) noexcept = default;
+  MachineManager &operator=(MachineManager &&) noexcept = default;
   MachineManager(const MachineManager &) = delete;
   MachineManager &operator=(const MachineManager &) = delete;
 

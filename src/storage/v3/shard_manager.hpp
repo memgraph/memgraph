@@ -95,8 +95,8 @@ class ShardManager {
     }
   }
 
-  ShardManager(ShardManager &&) = default;
-  ShardManager &operator=(ShardManager &&) = default;
+  ShardManager(ShardManager &&) noexcept = default;
+  ShardManager &operator=(ShardManager &&) noexcept = default;
   ShardManager(const ShardManager &) = delete;
   ShardManager &operator=(const ShardManager &) = delete;
 

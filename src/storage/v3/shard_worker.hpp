@@ -127,7 +127,7 @@ class ShardWorker {
 
   bool Process(ShutDown && /* shut_down */) { return false; }
 
-  bool Process(Cron &&cron) {
+  bool Process(Cron && /* cron */) {
     Cron();
     return true;
   }
@@ -201,8 +201,8 @@ class ShardWorker {
 
  public:
   ShardWorker(io::Io<IoImpl> io, Queue queue) : io_(io), queue_(queue) {}
-  ShardWorker(ShardWorker &&) = default;
-  ShardWorker &operator=(ShardWorker &&) = default;
+  ShardWorker(ShardWorker &&) noexcept = default;
+  ShardWorker &operator=(ShardWorker &&) noexcept = default;
   ShardWorker(const ShardWorker &) = delete;
   ShardWorker &operator=(const ShardWorker &) = delete;
   ~ShardWorker() = default;

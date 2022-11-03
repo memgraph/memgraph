@@ -17,9 +17,8 @@
 #include <queue>
 #include <variant>
 
-#include <boost/uuid/uuid.hpp>
-
 #include "coordinator/coordinator.hpp"
+#include "coordinator/coordinator_rsm.hpp"
 #include "coordinator/shard_map.hpp"
 #include "io/address.hpp"
 #include "io/future.hpp"
@@ -36,16 +35,12 @@ namespace memgraph::coordinator::coordinator_worker {
 /// * Cron
 /// * RouteMessage
 
-using boost::uuids::uuid;
-
 using coordinator::Coordinator;
 using coordinator::CoordinatorRsm;
-using coordinator::ShardToInitialize;
 using io::Address;
 using io::RequestId;
 using io::Time;
 using io::messages::CoordinatorMessages;
-using io::rsm::Raft;
 using msgs::ReadRequests;
 using msgs::ReadResponses;
 using msgs::WriteRequests;
@@ -121,7 +116,7 @@ class CoordinatorWorker {
 
   bool Process(ShutDown && /*shut_down*/) { return false; }
 
-  bool Process(Cron &&cron) {
+  bool Process(Cron && /* cron */) {
     coordinator_.Cron();
     return true;
   }
@@ -136,8 +131,8 @@ class CoordinatorWorker {
   CoordinatorWorker(io::Io<IoImpl> io, Queue queue, Coordinator coordinator)
       : io_(io), queue_(std::move(queue)), coordinator_{std::move(io.ForkLocal()), {}, std::move(coordinator)} {}
 
-  CoordinatorWorker(CoordinatorWorker &&) = default;
-  CoordinatorWorker &operator=(CoordinatorWorker &&) = default;
+  CoordinatorWorker(CoordinatorWorker &&) noexcept = default;
+  CoordinatorWorker &operator=(CoordinatorWorker &&) noexcept = default;
   CoordinatorWorker(const CoordinatorWorker &) = delete;
   CoordinatorWorker &operator=(const CoordinatorWorker &) = delete;
   ~CoordinatorWorker() = default;

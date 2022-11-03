@@ -62,7 +62,7 @@ struct LatencyHistogramSummaries {
   std::unordered_map<std::string, LatencyHistogramSummary> latencies;
 
   std::string SummaryTable() {
-    std::string output = "";
+    std::string output;
 
     const auto row = [&output](const auto &c1, const auto &c2, const auto &c3, const auto &c4, const auto &c5,
                                const auto &c6, const auto &c7) {

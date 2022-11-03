@@ -151,7 +151,7 @@ class LocalTransportHandle {
     const auto now = Now();
     const Time deadline = now + timeout;
 
-    RequestId request_id;
+    RequestId request_id = 0;
     {
       std::unique_lock<std::mutex> lock(mu_);
 
