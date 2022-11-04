@@ -150,7 +150,7 @@ class MachineManager {
         CoordinatorMessages &&cm = std::move(conversion_attempt.value());
 
         CoordinatorRouteMessage route_message{
-            .message = std::move<CoordinatorMessages>(cm),
+            .message = std::move(cm),
             .request_id = request_envelope.request_id,
             .to = request_envelope.to_address,
             .from = request_envelope.from_address,
