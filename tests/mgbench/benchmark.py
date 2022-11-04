@@ -120,7 +120,7 @@ parser.add_argument(
     "--temporary-directory", default="/tmp", help="directory path where temporary data should " "be stored"
 )
 parser.add_argument("--no-properties-on-edges", action="store_true", help="disable properties on edges")
-parser.add_argument("--datasets-path", default=".", help="path to datasets to scan")
+parser.add_argument("--datasets-path", default="datasets", help="path to datasets to scan")
 parser.add_argument("--test-system-args", default="")
 args = parser.parse_args()
 
