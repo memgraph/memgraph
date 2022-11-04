@@ -147,7 +147,7 @@ class ShardWorker {
   }
 
   Time Cron() {
-    spdlog::info("running ShardManager::Cron, address {}", io_.GetAddress().ToString());
+    spdlog::info("running ShardWorker::Cron, address {}", io_.GetAddress().ToString());
     Time now = io_.Now();
 
     while (!cron_schedule_.empty()) {

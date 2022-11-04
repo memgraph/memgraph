@@ -105,6 +105,8 @@ class ShardManager {
       worker.Push(shard_worker::ShutDown{});
     }
 
+    workers_.clear();
+
     // The jthread handes for our shard worker threads will be
     // blocked on implicitly when worker_handles_ is destroyed.
   }
