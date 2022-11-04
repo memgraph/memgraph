@@ -498,6 +498,8 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
               spdlog::debug("Creating vertex failed with error: SchemaViolation");
             } else if constexpr (std::is_same_v<ErrorType, Error>) {
               spdlog::debug("Creating vertex failed with error: Error");
+            } else if constexpr (std::is_same_v<ErrorType, AlreadyInsertedElement>) {
+              spdlog::debug("Updating vertex failed with error: AlreadyInsertedElement");
             } else {
               static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
             }
@@ -540,16 +542,18 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateVerticesRequest &&req) {
             [&action_successful]<typename T>(T &&) {
               using ErrorType = std::remove_cvref_t<T>;
               if constexpr (std::is_same_v<ErrorType, SchemaViolation>) {
-                action_successful = false;
                 spdlog::debug("Updating vertex failed with error: SchemaViolation");
               } else if constexpr (std::is_same_v<ErrorType, Error>) {
-                action_successful = false;
                 spdlog::debug("Updating vertex failed with error: Error");
+              } else if constexpr (std::is_same_v<ErrorType, AlreadyInsertedElement>) {
+                spdlog::debug("Updating vertex failed with error: AlreadyInsertedElement");
               } else {
                 static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
               }
             },
             error);
+
+        action_successful = false;
 
         break;
       }

@@ -361,7 +361,11 @@ ResultSchema<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
   delta->prev.Set(&it->vertex);
 
   VertexAccessor vertex_acc{&it->vertex, transaction_, &shard_->indices_, config_, shard_->vertex_validator_};
-  MG_ASSERT(inserted, "The vertex must be inserted here!");
+  // Vertex is allready inserted, return an error.
+  if (!inserted) {
+    return {AlreadyInsertedElement{}};
+  }
+  // MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
 
   // TODO(jbajic) Improve, maybe delay index update
