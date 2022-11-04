@@ -43,7 +43,7 @@ inline uint64_t GetMemoryUsage() {
   pid_t pid = getpid();
   uint64_t memory = 0;
   auto statm_data = utils::ReadLines(fmt::format("/proc/{}/statm", pid));
-  if (statm_data.size() >= 1) {
+  if (!statm_data.empty()) {
     auto split = utils::Split(statm_data[0]);
     if (split.size() >= 2) {
       memory = std::stoull(split[1]) * sysconf(_SC_PAGESIZE);

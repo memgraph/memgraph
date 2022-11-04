@@ -269,8 +269,8 @@ target_link_libraries(${test_prefix}utils_csv_parsing mg-utils fmt)
 add_unit_test(utils_async_timer.cpp)
 target_link_libraries(${test_prefix}utils_async_timer mg-utils)
 
-add_unit_test(utils_license.cpp)
-target_link_libraries(${test_prefix}utils_license mg-utils mg-license)
+add_unit_test(license.cpp)
+target_link_libraries(${test_prefix}license mg-utils mg-license)
 
 add_unit_test(utils_settings.cpp)
 target_link_libraries(${test_prefix}utils_settings mg-utils mg-settings)
