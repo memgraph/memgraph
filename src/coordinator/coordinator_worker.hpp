@@ -141,8 +141,8 @@ class CoordinatorWorker {
     while (true) {
       Message message = queue_.Pop();
 
-      const bool should_continue =
-          std::visit([this](auto &&msg) { return Process(std::forward<decltype(msg)>(msg)); }, std::move(message));
+      const bool should_continue = std::visit(
+          [this](auto &&msg) { return this->Process(std::forward<decltype(msg)>(msg)); }, std::move(message));
 
       if (!should_continue) {
         return;

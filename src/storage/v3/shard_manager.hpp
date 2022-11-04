@@ -183,7 +183,7 @@ class ShardManager {
     MG_ASSERT(address.last_known_ip == to.last_known_ip);
 
     SendToWorkerByUuid(to.unique_id, shard_worker::RouteMessage{
-                                         .message = std::forward<ShardMessages>(sm),
+                                         .message = std::move(sm),
                                          .request_id = request_id,
                                          .to = to,
                                          .from = from,
