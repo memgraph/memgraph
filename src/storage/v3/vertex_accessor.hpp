@@ -17,7 +17,7 @@
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/key_store.hpp"
 #include "storage/v3/result.hpp"
-#include "storage/v3/schema_validator.hpp"
+#include "storage/v3/shard_operation_result.hpp"
 #include "storage/v3/transaction.hpp"
 #include "storage/v3/vertex.hpp"
 #include "storage/v3/vertex_id.hpp"
@@ -55,13 +55,13 @@ class VertexAccessor final {
   /// `false` is returned if the label already existed, or SchemaViolation
   /// if adding the label has violated one of the schema constraints.
   /// @throw std::bad_alloc
-  ResultSchema<bool> AddLabelAndValidate(LabelId label);
+  ShardOperationResult<bool> AddLabelAndValidate(LabelId label);
 
   /// Remove a label and return `true` if deletion took place.
   /// `false` is returned if the vertex did not have a label already. or SchemaViolation
   /// if adding the label has violated one of the schema constraints.
   /// @throw std::bad_alloc
-  ResultSchema<bool> RemoveLabelAndValidate(LabelId label);
+  ShardOperationResult<bool> RemoveLabelAndValidate(LabelId label);
 
   Result<bool> HasLabel(View view, LabelId label) const;
 
@@ -80,7 +80,7 @@ class VertexAccessor final {
 
   /// Set a property value and return the old value or error.
   /// @throw std::bad_alloc
-  ResultSchema<PropertyValue> SetPropertyAndValidate(PropertyId property, const PropertyValue &value);
+  ShardOperationResult<PropertyValue> SetPropertyAndValidate(PropertyId property, const PropertyValue &value);
 
   /// Remove all properties and return the values of the removed properties.
   /// @throw std::bad_alloc

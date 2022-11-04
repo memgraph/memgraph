@@ -28,7 +28,7 @@
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/result.hpp"
-#include "storage/v3/schema_validator.hpp"
+#include "storage/v3/shard_operation_result.hpp"
 #include "storage/v3/view.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
@@ -93,7 +93,7 @@ concept AccessorWithSetPropertyAndValidate = requires(T accessor, const storage:
                                                       const storage::v3::PropertyValue new_value) {
   {
     accessor.SetPropertyAndValidate(key, new_value)
-    } -> std::same_as<storage::v3::ResultSchema<storage::v3::PropertyValue>>;
+    } -> std::same_as<storage::v3::ShardOperationResult<storage::v3::PropertyValue>>;
 };
 
 template <typename TRecordAccessor>

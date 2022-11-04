@@ -79,9 +79,4 @@ struct VertexValidator {
   LabelId primary_label_;
 };
 
-struct AlreadyInsertedElement {};
-
-template <typename TValue>
-using ResultSchema = utils::BasicResult<std::variant<SchemaViolation, AlreadyInsertedElement, Error>, TValue>;
-
 }  // namespace memgraph::storage::v3

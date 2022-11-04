@@ -539,7 +539,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateVerticesRequest &&req) {
         auto &error = result_schema.GetError();
 
         std::visit(
-            [&action_successful]<typename T>(T &&) {
+            []<typename T>(T &&) {
               using ErrorType = std::remove_cvref_t<T>;
               if constexpr (std::is_same_v<ErrorType, SchemaViolation>) {
                 spdlog::debug("Updating vertex failed with error: SchemaViolation");
