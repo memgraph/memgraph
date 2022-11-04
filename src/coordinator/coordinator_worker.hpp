@@ -86,7 +86,7 @@ class Queue {
       MG_ASSERT(inner_.use_count() > 0);
       std::unique_lock<std::mutex> lock(inner_->mu);
 
-      inner_->queue.emplace_back(std::forward<Message>(message));
+      inner_->queue.emplace_back(std::move(message));
     }  // lock dropped before notifying condition variable
 
     inner_->cv.notify_all();
@@ -100,7 +100,7 @@ class Queue {
       inner_->cv.wait(lock);
     }
 
-    Message message = std::move(inner_->queue.front());
+    const Message message = std::move(inner_->queue.front());
     inner_->queue.pop_front();
 
     return message;

@@ -109,7 +109,7 @@ class Queue {
       inner_->cv.wait(lock);
     }
 
-    Message message = std::move(inner_->queue.front());
+    const Message message = std::move(inner_->queue.front());
     inner_->queue.pop_front();
 
     return message;
