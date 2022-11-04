@@ -129,7 +129,9 @@ class CoordinatorWorker {
 
  public:
   CoordinatorWorker(io::Io<IoImpl> io, Queue queue, Coordinator coordinator)
-      : io_(io), queue_(std::move(queue)), coordinator_{std::move(io.ForkLocal()), {}, std::move(coordinator)} {}
+      : io_(std::move(io)),
+        queue_(std::move(queue)),
+        coordinator_{std::move(io_.ForkLocal()), {}, std::move(coordinator)} {}
 
   CoordinatorWorker(CoordinatorWorker &&) noexcept = default;
   CoordinatorWorker &operator=(CoordinatorWorker &&) noexcept = default;
