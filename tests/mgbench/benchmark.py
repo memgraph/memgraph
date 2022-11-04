@@ -27,6 +27,7 @@ import helpers
 import runners
 import importlib
 import time
+import os
 
 
 def get_queries(gen, count):
@@ -119,13 +120,15 @@ parser.add_argument(
     "--temporary-directory", default="/tmp", help="directory path where temporary data should " "be stored"
 )
 parser.add_argument("--no-properties-on-edges", action="store_true", help="disable properties on edges")
-parser.add_argument("--datasets", default="datasets", help="datasets to scan")
 parser.add_argument("--datasets-path", default=".", help="path to datasets to scan")
 parser.add_argument("--test-system-args", default="")
 args = parser.parse_args()
 
-sys.path.append(args.datasets_path)
-dataset_to_use = importlib.import_module(args.datasets)
+head_tail = os.path.split(args.datasets_path)
+path_without_dataset_name = head_tail[0]
+dataset_name = head_tail[1]
+sys.path.append(path_without_dataset_name)
+dataset_to_use = importlib.import_module(dataset_name)
 
 # Detect available datasets.
 generators = {}
