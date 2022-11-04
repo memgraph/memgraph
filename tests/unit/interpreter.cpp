@@ -480,6 +480,35 @@ TEST_F(InterpreterTest, ShortestPath) {
   }
 }
 
+TEST_F(InterpreterTest, AllShortestById) {
+  Interpret(
+      fmt::format("CREATE (n:A {{x: 1}}), (m:B {{x: 2}}), (l:C {{x: 3}}), (k:D {{x: 4}}), (n)-[:r1 {{w: 1 "
+                  "}}]->(m)-[:r2 {{w: 2}}]->(l), (n)-[:r3 {{w: 4}}]->(l), (k)-[:r4 {{w: 3}}]->(l)"));
+
+  auto stream = Interpret("MATCH (n)-[e *allshortest 5 (e, n | e.w) ]->(m) WHERE id(n)=0 AND id(m)=2 return e");
+
+  ASSERT_EQ(stream.GetHeader().size(), 1U);
+  EXPECT_EQ(stream.GetHeader()[0], "e");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+
+  auto dba = db_.Access();
+  std::vector<std::string> expected_result{"r1", "r2"};
+
+  const auto &result = stream.GetResults()[0];
+  const auto &edges = ToEdgeList(result[0]);
+
+  std::vector<std::string> datum;
+  datum.reserve(edges.size());
+
+  for (const auto &edge : edges) {
+    datum.push_back(edge.type);
+  }
+
+  EXPECT_TRUE(expected_result == datum);
+
+  Interpret("MATCH (n) DETACH DELETE n");
+}
+
 TEST_F(InterpreterTest, CreateLabelIndexInMulticommandTransaction) {
   Interpret("BEGIN");
   ASSERT_THROW(Interpret("CREATE INDEX ON :X"), memgraph::query::IndexInMulticommandTxException);
