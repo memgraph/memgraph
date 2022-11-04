@@ -37,7 +37,7 @@ class AuthQueryHandlerFixture : public testing::Test {
 #endif
   virtual void SetUp() {
     memgraph::utils::EnsureDir(test_folder_);
-    memgraph::utils::license::global_license_checker.EnableTesting();
+    memgraph::license::global_license_checker.EnableTesting();
   }
 
   virtual void TearDown() {

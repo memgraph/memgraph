@@ -40,6 +40,8 @@
 #include "glue/auth_checker.hpp"
 #include "glue/auth_handler.hpp"
 #include "helpers.hpp"
+#include "license/license.hpp"
+#include "license/license_sender.hpp"
 #include "py/py.hpp"
 #include "query/auth_checker.hpp"
 #include "query/discard_value_stream.hpp"
@@ -57,7 +59,6 @@
 #include "utils/event_counter.hpp"
 #include "utils/file.hpp"
 #include "utils/flag_validation.hpp"
-#include "utils/license.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
@@ -68,6 +69,7 @@
 #include "utils/string.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/sysinfo/memory.hpp"
+#include "utils/system_info.hpp"
 #include "utils/terminate_handler.hpp"
 #include "version.hpp"
 
@@ -506,7 +508,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
       username = &user_->username();
     }
 #ifdef MG_ENTERPRISE
-    if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+    if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
       audit_log_->Record(endpoint_.address().to_string(), user_ ? *username : "", query,
                          memgraph::storage::PropertyValue(params_pv));
     }
@@ -779,15 +781,15 @@ int main(int argc, char **argv) {
   memgraph::utils::OnScopeExit settings_finalizer([&] { memgraph::utils::global_settings.Finalize(); });
 
   // register all runtime settings
-  memgraph::utils::license::RegisterLicenseSettings(memgraph::utils::license::global_license_checker,
-                                                    memgraph::utils::global_settings);
+  memgraph::license::RegisterLicenseSettings(memgraph::license::global_license_checker,
+                                             memgraph::utils::global_settings);
 
-  memgraph::utils::license::global_license_checker.CheckEnvLicense();
+  memgraph::license::global_license_checker.CheckEnvLicense();
   if (!FLAGS_organization_name.empty() && !FLAGS_license_key.empty()) {
-    memgraph::utils::license::global_license_checker.SetLicenseInfoOverride(FLAGS_license_key, FLAGS_organization_name);
+    memgraph::license::global_license_checker.SetLicenseInfoOverride(FLAGS_license_key, FLAGS_organization_name);
   }
 
-  memgraph::utils::license::global_license_checker.StartBackgroundLicenseChecker(memgraph::utils::global_settings);
+  memgraph::license::global_license_checker.StartBackgroundLicenseChecker(memgraph::utils::global_settings);
 
   // All enterprise features should be constructed before the main database
   // storage. This will cause them to be destructed *after* the main database
@@ -906,12 +908,15 @@ int main(int argc, char **argv) {
   ServerT server(server_endpoint, &session_data, &context, FLAGS_bolt_session_inactivity_timeout, service_name,
                  FLAGS_bolt_num_workers);
 
+  const auto run_id = memgraph::utils::GenerateUUID();
+  const auto machine_id = memgraph::utils::GetMachineId();
+  session_data.run_id = run_id;
+
   // Setup telemetry
+  static constexpr auto telemetry_server{"https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/"};
   std::optional<memgraph::telemetry::Telemetry> telemetry;
   if (FLAGS_telemetry_enabled) {
-    telemetry.emplace("https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/",
-                      data_directory / "telemetry", std::chrono::minutes(10));
-    session_data.run_id = telemetry->GetRunId();
+    telemetry.emplace(telemetry_server, data_directory / "telemetry", run_id, machine_id, std::chrono::minutes(10));
     telemetry->AddCollector("storage", [&db]() -> nlohmann::json {
       auto info = db.GetInfo();
       return {{"vertices", info.vertex_count}, {"edges", info.edge_count}};
@@ -927,6 +932,8 @@ int main(int argc, char **argv) {
       return memgraph::query::plan::CallProcedure::GetAndResetCounters();
     });
   }
+  memgraph::license::LicenseInfoSender license_info_sender(telemetry_server, run_id, machine_id, memory_limit,
+                                                           memgraph::license::global_license_checker.GetLicenseInfo());
 
   memgraph::communication::websocket::SafeAuth websocket_auth{&auth};
   memgraph::communication::websocket::Server websocket_server{
