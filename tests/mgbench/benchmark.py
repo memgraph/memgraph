@@ -126,7 +126,7 @@ args = parser.parse_args()
 
 head_tail = os.path.split(args.datasets_path)
 path_without_dataset_name = head_tail[0]
-dataset_name = head_tail[1]
+dataset_name = head_tail[1].split(".")[0]
 sys.path.append(path_without_dataset_name)
 dataset_to_use = importlib.import_module(dataset_name)
 
