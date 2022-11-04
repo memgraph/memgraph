@@ -108,7 +108,7 @@ class Queue {
 };
 
 /// A CoordinatorWorker owns Raft<CoordinatorRsm> instances. receives messages from the MachineManager.
-template <class IoImpl>
+template <typename IoImpl>
 class CoordinatorWorker {
   io::Io<IoImpl> io_;
   Queue queue_;
