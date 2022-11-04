@@ -94,7 +94,7 @@ class MachineManager {
   ~MachineManager() {
     if (coordinator_handle_.joinable()) {
       coordinator_queue_.Push(coordinator::coordinator_worker::ShutDown{});
-      std::move(coordinator_handle_).join();
+      coordinator_handle_.join();
     }
   }
 
