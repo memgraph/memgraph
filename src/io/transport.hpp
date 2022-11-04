@@ -68,7 +68,6 @@ template <typename I>
 class Io {
   I implementation_;
   Address address_;
-  RequestId request_id_counter_ = 0;
   Duration default_timeout_ = std::chrono::microseconds{100000};
 
  public:
@@ -84,20 +83,17 @@ class Io {
   /// Issue a request with an explicit timeout in microseconds provided. This tends to be used by clients.
   template <Message RequestT, Message ResponseT>
   ResponseFuture<ResponseT> RequestWithTimeout(Address address, RequestT request, Duration timeout) {
-    const RequestId request_id = ++request_id_counter_;
     const Address from_address = address_;
-    return implementation_.template Request<RequestT, ResponseT>(address, from_address, request_id, request, timeout);
+    return implementation_.template Request<RequestT, ResponseT>(address, from_address, request, timeout);
   }
 
   /// Issue a request that times out after the default timeout. This tends
   /// to be used by clients.
   template <Message RequestT, Message ResponseT>
   ResponseFuture<ResponseT> Request(Address to_address, RequestT request) {
-    const RequestId request_id = ++request_id_counter_;
     const Duration timeout = default_timeout_;
     const Address from_address = address_;
-    return implementation_.template Request<RequestT, ResponseT>(to_address, from_address, request_id,
-                                                                 std::move(request), timeout);
+    return implementation_.template Request<RequestT, ResponseT>(to_address, from_address, std::move(request), timeout);
   }
 
   /// Wait for an explicit number of microseconds for a request of one of the
@@ -143,8 +139,6 @@ class Io {
 
   Io<I> ForkLocal() { return Io(implementation_, address_.ForkUniqueAddress()); }
 
-  std::unordered_map<std::string, LatencyHistogramSummary> ResponseLatencies() {
-    return implementation_.ResponseLatencies();
-  }
+  LatencyHistogramSummaries ResponseLatencies() { return implementation_.ResponseLatencies(); }
 };
 };  // namespace memgraph::io

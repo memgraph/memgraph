@@ -31,7 +31,7 @@ bool SimulatorHandle::ShouldShutDown() const {
   return should_shut_down_;
 }
 
-std::unordered_map<std::string, LatencyHistogramSummary> SimulatorHandle::ResponseLatencies() {
+LatencyHistogramSummaries SimulatorHandle::ResponseLatencies() {
   std::unique_lock<std::mutex> lock(mu_);
   return histograms_.ResponseLatencies();
 }
@@ -108,9 +108,7 @@ bool SimulatorHandle::MaybeTickSimulator() {
     stats_.dropped_messages++;
   }
 
-  PromiseKey promise_key{.requester_address = to_address,
-                         .request_id = opaque_message.request_id,
-                         .replier_address = opaque_message.from_address};
+  PromiseKey promise_key{.requester_address = to_address, .request_id = opaque_message.request_id};
 
   if (promises_.contains(promise_key)) {
     // complete waiting promise if it's there
