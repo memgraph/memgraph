@@ -9,11 +9,11 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import typing
-import mgclient
-import sys
-import pytest
 import time
+from typing import List, Optional
+
+import mgclient
+import pytest
 
 
 @pytest.fixture(autouse=True)
@@ -28,12 +28,12 @@ def connect(**kwargs) -> mgclient.Connection:
     return connection
 
 
-def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}) -> typing.List[tuple]:
-    cursor.execute(query, params)
+def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: Optional[dict] = None) -> List[tuple]:
+    cursor.execute(query, params if params else {})
     return cursor.fetchall()
 
 
-def has_n_result_row(cursor: mgclient.Cursor, query: str, n: int):
+def has_n_result_row(cursor: mgclient.Cursor, query: str, n: int) -> bool:
     results = execute_and_fetch_all(cursor, query)
     return len(results) == n
 
