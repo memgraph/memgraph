@@ -82,7 +82,7 @@ class Memgraph:
         if self._extra_args != "":
             args_list = self._extra_args.split(" ")
             assert len(args_list) % 2 == 0
-            for i in range(0, len(args_list) // 2):
+            for i in range(0, len(args_list), 2):
                 kwargs[args_list[i]] = args_list[i + 1]
 
         return _convert_args_to_flags(self._memgraph_binary, **kwargs)
