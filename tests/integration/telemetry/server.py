@@ -12,13 +12,12 @@
 # licenses/APL.txt.
 
 import argparse
+import itertools
 import json
 import os
 import signal
 import sys
 import time
-import itertools
-
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 
@@ -46,7 +45,7 @@ def build_handler(storage, args):
             assert self.headers["accept"] == "application/json"
             assert self.headers["content-type"] == "application/json"
 
-            content_len = int(self.headers.get('content-length', 0))
+            content_len = int(self.headers.get("content-length", 0))
             data = json.loads(self.rfile.read(content_len).decode("utf-8"))
 
             if self.path not in [args.path, args.redirect_path]:
@@ -70,6 +69,7 @@ def build_handler(storage, args):
                 assert type(item) == dict
                 assert "event" in item
                 assert "run_id" in item
+                assert "type" in item
                 assert "machine_id" in item
                 assert "data" in item
                 assert "timestamp" in item
@@ -188,11 +188,11 @@ if __name__ == "__main__":
         startups[-1].append(item)
 
     # Check that there were the correct number of startups.
-    assert len(startups) == args.startups
+    assert len(startups) == args.startups, f"Expected: {args.startups}, actual: {len(startups)}"
 
     # Verify each startup.
     for startup in startups:
         verify_storage(startup, args)
 
     # machine id has to be same for every run on the same machine
-    assert len(set(map(lambda x: x['machine_id'], itertools.chain(*startups)))) == 1
+    assert len(set(map(lambda x: x["machine_id"], itertools.chain(*startups)))) == 1
