@@ -194,6 +194,22 @@ void ExecuteOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_mana
   }
 }
 
+/// This struct exists as a way of detaching
+/// a thread if something causes an uncaught
+/// exception - because that thread would not
+/// receive a ShutDown message otherwise, and
+/// would cause the test to hang forever.
+struct DetachIfDropped {
+  std::jthread &handle;
+  bool detach = true;
+
+  ~DetachIfDropped() {
+    if (detach && handle.joinable()) {
+      handle.detach();
+    }
+  }
+};
+
 void RunClusterSimulation(const SimulatorConfig &sim_config, const ClusterConfig &cluster_config,
                           const std::vector<Op> &ops) {
   spdlog::info("========================== NEW SIMULATION ==========================");
@@ -217,9 +233,7 @@ void RunClusterSimulation(const SimulatorConfig &sim_config, const ClusterConfig
 
   auto mm_thread_1 = std::jthread(RunMachine, std::move(mm_1));
 
-  // Need to detach this thread so that the destructor does not
-  // block before we can propagate assertion failures.
-  mm_thread_1.detach();
+  auto detach_on_error = DetachIfDropped{.handle = mm_thread_1};
 
   // TODO(tyler) clarify addresses of coordinator etc... as it's a mess
 
@@ -235,6 +249,11 @@ void RunClusterSimulation(const SimulatorConfig &sim_config, const ClusterConfig
   for (const Op &op : ops) {
     std::visit([&](auto &o) { ExecuteOp(shard_request_manager, correctness_model, o); }, op.inner);
   }
+
+  // We have now completed our workload without failing any assertions, so we can
+  // disable detaching the worker thread, which will cause the mm_thread_1 jthread
+  // to be joined when this function returns.
+  detach_on_error.detach = false;
 
   simulator.ShutDown();
 

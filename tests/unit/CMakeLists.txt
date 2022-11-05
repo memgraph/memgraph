@@ -400,6 +400,6 @@ target_link_libraries(${test_prefix}pretty_print_ast_to_original_expression_test
 add_unit_test(coordinator_shard_map.cpp)
 target_link_libraries(${test_prefix}coordinator_shard_map mg-coordinator)
 
-# Tests for 1000 shards, 1000 creates, scan
-add_unit_test(1k_shards_1k_create_scanall.cpp)
-target_link_libraries(${test_prefix}1k_shards_1k_create_scanall mg-io mg-coordinator mg-storage-v3 mg-query-v2)
+# Tests for many shards, many creates, scan
+add_unit_test(high_density_shard_create_scan.cpp)
+target_link_libraries(${test_prefix}high_density_shard_create_scan mg-io mg-coordinator mg-storage-v3 mg-query-v2)

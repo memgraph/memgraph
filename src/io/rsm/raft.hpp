@@ -22,6 +22,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include <boost/core/demangle.hpp>
+
 #include "io/message_conversion.hpp"
 #include "io/simulator/simulator.hpp"
 #include "io/transport.hpp"
@@ -107,6 +109,16 @@ utils::TypeInfoRef TypeInfoFor(const WriteResponse<std::variant<WriteReturn...>>
 template <class WriteReturn>
 utils::TypeInfoRef TypeInfoFor(const WriteResponse<WriteReturn> & /* write_response */) {
   return typeid(WriteReturn);
+}
+
+template <class WriteOperation>
+utils::TypeInfoRef TypeInfoFor(const WriteRequest<WriteOperation> & /* write_request */) {
+  return typeid(WriteOperation);
+}
+
+template <class... WriteOperations>
+utils::TypeInfoRef TypeInfoFor(const WriteRequest<std::variant<WriteOperations...>> &write_request) {
+  return TypeInfoForVariant(write_request.operation);
 }
 
 /// AppendRequest is a raft-level message that the Leader
@@ -569,7 +581,7 @@ class Raft {
     const Time now = io_.Now();
     const Duration broadcast_timeout = RandomTimeout(kMinimumBroadcastTimeout, kMaximumBroadcastTimeout);
 
-    if (now - leader.last_broadcast > broadcast_timeout) {
+    if (now > leader.last_broadcast + broadcast_timeout) {
       BroadcastAppendEntries(leader.followers);
       leader.last_broadcast = now;
     }
@@ -918,7 +930,9 @@ class Raft {
   // only leaders actually handle replication requests from clients
   std::optional<Role> Handle(Leader &leader, WriteRequest<WriteOperation> &&req, RequestId request_id,
                              Address from_address) {
-    Log("handling WriteRequest");
+    auto type_info = TypeInfoFor(req);
+    std::string demangled_name = boost::core::demangle(type_info.get().name());
+    Log("handling WriteRequest<" + demangled_name + ">");
 
     // we are the leader. add item to log and send Append to peers
     MG_ASSERT(state_.term >= LastLogTerm());
