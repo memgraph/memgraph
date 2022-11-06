@@ -41,55 +41,55 @@ class TestLogicalOperatorVisitor final : public HierarchicalLogicalOperatorVisit
     return true;
   }
 
-  bool PreVisit(Filter &op) override { return true; }
-  bool PostVisit(Filter &op) override { return true; }
+  bool PreVisit(Filter &) override { return true; }
+  bool PostVisit(Filter &) override { return true; }
 
   bool PreVisit(ScanAll &op) override {
     std::cout << "PreVisit ScanAll, output " << op.output_symbol_.name_ << std::endl;
     return true;
   }
-  bool PostVisit(ScanAll &scan) override { return true; }
+  bool PostVisit(ScanAll &) override { return true; }
 
-  bool PreVisit(Expand &op) override { return true; }
-  bool PostVisit(Expand &expand) override { return true; }
+  bool PreVisit(Expand &) override { return true; }
+  bool PostVisit(Expand &) override { return true; }
 
-  bool PreVisit(ExpandVariable &op) override { return true; }
-  bool PostVisit(ExpandVariable &expand) override { return true; }
+  bool PreVisit(ExpandVariable &) override { return true; }
+  bool PostVisit(ExpandVariable &) override { return true; }
 
-  bool PreVisit(Merge &op) override { return false; }
+  bool PreVisit(Merge &) override { return false; }
   bool PostVisit(Merge &) override { return true; }
 
-  bool PreVisit(Optional &op) override { return false; }
+  bool PreVisit(Optional &) override { return true; }
   bool PostVisit(Optional &) override { return true; }
 
-  bool PreVisit(Cartesian &op) override { return true; }
+  bool PreVisit(Cartesian &) override { return true; }
   bool PostVisit(Cartesian &) override { return true; }
 
-  bool PreVisit(Union &op) override { return false; }
+  bool PreVisit(Union &) override { return true; }
   bool PostVisit(Union &) override { return true; }
 
-  bool PreVisit(CreateNode &op) override { return true; }
+  bool PreVisit(CreateNode &) override { return true; }
   bool PostVisit(CreateNode &) override { return true; }
 
-  bool PreVisit(CreateExpand &op) override { return true; }
+  bool PreVisit(CreateExpand &) override { return true; }
   bool PostVisit(CreateExpand &) override { return true; }
 
-  bool PreVisit(ScanAllByLabel &op) override { return true; }
+  bool PreVisit(ScanAllByLabel &) override { return true; }
   bool PostVisit(ScanAllByLabel &) override { return true; }
 
-  bool PreVisit(ScanAllByLabelPropertyRange &op) override { return true; }
+  bool PreVisit(ScanAllByLabelPropertyRange &) override { return true; }
   bool PostVisit(ScanAllByLabelPropertyRange &) override { return true; }
 
-  bool PreVisit(ScanAllByLabelPropertyValue &op) override { return true; }
+  bool PreVisit(ScanAllByLabelPropertyValue &) override { return true; }
   bool PostVisit(ScanAllByLabelPropertyValue &) override { return true; }
 
-  bool PreVisit(ScanAllByLabelProperty &op) override { return true; }
+  bool PreVisit(ScanAllByLabelProperty &) override { return true; }
   bool PostVisit(ScanAllByLabelProperty &) override { return true; }
 
-  bool PreVisit(ScanAllById &op) override { return true; }
+  bool PreVisit(ScanAllById &) override { return true; }
   bool PostVisit(ScanAllById &) override { return true; }
 
-  bool PreVisit(ConstructNamedPath &op) override { return true; }
+  bool PreVisit(ConstructNamedPath &) override { return true; }
   bool PostVisit(ConstructNamedPath &) override { return true; }
 
   bool PreVisit(Produce &op) override {
@@ -102,49 +102,49 @@ class TestLogicalOperatorVisitor final : public HierarchicalLogicalOperatorVisit
   }
   bool PostVisit(Produce &) override { return true; }
 
-  bool PreVisit(Delete &op) override { return true; }
+  bool PreVisit(Delete &) override { return true; }
   bool PostVisit(Delete &) override { return true; }
 
-  bool PreVisit(SetProperty &op) override { return true; }
+  bool PreVisit(SetProperty &) override { return true; }
   bool PostVisit(SetProperty &) override { return true; }
 
-  bool PreVisit(SetProperties &op) override { return true; }
+  bool PreVisit(SetProperties &) override { return true; }
   bool PostVisit(SetProperties &) override { return true; }
 
-  bool PreVisit(SetLabels &op) override { return true; }
+  bool PreVisit(SetLabels &) override { return true; }
   bool PostVisit(SetLabels &) override { return true; }
 
-  bool PreVisit(RemoveProperty &op) override { return true; }
+  bool PreVisit(RemoveProperty &) override { return true; }
   bool PostVisit(RemoveProperty &) override { return true; }
 
-  bool PreVisit(RemoveLabels &op) override { return true; }
+  bool PreVisit(RemoveLabels &) override { return true; }
   bool PostVisit(RemoveLabels &) override { return true; }
 
-  bool PreVisit(EdgeUniquenessFilter &op) override { return true; }
+  bool PreVisit(EdgeUniquenessFilter &) override { return true; }
   bool PostVisit(EdgeUniquenessFilter &) override { return true; }
 
-  bool PreVisit(Accumulate &op) override { return true; }
+  bool PreVisit(Accumulate &) override { return true; }
   bool PostVisit(Accumulate &) override { return true; }
 
-  bool PreVisit(Aggregate &op) override { return true; }
+  bool PreVisit(Aggregate &) override { return true; }
   bool PostVisit(Aggregate &) override { return true; }
 
-  bool PreVisit(Skip &op) override { return true; }
+  bool PreVisit(Skip &) override { return true; }
   bool PostVisit(Skip &) override { return true; }
 
-  bool PreVisit(Limit &op) override { return true; }
+  bool PreVisit(Limit &) override { return true; }
   bool PostVisit(Limit &) override { return true; }
 
-  bool PreVisit(OrderBy &op) override { return true; }
+  bool PreVisit(OrderBy &) override { return true; }
   bool PostVisit(OrderBy &) override { return true; }
 
-  bool PreVisit(Unwind &op) override { return true; }
+  bool PreVisit(Unwind &) override { return true; }
   bool PostVisit(Unwind &) override { return true; }
 
-  bool PreVisit(Distinct &op) override { return true; }
+  bool PreVisit(Distinct &) override { return true; }
   bool PostVisit(Distinct &) override { return true; }
 
-  bool PreVisit(CallProcedure &op) override { return true; }
+  bool PreVisit(CallProcedure &) override { return true; }
   bool PostVisit(CallProcedure &) override { return true; }
 };
 }  // namespace memgraph::query::plan

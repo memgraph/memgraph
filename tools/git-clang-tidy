@@ -1,13 +1,18 @@
-#!/bin/bash
+#!/bin/bash -e
 
-## Run this script through arc lint
+script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-if echo "$1" | egrep -q '\.(cpp|hpp)$'; then
-    clang-tidy -quiet -p $( realpath build ) "$1"
-elif echo "$1" | egrep -q '\.lcp$'; then
-    clang-tidy -quiet -p $( realpath build ) "$1.cpp" "$(dirname $1)/$(basename $1 .lcp).hpp"
+if [ -f "$1" ]; then
+    if echo "$1" | egrep -q '\.(cpp|hpp)$'; then
+        clang-tidy -quiet -p $( realpath build ) "$1"
+    elif echo "$1" | egrep -q '\.lcp$'; then
+        clang-tidy -quiet -p $( realpath build ) "$1.cpp" "$(dirname $1)/$(basename $1 .lcp).hpp"
+    fi
 fi
 
-code=$?
-[ $code -eq 1 ] && exit 0
-exit $code
+BRANCH="$1"
+THREADS=8
+
+cd ${script_dir}/..
+git diff -U0 $BRANCH... -- src | ${script_dir}/github/clang-tidy/clang-tidy-diff.py -p 1 -j $THREADS -extra-arg="-DMG_CLANG_TIDY_CHECK" -path build | tee ${script_dir}/../build/clang_tidy_output.txt
+! cat ${script_dir}/../build/clang_tidy_output.txt | ${script_dir}/github/clang-tidy/grep_error_lines.sh > /dev/null

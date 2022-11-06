@@ -37,20 +37,17 @@ class InteractiveDbAccessor {
 
   int64_t VerticesCount(memgraph::storage::LabelId label_id) {
     auto label = dba_->LabelToName(label_id);
-    if (label_vertex_count_.find(label) == label_vertex_count_.end()) {
-      label_vertex_count_[label] = ReadVertexCount("label '" + label + "'");
-    }
-    return label_vertex_count_.at(label);
+    const auto &pair = label_vertex_count_.try_emplace(label, ReadVertexCount("label '" + label + "'"));
+    return pair.first->second;
   }
 
   int64_t VerticesCount(memgraph::storage::LabelId label_id, memgraph::storage::PropertyId property_id) {
     auto label = dba_->LabelToName(label_id);
     auto property = dba_->PropertyToName(property_id);
     auto key = std::make_pair(label, property);
-    if (label_property_vertex_count_.find(key) == label_property_vertex_count_.end()) {
-      label_property_vertex_count_[key] = ReadVertexCount("label '" + label + "' and property '" + property + "'");
-    }
-    return label_property_vertex_count_.at(key);
+    const auto &pair = label_property_vertex_count_.try_emplace(
+        key, ReadVertexCount("label '" + label + "' and property '" + property + "'"));
+    return pair.first->second;
   }
 
   int64_t VerticesCount(memgraph::storage::LabelId label_id, memgraph::storage::PropertyId property_id,
