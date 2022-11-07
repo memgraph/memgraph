@@ -25,6 +25,7 @@ enum class Error : uint8_t {
   DELETED_OBJECT,
   VERTEX_HAS_EDGES,
   PROPERTIES_DISABLED,
+  VERTEX_ALREADY_INSERTED
 };
 
 template <class TValue>

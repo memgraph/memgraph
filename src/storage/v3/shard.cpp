@@ -363,7 +363,7 @@ ShardOperationResult<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
 
   VertexAccessor vertex_acc{&it->vertex, transaction_, &shard_->indices_, config_, shard_->vertex_validator_};
   if (!inserted) {
-    return {AlreadyInsertedElement{}};
+    return {Error::VERTEX_ALREADY_INSERTED};
   }
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
 

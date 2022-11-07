@@ -110,6 +110,8 @@ inline void HandleErrorOnPropertyUpdate(const storage::v3::Error error) {
       throw QueryRuntimeException("Can't set property because properties on edges are disabled.");
     case storage::v3::Error::VERTEX_HAS_EDGES:
     case storage::v3::Error::NONEXISTENT_OBJECT:
+    case storage::v3::Error::VERTEX_ALREADY_INSERTED:
+
       throw QueryRuntimeException("Unexpected error when setting a property.");
   }
 }

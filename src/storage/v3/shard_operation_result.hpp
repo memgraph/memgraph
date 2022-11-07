@@ -18,9 +18,7 @@
 
 namespace memgraph::storage::v3 {
 
-struct AlreadyInsertedElement {};
-
-using ResultErrorType = std::variant<SchemaViolation, AlreadyInsertedElement, Error>;
+using ResultErrorType = std::variant<SchemaViolation, Error>;
 
 template <typename TValue>
 using ShardOperationResult = utils::BasicResult<ResultErrorType, TValue>;
