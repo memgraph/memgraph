@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright 2021 Memgraph Ltd.
+# Copyright 2022 Memgraph Ltd.
 #
 # Use of this software is governed by the Business Source License
 # included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,48 +13,6 @@
 
 import argparse
 import json
-
-
-FIELDS = [
-    {
-        "name": "throughput",
-        "positive_diff_better": True,
-        "scaling": 1,
-        "unit": "QPS",
-        "diff_treshold": 0.05,  # 5%
-    },
-    {
-        "name": "duration",
-        "positive_diff_better": False,
-        "scaling": 1,
-        "unit": "s",
-    },
-    {
-        "name": "parsing_time",
-        "positive_diff_better": False,
-        "scaling": 1000,
-        "unit": "ms",
-    },
-    {
-        "name": "planning_time",
-        "positive_diff_better": False,
-        "scaling": 1000,
-        "unit": "ms",
-    },
-    {
-        "name": "plan_execution_time",
-        "positive_diff_better": False,
-        "scaling": 1000,
-        "unit": "ms",
-    },
-    {
-        "name": "memory",
-        "positive_diff_better": False,
-        "scaling": 1 / 1024 / 1024,
-        "unit": "MiB",
-        "diff_treshold": 0.02,  # 2%
-    },
-]
 
 
 def load_results(fname):
@@ -77,7 +35,7 @@ def recursive_get(data, *args, value=None):
     return data
 
 
-def compare_results(results_from, results_to, fields, ignored):
+def compare_results(results_from, results_to, fields, ignored, different_vendors):
     ret = {}
     for dataset, variants in results_to.items():
         for variant, groups in variants.items():
@@ -93,7 +51,7 @@ def compare_results(results_from, results_to, fields, ignored):
                     summary_to = summary_to['without_fine_grained_authorization']
                     if (
                         len(summary_from) > 0
-                        and summary_to["count"] != summary_from["count"]
+                        and (summary_to["count"] != summary_from["count"] and not different_vendors)
                         or summary_to["num_workers"] != summary_from["num_workers"]
                     ):
                         raise Exception("Incompatible results!")
@@ -183,7 +141,52 @@ if __name__ == "__main__":
     parser.add_argument("--output", default="", help="output file name")
     # file is read line by line, each representing one test name
     parser.add_argument("--exclude_tests_file", help="file listing test names to be excluded")
+
+    parser.add_argument("--different-vendors", action='store_true', default=False, help="Comparing different vendors, there is no need for metadata, duration, count check.")
+    parser.add_argument("--difference-threshold", type=float,  help="Difference threshold for memory and throughput, 0.02 = 2% ")
+
     args = parser.parse_args()
+
+    fields = [
+    {
+        "name": "throughput",
+        "positive_diff_better": True,
+        "scaling": 1,
+        "unit": "QPS",
+        "diff_treshold": 0.05,  # 5%
+    },
+    {
+        "name": "duration",
+        "positive_diff_better": False,
+        "scaling": 1,
+        "unit": "s",
+    },
+    {
+        "name": "parsing_time",
+        "positive_diff_better": False,
+        "scaling": 1000,
+        "unit": "ms",
+    },
+    {
+        "name": "planning_time",
+        "positive_diff_better": False,
+        "scaling": 1000,
+        "unit": "ms",
+    },
+    {
+        "name": "plan_execution_time",
+        "positive_diff_better": False,
+        "scaling": 1000,
+        "unit": "ms",
+    },
+    {
+        "name": "memory",
+        "positive_diff_better": False,
+        "scaling": 1 / 1024 / 1024,
+        "unit": "MiB",
+        "diff_treshold": 0.02,  # 2%
+    },
+]
 
     if args.compare is None or len(args.compare) == 0:
         raise Exception("You must specify at least one pair of files!")
@@ -194,13 +197,30 @@ if __name__ == "__main__":
     else:
         ignored = []
 
+    cleaned = []
+    if args.different_vendors: 
+        ignore_on_different_vendors = {"duration", "parsing_time", "planning_time", "plan_execution_time"}
+        for field in fields: 
+            key = field["name"]
+            if key in ignore_on_different_vendors:
+                continue
+            else: 
+                cleaned.append(field)
+    fields = cleaned
+
+    if args.difference_threshold > 0.01: 
+        for field in fields:
+            if "diff_treshold" in field.keys():
+                field["diff_treshold"] = args.difference_threshold   
+
+
     data = {}
     for file_from, file_to in args.compare:
         results_from = load_results(file_from)
         results_to = load_results(file_to)
-        data.update(compare_results(results_from, results_to, FIELDS, ignored))
+        data.update(compare_results(results_from, results_to, fields, ignored, args.different_vendors))
 
-    remarkup = generate_remarkup(FIELDS, data)
+    remarkup = generate_remarkup(fields, data)
     if args.output:
         with open(args.output, "w") as f:
             f.write(remarkup)
