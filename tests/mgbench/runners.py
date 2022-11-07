@@ -134,9 +134,9 @@ class Neo4j:
         self._proc_neo4j = None
         self._bolt_port = bolt_port
         atexit.register(self._cleanup)
-        config = "dbms.security.auth_enabled=false\n"
+        config = "dbms.security.auth_enabled=false \n"
         print("Check config securuty flag:")
-        with self._neo4j_config.open("a+") as file:
+        with self._neo4j_config.open("r+") as file:
             lines = file.readlines()
             line_exist = False
             for line in lines:

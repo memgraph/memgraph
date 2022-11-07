@@ -545,9 +545,9 @@ for dataset, queries in benchmarks:
     if len(args.mixed_workload) == 0:
         workload_type = "Isolated"
     elif len(args.mixed_workload) == 5:
-        workload_type = "Mixed"
-    else:
         workload_type = "Realistic"
+    else:
+        workload_type = "Mixed"
 
     run_config = {
         "vendor": args.vendor_name,
@@ -584,11 +584,15 @@ for dataset, queries in benchmarks:
 
     # TODO:Neo4j doesn't like duplicated triggers, add this do dataset files.
     vendor.start_preparation()
-    client.execute(
-        queries=[
-            ("DROP INDEX ON:User(id)", {}),
-        ]
-    )
+    try:
+        client.execute(
+            queries=[
+                ("DROP INDEX ON:User(id)", {}),
+            ]
+        )
+    except Exception as e:
+        print("There was an issue with dropping index, probably it is not in DB at moment")
+
     vendor.stop()
 
     vendor.start_preparation()

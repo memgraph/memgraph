@@ -170,9 +170,16 @@ def collect_all_results(vendor_name, dataset_size, dataset_group):
             continue
         f = file.open()
         data = json.loads(f.read())
-        summary["pokec"][dataset_size][dataset_group].update(
-            data["pokec"][dataset_size][dataset_group]
-        )
+        if data["__run_configuration__"]["condition"] == "warm":
+            for key, value in data["pokec"][dataset_size][dataset_group].items():
+                key_condition = key + "_warm"
+                summary["pokec"][dataset_size][dataset_group][key_condition] = value
+        elif data["__run_configuration__"]["condition"] == "cold": 
+            for key, value in data["pokec"][dataset_size][dataset_group].items():
+                key_condition = key + "_cold"
+                summary["pokec"][dataset_size][dataset_group][key_condition] = value
+      
+
 
     print(summary)
 
@@ -191,7 +198,7 @@ if __name__ == "__main__":
     vendor_names = {"memgraph", "neo4j"}
     for vendor_name, vendor_binary in args.vendor:
         path = Path(vendor_binary)
-        if vendor_name.lower() in vendor_names and path.is_file():
+        if vendor_name.lower() in vendor_names and (path.is_file() or path.is_dir()):
             run_full_benchmarks(
                 vendor_name,
                 vendor_binary,
