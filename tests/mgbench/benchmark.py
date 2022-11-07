@@ -129,18 +129,19 @@ parser.add_argument(
     nargs="*",
     type=int,
     default=[],
-    help="Run combination that defines mixed workload;"
-    "Mixed workload can be run as single configuration for all group queries,"
-    "Pass the positional arguments as values of what percentage of"
-    "write/read/update/analytical queries you want to have in your workload;"
-    "Running --mixed-workload 1000 20 70 10 0"
-    "The command above will execute 1000 queries, 20% write, "
-    "70% read, 10% update and 0% analytical"
-    "Mixed workload can be run on each query from the group under some defined load."
-    "By passing one more positional argument, you are defining what percentage of that query"
-    "will be in mixed workload, and this goes for all queries"
-    "Running --mixed-workload 1000 30 0 0 0 70, will execute each query 700 times or 70%,"
-    "with the presence of 300 write queries from write type or 30%",
+    help="""Define combination that defines the mixed workload.
+    Mixed workload can be run as a single configuration for all groups of queries,
+    Pass the positional arguments as values of what percentage of
+    write/read/update/analytical queries you want to have in your workload.
+    Running --mixed-workload 1000 20 70 10 0 will execute 1000 queries, 20% write, 
+    70% read, 10% update and 0% analytical. 
+
+    Mixed workload can also be run on each query under some defined load.
+    By passing one more positional argument, you are defining what percentage of that query
+    will be in mixed workload, and this is executed for each query. The rest of the queries will be 
+    selected from the apropriate groups 
+    Running --mixed-workload 1000 30 0 0 0 70, will execute each query 700 times or 70%,
+    with the presence of 300 write queries from write type or 30%""",
 )
 
 args = parser.parse_args()
@@ -201,7 +202,7 @@ def filter_benchmarks(generators, patterns):
 
 
 def warmup(client):
-    print("Running warm-up process.")
+    print("Executing warm-up queries")
     client.execute(
         queries=[
             ("CREATE ();", {}),
@@ -231,6 +232,7 @@ def tail_latency(vendor, client, func):
         "p99": latency[98],
         "p95": latency[94],
         "p90": latency[89],
+        "p75": latency[74],
         "p50": latency[49],
     }
     print("Query statistics for tail latency: ")
@@ -293,18 +295,35 @@ def mixed_workload(vendor, client, dataset, group, queries):
 
     random.seed(config_distribution)
 
+    # Executing mixed workload for each test
     if num_args == 6:
         for query, funcname in queries[group]:
             full_workload = []
 
             log.info(
-                "Running query:",
-                "{}/{}/{}/{}".format(
-                    group, query, funcname, WITHOUT_FINE_GRAINED_AUTHORIZATION
+                "Running query in mixed workload:",
+                "{}/{}/{}".format(
+                    group,
+                    query,
+                    funcname,
                 ),
             )
-            print("Mixed workload")
             base_query = getattr(dataset, funcname)
+
+            base_query_group = funcname.rsplit("_", 1)[1]
+
+            if percentage_distribution[0] > 0 and base_query_group == "write":
+                print("Skiping the query in same group as load: " + funcname)
+                continue
+            elif percentage_distribution[1] > 0 and base_query_group == "read":
+                print("Skiping the query in same group as load: " + funcname)
+                continue
+            elif percentage_distribution[2] > 0 and base_query_group == "update":
+                print("Skiping the query in same group as load: " + funcname)
+                continue
+            elif percentage_distribution[3] > 0 and base_query_group == "analytical":
+                print("Skiping the query in same group as load: " + funcname)
+                continue
 
             options = ["w", "r", "u", "a", "q"]
             function_type = random.choices(
@@ -346,13 +365,14 @@ def mixed_workload(vendor, client, dataset, group, queries):
             results_key = [
                 dataset.NAME,
                 dataset.get_variant(),
-                config_distribution,
-                query,
+                group,
+                query + "_" + config_distribution,
                 WITHOUT_FINE_GRAINED_AUTHORIZATION,
             ]
             results.set_value(*results_key, value=ret)
 
     else:
+        # Executing mixed workload from groups of queries
         full_workload = []
         options = ["w", "r", "u", "a"]
         function_type = random.choices(
@@ -400,6 +420,7 @@ def mixed_workload(vendor, client, dataset, group, queries):
             dataset.get_variant(),
             group,
             config_distribution,
+            WITHOUT_FINE_GRAINED_AUTHORIZATION,
         ]
         results.set_value(*results_key, value=mixed_workload)
 
@@ -518,6 +539,25 @@ results = helpers.RecursiveDict()
 benchmarks = filter_benchmarks(generators, args.benchmarks)
 # Run all specified benchmarks.
 for dataset, queries in benchmarks:
+
+    # Save running configuration
+    workload_type = None
+    if len(args.mixed_workload) == 0:
+        workload_type = "Isolated"
+    elif len(args.mixed_workload) == 5:
+        workload_type = "Mixed"
+    else:
+        workload_type = "Realistic"
+
+    run_config = {
+        "vendor": args.vendor_name,
+        "condition": "warm" if args.warmup_run else "cold",
+        "workload": workload_type,
+        "workload_config": args.mixed_workload,
+    }
+
+    results.set_value("__run_configuration__", value=run_config)
+
     log.init("Preparing", dataset.NAME + "/" + dataset.get_variant(), "dataset")
     dataset.prepare(
         cache.cache_directory("datasets", dataset.NAME, dataset.get_variant())
@@ -541,13 +581,17 @@ for dataset, queries in benchmarks:
     client = runners.Client(
         args.client_binary, args.temporary_directory, args.bolt_port
     )
-    vendor.start_preparation()
+
     # TODO:Neo4j doesn't like duplicated triggers, add this do dataset files.
-    ret = client.execute(
+    vendor.start_preparation()
+    client.execute(
         queries=[
             ("DROP INDEX ON:User(id)", {}),
         ]
     )
+    vendor.stop()
+
+    vendor.start_preparation()
     ret = client.execute(
         file_path=dataset.get_file(), num_workers=args.num_workers_for_import
     )
@@ -579,11 +623,10 @@ for dataset, queries in benchmarks:
     import_key = [dataset.NAME, dataset.get_variant(), "__import__"]
     results.set_value(*import_key, value={"client": ret, "database": usage})
 
-    # TODO: cache import data
-
     # Run all benchmarks in all available groups.
     for group in sorted(queries.keys()):
 
+        # Running queries in mixed workload
         if len(args.mixed_workload) >= 5:
             mixed_workload(vendor, client, dataset, group, queries)
         else:
@@ -598,6 +641,7 @@ for dataset, queries in benchmarks:
 
                 query_statistics = tail_latency(vendor, client, func)
 
+                # Query count for each vendor
                 config_key = [
                     dataset.NAME,
                     dataset.get_variant(),

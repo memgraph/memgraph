@@ -24,6 +24,10 @@ def parse_arguments():
     )
 
     parser.add_argument(
+        "--dataset-group", default="basic", help="Select a group of queries"
+    )
+
+    parser.add_argument(
         "--mixed-group",
         nargs=5,
         action="append",
@@ -51,18 +55,20 @@ def parse_arguments():
     return args
 
 
-def run_full_benchmarks(vendor, binary, dataset_size, group_configs, per_query_configs):
+def run_full_benchmarks(
+    vendor, binary, dataset_size, dataset_group, group_configs, per_query_configs
+):
 
     configurations = [
         # Basic full group test cold
         [
             "--export-results",
-            vendor + "_cold.json",
+            vendor + "_cold_isolated.json",
         ],
         # Basic full group test warm
         [
             "--export-results",
-            vendor + "_warm.json",
+            vendor + "_warm_isolated.json",
             "--warmup-run",
         ],
     ]
@@ -72,7 +78,7 @@ def run_full_benchmarks(vendor, binary, dataset_size, group_configs, per_query_c
         cold = [
             "--export-results",
             vendor
-            + "_cold_mixed_group_{}_{}_{}_{}_{}.json".format(
+            + "_cold_realistic_{}_{}_{}_{}_{}.json".format(
                 count, write, read, update, analytical
             ),
             "--mixed-workload",
@@ -86,7 +92,7 @@ def run_full_benchmarks(vendor, binary, dataset_size, group_configs, per_query_c
         warm = [
             "--export-results",
             vendor
-            + "_warm_mixed_group_{}_{}_{}_{}_{}.json".format(
+            + "_warm_realistic_{}_{}_{}_{}_{}.json".format(
                 count, write, read, update, analytical
             ),
             "--mixed-workload",
@@ -105,7 +111,7 @@ def run_full_benchmarks(vendor, binary, dataset_size, group_configs, per_query_c
         cold = [
             "--export-results",
             vendor
-            + "_cold_mixed_query_{}_{}_{}_{}_{}_{}.json".format(
+            + "_cold_mixed_{}_{}_{}_{}_{}_{}.json".format(
                 count, write, read, update, analytical, query
             ),
             "--mixed-workload",
@@ -119,7 +125,7 @@ def run_full_benchmarks(vendor, binary, dataset_size, group_configs, per_query_c
         warm = [
             "--export-results",
             vendor
-            + "_warm_mixed_query_{}_{}_{}_{}_{}_{}.json".format(
+            + "_warm_mixed_{}_{}_{}_{}_{}_{}.json".format(
                 count, write, read, update, analytical, query
             ),
             "--mixed-workload",
@@ -143,7 +149,7 @@ def run_full_benchmarks(vendor, binary, dataset_size, group_configs, per_query_c
         vendor,
         "--num-workers-for-benchmark",
         "12",
-        "pokec/" + dataset_size + "/mixed/*/*",
+        "pokec/" + dataset_size + "/" + dataset_group + "/*",
     ]
 
     for config in configurations:
@@ -153,26 +159,20 @@ def run_full_benchmarks(vendor, binary, dataset_size, group_configs, per_query_c
         subprocess.run(args=default_args, check=True)
 
 
-def collect_all_results(vendor_name, dataset_size):
+def collect_all_results(vendor_name, dataset_size, dataset_group):
     working_directory = Path().absolute()
     print(working_directory)
     results = sorted(working_directory.glob(vendor_name + "_*.json"))
-    summary = {
-        "pokec": {
-            dataset_size: {
-                "cold": [],
-                "warm": [],
-            }
-        }
-    }
+    summary = {"pokec": {dataset_size: {dataset_group: {}}}}
 
     for file in results:
+        if "summary" in file.name:
+            continue
         f = file.open()
         data = json.loads(f.read())
-        if "cold" in file.name:
-            summary["pokec"][dataset_size]["cold"].append(data["pokec"][dataset_size])
-        elif "warm" in file.name:
-            summary["pokec"][dataset_size]["warm"].append(data["pokec"][dataset_size])
+        summary["pokec"][dataset_size][dataset_group].update(
+            data["pokec"][dataset_size][dataset_group]
+        )
 
     print(summary)
 
@@ -192,14 +192,15 @@ if __name__ == "__main__":
     for vendor_name, vendor_binary in args.vendor:
         path = Path(vendor_binary)
         if vendor_name.lower() in vendor_names and path.is_file():
-            # run_full_benchmarks(
-            #     vendor_name,
-            #     vendor_binary,
-            #     args.dataset_size,
-            #     group_run_mixed,
-            #     per_query_mixed,
-            # )
-            collect_all_results(vendor_name, args.dataset_size)
+            run_full_benchmarks(
+                vendor_name,
+                vendor_binary,
+                args.dataset_size,
+                args.dataset_group,
+                group_run_mixed,
+                per_query_mixed,
+            )
+            collect_all_results(vendor_name, args.dataset_size, args.dataset_group)
         else:
             raise Exception(
                 "Check that vendor: {} is supported and you are passing right path: {} to binary.".format(
