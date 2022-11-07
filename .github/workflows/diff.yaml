@@ -173,6 +173,15 @@ jobs:
           cd build
           ctest -R memgraph__simulation --output-on-failure -j$THREADS
 
+      - name: Run single benchmark test
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
+
+          # Run simulation tests.
+          cd tests/mgbench
+          ./benchmark.py accesscontrol/small --num-workers-for-import 1 --test-system-arg  "bolt-num-workers 1"
+
   release_build:
     name: "Release build"
     runs-on: [self-hosted, Linux, X64, Diff]
@@ -219,6 +228,15 @@ jobs:
           # Run simulation tests.
           cd build
           ctest -R memgraph__simulation --output-on-failure -j$THREADS
+
+      - name: Run single benchmark test
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
+
+          # Run simulation tests.
+          cd tests/mgbench
+          ./benchmark.py accesscontrol/small --num-workers-for-import 1 --test-system-arg  "bolt-num-workers 1"
 
       - name: Run e2e tests
         run: |
