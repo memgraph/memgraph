@@ -63,10 +63,9 @@ class Dataset:
             raise ValueError("The size defined for this variant doesn't " "have the number of vertices and/or edges!")
         self._num_vertices = self._size["vertices"]
         self._num_edges = self._size["edges"]
-        if self.SPLIT_FILES is not None:
-            self._split_file = self.SPLIT_FILES.get(variant, None)
-        else:
-            self._split_file = None
+        self._split_file = self.SPLIT_FILES.get(variant, None)
+        assert self._split_file is not None
+        assert self._split_file != ""
 
     def prepare(self, directory):
         if self._file is not None:
