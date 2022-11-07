@@ -180,6 +180,7 @@ jobs:
 
           # Run simulation tests.
           cd tests/mgbench
+          rm -r .cache
           ./benchmark.py accesscontrol/small --num-workers-for-import 1 --test-system-arg  "bolt-num-workers 1"
 
   release_build:
@@ -236,6 +237,7 @@ jobs:
 
           # Run simulation tests.
           cd tests/mgbench
+          rm -r .cache
           ./benchmark.py accesscontrol/small --num-workers-for-import 1 --test-system-arg  "bolt-num-workers 1"
 
       - name: Run e2e tests
