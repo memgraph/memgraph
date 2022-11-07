@@ -98,8 +98,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
     auto edge = res.GetValue();
     ASSERT_EQ(edge.EdgeType(), et);
     ASSERT_EQ(edge.Gid(), edge_id);
-    ASSERT_EQ(edge.FromVertex(), from_id);
-    ASSERT_EQ(edge.ToVertex(), to_id);
+    ASSERT_EQ(edge.From(), from_id);
+    ASSERT_EQ(edge.To(), to_id);
 
     // Check edges without filters
     ASSERT_EQ(vertex_from->InEdges(View::OLD)->size(), 0);
@@ -117,8 +117,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), et);
       ASSERT_EQ(e.Gid(), edge_id);
-      ASSERT_EQ(e.FromVertex(), from_id);
-      ASSERT_EQ(e.ToVertex(), to_id);
+      ASSERT_EQ(e.From(), from_id);
+      ASSERT_EQ(e.To(), to_id);
     }
     ASSERT_EQ(vertex_to->InEdges(View::OLD)->size(), 0);
     ASSERT_EQ(*vertex_to->InDegree(View::OLD), 0);
@@ -131,8 +131,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), et);
       ASSERT_EQ(e.Gid(), edge_id);
-      ASSERT_EQ(e.FromVertex(), from_id);
-      ASSERT_EQ(e.ToVertex(), to_id);
+      ASSERT_EQ(e.From(), from_id);
+      ASSERT_EQ(e.To(), to_id);
     }
     ASSERT_EQ(vertex_to->OutEdges(View::OLD)->size(), 0);
     ASSERT_EQ(*vertex_to->OutDegree(View::OLD), 0);
@@ -188,8 +188,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), et);
       ASSERT_EQ(e.Gid(), edge_id);
-      ASSERT_EQ(e.FromVertex(), from_id);
-      ASSERT_EQ(e.ToVertex(), to_id);
+      ASSERT_EQ(e.From(), from_id);
+      ASSERT_EQ(e.To(), to_id);
     }
     {
       auto ret = vertex_from->OutEdges(View::NEW);
@@ -200,8 +200,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), et);
       ASSERT_EQ(e.Gid(), edge_id);
-      ASSERT_EQ(e.FromVertex(), from_id);
-      ASSERT_EQ(e.ToVertex(), to_id);
+      ASSERT_EQ(e.From(), from_id);
+      ASSERT_EQ(e.To(), to_id);
     }
     {
       auto ret = vertex_to->InEdges(View::OLD);
@@ -212,8 +212,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), et);
       ASSERT_EQ(e.Gid(), edge_id);
-      ASSERT_EQ(e.FromVertex(), from_id);
-      ASSERT_EQ(e.ToVertex(), to_id);
+      ASSERT_EQ(e.From(), from_id);
+      ASSERT_EQ(e.To(), to_id);
     }
     {
       auto ret = vertex_to->InEdges(View::NEW);
@@ -224,8 +224,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), et);
       ASSERT_EQ(e.Gid(), edge_id);
-      ASSERT_EQ(e.FromVertex(), from_id);
-      ASSERT_EQ(e.ToVertex(), to_id);
+      ASSERT_EQ(e.From(), from_id);
+      ASSERT_EQ(e.To(), to_id);
     }
     ASSERT_EQ(vertex_to->OutEdges(View::OLD)->size(), 0);
     ASSERT_EQ(*vertex_to->OutDegree(View::OLD), 0);
@@ -309,8 +309,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 //     ASSERT_TRUE(res.HasValue());
 //     auto edge = res.GetValue();
 //     ASSERT_EQ(edge.EdgeType(), et);
-//     ASSERT_EQ(edge.FromVertex(), *vertex_from);
-//     ASSERT_EQ(edge.ToVertex(), *vertex_to);
+//     ASSERT_EQ(edge.From(), *vertex_from);
+//     ASSERT_EQ(edge.To(), *vertex_to);
 
 //     // Check edges without filters
 //     ASSERT_EQ(vertex_from->InEdges(View::OLD)->size(), 0);
@@ -327,8 +327,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_from->OutDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     ASSERT_EQ(vertex_to->InEdges(View::OLD)->size(), 0);
 //     ASSERT_EQ(*vertex_to->InDegree(View::OLD), 0);
@@ -340,8 +340,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_to->InDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     ASSERT_EQ(vertex_to->OutEdges(View::OLD)->size(), 0);
 //     ASSERT_EQ(*vertex_to->OutDegree(View::OLD), 0);
@@ -386,8 +386,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_from->OutDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     {
 //       auto ret = vertex_from->OutEdges(View::NEW);
@@ -397,8 +397,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_from->OutDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     {
 //       auto ret = vertex_to->InEdges(View::OLD);
@@ -408,8 +408,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_to->InDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     {
 //       auto ret = vertex_to->InEdges(View::NEW);
@@ -419,8 +419,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_to->InDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     ASSERT_EQ(vertex_to->OutEdges(View::OLD)->size(), 0);
 //     ASSERT_EQ(*vertex_to->OutDegree(View::OLD), 0);
@@ -476,8 +476,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 //     ASSERT_TRUE(res.HasValue());
 //     auto edge = res.GetValue();
 //     ASSERT_EQ(edge.EdgeType(), et);
-//     ASSERT_EQ(edge.FromVertex(), *vertex);
-//     ASSERT_EQ(edge.ToVertex(), *vertex);
+//     ASSERT_EQ(edge.From(), *vertex);
+//     ASSERT_EQ(edge.To(), *vertex);
 
 //     // Check edges without filters
 //     ASSERT_EQ(vertex->InEdges(View::OLD)->size(), 0);
@@ -490,8 +490,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 //       ASSERT_EQ(*vertex->InDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 //     ASSERT_EQ(vertex->OutEdges(View::OLD)->size(), 0);
 //     ASSERT_EQ(*vertex->OutDegree(View::OLD), 0);
@@ -503,8 +503,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 //       ASSERT_EQ(*vertex->OutDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 
 //     auto other_et = acc.NameToEdgeType("other");
@@ -539,8 +539,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 //       ASSERT_EQ(*vertex->InDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 //     {
 //       auto ret = vertex->InEdges(View::NEW);
@@ -550,8 +550,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 //       ASSERT_EQ(*vertex->InDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 //     {
 //       auto ret = vertex->OutEdges(View::OLD);
@@ -561,8 +561,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 //       ASSERT_EQ(*vertex->OutDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 //     {
 //       auto ret = vertex->OutEdges(View::NEW);
@@ -572,8 +572,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 //       ASSERT_EQ(*vertex->OutDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 
 //     auto other_et = acc.NameToEdgeType("other");
@@ -626,8 +626,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 //     ASSERT_TRUE(res.HasValue());
 //     auto edge = res.GetValue();
 //     ASSERT_EQ(edge.EdgeType(), et);
-//     ASSERT_EQ(edge.FromVertex(), *vertex_from);
-//     ASSERT_EQ(edge.ToVertex(), *vertex_to);
+//     ASSERT_EQ(edge.From(), *vertex_from);
+//     ASSERT_EQ(edge.To(), *vertex_to);
 
 //     // Check edges without filters
 //     ASSERT_EQ(vertex_from->InEdges(View::OLD)->size(), 0);
@@ -644,8 +644,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_from->OutDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     ASSERT_EQ(vertex_to->InEdges(View::OLD)->size(), 0);
 //     ASSERT_EQ(*vertex_to->InDegree(View::OLD), 0);
@@ -657,8 +657,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_to->InDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     ASSERT_EQ(vertex_to->OutEdges(View::OLD)->size(), 0);
 //     ASSERT_EQ(*vertex_to->OutDegree(View::OLD), 0);
@@ -723,8 +723,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 //     ASSERT_TRUE(res.HasValue());
 //     auto edge = res.GetValue();
 //     ASSERT_EQ(edge.EdgeType(), et);
-//     ASSERT_EQ(edge.FromVertex(), *vertex_from);
-//     ASSERT_EQ(edge.ToVertex(), *vertex_to);
+//     ASSERT_EQ(edge.From(), *vertex_from);
+//     ASSERT_EQ(edge.To(), *vertex_to);
 
 //     // Check edges without filters
 //     ASSERT_EQ(vertex_from->InEdges(View::OLD)->size(), 0);
@@ -741,8 +741,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_from->OutDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     ASSERT_EQ(vertex_to->InEdges(View::OLD)->size(), 0);
 //     ASSERT_EQ(*vertex_to->InDegree(View::OLD), 0);
@@ -754,8 +754,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_to->InDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     ASSERT_EQ(vertex_to->OutEdges(View::OLD)->size(), 0);
 //     ASSERT_EQ(*vertex_to->OutDegree(View::OLD), 0);
@@ -800,8 +800,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_from->OutDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     {
 //       auto ret = vertex_from->OutEdges(View::NEW);
@@ -811,8 +811,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_from->OutDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     {
 //       auto ret = vertex_to->InEdges(View::OLD);
@@ -822,8 +822,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_to->InDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     {
 //       auto ret = vertex_to->InEdges(View::NEW);
@@ -833,8 +833,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_to->InDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     ASSERT_EQ(vertex_to->OutEdges(View::OLD)->size(), 0);
 //     ASSERT_EQ(*vertex_to->OutDegree(View::OLD), 0);
@@ -901,8 +901,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
     auto edge = res.GetValue();
     ASSERT_EQ(edge.EdgeType(), et);
     ASSERT_EQ(edge.Gid(), edge_id);
-    ASSERT_EQ(edge.FromVertex(), from_id);
-    ASSERT_EQ(edge.ToVertex(), to_id);
+    ASSERT_EQ(edge.From(), from_id);
+    ASSERT_EQ(edge.To(), to_id);
 
     // Check edges without filters
     ASSERT_EQ(vertex_from->InEdges(View::OLD)->size(), 0);
@@ -920,8 +920,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), et);
       ASSERT_EQ(e.Gid(), edge_id);
-      ASSERT_EQ(e.FromVertex(), from_id);
-      ASSERT_EQ(e.ToVertex(), to_id);
+      ASSERT_EQ(e.From(), from_id);
+      ASSERT_EQ(e.To(), to_id);
     }
     ASSERT_EQ(vertex_to->InEdges(View::OLD)->size(), 0);
     ASSERT_EQ(*vertex_to->InDegree(View::OLD), 0);
@@ -934,8 +934,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), et);
       ASSERT_EQ(e.Gid(), edge_id);
-      ASSERT_EQ(e.FromVertex(), from_id);
-      ASSERT_EQ(e.ToVertex(), to_id);
+      ASSERT_EQ(e.From(), from_id);
+      ASSERT_EQ(e.To(), to_id);
     }
     ASSERT_EQ(vertex_to->OutEdges(View::OLD)->size(), 0);
     ASSERT_EQ(*vertex_to->OutDegree(View::OLD), 0);
@@ -1013,8 +1013,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
     auto edge = res.GetValue();
     ASSERT_EQ(edge.EdgeType(), et);
     ASSERT_EQ(edge.Gid(), edge_id);
-    ASSERT_EQ(edge.FromVertex(), from_id);
-    ASSERT_EQ(edge.ToVertex(), to_id);
+    ASSERT_EQ(edge.From(), from_id);
+    ASSERT_EQ(edge.To(), to_id);
 
     // Check edges without filters
     ASSERT_EQ(vertex_from->InEdges(View::OLD)->size(), 0);
@@ -1032,8 +1032,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), et);
       ASSERT_EQ(e.Gid(), edge_id);
-      ASSERT_EQ(e.FromVertex(), from_id);
-      ASSERT_EQ(e.ToVertex(), to_id);
+      ASSERT_EQ(e.From(), from_id);
+      ASSERT_EQ(e.To(), to_id);
     }
     ASSERT_EQ(vertex_to->InEdges(View::OLD)->size(), 0);
     ASSERT_EQ(*vertex_to->InDegree(View::OLD), 0);
@@ -1046,8 +1046,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), et);
       ASSERT_EQ(e.Gid(), edge_id);
-      ASSERT_EQ(e.FromVertex(), from_id);
-      ASSERT_EQ(e.ToVertex(), to_id);
+      ASSERT_EQ(e.From(), from_id);
+      ASSERT_EQ(e.To(), to_id);
     }
     ASSERT_EQ(vertex_to->OutEdges(View::OLD)->size(), 0);
     ASSERT_EQ(*vertex_to->OutDegree(View::OLD), 0);
@@ -1105,8 +1105,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), et);
       ASSERT_EQ(e.Gid(), edge_id);
-      ASSERT_EQ(e.FromVertex(), from_id);
-      ASSERT_EQ(e.ToVertex(), to_id);
+      ASSERT_EQ(e.From(), from_id);
+      ASSERT_EQ(e.To(), to_id);
     }
     {
       auto ret = vertex_from->OutEdges(View::NEW);
@@ -1117,8 +1117,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), et);
       ASSERT_EQ(e.Gid(), edge_id);
-      ASSERT_EQ(e.FromVertex(), from_id);
-      ASSERT_EQ(e.ToVertex(), to_id);
+      ASSERT_EQ(e.From(), from_id);
+      ASSERT_EQ(e.To(), to_id);
     }
     {
       auto ret = vertex_to->InEdges(View::OLD);
@@ -1129,8 +1129,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), et);
       ASSERT_EQ(e.Gid(), edge_id);
-      ASSERT_EQ(e.FromVertex(), from_id);
-      ASSERT_EQ(e.ToVertex(), to_id);
+      ASSERT_EQ(e.From(), from_id);
+      ASSERT_EQ(e.To(), to_id);
     }
     {
       auto ret = vertex_to->InEdges(View::NEW);
@@ -1141,8 +1141,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), et);
       ASSERT_EQ(e.Gid(), edge_id);
-      ASSERT_EQ(e.FromVertex(), from_id);
-      ASSERT_EQ(e.ToVertex(), to_id);
+      ASSERT_EQ(e.From(), from_id);
+      ASSERT_EQ(e.To(), to_id);
     }
     ASSERT_EQ(vertex_to->OutEdges(View::OLD)->size(), 0);
     ASSERT_EQ(*vertex_to->OutDegree(View::OLD), 0);
@@ -1199,8 +1199,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
 //     ASSERT_TRUE(res.HasValue());
 //     auto edge = res.GetValue();
 //     ASSERT_EQ(edge.EdgeType(), et);
-//     ASSERT_EQ(edge.FromVertex(), *vertex);
-//     ASSERT_EQ(edge.ToVertex(), *vertex);
+//     ASSERT_EQ(edge.From(), *vertex);
+//     ASSERT_EQ(edge.To(), *vertex);
 
 //     // Check edges without filters
 //     ASSERT_EQ(vertex->InEdges(View::OLD)->size(), 0);
@@ -1213,8 +1213,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
 //       ASSERT_EQ(*vertex->InDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 //     ASSERT_EQ(vertex->OutEdges(View::OLD)->size(), 0);
 //     ASSERT_EQ(*vertex->OutDegree(View::OLD), 0);
@@ -1226,8 +1226,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
 //       ASSERT_EQ(*vertex->OutDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 
 //     auto other_et = acc.NameToEdgeType("other");
@@ -1276,8 +1276,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
 //     ASSERT_TRUE(res.HasValue());
 //     auto edge = res.GetValue();
 //     ASSERT_EQ(edge.EdgeType(), et);
-//     ASSERT_EQ(edge.FromVertex(), *vertex);
-//     ASSERT_EQ(edge.ToVertex(), *vertex);
+//     ASSERT_EQ(edge.From(), *vertex);
+//     ASSERT_EQ(edge.To(), *vertex);
 
 //     // Check edges without filters
 //     ASSERT_EQ(vertex->InEdges(View::OLD)->size(), 0);
@@ -1290,8 +1290,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
 //       ASSERT_EQ(*vertex->InDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 //     ASSERT_EQ(vertex->OutEdges(View::OLD)->size(), 0);
 //     ASSERT_EQ(*vertex->OutDegree(View::OLD), 0);
@@ -1303,8 +1303,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
 //       ASSERT_EQ(*vertex->OutDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 
 //     auto other_et = acc.NameToEdgeType("other");
@@ -1339,8 +1339,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
 //       ASSERT_EQ(*vertex->InDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 //     {
 //       auto ret = vertex->InEdges(View::NEW);
@@ -1350,8 +1350,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
 //       ASSERT_EQ(*vertex->InDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 //     {
 //       auto ret = vertex->OutEdges(View::OLD);
@@ -1361,8 +1361,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
 //       ASSERT_EQ(*vertex->OutDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 //     {
 //       auto ret = vertex->OutEdges(View::NEW);
@@ -1372,8 +1372,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
 //       ASSERT_EQ(*vertex->OutDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 
 //     auto other_et = acc.NameToEdgeType("other");
@@ -1433,8 +1433,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
     auto edge = res.GetValue();
     ASSERT_EQ(edge.EdgeType(), et);
     ASSERT_EQ(edge.Gid(), edge_id);
-    ASSERT_EQ(edge.FromVertex(), from_id);
-    ASSERT_EQ(edge.ToVertex(), to_id);
+    ASSERT_EQ(edge.From(), from_id);
+    ASSERT_EQ(edge.To(), to_id);
 
     // Check edges without filters
     ASSERT_EQ(vertex_from->InEdges(View::OLD)->size(), 0);
@@ -1452,8 +1452,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), et);
       ASSERT_EQ(e.Gid(), edge_id);
-      ASSERT_EQ(e.FromVertex(), from_id);
-      ASSERT_EQ(e.ToVertex(), to_id);
+      ASSERT_EQ(e.From(), from_id);
+      ASSERT_EQ(e.To(), to_id);
     }
 
     // Check edges with filters
@@ -1491,8 +1491,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), et);
       ASSERT_EQ(e.Gid(), edge_id);
-      ASSERT_EQ(e.FromVertex(), from_id);
-      ASSERT_EQ(e.ToVertex(), to_id);
+      ASSERT_EQ(e.From(), from_id);
+      ASSERT_EQ(e.To(), to_id);
     }
     {
       auto ret = vertex_from->OutEdges(View::NEW);
@@ -1503,8 +1503,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), et);
       ASSERT_EQ(e.Gid(), edge_id);
-      ASSERT_EQ(e.FromVertex(), from_id);
-      ASSERT_EQ(e.ToVertex(), to_id);
+      ASSERT_EQ(e.From(), from_id);
+      ASSERT_EQ(e.To(), to_id);
     }
 
     // Check edges with filters
@@ -1531,7 +1531,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 
     const auto edge = vertex_from->OutEdges(View::NEW).GetValue()[0];
 
-    const auto res = acc.DeleteEdge(edge.FromVertex(), edge.ToVertex(), edge.Gid());
+    const auto res = acc.DeleteEdge(edge.From(), edge.To(), edge.Gid());
     ASSERT_TRUE(res.HasValue());
     ASSERT_TRUE(res.GetValue());
 
@@ -1549,8 +1549,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), et);
       ASSERT_EQ(e.Gid(), edge_id);
-      ASSERT_EQ(e.FromVertex(), from_id);
-      ASSERT_EQ(e.ToVertex(), to_id);
+      ASSERT_EQ(e.From(), from_id);
+      ASSERT_EQ(e.To(), to_id);
     }
     ASSERT_EQ(vertex_from->OutEdges(View::NEW)->size(), 0);
     ASSERT_EQ(*vertex_from->OutDegree(View::NEW), 0);
@@ -1620,8 +1620,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //     ASSERT_TRUE(res.HasValue());
 //     auto edge = res.GetValue();
 //     ASSERT_EQ(edge.EdgeType(), et);
-//     ASSERT_EQ(edge.FromVertex(), *vertex_from);
-//     ASSERT_EQ(edge.ToVertex(), *vertex_to);
+//     ASSERT_EQ(edge.From(), *vertex_from);
+//     ASSERT_EQ(edge.To(), *vertex_to);
 
 //     // Check edges without filters
 //     ASSERT_EQ(vertex_from->InEdges(View::OLD)->size(), 0);
@@ -1638,8 +1638,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_from->OutDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     ASSERT_EQ(vertex_to->InEdges(View::OLD)->size(), 0);
 //     ASSERT_EQ(*vertex_to->InDegree(View::OLD), 0);
@@ -1651,8 +1651,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_to->InDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     ASSERT_EQ(vertex_to->OutEdges(View::OLD)->size(), 0);
 //     ASSERT_EQ(*vertex_to->OutDegree(View::OLD), 0);
@@ -1697,8 +1697,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_from->OutDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     {
 //       auto ret = vertex_from->OutEdges(View::NEW);
@@ -1708,8 +1708,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_from->OutDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     {
 //       auto ret = vertex_to->InEdges(View::OLD);
@@ -1719,8 +1719,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_to->InDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     {
 //       auto ret = vertex_to->InEdges(View::NEW);
@@ -1730,8 +1730,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_to->InDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     ASSERT_EQ(vertex_to->OutEdges(View::OLD)->size(), 0);
 //     ASSERT_EQ(*vertex_to->OutDegree(View::OLD), 0);
@@ -1790,8 +1790,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_from->OutDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     ASSERT_EQ(vertex_from->OutEdges(View::NEW)->size(), 0);
 //     ASSERT_EQ(*vertex_from->OutDegree(View::NEW), 0);
@@ -1803,8 +1803,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_to->InDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     ASSERT_EQ(vertex_to->InEdges(View::NEW)->size(), 0);
 //     ASSERT_EQ(*vertex_to->InDegree(View::NEW), 0);
@@ -1883,8 +1883,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //     ASSERT_TRUE(res.HasValue());
 //     auto edge = res.GetValue();
 //     ASSERT_EQ(edge.EdgeType(), et);
-//     ASSERT_EQ(edge.FromVertex(), *vertex);
-//     ASSERT_EQ(edge.ToVertex(), *vertex);
+//     ASSERT_EQ(edge.From(), *vertex);
+//     ASSERT_EQ(edge.To(), *vertex);
 
 //     // Check edges without filters
 //     ASSERT_EQ(vertex->InEdges(View::OLD)->size(), 0);
@@ -1897,8 +1897,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //       ASSERT_EQ(*vertex->InDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 //     ASSERT_EQ(vertex->OutEdges(View::OLD)->size(), 0);
 //     ASSERT_EQ(*vertex->OutDegree(View::OLD), 0);
@@ -1910,8 +1910,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //       ASSERT_EQ(*vertex->OutDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 
 //     auto other_et = acc.NameToEdgeType("other");
@@ -1946,8 +1946,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //       ASSERT_EQ(*vertex->InDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 //     {
 //       auto ret = vertex->InEdges(View::NEW);
@@ -1957,8 +1957,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //       ASSERT_EQ(*vertex->InDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 //     {
 //       auto ret = vertex->OutEdges(View::OLD);
@@ -1968,8 +1968,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //       ASSERT_EQ(*vertex->OutDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 //     {
 //       auto ret = vertex->OutEdges(View::NEW);
@@ -1979,8 +1979,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //       ASSERT_EQ(*vertex->OutDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 
 //     auto other_et = acc.NameToEdgeType("other");
@@ -2029,8 +2029,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //       ASSERT_EQ(*vertex->InDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 //     ASSERT_EQ(vertex->InEdges(View::NEW)->size(), 0);
 //     ASSERT_EQ(*vertex->InDegree(View::NEW), 0);
@@ -2042,8 +2042,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //       ASSERT_EQ(*vertex->OutDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 //     ASSERT_EQ(vertex->OutEdges(View::NEW)->size(), 0);
 //     ASSERT_EQ(*vertex->OutDegree(View::NEW), 0);
@@ -2113,8 +2113,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //     ASSERT_TRUE(res.HasValue());
 //     auto edge = res.GetValue();
 //     ASSERT_EQ(edge.EdgeType(), et);
-//     ASSERT_EQ(edge.FromVertex(), *vertex_from);
-//     ASSERT_EQ(edge.ToVertex(), *vertex_to);
+//     ASSERT_EQ(edge.From(), *vertex_from);
+//     ASSERT_EQ(edge.To(), *vertex_to);
 
 //     // Check edges without filters
 //     ASSERT_EQ(vertex_from->InEdges(View::OLD)->size(), 0);
@@ -2131,8 +2131,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_from->OutDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     ASSERT_EQ(vertex_to->InEdges(View::OLD)->size(), 0);
 //     ASSERT_EQ(*vertex_to->InDegree(View::OLD), 0);
@@ -2144,8 +2144,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_to->InDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     ASSERT_EQ(vertex_to->OutEdges(View::OLD)->size(), 0);
 //     ASSERT_EQ(*vertex_to->OutDegree(View::OLD), 0);
@@ -2190,8 +2190,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_from->OutDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     {
 //       auto ret = vertex_from->OutEdges(View::NEW);
@@ -2201,8 +2201,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_from->OutDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     {
 //       auto ret = vertex_to->InEdges(View::OLD);
@@ -2212,8 +2212,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_to->InDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     {
 //       auto ret = vertex_to->InEdges(View::NEW);
@@ -2223,8 +2223,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_to->InDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     ASSERT_EQ(vertex_to->OutEdges(View::OLD)->size(), 0);
 //     ASSERT_EQ(*vertex_to->OutDegree(View::OLD), 0);
@@ -2283,8 +2283,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_from->OutDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     ASSERT_EQ(vertex_from->OutEdges(View::NEW)->size(), 0);
 //     ASSERT_EQ(*vertex_from->OutDegree(View::NEW), 0);
@@ -2296,8 +2296,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_to->InDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     ASSERT_EQ(vertex_to->InEdges(View::NEW)->size(), 0);
 //     ASSERT_EQ(*vertex_to->InDegree(View::NEW), 0);
@@ -2344,8 +2344,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_from->OutDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     {
 //       auto ret = vertex_from->OutEdges(View::NEW);
@@ -2355,8 +2355,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_from->OutDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     {
 //       auto ret = vertex_to->InEdges(View::OLD);
@@ -2366,8 +2366,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_to->InDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     {
 //       auto ret = vertex_to->InEdges(View::NEW);
@@ -2377,8 +2377,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_to->InDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     ASSERT_EQ(vertex_to->OutEdges(View::OLD)->size(), 0);
 //     ASSERT_EQ(*vertex_to->OutDegree(View::OLD), 0);
@@ -2437,8 +2437,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_from->OutDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     ASSERT_EQ(vertex_from->OutEdges(View::NEW)->size(), 0);
 //     ASSERT_EQ(*vertex_from->OutDegree(View::NEW), 0);
@@ -2450,8 +2450,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //       ASSERT_EQ(*vertex_to->InDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     ASSERT_EQ(vertex_to->InEdges(View::NEW)->size(), 0);
 //     ASSERT_EQ(*vertex_to->InDegree(View::NEW), 0);
@@ -2533,8 +2533,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
     auto edge = res.GetValue();
     ASSERT_EQ(edge.EdgeType(), et);
     ASSERT_EQ(edge.Gid(), edge_id);
-    ASSERT_EQ(edge.FromVertex(), from_id);
-    ASSERT_EQ(edge.ToVertex(), to_id);
+    ASSERT_EQ(edge.From(), from_id);
+    ASSERT_EQ(edge.To(), to_id);
 
     // Check edges without filters
     ASSERT_EQ(vertex_to->InEdges(View::OLD)->size(), 0);
@@ -2548,8 +2548,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), et);
       ASSERT_EQ(e.Gid(), edge_id);
-      ASSERT_EQ(e.FromVertex(), from_id);
-      ASSERT_EQ(e.ToVertex(), to_id);
+      ASSERT_EQ(e.From(), from_id);
+      ASSERT_EQ(e.To(), to_id);
     }
     ASSERT_EQ(vertex_to->OutEdges(View::OLD)->size(), 0);
     ASSERT_EQ(*vertex_to->OutDegree(View::OLD), 0);
@@ -2586,8 +2586,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), et);
       ASSERT_EQ(e.Gid(), edge_id);
-      ASSERT_EQ(e.FromVertex(), from_id);
-      ASSERT_EQ(e.ToVertex(), to_id);
+      ASSERT_EQ(e.From(), from_id);
+      ASSERT_EQ(e.To(), to_id);
     }
     {
       auto ret = vertex_to->InEdges(View::NEW);
@@ -2598,8 +2598,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), et);
       ASSERT_EQ(e.Gid(), edge_id);
-      ASSERT_EQ(e.FromVertex(), from_id);
-      ASSERT_EQ(e.ToVertex(), to_id);
+      ASSERT_EQ(e.From(), from_id);
+      ASSERT_EQ(e.To(), to_id);
     }
     ASSERT_EQ(vertex_to->OutEdges(View::OLD)->size(), 0);
     ASSERT_EQ(*vertex_to->OutDegree(View::OLD), 0);
@@ -2639,7 +2639,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 
     const auto edge = vertex_to->InEdges(View::NEW).GetValue()[0];
 
-    auto res = acc.DeleteEdge(edge.FromVertex(), edge.ToVertex(), edge.Gid());
+    auto res = acc.DeleteEdge(edge.From(), edge.To(), edge.Gid());
     ASSERT_TRUE(res.HasValue());
     ASSERT_TRUE(res.GetValue());
 
@@ -2654,8 +2654,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), et);
       ASSERT_EQ(e.Gid(), edge_id);
-      ASSERT_EQ(e.FromVertex(), from_id);
-      ASSERT_EQ(e.ToVertex(), to_id);
+      ASSERT_EQ(e.From(), from_id);
+      ASSERT_EQ(e.To(), to_id);
     }
     ASSERT_EQ(vertex_to->InEdges(View::NEW)->size(), 0);
     ASSERT_EQ(*vertex_to->InDegree(View::NEW), 0);
@@ -2693,8 +2693,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), et);
       ASSERT_EQ(e.Gid(), edge_id);
-      ASSERT_EQ(e.FromVertex(), from_id);
-      ASSERT_EQ(e.ToVertex(), to_id);
+      ASSERT_EQ(e.From(), from_id);
+      ASSERT_EQ(e.To(), to_id);
     }
     {
       auto ret = vertex_to->InEdges(View::NEW);
@@ -2705,8 +2705,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), et);
       ASSERT_EQ(e.Gid(), edge_id);
-      ASSERT_EQ(e.FromVertex(), from_id);
-      ASSERT_EQ(e.ToVertex(), to_id);
+      ASSERT_EQ(e.From(), from_id);
+      ASSERT_EQ(e.To(), to_id);
     }
     ASSERT_EQ(vertex_to->OutEdges(View::OLD)->size(), 0);
     ASSERT_EQ(*vertex_to->OutDegree(View::OLD), 0);
@@ -2746,7 +2746,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 
     const auto edge = vertex_to->InEdges(View::NEW).GetValue()[0];
 
-    auto res = acc.DeleteEdge(edge.FromVertex(), edge.ToVertex(), edge.Gid());
+    auto res = acc.DeleteEdge(edge.From(), edge.To(), edge.Gid());
     ASSERT_TRUE(res.HasValue());
     ASSERT_TRUE(res.GetValue());
 
@@ -2759,8 +2759,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
       ASSERT_EQ(*vertex_to->InDegree(View::OLD), 1);
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), et);
-      ASSERT_EQ(e.FromVertex(), from_id);
-      ASSERT_EQ(e.ToVertex(), to_id);
+      ASSERT_EQ(e.From(), from_id);
+      ASSERT_EQ(e.To(), to_id);
     }
     ASSERT_EQ(vertex_to->InEdges(View::NEW)->size(), 0);
     ASSERT_EQ(*vertex_to->InDegree(View::NEW), 0);
@@ -2839,8 +2839,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 //     ASSERT_TRUE(res.HasValue());
 //     auto edge = res.GetValue();
 //     ASSERT_EQ(edge.EdgeType(), et);
-//     ASSERT_EQ(edge.FromVertex(), *vertex);
-//     ASSERT_EQ(edge.ToVertex(), *vertex);
+//     ASSERT_EQ(edge.From(), *vertex);
+//     ASSERT_EQ(edge.To(), *vertex);
 
 //     // Check edges without filters
 //     ASSERT_EQ(vertex->InEdges(View::OLD)->size(), 0);
@@ -2853,8 +2853,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 //       ASSERT_EQ(*vertex->InDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 //     ASSERT_EQ(vertex->OutEdges(View::OLD)->size(), 0);
 //     ASSERT_EQ(*vertex->OutDegree(View::OLD), 0);
@@ -2866,8 +2866,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 //       ASSERT_EQ(*vertex->OutDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 
 //     auto other_et = acc.NameToEdgeType("other");
@@ -2902,8 +2902,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 //       ASSERT_EQ(*vertex->InDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 //     {
 //       auto ret = vertex->InEdges(View::NEW);
@@ -2913,8 +2913,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 //       ASSERT_EQ(*vertex->InDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 //     {
 //       auto ret = vertex->OutEdges(View::OLD);
@@ -2924,8 +2924,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 //       ASSERT_EQ(*vertex->OutDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 //     {
 //       auto ret = vertex->OutEdges(View::NEW);
@@ -2935,8 +2935,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 //       ASSERT_EQ(*vertex->OutDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 
 //     auto other_et = acc.NameToEdgeType("other");
@@ -2985,8 +2985,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 //       ASSERT_EQ(*vertex->InDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 //     ASSERT_EQ(vertex->InEdges(View::NEW)->size(), 0);
 //     ASSERT_EQ(*vertex->InDegree(View::NEW), 0);
@@ -2998,8 +2998,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 //       ASSERT_EQ(*vertex->OutDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 //     ASSERT_EQ(vertex->OutEdges(View::NEW)->size(), 0);
 //     ASSERT_EQ(*vertex->OutDegree(View::NEW), 0);
@@ -3036,8 +3036,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 //       ASSERT_EQ(*vertex->InDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 //     {
 //       auto ret = vertex->InEdges(View::NEW);
@@ -3047,8 +3047,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 //       ASSERT_EQ(*vertex->InDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 //     {
 //       auto ret = vertex->OutEdges(View::OLD);
@@ -3058,8 +3058,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 //       ASSERT_EQ(*vertex->OutDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 //     {
 //       auto ret = vertex->OutEdges(View::NEW);
@@ -3069,8 +3069,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 //       ASSERT_EQ(*vertex->OutDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 
 //     auto other_et = acc.NameToEdgeType("other");
@@ -3119,8 +3119,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 //       ASSERT_EQ(*vertex->InDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 //     ASSERT_EQ(vertex->InEdges(View::NEW)->size(), 0);
 //     ASSERT_EQ(*vertex->InDegree(View::NEW), 0);
@@ -3132,8 +3132,8 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 //       ASSERT_EQ(*vertex->OutDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex);
-//       ASSERT_EQ(e.ToVertex(), *vertex);
+//       ASSERT_EQ(e.From(), *vertex);
+//       ASSERT_EQ(e.To(), *vertex);
 //     }
 //     ASSERT_EQ(vertex->OutEdges(View::NEW)->size(), 0);
 //     ASSERT_EQ(*vertex->OutDegree(View::NEW), 0);
@@ -3196,8 +3196,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
     auto edge = res.GetValue();
     ASSERT_EQ(edge.EdgeType(), et);
     ASSERT_EQ(edge.Gid(), edge_id);
-    ASSERT_EQ(edge.FromVertex(), from_id);
-    ASSERT_EQ(edge.ToVertex(), to_id);
+    ASSERT_EQ(edge.From(), from_id);
+    ASSERT_EQ(edge.To(), to_id);
 
     // Check edges
     ASSERT_EQ(vertex_from.InEdges(View::NEW)->size(), 0);
@@ -3211,8 +3211,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), et);
       ASSERT_EQ(e.Gid(), edge_id);
-      ASSERT_EQ(e.FromVertex(), from_id);
-      ASSERT_EQ(e.ToVertex(), to_id);
+      ASSERT_EQ(e.From(), from_id);
+      ASSERT_EQ(e.To(), to_id);
     }
     {
       auto ret = vertex_to.InEdges(View::NEW);
@@ -3222,8 +3222,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
       ASSERT_EQ(*vertex_to.InDegree(View::NEW), 1);
       auto e = edges[0];
       ASSERT_EQ(e.Gid(), edge_id);
-      ASSERT_EQ(e.FromVertex(), from_id);
-      ASSERT_EQ(e.ToVertex(), to_id);
+      ASSERT_EQ(e.From(), from_id);
+      ASSERT_EQ(e.To(), to_id);
     }
     ASSERT_EQ(vertex_to.OutEdges(View::NEW)->size(), 0);
     ASSERT_EQ(*vertex_to.OutDegree(View::NEW), 0);
@@ -3267,8 +3267,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), et);
       ASSERT_EQ(e.Gid(), edge_id);
-      ASSERT_EQ(e.FromVertex(), from_id);
-      ASSERT_EQ(e.ToVertex(), to_id);
+      ASSERT_EQ(e.From(), from_id);
+      ASSERT_EQ(e.To(), to_id);
     }
     ASSERT_EQ(vertex_from->OutEdges(View::NEW).GetError(), Error::DELETED_OBJECT);
     ASSERT_EQ(vertex_from->OutDegree(View::NEW).GetError(), Error::DELETED_OBJECT);
@@ -3281,8 +3281,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
       auto e = edges[0];
       ASSERT_EQ(e.EdgeType(), et);
       ASSERT_EQ(e.Gid(), edge_id);
-      ASSERT_EQ(e.FromVertex(), from_id);
-      ASSERT_EQ(e.ToVertex(), to_id);
+      ASSERT_EQ(e.From(), from_id);
+      ASSERT_EQ(e.To(), to_id);
     }
     ASSERT_EQ(vertex_to->InEdges(View::NEW)->size(), 0);
     ASSERT_EQ(*vertex_to->InDegree(View::NEW), 0);
@@ -3338,29 +3338,29 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //     ASSERT_TRUE(res1.HasValue());
 //     auto edge1 = res1.GetValue();
 //     ASSERT_EQ(edge1.EdgeType(), et1);
-//     ASSERT_EQ(edge1.FromVertex(), vertex1);
-//     ASSERT_EQ(edge1.ToVertex(), vertex2);
+//     ASSERT_EQ(edge1.From(), vertex1);
+//     ASSERT_EQ(edge1.To(), vertex2);
 
 //     auto res2 = acc.CreateEdge(&vertex2, &vertex1, et2);
 //     ASSERT_TRUE(res2.HasValue());
 //     auto edge2 = res2.GetValue();
 //     ASSERT_EQ(edge2.EdgeType(), et2);
-//     ASSERT_EQ(edge2.FromVertex(), vertex2);
-//     ASSERT_EQ(edge2.ToVertex(), vertex1);
+//     ASSERT_EQ(edge2.From(), vertex2);
+//     ASSERT_EQ(edge2.To(), vertex1);
 
 //     auto res3 = acc.CreateEdge(&vertex1, &vertex1, et3);
 //     ASSERT_TRUE(res3.HasValue());
 //     auto edge3 = res3.GetValue();
 //     ASSERT_EQ(edge3.EdgeType(), et3);
-//     ASSERT_EQ(edge3.FromVertex(), vertex1);
-//     ASSERT_EQ(edge3.ToVertex(), vertex1);
+//     ASSERT_EQ(edge3.From(), vertex1);
+//     ASSERT_EQ(edge3.To(), vertex1);
 
 //     auto res4 = acc.CreateEdge(&vertex2, &vertex2, et4);
 //     ASSERT_TRUE(res4.HasValue());
 //     auto edge4 = res4.GetValue();
 //     ASSERT_EQ(edge4.EdgeType(), et4);
-//     ASSERT_EQ(edge4.FromVertex(), vertex2);
-//     ASSERT_EQ(edge4.ToVertex(), vertex2);
+//     ASSERT_EQ(edge4.From(), vertex2);
+//     ASSERT_EQ(edge4.To(), vertex2);
 
 //     // Check edges
 //     {
@@ -3372,14 +3372,14 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       {
 //         auto e = edges[0];
 //         ASSERT_EQ(e.EdgeType(), et2);
-//         ASSERT_EQ(e.FromVertex(), vertex2);
-//         ASSERT_EQ(e.ToVertex(), vertex1);
+//         ASSERT_EQ(e.From(), vertex2);
+//         ASSERT_EQ(e.To(), vertex1);
 //       }
 //       {
 //         auto e = edges[1];
 //         ASSERT_EQ(e.EdgeType(), et3);
-//         ASSERT_EQ(e.FromVertex(), vertex1);
-//         ASSERT_EQ(e.ToVertex(), vertex1);
+//         ASSERT_EQ(e.From(), vertex1);
+//         ASSERT_EQ(e.To(), vertex1);
 //       }
 //     }
 //     {
@@ -3391,14 +3391,14 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       {
 //         auto e = edges[0];
 //         ASSERT_EQ(e.EdgeType(), et1);
-//         ASSERT_EQ(e.FromVertex(), vertex1);
-//         ASSERT_EQ(e.ToVertex(), vertex2);
+//         ASSERT_EQ(e.From(), vertex1);
+//         ASSERT_EQ(e.To(), vertex2);
 //       }
 //       {
 //         auto e = edges[1];
 //         ASSERT_EQ(e.EdgeType(), et3);
-//         ASSERT_EQ(e.FromVertex(), vertex1);
-//         ASSERT_EQ(e.ToVertex(), vertex1);
+//         ASSERT_EQ(e.From(), vertex1);
+//         ASSERT_EQ(e.To(), vertex1);
 //       }
 //     }
 //     {
@@ -3410,14 +3410,14 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       {
 //         auto e = edges[0];
 //         ASSERT_EQ(e.EdgeType(), et1);
-//         ASSERT_EQ(e.FromVertex(), vertex1);
-//         ASSERT_EQ(e.ToVertex(), vertex2);
+//         ASSERT_EQ(e.From(), vertex1);
+//         ASSERT_EQ(e.To(), vertex2);
 //       }
 //       {
 //         auto e = edges[1];
 //         ASSERT_EQ(e.EdgeType(), et4);
-//         ASSERT_EQ(e.FromVertex(), vertex2);
-//         ASSERT_EQ(e.ToVertex(), vertex2);
+//         ASSERT_EQ(e.From(), vertex2);
+//         ASSERT_EQ(e.To(), vertex2);
 //       }
 //     }
 //     {
@@ -3429,14 +3429,14 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       {
 //         auto e = edges[0];
 //         ASSERT_EQ(e.EdgeType(), et2);
-//         ASSERT_EQ(e.FromVertex(), vertex2);
-//         ASSERT_EQ(e.ToVertex(), vertex1);
+//         ASSERT_EQ(e.From(), vertex2);
+//         ASSERT_EQ(e.To(), vertex1);
 //       }
 //       {
 //         auto e = edges[1];
 //         ASSERT_EQ(e.EdgeType(), et4);
-//         ASSERT_EQ(e.FromVertex(), vertex2);
-//         ASSERT_EQ(e.ToVertex(), vertex2);
+//         ASSERT_EQ(e.From(), vertex2);
+//         ASSERT_EQ(e.To(), vertex2);
 //       }
 //     }
 
@@ -3480,14 +3480,14 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       {
 //         auto e = edges[0];
 //         ASSERT_EQ(e.EdgeType(), et2);
-//         ASSERT_EQ(e.FromVertex(), *vertex2);
-//         ASSERT_EQ(e.ToVertex(), *vertex1);
+//         ASSERT_EQ(e.From(), *vertex2);
+//         ASSERT_EQ(e.To(), *vertex1);
 //       }
 //       {
 //         auto e = edges[1];
 //         ASSERT_EQ(e.EdgeType(), et3);
-//         ASSERT_EQ(e.FromVertex(), *vertex1);
-//         ASSERT_EQ(e.ToVertex(), *vertex1);
+//         ASSERT_EQ(e.From(), *vertex1);
+//         ASSERT_EQ(e.To(), *vertex1);
 //       }
 //     }
 //     ASSERT_EQ(vertex1->InEdges(View::NEW).GetError(), memgraph::storage::Error::DELETED_OBJECT);
@@ -3501,14 +3501,14 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       {
 //         auto e = edges[0];
 //         ASSERT_EQ(e.EdgeType(), et1);
-//         ASSERT_EQ(e.FromVertex(), *vertex1);
-//         ASSERT_EQ(e.ToVertex(), *vertex2);
+//         ASSERT_EQ(e.From(), *vertex1);
+//         ASSERT_EQ(e.To(), *vertex2);
 //       }
 //       {
 //         auto e = edges[1];
 //         ASSERT_EQ(e.EdgeType(), et3);
-//         ASSERT_EQ(e.FromVertex(), *vertex1);
-//         ASSERT_EQ(e.ToVertex(), *vertex1);
+//         ASSERT_EQ(e.From(), *vertex1);
+//         ASSERT_EQ(e.To(), *vertex1);
 //       }
 //     }
 //     ASSERT_EQ(vertex1->OutEdges(View::NEW).GetError(), memgraph::storage::Error::DELETED_OBJECT);
@@ -3522,14 +3522,14 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       {
 //         auto e = edges[0];
 //         ASSERT_EQ(e.EdgeType(), et1);
-//         ASSERT_EQ(e.FromVertex(), *vertex1);
-//         ASSERT_EQ(e.ToVertex(), *vertex2);
+//         ASSERT_EQ(e.From(), *vertex1);
+//         ASSERT_EQ(e.To(), *vertex2);
 //       }
 //       {
 //         auto e = edges[1];
 //         ASSERT_EQ(e.EdgeType(), et4);
-//         ASSERT_EQ(e.FromVertex(), *vertex2);
-//         ASSERT_EQ(e.ToVertex(), *vertex2);
+//         ASSERT_EQ(e.From(), *vertex2);
+//         ASSERT_EQ(e.To(), *vertex2);
 //       }
 //     }
 //     {
@@ -3540,8 +3540,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       ASSERT_EQ(*vertex2->InDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et4);
-//       ASSERT_EQ(e.FromVertex(), *vertex2);
-//       ASSERT_EQ(e.ToVertex(), *vertex2);
+//       ASSERT_EQ(e.From(), *vertex2);
+//       ASSERT_EQ(e.To(), *vertex2);
 //     }
 //     {
 //       auto ret = vertex2->OutEdges(View::OLD);
@@ -3552,14 +3552,14 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       {
 //         auto e = edges[0];
 //         ASSERT_EQ(e.EdgeType(), et2);
-//         ASSERT_EQ(e.FromVertex(), *vertex2);
-//         ASSERT_EQ(e.ToVertex(), *vertex1);
+//         ASSERT_EQ(e.From(), *vertex2);
+//         ASSERT_EQ(e.To(), *vertex1);
 //       }
 //       {
 //         auto e = edges[1];
 //         ASSERT_EQ(e.EdgeType(), et4);
-//         ASSERT_EQ(e.FromVertex(), *vertex2);
-//         ASSERT_EQ(e.ToVertex(), *vertex2);
+//         ASSERT_EQ(e.From(), *vertex2);
+//         ASSERT_EQ(e.To(), *vertex2);
 //       }
 //     }
 //     {
@@ -3570,8 +3570,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       ASSERT_EQ(*vertex2->OutDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et4);
-//       ASSERT_EQ(e.FromVertex(), *vertex2);
-//       ASSERT_EQ(e.ToVertex(), *vertex2);
+//       ASSERT_EQ(e.From(), *vertex2);
+//       ASSERT_EQ(e.To(), *vertex2);
 //     }
 
 //     acc.Commit(GetNextHlc());
@@ -3596,8 +3596,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       ASSERT_EQ(*vertex2->InDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et4);
-//       ASSERT_EQ(e.FromVertex(), *vertex2);
-//       ASSERT_EQ(e.ToVertex(), *vertex2);
+//       ASSERT_EQ(e.From(), *vertex2);
+//       ASSERT_EQ(e.To(), *vertex2);
 //     }
 //     {
 //       auto ret = vertex2->InEdges(View::NEW);
@@ -3607,8 +3607,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       ASSERT_EQ(*vertex2->InDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et4);
-//       ASSERT_EQ(e.FromVertex(), *vertex2);
-//       ASSERT_EQ(e.ToVertex(), *vertex2);
+//       ASSERT_EQ(e.From(), *vertex2);
+//       ASSERT_EQ(e.To(), *vertex2);
 //     }
 //     {
 //       auto ret = vertex2->OutEdges(View::OLD);
@@ -3618,8 +3618,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       ASSERT_EQ(*vertex2->OutDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et4);
-//       ASSERT_EQ(e.FromVertex(), *vertex2);
-//       ASSERT_EQ(e.ToVertex(), *vertex2);
+//       ASSERT_EQ(e.From(), *vertex2);
+//       ASSERT_EQ(e.To(), *vertex2);
 //     }
 //     {
 //       auto ret = vertex2->OutEdges(View::NEW);
@@ -3629,8 +3629,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       ASSERT_EQ(*vertex2->OutDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et4);
-//       ASSERT_EQ(e.FromVertex(), *vertex2);
-//       ASSERT_EQ(e.ToVertex(), *vertex2);
+//       ASSERT_EQ(e.From(), *vertex2);
+//       ASSERT_EQ(e.To(), *vertex2);
 //     }
 //   }
 // }
@@ -3653,8 +3653,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //     ASSERT_TRUE(res.HasValue());
 //     auto edge = res.GetValue();
 //     ASSERT_EQ(edge.EdgeType(), et);
-//     ASSERT_EQ(edge.FromVertex(), vertex_from);
-//     ASSERT_EQ(edge.ToVertex(), vertex_to);
+//     ASSERT_EQ(edge.From(), vertex_from);
+//     ASSERT_EQ(edge.To(), vertex_to);
 
 //     gid_from = vertex_from.Gid();
 //     gid_to = vertex_to.Gid();
@@ -3670,8 +3670,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       ASSERT_EQ(*vertex_from.OutDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), vertex_from);
-//       ASSERT_EQ(e.ToVertex(), vertex_to);
+//       ASSERT_EQ(e.From(), vertex_from);
+//       ASSERT_EQ(e.To(), vertex_to);
 //     }
 //     {
 //       auto ret = vertex_to.InEdges(View::NEW);
@@ -3681,8 +3681,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       ASSERT_EQ(*vertex_to.InDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), vertex_from);
-//       ASSERT_EQ(e.ToVertex(), vertex_to);
+//       ASSERT_EQ(e.From(), vertex_from);
+//       ASSERT_EQ(e.To(), vertex_to);
 //     }
 //     ASSERT_EQ(vertex_to.OutEdges(View::NEW)->size(), 0);
 //     ASSERT_EQ(*vertex_to.OutDegree(View::NEW), 0);
@@ -3727,8 +3727,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       ASSERT_EQ(*vertex_from->OutDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     ASSERT_EQ(vertex_from->OutEdges(View::NEW).GetError(), memgraph::storage::Error::DELETED_OBJECT);
 //     ASSERT_EQ(vertex_from->OutDegree(View::NEW).GetError(), memgraph::storage::Error::DELETED_OBJECT);
@@ -3740,8 +3740,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       ASSERT_EQ(*vertex_to->InDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     ASSERT_EQ(vertex_to->InEdges(View::NEW)->size(), 0);
 //     ASSERT_EQ(*vertex_to->InDegree(View::NEW), 0);
@@ -3774,8 +3774,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       ASSERT_EQ(*vertex_from->OutDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     {
 //       auto ret = vertex_to->InEdges(View::NEW);
@@ -3785,8 +3785,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       ASSERT_EQ(*vertex_to->InDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     ASSERT_EQ(vertex_to->OutEdges(View::NEW)->size(), 0);
 //     ASSERT_EQ(*vertex_to->OutDegree(View::NEW), 0);
@@ -3831,8 +3831,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       ASSERT_EQ(*vertex_from->OutDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     ASSERT_EQ(vertex_from->OutEdges(View::NEW).GetError(), memgraph::storage::Error::DELETED_OBJECT);
 //     ASSERT_EQ(vertex_from->OutDegree(View::NEW).GetError(), memgraph::storage::Error::DELETED_OBJECT);
@@ -3844,8 +3844,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       ASSERT_EQ(*vertex_to->InDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
+//       ASSERT_EQ(e.From(), *vertex_from);
+//       ASSERT_EQ(e.To(), *vertex_to);
 //     }
 //     ASSERT_EQ(vertex_to->InEdges(View::NEW)->size(), 0);
 //     ASSERT_EQ(*vertex_to->InDegree(View::NEW), 0);
@@ -3901,29 +3901,29 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //     ASSERT_TRUE(res1.HasValue());
 //     auto edge1 = res1.GetValue();
 //     ASSERT_EQ(edge1.EdgeType(), et1);
-//     ASSERT_EQ(edge1.FromVertex(), vertex1);
-//     ASSERT_EQ(edge1.ToVertex(), vertex2);
+//     ASSERT_EQ(edge1.From(), vertex1);
+//     ASSERT_EQ(edge1.To(), vertex2);
 
 //     auto res2 = acc.CreateEdge(&vertex2, &vertex1, et2);
 //     ASSERT_TRUE(res2.HasValue());
 //     auto edge2 = res2.GetValue();
 //     ASSERT_EQ(edge2.EdgeType(), et2);
-//     ASSERT_EQ(edge2.FromVertex(), vertex2);
-//     ASSERT_EQ(edge2.ToVertex(), vertex1);
+//     ASSERT_EQ(edge2.From(), vertex2);
+//     ASSERT_EQ(edge2.To(), vertex1);
 
 //     auto res3 = acc.CreateEdge(&vertex1, &vertex1, et3);
 //     ASSERT_TRUE(res3.HasValue());
 //     auto edge3 = res3.GetValue();
 //     ASSERT_EQ(edge3.EdgeType(), et3);
-//     ASSERT_EQ(edge3.FromVertex(), vertex1);
-//     ASSERT_EQ(edge3.ToVertex(), vertex1);
+//     ASSERT_EQ(edge3.From(), vertex1);
+//     ASSERT_EQ(edge3.To(), vertex1);
 
 //     auto res4 = acc.CreateEdge(&vertex2, &vertex2, et4);
 //     ASSERT_TRUE(res4.HasValue());
 //     auto edge4 = res4.GetValue();
 //     ASSERT_EQ(edge4.EdgeType(), et4);
-//     ASSERT_EQ(edge4.FromVertex(), vertex2);
-//     ASSERT_EQ(edge4.ToVertex(), vertex2);
+//     ASSERT_EQ(edge4.From(), vertex2);
+//     ASSERT_EQ(edge4.To(), vertex2);
 
 //     // Check edges
 //     {
@@ -3935,14 +3935,14 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       {
 //         auto e = edges[0];
 //         ASSERT_EQ(e.EdgeType(), et2);
-//         ASSERT_EQ(e.FromVertex(), vertex2);
-//         ASSERT_EQ(e.ToVertex(), vertex1);
+//         ASSERT_EQ(e.From(), vertex2);
+//         ASSERT_EQ(e.To(), vertex1);
 //       }
 //       {
 //         auto e = edges[1];
 //         ASSERT_EQ(e.EdgeType(), et3);
-//         ASSERT_EQ(e.FromVertex(), vertex1);
-//         ASSERT_EQ(e.ToVertex(), vertex1);
+//         ASSERT_EQ(e.From(), vertex1);
+//         ASSERT_EQ(e.To(), vertex1);
 //       }
 //     }
 //     {
@@ -3954,14 +3954,14 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       {
 //         auto e = edges[0];
 //         ASSERT_EQ(e.EdgeType(), et1);
-//         ASSERT_EQ(e.FromVertex(), vertex1);
-//         ASSERT_EQ(e.ToVertex(), vertex2);
+//         ASSERT_EQ(e.From(), vertex1);
+//         ASSERT_EQ(e.To(), vertex2);
 //       }
 //       {
 //         auto e = edges[1];
 //         ASSERT_EQ(e.EdgeType(), et3);
-//         ASSERT_EQ(e.FromVertex(), vertex1);
-//         ASSERT_EQ(e.ToVertex(), vertex1);
+//         ASSERT_EQ(e.From(), vertex1);
+//         ASSERT_EQ(e.To(), vertex1);
 //       }
 //     }
 //     {
@@ -3973,14 +3973,14 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       {
 //         auto e = edges[0];
 //         ASSERT_EQ(e.EdgeType(), et1);
-//         ASSERT_EQ(e.FromVertex(), vertex1);
-//         ASSERT_EQ(e.ToVertex(), vertex2);
+//         ASSERT_EQ(e.From(), vertex1);
+//         ASSERT_EQ(e.To(), vertex2);
 //       }
 //       {
 //         auto e = edges[1];
 //         ASSERT_EQ(e.EdgeType(), et4);
-//         ASSERT_EQ(e.FromVertex(), vertex2);
-//         ASSERT_EQ(e.ToVertex(), vertex2);
+//         ASSERT_EQ(e.From(), vertex2);
+//         ASSERT_EQ(e.To(), vertex2);
 //       }
 //     }
 //     {
@@ -3992,14 +3992,14 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       {
 //         auto e = edges[0];
 //         ASSERT_EQ(e.EdgeType(), et2);
-//         ASSERT_EQ(e.FromVertex(), vertex2);
-//         ASSERT_EQ(e.ToVertex(), vertex1);
+//         ASSERT_EQ(e.From(), vertex2);
+//         ASSERT_EQ(e.To(), vertex1);
 //       }
 //       {
 //         auto e = edges[1];
 //         ASSERT_EQ(e.EdgeType(), et4);
-//         ASSERT_EQ(e.FromVertex(), vertex2);
-//         ASSERT_EQ(e.ToVertex(), vertex2);
+//         ASSERT_EQ(e.From(), vertex2);
+//         ASSERT_EQ(e.To(), vertex2);
 //       }
 //     }
 
@@ -4043,14 +4043,14 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       {
 //         auto e = edges[0];
 //         ASSERT_EQ(e.EdgeType(), et2);
-//         ASSERT_EQ(e.FromVertex(), *vertex2);
-//         ASSERT_EQ(e.ToVertex(), *vertex1);
+//         ASSERT_EQ(e.From(), *vertex2);
+//         ASSERT_EQ(e.To(), *vertex1);
 //       }
 //       {
 //         auto e = edges[1];
 //         ASSERT_EQ(e.EdgeType(), et3);
-//         ASSERT_EQ(e.FromVertex(), *vertex1);
-//         ASSERT_EQ(e.ToVertex(), *vertex1);
+//         ASSERT_EQ(e.From(), *vertex1);
+//         ASSERT_EQ(e.To(), *vertex1);
 //       }
 //     }
 //     ASSERT_EQ(vertex1->InEdges(View::NEW).GetError(), memgraph::storage::Error::DELETED_OBJECT);
@@ -4064,14 +4064,14 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       {
 //         auto e = edges[0];
 //         ASSERT_EQ(e.EdgeType(), et1);
-//         ASSERT_EQ(e.FromVertex(), *vertex1);
-//         ASSERT_EQ(e.ToVertex(), *vertex2);
+//         ASSERT_EQ(e.From(), *vertex1);
+//         ASSERT_EQ(e.To(), *vertex2);
 //       }
 //       {
 //         auto e = edges[1];
 //         ASSERT_EQ(e.EdgeType(), et3);
-//         ASSERT_EQ(e.FromVertex(), *vertex1);
-//         ASSERT_EQ(e.ToVertex(), *vertex1);
+//         ASSERT_EQ(e.From(), *vertex1);
+//         ASSERT_EQ(e.To(), *vertex1);
 //       }
 //     }
 //     ASSERT_EQ(vertex1->OutEdges(View::NEW).GetError(), memgraph::storage::Error::DELETED_OBJECT);
@@ -4085,14 +4085,14 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       {
 //         auto e = edges[0];
 //         ASSERT_EQ(e.EdgeType(), et1);
-//         ASSERT_EQ(e.FromVertex(), *vertex1);
-//         ASSERT_EQ(e.ToVertex(), *vertex2);
+//         ASSERT_EQ(e.From(), *vertex1);
+//         ASSERT_EQ(e.To(), *vertex2);
 //       }
 //       {
 //         auto e = edges[1];
 //         ASSERT_EQ(e.EdgeType(), et4);
-//         ASSERT_EQ(e.FromVertex(), *vertex2);
-//         ASSERT_EQ(e.ToVertex(), *vertex2);
+//         ASSERT_EQ(e.From(), *vertex2);
+//         ASSERT_EQ(e.To(), *vertex2);
 //       }
 //     }
 //     {
@@ -4103,8 +4103,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       ASSERT_EQ(*vertex2->InDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et4);
-//       ASSERT_EQ(e.FromVertex(), *vertex2);
-//       ASSERT_EQ(e.ToVertex(), *vertex2);
+//       ASSERT_EQ(e.From(), *vertex2);
+//       ASSERT_EQ(e.To(), *vertex2);
 //     }
 //     {
 //       auto ret = vertex2->OutEdges(View::OLD);
@@ -4115,14 +4115,14 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       {
 //         auto e = edges[0];
 //         ASSERT_EQ(e.EdgeType(), et2);
-//         ASSERT_EQ(e.FromVertex(), *vertex2);
-//         ASSERT_EQ(e.ToVertex(), *vertex1);
+//         ASSERT_EQ(e.From(), *vertex2);
+//         ASSERT_EQ(e.To(), *vertex1);
 //       }
 //       {
 //         auto e = edges[1];
 //         ASSERT_EQ(e.EdgeType(), et4);
-//         ASSERT_EQ(e.FromVertex(), *vertex2);
-//         ASSERT_EQ(e.ToVertex(), *vertex2);
+//         ASSERT_EQ(e.From(), *vertex2);
+//         ASSERT_EQ(e.To(), *vertex2);
 //       }
 //     }
 //     {
@@ -4133,8 +4133,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       ASSERT_EQ(*vertex2->OutDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et4);
-//       ASSERT_EQ(e.FromVertex(), *vertex2);
-//       ASSERT_EQ(e.ToVertex(), *vertex2);
+//       ASSERT_EQ(e.From(), *vertex2);
+//       ASSERT_EQ(e.To(), *vertex2);
 //     }
 
 //     acc.Abort();
@@ -4163,14 +4163,14 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       {
 //         auto e = edges[0];
 //         ASSERT_EQ(e.EdgeType(), et2);
-//         ASSERT_EQ(e.FromVertex(), *vertex2);
-//         ASSERT_EQ(e.ToVertex(), *vertex1);
+//         ASSERT_EQ(e.From(), *vertex2);
+//         ASSERT_EQ(e.To(), *vertex1);
 //       }
 //       {
 //         auto e = edges[1];
 //         ASSERT_EQ(e.EdgeType(), et3);
-//         ASSERT_EQ(e.FromVertex(), *vertex1);
-//         ASSERT_EQ(e.ToVertex(), *vertex1);
+//         ASSERT_EQ(e.From(), *vertex1);
+//         ASSERT_EQ(e.To(), *vertex1);
 //       }
 //     }
 //     {
@@ -4182,14 +4182,14 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       {
 //         auto e = edges[0];
 //         ASSERT_EQ(e.EdgeType(), et2);
-//         ASSERT_EQ(e.FromVertex(), *vertex2);
-//         ASSERT_EQ(e.ToVertex(), *vertex1);
+//         ASSERT_EQ(e.From(), *vertex2);
+//         ASSERT_EQ(e.To(), *vertex1);
 //       }
 //       {
 //         auto e = edges[1];
 //         ASSERT_EQ(e.EdgeType(), et3);
-//         ASSERT_EQ(e.FromVertex(), *vertex1);
-//         ASSERT_EQ(e.ToVertex(), *vertex1);
+//         ASSERT_EQ(e.From(), *vertex1);
+//         ASSERT_EQ(e.To(), *vertex1);
 //       }
 //     }
 //     {
@@ -4201,14 +4201,14 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       {
 //         auto e = edges[0];
 //         ASSERT_EQ(e.EdgeType(), et1);
-//         ASSERT_EQ(e.FromVertex(), *vertex1);
-//         ASSERT_EQ(e.ToVertex(), *vertex2);
+//         ASSERT_EQ(e.From(), *vertex1);
+//         ASSERT_EQ(e.To(), *vertex2);
 //       }
 //       {
 //         auto e = edges[1];
 //         ASSERT_EQ(e.EdgeType(), et3);
-//         ASSERT_EQ(e.FromVertex(), *vertex1);
-//         ASSERT_EQ(e.ToVertex(), *vertex1);
+//         ASSERT_EQ(e.From(), *vertex1);
+//         ASSERT_EQ(e.To(), *vertex1);
 //       }
 //     }
 //     {
@@ -4220,14 +4220,14 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       {
 //         auto e = edges[0];
 //         ASSERT_EQ(e.EdgeType(), et1);
-//         ASSERT_EQ(e.FromVertex(), *vertex1);
-//         ASSERT_EQ(e.ToVertex(), *vertex2);
+//         ASSERT_EQ(e.From(), *vertex1);
+//         ASSERT_EQ(e.To(), *vertex2);
 //       }
 //       {
 //         auto e = edges[1];
 //         ASSERT_EQ(e.EdgeType(), et3);
-//         ASSERT_EQ(e.FromVertex(), *vertex1);
-//         ASSERT_EQ(e.ToVertex(), *vertex1);
+//         ASSERT_EQ(e.From(), *vertex1);
+//         ASSERT_EQ(e.To(), *vertex1);
 //       }
 //     }
 //     {
@@ -4239,14 +4239,14 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       {
 //         auto e = edges[0];
 //         ASSERT_EQ(e.EdgeType(), et1);
-//         ASSERT_EQ(e.FromVertex(), *vertex1);
-//         ASSERT_EQ(e.ToVertex(), *vertex2);
+//         ASSERT_EQ(e.From(), *vertex1);
+//         ASSERT_EQ(e.To(), *vertex2);
 //       }
 //       {
 //         auto e = edges[1];
 //         ASSERT_EQ(e.EdgeType(), et4);
-//         ASSERT_EQ(e.FromVertex(), *vertex2);
-//         ASSERT_EQ(e.ToVertex(), *vertex2);
+//         ASSERT_EQ(e.From(), *vertex2);
+//         ASSERT_EQ(e.To(), *vertex2);
 //       }
 //     }
 //     {
@@ -4258,14 +4258,14 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       {
 //         auto e = edges[0];
 //         ASSERT_EQ(e.EdgeType(), et1);
-//         ASSERT_EQ(e.FromVertex(), *vertex1);
-//         ASSERT_EQ(e.ToVertex(), *vertex2);
+//         ASSERT_EQ(e.From(), *vertex1);
+//         ASSERT_EQ(e.To(), *vertex2);
 //       }
 //       {
 //         auto e = edges[1];
 //         ASSERT_EQ(e.EdgeType(), et4);
-//         ASSERT_EQ(e.FromVertex(), *vertex2);
-//         ASSERT_EQ(e.ToVertex(), *vertex2);
+//         ASSERT_EQ(e.From(), *vertex2);
+//         ASSERT_EQ(e.To(), *vertex2);
 //       }
 //     }
 //     {
@@ -4277,14 +4277,14 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       {
 //         auto e = edges[0];
 //         ASSERT_EQ(e.EdgeType(), et2);
-//         ASSERT_EQ(e.FromVertex(), *vertex2);
-//         ASSERT_EQ(e.ToVertex(), *vertex1);
+//         ASSERT_EQ(e.From(), *vertex2);
+//         ASSERT_EQ(e.To(), *vertex1);
 //       }
 //       {
 //         auto e = edges[1];
 //         ASSERT_EQ(e.EdgeType(), et4);
-//         ASSERT_EQ(e.FromVertex(), *vertex2);
-//         ASSERT_EQ(e.ToVertex(), *vertex2);
+//         ASSERT_EQ(e.From(), *vertex2);
+//         ASSERT_EQ(e.To(), *vertex2);
 //       }
 //     }
 //     {
@@ -4296,14 +4296,14 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       {
 //         auto e = edges[0];
 //         ASSERT_EQ(e.EdgeType(), et2);
-//         ASSERT_EQ(e.FromVertex(), *vertex2);
-//         ASSERT_EQ(e.ToVertex(), *vertex1);
+//         ASSERT_EQ(e.From(), *vertex2);
+//         ASSERT_EQ(e.To(), *vertex1);
 //       }
 //       {
 //         auto e = edges[1];
 //         ASSERT_EQ(e.EdgeType(), et4);
-//         ASSERT_EQ(e.FromVertex(), *vertex2);
-//         ASSERT_EQ(e.ToVertex(), *vertex2);
+//         ASSERT_EQ(e.From(), *vertex2);
+//         ASSERT_EQ(e.To(), *vertex2);
 //       }
 //     }
 
@@ -4347,14 +4347,14 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       {
 //         auto e = edges[0];
 //         ASSERT_EQ(e.EdgeType(), et2);
-//         ASSERT_EQ(e.FromVertex(), *vertex2);
-//         ASSERT_EQ(e.ToVertex(), *vertex1);
+//         ASSERT_EQ(e.From(), *vertex2);
+//         ASSERT_EQ(e.To(), *vertex1);
 //       }
 //       {
 //         auto e = edges[1];
 //         ASSERT_EQ(e.EdgeType(), et3);
-//         ASSERT_EQ(e.FromVertex(), *vertex1);
-//         ASSERT_EQ(e.ToVertex(), *vertex1);
+//         ASSERT_EQ(e.From(), *vertex1);
+//         ASSERT_EQ(e.To(), *vertex1);
 //       }
 //     }
 //     ASSERT_EQ(vertex1->InEdges(View::NEW).GetError(), memgraph::storage::Error::DELETED_OBJECT);
@@ -4368,14 +4368,14 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       {
 //         auto e = edges[0];
 //         ASSERT_EQ(e.EdgeType(), et1);
-//         ASSERT_EQ(e.FromVertex(), *vertex1);
-//         ASSERT_EQ(e.ToVertex(), *vertex2);
+//         ASSERT_EQ(e.From(), *vertex1);
+//         ASSERT_EQ(e.To(), *vertex2);
 //       }
 //       {
 //         auto e = edges[1];
 //         ASSERT_EQ(e.EdgeType(), et3);
-//         ASSERT_EQ(e.FromVertex(), *vertex1);
-//         ASSERT_EQ(e.ToVertex(), *vertex1);
+//         ASSERT_EQ(e.From(), *vertex1);
+//         ASSERT_EQ(e.To(), *vertex1);
 //       }
 //     }
 //     ASSERT_EQ(vertex1->OutEdges(View::NEW).GetError(), memgraph::storage::Error::DELETED_OBJECT);
@@ -4389,14 +4389,14 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       {
 //         auto e = edges[0];
 //         ASSERT_EQ(e.EdgeType(), et1);
-//         ASSERT_EQ(e.FromVertex(), *vertex1);
-//         ASSERT_EQ(e.ToVertex(), *vertex2);
+//         ASSERT_EQ(e.From(), *vertex1);
+//         ASSERT_EQ(e.To(), *vertex2);
 //       }
 //       {
 //         auto e = edges[1];
 //         ASSERT_EQ(e.EdgeType(), et4);
-//         ASSERT_EQ(e.FromVertex(), *vertex2);
-//         ASSERT_EQ(e.ToVertex(), *vertex2);
+//         ASSERT_EQ(e.From(), *vertex2);
+//         ASSERT_EQ(e.To(), *vertex2);
 //       }
 //     }
 //     {
@@ -4407,8 +4407,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       ASSERT_EQ(*vertex2->InDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et4);
-//       ASSERT_EQ(e.FromVertex(), *vertex2);
-//       ASSERT_EQ(e.ToVertex(), *vertex2);
+//       ASSERT_EQ(e.From(), *vertex2);
+//       ASSERT_EQ(e.To(), *vertex2);
 //     }
 //     {
 //       auto ret = vertex2->OutEdges(View::OLD);
@@ -4419,14 +4419,14 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       {
 //         auto e = edges[0];
 //         ASSERT_EQ(e.EdgeType(), et2);
-//         ASSERT_EQ(e.FromVertex(), *vertex2);
-//         ASSERT_EQ(e.ToVertex(), *vertex1);
+//         ASSERT_EQ(e.From(), *vertex2);
+//         ASSERT_EQ(e.To(), *vertex1);
 //       }
 //       {
 //         auto e = edges[1];
 //         ASSERT_EQ(e.EdgeType(), et4);
-//         ASSERT_EQ(e.FromVertex(), *vertex2);
-//         ASSERT_EQ(e.ToVertex(), *vertex2);
+//         ASSERT_EQ(e.From(), *vertex2);
+//         ASSERT_EQ(e.To(), *vertex2);
 //       }
 //     }
 //     {
@@ -4437,8 +4437,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       ASSERT_EQ(*vertex2->OutDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et4);
-//       ASSERT_EQ(e.FromVertex(), *vertex2);
-//       ASSERT_EQ(e.ToVertex(), *vertex2);
+//       ASSERT_EQ(e.From(), *vertex2);
+//       ASSERT_EQ(e.To(), *vertex2);
 //     }
 
 //     acc.Commit(GetNextHlc());
@@ -4463,8 +4463,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       ASSERT_EQ(*vertex2->InDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et4);
-//       ASSERT_EQ(e.FromVertex(), *vertex2);
-//       ASSERT_EQ(e.ToVertex(), *vertex2);
+//       ASSERT_EQ(e.From(), *vertex2);
+//       ASSERT_EQ(e.To(), *vertex2);
 //     }
 //     {
 //       auto ret = vertex2->InEdges(View::NEW);
@@ -4474,8 +4474,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       ASSERT_EQ(*vertex2->InDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et4);
-//       ASSERT_EQ(e.FromVertex(), *vertex2);
-//       ASSERT_EQ(e.ToVertex(), *vertex2);
+//       ASSERT_EQ(e.From(), *vertex2);
+//       ASSERT_EQ(e.To(), *vertex2);
 //     }
 //     {
 //       auto ret = vertex2->OutEdges(View::OLD);
@@ -4485,8 +4485,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       ASSERT_EQ(*vertex2->OutDegree(View::OLD), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et4);
-//       ASSERT_EQ(e.FromVertex(), *vertex2);
-//       ASSERT_EQ(e.ToVertex(), *vertex2);
+//       ASSERT_EQ(e.From(), *vertex2);
+//       ASSERT_EQ(e.To(), *vertex2);
 //     }
 //     {
 //       auto ret = vertex2->OutEdges(View::NEW);
@@ -4496,8 +4496,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       ASSERT_EQ(*vertex2->OutDegree(View::NEW), 1);
 //       auto e = edges[0];
 //       ASSERT_EQ(e.EdgeType(), et4);
-//       ASSERT_EQ(e.FromVertex(), *vertex2);
-//       ASSERT_EQ(e.ToVertex(), *vertex2);
+//       ASSERT_EQ(e.From(), *vertex2);
+//       ASSERT_EQ(e.To(), *vertex2);
 //     }
 //   }
 // }
@@ -4513,8 +4513,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //     auto et = acc.NameToEdgeType("et5");
 //     auto edge = acc.CreateEdge(&vertex, &vertex, et).GetValue();
 //     ASSERT_EQ(edge.EdgeType(), et);
-//     ASSERT_EQ(edge.FromVertex(), vertex);
-//     ASSERT_EQ(edge.ToVertex(), vertex);
+//     ASSERT_EQ(edge.From(), vertex);
+//     ASSERT_EQ(edge.To(), vertex);
 
 //     auto property = acc.NameToProperty("property5");
 
@@ -4645,8 +4645,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //     auto et = acc.NameToEdgeType("et5");
 //     auto edge = acc.CreateEdge(&vertex, &vertex, et).GetValue();
 //     ASSERT_EQ(edge.EdgeType(), et);
-//     ASSERT_EQ(edge.FromVertex(), vertex);
-//     ASSERT_EQ(edge.ToVertex(), vertex);
+//     ASSERT_EQ(edge.From(), vertex);
+//     ASSERT_EQ(edge.To(), vertex);
 //     acc.Commit(GetNextHlc());
 //   }
 
@@ -4934,8 +4934,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //     auto et = acc.NameToEdgeType("et5");
 //     auto edge = acc.CreateEdge(&vertex, &vertex, et).GetValue();
 //     ASSERT_EQ(edge.EdgeType(), et);
-//     ASSERT_EQ(edge.FromVertex(), vertex);
-//     ASSERT_EQ(edge.ToVertex(), vertex);
+//     ASSERT_EQ(edge.From(), vertex);
+//     ASSERT_EQ(edge.To(), vertex);
 //     acc.Commit(GetNextHlc());
 //   }
 
@@ -5045,8 +5045,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //     auto et = acc.NameToEdgeType("et5");
 //     auto edge = acc.CreateEdge(&vertex, &vertex, et).GetValue();
 //     ASSERT_EQ(edge.EdgeType(), et);
-//     ASSERT_EQ(edge.FromVertex(), vertex);
-//     ASSERT_EQ(edge.ToVertex(), vertex);
+//     ASSERT_EQ(edge.From(), vertex);
+//     ASSERT_EQ(edge.To(), vertex);
 
 //     auto old_value = edge.SetProperty(property1, memgraph::storage::PropertyValue("value"));
 //     ASSERT_TRUE(old_value.HasValue());
@@ -5158,8 +5158,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //     auto et = acc.NameToEdgeType("et5");
 //     auto edge = acc.CreateEdge(&vertex, &vertex, et).GetValue();
 //     ASSERT_EQ(edge.EdgeType(), et);
-//     ASSERT_EQ(edge.FromVertex(), vertex);
-//     ASSERT_EQ(edge.ToVertex(), vertex);
+//     ASSERT_EQ(edge.From(), vertex);
+//     ASSERT_EQ(edge.To(), vertex);
 //     acc.Commit(GetNextHlc());
 //   }
 //   {
@@ -5226,8 +5226,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //     auto et = acc.NameToEdgeType("et5");
 //     auto edge = acc.CreateEdge(&vertex, &vertex, et).GetValue();
 //     ASSERT_EQ(edge.EdgeType(), et);
-//     ASSERT_EQ(edge.FromVertex(), vertex);
-//     ASSERT_EQ(edge.ToVertex(), vertex);
+//     ASSERT_EQ(edge.From(), vertex);
+//     ASSERT_EQ(edge.To(), vertex);
 //     acc.Commit(GetNextHlc());
 //   }
 //   {

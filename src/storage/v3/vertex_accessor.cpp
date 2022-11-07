@@ -733,4 +733,7 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
   return degree;
 }
 
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+size_t VertexAccessor::CypherId() const { return 10; }
+
 }  // namespace memgraph::storage::v3

@@ -88,7 +88,7 @@ class DbAccessor final {
   }
 
   storage::v3::Result<std::optional<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge) {
-    auto res = accessor_->DeleteEdge(edge->FromVertex(), edge->ToVertex(), edge->Gid());
+    auto res = accessor_->DeleteEdge(edge->From(), edge->To(), edge->Gid());
     if (res.HasError()) {
       return res.GetError();
     }

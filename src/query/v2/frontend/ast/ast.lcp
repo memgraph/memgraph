@@ -20,11 +20,13 @@
 #include "query/v2/bindings/ast_visitor.hpp"
 #include "common/types.hpp"
 #include "query/v2/bindings/symbol.hpp"
-#include "query/v2/interpret/awesome_memgraph_functions.hpp"
+#include "functions/awesome_memgraph_functions.hpp"
 #include "query/v2/bindings/typed_value.hpp"
 #include "query/v2/db_accessor.hpp"
 #include "query/v2/path.hpp"
+#include "query/v2/shard_request_manager.hpp"
 #include "utils/typeinfo.hpp"
+#include "query/v2/conversions.hpp"
 
 cpp<#
 
@@ -836,13 +838,15 @@ cpp<#
               :slk-load (slk-load-ast-vector "Expression"))
    (function-name "std::string" :scope :public)
    (function "std::function<TypedValue(const TypedValue *, int64_t,
-                                       const FunctionContext &)>"
+                                       const functions::FunctionContext<msgs::ShardRequestManagerInterface> &)>"
              :scope :public
              :dont-save t
              :clone :copy
              :slk-load (lambda (member)
                         #>cpp
-                        self->${member} = query::v2::NameToFunction(self->function_name_);
+                        self->${member} = functions::NameToFunction<TypedValue,
+                                            functions::FunctionContext<msgs::ShardRequestManagerInterface>,
+                                            functions::QueryEngineTag, decltype(ValueToTypedValueFunctor)>(self->function_name_);
                         cpp<#)))
   (:public
     #>cpp
@@ -865,7 +869,8 @@ cpp<#
              const std::vector<Expression *> &arguments)
         : arguments_(arguments),
           function_name_(function_name),
-          function_(NameToFunction(function_name_)) {
+          function_(functions::NameToFunction<TypedValue, functions::FunctionContext<msgs::ShardRequestManagerInterface>,
+                                              functions::QueryEngineTag, decltype(ValueToTypedValueFunctor)>(function_name_)) {
       if (!function_) {
         throw SemanticException("Function '{}' doesn't exist.", function_name);
       }

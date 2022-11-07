@@ -136,9 +136,11 @@ class VertexAccessor final {
   //    return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
   //  }
 
-  //  storage::Result<size_t> InDegree(storage::View view) const { return impl_.InDegree(view); }
-  //
-  //  storage::Result<size_t> OutDegree(storage::View view) const { return impl_.OutDegree(view); }
+  // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+  [[nodiscard]] size_t InDegree() const { return 0; }
+
+  // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+  [[nodiscard]] size_t OutDegree() const { return 0; }
   //
 
   friend bool operator==(const VertexAccessor &lhs, const VertexAccessor &rhs) {
@@ -152,10 +154,6 @@ class VertexAccessor final {
   std::vector<std::pair<PropertyId, Value>> properties;
   const msgs::ShardRequestManagerInterface *manager_;
 };
-
-// inline VertexAccessor EdgeAccessor::To() const { return VertexAccessor(impl_.ToVertex()); }
-
-// inline VertexAccessor EdgeAccessor::From() const { return VertexAccessor(impl_.FromVertex()); }
 
 // Highly mocked interface. Won't work if used.
 class Path {
@@ -197,7 +195,14 @@ class Path {
   friend bool operator==(const Path & /*lhs*/, const Path & /*rhs*/) { return true; };
   utils::MemoryResource *GetMemoryResource() { return mem; }
 
+  auto &vertices() { return vertices_; }
+  auto &edges() { return edges_; }
+  const auto &vertices() const { return vertices_; }
+  const auto &edges() const { return edges_; }
+
  private:
+  std::vector<VertexAccessor> vertices_;
+  std::vector<EdgeAccessor> edges_;
   utils::MemoryResource *mem = utils::NewDeleteResource();
 };
 }  // namespace memgraph::query::v2::accessors

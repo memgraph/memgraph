@@ -21,6 +21,7 @@ add_subdirectory(auth)
 add_subdirectory(parser)
 add_subdirectory(expr)
 add_subdirectory(coordinator)
+add_subdirectory(functions)
 
 if (MG_ENTERPRISE)
   add_subdirectory(audit)

@@ -398,7 +398,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
   auto add_id_equal = [&](auto *maybe_id_fun, auto *val_expr) -> bool {
     auto *id_fun = utils::Downcast<Function>(maybe_id_fun);
     if (!id_fun) return false;
-    if (id_fun->function_name_ != kId) return false;
+    if (id_fun->function_name_ != functions::kId) return false;
     if (id_fun->arguments_.size() != 1U) return false;
     auto *ident = utils::Downcast<Identifier>(id_fun->arguments_.front());
     if (!ident) return false;

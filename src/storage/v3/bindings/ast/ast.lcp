@@ -24,6 +24,8 @@
 #include "storage/v3/conversions.hpp"
 #include "storage/v3/path.hpp"
 #include "utils/typeinfo.hpp"
+#include "utils/exceptions.hpp"
+#include "functions/awesome_memgraph_functions.hpp"
 
 cpp<#
 
@@ -178,14 +180,6 @@ cpp<#
   (:serialize (:slk :load-args '((storage "storage::v3::AstStorage *")))))
 
 #>cpp
-struct FunctionContext {
-  DbAccessor *db_accessor;
-  utils::MemoryResource *memory;
-  int64_t timestamp;
-  std::unordered_map<std::string, int64_t> *counters;
-  View view;
-};
-
 inline bool operator==(const LabelIx &a, const LabelIx &b) {
   return a.ix == b.ix && a.name == b.name;
 }
@@ -845,16 +839,24 @@ cpp<#
               :slk-load (slk-load-ast-vector "Expression"))
    (function-name "std::string" :scope :public)
    (function "std::function<TypedValue(const TypedValue *, int64_t,
-                                       const FunctionContext &)>"
+                                       const functions::FunctionContext<memgraph::storage::v3::DbAccessor> &)>"
              :scope :public
              :dont-save t
              :clone :copy
              :slk-load (lambda (member)
                         #>cpp
+                        self->${member} = functions::NameToFunction<memgraph::storage::v3::TypedValue,
+                                            functions::FunctionContext<memgraph::storage::v3::DbAccessor>,
+                                            functions::StorageEngineTag, Conv>(self->function_name_);
                         cpp<#)))
   (:public
     #>cpp
     Function() = default;
+    using Conv = decltype(PropertyToTypedValueFunctor<TypedValue>);
+    class SemanticException : public memgraph::utils::BasicException {
+      using utils::BasicException::BasicException;
+    };
+
 
     DEFVISITABLE(ExpressionVisitor<TypedValue>);
     DEFVISITABLE(ExpressionVisitor<void>);
@@ -872,7 +874,13 @@ cpp<#
     Function(const std::string &function_name,
              const std::vector<Expression *> &arguments)
         : arguments_(arguments),
-          function_name_(function_name) {
+          function_name_(function_name),
+          function_(functions::NameToFunction<memgraph::storage::v3::TypedValue,
+                                            functions::FunctionContext<memgraph::storage::v3::DbAccessor>,
+                                            functions::StorageEngineTag, Conv>(function_name_)) {
+      if (!function_) {
+        throw SemanticException("Function '{}' doesn't exist.", function_name);
+      }
     }
     cpp<#)
   (:private

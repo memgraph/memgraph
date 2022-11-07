@@ -441,7 +441,7 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Shar
   for (const auto &item : in_edges) {
     auto [edge_type, from_vertex, edge] = item;
     EdgeAccessor e(edge, edge_type, from_vertex, vertex_id, transaction_, &shard_->indices_, config_);
-    auto ret = DeleteEdge(e.FromVertex(), e.ToVertex(), e.Gid());
+    auto ret = DeleteEdge(e.From(), e.To(), e.Gid());
     if (ret.HasError()) {
       MG_ASSERT(ret.GetError() == Error::SERIALIZATION_ERROR, "Invalid database state!");
       return ret.GetError();
@@ -454,7 +454,7 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Shar
   for (const auto &item : out_edges) {
     auto [edge_type, to_vertex, edge] = item;
     EdgeAccessor e(edge, edge_type, vertex_id, to_vertex, transaction_, &shard_->indices_, config_);
-    auto ret = DeleteEdge(e.FromVertex(), e.ToVertex(), e.Gid());
+    auto ret = DeleteEdge(e.From(), e.To(), e.Gid());
     if (ret.HasError()) {
       MG_ASSERT(ret.GetError() == Error::SERIALIZATION_ERROR, "Invalid database state!");
       return ret.GetError();
