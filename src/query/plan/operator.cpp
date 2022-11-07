@@ -27,6 +27,7 @@
 #include <cppitertools/imap.hpp>
 #include "spdlog/spdlog.h"
 
+#include "license/license.hpp"
 #include "query/auth_checker.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
@@ -47,7 +48,6 @@
 #include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
-#include "utils/license.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
@@ -242,7 +242,7 @@ CreateNode::CreateNodeCursor::CreateNodeCursor(const CreateNode &self, utils::Me
 bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("CreateNode");
 #ifdef MG_ENTERPRISE
-  if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+  if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
       !context.auth_checker->Has(self_.node_info_.labels,
                                  memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
     throw QueryRuntimeException("Vertex not created due to not having enough permission!");
@@ -334,7 +334,7 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
   if (!input_cursor_->Pull(frame, context)) return false;
 
 #ifdef MG_ENTERPRISE
-  if (utils::license::global_license_checker.IsValidLicenseFast()) {
+  if (license::global_license_checker.IsEnterpriseValidFast()) {
     const auto fine_grained_permission = self_.existing_node_
                                              ? memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE
 
@@ -433,8 +433,7 @@ class ScanAllCursor : public Cursor {
       vertices_it_.emplace(vertices_.value().begin());
     }
 #ifdef MG_ENTERPRISE
-    if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
-        !FindNextVertex(context)) {
+    if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker && !FindNextVertex(context)) {
       return false;
     }
 #endif
@@ -731,7 +730,7 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
     if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
       auto edge = *(*in_edges_it_)++;
 #ifdef MG_ENTERPRISE
-      if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
             context.auth_checker->Has(edge.From(), self_.view_,
                                       memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
@@ -752,7 +751,7 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
       // already done in the block above
       if (self_.common_.direction == EdgeAtom::Direction::BOTH && edge.IsCycle()) continue;
 #ifdef MG_ENTERPRISE
-      if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
             context.auth_checker->Has(edge.To(), self_.view_,
                                       memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
@@ -1089,7 +1088,7 @@ class ExpandVariableCursor : public Cursor {
       VertexAccessor current_vertex =
           current_edge.second == EdgeAtom::Direction::IN ? current_edge.first.From() : current_edge.first.To();
 #ifdef MG_ENTERPRISE
-      if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !(context.auth_checker->Has(current_edge.first, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
             context.auth_checker->Has(current_vertex, storage::View::OLD,
                                       memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
@@ -1258,7 +1257,7 @@ class STShortestPathCursor : public query::plan::Cursor {
           auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
           for (const auto &edge : out_edges) {
 #ifdef MG_ENTERPRISE
-            if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+            if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
                 !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
                   context.auth_checker->Has(edge.To(), storage::View::OLD,
                                             memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
@@ -1284,7 +1283,7 @@ class STShortestPathCursor : public query::plan::Cursor {
           auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
           for (const auto &edge : in_edges) {
 #ifdef MG_ENTERPRISE
-            if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+            if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
                 !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
                   context.auth_checker->Has(edge.From(), storage::View::OLD,
                                             memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
@@ -1324,7 +1323,7 @@ class STShortestPathCursor : public query::plan::Cursor {
           auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
           for (const auto &edge : out_edges) {
 #ifdef MG_ENTERPRISE
-            if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+            if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
                 !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
                   context.auth_checker->Has(edge.To(), storage::View::OLD,
                                             memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
@@ -1349,7 +1348,7 @@ class STShortestPathCursor : public query::plan::Cursor {
           auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
           for (const auto &edge : in_edges) {
 #ifdef MG_ENTERPRISE
-            if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+            if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
                 !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
                   context.auth_checker->Has(edge.From(), storage::View::OLD,
                                             memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
@@ -1406,7 +1405,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       // if we already processed the given vertex it doesn't get expanded
       if (processed_.find(vertex) != processed_.end()) return;
 #ifdef MG_ENTERPRISE
-      if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !(context.auth_checker->Has(vertex, storage::View::OLD,
                                       memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
             context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
@@ -1592,7 +1591,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
                            int64_t depth) {
       auto *memory = evaluator.GetMemoryResource();
 #ifdef MG_ENTERPRISE
-      if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !(context.auth_checker->Has(vertex, storage::View::OLD,
                                       memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
             context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
@@ -1902,7 +1901,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
         for (const auto &edge : out_edges) {
 #ifdef MG_ENTERPRISE
-          if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+          if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
               !(context.auth_checker->Has(edge.To(), storage::View::OLD,
                                           memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
                 context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
@@ -1916,7 +1915,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
         for (const auto &edge : in_edges) {
 #ifdef MG_ENTERPRISE
-          if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+          if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
               !(context.auth_checker->Has(edge.From(), storage::View::OLD,
                                           memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
                 context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
@@ -1973,7 +1972,6 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
           edges_on_frame.emplace(edges_on_frame.begin(), current_edge);
 
         auto next_vertex = current_edge_direction == EdgeAtom::Direction::IN ? current_edge.From() : current_edge.To();
-        frame[self_.common_.node_symbol] = next_vertex;
         frame[self_.total_weight_.value()] = current_weight;
 
         if (next_edges_.find({next_vertex, traversal_stack_.size()}) != next_edges_.end()) {
@@ -1986,6 +1984,15 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         }
 
         if ((current_weight > visited_cost_.at(next_vertex)).ValueBool()) continue;
+
+        // Place destination node on the frame, handle existence flag
+        if (self_.common_.existing_node) {
+          const auto &node = frame[self_.common_.node_symbol];
+          ExpectType(self_.common_.node_symbol, node, TypedValue::Type::Vertex);
+          if (node.ValueVertex() != next_vertex) continue;
+        } else {
+          frame[self_.common_.node_symbol] = next_vertex;
+        }
         return true;
       }
 
@@ -2366,7 +2373,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
     if (expression_result.type() == TypedValue::Type::Edge) {
       auto &ea = expression_result.ValueEdge();
 #ifdef MG_ENTERPRISE
-      if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !(context.auth_checker->Has(ea, query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
             context.auth_checker->Has(ea.To(), storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::UPDATE) &&
             context.auth_checker->Has(ea.From(), storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::UPDATE))) {
@@ -2399,7 +2406,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
       case TypedValue::Type::Vertex: {
         auto &va = expression_result.ValueVertex();
 #ifdef MG_ENTERPRISE
-        if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+        if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
             !context.auth_checker->Has(va, storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
           throw QueryRuntimeException("Vertex not deleted due to not having enough permission!");
         }
@@ -2508,7 +2515,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
   switch (lhs.type()) {
     case TypedValue::Type::Vertex: {
 #ifdef MG_ENTERPRISE
-      if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueVertex(), storage::View::NEW,
                                      memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
         throw QueryRuntimeException("Vertex property not set due to not having enough permission!");
@@ -2525,7 +2532,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
     }
     case TypedValue::Type::Edge: {
 #ifdef MG_ENTERPRISE
-      if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
         throw QueryRuntimeException("Edge property not set due to not having enough permission!");
       }
@@ -2724,7 +2731,7 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
   switch (lhs.type()) {
     case TypedValue::Type::Vertex:
 #ifdef MG_ENTERPRISE
-      if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueVertex(), storage::View::NEW,
                                      memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
         throw QueryRuntimeException("Vertex properties not set due to not having enough permission!");
@@ -2735,7 +2742,7 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
       break;
     case TypedValue::Type::Edge:
 #ifdef MG_ENTERPRISE
-      if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
         throw QueryRuntimeException("Edge properties not set due to not having enough permission!");
       }
@@ -2778,7 +2785,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("SetLabels");
 
 #ifdef MG_ENTERPRISE
-  if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+  if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
       !context.auth_checker->Has(self_.labels_, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
     throw QueryRuntimeException("Couldn't set label due to not having enough permission!");
   }
@@ -2793,7 +2800,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   auto &vertex = vertex_value.ValueVertex();
 
 #ifdef MG_ENTERPRISE
-  if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+  if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
       !context.auth_checker->Has(vertex, storage::View::OLD,
                                  memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
     throw QueryRuntimeException("Couldn't set label due to not having enough permission!");
@@ -2883,7 +2890,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
   switch (lhs.type()) {
     case TypedValue::Type::Vertex:
 #ifdef MG_ENTERPRISE
-      if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueVertex(), storage::View::NEW,
                                      memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
         throw QueryRuntimeException("Vertex property not removed due to not having enough permission!");
@@ -2893,7 +2900,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
       break;
     case TypedValue::Type::Edge:
 #ifdef MG_ENTERPRISE
-      if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
         throw QueryRuntimeException("Edge property not removed due to not having enough permission!");
       }
@@ -2936,7 +2943,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
   SCOPED_PROFILE_OP("RemoveLabels");
 
 #ifdef MG_ENTERPRISE
-  if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+  if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
       !context.auth_checker->Has(self_.labels_, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
     throw QueryRuntimeException("Couldn't remove label due to not having enough permission!");
   }
@@ -2951,7 +2958,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
   auto &vertex = vertex_value.ValueVertex();
 
 #ifdef MG_ENTERPRISE
-  if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+  if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
       !context.auth_checker->Has(vertex, storage::View::OLD,
                                  memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
     throw QueryRuntimeException("Couldn't remove label due to not having enough permission!");

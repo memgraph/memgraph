@@ -16,7 +16,6 @@ import json
 import os
 import subprocess
 import sys
-import tempfile
 import time
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -26,42 +25,20 @@ PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
 def execute_test(**kwargs):
     client_binary = kwargs.pop("client")
     server_binary = kwargs.pop("server")
-    storage_directory = kwargs.pop("storage")
 
     start_server = kwargs.pop("start_server", True)
-    endpoint = kwargs.pop("endpoint", "")
     interval = kwargs.pop("interval", 1)
     duration = kwargs.pop("duration", 5)
+    license_type = kwargs.pop("license-type", "enterprise")
 
     timeout = duration * 2 if "hang" not in kwargs else duration * 2 + 60
     success = False
 
-    server_args = [server_binary, "--interval", interval, "--duration", duration]
-    for flag, value in kwargs.items():
-        flag = "--" + flag.replace("_", "-")
-        # We handle boolean flags here. The type of value must be `bool`, and
-        # the value must be `True` to supply a boolean flag (a flag that only
-        # has --flag, without the value).
-        if value is True:
-            server_args.append(flag)
-        else:
-            server_args.extend([flag, value])
-
-    client_args = [
-        client_binary,
-        "--interval",
-        interval,
-        "--duration",
-        duration,
-        "--storage-directory",
-        storage_directory,
-    ]
-    if endpoint:
-        client_args.extend(["--endpoint", endpoint])
+    client_args = [client_binary, "--interval", interval, "--duration", duration, "--license-type", license_type]
 
     server = None
     if start_server:
-        server = subprocess.Popen(list(map(str, server_args)))
+        server = subprocess.Popen(server_binary)
         time.sleep(0.4)
         assert server.poll() is None, "Server process died prematurely!"
 
@@ -74,53 +51,35 @@ def execute_test(**kwargs):
             server.terminate()
             try:
                 success = server.wait(timeout=5) == 0
+                success = True
             except subprocess.TimeoutExpired:
                 server.kill()
     return success
 
 
-TESTS = [
-    {},
-    {"interval": 2},
-    {"duration": 10},
-    {"interval": 2, "duration": 10},
-    {"redirect": True},
-    {"no_response_count": 2},
-    {"wrong_code_count": 2},
-    {"hang": True, "duration": 0},
-    {"path": "/nonexistant/", "no_check": True},
-    {"endpoint": "http://127.0.0.1:9000/nonexistant/", "no_check": True},
-    {"start_server": False},
-    {"startups": 4, "no_check_duration": True},  # the last 3 tests failed
-    # to send any data + this test
-    {"add_garbage": True},
-]
-
-if __name__ == "__main__":
+def main():
     server_binary = os.path.join(SCRIPT_DIR, "server.py")
-    client_binary = os.path.join(PROJECT_DIR, "build", "tests", "integration", "telemetry", "client")
-    kvstore_console_binary = os.path.join(PROJECT_DIR, "build", "tests", "manual", "kvstore_console")
+    client_binary = os.path.join(PROJECT_DIR, "build", "tests", "integration", "license_info", "client")
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--client", default=client_binary)
     parser.add_argument("--server", default=server_binary)
-    parser.add_argument("--kvstore-console", default=kvstore_console_binary)
+    parser.add_argument("--server-url", default="127.0.0.1")
+    parser.add_argument("--server-port", default="5500")
     args = parser.parse_args()
 
-    storage = tempfile.TemporaryDirectory()
-
-    for test in TESTS:
+    tests = [
+        {"interval": 2},
+        {"duration": 10},
+        {"interval": 2, "duration": 10},
+        {"license-type": "oem"},
+        {"license-type": "enterprise"},
+    ]
+    for test in tests:
         print("\033[1;36m~~ Executing test with arguments:", json.dumps(test, sort_keys=True), "~~\033[0m")
 
-        if test.pop("add_garbage", False):
-            proc = subprocess.Popen(
-                [args.kvstore_console, "--path", storage.name], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL
-            )
-            proc.communicate("put garbage garbage".encode("utf-8"))
-            assert proc.wait() == 0
-
         try:
-            success = execute_test(client=args.client, server=args.server, storage=storage.name, **test)
+            success = execute_test(client=args.client, server=args.server, **test)
         except Exception as e:
             print("\033[1;33m", e, "\033[0m", sep="")
             success = False
@@ -130,5 +89,8 @@ if __name__ == "__main__":
             sys.exit(1)
         else:
             print("\033[1;32m~~", "Test ok!", "~~\033[0m")
-
     sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()
