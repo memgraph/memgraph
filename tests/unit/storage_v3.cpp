@@ -33,6 +33,12 @@
 
 using testing::UnorderedElementsAre;
 
+namespace {
+
+class AlreadyInsertedException : public std::exception {};
+
+}  // namespace
+
 namespace memgraph::storage::v3::tests {
 
 class StorageV3 : public ::testing::TestWithParam<bool> {
@@ -2650,14 +2656,21 @@ TEST_P(StorageV3, TestCreateVertexAndValidate) {
               (std::map<PropertyId, PropertyValue>{{prop1, PropertyValue(111)}}));
   }
   {
-    ASSERT_DEATH(
+    EXPECT_THROW(
         {
           Shard store(primary_label, min_pk, std::nullopt /*max_primary_key*/, schema_property_vector);
           auto acc = store.Access(GetNextHlc());
           auto vertex1 = acc.CreateVertexAndValidate({}, {PropertyValue{0}}, {});
           auto vertex2 = acc.CreateVertexAndValidate({}, {PropertyValue{0}}, {});
+
+          if (vertex2.HasError()) {
+            auto error = vertex2.GetError();
+            if (auto error_ptr = std::get_if<memgraph::storage::v3::Error>(&error)) {
+              if (*error_ptr == storage::v3::Error::VERTEX_ALREADY_INSERTED) throw AlreadyInsertedException();
+            }
+          }
         },
-        "");
+        AlreadyInsertedException);
   }
   {
     auto acc = store.Access(GetNextHlc());
