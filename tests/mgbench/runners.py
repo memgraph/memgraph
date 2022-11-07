@@ -1,4 +1,4 @@
-# Copyright 2021 Memgraph Ltd.
+# Copyright 2022 Memgraph Ltd.
 #
 # Use of this software is governed by the Business Source License
 # included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,17 +9,13 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-from asyncio.subprocess import PIPE, STDOUT
 import atexit
 import json
 import os
 import re
-from shutil import ExecError
 import subprocess
-from sys import stdout
 import tempfile
 import time
-from traceback import print_exc
 from pathlib import Path
 
 
@@ -130,28 +126,46 @@ class Memgraph:
 class Neo4j:
     def __init__(self, neo4j_path, temporary_dir, bolt_port):
         self._neo4j_path = Path(neo4j_path)
-        self._neo4j_binary = Path(neo4j_path)/"bin"/"neo4j"
-        self._neo4j_config = Path(neo4j_path)/"config"/"neo4j.conf"
+        self._neo4j_binary = Path(neo4j_path) / "bin" / "neo4j"
+        self._neo4j_config = Path(neo4j_path) / "conf" / "neo4j.conf"
         if not self._neo4j_binary.is_file():
-            raise Exception("Wrong path to binary!")  
+            raise Exception("Wrong path to binary!")
         self._directory = tempfile.TemporaryDirectory(dir=temporary_dir)
         self._proc_neo4j = None
         self._bolt_port = bolt_port
         atexit.register(self._cleanup)
+        config = "dbms.security.auth_enabled=false\n"
+        print("Check config securuty flag:")
+        with self._neo4j_config.open("a+") as file:
+            lines = file.readlines()
+            line_exist = False
+            for line in lines:
+                if config == line:
+                    line_exist = True
+                    print("Config line exist at line: " + str(lines.index(line)))
+                    print("Line content: " + line)
+                    file.close()
+                    break
+            if not line_exist:
+                print("Setting config line: " + config)
+                file.write(config)
+                file.close()
 
     def __del__(self):
         self._cleanup()
         atexit.unregister(self._cleanup)
 
-
     def _start(self, **kwargs):
         if self._proc_neo4j is not None:
             raise Exception("The database process is already running!")
-        args = _convert_args_to_flags(self._neo4j_binary, "start", "--verbose",  **kwargs)
+        args = _convert_args_to_flags(
+            self._neo4j_binary, "start", "--verbose", **kwargs
+        )
         self._proc_neo4j = subprocess.Popen(args, stdout=subprocess.PIPE)
         time.sleep(10)
-        print(self._proc_neo4j.poll())
-        if self._proc_neo4j.poll() != 0: 
+        if self._proc_neo4j.poll() == 0:
+            print("Neo4j started!")
+        if self._proc_neo4j.poll() != 0:
             self._proc_neo4j = None
             raise Exception("The database process died prematurely!")
         wait_for_server(self._bolt_port)
@@ -159,12 +173,12 @@ class Neo4j:
         assert ret == 0, "The database process died prematurely " "({})!".format(ret)
 
     def _cleanup(self):
-        pid_file = self._neo4j_path/"run"/"neo4j.pid"
+        pid_file = self._neo4j_path / "run" / "neo4j.pid"
         if pid_file.exists():
             pid = pid_file.read_text()
             print("Clean up: " + pid)
             usage = _get_usage(pid)
-            args=list()
+            args = list()
             args.append(self._neo4j_binary)
             args.append("stop")
             exit_proc = subprocess.run(args, capture_output=True, check=True)
@@ -172,28 +186,24 @@ class Neo4j:
             return exit_proc.returncode, usage
         else:
             return 0
-        
 
     def start_preparation(self):
         self._start()
 
-
     def start_benchmark(self):
         self._start()
-    
+
     def is_stopped(self):
-        pid_file = self._neo4j_path/"run"/"neo4j.pid"
+        pid_file = self._neo4j_path / "run" / "neo4j.pid"
         if pid_file.exists():
             return False
         else:
             return True
 
-
     def stop(self):
         ret, usage = self._cleanup()
         assert ret == 0, "The database process exited with a non-zero " "status ({})!".format(ret)
         return usage
-
 
 
 class Client:
