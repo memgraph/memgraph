@@ -30,6 +30,7 @@ class LocalTransportHandle {
   mutable std::condition_variable cv_;
   bool should_shut_down_ = false;
   MessageHistogramCollector histograms_;
+  RequestId request_id_counter_ = 0;
 
   // the responses to requests that are being waited on
   std::map<PromiseKey, DeadlineAndOpaquePromise> promises_;
@@ -56,7 +57,7 @@ class LocalTransportHandle {
     return should_shut_down_;
   }
 
-  std::unordered_map<std::string, LatencyHistogramSummary> ResponseLatencies() {
+  LatencyHistogramSummaries ResponseLatencies() {
     std::unique_lock<std::mutex> lock(mu_);
     return histograms_.ResponseLatencies();
   }
@@ -113,8 +114,7 @@ class LocalTransportHandle {
                                  .message = std::move(message_any),
                                  .type_info = type_info};
 
-    PromiseKey promise_key{
-        .requester_address = to_address, .request_id = opaque_message.request_id, .replier_address = from_address};
+    PromiseKey promise_key{.requester_address = to_address, .request_id = opaque_message.request_id};
 
     {
       std::unique_lock<std::mutex> lock(mu_);
@@ -139,8 +139,10 @@ class LocalTransportHandle {
   }
 
   template <Message RequestT, Message ResponseT>
-  void SubmitRequest(Address to_address, Address from_address, RequestId request_id, RequestT &&request,
-                     Duration timeout, ResponsePromise<ResponseT> promise) {
+  ResponseFuture<ResponseT> SubmitRequest(Address to_address, Address from_address, RequestT &&request,
+                                          Duration timeout) {
+    auto [future, promise] = memgraph::io::FuturePromisePair<ResponseResult<ResponseT>>();
+
     const bool port_matches = to_address.last_known_port == from_address.last_known_port;
     const bool ip_matches = to_address.last_known_ip == from_address.last_known_ip;
 
@@ -149,17 +151,22 @@ class LocalTransportHandle {
     const auto now = Now();
     const Time deadline = now + timeout;
 
+    RequestId request_id = 0;
     {
       std::unique_lock<std::mutex> lock(mu_);
 
-      PromiseKey promise_key{
-          .requester_address = from_address, .request_id = request_id, .replier_address = to_address};
+      request_id = ++request_id_counter_;
+      PromiseKey promise_key{.requester_address = from_address, .request_id = request_id};
       OpaquePromise opaque_promise(std::move(promise).ToUnique());
       DeadlineAndOpaquePromise dop{.requested_at = now, .deadline = deadline, .promise = std::move(opaque_promise)};
+
+      MG_ASSERT(!promises_.contains(promise_key));
       promises_.emplace(std::move(promise_key), std::move(dop));
     }  // lock dropped
 
     Send(to_address, from_address, request_id, std::forward<RequestT>(request));
+
+    return std::move(future);
   }
 };
 
