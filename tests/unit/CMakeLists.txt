@@ -278,49 +278,6 @@ target_link_libraries(${test_prefix}utils_temporal mg-utils)
 add_unit_test(utils_histogram.cpp)
 target_link_libraries(${test_prefix}utils_histogram mg-utils)
 
-# Test mg-storage-v2
-add_unit_test(commit_log_v2.cpp)
-target_link_libraries(${test_prefix}commit_log_v2 gflags mg-utils mg-storage-v2)
-
-add_unit_test(property_value_v2.cpp)
-target_link_libraries(${test_prefix}property_value_v2 mg-storage-v2 mg-utils)
-
-add_unit_test(storage_v2.cpp)
-target_link_libraries(${test_prefix}storage_v2 mg-storage-v2 storage_test_utils)
-
-add_unit_test(storage_v2_constraints.cpp)
-target_link_libraries(${test_prefix}storage_v2_constraints mg-storage-v2)
-
-add_unit_test(storage_v2_decoder_encoder.cpp)
-target_link_libraries(${test_prefix}storage_v2_decoder_encoder mg-storage-v2)
-
-add_unit_test(storage_v2_durability.cpp)
-target_link_libraries(${test_prefix}storage_v2_durability mg-storage-v2)
-
-add_unit_test(storage_v2_edge.cpp)
-target_link_libraries(${test_prefix}storage_v2_edge mg-storage-v2)
-
-add_unit_test(storage_v2_gc.cpp)
-target_link_libraries(${test_prefix}storage_v2_gc mg-storage-v2)
-
-add_unit_test(storage_v2_indices.cpp)
-target_link_libraries(${test_prefix}storage_v2_indices mg-storage-v2 mg-utils)
-
-add_unit_test(storage_v2_name_id_mapper.cpp)
-target_link_libraries(${test_prefix}storage_v2_name_id_mapper mg-storage-v2)
-
-add_unit_test(storage_v2_property_store.cpp)
-target_link_libraries(${test_prefix}storage_v2_property_store mg-storage-v2 fmt)
-
-add_unit_test(storage_v2_wal_file.cpp)
-target_link_libraries(${test_prefix}storage_v2_wal_file mg-storage-v2 fmt)
-
-add_unit_test(storage_v2_replication.cpp)
-target_link_libraries(${test_prefix}storage_v2_replication mg-storage-v2 fmt)
-
-add_unit_test(storage_v2_isolation_level.cpp)
-target_link_libraries(${test_prefix}storage_v2_isolation_level mg-storage-v2)
-
 # Test mg-storage-v3
 add_library(storage_v3_test_utils storage_v3_test_utils.cpp)
 target_link_libraries(storage_v3_test_utils mg-storage-v3)
@@ -443,6 +400,6 @@ target_link_libraries(${test_prefix}pretty_print_ast_to_original_expression_test
 add_unit_test(coordinator_shard_map.cpp)
 target_link_libraries(${test_prefix}coordinator_shard_map mg-coordinator)
 
-# Tests for 1000 shards, 1000 creates, scan
-add_unit_test(1k_shards_1k_create_scanall.cpp)
-target_link_libraries(${test_prefix}1k_shards_1k_create_scanall mg-io mg-coordinator mg-storage-v3 mg-query-v2)
+# Tests for many shards, many creates, scan
+add_unit_test(high_density_shard_create_scan.cpp)
+target_link_libraries(${test_prefix}high_density_shard_create_scan mg-io mg-coordinator mg-storage-v3 mg-query-v2)
