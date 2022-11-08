@@ -5,17 +5,15 @@ import os
 import subprocess
 import sys
 import textwrap
-
 import xml.etree.ElementTree as ET
 
 import yaml
-
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 CONFIG_FILE = os.path.join(SCRIPT_DIR, "flags.yaml")
 WIDTH = 80
 
-
+# Test CI python check
 def wrap_text(s, initial_indent="# "):
     return "\n#\n".join(
         map(lambda x: textwrap.fill(x, WIDTH, initial_indent=initial_indent,

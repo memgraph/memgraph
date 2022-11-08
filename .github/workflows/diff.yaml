@@ -85,9 +85,11 @@ jobs:
 
       - name: Python code analysis
         run: |
-          for file in $(git --no-pager log -n1 --name-only --oneline); do
-            if [[ $file == *.py ]]; then
-              black $file --check --diff
+          CHANGED_FILES=$(git diff -U0 HEAD~1... --name-only)
+          for file in ${CHANGED_FILES}; do
+            echo ${file}
+            if [[ ${file} == *.py ]]; then
+              python3 -m black --check --diff ${file}
             fi
           done
 
