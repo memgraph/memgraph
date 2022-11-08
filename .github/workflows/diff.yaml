@@ -83,12 +83,9 @@ jobs:
           # Initialize dependencies.
           ./init
 
-      - name: Changed Files
-        uses: tj-actions/changed-files@v34.3.2
-
       - name: Python code analysis
         run: |
-          for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
+          for file in $(git --no-pager log -n1 --name-only --oneline); do
             if [[ $file == *.py ]]; then
               black $file --check --diff
             fi
