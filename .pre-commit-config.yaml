@@ -9,6 +9,11 @@ repos:
     rev: 22.10.0
     hooks:
       - id: black
+  - repo: https://github.com/pycqa/isort
+    rev: 5.10.1
+    hooks:
+      - id: isort
+        name: isort (python)
   - repo: https://github.com/pre-commit/mirrors-clang-format
     rev: v13.0.0
     hooks:
