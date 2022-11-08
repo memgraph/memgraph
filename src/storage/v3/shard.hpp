@@ -38,6 +38,7 @@
 #include "storage/v3/result.hpp"
 #include "storage/v3/schema_validator.hpp"
 #include "storage/v3/schemas.hpp"
+#include "storage/v3/shard_operation_result.hpp"
 #include "storage/v3/transaction.hpp"
 #include "storage/v3/vertex.hpp"
 #include "storage/v3/vertex_accessor.hpp"
@@ -206,7 +207,7 @@ class Shard final {
 
    public:
     /// @throw std::bad_alloc
-    ResultSchema<VertexAccessor> CreateVertexAndValidate(
+    ShardOperationResult<VertexAccessor> CreateVertexAndValidate(
         const std::vector<LabelId> &labels, const std::vector<PropertyValue> &primary_properties,
         const std::vector<std::pair<PropertyId, PropertyValue>> &properties);
 
