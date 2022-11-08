@@ -25,6 +25,7 @@
 #include "io/address.hpp"
 #include "storage/v3/config.hpp"
 #include "storage/v3/id_types.hpp"
+#include "storage/v3/name_id_mapper.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/schemas.hpp"
 #include "storage/v3/temporal.hpp"
@@ -90,6 +91,7 @@ struct ShardToInitialize {
   std::optional<PrimaryKey> max_key;
   std::vector<SchemaProperty> schema;
   Config config;
+  std::unordered_map<uint64_t, std::string> id_to_names;
 };
 
 PrimaryKey SchemaToMinKey(const std::vector<SchemaProperty> &schema);
@@ -120,9 +122,9 @@ struct ShardMap {
   std::map<PropertyName, PropertyId> properties;
   std::map<EdgeTypeName, EdgeTypeId> edge_types;
   uint64_t max_label_id{kNotExistingId};
-  std::map<LabelName, LabelId> labels;
   std::map<LabelId, LabelSpace> label_spaces;
   std::map<LabelId, std::vector<SchemaProperty>> schemas;
+  std::map<LabelName, LabelId> labels;
 
   [[nodiscard]] static ShardMap Parse(std::istream &input_stream);
   friend std::ostream &operator<<(std::ostream &in, const ShardMap &shard_map);
@@ -135,6 +137,8 @@ struct ShardMap {
   // the given Io<impl>'s time as well
   Hlc IncrementShardMapVersion() noexcept;
   Hlc GetHlc() const noexcept;
+
+  std::unordered_map<uint64_t, std::string> IdToNames();
 
   // Returns the shard UUIDs that have been assigned but not yet acknowledged for this storage manager
   std::vector<ShardToInitialize> AssignShards(Address storage_manager, std::set<boost::uuids::uuid> initialized);

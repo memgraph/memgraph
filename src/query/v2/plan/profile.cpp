@@ -24,18 +24,18 @@ namespace memgraph::query::v2::plan {
 
 namespace {
 
-unsigned long long IndividualCycles(const ProfilingStats &cumulative_stats) {
+uint64_t IndividualCycles(const ProfilingStats &cumulative_stats) {
   return cumulative_stats.num_cycles - std::accumulate(cumulative_stats.children.begin(),
                                                        cumulative_stats.children.end(), 0ULL,
                                                        [](auto acc, auto &stats) { return acc + stats.num_cycles; });
 }
 
-double RelativeTime(unsigned long long num_cycles, unsigned long long total_cycles) {
-  return static_cast<double>(num_cycles) / total_cycles;
+double RelativeTime(const uint64_t num_cycles, const uint64_t total_cycles) {
+  return static_cast<double>(num_cycles) / static_cast<double>(total_cycles);
 }
 
-double AbsoluteTime(unsigned long long num_cycles, unsigned long long total_cycles,
-                    std::chrono::duration<double> total_time) {
+double AbsoluteTime(const uint64_t num_cycles, const uint64_t total_cycles,
+                    const std::chrono::duration<double> total_time) {
   return (RelativeTime(num_cycles, total_cycles) * static_cast<std::chrono::duration<double, std::milli>>(total_time))
       .count();
 }
@@ -50,26 +50,29 @@ namespace {
 
 class ProfilingStatsToTableHelper {
  public:
-  ProfilingStatsToTableHelper(unsigned long long total_cycles, std::chrono::duration<double> total_time)
+  ProfilingStatsToTableHelper(uint64_t total_cycles, std::chrono::duration<double> total_time)
       : total_cycles_(total_cycles), total_time_(total_time) {}
 
   void Output(const ProfilingStats &cumulative_stats) {
     auto cycles = IndividualCycles(cumulative_stats);
+    auto custom_data_copy = cumulative_stats.custom_data;
+    ConvertCyclesToTime(custom_data_copy);
 
-    rows_.emplace_back(std::vector<TypedValue>{
-        TypedValue(FormatOperator(cumulative_stats.name)), TypedValue(cumulative_stats.actual_hits),
-        TypedValue(FormatRelativeTime(cycles)), TypedValue(FormatAbsoluteTime(cycles))});
+    rows_.emplace_back(
+        std::vector<TypedValue>{TypedValue(FormatOperator(cumulative_stats.name)),
+                                TypedValue(cumulative_stats.actual_hits), TypedValue(FormatRelativeTime(cycles)),
+                                TypedValue(FormatAbsoluteTime(cycles)), TypedValue(custom_data_copy.dump())});
 
     for (size_t i = 1; i < cumulative_stats.children.size(); ++i) {
       Branch(cumulative_stats.children[i]);
     }
 
-    if (cumulative_stats.children.size() >= 1) {
+    if (!cumulative_stats.children.empty()) {
       Output(cumulative_stats.children[0]);
     }
   }
 
-  std::vector<std::vector<TypedValue>> rows() { return rows_; }
+  std::vector<std::vector<TypedValue>> rows() const { return rows_; }
 
  private:
   void Branch(const ProfilingStats &cumulative_stats) {
@@ -80,7 +83,28 @@ class ProfilingStatsToTableHelper {
     --depth_;
   }
 
-  std::string Format(const char *str) {
+  double AbsoluteTime(const uint64_t cycles) const { return plan::AbsoluteTime(cycles, total_cycles_, total_time_); }
+
+  double RelativeTime(const uint64_t cycles) const { return plan::RelativeTime(cycles, total_cycles_); }
+
+  void ConvertCyclesToTime(nlohmann::json &custom_data) const {
+    const auto convert_cycles_in_json = [this](nlohmann::json &json) {
+      if (!json.is_object()) {
+        return;
+      }
+      if (auto it = json.find(ProfilingStats::kNumCycles); it != json.end()) {
+        auto num_cycles = it.value().get<uint64_t>();
+        json[ProfilingStats::kAbsoluteTime] = AbsoluteTime(num_cycles);
+        json[ProfilingStats::kRelativeTime] = RelativeTime(num_cycles);
+      }
+    };
+
+    for (auto &json : custom_data) {
+      convert_cycles_in_json(json);
+    }
+  }
+
+  std::string Format(const char *str) const {
     std::ostringstream ss;
     for (int64_t i = 0; i < depth_; ++i) {
       ss << "| ";
@@ -89,21 +113,21 @@ class ProfilingStatsToTableHelper {
     return ss.str();
   }
 
-  std::string Format(const std::string &str) { return Format(str.c_str()); }
+  std::string Format(const std::string &str) const { return Format(str.c_str()); }
 
-  std::string FormatOperator(const char *str) { return Format(std::string("* ") + str); }
+  std::string FormatOperator(const char *str) const { return Format(std::string("* ") + str); }
 
-  std::string FormatRelativeTime(unsigned long long num_cycles) {
-    return fmt::format("{: 10.6f} %", RelativeTime(num_cycles, total_cycles_) * 100);
+  std::string FormatRelativeTime(uint64_t num_cycles) const {
+    return fmt::format("{: 10.6f} %", RelativeTime(num_cycles) * 100);
   }
 
-  std::string FormatAbsoluteTime(unsigned long long num_cycles) {
-    return fmt::format("{: 10.6f} ms", AbsoluteTime(num_cycles, total_cycles_, total_time_));
+  std::string FormatAbsoluteTime(uint64_t num_cycles) const {
+    return fmt::format("{: 10.6f} ms", AbsoluteTime(num_cycles));
   }
 
   int64_t depth_{0};
   std::vector<std::vector<TypedValue>> rows_;
-  unsigned long long total_cycles_;
+  uint64_t total_cycles_;
   std::chrono::duration<double> total_time_;
 };
 
@@ -126,7 +150,7 @@ class ProfilingStatsToJsonHelper {
   using json = nlohmann::json;
 
  public:
-  ProfilingStatsToJsonHelper(unsigned long long total_cycles, std::chrono::duration<double> total_time)
+  ProfilingStatsToJsonHelper(uint64_t total_cycles, std::chrono::duration<double> total_time)
       : total_cycles_(total_cycles), total_time_(total_time) {}
 
   void Output(const ProfilingStats &cumulative_stats) { return Output(cumulative_stats, &json_); }
@@ -151,7 +175,7 @@ class ProfilingStatsToJsonHelper {
   }
 
   json json_;
-  unsigned long long total_cycles_;
+  uint64_t total_cycles_;
   std::chrono::duration<double> total_time_;
 };
 

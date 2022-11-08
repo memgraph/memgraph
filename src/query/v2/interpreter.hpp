@@ -296,6 +296,8 @@ class Interpreter final {
    */
   void Abort();
 
+  const msgs::ShardRequestManagerInterface *GetShardRequestManager() const { return shard_request_manager_.get(); }
+
  private:
   struct QueryExecution {
     std::optional<PreparedQuery> prepared_query;

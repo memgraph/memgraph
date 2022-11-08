@@ -17,6 +17,7 @@
 
 #include "parser/opencypher/parser.hpp"
 #include "query/v2/requests.hpp"
+#include "storage/v2/view.hpp"
 #include "storage/v3/bindings/ast/ast.hpp"
 #include "storage/v3/bindings/cypher_main_visitor.hpp"
 #include "storage/v3/bindings/db_accessor.hpp"
@@ -113,6 +114,24 @@ std::optional<std::map<PropertyId, Value>> CollectSpecificPropertiesFromAccessor
   return ret;
 }
 
+std::optional<std::map<PropertyId, Value>> PrimaryKeysFromAccessor(const VertexAccessor &acc, View view,
+                                                                   const Schemas::Schema *schema) {
+  std::map<PropertyId, Value> ret;
+  auto props = acc.Properties(view);
+  auto maybe_pk = acc.PrimaryKey(view);
+  if (maybe_pk.HasError()) {
+    spdlog::debug("Encountered an error while trying to get vertex primary key.");
+    return std::nullopt;
+  }
+  auto &pk = maybe_pk.GetValue();
+  MG_ASSERT(schema->second.size() == pk.size(), "PrimaryKey size does not match schema!");
+  for (size_t i{0}; i < schema->second.size(); ++i) {
+    ret.emplace(schema->second[i].property_id, FromPropertyValueToValue(std::move(pk[i])));
+  }
+
+  return ret;
+}
+
 std::optional<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(const VertexAccessor &acc, View view,
                                                                             const Schemas::Schema *schema) {
   std::map<PropertyId, Value> ret;
@@ -129,17 +148,9 @@ std::optional<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(cons
                  });
   properties.clear();
 
-  // TODO(antaljanosbenjamin): Once the VertexAccessor::Properties returns also the primary keys, we can get rid of this
-  // code.
-  auto maybe_pk = acc.PrimaryKey(view);
-  if (maybe_pk.HasError()) {
-    spdlog::debug("Encountered an error while trying to get vertex primary key.");
-  }
-
-  auto &pk = maybe_pk.GetValue();
-  MG_ASSERT(schema->second.size() == pk.size(), "PrimaryKey size does not match schema!");
-  for (size_t i{0}; i < schema->second.size(); ++i) {
-    ret.emplace(schema->second[i].property_id, FromPropertyValueToValue(std::move(pk[i])));
+  auto pks = PrimaryKeysFromAccessor(acc, view, schema);
+  if (pks) {
+    ret.merge(*pks);
   }
 
   return ret;
@@ -190,7 +201,9 @@ std::optional<msgs::Vertex> FillUpSourceVertex(const std::optional<VertexAccesso
 }
 
 std::optional<std::map<PropertyId, Value>> FillUpSourceVertexProperties(const std::optional<VertexAccessor> &v_acc,
-                                                                        const msgs::ExpandOneRequest &req) {
+                                                                        const msgs::ExpandOneRequest &req,
+                                                                        storage::v3::View view,
+                                                                        const Schemas::Schema *schema) {
   std::map<PropertyId, Value> src_vertex_properties;
 
   if (!req.src_vertex_properties) {
@@ -203,6 +216,10 @@ std::optional<std::map<PropertyId, Value>> FillUpSourceVertexProperties(const st
 
     for (auto &[key, val] : props.GetValue()) {
       src_vertex_properties.insert(std::make_pair(key, FromPropertyValueToValue(std::move(val))));
+    }
+    auto pks = PrimaryKeysFromAccessor(*v_acc, view, schema);
+    if (pks) {
+      src_vertex_properties.merge(*pks);
     }
 
   } else if (req.src_vertex_properties.value().empty()) {
@@ -264,7 +281,6 @@ std::optional<std::array<std::vector<EdgeAccessor>, 2>> FillUpConnectingEdges(
         return std::nullopt;
       }
       in_edges = maybe_filter_based_on_edge_uniquness(std::move(in_edges_result.GetValue()), msgs::EdgeDirection::IN);
-
       auto out_edges_result = v_acc->OutEdges(View::NEW, edge_types);
       if (out_edges_result.HasError()) {
         spdlog::debug("Encountered an error while trying to get out-going EdgeAccessors. Transaction id: {}",
@@ -303,7 +319,8 @@ bool FillEdges(const std::vector<EdgeAccessor> &edges, msgs::ExpandOneResultRow 
 
 std::optional<msgs::ExpandOneResultRow> GetExpandOneResult(
     Shard::Accessor &acc, msgs::VertexId src_vertex, const msgs::ExpandOneRequest &req,
-    const EdgeUniqunessFunction &maybe_filter_based_on_edge_uniquness, const EdgeFiller &edge_filler) {
+    const EdgeUniqunessFunction &maybe_filter_based_on_edge_uniquness, const EdgeFiller &edge_filler,
+    const Schemas::Schema *schema) {
   /// Fill up source vertex
   const auto primary_key = ConvertPropertyVector(std::move(src_vertex.second));
   auto v_acc = acc.FindVertex(primary_key, View::NEW);
@@ -312,9 +329,9 @@ std::optional<msgs::ExpandOneResultRow> GetExpandOneResult(
   if (!source_vertex) {
     return std::nullopt;
   }
+  std::optional<std::map<PropertyId, Value>> src_vertex_properties;
+  src_vertex_properties = FillUpSourceVertexProperties(v_acc, req, storage::v3::View::NEW, schema);
 
-  /// Fill up source vertex properties
-  auto src_vertex_properties = FillUpSourceVertexProperties(v_acc, req);
   if (!src_vertex_properties) {
     return std::nullopt;
   }

@@ -189,7 +189,8 @@ class Shard final {
   /// @throw std::system_error
   /// @throw std::bad_alloc
   explicit Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<PrimaryKey> max_primary_key,
-                 std::vector<SchemaProperty> schema, Config config = Config());
+                 std::vector<SchemaProperty> schema, Config config = Config(),
+                 std::unordered_map<uint64_t, std::string> id_to_name = {});
 
   Shard(const Shard &) = delete;
   Shard(Shard &&) noexcept = delete;

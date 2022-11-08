@@ -13,12 +13,51 @@
 
 #include <cstdint>
 
+#include <json/json.hpp>
+
 #include "query/v2/context.hpp"
 #include "query/v2/plan/profile.hpp"
 #include "utils/likely.hpp"
 #include "utils/tsc.hpp"
 
 namespace memgraph::query::v2::plan {
+
+class ScopedCustomProfile {
+ public:
+  explicit ScopedCustomProfile(const std::string_view custom_data_name, ExecutionContext &context)
+      : custom_data_name_(custom_data_name), start_time_{utils::ReadTSC()}, context_{&context} {}
+
+  ScopedCustomProfile(const ScopedCustomProfile &) = delete;
+  ScopedCustomProfile(ScopedCustomProfile &&) = delete;
+  ScopedCustomProfile &operator=(const ScopedCustomProfile &) = delete;
+  ScopedCustomProfile &operator=(ScopedCustomProfile &&) = delete;
+
+  // If an exception is thrown in any of these functions that signals a problem that is much bigger than we could handle
+  // it here, thus we don't attempt to handle it.
+  // NOLINTNEXTLINE(bugprone-exception-escape)
+  ~ScopedCustomProfile() {
+    if (nullptr != context_->stats_root) [[unlikely]] {
+      auto &custom_data = context_->stats_root->custom_data[custom_data_name_];
+      if (!custom_data.is_object()) {
+        custom_data = nlohmann::json::object();
+      }
+      const auto elapsed = utils::ReadTSC() - start_time_;
+      IncreaseCustomData(custom_data, ProfilingStats::kNumCycles, elapsed);
+      IncreaseCustomData(custom_data, ProfilingStats::kActualHits, 1);
+    }
+  }
+
+ private:
+  static void IncreaseCustomData(nlohmann::json &custom_data, const std::string_view key, const uint64_t increment) {
+    auto &json_data = custom_data[key];
+    const auto numerical_data = json_data.is_null() ? 0 : json_data.get<uint64_t>();
+    json_data = numerical_data + increment;
+  }
+
+  std::string_view custom_data_name_;
+  uint64_t start_time_;
+  ExecutionContext *context_;
+};
 
 /**
  * A RAII class used for profiling logical operators. Instances of this class
@@ -29,7 +68,7 @@ namespace memgraph::query::v2::plan {
 class ScopedProfile {
  public:
   ScopedProfile(uint64_t key, const char *name, query::v2::ExecutionContext *context) noexcept : context_(context) {
-    if (UNLIKELY(context_->is_profile_query)) {
+    if (IsProfiling()) [[unlikely]] {
       root_ = context_->stats_root;
 
       // Are we the root logical operator?
@@ -60,8 +99,13 @@ class ScopedProfile {
     }
   }
 
+  ScopedProfile(const ScopedProfile &) = delete;
+  ScopedProfile(ScopedProfile &&) = delete;
+  ScopedProfile &operator=(const ScopedProfile &) = delete;
+  ScopedProfile &operator=(ScopedProfile &&) = delete;
+
   ~ScopedProfile() noexcept {
-    if (UNLIKELY(context_->is_profile_query)) {
+    if (IsProfiling()) [[unlikely]] {
       stats_->num_cycles += utils::ReadTSC() - start_time_;
 
       // Restore the old root ("pop")
@@ -70,10 +114,12 @@ class ScopedProfile {
   }
 
  private:
+  [[nodiscard]] bool IsProfiling() const { return context_->is_profile_query; }
+
   query::v2::ExecutionContext *context_;
   ProfilingStats *root_{nullptr};
   ProfilingStats *stats_{nullptr};
-  unsigned long long start_time_{0};
+  uint64_t start_time_{0};
 };
 
 }  // namespace memgraph::query::v2::plan

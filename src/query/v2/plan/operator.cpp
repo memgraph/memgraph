@@ -155,7 +155,16 @@ uint64_t ComputeProfilingKey(const T *obj) {
 
 }  // namespace
 
-#define SCOPED_PROFILE_OP(name) ScopedProfile profile{ComputeProfilingKey(this), name, &context};
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define SCOPED_PROFILE_OP(name) \
+  ScopedProfile profile { ComputeProfilingKey(this), name, &context }
+
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define SCOPED_CUSTOM_PROFILE(name) \
+  ScopedCustomProfile custom_profile { name, context }
+
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define SCOPED_REQUEST_WAIT_PROFILE SCOPED_CUSTOM_PROFILE("request_wait")
 
 class DistributedCreateNodeCursor : public Cursor {
  public:
@@ -168,7 +177,11 @@ class DistributedCreateNodeCursor : public Cursor {
     SCOPED_PROFILE_OP("CreateNode");
     if (input_cursor_->Pull(frame, context)) {
       auto &shard_manager = context.shard_request_manager;
-      shard_manager->Request(state_, NodeCreationInfoToRequest(context, frame));
+      {
+        SCOPED_REQUEST_WAIT_PROFILE;
+        shard_manager->Request(state_, NodeCreationInfoToRequest(context, frame));
+      }
+      PlaceNodeOnTheFrame(frame, context);
       return true;
     }
 
@@ -179,8 +192,19 @@ class DistributedCreateNodeCursor : public Cursor {
 
   void Reset() override { state_ = {}; }
 
-  std::vector<msgs::NewVertex> NodeCreationInfoToRequest(ExecutionContext &context, Frame &frame) const {
+  void PlaceNodeOnTheFrame(Frame &frame, ExecutionContext &context) {
+    // TODO(kostasrim) Make this work with batching
+    const auto primary_label = msgs::Label{.id = nodes_info_[0]->labels[0]};
+    msgs::Vertex v{.id = std::make_pair(primary_label, primary_keys_[0])};
+    frame[nodes_info_.front()->symbol] = TypedValue(
+        query::v2::accessors::VertexAccessor(std::move(v), src_vertex_props_[0], context.shard_request_manager));
+  }
+
+  std::vector<msgs::NewVertex> NodeCreationInfoToRequest(ExecutionContext &context, Frame &frame) {
     std::vector<msgs::NewVertex> requests;
+    // TODO(kostasrim) this assertion should be removed once we support multiple vertex creation
+    MG_ASSERT(nodes_info_.size() == 1);
+    msgs::PrimaryKey pk;
     for (const auto &node_info : nodes_info_) {
       msgs::NewVertex rqst;
       MG_ASSERT(!node_info->labels.empty(), "Cannot determine primary label");
@@ -188,17 +212,14 @@ class DistributedCreateNodeCursor : public Cursor {
       // TODO(jbajic) Fix properties not send,
       // suggestion: ignore distinction between properties and primary keys
       // since schema validation is done on storage side
-      std::map<msgs::PropertyId, msgs::Value> properties;
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, nullptr,
                                     storage::v3::View::NEW);
       if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info->properties)) {
         for (const auto &[key, value_expression] : *node_info_properties) {
           TypedValue val = value_expression->Accept(evaluator);
-
           if (context.shard_request_manager->IsPrimaryKey(primary_label, key)) {
             rqst.primary_key.push_back(TypedValueToValue(val));
-          } else {
-            properties[key] = TypedValueToValue(val);
+            pk.push_back(TypedValueToValue(val));
           }
         }
       } else {
@@ -207,9 +228,8 @@ class DistributedCreateNodeCursor : public Cursor {
           auto key_str = std::string(key);
           auto property_id = context.shard_request_manager->NameToProperty(key_str);
           if (context.shard_request_manager->IsPrimaryKey(primary_label, property_id)) {
-            rqst.primary_key.push_back(storage::v3::TypedValueToValue(value));
-          } else {
-            properties[property_id] = TypedValueToValue(value);
+            rqst.primary_key.push_back(TypedValueToValue(value));
+            pk.push_back(TypedValueToValue(value));
           }
         }
       }
@@ -219,14 +239,18 @@ class DistributedCreateNodeCursor : public Cursor {
       }
       // TODO(kostasrim) Copy non primary labels as well
       rqst.label_ids.push_back(msgs::Label{.id = primary_label});
+      src_vertex_props_.push_back(rqst.properties);
       requests.push_back(std::move(rqst));
     }
+    primary_keys_.push_back(std::move(pk));
     return requests;
   }
 
  private:
   const UniqueCursorPtr input_cursor_;
   std::vector<const NodeCreationInfo *> nodes_info_;
+  std::vector<std::vector<std::pair<storage::v3::PropertyId, msgs::Value>>> src_vertex_props_;
+  std::vector<msgs::PrimaryKey> primary_keys_;
   msgs::ExecutionState<msgs::CreateVerticesRequest> state_;
 };
 
@@ -361,38 +385,43 @@ class DistributedScanAllAndFilterCursor : public Cursor {
 
   using VertexAccessor = accessors::VertexAccessor;
 
-  bool MakeRequest(msgs::ShardRequestManagerInterface &shard_manager) {
-    current_batch = shard_manager.Request(request_state_);
+  bool MakeRequest(msgs::ShardRequestManagerInterface &shard_manager, ExecutionContext &context) {
+    {
+      SCOPED_REQUEST_WAIT_PROFILE;
+      current_batch = shard_manager.Request(request_state_);
+    }
     current_vertex_it = current_batch.begin();
     return !current_batch.empty();
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP(op_name_);
+
     auto &shard_manager = *context.shard_request_manager;
-    if (MustAbort(context)) {
-      throw HintedAbortError();
-    }
-    using State = msgs::ExecutionState<msgs::ScanVerticesRequest>;
-
-    if (request_state_.state == State::INITIALIZING) {
-      if (!input_cursor_->Pull(frame, context)) {
-        return false;
+    while (true) {
+      if (MustAbort(context)) {
+        throw HintedAbortError();
       }
-    }
+      using State = msgs::ExecutionState<msgs::ScanVerticesRequest>;
 
-    request_state_.label = label_.has_value() ? std::make_optional(shard_manager.LabelToName(*label_)) : std::nullopt;
+      if (request_state_.state == State::INITIALIZING) {
+        if (!input_cursor_->Pull(frame, context)) {
+          return false;
+        }
+      }
 
-    if (current_vertex_it == current_batch.end()) {
-      if (request_state_.state == State::COMPLETED || !MakeRequest(shard_manager)) {
+      request_state_.label = label_.has_value() ? std::make_optional(shard_manager.LabelToName(*label_)) : std::nullopt;
+
+      if (current_vertex_it == current_batch.end() &&
+          (request_state_.state == State::COMPLETED || !MakeRequest(shard_manager, context))) {
         ResetExecutionState();
-        return Pull(frame, context);
+        continue;
       }
-    }
 
-    frame[output_symbol_] = TypedValue(std::move(*current_vertex_it));
-    ++current_vertex_it;
-    return true;
+      frame[output_symbol_] = TypedValue(std::move(*current_vertex_it));
+      ++current_vertex_it;
+      return true;
+    }
   }
 
   void Shutdown() override { input_cursor_->Shutdown(); }
@@ -687,7 +716,7 @@ bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
 
   // Like all filters, newly set values should not affect filtering of old
   // nodes and edges.
-  ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+  ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.shard_request_manager,
                                 storage::v3::View::OLD);
   while (input_cursor_->Pull(frame, context)) {
     if (EvaluateFilter(evaluator, self_.expression_)) return true;
@@ -728,8 +757,8 @@ bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
 
   if (input_cursor_->Pull(frame, context)) {
     // Produce should always yield the latest results.
-    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                  storage::v3::View::NEW);
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context,
+                                  context.shard_request_manager, storage::v3::View::NEW);
     for (auto named_expr : self_.named_expressions_) named_expr->Accept(evaluator);
 
     return true;
@@ -1149,8 +1178,8 @@ class AggregateCursor : public Cursor {
    * aggregation results, and not on the number of inputs.
    */
   void ProcessAll(Frame *frame, ExecutionContext *context) {
-    ExpressionEvaluator evaluator(frame, context->symbol_table, context->evaluation_context, context->db_accessor,
-                                  storage::v3::View::NEW);
+    ExpressionEvaluator evaluator(frame, context->symbol_table, context->evaluation_context,
+                                  context->shard_request_manager, storage::v3::View::NEW);
     while (input_cursor_->Pull(*frame, *context)) {
       ProcessOne(*frame, &evaluator);
     }
@@ -1370,8 +1399,8 @@ bool Skip::SkipCursor::Pull(Frame &frame, ExecutionContext &context) {
       // First successful pull from the input, evaluate the skip expression.
       // The skip expression doesn't contain identifiers so graph view
       // parameter is not important.
-      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                    storage::v3::View::OLD);
+      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context,
+                                    context.shard_request_manager, storage::v3::View::OLD);
       TypedValue to_skip = self_.expression_->Accept(evaluator);
       if (to_skip.type() != TypedValue::Type::Int)
         throw QueryRuntimeException("Number of elements to skip must be an integer.");
@@ -1425,8 +1454,8 @@ bool Limit::LimitCursor::Pull(Frame &frame, ExecutionContext &context) {
   if (limit_ == -1) {
     // Limit expression doesn't contain identifiers so graph view is not
     // important.
-    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                  storage::v3::View::OLD);
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context,
+                                  context.shard_request_manager, storage::v3::View::OLD);
     TypedValue limit = self_.expression_->Accept(evaluator);
     if (limit.type() != TypedValue::Type::Int)
       throw QueryRuntimeException("Limit on number of returned elements must be an integer.");
@@ -1481,8 +1510,8 @@ class OrderByCursor : public Cursor {
     SCOPED_PROFILE_OP("OrderBy");
 
     if (!did_pull_all_) {
-      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                    storage::v3::View::OLD);
+      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context,
+                                    context.shard_request_manager, storage::v3::View::OLD);
       auto *mem = cache_.get_allocator().GetMemoryResource();
       while (input_cursor_->Pull(frame, context)) {
         // collect the order_by elements
@@ -1739,8 +1768,8 @@ class UnwindCursor : public Cursor {
         if (!input_cursor_->Pull(frame, context)) return false;
 
         // successful pull from input, initialize value and iterator
-        ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                      storage::v3::View::OLD);
+        ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context,
+                                      context.shard_request_manager, storage::v3::View::OLD);
         TypedValue input_value = self_.input_expression_->Accept(evaluator);
         if (input_value.type() != TypedValue::Type::List)
           throw QueryRuntimeException("Argument of UNWIND must be a list, but '{}' was provided.", input_value.type());
@@ -2217,7 +2246,7 @@ class LoadCsvCursor : public Cursor {
     //  self_->delimiter_, and self_->quote_ earlier (say, in the interpreter.cpp)
     //  without massacring the code even worse than I did here
     if (UNLIKELY(!reader_)) {
-      reader_ = MakeReader(&context.evaluation_context);
+      reader_ = MakeReader(context);
     }
 
     bool input_pulled = input_cursor_->Pull(frame, context);
@@ -2246,11 +2275,12 @@ class LoadCsvCursor : public Cursor {
   void Shutdown() override { input_cursor_->Shutdown(); }
 
  private:
-  csv::Reader MakeReader(EvaluationContext *eval_context) {
+  csv::Reader MakeReader(ExecutionContext &context) {
+    auto &eval_context = context.evaluation_context;
     Frame frame(0);
     SymbolTable symbol_table;
-    DbAccessor *dba = nullptr;
-    auto evaluator = ExpressionEvaluator(&frame, symbol_table, *eval_context, dba, storage::v3::View::OLD);
+    auto evaluator =
+        ExpressionEvaluator(&frame, symbol_table, eval_context, context.shard_request_manager, storage::v3::View::OLD);
 
     auto maybe_file = ToOptionalString(&evaluator, self_->file_);
     auto maybe_delim = ToOptionalString(&evaluator, self_->delimiter_);
@@ -2287,8 +2317,8 @@ class ForeachCursor : public Cursor {
       return false;
     }
 
-    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                  storage::v3::View::NEW);
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context,
+                                  context.shard_request_manager, storage::v3::View::NEW);
     TypedValue expr_result = expression->Accept(evaluator);
 
     if (expr_result.IsNull()) {
@@ -2366,7 +2396,10 @@ class DistributedCreateExpandCursor : public Cursor {
     }
     auto &shard_manager = context.shard_request_manager;
     ResetExecutionState();
-    shard_manager->Request(state_, ExpandCreationInfoToRequest(context, frame));
+    {
+      SCOPED_REQUEST_WAIT_PROFILE;
+      shard_manager->Request(state_, ExpandCreationInfoToRequest(context, frame));
+    }
     return true;
   }
 
@@ -2389,7 +2422,7 @@ class DistributedCreateExpandCursor : public Cursor {
   std::vector<msgs::NewExpand> ExpandCreationInfoToRequest(ExecutionContext &context, Frame &frame) const {
     std::vector<msgs::NewExpand> edge_requests;
     for (const auto &edge_info : std::vector{self_.edge_info_}) {
-      msgs::NewExpand request{.id = {context.edge_ids_alloc.AllocateId()}};
+      msgs::NewExpand request{.id = {context.edge_ids_alloc->AllocateId()}};
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, nullptr,
                                     storage::v3::View::NEW);
       request.type = {edge_info.edge_type};
@@ -2425,13 +2458,13 @@ class DistributedCreateExpandCursor : public Cursor {
       std::invoke([&]() {
         switch (edge_info.direction) {
           case EdgeAtom::Direction::IN: {
-            set_vertex(v1, request.src_vertex);
-            set_vertex(v2, request.dest_vertex);
+            set_vertex(v2, request.src_vertex);
+            set_vertex(v1, request.dest_vertex);
             break;
           }
           case EdgeAtom::Direction::OUT: {
-            set_vertex(v1, request.dest_vertex);
-            set_vertex(v2, request.src_vertex);
+            set_vertex(v1, request.src_vertex);
+            set_vertex(v2, request.dest_vertex);
             break;
           }
           case EdgeAtom::Direction::BOTH:
@@ -2458,14 +2491,51 @@ class DistributedExpandCursor : public Cursor {
       : self_(self),
         input_cursor_(self.input_->MakeCursor(mem)),
         current_in_edge_it_(current_in_edges_.begin()),
-        current_out_edge_it_(current_out_edges_.begin()) {
-    if (self_.common_.existing_node) {
-      throw QueryRuntimeException("Cannot use existing node with DistributedExpandOne cursor!");
-    }
-  }
+        current_out_edge_it_(current_out_edges_.begin()) {}
 
   using VertexAccessor = accessors::VertexAccessor;
   using EdgeAccessor = accessors::EdgeAccessor;
+
+  static constexpr auto DirectionToMsgsDirection(const auto direction) {
+    switch (direction) {
+      case EdgeAtom::Direction::IN:
+        return msgs::EdgeDirection::IN;
+      case EdgeAtom::Direction::OUT:
+        return msgs::EdgeDirection::OUT;
+      case EdgeAtom::Direction::BOTH:
+        return msgs::EdgeDirection::BOTH;
+    }
+  };
+
+  void PullDstVertex(Frame &frame, ExecutionContext &context, const EdgeAtom::Direction direction) {
+    if (self_.common_.existing_node) {
+      return;
+    }
+    MG_ASSERT(direction != EdgeAtom::Direction::BOTH);
+    const auto &edge = frame[self_.common_.edge_symbol].ValueEdge();
+    static constexpr auto get_dst_vertex = [](const EdgeAccessor &edge,
+                                              const EdgeAtom::Direction direction) -> msgs::VertexId {
+      switch (direction) {
+        case EdgeAtom::Direction::IN:
+          return edge.From().Id();
+        case EdgeAtom::Direction::OUT:
+          return edge.To().Id();
+        case EdgeAtom::Direction::BOTH:
+          throw std::runtime_error("EdgeDirection Both not implemented");
+      }
+    };
+    msgs::ExpandOneRequest request;
+    // to not fetch any properties of the edges
+    request.edge_properties.emplace();
+    request.src_vertices.push_back(get_dst_vertex(edge, direction));
+    request.direction = (direction == EdgeAtom::Direction::IN) ? msgs::EdgeDirection::OUT : msgs::EdgeDirection::IN;
+    msgs::ExecutionState<msgs::ExpandOneRequest> request_state;
+    auto result_rows = context.shard_request_manager->Request(request_state, std::move(request));
+    MG_ASSERT(result_rows.size() == 1);
+    auto &result_row = result_rows.front();
+    frame[self_.common_.node_symbol] = accessors::VertexAccessor(
+        msgs::Vertex{result_row.src_vertex}, result_row.src_vertex_properties, context.shard_request_manager);
+  }
 
   bool InitEdges(Frame &frame, ExecutionContext &context) {
     // Input Vertex could be null if it is created by a failed optional match. In
@@ -2480,44 +2550,45 @@ class DistributedExpandCursor : public Cursor {
 
       ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
       auto &vertex = vertex_value.ValueVertex();
-      static constexpr auto direction_to_msgs_direction = [](const EdgeAtom::Direction direction) {
-        switch (direction) {
-          case EdgeAtom::Direction::IN:
-            return msgs::EdgeDirection::IN;
-          case EdgeAtom::Direction::OUT:
-            return msgs::EdgeDirection::OUT;
-          case EdgeAtom::Direction::BOTH:
-            return msgs::EdgeDirection::BOTH;
-        }
-      };
-
       msgs::ExpandOneRequest request;
-      request.direction = direction_to_msgs_direction(self_.common_.direction);
+      request.direction = DirectionToMsgsDirection(self_.common_.direction);
       // to not fetch any properties of the edges
       request.edge_properties.emplace();
       request.src_vertices.push_back(vertex.Id());
       msgs::ExecutionState<msgs::ExpandOneRequest> request_state;
-      auto result_rows = context.shard_request_manager->Request(request_state, std::move(request));
+      auto result_rows = std::invoke([&context, &request_state, &request]() mutable {
+        SCOPED_REQUEST_WAIT_PROFILE;
+        return context.shard_request_manager->Request(request_state, std::move(request));
+      });
       MG_ASSERT(result_rows.size() == 1);
       auto &result_row = result_rows.front();
 
-      const auto convert_edges = [&vertex](
+      if (self_.common_.existing_node) {
+        const auto &node = frame[self_.common_.node_symbol].ValueVertex().Id();
+        auto &in = result_row.in_edges_with_specific_properties;
+        std::erase_if(in, [&node](auto &edge) { return edge.other_end != node; });
+        auto &out = result_row.out_edges_with_specific_properties;
+        std::erase_if(out, [&node](auto &edge) { return edge.other_end != node; });
+      }
+
+      const auto convert_edges = [&vertex, &context](
                                      std::vector<msgs::ExpandOneResultRow::EdgeWithSpecificProperties> &&edge_messages,
                                      const EdgeAtom::Direction direction) {
         std::vector<EdgeAccessor> edge_accessors;
         edge_accessors.reserve(edge_messages.size());
+
         switch (direction) {
           case EdgeAtom::Direction::IN: {
             for (auto &edge : edge_messages) {
-              edge_accessors.emplace_back(
-                  msgs::Edge{std::move(edge.other_end), vertex.Id(), {}, {edge.gid}, edge.type});
+              edge_accessors.emplace_back(msgs::Edge{std::move(edge.other_end), vertex.Id(), {}, {edge.gid}, edge.type},
+                                          context.shard_request_manager);
             }
             break;
           }
           case EdgeAtom::Direction::OUT: {
             for (auto &edge : edge_messages) {
-              edge_accessors.emplace_back(
-                  msgs::Edge{vertex.Id(), std::move(edge.other_end), {}, {edge.gid}, edge.type});
+              edge_accessors.emplace_back(msgs::Edge{vertex.Id(), std::move(edge.other_end), {}, {edge.gid}, edge.type},
+                                          context.shard_request_manager);
             }
             break;
           }
@@ -2527,12 +2598,13 @@ class DistributedExpandCursor : public Cursor {
         }
         return edge_accessors;
       };
+
       current_in_edges_ =
           convert_edges(std::move(result_row.in_edges_with_specific_properties), EdgeAtom::Direction::IN);
       current_in_edge_it_ = current_in_edges_.begin();
-      current_in_edges_ =
-          convert_edges(std::move(result_row.in_edges_with_specific_properties), EdgeAtom::Direction::OUT);
-      current_in_edge_it_ = current_in_edges_.begin();
+      current_out_edges_ =
+          convert_edges(std::move(result_row.out_edges_with_specific_properties), EdgeAtom::Direction::OUT);
+      current_out_edge_it_ = current_out_edges_.begin();
       return true;
     }
   }
@@ -2540,19 +2612,6 @@ class DistributedExpandCursor : public Cursor {
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("DistributedExpand");
     // A helper function for expanding a node from an edge.
-    auto pull_node = [this, &frame](const EdgeAccessor &new_edge, EdgeAtom::Direction direction) {
-      if (self_.common_.existing_node) return;
-      switch (direction) {
-        case EdgeAtom::Direction::IN:
-          frame[self_.common_.node_symbol] = new_edge.From();
-          break;
-        case EdgeAtom::Direction::OUT:
-          frame[self_.common_.node_symbol] = new_edge.To();
-          break;
-        case EdgeAtom::Direction::BOTH:
-          LOG_FATAL("Must indicate exact expansion direction here");
-      }
-    };
 
     while (true) {
       if (MustAbort(context)) throw HintedAbortError();
@@ -2561,7 +2620,7 @@ class DistributedExpandCursor : public Cursor {
         auto &edge = *current_in_edge_it_;
         ++current_in_edge_it_;
         frame[self_.common_.edge_symbol] = edge;
-        pull_node(edge, EdgeAtom::Direction::IN);
+        PullDstVertex(frame, context, EdgeAtom::Direction::IN);
         return true;
       }
 
@@ -2573,7 +2632,7 @@ class DistributedExpandCursor : public Cursor {
           continue;
         };
         frame[self_.common_.edge_symbol] = edge;
-        pull_node(edge, EdgeAtom::Direction::OUT);
+        PullDstVertex(frame, context, EdgeAtom::Direction::OUT);
         return true;
       }
 
