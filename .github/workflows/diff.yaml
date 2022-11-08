@@ -75,13 +75,21 @@ jobs:
       - name: Fetch all history for all tags and branches
         run: git fetch
 
-      - name: Build combined ASAN, UBSAN and coverage binaries
+      - name: Initialize deps
         run: |
           # Activate toolchain.
           source /opt/toolchain-v4/activate
 
           # Initialize dependencies.
           ./init
+
+      - name: Python code analysis
+        uses: psf/black@stable
+
+      - name: Build combined ASAN, UBSAN and coverage binaries
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
 
           cd build
           cmake -DTEST_COVERAGE=ON -DASAN=ON -DUBSAN=ON ..
