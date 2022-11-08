@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 #include <rapidcheck.h>
 #include <rapidcheck/gtest.h>
+#include <spdlog/cfg/env.h>
 
 #include "generated_operations.hpp"
 #include "io/simulator/simulator_config.hpp"
@@ -34,6 +35,8 @@ using storage::v3::kMaximumCronInterval;
 
 RC_GTEST_PROP(RandomClusterConfig, HappyPath, (ClusterConfig cluster_config, NonEmptyOpVec ops)) {
   // TODO(tyler) set abort_time to something more restrictive than Time::max()
+
+  spdlog::cfg::load_env_levels();
 
   SimulatorConfig sim_config{
       .drop_percent = 0,

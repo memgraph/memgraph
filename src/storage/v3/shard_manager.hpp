@@ -13,47 +13,50 @@
 
 #include <queue>
 #include <set>
+#include <unordered_map>
 
+#include <boost/functional/hash.hpp>
 #include <boost/uuid/uuid.hpp>
 
-#include <coordinator/coordinator.hpp>
-#include <io/address.hpp>
-#include <io/message_conversion.hpp>
-#include <io/messages.hpp>
-#include <io/rsm/raft.hpp>
-#include <io/time.hpp>
-#include <io/transport.hpp>
-#include <query/v2/requests.hpp>
-#include <storage/v3/shard.hpp>
-#include <storage/v3/shard_rsm.hpp>
+#include "coordinator/coordinator.hpp"
 #include "coordinator/shard_map.hpp"
+#include "io/address.hpp"
+#include "io/message_conversion.hpp"
+#include "io/messages.hpp"
+#include "io/rsm/raft.hpp"
+#include "io/time.hpp"
+#include "io/transport.hpp"
+#include "query/v2/requests.hpp"
 #include "storage/v3/config.hpp"
+#include "storage/v3/shard.hpp"
+#include "storage/v3/shard_rsm.hpp"
+#include "storage/v3/shard_worker.hpp"
 
 namespace memgraph::storage::v3 {
 
 using boost::uuids::uuid;
 
-using memgraph::coordinator::CoordinatorWriteRequests;
-using memgraph::coordinator::CoordinatorWriteResponses;
-using memgraph::coordinator::HeartbeatRequest;
-using memgraph::coordinator::HeartbeatResponse;
-using memgraph::io::Address;
-using memgraph::io::Duration;
-using memgraph::io::Message;
-using memgraph::io::RequestId;
-using memgraph::io::ResponseFuture;
-using memgraph::io::Time;
-using memgraph::io::messages::CoordinatorMessages;
-using memgraph::io::messages::ShardManagerMessages;
-using memgraph::io::messages::ShardMessages;
-using memgraph::io::rsm::Raft;
-using memgraph::io::rsm::WriteRequest;
-using memgraph::io::rsm::WriteResponse;
-using memgraph::msgs::ReadRequests;
-using memgraph::msgs::ReadResponses;
-using memgraph::msgs::WriteRequests;
-using memgraph::msgs::WriteResponses;
-using memgraph::storage::v3::ShardRsm;
+using coordinator::CoordinatorWriteRequests;
+using coordinator::CoordinatorWriteResponses;
+using coordinator::HeartbeatRequest;
+using coordinator::HeartbeatResponse;
+using io::Address;
+using io::Duration;
+using io::Message;
+using io::RequestId;
+using io::ResponseFuture;
+using io::Time;
+using io::messages::CoordinatorMessages;
+using io::messages::ShardManagerMessages;
+using io::messages::ShardMessages;
+using io::rsm::Raft;
+using io::rsm::WriteRequest;
+using io::rsm::WriteResponse;
+using msgs::ReadRequests;
+using msgs::ReadResponses;
+using msgs::WriteRequests;
+using msgs::WriteResponses;
+using storage::v3::ShardRsm;
 
 using ShardManagerOrRsmMessage = std::variant<ShardMessages, ShardManagerMessages>;
 using TimeUuidPair = std::pair<Time, uuid>;
@@ -77,7 +80,71 @@ static_assert(kMinimumCronInterval < kMaximumCronInterval,
 template <typename IoImpl>
 class ShardManager {
  public:
-  ShardManager(io::Io<IoImpl> io, Address coordinator_leader) : io_(io), coordinator_leader_(coordinator_leader) {}
+  ShardManager(io::Io<IoImpl> io, size_t shard_worker_threads, Address coordinator_leader)
+      : io_(io), coordinator_leader_(coordinator_leader) {
+    MG_ASSERT(shard_worker_threads >= 1);
+
+    for (int i = 0; i < shard_worker_threads; i++) {
+      shard_worker::Queue queue;
+      shard_worker::ShardWorker worker{io, queue};
+      auto worker_handle = std::jthread([worker = std::move(worker)]() mutable { worker.Run(); });
+
+      workers_.emplace_back(queue);
+      worker_handles_.emplace_back(std::move(worker_handle));
+      worker_rsm_counts_.emplace_back(0);
+    }
+  }
+
+  ShardManager(ShardManager &&) noexcept = default;
+  ShardManager &operator=(ShardManager &&) noexcept = default;
+  ShardManager(const ShardManager &) = delete;
+  ShardManager &operator=(const ShardManager &) = delete;
+
+  ~ShardManager() {
+    for (auto worker : workers_) {
+      worker.Push(shard_worker::ShutDown{});
+    }
+
+    workers_.clear();
+
+    // The jthread handes for our shard worker threads will be
+    // blocked on implicitly when worker_handles_ is destroyed.
+  }
+
+  size_t UuidToWorkerIndex(const uuid &to) {
+    if (rsm_worker_mapping_.contains(to)) {
+      return rsm_worker_mapping_.at(to);
+    }
+
+    // We will now create a mapping for this (probably new) shard
+    // by choosing the worker with the lowest number of existing
+    // mappings.
+
+    size_t min_index = 0;
+    size_t min_count = worker_rsm_counts_.at(min_index);
+
+    for (int i = 0; i < worker_rsm_counts_.size(); i++) {
+      size_t worker_count = worker_rsm_counts_.at(i);
+      if (worker_count <= min_count) {
+        min_count = worker_count;
+        min_index = i;
+      }
+    }
+
+    worker_rsm_counts_[min_index]++;
+    rsm_worker_mapping_.emplace(to, min_index);
+
+    return min_index;
+  }
+
+  void SendToWorkerByIndex(size_t worker_index, shard_worker::Message &&message) {
+    workers_[worker_index].Push(std::forward<shard_worker::Message>(message));
+  }
+
+  void SendToWorkerByUuid(const uuid &to, shard_worker::Message &&message) {
+    size_t worker_index = UuidToWorkerIndex(to);
+    SendToWorkerByIndex(worker_index, std::forward<shard_worker::Message>(message));
+  }
 
   /// Periodic protocol maintenance. Returns the time that Cron should be called again
   /// in the future.
@@ -85,33 +152,23 @@ class ShardManager {
     spdlog::info("running ShardManager::Cron, address {}", io_.GetAddress().ToString());
     Time now = io_.Now();
 
-    if (now >= next_cron_) {
+    if (now >= next_reconciliation_) {
       Reconciliation();
 
       std::uniform_int_distribution time_distrib(kMinimumCronInterval.count(), kMaximumCronInterval.count());
 
       const auto rand = io_.Rand(time_distrib);
 
-      next_cron_ = now + Duration{rand};
+      next_reconciliation_ = now + Duration{rand};
     }
 
-    if (!cron_schedule_.empty()) {
-      const auto &[time, uuid] = cron_schedule_.top();
-
-      if (time <= now) {
-        auto &rsm = rsm_map_.at(uuid);
-        Time next_for_uuid = rsm.Cron();
-
-        cron_schedule_.pop();
-        cron_schedule_.push(std::make_pair(next_for_uuid, uuid));
-
-        const auto &[next_time, _uuid] = cron_schedule_.top();
-
-        return std::min(next_cron_, next_time);
-      }
+    for (auto &worker : workers_) {
+      worker.Push(shard_worker::Cron{});
     }
 
-    return next_cron_;
+    Time next_worker_cron = now + std::chrono::milliseconds(500);
+
+    return std::min(next_worker_cron, next_reconciliation_);
   }
 
   /// Returns the Address for our underlying Io implementation
@@ -125,16 +182,21 @@ class ShardManager {
     MG_ASSERT(address.last_known_port == to.last_known_port);
     MG_ASSERT(address.last_known_ip == to.last_known_ip);
 
-    auto &rsm = rsm_map_.at(to.unique_id);
-
-    rsm.Handle(std::forward<ShardMessages>(sm), request_id, from);
+    SendToWorkerByUuid(to.unique_id, shard_worker::RouteMessage{
+                                         .message = std::move(sm),
+                                         .request_id = request_id,
+                                         .to = to,
+                                         .from = from,
+                                     });
   }
 
  private:
   io::Io<IoImpl> io_;
-  std::map<uuid, ShardRaft<IoImpl>> rsm_map_;
-  std::priority_queue<std::pair<Time, uuid>, std::vector<std::pair<Time, uuid>>, std::greater<>> cron_schedule_;
-  Time next_cron_ = Time::min();
+  std::vector<shard_worker::Queue> workers_;
+  std::vector<std::jthread> worker_handles_;
+  std::vector<size_t> worker_rsm_counts_;
+  std::unordered_map<uuid, size_t, boost::hash<boost::uuids::uuid>> rsm_worker_mapping_;
+  Time next_reconciliation_ = Time::min();
   Address coordinator_leader_;
   std::optional<ResponseFuture<WriteResponse<CoordinatorWriteResponses>>> heartbeat_res_;
 
@@ -188,39 +250,22 @@ class ShardManager {
   }
 
   void EnsureShardsInitialized(HeartbeatResponse hr) {
-    for (const auto &shard_to_initialize : hr.shards_to_initialize) {
-      InitializeRsm(shard_to_initialize);
-      initialized_but_not_confirmed_rsm_.emplace(shard_to_initialize.uuid);
+    for (const auto &to_init : hr.shards_to_initialize) {
+      initialized_but_not_confirmed_rsm_.emplace(to_init.uuid);
+
+      if (rsm_worker_mapping_.contains(to_init.uuid)) {
+        // it's not a bug for the coordinator to send us UUIDs that we have
+        // already created, because there may have been lag that caused
+        // the coordinator not to hear back from us.
+        return;
+      }
+
+      size_t worker_index = UuidToWorkerIndex(to_init.uuid);
+
+      SendToWorkerByIndex(worker_index, to_init);
+
+      rsm_worker_mapping_.emplace(to_init.uuid, worker_index);
     }
-  }
-
-  /// Returns true if the RSM was able to be initialized, and false if it was already initialized
-  void InitializeRsm(coordinator::ShardToInitialize to_init) {
-    if (rsm_map_.contains(to_init.uuid)) {
-      // it's not a bug for the coordinator to send us UUIDs that we have
-      // already created, because there may have been lag that caused
-      // the coordinator not to hear back from us.
-      return;
-    }
-
-    auto rsm_io = io_.ForkLocal();
-    auto io_addr = rsm_io.GetAddress();
-    io_addr.unique_id = to_init.uuid;
-    rsm_io.SetAddress(io_addr);
-
-    // TODO(tyler) get peers from Coordinator in HeartbeatResponse
-    std::vector<Address> rsm_peers = {};
-
-    std::unique_ptr<Shard> shard = std::make_unique<Shard>(to_init.label_id, to_init.min_key, to_init.max_key,
-                                                           to_init.schema, to_init.config, to_init.id_to_names);
-
-    ShardRsm rsm_state{std::move(shard)};
-
-    ShardRaft<IoImpl> rsm{std::move(rsm_io), rsm_peers, std::move(rsm_state)};
-
-    spdlog::info("SM created a new shard with UUID {}", to_init.uuid);
-
-    rsm_map_.emplace(to_init.uuid, std::move(rsm));
   }
 };
 

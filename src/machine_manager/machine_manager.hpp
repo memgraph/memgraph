@@ -11,39 +11,43 @@
 
 #pragma once
 
-#include <coordinator/coordinator_rsm.hpp>
-#include <io/message_conversion.hpp>
-#include <io/messages.hpp>
-#include <io/rsm/rsm_client.hpp>
-#include <io/time.hpp>
-#include <machine_manager/machine_config.hpp>
-#include <storage/v3/shard_manager.hpp>
+#include "coordinator/coordinator_rsm.hpp"
+#include "coordinator/coordinator_worker.hpp"
+#include "io/message_conversion.hpp"
+#include "io/messages.hpp"
+#include "io/rsm/rsm_client.hpp"
+#include "io/time.hpp"
+#include "machine_manager/machine_config.hpp"
+#include "storage/v3/shard_manager.hpp"
 
 namespace memgraph::machine_manager {
 
-using memgraph::coordinator::Coordinator;
-using memgraph::coordinator::CoordinatorReadRequests;
-using memgraph::coordinator::CoordinatorReadResponses;
-using memgraph::coordinator::CoordinatorRsm;
-using memgraph::coordinator::CoordinatorWriteRequests;
-using memgraph::coordinator::CoordinatorWriteResponses;
-using memgraph::io::ConvertVariant;
-using memgraph::io::Duration;
-using memgraph::io::RequestId;
-using memgraph::io::Time;
-using memgraph::io::messages::CoordinatorMessages;
-using memgraph::io::messages::ShardManagerMessages;
-using memgraph::io::messages::ShardMessages;
-using memgraph::io::messages::StorageReadRequest;
-using memgraph::io::messages::StorageWriteRequest;
-using memgraph::io::rsm::AppendRequest;
-using memgraph::io::rsm::AppendResponse;
-using memgraph::io::rsm::ReadRequest;
-using memgraph::io::rsm::VoteRequest;
-using memgraph::io::rsm::VoteResponse;
-using memgraph::io::rsm::WriteRequest;
-using memgraph::io::rsm::WriteResponse;
-using memgraph::storage::v3::ShardManager;
+using coordinator::Coordinator;
+using coordinator::CoordinatorReadRequests;
+using coordinator::CoordinatorReadResponses;
+using coordinator::CoordinatorRsm;
+using coordinator::CoordinatorWriteRequests;
+using coordinator::CoordinatorWriteResponses;
+using coordinator::coordinator_worker::CoordinatorWorker;
+using CoordinatorRouteMessage = coordinator::coordinator_worker::RouteMessage;
+using CoordinatorQueue = coordinator::coordinator_worker::Queue;
+using io::ConvertVariant;
+using io::Duration;
+using io::RequestId;
+using io::Time;
+using io::messages::CoordinatorMessages;
+using io::messages::ShardManagerMessages;
+using io::messages::ShardMessages;
+using io::messages::StorageReadRequest;
+using io::messages::StorageWriteRequest;
+using io::rsm::AppendRequest;
+using io::rsm::AppendResponse;
+using io::rsm::ReadRequest;
+using io::rsm::VoteRequest;
+using io::rsm::VoteResponse;
+using io::rsm::WriteRequest;
+using io::rsm::WriteResponse;
+using storage::v3::ShardManager;
 
 /// The MachineManager is responsible for:
 /// * starting the entire system and ensuring that high-level
@@ -62,7 +66,9 @@ template <typename IoImpl>
 class MachineManager {
   io::Io<IoImpl> io_;
   MachineConfig config_;
-  CoordinatorRsm<IoImpl> coordinator_;
+  Address coordinator_address_;
+  CoordinatorQueue coordinator_queue_;
+  std::jthread coordinator_handle_;
   ShardManager<IoImpl> shard_manager_;
   Time next_cron_ = Time::min();
 
@@ -72,10 +78,27 @@ class MachineManager {
   MachineManager(io::Io<IoImpl> io, MachineConfig config, Coordinator coordinator)
       : io_(io),
         config_(config),
-        coordinator_{std::move(io.ForkLocal()), {}, std::move(coordinator)},
-        shard_manager_{io.ForkLocal(), coordinator_.GetAddress()} {}
+        coordinator_address_(io.GetAddress().ForkUniqueAddress()),
+        shard_manager_{io.ForkLocal(), config.shard_worker_threads, coordinator_address_} {
+    auto coordinator_io = io.ForkLocal();
+    coordinator_io.SetAddress(coordinator_address_);
+    CoordinatorWorker coordinator_worker{coordinator_io, coordinator_queue_, coordinator};
+    coordinator_handle_ = std::jthread([coordinator = std::move(coordinator_worker)]() mutable { coordinator.Run(); });
+  }
 
-  Address CoordinatorAddress() { return coordinator_.GetAddress(); }
+  MachineManager(MachineManager &&) noexcept = default;
+  MachineManager &operator=(MachineManager &&) noexcept = default;
+  MachineManager(const MachineManager &) = delete;
+  MachineManager &operator=(const MachineManager &) = delete;
+
+  ~MachineManager() {
+    if (coordinator_handle_.joinable()) {
+      coordinator_queue_.Push(coordinator::coordinator_worker::ShutDown{});
+      coordinator_handle_.join();
+    }
+  }
+
+  Address CoordinatorAddress() { return coordinator_address_; }
 
   void Run() {
     while (!io_.ShouldShutDown()) {
@@ -85,7 +108,7 @@ class MachineManager {
         next_cron_ = Cron();
       }
 
-      Duration receive_timeout = next_cron_ - now;
+      Duration receive_timeout = std::max(next_cron_, now) - now;
 
       // Note: this parameter pack must be kept in-sync with the ReceiveWithTimeout parameter pack below
       using AllMessages =
@@ -113,7 +136,7 @@ class MachineManager {
       spdlog::info("MM got message to {}", request_envelope.to_address.ToString());
 
       // If message is for the coordinator, cast it to subset and pass it to the coordinator
-      bool to_coordinator = coordinator_.GetAddress() == request_envelope.to_address;
+      bool to_coordinator = coordinator_address_ == request_envelope.to_address;
       if (to_coordinator) {
         std::optional<CoordinatorMessages> conversion_attempt =
             ConvertVariant<AllMessages, ReadRequest<CoordinatorReadRequests>, AppendRequest<CoordinatorWriteRequests>,
@@ -126,8 +149,13 @@ class MachineManager {
 
         CoordinatorMessages &&cm = std::move(conversion_attempt.value());
 
-        coordinator_.Handle(std::forward<CoordinatorMessages>(cm), request_envelope.request_id,
-                            request_envelope.from_address);
+        CoordinatorRouteMessage route_message{
+            .message = std::move(cm),
+            .request_id = request_envelope.request_id,
+            .to = request_envelope.to_address,
+            .from = request_envelope.from_address,
+        };
+        coordinator_queue_.Push(std::move(route_message));
         continue;
       }
 
@@ -168,6 +196,7 @@ class MachineManager {
  private:
   Time Cron() {
     spdlog::info("running MachineManager::Cron, address {}", io_.GetAddress().ToString());
+    coordinator_queue_.Push(coordinator::coordinator_worker::Cron{});
     return shard_manager_.Cron();
   }
 };
