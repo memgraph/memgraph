@@ -12,11 +12,13 @@
 #include <algorithm>
 #include <functional>
 #include <iterator>
+#include <optional>
 #include <unordered_set>
 #include <utility>
 
 #include "parser/opencypher/parser.hpp"
 #include "query/v2/requests.hpp"
+#include "storage/v2/vertex.hpp"
 #include "storage/v2/view.hpp"
 #include "storage/v3/bindings/ast/ast.hpp"
 #include "storage/v3/bindings/cypher_main_visitor.hpp"
@@ -180,8 +182,8 @@ std::vector<TypedValue> EvaluateVertexExpressions(DbAccessor &dba, const VertexA
 
 struct LocalError {};
 
-std::optional<msgs::Vertex> FillUpSourceVertex(const std::optional<VertexAccessor> &v_acc,
-                                               const msgs::ExpandOneRequest &req, msgs::VertexId src_vertex) {
+std::optional<std::vector<msgs::Label>> FillUpSourceVertexSecondaryLabels(const std::optional<VertexAccessor> &v_acc,
+                                                                          const msgs::ExpandOneRequest &req) {
   auto secondary_labels = v_acc->Labels(View::NEW);
   if (secondary_labels.HasError()) {
     spdlog::debug("Encountered an error while trying to get the secondary labels of a vertex. Transaction id: {}",
@@ -190,14 +192,13 @@ std::optional<msgs::Vertex> FillUpSourceVertex(const std::optional<VertexAccesso
   }
 
   auto &sec_labels = secondary_labels.GetValue();
-  msgs::Vertex source_vertex;
-  source_vertex.id = src_vertex;
-  source_vertex.labels.reserve(sec_labels.size());
+  std::vector<msgs::Label> msgs_secondary_labels;
+  msgs_secondary_labels.reserve(sec_labels.size());
 
-  std::transform(sec_labels.begin(), sec_labels.end(), std::back_inserter(source_vertex.labels),
+  std::transform(sec_labels.begin(), sec_labels.end(), std::back_inserter(msgs_secondary_labels),
                  [](auto label_id) { return msgs::Label{.id = label_id}; });
 
-  return source_vertex;
+  return msgs_secondary_labels;
 }
 
 std::optional<std::map<PropertyId, Value>> FillUpSourceVertexProperties(const std::optional<VertexAccessor> &v_acc,
@@ -322,13 +323,16 @@ std::optional<msgs::ExpandOneResultRow> GetExpandOneResult(
     const EdgeUniqunessFunction &maybe_filter_based_on_edge_uniquness, const EdgeFiller &edge_filler,
     const Schemas::Schema *schema) {
   /// Fill up source vertex
-  const auto primary_key = ConvertPropertyVector(std::move(src_vertex.second));
+  const auto primary_key = ConvertPropertyVector(src_vertex.second);
   auto v_acc = acc.FindVertex(primary_key, View::NEW);
 
-  auto source_vertex = FillUpSourceVertex(v_acc, req, src_vertex);
-  if (!source_vertex) {
+  msgs::Vertex source_vertex = {.id = src_vertex};
+  if (const auto maybe_secondary_labels = FillUpSourceVertexSecondaryLabels(v_acc, req); maybe_secondary_labels) {
+    source_vertex.labels = *maybe_secondary_labels;
+  } else {
     return std::nullopt;
   }
+
   std::optional<std::map<PropertyId, Value>> src_vertex_properties;
   src_vertex_properties = FillUpSourceVertexProperties(v_acc, req, storage::v3::View::NEW, schema);
 
@@ -345,7 +349,7 @@ std::optional<msgs::ExpandOneResultRow> GetExpandOneResult(
   auto [in_edges, out_edges] = fill_up_connecting_edges.value();
 
   msgs::ExpandOneResultRow result_row;
-  result_row.src_vertex = std::move(*source_vertex);
+  result_row.src_vertex = std::move(source_vertex);
   result_row.src_vertex_properties = std::move(*src_vertex_properties);
   static constexpr bool kInEdges = true;
   static constexpr bool kOutEdges = false;
