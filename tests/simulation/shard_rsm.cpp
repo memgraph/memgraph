@@ -701,7 +701,7 @@ void AttemptToExpandOneLimitAndOrderBy(ShardClient &client, uint64_t src_vertex_
   std::vector<msgs::OrderBy> order_by = {
       {msgs::Expression{"MG_SYMBOL_NODE.prop1"}, msgs::OrderingDirection::DESCENDING}};
   size_t limit = 3;
-  std::vector<std::string> filters = {"MG_SYMBOL_NODE.prop1 != " + std::to_string(src_vertex_val)};
+  std::vector<std::string> filters = {"MG_SYMBOL_NODE.prop1 != -1"};
 
   msgs::ExpandOneRequest expand_one_req{};
 
@@ -731,16 +731,17 @@ void AttemptToExpandOneLimitAndOrderBy(ShardClient &client, uint64_t src_vertex_
 
     // We also check that the vertices are ordered by prop1 DESC
 
-    std::is_sorted(write_response.result.cbegin(), write_response.result.cend(),
-                   [](const auto &vertex, const auto &other_vertex) {
-                     const auto primary_key = vertex.src_vertex.id.second;
-                     const auto other_primary_key = other_vertex.src_vertex.id.second;
+    auto is_sorted = std::is_sorted(write_response.result.cbegin(), write_response.result.cend(),
+                                    [](const auto &vertex, const auto &other_vertex) {
+                                      const auto primary_key = vertex.src_vertex.id.second;
+                                      const auto other_primary_key = other_vertex.src_vertex.id.second;
 
-                     MG_ASSERT(primary_key.size() == 1);
-                     MG_ASSERT(other_primary_key.size() == 1);
-                     return primary_key[0].int_v > other_primary_key[0].int_v;
-                   });
+                                      MG_ASSERT(primary_key.size() == 1);
+                                      MG_ASSERT(other_primary_key.size() == 1);
+                                      return primary_key[0].int_v > other_primary_key[0].int_v;
+                                    });
 
+    MG_ASSERT(is_sorted);
     break;
   }
 }
