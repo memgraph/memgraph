@@ -83,8 +83,16 @@ jobs:
           # Initialize dependencies.
           ./init
 
+      - name: Changed Files
+        uses: tj-actions/changed-files@v34.3.2
+
       - name: Python code analysis
-        uses: psf/black@stable
+        run: |
+          for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
+            if [[ $file == *.py ]]; then
+              black $file --check --diff
+            fi
+          done
 
       - name: Build combined ASAN, UBSAN and coverage binaries
         run: |

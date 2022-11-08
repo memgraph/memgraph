@@ -147,5 +147,8 @@ done;
 python3 -m pip install pre-commit
 python3 -m pre_commit install
 
+# Install black formatter
+python3 -m pip install black>=22.10.0
+
 # Link `include/mgp.py` with `release/mgp/mgp.py`
 ln -v -f include/mgp.py release/mgp/mgp.py
