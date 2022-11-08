@@ -362,7 +362,8 @@ std::optional<msgs::ExpandOneResultRow> GetExpandOneResult(
 std::optional<msgs::ExpandOneResultRow> GetExpandOneResult(
     VertexAccessor v_acc, msgs::VertexId src_vertex, const msgs::ExpandOneRequest &req,
     std::vector<EdgeAccessor> in_edge_accessors, std::vector<EdgeAccessor> out_edge_accessors,
-    const EdgeUniqunessFunction &maybe_filter_based_on_edge_uniquness, const EdgeFiller &edge_filler) {
+    const EdgeUniqunessFunction &maybe_filter_based_on_edge_uniquness, const EdgeFiller &edge_filler,
+    const Schemas::Schema *schema) {
   /// Fill up source vertex
   auto source_vertex = FillUpSourceVertex(v_acc, req, src_vertex);
   if (!source_vertex) {
@@ -370,7 +371,7 @@ std::optional<msgs::ExpandOneResultRow> GetExpandOneResult(
   }
 
   /// Fill up source vertex properties
-  auto src_vertex_properties = FillUpSourceVertexProperties(v_acc, req);
+  auto src_vertex_properties = FillUpSourceVertexProperties(v_acc, req, storage::v3::View::NEW, schema);
   if (!src_vertex_properties) {
     return std::nullopt;
   }
@@ -932,13 +933,13 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
       break;
     }
 
-    msgs::VertexId src_vertice(msgs::Label{.id = *label_id},
-                               conversions::ConvertValueVector(*primary_key));  // #NoCommit rename
+    msgs::VertexId src_vertice(msgs::Label{.id = *label_id}, conversions::ConvertValueVector(*primary_key));
 
     std::optional<msgs::ExpandOneResultRow> maybe_result;
 
     if (req.order_by.empty()) {
-      maybe_result = GetExpandOneResult(acc, src_vertice, req, maybe_filter_based_on_edge_uniquness, edge_filler);
+      maybe_result = GetExpandOneResult(acc, src_vertice, req, maybe_filter_based_on_edge_uniquness, edge_filler,
+                                        shard_->GetSchema(shard_->PrimaryLabel()));
 
     } else {
       auto [in_edge_accessors, out_edge_accessors] = GetEdgesFromVertex(src_vertex_acc, req.direction);
@@ -953,7 +954,8 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
       std::transform(out_ordered_edges.begin(), out_ordered_edges.end(), std::back_inserter(out_edge_ordered_accessors),
                      [](const auto &edge_element) { return edge_element.object_acc; });
       maybe_result = GetExpandOneResult(src_vertex_acc, src_vertice, req, in_edge_ordered_accessors,
-                                        out_edge_ordered_accessors, maybe_filter_based_on_edge_uniquness, edge_filler);
+                                        out_edge_ordered_accessors, maybe_filter_based_on_edge_uniquness, edge_filler,
+                                        shard_->GetSchema(shard_->PrimaryLabel()));
     }
 
     if (!maybe_result) {
