@@ -63,9 +63,6 @@ class Dataset:
             raise ValueError("The size defined for this variant doesn't " "have the number of vertices and/or edges!")
         self._num_vertices = self._size["vertices"]
         self._num_edges = self._size["edges"]
-        self._split_file = self.SPLIT_FILES.get(variant, None)
-        assert self._split_file is not None
-        assert self._split_file != ""
 
     def prepare(self, directory):
         if self._file is not None:
@@ -94,11 +91,6 @@ class Dataset:
     def get_size(self):
         """Returns number of vertices/edges for the current variant."""
         return self._size
-
-    def get_split_file(self):
-        """Returns the location of the split file of the dataset."""
-        assert self._split_file is not None
-        return self._split_file
 
     # All tests should be query generator functions that output all of the
     # queries that should be executed by the runner. The functions should be
@@ -306,12 +298,6 @@ class AccessControl(Dataset):
         "small": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/accesscontrol/accesscontrol_small.setup.cypher.gz",
         "medium": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/accesscontrol/accesscontrol_medium.setup.cypher.gz",
         "large": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/accesscontrol/accesscontrol_large.setup.cypher.gz",
-    }
-    SPLIT_FILES = {
-        "empty_only_index": "splitfiles/accesscontrol_small.shard_configuration",
-        "small": "splitfiles/accesscontrol_small.shard_configuration",
-        "medium": "splitfiles/accesscontrol_medium.shard_configuration",
-        "large": "splitfiles/accesscontrol_large.shard_configuration",
     }
     SIZES = {
         "empty_only_index": {

@@ -185,7 +185,6 @@ for dataset, tests in benchmarks:
         args.temporary_directory,
         not args.no_properties_on_edges,
         args.test_system_args,
-        dataset.get_split_file(),
     )
     client = runners.Client(args.client_binary, args.temporary_directory)
     memgraph.start_preparation()

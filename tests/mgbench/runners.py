@@ -51,13 +51,12 @@ def _get_usage(pid):
 
 
 class Memgraph:
-    def __init__(self, memgraph_binary, temporary_dir, properties_on_edges, extra_args, split_file):
+    def __init__(self, memgraph_binary, temporary_dir, properties_on_edges, extra_args):
         self._memgraph_binary = memgraph_binary
         self._directory = tempfile.TemporaryDirectory(dir=temporary_dir)
         self._properties_on_edges = properties_on_edges
         self._proc_mg = None
         self._extra_args = extra_args
-        self._split_file = split_file
         atexit.register(self._cleanup)
 
         # Determine Memgraph version
@@ -85,8 +84,6 @@ class Memgraph:
             assert len(args_list) % 2 == 0
             for i in range(0, len(args_list), 2):
                 kwargs[args_list[i]] = args_list[i + 1]
-
-        kwargs["split-file"] = self._split_file
 
         return _convert_args_to_flags(self._memgraph_binary, **kwargs)
 
