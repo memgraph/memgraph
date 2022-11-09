@@ -36,3 +36,8 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["distributed_queries/optional_match.py"]
     <<: *template_cluster
+
+  - name: "Awesome memgraph functions"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["distributed_queries/awesome_memgraph_functions.py"]
+    <<: *template_cluster
