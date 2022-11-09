@@ -83,6 +83,16 @@ jobs:
           # Initialize dependencies.
           ./init
 
+      - name: Set base branch
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          echo "BASE_BRANCH=origin/${{ github.base_ref }}" >> $GITHUB_ENV
+
+      - name: Set base branch # if we manually dispatch or push to master
+        if: ${{ github.event_name != 'pull_request' }}
+        run: |
+          echo "BASE_BRANCH=origin/master" >> $GITHUB_ENV
+
       - name: Python code analysis
         run: |
           CHANGED_FILES=$(git diff -U0 ${{ env.BASE_BRANCH }}... --name-only)
@@ -130,16 +140,6 @@ jobs:
         with:
           name: "Code coverage"
           path: tools/github/generated/code_coverage.tar.gz
-
-      - name: Set base branch
-        if: ${{ github.event_name == 'pull_request' }}
-        run: |
-          echo "BASE_BRANCH=origin/${{ github.base_ref }}" >> $GITHUB_ENV
-
-      - name: Set base branch # if we manually dispatch or push to master
-        if: ${{ github.event_name != 'pull_request' }}
-        run: |
-          echo "BASE_BRANCH=origin/master" >> $GITHUB_ENV
 
       - name: Run clang-tidy
         run: |
