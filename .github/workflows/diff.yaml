@@ -26,7 +26,7 @@ jobs:
 
     steps:
       - name: Set up repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           # Number of commits to fetch. `0` indicates all history for all
           # branches and tags. (default: 1)
@@ -64,7 +64,7 @@ jobs:
 
     steps:
       - name: Set up repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           # Number of commits to fetch. `0` indicates all history for all
           # branches and tags. (default: 1)
@@ -135,7 +135,7 @@ jobs:
           tar -czf code_coverage.tar.gz coverage.json html report.json summary.rmu
 
       - name: Save code coverage
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: "Code coverage"
           path: tools/github/generated/code_coverage.tar.gz
@@ -170,7 +170,7 @@ jobs:
 
     steps:
       - name: Set up repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           # Number of commits to fetch. `0` indicates all history for all
           # branches and tags. (default: 1)
@@ -208,7 +208,7 @@ jobs:
 
     steps:
       - name: Set up repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           # Number of commits to fetch. `0` indicates all history for all
           # branches and tags. (default: 1)
