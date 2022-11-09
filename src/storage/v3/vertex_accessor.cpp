@@ -21,8 +21,8 @@
 #include "storage/v3/key_store.hpp"
 #include "storage/v3/mvcc.hpp"
 #include "storage/v3/property_value.hpp"
-#include "storage/v3/schema_validator.hpp"
 #include "storage/v3/shard.hpp"
+#include "storage/v3/shard_operation_result.hpp"
 #include "storage/v3/vertex.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -98,7 +98,7 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   return true;
 }
 
-ResultSchema<bool> VertexAccessor::AddLabelAndValidate(LabelId label) {
+ShardOperationResult<bool> VertexAccessor::AddLabelAndValidate(LabelId label) {
   if (const auto maybe_violation_error = vertex_validator_->ValidateAddLabel(label); maybe_violation_error) {
     return {*maybe_violation_error};
   }
@@ -134,7 +134,7 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   return true;
 }
 
-ResultSchema<bool> VertexAccessor::RemoveLabelAndValidate(LabelId label) {
+ShardOperationResult<bool> VertexAccessor::RemoveLabelAndValidate(LabelId label) {
   if (const auto maybe_violation_error = vertex_validator_->ValidateRemoveLabel(label); maybe_violation_error) {
     return {*maybe_violation_error};
   }
@@ -331,7 +331,8 @@ Result<void> VertexAccessor::CheckVertexExistence(View view) const {
   return {};
 }
 
-ResultSchema<PropertyValue> VertexAccessor::SetPropertyAndValidate(PropertyId property, const PropertyValue &value) {
+ShardOperationResult<PropertyValue> VertexAccessor::SetPropertyAndValidate(PropertyId property,
+                                                                           const PropertyValue &value) {
   if (auto maybe_violation_error = vertex_validator_->ValidatePropertyUpdate(property); maybe_violation_error) {
     return {*maybe_violation_error};
   }

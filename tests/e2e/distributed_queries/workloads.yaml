@@ -12,6 +12,11 @@ workloads:
     args: ["distributed_queries/distributed_queries.py"]
     <<: *template_cluster
 
+  - name: "Distributed expand one"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["distributed_queries/distributed_expand_one.py"]
+    <<: *template_cluster
+
   - name: "Distributed unwind collect"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["distributed_queries/unwind_collect.py"]

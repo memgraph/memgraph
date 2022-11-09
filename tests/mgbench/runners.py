@@ -40,8 +40,7 @@ def _convert_args_to_flags(*args, **kwargs):
 def _get_usage(pid):
     total_cpu = 0
     with open("/proc/{}/stat".format(pid)) as f:
-        total_cpu = (sum(map(int, f.read().split(")")[1].split()[11:15])) /
-                     os.sysconf(os.sysconf_names["SC_CLK_TCK"]))
+        total_cpu = sum(map(int, f.read().split(")")[1].split()[11:15])) / os.sysconf(os.sysconf_names["SC_CLK_TCK"])
     peak_rss = 0
     with open("/proc/{}/status".format(pid)) as f:
         for row in f:
@@ -52,18 +51,17 @@ def _get_usage(pid):
 
 
 class Memgraph:
-    def __init__(self, memgraph_binary, temporary_dir, properties_on_edges):
+    def __init__(self, memgraph_binary, temporary_dir, properties_on_edges, extra_args):
         self._memgraph_binary = memgraph_binary
         self._directory = tempfile.TemporaryDirectory(dir=temporary_dir)
         self._properties_on_edges = properties_on_edges
         self._proc_mg = None
+        self._extra_args = extra_args
         atexit.register(self._cleanup)
 
         # Determine Memgraph version
-        ret = subprocess.run([memgraph_binary, "--version"],
-                             stdout=subprocess.PIPE, check=True)
-        version = re.search(r"[0-9]+\.[0-9]+\.[0-9]+",
-                            ret.stdout.decode("utf-8")).group(0)
+        ret = subprocess.run([memgraph_binary, "--version"], stdout=subprocess.PIPE, check=True)
+        version = re.search(r"[0-9]+\.[0-9]+\.[0-9]+", ret.stdout.decode("utf-8")).group(0)
         self._memgraph_version = tuple(map(int, version.split(".")))
 
     def __del__(self):
@@ -79,8 +77,14 @@ class Memgraph:
         if self._memgraph_version >= (0, 50, 0):
             kwargs["storage_properties_on_edges"] = self._properties_on_edges
         else:
-            assert self._properties_on_edges, \
-                "Older versions of Memgraph can't disable properties on edges!"
+            assert self._properties_on_edges, "Older versions of Memgraph can't disable properties on edges!"
+
+        if self._extra_args != "":
+            args_list = self._extra_args.split(" ")
+            assert len(args_list) % 2 == 0
+            for i in range(0, len(args_list), 2):
+                kwargs[args_list[i]] = args_list[i + 1]
+
         return _convert_args_to_flags(self._memgraph_binary, **kwargs)
 
     def _start(self, **kwargs):
@@ -94,8 +98,7 @@ class Memgraph:
             raise Exception("The database process died prematurely!")
         wait_for_server(7687)
         ret = self._proc_mg.poll()
-        assert ret is None, "The database process died prematurely " \
-            "({})!".format(ret)
+        assert ret is None, "The database process died prematurely " "({})!".format(ret)
 
     def _cleanup(self):
         if self._proc_mg is None:
@@ -121,8 +124,7 @@ class Memgraph:
 
     def stop(self):
         ret, usage = self._cleanup()
-        assert ret == 0, "The database process exited with a non-zero " \
-            "status ({})!".format(ret)
+        assert ret == 0, "The database process exited with a non-zero " "status ({})!".format(ret)
         return usage
 
 
@@ -135,8 +137,7 @@ class Client:
         return _convert_args_to_flags(self._client_binary, **kwargs)
 
     def execute(self, queries=None, file_path=None, num_workers=1):
-        if (queries is None and file_path is None) or \
-                (queries is not None and file_path is not None):
+        if (queries is None and file_path is None) or (queries is not None and file_path is not None):
             raise ValueError("Either queries or input_path must be specified!")
 
         # TODO: check `file_path.endswith(".json")` to support advanced
@@ -151,8 +152,8 @@ class Client:
                     json.dump(query, f)
                     f.write("\n")
 
-        args = self._get_args(input=file_path, num_workers=num_workers,
-                              queries_json=queries_json)
+        args = self._get_args(input=file_path, num_workers=num_workers, queries_json=queries_json)
         ret = subprocess.run(args, stdout=subprocess.PIPE, check=True)
         data = ret.stdout.decode("utf-8").strip().split("\n")
+        data = [x for x in data if not x.startswith("[")]
         return list(map(json.loads, data))

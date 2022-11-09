@@ -79,7 +79,4 @@ struct VertexValidator {
   LabelId primary_label_;
 };
 
-template <typename TValue>
-using ResultSchema = utils::BasicResult<std::variant<SchemaViolation, Error>, TValue>;
-
 }  // namespace memgraph::storage::v3
