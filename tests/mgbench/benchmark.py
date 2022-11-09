@@ -538,7 +538,7 @@ for dataset, queries in benchmarks:
         cache.cache_directory("datasets", dataset.NAME, dataset.get_variant())
     )
 
-    # TODO: Create some apstract class for vendors, that will hold this data
+    # TODO: Create some abstract class for vendors, that will hold this data
     if args.vendor_name == "neo4j":
         vendor = runners.Neo4j(
             args.vendor_binary,
