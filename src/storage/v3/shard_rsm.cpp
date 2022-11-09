@@ -316,40 +316,6 @@ bool FillEdges(const std::vector<EdgeAccessor> &edges, msgs::ExpandOneResultRow 
   return true;
 }
 
-void LogError(const ResultErrorType &error, const std::string_view action) {
-  std::visit(
-      [action]<typename T>(T &&error) {
-        using ErrorType = std::remove_cvref_t<T>;
-        if constexpr (std::is_same_v<ErrorType, SchemaViolation>) {
-          spdlog::debug("{} failed with error: SchemaViolation", action);
-        } else if constexpr (std::is_same_v<ErrorType, Error>) {
-          switch (error) {
-            case Error::DELETED_OBJECT:
-              spdlog::debug("{} failed with error: DELETED_OBJECT", action);
-              break;
-            case Error::NONEXISTENT_OBJECT:
-              spdlog::debug("{} failed with error: NONEXISTENT_OBJECT", action);
-              break;
-            case Error::SERIALIZATION_ERROR:
-              spdlog::debug("{} failed with error: SERIALIZATION_ERROR", action);
-              break;
-            case Error::PROPERTIES_DISABLED:
-              spdlog::debug("{} failed with error: PROPERTIES_DISABLED", action);
-              break;
-            case Error::VERTEX_HAS_EDGES:
-              spdlog::debug("{} failed with error: VERTEX_HAS_EDGES", action);
-              break;
-            case Error::VERTEX_ALREADY_INSERTED:
-              spdlog::debug("{} failed with error: VERTEX_ALREADY_INSERTED", action);
-              break;
-          }
-        } else {
-          static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
-        }
-      },
-      error);
-}
-
 std::optional<msgs::ExpandOneResultRow> GetExpandOneResult(
     Shard::Accessor &acc, msgs::VertexId src_vertex, const msgs::ExpandOneRequest &req,
     const EdgeUniquenessFunction &maybe_filter_based_on_edge_uniquness, const EdgeFiller &edge_filler,
@@ -525,7 +491,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
 
     if (auto result_schema = acc.CreateVertexAndValidate(converted_label_ids, transformed_pk, converted_property_map);
         result_schema.HasError()) {
-      LogError(result_schema.GetError(), "Creating Vertex");
+      LogResultError(result_schema.GetError(), "Creating Vertex");
 
       action_successful = false;
       break;
@@ -555,14 +521,14 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateVerticesRequest &&req) {
 
     for (const auto label : vertex.add_labels) {
       if (const auto maybe_error = vertex_to_update->AddLabelAndValidate(label); maybe_error.HasError()) {
-        LogError(maybe_error.GetError(), "Update Vertex");
+        LogResultError(maybe_error.GetError(), "Add vertex labels");
         action_successful = false;
         break;
       }
     }
     for (const auto label : vertex.remove_labels) {
       if (const auto maybe_error = vertex_to_update->RemoveLabelAndValidate(label); maybe_error.HasError()) {
-        LogError(maybe_error.GetError(), "Update Vertex");
+        LogResultError(maybe_error.GetError(), "Remove vertex labels");
       }
     }
 
@@ -570,7 +536,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateVerticesRequest &&req) {
       if (const auto result_schema = vertex_to_update->SetPropertyAndValidate(
               update_prop.first, ToPropertyValue(std::move(update_prop.second)));
           result_schema.HasError()) {
-        LogError(result_schema.GetError(), "Update Vertex");
+        LogResultError(result_schema.GetError(), "Update vertex properties");
         action_successful = false;
         break;
       }

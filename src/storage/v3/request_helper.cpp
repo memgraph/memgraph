@@ -79,4 +79,38 @@ std::vector<Element>::const_iterator GetStartOrderedElementsIterator(const std::
   return ordered_elements.end();
 }
 
+void LogResultError(const ResultErrorType &error, const std::string_view action) {
+  std::visit(
+      [action]<typename T>(T &&error) {
+        using ErrorType = std::remove_cvref_t<T>;
+        if constexpr (std::is_same_v<ErrorType, SchemaViolation>) {
+          spdlog::debug("{} failed with error: SchemaViolation", action);
+        } else if constexpr (std::is_same_v<ErrorType, Error>) {
+          switch (error) {
+            case Error::DELETED_OBJECT:
+              spdlog::debug("{} failed with error: DELETED_OBJECT", action);
+              break;
+            case Error::NONEXISTENT_OBJECT:
+              spdlog::debug("{} failed with error: NONEXISTENT_OBJECT", action);
+              break;
+            case Error::SERIALIZATION_ERROR:
+              spdlog::debug("{} failed with error: SERIALIZATION_ERROR", action);
+              break;
+            case Error::PROPERTIES_DISABLED:
+              spdlog::debug("{} failed with error: PROPERTIES_DISABLED", action);
+              break;
+            case Error::VERTEX_HAS_EDGES:
+              spdlog::debug("{} failed with error: VERTEX_HAS_EDGES", action);
+              break;
+            case Error::VERTEX_ALREADY_INSERTED:
+              spdlog::debug("{} failed with error: VERTEX_ALREADY_INSERTED", action);
+              break;
+          }
+        } else {
+          static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
+        }
+      },
+      error);
+}
+
 }  // namespace memgraph::storage::v3

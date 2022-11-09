@@ -18,6 +18,9 @@
 
 namespace memgraph::storage::v3 {
 
+template <typename>
+constexpr auto kAlwaysFalse{false};
+
 inline bool TypedValueCompare(const TypedValue &a, const TypedValue &b) {
   // in ordering null comes after everything else
   // at the same time Null is not less that null
@@ -113,4 +116,6 @@ VerticesIterable::Iterator GetStartVertexIterator(VerticesIterable &vertex_itera
 std::vector<Element>::const_iterator GetStartOrderedElementsIterator(const std::vector<Element> &ordered_elements,
                                                                      const std::vector<PropertyValue> &start_ids,
                                                                      View view);
+
+void LogResultError(const ResultErrorType &error, std::string_view action);
 }  // namespace memgraph::storage::v3
