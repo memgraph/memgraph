@@ -19,9 +19,9 @@
 #include "auth/auth.hpp"
 #include "auth/crypto.hpp"
 #include "auth/models.hpp"
+#include "license/license.hpp"
 #include "utils/cast.hpp"
 #include "utils/file.hpp"
-#include "utils/license.hpp"
 
 using namespace memgraph::auth;
 namespace fs = std::filesystem;
@@ -36,7 +36,7 @@ class AuthWithStorage : public ::testing::Test {
     FLAGS_auth_password_permit_null = true;
     FLAGS_auth_password_strength_regex = ".+";
 
-    memgraph::utils::license::global_license_checker.EnableTesting();
+    memgraph::license::global_license_checker.EnableTesting();
   }
 
   virtual void TearDown() { fs::remove_all(test_folder_); }

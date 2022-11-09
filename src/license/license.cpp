@@ -9,17 +9,19 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "utils/license.hpp"
+#include "license/license.hpp"
 
 #include <atomic>
 #include <charconv>
 #include <chrono>
+#include <cstdint>
 #include <functional>
 #include <optional>
 #include <unordered_map>
 
 #include "slk/serialization.hpp"
 #include "utils/base64.hpp"
+#include "utils/cast.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -27,7 +29,7 @@
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
-namespace memgraph::utils::license {
+namespace memgraph::license {
 
 namespace {
 inline constexpr std::string_view license_key_prefix = "mglk-";
@@ -69,6 +71,17 @@ LicenseCheckResult IsValidLicenseInternal(const License &license, const std::str
 }
 }  // namespace
 
+std::string LicenseTypeToString(const LicenseType license_type) {
+  switch (license_type) {
+    case LicenseType::ENTERPRISE: {
+      return "enterprise";
+    }
+    case LicenseType::OEM: {
+      return "oem";
+    }
+  }
+}
+
 void RegisterLicenseSettings(LicenseChecker &license_checker, utils::Settings &settings) {
   settings.RegisterSetting(std::string{kEnterpriseLicenseSettingKey}, "",
                            [&] { license_checker.RevalidateLicense(settings); });
@@ -81,7 +94,7 @@ LicenseChecker global_license_checker;
 
 LicenseChecker::~LicenseChecker() { scheduler_.Stop(); }
 
-std::pair<std::string, std::string> LicenseChecker::GetLicenseInfo(const utils::Settings &settings) const {
+std::pair<std::string, std::string> LicenseChecker::ExtractLicenseInfo(const utils::Settings &settings) const {
   if (license_info_override_) {
     spdlog::warn("Ignoring license info stored in the settings because a different source was specified.");
     return *license_info_override_;
@@ -96,7 +109,7 @@ std::pair<std::string, std::string> LicenseChecker::GetLicenseInfo(const utils::
 }
 
 void LicenseChecker::RevalidateLicense(const utils::Settings &settings) {
-  const auto license_info = GetLicenseInfo(settings);
+  const auto license_info = ExtractLicenseInfo(settings);
   RevalidateLicense(license_info.first, license_info.second);
 }
 
@@ -117,18 +130,7 @@ void LicenseChecker::RevalidateLicense(const std::string &license_key, const std
     return;
   }
 
-  struct PreviousLicenseInfo {
-    PreviousLicenseInfo(std::string license_key, std::string organization_name)
-        : license_key(std::move(license_key)), organization_name(std::move(organization_name)) {}
-
-    std::string license_key;
-    std::string organization_name;
-    bool is_valid{false};
-  };
-
-  static utils::Synchronized<std::optional<PreviousLicenseInfo>, utils::SpinLock> previous_license_info;
-
-  auto locked_previous_license_info_ptr = previous_license_info.Lock();
+  auto locked_previous_license_info_ptr = previous_license_info_.Lock();
   auto &locked_previous_license_info = *locked_previous_license_info_ptr;
   const bool same_license_info = locked_previous_license_info &&
                                  locked_previous_license_info->license_key == license_key &&
@@ -140,7 +142,7 @@ void LicenseChecker::RevalidateLicense(const std::string &license_key, const std
 
   locked_previous_license_info.emplace(license_key, organization_name);
 
-  const auto maybe_license = GetLicense(locked_previous_license_info->license_key);
+  auto maybe_license = GetLicense(locked_previous_license_info->license_key);
   if (!maybe_license) {
     spdlog::warn(LicenseCheckErrorToString(LicenseCheckError::INVALID_LICENSE_KEY_STRING, "Enterprise features"));
     is_valid_.store(false, std::memory_order_relaxed);
@@ -156,22 +158,30 @@ void LicenseChecker::RevalidateLicense(const std::string &license_key, const std
     spdlog::warn(LicenseCheckErrorToString(license_check_result.GetError(), "Enterprise features"));
     is_valid_.store(false, std::memory_order_relaxed);
     locked_previous_license_info->is_valid = false;
+    license_type_ = maybe_license->type;
     set_memory_limit(0);
     return;
   }
 
   if (!same_license_info) {
-    spdlog::info("All Enterprise features are active.");
+    license_type_ = maybe_license->type;
+    if (license_type_ == LicenseType::ENTERPRISE) {
+      spdlog::info("Enterprise license is active.");
+    } else {
+      spdlog::info("OEM license is active.");
+    }
     is_valid_.store(true, std::memory_order_relaxed);
     locked_previous_license_info->is_valid = true;
     set_memory_limit(maybe_license->memory_limit);
+    locked_previous_license_info->license = std::move(*maybe_license);
   }
 }
 
-void LicenseChecker::EnableTesting() {
+void LicenseChecker::EnableTesting(const LicenseType license_type) {
   enterprise_enabled_ = true;
   is_valid_.store(true, std::memory_order_relaxed);
-  spdlog::info("All Enterprise features are activated for testing.");
+  license_type_ = license_type;
+  spdlog::info("The license type {} is set for testing.", LicenseTypeToString(license_type));
 }
 
 void LicenseChecker::CheckEnvLicense() {
@@ -216,19 +226,25 @@ std::string LicenseCheckErrorToString(LicenseCheckError error, const std::string
           "following query:\n"
           "SET DATABASE SETTING \"enterprise.license\" TO \"your-license-key\"",
           feature);
+    case LicenseCheckError::NOT_ENTERPRISE_LICENSE:
+      return fmt::format("Your license has an invalid type. To use {} you need to have an enterprise license. \n",
+                         feature);
   }
 }
 
-LicenseCheckResult LicenseChecker::IsValidLicense(const utils::Settings &settings) const {
+LicenseCheckResult LicenseChecker::IsEnterpriseValid(const utils::Settings &settings) const {
   if (enterprise_enabled_) [[unlikely]] {
     return {};
   }
 
-  const auto license_info = GetLicenseInfo(settings);
+  const auto license_info = ExtractLicenseInfo(settings);
 
   const auto maybe_license = GetLicense(license_info.first);
   if (!maybe_license) {
     return LicenseCheckError::INVALID_LICENSE_KEY_STRING;
+  }
+  if (maybe_license->type != LicenseType::ENTERPRISE) {
+    return LicenseCheckError::NOT_ENTERPRISE_LICENSE;
   }
 
   return IsValidLicenseInternal(*maybe_license, license_info.second);
@@ -239,7 +255,13 @@ void LicenseChecker::StartBackgroundLicenseChecker(const utils::Settings &settin
   scheduler_.Run("licensechecker", std::chrono::minutes{5}, [&, this] { RevalidateLicense(settings); });
 }
 
-bool LicenseChecker::IsValidLicenseFast() const { return is_valid_.load(std::memory_order_relaxed); }
+utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> &LicenseChecker::GetLicenseInfo() {
+  return previous_license_info_;
+}
+
+bool LicenseChecker::IsEnterpriseValidFast() const {
+  return license_type_ == LicenseType::ENTERPRISE && is_valid_.load(std::memory_order_relaxed);
+}
 
 std::string Encode(const License &license) {
   std::vector<uint8_t> buffer;
@@ -252,9 +274,10 @@ std::string Encode(const License &license) {
   slk::Save(license.organization_name, &builder);
   slk::Save(license.valid_until, &builder);
   slk::Save(license.memory_limit, &builder);
+  slk::Save(utils::UnderlyingCast(license.type), &builder);
   builder.Finalize();
 
-  return std::string{license_key_prefix} + base64_encode(buffer.data(), buffer.size());
+  return std::string{license_key_prefix} + utils::base64_encode(buffer.data(), buffer.size());
 }
 
 std::optional<License> Decode(std::string_view license_key) {
@@ -266,7 +289,7 @@ std::optional<License> Decode(std::string_view license_key) {
 
   const auto decoded = std::invoke([license_key]() -> std::optional<std::string> {
     try {
-      return base64_decode(license_key);
+      return utils::base64_decode(license_key);
     } catch (const std::runtime_error & /*exception*/) {
       return std::nullopt;
     }
@@ -284,10 +307,12 @@ std::optional<License> Decode(std::string_view license_key) {
     slk::Load(&valid_until, &reader);
     int64_t memory_limit{0};
     slk::Load(&memory_limit, &reader);
-    return License{.organization_name = organization_name, .valid_until = valid_until, .memory_limit = memory_limit};
+    std::underlying_type_t<LicenseType> license_type{0};
+    slk::Load(&license_type, &reader);
+    return {License{organization_name, valid_until, memory_limit, LicenseType(license_type)}};
   } catch (const slk::SlkReaderException &e) {
     return std::nullopt;
   }
 }
 
-}  // namespace memgraph::utils::license
+}  // namespace memgraph::license
