@@ -17,17 +17,16 @@ import copy
 import fnmatch
 import inspect
 import json
+import math
 import multiprocessing
 import random
-import sys
 import statistics
+import sys
+
 import datasets
-import log
 import helpers
+import log
 import runners
-import math
-
-
 
 WITH_FINE_GRAINED_AUTHORIZATION = "with_fine_grained_authorization"
 WITHOUT_FINE_GRAINED_AUTHORIZATION = "without_fine_grained_authorization"
@@ -105,9 +104,7 @@ parser.add_argument(
     default="/tmp",
     help="directory path where temporary data should " "be stored",
 )
-parser.add_argument(
-    "--no-properties-on-edges", action="store_true", help="disable properties on edges"
-)
+parser.add_argument("--no-properties-on-edges", action="store_true", help="disable properties on edges")
 
 parser.add_argument("--bolt-port", default=7687, help="memgraph bolt port")
 
@@ -134,28 +131,23 @@ parser.add_argument(
     Mixed workload can be run as a single configuration for all groups of queries,
     Pass the positional arguments as values of what percentage of
     write/read/update/analytical queries you want to have in your workload.
-    Running --mixed-workload 1000 20 70 10 0 will execute 1000 queries, 20% write, 
-    70% read, 10% update and 0% analytical. 
+    Running --mixed-workload 1000 20 70 10 0 will execute 1000 queries, 20% write,
+    70% read, 10% update and 0% analytical.
 
     Mixed workload can also be run on each query under some defined load.
     By passing one more positional argument, you are defining what percentage of that query
-    will be in mixed workload, and this is executed for each query. The rest of the queries will be 
-    selected from the appropriate groups 
+    will be in mixed workload, and this is executed for each query. The rest of the queries will be
+    selected from the appropriate groups
     Running --mixed-workload 1000 30 0 0 0 70, will execute each query 700 times or 70%,
     with the presence of 300 write queries from write type or 30%""",
 )
 
-parser.add_argument(
-    "--tail_latency",
-    type = int,
-    default =100, 
-    help = "Number of queries for the tail latency statistics"
-)
+parser.add_argument("--tail_latency", type=int, default=100, help="Number of queries for the tail latency statistics")
 
 args = parser.parse_args()
 
 
-class Workload():
+class Workload:
     def __init__(self, config):
         config_len = len(config)
         if config_len == 0:
@@ -173,7 +165,6 @@ class Workload():
             else:
                 self.name = "Mixed"
                 self.config = config
-    
 
 
 def get_queries(gen, count):
@@ -286,29 +277,29 @@ def mixed_workload(vendor, client, dataset, group, queries, workload):
     print("Generating mixed workload.")
 
     percentages_by_type = {
-        "write" : percentage_distribution[0],
-        "read" : percentage_distribution[1],
-        "update" : percentage_distribution[2],
-        "analytical" : percentage_distribution[3],
+        "write": percentage_distribution[0],
+        "read": percentage_distribution[1],
+        "update": percentage_distribution[2],
+        "analytical": percentage_distribution[3],
     }
 
     queries_by_type = {
-        "write" : [],
-        "read" : [],
-        "update" : [],  
-        "analytical" :[],
+        "write": [],
+        "read": [],
+        "update": [],
+        "analytical": [],
     }
 
-    for (_,funcname) in queries[group]:
+    for (_, funcname) in queries[group]:
         for key in queries_by_type.keys():
             if key in funcname:
-                queries_by_type[key].append(funcname)    
+                queries_by_type[key].append(funcname)
 
     for key, percentage in percentages_by_type.items():
         if percentage != 0 and len(queries_by_type[key]) == 0:
             raise Exception(
-            "There is a missing query in group (write, read, update or analytical) for given workload distribution."
-        )
+                "There is a missing query in group (write, read, update or analytical) for given workload distribution."
+            )
 
     random.seed(config_distribution)
 
@@ -328,14 +319,12 @@ def mixed_workload(vendor, client, dataset, group, queries, workload):
             base_query = getattr(dataset, funcname)
 
             base_query_type = funcname.rsplit("_", 1)[1]
-            
-            if percentages_by_type[base_query_type] > 0: 
+
+            if percentages_by_type[base_query_type] > 0:
                 continue
 
             options = ["write", "read", "update", "analytical", "query"]
-            function_type = random.choices(
-                population=options, weights=percentage_distribution, k=num_of_queries
-            )
+            function_type = random.choices(population=options, weights=percentage_distribution, k=num_of_queries)
 
             for t in function_type:
                 # Get the apropropriate functions with same probabilty
@@ -370,9 +359,7 @@ def mixed_workload(vendor, client, dataset, group, queries, workload):
         # Executing mixed workload from groups of queries
         full_workload = []
         options = ["write", "read", "update", "analytical"]
-        function_type = random.choices(
-            population=options, weights=percentage_distribution, k=num_of_queries
-        )
+        function_type = random.choices(population=options, weights=percentage_distribution, k=num_of_queries)
 
         for t in function_type:
             # Get the apropropriate functions with same probabilty
@@ -431,9 +418,7 @@ def get_query_cache_count(vendor, client, func, config_key):
             should_execute = int(args.single_threaded_runtime_sec / (duration / count))
             print(
                 "executed_queries={}, total_duration={}, "
-                "query_duration={}, estimated_count={}".format(
-                    count, duration, duration / count, should_execute
-                )
+                "query_duration={}, estimated_count={}".format(count, duration, duration / count, should_execute)
             )
             # We don't have to execute the next iteration when
             # `should_execute` becomes the same order of magnitude as
@@ -459,13 +444,11 @@ def get_query_cache_count(vendor, client, func, config_key):
             cached_count["duration"],
             "seconds of single-threaded runtime.",
         )
-        count = int(
-            cached_count["count"]
-            * args.single_threaded_runtime_sec
-            / cached_count["duration"]
-        )
+        count = int(cached_count["count"] * args.single_threaded_runtime_sec / cached_count["duration"])
     return count
 
+
+# Testing pre commit.
 
 # Detect available datasets.
 generators = {}
@@ -473,11 +456,7 @@ for key in dir(datasets):
     if key.startswith("_"):
         continue
     dataset = getattr(datasets, key)
-    if (
-        not inspect.isclass(dataset)
-        or dataset == datasets.Dataset
-        or not issubclass(dataset, datasets.Dataset)
-    ):
+    if not inspect.isclass(dataset) or dataset == datasets.Dataset or not issubclass(dataset, datasets.Dataset):
         continue
     queries = collections.defaultdict(list)
     for funcname in dir(dataset):
@@ -488,8 +467,7 @@ for key in dir(datasets):
     generators[dataset.NAME] = (dataset, dict(queries))
     if dataset.PROPERTIES_ON_EDGES and args.no_properties_on_edges:
         raise Exception(
-            'The "{}" dataset requires properties on edges, '
-            "but you have disabled them!".format(dataset.NAME)
+            'The "{}" dataset requires properties on edges, ' "but you have disabled them!".format(dataset.NAME)
         )
 
 # List datasets if there is no specified dataset.
@@ -534,9 +512,7 @@ for dataset, queries in benchmarks:
     results.set_value("__run_configuration__", value=run_config)
 
     log.init("Preparing", dataset.NAME + "/" + dataset.get_variant(), "dataset")
-    dataset.prepare(
-        cache.cache_directory("datasets", dataset.NAME, dataset.get_variant())
-    )
+    dataset.prepare(cache.cache_directory("datasets", dataset.NAME, dataset.get_variant()))
 
     # TODO: Create some abstract class for vendors, that will hold this data
     if args.vendor_name == "neo4j":
@@ -553,9 +529,7 @@ for dataset, queries in benchmarks:
             args.bolt_port,
         )
 
-    client = runners.Client(
-        args.client_binary, args.temporary_directory, args.bolt_port
-    )
+    client = runners.Client(args.client_binary, args.temporary_directory, args.bolt_port)
 
     # TODO:Neo4j doesn't like duplicated triggers, add this do dataset files.
     vendor.start_preparation()
@@ -571,9 +545,7 @@ for dataset, queries in benchmarks:
     vendor.stop()
 
     vendor.start_preparation()
-    ret = client.execute(
-        file_path=dataset.get_file(), num_workers=args.num_workers_for_import
-    )
+    ret = client.execute(file_path=dataset.get_file(), num_workers=args.num_workers_for_import)
     usage = vendor.stop()
     # Display import statistics.
     print()
@@ -604,7 +576,7 @@ for dataset, queries in benchmarks:
 
     # Run all benchmarks in all available groups.
     for group in sorted(queries.keys()):
-        
+
         # Running queries in mixed workload
         if workload.name == "Mixed" or workload.name == "Realistic":
             mixed_workload(vendor, client, dataset, group, queries, workload)
@@ -612,9 +584,7 @@ for dataset, queries in benchmarks:
             for query, funcname in queries[group]:
                 log.info(
                     "Running query:",
-                    "{}/{}/{}/{}".format(
-                        group, query, funcname, WITHOUT_FINE_GRAINED_AUTHORIZATION
-                    ),
+                    "{}/{}/{}/{}".format(group, query, funcname, WITHOUT_FINE_GRAINED_AUTHORIZATION),
                 )
                 func = getattr(dataset, funcname)
 
@@ -657,21 +627,11 @@ for dataset, queries in benchmarks:
 
                 # Output summary.
                 print()
-                print(
-                    "Executed", ret["count"], "queries in", ret["duration"], "seconds."
-                )
+                print("Executed", ret["count"], "queries in", ret["duration"], "seconds.")
                 print("Queries have been retried", ret["retries"], "times.")
                 print("Database used {:.3f} seconds of CPU time.".format(usage["cpu"]))
-                print(
-                    "Database peaked at {:.3f} MiB of memory.".format(
-                        usage["memory"] / 1024.0 / 1024.0
-                    )
-                )
-                print(
-                    "{:<31} {:>20} {:>20} {:>20}".format(
-                        "Metadata:", "min", "avg", "max"
-                    )
-                )
+                print("Database peaked at {:.3f} MiB of memory.".format(usage["memory"] / 1024.0 / 1024.0))
+                print("{:<31} {:>20} {:>20} {:>20}".format("Metadata:", "min", "avg", "max"))
                 metadata = ret["metadata"]
                 for key in sorted(metadata.keys()):
                     print(
@@ -716,9 +676,7 @@ for dataset, queries in benchmarks:
 
                     log.info(
                         "Running query:",
-                        "{}/{}/{}/{}".format(
-                            group, query, funcname, WITH_FINE_GRAINED_AUTHORIZATION
-                        ),
+                        "{}/{}/{}/{}".format(group, query, funcname, WITH_FINE_GRAINED_AUTHORIZATION),
                     )
                     func = getattr(dataset, funcname)
 
@@ -756,19 +714,9 @@ for dataset, queries in benchmarks:
                         "seconds.",
                     )
                     print("Queries have been retried", ret["retries"], "times.")
-                    print(
-                        "Database used {:.3f} seconds of CPU time.".format(usage["cpu"])
-                    )
-                    print(
-                        "Database peaked at {:.3f} MiB of memory.".format(
-                            usage["memory"] / 1024.0 / 1024.0
-                        )
-                    )
-                    print(
-                        "{:<31} {:>20} {:>20} {:>20}".format(
-                            "Metadata:", "min", "avg", "max"
-                        )
-                    )
+                    print("Database used {:.3f} seconds of CPU time.".format(usage["cpu"]))
+                    print("Database peaked at {:.3f} MiB of memory.".format(usage["memory"] / 1024.0 / 1024.0))
+                    print("{:<31} {:>20} {:>20} {:>20}".format("Metadata:", "min", "avg", "max"))
                     metadata = ret["metadata"]
                     for key in sorted(metadata.keys()):
                         print(
