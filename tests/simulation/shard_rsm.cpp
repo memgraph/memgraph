@@ -183,19 +183,53 @@ bool AttemptToDeleteVertex(ShardClient &client, int64_t value) {
   }
 }
 
-bool AttemptToUpdateVertex(ShardClient &client, int64_t value) {
-  auto vertex_id = GetValuePrimaryKeysWithValue(value)[0];
+bool AttemptToUpdateVertex(ShardClient &client, int64_t vertex_primary_key, std::vector<LabelId> add_labels = {},
+                           std::vector<LabelId> remove_labels = {}) {
+  auto vertex_id = GetValuePrimaryKeysWithValue(vertex_primary_key)[0];
 
   std::vector<std::pair<PropertyId, msgs::Value>> property_updates;
   auto property_update = std::make_pair(PropertyId::FromUint(5), msgs::Value(static_cast<int64_t>(10000)));
 
-  msgs::UpdateVertex vertex_prop;
-  vertex_prop.primary_key = vertex_id;
-  vertex_prop.property_updates = {property_update};
+  msgs::UpdateVertex update_vertex;
+  update_vertex.primary_key = vertex_id;
+  update_vertex.property_updates = {property_update};
+  update_vertex.add_labels = add_labels;
+  update_vertex.remove_labels = remove_labels;
 
   msgs::UpdateVerticesRequest update_req;
   update_req.transaction_id.logical_id = GetTransactionId();
-  update_req.update_vertices = {vertex_prop};
+  update_req.update_vertices = {update_vertex};
+
+  while (true) {
+    auto write_res = client.SendWriteRequest(update_req);
+    if (write_res.HasError()) {
+      continue;
+    }
+
+    auto write_response_result = write_res.GetValue();
+    auto write_response = std::get<msgs::UpdateVerticesResponse>(write_response_result);
+
+    Commit(client, update_req.transaction_id);
+    return write_response.success;
+  }
+}
+
+bool AttemptToRemoveVertexProperty(ShardClient &client, int64_t primary_key, std::vector<LabelId> add_labels = {},
+                                   std::vector<LabelId> remove_labels = {}) {
+  auto vertex_id = GetValuePrimaryKeysWithValue(primary_key)[0];
+
+  std::vector<std::pair<PropertyId, msgs::Value>> property_updates;
+  auto property_update = std::make_pair(PropertyId::FromUint(5), msgs::Value());
+
+  msgs::UpdateVertex update_vertex;
+  update_vertex.primary_key = vertex_id;
+  update_vertex.property_updates = {property_update};
+  update_vertex.add_labels = add_labels;
+  update_vertex.remove_labels = remove_labels;
+
+  msgs::UpdateVerticesRequest update_req;
+  update_req.transaction_id.logical_id = GetTransactionId();
+  update_req.update_vertices = {update_vertex};
 
   while (true) {
     auto write_res = client.SendWriteRequest(update_req);
@@ -872,7 +906,9 @@ void TestCreateAndUpdateVertices(ShardClient &client) {
   auto unique_prop_val = GetUniqueInteger();
 
   MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val));
-  MG_ASSERT(AttemptToUpdateVertex(client, unique_prop_val));
+  MG_ASSERT(AttemptToUpdateVertex(client, unique_prop_val, {LabelId::FromInt(3)}));
+  MG_ASSERT(AttemptToUpdateVertex(client, unique_prop_val, {}, {LabelId::FromInt(3)}));
+  MG_ASSERT(AttemptToRemoveVertexProperty(client, unique_prop_val));
 }
 
 void TestCreateEdge(ShardClient &client) {
