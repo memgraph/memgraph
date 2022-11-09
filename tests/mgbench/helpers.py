@@ -118,3 +118,6 @@ class Cache:
     def save_config(self, config):
         with open(self._config, "w") as f:
             json.dump(config.get_data(), f)
+
+
+# Comment to force github workflow
