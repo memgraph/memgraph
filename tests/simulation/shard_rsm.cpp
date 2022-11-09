@@ -727,7 +727,12 @@ void AttemptToExpandOneLimitAndOrderBy(ShardClient &client, uint64_t src_vertex_
     // We check that we do not have more results than the limit. Based on the data in the graph, we know that we should
     // receive exactly limit responses.
     auto expected_number_of_rows = std::min(expand_one_req.src_vertices.size(), limit);
+    MG_ASSERT(expected_number_of_rows == 1);  // We are sending a single vertex to expand
     MG_ASSERT(write_response.result.size() == expected_number_of_rows);
+    const auto expected_number_of_edges = 10;  // We know there are 10 out-going edges from V2->V3
+    MG_ASSERT(write_response.result[0].out_edges_with_all_properties.size() == expected_number_of_edges);
+    MG_ASSERT(write_response.result[0]
+                  .out_edges_with_specific_properties.empty());  // We are not asking for specific properties
 
     // We also check that the vertices are ordered by prop1 DESC
 
