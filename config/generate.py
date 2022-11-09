@@ -5,11 +5,9 @@ import os
 import subprocess
 import sys
 import textwrap
-
 import xml.etree.ElementTree as ET
 
 import yaml
-
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 CONFIG_FILE = os.path.join(SCRIPT_DIR, "flags.yaml")
@@ -18,14 +16,13 @@ WIDTH = 80
 
 def wrap_text(s, initial_indent="# "):
     return "\n#\n".join(
-        map(lambda x: textwrap.fill(x, WIDTH, initial_indent=initial_indent,
-                                    subsequent_indent="# "), s.split("\n")))
+        map(lambda x: textwrap.fill(x, WIDTH, initial_indent=initial_indent, subsequent_indent="# "), s.split("\n"))
+    )
 
 
 def extract_flags(binary_path):
     ret = {}
-    data = subprocess.run([binary_path, "--help-xml"],
-                          stdout=subprocess.PIPE).stdout.decode("utf-8")
+    data = subprocess.run([binary_path, "--help-xml"], stdout=subprocess.PIPE).stdout.decode("utf-8")
     root = ET.fromstring(data)
     for child in root:
         if child.tag == "usage" and child.text.lower().count("warning"):
@@ -46,8 +43,7 @@ def apply_config_to_flags(config, flags):
     for modification in config["modifications"]:
         name = modification["name"]
         if name not in flags:
-            print("WARNING: Flag '" + name + "' missing from binary!",
-                  file=sys.stderr)
+            print("WARNING: Flag '" + name + "' missing from binary!", file=sys.stderr)
             continue
         flags[name]["default"] = modification["value"]
         flags[name]["override"] = modification["override"]
@@ -75,8 +71,9 @@ def extract_sections(flags):
     else:
         sections.append((current_section, current_flags))
     sections.append(("other", other))
-    assert set(sum(map(lambda x: x[1], sections), [])) == set(flags.keys()), \
-        "The section extraction algorithm lost some flags!"
+    assert set(sum(map(lambda x: x[1], sections), [])) == set(
+        flags.keys()
+    ), "The section extraction algorithm lost some flags!"
     return sections
 
 
@@ -89,8 +86,7 @@ def generate_config_file(sections, flags):
             helpstr = flag["meaning"] + " [" + flag["type"] + "]"
             ret += wrap_text(helpstr) + "\n"
             prefix = "# " if not flag["override"] else ""
-            ret += prefix + "--" + flag["name"].replace("_", "-") + \
-                "=" + flag["default"] + "\n\n"
+            ret += prefix + "--" + flag["name"].replace("_", "-") + "=" + flag["default"] + "\n\n"
         ret += "\n"
     ret += wrap_text(config["footer"])
     return ret.strip() + "\n"
@@ -98,13 +94,9 @@ def generate_config_file(sections, flags):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("memgraph_binary",
-                        help="path to Memgraph binary")
-    parser.add_argument("output_file",
-                        help="path where to store the generated Memgraph "
-                        "configuration file")
-    parser.add_argument("--config-file", default=CONFIG_FILE,
-                        help="path to generator configuration file")
+    parser.add_argument("memgraph_binary", help="path to Memgraph binary")
+    parser.add_argument("output_file", help="path where to store the generated Memgraph " "configuration file")
+    parser.add_argument("--config-file", default=CONFIG_FILE, help="path to generator configuration file")
 
     args = parser.parse_args()
     flags = extract_flags(args.memgraph_binary)
