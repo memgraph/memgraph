@@ -15,19 +15,19 @@ import argparse
 import collections
 import copy
 import fnmatch
+import importlib
 import inspect
 import json
 import multiprocessing
+import os
 import random
 import sys
+import time
 
 import datasets
-import log
 import helpers
+import log
 import runners
-import importlib
-import time
-import os
 
 
 def get_queries(gen, count):

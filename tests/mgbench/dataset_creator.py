@@ -9,9 +9,10 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import random
-import helpers
 import argparse
+import random
+
+import helpers
 
 # Explaination of datasets:
 #   - empty_only_index: contains index; contains no data
