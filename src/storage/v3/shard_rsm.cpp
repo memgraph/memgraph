@@ -369,8 +369,10 @@ std::optional<msgs::ExpandOneResultRow> GetExpandOneResult(
     const EdgeUniqunessFunction &maybe_filter_based_on_edge_uniquness, const EdgeFiller &edge_filler,
     const Schemas::Schema *schema) {
   /// Fill up source vertex
-  auto source_vertex = FillUpSourceVertex(v_acc, req, src_vertex);
-  if (!source_vertex) {
+  msgs::Vertex source_vertex = {.id = src_vertex};
+  if (const auto maybe_secondary_labels = FillUpSourceVertexSecondaryLabels(v_acc, req); maybe_secondary_labels) {
+    source_vertex.labels = *maybe_secondary_labels;
+  } else {
     return std::nullopt;
   }
 
@@ -385,7 +387,7 @@ std::optional<msgs::ExpandOneResultRow> GetExpandOneResult(
   auto out_edges = maybe_filter_based_on_edge_uniquness(std::move(out_edge_accessors), msgs::EdgeDirection::OUT);
 
   msgs::ExpandOneResultRow result_row;
-  result_row.src_vertex = std::move(*source_vertex);
+  result_row.src_vertex = std::move(source_vertex);
   result_row.src_vertex_properties = std::move(*src_vertex_properties);
   static constexpr bool kInEdges = true;
   static constexpr bool kOutEdges = false;
