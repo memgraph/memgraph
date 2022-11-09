@@ -21,11 +21,12 @@ import multiprocessing
 import random
 import sys
 import statistics
-
 import datasets
 import log
 import helpers
 import runners
+import math
+
 
 
 WITH_FINE_GRAINED_AUTHORIZATION = "with_fine_grained_authorization"
@@ -144,7 +145,35 @@ parser.add_argument(
     with the presence of 300 write queries from write type or 30%""",
 )
 
+parser.add_argument(
+    "--tail_latency",
+    type = int,
+    default =100, 
+    help = "Number of queries for the tail latency statistics"
+)
+
 args = parser.parse_args()
+
+
+class Workload():
+    def __init__(self, config):
+        config_len = len(config)
+        if config_len == 0:
+            self.name = "Isolated"
+            self.config = config
+        elif config_len >= 5:
+            if sum(config[1:]) != 100:
+                raise Exception(
+                    "Please make sure that passed arguments % sum to 100% percent!, passed: ",
+                    config,
+                )
+            if config_len == 5:
+                self.name = "Realistic"
+                self.config = config
+            else:
+                self.name = "Mixed"
+                self.config = config
+    
 
 
 def get_queries(gen, count):
@@ -218,8 +247,8 @@ def tail_latency(vendor, client, func):
     if args.warmup_run:
         warmup(client)
     latency = []
-    iteration = 100
-    query_list = get_queries(func, 100)
+    iteration = args.tail_latency
+    query_list = get_queries(func, iteration)
     for i in range(0, iteration):
         ret = client.execute(queries=[query_list[i]], num_workers=1)
         latency.append(ret[0]["duration"])
@@ -227,13 +256,13 @@ def tail_latency(vendor, client, func):
     query_stats = {
         "iterations": iteration,
         "min": latency[0],
-        "max": latency[99],
+        "max": latency[iteration - 1],
         "mean": statistics.mean(latency),
-        "p99": latency[98],
-        "p95": latency[94],
-        "p90": latency[89],
-        "p75": latency[74],
-        "p50": latency[49],
+        "p99": latency[math.floor(iteration * 0.99) - 1],
+        "p95": latency[math.floor(iteration * 0.95) - 1],
+        "p90": latency[math.floor(iteration * 0.90) - 1],
+        "p75": latency[math.floor(iteration * 0.75) - 1],
+        "p50": latency[math.floor(iteration * 0.50) - 1],
     }
     print("Query statistics for tail latency: ")
     print(query_stats)
@@ -241,62 +270,50 @@ def tail_latency(vendor, client, func):
     return query_stats
 
 
-def mixed_workload(vendor, client, dataset, group, queries):
-    num_args = len(args.mixed_workload)
-    if num_args > 6:
-        raise Exception(
-            "You have passed to many arguments for mixed workload",
-            "read description of --mixed-worload args",
-        )
+def mixed_workload(vendor, client, dataset, group, queries, workload):
 
-    num_of_queries = args.mixed_workload[0]
-    percentage_distribution = args.mixed_workload[1:]
+    num_of_queries = workload.config[0]
+    percentage_distribution = workload.config[1:]
     if sum(percentage_distribution) != 100:
         raise Exception(
             "Please make sure that passed arguments % sum to 100% percent!, passed: ",
             percentage_distribution,
         )
-    s = [str(i) for i in args.mixed_workload]
+    s = [str(i) for i in workload.config]
 
     config_distribution = "_".join(s)
 
-    print("Generating mixed workload")
-    write = list()
-    read = list()
-    update = list()
-    analytical = list()
+    print("Generating mixed workload.")
 
-    for (
-        query,
-        funcname,
-    ) in queries[group]:
-        if "write" in funcname:
-            write.append(funcname)
-        elif "read" in funcname:
-            read.append(funcname)
-        elif "update" in funcname:
-            update.append(funcname)
-        elif "analytical" in funcname:
-            analytical.append(funcname)
+    percentages_by_type = {
+        "write" : percentage_distribution[0],
+        "read" : percentage_distribution[1],
+        "update" : percentage_distribution[2],
+        "analytical" : percentage_distribution[3],
+    }
 
-    if (
-        len(write) == 0
-        and percentage_distribution[0] != 0
-        or len(read) == 0
-        and percentage_distribution[1] != 0
-        or len(update) == 0
-        and percentage_distribution[2] != 0
-        or len(analytical) == 0
-        and percentage_distribution[3] != 0
-    ):
-        raise Exception(
+    queries_by_type = {
+        "write" : [],
+        "read" : [],
+        "update" : [],  
+        "analytical" :[],
+    }
+
+    for (_,funcname) in queries[group]:
+        for key in queries_by_type.keys():
+            if key in funcname:
+                queries_by_type[key].append(funcname)    
+
+    for key, percentage in percentages_by_type.items():
+        if percentage != 0 and len(queries_by_type[key]) == 0:
+            raise Exception(
             "There is a missing query in group (write, read, update or analytical) for given workload distribution."
         )
 
     random.seed(config_distribution)
 
     # Executing mixed workload for each test
-    if num_args == 6:
+    if workload.name == "Mixed":
         for query, funcname in queries[group]:
             full_workload = []
 
@@ -310,46 +327,24 @@ def mixed_workload(vendor, client, dataset, group, queries):
             )
             base_query = getattr(dataset, funcname)
 
-            base_query_group = funcname.rsplit("_", 1)[1]
-
-            if percentage_distribution[0] > 0 and base_query_group == "write":
-                print("Skiping the query in same group as load: " + funcname)
-                continue
-            elif percentage_distribution[1] > 0 and base_query_group == "read":
-                print("Skiping the query in same group as load: " + funcname)
-                continue
-            elif percentage_distribution[2] > 0 and base_query_group == "update":
-                print("Skiping the query in same group as load: " + funcname)
-                continue
-            elif percentage_distribution[3] > 0 and base_query_group == "analytical":
-                print("Skiping the query in same group as load: " + funcname)
+            base_query_type = funcname.rsplit("_", 1)[1]
+            
+            if percentages_by_type[base_query_type] > 0: 
                 continue
 
-            options = ["w", "r", "u", "a", "q"]
+            options = ["write", "read", "update", "analytical", "query"]
             function_type = random.choices(
                 population=options, weights=percentage_distribution, k=num_of_queries
             )
 
             for t in function_type:
                 # Get the apropropriate functions with same probabilty
-                if t == "w":
-                    funcname = random.choices(write, k=1)[0]
-                    aditional_query = getattr(dataset, funcname)
-                    full_workload.append(aditional_query())
-                elif t == "r":
-                    funcname = random.choices(read, k=1)[0]
-                    aditional_query = getattr(dataset, funcname)
-                    full_workload.append(aditional_query())
-                elif t == "u":
-                    funcname = random.choices(update, k=1)[0]
-                    aditional_query = getattr(dataset, funcname)
-                    full_workload.append(aditional_query())
-                elif t == "a":
-                    funcname = random.choices(analytical, k=1)[0]
-                    aditional_query = getattr(dataset, funcname)
-                    full_workload.append(aditional_query())
-                elif t == "q":
+                if t == "query":
                     full_workload.append(base_query())
+                else:
+                    funcname = random.choices(queries_by_type[t], k=1)[0]
+                    aditional_query = getattr(dataset, funcname)
+                    full_workload.append(aditional_query())
 
             vendor.start_benchmark()
             if args.warmup_run:
@@ -374,29 +369,16 @@ def mixed_workload(vendor, client, dataset, group, queries):
     else:
         # Executing mixed workload from groups of queries
         full_workload = []
-        options = ["w", "r", "u", "a"]
+        options = ["write", "read", "update", "analytical"]
         function_type = random.choices(
             population=options, weights=percentage_distribution, k=num_of_queries
         )
 
         for t in function_type:
             # Get the apropropriate functions with same probabilty
-            if t == "w":
-                funcname = random.choices(write, k=1)[0]
-                query = getattr(dataset, funcname)
-                full_workload.append(query())
-            elif t == "r":
-                funcname = random.choices(read, k=1)[0]
-                query = getattr(dataset, funcname)
-                full_workload.append(query())
-            elif t == "u":
-                funcname = random.choices(update, k=1)[0]
-                query = getattr(dataset, funcname)
-                full_workload.append(query())
-            elif t == "a":
-                funcname = random.choices(analytical, k=1)[0]
-                query = getattr(dataset, funcname)
-                full_workload.append(query())
+            funcname = random.choices(queries_by_type[t], k=1)[0]
+            aditional_query = getattr(dataset, funcname)
+            full_workload.append(aditional_query())
 
         vendor.start_benchmark()
         if args.warmup_run:
@@ -540,20 +522,13 @@ benchmarks = filter_benchmarks(generators, args.benchmarks)
 # Run all specified benchmarks.
 for dataset, queries in benchmarks:
 
-    # Save running configuration
-    workload_type = None
-    if len(args.mixed_workload) == 0:
-        workload_type = "Isolated"
-    elif len(args.mixed_workload) == 5:
-        workload_type = "Realistic"
-    else:
-        workload_type = "Mixed"
+    workload = Workload(args.mixed_workload)
 
     run_config = {
         "vendor": args.vendor_name,
-        "condition": "warm" if args.warmup_run else "cold",
-        "workload": workload_type,
-        "workload_config": args.mixed_workload,
+        "condition": "hot" if args.warmup_run else "cold",
+        "workload": workload.name,
+        "workload_config": workload.config,
     }
 
     results.set_value("__run_configuration__", value=run_config)
@@ -629,10 +604,10 @@ for dataset, queries in benchmarks:
 
     # Run all benchmarks in all available groups.
     for group in sorted(queries.keys()):
-
+        
         # Running queries in mixed workload
-        if len(args.mixed_workload) >= 5:
-            mixed_workload(vendor, client, dataset, group, queries)
+        if workload.name == "Mixed" or workload.name == "Realistic":
+            mixed_workload(vendor, client, dataset, group, queries, workload)
         else:
             for query, funcname in queries[group]:
                 log.info(
