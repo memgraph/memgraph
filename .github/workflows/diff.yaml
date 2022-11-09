@@ -75,13 +75,38 @@ jobs:
       - name: Fetch all history for all tags and branches
         run: git fetch
 
+      - name: Initialize deps
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
+          # Initialize dependencies.
+          ./init
+
+      - name: Set base branch
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          echo "BASE_BRANCH=origin/${{ github.base_ref }}" >> $GITHUB_ENV
+
+      - name: Set base branch # if we manually dispatch or push to master
+        if: ${{ github.event_name != 'pull_request' }}
+        run: |
+          echo "BASE_BRANCH=origin/master" >> $GITHUB_ENV
+
+      - name: Python code analysis
+        run: |
+          CHANGED_FILES=$(git diff -U0 ${{ env.BASE_BRANCH }}... --name-only)
+          for file in ${CHANGED_FILES}; do
+            echo ${file}
+            if [[ ${file} == *.py ]]; then
+              python3 -m black --check --diff ${file}
+              python3 -m isort --check-only --diff ${file}
+            fi
+          done
+
       - name: Build combined ASAN, UBSAN and coverage binaries
         run: |
           # Activate toolchain.
           source /opt/toolchain-v4/activate
-
-          # Initialize dependencies.
-          ./init
 
           cd build
           cmake -DTEST_COVERAGE=ON -DASAN=ON -DUBSAN=ON ..
