@@ -26,7 +26,7 @@ jobs:
 
     steps:
       - name: Set up repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           # Number of commits to fetch. `0` indicates all history for all
           # branches and tags. (default: 1)
@@ -64,7 +64,7 @@ jobs:
 
     steps:
       - name: Set up repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           # Number of commits to fetch. `0` indicates all history for all
           # branches and tags. (default: 1)
@@ -75,13 +75,38 @@ jobs:
       - name: Fetch all history for all tags and branches
         run: git fetch
 
+      - name: Initialize deps
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
+          # Initialize dependencies.
+          ./init
+
+      - name: Set base branch
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          echo "BASE_BRANCH=origin/${{ github.base_ref }}" >> $GITHUB_ENV
+
+      - name: Set base branch # if we manually dispatch or push to master
+        if: ${{ github.event_name != 'pull_request' }}
+        run: |
+          echo "BASE_BRANCH=origin/master" >> $GITHUB_ENV
+
+      - name: Python code analysis
+        run: |
+          CHANGED_FILES=$(git diff -U0 ${{ env.BASE_BRANCH }}... --name-only)
+          for file in ${CHANGED_FILES}; do
+            echo ${file}
+            if [[ ${file} == *.py ]]; then
+              python3 -m black --check --diff ${file}
+              python3 -m isort --check-only --diff ${file}
+            fi
+          done
+
       - name: Build combined ASAN, UBSAN and coverage binaries
         run: |
           # Activate toolchain.
           source /opt/toolchain-v4/activate
-
-          # Initialize dependencies.
-          ./init
 
           cd build
           cmake -DTEST_COVERAGE=ON -DASAN=ON -DUBSAN=ON ..
@@ -110,7 +135,7 @@ jobs:
           tar -czf code_coverage.tar.gz coverage.json html report.json summary.rmu
 
       - name: Save code coverage
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: "Code coverage"
           path: tools/github/generated/code_coverage.tar.gz
@@ -145,7 +170,7 @@ jobs:
 
     steps:
       - name: Set up repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           # Number of commits to fetch. `0` indicates all history for all
           # branches and tags. (default: 1)
@@ -192,7 +217,7 @@ jobs:
 
     steps:
       - name: Set up repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           # Number of commits to fetch. `0` indicates all history for all
           # branches and tags. (default: 1)
