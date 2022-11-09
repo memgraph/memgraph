@@ -57,11 +57,11 @@ using conversions::ToPropertyValue;
 namespace {
 namespace msgs = msgs;
 
-using AllEdgePropertyDataSructure = std::map<PropertyId, msgs::Value>;
-using SpecificEdgePropertyDataSructure = std::vector<msgs::Value>;
+using AllEdgePropertyDataStructure = std::map<PropertyId, msgs::Value>;
+using SpecificEdgePropertyDataStructure = std::vector<msgs::Value>;
 
-using AllEdgeProperties = std::tuple<msgs::VertexId, msgs::Gid, AllEdgePropertyDataSructure>;
-using SpecificEdgeProperties = std::tuple<msgs::VertexId, msgs::Gid, SpecificEdgePropertyDataSructure>;
+using AllEdgeProperties = std::tuple<msgs::VertexId, msgs::Gid, AllEdgePropertyDataStructure>;
+using SpecificEdgeProperties = std::tuple<msgs::VertexId, msgs::Gid, SpecificEdgePropertyDataStructure>;
 
 using SpecificEdgePropertiesVector = std::vector<SpecificEdgeProperties>;
 using AllEdgePropertiesVector = std::vector<AllEdgeProperties>;
@@ -69,7 +69,7 @@ using AllEdgePropertiesVector = std::vector<AllEdgeProperties>;
 using EdgeAccessors = std::vector<storage::v3::EdgeAccessor>;
 
 using EdgeFiller = std::function<bool(const EdgeAccessor &edge, bool is_in_edge, msgs::ExpandOneResultRow &result_row)>;
-using EdgeUniqunessFunction = std::function<EdgeAccessors(EdgeAccessors &&, msgs::EdgeDirection)>;
+using EdgeUniquenessFunction = std::function<EdgeAccessors(EdgeAccessors &&, msgs::EdgeDirection)>;
 
 struct VertexIdCmpr {
   bool operator()(const storage::v3::VertexId *lhs, const storage::v3::VertexId *rhs) const { return *lhs < *rhs; }
@@ -180,8 +180,6 @@ std::vector<TypedValue> EvaluateVertexExpressions(DbAccessor &dba, const VertexA
   return evaluated_expressions;
 }
 
-struct LocalError {};
-
 std::optional<std::vector<msgs::Label>> FillUpSourceVertexSecondaryLabels(const std::optional<VertexAccessor> &v_acc,
                                                                           const msgs::ExpandOneRequest &req) {
   auto secondary_labels = v_acc->Labels(View::NEW);
@@ -242,7 +240,7 @@ std::optional<std::map<PropertyId, Value>> FillUpSourceVertexProperties(const st
 
 std::optional<std::array<std::vector<EdgeAccessor>, 2>> FillUpConnectingEdges(
     const std::optional<VertexAccessor> &v_acc, const msgs::ExpandOneRequest &req,
-    const EdgeUniqunessFunction &maybe_filter_based_on_edge_uniquness) {
+    const EdgeUniquenessFunction &maybe_filter_based_on_edge_uniquness) {
   std::vector<EdgeTypeId> edge_types{};
   edge_types.reserve(req.edge_types.size());
   std::transform(req.edge_types.begin(), req.edge_types.end(), std::back_inserter(edge_types),
@@ -296,11 +294,11 @@ std::optional<std::array<std::vector<EdgeAccessor>, 2>> FillUpConnectingEdges(
   return std::array<std::vector<EdgeAccessor>, 2>{in_edges, out_edges};
 }
 
-using AllEdgePropertyDataSructure = std::map<PropertyId, msgs::Value>;
-using SpecificEdgePropertyDataSructure = std::vector<msgs::Value>;
+using AllEdgePropertyDataStructure = std::map<PropertyId, msgs::Value>;
+using SpecificEdgePropertyDataStructure = std::vector<msgs::Value>;
 
-using AllEdgeProperties = std::tuple<msgs::VertexId, msgs::Gid, AllEdgePropertyDataSructure>;
-using SpecificEdgeProperties = std::tuple<msgs::VertexId, msgs::Gid, SpecificEdgePropertyDataSructure>;
+using AllEdgeProperties = std::tuple<msgs::VertexId, msgs::Gid, AllEdgePropertyDataStructure>;
+using SpecificEdgeProperties = std::tuple<msgs::VertexId, msgs::Gid, SpecificEdgePropertyDataStructure>;
 
 using SpecificEdgePropertiesVector = std::vector<SpecificEdgeProperties>;
 using AllEdgePropertiesVector = std::vector<AllEdgeProperties>;
@@ -354,7 +352,7 @@ void LogError(const ResultErrorType &error, const std::string_view action) {
 
 std::optional<msgs::ExpandOneResultRow> GetExpandOneResult(
     Shard::Accessor &acc, msgs::VertexId src_vertex, const msgs::ExpandOneRequest &req,
-    const EdgeUniqunessFunction &maybe_filter_based_on_edge_uniquness, const EdgeFiller &edge_filler,
+    const EdgeUniquenessFunction &maybe_filter_based_on_edge_uniquness, const EdgeFiller &edge_filler,
     const Schemas::Schema *schema) {
   /// Fill up source vertex
   const auto primary_key = ConvertPropertyVector(src_vertex.second);
@@ -397,9 +395,9 @@ std::optional<msgs::ExpandOneResultRow> GetExpandOneResult(
   return result_row;
 }
 
-EdgeUniqunessFunction InitializeEdgeUniqunessFunction(bool only_unique_neighbor_rows) {
+EdgeUniquenessFunction InitializeEdgeUniquenessFunction(bool only_unique_neighbor_rows) {
   // Functions to select connecting edges based on uniquness
-  EdgeUniqunessFunction maybe_filter_based_on_edge_uniquness;
+  EdgeUniquenessFunction maybe_filter_based_on_edge_uniquness;
 
   if (only_unique_neighbor_rows) {
     maybe_filter_based_on_edge_uniquness = [](EdgeAccessors &&edges,
@@ -871,7 +869,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
 
   std::vector<msgs::ExpandOneResultRow> results;
 
-  auto maybe_filter_based_on_edge_uniquness = InitializeEdgeUniqunessFunction(req.only_unique_neighbor_rows);
+  auto maybe_filter_based_on_edge_uniquness = InitializeEdgeUniquenessFunction(req.only_unique_neighbor_rows);
   auto edge_filler = InitializeEdgeFillerFunction(req);
 
   for (auto &src_vertex : req.src_vertices) {

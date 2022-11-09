@@ -906,7 +906,7 @@ void TestCreateAndUpdateVertices(ShardClient &client) {
   auto unique_prop_val = GetUniqueInteger();
 
   MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val));
-  MG_ASSERT(AttemptToUpdateVertex(client, unique_prop_val, {LabelId::FromInt(3)}));
+  MG_ASSERT(AttemptToUpdateVertex(client, unique_prop_val, {LabelId::FromInt(3)}, {}));
   MG_ASSERT(AttemptToUpdateVertex(client, unique_prop_val, {}, {LabelId::FromInt(3)}));
   MG_ASSERT(AttemptToRemoveVertexProperty(client, unique_prop_val));
 }
