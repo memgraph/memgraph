@@ -140,7 +140,7 @@ parser.add_argument(
     Mixed workload can also be run on each query under some defined load.
     By passing one more positional argument, you are defining what percentage of that query
     will be in mixed workload, and this is executed for each query. The rest of the queries will be 
-    selected from the apropriate groups 
+    selected from the appropriate groups 
     Running --mixed-workload 1000 30 0 0 0 70, will execute each query 700 times or 70%,
     with the presence of 300 write queries from write type or 30%""",
 )
