@@ -189,13 +189,13 @@ bool AttemptToUpdateVertex(ShardClient &client, int64_t value) {
   std::vector<std::pair<PropertyId, msgs::Value>> property_updates;
   auto property_update = std::make_pair(PropertyId::FromUint(5), msgs::Value(static_cast<int64_t>(10000)));
 
-  auto vertex_prop = msgs::UpdateVertexProp{};
+  msgs::UpdateVertex vertex_prop;
   vertex_prop.primary_key = vertex_id;
   vertex_prop.property_updates = {property_update};
 
-  auto update_req = msgs::UpdateVerticesRequest{};
+  msgs::UpdateVerticesRequest update_req;
   update_req.transaction_id.logical_id = GetTransactionId();
-  update_req.new_properties = {vertex_prop};
+  update_req.update_vertices = {vertex_prop};
 
   while (true) {
     auto write_res = client.SendWriteRequest(update_req);

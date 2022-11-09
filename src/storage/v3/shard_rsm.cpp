@@ -535,12 +535,46 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
   return msgs::CreateVerticesResponse{.success = action_successful};
 }
 
+void HandleError(const ResultErrorType &error, const std::string_view action) {
+  std::visit(
+      [action]<typename T>(T &&error) {
+        using ErrorType = std::remove_cvref_t<T>;
+        if constexpr (std::is_same_v<ErrorType, SchemaViolation>) {
+          spdlog::debug("{} failed with error: SchemaViolation", action);
+        } else if constexpr (std::is_same_v<ErrorType, Error>) {
+          switch (error) {
+            case Error::DELETED_OBJECT:
+              spdlog::debug("{} failed with error: DELETED_OBJECT", action);
+              break;
+            case Error::NONEXISTENT_OBJECT:
+              spdlog::debug("{} failed with error: NONEXISTENT_OBJECT", action);
+              break;
+            case Error::SERIALIZATION_ERROR:
+              spdlog::debug("{} failed with error: SERIALIZATION_ERROR", action);
+              break;
+            case Error::PROPERTIES_DISABLED:
+              spdlog::debug("{} failed with error: PROPERTIES_DISABLED", action);
+              break;
+            case Error::VERTEX_HAS_EDGES:
+              spdlog::debug("{} failed with error: VERTEX_HAS_EDGES", action);
+              break;
+            case Error::VERTEX_ALREADY_INSERTED:
+              spdlog::debug("{} failed with error: VERTEX_ALREADY_INSERTED", action);
+              break;
+          }
+        } else {
+          static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
+        }
+      },
+      error);
+}
+
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateVerticesRequest &&req) {
   auto acc = shard_->Access(req.transaction_id);
 
   bool action_successful = true;
 
-  for (auto &vertex : req.new_properties) {
+  for (auto &vertex : req.update_vertices) {
     if (!action_successful) {
       break;
     }
@@ -551,6 +585,17 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateVerticesRequest &&req) {
       spdlog::debug("Vertex could not be found while trying to update its properties. Transaction id: {}",
                     req.transaction_id.logical_id);
       continue;
+    }
+
+    for (const auto label : vertex.add_labels) {
+      if (const auto maybe_error = vertex_to_update->AddLabelAndValidate(label); maybe_error.HasError()) {
+        HandleError(maybe_error.GetError(), "Update Vertex");
+      }
+    }
+    for (const auto label : vertex.remove_labels) {
+      if (const auto maybe_error = vertex_to_update->RemoveLabelAndValidate(label); maybe_error.HasError()) {
+        HandleError(maybe_error.GetError(), "Update Vertex");
+      }
     }
 
     for (auto &update_prop : vertex.property_updates) {
