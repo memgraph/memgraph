@@ -59,6 +59,11 @@ std::vector<Element> OrderByElements(Shard::Accessor &acc, DbAccessor &dba, Vert
 VerticesIterable::Iterator GetStartVertexIterator(VerticesIterable &vertex_iterable,
                                                   const std::vector<PropertyValue> &start_ids, const View view) {
   auto it = vertex_iterable.begin();
+
+  if (start_ids.empty()) {
+    return it;
+  }
+
   while (it != vertex_iterable.end()) {
     if (const auto &vertex = *it; start_ids <= vertex.PrimaryKey(view).GetValue()) {
       break;

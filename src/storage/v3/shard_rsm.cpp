@@ -836,10 +836,17 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
   const auto start_id = ConvertPropertyVector(std::move(req.start_id.second));
   uint64_t sample_counter{0};
   auto vertex_iterable = acc.Vertices(view);
-  if (!req.order_bys.empty()) {
+  if (!req.scanned_vertices.empty()) {
+    for (auto &scanned_vertex_id : req.scanned_vertices) {
+      auto maybe_vertex = acc.FindVertex(ConvertPropertyVector(std::move(scanned_vertex_id.second)), view);
+      MG_ASSERT(maybe_vertex.has_value());
+      emplace_scan_result(*maybe_vertex);
+    }
+
+  } else if (!req.order_bys.empty()) {
     const auto ordered = OrderByElements(acc, dba, vertex_iterable, req.order_bys);
     // we are traversing Elements
-    auto it = GetStartOrderedElementsIterator(ordered, start_id, View(req.storage_view));
+    auto it = GetStartOrderedElementsIterator(ordered, start_id, view);
     for (; it != ordered.end(); ++it) {
       emplace_scan_result(it->vertex_acc);
       ++sample_counter;

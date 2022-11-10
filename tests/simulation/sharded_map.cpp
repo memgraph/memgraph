@@ -294,7 +294,7 @@ int main() {
       client_shard_map = hlc_response.fresher_shard_map.value();
     }
 
-    auto target_shard = client_shard_map.GetShardForKey(label_name, compound_key);
+    const auto &target_shard = client_shard_map.GetShardForKey(label_name, compound_key);
 
     // Determine which shard to send the requests to. This should be a more proper client cache in the "real" version.
     auto storage_client_opt = DetermineShardLocation(target_shard, a_addrs, shard_a_client, b_addrs, shard_b_client);

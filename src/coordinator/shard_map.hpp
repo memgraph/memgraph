@@ -160,9 +160,9 @@ struct ShardMap {
 
   Shards GetShardsForRange(const LabelName &label_name, const PrimaryKey &start_key, const PrimaryKey &end_key) const;
 
-  Shard GetShardForKey(const LabelName &label_name, const PrimaryKey &key) const;
+  const Shard &GetShardForKey(const LabelName &label_name, const PrimaryKey &key) const;
 
-  Shard GetShardForKey(const LabelId &label_id, const PrimaryKey &key) const;
+  const Shard &GetShardForKey(const LabelId &label_id, const PrimaryKey &key) const;
 
   PropertyMap AllocatePropertyIds(const std::vector<PropertyName> &new_properties);
 

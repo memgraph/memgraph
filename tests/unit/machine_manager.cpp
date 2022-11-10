@@ -113,7 +113,7 @@ template <typename ShardRequestManager>
 void TestScanAll(ShardRequestManager &shard_request_manager) {
   msgs::ExecutionState<msgs::ScanVerticesRequest> state{.label = kLabelName};
 
-  auto result = shard_request_manager.Request(state);
+  auto result = shard_request_manager.Request(state, {});
   EXPECT_EQ(result.size(), 2);
 }
 

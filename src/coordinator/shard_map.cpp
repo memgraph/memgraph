@@ -228,7 +228,7 @@ Hlc ShardMap::IncrementShardMapVersion() noexcept {
   return shard_map_version;
 }
 
-// TODO(antaljanosbenjamin) use a single map for all name id 
+// TODO(antaljanosbenjamin) use a single map for all name id
 // mapping and a single counter to maintain the next id
 std::unordered_map<uint64_t, std::string> ShardMap::IdToNames() {
   std::unordered_map<uint64_t, std::string> id_to_names;
@@ -455,7 +455,7 @@ Shards ShardMap::GetShardsForRange(const LabelName &label_name, const PrimaryKey
   return shards;
 }
 
-Shard ShardMap::GetShardForKey(const LabelName &label_name, const PrimaryKey &key) const {
+const Shard &ShardMap::GetShardForKey(const LabelName &label_name, const PrimaryKey &key) const {
   MG_ASSERT(labels.contains(label_name));
 
   LabelId label_id = labels.at(label_name);
@@ -468,7 +468,7 @@ Shard ShardMap::GetShardForKey(const LabelName &label_name, const PrimaryKey &ke
   return std::prev(label_space.shards.upper_bound(key))->second;
 }
 
-Shard ShardMap::GetShardForKey(const LabelId &label_id, const PrimaryKey &key) const {
+const Shard &ShardMap::GetShardForKey(const LabelId &label_id, const PrimaryKey &key) const {
   MG_ASSERT(label_spaces.contains(label_id));
 
   const auto &label_space = label_spaces.at(label_id);

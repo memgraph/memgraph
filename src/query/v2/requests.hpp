@@ -338,6 +338,7 @@ struct ScanVerticesRequest {
   Hlc transaction_id;
   // This should be optional
   VertexId start_id;
+  std::vector<VertexId> scanned_vertices;
   //  The empty optional means return all of the properties, while an empty list means do not return any properties
   std::optional<std::vector<PropertyId>> props_to_return;
   // expression that determines if vertex is returned or not

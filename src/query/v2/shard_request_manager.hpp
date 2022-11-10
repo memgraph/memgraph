@@ -115,7 +115,8 @@ class ShardRequestManagerInterface {
 
   virtual void StartTransaction() = 0;
   virtual void Commit() = 0;
-  virtual std::vector<VertexAccessor> Request(ExecutionState<ScanVerticesRequest> &state) = 0;
+  virtual std::vector<VertexAccessor> Request(ExecutionState<ScanVerticesRequest> &state,
+                                              std::vector<VertexId> &&scanned_vertices) = 0;
   virtual std::vector<CreateVerticesResponse> Request(ExecutionState<CreateVerticesRequest> &state,
                                                       std::vector<NewVertex> new_vertices) = 0;
   virtual std::vector<ExpandOneResultRow> Request(ExecutionState<ExpandOneRequest> &state,
@@ -255,8 +256,9 @@ class ShardRequestManager : public ShardRequestManagerInterface {
   }
 
   // TODO(kostasrim) Simplify return result
-  std::vector<VertexAccessor> Request(ExecutionState<ScanVerticesRequest> &state) override {
-    MaybeInitializeExecutionState(state);
+  std::vector<VertexAccessor> Request(ExecutionState<ScanVerticesRequest> &state,
+                                      std::vector<VertexId> &&scanned_vertices) override {
+    MaybeInitializeExecutionState(state, std::move(scanned_vertices));
     std::vector<ScanVerticesResponse> responses;
 
     SendAllRequests(state);
@@ -405,8 +407,8 @@ class ShardRequestManager : public ShardRequestManagerInterface {
 
     for (auto &new_vertex : new_vertices) {
       MG_ASSERT(!new_vertex.label_ids.empty(), "This is error!");
-      auto shard = shards_map_.GetShardForKey(new_vertex.label_ids[0].id,
-                                              storage::conversions::ConvertPropertyVector(new_vertex.primary_key));
+      const auto &shard = shards_map_.GetShardForKey(
+          new_vertex.label_ids[0].id, storage::conversions::ConvertPropertyVector(new_vertex.primary_key));
       if (!per_shard_request_table.contains(shard)) {
         CreateVerticesRequest create_v_rqst{.transaction_id = transaction_id_};
         per_shard_request_table.insert(std::pair(shard, std::move(create_v_rqst)));
@@ -438,9 +440,9 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     };
 
     for (auto &new_expand : new_expands) {
-      const auto shard_src_vertex = shards_map_.GetShardForKey(
+      const auto &shard_src_vertex = shards_map_.GetShardForKey(
           new_expand.src_vertex.first.id, storage::conversions::ConvertPropertyVector(new_expand.src_vertex.second));
-      const auto shard_dest_vertex = shards_map_.GetShardForKey(
+      const auto &shard_dest_vertex = shards_map_.GetShardForKey(
           new_expand.dest_vertex.first.id, storage::conversions::ConvertPropertyVector(new_expand.dest_vertex.second));
 
       ensure_shard_exists_in_table(shard_src_vertex);
@@ -459,30 +461,47 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     state.state = ExecutionState<CreateExpandRequest>::EXECUTING;
   }
 
-  void MaybeInitializeExecutionState(ExecutionState<ScanVerticesRequest> &state) {
+  void MaybeInitializeExecutionState(ExecutionState<ScanVerticesRequest> &state,
+                                     std::vector<VertexId> &&scanned_vertices) {
     ThrowIfStateCompleted(state);
     if (ShallNotInitializeState(state)) {
       return;
     }
 
-    std::vector<coordinator::Shards> multi_shards;
-    state.transaction_id = transaction_id_;
-    if (!state.label) {
-      multi_shards = shards_map_.GetAllShards();
+    if (!scanned_vertices.empty()) {
+      MG_ASSERT(state.label.has_value(), "Fill out the label member of the state!");
+      std::map<Shard, ScanVerticesRequest> shards_and_requests;
+      for (auto &vertex_id : scanned_vertices) {
+        const auto &shard = shards_map_.GetShardForKey(vertex_id.first.id,
+                                                       storage::conversions::ConvertPropertyVector(vertex_id.second));
+        shards_and_requests[shard].scanned_vertices.push_back(std::move(vertex_id));
+      }
+
+      for (auto &[shard, request] : shards_and_requests) {
+        state.shard_cache.push_back(shard);
+        request.transaction_id = transaction_id_;
+        state.requests.push_back(std::move(request));
+      }
     } else {
-      const auto label_id = shards_map_.GetLabelId(*state.label);
-      MG_ASSERT(label_id);
-      MG_ASSERT(IsPrimaryLabel(*label_id));
-      multi_shards = {shards_map_.GetShardsForLabel(*state.label)};
-    }
-    for (auto &shards : multi_shards) {
-      for (auto &[key, shard] : shards) {
-        MG_ASSERT(!shard.empty());
-        state.shard_cache.push_back(std::move(shard));
-        ScanVerticesRequest rqst;
-        rqst.transaction_id = transaction_id_;
-        rqst.start_id.second = storage::conversions::ConvertValueVector(key);
-        state.requests.push_back(std::move(rqst));
+      std::vector<coordinator::Shards> multi_shards;
+      state.transaction_id = transaction_id_;
+      if (!state.label) {
+        multi_shards = shards_map_.GetAllShards();
+      } else {
+        const auto label_id = shards_map_.GetLabelId(*state.label);
+        MG_ASSERT(label_id);
+        MG_ASSERT(IsPrimaryLabel(*label_id));
+        multi_shards = {shards_map_.GetShardsForLabel(*state.label)};
+      }
+      for (auto &shards : multi_shards) {
+        for (auto &[key, shard] : shards) {
+          MG_ASSERT(!shard.empty());
+          state.shard_cache.push_back(std::move(shard));
+          ScanVerticesRequest rqst;
+          rqst.transaction_id = transaction_id_;
+          rqst.start_id.second = storage::conversions::ConvertValueVector(key);
+          state.requests.push_back(std::move(rqst));
+        }
       }
     }
     state.state = ExecutionState<ScanVerticesRequest>::EXECUTING;
@@ -501,13 +520,13 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     top_level_rqst_template.src_vertices.clear();
     state.requests.clear();
     for (auto &vertex : request.src_vertices) {
-      auto shard =
+      const auto &shard =
           shards_map_.GetShardForKey(vertex.first.id, storage::conversions::ConvertPropertyVector(vertex.second));
       if (!per_shard_request_table.contains(shard)) {
         per_shard_request_table.insert(std::pair(shard, top_level_rqst_template));
         state.shard_cache.push_back(shard);
       }
-      per_shard_request_table[shard].src_vertices.push_back(vertex);
+      per_shard_request_table[shard].src_vertices.push_back(std::move(vertex));
     }
 
     for (auto &[shard, rqst] : per_shard_request_table) {

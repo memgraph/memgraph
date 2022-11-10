@@ -385,10 +385,20 @@ class DistributedScanAllAndFilterCursor : public Cursor {
 
   using VertexAccessor = accessors::VertexAccessor;
 
-  bool MakeRequest(msgs::ShardRequestManagerInterface &shard_manager, ExecutionContext &context) {
+  bool MakeRequest(Frame &frame, ExecutionContext &context) {
+    auto &shard_request_manager = *context.shard_request_manager;
+    std::vector<msgs::VertexId> scanned_vertices;
+    if (property_expression_pair_.has_value()) {
+      MG_ASSERT(label_);
+      MG_ASSERT(shard_request_manager.IsPrimaryKey(*label_, property_expression_pair_->first));
+      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context,
+                                    context.shard_request_manager, storage::v3::View::OLD);
+      auto key = property_expression_pair_->second->Accept(evaluator);
+      scanned_vertices.emplace_back(msgs::Label{.id = *label_}, std::vector<msgs::Value>{TypedValueToValue(key)});
+    }
     {
       SCOPED_REQUEST_WAIT_PROFILE;
-      current_batch = shard_manager.Request(request_state_);
+      current_batch = shard_request_manager.Request(request_state_, std::move(scanned_vertices));
     }
     current_vertex_it = current_batch.begin();
     return !current_batch.empty();
@@ -413,7 +423,7 @@ class DistributedScanAllAndFilterCursor : public Cursor {
       request_state_.label = label_.has_value() ? std::make_optional(shard_manager.LabelToName(*label_)) : std::nullopt;
 
       if (current_vertex_it == current_batch.end() &&
-          (request_state_.state == State::COMPLETED || !MakeRequest(shard_manager, context))) {
+          (request_state_.state == State::COMPLETED || !MakeRequest(frame, context))) {
         ResetExecutionState();
         continue;
       }

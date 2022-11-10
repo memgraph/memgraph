@@ -13,9 +13,14 @@
 
 #include "query/v2/bindings/bindings.hpp"
 
-#include "query/v2/bindings/typed_value.hpp"
 #include "expr/interpret/frame.hpp"
+#include "query/v2/bindings/typed_value.hpp"
 
 namespace memgraph::query::v2 {
 using Frame = memgraph::expr::Frame<TypedValue>;
-} // namespace memgraph::query::v2
+
+struct MultiFrame {
+  std::vector<Frame> frames{};
+  size_t valid_frames{0};
+};
+}  // namespace memgraph::query::v2

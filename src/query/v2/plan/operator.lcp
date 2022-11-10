@@ -71,6 +71,8 @@ class Cursor {
   /// @throws QueryRuntimeException if something went wrong with execution
   virtual bool Pull(Frame &, ExecutionContext &) = 0;
 
+  virtual bool PullMultiple(MultiFrame &, ExecutionContext &) { LOG_FATAL("PullMultipleIsNotImplemented"); }
+
   /// Resets the Cursor to its initial state.
   virtual void Reset() = 0;
 

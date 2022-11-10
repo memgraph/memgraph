@@ -182,7 +182,7 @@ void ExecuteOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_mana
                std::set<CompoundKey> &correctness_model, ScanAll scan_all) {
   msgs::ExecutionState<msgs::ScanVerticesRequest> request{.label = "test_label"};
 
-  auto results = shard_request_manager.Request(request);
+  auto results = shard_request_manager.Request(request, {});
 
   RC_ASSERT(results.size() == correctness_model.size());
 
