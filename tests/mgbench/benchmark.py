@@ -320,7 +320,7 @@ def mixed_workload(vendor, client, dataset, group, queries, workload):
 
             base_query_type = funcname.rsplit("_", 1)[1]
 
-            if percentages_by_type[base_query_type] > 0:
+            if percentages_by_type.get(base_query_type, 0) > 0:
                 continue
 
             options = ["write", "read", "update", "analytical", "query"]
@@ -378,11 +378,10 @@ def mixed_workload(vendor, client, dataset, group, queries, workload):
         mixed_workload = {
             "count": ret["count"],
             "duration": ret["duration"],
-            "retires": ret["retries"],
+            "retries": ret["retries"],
             "throughput": ret["throughput"],
             "num_workers": ret["num_workers"],
-            "memory": usage_workload["memory"],
-            "cpu": usage_workload["cpu"],
+            "database": usage_workload,
         }
         results_key = [
             dataset.NAME,
@@ -429,6 +428,11 @@ def get_query_cache_count(vendor, client, func, config_key):
             else:
                 count = count * 10
         vendor.stop()
+
+        # Lower bound for count
+        if count < 20:
+            count = 20
+
         config.set_value(
             *config_key,
             value={
@@ -682,8 +686,6 @@ for dataset, queries in benchmarks:
 
                     query_statistics = tail_latency(vendor, client, func)
 
-                    # Get number of queries to execute.
-                    # TODO: implement minimum number of queries, `max(10, num_workers)`
                     config_key = [
                         dataset.NAME,
                         dataset.get_variant(),
