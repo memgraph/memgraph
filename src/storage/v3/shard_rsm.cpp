@@ -838,9 +838,10 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
   auto vertex_iterable = acc.Vertices(view);
   if (!req.scanned_vertices.empty()) {
     for (auto &scanned_vertex_id : req.scanned_vertices) {
-      auto maybe_vertex = acc.FindVertex(ConvertPropertyVector(std::move(scanned_vertex_id.second)), view);
-      MG_ASSERT(maybe_vertex.has_value());
-      emplace_scan_result(*maybe_vertex);
+      if (auto maybe_vertex = acc.FindVertex(ConvertPropertyVector(std::move(scanned_vertex_id.second)), view);
+          maybe_vertex.has_value()) {
+        emplace_scan_result(*maybe_vertex);
+      }
     }
 
   } else if (!req.order_bys.empty()) {
