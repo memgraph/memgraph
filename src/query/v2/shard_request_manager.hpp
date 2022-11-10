@@ -130,6 +130,7 @@ class ShardRequestManagerInterface {
   virtual const std::string &LabelToName(memgraph::storage::v3::LabelId label) const = 0;
   virtual const std::string &EdgeTypeToName(memgraph::storage::v3::EdgeTypeId type) const = 0;
   virtual bool IsPrimaryLabel(LabelId label) const = 0;
+  virtual bool IsPrimaryProperty(LabelId primary_label, PropertyId property) const = 0;
   virtual bool IsPrimaryKey(LabelId primary_label, PropertyId property) const = 0;
 };
 
@@ -235,7 +236,9 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     return edge_types_.IdToName(id.AsUint());
   }
 
-  bool IsPrimaryKey(LabelId primary_label, PropertyId property) const override {
+  bool IsPrimaryLabel(LabelId label) const override { return shards_map_.label_spaces.contains(label); }
+
+  bool IsPrimaryProperty(LabelId primary_label, PropertyId property) const override {
     const auto schema_it = shards_map_.schemas.find(primary_label);
     MG_ASSERT(schema_it != shards_map_.schemas.end(), "Invalid primary label id: {}", primary_label.AsUint());
 
@@ -244,7 +247,12 @@ class ShardRequestManager : public ShardRequestManagerInterface {
            }) != schema_it->second.end();
   }
 
-  bool IsPrimaryLabel(LabelId label) const override { return shards_map_.label_spaces.contains(label); }
+  bool IsPrimaryKey(LabelId primary_label, PropertyId property) const override {
+    const auto schema_it = shards_map_.schemas.find(primary_label);
+    MG_ASSERT(schema_it != shards_map_.schemas.end(), "Invalid primary label id: {}", primary_label.AsUint());
+
+    return schema_it->second.size() == 1 && schema_it->second[0].property_id == property;
+  }
 
   // TODO(kostasrim) Simplify return result
   std::vector<VertexAccessor> Request(ExecutionState<ScanVerticesRequest> &state) override {

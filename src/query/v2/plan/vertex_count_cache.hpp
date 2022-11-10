@@ -9,7 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-/// @file
 #pragma once
 
 #include <optional>
@@ -55,7 +54,9 @@ class VertexCountCache {
   // For now return true if label is primary label
   bool LabelIndexExists(storage::v3::LabelId label) { return shard_request_manager_->IsPrimaryLabel(label); }
 
-  bool LabelPropertyIndexExists(storage::v3::LabelId /*label*/, storage::v3::PropertyId /*property*/) { return false; }
+  bool LabelPropertyIndexExists(storage::v3::LabelId label, storage::v3::PropertyId property) {
+    return shard_request_manager_->IsPrimaryKey(label, property);
+  }
 
   msgs::ShardRequestManagerInterface *shard_request_manager_;
 };

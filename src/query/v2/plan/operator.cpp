@@ -217,7 +217,7 @@ class DistributedCreateNodeCursor : public Cursor {
       if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info->properties)) {
         for (const auto &[key, value_expression] : *node_info_properties) {
           TypedValue val = value_expression->Accept(evaluator);
-          if (context.shard_request_manager->IsPrimaryKey(primary_label, key)) {
+          if (context.shard_request_manager->IsPrimaryProperty(primary_label, key)) {
             rqst.primary_key.push_back(TypedValueToValue(val));
             pk.push_back(TypedValueToValue(val));
           }
@@ -227,7 +227,7 @@ class DistributedCreateNodeCursor : public Cursor {
         for (const auto &[key, value] : property_map) {
           auto key_str = std::string(key);
           auto property_id = context.shard_request_manager->NameToProperty(key_str);
-          if (context.shard_request_manager->IsPrimaryKey(primary_label, property_id)) {
+          if (context.shard_request_manager->IsPrimaryProperty(primary_label, property_id)) {
             rqst.primary_key.push_back(TypedValueToValue(value));
             pk.push_back(TypedValueToValue(value));
           }
@@ -2450,7 +2450,7 @@ class DistributedCreateExpandCursor : public Cursor {
       const auto set_vertex = [&context](const auto &vertex, auto &vertex_id) {
         vertex_id.first = vertex.PrimaryLabel();
         for (const auto &[key, val] : vertex.Properties()) {
-          if (context.shard_request_manager->IsPrimaryKey(vertex_id.first.id, key)) {
+          if (context.shard_request_manager->IsPrimaryProperty(vertex_id.first.id, key)) {
             vertex_id.second.push_back(val);
           }
         }
