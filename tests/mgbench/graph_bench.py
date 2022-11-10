@@ -1,6 +1,6 @@
-import subprocess
 import argparse
 import json
+import subprocess
 from pathlib import Path
 
 
@@ -23,9 +23,7 @@ def parse_arguments():
         help="Pick a dataset size (small, medium, large)",
     )
 
-    parser.add_argument(
-        "--dataset-group", default="basic", help="Select a group of queries"
-    )
+    parser.add_argument("--dataset-group", default="basic", help="Select a group of queries")
 
     parser.add_argument(
         "--mixed-group",
@@ -55,9 +53,7 @@ def parse_arguments():
     return args
 
 
-def run_full_benchmarks(
-    vendor, binary, dataset_size, dataset_group, group_configs, per_query_configs
-):
+def run_full_benchmarks(vendor, binary, dataset_size, dataset_group, group_configs, per_query_configs):
 
     configurations = [
         # Basic full group test cold
@@ -65,10 +61,10 @@ def run_full_benchmarks(
             "--export-results",
             vendor + "_cold_isolated.json",
         ],
-        # Basic full group test warm
+        # Basic full group test hot
         [
             "--export-results",
-            vendor + "_warm_isolated.json",
+            vendor + "_hot_isolated.json",
             "--warmup-run",
         ],
     ]
@@ -77,10 +73,7 @@ def run_full_benchmarks(
     for count, write, read, update, analytical in group_configs:
         cold = [
             "--export-results",
-            vendor
-            + "_cold_realistic_{}_{}_{}_{}_{}.json".format(
-                count, write, read, update, analytical
-            ),
+            vendor + "_cold_realistic_{}_{}_{}_{}_{}.json".format(count, write, read, update, analytical),
             "--mixed-workload",
             count,
             write,
@@ -89,31 +82,25 @@ def run_full_benchmarks(
             analytical,
         ]
 
-        warm = [
+        hot = [
             "--export-results",
-            vendor
-            + "_warm_realistic_{}_{}_{}_{}_{}.json".format(
-                count, write, read, update, analytical
-            ),
+            vendor + "_hot_realistic_{}_{}_{}_{}_{}.json".format(count, write, read, update, analytical),
+            "--warmup-run",
             "--mixed-workload",
             count,
             write,
             read,
             update,
             analytical,
-            "--warmup-run",
         ]
         configurations.append(cold)
-        configurations.append(warm)
+        configurations.append(hot)
 
     # Configurations for workload per query
     for count, write, read, update, analytical, query in per_query_configs:
         cold = [
             "--export-results",
-            vendor
-            + "_cold_mixed_{}_{}_{}_{}_{}_{}.json".format(
-                count, write, read, update, analytical, query
-            ),
+            vendor + "_cold_mixed_{}_{}_{}_{}_{}_{}.json".format(count, write, read, update, analytical, query),
             "--mixed-workload",
             count,
             write,
@@ -122,12 +109,10 @@ def run_full_benchmarks(
             analytical,
             query,
         ]
-        warm = [
+        hot = [
             "--export-results",
-            vendor
-            + "_warm_mixed_{}_{}_{}_{}_{}_{}.json".format(
-                count, write, read, update, analytical, query
-            ),
+            vendor + "_hot_mixed_{}_{}_{}_{}_{}_{}.json".format(count, write, read, update, analytical, query),
+            "--warmup-run",
             "--mixed-workload",
             count,
             write,
@@ -135,10 +120,9 @@ def run_full_benchmarks(
             update,
             analytical,
             query,
-            "--warmup-run",
         ]
         configurations.append(cold)
-        configurations.append(warm)
+        configurations.append(hot)
 
     default_args = [
         "python3",
@@ -153,10 +137,9 @@ def run_full_benchmarks(
     ]
 
     for config in configurations:
-        print(config)
-        default_args.extend(config)
-        print(default_args)
-        subprocess.run(args=default_args, check=True)
+        full_config = default_args + config
+        print(full_config)
+        subprocess.run(args=full_config, check=True)
 
 
 def collect_all_results(vendor_name, dataset_size, dataset_group):
@@ -170,16 +153,14 @@ def collect_all_results(vendor_name, dataset_size, dataset_group):
             continue
         f = file.open()
         data = json.loads(f.read())
-        if data["__run_configuration__"]["condition"] == "warm":
+        if data["__run_configuration__"]["condition"] == "hot":
             for key, value in data["pokec"][dataset_size][dataset_group].items():
-                key_condition = key + "_warm"
+                key_condition = key + "_hot"
                 summary["pokec"][dataset_size][dataset_group][key_condition] = value
-        elif data["__run_configuration__"]["condition"] == "cold": 
+        elif data["__run_configuration__"]["condition"] == "cold":
             for key, value in data["pokec"][dataset_size][dataset_group].items():
                 key_condition = key + "_cold"
                 summary["pokec"][dataset_size][dataset_group][key_condition] = value
-      
-
 
     print(summary)
 
