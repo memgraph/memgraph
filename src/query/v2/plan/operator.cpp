@@ -486,6 +486,8 @@ class DistributedScanAllAndFilterCursor : public Cursor {
     // vertices
     // - by label-property index: we can get multiple vertices by a single "lookup value" and it might be complicated to
     // skip
+    // Maybe it is best to separate these different functionalities, because if the default scan all behavior is
+    // considered also, they can behave very differently in terms of whether they are producing more or less rows.
     const auto is_scan_by_id = property_expression_pair_.has_value();
     MG_ASSERT(!is_scan_by_id);
 
