@@ -824,7 +824,10 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::PullMultiple(AnyStrea
   }
 
   // Returns true if a result was pulled.
-  const auto pull_result = [&]() -> bool { return cursor_->PullMultiple(multi_frame_, ctx_); };
+  const auto pull_result = [&]() -> bool {
+    cursor_->PullMultiple(multi_frame_, ctx_);
+    return multi_frame_.valid_frames > 0;
+  };
 
   const auto stream_values = [&output_symbols, &stream](Frame &frame) {
     // TODO: The streamed values should also probably use the above memory.

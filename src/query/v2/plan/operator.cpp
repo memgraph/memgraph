@@ -125,6 +125,8 @@ namespace memgraph::query::v2::plan {
 
 namespace {
 
+constexpr size_t kMultiFrameHeight = 1000;
+
 // Custom equality function for a vector of typed values.
 // Used in unordered_maps in Aggregate and Distinct operators.
 struct TypedValueVectorEqual {
@@ -266,10 +268,10 @@ bool Once::OnceCursor::Pull(Frame &, ExecutionContext &context) {
   return false;
 }
 
-bool Once::OnceCursor::PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) {
+void Once::OnceCursor::PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Once");
 
-  if (pull_count_ < 2U) {
+  if (pull_count_ < 1) {
     MG_ASSERT(!multi_frame.frames.empty());
     multi_frame.valid_frames = 1;
     auto *memory_resource = multi_frame.frames[0].GetMemoryResource();
@@ -277,9 +279,7 @@ bool Once::OnceCursor::PullMultiple(MultiFrame &multi_frame, ExecutionContext &c
       value = TypedValue{memory_resource};
     }
     pull_count_++;
-    return true;
   }
-  return false;
 }
 
 UniqueCursorPtr Once::MakeCursor(utils::MemoryResource *mem) const {
@@ -474,7 +474,7 @@ class DistributedScanAllAndFilterCursor : public Cursor {
     }
   }
 
-  bool PullMultiple(MultiFrame &output_frames, ExecutionContext &context) override {
+  void PullMultiple(MultiFrame &output_frames, ExecutionContext &context) override {
     SCOPED_PROFILE_OP(op_name_);
 
     EnsureBufferIsGood(output_frames);
@@ -491,13 +491,12 @@ class DistributedScanAllAndFilterCursor : public Cursor {
     const auto is_scan_by_id = property_expression_pair_.has_value();
     MG_ASSERT(!is_scan_by_id);
 
-    size_t produced_rows_count{0U};
-
     while (true) {
       if (buffer_.valid_frames == consumed_from_buffer_) {
         consumed_from_buffer_ = 0;
         buffer_.valid_frames = 0;
-        if (!input_cursor_->PullMultiple(buffer_, context)) {
+        input_cursor_->PullMultiple(buffer_, context);
+        if (buffer_.valid_frames == 0) {
           break;
         }
       }
@@ -509,11 +508,8 @@ class DistributedScanAllAndFilterCursor : public Cursor {
         request_state_.label =
             label_.has_value() ? std::make_optional(shard_manager.LabelToName(*label_)) : std::nullopt;
 
-        if (current_vertex_it == current_batch.end() &&
-            (request_state_.state == State::COMPLETED || !MakeRequest(input_frame, context))) {
-          ResetExecutionState();
-          consumed_from_buffer_++;
-          continue;
+        if (current_vertex_it == current_batch.end()) {
+          MG_ASSERT(MakeRequest(input_frame, context));
         }
 
         for (auto output_frame_index = output_frames.valid_frames;
@@ -523,17 +519,22 @@ class DistributedScanAllAndFilterCursor : public Cursor {
           output_frame = input_frame;
           output_frame[output_symbol_] = TypedValue(std::move(*current_vertex_it));
           ++current_vertex_it;
-          produced_rows_count++;
+        }
+
+        if (current_vertex_it == current_batch.end()) {
+          MG_ASSERT(request_state_.state == State::COMPLETED, "For now we don't support pagination");
+          consumed_from_buffer_++;
+          ResetExecutionState();
+        }
+        if (output_frames.frames.size() == output_frames.valid_frames) {
+          return;
         }
       }
     }
-
-    return produced_rows_count > 0;
   }
 
   void EnsureBufferIsGood(const MultiFrame &output_frames) {
     if (buffer_.frames.empty()) {
-      static constexpr size_t kMultiFrameHeight = 1000;
       const auto &first_frame = output_frames.frames[0];
       buffer_.frames = utils::pmr::vector<Frame>{
           kMultiFrameHeight, Frame{static_cast<int64_t>(first_frame.elems().size()), first_frame.GetMemoryResource()},
@@ -886,10 +887,10 @@ bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
   return false;
 }
 
-bool Produce::ProduceCursor::PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) {
+void Produce::ProduceCursor::PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Produce");
 
-  const auto can_have_more = input_cursor_->PullMultiple(multi_frame, context);
+  input_cursor_->PullMultiple(multi_frame, context);
 
   for (auto row_index = 0U; row_index < multi_frame.valid_frames; row_index++) {
     // Produce should always yield the latest results.
@@ -897,7 +898,6 @@ bool Produce::ProduceCursor::PullMultiple(MultiFrame &multi_frame, ExecutionCont
                                   context.shard_request_manager, storage::v3::View::NEW);
     for (auto *named_expr : self_.named_expressions_) named_expr->Accept(evaluator);
   }
-  return can_have_more;
 };
 
 void Produce::ProduceCursor::Shutdown() { input_cursor_->Shutdown(); }
