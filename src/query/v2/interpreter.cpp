@@ -148,7 +148,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
   // Empty frame for evaluation of password expression. This is OK since
   // password should be either null or string literal and it's evaluation
   // should not depend on frame.
-  expr::Frame<TypedValue> frame(0);
+  Frame frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
@@ -315,7 +315,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
 Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &parameters,
                                 InterpreterContext *interpreter_context, msgs::ShardRequestManagerInterface *manager,
                                 std::vector<Notification> *notifications) {
-  expr::Frame<TypedValue> frame(0);
+  Frame frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
@@ -450,7 +450,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
 
 Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &parameters,
                             msgs::ShardRequestManagerInterface *manager) {
-  expr::Frame<TypedValue> frame(0);
+  Frame frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
@@ -656,11 +656,15 @@ struct PullPlan {
   std::optional<plan::ProfilingStatsWithTotalTime> Pull(AnyStream *stream, std::optional<int> n,
                                                         const std::vector<Symbol> &output_symbols,
                                                         std::map<std::string, TypedValue> *summary);
+  std::optional<plan::ProfilingStatsWithTotalTime> PullMultiple(AnyStream *stream, std::optional<int> n,
+                                                                const std::vector<Symbol> &output_symbols,
+                                                                std::map<std::string, TypedValue> *summary);
 
  private:
   std::shared_ptr<CachedPlan> plan_ = nullptr;
   plan::UniqueCursorPtr cursor_ = nullptr;
-  expr::Frame<TypedValue> frame_;
+  Frame frame_;
+  MultiFrame multi_frame_;
   ExecutionContext ctx_;
   std::optional<size_t> memory_limit_;
 
@@ -684,6 +688,7 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory)),
       frame_(plan->symbol_table().max_position(), execution_memory),
+      multi_frame_({.frames = utils::pmr::vector<Frame>(1000, frame_, execution_memory), .valid_frames = 0}),
       memory_limit_(memory_limit) {
   ctx_.db_accessor = dba;
   ctx_.symbol_table = plan->symbol_table();
@@ -703,6 +708,9 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
                                                                 const std::vector<Symbol> &output_symbols,
                                                                 std::map<std::string, TypedValue> *summary) {
+  if (!output_symbols.empty() && output_symbols[0].name() == "mmm") {
+    return PullMultiple(stream, n, output_symbols, summary);
+  }
   // Set up temporary memory for a single Pull. Initial memory comes from the
   // stack. 256 KiB should fit on the stack and should be more than enough for a
   // single `Pull`.
@@ -757,6 +765,102 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
 
     if (!output_symbols.empty()) {
       stream_values();
+    }
+  }
+
+  // If we finished because we streamed the requested n results,
+  // we try to pull the next result to see if there is more.
+  // If there is additional result, we leave the pulled result in the frame
+  // and set the flag to true.
+  has_unsent_results_ = i == n && pull_result();
+
+  execution_time_ += timer.Elapsed();
+
+  if (has_unsent_results_) {
+    return std::nullopt;
+  }
+  summary->insert_or_assign("plan_execution_time", execution_time_.count());
+  // We are finished with pulling all the data, therefore we can send any
+  // metadata about the results i.e. notifications and statistics
+  const bool is_any_counter_set =
+      std::any_of(ctx_.execution_stats.counters.begin(), ctx_.execution_stats.counters.end(),
+                  [](const auto &counter) { return counter > 0; });
+  if (is_any_counter_set) {
+    std::map<std::string, TypedValue> stats;
+    for (size_t i = 0; i < ctx_.execution_stats.counters.size(); ++i) {
+      stats.emplace(ExecutionStatsKeyToString(ExecutionStats::Key(i)), ctx_.execution_stats.counters[i]);
+    }
+    summary->insert_or_assign("stats", std::move(stats));
+  }
+  cursor_->Shutdown();
+  ctx_.profile_execution_time = execution_time_;
+  return GetStatsWithTotalTime(ctx_);
+}
+
+std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::PullMultiple(AnyStream *stream, std::optional<int> n,
+                                                                        const std::vector<Symbol> &output_symbols,
+                                                                        std::map<std::string, TypedValue> *summary) {
+  // Set up temporary memory for a single Pull. Initial memory comes from the
+  // stack. 256 KiB should fit on the stack and should be more than enough for a
+  // single `Pull`.
+  MG_ASSERT(!n.has_value(), "should pull all!");
+  static constexpr size_t stack_size = 256UL * 1024UL;
+  char stack_data[stack_size];
+  utils::ResourceWithOutOfMemoryException resource_with_exception;
+  utils::MonotonicBufferResource monotonic_memory(&stack_data[0], stack_size, &resource_with_exception);
+  // We can throw on every query because a simple queries for deleting will use only
+  // the stack allocated buffer.
+  // Also, we want to throw only when the query engine requests more memory and not the storage
+  // so we add the exception to the allocator.
+  // TODO (mferencevic): Tune the parameters accordingly.
+  utils::PoolResource pool_memory(128, 1024, &monotonic_memory);
+  std::optional<utils::LimitedMemoryResource> maybe_limited_resource;
+
+  if (memory_limit_) {
+    maybe_limited_resource.emplace(&pool_memory, *memory_limit_);
+    ctx_.evaluation_context.memory = &*maybe_limited_resource;
+  } else {
+    ctx_.evaluation_context.memory = &pool_memory;
+  }
+
+  // Returns true if a result was pulled.
+  const auto pull_result = [&]() -> bool { return cursor_->PullMultiple(multi_frame_, ctx_); };
+
+  const auto stream_values = [&output_symbols, &stream](Frame &frame) {
+    // TODO: The streamed values should also probably use the above memory.
+    std::vector<TypedValue> values;
+    values.reserve(output_symbols.size());
+
+    for (const auto &symbol : output_symbols) {
+      values.emplace_back(frame[symbol]);
+    }
+
+    stream->Result(values);
+  };
+
+  // Get the execution time of all possible result pulls and streams.
+  utils::Timer timer;
+
+  int i = 0;
+  if (has_unsent_results_ && !output_symbols.empty()) {
+    // stream unsent results from previous pull
+    for (auto frame_index = 0U; frame_index < multi_frame_.valid_frames; ++frame_index) {
+      stream_values(multi_frame_.frames[frame_index]);
+      ++i;
+    }
+    multi_frame_.valid_frames = 0;
+  }
+
+  for (; !n || i < n; ++i) {
+    if (!pull_result()) {
+      break;
+    }
+
+    if (!output_symbols.empty()) {
+      for (auto frame_index = 0U; frame_index < multi_frame_.valid_frames; ++frame_index) {
+        stream_values(multi_frame_.frames[frame_index]);
+      }
+      multi_frame_.valid_frames = 0;
     }
   }
 
@@ -882,7 +986,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   //                                 TriggerContextCollector *trigger_context_collector = nullptr) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
 
-  expr::Frame<TypedValue> frame(0);
+  Frame frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
@@ -1026,7 +1130,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in PROFILE");
-  expr::Frame<TypedValue> frame(0);
+  Frame frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();

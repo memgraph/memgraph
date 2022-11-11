@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <limits>
+#include <mutex>
 #include <queue>
 #include <random>
 #include <string>
@@ -42,6 +43,7 @@
 #include "query/v2/shard_request_manager.hpp"
 #include "storage/v3/conversions.hpp"
 #include "storage/v3/property_value.hpp"
+#include "typed_value.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
@@ -257,8 +259,24 @@ class DistributedCreateNodeCursor : public Cursor {
 bool Once::OnceCursor::Pull(Frame &, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Once");
 
-  if (!did_pull_) {
-    did_pull_ = true;
+  if (pull_count_ < 1) {
+    pull_count_++;
+    return true;
+  }
+  return false;
+}
+
+bool Once::OnceCursor::PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) {
+  SCOPED_PROFILE_OP("Once");
+
+  if (pull_count_ < 2U) {
+    MG_ASSERT(!multi_frame.frames.empty());
+    multi_frame.valid_frames = 1;
+    auto *memory_resource = multi_frame.frames[0].GetMemoryResource();
+    for (auto &value : multi_frame.frames[0].elems()) {
+      value = TypedValue{memory_resource};
+    }
+    pull_count_++;
     return true;
   }
   return false;
@@ -274,7 +292,7 @@ WITHOUT_SINGLE_INPUT(Once);
 
 void Once::OnceCursor::Shutdown() {}
 
-void Once::OnceCursor::Reset() { did_pull_ = false; }
+void Once::OnceCursor::Reset() { pull_count_ = 0; }
 
 CreateNode::CreateNode(const std::shared_ptr<LogicalOperator> &input, const NodeCreationInfo &node_info)
     : input_(input ? input : std::make_shared<Once>()), node_info_(node_info) {}
@@ -404,6 +422,28 @@ class DistributedScanAllAndFilterCursor : public Cursor {
     return !current_batch.empty();
   }
 
+  bool MakeRequest(MultiFrame &multi_frame, ExecutionContext &context) {
+    auto &shard_request_manager = *context.shard_request_manager;
+    std::vector<msgs::VertexId> scanned_vertices;
+    if (property_expression_pair_.has_value()) {
+      MG_ASSERT(label_.has_value());
+      MG_ASSERT(shard_request_manager.IsPrimaryKey(*label_, property_expression_pair_->first));
+      for (auto frame_index = 0U; frame_index < multi_frame.valid_frames; ++frame_index) {
+        auto &frame = multi_frame.frames[frame_index];
+        ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context,
+                                      context.shard_request_manager, storage::v3::View::OLD);
+        auto key = property_expression_pair_->second->Accept(evaluator);
+        scanned_vertices.emplace_back(msgs::Label{.id = *label_}, std::vector<msgs::Value>{TypedValueToValue(key)});
+      }
+    }
+    {
+      SCOPED_REQUEST_WAIT_PROFILE;
+      current_batch = shard_request_manager.Request(request_state_, std::move(scanned_vertices));
+    }
+    current_vertex_it = current_batch.begin();
+    return !current_batch.empty();
+  }
+
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP(op_name_);
 
@@ -434,6 +474,72 @@ class DistributedScanAllAndFilterCursor : public Cursor {
     }
   }
 
+  bool PullMultiple(MultiFrame &output_frames, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP(op_name_);
+
+    EnsureBufferIsGood(output_frames);
+
+    using State = msgs::ExecutionState<msgs::ScanVerticesRequest>;
+    auto &shard_manager = *context.shard_request_manager;
+    // difference between lookup by id vs by label-property index:
+    // - by id: we are sure we only get at most 1 vertex by a single "lookup value" and it is easy to skip not matched
+    // vertices
+    // - by label-property index: we can get multiple vertices by a single "lookup value" and it might be complicated to
+    // skip
+    const auto is_scan_by_id = property_expression_pair_.has_value();
+    MG_ASSERT(!is_scan_by_id);
+
+    size_t produced_rows_count{0U};
+
+    while (true) {
+      if (buffer_.valid_frames == consumed_from_buffer_) {
+        consumed_from_buffer_ = 0;
+        buffer_.valid_frames = 0;
+        if (!input_cursor_->PullMultiple(buffer_, context)) {
+          break;
+        }
+      }
+      MG_ASSERT(buffer_.valid_frames >= consumed_from_buffer_);
+
+      for (auto input_frame_index = consumed_from_buffer_; input_frame_index < buffer_.valid_frames;
+           input_frame_index++) {
+        auto &input_frame = buffer_.frames[input_frame_index];
+        request_state_.label =
+            label_.has_value() ? std::make_optional(shard_manager.LabelToName(*label_)) : std::nullopt;
+
+        if (current_vertex_it == current_batch.end() &&
+            (request_state_.state == State::COMPLETED || !MakeRequest(input_frame, context))) {
+          ResetExecutionState();
+          consumed_from_buffer_++;
+          continue;
+        }
+
+        for (auto output_frame_index = output_frames.valid_frames;
+             output_frame_index < output_frames.frames.size() && current_vertex_it != current_batch.end();
+             ++output_frame_index) {
+          auto &output_frame = output_frames.frames[output_frames.valid_frames++];
+          output_frame = input_frame;
+          output_frame[output_symbol_] = TypedValue(std::move(*current_vertex_it));
+          ++current_vertex_it;
+          produced_rows_count++;
+        }
+      }
+    }
+
+    return produced_rows_count > 0;
+  }
+
+  void EnsureBufferIsGood(const MultiFrame &output_frames) {
+    if (buffer_.frames.empty()) {
+      static constexpr size_t kMultiFrameHeight = 1000;
+      const auto &first_frame = output_frames.frames[0];
+      buffer_.frames = utils::pmr::vector<Frame>{
+          kMultiFrameHeight, Frame{static_cast<int64_t>(first_frame.elems().size()), first_frame.GetMemoryResource()},
+          first_frame.GetMemoryResource()};
+    }
+    MG_ASSERT(output_frames.frames[0].elems().size() == buffer_.frames[0].elems().size());
+  }
+
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void ResetExecutionState() {
@@ -457,6 +563,8 @@ class DistributedScanAllAndFilterCursor : public Cursor {
   std::optional<storage::v3::LabelId> label_;
   std::optional<std::pair<storage::v3::PropertyId, Expression *>> property_expression_pair_;
   std::optional<std::vector<Expression *>> filter_expressions_;
+  MultiFrame buffer_;
+  size_t consumed_from_buffer_{0};
 };
 
 ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::v3::View view)
@@ -775,6 +883,20 @@ bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
   }
   return false;
 }
+
+bool Produce::ProduceCursor::PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) {
+  SCOPED_PROFILE_OP("Produce");
+
+  const auto can_have_more = input_cursor_->PullMultiple(multi_frame, context);
+
+  for (auto row_index = 0U; row_index < multi_frame.valid_frames; row_index++) {
+    // Produce should always yield the latest results.
+    ExpressionEvaluator evaluator(&multi_frame.frames[row_index], context.symbol_table, context.evaluation_context,
+                                  context.shard_request_manager, storage::v3::View::NEW);
+    for (auto *named_expr : self_.named_expressions_) named_expr->Accept(evaluator);
+  }
+  return can_have_more;
+};
 
 void Produce::ProduceCursor::Shutdown() { input_cursor_->Shutdown(); }
 

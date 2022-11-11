@@ -15,12 +15,13 @@
 
 #include "expr/interpret/frame.hpp"
 #include "query/v2/bindings/typed_value.hpp"
+#include "utils/pmr/vector.hpp"
 
 namespace memgraph::query::v2 {
 using Frame = memgraph::expr::Frame<TypedValue>;
 
 struct MultiFrame {
-  std::vector<Frame> frames{};
+  utils::pmr::vector<Frame> frames = utils::pmr::vector<Frame>(0, Frame{1}, utils::NewDeleteResource());
   size_t valid_frames{0};
 };
 }  // namespace memgraph::query::v2
