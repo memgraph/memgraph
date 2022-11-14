@@ -529,6 +529,8 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateVerticesRequest &&req) {
     for (const auto label : vertex.remove_labels) {
       if (const auto maybe_error = vertex_to_update->RemoveLabelAndValidate(label); maybe_error.HasError()) {
         LogResultError(maybe_error.GetError(), "Remove vertex labels");
+        action_successful = false;
+        break;
       }
     }
 
@@ -536,8 +538,8 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateVerticesRequest &&req) {
       if (const auto result_schema = vertex_to_update->SetPropertyAndValidate(
               update_prop.first, ToPropertyValue(std::move(update_prop.second)));
           result_schema.HasError()) {
-        LogResultError(result_schema.GetError(), "Update vertex properties");
         action_successful = false;
+        LogResultError(result_schema.GetError(), "Update vertex properties");
         break;
       }
     }

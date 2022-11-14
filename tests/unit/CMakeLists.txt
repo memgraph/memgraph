@@ -343,6 +343,9 @@ target_link_libraries(${test_prefix}storage_v3_edge mg-storage-v3)
 add_unit_test(storage_v3_isolation_level.cpp)
 target_link_libraries(${test_prefix}storage_v3_isolation_level mg-storage-v3)
 
+add_unit_test(storage_v3_shard_rsm.cpp)
+target_link_libraries(${test_prefix}storage_v3_shard_rsm mg-storage-v3)
+
 add_unit_test(replication_persistence_helper.cpp)
 target_link_libraries(${test_prefix}replication_persistence_helper mg-storage-v2)
 
