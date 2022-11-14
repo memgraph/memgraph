@@ -129,6 +129,9 @@ class ShardRequestManagerInterface {
   virtual const std::string &PropertyToName(memgraph::storage::v3::PropertyId prop) const = 0;
   virtual const std::string &LabelToName(memgraph::storage::v3::LabelId label) const = 0;
   virtual const std::string &EdgeTypeToName(memgraph::storage::v3::EdgeTypeId type) const = 0;
+  virtual bool HasProperty(const std::string &name) const = 0;
+  virtual bool HasEdgeType(const std::string &name) const = 0;
+  virtual bool HasLabel(const std::string &name) const = 0;
   virtual bool IsPrimaryLabel(LabelId label) const = 0;
   virtual bool IsPrimaryKey(LabelId primary_label, PropertyId property) const = 0;
 };
@@ -352,6 +355,12 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     MaybeCompleteState(state);
     return result_rows;
   }
+
+  bool HasProperty(const std::string &name) const override { return shards_map_.GetPropertyId(name).has_value(); }
+
+  bool HasEdgeType(const std::string &name) const override { return shards_map_.GetEdgeTypeId(name).has_value(); }
+
+  bool HasLabel(const std::string &name) const override { return shards_map_.GetLabelId(name).has_value(); }
 
  private:
   enum class PaginatedResponseState { Pending, PartiallyFinished };

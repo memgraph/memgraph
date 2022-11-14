@@ -61,12 +61,10 @@ template <typename TypedValueT, typename FunctionContextT, typename Tag, typenam
 std::function<TypedValueT(const TypedValueT *arguments, int64_t num_arguments, const FunctionContextT &context)>
 NameToFunction(const std::string &function_name);
 
-namespace {
-const char kStartsWith[] = "STARTSWITH";
-const char kEndsWith[] = "ENDSWITH";
-const char kContains[] = "CONTAINS";
-const char kId[] = "ID";
-}  // namespace
+inline const char kStartsWith[] = "STARTSWITH";
+inline const char kEndsWith[] = "ENDSWITH";
+inline const char kContains[] = "CONTAINS";
+inline const char kId[] = "ID";
 
 }  // namespace memgraph::functions
 
@@ -484,11 +482,11 @@ TypedValueT Properties(const TypedValueT *args, int64_t nargs, const FunctionCon
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValueT(ctx.memory);
-  } else if (value.IsVertex()) {
-    return get_properties(value.ValueVertex());
-  } else {
-    return get_properties(value.ValueEdge());
   }
+  if (value.IsVertex()) {
+    return get_properties(value.ValueVertex());
+  }
+  return get_properties(value.ValueEdge());
 }
 
 template <typename TypedValueT, typename FunctionContextT>
@@ -497,17 +495,19 @@ TypedValueT Size(const TypedValueT *args, int64_t nargs, const FunctionContextT 
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValueT(ctx.memory);
-  } else if (value.IsList()) {
+  }
+  if (value.IsList()) {
     return TypedValueT(static_cast<int64_t>(value.ValueList().size()), ctx.memory);
-  } else if (value.IsString()) {
+  }
+  if (value.IsString()) {
     return TypedValueT(static_cast<int64_t>(value.ValueString().size()), ctx.memory);
-  } else if (value.IsMap()) {
+  }
+  if (value.IsMap()) {
     // neo4j doesn't implement size for map, but I don't see a good reason not
     // to do it.
     return TypedValueT(static_cast<int64_t>(value.ValueMap().size()), ctx.memory);
-  } else {
-    return TypedValueT(static_cast<int64_t>(value.ValuePath().edges().size()), ctx.memory);
   }
+  return TypedValueT(static_cast<int64_t>(value.ValuePath().edges().size()), ctx.memory);
 }
 
 template <typename TypedValueT, typename FunctionContextT, typename Tag, typename Conv>
@@ -527,9 +527,9 @@ TypedValueT StartNode(const TypedValueT *args, int64_t nargs, const FunctionCont
   }
 }
 
-namespace {
-
-size_t UnwrapDegreeResult(storage::v3::Result<size_t> maybe_degree) {
+// This is needed because clang-tidy fails to identify the use of this function in the if-constexpr branch
+// NOLINTNEXTLINE(clang-diagnostic-unused-function)
+inline size_t UnwrapDegreeResult(storage::v3::Result<size_t> maybe_degree) {
   if (maybe_degree.HasError()) {
     switch (maybe_degree.GetError()) {
       case storage::v3::Error::DELETED_OBJECT:
@@ -545,8 +545,6 @@ size_t UnwrapDegreeResult(storage::v3::Result<size_t> maybe_degree) {
   }
   return *maybe_degree;
 }
-
-}  // namespace
 
 template <typename TypedValueT, typename FunctionContextT, typename Tag>
 TypedValueT Degree(const TypedValueT *args, int64_t nargs, const FunctionContextT &ctx) {
@@ -599,18 +597,19 @@ TypedValueT ToBoolean(const TypedValueT *args, int64_t nargs, const FunctionCont
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValueT(ctx.memory);
-  } else if (value.IsBool()) {
-    return TypedValueT(value.ValueBool(), ctx.memory);
-  } else if (value.IsInt()) {
-    return TypedValueT(value.ValueInt() != 0L, ctx.memory);
-  } else {
-    auto s = utils::ToUpperCase(utils::Trim(value.ValueString()));
-    if (s == "TRUE") return TypedValueT(true, ctx.memory);
-    if (s == "FALSE") return TypedValueT(false, ctx.memory);
-    // I think this is just stupid and that exception should be thrown, but
-    // neo4j does it this way...
-    return TypedValueT(ctx.memory);
   }
+  if (value.IsBool()) {
+    return TypedValueT(value.ValueBool(), ctx.memory);
+  }
+  if (value.IsInt()) {
+    return TypedValueT(value.ValueInt() != 0L, ctx.memory);
+  }
+  auto s = utils::ToUpperCase(utils::Trim(value.ValueString()));
+  if (s == "TRUE") return TypedValueT(true, ctx.memory);
+  if (s == "FALSE") return TypedValueT(false, ctx.memory);
+  // I think this is just stupid and that exception should be thrown, but
+  // neo4j does it this way...
+  return TypedValueT(ctx.memory);
 }
 
 template <typename TypedValueT, typename FunctionContextT>
@@ -619,16 +618,17 @@ TypedValueT ToFloat(const TypedValueT *args, int64_t nargs, const FunctionContex
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValueT(ctx.memory);
-  } else if (value.IsInt()) {
+  }
+  if (value.IsInt()) {
     return TypedValueT(static_cast<double>(value.ValueInt()), ctx.memory);
-  } else if (value.IsDouble()) {
+  }
+  if (value.IsDouble()) {
     return TypedValueT(value, ctx.memory);
-  } else {
-    try {
-      return TypedValueT(utils::ParseDouble(utils::Trim(value.ValueString())), ctx.memory);
-    } catch (const utils::BasicException &) {
-      return TypedValueT(ctx.memory);
-    }
+  }
+  try {
+    return TypedValueT(utils::ParseDouble(utils::Trim(value.ValueString())), ctx.memory);
+  } catch (const utils::BasicException &) {
+    return TypedValueT(ctx.memory);
   }
 }
 
@@ -638,20 +638,22 @@ TypedValueT ToInteger(const TypedValueT *args, int64_t nargs, const FunctionCont
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValueT(ctx.memory);
-  } else if (value.IsBool()) {
+  }
+  if (value.IsBool()) {
     return TypedValueT(value.ValueBool() ? 1L : 0L, ctx.memory);
-  } else if (value.IsInt()) {
+  }
+  if (value.IsInt()) {
     return TypedValueT(value, ctx.memory);
-  } else if (value.IsDouble()) {
+  }
+  if (value.IsDouble()) {
     return TypedValueT(static_cast<int64_t>(value.ValueDouble()), ctx.memory);
-  } else {
-    try {
-      // Yup, this is correct. String is valid if it has floating point
-      // number, then it is parsed and converted to int.
-      return TypedValueT(static_cast<int64_t>(utils::ParseDouble(utils::Trim(value.ValueString()))), ctx.memory);
-    } catch (const utils::BasicException &) {
-      return TypedValueT(ctx.memory);
-    }
+  }
+  try {
+    // Yup, this is correct. String is valid if it has floating point
+    // number, then it is parsed and converted to int.
+    return TypedValueT(static_cast<int64_t>(utils::ParseDouble(utils::Trim(value.ValueString()))), ctx.memory);
+  } catch (const utils::BasicException &) {
+    return TypedValueT(ctx.memory);
   }
 }
 
@@ -736,11 +738,11 @@ TypedValueT Keys(const TypedValueT *args, int64_t nargs, const FunctionContextT 
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValueT(ctx.memory);
-  } else if (value.IsVertex()) {
-    return get_keys(value.ValueVertex());
-  } else {
-    return get_keys(value.ValueEdge());
   }
+  if (value.IsVertex()) {
+    return get_keys(value.ValueVertex());
+  }
+  return get_keys(value.ValueEdge());
 }
 
 template <typename TypedValueT, typename FunctionContextT, typename Tag>
@@ -853,13 +855,14 @@ TypedValueT Abs(const TypedValueT *args, int64_t nargs, const FunctionContextT &
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValueT(ctx.memory);
-  } else if (value.IsInt()) {
-    return TypedValueT(std::abs(value.ValueInt()), ctx.memory);
-  } else {
-    return TypedValueT(std::abs(value.ValueDouble()), ctx.memory);
   }
+  if (value.IsInt()) {
+    return TypedValueT(std::abs(value.ValueInt()), ctx.memory);
+  }
+  return TypedValueT(std::abs(value.ValueDouble()), ctx.memory);
 }
 
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define WRAP_CMATH_FLOAT_FUNCTION(name, lowercased_name)                                  \
   template <typename TypedValueT, typename FunctionContextT>                              \
   TypedValueT name(const TypedValueT *args, int64_t nargs, const FunctionContextT &ctx) { \
@@ -867,11 +870,11 @@ TypedValueT Abs(const TypedValueT *args, int64_t nargs, const FunctionContextT &
     const auto &value = args[0];                                                          \
     if (value.IsNull()) {                                                                 \
       return TypedValueT(ctx.memory);                                                     \
-    } else if (value.IsInt()) {                                                           \
-      return TypedValueT(lowercased_name(value.ValueInt()), ctx.memory);                  \
-    } else {                                                                              \
-      return TypedValueT(lowercased_name(value.ValueDouble()), ctx.memory);               \
     }                                                                                     \
+    if (value.IsInt()) {                                                                  \
+      return TypedValueT(lowercased_name(value.ValueInt()), ctx.memory);                  \
+    }                                                                                     \
+    return TypedValueT(lowercased_name(value.ValueDouble()), ctx.memory);                 \
   }
 
 WRAP_CMATH_FLOAT_FUNCTION(Ceil, ceil)
@@ -899,9 +902,8 @@ TypedValueT Atan2(const TypedValueT *args, int64_t nargs, const FunctionContextT
   auto to_double = [](const TypedValueT &t) -> double {
     if (t.IsInt()) {
       return t.ValueInt();
-    } else {
-      return t.ValueDouble();
     }
+    return t.ValueDouble();
   };
   double y = to_double(args[0]);
   double x = to_double(args[1]);
@@ -915,11 +917,11 @@ TypedValueT Sign(const TypedValueT *args, int64_t nargs, const FunctionContextT 
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValueT(ctx.memory);
-  } else if (value.IsInt()) {
-    return sign(value.ValueInt());
-  } else {
-    return sign(value.ValueDouble());
   }
+  if (value.IsInt()) {
+    return sign(value.ValueInt());
+  }
+  return sign(value.ValueDouble());
 }
 
 template <typename TypedValueT, typename FunctionContextT>
@@ -962,7 +964,7 @@ struct StartsWithPredicate {
 };
 
 template <typename TypedValueT, typename FunctionContextT>
-inline auto StartsWith = StringMatchOperator<StartsWithPredicate<TypedValueT>, TypedValueT, FunctionContextT>;
+inline const auto StartsWith = StringMatchOperator<StartsWithPredicate<TypedValueT>, TypedValueT, FunctionContextT>;
 
 // Check if s1 ends with s2.
 template <typename TypedValueT>
@@ -975,7 +977,7 @@ struct EndsWithPredicate {
 };
 
 template <typename TypedValueT, typename FunctionContextT>
-inline auto EndsWith = StringMatchOperator<EndsWithPredicate<TypedValueT>, TypedValueT, FunctionContextT>;
+inline const auto EndsWith = StringMatchOperator<EndsWithPredicate<TypedValueT>, TypedValueT, FunctionContextT>;
 
 // Check if s1 contains s2.
 template <typename TypedValueT>
@@ -988,7 +990,7 @@ struct ContainsPredicate {
 };
 
 template <typename TypedValueT, typename FunctionContextT>
-inline auto Contains = StringMatchOperator<ContainsPredicate<TypedValueT>, TypedValueT, FunctionContextT>;
+inline const auto Contains = StringMatchOperator<ContainsPredicate<TypedValueT>, TypedValueT, FunctionContextT>;
 
 template <typename TypedValueT, typename FunctionContextT>
 TypedValueT Assert(const TypedValueT *args, int64_t nargs, const FunctionContextT &ctx) {
@@ -1026,11 +1028,11 @@ TypedValueT Id(const TypedValueT *args, int64_t nargs, const FunctionContextT &c
   const auto &arg = args[0];
   if (arg.IsNull()) {
     return TypedValueT(ctx.memory);
-  } else if (arg.IsVertex()) {
-    return TypedValueT(static_cast<int64_t>(arg.ValueVertex().CypherId()), ctx.memory);
-  } else {
-    return TypedValueT(static_cast<int64_t>(arg.ValueEdge().CypherId()), ctx.memory);
   }
+  if (arg.IsVertex()) {
+    return TypedValueT(static_cast<int64_t>(arg.ValueVertex().CypherId()), ctx.memory);
+  }
+  return TypedValueT(static_cast<int64_t>(arg.ValueEdge().CypherId()), ctx.memory);
 }
 
 template <typename TypedValueT, typename FunctionContextT>

@@ -23,11 +23,11 @@ EdgeTypeId EdgeAccessor::EdgeType() const { return edge.type.id; }
 const std::vector<std::pair<PropertyId, Value>> &EdgeAccessor::Properties() const { return edge.properties; }
 
 Value EdgeAccessor::GetProperty(const std::string &prop_name) const {
-  auto prop_id = manager_->NameToProperty(prop_name);
-  auto it = std::find_if(edge.properties.begin(), edge.properties.end(), [&](auto &pr) { return prop_id == pr.first; });
-  if (it == edge.properties.end()) {
+  if (!manager_->HasProperty(prop_name)) {
     return {};
   }
+  auto prop_id = manager_->NameToProperty(prop_name);
+  auto it = std::find_if(edge.properties.begin(), edge.properties.end(), [&](auto &pr) { return prop_id == pr.first; });
   return it->second;
 }
 
@@ -88,6 +88,9 @@ Value VertexAccessor::GetProperty(PropertyId prop_id) const {
 
 // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
 Value VertexAccessor::GetProperty(const std::string &prop_name) const {
+  if (!manager_->HasProperty(prop_name)) {
+    return {};
+  }
   return GetProperty(manager_->NameToProperty(prop_name));
 }
 

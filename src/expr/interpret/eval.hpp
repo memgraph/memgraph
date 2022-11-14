@@ -417,7 +417,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   TReturnType HasLabelImpl(const VertexAccessor &vertex, const LabelIx &label_ix, QueryEngineTag /*tag*/) {
     auto label = typename VertexAccessor::Label{LabelId::FromUint(label_ix.ix)};
     auto has_label = vertex.HasLabel(label);
-    return !has_label;
+    return has_label;
   }
 
   TypedValue Visit(LabelsTest &labels_test) override {
