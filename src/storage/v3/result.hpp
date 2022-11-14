@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <string>
 #include <type_traits>
 
 #include "utils/result.hpp"
@@ -19,16 +20,35 @@ namespace memgraph::storage::v3 {
 
 static_assert(std::is_same_v<uint8_t, unsigned char>);
 
-enum class Error : uint8_t {
+enum class ErrorCode {
   SERIALIZATION_ERROR,
   NONEXISTENT_OBJECT,
   DELETED_OBJECT,
   VERTEX_HAS_EDGES,
   PROPERTIES_DISABLED,
-  VERTEX_ALREADY_INSERTED
+  VERTEX_ALREADY_INSERTED,
+  // Schema Violations
+  SCHEMA_NO_SCHEMA_DEFINED_FOR_LABEL,
+  SCHEMA_VERTEX_PROPERTY_WRONG_TYPE,
+  SCHEMA_VERTEX_UPDATE_PRIMARY_KEY,
+  SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL,
+  SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY,
+  SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED,
 };
 
+struct ShardError {
+  ShardError(ErrorCode code, std::string message, std::string source)
+      : code{code}, message{std::move(message)}, source{std::move(source)} {}
+
+  ErrorCode code;
+  // TODO Maybe add category
+  std::string message;
+  std::string source;
+};
+
+#define SHARD_ERROR(...) memgraph::storage::v3::ShardError(__VA_ARGS__, fmt::format("{}:{}", __FILE__, __LINE__))
+
 template <class TValue>
-using Result = utils::BasicResult<Error, TValue>;
+using Result = utils::BasicResult<ShardError, TValue>;
 
 }  // namespace memgraph::storage::v3
