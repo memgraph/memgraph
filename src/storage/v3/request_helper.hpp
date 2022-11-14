@@ -112,44 +112,73 @@ struct Element {
   TObjectAccessor object_acc;
 };
 
-template <ObjectAccessor TObjectAccessor, typename TIterable>
-std::vector<Element<TObjectAccessor>> OrderByElements(Shard::Accessor &acc, DbAccessor &dba, TIterable &iterable,
-                                                      std::vector<msgs::OrderBy> &order_bys) {
-  std::vector<Element<TObjectAccessor>> ordered;
-  ordered.reserve(acc.ApproximateVertexCount());
+template <typename TIterable>
+std::vector<Element<VertexAccessor>> OrderByVertices(Shard::Accessor &acc, DbAccessor &dba, TIterable &iterable,
+                                                     std::vector<msgs::OrderBy> &order_bys) {
+  static_assert(std::is_same_v<TIterable, VerticesIterable> || std::is_same_v<TIterable, std::vector<VertexAccessor>>);
+
   std::vector<Ordering> ordering;
   ordering.reserve(order_bys.size());
-  for (const auto &order : order_bys) {
-    switch (order.direction) {
-      case memgraph::msgs::OrderingDirection::ASCENDING: {
-        ordering.push_back(Ordering::ASC);
-        break;
-      }
-      case memgraph::msgs::OrderingDirection::DESCENDING: {
-        ordering.push_back(Ordering::DESC);
-        break;
-      }
+  std::transform(order_bys.begin(), order_bys.end(), std::back_inserter(ordering), [](const auto &order_by) {
+    if (memgraph::msgs::OrderingDirection::ASCENDING == order_by.direction) {
+      return Ordering::ASC;
     }
-  }
-  auto compare_typed_values = TypedValueVectorCompare(ordering);
-  auto it = iterable.begin();
-  for (; it != iterable.end(); ++it) {
+    MG_ASSERT(memgraph::msgs::OrderingDirection::DESCENDING == order_by.direction);
+    return Ordering::DESC;
+  });
+
+  std::vector<Element<VertexAccessor>> ordered;
+  ordered.reserve(acc.ApproximateVertexCount());
+  for (auto it = iterable.begin(); it != iterable.end(); ++it) {
     std::vector<TypedValue> properties_order_by;
     properties_order_by.reserve(order_bys.size());
 
-    for (const auto &order_by : order_bys) {
-      if constexpr (std::is_same_v<TIterable, VerticesIterable> ||
-                    std::is_same_v<TIterable, std::vector<VertexAccessor>>) {
-        properties_order_by.push_back(ComputeExpression(dba, *it, std::nullopt, order_by.expression.expression,
-                                                        expr::identifier_node_symbol, expr::identifier_edge_symbol));
-      } else {
-        properties_order_by.push_back(ComputeExpression(dba, std::nullopt, *it, order_by.expression.expression,
-                                                        expr::identifier_node_symbol, expr::identifier_edge_symbol));
-      }
-    }
+    std::transform(order_bys.begin(), order_bys.end(), std::back_inserter(properties_order_by),
+                   [&dba, &it](const auto &order_by) {
+                     return ComputeExpression(dba, *it, std::nullopt /*e_acc*/, order_by.expression.expression,
+                                              expr::identifier_node_symbol, expr::identifier_edge_symbol);
+                   });
+
     ordered.push_back({std::move(properties_order_by), *it});
   }
 
+  auto compare_typed_values = TypedValueVectorCompare(ordering);
+  std::sort(ordered.begin(), ordered.end(), [compare_typed_values](const auto &pair1, const auto &pair2) {
+    return compare_typed_values(pair1.properties_order_by, pair2.properties_order_by);
+  });
+  return ordered;
+}
+
+template <typename TIterable>
+std::vector<Element<EdgeAccessor>> OrderByEdges(Shard::Accessor &acc, DbAccessor &dba, TIterable &iterable,
+                                                std::vector<msgs::OrderBy> &order_bys,
+                                                const VertexAccessor &vertex_acc) {
+  static_assert(std::is_same_v<TIterable, std::vector<EdgeAccessor>>);  // Can be extended if needed
+
+  std::vector<Ordering> ordering;
+  ordering.reserve(order_bys.size());
+  std::transform(order_bys.begin(), order_bys.end(), std::back_inserter(ordering), [](const auto &order_by) {
+    if (memgraph::msgs::OrderingDirection::ASCENDING == order_by.direction) {
+      return Ordering::ASC;
+    }
+    MG_ASSERT(memgraph::msgs::OrderingDirection::DESCENDING == order_by.direction);
+    return Ordering::DESC;
+  });
+
+  std::vector<Element<EdgeAccessor>> ordered;
+  for (auto it = iterable.begin(); it != iterable.end(); ++it) {
+    std::vector<TypedValue> properties_order_by;
+    properties_order_by.reserve(order_bys.size());
+    std::transform(order_bys.begin(), order_bys.end(), std::back_inserter(properties_order_by),
+                   [&dba, &vertex_acc, &it](const auto &order_by) {
+                     return ComputeExpression(dba, vertex_acc, *it, order_by.expression.expression,
+                                              expr::identifier_node_symbol, expr::identifier_edge_symbol);
+                   });
+
+    ordered.push_back({std::move(properties_order_by), *it});
+  }
+
+  auto compare_typed_values = TypedValueVectorCompare(ordering);
   std::sort(ordered.begin(), ordered.end(), [compare_typed_values](const auto &pair1, const auto &pair2) {
     return compare_typed_values(pair1.properties_order_by, pair2.properties_order_by);
   });

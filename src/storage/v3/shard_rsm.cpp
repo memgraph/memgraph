@@ -875,7 +875,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
   uint64_t sample_counter{0};
   auto vertex_iterable = acc.Vertices(view);
   if (!req.order_bys.empty()) {
-    const auto ordered = OrderByElements<VertexAccessor>(acc, dba, vertex_iterable, req.order_bys);
+    const auto ordered = OrderByVertices(acc, dba, vertex_iterable, req.order_bys);
     // we are traversing Elements
     auto it = GetStartOrderedElementsIterator(ordered, start_id, View(req.storage_view));
     for (; it != ordered.end(); ++it) {
@@ -956,9 +956,9 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
   }
 
   if (!req.order_by.empty()) {
-    // #NoCommit can we do differently to avoid this? We need OrderByElements but currently
-    // #NoCommit it returns vector<Element>, so this workaround is here to avoid more duplication later
-    auto sorted_vertices = OrderByElements<VertexAccessor>(acc, dba, vertex_accessors, req.order_by);
+    // Can we do differently to avoid this? We need OrderByElements but currently it returns vector<Element>, so this
+    // workaround is here to avoid more duplication later
+    auto sorted_vertices = OrderByVertices(acc, dba, vertex_accessors, req.order_by);
     vertex_accessors.clear();
     std::transform(sorted_vertices.begin(), sorted_vertices.end(), std::back_inserter(vertex_accessors),
                    [](auto &vertex) { return vertex.object_acc; });
@@ -987,8 +987,8 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
 
     } else {
       auto [in_edge_accessors, out_edge_accessors] = GetEdgesFromVertex(src_vertex_acc, req.direction);
-      const auto in_ordered_edges = OrderByElements<EdgeAccessor>(acc, dba, in_edge_accessors, req.order_by);
-      const auto out_ordered_edges = OrderByElements<EdgeAccessor>(acc, dba, out_edge_accessors, req.order_by);
+      const auto in_ordered_edges = OrderByEdges(acc, dba, in_edge_accessors, req.order_by, src_vertex_acc);
+      const auto out_ordered_edges = OrderByEdges(acc, dba, out_edge_accessors, req.order_by, src_vertex_acc);
 
       std::vector<EdgeAccessor> in_edge_ordered_accessors;
       std::transform(in_ordered_edges.begin(), in_ordered_edges.end(), std::back_inserter(in_edge_ordered_accessors),
