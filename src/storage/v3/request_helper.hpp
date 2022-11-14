@@ -15,11 +15,9 @@
 #include "storage/v3/bindings/typed_value.hpp"
 #include "storage/v3/shard.hpp"
 #include "storage/v3/vertex_accessor.hpp"
+#include "utils/template_utils.hpp"
 
 namespace memgraph::storage::v3 {
-
-template <typename>
-constexpr auto kAlwaysFalse{false};
 
 inline bool TypedValueCompare(const TypedValue &a, const TypedValue &b) {
   // in ordering null comes after everything else

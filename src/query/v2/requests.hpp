@@ -452,7 +452,7 @@ struct ExpandOneResponse {
 
 struct UpdateVertex {
   PrimaryKey primary_key;
-  // This should be a map
+  // Labels are first added and then removed from vertices
   std::vector<LabelId> add_labels;
   std::vector<LabelId> remove_labels;
   std::map<PropertyId, Value> property_updates;

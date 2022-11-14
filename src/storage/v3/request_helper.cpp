@@ -107,7 +107,7 @@ void LogResultError(const ResultErrorType &error, const std::string_view action)
               break;
           }
         } else {
-          static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
+          static_assert(utils::kAlwaysFalse<T>, "Missing type from variant visitor");
         }
       },
       error);
