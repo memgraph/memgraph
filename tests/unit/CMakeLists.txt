@@ -403,3 +403,7 @@ target_link_libraries(${test_prefix}coordinator_shard_map mg-coordinator)
 # Tests for many shards, many creates, scan
 add_unit_test(high_density_shard_create_scan.cpp)
 target_link_libraries(${test_prefix}high_density_shard_create_scan mg-io mg-coordinator mg-storage-v3 mg-query-v2)
+
+# Tests for awesome_memgraph_functions
+add_unit_test(query_v2_expression_evaluator.cpp)
+target_link_libraries(${test_prefix}query_v2_expression_evaluator mg-query-v2)
