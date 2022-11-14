@@ -21,7 +21,7 @@
 #include "query/v2/context.hpp"
 #include "query/v2/db_accessor.hpp"
 #include "query/v2/plan/operator.hpp"
-#include "storage/v3/storage.hpp"
+#include "storage/v3/shard.hpp"
 #include "utils/logging.hpp"
 
 #include "query_v2_query_common.hpp"

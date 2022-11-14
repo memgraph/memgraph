@@ -16,12 +16,10 @@ set(storage_v3_src_files
     schemas.cpp
     schema_validator.cpp
     shard.cpp
-    storage.cpp
     shard_rsm.cpp
     bindings/typed_value.cpp
     expr.cpp
-    request_helper.cpp
-    storage.cpp)
+    request_helper.cpp)
 
 # ######################
 find_package(gflags REQUIRED)
