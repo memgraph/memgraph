@@ -31,6 +31,7 @@
 #include "storage/v3/indices.hpp"
 #include "storage/v3/key_store.hpp"
 #include "storage/v3/mvcc.hpp"
+#include "storage/v3/name_id_mapper.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/schema_validator.hpp"
 #include "storage/v3/shard_operation_result.hpp"
@@ -327,7 +328,7 @@ Shard::Shard(const LabelId primary_label, const PrimaryKey min_primary_key,
     : primary_label_{primary_label},
       min_primary_key_{min_primary_key},
       max_primary_key_{max_primary_key},
-      schema_validator_{schemas_},
+      schema_validator_{schemas_, name_id_mapper_},
       vertex_validator_{schema_validator_, primary_label},
       indices_{config.items, vertex_validator_},
       isolation_level_{config.transaction.isolation_level},

@@ -14,65 +14,42 @@
 #include <optional>
 #include <variant>
 
+#include "storage/v2/result.hpp"
 #include "storage/v3/id_types.hpp"
+#include "storage/v3/name_id_mapper.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/result.hpp"
 #include "storage/v3/schemas.hpp"
 
 namespace memgraph::storage::v3 {
 
-struct SchemaViolation {
-  enum class ValidationStatus : uint8_t {
-    NO_SCHEMA_DEFINED_FOR_LABEL,
-    VERTEX_PROPERTY_WRONG_TYPE,
-    VERTEX_UPDATE_PRIMARY_KEY,
-    VERTEX_UPDATE_PRIMARY_LABEL,
-    VERTEX_SECONDARY_LABEL_IS_PRIMARY,
-    VERTEX_PRIMARY_PROPERTIES_UNDEFINED,
-  };
-
-  SchemaViolation(ValidationStatus status, LabelId label);
-
-  SchemaViolation(ValidationStatus status, LabelId label, SchemaProperty violated_schema_property);
-
-  SchemaViolation(ValidationStatus status, LabelId label, SchemaProperty violated_schema_property,
-                  PropertyValue violated_property_value);
-
-  friend bool operator==(const SchemaViolation &lhs, const SchemaViolation &rhs);
-
-  ValidationStatus status;
-  LabelId label;
-  std::optional<SchemaProperty> violated_schema_property;
-  std::optional<PropertyValue> violated_property_value;
-};
-
 class SchemaValidator {
  public:
-  explicit SchemaValidator(Schemas &schemas);
+  explicit SchemaValidator(Schemas &schemas, const NameIdMapper &name_id_mapper);
 
-  [[nodiscard]] std::optional<SchemaViolation> ValidateVertexCreate(
+  [[nodiscard]] std::optional<ShardError> ValidateVertexCreate(
       LabelId primary_label, const std::vector<LabelId> &labels,
       const std::vector<PropertyValue> &primary_properties) const;
 
-  [[nodiscard]] std::optional<SchemaViolation> ValidatePropertyUpdate(LabelId primary_label,
-                                                                      PropertyId property_id) const;
+  [[nodiscard]] std::optional<ShardError> ValidatePropertyUpdate(LabelId primary_label, PropertyId property_id) const;
 
-  [[nodiscard]] std::optional<SchemaViolation> ValidateLabelUpdate(LabelId label) const;
+  [[nodiscard]] std::optional<ShardError> ValidateLabelUpdate(LabelId label) const;
 
   const Schemas::Schema *GetSchema(LabelId label) const;
 
  private:
-  Schemas &schemas_;
+  Schemas *schemas_;
+  const NameIdMapper *name_id_mapper_;
 };
 
 struct VertexValidator {
   explicit VertexValidator(const SchemaValidator &schema_validator, LabelId primary_label);
 
-  [[nodiscard]] std::optional<SchemaViolation> ValidatePropertyUpdate(PropertyId property_id) const;
+  [[nodiscard]] std::optional<ShardError> ValidatePropertyUpdate(PropertyId property_id) const;
 
-  [[nodiscard]] std::optional<SchemaViolation> ValidateAddLabel(LabelId label) const;
+  [[nodiscard]] std::optional<ShardError> ValidateAddLabel(LabelId label) const;
 
-  [[nodiscard]] std::optional<SchemaViolation> ValidateRemoveLabel(LabelId label) const;
+  [[nodiscard]] std::optional<ShardError> ValidateRemoveLabel(LabelId label) const;
 
   const SchemaValidator *schema_validator;
 
