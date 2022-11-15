@@ -94,7 +94,7 @@ std::optional<ShardError> SchemaValidator::ValidateLabelUpdate(const LabelId lab
   return std::nullopt;
 }
 
-const Schemas::Schema *SchemaValidator::GetSchema(LabelId label) const { return schemas_.GetSchema(label); }
+const Schemas::Schema *SchemaValidator::GetSchema(LabelId label) const { return schemas_->GetSchema(label); }
 
 VertexValidator::VertexValidator(const SchemaValidator &schema_validator, const LabelId primary_label)
     : schema_validator{&schema_validator}, primary_label_{primary_label} {}

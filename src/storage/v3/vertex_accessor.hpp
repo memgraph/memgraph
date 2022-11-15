@@ -17,7 +17,7 @@
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/key_store.hpp"
 #include "storage/v3/result.hpp"
-#include "storage/v3/shard_operation_result.hpp"
+#include "storage/v3/schema_validator.hpp"
 #include "storage/v3/transaction.hpp"
 #include "storage/v3/vertex.hpp"
 #include "storage/v3/vertex_id.hpp"
@@ -55,61 +55,61 @@ class VertexAccessor final {
   /// `false` is returned if the label already existed, or SchemaViolation
   /// if adding the label has violated one of the schema constraints.
   /// @throw std::bad_alloc
-  ShardOperationResult<bool> AddLabelAndValidate(LabelId label);
+  ShardResult<bool> AddLabelAndValidate(LabelId label);
 
   /// Remove a label and return `true` if deletion took place.
   /// `false` is returned if the vertex did not have a label already. or SchemaViolation
   /// if adding the label has violated one of the schema constraints.
   /// @throw std::bad_alloc
-  ShardOperationResult<bool> RemoveLabelAndValidate(LabelId label);
+  ShardResult<bool> RemoveLabelAndValidate(LabelId label);
 
-  Result<bool> HasLabel(View view, LabelId label) const;
+  ShardResult<bool> HasLabel(View view, LabelId label) const;
 
-  Result<bool> HasLabel(LabelId label, View view) const;
+  ShardResult<bool> HasLabel(LabelId label, View view) const;
 
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().
-  Result<std::vector<LabelId>> Labels(View view) const;
+  ShardResult<std::vector<LabelId>> Labels(View view) const;
 
-  Result<LabelId> PrimaryLabel(View view) const;
+  ShardResult<LabelId> PrimaryLabel(View view) const;
 
-  Result<PrimaryKey> PrimaryKey(View view) const;
+  ShardResult<PrimaryKey> PrimaryKey(View view) const;
 
-  Result<VertexId> Id(View view) const;
+  ShardResult<VertexId> Id(View view) const;
 
   /// Set a property value and return the old value or error.
   /// @throw std::bad_alloc
-  ShardOperationResult<PropertyValue> SetPropertyAndValidate(PropertyId property, const PropertyValue &value);
+  ShardResult<PropertyValue> SetPropertyAndValidate(PropertyId property, const PropertyValue &value);
 
   /// Remove all properties and return the values of the removed properties.
   /// @throw std::bad_alloc
-  Result<std::map<PropertyId, PropertyValue>> ClearProperties();
+  ShardResult<std::map<PropertyId, PropertyValue>> ClearProperties();
 
   /// @throw std::bad_alloc
-  Result<PropertyValue> GetProperty(PropertyId property, View view) const;
+  ShardResult<PropertyValue> GetProperty(PropertyId property, View view) const;
 
   // TODO Remove this
-  Result<PropertyValue> GetProperty(View view, PropertyId property) const;
+  ShardResult<PropertyValue> GetProperty(View view, PropertyId property) const;
 
   /// @throw std::bad_alloc
-  Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
-
-  /// @throw std::bad_alloc
-  /// @throw std::length_error if the resulting vector exceeds
-  ///        std::vector::max_size().
-  Result<std::vector<EdgeAccessor>> InEdges(View view, const std::vector<EdgeTypeId> &edge_types = {},
-                                            const VertexId *destination_id = nullptr) const;
+  ShardResult<std::map<PropertyId, PropertyValue>> Properties(View view) const;
 
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().
-  Result<std::vector<EdgeAccessor>> OutEdges(View view, const std::vector<EdgeTypeId> &edge_types = {},
-                                             const VertexId *destination_id = nullptr) const;
+  ShardResult<std::vector<EdgeAccessor>> InEdges(View view, const std::vector<EdgeTypeId> &edge_types = {},
+                                                 const VertexId *destination_id = nullptr) const;
 
-  Result<size_t> InDegree(View view) const;
+  /// @throw std::bad_alloc
+  /// @throw std::length_error if the resulting vector exceeds
+  ///        std::vector::max_size().
+  ShardResult<std::vector<EdgeAccessor>> OutEdges(View view, const std::vector<EdgeTypeId> &edge_types = {},
+                                                  const VertexId *destination_id = nullptr) const;
 
-  Result<size_t> OutDegree(View view) const;
+  ShardResult<size_t> InDegree(View view) const;
+
+  ShardResult<size_t> OutDegree(View view) const;
 
   const SchemaValidator *GetSchemaValidator() const;
 
@@ -122,20 +122,20 @@ class VertexAccessor final {
   /// Add a label and return `true` if insertion took place.
   /// `false` is returned if the label already existed.
   /// @throw std::bad_alloc
-  Result<bool> AddLabel(LabelId label);
+  ShardResult<bool> AddLabel(LabelId label);
 
   /// Remove a label and return `true` if deletion took place.
   /// `false` is returned if the vertex did not have a label already.
   /// @throw std::bad_alloc
-  Result<bool> RemoveLabel(LabelId label);
+  ShardResult<bool> RemoveLabel(LabelId label);
 
   /// Set a property value and return the old value.
   /// @throw std::bad_alloc
-  Result<PropertyValue> SetProperty(PropertyId property, const PropertyValue &value);
+  ShardResult<PropertyValue> SetProperty(PropertyId property, const PropertyValue &value);
 
   PropertyValue GetPropertyValue(PropertyId property, View view) const;
 
-  Result<void> CheckVertexExistence(View view) const;
+  ShardResult<void> CheckVertexExistence(View view) const;
 
   Vertex *vertex_;
   Transaction *transaction_;

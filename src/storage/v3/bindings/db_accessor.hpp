@@ -78,8 +78,8 @@ class DbAccessor final {
     return VerticesIterable(accessor_->Vertices(label, property, lower, upper, view));
   }
 
-  storage::v3::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
-                                               const storage::v3::EdgeTypeId &edge_type) {
+  storage::v3::ShardResult<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
+                                                    const storage::v3::EdgeTypeId &edge_type) {
     static constexpr auto kDummyGid = storage::v3::Gid::FromUint(0);
     auto maybe_edge = accessor_->CreateEdge(from->Id(storage::v3::View::NEW).GetValue(),
                                             to->Id(storage::v3::View::NEW).GetValue(), edge_type, kDummyGid);
@@ -87,7 +87,7 @@ class DbAccessor final {
     return EdgeAccessor(*maybe_edge);
   }
 
-  storage::v3::Result<std::optional<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge) {
+  storage::v3::ShardResult<std::optional<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge) {
     auto res = accessor_->DeleteEdge(edge->FromVertex(), edge->ToVertex(), edge->Gid());
     if (res.HasError()) {
       return res.GetError();
@@ -101,7 +101,7 @@ class DbAccessor final {
     return std::make_optional<EdgeAccessor>(*value);
   }
 
-  storage::v3::Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachRemoveVertex(
+  storage::v3::ShardResult<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachRemoveVertex(
       VertexAccessor *vertex_accessor) {
     using ReturnType = std::pair<VertexAccessor, std::vector<EdgeAccessor>>;
 
@@ -125,7 +125,7 @@ class DbAccessor final {
     return std::make_optional<ReturnType>(vertex, std::move(deleted_edges));
   }
 
-  storage::v3::Result<std::optional<VertexAccessor>> RemoveVertex(VertexAccessor *vertex_accessor) {
+  storage::v3::ShardResult<std::optional<VertexAccessor>> RemoveVertex(VertexAccessor *vertex_accessor) {
     auto res = accessor_->DeleteVertex(vertex_accessor);
     if (res.HasError()) {
       return res.GetError();

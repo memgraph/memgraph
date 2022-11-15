@@ -15,6 +15,7 @@
 
 #include "storage/v3/mvcc.hpp"
 #include "storage/v3/property_value.hpp"
+#include "storage/v3/result.hpp"
 #include "storage/v3/schema_validator.hpp"
 #include "storage/v3/vertex_accessor.hpp"
 #include "utils/memory_tracker.hpp"
@@ -54,13 +55,13 @@ const VertexId &EdgeAccessor::FromVertex() const { return from_vertex_; }
 
 const VertexId &EdgeAccessor::ToVertex() const { return to_vertex_; }
 
-Result<PropertyValue> EdgeAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
+ShardResult<PropertyValue> EdgeAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-  if (!config_.properties_on_edges) return Error::PROPERTIES_DISABLED;
+  if (!config_.properties_on_edges) return SHARD_ERROR(ErrorCode::PROPERTIES_DISABLED);
 
-  if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
+  if (!PrepareForWrite(transaction_, edge_.ptr)) return SHARD_ERROR(ErrorCode::SERIALIZATION_ERROR);
 
-  if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
+  if (edge_.ptr->deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
 
   auto current_value = edge_.ptr->properties.GetProperty(property);
   // We could skip setting the value if the previous one is the same to the new
@@ -75,12 +76,12 @@ Result<PropertyValue> EdgeAccessor::SetProperty(PropertyId property, const Prope
   return std::move(current_value);
 }
 
-Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
-  if (!config_.properties_on_edges) return Error::PROPERTIES_DISABLED;
+ShardResult<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
+  if (!config_.properties_on_edges) return SHARD_ERROR(ErrorCode::PROPERTIES_DISABLED);
 
-  if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
+  if (!PrepareForWrite(transaction_, edge_.ptr)) return SHARD_ERROR(ErrorCode::SERIALIZATION_ERROR);
 
-  if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
+  if (edge_.ptr->deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
 
   auto properties = edge_.ptr->properties.Properties();
   for (const auto &property : properties) {
@@ -92,11 +93,11 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
   return std::move(properties);
 }
 
-Result<PropertyValue> EdgeAccessor::GetProperty(View view, PropertyId property) const {
+ShardResult<PropertyValue> EdgeAccessor::GetProperty(View view, PropertyId property) const {
   return GetProperty(property, view);
 }
 
-Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) const {
+ShardResult<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) const {
   if (!config_.properties_on_edges) return PropertyValue();
   auto exists = true;
   auto deleted = edge_.ptr->deleted;
@@ -128,12 +129,12 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
         break;
     }
   });
-  if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
+  if (!exists) return SHARD_ERROR(ErrorCode::NONEXISTENT_OBJECT);
+  if (!for_deleted_ && deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
   return std::move(value);
 }
 
-Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) const {
+ShardResult<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) const {
   if (!config_.properties_on_edges) return std::map<PropertyId, PropertyValue>{};
   auto exists = true;
   auto deleted = edge_.ptr->deleted;
@@ -174,8 +175,8 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
         break;
     }
   });
-  if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
+  if (!exists) return SHARD_ERROR(ErrorCode::NONEXISTENT_OBJECT);
+  if (!for_deleted_ && deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
   return std::move(properties);
 }
 

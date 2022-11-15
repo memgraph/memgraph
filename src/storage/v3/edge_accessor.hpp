@@ -56,19 +56,19 @@ class EdgeAccessor final {
 
   /// Set a property value and return the old value.
   /// @throw std::bad_alloc
-  Result<PropertyValue> SetProperty(PropertyId property, const PropertyValue &value);
+  ShardResult<PropertyValue> SetProperty(PropertyId property, const PropertyValue &value);
 
   /// Remove all properties and return old values for each removed property.
   /// @throw std::bad_alloc
-  Result<std::map<PropertyId, PropertyValue>> ClearProperties();
+  ShardResult<std::map<PropertyId, PropertyValue>> ClearProperties();
 
   /// @throw std::bad_alloc
-  Result<PropertyValue> GetProperty(PropertyId property, View view) const;
+  ShardResult<PropertyValue> GetProperty(PropertyId property, View view) const;
 
-  Result<PropertyValue> GetProperty(View view, PropertyId property) const;
+  ShardResult<PropertyValue> GetProperty(View view, PropertyId property) const;
 
   /// @throw std::bad_alloc
-  Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
+  ShardResult<std::map<PropertyId, PropertyValue>> Properties(View view) const;
 
   Gid Gid() const noexcept {
     if (config_.properties_on_edges) {

@@ -40,6 +40,8 @@ struct ShardError {
   ShardError(ErrorCode code, std::string message, std::string source)
       : code{code}, message{std::move(message)}, source{std::move(source)} {}
 
+  ShardError(ErrorCode code, std::string source) : code{code}, source{std::move(source)} {}
+
   ErrorCode code;
   // TODO Maybe add category
   std::string message;
@@ -49,6 +51,6 @@ struct ShardError {
 #define SHARD_ERROR(...) memgraph::storage::v3::ShardError(__VA_ARGS__, fmt::format("{}:{}", __FILE__, __LINE__))
 
 template <class TValue>
-using Result = utils::BasicResult<ShardError, TValue>;
+using ShardResult = utils::BasicResult<ShardError, TValue>;
 
 }  // namespace memgraph::storage::v3

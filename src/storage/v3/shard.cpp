@@ -33,8 +33,8 @@
 #include "storage/v3/mvcc.hpp"
 #include "storage/v3/name_id_mapper.hpp"
 #include "storage/v3/property_value.hpp"
+#include "storage/v3/result.hpp"
 #include "storage/v3/schema_validator.hpp"
-#include "storage/v3/shard_operation_result.hpp"
 #include "storage/v3/transaction.hpp"
 #include "storage/v3/vertex.hpp"
 #include "storage/v3/vertex_accessor.hpp"
@@ -345,7 +345,7 @@ Shard::~Shard() {}
 Shard::Accessor::Accessor(Shard &shard, Transaction &transaction)
     : shard_(&shard), transaction_(&transaction), config_(shard_->config_.items) {}
 
-ShardOperationResult<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
+ShardResult<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
     const std::vector<LabelId> &labels, const std::vector<PropertyValue> &primary_properties,
     const std::vector<std::pair<PropertyId, PropertyValue>> &properties) {
   OOMExceptionEnabler oom_exception;
@@ -364,7 +364,7 @@ ShardOperationResult<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
 
   VertexAccessor vertex_acc{&it->vertex, transaction_, &shard_->indices_, config_, shard_->vertex_validator_};
   if (!inserted) {
-    return {Error::VERTEX_ALREADY_INSERTED};
+    return SHARD_ERROR(ErrorCode::VERTEX_ALREADY_INSERTED);
   }
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
 
@@ -395,19 +395,19 @@ std::optional<VertexAccessor> Shard::Accessor::FindVertex(std::vector<PropertyVa
   return VertexAccessor::Create(&it->vertex, transaction_, &shard_->indices_, config_, shard_->vertex_validator_, view);
 }
 
-Result<std::optional<VertexAccessor>> Shard::Accessor::DeleteVertex(VertexAccessor *vertex) {
+ShardResult<std::optional<VertexAccessor>> Shard::Accessor::DeleteVertex(VertexAccessor *vertex) {
   MG_ASSERT(vertex->transaction_ == transaction_,
             "VertexAccessor must be from the same transaction as the storage "
             "accessor when deleting a vertex!");
   auto *vertex_ptr = vertex->vertex_;
 
-  if (!PrepareForWrite(transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
+  if (!PrepareForWrite(transaction_, vertex_ptr)) return SHARD_ERROR(ErrorCode::SERIALIZATION_ERROR);
 
   if (vertex_ptr->deleted) {
     return std::optional<VertexAccessor>{};
   }
 
-  if (!vertex_ptr->in_edges.empty() || !vertex_ptr->out_edges.empty()) return Error::VERTEX_HAS_EDGES;
+  if (!vertex_ptr->in_edges.empty() || !vertex_ptr->out_edges.empty()) return SHARD_ERROR(ErrorCode::VERTEX_HAS_EDGES);
 
   CreateAndLinkDelta(transaction_, vertex_ptr, Delta::RecreateObjectTag());
   vertex_ptr->deleted = true;
@@ -416,7 +416,7 @@ Result<std::optional<VertexAccessor>> Shard::Accessor::DeleteVertex(VertexAccess
                                             shard_->vertex_validator_, true);
 }
 
-Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Shard::Accessor::DetachDeleteVertex(
+ShardResult<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Shard::Accessor::DetachDeleteVertex(
     VertexAccessor *vertex) {
   using ReturnType = std::pair<VertexAccessor, std::vector<EdgeAccessor>>;
 
@@ -429,7 +429,7 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Shar
   std::vector<Vertex::EdgeLink> out_edges;
 
   {
-    if (!PrepareForWrite(transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
+    if (!PrepareForWrite(transaction_, vertex_ptr)) return SHARD_ERROR(ErrorCode::SERIALIZATION_ERROR);
 
     if (vertex_ptr->deleted) return std::optional<ReturnType>{};
 
@@ -444,7 +444,7 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Shar
     EdgeAccessor e(edge, edge_type, from_vertex, vertex_id, transaction_, &shard_->indices_, config_);
     auto ret = DeleteEdge(e.FromVertex(), e.ToVertex(), e.Gid());
     if (ret.HasError()) {
-      MG_ASSERT(ret.GetError() == Error::SERIALIZATION_ERROR, "Invalid database state!");
+      MG_ASSERT(ret.GetError().code == ErrorCode::SERIALIZATION_ERROR, "Invalid database state!");
       return ret.GetError();
     }
 
@@ -457,7 +457,7 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Shar
     EdgeAccessor e(edge, edge_type, vertex_id, to_vertex, transaction_, &shard_->indices_, config_);
     auto ret = DeleteEdge(e.FromVertex(), e.ToVertex(), e.Gid());
     if (ret.HasError()) {
-      MG_ASSERT(ret.GetError() == Error::SERIALIZATION_ERROR, "Invalid database state!");
+      MG_ASSERT(ret.GetError().code == ErrorCode::SERIALIZATION_ERROR, "Invalid database state!");
       return ret.GetError();
     }
 
@@ -470,7 +470,7 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Shar
   // vertex. Some other transaction could have modified the vertex in the
   // meantime if we didn't have any edges to delete.
 
-  if (!PrepareForWrite(transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
+  if (!PrepareForWrite(transaction_, vertex_ptr)) return SHARD_ERROR(ErrorCode::SERIALIZATION_ERROR);
 
   MG_ASSERT(!vertex_ptr->deleted, "Invalid database state!");
 
@@ -482,8 +482,8 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Shar
       std::move(deleted_edges));
 }
 
-Result<EdgeAccessor> Shard::Accessor::CreateEdge(VertexId from_vertex_id, VertexId to_vertex_id,
-                                                 const EdgeTypeId edge_type, const Gid gid) {
+ShardResult<EdgeAccessor> Shard::Accessor::CreateEdge(VertexId from_vertex_id, VertexId to_vertex_id,
+                                                      const EdgeTypeId edge_type, const Gid gid) {
   OOMExceptionEnabler oom_exception;
   Vertex *from_vertex{nullptr};
   Vertex *to_vertex{nullptr};
@@ -507,12 +507,12 @@ Result<EdgeAccessor> Shard::Accessor::CreateEdge(VertexId from_vertex_id, Vertex
   }
 
   if (from_is_local) {
-    if (!PrepareForWrite(transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
-    if (from_vertex->deleted) return Error::DELETED_OBJECT;
+    if (!PrepareForWrite(transaction_, from_vertex)) return SHARD_ERROR(ErrorCode::SERIALIZATION_ERROR);
+    if (from_vertex->deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
   }
   if (to_is_local && to_vertex != from_vertex) {
-    if (!PrepareForWrite(transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
-    if (to_vertex->deleted) return Error::DELETED_OBJECT;
+    if (!PrepareForWrite(transaction_, to_vertex)) return SHARD_ERROR(ErrorCode::SERIALIZATION_ERROR);
+    if (to_vertex->deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
   }
 
   EdgeRef edge(gid);
@@ -541,8 +541,8 @@ Result<EdgeAccessor> Shard::Accessor::CreateEdge(VertexId from_vertex_id, Vertex
                       &shard_->indices_, config_);
 }
 
-Result<std::optional<EdgeAccessor>> Shard::Accessor::DeleteEdge(VertexId from_vertex_id, VertexId to_vertex_id,
-                                                                const Gid edge_id) {
+ShardResult<std::optional<EdgeAccessor>> Shard::Accessor::DeleteEdge(VertexId from_vertex_id, VertexId to_vertex_id,
+                                                                     const Gid edge_id) {
   Vertex *from_vertex{nullptr};
   Vertex *to_vertex{nullptr};
 
@@ -567,13 +567,13 @@ Result<std::optional<EdgeAccessor>> Shard::Accessor::DeleteEdge(VertexId from_ve
 
   if (from_is_local) {
     if (!PrepareForWrite(transaction_, from_vertex)) {
-      return Error::SERIALIZATION_ERROR;
+      return SHARD_ERROR(ErrorCode::SERIALIZATION_ERROR);
     }
     MG_ASSERT(!from_vertex->deleted, "Invalid database state!");
   }
   if (to_is_local && to_vertex != from_vertex) {
     if (!PrepareForWrite(transaction_, to_vertex)) {
-      return Error::SERIALIZATION_ERROR;
+      return SHARD_ERROR(ErrorCode::SERIALIZATION_ERROR);
     }
     MG_ASSERT(!to_vertex->deleted, "Invalid database state!");
   }

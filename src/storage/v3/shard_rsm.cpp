@@ -34,6 +34,7 @@
 #include "storage/v3/key_store.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/request_helper.hpp"
+#include "storage/v3/result.hpp"
 #include "storage/v3/schemas.hpp"
 #include "storage/v3/shard.hpp"
 #include "storage/v3/shard_rsm.hpp"
@@ -468,6 +469,37 @@ EdgeFiller InitializeEdgeFillerFunction(const msgs::ExpandOneRequest &req) {
   return edge_filler;
 }
 
+void LogResultError(const ShardError &error, const std::string_view action = "") {
+  switch (error.code) {
+    case ErrorCode::DELETED_OBJECT:
+      spdlog::debug("{} failed with error: DELETED_OBJECT, at {}", action, error.source);
+      break;
+    case ErrorCode::NONEXISTENT_OBJECT:
+      spdlog::debug("{} failed with error: NONEXISTENT_OBJECT, at {}", action, error.source);
+      break;
+    case ErrorCode::SERIALIZATION_ERROR:
+      spdlog::debug("{} failed with error: SERIALIZATION_ERROR, at {}", action, error.source);
+      break;
+    case ErrorCode::PROPERTIES_DISABLED:
+      spdlog::debug("{} failed with error: PROPERTIES_DISABLED, at {}", action, error.source);
+      break;
+    case ErrorCode::VERTEX_HAS_EDGES:
+      spdlog::debug("{} failed with error: VERTEX_HAS_EDGES, at {}", action, error.source);
+      break;
+    case ErrorCode::VERTEX_ALREADY_INSERTED:
+      spdlog::debug("{} failed with error: VERTEX_ALREADY_INSERTED, at {}", action, error.source);
+      break;
+    case ErrorCode::SCHEMA_NO_SCHEMA_DEFINED_FOR_LABEL:
+    case ErrorCode::SCHEMA_VERTEX_PROPERTY_WRONG_TYPE:
+    case ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_KEY:
+    case ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL:
+    case ErrorCode::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY:
+    case ErrorCode::SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED:
+      spdlog::debug("Schema violation: {} at {}", error.message, error.source);
+      break;
+  }
+}
+
 };  // namespace
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
   auto acc = shard_->Access(req.transaction_id);
@@ -494,38 +526,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
 
     if (result_schema.HasError()) {
       auto &error = result_schema.GetError();
-
-      std::visit(
-          []<typename T>(T &&error) {
-            using ErrorType = std::remove_cvref_t<T>;
-            if constexpr (std::is_same_v<ErrorType, SchemaViolation>) {
-              spdlog::debug("Creating vertex failed with error: SchemaViolation");
-            } else if constexpr (std::is_same_v<ErrorType, Error>) {
-              switch (error) {
-                case Error::DELETED_OBJECT:
-                  spdlog::debug("Creating vertex failed with error: DELETED_OBJECT");
-                  break;
-                case Error::NONEXISTENT_OBJECT:
-                  spdlog::debug("Creating vertex failed with error: NONEXISTENT_OBJECT");
-                  break;
-                case Error::SERIALIZATION_ERROR:
-                  spdlog::debug("Creating vertex failed with error: SERIALIZATION_ERROR");
-                  break;
-                case Error::PROPERTIES_DISABLED:
-                  spdlog::debug("Creating vertex failed with error: PROPERTIES_DISABLED");
-                  break;
-                case Error::VERTEX_HAS_EDGES:
-                  spdlog::debug("Creating vertex failed with error: VERTEX_HAS_EDGES");
-                  break;
-                case Error::VERTEX_ALREADY_INSERTED:
-                  spdlog::debug("Creating vertex failed with error: VERTEX_ALREADY_INSERTED");
-                  break;
-              }
-            } else {
-              static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
-            }
-          },
-          error);
+      spdlog::debug("Creating vertex failed with error: VERTEX_ALREADY_INSERTED");
 
       action_successful = false;
       break;
@@ -558,38 +559,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateVerticesRequest &&req) {
           vertex_to_update->SetPropertyAndValidate(update_prop.first, ToPropertyValue(std::move(update_prop.second)));
       if (result_schema.HasError()) {
         auto &error = result_schema.GetError();
-
-        std::visit(
-            []<typename T>(T &&error) {
-              using ErrorType = std::remove_cvref_t<T>;
-              if constexpr (std::is_same_v<ErrorType, SchemaViolation>) {
-                spdlog::debug("Updating vertex failed with error: SchemaViolation");
-              } else if constexpr (std::is_same_v<ErrorType, Error>) {
-                switch (error) {
-                  case Error::DELETED_OBJECT:
-                    spdlog::debug("Updating vertex failed with error: DELETED_OBJECT");
-                    break;
-                  case Error::NONEXISTENT_OBJECT:
-                    spdlog::debug("Updating vertex failed with error: NONEXISTENT_OBJECT");
-                    break;
-                  case Error::SERIALIZATION_ERROR:
-                    spdlog::debug("Updating vertex failed with error: SERIALIZATION_ERROR");
-                    break;
-                  case Error::PROPERTIES_DISABLED:
-                    spdlog::debug("Updating vertex failed with error: PROPERTIES_DISABLED");
-                    break;
-                  case Error::VERTEX_HAS_EDGES:
-                    spdlog::debug("Updating vertex failed with error: VERTEX_HAS_EDGES");
-                    break;
-                  case Error::VERTEX_ALREADY_INSERTED:
-                    spdlog::debug("Updating vertex failed with error: VERTEX_ALREADY_INSERTED");
-                    break;
-                }
-              } else {
-                static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
-              }
-            },
-            error);
+        LogResultError(error);
 
         action_successful = false;
 
