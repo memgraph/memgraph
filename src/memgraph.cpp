@@ -483,13 +483,19 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
         auto maybe_value = memgraph::glue::v2::ToBoltValue(kv.second, interpreter_.GetShardRequestManager(),
                                                            memgraph::storage::v3::View::NEW);
         if (maybe_value.HasError()) {
-          switch (maybe_value.GetError()) {
-            case memgraph::storage::v3::Error::DELETED_OBJECT:
-            case memgraph::storage::v3::Error::SERIALIZATION_ERROR:
-            case memgraph::storage::v3::Error::VERTEX_HAS_EDGES:
-            case memgraph::storage::v3::Error::PROPERTIES_DISABLED:
-            case memgraph::storage::v3::Error::NONEXISTENT_OBJECT:
-            case memgraph::storage::v3::Error::VERTEX_ALREADY_INSERTED:
+          switch (maybe_value.GetError().code) {
+            case memgraph::storage::v3::ErrorCode::DELETED_OBJECT:
+            case memgraph::storage::v3::ErrorCode::SERIALIZATION_ERROR:
+            case memgraph::storage::v3::ErrorCode::VERTEX_HAS_EDGES:
+            case memgraph::storage::v3::ErrorCode::PROPERTIES_DISABLED:
+            case memgraph::storage::v3::ErrorCode::NONEXISTENT_OBJECT:
+            case memgraph::storage::v3::ErrorCode::VERTEX_ALREADY_INSERTED:
+            case memgraph::storage::v3::ErrorCode::SCHEMA_NO_SCHEMA_DEFINED_FOR_LABEL:
+            case memgraph::storage::v3::ErrorCode::SCHEMA_VERTEX_PROPERTY_WRONG_TYPE:
+            case memgraph::storage::v3::ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_KEY:
+            case memgraph::storage::v3::ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL:
+            case memgraph::storage::v3::ErrorCode::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY:
+            case memgraph::storage::v3::ErrorCode::SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED:
               throw memgraph::communication::bolt::ClientError("Unexpected storage error when streaming summary.");
           }
         }
@@ -516,15 +522,21 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
       for (const auto &v : values) {
         auto maybe_value = memgraph::glue::v2::ToBoltValue(v, shard_request_manager_, memgraph::storage::v3::View::NEW);
         if (maybe_value.HasError()) {
-          switch (maybe_value.GetError()) {
-            case memgraph::storage::v3::Error::DELETED_OBJECT:
+          switch (maybe_value.GetError().code) {
+            case memgraph::storage::v3::ErrorCode::DELETED_OBJECT:
               throw memgraph::communication::bolt::ClientError("Returning a deleted object as a result.");
-            case memgraph::storage::v3::Error::NONEXISTENT_OBJECT:
+            case memgraph::storage::v3::ErrorCode::NONEXISTENT_OBJECT:
               throw memgraph::communication::bolt::ClientError("Returning a nonexistent object as a result.");
-            case memgraph::storage::v3::Error::VERTEX_HAS_EDGES:
-            case memgraph::storage::v3::Error::SERIALIZATION_ERROR:
-            case memgraph::storage::v3::Error::PROPERTIES_DISABLED:
-            case memgraph::storage::v3::Error::VERTEX_ALREADY_INSERTED:
+            case memgraph::storage::v3::ErrorCode::VERTEX_HAS_EDGES:
+            case memgraph::storage::v3::ErrorCode::SERIALIZATION_ERROR:
+            case memgraph::storage::v3::ErrorCode::PROPERTIES_DISABLED:
+            case memgraph::storage::v3::ErrorCode::VERTEX_ALREADY_INSERTED:
+            case memgraph::storage::v3::ErrorCode::SCHEMA_NO_SCHEMA_DEFINED_FOR_LABEL:
+            case memgraph::storage::v3::ErrorCode::SCHEMA_VERTEX_PROPERTY_WRONG_TYPE:
+            case memgraph::storage::v3::ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_KEY:
+            case memgraph::storage::v3::ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL:
+            case memgraph::storage::v3::ErrorCode::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY:
+            case memgraph::storage::v3::ErrorCode::SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED:
               throw memgraph::communication::bolt::ClientError("Unexpected storage error when streaming results.");
           }
         }

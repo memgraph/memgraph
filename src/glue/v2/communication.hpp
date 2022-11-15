@@ -35,7 +35,7 @@ namespace memgraph::glue::v2 {
 /// @param storage::v3::View for deciding which vertex attributes are visible.
 ///
 /// @throw std::bad_alloc
-storage::v3::Result<communication::bolt::Vertex> ToBoltVertex(
+storage::v3::ShardResult<communication::bolt::Vertex> ToBoltVertex(
     const storage::v3::VertexAccessor &vertex, const msgs::ShardRequestManagerInterface *shard_request_manager,
     storage::v3::View view);
 
@@ -44,7 +44,7 @@ storage::v3::Result<communication::bolt::Vertex> ToBoltVertex(
 /// @param storage::v3::View for deciding which edge attributes are visible.
 ///
 /// @throw std::bad_alloc
-storage::v3::Result<communication::bolt::Edge> ToBoltEdge(
+storage::v3::ShardResult<communication::bolt::Edge> ToBoltEdge(
     const storage::v3::EdgeAccessor &edge, const msgs::ShardRequestManagerInterface *shard_request_manager,
     storage::v3::View view);
 
@@ -53,7 +53,7 @@ storage::v3::Result<communication::bolt::Edge> ToBoltEdge(
 /// @param storage::v3::View for ToBoltVertex and ToBoltEdge.
 ///
 /// @throw std::bad_alloc
-storage::v3::Result<communication::bolt::Path> ToBoltPath(
+storage::v3::ShardResult<communication::bolt::Path> ToBoltPath(
     const query::v2::accessors::Path &path, const msgs::ShardRequestManagerInterface *shard_request_manager,
     storage::v3::View view);
 
@@ -62,7 +62,7 @@ storage::v3::Result<communication::bolt::Path> ToBoltPath(
 /// @param storage::v3::View for ToBoltVertex and ToBoltEdge.
 ///
 /// @throw std::bad_alloc
-storage::v3::Result<communication::bolt::Value> ToBoltValue(
+storage::v3::ShardResult<communication::bolt::Value> ToBoltValue(
     const query::v2::TypedValue &value, const msgs::ShardRequestManagerInterface *shard_request_manager,
     storage::v3::View view);
 
