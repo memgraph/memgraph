@@ -38,6 +38,8 @@ def recursive_get(data, *args, value=None):
 def compare_results(results_from, results_to, fields, ignored, different_vendors):
     ret = {}
     for dataset, variants in results_to.items():
+        if dataset == "__run_configuration__":
+            continue
         for variant, groups in variants.items():
             for group, scenarios in groups.items():
                 if group == "__import__":
@@ -47,8 +49,8 @@ def compare_results(results_from, results_to, fields, ignored, different_vendors
                         continue
 
                     summary_from = recursive_get(results_from, dataset, variant, group, scenario, value={})
-                    summary_from = summary_from['without_fine_grained_authorization']
-                    summary_to = summary_to['without_fine_grained_authorization']
+                    summary_from = summary_from["without_fine_grained_authorization"]
+                    summary_to = summary_to["without_fine_grained_authorization"]
                     if (
                         len(summary_from) > 0
                         and (summary_to["count"] != summary_from["count"] and not different_vendors)
@@ -75,13 +77,19 @@ def compare_results(results_from, results_to, fields, ignored, different_vendors
                                 recursive_get(summary_from, "database", key, value=None),
                                 summary_to["database"][key],
                             )
-                        else:
+                        elif summary_to.get("query_statistics") != None and key in summary_to["query_statistics"]:
+                            row[key] = compute_diff(
+                                recursive_get(summary_from, "query_statistics", key, value=None),
+                                summary_to["query_statistics"][key],
+                            )
+                        elif not different_vendors:
                             row[key] = compute_diff(
                                 recursive_get(summary_from, "metadata", key, "average", value=None),
                                 summary_to["metadata"][key]["average"],
                             )
-                        if "diff" not in row[key] or (
-                            "diff_treshold" in field and abs(row[key]["diff"]) >= field["diff_treshold"]
+                        if row.get(key) != None and (
+                            "diff" not in row[key]
+                            or ("diff_treshold" in field and abs(row[key]["diff"]) >= field["diff_treshold"])
                         ):
                             performance_changed = True
                     if performance_changed:
@@ -109,19 +117,22 @@ def generate_remarkup(fields, data):
             ret += "  <tr>\n"
             ret += "    <td>{}</td>\n".format(testcode)
             for field in fields:
-                result = data[testcode][field["name"]]
-                value = result["value"] * field["scaling"]
-                if "diff" in result:
-                    diff = result["diff"]
-                    arrow = "arrow-up" if diff >= 0 else "arrow-down"
-                    if not (field["positive_diff_better"] ^ (diff >= 0)):
-                        color = "green"
+                result = data[testcode].get(field["name"])
+                if result != None:
+                    value = result["value"] * field["scaling"]
+                    if "diff" in result:
+                        diff = result["diff"]
+                        arrow = "arrow-up" if diff >= 0 else "arrow-down"
+                        if not (field["positive_diff_better"] ^ (diff >= 0)):
+                            color = "green"
+                        else:
+                            color = "red"
+                        sign = "{{icon {} color={}}}".format(arrow, color)
+                        ret += '    <td bgcolor="{}">{:.3f}{} ({:+.2%})</td>\n'.format(
+                            color, value, field["unit"], diff
+                        )
                     else:
-                        color = "red"
-                    sign = "{{icon {} color={}}}".format(arrow, color)
-                    ret += '    <td bgcolor="{}">{:.3f}{} ({:+.2%})</td>\n'.format(color, value, field["unit"], diff)
-                else:
-                    ret += '<td bgcolor="blue">{:.3f}{} //(new)// </td>\n'.format(value, field["unit"])
+                        ret += '<td bgcolor="blue">{:.3f}{} //(new)// </td>\n'.format(value, field["unit"])
             ret += "  </tr>\n"
         ret += "</table>\n"
     else:
@@ -142,51 +153,94 @@ if __name__ == "__main__":
     # file is read line by line, each representing one test name
     parser.add_argument("--exclude_tests_file", help="file listing test names to be excluded")
 
-    parser.add_argument("--different-vendors", action='store_true', default=False, help="Comparing different vendors, there is no need for metadata, duration, count check.")
-    parser.add_argument("--difference-threshold", type=float,  help="Difference threshold for memory and throughput, 0.02 = 2% ")
+    parser.add_argument(
+        "--different-vendors",
+        action="store_true",
+        default=False,
+        help="Comparing different vendors, there is no need for metadata, duration, count check.",
+    )
+    parser.add_argument(
+        "--difference-threshold", type=float, help="Difference threshold for memory and throughput, 0.02 = 2% "
+    )
 
     args = parser.parse_args()
 
     fields = [
-    {
-        "name": "throughput",
-        "positive_diff_better": True,
-        "scaling": 1,
-        "unit": "QPS",
-        "diff_treshold": 0.05,  # 5%
-    },
-    {
-        "name": "duration",
-        "positive_diff_better": False,
-        "scaling": 1,
-        "unit": "s",
-    },
-    {
-        "name": "parsing_time",
-        "positive_diff_better": False,
-        "scaling": 1000,
-        "unit": "ms",
-    },
-    {
-        "name": "planning_time",
-        "positive_diff_better": False,
-        "scaling": 1000,
-        "unit": "ms",
-    },
-    {
-        "name": "plan_execution_time",
-        "positive_diff_better": False,
-        "scaling": 1000,
-        "unit": "ms",
-    },
-    {
-        "name": "memory",
-        "positive_diff_better": False,
-        "scaling": 1 / 1024 / 1024,
-        "unit": "MiB",
-        "diff_treshold": 0.02,  # 2%
-    },
-]
+        {
+            "name": "throughput",
+            "positive_diff_better": True,
+            "scaling": 1,
+            "unit": "QPS",
+            "diff_treshold": 0.05,  # 5%
+        },
+        {
+            "name": "duration",
+            "positive_diff_better": False,
+            "scaling": 1,
+            "unit": "s",
+        },
+        {
+            "name": "parsing_time",
+            "positive_diff_better": False,
+            "scaling": 1000,
+            "unit": "ms",
+        },
+        {
+            "name": "planning_time",
+            "positive_diff_better": False,
+            "scaling": 1000,
+            "unit": "ms",
+        },
+        {
+            "name": "plan_execution_time",
+            "positive_diff_better": False,
+            "scaling": 1000,
+            "unit": "ms",
+        },
+        {
+            "name": "memory",
+            "positive_diff_better": False,
+            "scaling": 1 / 1024 / 1024,
+            "unit": "MiB",
+            "diff_treshold": 0.02,  # 2%
+        },
+        {
+            "name": "max",
+            "positive_diff_better": False,
+            "scaling": 1000,
+            "unit": "ms",
+        },
+        {
+            "name": "p99",
+            "positive_diff_better": False,
+            "scaling": 1000,
+            "unit": "ms",
+        },
+        {
+            "name": "p90",
+            "positive_diff_better": False,
+            "scaling": 1000,
+            "unit": "ms",
+        },
+        {
+            "name": "p75",
+            "positive_diff_better": False,
+            "scaling": 1000,
+            "unit": "ms",
+        },
+        {
+            "name": "p50",
+            "positive_diff_better": False,
+            "scaling": 1000,
+            "unit": "ms",
+        },
+        {
+            "name": "mean",
+            "positive_diff_better": False,
+            "scaling": 1000,
+            "unit": "ms",
+        },
+    ]
 
     if args.compare is None or len(args.compare) == 0:
         raise Exception("You must specify at least one pair of files!")
@@ -198,21 +252,20 @@ if __name__ == "__main__":
         ignored = []
 
     cleaned = []
-    if args.different_vendors: 
+    if args.different_vendors:
         ignore_on_different_vendors = {"duration", "parsing_time", "planning_time", "plan_execution_time"}
-        for field in fields: 
+        for field in fields:
             key = field["name"]
             if key in ignore_on_different_vendors:
                 continue
-            else: 
+            else:
                 cleaned.append(field)
     fields = cleaned
 
-    if args.difference_threshold > 0.01: 
+    if args.difference_threshold > 0.01:
         for field in fields:
             if "diff_treshold" in field.keys():
-                field["diff_treshold"] = args.difference_threshold   
-
+                field["diff_treshold"] = args.difference_threshold
 
     data = {}
     for file_from, file_to in args.compare:

@@ -217,7 +217,7 @@ def filter_benchmarks(generators, patterns):
                     ):
                         current[group].append((query_name, query_func))
             if len(current) > 0:
-                filtered.append((generator(variant), dict(current)))
+                filtered.append((generator(variant, args.vendor_name), dict(current)))
     return filtered
 
 
@@ -535,20 +535,9 @@ for dataset, queries in benchmarks:
 
     client = runners.Client(args.client_binary, args.temporary_directory, args.bolt_port)
 
-    # TODO:Neo4j doesn't like duplicated triggers, add this do dataset files.
     vendor.start_preparation()
-    try:
-        client.execute(
-            queries=[
-                ("DROP INDEX ON:User(id)", {}),
-            ]
-        )
-    except Exception as e:
-        print("There was an issue with dropping index, probably it is not in DB at moment")
-
-    vendor.stop()
-
-    vendor.start_preparation()
+    print("Executing setup")
+    ret = client.execute(file_path=dataset.get_index(), num_workers=args.num_workers_for_import)
     ret = client.execute(file_path=dataset.get_file(), num_workers=args.num_workers_for_import)
     usage = vendor.stop()
     # Display import statistics.

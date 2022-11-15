@@ -134,7 +134,7 @@ class Neo4j:
         self._proc_neo4j = None
         self._bolt_port = bolt_port
         atexit.register(self._cleanup)
-        config = "dbms.security.auth_enabled=false \n"
+        config = "dbms.security.auth_enabled=false"
         print("Check config securuty flag:")
         with self._neo4j_config.open("r+") as file:
             lines = file.readlines()
@@ -158,9 +158,7 @@ class Neo4j:
     def _start(self, **kwargs):
         if self._proc_neo4j is not None:
             raise Exception("The database process is already running!")
-        args = _convert_args_to_flags(
-            self._neo4j_binary, "start", "--verbose", **kwargs
-        )
+        args = _convert_args_to_flags(self._neo4j_binary, "start", **kwargs)
         self._proc_neo4j = subprocess.Popen(args, stdout=subprocess.PIPE)
         time.sleep(10)
         if self._proc_neo4j.poll() == 0:
