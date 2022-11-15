@@ -36,6 +36,7 @@ struct Edge {
   bool deleted;
   // uint8_t PAD;
   // uint16_t PAD;
+  // uint32_t PAD;
 
   Delta *delta;
 };

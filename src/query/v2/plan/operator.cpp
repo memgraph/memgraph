@@ -269,7 +269,7 @@ bool Once::OnceCursor::Pull(Frame &, ExecutionContext &context) {
 }
 
 void Once::OnceCursor::PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP("Once");
+  SCOPED_PROFILE_OP("OnceMF");
 
   if (pull_count_ < 1) {
     MG_ASSERT(!multi_frame.frames.empty());
@@ -888,7 +888,7 @@ bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
 }
 
 void Produce::ProduceCursor::PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP("Produce");
+  SCOPED_PROFILE_OP("ProduceMF");
 
   input_cursor_->PullMultiple(multi_frame, context);
 
@@ -2658,17 +2658,18 @@ class DistributedExpandCursor : public Cursor {
           throw std::runtime_error("EdgeDirection Both not implemented");
       }
     };
-    msgs::ExpandOneRequest request;
-    // to not fetch any properties of the edges
-    request.edge_properties.emplace();
-    request.src_vertices.push_back(get_dst_vertex(edge, direction));
-    request.direction = (direction == EdgeAtom::Direction::IN) ? msgs::EdgeDirection::OUT : msgs::EdgeDirection::IN;
-    msgs::ExecutionState<msgs::ExpandOneRequest> request_state;
-    auto result_rows = context.shard_request_manager->Request(request_state, std::move(request));
-    MG_ASSERT(result_rows.size() == 1);
-    auto &result_row = result_rows.front();
+    // msgs::ExpandOneRequest request;
+    // // to not fetch any properties of the edges
+    // request.edge_properties.emplace();
+    // request.src_vertices.push_back(get_dst_vertex(edge, direction));
+    // request.direction = (direction == EdgeAtom::Direction::IN) ? msgs::EdgeDirection::OUT : msgs::EdgeDirection::IN;
+    // msgs::ExecutionState<msgs::ExpandOneRequest> request_state;
+    // auto result_rows = context.shard_request_manager->Request(request_state, std::move(request));
+    // MG_ASSERT(result_rows.size() == 1);
+    // auto &result_row = result_rows.front();
     frame[self_.common_.node_symbol] = accessors::VertexAccessor(
-        msgs::Vertex{result_row.src_vertex}, result_row.src_vertex_properties, context.shard_request_manager);
+        msgs::Vertex{get_dst_vertex(edge, direction)}, std::vector<std::pair<msgs::PropertyId, msgs::Value>>{},
+        context.shard_request_manager);
   }
 
   bool InitEdges(Frame &frame, ExecutionContext &context) {
@@ -2743,6 +2744,87 @@ class DistributedExpandCursor : public Cursor {
     }
   }
 
+  void InitEdgesMultiple(ExecutionContext &context) {
+    TypedValue &vertex_value = buffer_.frames[consumed_from_buffer_][self_.input_symbol_];
+
+    if (vertex_value.IsNull()) {
+      return;
+    }
+
+    ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
+    auto &vertex = vertex_value.ValueVertex();
+
+    const auto convert_edges = [&vertex, &context](
+                                   std::vector<msgs::ExpandOneResultRow::EdgeWithSpecificProperties> &&edge_messages,
+                                   const EdgeAtom::Direction direction) {
+      std::vector<EdgeAccessor> edge_accessors;
+      edge_accessors.reserve(edge_messages.size());
+
+      switch (direction) {
+        case EdgeAtom::Direction::IN: {
+          for (auto &edge : edge_messages) {
+            edge_accessors.emplace_back(msgs::Edge{std::move(edge.other_end), vertex.Id(), {}, {edge.gid}, edge.type},
+                                        context.shard_request_manager);
+          }
+          break;
+        }
+        case EdgeAtom::Direction::OUT: {
+          for (auto &edge : edge_messages) {
+            edge_accessors.emplace_back(msgs::Edge{vertex.Id(), std::move(edge.other_end), {}, {edge.gid}, edge.type},
+                                        context.shard_request_manager);
+          }
+          break;
+        }
+        case EdgeAtom::Direction::BOTH: {
+          LOG_FATAL("Must indicate exact expansion direction here");
+        }
+      }
+      return edge_accessors;
+    };
+
+    auto *result_row = vertex_id_to_result_row[vertex.Id()];
+    current_in_edges_.clear();
+    current_in_edges_ =
+        convert_edges(std::move(result_row->in_edges_with_specific_properties), EdgeAtom::Direction::IN);
+    current_in_edge_it_ = current_in_edges_.begin();
+    current_out_edges_ =
+        convert_edges(std::move(result_row->out_edges_with_specific_properties), EdgeAtom::Direction::OUT);
+    current_out_edge_it_ = current_out_edges_.begin();
+    vertex_id_to_result_row.erase(vertex.Id());
+  }
+
+  void PullEdgesFromStorage(ExecutionContext &context) {
+    // Input Vertex could be null if it is created by a failed optional match. In
+    // those cases we skip that input pull and continue with the next.
+
+    msgs::ExpandOneRequest request;
+    request.direction = DirectionToMsgsDirection(self_.common_.direction);
+    // to not fetch any properties of the edges
+    request.edge_properties.emplace();
+    for (auto frame_index = 0; frame_index < buffer_.valid_frames; ++frame_index) {
+      auto &frame = buffer_.frames[frame_index];
+      TypedValue &vertex_value = frame[self_.input_symbol_];
+
+      // Null check due to possible failed optional match.
+      MG_ASSERT(!vertex_value.IsNull());
+
+      ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
+      auto &vertex = vertex_value.ValueVertex();
+      request.src_vertices.push_back(vertex.Id());
+    }
+
+    msgs::ExecutionState<msgs::ExpandOneRequest> request_state;
+    result_rows_ = std::invoke([&context, &request_state, &request]() mutable {
+      SCOPED_REQUEST_WAIT_PROFILE;
+      return context.shard_request_manager->Request(request_state, std::move(request));
+    });
+    MG_ASSERT(result_rows_.size() == buffer_.valid_frames);
+    vertex_id_to_result_row.clear();
+    for (auto &row : result_rows_) {
+      vertex_id_to_result_row[row.src_vertex.id] = &row;
+    }
+  }
+
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("DistributedExpand");
     // A helper function for expanding a node from an edge.
@@ -2778,6 +2860,77 @@ class DistributedExpandCursor : public Cursor {
     }
   }
 
+  void PullMultiple(MultiFrame &output_frames, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("DistributedExpandMF");
+    MG_ASSERT(!self_.common_.existing_node);
+    EnsureBufferIsGood(output_frames);
+    // A helper function for expanding a node from an edge.
+
+    while (true) {
+      if (MustAbort(context)) throw HintedAbortError();
+      if (consumed_from_buffer_ == buffer_.valid_frames) {
+        buffer_.valid_frames = 0;
+
+        if (input_cursor_->PullMultiple(buffer_, context); buffer_.valid_frames == 0) {
+          break;
+        }
+
+        PullEdgesFromStorage(context);
+        InitEdgesMultiple(context);
+      }
+
+      while (consumed_from_buffer_ < buffer_.valid_frames) {
+        auto &input_frame = buffer_.frames[consumed_from_buffer_];
+
+        for (auto output_frame_index = output_frames.valid_frames;
+             output_frame_index < output_frames.frames.size() && current_in_edge_it_ != current_in_edges_.end();
+             ++output_frame_index) {
+          auto &edge = *current_in_edge_it_;
+          ++current_in_edge_it_;
+          auto &output_frame = output_frames.frames[output_frames.valid_frames++];
+          output_frame = input_frame;
+          output_frame[self_.common_.edge_symbol] = edge;
+          PullDstVertex(output_frame, context, EdgeAtom::Direction::IN);
+        }
+
+        for (auto output_frame_index = output_frames.valid_frames;
+             output_frame_index < output_frames.frames.size() && current_out_edge_it_ != current_out_edges_.end();
+             ++output_frame_index) {
+          auto &edge = *current_out_edge_it_;
+          ++current_out_edge_it_;
+          // if (self_.common_.direction == EdgeAtom::Direction::BOTH && edge.IsCycle()) {
+          //   continue;
+          // };
+          auto &output_frame = output_frames.frames[output_frames.valid_frames++];
+          output_frame = input_frame;
+          output_frame[self_.common_.edge_symbol] = edge;
+          PullDstVertex(output_frame, context, EdgeAtom::Direction::OUT);
+        }
+        if (current_in_edge_it_ == current_in_edges_.end() && current_out_edge_it_ == current_out_edges_.end()) {
+          consumed_from_buffer_++;
+          if (consumed_from_buffer_ == buffer_.valid_frames) {
+            return;
+          }
+
+          InitEdgesMultiple(context);
+        }
+        if (output_frames.frames.size() == output_frames.valid_frames) {
+          return;
+        }
+      }
+    }
+  }
+
+  void EnsureBufferIsGood(const MultiFrame &output_frames) {
+    if (buffer_.frames.empty()) {
+      const auto &first_frame = output_frames.frames[0];
+      buffer_.frames = utils::pmr::vector<Frame>{
+          kMultiFrameHeight, Frame{static_cast<int64_t>(first_frame.elems().size()), first_frame.GetMemoryResource()},
+          first_frame.GetMemoryResource()};
+    }
+    MG_ASSERT(output_frames.frames[0].elems().size() == buffer_.frames[0].elems().size());
+  }
+
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override {
@@ -2795,6 +2948,11 @@ class DistributedExpandCursor : public Cursor {
   std::vector<EdgeAccessor> current_out_edges_;
   std::vector<EdgeAccessor>::iterator current_in_edge_it_;
   std::vector<EdgeAccessor>::iterator current_out_edge_it_;
+  MultiFrame buffer_;
+  size_t consumed_from_buffer_{0U};
+  std::vector<msgs::ExpandOneResultRow> result_rows_;
+  // This won't work if any vertex id is duplicated in the input
+  std::unordered_map<msgs::VertexId, msgs::ExpandOneResultRow *> vertex_id_to_result_row;
 };
 
 }  // namespace memgraph::query::v2::plan

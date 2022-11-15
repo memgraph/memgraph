@@ -524,12 +524,12 @@ class ShardRequestManager : public ShardRequestManagerInterface {
           shards_map_.GetShardForKey(vertex.first.id, storage::conversions::ConvertPropertyVector(vertex.second));
       if (!per_shard_request_table.contains(shard)) {
         per_shard_request_table.insert(std::pair(shard, top_level_rqst_template));
-        state.shard_cache.push_back(shard);
       }
       per_shard_request_table[shard].src_vertices.push_back(std::move(vertex));
     }
 
     for (auto &[shard, rqst] : per_shard_request_table) {
+      state.shard_cache.push_back(shard);
       state.requests.push_back(std::move(rqst));
     }
     state.state = ExecutionState<ExpandOneRequest>::EXECUTING;

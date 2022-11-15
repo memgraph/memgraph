@@ -854,7 +854,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::PullMultiple(AnyStrea
     multi_frame_.valid_frames = 0;
   }
 
-  for (; !n || i < n; ++i) {
+  for (; !n || i < n;) {
     if (!pull_result()) {
       break;
     }
@@ -862,9 +862,10 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::PullMultiple(AnyStrea
     if (!output_symbols.empty()) {
       for (auto frame_index = 0U; frame_index < multi_frame_.valid_frames; ++frame_index) {
         stream_values(multi_frame_.frames[frame_index]);
+        ++i;
       }
-      multi_frame_.valid_frames = 0;
     }
+    multi_frame_.valid_frames = 0;
   }
 
   // If we finished because we streamed the requested n results,
@@ -1163,7 +1164,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                          if (!stats_and_total_time) {
                            stats_and_total_time = PullPlan(plan, parameters, true, dba, interpreter_context,
                                                            execution_memory, shard_request_manager, memory_limit)
-                                                      .Pull(stream, {}, {}, summary);
+                                                      .PullMultiple(stream, {}, {}, summary);
                            pull_plan = std::make_shared<PullPlanVector>(ProfilingStatsToTable(*stats_and_total_time));
                          }
 

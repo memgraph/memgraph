@@ -24,6 +24,7 @@
 #include "coordinator/hybrid_logical_clock.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
+#include "utils/fnv.hpp"
 
 namespace memgraph::msgs {
 
@@ -562,3 +563,48 @@ using WriteResponses = std::variant<CreateVerticesResponse, DeleteVerticesRespon
                                     CreateExpandResponse, DeleteEdgesResponse, UpdateEdgesResponse, CommitResponse>;
 
 }  // namespace memgraph::msgs
+
+namespace std {
+
+template <>
+struct hash<memgraph::msgs::Value>;
+
+template <>
+struct hash<memgraph::msgs::VertexId> {
+  size_t operator()(const memgraph::msgs::VertexId &id) const {
+    using LabelId = memgraph::storage::v3::LabelId;
+    using Value = memgraph::msgs::Value;
+    return memgraph::utils::HashCombine<LabelId, std::vector<Value>, std::hash<LabelId>,
+                                        memgraph::utils::FnvCollection<std::vector<Value>, Value>>{}(id.first.id,
+                                                                                                     id.second);
+  }
+};
+
+template <>
+struct hash<memgraph::msgs::Value> {
+  size_t operator()(const memgraph::msgs::Value &value) const {
+    using Type = memgraph::msgs::Value::Type;
+    switch (value.type) {
+      case Type::Null:
+        return std::hash<size_t>{}(0U);
+      case Type::Bool:
+        return std::hash<bool>{}(value.bool_v);
+      case Type::Int64:
+        return std::hash<int64_t>{}(value.int_v);
+      case Type::Double:
+        return std::hash<double>{}(value.double_v);
+      case Type::String:
+        return std::hash<std::string>{}(value.string_v);
+      case Type::List:
+        LOG_FATAL("Add hash for lists");
+      case Type::Map:
+        LOG_FATAL("Add hash for maps");
+      case Type::Vertex:
+        LOG_FATAL("Add hash for vertices");
+      case Type::Edge:
+        LOG_FATAL("Add hash for edges");
+    }
+  }
+};
+
+}  // namespace std
