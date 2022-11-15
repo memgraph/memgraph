@@ -32,7 +32,7 @@ struct StorageTag {};
 struct QueryEngineTag {};
 
 template <typename TypedValue, typename EvaluationContext, typename DbAccessor, typename StorageView, typename LabelId,
-          typename PropertyValue, typename ConvFunctor, typename TError, typename Tag = StorageTag>
+          typename PropertyValue, typename ConvFunctor, typename Error, typename Tag = StorageTag>
 class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
   ExpressionEvaluator(Frame<TypedValue> *frame, const SymbolTable &symbol_table, const EvaluationContext &ctx,
@@ -100,23 +100,23 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 #undef BINARY_OPERATOR_VISITOR
 #undef UNARY_OPERATOR_VISITOR
 
-  void HandleShardError(TError &shard_error, const std::string_view accessed_object) {
+  void HandleShardError(Error &shard_error, const std::string_view accessed_object) {
     switch (shard_error) {
-      case TError::DELETED_OBJECT:
+      case Error::DELETED_OBJECT:
         throw ExpressionRuntimeException("Trying to access {} on a deleted object.", accessed_object);
-      case TError::NONEXISTENT_OBJECT:
+      case Error::NONEXISTENT_OBJECT:
         throw ExpressionRuntimeException("Trying to access {} from a node object doesn't exist.", accessed_object);
-      case TError::SERIALIZATION_ERROR:
-      case TError::VERTEX_HAS_EDGES:
-      case TError::PROPERTIES_DISABLED:
-      case TError::VERTEX_ALREADY_INSERTED:
+      case Error::SERIALIZATION_ERROR:
+      case Error::VERTEX_HAS_EDGES:
+      case Error::PROPERTIES_DISABLED:
+      case Error::VERTEX_ALREADY_INSERTED:
         throw ExpressionRuntimeException("Unexpected error when accessing {}.", accessed_object);
-      case TError::SCHEMA_NO_SCHEMA_DEFINED_FOR_LABEL:
-      case TError::SCHEMA_VERTEX_PROPERTY_WRONG_TYPE:
-      case TError::SCHEMA_VERTEX_UPDATE_PRIMARY_KEY:
-      case TError::SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL:
-      case TError::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY:
-      case TError::SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED:
+      case Error::SCHEMA_NO_SCHEMA_DEFINED_FOR_LABEL:
+      case Error::SCHEMA_VERTEX_PROPERTY_WRONG_TYPE:
+      case Error::SCHEMA_VERTEX_UPDATE_PRIMARY_KEY:
+      case Error::SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL:
+      case Error::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY:
+      case Error::SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED:
         throw ExpressionRuntimeException("Unexpected schema violation when accessing {}.", accessed_object);
     }
   }
@@ -406,7 +406,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
             typename TReturnType = std::enable_if_t<std::is_same_v<TTag, StorageTag>, bool>>
   TReturnType HasLabelImpl(const VertexAccessor &vertex, const LabelIx &label, StorageTag /*tag*/) {
     auto has_label = vertex.HasLabel(view_, GetLabel(label));
-    if (has_label.HasError() && has_label.GetError().code == TError::NONEXISTENT_OBJECT) {
+    if (has_label.HasError() && has_label.GetError().code == Error::NONEXISTENT_OBJECT) {
       // This is a very nasty and temporary hack in order to make MERGE
       // work. The old storage had the following logic when returning an
       // `OLD` view: `return old ? old : new`. That means that if the
@@ -745,7 +745,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
             class TReturnType = std::enable_if_t<std::is_same_v<TTag, StorageTag>, TypedValue>>
   TypedValue GetProperty(const TRecordAccessor &record_accessor, PropertyIx prop) {
     auto maybe_prop = record_accessor.GetProperty(view_, ctx_->properties[prop.ix]);
-    if (maybe_prop.HasError() && maybe_prop.GetError().code == TError::NONEXISTENT_OBJECT) {
+    if (maybe_prop.HasError() && maybe_prop.GetError().code == Error::NONEXISTENT_OBJECT) {
       // This is a very nasty and temporary hack in order to make MERGE work.
       // The old storage had the following logic when returning an `OLD` view:
       // `return old ? old : new`. That means that if the `OLD` view didn't
@@ -764,7 +764,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
             class TReturnType = std::enable_if_t<std::is_same_v<TTag, StorageTag>, TypedValue>>
   TypedValue GetProperty(const TRecordAccessor &record_accessor, const std::string_view name) {
     auto maybe_prop = record_accessor.GetProperty(view_, dba_->NameToProperty(name));
-    if (maybe_prop.HasError() && maybe_prop.GetError().code == TError::NONEXISTENT_OBJECT) {
+    if (maybe_prop.HasError() && maybe_prop.GetError().code == Error::NONEXISTENT_OBJECT) {
       // This is a very nasty and temporary hack in order to make MERGE work.
       // The old storage had the following logic when returning an `OLD` view:
       // `return old ? old : new`. That means that if the `OLD` view didn't
