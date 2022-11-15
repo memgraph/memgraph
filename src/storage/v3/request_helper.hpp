@@ -150,7 +150,7 @@ std::vector<Element<VertexAccessor>> OrderByVertices(Shard::Accessor &acc, DbAcc
 }
 
 template <typename TIterable>
-std::vector<Element<EdgeAccessor>> OrderByEdges(Shard::Accessor &acc, DbAccessor &dba, TIterable &iterable,
+std::vector<Element<EdgeAccessor>> OrderByEdges(DbAccessor &dba, TIterable &iterable,
                                                 std::vector<msgs::OrderBy> &order_bys,
                                                 const VertexAccessor &vertex_acc) {
   static_assert(std::is_same_v<TIterable, std::vector<EdgeAccessor>>);  // Can be extended if needed

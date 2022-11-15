@@ -987,8 +987,8 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
 
     } else {
       auto [in_edge_accessors, out_edge_accessors] = GetEdgesFromVertex(src_vertex_acc, req.direction);
-      const auto in_ordered_edges = OrderByEdges(acc, dba, in_edge_accessors, req.order_by, src_vertex_acc);
-      const auto out_ordered_edges = OrderByEdges(acc, dba, out_edge_accessors, req.order_by, src_vertex_acc);
+      const auto in_ordered_edges = OrderByEdges(dba, in_edge_accessors, req.order_by, src_vertex_acc);
+      const auto out_ordered_edges = OrderByEdges(dba, out_edge_accessors, req.order_by, src_vertex_acc);
 
       std::vector<EdgeAccessor> in_edge_ordered_accessors;
       std::transform(in_ordered_edges.begin(), in_ordered_edges.end(), std::back_inserter(in_edge_ordered_accessors),
