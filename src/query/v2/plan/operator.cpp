@@ -42,6 +42,7 @@
 #include "query/v2/shard_request_manager.hpp"
 #include "storage/v3/conversions.hpp"
 #include "storage/v3/property_value.hpp"
+#include "storage/v3/result.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
@@ -566,17 +567,24 @@ UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
 namespace {
 
 template <class TEdges>
-auto UnwrapEdgesResult(storage::v3::Result<TEdges> &&result) {
+auto UnwrapEdgesResult(storage::v3::ShardResult<TEdges> &&result) {
   if (result.HasError()) {
-    switch (result.GetError()) {
-      case storage::v3::Error::DELETED_OBJECT:
+    switch (result.GetError().code) {
+      case storage::v3::ErrorCode::DELETED_OBJECT:
         throw QueryRuntimeException("Trying to get relationships of a deleted node.");
-      case storage::v3::Error::NONEXISTENT_OBJECT:
+      case storage::v3::ErrorCode::NONEXISTENT_OBJECT:
         throw query::v2::QueryRuntimeException("Trying to get relationships from a node that doesn't exist.");
-      case storage::v3::Error::VERTEX_HAS_EDGES:
-      case storage::v3::Error::SERIALIZATION_ERROR:
-      case storage::v3::Error::PROPERTIES_DISABLED:
+      case storage::v3::ErrorCode::VERTEX_HAS_EDGES:
+      case storage::v3::ErrorCode::SERIALIZATION_ERROR:
+      case storage::v3::ErrorCode::PROPERTIES_DISABLED:
         throw QueryRuntimeException("Unexpected error when accessing relationships.");
+      case storage::v3::ErrorCode::SCHEMA_NO_SCHEMA_DEFINED_FOR_LABEL:
+      case storage::v3::ErrorCode::SCHEMA_VERTEX_PROPERTY_WRONG_TYPE:
+      case storage::v3::ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_KEY:
+      case storage::v3::ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL:
+      case storage::v3::ErrorCode::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY:
+      case storage::v3::ErrorCode::SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED:
+        throw QueryRuntimeException("SchemaViolation occurred when accessing relationships.");
     }
   }
   return std::move(*result);
@@ -843,7 +851,7 @@ concept AccessorWithProperties = requires(T value, storage::v3::PropertyId prope
                                           storage::v3::PropertyValue property_value) {
   {
     value.ClearProperties()
-    } -> std::same_as<storage::v3::Result<std::map<storage::v3::PropertyId, storage::v3::PropertyValue>>>;
+    } -> std::same_as<storage::v3::ShardResult<std::map<storage::v3::PropertyId, storage::v3::PropertyValue>>>;
   {value.SetProperty(property_id, property_value)};
 };
 

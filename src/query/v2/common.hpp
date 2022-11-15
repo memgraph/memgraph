@@ -28,7 +28,6 @@
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/result.hpp"
-#include "storage/v3/shard_operation_result.hpp"
 #include "storage/v3/view.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
@@ -85,7 +84,7 @@ inline void ExpectType(const Symbol &symbol, const TypedValue &value, TypedValue
 template <typename T>
 concept AccessorWithSetProperty = requires(T accessor, const storage::v3::PropertyId key,
                                            const storage::v3::PropertyValue new_value) {
-  { accessor.SetProperty(key, new_value) } -> std::same_as<storage::v3::Result<storage::v3::PropertyValue>>;
+  { accessor.SetProperty(key, new_value) } -> std::same_as<storage::v3::ShardResult<storage::v3::PropertyValue>>;
 };
 
 template <typename T>
@@ -93,28 +92,8 @@ concept AccessorWithSetPropertyAndValidate = requires(T accessor, const storage:
                                                       const storage::v3::PropertyValue new_value) {
   {
     accessor.SetPropertyAndValidate(key, new_value)
-    } -> std::same_as<storage::v3::ShardOperationResult<storage::v3::PropertyValue>>;
+    } -> std::same_as<storage::v3::ShardResult<storage::v3::PropertyValue>>;
 };
-
-template <typename TRecordAccessor>
-concept RecordAccessor =
-    AccessorWithSetProperty<TRecordAccessor> || AccessorWithSetPropertyAndValidate<TRecordAccessor>;
-
-inline void HandleErrorOnPropertyUpdate(const storage::v3::Error error) {
-  switch (error) {
-    case storage::v3::Error::SERIALIZATION_ERROR:
-      throw TransactionSerializationException();
-    case storage::v3::Error::DELETED_OBJECT:
-      throw QueryRuntimeException("Trying to set properties on a deleted object.");
-    case storage::v3::Error::PROPERTIES_DISABLED:
-      throw QueryRuntimeException("Can't set property because properties on edges are disabled.");
-    case storage::v3::Error::VERTEX_HAS_EDGES:
-    case storage::v3::Error::NONEXISTENT_OBJECT:
-    case storage::v3::Error::VERTEX_ALREADY_INSERTED:
-
-      throw QueryRuntimeException("Unexpected error when setting a property.");
-  }
-}
 
 int64_t QueryTimestamp();
 }  // namespace memgraph::query::v2
