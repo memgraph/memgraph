@@ -14,6 +14,7 @@
 #include <iostream>
 #include <optional>
 #include <type_traits>
+#include <unordered_map>
 #include <vector>
 
 #include "io/address.hpp"
@@ -36,6 +37,21 @@ using memgraph::io::rsm::WriteRequest;
 using memgraph::io::rsm::WriteResponse;
 using memgraph::utils::BasicResult;
 
+class AsyncRequestToken {
+  size_t id_;
+
+ public:
+  AsyncRequestToken(size_t id) : id_(id) {}
+  size_t GetId() const { return id_; }
+};
+
+template <typename RequestT, typename ResponseT>
+struct AsyncRequest {
+  Time start_time;
+  RequestT request;
+  ResponseFuture<ResponseT> future;
+};
+
 template <typename IoImpl, typename WriteRequestT, typename WriteResponseT, typename ReadRequestT,
           typename ReadResponseT>
 class RsmClient {
@@ -47,13 +63,10 @@ class RsmClient {
 
   /// State for single async read/write operations. In the future this could become a map
   /// of async operations that can be accessed via an ID etc...
-  std::optional<Time> async_read_before_;
-  std::optional<ResponseFuture<ReadResponse<ReadResponseT>>> async_read_;
-  ReadRequestT current_read_request_;
+  std::unordered_map<size_t, AsyncRequest<ReadRequestT, ReadResponse<ReadResponseT>>> async_reads_;
+  std::unordered_map<size_t, AsyncRequest<WriteRequestT, WriteResponse<WriteResponseT>>> async_writes_;
 
-  std::optional<Time> async_write_before_;
-  std::optional<ResponseFuture<WriteResponse<WriteResponseT>>> async_write_;
-  WriteRequestT current_write_request_;
+  size_t async_token_generator_ = 0;
 
   void SelectRandomLeader() {
     std::uniform_int_distribution<size_t> addr_distrib(0, (server_addrs_.size() - 1));
@@ -156,42 +169,56 @@ class RsmClient {
   }
 
   /// AsyncRead methods
-  void SendAsyncReadRequest(const ReadRequestT &req) {
-    MG_ASSERT(!async_read_);
+  AsyncRequestToken SendAsyncReadRequest(const ReadRequestT &req) {
+    size_t token = async_token_generator_++;
 
     ReadRequest<ReadRequestT> read_req = {.operation = req};
 
-    if (!async_read_before_) {
-      async_read_before_ = io_.Now();
-    }
-    current_read_request_ = std::move(req);
-    async_read_ = io_.template Request<ReadRequest<ReadRequestT>, ReadResponse<ReadResponseT>>(leader_, read_req);
+    AsyncRequest<ReadRequestT, ReadResponse<ReadResponseT>> async_request{
+        .start_time = io_.Now(),
+        .request = std::move(req),
+        .future = io_.template Request<ReadRequest<ReadRequestT>, ReadResponse<ReadResponseT>>(leader_, read_req),
+    };
+
+    async_reads_.emplace(token, std::move(async_request));
+
+    return AsyncRequestToken(token);
   }
 
-  std::optional<BasicResult<TimedOut, ReadResponseT>> PollAsyncReadRequest() {
-    MG_ASSERT(async_read_);
+  void ResendAsyncReadRequest(AsyncRequestToken &token) {
+    auto &async_request = async_reads_.at(token.GetId());
 
-    if (!async_read_->IsReady()) {
+    ReadRequest<ReadRequestT> read_req = {.operation = async_request.request};
+
+    async_request.future =
+        io_.template Request<ReadRequest<ReadRequestT>, ReadResponse<ReadResponseT>>(leader_, read_req);
+  }
+
+  std::optional<BasicResult<TimedOut, ReadResponseT>> PollAsyncReadRequest(AsyncRequestToken &token) {
+    auto &async_request = async_reads_.at(token.GetId());
+
+    if (!async_request.future.IsReady()) {
       return std::nullopt;
     }
 
     return AwaitAsyncReadRequest();
   }
 
-  std::optional<BasicResult<TimedOut, ReadResponseT>> AwaitAsyncReadRequest() {
-    ResponseResult<ReadResponse<ReadResponseT>> get_response_result = std::move(*async_read_).Wait();
-    async_read_.reset();
+  std::optional<BasicResult<TimedOut, ReadResponseT>> AwaitAsyncReadRequest(AsyncRequestToken &token) {
+    auto &async_request = async_reads_.at(token.GetId());
+    ResponseResult<ReadResponse<ReadResponseT>> get_response_result = std::move(async_request.future).Wait();
 
     const Duration overall_timeout = io_.GetDefaultTimeout();
-    const bool past_time_out = io_.Now() < *async_read_before_ + overall_timeout;
+    const bool past_time_out = io_.Now() > async_request.start_time + overall_timeout;
     const bool result_has_error = get_response_result.HasError();
 
     if (result_has_error && past_time_out) {
       // TODO static assert the exact type of error.
       spdlog::debug("client timed out while trying to communicate with leader server {}", leader_.ToString());
-      async_read_before_ = std::nullopt;
+      async_reads_.erase(token.GetId());
       return TimedOut{};
     }
+
     if (!result_has_error) {
       ResponseEnvelope<ReadResponse<ReadResponseT>> &&get_response_envelope = std::move(get_response_result.GetValue());
       ReadResponse<ReadResponseT> &&read_get_response = std::move(get_response_envelope.message);
@@ -199,54 +226,69 @@ class RsmClient {
       PossiblyRedirectLeader(read_get_response);
 
       if (read_get_response.success) {
-        async_read_before_ = std::nullopt;
+        async_reads_.erase(token.GetId());
         return std::move(read_get_response.read_return);
       }
-      SendAsyncReadRequest(current_read_request_);
-    } else if (result_has_error) {
+    } else {
       SelectRandomLeader();
-      SendAsyncReadRequest(current_read_request_);
     }
+
+    ResendAsyncReadRequest(token);
+
     return std::nullopt;
   }
 
   /// AsyncWrite methods
-  void SendAsyncWriteRequest(const WriteRequestT &req) {
-    MG_ASSERT(!async_write_);
+  AsyncRequestToken SendAsyncWriteRequest(const WriteRequestT &req) {
+    size_t token = async_token_generator_++;
 
     WriteRequest<WriteRequestT> write_req = {.operation = req};
 
-    if (!async_write_before_) {
-      async_write_before_ = io_.Now();
-    }
-    current_write_request_ = std::move(req);
-    async_write_ = io_.template Request<WriteRequest<WriteRequestT>, WriteResponse<WriteResponseT>>(leader_, write_req);
+    AsyncRequest<WriteRequestT, WriteResponse<WriteResponseT>> async_request{
+        .start_time = io_.Now(),
+        .request = std::move(req),
+        .future = io_.template Request<WriteRequest<WriteRequestT>, WriteResponse<WriteResponseT>>(leader_, write_req),
+    };
+
+    async_writes_.emplace(token, std::move(async_request));
+
+    return AsyncRequestToken(token);
   }
 
-  std::optional<BasicResult<TimedOut, WriteResponseT>> PollAsyncWriteRequest() {
-    MG_ASSERT(async_write_);
+  void ResendAsyncWriteRequest(AsyncRequestToken &token) {
+    auto &async_request = async_writes_.at(token.GetId());
 
-    if (!async_write_->IsReady()) {
+    WriteRequest<WriteRequestT> write_req = {.operation = async_request.request};
+
+    async_request.future =
+        io_.template Request<WriteRequest<WriteRequestT>, WriteResponse<WriteResponseT>>(leader_, write_req);
+  }
+
+  std::optional<BasicResult<TimedOut, WriteResponseT>> PollAsyncWriteRequest(AsyncRequestToken &token) {
+    auto &async_request = async_writes_.at(token.GetId());
+
+    if (!async_request.future.IsReady()) {
       return std::nullopt;
     }
 
     return AwaitAsyncWriteRequest();
   }
 
-  std::optional<BasicResult<TimedOut, WriteResponseT>> AwaitAsyncWriteRequest() {
-    ResponseResult<WriteResponse<WriteResponseT>> get_response_result = std::move(*async_write_).Wait();
-    async_write_.reset();
+  std::optional<BasicResult<TimedOut, WriteResponseT>> AwaitAsyncWriteRequest(AsyncRequestToken &token) {
+    auto &async_request = async_writes_.at(token.GetId());
+    ResponseResult<WriteResponse<WriteResponseT>> get_response_result = std::move(async_request.future).Wait();
 
     const Duration overall_timeout = io_.GetDefaultTimeout();
-    const bool past_time_out = io_.Now() < *async_write_before_ + overall_timeout;
+    const bool past_time_out = io_.Now() > async_request.start_time + overall_timeout;
     const bool result_has_error = get_response_result.HasError();
 
     if (result_has_error && past_time_out) {
       // TODO static assert the exact type of error.
       spdlog::debug("client timed out while trying to communicate with leader server {}", leader_.ToString());
-      async_write_before_ = std::nullopt;
+      async_writes_.erase(token.GetId());
       return TimedOut{};
     }
+
     if (!result_has_error) {
       ResponseEnvelope<WriteResponse<WriteResponseT>> &&get_response_envelope =
           std::move(get_response_result.GetValue());
@@ -255,14 +297,15 @@ class RsmClient {
       PossiblyRedirectLeader(write_get_response);
 
       if (write_get_response.success) {
-        async_write_before_ = std::nullopt;
+        async_writes_.erase(token.GetId());
         return std::move(write_get_response.write_return);
       }
-      SendAsyncWriteRequest(current_write_request_);
-    } else if (result_has_error) {
+    } else {
       SelectRandomLeader();
-      SendAsyncWriteRequest(current_write_request_);
     }
+
+    ResendAsyncWriteRequest(token);
+
     return std::nullopt;
   }
 };

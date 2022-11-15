@@ -73,6 +73,13 @@ class RsmStorageClientManager {
 };
 
 template <typename TRequest>
+struct ShardRequestState {
+  memgraph::coordinator::Shard shard;
+  TRequest request;
+  std::optional<io::rsm::AsyncRequestToken> async_request_token;
+};
+
+template <typename TRequest>
 struct ExecutionState {
   using CompoundKey = memgraph::io::rsm::ShardRsmKey;
   using Shard = memgraph::coordinator::Shard;
@@ -91,14 +98,13 @@ struct ExecutionState {
   // it pulled all the requested data from the given Shard, it will be removed from the Vector. When the Vector becomes
   // empty, it means that all of the requests have completed succefully.
   // TODO(gvolfing)
-  // Maybe make this into a more complex object to be able to keep track of paginated resutls. E.g. instead of a vector
+  // Maybe make this into a more complex object to be able to keep track of paginated results. E.g. instead of a vector
   // of Shards make it into a std::vector<std::pair<Shard, PaginatedResultType>> (probably a struct instead of a pair)
   // where PaginatedResultType is an enum signaling the progress on the given request. This way we can easily check if
   // a partial response on a shard(if there is one) is finished and we can send off the request for the next batch.
-  std::vector<Shard> shard_cache;
   // 1-1 mapping with `shard_cache`.
   // A vector that tracks request metadata for each shard (For example, next_id for a ScanAll on Shard A)
-  std::vector<TRequest> requests;
+  std::vector<ShardRequestState<TRequest>> requests;
   State state = INITIALIZING;
 };
 
@@ -259,8 +265,8 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     };
 
     std::map<Shard, PaginatedResponseState> paginated_response_tracker;
-    for (const auto &shard : state.shard_cache) {
-      paginated_response_tracker.insert(std::make_pair(shard, PaginatedResponseState::Pending));
+    for (const auto &request : state.requests) {
+      paginated_response_tracker.insert(std::make_pair(request.shard, PaginatedResponseState::Pending));
     }
 
     do {
@@ -278,15 +284,14 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     MG_ASSERT(!new_vertices.empty());
     MaybeInitializeExecutionState(state, new_vertices);
     std::vector<CreateVerticesResponse> responses;
-    auto &shard_cache_ref = state.shard_cache;
 
     // 1. Send the requests.
-    SendAllRequests(state, shard_cache_ref);
+    SendAllRequests(state);
 
     // 2. Block untill all the futures are exhausted
     do {
       AwaitOnResponses(state, responses);
-    } while (!state.shard_cache.empty());
+    } while (!state.requests.empty());
 
     MaybeCompleteState(state);
     // TODO(kostasrim) Before returning start prefetching the batch (this shall be done once we get MgFuture as return
@@ -299,11 +304,9 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     MG_ASSERT(!new_edges.empty());
     MaybeInitializeExecutionState(state, new_edges);
     std::vector<CreateExpandResponse> responses;
-    auto &shard_cache_ref = state.shard_cache;
-    size_t id{0};
-    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++id) {
-      auto &storage_client = GetStorageClientForShard(*shard_it);
-      WriteRequests req = state.requests[id];
+    for (auto &request : state.requests) {
+      auto &storage_client = GetStorageClientForShard(request.shard);
+      WriteRequests req = request.request;
       auto write_response_result = storage_client.SendWriteRequest(std::move(req));
       if (write_response_result.HasError()) {
         throw std::runtime_error("CreateVertices request timedout");
@@ -315,9 +318,9 @@ class ShardRequestManager : public ShardRequestManagerInterface {
         throw std::runtime_error("CreateExpand request did not succeed");
       }
       responses.push_back(mapped_response);
-      shard_it = shard_cache_ref.erase(shard_it);
     }
     // We are done with this state
+    state.requests.clear();
     MaybeCompleteState(state);
     return responses;
   }
@@ -330,15 +333,14 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     // must be fetched again with an ExpandOne(Edges.dst)
     MaybeInitializeExecutionState(state, std::move(request));
     std::vector<ExpandOneResponse> responses;
-    auto &shard_cache_ref = state.shard_cache;
 
     // 1. Send the requests.
-    SendAllRequests(state, shard_cache_ref);
+    SendAllRequests(state);
 
     // 2. Block untill all the futures are exhausted
     do {
       AwaitOnResponses(state, responses);
-    } while (!state.shard_cache.empty());
+    } while (!state.requests.empty());
     std::vector<ExpandOneResultRow> result_rows;
     const auto total_row_count = std::accumulate(
         responses.begin(), responses.end(), 0,
@@ -402,13 +404,17 @@ class ShardRequestManager : public ShardRequestManagerInterface {
       if (!per_shard_request_table.contains(shard)) {
         CreateVerticesRequest create_v_rqst{.transaction_id = transaction_id_};
         per_shard_request_table.insert(std::pair(shard, std::move(create_v_rqst)));
-        state.shard_cache.push_back(shard);
       }
       per_shard_request_table[shard].new_vertices.push_back(std::move(new_vertex));
     }
 
-    for (auto &[shard, rqst] : per_shard_request_table) {
-      state.requests.push_back(std::move(rqst));
+    for (auto &[shard, request] : per_shard_request_table) {
+      ShardRequestState<CreateVerticesRequest> shard_request_state{
+          .shard = shard,
+          .request = request,
+          .async_request_token = std::nullopt,
+      };
+      state.requests.emplace_back(std::move(shard_request_state));
     }
     state.state = ExecutionState<CreateVerticesRequest>::EXECUTING;
   }
@@ -445,8 +451,12 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     }
 
     for (auto &[shard, request] : per_shard_request_table) {
-      state.shard_cache.push_back(shard);
-      state.requests.push_back(std::move(request));
+      ShardRequestState<CreateExpandRequest> shard_request_state{
+          .shard = shard,
+          .request = request,
+          .async_request_token = std::nullopt,
+      };
+      state.requests.emplace_back(std::move(shard_request_state));
     }
     state.state = ExecutionState<CreateExpandRequest>::EXECUTING;
   }
@@ -470,11 +480,18 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     for (auto &shards : multi_shards) {
       for (auto &[key, shard] : shards) {
         MG_ASSERT(!shard.empty());
-        state.shard_cache.push_back(std::move(shard));
-        ScanVerticesRequest rqst;
-        rqst.transaction_id = transaction_id_;
-        rqst.start_id.second = storage::conversions::ConvertValueVector(key);
-        state.requests.push_back(std::move(rqst));
+
+        ScanVerticesRequest request;
+        request.transaction_id = transaction_id_;
+        request.start_id.second = storage::conversions::ConvertValueVector(key);
+
+        ShardRequestState<ScanVerticesRequest> shard_request_state{
+            .shard = shard,
+            .request = std::move(request),
+            .async_request_token = std::nullopt,
+        };
+
+        state.requests.emplace_back(std::move(shard_request_state));
       }
     }
     state.state = ExecutionState<ScanVerticesRequest>::EXECUTING;
@@ -497,13 +514,18 @@ class ShardRequestManager : public ShardRequestManagerInterface {
           shards_map_.GetShardForKey(vertex.first.id, storage::conversions::ConvertPropertyVector(vertex.second));
       if (!per_shard_request_table.contains(shard)) {
         per_shard_request_table.insert(std::pair(shard, top_level_rqst_template));
-        state.shard_cache.push_back(shard);
       }
       per_shard_request_table[shard].src_vertices.push_back(vertex);
     }
 
-    for (auto &[shard, rqst] : per_shard_request_table) {
-      state.requests.push_back(std::move(rqst));
+    for (auto &[shard, request] : per_shard_request_table) {
+      ShardRequestState<ExpandOneRequest> shard_request_state{
+          .shard = shard,
+          .request = request,
+          .async_request_token = std::nullopt,
+      };
+
+      state.requests.emplace_back(std::move(shard_request_state));
     }
     state.state = ExecutionState<ExpandOneRequest>::EXECUTING;
   }
@@ -533,65 +555,46 @@ class ShardRequestManager : public ShardRequestManagerInterface {
   }
 
   void SendAllRequests(ExecutionState<ScanVerticesRequest> &state) {
-    int64_t shard_idx = 0;
-    for (const auto &request : state.requests) {
-      const auto &current_shard = state.shard_cache[shard_idx];
+    for (auto &request : state.requests) {
+      const auto &current_shard = request.shard;
 
       auto &storage_client = GetStorageClientForShard(current_shard);
-      ReadRequests req = request;
-      storage_client.SendAsyncReadRequest(request);
+      ReadRequests req = request.request;
 
-      ++shard_idx;
+      request.async_request_token = storage_client.SendAsyncReadRequest(request.request);
     }
   }
 
-  void SendAllRequests(ExecutionState<CreateVerticesRequest> &state,
-                       std::vector<memgraph::coordinator::Shard> &shard_cache_ref) {
-    size_t id = 0;
-    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++shard_it) {
-      // This is fine because all new_vertices of each request end up on the same shard
-      const auto labels = state.requests[id].new_vertices[0].label_ids;
-      auto req_deep_copy = state.requests[id];
+  void SendAllRequests(ExecutionState<CreateVerticesRequest> &state) {
+    for (auto &request : state.requests) {
+      auto req_deep_copy = request.request;
 
       for (auto &new_vertex : req_deep_copy.new_vertices) {
         new_vertex.label_ids.erase(new_vertex.label_ids.begin());
       }
 
-      auto &storage_client = GetStorageClientForShard(*shard_it);
+      auto &storage_client = GetStorageClientForShard(request.shard);
 
       WriteRequests req = req_deep_copy;
-      storage_client.SendAsyncWriteRequest(req);
-      ++id;
+      request.async_request_token = storage_client.SendAsyncWriteRequest(req);
     }
   }
 
-  void SendAllRequests(ExecutionState<ExpandOneRequest> &state,
-                       std::vector<memgraph::coordinator::Shard> &shard_cache_ref) {
-    size_t id = 0;
-    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++shard_it) {
-      auto &storage_client = GetStorageClientForShard(*shard_it);
-      ReadRequests req = state.requests[id];
-      storage_client.SendAsyncReadRequest(req);
-      ++id;
+  void SendAllRequests(ExecutionState<ExpandOneRequest> &state) {
+    for (auto &request : state.requests) {
+      auto &storage_client = GetStorageClientForShard(request.shard);
+      ReadRequests req = request.request;
+      request.async_request_token = storage_client.SendAsyncReadRequest(req);
     }
   }
 
   void AwaitOnResponses(ExecutionState<CreateVerticesRequest> &state, std::vector<CreateVerticesResponse> &responses) {
-    auto &shard_cache_ref = state.shard_cache;
-    int64_t request_idx = 0;
+    for (auto &request : state.requests) {
+      auto &storage_client = GetStorageClientForShard(request.shard);
 
-    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end();) {
-      // This is fine because all new_vertices of each request end up on the same shard
-      const auto labels = state.requests[request_idx].new_vertices[0].label_ids;
-
-      auto &storage_client = GetStorageClientForShard(*shard_it);
-
-      auto poll_result = storage_client.AwaitAsyncWriteRequest();
-      if (!poll_result) {
-        ++shard_it;
-        ++request_idx;
-
-        continue;
+      auto poll_result = storage_client.AwaitAsyncWriteRequest(request.async_request_token.value());
+      while (!poll_result) {
+        poll_result = storage_client.AwaitAsyncWriteRequest(request.async_request_token.value());
       }
 
       if (poll_result->HasError()) {
@@ -605,26 +608,17 @@ class ShardRequestManager : public ShardRequestManagerInterface {
         throw std::runtime_error("CreateVertices request did not succeed");
       }
       responses.push_back(response);
-
-      shard_it = shard_cache_ref.erase(shard_it);
-      // Needed to maintain the 1-1 mapping between the ShardCache and the requests.
-      auto it = state.requests.begin() + request_idx;
-      state.requests.erase(it);
     }
+    state.requests.clear();
   }
 
   void AwaitOnResponses(ExecutionState<ExpandOneRequest> &state, std::vector<ExpandOneResponse> &responses) {
-    auto &shard_cache_ref = state.shard_cache;
-    int64_t request_idx = 0;
+    for (auto &request : state.requests) {
+      auto &storage_client = GetStorageClientForShard(request.shard);
 
-    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end();) {
-      auto &storage_client = GetStorageClientForShard(*shard_it);
-
-      auto poll_result = storage_client.PollAsyncReadRequest();
-      if (!poll_result) {
-        ++shard_it;
-        ++request_idx;
-        continue;
+      auto poll_result = storage_client.AwaitAsyncReadRequest(request.async_request_token.value());
+      while (!poll_result) {
+        poll_result = storage_client.AwaitAsyncReadRequest(request.async_request_token.value());
       }
 
       if (poll_result->HasError()) {
@@ -642,36 +636,28 @@ class ShardRequestManager : public ShardRequestManagerInterface {
       }
 
       responses.push_back(std::move(response));
-      shard_it = shard_cache_ref.erase(shard_it);
-      // Needed to maintain the 1-1 mapping between the ShardCache and the requests.
-      auto it = state.requests.begin() + request_idx;
-      state.requests.erase(it);
     }
+    state.requests.clear();
   }
 
   void AwaitOnPaginatedRequests(ExecutionState<ScanVerticesRequest> &state,
                                 std::vector<ScanVerticesResponse> &responses,
                                 std::map<Shard, PaginatedResponseState> &paginated_response_tracker) {
-    auto &shard_cache_ref = state.shard_cache;
+    std::vector<int> to_erase{};
 
-    // Find the first request that is not holding a paginated response.
-    int64_t request_idx = 0;
-    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end();) {
-      if (paginated_response_tracker.at(*shard_it) != PaginatedResponseState::Pending) {
-        ++shard_it;
-        ++request_idx;
+    for (int i = 0; i < state.requests.size(); i++) {
+      auto &request = state.requests[i];
+      // only operate on paginated requests
+      if (paginated_response_tracker.at(request.shard) != PaginatedResponseState::Pending) {
         continue;
       }
 
-      auto &storage_client = GetStorageClientForShard(*shard_it);
+      auto &storage_client = GetStorageClientForShard(request.shard);
 
-      auto await_result = storage_client.AwaitAsyncReadRequest();
-
-      if (!await_result) {
-        // Redirection has occured.
-        ++shard_it;
-        ++request_idx;
-        continue;
+      // drive it to completion
+      auto await_result = storage_client.AwaitAsyncReadRequest(request.async_request_token.value());
+      while (!await_result) {
+        await_result = storage_client.AwaitAsyncReadRequest(request.async_request_token.value());
       }
 
       if (await_result->HasError()) {
@@ -685,17 +671,22 @@ class ShardRequestManager : public ShardRequestManagerInterface {
       }
 
       if (!response.next_start_id) {
-        paginated_response_tracker.erase((*shard_it));
-        shard_cache_ref.erase(shard_it);
-        // Needed to maintain the 1-1 mapping between the ShardCache and the requests.
-        auto it = state.requests.begin() + request_idx;
-        state.requests.erase(it);
-
+        paginated_response_tracker.erase(request.shard);
+        to_erase.push_back(i);
       } else {
-        state.requests[request_idx].start_id.second = response.next_start_id->second;
-        paginated_response_tracker[*shard_it] = PaginatedResponseState::PartiallyFinished;
+        request.request.start_id.second = response.next_start_id->second;
+        paginated_response_tracker[request.shard] = PaginatedResponseState::PartiallyFinished;
       }
+
       responses.push_back(std::move(response));
+
+      // reverse sort to_erase to remove requests in reverse order for correctness
+      std::sort(to_erase.begin(), to_erase.end(), std::greater<>());
+
+      auto requests_begin = state.requests.begin();
+      for (int i : to_erase) {
+        state.requests.erase(requests_begin + i);
+      }
     }
   }
 
