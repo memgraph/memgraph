@@ -21,6 +21,7 @@
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_store.hpp"
 #include "storage/v3/property_value.hpp"
+#include "storage/v3/result.hpp"
 #include "storage/v3/view.hpp"
 #include "utils/memory.hpp"
 
@@ -87,6 +88,6 @@ struct EvaluationContext {
 using ExpressionEvaluator =
     memgraph::expr::ExpressionEvaluator<TypedValue, EvaluationContext, DbAccessor, storage::v3::View,
                                         storage::v3::LabelId, storage::v3::PropertyStore, PropertyToTypedValueConverter,
-                                        memgraph::storage::v3::Error>;
+                                        memgraph::storage::v3::ErrorCode>;
 
 }  // namespace memgraph::storage::v3

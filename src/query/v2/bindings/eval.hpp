@@ -21,11 +21,12 @@
 #include "query/v2/requests.hpp"
 #include "storage/v3/conversions.hpp"
 #include "storage/v3/property_value.hpp"
+#include "storage/v3/result.hpp"
 #include "storage/v3/view.hpp"
 
 namespace memgraph::msgs {
 class ShardRequestManagerInterface;
-} // namespace memgraph::msgs
+}  // namespace memgraph::msgs
 
 namespace memgraph::query::v2 {
 
@@ -42,8 +43,10 @@ class Callable {
 };
 
 }  // namespace detail
-using ExpressionEvaluator = memgraph::expr::ExpressionEvaluator<
-    TypedValue, memgraph::query::v2::EvaluationContext, memgraph::msgs::ShardRequestManagerInterface, storage::v3::View,
-    storage::v3::LabelId, msgs::Value, detail::Callable, memgraph::storage::v3::Error, memgraph::expr::QueryEngineTag>;
+using ExpressionEvaluator =
+    memgraph::expr::ExpressionEvaluator<TypedValue, memgraph::query::v2::EvaluationContext,
+                                        memgraph::msgs::ShardRequestManagerInterface, storage::v3::View,
+                                        storage::v3::LabelId, msgs::Value, detail::Callable,
+                                        memgraph::storage::v3::ErrorCode, memgraph::expr::QueryEngineTag>;
 
 }  // namespace memgraph::query::v2
