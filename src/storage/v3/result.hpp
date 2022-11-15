@@ -46,6 +46,8 @@ struct ShardError {
   // TODO Maybe add category
   std::string message;
   std::string source;
+
+  inline friend bool operator==(const ShardError &lhs, const ShardError &rhs) { return lhs.code == rhs.code; }
 };
 
 #define SHARD_ERROR(...) memgraph::storage::v3::ShardError(__VA_ARGS__, fmt::format("{}:{}", __FILE__, __LINE__))

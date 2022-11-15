@@ -23,7 +23,6 @@
 #include "storage/v3/key_store.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/result.hpp"
-#include "storage/v3/shard_operation_result.hpp"
 
 ///////////////////////////////////////////////////////////
 // Our communication layer and query engine don't mix

@@ -579,7 +579,7 @@ TEST_P(StorageV3, VertexDeleteSerializationError) {
     EXPECT_EQ(CountVertices(acc2, View::NEW), 1U);
     auto res = acc2.DeleteVertex(&*vertex);
     ASSERT_TRUE(res.HasError());
-    ASSERT_EQ(res.GetError(), Error::SERIALIZATION_ERROR);
+    ASSERT_EQ(res.GetError(), SHARD_ERROR(ErrorCode::SERIALIZATION_ERROR));
     EXPECT_EQ(CountVertices(acc2, View::OLD), 1U);
     EXPECT_EQ(CountVertices(acc2, View::NEW), 1U);
     acc2.AdvanceCommand();
@@ -660,12 +660,11 @@ TEST_P(StorageV3, VertexDeleteSpecialCases) {
   }
 }
 
-template <typename TError, typename TResultHolder>
-void AssertErrorInVariant(TResultHolder &holder, TError error_type) {
-  ASSERT_TRUE(holder.HasError());
-  const auto error = holder.GetError();
-  ASSERT_TRUE(std::holds_alternative<TError>(error));
-  ASSERT_EQ(std::get<TError>(error), error_type);
+template <typename T>
+void AssertShardErrorEqual(const ShardResult<T> &lhs, const ShardError &rhs) {
+  ASSERT_TRUE(lhs.HasError());
+  const auto error = lhs.GetError();
+  ASSERT_EQ(error, rhs);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -711,20 +710,20 @@ TEST_P(StorageV3, VertexDeleteLabel) {
 
     // Check whether label 5 exists
     ASSERT_FALSE(vertex->HasLabel(label5, View::OLD).GetValue());
-    ASSERT_EQ(vertex->HasLabel(label5, View::NEW).GetError(), Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex->HasLabel(label5, View::NEW).GetError(), SHARD_ERROR(ErrorCode::DELETED_OBJECT));
     ASSERT_EQ(vertex->Labels(View::OLD)->size(), 0);
-    ASSERT_EQ(vertex->Labels(View::NEW).GetError(), Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex->Labels(View::NEW).GetError(), SHARD_ERROR(ErrorCode::DELETED_OBJECT));
 
     // Try to add the label
     {
       auto ret = vertex->AddLabelAndValidate(label5);
-      AssertErrorInVariant(ret, Error::DELETED_OBJECT);
+      AssertShardErrorEqual(ret, SHARD_ERROR(ErrorCode::DELETED_OBJECT));
     }
 
     // Try to remove the label
     {
       auto ret = vertex->RemoveLabelAndValidate(label5);
-      AssertErrorInVariant(ret, Error::DELETED_OBJECT);
+      AssertShardErrorEqual(ret, SHARD_ERROR(ErrorCode::DELETED_OBJECT));
     }
 
     acc.Abort();
@@ -779,33 +778,33 @@ TEST_P(StorageV3, VertexDeleteLabel) {
 
     // Check whether label 5 exists
     ASSERT_TRUE(vertex->HasLabel(label5, View::OLD).GetValue());
-    ASSERT_EQ(vertex->HasLabel(label5, View::NEW).GetError(), Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex->HasLabel(label5, View::NEW).GetError(), SHARD_ERROR(ErrorCode::DELETED_OBJECT));
     {
       auto labels = vertex->Labels(View::OLD).GetValue();
       ASSERT_EQ(labels.size(), 1);
       ASSERT_EQ(labels[0], label5);
     }
-    ASSERT_EQ(vertex->Labels(View::NEW).GetError(), Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex->Labels(View::NEW).GetError(), SHARD_ERROR(ErrorCode::DELETED_OBJECT));
 
     // Advance command
     acc.AdvanceCommand();
 
     // Check whether label 5 exists
-    ASSERT_EQ(vertex->HasLabel(label5, View::OLD).GetError(), Error::DELETED_OBJECT);
-    ASSERT_EQ(vertex->HasLabel(label5, View::NEW).GetError(), Error::DELETED_OBJECT);
-    ASSERT_EQ(vertex->Labels(View::OLD).GetError(), Error::DELETED_OBJECT);
-    ASSERT_EQ(vertex->Labels(View::NEW).GetError(), Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex->HasLabel(label5, View::OLD).GetError(), SHARD_ERROR(ErrorCode::DELETED_OBJECT));
+    ASSERT_EQ(vertex->HasLabel(label5, View::NEW).GetError(), SHARD_ERROR(ErrorCode::DELETED_OBJECT));
+    ASSERT_EQ(vertex->Labels(View::OLD).GetError(), SHARD_ERROR(ErrorCode::DELETED_OBJECT));
+    ASSERT_EQ(vertex->Labels(View::NEW).GetError(), SHARD_ERROR(ErrorCode::DELETED_OBJECT));
 
     // Try to add the label
     {
       auto ret = vertex->AddLabelAndValidate(label5);
-      AssertErrorInVariant(ret, Error::DELETED_OBJECT);
+      AssertShardErrorEqual(ret, SHARD_ERROR(ErrorCode::DELETED_OBJECT));
     }
 
     // Try to remove the label
     {
       auto ret = vertex->RemoveLabelAndValidate(label5);
-      AssertErrorInVariant(ret, Error::DELETED_OBJECT);
+      AssertShardErrorEqual(ret, SHARD_ERROR(ErrorCode::DELETED_OBJECT));
     }
 
     acc.Abort();
@@ -855,14 +854,14 @@ TEST_P(StorageV3, VertexDeleteProperty) {
 
     // Check whether label 5 exists
     ASSERT_TRUE(vertex->GetProperty(property5, View::OLD)->IsNull());
-    ASSERT_EQ(vertex->GetProperty(property5, View::NEW).GetError(), Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex->GetProperty(property5, View::NEW).GetError(), SHARD_ERROR(ErrorCode::DELETED_OBJECT));
     ASSERT_EQ(vertex->Properties(View::OLD)->size(), 0);
-    ASSERT_EQ(vertex->Properties(View::NEW).GetError(), Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex->Properties(View::NEW).GetError(), SHARD_ERROR(ErrorCode::DELETED_OBJECT));
 
     // Try to set the property5
     {
       auto ret = vertex->SetPropertyAndValidate(property5, PropertyValue("haihai"));
-      AssertErrorInVariant(ret, Error::DELETED_OBJECT);
+      AssertShardErrorEqual(ret, SHARD_ERROR(ErrorCode::DELETED_OBJECT));
     }
 
     acc.Abort();
@@ -918,27 +917,27 @@ TEST_P(StorageV3, VertexDeleteProperty) {
 
     // Check whether property 5 exists
     ASSERT_EQ(vertex->GetProperty(property5, View::OLD)->ValueString(), "nandare");
-    ASSERT_EQ(vertex->GetProperty(property5, View::NEW).GetError(), Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex->GetProperty(property5, View::NEW).GetError(), SHARD_ERROR(ErrorCode::DELETED_OBJECT));
     {
       auto properties = vertex->Properties(View::OLD).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[property5].ValueString(), "nandare");
     }
-    ASSERT_EQ(vertex->Properties(View::NEW).GetError(), Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex->Properties(View::NEW).GetError(), SHARD_ERROR(ErrorCode::DELETED_OBJECT));
 
     // Advance command
     acc.AdvanceCommand();
 
     // Check whether property 5 exists
-    ASSERT_EQ(vertex->GetProperty(property5, View::OLD).GetError(), Error::DELETED_OBJECT);
-    ASSERT_EQ(vertex->GetProperty(property5, View::NEW).GetError(), Error::DELETED_OBJECT);
-    ASSERT_EQ(vertex->Properties(View::OLD).GetError(), Error::DELETED_OBJECT);
-    ASSERT_EQ(vertex->Properties(View::NEW).GetError(), Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex->GetProperty(property5, View::OLD).GetError(), SHARD_ERROR(ErrorCode::DELETED_OBJECT));
+    ASSERT_EQ(vertex->GetProperty(property5, View::NEW).GetError(), SHARD_ERROR(ErrorCode::DELETED_OBJECT));
+    ASSERT_EQ(vertex->Properties(View::OLD).GetError(), SHARD_ERROR(ErrorCode::DELETED_OBJECT));
+    ASSERT_EQ(vertex->Properties(View::NEW).GetError(), SHARD_ERROR(ErrorCode::DELETED_OBJECT));
 
     // Try to set the property
     {
       auto ret = vertex->SetPropertyAndValidate(property5, PropertyValue("haihai"));
-      AssertErrorInVariant(ret, Error::DELETED_OBJECT);
+      AssertShardErrorEqual(ret, SHARD_ERROR(ErrorCode::DELETED_OBJECT));
     }
 
     acc.Abort();
@@ -1371,7 +1370,7 @@ TEST_P(StorageV3, VertexLabelSerializationError) {
 
     {
       auto res = vertex->AddLabelAndValidate(label1);
-      AssertErrorInVariant(res, Error::SERIALIZATION_ERROR);
+      AssertShardErrorEqual(res, SHARD_ERROR(ErrorCode::SERIALIZATION_ERROR));
     }
   }
 
@@ -1865,7 +1864,7 @@ TEST_P(StorageV3, VertexPropertySerializationError) {
 
     {
       auto res = vertex->SetPropertyAndValidate(property2, PropertyValue("nandare"));
-      AssertErrorInVariant(res, Error::SERIALIZATION_ERROR);
+      AssertShardErrorEqual(res, SHARD_ERROR(ErrorCode::SERIALIZATION_ERROR));
     }
   }
 
@@ -2255,14 +2254,14 @@ TEST_P(StorageV3, VertexNonexistentLabelPropertyEdgeAPI) {
   auto vertex = CreateVertexAndValidate(acc, {}, PropertyValue{0}, {});
 
   // Check state before (OLD view).
-  ASSERT_EQ(vertex.Labels(View::OLD).GetError(), Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex.HasLabel(label1, View::OLD).GetError(), Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex.Properties(View::OLD).GetError(), Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex.GetProperty(property1, View::OLD).GetError(), Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex.InEdges(View::OLD).GetError(), Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex.OutEdges(View::OLD).GetError(), Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex.InDegree(View::OLD).GetError(), Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex.OutDegree(View::OLD).GetError(), Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.Labels(View::OLD).GetError(), SHARD_ERROR(ErrorCode::NONEXISTENT_OBJECT));
+  ASSERT_EQ(vertex.HasLabel(label1, View::OLD).GetError(), SHARD_ERROR(ErrorCode::NONEXISTENT_OBJECT));
+  ASSERT_EQ(vertex.Properties(View::OLD).GetError(), SHARD_ERROR(ErrorCode::NONEXISTENT_OBJECT));
+  ASSERT_EQ(vertex.GetProperty(property1, View::OLD).GetError(), SHARD_ERROR(ErrorCode::NONEXISTENT_OBJECT));
+  ASSERT_EQ(vertex.InEdges(View::OLD).GetError(), SHARD_ERROR(ErrorCode::NONEXISTENT_OBJECT));
+  ASSERT_EQ(vertex.OutEdges(View::OLD).GetError(), SHARD_ERROR(ErrorCode::NONEXISTENT_OBJECT));
+  ASSERT_EQ(vertex.InDegree(View::OLD).GetError(), SHARD_ERROR(ErrorCode::NONEXISTENT_OBJECT));
+  ASSERT_EQ(vertex.OutDegree(View::OLD).GetError(), SHARD_ERROR(ErrorCode::NONEXISTENT_OBJECT));
 
   // Check state before (NEW view).
   ASSERT_EQ(vertex.Labels(View::NEW)->size(), 0);
@@ -2282,14 +2281,14 @@ TEST_P(StorageV3, VertexNonexistentLabelPropertyEdgeAPI) {
                   .HasValue());
 
   // Check state after (OLD view).
-  ASSERT_EQ(vertex.Labels(View::OLD).GetError(), Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex.HasLabel(label1, View::OLD).GetError(), Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex.Properties(View::OLD).GetError(), Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex.GetProperty(property1, View::OLD).GetError(), Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex.InEdges(View::OLD).GetError(), Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex.OutEdges(View::OLD).GetError(), Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex.InDegree(View::OLD).GetError(), Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex.OutDegree(View::OLD).GetError(), Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.Labels(View::OLD).GetError(), SHARD_ERROR(ErrorCode::NONEXISTENT_OBJECT));
+  ASSERT_EQ(vertex.HasLabel(label1, View::OLD).GetError(), SHARD_ERROR(ErrorCode::NONEXISTENT_OBJECT));
+  ASSERT_EQ(vertex.Properties(View::OLD).GetError(), SHARD_ERROR(ErrorCode::NONEXISTENT_OBJECT));
+  ASSERT_EQ(vertex.GetProperty(property1, View::OLD).GetError(), SHARD_ERROR(ErrorCode::NONEXISTENT_OBJECT));
+  ASSERT_EQ(vertex.InEdges(View::OLD).GetError(), SHARD_ERROR(ErrorCode::NONEXISTENT_OBJECT));
+  ASSERT_EQ(vertex.OutEdges(View::OLD).GetError(), SHARD_ERROR(ErrorCode::NONEXISTENT_OBJECT));
+  ASSERT_EQ(vertex.InDegree(View::OLD).GetError(), SHARD_ERROR(ErrorCode::NONEXISTENT_OBJECT));
+  ASSERT_EQ(vertex.OutDegree(View::OLD).GetError(), SHARD_ERROR(ErrorCode::NONEXISTENT_OBJECT));
 
   // Check state after (NEW view).
   ASSERT_EQ(vertex.Labels(View::NEW)->size(), 1);
@@ -2657,42 +2656,31 @@ TEST_P(StorageV3, TestCreateVertexAndValidate) {
 
     ASSERT_TRUE(vertex2.HasError());
     auto error = vertex2.GetError();
-    auto error_ptr = std::get_if<memgraph::storage::v3::Error>(&error);
-    ASSERT_TRUE(error_ptr);
-    ASSERT_TRUE(*error_ptr == storage::v3::Error::VERTEX_ALREADY_INSERTED);
+    ASSERT_TRUE(error.code == storage::v3::ErrorCode::VERTEX_ALREADY_INSERTED);
   }
   {
     auto acc = store.Access(GetNextHlc());
     auto vertex = acc.CreateVertexAndValidate({primary_label}, {PropertyValue{0}}, {});
     ASSERT_TRUE(vertex.HasError());
-    ASSERT_TRUE(std::holds_alternative<SchemaViolation>(vertex.GetError()));
-    EXPECT_EQ(std::get<SchemaViolation>(vertex.GetError()),
-              SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_SECONDARY_LABEL_IS_PRIMARY, primary_label));
+    EXPECT_EQ(vertex.GetError(), SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY));
   }
   {
     auto acc = store.Access(GetNextHlc());
     auto vertex = acc.CreateVertexAndValidate({primary_label}, {PropertyValue{0}}, {});
     ASSERT_TRUE(vertex.HasError());
-    ASSERT_TRUE(std::holds_alternative<SchemaViolation>(vertex.GetError()));
-    EXPECT_EQ(std::get<SchemaViolation>(vertex.GetError()),
-              SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_SECONDARY_LABEL_IS_PRIMARY, primary_label));
+    EXPECT_EQ(vertex.GetError(), SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY));
   }
   {
     auto acc = store.Access(GetNextHlc());
     auto vertex = acc.CreateVertexAndValidate({}, {}, {});
     ASSERT_TRUE(vertex.HasError());
-    ASSERT_TRUE(std::holds_alternative<SchemaViolation>(vertex.GetError()));
-    EXPECT_EQ(std::get<SchemaViolation>(vertex.GetError()),
-              SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_PRIMARY_PROPERTIES_UNDEFINED, primary_label));
+    EXPECT_EQ(vertex.GetError(), SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED));
   }
   {
     auto acc = store.Access(GetNextHlc());
     auto vertex = acc.CreateVertexAndValidate({}, {PropertyValue{"test"}}, {});
     ASSERT_TRUE(vertex.HasError());
-    ASSERT_TRUE(std::holds_alternative<SchemaViolation>(vertex.GetError()));
-    EXPECT_EQ(std::get<SchemaViolation>(vertex.GetError()),
-              SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_PROPERTY_WRONG_TYPE, primary_label,
-                              {primary_property, common::SchemaType::INT}, PropertyValue("test")));
+    EXPECT_EQ(vertex.GetError(), SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_PROPERTY_WRONG_TYPE));
   }
 }
 }  // namespace memgraph::storage::v3::tests

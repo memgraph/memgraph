@@ -76,7 +76,7 @@ TEST_F(StorageV3Accessor, TestPrimaryLabel) {
     ASSERT_TRUE(vertex.PrimaryLabel(View::OLD).HasError());
     const auto error_primary_label = vertex.PrimaryLabel(View::OLD).GetError();
     ASSERT_FALSE(vertex.PrimaryLabel(View::NEW).HasError());
-    EXPECT_EQ(error_primary_label, Error::NONEXISTENT_OBJECT);
+    EXPECT_EQ(error_primary_label, SHARD_ERROR(ErrorCode::NONEXISTENT_OBJECT));
   }
   {
     auto acc = storage.Access(GetNextHlc());
@@ -127,9 +127,7 @@ TEST_F(StorageV3Accessor, TestAddLabels) {
     const auto label1 = NameToLabelId("label");
     auto vertex = acc.CreateVertexAndValidate({label1}, {PropertyValue{2}}, {});
     ASSERT_TRUE(vertex.HasError());
-    ASSERT_TRUE(std::holds_alternative<SchemaViolation>(vertex.GetError()));
-    EXPECT_EQ(std::get<SchemaViolation>(vertex.GetError()),
-              SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_SECONDARY_LABEL_IS_PRIMARY, label1));
+    EXPECT_EQ(vertex.GetError(), SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY));
   }
   {
     auto acc = storage.Access(GetNextHlc());
@@ -138,9 +136,7 @@ TEST_F(StorageV3Accessor, TestAddLabels) {
     ASSERT_TRUE(vertex.HasValue());
     const auto schema_violation = vertex->AddLabelAndValidate(label1);
     ASSERT_TRUE(schema_violation.HasError());
-    ASSERT_TRUE(std::holds_alternative<SchemaViolation>(schema_violation.GetError()));
-    EXPECT_EQ(std::get<SchemaViolation>(schema_violation.GetError()),
-              SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_UPDATE_PRIMARY_LABEL, label1));
+    EXPECT_EQ(schema_violation.GetError(), SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL));
   }
 }
 
@@ -184,9 +180,7 @@ TEST_F(StorageV3Accessor, TestRemoveLabels) {
     auto vertex = CreateVertexAndValidate(acc, {}, PropertyValue{2});
     const auto res1 = vertex.RemoveLabelAndValidate(primary_label);
     ASSERT_TRUE(res1.HasError());
-    ASSERT_TRUE(std::holds_alternative<SchemaViolation>(res1.GetError()));
-    EXPECT_EQ(std::get<SchemaViolation>(res1.GetError()),
-              SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_UPDATE_PRIMARY_LABEL, primary_label));
+    EXPECT_EQ(res1.GetError(), SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL));
   }
 }
 
@@ -205,20 +199,14 @@ TEST_F(StorageV3Accessor, TestSetKeysAndProperties) {
     auto vertex = CreateVertexAndValidate(acc, {}, PropertyValue{1});
     const auto res = vertex.SetPropertyAndValidate(primary_property, PropertyValue(1));
     ASSERT_TRUE(res.HasError());
-    ASSERT_TRUE(std::holds_alternative<SchemaViolation>(res.GetError()));
-    EXPECT_EQ(std::get<SchemaViolation>(res.GetError()),
-              SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_UPDATE_PRIMARY_KEY, primary_label,
-                              SchemaProperty{primary_property, common::SchemaType::INT}));
+    EXPECT_EQ(res.GetError(), SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_KEY));
   }
   {
     auto acc = storage.Access(GetNextHlc());
     auto vertex = CreateVertexAndValidate(acc, {}, PropertyValue{2});
     const auto res = vertex.SetPropertyAndValidate(primary_property, PropertyValue());
     ASSERT_TRUE(res.HasError());
-    ASSERT_TRUE(std::holds_alternative<SchemaViolation>(res.GetError()));
-    EXPECT_EQ(std::get<SchemaViolation>(res.GetError()),
-              SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_UPDATE_PRIMARY_KEY, primary_label,
-                              SchemaProperty{primary_property, common::SchemaType::INT}));
+    EXPECT_EQ(res.GetError(), SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_KEY));
   }
 }
 

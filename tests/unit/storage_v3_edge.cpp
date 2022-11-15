@@ -18,7 +18,6 @@
 #include "storage/v3/name_id_mapper.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/shard.hpp"
-#include "storage/v3/shard_operation_result.hpp"
 
 namespace memgraph::storage::v3::tests {
 using testing::UnorderedElementsAre;
@@ -39,7 +38,7 @@ class StorageEdgeTest : public ::testing::TestWithParam<bool> {
     return store.NameToEdgeType(edge_type_name);
   }
 
-  static ShardOperationResult<VertexAccessor> CreateVertex(Shard::Accessor &acc, const PropertyValue &key) {
+  static ShardResult<VertexAccessor> CreateVertex(Shard::Accessor &acc, const PropertyValue &key) {
     return acc.CreateVertexAndValidate({}, {key}, {});
   }
 
@@ -3243,7 +3242,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
     {
       auto ret = acc.DeleteVertex(&vertex_from.value());
       ASSERT_TRUE(ret.HasError());
-      ASSERT_EQ(ret.GetError(), Error::VERTEX_HAS_EDGES);
+      ASSERT_EQ(ret.GetError(), SHARD_ERROR(ErrorCode::VERTEX_HAS_EDGES));
     }
 
     // Detach delete vertex
@@ -3256,8 +3255,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
     // Check edges
     ASSERT_EQ(vertex_from->InEdges(View::OLD)->size(), 0);
     ASSERT_EQ(*vertex_from->InDegree(View::OLD), 0);
-    ASSERT_EQ(vertex_from->InEdges(View::NEW).GetError(), Error::DELETED_OBJECT);
-    ASSERT_EQ(vertex_from->InDegree(View::NEW).GetError(), Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex_from->InEdges(View::NEW).GetError(), SHARD_ERROR(ErrorCode::DELETED_OBJECT));
+    ASSERT_EQ(vertex_from->InDegree(View::NEW).GetError(), SHARD_ERROR(ErrorCode::DELETED_OBJECT));
     {
       auto ret = vertex_from->OutEdges(View::OLD);
       ASSERT_TRUE(ret.HasValue());
@@ -3270,8 +3269,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
       ASSERT_EQ(e.FromVertex(), from_id);
       ASSERT_EQ(e.ToVertex(), to_id);
     }
-    ASSERT_EQ(vertex_from->OutEdges(View::NEW).GetError(), Error::DELETED_OBJECT);
-    ASSERT_EQ(vertex_from->OutDegree(View::NEW).GetError(), Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex_from->OutEdges(View::NEW).GetError(), SHARD_ERROR(ErrorCode::DELETED_OBJECT));
+    ASSERT_EQ(vertex_from->OutDegree(View::NEW).GetError(), SHARD_ERROR(ErrorCode::DELETED_OBJECT));
     {
       auto ret = vertex_to->InEdges(View::OLD);
       ASSERT_TRUE(ret.HasValue());
