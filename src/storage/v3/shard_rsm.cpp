@@ -42,6 +42,7 @@
 #include "storage/v3/vertex_accessor.hpp"
 #include "storage/v3/vertex_id.hpp"
 #include "storage/v3/view.hpp"
+#include "utils/logging.hpp"
 
 namespace memgraph::storage::v3 {
 using msgs::Label;
@@ -117,7 +118,7 @@ std::optional<std::map<PropertyId, Value>> CollectSpecificPropertiesFromAccessor
 }
 
 std::optional<std::map<PropertyId, Value>> PrimaryKeysFromAccessor(const VertexAccessor &acc, View view,
-                                                                   const Schemas::Schema *schema) {
+                                                                   const Schemas::Schema &schema) {
   std::map<PropertyId, Value> ret;
   auto props = acc.Properties(view);
   auto maybe_pk = acc.PrimaryKey(view);
@@ -126,16 +127,16 @@ std::optional<std::map<PropertyId, Value>> PrimaryKeysFromAccessor(const VertexA
     return std::nullopt;
   }
   auto &pk = maybe_pk.GetValue();
-  MG_ASSERT(schema->second.size() == pk.size(), "PrimaryKey size does not match schema!");
-  for (size_t i{0}; i < schema->second.size(); ++i) {
-    ret.emplace(schema->second[i].property_id, FromPropertyValueToValue(std::move(pk[i])));
+  MG_ASSERT(schema.second.size() == pk.size(), "PrimaryKey size does not match schema!");
+  for (size_t i{0}; i < schema.second.size(); ++i) {
+    ret.emplace(schema.second[i].property_id, FromPropertyValueToValue(std::move(pk[i])));
   }
 
   return ret;
 }
 
 std::optional<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(const VertexAccessor &acc, View view,
-                                                                            const Schemas::Schema *schema) {
+                                                                            const Schemas::Schema &schema) {
   std::map<PropertyId, Value> ret;
   auto props = acc.Properties(view);
   if (props.HasError()) {
@@ -204,7 +205,7 @@ std::optional<std::vector<msgs::Label>> FillUpSourceVertexSecondaryLabels(const 
 std::optional<std::map<PropertyId, Value>> FillUpSourceVertexProperties(const std::optional<VertexAccessor> &v_acc,
                                                                         const msgs::ExpandOneRequest &req,
                                                                         storage::v3::View view,
-                                                                        const Schemas::Schema *schema) {
+                                                                        const Schemas::Schema &schema) {
   std::map<PropertyId, Value> src_vertex_properties;
 
   if (!req.src_vertex_properties) {
@@ -321,7 +322,7 @@ bool FillEdges(const std::vector<EdgeAccessor> &edges, msgs::ExpandOneResultRow 
 std::optional<msgs::ExpandOneResultRow> GetExpandOneResult(
     Shard::Accessor &acc, msgs::VertexId src_vertex, const msgs::ExpandOneRequest &req,
     const EdgeUniqunessFunction &maybe_filter_based_on_edge_uniquness, const EdgeFiller &edge_filler,
-    const Schemas::Schema *schema) {
+    const Schemas::Schema &schema) {
   /// Fill up source vertex
   const auto primary_key = ConvertPropertyVector(src_vertex.second);
   auto v_acc = acc.FindVertex(primary_key, View::NEW);
@@ -367,7 +368,7 @@ std::optional<msgs::ExpandOneResultRow> GetExpandOneResult(
     VertexAccessor v_acc, msgs::VertexId src_vertex, const msgs::ExpandOneRequest &req,
     std::vector<EdgeAccessor> in_edge_accessors, std::vector<EdgeAccessor> out_edge_accessors,
     const EdgeUniqunessFunction &maybe_filter_based_on_edge_uniquness, const EdgeFiller &edge_filler,
-    const Schemas::Schema *schema) {
+    const Schemas::Schema &schema) {
   /// Fill up source vertex
   msgs::Vertex source_vertex = {.id = src_vertex};
   if (const auto maybe_secondary_labels = FillUpSourceVertexSecondaryLabels(v_acc, req); maybe_secondary_labels) {
@@ -856,7 +857,8 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
       found_props = CollectSpecificPropertiesFromAccessor(vertex, req.props_to_return.value(), view);
     } else {
       const auto *schema = shard_->GetSchema(shard_->PrimaryLabel());
-      found_props = CollectAllPropertiesFromAccessor(vertex, view, schema);
+      MG_ASSERT(schema);
+      found_props = CollectAllPropertiesFromAccessor(vertex, view, *schema);
     }
 
     // TODO(gvolfing) -VERIFY-
@@ -958,9 +960,10 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
   if (!req.order_by.empty()) {
     // Can we do differently to avoid this? We need OrderByElements but currently it returns vector<Element>, so this
     // workaround is here to avoid more duplication later
-    auto sorted_vertices = OrderByVertices(acc, dba, vertex_accessors, req.order_by);
+    auto local_sorted_vertices = OrderByVertices(
+        acc, dba, vertex_accessors, req.order_by);  // #NoCommit see whether we can avoid the extra std::transform
     vertex_accessors.clear();
-    std::transform(sorted_vertices.begin(), sorted_vertices.end(), std::back_inserter(vertex_accessors),
+    std::transform(local_sorted_vertices.begin(), local_sorted_vertices.end(), std::back_inserter(vertex_accessors),
                    [](auto &vertex) { return vertex.object_acc; });
   }
 
@@ -982,8 +985,10 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
     std::optional<msgs::ExpandOneResultRow> maybe_result;
 
     if (req.order_by.empty()) {
-      maybe_result = GetExpandOneResult(acc, src_vertice, req, maybe_filter_based_on_edge_uniquness, edge_filler,
-                                        shard_->GetSchema(shard_->PrimaryLabel()));
+      auto schema = shard_->GetSchema(shard_->PrimaryLabel());
+      MG_ASSERT(schema);
+      maybe_result =
+          GetExpandOneResult(acc, src_vertice, req, maybe_filter_based_on_edge_uniquness, edge_filler, *schema);
 
     } else {
       auto [in_edge_accessors, out_edge_accessors] = GetEdgesFromVertex(src_vertex_acc, req.direction);
@@ -997,9 +1002,11 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
       std::vector<EdgeAccessor> out_edge_ordered_accessors;
       std::transform(out_ordered_edges.begin(), out_ordered_edges.end(), std::back_inserter(out_edge_ordered_accessors),
                      [](const auto &edge_element) { return edge_element.object_acc; });
-      maybe_result = GetExpandOneResult(src_vertex_acc, src_vertice, req, in_edge_ordered_accessors,
-                                        out_edge_ordered_accessors, maybe_filter_based_on_edge_uniquness, edge_filler,
-                                        shard_->GetSchema(shard_->PrimaryLabel()));
+      auto schema = shard_->GetSchema(shard_->PrimaryLabel());
+      MG_ASSERT(schema);
+      maybe_result =
+          GetExpandOneResult(src_vertex_acc, src_vertice, req, in_edge_ordered_accessors, out_edge_ordered_accessors,
+                             maybe_filter_based_on_edge_uniquness, edge_filler, *schema);
     }
 
     if (!maybe_result) {

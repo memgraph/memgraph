@@ -165,7 +165,7 @@ std::any ParseExpression(const std::string &expr, memgraph::expr::AstStorage &st
   return visitor.visit(ast);
 }
 
-TypedValue ComputeExpression(DbAccessor &dba, const std::optional<memgraph::storage::v3::VertexAccessor> &v_acc,
+TypedValue ComputeExpression(DbAccessor &dba, const memgraph::storage::v3::VertexAccessor &v_acc,
                              const std::optional<memgraph::storage::v3::EdgeAccessor> &e_acc,
                              const std::string &expression, std::string_view node_name, std::string_view edge_name) {
   AstStorage storage;
@@ -187,13 +187,12 @@ TypedValue ComputeExpression(DbAccessor &dba, const std::optional<memgraph::stor
   (std::any_cast<Expression *>(expr))->Accept(symbol_generator);
 
   if (node_identifier.symbol_pos_ != -1) {
-    MG_ASSERT(v_acc.has_value());
     MG_ASSERT(std::find_if(symbol_table.table().begin(), symbol_table.table().end(),
                            [&node_name](const std::pair<int32_t, Symbol> &position_symbol_pair) {
                              return position_symbol_pair.second.name() == node_name;
                            }) != symbol_table.table().end());
 
-    frame[symbol_table.at(node_identifier)] = *v_acc;
+    frame[symbol_table.at(node_identifier)] = v_acc;
   }
 
   if (edge_identifier.symbol_pos_ != -1) {
