@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -21,7 +22,7 @@ namespace memgraph::storage::v3 {
 
 static_assert(std::is_same_v<uint8_t, unsigned char>);
 
-enum class ErrorCode {
+enum class ErrorCode : uint8_t {
   SERIALIZATION_ERROR,
   NONEXISTENT_OBJECT,
   DELETED_OBJECT,
@@ -36,7 +37,6 @@ enum class ErrorCode {
   SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY,
   SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED,
 
-  // NEW Ones
   OBJECT_NOT_FOUND,
 };
 
@@ -85,6 +85,7 @@ struct ShardError {
   inline friend bool operator==(const ShardError &lhs, const ShardError &rhs) { return lhs.code == rhs.code; }
 };
 
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define SHARD_ERROR(...) memgraph::storage::v3::ShardError(__VA_ARGS__, fmt::format("{}:{}", __FILE__, __LINE__))
 
 template <class TValue>
