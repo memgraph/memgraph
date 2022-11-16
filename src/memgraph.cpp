@@ -496,6 +496,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
             case memgraph::storage::v3::ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL:
             case memgraph::storage::v3::ErrorCode::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY:
             case memgraph::storage::v3::ErrorCode::SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED:
+            case memgraph::storage::v3::ErrorCode::OBJECT_NOT_FOUND:
               throw memgraph::communication::bolt::ClientError("Unexpected storage error when streaming summary.");
           }
         }
@@ -526,6 +527,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
             case memgraph::storage::v3::ErrorCode::DELETED_OBJECT:
               throw memgraph::communication::bolt::ClientError("Returning a deleted object as a result.");
             case memgraph::storage::v3::ErrorCode::NONEXISTENT_OBJECT:
+            case memgraph::storage::v3::ErrorCode::OBJECT_NOT_FOUND:
               throw memgraph::communication::bolt::ClientError("Returning a nonexistent object as a result.");
             case memgraph::storage::v3::ErrorCode::VERTEX_HAS_EDGES:
             case memgraph::storage::v3::ErrorCode::SERIALIZATION_ERROR:

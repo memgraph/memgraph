@@ -110,6 +110,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       case Error::VERTEX_HAS_EDGES:
       case Error::PROPERTIES_DISABLED:
       case Error::VERTEX_ALREADY_INSERTED:
+      case Error::OBJECT_NOT_FOUND:
         throw ExpressionRuntimeException("Unexpected error when accessing {}.", accessed_object);
       case Error::SCHEMA_NO_SCHEMA_DEFINED_FOR_LABEL:
       case Error::SCHEMA_VERTEX_PROPERTY_WRONG_TYPE:

@@ -469,35 +469,11 @@ EdgeFiller InitializeEdgeFillerFunction(const msgs::ExpandOneRequest &req) {
   return edge_filler;
 }
 
-void LogResultError(const ShardError &error, const std::string_view action = "") {
-  switch (error.code) {
-    case ErrorCode::DELETED_OBJECT:
-      spdlog::debug("{} failed with error: DELETED_OBJECT, at {}", action, error.source);
-      break;
-    case ErrorCode::NONEXISTENT_OBJECT:
-      spdlog::debug("{} failed with error: NONEXISTENT_OBJECT, at {}", action, error.source);
-      break;
-    case ErrorCode::SERIALIZATION_ERROR:
-      spdlog::debug("{} failed with error: SERIALIZATION_ERROR, at {}", action, error.source);
-      break;
-    case ErrorCode::PROPERTIES_DISABLED:
-      spdlog::debug("{} failed with error: PROPERTIES_DISABLED, at {}", action, error.source);
-      break;
-    case ErrorCode::VERTEX_HAS_EDGES:
-      spdlog::debug("{} failed with error: VERTEX_HAS_EDGES, at {}", action, error.source);
-      break;
-    case ErrorCode::VERTEX_ALREADY_INSERTED:
-      spdlog::debug("{} failed with error: VERTEX_ALREADY_INSERTED, at {}", action, error.source);
-      break;
-    case ErrorCode::SCHEMA_NO_SCHEMA_DEFINED_FOR_LABEL:
-    case ErrorCode::SCHEMA_VERTEX_PROPERTY_WRONG_TYPE:
-    case ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_KEY:
-    case ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL:
-    case ErrorCode::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY:
-    case ErrorCode::SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED:
-      spdlog::debug("Schema violation: {} at {}", error.message, error.source);
-      break;
-  }
+auto CreateErrorResponse(const ShardError &shard_error, const auto transaction_id, const std::string_view action) {
+  msgs::ShardError message_shard_error{shard_error.code, shard_error.message};
+  spdlog::debug("{} In transaction {} {} failed: {}: {}", shard_error.source, transaction_id, action,
+                ErrorCodeToString(shard_error.code), shard_error.message);
+  return message_shard_error;
 }
 
 };  // namespace
@@ -505,6 +481,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
   auto acc = shard_->Access(req.transaction_id);
 
   bool action_successful = true;
+  std::optional<msgs::ShardError> shard_error;
 
   for (auto &new_vertex : req.new_vertices) {
     /// TODO(gvolfing) Consider other methods than converting. Change either
@@ -525,21 +502,20 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
     auto result_schema = acc.CreateVertexAndValidate(converted_label_ids, transformed_pk, converted_property_map);
 
     if (result_schema.HasError()) {
-      auto &error = result_schema.GetError();
-      spdlog::debug("Creating vertex failed with error: VERTEX_ALREADY_INSERTED");
-
+      shard_error.emplace(CreateErrorResponse(result_schema.GetError(), req.transaction_id, "creating vertices"));
       action_successful = false;
       break;
     }
   }
 
-  return msgs::CreateVerticesResponse{.success = action_successful};
+  return msgs::CreateVerticesResponse{action_successful, std::move(shard_error)};
 }
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateVerticesRequest &&req) {
   auto acc = shard_->Access(req.transaction_id);
 
   bool action_successful = true;
+  std::optional<msgs::ShardError> shard_error;
 
   for (auto &vertex : req.new_properties) {
     if (!action_successful) {
@@ -549,7 +525,8 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateVerticesRequest &&req) {
     auto vertex_to_update = acc.FindVertex(ConvertPropertyVector(std::move(vertex.primary_key)), View::OLD);
     if (!vertex_to_update) {
       action_successful = false;
-      spdlog::debug("Vertex could not be found while trying to update its properties. Transaction id: {}",
+      shard_error.emplace(msgs::ShardError{ErrorCode::OBJECT_NOT_FOUND});
+      spdlog::debug("In transaction {} vertex could not be found while trying to update its properties.",
                     req.transaction_id.logical_id);
       continue;
     }
@@ -558,68 +535,66 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateVerticesRequest &&req) {
       auto result_schema =
           vertex_to_update->SetPropertyAndValidate(update_prop.first, ToPropertyValue(std::move(update_prop.second)));
       if (result_schema.HasError()) {
-        auto &error = result_schema.GetError();
-        LogResultError(error);
-
         action_successful = false;
-
+        shard_error.emplace(CreateErrorResponse(result_schema.GetError(), req.transaction_id, "updating vertices"));
         break;
       }
     }
   }
 
-  return msgs::UpdateVerticesResponse{.success = action_successful};
+  return msgs::UpdateVerticesResponse{action_successful, std::move(shard_error)};
 }
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteVerticesRequest &&req) {
   bool action_successful = true;
+  std::optional<msgs::ShardError> shard_error;
   auto acc = shard_->Access(req.transaction_id);
 
   for (auto &propval : req.primary_keys) {
-    if (!action_successful) {
-      break;
-    }
-
     auto vertex_acc = acc.FindVertex(ConvertPropertyVector(std::move(propval)), View::OLD);
 
     if (!vertex_acc) {
       spdlog::debug("Error while trying to delete vertex. Vertex to delete does not exist. Transaction id: {}",
                     req.transaction_id.logical_id);
       action_successful = false;
-    } else {
-      // TODO(gvolfing)
-      // Since we will not have different kinds of deletion types in one transaction,
-      // we dont have to enter the switch statement on every iteration. Optimize this.
-      switch (req.deletion_type) {
-        case msgs::DeleteVerticesRequest::DeletionType::DELETE: {
-          auto result = acc.DeleteVertex(&vertex_acc.value());
-          if (result.HasError() || !(result.GetValue().has_value())) {
-            action_successful = false;
-            spdlog::debug("Error while trying to delete vertex. Transaction id: {}", req.transaction_id.logical_id);
-          }
-
-          break;
+      shard_error.emplace(msgs::ShardError{ErrorCode::OBJECT_NOT_FOUND});
+      spdlog::debug("In transaction {} vertex could not be found while trying to delete it.",
+                    req.transaction_id.logical_id);
+      break;
+    }
+    // TODO(gvolfing)
+    // Since we will not have different kinds of deletion types in one transaction,
+    // we dont have to enter the switch statement on every iteration. Optimize this.
+    switch (req.deletion_type) {
+      case msgs::DeleteVerticesRequest::DeletionType::DELETE: {
+        auto result = acc.DeleteVertex(&vertex_acc.value());
+        if (result.HasError() || !(result.GetValue().has_value())) {
+          action_successful = false;
+          shard_error.emplace(CreateErrorResponse(result.GetError(), req.transaction_id, "deleting vertices"));
         }
-        case msgs::DeleteVerticesRequest::DeletionType::DETACH_DELETE: {
-          auto result = acc.DetachDeleteVertex(&vertex_acc.value());
-          if (result.HasError() || !(result.GetValue().has_value())) {
-            action_successful = false;
-            spdlog::debug("Error while trying to detach and delete vertex. Transaction id: {}",
-                          req.transaction_id.logical_id);
-          }
-
-          break;
-        }
+        break;
       }
+      case msgs::DeleteVerticesRequest::DeletionType::DETACH_DELETE: {
+        auto result = acc.DetachDeleteVertex(&vertex_acc.value());
+        if (result.HasError() || !(result.GetValue().has_value())) {
+          action_successful = false;
+          shard_error.emplace(CreateErrorResponse(result.GetError(), req.transaction_id, "deleting vertices"));
+        }
+        break;
+      }
+    }
+    if (!action_successful) {
+      break;
     }
   }
 
-  return msgs::DeleteVerticesResponse{.success = action_successful};
+  return msgs::DeleteVerticesResponse{action_successful, std::move(shard_error)};
 }
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateExpandRequest &&req) {
   auto acc = shard_->Access(req.transaction_id);
   bool action_successful = true;
+  std::optional<msgs::ShardError> shard_error;
 
   for (auto &new_expand : req.new_expands) {
     const auto from_vertex_id =
@@ -629,6 +604,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateExpandRequest &&req) {
         VertexId{new_expand.dest_vertex.first.id, ConvertPropertyVector(std::move(new_expand.dest_vertex.second))};
 
     if (!(shard_->IsVertexBelongToShard(from_vertex_id) || shard_->IsVertexBelongToShard(to_vertex_id))) {
+      // TODO Code for this
       action_successful = false;
       spdlog::debug("Error while trying to insert edge, none of the vertices belong to this shard. Transaction id: {}",
                     req.transaction_id.logical_id);
@@ -642,16 +618,17 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateExpandRequest &&req) {
         for (const auto &[property, value] : new_expand.properties) {
           if (const auto maybe_error = edge.SetProperty(property, ToPropertyValue(value)); maybe_error.HasError()) {
             action_successful = false;
-            spdlog::debug("Setting edge property was not successful. Transaction id: {}",
-                          req.transaction_id.logical_id);
-            break;
-          }
-          if (!action_successful) {
+            shard_error.emplace(
+                CreateErrorResponse(maybe_error.GetError(), req.transaction_id, "setting edge property"));
             break;
           }
         }
+        if (!action_successful) {
+          break;
+        }
       }
     } else {
+      // TODO Code for this
       action_successful = false;
       spdlog::debug("Creating edge was not successful. Transaction id: {}", req.transaction_id.logical_id);
       break;
@@ -663,19 +640,19 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateExpandRequest &&req) {
         auto set_result = edge_acc->SetProperty(edge_prop_key, ToPropertyValue(std::move(edge_prop_val)));
         if (set_result.HasError()) {
           action_successful = false;
-          spdlog::debug("Adding property to edge was not successful. Transaction id: {}",
-                        req.transaction_id.logical_id);
+          shard_error.emplace(CreateErrorResponse(set_result.GetError(), req.transaction_id, "adding edge property"));
           break;
         }
       }
     }
   }
 
-  return msgs::CreateExpandResponse{.success = action_successful};
+  return msgs::CreateExpandResponse{action_successful, std::move(shard_error)};
 }
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteEdgesRequest &&req) {
   bool action_successful = true;
+  std::optional<msgs::ShardError> shard_error;
   auto acc = shard_->Access(req.transaction_id);
 
   for (auto &edge : req.edges) {
@@ -687,13 +664,13 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteEdgesRequest &&req) {
                                    VertexId(edge.dst.first.id, ConvertPropertyVector(std::move(edge.dst.second))),
                                    Gid::FromUint(edge.id.gid));
     if (edge_acc.HasError() || !edge_acc.HasValue()) {
-      spdlog::debug("Error while trying to delete edge. Transaction id: {}", req.transaction_id.logical_id);
       action_successful = false;
+      shard_error.emplace(CreateErrorResponse(edge_acc.GetError(), req.transaction_id, "delete edge"));
       continue;
     }
   }
 
-  return msgs::DeleteEdgesResponse{.success = action_successful};
+  return msgs::DeleteEdgesResponse{action_successful, std::move(shard_error)};
 }
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateEdgesRequest &&req) {
@@ -701,6 +678,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateEdgesRequest &&req) {
   auto acc = shard_->Access(req.transaction_id);
 
   bool action_successful = true;
+  std::optional<msgs::ShardError> shard_error;
 
   for (auto &edge : req.new_properties) {
     if (!action_successful) {
@@ -709,19 +687,19 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateEdgesRequest &&req) {
 
     auto vertex_acc = acc.FindVertex(ConvertPropertyVector(std::move(edge.src.second)), View::OLD);
     if (!vertex_acc) {
+      // TODO Code here
       action_successful = false;
       spdlog::debug("Encountered an error while trying to acquire VertexAccessor with transaction id: {}",
                     req.transaction_id.logical_id);
       continue;
     }
 
-    // Since we are using the source vertex of the edge we are only intrested
+    // Since we are using the source vertex of the edge we are only interested
     // in the vertex's out-going edges
     auto edges_res = vertex_acc->OutEdges(View::OLD);
     if (edges_res.HasError()) {
       action_successful = false;
-      spdlog::debug("Encountered an error while trying to acquire EdgeAccessor with transaction id: {}",
-                    req.transaction_id.logical_id);
+      shard_error.emplace(CreateErrorResponse(edges_res.GetError(), req.transaction_id, "update edge"));
       continue;
     }
 
@@ -737,14 +715,15 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateEdgesRequest &&req) {
           // Check if the property was set if SetProperty does not do that itself.
           auto res = edge_accessor.SetProperty(key, ToPropertyValue(std::move(value)));
           if (res.HasError()) {
-            spdlog::debug("Encountered an error while trying to set the property of an Edge with transaction id: {}",
-                          req.transaction_id.logical_id);
+            // TODO why not set action unsuccessful here?
+            shard_error.emplace(CreateErrorResponse(edges_res.GetError(), req.transaction_id, "update edge"));
           }
         }
       }
     }
 
     if (!edge_accessor_did_match) {
+      // TODO Code here
       action_successful = false;
       spdlog::debug("Could not find the Edge with the specified Gid. Transaction id: {}",
                     req.transaction_id.logical_id);
@@ -752,12 +731,13 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateEdgesRequest &&req) {
     }
   }
 
-  return msgs::UpdateEdgesResponse{.success = action_successful};
+  return msgs::UpdateEdgesResponse{action_successful, std::move(shard_error)};
 }
 
 msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
   auto acc = shard_->Access(req.transaction_id);
   bool action_successful = true;
+  std::optional<msgs::ShardError> shard_error;
 
   std::vector<msgs::ScanResultRow> results;
   if (req.batch_limit) {
@@ -795,6 +775,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
     // Vertex is separated from the properties in the response.
     // Is it useful to return just a vertex without the properties?
     if (!found_props) {
+      // TODO code here
       action_successful = false;
     }
 
@@ -843,8 +824,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
     }
   }
 
-  msgs::ScanVerticesResponse resp{};
-  resp.success = action_successful;
+  msgs::ScanVerticesResponse resp{.success = action_successful, .error = std::move(shard_error)};
 
   if (action_successful) {
     resp.next_start_id = next_start_id;
@@ -857,6 +837,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
 msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
   auto acc = shard_->Access(req.transaction_id);
   bool action_successful = true;
+  std::optional<msgs::ShardError> shard_error;
 
   std::vector<msgs::ExpandOneResultRow> results;
 
@@ -867,6 +848,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
     // Get Vertex acc
     auto src_vertex_acc_opt = acc.FindVertex(ConvertPropertyVector((src_vertex.second)), View::NEW);
     if (!src_vertex_acc_opt) {
+      // TODO Code error
       action_successful = false;
       spdlog::debug("Encountered an error while trying to obtain VertexAccessor. Transaction id: {}",
                     req.transaction_id.logical_id);
@@ -885,6 +867,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
                                      shard_->GetSchema(shard_->PrimaryLabel()));
 
     if (!result) {
+      // Code Error
       action_successful = false;
       break;
     }
@@ -892,8 +875,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
     results.emplace_back(result.value());
   }
 
-  msgs::ExpandOneResponse resp{};
-  resp.success = action_successful;
+  msgs::ExpandOneResponse resp{.success = action_successful, .error = std::move(shard_error)};
   if (action_successful) {
     resp.result = std::move(results);
   }
