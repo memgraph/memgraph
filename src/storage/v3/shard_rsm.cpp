@@ -45,7 +45,7 @@
 #include "utils/logging.hpp"
 
 namespace memgraph::storage::v3 {
-using msgs::Label;  // #NoCommit not needed?
+using msgs::Label;
 using msgs::PropertyId;
 using msgs::Value;
 
