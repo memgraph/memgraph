@@ -57,9 +57,7 @@ class SimulatorTransport {
   template <class D = std::poisson_distribution<uint64_t>, class Return = uint64_t>
   Return Rand(D distrib) {
     // debug - gvolfing
-    auto thread_id = std::this_thread::get_id();
     auto ret = distrib(rng_);
-    spdlog::info("something_random {}, thread_id: {}", std::to_string(ret), thread_id);
     return ret;
   }
 

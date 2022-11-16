@@ -101,8 +101,8 @@ bool SimulatorHandle::MaybeTickSimulator() {
 
     // We tick the clock forward when all servers are blocked but
     // there are no in-flight messages to schedule delivery of.
-    const Duration clock_advance = std::chrono::microseconds{time_distrib_(rng_)};
-    cluster_wide_time_microseconds_ += clock_advance;
+    // const Duration clock_advance = std::chrono::microseconds{Rand(time_distrib_)};
+    // cluster_wide_time_microseconds_ += clock_advance;
 
     if (cluster_wide_time_microseconds_ >= config_.abort_time) {
       if (should_shut_down_) {
@@ -113,20 +113,25 @@ bool SimulatorHandle::MaybeTickSimulator() {
           "in an expected amount of time.");
       throw utils::BasicException{"Cluster has executed beyond its configured abort_time"};
     }
+    // spdlog::info(
+    //     "Time increased with {} to {}", clock_advance.count(),
+    //     std::chrono::duration_cast<std::chrono::milliseconds>(cluster_wide_time_microseconds_.time_since_epoch())
+    //         .count());
     return true;
   }
 
   if (config_.scramble_messages) {
     // scramble messages
     std::uniform_int_distribution<size_t> swap_distrib(0, in_flight_.size() - 1);
-    const size_t swap_index = swap_distrib(rng_);
+    const size_t swap_index = RandLocked(swap_distrib);
     std::swap(in_flight_[swap_index], in_flight_.back());
   }
 
   auto [to_address, opaque_message] = std::move(in_flight_.back());
   in_flight_.pop_back();
+  event_log_.AddAndLog(opaque_message, "Handle ");
 
-  const int drop_threshold = drop_distrib_(rng_);
+  const int drop_threshold = RandLocked(drop_distrib_);
   const bool should_drop = drop_threshold < config_.drop_percent;
 
   if (should_drop) {
@@ -136,6 +141,7 @@ bool SimulatorHandle::MaybeTickSimulator() {
   PromiseKey promise_key{.requester_address = to_address, .request_id = opaque_message.request_id};
 
   if (promises_.contains(promise_key)) {
+    event_log_.AddAndLog(opaque_message, "Promise contains");
     // complete waiting promise if it's there
     DeadlineAndOpaquePromise dop = std::move(promises_.at(promise_key));
     promises_.erase(promise_key);
@@ -153,8 +159,10 @@ bool SimulatorHandle::MaybeTickSimulator() {
       histograms_.Measure(type_info, response_latency);
     }
   } else if (should_drop) {
+    event_log_.AddAndLog(opaque_message, "Dropped");
     // don't add it anywhere, let it drop
   } else {
+    event_log_.AddAndLog(opaque_message, "To can_receive");
     // add to can_receive_ if not
     // This might be needed I am not sure, it can cause deadlock if you uncomment. Didn't find the issue yet.
     // MG_ASSERT(server_addresses_.contains(to_address));
@@ -171,6 +179,11 @@ bool SimulatorHandle::MaybeTickSimulator() {
 
 Time SimulatorHandle::Now() const {
   std::unique_lock<std::mutex> lock(mu_);
+  return cluster_wide_time_microseconds_;
+}
+
+Time SimulatorHandle::NowLocked() const {
+  // std::unique_lock<std::mutex> lock(mu_);
   return cluster_wide_time_microseconds_;
 }
 

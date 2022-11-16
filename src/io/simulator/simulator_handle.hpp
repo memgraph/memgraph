@@ -27,6 +27,7 @@
 #include <sstream>
 
 #include <boost/lexical_cast.hpp>
+#include <boost/stacktrace.hpp>
 #include <boost/uuid/uuid_io.hpp>
 
 #include "fmt/format.h"
@@ -47,35 +48,33 @@ struct EventDescriptor {
   uint16_t from_address_port;
   boost::asio::ip::address to_address_ip;
   uint16_t to_address_port;
+  uint64_t request_id;
   std::string_view caller;
   utils::TypeInfoRef type_info;
   uint64_t event_id;
+  Time time;
 };
 
+class SimulatorHandle;
 class EventLog {
   std::vector<EventDescriptor> event_log_;
   static constexpr const char *eventlog_signal_string_ = "EVENTLOG_UPDATE";
 
   void LogEvent(const EventDescriptor &event) const {
     spdlog::info(
-        fmt::format("{} -> caller: {}, from_address: {}:{}, to_address: {}:{}, type: {}, id: {}, thread_id: {}",
-                    eventlog_signal_string_, event.caller, event.from_address_ip.to_string(), event.from_address_port,
-                    event.to_address_ip.to_string(), event.to_address_port, event.type_info.get().name(),
-                    event.event_id, std::this_thread::get_id()));
+        fmt::format("{} ({})-> caller: {}, from_address: {}:{}, to_address: {}:{}, request_id: {}, type: {}, event_id: "
+                    "{}, thread_id: {}",
+                    eventlog_signal_string_,
+                    std::chrono::duration_cast<std::chrono::milliseconds>(event.time.time_since_epoch()).count(),
+                    event.caller, event.from_address_ip.to_string(), event.from_address_port,
+                    event.to_address_ip.to_string(), event.to_address_port, event.request_id,
+                    event.type_info.get().name(), event.event_id, std::this_thread::get_id()));
   }
 
  public:
-  void AddAndLog(const OpaqueMessage &message, std::string_view caller) {
-    EventDescriptor event{.from_address_ip = message.from_address.last_known_ip,
-                          .from_address_port = message.from_address.last_known_port,
-                          .to_address_ip = message.to_address.last_known_ip,
-                          .to_address_port = message.to_address.last_known_port,
-                          .caller = caller,
-                          .type_info = message.type_info,
-                          .event_id = event_log_.size()};
-    event_log_.push_back(event);
-    LogEvent(event);
-  }
+  SimulatorHandle *handle{nullptr};
+
+  void AddAndLog(const OpaqueMessage &message, std::string_view caller);
 
   void LogAllEvents() const {
     for (const auto &event : event_log_) {
@@ -137,6 +136,7 @@ class SimulatorHandle {
   explicit SimulatorHandle(SimulatorConfig config)
       : server_count_(0), cluster_wide_time_microseconds_(config.start_time), rng_(config.rng_seed), config_(config) {
     spdlog::info("SimulatorHandle constructed.");
+    event_log_.handle = this;
   }
 
   LatencyHistogramSummaries ResponseLatencies();
@@ -267,12 +267,37 @@ class SimulatorHandle {
 
   Time Now() const;
 
+  Time NowLocked() const;
+
   template <class D = std::poisson_distribution<>, class Return = uint64_t>
   Return Rand(D distrib) {
     std::unique_lock<std::mutex> lock(mu_);
-    return distrib(rng_);
+    return RandLocked<D, Return>(std::forward<D>(distrib));
+  }
+
+  template <class D = std::poisson_distribution<>, class Return = uint64_t>
+  Return RandLocked(D distrib) {
+    Return res = distrib(rng_);
+    spdlog::info("Getting random value from thread {}: {}. Stacktrace:\n{}", std::this_thread::get_id(), res,
+                 boost::stacktrace::stacktrace());
+    return res;
   }
 
   SimulatorStats Stats();
 };
+
+inline void EventLog::AddAndLog(const OpaqueMessage &message, std::string_view caller) {
+  EventDescriptor event{.from_address_ip = message.from_address.last_known_ip,
+                        .from_address_port = message.from_address.last_known_port,
+                        .to_address_ip = message.to_address.last_known_ip,
+                        .to_address_port = message.to_address.last_known_port,
+                        .request_id = message.request_id,
+                        .caller = caller,
+                        .type_info = message.type_info,
+                        .event_id = event_log_.size(),
+                        .time = handle->NowLocked()};
+
+  event_log_.push_back(event);
+  LogEvent(event);
+}
 };  // namespace memgraph::io::simulator

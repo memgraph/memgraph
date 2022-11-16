@@ -23,6 +23,7 @@
 #include "io/rsm/rsm_client.hpp"
 #include "io/simulator/simulator.hpp"
 #include "io/simulator/simulator_transport.hpp"
+#include "utils/thread.hpp"
 
 using memgraph::io::Address;
 using memgraph::io::Duration;
@@ -120,6 +121,7 @@ class TestState {
 
 template <typename IoImpl>
 void RunRaft(Raft<IoImpl, TestState, CasRequest, CasResponse, GetRequest, GetResponse> server) {
+  memgraph::utils::ThreadSetName(fmt::format("Port {}", server.GetAddress().last_known_port));
   spdlog::info("something_random init raft servers... thread_id: {}", std::this_thread::get_id());
   server.Run();
 }
