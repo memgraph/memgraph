@@ -120,6 +120,7 @@ class TestState {
 
 template <typename IoImpl>
 void RunRaft(Raft<IoImpl, TestState, CasRequest, CasResponse, GetRequest, GetResponse> server) {
+  spdlog::info("something_random init raft servers... thread_id: {}", std::this_thread::get_id());
   server.Run();
 }
 
@@ -163,6 +164,8 @@ void RunSimulation() {
   auto srv_thread_3 = std::jthread(RunRaft<SimulatorTransport>, std::move(srv_3));
   simulator.IncrementServerCountAndWaitForQuiescentState(srv_addr_3);
 
+  // wait for all the servers.
+
   spdlog::info("beginning test after servers have become quiescent");
 
   std::mt19937 cli_rng_{0};
@@ -187,11 +190,13 @@ void RunSimulation() {
 
     cas_req.new_value = i;
 
+    spdlog::info("Sending WriteRequest...");
     auto write_cas_response_result = client.SendWriteRequest(cas_req);
     if (write_cas_response_result.HasError()) {
       // timed out
       continue;
     }
+    spdlog::info("Wainting on the response of WriteRequest...");
     CasResponse cas_response = write_cas_response_result.GetValue();
 
     bool cas_succeeded = cas_response.cas_success;
@@ -249,7 +254,7 @@ void RunSimulation() {
 }
 
 int main() {
-  int n_tests = 50;
+  int n_tests = 1;
 
   for (int i = 0; i < n_tests; i++) {
     spdlog::info("========================== NEW SIMULATION {} ==========================", i);

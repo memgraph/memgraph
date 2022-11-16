@@ -58,6 +58,20 @@ bool SimulatorHandle::MaybeTickSimulator() {
 
   const size_t blocked_servers = blocked_on_receive_.size();
 
+  // Don't judge, this is a workaround for poc. gvolfing
+  server_count_++;
+  if (server_count_ == 3) {
+    is_quiescent_state_achieved_ = true;
+  }
+
+  // if (!is_quiescent_state_achieved_) {
+  if (!is_quiescent_state_achieved_) {
+    // return SimulatorProgression::DidSetUpOneServer;
+    cv_.notify_all();  // -> deadlock
+    // return false;// -> deadlock
+    return true;  // -> deadlock
+  }
+  // if (blocked_servers < server_addresses_.size() && is_quiescent_state_achieved_) {
   if (blocked_servers < server_addresses_.size()) {
     // we only need to advance the simulator when all
     // servers have reached a quiescent state, blocked
@@ -70,6 +84,17 @@ bool SimulatorHandle::MaybeTickSimulator() {
   cv_.notify_all();
 
   TimeoutPromisesPastDeadline();
+
+  auto sort_based_on_message_id = [](const std::pair<Address, OpaqueMessage> &lhs,
+                                     const std::pair<Address, OpaqueMessage> &rhs) {
+    // return a.second.request_id < b.second.request_id;
+    if (lhs.second.from_address != rhs.second.from_address) {
+      return lhs.second.from_address < rhs.second.from_address;
+    }
+
+    return lhs.second.request_id < rhs.second.request_id;
+  };
+  std::sort(in_flight_.begin(), in_flight_.end(), sort_based_on_message_id);
 
   if (in_flight_.empty()) {
     // return early here because there are no messages to schedule
@@ -131,6 +156,11 @@ bool SimulatorHandle::MaybeTickSimulator() {
     // don't add it anywhere, let it drop
   } else {
     // add to can_receive_ if not
+    // This might be needed I am not sure, it can cause deadlock if you uncomment. Didn't find the issue yet.
+    // MG_ASSERT(server_addresses_.contains(to_address));
+    // MG_ASSERT(blocked_on_receive_.contains(to_address));
+    // blocked_on_receive_.erase(to_address);
+
     const auto &[om_vec, inserted] =
         can_receive_.try_emplace(to_address.ToPartialAddress(), std::vector<OpaqueMessage>());
     om_vec->second.emplace_back(std::move(opaque_message));

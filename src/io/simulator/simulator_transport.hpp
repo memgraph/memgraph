@@ -54,9 +54,13 @@ class SimulatorTransport {
 
   bool ShouldShutDown() const { return simulator_handle_->ShouldShutDown(); }
 
-  template <class D = std::poisson_distribution<>, class Return = uint64_t>
+  template <class D = std::poisson_distribution<uint64_t>, class Return = uint64_t>
   Return Rand(D distrib) {
-    return distrib(rng_);
+    // debug - gvolfing
+    auto thread_id = std::this_thread::get_id();
+    auto ret = distrib(rng_);
+    spdlog::info("something_random {}, thread_id: {}", std::to_string(ret), thread_id);
+    return ret;
   }
 
   LatencyHistogramSummaries ResponseLatencies() { return simulator_handle_->ResponseLatencies(); }

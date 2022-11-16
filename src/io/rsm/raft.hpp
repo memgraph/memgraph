@@ -312,11 +312,18 @@ class Raft {
   }
 
   void Run() {
+    // debug - gvolfing
+    uint64_t tick_count = 0;
+
     while (!io_.ShouldShutDown()) {
       const auto now = io_.Now();
       if (now >= next_cron_) {
         next_cron_ = Cron();
       }
+
+      // debug - gvolfing
+      spdlog::info("Raft::Run() awakened on thread {}, Cron tick: {}", std::this_thread::get_id(), tick_count);
+      tick_count++;
 
       const Duration receive_timeout = RandomTimeout(kMinimumReceiveTimeout, kMaximumReceiveTimeout);
 
