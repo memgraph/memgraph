@@ -995,6 +995,45 @@ bool PythonModule::Close() {
   procedures_.clear();
   transformations_.clear();
   functions_.clear();
+
+  const char *func_code =
+      "import ast\n"
+      "mod1 = {2, 1}\n"
+      "modules = {'item1', 'item2'}\n";
+
+  const char *num_code = "result = multiplicand * multiplier\n";
+  const char *set_code = "modules = {'item1', 'item2'}\n";
+
+  PyObject *py_main, *py_ast, *py_ast_dict, *py_global_dict, *py_local_dict;
+  // py_main = PyImport_AddModule("__main__");
+  py_main = PyImport_AddModule("__main__");
+  py_global_dict = PyModule_GetDict(py_main);
+  py_ast = PyImport_AddModule("ast");
+  py_ast_dict = PyModule_GetDict(py_ast);
+  PyDict_Update(py_global_dict, py_ast_dict);
+
+  py_local_dict = PyDict_New();
+  // PyDict_SetItemString(py_local_dict, "multiplicand", PyLong_FromLong(2));
+  // PyDict_SetItemString(py_local_dict, "multiplier", PyLong_FromLong(5));
+  PyRun_String(func_code, Py_file_input, py_global_dict, py_local_dict);
+  // long result = PyLong_AsLong(PyDict_GetItemString(py_local_dict, "result"));
+  PyObject *py_res = PyDict_GetItemString(py_local_dict, "modules");
+
+  PyObject *iterator = PyObject_GetIter(py_res);
+  PyObject *item;
+
+  if (iterator == NULL) {
+    spdlog::warn("Iterator is null...");
+  } else {
+    while ((item = PyIter_Next(iterator))) {
+      const char *res = PyUnicode_AsUTF8(item);
+      spdlog::info("Set element: {}", res);
+      Py_DECREF(item);
+    }
+    Py_DECREF(iterator);
+  }
+
+  // TODO: needs to be refactored
   // Delete the module from the `sys.modules` directory so that the module will
   // be properly imported if imported again.
   py::Object sys(PyImport_ImportModule("sys"));
