@@ -37,8 +37,7 @@ enum class ErrorCode {
   SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED,
 
   // NEW Ones
-  OBJECT_NOT_FOUND,  // Different from NONEXISTENT_OBJECT since ine the latter it
-  // could be found it could have a delta that specified deletion
+  OBJECT_NOT_FOUND,
 };
 
 constexpr std::string_view ErrorCodeToString(const ErrorCode code) {
