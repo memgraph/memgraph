@@ -104,20 +104,20 @@ class Memgraph:
         self._proc_mg = None
         return ret, usage
 
-    def start_preparation(self):
+    def start_preparation(self, workload=None):
         if self._memgraph_version >= (0, 50, 0):
             self._start(storage_snapshot_on_exit=True)
         else:
             self._start(snapshot_on_exit=True)
 
-    def start_benchmark(self):
+    def start_benchmark(self, workload=None):
         # TODO: support custom benchmarking config files!
         if self._memgraph_version >= (0, 50, 0):
             self._start(storage_recover_on_startup=True)
         else:
             self._start(db_recover_on_startup=True)
 
-    def stop(self):
+    def stop(self, workload=None):
         ret, usage = self._cleanup()
         assert ret == 0, "The database process exited with a non-zero " "status ({})!".format(ret)
         return usage
@@ -128,68 +128,66 @@ class Neo4j:
         self._neo4j_path = Path(neo4j_path)
         self._neo4j_binary = Path(neo4j_path) / "bin" / "neo4j"
         self._neo4j_config = Path(neo4j_path) / "conf" / "neo4j.conf"
+        self._neo4j_pid = Path(neo4j_path) / "run" / "neo4j.pid"
         if not self._neo4j_binary.is_file():
             raise Exception("Wrong path to binary!")
         self._directory = tempfile.TemporaryDirectory(dir=temporary_dir)
-        self._proc_neo4j = None
         self._bolt_port = bolt_port
         atexit.register(self._cleanup)
-        config = "dbms.security.auth_enabled=false"
-        print("Check config securuty flag:")
-        with self._neo4j_config.open("r+") as file:
-            lines = file.readlines()
-            line_exist = False
-            for line in lines:
-                if config == line:
-                    line_exist = True
-                    print("Config line exist at line: " + str(lines.index(line)))
-                    print("Line content: " + line)
+        configs = ["dbms.security.auth_enabled=false", "server.jvm.additional=-XX:NativeMemoryTracking=detail"]
+        print("Check neo4j config flags:")
+        for conf in configs:
+            with self._neo4j_config.open("r+") as file:
+                lines = file.readlines()
+                line_exist = False
+                for line in lines:
+                    if conf == line.rstrip():
+                        line_exist = True
+                        print("Config line exist at line: " + str(lines.index(line)))
+                        print("Line content: " + line)
+                        file.close()
+                        break
+                if not line_exist:
+                    print("Setting config line: " + conf)
+                    file.write(conf)
+                    file.write("\n")
                     file.close()
-                    break
-            if not line_exist:
-                print("Setting config line: " + config)
-                file.write(config)
-                file.close()
 
     def __del__(self):
         self._cleanup()
         atexit.unregister(self._cleanup)
 
     def _start(self, **kwargs):
-        if self._proc_neo4j is not None:
+        if self._neo4j_pid.exists():
             raise Exception("The database process is already running!")
         args = _convert_args_to_flags(self._neo4j_binary, "start", **kwargs)
-        self._proc_neo4j = subprocess.Popen(args, stdout=subprocess.PIPE)
+        start_proc = subprocess.run(args, check=True)
         time.sleep(10)
-        if self._proc_neo4j.poll() == 0:
+        if self._neo4j_pid.exists():
             print("Neo4j started!")
-        if self._proc_neo4j.poll() != 0:
-            self._proc_neo4j = None
+        else:
             raise Exception("The database process died prematurely!")
+        print("Run server check:")
         wait_for_server(self._bolt_port)
-        ret = self._proc_neo4j.poll()
-        assert ret == 0, "The database process died prematurely " "({})!".format(ret)
 
     def _cleanup(self):
-        pid_file = self._neo4j_path / "run" / "neo4j.pid"
-        if pid_file.exists():
-            pid = pid_file.read_text()
+        if self._neo4j_pid.exists():
+            pid = self._neo4j_pid.read_text()
             print("Clean up: " + pid)
             usage = _get_usage(pid)
-            args = list()
-            args.append(self._neo4j_binary)
-            args.append("stop")
-            exit_proc = subprocess.run(args, capture_output=True, check=True)
-            self._proc_neo4j = None
+
+            exit_proc = subprocess.run(args=[self._neo4j_binary, "stop"], capture_output=True, check=True)
             return exit_proc.returncode, usage
         else:
             return 0
 
-    def start_preparation(self):
+    def start_preparation(self, workload):
         self._start()
+        self.get_memory_usage("start_" + workload)
 
-    def start_benchmark(self):
+    def start_benchmark(self, workload):
         self._start()
+        self.get_memory_usage("start_" + workload)
 
     def is_stopped(self):
         pid_file = self._neo4j_path / "run" / "neo4j.pid"
@@ -198,10 +196,27 @@ class Neo4j:
         else:
             return True
 
-    def stop(self):
+    def stop(self, workload):
+        self.get_memory_usage("stop_" + workload)
         ret, usage = self._cleanup()
         assert ret == 0, "The database process exited with a non-zero " "status ({})!".format(ret)
         return usage
+
+    def get_memory_usage(self, workload):
+        Path.mkdir(Path().cwd() / "neo4j_memory", exist_ok=True)
+
+        pid = self._neo4j_pid.read_text()
+        memory_usage = subprocess.run(args=["jcmd", pid, "VM.native_memory"], capture_output=True, text=True)
+        file = Path(Path().cwd() / "neo4j_memory" / workload)
+        if file.exists():
+            with file.open("r+") as f:
+                f.write(memory_usage.stdout)
+                f.close()
+        else:
+            file.touch()
+            with file.open("r+") as f:
+                f.write(memory_usage.stdout)
+                f.close()
 
 
 class Client:

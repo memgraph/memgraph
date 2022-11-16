@@ -59,12 +59,12 @@ def run_full_benchmarks(vendor, binary, dataset_size, dataset_group, group_confi
         # Basic full group test cold
         [
             "--export-results",
-            vendor + "_cold_isolated.json",
+            vendor + dataset_size + "_cold_isolated.json",
         ],
         # Basic full group test hot
         [
             "--export-results",
-            vendor + "_hot_isolated.json",
+            vendor + dataset_size + "_hot_isolated.json",
             "--warmup-run",
         ],
     ]
@@ -73,7 +73,9 @@ def run_full_benchmarks(vendor, binary, dataset_size, dataset_group, group_confi
     for count, write, read, update, analytical in group_configs:
         cold = [
             "--export-results",
-            vendor + "_cold_realistic_{}_{}_{}_{}_{}.json".format(count, write, read, update, analytical),
+            vendor
+            + dataset_size
+            + "_cold_realistic_{}_{}_{}_{}_{}.json".format(count, write, read, update, analytical),
             "--mixed-workload",
             count,
             write,
@@ -84,7 +86,7 @@ def run_full_benchmarks(vendor, binary, dataset_size, dataset_group, group_confi
 
         hot = [
             "--export-results",
-            vendor + "_hot_realistic_{}_{}_{}_{}_{}.json".format(count, write, read, update, analytical),
+            vendor + dataset_size + "_hot_realistic_{}_{}_{}_{}_{}.json".format(count, write, read, update, analytical),
             "--warmup-run",
             "--mixed-workload",
             count,
@@ -100,7 +102,9 @@ def run_full_benchmarks(vendor, binary, dataset_size, dataset_group, group_confi
     for count, write, read, update, analytical, query in per_query_configs:
         cold = [
             "--export-results",
-            vendor + "_cold_mixed_{}_{}_{}_{}_{}_{}.json".format(count, write, read, update, analytical, query),
+            vendor
+            + dataset_size
+            + "_cold_mixed_{}_{}_{}_{}_{}_{}.json".format(count, write, read, update, analytical, query),
             "--mixed-workload",
             count,
             write,
@@ -111,7 +115,9 @@ def run_full_benchmarks(vendor, binary, dataset_size, dataset_group, group_confi
         ]
         hot = [
             "--export-results",
-            vendor + "_hot_mixed_{}_{}_{}_{}_{}_{}.json".format(count, write, read, update, analytical, query),
+            vendor
+            + dataset_size
+            + "_hot_mixed_{}_{}_{}_{}_{}_{}.json".format(count, write, read, update, analytical, query),
             "--warmup-run",
             "--mixed-workload",
             count,

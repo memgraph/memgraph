@@ -234,7 +234,7 @@ def warmup(client):
 
 
 def tail_latency(vendor, client, func):
-    vendor.start_benchmark()
+    vendor.start_benchmark("tail_latency")
     if args.warmup_run:
         warmup(client)
     latency = []
@@ -257,7 +257,7 @@ def tail_latency(vendor, client, func):
     }
     print("Query statistics for tail latency: ")
     print(query_stats)
-    vendor.stop()
+    vendor.stop("tail_latency")
     return query_stats
 
 
@@ -335,14 +335,18 @@ def mixed_workload(vendor, client, dataset, group, queries, workload):
                     aditional_query = getattr(dataset, funcname)
                     full_workload.append(aditional_query())
 
-            vendor.start_benchmark()
+            vendor.start_benchmark(
+                dataset.NAME + dataset.get_variant() + "_" + "mixed" + "_" + query + "_" + config_distribution
+            )
             if args.warmup_run:
                 warmup(client)
             ret = client.execute(
                 queries=full_workload,
                 num_workers=args.num_workers_for_benchmark,
             )[0]
-            usage_workload = vendor.stop()
+            usage_workload = vendor.stop(
+                dataset.NAME + dataset.get_variant() + "_" + "mixed" + "_" + query + "_" + config_distribution
+            )
 
             ret["database"] = usage_workload
 
@@ -367,14 +371,16 @@ def mixed_workload(vendor, client, dataset, group, queries, workload):
             aditional_query = getattr(dataset, funcname)
             full_workload.append(aditional_query())
 
-        vendor.start_benchmark()
+        vendor.start_benchmark(dataset.NAME + dataset.get_variant() + "_" + workload.name + "_" + config_distribution)
         if args.warmup_run:
             warmup(client)
         ret = client.execute(
             queries=full_workload,
             num_workers=args.num_workers_for_benchmark,
         )[0]
-        usage_workload = vendor.stop()
+        usage_workload = vendor.stop(
+            dataset.NAME + dataset.get_variant() + "_" + workload.name + "_" + config_distribution
+        )
         mixed_workload = {
             "count": ret["count"],
             "duration": ret["duration"],
@@ -405,7 +411,7 @@ def get_query_cache_count(vendor, client, func, config_key):
             "seconds of single-threaded runtime...",
         )
         # First run to prime the query caches.
-        vendor.start_benchmark()
+        vendor.start_benchmark("cache")
         if args.warmup_run:
             warmup(client)
         client.execute(queries=get_queries(func, 1), num_workers=1)
@@ -427,7 +433,7 @@ def get_query_cache_count(vendor, client, func, config_key):
                 break
             else:
                 count = count * 10
-        vendor.stop()
+        vendor.stop("cache")
 
         # Lower bound for count
         if count < 20:
@@ -535,11 +541,12 @@ for dataset, queries in benchmarks:
 
     client = runners.Client(args.client_binary, args.temporary_directory, args.bolt_port)
 
-    vendor.start_preparation()
-    print("Executing setup")
+    vendor.start_preparation("import")
+    print("Executing database cleanup and index setup...")
     ret = client.execute(file_path=dataset.get_index(), num_workers=args.num_workers_for_import)
+    print("Importing dataset...")
     ret = client.execute(file_path=dataset.get_file(), num_workers=args.num_workers_for_import)
-    usage = vendor.stop()
+    usage = vendor.stop("import")
     # Display import statistics.
     print()
     for row in ret:
@@ -607,14 +614,14 @@ for dataset, queries in benchmarks:
                     args.num_workers_for_benchmark,
                     "concurrent clients.",
                 )
-                vendor.start_benchmark()
+                vendor.start_benchmark(dataset.NAME + dataset.get_variant() + "_" + workload.name + "_" + query)
                 if args.warmup_run:
                     warmup(client)
                 ret = client.execute(
                     queries=get_queries(func, count),
                     num_workers=args.num_workers_for_benchmark,
                 )[0]
-                usage = vendor.stop()
+                usage = vendor.stop(dataset.NAME + dataset.get_variant() + "_" + workload.name + "_" + query)
                 ret["database"] = usage
                 ret["query_statistics"] = query_statistics
 
@@ -646,7 +653,7 @@ for dataset, queries in benchmarks:
         ## If there is need for authorization testing.
         if args.with_authorization:
             print("Running query with authorization")
-            vendor.start_benchmark()
+            vendor.start_benchmark("authorization")
             client.execute(
                 queries=[
                     ("CREATE USER user IDENTIFIED BY 'test';", {}),
@@ -662,7 +669,7 @@ for dataset, queries in benchmarks:
                 username="user",
                 password="test",
             )
-            vendor.stop()
+            vendor.stop("authorization")
 
             for group in sorted(queries.keys()):
                 for query, funcname in queries[group]:
@@ -684,14 +691,14 @@ for dataset, queries in benchmarks:
                     ]
                     count = get_query_cache_count(vendor, client, func, config_key)
 
-                    vendor.start_benchmark()
+                    vendor.start_benchmark("authorization")
                     if args.warmup_run:
                         warmup(client)
                     ret = client.execute(
                         queries=get_queries(func, count),
                         num_workers=args.num_workers_for_benchmark,
                     )[0]
-                    usage = vendor.stop()
+                    usage = vendor.stop("authorization")
                     ret["database"] = usage
                     ret["query_statistics"] = query_statistics
 
@@ -726,7 +733,7 @@ for dataset, queries in benchmarks:
                     results.set_value(*results_key, value=ret)
 
             # Clean up database from any roles and users job
-            vendor.start_benchmark()
+            vendor.start_benchmark("authorizations")
             ret = client.execute(
                 queries=[
                     ("REVOKE LABELS * FROM user;", {}),
@@ -736,7 +743,7 @@ for dataset, queries in benchmarks:
             )
             print("Cleanup status: ")
             print(ret)
-            vendor.stop()
+            vendor.stop("authorization")
 
 
 # Save configuration.
