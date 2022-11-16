@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "query/plan/operator.hpp"
+#include "utils/thread_pool.hpp"
 #include "utils/visitor.hpp"
 
 namespace memgraph::query::v2::physical {
@@ -24,6 +25,7 @@ using memgraph::query::plan::HierarchicalLogicalOperatorVisitor;
 using memgraph::query::plan::Once;
 using memgraph::query::plan::Produce;
 using memgraph::query::plan::ScanAll;
+using memgraph::utils::ThreadPool;
 
 struct Frame {
   int64_t a;
@@ -71,7 +73,9 @@ struct PipelineSegment {};
 /// Access to the thread and data pools should be given via the
 /// ExecutionContext.
 ///
-struct ExecutionContext {};
+struct ExecutionContext {
+  ThreadPool *thread_pool;
+};
 
 /// THREAD POOLS
 /// There might be the case we need many different thread pools (some of them
@@ -81,6 +85,7 @@ struct ExecutionContext {};
 ///   * IO       Pool -> Responsible for the interactions with the storage
 ///   * CPU      Pool -> Responsible for CPU heavy operations like aggregations
 /// TODO(gitbuda): Design thread pools and allocators.
+///   * Thread pool has to support cooperative cancellation of specific tasks.
 
 /// TODO(gitbuda): Consider variant instead of virtual for the PhysicalOperator.
 /// NOTE: Frame[OutputSymbol] tells where a single operator should place values.
