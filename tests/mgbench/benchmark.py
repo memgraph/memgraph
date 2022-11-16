@@ -540,39 +540,57 @@ for dataset, queries in benchmarks:
         )
 
     client = runners.Client(args.client_binary, args.temporary_directory, args.bolt_port)
+    dump_dir = cache.cache_directory("datasets", dataset.NAME, dataset.get_variant())
+    dump_file, exists = dump_dir.get_file("neo4j.dump")
+    ret = None
+    if args.vendor_name == "neo4j":
+        if exists:
+            vendor.load_db_from_dump(path=dump_dir.get_path())
+        else:
+            vendor.start_preparation("import")
+            print("Executing database cleanup and index setup...")
+            ret = client.execute(file_path=dataset.get_index(), num_workers=args.num_workers_for_import)
+            print("Importing dataset...")
+            ret = client.execute(file_path=dataset.get_file(), num_workers=args.num_workers_for_import)
+            usage = vendor.stop("import")
 
-    vendor.start_preparation("import")
-    print("Executing database cleanup and index setup...")
-    ret = client.execute(file_path=dataset.get_index(), num_workers=args.num_workers_for_import)
-    print("Importing dataset...")
-    ret = client.execute(file_path=dataset.get_file(), num_workers=args.num_workers_for_import)
-    usage = vendor.stop("import")
-    # Display import statistics.
-    print()
-    for row in ret:
-        print(
-            "Executed",
-            row["count"],
-            "queries in",
-            row["duration"],
-            "seconds using",
-            row["num_workers"],
-            "workers with a total throughput of",
-            row["throughput"],
-            "queries/second.",
-        )
-    print()
-    print(
-        "The database used",
-        usage["cpu"],
-        "seconds of CPU time and peaked at",
-        usage["memory"] / 1024 / 1024,
-        "MiB of RAM.",
-    )
-
-    # Save import results.
+            vendor.dump_db(path=dump_dir.get_path())
+    else:
+        vendor.start_preparation("import")
+        print("Executing database cleanup and index setup...")
+        ret = client.execute(file_path=dataset.get_index(), num_workers=args.num_workers_for_import)
+        print("Importing dataset...")
+        ret = client.execute(file_path=dataset.get_file(), num_workers=args.num_workers_for_import)
+        usage = vendor.stop("import")
+        # Save import results.
     import_key = [dataset.NAME, dataset.get_variant(), "__import__"]
-    results.set_value(*import_key, value={"client": ret, "database": usage})
+    if ret != None:
+        # Display import statistics.
+        print()
+        for row in ret:
+            print(
+                "Executed",
+                row["count"],
+                "queries in",
+                row["duration"],
+                "seconds using",
+                row["num_workers"],
+                "workers with a total throughput of",
+                row["throughput"],
+                "queries/second.",
+            )
+        print()
+        print(
+            "The database used",
+            usage["cpu"],
+            "seconds of CPU time and peaked at",
+            usage["memory"] / 1024 / 1024,
+            "MiB of RAM.",
+        )
+
+        results.set_value(*import_key, value={"client": ret, "database": usage})
+    else:
+        results.set_value(*import_key, value={"client": "dump_load", "database": "dump_load"})
 
     # Run all benchmarks in all available groups.
     for group in sorted(queries.keys()):

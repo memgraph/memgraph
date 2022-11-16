@@ -129,6 +129,7 @@ class Neo4j:
         self._neo4j_binary = Path(neo4j_path) / "bin" / "neo4j"
         self._neo4j_config = Path(neo4j_path) / "conf" / "neo4j.conf"
         self._neo4j_pid = Path(neo4j_path) / "run" / "neo4j.pid"
+        self._neo4j_admin = Path(neo4j_path) / "bin" / "neo4j-admin"
         if not self._neo4j_binary.is_file():
             raise Exception("Wrong path to binary!")
         self._directory = tempfile.TemporaryDirectory(dir=temporary_dir)
@@ -189,9 +190,45 @@ class Neo4j:
         self._start()
         self.get_memory_usage("start_" + workload)
 
+    def dump_db(self, path):
+        print("Dumping the neo4j database...")
+        if self._neo4j_pid.exists():
+            raise Exception("Cannot dump DB because it is running.")
+        else:
+            subprocess.run(
+                args=[
+                    self._neo4j_admin,
+                    "database",
+                    "dump",
+                    "--overwrite-destination=false",
+                    "--to-path",
+                    path,
+                    "neo4j",
+                ],
+                check=True,
+            )
+
+    def load_db_from_dump(self, path):
+        print("Loading the neo4j database from dump...")
+        if self._neo4j_pid.exists():
+            raise Exception("Cannot dump DB because it is running.")
+        else:
+            subprocess.run(
+                args=[
+                    self._neo4j_admin,
+                    "database",
+                    "load",
+                    "--from-path=" + path,
+                    "--overwrite-destination=true",
+                    "neo4j",
+                ],
+                check=True,
+            )
+
     def is_stopped(self):
         pid_file = self._neo4j_path / "run" / "neo4j.pid"
         if pid_file.exists():
+
             return False
         else:
             return True
