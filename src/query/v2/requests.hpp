@@ -321,10 +321,6 @@ struct Expression {
   std::string expression;
 };
 
-struct Filter {
-  std::string filter_expression;
-};
-
 enum class OrderingDirection { ASCENDING = 1, DESCENDING = 2 };
 
 struct OrderBy {
@@ -366,22 +362,42 @@ struct ScanVerticesResponse {
   std::vector<ScanResultRow> results;
 };
 
-using VertexOrEdgeIds = std::variant<VertexId, EdgeId>;
+struct VertexAndEdgeId {
+  VertexId vertex;
+  std::optional<EdgeTypeId> edge;
+};
 
 struct GetPropertiesRequest {
   Hlc transaction_id;
-  // Shouldn't contain mixed vertex and edge ids
-  VertexOrEdgeIds vertex_or_edge_ids;
+  std::vector<VertexAndEdgeId> vertices_and_edges;
+
   std::vector<PropertyId> property_ids;
-  std::vector<Expression> expressions;
-  bool only_unique = false;
-  std::optional<std::vector<OrderBy>> order_by;
+  std::vector<std::string> expressions;
+
+  std::vector<OrderBy> order_by;
   std::optional<size_t> limit;
-  std::optional<Filter> filter;
+
+  // Return only the properties of the vertices or edges that the filter predicate
+  // evaluates to true
+  std::optional<std::string> filter;
+};
+
+struct PropIdValue {
+  std::vector<PropertyId> ids;
+  std::vector<Value> properties;
+};
+
+struct GetPropertiesResultRow {
+  VertexAndEdgeId vertex_and_edge;
+
+  PropIdValue properies_and_ids;
+  std::vector<Value> evaluated_expressions;
 };
 
 struct GetPropertiesResponse {
-  bool success;
+  std::vector<GetPropertiesResultRow> result_row;
+  enum RequestResult : uint16_t { OUT_OF_SHARD_RANGE, SUCCESS, FAILURE };
+  RequestResult result;
 };
 
 enum class EdgeDirection : uint8_t { OUT = 1, IN = 2, BOTH = 3 };

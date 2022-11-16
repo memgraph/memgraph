@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "ast/ast.hpp"
+#include "query/v2/requests.hpp"
 #include "storage/v3/bindings/typed_value.hpp"
 #include "storage/v3/shard.hpp"
 #include "storage/v3/vertex_accessor.hpp"
@@ -104,8 +105,18 @@ struct Element {
   VertexAccessor vertex_acc;
 };
 
+struct GetPropElement {
+  std::vector<TypedValue> properties_order_by;
+  std::vector<PropertyId> ids;
+  VertexAccessor vertex_acc;
+  std::optional<EdgeAccessor> edge_acc;
+};
+
 std::vector<Element> OrderByElements(Shard::Accessor &acc, DbAccessor &dba, VerticesIterable &vertices_iterable,
                                      std::vector<msgs::OrderBy> &order_bys);
+
+std::vector<GetPropElement> OrderByElements(DbAccessor &dba, std::vector<msgs::OrderBy> &order_bys,
+                                            std::vector<GetPropElement> &&vertices);
 
 VerticesIterable::Iterator GetStartVertexIterator(VerticesIterable &vertex_iterable,
                                                   const std::vector<PropertyValue> &start_ids, View view);

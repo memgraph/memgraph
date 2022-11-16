@@ -15,8 +15,10 @@
 #include <optional>
 #include <unordered_set>
 #include <utility>
+#include <variant>
 
 #include "parser/opencypher/parser.hpp"
+#include "pretty_print_ast_to_original_expression.hpp"
 #include "query/v2/requests.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/view.hpp"
@@ -29,6 +31,7 @@
 #include "storage/v3/bindings/symbol_generator.hpp"
 #include "storage/v3/bindings/symbol_table.hpp"
 #include "storage/v3/bindings/typed_value.hpp"
+#include "storage/v3/conversions.hpp"
 #include "storage/v3/expr.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/key_store.hpp"
@@ -159,10 +162,15 @@ std::optional<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(cons
 }
 
 bool FilterOnVertex(DbAccessor &dba, const storage::v3::VertexAccessor &v_acc, const std::vector<std::string> &filters,
-                    const std::string_view node_name) {
-  return std::ranges::all_of(filters, [&node_name, &dba, &v_acc](const auto &filter_expr) {
-    auto res = ComputeExpression(dba, v_acc, std::nullopt, filter_expr, node_name, "");
-    return res.IsBool() && res.ValueBool();
+                    const std::string_view node_name, const std::optional<EdgeAccessor> &e_acc = std::nullopt) {
+  return std::ranges::all_of(filters, [&node_name, &dba, &v_acc, &e_acc](const auto &filter_expr) {
+    TypedValue result;
+    if (e_acc) {
+      result = ComputeExpression(dba, v_acc, e_acc, filter_expr, "", node_name);
+    } else {
+      result = ComputeExpression(dba, v_acc, e_acc, filter_expr, node_name, "");
+    }
+    return result.IsBool() && result.ValueBool();
   });
 }
 
@@ -936,9 +944,125 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CommitRequest &&req) {
   return msgs::CommitResponse{true};
 };
 
-// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-msgs::ReadResponses ShardRsm::HandleRead(msgs::GetPropertiesRequest && /*req*/) {
-  return msgs::GetPropertiesResponse{};
+msgs::ReadResponses ShardRsm::HandleRead(msgs::GetPropertiesRequest &&req) {
+  if (req.vertices_and_edges.empty()) {
+    return msgs::GetPropertiesResponse{.result = msgs::GetPropertiesResponse::FAILURE};
+  }
+
+  auto shard_acc = shard_->Access(req.transaction_id);
+  auto dba = DbAccessor{&shard_acc};
+  const auto view = storage::v3::View::NEW;
+
+  auto collect_props = [](const VertexAccessor &acc, const std::vector<PropertyId> &props, View view,
+                          const std::optional<EdgeAccessor> &e_acc) mutable -> std::optional<GetPropElement> {
+    std::vector<TypedValue> properties;
+    std::vector<PropertyId> ids;
+    for (const auto &prop : props) {
+      Result<PropertyValue> result{PropertyValue()};
+      if (e_acc) {
+        result = e_acc->GetProperty(prop, view);
+      } else {
+        result = acc.GetProperty(prop, view);
+      }
+      if (result.HasError() && result.GetError() == Error::NONEXISTENT_OBJECT) {
+        continue;
+      }
+      if (result.HasError()) {
+        spdlog::debug("Encountered an Error while trying to get a vertex property.");
+        return std::nullopt;
+      }
+      properties.push_back(PropertyToTypedValue<TypedValue>(result.GetValue()));
+      ids.push_back(prop);
+    }
+    GetPropElement element{std::move(properties), std::move(ids), acc, e_acc};
+    return {std::move(element)};
+  };
+
+  auto find_edge = [](const VertexAccessor &v, const EdgeTypeId &e) -> std::optional<EdgeAccessor> {
+    auto in = v.InEdges(view, {e});
+    MG_ASSERT(in.HasValue());
+    for (auto &edge : in.GetValue()) {
+      if (edge.EdgeType() == e) {
+        return edge;
+      }
+    }
+
+    auto out = v.OutEdges(view, {e});
+    MG_ASSERT(out.HasValue());
+    for (auto &edge : out.GetValue()) {
+      if (edge.EdgeType() == e) {
+        return edge;
+      }
+    }
+    return std::nullopt;
+  };
+
+  std::vector<GetPropElement> elements;
+
+  for (const auto &[vertex, maybe_edge] : req.vertices_and_edges) {
+    const auto &[label, pk_v] = vertex;
+    auto pk = ConvertPropertyVector(pk_v);
+    auto v_acc = dba.FindVertex(pk, view);
+    if (!v_acc) {
+      return msgs::GetPropertiesResponse{.result = msgs::GetPropertiesResponse::OUT_OF_SHARD_RANGE};
+    }
+    std::optional<EdgeAccessor> e_acc;
+    if (maybe_edge) {
+      e_acc = find_edge(*v_acc, *maybe_edge);
+      if (!e_acc) {
+        return msgs::GetPropertiesResponse{.result = msgs::GetPropertiesResponse::OUT_OF_SHARD_RANGE};
+      }
+    }
+
+    const auto *symbol = (maybe_edge) ? expr::identifier_edge_symbol : expr::identifier_node_symbol;
+    if (req.filter && !FilterOnVertex(dba, *v_acc, {*req.filter}, symbol, e_acc)) {
+      continue;
+    }
+
+    std::optional<GetPropElement> collected_properties;
+    collected_properties = collect_props(*v_acc, req.property_ids, view, e_acc);
+    if (!collected_properties) {
+      return msgs::GetPropertiesResponse{.result = msgs::GetPropertiesResponse::FAILURE};
+    }
+    if (collected_properties->ids.empty()) {
+      continue;
+    }
+    elements.push_back(std::move(*collected_properties));
+  }
+
+  if (!req.order_by.empty()) {
+    elements = OrderByElements(dba, req.order_by, std::move(elements));
+  }
+
+  std::vector<msgs::GetPropertiesResultRow> results;
+  results.reserve(elements.size());
+
+  const auto has_expr_to_evaluate = !req.expressions.empty();
+  size_t limit = elements.size();
+  if (req.limit && *req.limit < elements.size()) {
+    limit = *req.limit;
+  }
+  for (size_t index = 0; index != limit; ++index) {
+    auto &element = elements.at(index);
+    const auto id = element.vertex_acc.Id(view).GetValue();
+    std::optional<EdgeTypeId> e_type =
+        (element.edge_acc) ? std::make_optional(element.edge_acc->EdgeType()) : std::nullopt;
+    msgs::VertexId v_id{msgs::Label{id.primary_label}, ConvertValueVector(id.primary_key)};
+    results.push_back(msgs::GetPropertiesResultRow{
+        .vertex_and_edge = {.vertex = std::move(v_id), .edge = e_type},
+        .properies_and_ids = {
+            .ids = std::move(element.ids),
+            .properties = ConvertToValueVectorFromTypedValueVector(std::move(element.properties_order_by))}});
+    if (has_expr_to_evaluate) {
+      auto expression_results = ConvertToValueVectorFromTypedValueVector(
+          EvaluateVertexExpressions(dba, element.vertex_acc, req.expressions, expr::identifier_node_symbol));
+      results.back().evaluated_expressions = std::move(expression_results);
+    }
+  }
+
+  return msgs::GetPropertiesResponse{std::move(results), msgs::GetPropertiesResponse::SUCCESS};
 }
+
+// TODO(kostasrim) Handle edges
 
 }  // namespace memgraph::storage::v3
