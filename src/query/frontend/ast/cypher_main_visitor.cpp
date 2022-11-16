@@ -2106,7 +2106,7 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
     // Here we handle COUNT(*). COUNT(expression) is handled in
     // visitFunctionInvocation with other aggregations. This is visible in
     // functionInvocation and atom producions in opencypher grammar.
-    return static_cast<Expression *>(storage_->Create<Aggregation>(nullptr, nullptr, Aggregation::Op::COUNT));
+    return static_cast<Expression *>(storage_->Create<Aggregation>(nullptr, nullptr, Aggregation::Op::COUNT, false));
   } else if (ctx->ALL()) {
     auto *ident = storage_->Create<Identifier>(
         std::any_cast<std::string>(ctx->filterExpression()->idInColl()->variable()->accept(this)));
@@ -2222,9 +2222,9 @@ antlrcpp::Any CypherMainVisitor::visitNumberLiteral(MemgraphCypher::NumberLitera
 }
 
 antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(MemgraphCypher::FunctionInvocationContext *ctx) {
-  if (ctx->DISTINCT()) {
-    throw utils::NotYetImplemented("DISTINCT function call");
-  }
+  // if (ctx->DISTINCT()) {
+  //   throw utils::NotYetImplemented("DISTINCT function call");
+  // }
   auto function_name = std::any_cast<std::string>(ctx->functionName()->accept(this));
   std::vector<Expression *> expressions;
   for (auto *expression : ctx->expression()) {
@@ -2232,33 +2232,38 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(MemgraphCypher::Functio
   }
   if (expressions.size() == 1U) {
     if (function_name == Aggregation::kCount) {
-      return static_cast<Expression *>(storage_->Create<Aggregation>(expressions[0], nullptr, Aggregation::Op::COUNT));
+      return static_cast<Expression *>(
+          storage_->Create<Aggregation>(expressions[0], nullptr, Aggregation::Op::COUNT, ctx->DISTINCT()));
     }
     if (function_name == Aggregation::kMin) {
-      return static_cast<Expression *>(storage_->Create<Aggregation>(expressions[0], nullptr, Aggregation::Op::MIN));
+      return static_cast<Expression *>(
+          storage_->Create<Aggregation>(expressions[0], nullptr, Aggregation::Op::MIN, ctx->DISTINCT()));
     }
     if (function_name == Aggregation::kMax) {
-      return static_cast<Expression *>(storage_->Create<Aggregation>(expressions[0], nullptr, Aggregation::Op::MAX));
+      return static_cast<Expression *>(
+          storage_->Create<Aggregation>(expressions[0], nullptr, Aggregation::Op::MAX, ctx->DISTINCT()));
     }
     if (function_name == Aggregation::kSum) {
-      return static_cast<Expression *>(storage_->Create<Aggregation>(expressions[0], nullptr, Aggregation::Op::SUM));
+      return static_cast<Expression *>(
+          storage_->Create<Aggregation>(expressions[0], nullptr, Aggregation::Op::SUM, ctx->DISTINCT()));
     }
     if (function_name == Aggregation::kAvg) {
-      return static_cast<Expression *>(storage_->Create<Aggregation>(expressions[0], nullptr, Aggregation::Op::AVG));
+      return static_cast<Expression *>(
+          storage_->Create<Aggregation>(expressions[0], nullptr, Aggregation::Op::AVG, ctx->DISTINCT()));
     }
     if (function_name == Aggregation::kCollect) {
       return static_cast<Expression *>(
-          storage_->Create<Aggregation>(expressions[0], nullptr, Aggregation::Op::COLLECT_LIST));
+          storage_->Create<Aggregation>(expressions[0], nullptr, Aggregation::Op::COLLECT_LIST, ctx->DISTINCT()));
     }
     if (function_name == Aggregation::kProject) {
       return static_cast<Expression *>(
-          storage_->Create<Aggregation>(expressions[0], nullptr, Aggregation::Op::PROJECT));
+          storage_->Create<Aggregation>(expressions[0], nullptr, Aggregation::Op::PROJECT, ctx->DISTINCT()));
     }
   }
 
   if (expressions.size() == 2U && function_name == Aggregation::kCollect) {
     return static_cast<Expression *>(
-        storage_->Create<Aggregation>(expressions[1], expressions[0], Aggregation::Op::COLLECT_MAP));
+        storage_->Create<Aggregation>(expressions[1], expressions[0], Aggregation::Op::COLLECT_MAP, ctx->DISTINCT()));
   }
 
   auto is_user_defined_function = [](const std::string &function_name) {

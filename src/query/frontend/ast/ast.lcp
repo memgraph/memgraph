@@ -461,7 +461,8 @@ cpp<#
 (lcp:define-class aggregation (binary-operator)
   ((op "Op" :scope :public)
    (symbol-pos :int32_t :initval -1 :scope :public
-               :documentation "Symbol table position of the symbol this Aggregation is mapped to."))
+               :documentation "Symbol table position of the symbol this Aggregation is mapped to.")
+    (distinct :bool :initval "false" :scope :private))
   (:public
     (lcp:define-enum op
       (count min max sum avg collect-list collect-map project)
@@ -505,8 +506,8 @@ cpp<#
 
     /// Aggregation's first expression is the value being aggregated. The second
     /// expression is the key used only in COLLECT_MAP.
-    Aggregation(Expression *expression1, Expression *expression2, Op op)
-        : BinaryOperator(expression1, expression2), op_(op) {
+    Aggregation(Expression *expression1, Expression *expression2, Op op, bool distinct)
+        : BinaryOperator(expression1, expression2), op_(op), distinct_(distinct) {
       // COUNT without expression denotes COUNT(*) in cypher.
       DMG_ASSERT(expression1 || op == Aggregation::Op::COUNT,
                  "All aggregations, except COUNT require expression");
