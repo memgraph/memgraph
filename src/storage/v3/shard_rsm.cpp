@@ -332,10 +332,9 @@ ShardResult<msgs::ExpandOneResultRow> GetExpandOneResult(
   msgs::Vertex source_vertex = {.id = src_vertex};
   const auto maybe_secondary_labels = FillUpSourceVertexSecondaryLabels(v_acc, req);
   if (maybe_secondary_labels.HasError()) {
-    source_vertex.labels = *maybe_secondary_labels;
-  } else {
     return maybe_secondary_labels.GetError();
   }
+  source_vertex.labels = *maybe_secondary_labels;
 
   auto src_vertex_properties = FillUpSourceVertexProperties(v_acc, req, storage::v3::View::NEW, schema);
 
