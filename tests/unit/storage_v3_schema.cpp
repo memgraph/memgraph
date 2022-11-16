@@ -150,7 +150,15 @@ TEST_F(SchemaTest, TestSchemaDrop) {
 
 class SchemaValidatorTest : public testing::Test {
  private:
-  NameIdMapper id_mapper_{{{1, "label1"}, {2, "label2"}, {3, "prop1"}, {4, "prop2"}, {5, "prop3"}}};
+  NameIdMapper id_mapper_{{{1, "label1"},
+                           {2, "label2"},
+                           {3, "prop1"},
+                           {4, "prop2"},
+                           {5, "prop3"},
+                           {6, "label4"},
+                           {7, "label5"},
+                           {8, "label6"},
+                           {9, "test"}}};
 
  protected:
   void SetUp() override {
