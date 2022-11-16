@@ -22,6 +22,11 @@
 #include "storage/v3/shard.hpp"
 #include "storage/v3/vertex_accessor.hpp"
 namespace memgraph::storage::v3 {
+using EdgeAccessors = std::vector<storage::v3::EdgeAccessor>;
+using EdgeUniqunessFunction = std::function<EdgeAccessors(EdgeAccessors &&, msgs::EdgeDirection)>;
+using EdgeFiller = std::function<bool(const EdgeAccessor &edge, bool is_in_edge, msgs::ExpandOneResultRow &result_row)>;
+using msgs::Value;
+
 template <typename T>
 concept ObjectAccessor = std::is_same_v<T, VertexAccessor> || std::is_same_v<T, EdgeAccessor>;
 
@@ -194,4 +199,40 @@ std::vector<Element<VertexAccessor>>::const_iterator GetStartOrderedElementsIter
 
 std::array<std::vector<EdgeAccessor>, 2> GetEdgesFromVertex(const VertexAccessor &vertex_accessor,
                                                             msgs::EdgeDirection direction);
+
+bool FilterOnVertex(DbAccessor &dba, const storage::v3::VertexAccessor &v_acc, const std::vector<std::string> &filters,
+                    const std::string_view node_name);
+
+std::vector<TypedValue> EvaluateVertexExpressions(DbAccessor &dba, const VertexAccessor &v_acc,
+                                                  const std::vector<std::string> &expressions,
+                                                  std::string_view node_name);
+
+std::optional<std::map<PropertyId, Value>> CollectSpecificPropertiesFromAccessor(const VertexAccessor &acc,
+                                                                                 const std::vector<PropertyId> &props,
+                                                                                 View view);
+
+std::optional<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(const VertexAccessor &acc, View view,
+                                                                            const Schemas::Schema &schema);
+
+EdgeUniqunessFunction InitializeEdgeUniqunessFunction(bool only_unique_neighbor_rows);
+
+EdgeFiller InitializeEdgeFillerFunction(const msgs::ExpandOneRequest &req);
+
+std::optional<std::map<PropertyId, Value>> CollectSpecificPropertiesFromAccessor(const VertexAccessor &acc,
+                                                                                 const std::vector<PropertyId> &props,
+                                                                                 View view);
+
+bool FilterOnVertex(DbAccessor &dba, const storage::v3::VertexAccessor &v_acc, const std::vector<std::string> &filters,
+                    const std::string_view node_name);
+
+std::optional<msgs::ExpandOneResultRow> GetExpandOneResult(
+    Shard::Accessor &acc, msgs::VertexId src_vertex, const msgs::ExpandOneRequest &req,
+    const EdgeUniqunessFunction &maybe_filter_based_on_edge_uniquness, const EdgeFiller &edge_filler,
+    const Schemas::Schema &schema);
+
+std::optional<msgs::ExpandOneResultRow> GetExpandOneResult(
+    VertexAccessor v_acc, msgs::VertexId src_vertex, const msgs::ExpandOneRequest &req,
+    std::vector<EdgeAccessor> in_edge_accessors, std::vector<EdgeAccessor> out_edge_accessors,
+    const EdgeUniqunessFunction &maybe_filter_based_on_edge_uniquness, const EdgeFiller &edge_filler,
+    const Schemas::Schema &schema);
 }  // namespace memgraph::storage::v3

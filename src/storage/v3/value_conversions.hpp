@@ -129,4 +129,27 @@ inline std::vector<Value> ConvertValueVector(const std::vector<v3::PropertyValue
 inline msgs::VertexId ToMsgsVertexId(const v3::VertexId &vertex_id) {
   return {msgs::Label{vertex_id.primary_label}, ConvertValueVector(vertex_id.primary_key)};
 }
+
+inline std::vector<std::pair<v3::PropertyId, v3::PropertyValue>> ConvertPropertyMap(
+    std::vector<std::pair<v3::PropertyId, Value>> &&properties) {
+  std::vector<std::pair<v3::PropertyId, v3::PropertyValue>> ret;
+  ret.reserve(properties.size());
+
+  std::transform(std::make_move_iterator(properties.begin()), std::make_move_iterator(properties.end()),
+                 std::back_inserter(ret), [](std::pair<v3::PropertyId, Value> &&property) {
+                   return std::make_pair(property.first, ToPropertyValue(std::move(property.second)));
+                 });
+
+  return ret;
+}
+
+inline std::vector<std::pair<PropertyId, Value>> FromMap(const std::map<PropertyId, Value> &properties) {
+  std::vector<std::pair<PropertyId, Value>> ret;
+  ret.reserve(properties.size());
+
+  std::transform(properties.begin(), properties.end(), std::back_inserter(ret),
+                 [](const auto &property) { return std::make_pair(property.first, property.second); });
+
+  return ret;
+}
 }  // namespace memgraph::storage::conversions
