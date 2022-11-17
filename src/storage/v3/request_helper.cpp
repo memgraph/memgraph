@@ -13,8 +13,8 @@
 
 #include <vector>
 
-#include "pretty_print_ast_to_original_expression.hpp"
 #include "storage/v3/bindings/db_accessor.hpp"
+#include "storage/v3/bindings/pretty_print_ast_to_original_expression.hpp"
 #include "storage/v3/expr.hpp"
 #include "storage/v3/value_conversions.hpp"
 
@@ -387,8 +387,7 @@ std::optional<msgs::ExpandOneResultRow> GetExpandOneResult(
     return std::nullopt;
   }
 
-  std::optional<std::map<PropertyId, Value>> src_vertex_properties;
-  src_vertex_properties = FillUpSourceVertexProperties(v_acc, req, storage::v3::View::NEW, schema);
+  auto src_vertex_properties = FillUpSourceVertexProperties(v_acc, req, storage::v3::View::NEW, schema);
 
   if (!src_vertex_properties) {
     return std::nullopt;
