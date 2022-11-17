@@ -158,10 +158,10 @@ std::vector<Element<EdgeAccessor>> OrderByEdges(DbAccessor &dba, std::vector<Edg
                                                 const VertexAccessor &vertex_acc);
 
 VerticesIterable::Iterator GetStartVertexIterator(VerticesIterable &vertex_iterable,
-                                                  const std::vector<PropertyValue> &start_ids, View view);
+                                                  const std::vector<PropertyValue> &primary_key, View view);
 
 std::vector<Element<VertexAccessor>>::const_iterator GetStartOrderedElementsIterator(
-    const std::vector<Element<VertexAccessor>> &ordered_elements, const std::vector<PropertyValue> &start_ids,
+    const std::vector<Element<VertexAccessor>> &ordered_elements, const std::vector<PropertyValue> &primary_key,
     View view);
 
 std::array<std::vector<EdgeAccessor>, 2> GetEdgesFromVertex(const VertexAccessor &vertex_accessor,

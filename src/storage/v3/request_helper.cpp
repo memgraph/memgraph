@@ -456,10 +456,10 @@ std::optional<msgs::ExpandOneResultRow> GetExpandOneResult(
 }
 
 VerticesIterable::Iterator GetStartVertexIterator(VerticesIterable &vertex_iterable,
-                                                  const std::vector<PropertyValue> &start_ids, const View view) {
+                                                  const std::vector<PropertyValue> &primary_key, const View view) {
   auto it = vertex_iterable.begin();
   while (it != vertex_iterable.end()) {
-    if (const auto &vertex = *it; start_ids <= vertex.PrimaryKey(view).GetValue()) {
+    if (const auto &vertex = *it; primary_key <= vertex.PrimaryKey(view).GetValue()) {
       break;
     }
     ++it;
@@ -468,10 +468,10 @@ VerticesIterable::Iterator GetStartVertexIterator(VerticesIterable &vertex_itera
 }
 
 std::vector<Element<VertexAccessor>>::const_iterator GetStartOrderedElementsIterator(
-    const std::vector<Element<VertexAccessor>> &ordered_elements, const std::vector<PropertyValue> &start_ids,
+    const std::vector<Element<VertexAccessor>> &ordered_elements, const std::vector<PropertyValue> &primary_key,
     const View view) {
   for (auto it = ordered_elements.begin(); it != ordered_elements.end(); ++it) {
-    if (const auto &vertex = it->object_acc; start_ids <= vertex.PrimaryKey(view).GetValue()) {
+    if (const auto &vertex = it->object_acc; primary_key <= vertex.PrimaryKey(view).GetValue()) {
       return it;
     }
   }
