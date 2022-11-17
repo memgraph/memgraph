@@ -510,7 +510,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
     // Can we do differently to avoid this? We need OrderByElements but currently it returns vector<Element>, so this
     // workaround is here to avoid more duplication later
     auto local_sorted_vertices = OrderByVertices(
-        acc, dba, vertex_accessors, req.order_by);  // #NoCommit see whether we can avoid the extra std::transform
+        acc, dba, vertex_accessors, req.order_by);  //   #NoCommit see whether we can avoid the extra std::transform
     vertex_accessors.clear();
     std::transform(local_sorted_vertices.begin(), local_sorted_vertices.end(), std::back_inserter(vertex_accessors),
                    [](auto &vertex) { return vertex.object_acc; });
@@ -529,7 +529,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
       break;
     }
 
-    msgs::VertexId src_vertice(msgs::Label{.id = *label_id}, conversions::ConvertValueVector(*primary_key));
+    msgs::VertexId src_vertex(msgs::Label{.id = *label_id}, conversions::ConvertValueVector(*primary_key));
 
     std::optional<msgs::ExpandOneResultRow> maybe_result;
 
@@ -537,7 +537,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
       auto schema = shard_->GetSchema(shard_->PrimaryLabel());
       MG_ASSERT(schema);
       maybe_result =
-          GetExpandOneResult(acc, src_vertice, req, maybe_filter_based_on_edge_uniquness, edge_filler, *schema);
+          GetExpandOneResult(acc, src_vertex, req, maybe_filter_based_on_edge_uniquness, edge_filler, *schema);
 
     } else {
       auto [in_edge_accessors, out_edge_accessors] = GetEdgesFromVertex(src_vertex_acc, req.direction);
@@ -554,7 +554,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
       auto schema = shard_->GetSchema(shard_->PrimaryLabel());
       MG_ASSERT(schema);
       maybe_result =
-          GetExpandOneResult(src_vertex_acc, src_vertice, req, in_edge_ordered_accessors, out_edge_ordered_accessors,
+          GetExpandOneResult(src_vertex_acc, src_vertex, req, in_edge_ordered_accessors, out_edge_ordered_accessors,
                              maybe_filter_based_on_edge_uniquness, edge_filler, *schema);
     }
 
