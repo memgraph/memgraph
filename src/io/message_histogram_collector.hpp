@@ -39,6 +39,8 @@ struct LatencyHistogramSummary {
   Duration p100;
   Duration sum;
 
+  friend bool operator==(const LatencyHistogramSummary &lhs, const LatencyHistogramSummary &rhs) = default;
+
   friend std::ostream &operator<<(std::ostream &in, const LatencyHistogramSummary &histo) {
     in << "{ \"count\": " << histo.count;
     in << ", \"p0\": " << histo.p0.count();
@@ -79,6 +81,8 @@ struct LatencyHistogramSummaries {
     output += "\n";
     return output;
   }
+
+  friend bool operator==(const LatencyHistogramSummaries &lhs, const LatencyHistogramSummaries &rhs) = default;
 
   friend std::ostream &operator<<(std::ostream &in, const LatencyHistogramSummaries &histo) {
     using memgraph::utils::print_helpers::operator<<;

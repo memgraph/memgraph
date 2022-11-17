@@ -21,5 +21,19 @@ struct SimulatorStats {
   uint64_t total_requests = 0;
   uint64_t total_responses = 0;
   uint64_t simulator_ticks = 0;
+
+  friend bool operator==(const SimulatorStats &lhs, const SimulatorStats &rhs) = default;
+
+  friend std::ostream &operator<<(std::ostream &in, const SimulatorStats &stats) {
+    std::string formated = fmt::format(
+        "SimulatorStats {{ total_messages: {}, dropped_messages: {}, timed_out_requests: {}, total_requests: {}, "
+        "total_responses: {}, simulator_ticks: {} }}",
+        stats.total_messages, stats.dropped_messages, stats.timed_out_requests, stats.total_requests,
+        stats.total_responses, stats.simulator_ticks);
+
+    in << formated;
+
+    return in;
+  }
 };
 };  // namespace memgraph::io::simulator

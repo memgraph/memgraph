@@ -46,9 +46,13 @@ void SimulatorHandle::IncrementServerCountAndWaitForQuiescentState(Address addre
     const bool all_servers_blocked = blocked_servers == server_addresses_.size();
 
     if (all_servers_blocked) {
+      spdlog::info("quiescent state detected - {} out of {} servers now blocked on receive", blocked_servers,
+                   server_addresses_.size());
       return;
     }
 
+    spdlog::info("not returning from quiescent because we see {} blocked out of {}", blocked_servers,
+                 server_addresses_.size());
     cv_.wait(lock);
   }
 }
@@ -67,9 +71,14 @@ bool SimulatorHandle::MaybeTickSimulator() {
 
   stats_.simulator_ticks++;
 
-  cv_.notify_all();
+  bool fired_cv = false;
+  bool timed_anything_out = TimeoutPromisesPastDeadline();
 
-  TimeoutPromisesPastDeadline();
+  if (timed_anything_out) {
+    fired_cv = true;
+    blocked_on_receive_.clear();
+    cv_.notify_all();
+  }
 
   if (in_flight_.empty()) {
     // return early here because there are no messages to schedule
@@ -79,9 +88,15 @@ bool SimulatorHandle::MaybeTickSimulator() {
     const Duration clock_advance = std::chrono::microseconds{time_distrib_(rng_)};
     cluster_wide_time_microseconds_ += clock_advance;
 
+    if (!fired_cv) {
+      cv_.notify_all();
+      blocked_on_receive_.clear();
+      fired_cv = true;
+    }
+
     if (cluster_wide_time_microseconds_ >= config_.abort_time) {
       if (should_shut_down_) {
-        return false;
+        return true;
       }
       spdlog::error(
           "Cluster has executed beyond its configured abort_time, and something may be failing to make progress "
@@ -120,20 +135,30 @@ bool SimulatorHandle::MaybeTickSimulator() {
     if (should_drop || normal_timeout) {
       stats_.timed_out_requests++;
       dop.promise.TimeOut();
+      spdlog::info("timing out request");
     } else {
       stats_.total_responses++;
       Duration response_latency = cluster_wide_time_microseconds_ - dop.requested_at;
       auto type_info = opaque_message.type_info;
       dop.promise.Fill(std::move(opaque_message), response_latency);
       histograms_.Measure(type_info, response_latency);
+      spdlog::info("replying to request");
     }
   } else if (should_drop) {
     // don't add it anywhere, let it drop
+    spdlog::info("silently dropping request");
   } else {
     // add to can_receive_ if not
+    spdlog::info("adding message to can_receive_");
     const auto &[om_vec, inserted] =
         can_receive_.try_emplace(to_address.ToPartialAddress(), std::vector<OpaqueMessage>());
     om_vec->second.emplace_back(std::move(opaque_message));
+  }
+
+  if (!fired_cv) {
+    cv_.notify_all();
+    blocked_on_receive_.clear();
+    fired_cv = true;
   }
 
   return true;
