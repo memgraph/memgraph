@@ -28,7 +28,7 @@ using EdgeFiller = std::function<bool(const EdgeAccessor &edge, bool is_in_edge,
 using msgs::Value;
 
 template <typename T>
-concept ObjectAccessor = std::is_same_v<T, VertexAccessor> || std::is_same_v<T, EdgeAccessor>;
+concept ObjectAccessor = utils::SameAsAnyOf<T, VertexAccessor, EdgeAccessor>;
 
 inline bool TypedValueCompare(const TypedValue &a, const TypedValue &b) {
   // in ordering null comes after everything else
