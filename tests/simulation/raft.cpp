@@ -224,6 +224,10 @@ std::pair<SimulatorStats, LatencyHistogramSummaries> RunSimulation(SimulatorConf
 
   simulator.ShutDown();
 
+  srv_thread_1.join();
+  srv_thread_2.join();
+  srv_thread_3.join();
+
   SimulatorStats stats = simulator.Stats();
 
   spdlog::info("total messages:     {}", stats.total_messages);
