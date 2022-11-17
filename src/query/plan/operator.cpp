@@ -25,6 +25,7 @@
 
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
+#include "query/typed_value.hpp"
 #include "spdlog/spdlog.h"
 
 #include "license/license.hpp"
@@ -3211,7 +3212,8 @@ class AggregateCursor : public Cursor {
   // aggregation map. The vectors in an AggregationValue contain one element for
   // each aggregation in this LogicalOp.
   struct AggregationValue {
-    explicit AggregationValue(utils::MemoryResource *mem) : counts_(mem), values_(mem), remember_(mem) {}
+    explicit AggregationValue(utils::MemoryResource *mem)
+        : counts_(mem), values_(mem), remember_(mem), unique_values_(mem) {}
 
     // how many input rows have been aggregated in respective values_ element so
     // far
@@ -3224,6 +3226,8 @@ class AggregateCursor : public Cursor {
     utils::pmr::vector<TypedValue> values_;
     // remember values.
     utils::pmr::vector<TypedValue> remember_;
+
+    utils::pmr::unordered_set<TypedValue, TypedValue::Hash, TypedValue::BoolEqual> unique_values_;
   };
 
   const Aggregate &self_;
@@ -3299,6 +3303,7 @@ class AggregateCursor : public Cursor {
     for (const auto &agg_elem : self_.aggregations_) {
       auto *mem = agg_value->values_.get_allocator().GetMemoryResource();
       agg_value->values_.emplace_back(DefaultAggregationOpValue(agg_elem, mem));
+      // agg_value->unique_values_.emplace_back(DefaultAggregationOpValue(agg_elem, mem));
     }
     agg_value->counts_.resize(self_.aggregations_.size(), 0);
 
@@ -3349,6 +3354,7 @@ class AggregateCursor : public Cursor {
             break;
           case Aggregation::Op::COUNT:
             *value_it = 1;
+            if (agg_elem_it->distinct) agg_value->unique_values_.emplace(input_value);
             break;
           case Aggregation::Op::COLLECT_LIST:
             value_it->ValueList().push_back(input_value);
@@ -3370,6 +3376,9 @@ class AggregateCursor : public Cursor {
       // aggregation of existing values
       switch (agg_op) {
         case Aggregation::Op::COUNT:
+          if (agg_elem_it->distinct && agg_value->unique_values_.contains(input_value)) {
+            *count_it -= 1;
+          }
           *value_it = *count_it;
           break;
         case Aggregation::Op::MIN: {

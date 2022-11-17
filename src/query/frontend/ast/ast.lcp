@@ -462,7 +462,7 @@ cpp<#
   ((op "Op" :scope :public)
    (symbol-pos :int32_t :initval -1 :scope :public
                :documentation "Symbol table position of the symbol this Aggregation is mapped to.")
-    (distinct :bool :initval "false" :scope :private))
+    (distinct :bool :initval "false" :scope :public))
   (:public
     (lcp:define-enum op
       (count min max sum avg collect-list collect-map project)
