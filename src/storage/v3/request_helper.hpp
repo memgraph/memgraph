@@ -185,13 +185,6 @@ EdgeUniqunessFunction InitializeEdgeUniqunessFunction(bool only_unique_neighbor_
 
 EdgeFiller InitializeEdgeFillerFunction(const msgs::ExpandOneRequest &req);
 
-std::optional<std::map<PropertyId, Value>> CollectSpecificPropertiesFromAccessor(const VertexAccessor &acc,
-                                                                                 const std::vector<PropertyId> &props,
-                                                                                 View view);
-
-bool FilterOnVertex(DbAccessor &dba, const storage::v3::VertexAccessor &v_acc, const std::vector<std::string> &filters,
-                    const std::string_view node_name);
-
 std::optional<msgs::ExpandOneResultRow> GetExpandOneResult(
     Shard::Accessor &acc, msgs::VertexId src_vertex, const msgs::ExpandOneRequest &req,
     const EdgeUniqunessFunction &maybe_filter_based_on_edge_uniquness, const EdgeFiller &edge_filler,
