@@ -509,8 +509,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
   if (!req.order_by.empty()) {
     // Can we do differently to avoid this? We need OrderByElements but currently it returns vector<Element>, so this
     // workaround is here to avoid more duplication later
-    auto local_sorted_vertices = OrderByVertices(
-        acc, dba, vertex_accessors, req.order_by);  //   #NoCommit see whether we can avoid the extra std::transform
+    auto local_sorted_vertices = OrderByVertices(acc, dba, vertex_accessors, req.order_by);
     vertex_accessors.clear();
     std::transform(local_sorted_vertices.begin(), local_sorted_vertices.end(), std::back_inserter(vertex_accessors),
                    [](auto &vertex) { return vertex.object_acc; });
