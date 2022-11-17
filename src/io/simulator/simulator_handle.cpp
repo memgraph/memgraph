@@ -23,6 +23,12 @@ namespace memgraph::io::simulator {
 void SimulatorHandle::ShutDown() {
   std::unique_lock<std::mutex> lock(mu_);
   should_shut_down_ = true;
+  for (auto it = promises_.begin(); it != promises_.end();) {
+    auto &[promise_key, dop] = *it;
+    std::move(dop).promise.TimeOut();
+    it = promises_.erase(it);
+  }
+  can_receive_.clear();
   cv_.notify_all();
 }
 
@@ -62,7 +68,7 @@ bool SimulatorHandle::MaybeTickSimulator() {
 
   const size_t blocked_servers = blocked_on_receive_.size();
 
-  if (blocked_servers < server_addresses_.size()) {
+  if (should_shut_down_ || blocked_servers < server_addresses_.size()) {
     // we only need to advance the simulator when all
     // servers have reached a quiescent state, blocked
     // on their own futures or receive methods.
