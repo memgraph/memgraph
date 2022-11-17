@@ -997,40 +997,50 @@ bool PythonModule::Close() {
   functions_.clear();
 
   const char *func_code =
-      "import ast\n"
-      "mod1 = {2, 1}\n"
-      "modules = {'item1', 'item2'}\n";
+      "import ast\n\n"
+      "modules = set()\n\n"
+      "def visit_Import(node):\n"
+      "  for name in node.names:\n"
+      "    modules.add(name.name.split('.')[0])\n\n"
+      "def visit_ImportFrom(node):\n"
+      "  if node.module is not None and node.level == 0:\n"
+      "    modules.add(node.module.split('.')[0])\n"
+      "node_iter = ast.NodeVisitor()\n"
+      "node_iter.visit_Import = visit_Import\n"
+      "node_iter.visit_ImportFrom = visit_ImportFrom\n"
+      "node_iter.visit(ast.parse(code))\n";
 
-  const char *num_code = "result = multiplicand * multiplier\n";
-  const char *set_code = "modules = {'item1', 'item2'}\n";
+  const auto maybe_content =
+      ReadFile(file_path_);  // this is already done at Load so it can somehow be optimized but not sure how
 
-  PyObject *py_main, *py_ast, *py_ast_dict, *py_global_dict, *py_local_dict;
-  // py_main = PyImport_AddModule("__main__");
-  py_main = PyImport_AddModule("__main__");
-  py_global_dict = PyModule_GetDict(py_main);
-  py_ast = PyImport_AddModule("ast");
-  py_ast_dict = PyModule_GetDict(py_ast);
-  PyDict_Update(py_global_dict, py_ast_dict);
-
-  py_local_dict = PyDict_New();
-  // PyDict_SetItemString(py_local_dict, "multiplicand", PyLong_FromLong(2));
-  // PyDict_SetItemString(py_local_dict, "multiplier", PyLong_FromLong(5));
-  PyRun_String(func_code, Py_file_input, py_global_dict, py_local_dict);
-  // long result = PyLong_AsLong(PyDict_GetItemString(py_local_dict, "result"));
-  PyObject *py_res = PyDict_GetItemString(py_local_dict, "modules");
-
-  PyObject *iterator = PyObject_GetIter(py_res);
-  PyObject *item;
-
-  if (iterator == NULL) {
-    spdlog::warn("Iterator is null...");
+  if (!maybe_content) {
+    spdlog::error("Couldn't read the content of the file.");
   } else {
-    while ((item = PyIter_Next(iterator))) {
-      const char *res = PyUnicode_AsUTF8(item);
-      spdlog::info("Set element: {}", res);
-      Py_DECREF(item);
+    const char *content_value = maybe_content->c_str();
+    if (!content_value) {
+      spdlog::error("Couldn't convert the content of the file to string.");
     }
-    Py_DECREF(iterator);
+    PyObject *py_main, *py_global_dict;
+    py_main = PyImport_AddModule("__main__");
+    py_global_dict = PyModule_GetDict(py_main);
+
+    PyDict_SetItemString(py_global_dict, "code", PyUnicode_FromString(content_value));
+    PyRun_String(func_code, Py_file_input, py_global_dict, py_global_dict);
+    PyObject *py_res = PyDict_GetItemString(py_global_dict, "modules");
+
+    PyObject *iterator = PyObject_GetIter(py_res);
+    PyObject *item;
+
+    if (iterator == NULL) {
+      spdlog::warn("Iterator is null...");
+    } else {
+      while ((item = PyIter_Next(iterator))) {
+        const char *res = PyUnicode_AsUTF8(item);
+        spdlog::info("Set element: {}", res);
+        Py_DECREF(item);
+      }
+      Py_DECREF(iterator);
+    }
   }
 
   // TODO: needs to be refactored
