@@ -643,17 +643,20 @@ TEST_F(PrintToJsonTest, Aggregate) {
               {
                 "value" : "(PropertyLookup (Identifier \"node\") \"value\")",
                 "op" : "sum",
-                "output_symbol" : "sum"
+                "output_symbol" : "sum",
+                "distinct" : false
               },
               {
                 "value" : "(PropertyLookup (Identifier \"node\") \"value\")",
                 "key" : "(PropertyLookup (Identifier \"node\") \"color\")",
                 "op" : "collect",
-                "output_symbol" : "map"
+                "output_symbol" : "map",
+                "distinct" : false
               },
               {
                 "op": "count",
-                "output_symbol": "count"
+                "output_symbol": "count",
+                "distinct" : false
               }
             ],
             "group_by" : [
