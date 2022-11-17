@@ -34,12 +34,7 @@ class SimulatorTransport {
 
   template <Message RequestT, Message ResponseT>
   ResponseFuture<ResponseT> Request(Address to_address, Address from_address, RequestT request, Duration timeout) {
-    std::function<bool()> maybe_tick_simulator = [this] {
-      spdlog::info("client calling MaybeTickSimulator");
-      bool ret = simulator_handle_->MaybeTickSimulator();
-      spdlog::info("client returned from MaybeTickSimulator");
-      return ret;
-    };
+    std::function<bool()> maybe_tick_simulator = [this] { return simulator_handle_->MaybeTickSimulator(); };
 
     return simulator_handle_->template SubmitRequest<RequestT, ResponseT>(to_address, from_address, std::move(request),
                                                                           timeout, std::move(maybe_tick_simulator));

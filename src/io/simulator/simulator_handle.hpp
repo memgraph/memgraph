@@ -171,12 +171,15 @@ class SimulatorHandle {
       }
 
       if (!should_shut_down_) {
-        blocked_on_receive_.emplace(receiver);
-        cv_.notify_all();
-        spdlog::info("blocking receiver {}", receiver.ToPartialAddress().port);
+        if (!blocked_on_receive_.contains(receiver)) {
+          blocked_on_receive_.emplace(receiver);
+          spdlog::info("blocking receiver {}", receiver.ToPartialAddress().port);
+          cv_.notify_all();
+        }
         cv_.wait(lock);
       }
     }
+    spdlog::info("timing out receiver {}", receiver.ToPartialAddress().port);
 
     return TimedOut{};
   }

@@ -75,12 +75,14 @@ bool SimulatorHandle::MaybeTickSimulator() {
     return false;
   }
 
+  spdlog::info("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ simulator tick ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
   stats_.simulator_ticks++;
 
   bool fired_cv = false;
   bool timed_anything_out = TimeoutPromisesPastDeadline();
 
   if (timed_anything_out) {
+    spdlog::info("simulator progressing: timed out a request");
     fired_cv = true;
     blocked_on_receive_.clear();
     cv_.notify_all();
@@ -95,6 +97,7 @@ bool SimulatorHandle::MaybeTickSimulator() {
     cluster_wide_time_microseconds_ += clock_advance;
 
     if (!fired_cv) {
+      spdlog::info("simulator progressing: clock advanced by {}", clock_advance.count());
       cv_.notify_all();
       blocked_on_receive_.clear();
       fired_cv = true;
@@ -109,6 +112,9 @@ bool SimulatorHandle::MaybeTickSimulator() {
           "in an expected amount of time.");
       throw utils::BasicException{"Cluster has executed beyond its configured abort_time"};
     }
+
+    // if the clock is advanced, no messages should be delivered also.
+    // do that in a future tick.
     return true;
   }
 
@@ -141,7 +147,7 @@ bool SimulatorHandle::MaybeTickSimulator() {
     if (should_drop || normal_timeout) {
       stats_.timed_out_requests++;
       dop.promise.TimeOut();
-      spdlog::info("timing out request");
+      spdlog::info("timing out request ");
     } else {
       stats_.total_responses++;
       Duration response_latency = cluster_wide_time_microseconds_ - dop.requested_at;
@@ -153,15 +159,20 @@ bool SimulatorHandle::MaybeTickSimulator() {
   } else if (should_drop) {
     // don't add it anywhere, let it drop
     spdlog::info("silently dropping request");
+
+    // we don't want to reset the block list here
+    return true;
   } else {
     // add to can_receive_ if not
-    spdlog::info("adding message to can_receive_");
+    spdlog::info("adding message to can_receive_ from {} to {}", opaque_message.from_address.last_known_port,
+                 opaque_message.to_address.last_known_port);
     const auto &[om_vec, inserted] =
         can_receive_.try_emplace(to_address.ToPartialAddress(), std::vector<OpaqueMessage>());
     om_vec->second.emplace_back(std::move(opaque_message));
   }
 
   if (!fired_cv) {
+    spdlog::info("simulator progressing: handled a message");
     cv_.notify_all();
     blocked_on_receive_.clear();
     fired_cv = true;

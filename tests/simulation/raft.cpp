@@ -240,13 +240,6 @@ std::pair<SimulatorStats, LatencyHistogramSummaries> RunSimulation(SimulatorConf
   spdlog::info("========================== SUCCESS :) ==========================");
 
   return std::make_pair(simulator.Stats(), cli_io.ResponseLatencies());
-
-  /*
-  this is implicit in jthread's dtor
-  srv_thread_1.join();
-  srv_thread_2.join();
-  srv_thread_3.join();
-  */
 }
 
 int main() {
@@ -264,25 +257,26 @@ int main() {
   };
 
   for (int i = 0; i < n_tests; i++) {
-    spdlog::error("========================== NEW SIMULATION SEED {} ==========================", i);
     spdlog::info("\tTime\t\tTerm\tPort\tRole\t\tMessage\n");
 
     // this is vital to cause tests to behave differently across runs
     config.rng_seed = i;
 
+    spdlog::info("========================== NEW SIMULATION SEED {} ==========================", i);
     auto [sim_stats_1, latency_stats_1] = RunSimulation(config);
+    spdlog::info("========================== NEW SIMULATION SEED {} ==========================", i);
     auto [sim_stats_2, latency_stats_2] = RunSimulation(config);
 
     if (sim_stats_1 != sim_stats_2 || latency_stats_1 != latency_stats_2) {
-      spdlog::error("simulator stats diverged across runs");
+      spdlog::error("simulator stats diverged across runs for test rng_seed {}", i);
       spdlog::error("run 1 simulator stats: {}", sim_stats_1);
       spdlog::error("run 2 simulator stats: {}", sim_stats_2);
       spdlog::error("run 1 latency:\n{}", latency_stats_1.SummaryTable());
       spdlog::error("run 2 latency:\n{}", latency_stats_2.SummaryTable());
       std::terminate();
     }
-    spdlog::error("run 1 simulator stats: {}", sim_stats_1);
-    spdlog::error("run 2 simulator stats: {}", sim_stats_2);
+    spdlog::info("run 1 simulator stats: {}", sim_stats_1);
+    spdlog::info("run 2 simulator stats: {}", sim_stats_2);
   }
 
   spdlog::info("passed {} tests!", n_tests);
