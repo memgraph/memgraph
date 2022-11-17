@@ -59,7 +59,7 @@ struct Address {
 
   static Address TestAddress(uint16_t port) {
     return Address{
-        .unique_id = boost::uuids::uuid{boost::uuids::random_generator()()},
+        .unique_id = boost::uuids::uuid{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, static_cast<unsigned char>(port)},
         .last_known_port = port,
     };
   }

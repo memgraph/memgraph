@@ -109,11 +109,11 @@ int main() {
   auto [sim_stats_2, latency_stats_2] = RunWorkload(config);
 
   if (sim_stats_1 != sim_stats_2 || latency_stats_1 != latency_stats_2) {
-    spdlog::info("simulator stats diverged across runs");
-    spdlog::info("run 1 simulator stats: {}", sim_stats_1);
-    spdlog::info("run 2 simulator stats: {}", sim_stats_2);
-    spdlog::info("run 1 latency:\n{}", latency_stats_1.SummaryTable());
-    spdlog::info("run 2 latency:\n{}", latency_stats_2.SummaryTable());
+    spdlog::error("simulator stats diverged across runs");
+    spdlog::error("run 1 simulator stats: {}", sim_stats_1);
+    spdlog::error("run 2 simulator stats: {}", sim_stats_2);
+    spdlog::error("run 1 latency:\n{}", latency_stats_1.SummaryTable());
+    spdlog::error("run 2 latency:\n{}", latency_stats_2.SummaryTable());
     std::terminate();
   }
 
