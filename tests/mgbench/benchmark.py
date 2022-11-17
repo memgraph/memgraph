@@ -131,7 +131,7 @@ parser.add_argument(
     Mixed workload can be run as a single configuration for all groups of queries,
     Pass the positional arguments as values of what percentage of
     write/read/update/analytical queries you want to have in your workload.
-    Running --mixed-workload 1000 20 70 10 0 will execute 1000 queries, 20% write,
+    Example:  --mixed-workload 1000 20 70 10 0 will execute 1000 queries, 20% write,
     70% read, 10% update and 0% analytical.
 
     Mixed workload can also be run on each query under some defined load.
@@ -530,6 +530,7 @@ for dataset, queries in benchmarks:
             args.vendor_binary,
             args.temporary_directory,
             args.bolt_port,
+            False,
         )
     else:
         vendor = runners.Memgraph(
@@ -537,19 +538,23 @@ for dataset, queries in benchmarks:
             args.temporary_directory,
             not args.no_properties_on_edges,
             args.bolt_port,
+            False,
         )
 
     client = runners.Client(args.client_binary, args.temporary_directory, args.bolt_port)
+    ret = None
+    vendor.start_preparation("preparation")
+    print("Executing database cleanup and index setup...")
+    ret = client.execute(file_path=dataset.get_index(), num_workers=args.num_workers_for_import)
+    usage = vendor.stop("preparation")
     dump_dir = cache.cache_directory("datasets", dataset.NAME, dataset.get_variant())
     dump_file, exists = dump_dir.get_file("neo4j.dump")
-    ret = None
+
     if args.vendor_name == "neo4j":
         if exists:
             vendor.load_db_from_dump(path=dump_dir.get_path())
         else:
             vendor.start_preparation("import")
-            print("Executing database cleanup and index setup...")
-            ret = client.execute(file_path=dataset.get_index(), num_workers=args.num_workers_for_import)
             print("Importing dataset...")
             ret = client.execute(file_path=dataset.get_file(), num_workers=args.num_workers_for_import)
             usage = vendor.stop("import")
@@ -557,8 +562,6 @@ for dataset, queries in benchmarks:
             vendor.dump_db(path=dump_dir.get_path())
     else:
         vendor.start_preparation("import")
-        print("Executing database cleanup and index setup...")
-        ret = client.execute(file_path=dataset.get_index(), num_workers=args.num_workers_for_import)
         print("Importing dataset...")
         ret = client.execute(file_path=dataset.get_file(), num_workers=args.num_workers_for_import)
         usage = vendor.stop("import")

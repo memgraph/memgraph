@@ -59,12 +59,12 @@ def run_full_benchmarks(vendor, binary, dataset_size, dataset_group, group_confi
         # Basic full group test cold
         [
             "--export-results",
-            vendor + dataset_size + "_cold_isolated.json",
+            vendor + "_" + dataset_size + "_cold_isolated.json",
         ],
         # Basic full group test hot
         [
             "--export-results",
-            vendor + dataset_size + "_hot_isolated.json",
+            vendor + "_" + dataset_size + "_hot_isolated.json",
             "--warmup-run",
         ],
     ]
@@ -74,6 +74,7 @@ def run_full_benchmarks(vendor, binary, dataset_size, dataset_group, group_confi
         cold = [
             "--export-results",
             vendor
+            + "_"
             + dataset_size
             + "_cold_realistic_{}_{}_{}_{}_{}.json".format(count, write, read, update, analytical),
             "--mixed-workload",
@@ -86,7 +87,10 @@ def run_full_benchmarks(vendor, binary, dataset_size, dataset_group, group_confi
 
         hot = [
             "--export-results",
-            vendor + dataset_size + "_hot_realistic_{}_{}_{}_{}_{}.json".format(count, write, read, update, analytical),
+            vendor
+            + "_"
+            + dataset_size
+            + "_hot_realistic_{}_{}_{}_{}_{}.json".format(count, write, read, update, analytical),
             "--warmup-run",
             "--mixed-workload",
             count,
@@ -103,6 +107,7 @@ def run_full_benchmarks(vendor, binary, dataset_size, dataset_group, group_confi
         cold = [
             "--export-results",
             vendor
+            + "_"
             + dataset_size
             + "_cold_mixed_{}_{}_{}_{}_{}_{}.json".format(count, write, read, update, analytical, query),
             "--mixed-workload",
@@ -116,6 +121,7 @@ def run_full_benchmarks(vendor, binary, dataset_size, dataset_group, group_confi
         hot = [
             "--export-results",
             vendor
+            + "_"
             + dataset_size
             + "_hot_mixed_{}_{}_{}_{}_{}_{}.json".format(count, write, read, update, analytical, query),
             "--warmup-run",
