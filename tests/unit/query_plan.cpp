@@ -396,7 +396,7 @@ TYPED_TEST(TestPlanner, MatchWithSumWhereReturn) {
   FakeDbAccessor dba;
   auto prop = dba.Property("prop");
   AstStorage storage;
-  auto sum = SUM(PROPERTY_LOOKUP("n", prop));
+  auto sum = SUM(PROPERTY_LOOKUP("n", prop), false);
   auto literal = LITERAL(42);
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH(ADD(sum, literal), AS("sum")),
                                    WHERE(LESS(IDENT("sum"), LITERAL(42))), RETURN("sum", AS("result"))));
@@ -410,7 +410,7 @@ TYPED_TEST(TestPlanner, MatchReturnSum) {
   auto prop1 = dba.Property("prop1");
   auto prop2 = dba.Property("prop2");
   AstStorage storage;
-  auto sum = SUM(PROPERTY_LOOKUP("n", prop1));
+  auto sum = SUM(PROPERTY_LOOKUP("n", prop1), false);
   auto n_prop2 = PROPERTY_LOOKUP("n", prop2);
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(sum, AS("sum"), n_prop2, AS("group"))));
   auto aggr = ExpectAggregate({sum}, {n_prop2});
@@ -426,7 +426,7 @@ TYPED_TEST(TestPlanner, CreateWithSum) {
   AstStorage storage;
   auto ident_n = IDENT("n");
   auto n_prop = PROPERTY_LOOKUP(ident_n, prop);
-  auto sum = SUM(n_prop);
+  auto sum = SUM(n_prop, false);
   auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"))), WITH(sum, AS("sum"))));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
@@ -484,7 +484,7 @@ TYPED_TEST(TestPlanner, CreateReturnSumSkipLimit) {
   AstStorage storage;
   auto ident_n = IDENT("n");
   auto n_prop = PROPERTY_LOOKUP(ident_n, prop);
-  auto sum = SUM(n_prop);
+  auto sum = SUM(n_prop, false);
   auto query =
       QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"))), RETURN(sum, AS("s"), SKIP(LITERAL(2)), LIMIT(LITERAL(1)))));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
@@ -539,8 +539,8 @@ TYPED_TEST(TestPlanner, CreateWithOrderByWhere) {
 TYPED_TEST(TestPlanner, ReturnAddSumCountOrderBy) {
   // Test RETURN SUM(1) + COUNT(2) AS result ORDER BY result
   AstStorage storage;
-  auto sum = SUM(LITERAL(1));
-  auto count = COUNT(LITERAL(2));
+  auto sum = SUM(LITERAL(1), false);
+  auto count = COUNT(LITERAL(2), false);
   auto *query = QUERY(SINGLE_QUERY(RETURN(ADD(sum, count), AS("result"), ORDER_BY(IDENT("result")))));
   auto aggr = ExpectAggregate({sum, count}, {});
   CheckPlan<TypeParam>(query, storage, aggr, ExpectProduce(), ExpectOrderBy());
@@ -610,7 +610,7 @@ TYPED_TEST(TestPlanner, CreateWithDistinctSumWhereReturn) {
   auto prop = dba.Property("prop");
   AstStorage storage;
   auto node_n = NODE("n");
-  auto sum = SUM(PROPERTY_LOOKUP("n", prop));
+  auto sum = SUM(PROPERTY_LOOKUP("n", prop), false);
   auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(node_n)), WITH_DISTINCT(sum, AS("s")),
                                   WHERE(LESS(IDENT("s"), LITERAL(42))), RETURN("s")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
@@ -749,7 +749,7 @@ TYPED_TEST(TestPlanner, MatchReturnAsteriskSum) {
   FakeDbAccessor dba;
   auto prop = dba.Property("prop");
   AstStorage storage;
-  auto sum = SUM(PROPERTY_LOOKUP("n", prop));
+  auto sum = SUM(PROPERTY_LOOKUP("n", prop), false);
   auto ret = RETURN(sum, AS("s"));
   ret->body_.all_identifiers = true;
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), ret));
@@ -818,7 +818,7 @@ TYPED_TEST(TestPlanner, MultipleOptionalMatchReturn) {
 TYPED_TEST(TestPlanner, FunctionAggregationReturn) {
   // Test RETURN sqrt(SUM(2)) AS result, 42 AS group_by
   AstStorage storage;
-  auto sum = SUM(LITERAL(2));
+  auto sum = SUM(LITERAL(2), false);
   auto group_by_literal = LITERAL(42);
   auto *query = QUERY(SINGLE_QUERY(RETURN(FN("sqrt", sum), AS("result"), group_by_literal, AS("group_by"))));
   auto aggr = ExpectAggregate({sum}, {group_by_literal});
@@ -835,7 +835,7 @@ TYPED_TEST(TestPlanner, FunctionWithoutArguments) {
 TYPED_TEST(TestPlanner, ListLiteralAggregationReturn) {
   // Test RETURN [SUM(2)] AS result, 42 AS group_by
   AstStorage storage;
-  auto sum = SUM(LITERAL(2));
+  auto sum = SUM(LITERAL(2), false);
   auto group_by_literal = LITERAL(42);
   auto *query = QUERY(SINGLE_QUERY(RETURN(LIST(sum), AS("result"), group_by_literal, AS("group_by"))));
   auto aggr = ExpectAggregate({sum}, {group_by_literal});
@@ -846,7 +846,7 @@ TYPED_TEST(TestPlanner, MapLiteralAggregationReturn) {
   // Test RETURN {sum: SUM(2)} AS result, 42 AS group_by
   AstStorage storage;
   FakeDbAccessor dba;
-  auto sum = SUM(LITERAL(2));
+  auto sum = SUM(LITERAL(2), false);
   auto group_by_literal = LITERAL(42);
   auto *query = QUERY(
       SINGLE_QUERY(RETURN(MAP({storage.GetPropertyIx("sum"), sum}), AS("result"), group_by_literal, AS("group_by"))));
@@ -857,7 +857,7 @@ TYPED_TEST(TestPlanner, MapLiteralAggregationReturn) {
 TYPED_TEST(TestPlanner, EmptyListIndexAggregation) {
   // Test RETURN [][SUM(2)] AS result, 42 AS group_by
   AstStorage storage;
-  auto sum = SUM(LITERAL(2));
+  auto sum = SUM(LITERAL(2), false);
   auto empty_list = LIST();
   auto group_by_literal = LITERAL(42);
   auto *query = QUERY(SINGLE_QUERY(RETURN(storage.Create<memgraph::query::SubscriptOperator>(empty_list, sum),
@@ -872,7 +872,7 @@ TYPED_TEST(TestPlanner, EmptyListIndexAggregation) {
 TYPED_TEST(TestPlanner, ListSliceAggregationReturn) {
   // Test RETURN [1, 2][0..SUM(2)] AS result, 42 AS group_by
   AstStorage storage;
-  auto sum = SUM(LITERAL(2));
+  auto sum = SUM(LITERAL(2), false);
   auto list = LIST(LITERAL(1), LITERAL(2));
   auto group_by_literal = LITERAL(42);
   auto *query =
@@ -886,7 +886,7 @@ TYPED_TEST(TestPlanner, ListSliceAggregationReturn) {
 TYPED_TEST(TestPlanner, ListWithAggregationAndGroupBy) {
   // Test RETURN [sum(2), 42]
   AstStorage storage;
-  auto sum = SUM(LITERAL(2));
+  auto sum = SUM(LITERAL(2), false);
   auto group_by_literal = LITERAL(42);
   auto *query = QUERY(SINGLE_QUERY(RETURN(LIST(sum, group_by_literal), AS("result"))));
   auto aggr = ExpectAggregate({sum}, {group_by_literal});
@@ -896,8 +896,8 @@ TYPED_TEST(TestPlanner, ListWithAggregationAndGroupBy) {
 TYPED_TEST(TestPlanner, AggregatonWithListWithAggregationAndGroupBy) {
   // Test RETURN sum(2), [sum(3), 42]
   AstStorage storage;
-  auto sum2 = SUM(LITERAL(2));
-  auto sum3 = SUM(LITERAL(3));
+  auto sum2 = SUM(LITERAL(2), false);
+  auto sum3 = SUM(LITERAL(3), false);
   auto group_by_literal = LITERAL(42);
   auto *query = QUERY(SINGLE_QUERY(RETURN(sum2, AS("sum2"), LIST(sum3, group_by_literal), AS("list"))));
   auto aggr = ExpectAggregate({sum2, sum3}, {group_by_literal});
@@ -908,7 +908,7 @@ TYPED_TEST(TestPlanner, MapWithAggregationAndGroupBy) {
   // Test RETURN {lit: 42, sum: sum(2)}
   AstStorage storage;
   FakeDbAccessor dba;
-  auto sum = SUM(LITERAL(2));
+  auto sum = SUM(LITERAL(2), false);
   auto group_by_literal = LITERAL(42);
   auto *query = QUERY(SINGLE_QUERY(RETURN(
       MAP({storage.GetPropertyIx("sum"), sum}, {storage.GetPropertyIx("lit"), group_by_literal}), AS("result"))));
@@ -1121,7 +1121,7 @@ TYPED_TEST(TestPlanner, SecondPropertyIndex) {
 TYPED_TEST(TestPlanner, ReturnSumGroupByAll) {
   // Test RETURN sum([1,2,3]), all(x in [1] where x = 1)
   AstStorage storage;
-  auto sum = SUM(LIST(LITERAL(1), LITERAL(2), LITERAL(3)));
+  auto sum = SUM(LIST(LITERAL(1), LITERAL(2), LITERAL(3)), false);
   auto *all = ALL("x", LIST(LITERAL(1)), WHERE(EQ(IDENT("x"), LITERAL(1))));
   auto *query = QUERY(SINGLE_QUERY(RETURN(sum, AS("sum"), all, AS("all"))));
   auto aggr = ExpectAggregate({sum}, {all});

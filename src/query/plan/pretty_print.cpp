@@ -401,6 +401,8 @@ json ToJson(const Aggregate::Element &elem) {
   }
   json["op"] = utils::ToLowerCase(Aggregation::OpToString(elem.op));
   json["output_symbol"] = ToJson(elem.output_sym);
+  json["distinct"] = elem.distinct;
+
   return json;
 }
 ////////////////////////// END HELPER FUNCTIONS ////////////////////////////////

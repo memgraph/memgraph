@@ -2222,9 +2222,6 @@ antlrcpp::Any CypherMainVisitor::visitNumberLiteral(MemgraphCypher::NumberLitera
 }
 
 antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(MemgraphCypher::FunctionInvocationContext *ctx) {
-  // if (ctx->DISTINCT()) {
-  //   throw utils::NotYetImplemented("DISTINCT function call");
-  // }
   auto function_name = std::any_cast<std::string>(ctx->functionName()->accept(this));
   std::vector<Expression *> expressions;
   for (auto *expression : ctx->expression()) {

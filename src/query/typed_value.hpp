@@ -27,6 +27,7 @@
 #include "utils/memory.hpp"
 #include "utils/pmr/map.hpp"
 #include "utils/pmr/string.hpp"
+#include "utils/pmr/unordered_set.hpp"
 #include "utils/pmr/vector.hpp"
 #include "utils/temporal.hpp"
 
@@ -96,6 +97,7 @@ class TypedValue {
   using TString = utils::pmr::string;
   using TVector = utils::pmr::vector<TypedValue>;
   using TMap = utils::pmr::map<utils::pmr::string, TypedValue>;
+  using TSet = utils::pmr::unordered_set<TypedValue, TypedValue::Hash, TypedValue::BoolEqual>;
 
   /** Allocator type so that STL containers are aware that we need one */
   using allocator_type = utils::Allocator<TypedValue>;

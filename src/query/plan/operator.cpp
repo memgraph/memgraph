@@ -3227,7 +3227,7 @@ class AggregateCursor : public Cursor {
     // remember values.
     utils::pmr::vector<TypedValue> remember_;
 
-    utils::pmr::unordered_set<TypedValue, TypedValue::Hash, TypedValue::BoolEqual> unique_values_;
+    utils::pmr::vector<utils::pmr::unordered_set<TypedValue, TypedValue::Hash, TypedValue::BoolEqual>> unique_values_;
   };
 
   const Aggregate &self_;
@@ -3303,7 +3303,7 @@ class AggregateCursor : public Cursor {
     for (const auto &agg_elem : self_.aggregations_) {
       auto *mem = agg_value->values_.get_allocator().GetMemoryResource();
       agg_value->values_.emplace_back(DefaultAggregationOpValue(agg_elem, mem));
-      // agg_value->unique_values_.emplace_back(DefaultAggregationOpValue(agg_elem, mem));
+      agg_value->unique_values_.emplace_back(TypedValue::TSet(mem));
     }
     agg_value->counts_.resize(self_.aggregations_.size(), 0);
 
@@ -3322,8 +3322,9 @@ class AggregateCursor : public Cursor {
 
     auto count_it = agg_value->counts_.begin();
     auto value_it = agg_value->values_.begin();
+    auto unique_values_it = agg_value->unique_values_.begin();
     auto agg_elem_it = self_.aggregations_.begin();
-    for (; count_it < agg_value->counts_.end(); count_it++, value_it++, agg_elem_it++) {
+    for (; count_it < agg_value->counts_.end(); count_it++, value_it++, unique_values_it++, agg_elem_it++) {
       // COUNT(*) is the only case where input expression is optional
       // handle it here
       auto input_expr_ptr = agg_elem_it->value;
@@ -3338,6 +3339,10 @@ class AggregateCursor : public Cursor {
       // Aggregations skip Null input values.
       if (input_value.IsNull()) continue;
       const auto &agg_op = agg_elem_it->op;
+      if (agg_elem_it->distinct) {
+        if (unique_values_it->contains(input_value)) break;
+        unique_values_it->emplace(input_value);
+      }
       *count_it += 1;
       if (*count_it == 1) {
         // first value, nothing to aggregate. check type, set and continue.
@@ -3354,7 +3359,6 @@ class AggregateCursor : public Cursor {
             break;
           case Aggregation::Op::COUNT:
             *value_it = 1;
-            if (agg_elem_it->distinct) agg_value->unique_values_.emplace(input_value);
             break;
           case Aggregation::Op::COLLECT_LIST:
             value_it->ValueList().push_back(input_value);
@@ -3376,9 +3380,6 @@ class AggregateCursor : public Cursor {
       // aggregation of existing values
       switch (agg_op) {
         case Aggregation::Op::COUNT:
-          if (agg_elem_it->distinct && agg_value->unique_values_.contains(input_value)) {
-            *count_it -= 1;
-          }
           *value_it = *count_it;
           break;
         case Aggregation::Op::MIN: {
