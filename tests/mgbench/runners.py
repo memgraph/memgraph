@@ -116,20 +116,20 @@ class Memgraph:
         self._proc_mg = None
         return ret, usage
 
-    def start_preparation(self, workload=None):
+    def start_preparation(self, workload):
         if self._memgraph_version >= (0, 50, 0):
             self._start(storage_snapshot_on_exit=True)
         else:
             self._start(snapshot_on_exit=True)
 
-    def start_benchmark(self, workload=None):
+    def start_benchmark(self, workload):
         # TODO: support custom benchmarking config files!
         if self._memgraph_version >= (0, 50, 0):
             self._start(storage_recover_on_startup=True)
         else:
             self._start(db_recover_on_startup=True)
 
-    def stop(self, workload=None):
+    def stop(self, workload):
         ret, usage = self._cleanup()
         assert ret == 0, "The database process exited with a non-zero " "status ({})!".format(ret)
         return usage

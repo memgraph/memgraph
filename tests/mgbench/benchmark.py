@@ -144,6 +144,8 @@ parser.add_argument(
 
 parser.add_argument("--tail_latency", type=int, default=100, help="Number of queries for the tail latency statistics")
 
+parser.add_argument("--performance_tracking", action="store_true", default=False, help="Flag for performance tracking")
+
 args = parser.parse_args()
 
 
@@ -530,7 +532,7 @@ for dataset, queries in benchmarks:
             args.vendor_binary,
             args.temporary_directory,
             args.bolt_port,
-            False,
+            args.performance_tracking,
         )
     else:
         vendor = runners.Memgraph(
@@ -538,19 +540,20 @@ for dataset, queries in benchmarks:
             args.temporary_directory,
             not args.no_properties_on_edges,
             args.bolt_port,
-            False,
+            args.performance_tracking,
         )
 
     client = runners.Client(args.client_binary, args.temporary_directory, args.bolt_port)
-    ret = None
-    vendor.start_preparation("preparation")
-    print("Executing database cleanup and index setup...")
-    ret = client.execute(file_path=dataset.get_index(), num_workers=args.num_workers_for_import)
-    usage = vendor.stop("preparation")
-    dump_dir = cache.cache_directory("datasets", dataset.NAME, dataset.get_variant())
-    dump_file, exists = dump_dir.get_file("neo4j.dump")
 
+    ret = None
+    usage = None
     if args.vendor_name == "neo4j":
+        vendor.start_preparation("preparation")
+        print("Executing database cleanup and index setup...")
+        ret = client.execute(file_path=dataset.get_index(), num_workers=args.num_workers_for_import)
+        usage = vendor.stop("preparation")
+        dump_dir = cache.cache_directory("datasets", dataset.NAME, dataset.get_variant())
+        dump_file, exists = dump_dir.get_file("neo4j.dump")
         if exists:
             vendor.load_db_from_dump(path=dump_dir.get_path())
         else:
@@ -562,12 +565,14 @@ for dataset, queries in benchmarks:
             vendor.dump_db(path=dump_dir.get_path())
     else:
         vendor.start_preparation("import")
+        print("Executing database cleanup and index setup...")
+        ret = client.execute(file_path=dataset.get_index(), num_workers=args.num_workers_for_import)
         print("Importing dataset...")
         ret = client.execute(file_path=dataset.get_file(), num_workers=args.num_workers_for_import)
         usage = vendor.stop("import")
         # Save import results.
     import_key = [dataset.NAME, dataset.get_variant(), "__import__"]
-    if ret != None:
+    if ret != None and usage != None:
         # Display import statistics.
         print()
         for row in ret:
