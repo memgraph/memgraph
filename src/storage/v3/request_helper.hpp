@@ -133,7 +133,6 @@ std::vector<Element<VertexAccessor>> OrderByVertices(Shard::Accessor &acc, DbAcc
   });
 
   std::vector<Element<VertexAccessor>> ordered;
-  ordered.reserve(acc.ApproximateVertexCount());
   for (auto it = iterable.begin(); it != iterable.end(); ++it) {
     std::vector<TypedValue> properties_order_by;
     properties_order_by.reserve(order_bys.size());
