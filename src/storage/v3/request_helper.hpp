@@ -117,11 +117,11 @@ struct Element {
   TObjectAccessor object_acc;
 };
 
-template <typename TIterable>
+template <typename T>
+concept IDontKnowAGoodNameForThis = utils::SameAsAnyOf<T, VerticesIterable, std::vector<VertexAccessor>>
+template <IDontKnowAGoodNameForThis TIterable>
 std::vector<Element<VertexAccessor>> OrderByVertices(Shard::Accessor &acc, DbAccessor &dba, TIterable &iterable,
                                                      std::vector<msgs::OrderBy> &order_bys) {
-  static_assert(std::is_same_v<TIterable, VerticesIterable> || std::is_same_v<TIterable, std::vector<VertexAccessor>>);
-
   std::vector<Ordering> ordering;
   ordering.reserve(order_bys.size());
   std::transform(order_bys.begin(), order_bys.end(), std::back_inserter(ordering), [](const auto &order_by) {

@@ -563,7 +563,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
       break;
     }
 
-    results.emplace_back(maybe_result.value());
+    results.emplace_back(std::move(maybe_result.value()));
     if (batch_limit.has_value() && results.size() >= batch_limit.value()) {
       break;
     }
