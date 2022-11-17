@@ -88,6 +88,6 @@ struct EvaluationContext {
 using ExpressionEvaluator =
     memgraph::expr::ExpressionEvaluator<TypedValue, EvaluationContext, DbAccessor, storage::v3::View,
                                         storage::v3::LabelId, storage::v3::PropertyStore, PropertyToTypedValueConverter,
-                                        memgraph::storage::v3::ErrorCode>;
+                                        common::ErrorCode>;
 
 }  // namespace memgraph::storage::v3

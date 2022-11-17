@@ -15,13 +15,13 @@
 #include <string>
 #include <vector>
 
+#include "common/errors.hpp"
 #include "coordinator/shard_map.hpp"
 #include "query/v2/accessors.hpp"
 #include "query/v2/requests.hpp"
 #include "query/v2/shard_request_manager.hpp"
 #include "storage/v3/edge_accessor.hpp"
 #include "storage/v3/id_types.hpp"
-#include "storage/v3/result.hpp"
 #include "storage/v3/shard.hpp"
 #include "storage/v3/vertex_accessor.hpp"
 #include "storage/v3/view.hpp"
@@ -112,7 +112,7 @@ storage::v3::ShardResult<communication::bolt::Path> ToBoltPath(
     const query::v2::accessors::Path & /*edge*/, const msgs::ShardRequestManagerInterface * /*shard_request_manager*/,
     storage::v3::View /*view*/) {
   // TODO(jbajic) Fix bolt communication
-  return {SHARD_ERROR(storage::v3::ErrorCode::DELETED_OBJECT)};
+  return {SHARD_ERROR(common::ErrorCode::DELETED_OBJECT)};
 }
 
 storage::v3::ShardResult<Value> ToBoltValue(const query::v2::TypedValue &value,

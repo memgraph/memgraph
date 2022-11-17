@@ -33,6 +33,7 @@
 #include <spdlog/sinks/dist_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
+#include "common/errors.hpp"
 #include "communication/bolt/v1/constants.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
@@ -484,19 +485,19 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
                                                            memgraph::storage::v3::View::NEW);
         if (maybe_value.HasError()) {
           switch (maybe_value.GetError().code) {
-            case memgraph::storage::v3::ErrorCode::DELETED_OBJECT:
-            case memgraph::storage::v3::ErrorCode::SERIALIZATION_ERROR:
-            case memgraph::storage::v3::ErrorCode::VERTEX_HAS_EDGES:
-            case memgraph::storage::v3::ErrorCode::PROPERTIES_DISABLED:
-            case memgraph::storage::v3::ErrorCode::NONEXISTENT_OBJECT:
-            case memgraph::storage::v3::ErrorCode::VERTEX_ALREADY_INSERTED:
-            case memgraph::storage::v3::ErrorCode::SCHEMA_NO_SCHEMA_DEFINED_FOR_LABEL:
-            case memgraph::storage::v3::ErrorCode::SCHEMA_VERTEX_PROPERTY_WRONG_TYPE:
-            case memgraph::storage::v3::ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_KEY:
-            case memgraph::storage::v3::ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL:
-            case memgraph::storage::v3::ErrorCode::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY:
-            case memgraph::storage::v3::ErrorCode::SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED:
-            case memgraph::storage::v3::ErrorCode::OBJECT_NOT_FOUND:
+            case memgraph::common::ErrorCode::DELETED_OBJECT:
+            case memgraph::common::ErrorCode::SERIALIZATION_ERROR:
+            case memgraph::common::ErrorCode::VERTEX_HAS_EDGES:
+            case memgraph::common::ErrorCode::PROPERTIES_DISABLED:
+            case memgraph::common::ErrorCode::NONEXISTENT_OBJECT:
+            case memgraph::common::ErrorCode::VERTEX_ALREADY_INSERTED:
+            case memgraph::common::ErrorCode::SCHEMA_NO_SCHEMA_DEFINED_FOR_LABEL:
+            case memgraph::common::ErrorCode::SCHEMA_VERTEX_PROPERTY_WRONG_TYPE:
+            case memgraph::common::ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_KEY:
+            case memgraph::common::ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL:
+            case memgraph::common::ErrorCode::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY:
+            case memgraph::common::ErrorCode::SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED:
+            case memgraph::common::ErrorCode::OBJECT_NOT_FOUND:
               throw memgraph::communication::bolt::ClientError("Unexpected storage error when streaming summary.");
           }
         }
@@ -524,21 +525,21 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
         auto maybe_value = memgraph::glue::v2::ToBoltValue(v, shard_request_manager_, memgraph::storage::v3::View::NEW);
         if (maybe_value.HasError()) {
           switch (maybe_value.GetError().code) {
-            case memgraph::storage::v3::ErrorCode::DELETED_OBJECT:
+            case memgraph::common::ErrorCode::DELETED_OBJECT:
               throw memgraph::communication::bolt::ClientError("Returning a deleted object as a result.");
-            case memgraph::storage::v3::ErrorCode::NONEXISTENT_OBJECT:
-            case memgraph::storage::v3::ErrorCode::OBJECT_NOT_FOUND:
+            case memgraph::common::ErrorCode::NONEXISTENT_OBJECT:
+            case memgraph::common::ErrorCode::OBJECT_NOT_FOUND:
               throw memgraph::communication::bolt::ClientError("Returning a nonexistent object as a result.");
-            case memgraph::storage::v3::ErrorCode::VERTEX_HAS_EDGES:
-            case memgraph::storage::v3::ErrorCode::SERIALIZATION_ERROR:
-            case memgraph::storage::v3::ErrorCode::PROPERTIES_DISABLED:
-            case memgraph::storage::v3::ErrorCode::VERTEX_ALREADY_INSERTED:
-            case memgraph::storage::v3::ErrorCode::SCHEMA_NO_SCHEMA_DEFINED_FOR_LABEL:
-            case memgraph::storage::v3::ErrorCode::SCHEMA_VERTEX_PROPERTY_WRONG_TYPE:
-            case memgraph::storage::v3::ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_KEY:
-            case memgraph::storage::v3::ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL:
-            case memgraph::storage::v3::ErrorCode::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY:
-            case memgraph::storage::v3::ErrorCode::SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED:
+            case memgraph::common::ErrorCode::VERTEX_HAS_EDGES:
+            case memgraph::common::ErrorCode::SERIALIZATION_ERROR:
+            case memgraph::common::ErrorCode::PROPERTIES_DISABLED:
+            case memgraph::common::ErrorCode::VERTEX_ALREADY_INSERTED:
+            case memgraph::common::ErrorCode::SCHEMA_NO_SCHEMA_DEFINED_FOR_LABEL:
+            case memgraph::common::ErrorCode::SCHEMA_VERTEX_PROPERTY_WRONG_TYPE:
+            case memgraph::common::ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_KEY:
+            case memgraph::common::ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL:
+            case memgraph::common::ErrorCode::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY:
+            case memgraph::common::ErrorCode::SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED:
               throw memgraph::communication::bolt::ClientError("Unexpected storage error when streaming results.");
           }
         }

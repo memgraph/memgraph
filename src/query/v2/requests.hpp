@@ -319,7 +319,7 @@ struct Value {
 };
 
 struct ShardError {
-  storage::v3::ErrorCode code;
+  common::ErrorCode code;
   std::string message;
 };
 

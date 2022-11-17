@@ -43,10 +43,8 @@ class Callable {
 };
 
 }  // namespace detail
-using ExpressionEvaluator =
-    memgraph::expr::ExpressionEvaluator<TypedValue, memgraph::query::v2::EvaluationContext,
-                                        memgraph::msgs::ShardRequestManagerInterface, storage::v3::View,
-                                        storage::v3::LabelId, msgs::Value, detail::Callable,
-                                        memgraph::storage::v3::ErrorCode, memgraph::expr::QueryEngineTag>;
+using ExpressionEvaluator = memgraph::expr::ExpressionEvaluator<
+    TypedValue, memgraph::query::v2::EvaluationContext, memgraph::msgs::ShardRequestManagerInterface, storage::v3::View,
+    storage::v3::LabelId, msgs::Value, detail::Callable, common::ErrorCode, memgraph::expr::QueryEngineTag>;
 
 }  // namespace memgraph::query::v2

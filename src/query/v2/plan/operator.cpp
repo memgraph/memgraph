@@ -26,6 +26,7 @@
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
 
+#include "common/errors.hpp"
 #include "expr/ast/pretty_print_ast_to_original_expression.hpp"
 #include "expr/exceptions.hpp"
 #include "query/exceptions.hpp"
@@ -42,7 +43,6 @@
 #include "query/v2/shard_request_manager.hpp"
 #include "storage/v3/conversions.hpp"
 #include "storage/v3/property_value.hpp"
-#include "storage/v3/result.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
@@ -570,20 +570,20 @@ template <class TEdges>
 auto UnwrapEdgesResult(storage::v3::ShardResult<TEdges> &&result) {
   if (result.HasError()) {
     switch (result.GetError().code) {
-      case storage::v3::ErrorCode::DELETED_OBJECT:
+      case common::ErrorCode::DELETED_OBJECT:
         throw QueryRuntimeException("Trying to get relationships of a deleted node.");
-      case storage::v3::ErrorCode::NONEXISTENT_OBJECT:
+      case common::ErrorCode::NONEXISTENT_OBJECT:
         throw query::v2::QueryRuntimeException("Trying to get relationships from a node that doesn't exist.");
-      case storage::v3::ErrorCode::VERTEX_HAS_EDGES:
-      case storage::v3::ErrorCode::SERIALIZATION_ERROR:
-      case storage::v3::ErrorCode::PROPERTIES_DISABLED:
+      case common::ErrorCode::VERTEX_HAS_EDGES:
+      case common::ErrorCode::SERIALIZATION_ERROR:
+      case common::ErrorCode::PROPERTIES_DISABLED:
         throw QueryRuntimeException("Unexpected error when accessing relationships.");
-      case storage::v3::ErrorCode::SCHEMA_NO_SCHEMA_DEFINED_FOR_LABEL:
-      case storage::v3::ErrorCode::SCHEMA_VERTEX_PROPERTY_WRONG_TYPE:
-      case storage::v3::ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_KEY:
-      case storage::v3::ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL:
-      case storage::v3::ErrorCode::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY:
-      case storage::v3::ErrorCode::SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED:
+      case common::ErrorCode::SCHEMA_NO_SCHEMA_DEFINED_FOR_LABEL:
+      case common::ErrorCode::SCHEMA_VERTEX_PROPERTY_WRONG_TYPE:
+      case common::ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_KEY:
+      case common::ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL:
+      case common::ErrorCode::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY:
+      case common::ErrorCode::SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED:
         throw QueryRuntimeException("SchemaViolation occurred when accessing relationships.");
     }
   }

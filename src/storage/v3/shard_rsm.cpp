@@ -532,7 +532,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateVerticesRequest &&req) {
     auto vertex_to_update = acc.FindVertex(ConvertPropertyVector(std::move(vertex.primary_key)), View::OLD);
     if (!vertex_to_update) {
       action_successful = false;
-      shard_error.emplace(msgs::ShardError{ErrorCode::OBJECT_NOT_FOUND});
+      shard_error.emplace(msgs::ShardError{common::ErrorCode::OBJECT_NOT_FOUND});
       spdlog::debug("In transaction {} vertex could not be found while trying to update its properties.",
                     req.transaction_id.logical_id);
       continue;
@@ -564,7 +564,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteVerticesRequest &&req) {
       spdlog::debug("Error while trying to delete vertex. Vertex to delete does not exist. Transaction id: {}",
                     req.transaction_id.logical_id);
       action_successful = false;
-      shard_error.emplace(msgs::ShardError{ErrorCode::OBJECT_NOT_FOUND});
+      shard_error.emplace(msgs::ShardError{common::ErrorCode::OBJECT_NOT_FOUND});
       spdlog::debug("In transaction {} vertex could not be found while trying to delete it.",
                     req.transaction_id.logical_id);
       break;
@@ -612,7 +612,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateExpandRequest &&req) {
 
     if (!(shard_->IsVertexBelongToShard(from_vertex_id) || shard_->IsVertexBelongToShard(to_vertex_id))) {
       action_successful = false;
-      shard_error = msgs::ShardError{ErrorCode::OBJECT_NOT_FOUND,
+      shard_error = msgs::ShardError{common::ErrorCode::OBJECT_NOT_FOUND,
                                      "Error while trying to insert edge, none of the vertices belong to this shard"};
       spdlog::debug("Error while trying to insert edge, none of the vertices belong to this shard. Transaction id: {}",
                     req.transaction_id.logical_id);
@@ -638,7 +638,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateExpandRequest &&req) {
     } else {
       // TODO Code for this
       action_successful = false;
-      shard_error = msgs::ShardError{ErrorCode::OBJECT_NOT_FOUND};
+      shard_error = msgs::ShardError{common::ErrorCode::OBJECT_NOT_FOUND};
       spdlog::debug("Creating edge was not successful. Transaction id: {}", req.transaction_id.logical_id);
       break;
     }
@@ -697,7 +697,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateEdgesRequest &&req) {
     auto vertex_acc = acc.FindVertex(ConvertPropertyVector(std::move(edge.src.second)), View::OLD);
     if (!vertex_acc) {
       action_successful = false;
-      shard_error = msgs::ShardError{ErrorCode::OBJECT_NOT_FOUND, "Source vertex was not found"};
+      shard_error = msgs::ShardError{common::ErrorCode::OBJECT_NOT_FOUND, "Source vertex was not found"};
       spdlog::debug("Encountered an error while trying to acquire VertexAccessor with transaction id: {}",
                     req.transaction_id.logical_id);
       continue;
@@ -733,7 +733,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateEdgesRequest &&req) {
 
     if (!edge_accessor_did_match) {
       // TODO(jbajic) Do we need this
-      shard_error = msgs::ShardError{ErrorCode::OBJECT_NOT_FOUND, "Edge was not found"};
+      shard_error = msgs::ShardError{common::ErrorCode::OBJECT_NOT_FOUND, "Edge was not found"};
       action_successful = false;
       spdlog::debug("Could not find the Edge with the specified Gid. Transaction id: {}",
                     req.transaction_id.logical_id);
@@ -785,7 +785,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
     // Vertex is separated from the properties in the response.
     // Is it useful to return just a vertex without the properties?
     if (!found_props) {
-      shard_error = msgs::ShardError{ErrorCode::OBJECT_NOT_FOUND, "Requested properties were not found!"};
+      shard_error = msgs::ShardError{common::ErrorCode::OBJECT_NOT_FOUND, "Requested properties were not found!"};
       action_successful = false;
     }
 
@@ -858,7 +858,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
     // Get Vertex acc
     auto src_vertex_acc_opt = acc.FindVertex(ConvertPropertyVector((src_vertex.second)), View::NEW);
     if (!src_vertex_acc_opt) {
-      shard_error = msgs::ShardError{ErrorCode::OBJECT_NOT_FOUND, "Source vertex was not found."};
+      shard_error = msgs::ShardError{common::ErrorCode::OBJECT_NOT_FOUND, "Source vertex was not found."};
       action_successful = false;
       spdlog::debug("Encountered an error while trying to obtain VertexAccessor. Transaction id: {}",
                     req.transaction_id.logical_id);
@@ -878,7 +878,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
 
     if (result.HasError()) {
       // Code Error
-      shard_error = msgs::ShardError{ErrorCode::OBJECT_NOT_FOUND, "Source vertex was not found."};
+      shard_error = msgs::ShardError{common::ErrorCode::OBJECT_NOT_FOUND, "Source vertex was not found."};
       action_successful = false;
       break;
     }

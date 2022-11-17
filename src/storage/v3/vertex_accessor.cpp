@@ -83,9 +83,9 @@ bool VertexAccessor::IsVisible(View view) const {
 ShardResult<bool> VertexAccessor::AddLabel(LabelId label) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
-  if (!PrepareForWrite(transaction_, vertex_)) return SHARD_ERROR(ErrorCode::SERIALIZATION_ERROR);
+  if (!PrepareForWrite(transaction_, vertex_)) return SHARD_ERROR(common::ErrorCode::SERIALIZATION_ERROR);
 
-  if (vertex_->deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
+  if (vertex_->deleted) return SHARD_ERROR(common::ErrorCode::DELETED_OBJECT);
 
   if (std::find(vertex_->labels.begin(), vertex_->labels.end(), label) != vertex_->labels.end()) return false;
 
@@ -104,9 +104,9 @@ ShardResult<bool> VertexAccessor::AddLabelAndValidate(LabelId label) {
   }
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
-  if (!PrepareForWrite(transaction_, vertex_)) return SHARD_ERROR(ErrorCode::SERIALIZATION_ERROR);
+  if (!PrepareForWrite(transaction_, vertex_)) return SHARD_ERROR(common::ErrorCode::SERIALIZATION_ERROR);
 
-  if (vertex_->deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
+  if (vertex_->deleted) return SHARD_ERROR(common::ErrorCode::DELETED_OBJECT);
 
   if (std::find(vertex_->labels.begin(), vertex_->labels.end(), label) != vertex_->labels.end()) return false;
 
@@ -120,9 +120,9 @@ ShardResult<bool> VertexAccessor::AddLabelAndValidate(LabelId label) {
 }
 
 ShardResult<bool> VertexAccessor::RemoveLabel(LabelId label) {
-  if (!PrepareForWrite(transaction_, vertex_)) return SHARD_ERROR(ErrorCode::SERIALIZATION_ERROR);
+  if (!PrepareForWrite(transaction_, vertex_)) return SHARD_ERROR(common::ErrorCode::SERIALIZATION_ERROR);
 
-  if (vertex_->deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
+  if (vertex_->deleted) return SHARD_ERROR(common::ErrorCode::DELETED_OBJECT);
 
   auto it = std::find(vertex_->labels.begin(), vertex_->labels.end(), label);
   if (it == vertex_->labels.end()) return false;
@@ -139,9 +139,9 @@ ShardResult<bool> VertexAccessor::RemoveLabelAndValidate(LabelId label) {
     return {*maybe_violation_error};
   }
 
-  if (!PrepareForWrite(transaction_, vertex_)) return SHARD_ERROR(ErrorCode::SERIALIZATION_ERROR);
+  if (!PrepareForWrite(transaction_, vertex_)) return SHARD_ERROR(common::ErrorCode::SERIALIZATION_ERROR);
 
-  if (vertex_->deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
+  if (vertex_->deleted) return SHARD_ERROR(common::ErrorCode::DELETED_OBJECT);
 
   auto it = std::find(vertex_->labels.begin(), vertex_->labels.end(), label);
   if (it == vertex_->labels.end()) return false;
@@ -197,8 +197,8 @@ ShardResult<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
         break;
     }
   });
-  if (!exists) return SHARD_ERROR(ErrorCode::NONEXISTENT_OBJECT);
-  if (!for_deleted_ && deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
+  if (!exists) return SHARD_ERROR(common::ErrorCode::NONEXISTENT_OBJECT);
+  if (!for_deleted_ && deleted) return SHARD_ERROR(common::ErrorCode::DELETED_OBJECT);
   return has_label;
 }
 
@@ -267,17 +267,17 @@ ShardResult<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
         break;
     }
   });
-  if (!exists) return SHARD_ERROR(ErrorCode::NONEXISTENT_OBJECT);
-  if (!for_deleted_ && deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
+  if (!exists) return SHARD_ERROR(common::ErrorCode::NONEXISTENT_OBJECT);
+  if (!for_deleted_ && deleted) return SHARD_ERROR(common::ErrorCode::DELETED_OBJECT);
   return std::move(labels);
 }
 
 ShardResult<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
-  if (!PrepareForWrite(transaction_, vertex_)) return SHARD_ERROR(ErrorCode::SERIALIZATION_ERROR);
+  if (!PrepareForWrite(transaction_, vertex_)) return SHARD_ERROR(common::ErrorCode::SERIALIZATION_ERROR);
 
-  if (vertex_->deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
+  if (vertex_->deleted) return SHARD_ERROR(common::ErrorCode::DELETED_OBJECT);
 
   auto current_value = vertex_->properties.GetProperty(property);
   // We could skip setting the value if the previous one is the same to the new
@@ -323,10 +323,10 @@ ShardResult<void> VertexAccessor::CheckVertexExistence(View view) const {
     }
   });
   if (!exists) {
-    return SHARD_ERROR(ErrorCode::NONEXISTENT_OBJECT);
+    return SHARD_ERROR(common::ErrorCode::NONEXISTENT_OBJECT);
   }
   if (!for_deleted_ && deleted) {
-    return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
+    return SHARD_ERROR(common::ErrorCode::DELETED_OBJECT);
   }
   return {};
 }
@@ -338,11 +338,11 @@ ShardResult<PropertyValue> VertexAccessor::SetPropertyAndValidate(PropertyId pro
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
   if (!PrepareForWrite(transaction_, vertex_)) {
-    return SHARD_ERROR(ErrorCode::SERIALIZATION_ERROR);
+    return SHARD_ERROR(common::ErrorCode::SERIALIZATION_ERROR);
   }
 
   if (vertex_->deleted) {
-    return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
+    return SHARD_ERROR(common::ErrorCode::DELETED_OBJECT);
   }
 
   auto current_value = vertex_->properties.GetProperty(property);
@@ -361,9 +361,9 @@ ShardResult<PropertyValue> VertexAccessor::SetPropertyAndValidate(PropertyId pro
 }
 
 ShardResult<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
-  if (!PrepareForWrite(transaction_, vertex_)) return SHARD_ERROR(ErrorCode::SERIALIZATION_ERROR);
+  if (!PrepareForWrite(transaction_, vertex_)) return SHARD_ERROR(common::ErrorCode::SERIALIZATION_ERROR);
 
-  if (vertex_->deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
+  if (vertex_->deleted) return SHARD_ERROR(common::ErrorCode::DELETED_OBJECT);
 
   auto properties = vertex_->properties.Properties();
   for (const auto &property : properties) {
@@ -441,8 +441,8 @@ ShardResult<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View
         break;
     }
   });
-  if (!exists) return SHARD_ERROR(ErrorCode::NONEXISTENT_OBJECT);
-  if (!for_deleted_ && deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
+  if (!exists) return SHARD_ERROR(common::ErrorCode::NONEXISTENT_OBJECT);
+  if (!for_deleted_ && deleted) return SHARD_ERROR(common::ErrorCode::DELETED_OBJECT);
   return std::move(value);
 }
 
@@ -491,8 +491,8 @@ ShardResult<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View
         break;
     }
   });
-  if (!exists) return SHARD_ERROR(ErrorCode::NONEXISTENT_OBJECT);
-  if (!for_deleted_ && deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
+  if (!exists) return SHARD_ERROR(common::ErrorCode::NONEXISTENT_OBJECT);
+  if (!for_deleted_ && deleted) return SHARD_ERROR(common::ErrorCode::DELETED_OBJECT);
   return std::move(properties);
 }
 
@@ -563,8 +563,8 @@ ShardResult<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, const 
             break;
         }
       });
-  if (!exists) return SHARD_ERROR(ErrorCode::NONEXISTENT_OBJECT);
-  if (deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
+  if (!exists) return SHARD_ERROR(common::ErrorCode::NONEXISTENT_OBJECT);
+  if (deleted) return SHARD_ERROR(common::ErrorCode::DELETED_OBJECT);
   std::vector<EdgeAccessor> ret;
   if (in_edges.empty()) {
     return ret;
@@ -643,8 +643,8 @@ ShardResult<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(View view, const
             break;
         }
       });
-  if (!exists) return SHARD_ERROR(ErrorCode::NONEXISTENT_OBJECT);
-  if (deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
+  if (!exists) return SHARD_ERROR(common::ErrorCode::NONEXISTENT_OBJECT);
+  if (deleted) return SHARD_ERROR(common::ErrorCode::DELETED_OBJECT);
   std::vector<EdgeAccessor> ret;
   if (out_edges.empty()) {
     return ret;
@@ -690,8 +690,8 @@ ShardResult<size_t> VertexAccessor::InDegree(View view) const {
         break;
     }
   });
-  if (!exists) return SHARD_ERROR(ErrorCode::NONEXISTENT_OBJECT);
-  if (!for_deleted_ && deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
+  if (!exists) return SHARD_ERROR(common::ErrorCode::NONEXISTENT_OBJECT);
+  if (!for_deleted_ && deleted) return SHARD_ERROR(common::ErrorCode::DELETED_OBJECT);
   return degree;
 }
 
@@ -727,8 +727,8 @@ ShardResult<size_t> VertexAccessor::OutDegree(View view) const {
         break;
     }
   });
-  if (!exists) return SHARD_ERROR(ErrorCode::NONEXISTENT_OBJECT);
-  if (!for_deleted_ && deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
+  if (!exists) return SHARD_ERROR(common::ErrorCode::NONEXISTENT_OBJECT);
+  if (!for_deleted_ && deleted) return SHARD_ERROR(common::ErrorCode::DELETED_OBJECT);
   return degree;
 }
 

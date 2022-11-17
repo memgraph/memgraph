@@ -16,68 +16,20 @@
 #include <string_view>
 #include <type_traits>
 
+#include "common/errors.hpp"
 #include "utils/result.hpp"
 
 namespace memgraph::storage::v3 {
 
 static_assert(std::is_same_v<uint8_t, unsigned char>);
 
-enum class ErrorCode : uint8_t {
-  SERIALIZATION_ERROR,
-  NONEXISTENT_OBJECT,
-  DELETED_OBJECT,
-  VERTEX_HAS_EDGES,
-  PROPERTIES_DISABLED,
-  VERTEX_ALREADY_INSERTED,
-  // Schema Violations
-  SCHEMA_NO_SCHEMA_DEFINED_FOR_LABEL,
-  SCHEMA_VERTEX_PROPERTY_WRONG_TYPE,
-  SCHEMA_VERTEX_UPDATE_PRIMARY_KEY,
-  SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL,
-  SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY,
-  SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED,
-
-  OBJECT_NOT_FOUND,
-};
-
-constexpr std::string_view ErrorCodeToString(const ErrorCode code) {
-  switch (code) {
-    case ErrorCode::SERIALIZATION_ERROR:
-      return "SERIALIZATION_ERROR";
-    case ErrorCode::NONEXISTENT_OBJECT:
-      return "NONEXISTENT_OBJECT";
-    case ErrorCode::DELETED_OBJECT:
-      return "DELETED_OBJECT";
-    case ErrorCode::VERTEX_HAS_EDGES:
-      return "VERTEX_HAS_EDGES";
-    case ErrorCode::PROPERTIES_DISABLED:
-      return "PROPERTIES_DISABLED";
-    case ErrorCode::VERTEX_ALREADY_INSERTED:
-      return "VERTEX_ALREADY_INSERTED";
-    case ErrorCode::SCHEMA_NO_SCHEMA_DEFINED_FOR_LABEL:
-      return "SCHEMA_NO_SCHEMA_DEFINED_FOR_LABEL";
-    case ErrorCode::SCHEMA_VERTEX_PROPERTY_WRONG_TYPE:
-      return "SCHEMA_VERTEX_PROPERTY_WRONG_TYPE";
-    case ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_KEY:
-      return "SCHEMA_VERTEX_UPDATE_PRIMARY_KEY";
-    case ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL:
-      return "SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL";
-    case ErrorCode::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY:
-      return "SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY";
-    case ErrorCode::SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED:
-      return "SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED";
-    case ErrorCode::OBJECT_NOT_FOUND:
-      return "OBJECT_NOT_FOUND";
-  }
-}
-
 struct ShardError {
-  ShardError(ErrorCode code, std::string message, std::string source)
+  ShardError(common::ErrorCode code, std::string message, std::string source)
       : code{code}, message{std::move(message)}, source{std::move(source)} {}
 
-  ShardError(ErrorCode code, std::string source) : code{code}, source{std::move(source)} {}
+  ShardError(common::ErrorCode code, std::string source) : code{code}, source{std::move(source)} {}
 
-  ErrorCode code;
+  common::ErrorCode code;
   // TODO Maybe add category
   std::string message;
   std::string source;
