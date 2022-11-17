@@ -118,8 +118,8 @@ struct Element {
 };
 
 template <typename T>
-concept IDontKnowAGoodNameForThis = utils::SameAsAnyOf<T, VerticesIterable, std::vector<VertexAccessor>>
-template <IDontKnowAGoodNameForThis TIterable>
+concept VerticesIt = utils::SameAsAnyOf<T, VerticesIterable, std::vector<VertexAccessor>>;
+template <VerticesIt TIterable>
 std::vector<Element<VertexAccessor>> OrderByVertices(Shard::Accessor &acc, DbAccessor &dba, TIterable &iterable,
                                                      std::vector<msgs::OrderBy> &order_bys) {
   std::vector<Ordering> ordering;
@@ -153,41 +153,9 @@ std::vector<Element<VertexAccessor>> OrderByVertices(Shard::Accessor &acc, DbAcc
   return ordered;
 }
 
-template <typename TIterable>
-std::vector<Element<EdgeAccessor>> OrderByEdges(DbAccessor &dba, TIterable &iterable,
+std::vector<Element<EdgeAccessor>> OrderByEdges(DbAccessor &dba, std::vector<EdgeAccessor> &iterable,
                                                 std::vector<msgs::OrderBy> &order_bys,
-                                                const VertexAccessor &vertex_acc) {
-  static_assert(std::is_same_v<TIterable, std::vector<EdgeAccessor>>);  // Can be extended if needed
-
-  std::vector<Ordering> ordering;
-  ordering.reserve(order_bys.size());
-  std::transform(order_bys.begin(), order_bys.end(), std::back_inserter(ordering), [](const auto &order_by) {
-    if (memgraph::msgs::OrderingDirection::ASCENDING == order_by.direction) {
-      return Ordering::ASC;
-    }
-    MG_ASSERT(memgraph::msgs::OrderingDirection::DESCENDING == order_by.direction);
-    return Ordering::DESC;
-  });
-
-  std::vector<Element<EdgeAccessor>> ordered;
-  for (auto it = iterable.begin(); it != iterable.end(); ++it) {
-    std::vector<TypedValue> properties_order_by;
-    properties_order_by.reserve(order_bys.size());
-    std::transform(order_bys.begin(), order_bys.end(), std::back_inserter(properties_order_by),
-                   [&dba, &vertex_acc, &it](const auto &order_by) {
-                     return ComputeExpression(dba, vertex_acc, *it, order_by.expression.expression,
-                                              expr::identifier_node_symbol, expr::identifier_edge_symbol);
-                   });
-
-    ordered.push_back({std::move(properties_order_by), *it});
-  }
-
-  auto compare_typed_values = TypedValueVectorCompare(ordering);
-  std::sort(ordered.begin(), ordered.end(), [compare_typed_values](const auto &pair1, const auto &pair2) {
-    return compare_typed_values(pair1.properties_order_by, pair2.properties_order_by);
-  });
-  return ordered;
-}
+                                                const VertexAccessor &vertex_acc);
 
 VerticesIterable::Iterator GetStartVertexIterator(VerticesIterable &vertex_iterable,
                                                   const std::vector<PropertyValue> &start_ids, View view);
