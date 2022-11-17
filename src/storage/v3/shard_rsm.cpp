@@ -478,7 +478,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
   bool action_successful = true;
 
   std::vector<msgs::ExpandOneResultRow> results;
-  auto batch_limit = req.limit;
+  const auto batch_limit = req.limit;
   auto dba = DbAccessor{&acc};
 
   auto maybe_filter_based_on_edge_uniquness = InitializeEdgeUniqunessFunction(req.only_unique_neighbor_rows);
