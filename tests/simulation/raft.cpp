@@ -18,7 +18,10 @@
 #include <thread>
 #include <vector>
 
+#include <spdlog/cfg/env.h>
+
 #include "io/address.hpp"
+#include "io/message_histogram_collector.hpp"
 #include "io/rsm/raft.hpp"
 #include "io/rsm/rsm_client.hpp"
 #include "io/simulator/simulator.hpp"
@@ -27,6 +30,7 @@
 using memgraph::io::Address;
 using memgraph::io::Duration;
 using memgraph::io::Io;
+using memgraph::io::LatencyHistogramSummaries;
 using memgraph::io::ResponseEnvelope;
 using memgraph::io::ResponseFuture;
 using memgraph::io::ResponseResult;
@@ -123,16 +127,7 @@ void RunRaft(Raft<IoImpl, TestState, CasRequest, CasResponse, GetRequest, GetRes
   server.Run();
 }
 
-void RunSimulation() {
-  SimulatorConfig config{
-      .drop_percent = 5,
-      .perform_timeouts = true,
-      .scramble_messages = true,
-      .rng_seed = 0,
-      .start_time = Time::min() + std::chrono::microseconds{256 * 1024},
-      .abort_time = Time::max(),
-  };
-
+std::pair<SimulatorStats, LatencyHistogramSummaries> RunSimulation(SimulatorConfig &config) {
   auto simulator = Simulator(config);
 
   auto cli_addr = Address::TestAddress(1);
@@ -240,6 +235,8 @@ void RunSimulation() {
 
   spdlog::info("========================== SUCCESS :) ==========================");
 
+  return std::make_pair(simulator.Stats(), cli_io.ResponseLatencies());
+
   /*
   this is implicit in jthread's dtor
   srv_thread_1.join();
@@ -249,12 +246,39 @@ void RunSimulation() {
 }
 
 int main() {
+  spdlog::cfg::load_env_levels();
+
   int n_tests = 50;
 
+  SimulatorConfig config{
+      .drop_percent = 5,
+      .perform_timeouts = true,
+      .scramble_messages = true,
+      .rng_seed = 0,
+      .start_time = Time::min() + std::chrono::microseconds{256 * 1024},
+      .abort_time = Time::max(),
+  };
+
   for (int i = 0; i < n_tests; i++) {
-    spdlog::info("========================== NEW SIMULATION {} ==========================", i);
+    spdlog::error("========================== NEW SIMULATION SEED {} ==========================", i);
     spdlog::info("\tTime\t\tTerm\tPort\tRole\t\tMessage\n");
-    RunSimulation();
+
+    // this is vital to cause tests to behave differently across runs
+    config.rng_seed = i;
+
+    auto [sim_stats_1, latency_stats_1] = RunSimulation(config);
+    auto [sim_stats_2, latency_stats_2] = RunSimulation(config);
+
+    if (sim_stats_1 != sim_stats_2 || latency_stats_1 != latency_stats_2) {
+      spdlog::error("simulator stats diverged across runs");
+      spdlog::error("run 1 simulator stats: {}", sim_stats_1);
+      spdlog::error("run 2 simulator stats: {}", sim_stats_2);
+      spdlog::error("run 1 latency:\n{}", latency_stats_1.SummaryTable());
+      spdlog::error("run 2 latency:\n{}", latency_stats_2.SummaryTable());
+      std::terminate();
+    }
+    spdlog::error("run 1 simulator stats: {}", sim_stats_1);
+    spdlog::error("run 2 simulator stats: {}", sim_stats_2);
   }
 
   spdlog::info("passed {} tests!", n_tests);

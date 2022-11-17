@@ -170,12 +170,7 @@ class SimulatorHandle {
         }
       }
 
-      lock.unlock();
-      spdlog::info("server calling MaybeTickSimulator");
-      bool made_progress = MaybeTickSimulator();
-      spdlog::info("server returned from MaybeTickSimulator");
-      lock.lock();
-      if (!should_shut_down_ && !made_progress) {
+      if (!should_shut_down_) {
         blocked_on_receive_.emplace(receiver);
         cv_.notify_all();
         spdlog::info("blocking receiver {}", receiver.ToPartialAddress().port);
@@ -202,10 +197,6 @@ class SimulatorHandle {
 
       stats_.total_messages++;
     }  // lock dropped before cv notification
-
-    spdlog::info("sender calling MaybeTickSimulator");
-    MaybeTickSimulator();
-    spdlog::info("sender returned from MaybeTickSimulator");
 
     cv_.notify_all();
   }
