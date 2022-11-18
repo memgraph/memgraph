@@ -90,6 +90,8 @@ struct ExecutionContext {
 /// TODO(gitbuda): Consider variant instead of virtual for the PhysicalOperator.
 /// NOTE: Frame[OutputSymbol] tells where a single operator should place values.
 ///
+/// Each derived PhysicalOperator may be constructed with 0|1 function providing the data.
+/// Each PhysicalOperator has an arbitrary number of children AKA input operators.
 class PhysicalOperator {
  public:
   PhysicalOperator() = delete;
@@ -108,12 +110,14 @@ class PhysicalOperator {
   /// Get data from children operators.
   virtual const Multiframe *Next() = 0;
   /// Prepare data for the next call.
-  void Emit(const Frame &frame) {
+  template <typename TTuple>
+  void Emit(const TTuple &tuple) {
     // TODO(gitbuda): Implement correct Emit logic.
     //   * Correct frame handling (probably no need to copy).
     //   * Correct memory management (don't resize multiframe)..
     //   * Correct multi-threading.
-    data_.Put(frame);
+    std::cout << "An Emit call" << std::endl;
+    data_.Put(Frame{.a = tuple});
   }
   /// Reset state.
   void Reset() {}
@@ -145,7 +149,9 @@ class PhysicalOperator {
 // TODO(gitbuda): Consider kicking out Once because it's an artefact from the single Frame execution.
 class OncePhysicalOperator final : public PhysicalOperator {
  public:
-  using PhysicalOperator::PhysicalOperator;
+  explicit OncePhysicalOperator(const std::string &name) : PhysicalOperator(name), multiframe_(72) {
+    multiframe_.Put(Frame{.a = 0});
+  }
   void Execute(ExecutionContext ctx) override {
     MG_ASSERT(children_.empty(), "Once should have 0 inputs");
     std::cout << name_ << std::endl;
@@ -154,13 +160,14 @@ class OncePhysicalOperator final : public PhysicalOperator {
   const Multiframe *Next() override {
     if (!executed_) {
       executed_ = true;
-      return BaseNext();
+      return &multiframe_;
     }
     return nullptr;
   }
 
  private:
   bool executed_{false};
+  Multiframe multiframe_;
   // Once has to return 1 empty frame on Next.
   // TODO(gitbuda): An issue because data also exists in the base class.
   // Multiframe data_{{0, 0}};
@@ -170,26 +177,53 @@ class OncePhysicalOperator final : public PhysicalOperator {
 /// NOTE: ScanAll get_vertices needs frame+ctx because ScanAllByXYZValue has an
 /// expression that has to be evaluated.
 ///
+template <typename TDataFun>
 class ScanAllPhysicalOperator final : public PhysicalOperator {
  public:
-  using PhysicalOperator::PhysicalOperator;
+  ScanAllPhysicalOperator(const std::string &name, TDataFun data_fun)
+      : PhysicalOperator(name), data_fun_(std::move(data_fun)) {}
+
   void Execute(ExecutionContext ctx) override {
     std::cout << name_ << std::endl;
     MG_ASSERT(children_.size() == 1, "ScanAll should have exactly 1 input");
     PhysicalOperator::BaseExecute(ctx);
-    // TODO(gitbuda): Add the ScanAll data.
+
+    // SCANALL PSEUDO
+    // ∀mf : input multiframes
+    //  ∀tuple : data_fun(evaluate(mf))
+    //   emit(tuple)
+    //
+    // TODO(gitbuda): It should be possible to parallelize the below ScanAll code.
     auto *input = children_[0].get();
     while (true) {
       const auto *multiframe = input->Next();
       if (multiframe == nullptr) {
         break;
       }
+      // TODO(gitbuda): Replace frame w/ multiframe.
       for (const auto &frame : multiframe->Data()) {
-        Emit(frame);
+        for (const auto &tuple : data_fun_(Evaluate(frame))) {
+          Emit(tuple);
+        }
       }
     }
   }
-  const Multiframe *Next() override { return BaseNext(); }
+
+  const Multiframe *Next() override {
+    if (!next_called_) {
+      next_called_ = true;
+      return &data_;
+    }
+    return nullptr;
+  }
+
+ private:
+  template <typename T>
+  T Evaluate(T t) {
+    return t;
+  }
+  TDataFun data_fun_;
+  bool next_called_{false};
 };
 
 class ProducePhysicalOperator final : public PhysicalOperator {
@@ -197,7 +231,20 @@ class ProducePhysicalOperator final : public PhysicalOperator {
   using PhysicalOperator::PhysicalOperator;
   void Execute(ExecutionContext ctx) override {
     std::cout << name_ << std::endl;
+    MG_ASSERT(children_.size() == 1, "ScanAll should have exactly 1 input");
     PhysicalOperator::BaseExecute(ctx);
+
+    auto *input = children_[0].get();
+    while (true) {
+      const auto *multiframe = input->Next();
+      if (multiframe == nullptr) {
+        break;
+      }
+      // TODO(gitbuda): Replace frame w/ multiframe.
+      for (const auto &frame : multiframe->Data()) {
+        std::cout << "Produce: " << frame.a << std::endl;
+      }
+    }
   }
   const Multiframe *Next() override { return BaseNext(); }
 };
@@ -242,7 +289,9 @@ class PhysicalPlanGenerator final : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(Produce & /*unused*/) override { return DefaultPost(); }
 
   bool PreVisit(ScanAll & /*unused*/) override {
-    auto pop = std::make_shared<ScanAllPhysicalOperator>(ScanAllPhysicalOperator("Physical ScanAll"));
+    auto data_fun = [](Frame) { return std::vector<int>{0, 1, 2}; };
+    auto pop = std::make_shared<ScanAllPhysicalOperator<decltype(data_fun)>>(
+        ScanAllPhysicalOperator("Physical ScanAll", std::move(data_fun)));
     return DefaultPre(pop);
   }
 
