@@ -11,24 +11,16 @@
 
 #pragma once
 
-#include <type_traits>
+#include <variant>
 
-#include "utils/result.hpp"
+#include "storage/v3/result.hpp"
+#include "storage/v3/schema_validator.hpp"
 
 namespace memgraph::storage::v3 {
 
-static_assert(std::is_same_v<uint8_t, unsigned char>);
+using ResultErrorType = std::variant<SchemaViolation, Error>;
 
-enum class Error : uint8_t {
-  SERIALIZATION_ERROR,
-  NONEXISTENT_OBJECT,
-  DELETED_OBJECT,
-  VERTEX_HAS_EDGES,
-  PROPERTIES_DISABLED,
-  VERTEX_ALREADY_INSERTED
-};
-
-template <class TValue>
-using Result = utils::BasicResult<Error, TValue>;
+template <typename TValue>
+using ShardOperationResult = utils::BasicResult<ResultErrorType, TValue>;
 
 }  // namespace memgraph::storage::v3

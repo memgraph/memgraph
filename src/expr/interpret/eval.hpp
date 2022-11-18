@@ -404,6 +404,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         case Error::SERIALIZATION_ERROR:
         case Error::VERTEX_HAS_EDGES:
         case Error::PROPERTIES_DISABLED:
+        case Error::VERTEX_ALREADY_INSERTED:
           throw ExpressionRuntimeException("Unexpected error when accessing labels.");
       }
     }
@@ -751,6 +752,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         case Error::SERIALIZATION_ERROR:
         case Error::VERTEX_HAS_EDGES:
         case Error::PROPERTIES_DISABLED:
+        case Error::VERTEX_ALREADY_INSERTED:
           throw ExpressionRuntimeException("Unexpected error when getting a property.");
       }
     }
@@ -779,6 +781,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         case Error::SERIALIZATION_ERROR:
         case Error::VERTEX_HAS_EDGES:
         case Error::PROPERTIES_DISABLED:
+        case Error::VERTEX_ALREADY_INSERTED:
           throw ExpressionRuntimeException("Unexpected error when getting a property.");
       }
     }

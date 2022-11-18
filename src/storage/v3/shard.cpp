@@ -33,6 +33,7 @@
 #include "storage/v3/mvcc.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/schema_validator.hpp"
+#include "storage/v3/shard_operation_result.hpp"
 #include "storage/v3/transaction.hpp"
 #include "storage/v3/vertex.hpp"
 #include "storage/v3/vertex_accessor.hpp"
@@ -343,7 +344,7 @@ Shard::~Shard() {}
 Shard::Accessor::Accessor(Shard &shard, Transaction &transaction)
     : shard_(&shard), transaction_(&transaction), config_(shard_->config_.items) {}
 
-ResultSchema<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
+ShardOperationResult<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
     const std::vector<LabelId> &labels, const std::vector<PropertyValue> &primary_properties,
     const std::vector<std::pair<PropertyId, PropertyValue>> &properties) {
   OOMExceptionEnabler oom_exception;
@@ -361,7 +362,9 @@ ResultSchema<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
   delta->prev.Set(&it->vertex);
 
   VertexAccessor vertex_acc{&it->vertex, transaction_, &shard_->indices_, config_, shard_->vertex_validator_};
-  MG_ASSERT(inserted, "The vertex must be inserted here!");
+  if (!inserted) {
+    return {Error::VERTEX_ALREADY_INSERTED};
+  }
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
 
   // TODO(jbajic) Improve, maybe delay index update

@@ -489,6 +489,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
             case memgraph::storage::v3::Error::VERTEX_HAS_EDGES:
             case memgraph::storage::v3::Error::PROPERTIES_DISABLED:
             case memgraph::storage::v3::Error::NONEXISTENT_OBJECT:
+            case memgraph::storage::v3::Error::VERTEX_ALREADY_INSERTED:
               throw memgraph::communication::bolt::ClientError("Unexpected storage error when streaming summary.");
           }
         }
@@ -523,6 +524,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
             case memgraph::storage::v3::Error::VERTEX_HAS_EDGES:
             case memgraph::storage::v3::Error::SERIALIZATION_ERROR:
             case memgraph::storage::v3::Error::PROPERTIES_DISABLED:
+            case memgraph::storage::v3::Error::VERTEX_ALREADY_INSERTED:
               throw memgraph::communication::bolt::ClientError("Unexpected storage error when streaming results.");
           }
         }

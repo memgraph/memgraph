@@ -2650,14 +2650,16 @@ TEST_P(StorageV3, TestCreateVertexAndValidate) {
               (std::map<PropertyId, PropertyValue>{{prop1, PropertyValue(111)}}));
   }
   {
-    ASSERT_DEATH(
-        {
-          Shard store(primary_label, min_pk, std::nullopt /*max_primary_key*/, schema_property_vector);
-          auto acc = store.Access(GetNextHlc());
-          auto vertex1 = acc.CreateVertexAndValidate({}, {PropertyValue{0}}, {});
-          auto vertex2 = acc.CreateVertexAndValidate({}, {PropertyValue{0}}, {});
-        },
-        "");
+    Shard store(primary_label, min_pk, std::nullopt /*max_primary_key*/, schema_property_vector);
+    auto acc = store.Access(GetNextHlc());
+    auto vertex1 = acc.CreateVertexAndValidate({}, {PropertyValue{0}}, {});
+    auto vertex2 = acc.CreateVertexAndValidate({}, {PropertyValue{0}}, {});
+
+    ASSERT_TRUE(vertex2.HasError());
+    auto error = vertex2.GetError();
+    auto error_ptr = std::get_if<memgraph::storage::v3::Error>(&error);
+    ASSERT_TRUE(error_ptr);
+    ASSERT_TRUE(*error_ptr == storage::v3::Error::VERTEX_ALREADY_INSERTED);
   }
   {
     auto acc = store.Access(GetNextHlc());

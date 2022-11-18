@@ -18,6 +18,7 @@
 #include "storage/v3/name_id_mapper.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/shard.hpp"
+#include "storage/v3/shard_operation_result.hpp"
 
 namespace memgraph::storage::v3::tests {
 using testing::UnorderedElementsAre;
@@ -38,7 +39,7 @@ class StorageEdgeTest : public ::testing::TestWithParam<bool> {
     return store.NameToEdgeType(edge_type_name);
   }
 
-  static ResultSchema<VertexAccessor> CreateVertex(Shard::Accessor &acc, const PropertyValue &key) {
+  static ShardOperationResult<VertexAccessor> CreateVertex(Shard::Accessor &acc, const PropertyValue &key) {
     return acc.CreateVertexAndValidate({}, {key}, {});
   }
 

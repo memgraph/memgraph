@@ -23,6 +23,7 @@
 #include "storage/v3/key_store.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/result.hpp"
+#include "storage/v3/shard_operation_result.hpp"
 
 ///////////////////////////////////////////////////////////
 // Our communication layer and query engine don't mix
@@ -113,17 +114,19 @@ class VertexAccessor final {
 
   auto PrimaryKey(storage::v3::View view) const { return impl_.PrimaryKey(view); }
 
-  storage::v3::ResultSchema<bool> AddLabel(storage::v3::LabelId label) { return impl_.AddLabelAndValidate(label); }
-
-  storage::v3::ResultSchema<bool> AddLabelAndValidate(storage::v3::LabelId label) {
+  storage::v3::ShardOperationResult<bool> AddLabel(storage::v3::LabelId label) {
     return impl_.AddLabelAndValidate(label);
   }
 
-  storage::v3::ResultSchema<bool> RemoveLabel(storage::v3::LabelId label) {
+  storage::v3::ShardOperationResult<bool> AddLabelAndValidate(storage::v3::LabelId label) {
+    return impl_.AddLabelAndValidate(label);
+  }
+
+  storage::v3::ShardOperationResult<bool> RemoveLabel(storage::v3::LabelId label) {
     return impl_.RemoveLabelAndValidate(label);
   }
 
-  storage::v3::ResultSchema<bool> RemoveLabelAndValidate(storage::v3::LabelId label) {
+  storage::v3::ShardOperationResult<bool> RemoveLabelAndValidate(storage::v3::LabelId label) {
     return impl_.RemoveLabelAndValidate(label);
   }
 
@@ -138,17 +141,17 @@ class VertexAccessor final {
     return impl_.GetProperty(key, view);
   }
 
-  storage::v3::ResultSchema<storage::v3::PropertyValue> SetProperty(storage::v3::PropertyId key,
-                                                                    const storage::v3::PropertyValue &value) {
+  storage::v3::ShardOperationResult<storage::v3::PropertyValue> SetProperty(storage::v3::PropertyId key,
+                                                                            const storage::v3::PropertyValue &value) {
     return impl_.SetPropertyAndValidate(key, value);
   }
 
-  storage::v3::ResultSchema<storage::v3::PropertyValue> SetPropertyAndValidate(
+  storage::v3::ShardOperationResult<storage::v3::PropertyValue> SetPropertyAndValidate(
       storage::v3::PropertyId key, const storage::v3::PropertyValue &value) {
     return impl_.SetPropertyAndValidate(key, value);
   }
 
-  storage::v3::ResultSchema<storage::v3::PropertyValue> RemovePropertyAndValidate(storage::v3::PropertyId key) {
+  storage::v3::ShardOperationResult<storage::v3::PropertyValue> RemovePropertyAndValidate(storage::v3::PropertyId key) {
     return SetPropertyAndValidate(key, storage::v3::PropertyValue{});
   }
 
