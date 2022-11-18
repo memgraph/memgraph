@@ -13,6 +13,8 @@
 
 #include <cstdint>
 
+#include <fmt/format.h>
+
 namespace memgraph::io::simulator {
 struct SimulatorStats {
   uint64_t total_messages = 0;
@@ -22,7 +24,7 @@ struct SimulatorStats {
   uint64_t total_responses = 0;
   uint64_t simulator_ticks = 0;
 
-  friend bool operator==(const SimulatorStats &lhs, const SimulatorStats &rhs) = default;
+  friend bool operator==(const SimulatorStats & /* lhs */, const SimulatorStats & /* rhs */) = default;
 
   friend std::ostream &operator<<(std::ostream &in, const SimulatorStats &stats) {
     std::string formated = fmt::format(

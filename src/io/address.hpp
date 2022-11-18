@@ -20,6 +20,8 @@
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
 
+#include "utils/logging.hpp"
+
 namespace memgraph::io {
 
 struct PartialAddress {
