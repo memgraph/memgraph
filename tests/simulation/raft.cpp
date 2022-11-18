@@ -14,6 +14,7 @@
 #include <iostream>
 #include <map>
 #include <optional>
+#include <random>
 #include <set>
 #include <thread>
 #include <vector>
@@ -242,39 +243,48 @@ std::pair<SimulatorStats, LatencyHistogramSummaries> RunSimulation(SimulatorConf
   return std::make_pair(simulator.Stats(), cli_io.ResponseLatencies());
 }
 
-int main() {
-  spdlog::cfg::load_env_levels();
-
-  int n_tests = 50;
-
+void RunWithSeed(uint64_t seed) {
   SimulatorConfig config{
       .drop_percent = 5,
       .perform_timeouts = true,
       .scramble_messages = true,
-      .rng_seed = 0,
+      .rng_seed = seed,
       .start_time = Time::min() + std::chrono::microseconds{256 * 1024},
       .abort_time = Time::max(),
   };
 
+  spdlog::info("========================== NEW SIMULATION, replay with RunWithSeed({}) ==========================",
+               seed);
+  spdlog::info("\tTime\t\tTerm\tPort\tRole\t\tMessage\n");
+  auto [sim_stats_1, latency_stats_1] = RunSimulation(config);
+
+  spdlog::info("========================== NEW SIMULATION, replay with RunWithSeed({}) ==========================",
+               seed);
+  spdlog::info("\tTime\t\tTerm\tPort\tRole\t\tMessage\n");
+  auto [sim_stats_2, latency_stats_2] = RunSimulation(config);
+
+  if (sim_stats_1 != sim_stats_2 || latency_stats_1 != latency_stats_2) {
+    spdlog::error("simulator stats diverged across runs for test rng_seed: {}", seed);
+    spdlog::error("run 1 simulator stats: {}", sim_stats_1);
+    spdlog::error("run 2 simulator stats: {}", sim_stats_2);
+    spdlog::error("run 1 latency:\n{}", latency_stats_1.SummaryTable());
+    spdlog::error("run 2 latency:\n{}", latency_stats_2.SummaryTable());
+    std::terminate();
+  }
+}
+
+int main() {
+  spdlog::cfg::load_env_levels();
+
+  std::random_device random_device;
+  std::mt19937 generator(random_device());
+  std::uniform_int_distribution<> distribution;
+
+  int n_tests = 50;
+
   for (int i = 0; i < n_tests; i++) {
-    spdlog::info("\tTime\t\tTerm\tPort\tRole\t\tMessage\n");
-
-    // this is vital to cause tests to behave differently across runs
-    config.rng_seed = i;
-
-    spdlog::info("========================== NEW SIMULATION SEED {} ==========================", i);
-    auto [sim_stats_1, latency_stats_1] = RunSimulation(config);
-    spdlog::info("========================== NEW SIMULATION SEED {} ==========================", i);
-    auto [sim_stats_2, latency_stats_2] = RunSimulation(config);
-
-    if (sim_stats_1 != sim_stats_2 || latency_stats_1 != latency_stats_2) {
-      spdlog::error("simulator stats diverged across runs for test rng_seed {}", i);
-      spdlog::error("run 1 simulator stats: {}", sim_stats_1);
-      spdlog::error("run 2 simulator stats: {}", sim_stats_2);
-      spdlog::error("run 1 latency:\n{}", latency_stats_1.SummaryTable());
-      spdlog::error("run 2 latency:\n{}", latency_stats_2.SummaryTable());
-      std::terminate();
-    }
+    uint64_t seed = distribution(generator);
+    RunWithSeed(seed);
   }
 
   spdlog::info("passed {} tests!", n_tests);
