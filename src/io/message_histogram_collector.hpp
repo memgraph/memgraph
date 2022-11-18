@@ -13,6 +13,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <compare>
 #include <unordered_map>
 
 #include <boost/core/demangle.hpp>
