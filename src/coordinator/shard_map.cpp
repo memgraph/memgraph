@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <cstdint>
 #include <optional>
 #include <unordered_map>
 #include <vector>
@@ -257,13 +258,13 @@ boost::uuids::uuid NewShardUuid(uint64_t shard_id) {
                             0,
                             0,
                             0,
-                            static_cast<unsigned char>(shard_id >> 56),
-                            static_cast<unsigned char>(shard_id >> 48),
-                            static_cast<unsigned char>(shard_id >> 40),
-                            static_cast<unsigned char>(shard_id >> 32),
-                            static_cast<unsigned char>(shard_id >> 24),
-                            static_cast<unsigned char>(shard_id >> 16),
-                            static_cast<unsigned char>(shard_id >> 8),
+                            static_cast<unsigned char>(shard_id >> UINT8_C(56)),
+                            static_cast<unsigned char>(shard_id >> UINT8_C(48)),
+                            static_cast<unsigned char>(shard_id >> UINT8_C(40)),
+                            static_cast<unsigned char>(shard_id >> UINT8_C(32)),
+                            static_cast<unsigned char>(shard_id >> UINT8_C(24)),
+                            static_cast<unsigned char>(shard_id >> UINT8_C(16)),
+                            static_cast<unsigned char>(shard_id >> UINT8_C(8)),
                             static_cast<unsigned char>(shard_id)};
 }
 
