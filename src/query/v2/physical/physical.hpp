@@ -59,9 +59,69 @@ class Multiframe {
   std::vector<Frame> data_;
 };
 
-/// Preallocated memory for operators' results (data / data pool).
+/// Preallocated memory for an operator results.
+/// Responsible only for synchronizing access to a set of Multiframes.
+/// Requires giving back Token after Multiframe is consumed/filled.
+/// Equivalent to a queue of Multiframes with intention to minimize the time
+/// spent in critical sections.
 ///
-struct MultiframePool {};
+class MultiframePool {
+ public:
+  struct Token {
+    int id;
+    Multiframe *multiframe;
+  };
+  /// Critical because all filled multiframes should be consumed at some point.
+  enum class MultiframeState {
+    EMPTY,
+    IN_USE,
+    FULL,
+  };
+  // TODO(gitbuda): Decide how to know that there is no more data for a given operator.
+  //   * Probably better outside the pool because then the pool is more generic.
+  enum class PoolState {
+    EMPTY,
+    HAS_MORE,
+    EXHAUSTED,
+  };
+  enum class Ordering {
+    FCFS,
+  };
+
+  explicit MultiframePool(int pool_size, size_t multiframe_size) {
+    for (int i = 0; i < pool_size; ++i) {
+      frames_.emplace(std::make_pair(i, Multiframe{multiframe_size}));
+    }
+  }
+  MultiframePool() = delete;
+  MultiframePool(const MultiframePool &) = delete;
+  MultiframePool(MultiframePool &&) = delete;
+  MultiframePool &operator=(const MultiframePool &) = delete;
+  MultiframePool &operator=(MultiframePool &&) = delete;
+
+  // TODO(gitbuda): Implement Multiframe state transitions.
+  /// if nullopt -> useful multiframe is not available.
+  std::optional<Token> GetAccess() {
+    std::unique_lock lock{mutex};
+    // TODO(gitbuda): Implement faster and more fair id resolution.
+    for (int id = 0; id < frames_.size(); ++id) {
+      if (in_use_.find(id) == in_use_.end()) {
+        in_use_.emplace(id);
+        return Token{.id = id, .multiframe = &frames_.at(id)};
+      }
+    }
+    return std::nullopt;
+  }
+  void ReturnAccess(int id, bool more_data = true) {
+    std::unique_lock lock{mutex};
+    in_use_.erase(id);
+  }
+
+ private:
+  std::unordered_map<int, Multiframe> frames_;
+  std::unordered_set<int> in_use_;
+  std::mutex mutex;
+};
 
 /// Moving/copying Frames between operators is questionable because operators
 /// mostly operate on a single Frame value.
