@@ -68,9 +68,28 @@ struct Address {
     };
   }
 
+  // NB: don't use this in test code because it is non-deterministic
   static Address UniqueLocalAddress() {
     return Address{
         .unique_id = boost::uuids::uuid{boost::uuids::random_generator()()},
+    };
+  }
+
+  /// `Coordinator`s have constant UUIDs because there is at most one per ip/port pair.
+  Address ForkLocalCoordinator() {
+    return Address{
+        .unique_id = boost::uuids::uuid{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+        .last_known_ip = last_known_ip,
+        .last_known_port = last_known_port,
+    };
+  }
+
+  /// `ShardManager`s have constant UUIDs because there is at most one per ip/port pair.
+  Address ForkLocalShardManager() {
+    return Address{
+        .unique_id = boost::uuids::uuid{2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+        .last_known_ip = last_known_ip,
+        .last_known_port = last_known_port,
     };
   }
 

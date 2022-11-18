@@ -137,7 +137,14 @@ class Io {
   Address GetAddress() { return address_; }
   void SetAddress(Address address) { address_ = address; }
 
-  Io<I> ForkLocal() { return Io(implementation_, address_.ForkUniqueAddress()); }
+  Io<I> ForkLocal(boost::uuids::uuid uuid) {
+    Address new_address{
+        .unique_id = uuid,
+        .last_known_ip = address_.last_known_ip,
+        .last_known_port = address_.last_known_port,
+    };
+    return Io(implementation_, new_address);
+  }
 
   LatencyHistogramSummaries ResponseLatencies() { return implementation_.ResponseLatencies(); }
 };
