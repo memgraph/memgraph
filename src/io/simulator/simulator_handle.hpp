@@ -52,7 +52,7 @@ class SimulatorHandle {
   std::set<Address> blocked_on_receive_;
   std::set<Address> server_addresses_;
   std::mt19937 rng_;
-  std::uniform_int_distribution<int> time_distrib_{0, 50};
+  std::uniform_int_distribution<int> time_distrib_{0, 1000};
   std::uniform_int_distribution<int> drop_distrib_{0, 99};
   SimulatorConfig config_;
   MessageHistogramCollector histograms_;

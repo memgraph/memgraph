@@ -275,8 +275,6 @@ int main() {
       spdlog::error("run 2 latency:\n{}", latency_stats_2.SummaryTable());
       std::terminate();
     }
-    spdlog::info("run 1 simulator stats: {}", sim_stats_1);
-    spdlog::info("run 2 simulator stats: {}", sim_stats_2);
   }
 
   spdlog::info("passed {} tests!", n_tests);
