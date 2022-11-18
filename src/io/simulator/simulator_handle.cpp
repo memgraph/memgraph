@@ -75,6 +75,8 @@ bool SimulatorHandle::MaybeTickSimulator() {
     return false;
   }
 
+  // We allow the simulator to progress the state of the system only
+  // after all servers are blocked on receive.
   spdlog::info("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ simulator tick ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
   stats_.simulator_ticks++;
 
@@ -88,37 +90,31 @@ bool SimulatorHandle::MaybeTickSimulator() {
     cv_.notify_all();
   }
 
+  const Duration clock_advance = std::chrono::microseconds{time_distrib_(rng_)};
+  cluster_wide_time_microseconds_ += clock_advance;
+
+  if (!fired_cv) {
+    spdlog::info("simulator progressing: clock advanced by {}", clock_advance.count());
+    cv_.notify_all();
+    blocked_on_receive_.clear();
+    fired_cv = true;
+  }
+
+  if (cluster_wide_time_microseconds_ >= config_.abort_time) {
+    if (should_shut_down_) {
+      return true;
+    }
+    spdlog::error(
+        "Cluster has executed beyond its configured abort_time, and something may be failing to make progress "
+        "in an expected amount of time.");
+    throw utils::BasicException{"Cluster has executed beyond its configured abort_time"};
+  }
+
   if (in_flight_.empty()) {
-    // return early here because there are no messages to schedule
-
-    // We tick the clock forward when all servers are blocked but
-    // there are no in-flight messages to schedule delivery of.
-    const Duration clock_advance = std::chrono::microseconds{time_distrib_(rng_)};
-    cluster_wide_time_microseconds_ += clock_advance;
-
-    if (!fired_cv) {
-      spdlog::info("simulator progressing: clock advanced by {}", clock_advance.count());
-      cv_.notify_all();
-      blocked_on_receive_.clear();
-      fired_cv = true;
-    }
-
-    if (cluster_wide_time_microseconds_ >= config_.abort_time) {
-      if (should_shut_down_) {
-        return true;
-      }
-      spdlog::error(
-          "Cluster has executed beyond its configured abort_time, and something may be failing to make progress "
-          "in an expected amount of time.");
-      throw utils::BasicException{"Cluster has executed beyond its configured abort_time"};
-    }
-
-    // if the clock is advanced, no messages should be delivered also.
-    // do that in a future tick.
     return true;
   }
 
-  if (config_.scramble_messages) {
+  if (config_.scramble_messages && in_flight_.size() > 1) {
     // scramble messages
     std::uniform_int_distribution<size_t> swap_distrib(0, in_flight_.size() - 1);
     const size_t swap_index = swap_distrib(rng_);
