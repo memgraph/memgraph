@@ -78,13 +78,17 @@ class MultiframePool {
     FULL,
   };
   // TODO(gitbuda): Decide how to know that there is no more data for a given operator.
-  //   * Probably better outside the pool because then the pool is more generic.
+  //   1) Probably better outside the pool because then the pool is more generic.
+  //   2) Since Emit and Next are decoupled there has to be some source of truth.
   enum class PoolState {
     EMPTY,
     HAS_MORE,
     EXHAUSTED,
   };
   enum class Ordering {
+    // TODO(gitbuda): To implement FCFS ordering policy a queue of token is
+    // required with round robin id assignment.
+    //
     FCFS,
   };
 
@@ -103,7 +107,7 @@ class MultiframePool {
   /// if nullopt -> useful multiframe is not available.
   std::optional<Token> GetAccess() {
     std::unique_lock lock{mutex};
-    // TODO(gitbuda): Implement faster and more fair id resolution.
+    // TODO(gitbuda): Implement faster and more fair id resolution (FCFS).
     for (int id = 0; id < frames_.size(); ++id) {
       if (in_use_.find(id) == in_use_.end()) {
         in_use_.emplace(id);

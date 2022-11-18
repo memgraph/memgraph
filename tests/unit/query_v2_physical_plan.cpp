@@ -40,6 +40,7 @@ TEST_F(PhysicalPlanTest, MultiframePool) {
       while (true) {
         auto token = multiframe_pool_.GetAccess();
         if (token) {
+          ASSERT_TRUE(token->id >= 0 && token->id < 16);
           got_access.fetch_add(1);
           multiframe_pool_.ReturnAccess(token->id);
           break;
