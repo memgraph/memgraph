@@ -58,6 +58,8 @@ struct Address {
   uint16_t last_known_port;
 
   static Address TestAddress(uint16_t port) {
+    MG_ASSERT(port <= 255);
+
     return Address{
         .unique_id = boost::uuids::uuid{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, static_cast<unsigned char>(port)},
         .last_known_port = port,
