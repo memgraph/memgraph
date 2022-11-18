@@ -108,7 +108,9 @@ class PhysicalOperator {
   /// Init/start execution.
   virtual void Execute(ExecutionContext ctx) = 0;
   /// Get data from children operators.
-  virtual const Multiframe *Next() = 0;
+  virtual const Multiframe *NextRead() = 0;
+  virtual const Multiframe *NextWrite() = 0;
+  virtual void Reclaim() = 0;
   /// Prepare data for the next call.
   template <typename TTuple>
   void Emit(const TTuple &tuple) {
@@ -157,13 +159,15 @@ class OncePhysicalOperator final : public PhysicalOperator {
     std::cout << name_ << std::endl;
     PhysicalOperator::BaseExecute(ctx);
   }
-  const Multiframe *Next() override {
+  const Multiframe *NextRead() override {
     if (!executed_) {
       executed_ = true;
       return &multiframe_;
     }
     return nullptr;
   }
+  const Multiframe *NextWrite() override { return nullptr; }
+  void Reclaim() override {}
 
  private:
   bool executed_{false};
@@ -196,7 +200,7 @@ class ScanAllPhysicalOperator final : public PhysicalOperator {
     // TODO(gitbuda): It should be possible to parallelize the below ScanAll code.
     auto *input = children_[0].get();
     while (true) {
-      const auto *multiframe = input->Next();
+      const auto *multiframe = input->NextRead();
       if (multiframe == nullptr) {
         break;
       }
@@ -209,13 +213,15 @@ class ScanAllPhysicalOperator final : public PhysicalOperator {
     }
   }
 
-  const Multiframe *Next() override {
+  const Multiframe *NextRead() override {
     if (!next_called_) {
       next_called_ = true;
       return &data_;
     }
     return nullptr;
   }
+  const Multiframe *NextWrite() override { return nullptr; }
+  void Reclaim() override {}
 
  private:
   template <typename T>
@@ -236,7 +242,7 @@ class ProducePhysicalOperator final : public PhysicalOperator {
 
     auto *input = children_[0].get();
     while (true) {
-      const auto *multiframe = input->Next();
+      const auto *multiframe = input->NextRead();
       if (multiframe == nullptr) {
         break;
       }
@@ -246,7 +252,9 @@ class ProducePhysicalOperator final : public PhysicalOperator {
       }
     }
   }
-  const Multiframe *Next() override { return BaseNext(); }
+  const Multiframe *NextRead() override { return BaseNext(); }
+  const Multiframe *NextWrite() override { return nullptr; }
+  void Reclaim() override {}
 };
 
 /// TODO(gitbuda): Consider how to add higher level database concepts like

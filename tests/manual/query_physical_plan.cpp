@@ -55,7 +55,7 @@ int main(int argc, char *argv[]) {
   memgraph::query::v2::physical::ExecutionContext ctx;
   physical_plan->Execute(ctx);
   // Fetch physical plan execution results.
-  auto data = physical_plan->Next();
+  auto data = physical_plan->NextRead();
   MG_ASSERT(data->Size() == 0);
 
   return 0;
