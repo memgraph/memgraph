@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "query/plan/operator.hpp"
+#include "query/v2/physical/multiframe.hpp"
 #include "utils/thread_pool.hpp"
 #include "utils/visitor.hpp"
 
@@ -26,122 +27,6 @@ using memgraph::query::plan::Once;
 using memgraph::query::plan::Produce;
 using memgraph::query::plan::ScanAll;
 using memgraph::utils::ThreadPool;
-
-struct Frame {
-  int64_t a;
-  int64_t b;
-};
-
-/// Fixed in size during query execution.
-/// NOTE/TODO(gitbuda): Accessing Multiframe might be tricky because of multi-threading.
-/// As soon as one operator "gives" data to the other operator (in any direction), if operators
-/// operate on different threads there has to be some way of synchronization.
-///   OPTIONS:
-///     * Make Multiframe thread-safe.
-///     * Ensure returned Multiframe is not accessed until is not reclaimed (additional method).
-/// TODO(gitbuda): Articulate how to actually do/pass aggregations in the Multiframe context.
-///
-class Multiframe {
- public:
-  Multiframe() = delete;
-  Multiframe(const Multiframe &) = default;
-  Multiframe(Multiframe &&) = default;
-  Multiframe &operator=(const Multiframe &) = default;
-  Multiframe &operator=(Multiframe &&) = default;
-  explicit Multiframe(const size_t capacity = 0) : data_(0) { data_.reserve(capacity); }
-  ~Multiframe() = default;
-
-  size_t Size() const { return data_.size(); }
-  void Put(const Frame &frame) { data_.push_back(frame); }
-  const std::vector<Frame> &Data() const { return data_; }
-
- private:
-  std::vector<Frame> data_;
-};
-
-/// Preallocated memory for an operator results.
-/// Responsible only for synchronizing access to a set of Multiframes.
-/// Requires giving back Token after Multiframe is consumed/filled.
-/// Equivalent to a queue of Multiframes with intention to minimize the time
-/// spent in critical sections.
-///
-class MultiframePool {
- public:
-  struct Token {
-    int id;
-    Multiframe *multiframe;
-  };
-  /// Critical because all filled multiframes should be consumed at some point.
-  enum class MultiframeState {
-    EMPTY,
-    IN_USE,
-    FULL,
-  };
-  // TODO(gitbuda): Decide how to know that there is no more data for a given operator.
-  //   1) Probably better outside the pool because then the pool is more generic.
-  //   2) Since Emit and Next are decoupled there has to be some source of truth.
-  enum class PoolState {
-    EMPTY,
-    HAS_MORE,
-    EXHAUSTED,
-  };
-  enum class Mode {
-    // TODO(gitbuda): To implement FCFS ordering policy a queue of token is
-    // required with round robin id assignment.
-    //   * A queue seem very intuitive choice but there are a lot of issues.
-    //   * Trivial queue doesn't work because returning token is not trivial.
-    // FCFS/LIFO is a probably a wrong concept here, instead:
-    //   * Single/Multiple Producer + Single/Multiple Consumer is probably the way to go.
-    //
-    SPSC,  // With 2 Multiframes SPSC already provides simultaneous operator execution.
-    SPMC,
-    MPSC,
-    MPMC,
-    // All the above 4 modes are meaningful in the overall operator stack. If
-    // MultiframePool is used between the operators, each operator can specify
-    // the actual mode because of the operator semantics.
-    //
-  };
-  enum class Order {
-    FCFS,
-    RANDOM,
-  };
-
-  explicit MultiframePool(int pool_size, size_t multiframe_size) {
-    for (int i = 0; i < pool_size; ++i) {
-      frames_.emplace(std::make_pair(i, Multiframe{multiframe_size}));
-    }
-  }
-  MultiframePool() = delete;
-  MultiframePool(const MultiframePool &) = delete;
-  MultiframePool(MultiframePool &&) = delete;
-  MultiframePool &operator=(const MultiframePool &) = delete;
-  MultiframePool &operator=(MultiframePool &&) = delete;
-  ~MultiframePool() = default;
-
-  // TODO(gitbuda): Implement Multiframe state transitions.
-  /// if nullopt -> useful multiframe is not available.
-  std::optional<Token> GetAccess() {
-    std::unique_lock lock{mutex};
-    // TODO(gitbuda): Implement faster and more fair id resolution (FCFS).
-    for (int id = 0; id < frames_.size(); ++id) {
-      if (in_use_.find(id) == in_use_.end()) {
-        in_use_.emplace(id);
-        return Token{.id = id, .multiframe = &frames_.at(id)};
-      }
-    }
-    return std::nullopt;
-  }
-  void ReturnAccess(int id /*, bool more_data = true*/) {
-    std::unique_lock lock{mutex};
-    in_use_.erase(id);
-  }
-
- private:
-  std::unordered_map<int, Multiframe> frames_;
-  std::unordered_set<int> in_use_;
-  std::mutex mutex;
-};
 
 /// Moving/copying Frames between operators is questionable because operators
 /// mostly operate on a single Frame value.

@@ -35,29 +35,47 @@ class PhysicalPlanTest : public ::testing::Test {
 };
 
 TEST_F(PhysicalPlanTest, MultiframePool) {
-  std::atomic<int> got_access;
+  std::atomic<int> readers_got_access_cnt;
+  std::atomic<int> writers_got_access_cnt;
   utils::Timer timer;
+
   for (int i = 0; i < 1000000; ++i) {
+    // Add readers
     thread_pool_.AddTask([&]() {
       while (true) {
-        auto token = multiframe_pool_.GetAccess();
+        auto token = multiframe_pool_.GetFull();
         if (token) {
           ASSERT_TRUE(token->id >= 0 && token->id < 16);
-          got_access.fetch_add(1);
-          multiframe_pool_.ReturnAccess(token->id);
+          readers_got_access_cnt.fetch_add(1);
+          multiframe_pool_.ReturnEmpty(token->id);
+          break;
+        }
+        std::this_thread::sleep_for(std::chrono::microseconds(100));
+      }
+    });
+    // Add writers
+    thread_pool_.AddTask([&]() {
+      while (true) {
+        auto token = multiframe_pool_.GetEmpty();
+        if (token) {
+          ASSERT_TRUE(token->id >= 0 && token->id < 16);
+          writers_got_access_cnt.fetch_add(1);
+          multiframe_pool_.ReturnFull(token->id);
           break;
         }
         std::this_thread::sleep_for(std::chrono::microseconds(100));
       }
     });
   }
+  std::cout << "All readers and writters scheduled" << std::endl;
 
   while (thread_pool_.UnfinishedTasksNum() != 0) {
     std::this_thread::sleep_for(std::chrono::microseconds(100));
   }
-  std::cout << timer.Elapsed<std::chrono::milliseconds>().count() << std::endl;
+  std::cout << "TIME: " << timer.Elapsed<std::chrono::milliseconds>().count() << std::endl;
 
-  ASSERT_EQ(got_access.load(), 1000000);
+  ASSERT_EQ(readers_got_access_cnt.load(), 1000000);
+  ASSERT_EQ(writers_got_access_cnt.load(), 1000000);
 }
 
 }  // namespace memgraph::query::v2::tests
