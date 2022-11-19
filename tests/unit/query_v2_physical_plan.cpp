@@ -17,6 +17,7 @@
 
 #include "query/v2/physical/physical.hpp"
 #include "utils/thread_pool.hpp"
+#include "utils/timer.hpp"
 
 namespace memgraph::query::v2::tests {
 
@@ -35,6 +36,7 @@ class PhysicalPlanTest : public ::testing::Test {
 
 TEST_F(PhysicalPlanTest, MultiframePool) {
   std::atomic<int> got_access;
+  utils::Timer timer;
   for (int i = 0; i < 1000000; ++i) {
     thread_pool_.AddTask([&]() {
       while (true) {
@@ -51,8 +53,10 @@ TEST_F(PhysicalPlanTest, MultiframePool) {
   }
 
   while (thread_pool_.UnfinishedTasksNum() != 0) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    std::this_thread::sleep_for(std::chrono::microseconds(100));
   }
+  std::cout << timer.Elapsed<std::chrono::milliseconds>().count() << std::endl;
+
   ASSERT_EQ(got_access.load(), 1000000);
 }
 

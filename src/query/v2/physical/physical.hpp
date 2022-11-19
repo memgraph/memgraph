@@ -85,11 +85,26 @@ class MultiframePool {
     HAS_MORE,
     EXHAUSTED,
   };
-  enum class Ordering {
+  enum class Mode {
     // TODO(gitbuda): To implement FCFS ordering policy a queue of token is
     // required with round robin id assignment.
+    //   * A queue seem very intuitive choice but there are a lot of issues.
+    //   * Trivial queue doesn't work because returning token is not trivial.
+    // FCFS/LIFO is a probably a wrong concept here, instead:
+    //   * Single/Multiple Producer + Single/Multiple Consumer is probably the way to go.
     //
+    SPSC,  // With 2 Multiframes SPSC already provides simultaneous operator execution.
+    SPMC,
+    MPSC,
+    MPMC,
+    // All the above 4 modes are meaningful in the overall operator stack. If
+    // MultiframePool is used between the operators, each operator can specify
+    // the actual mode because of the operator semantics.
+    //
+  };
+  enum class Order {
     FCFS,
+    RANDOM,
   };
 
   explicit MultiframePool(int pool_size, size_t multiframe_size) {
@@ -102,6 +117,7 @@ class MultiframePool {
   MultiframePool(MultiframePool &&) = delete;
   MultiframePool &operator=(const MultiframePool &) = delete;
   MultiframePool &operator=(MultiframePool &&) = delete;
+  ~MultiframePool() = default;
 
   // TODO(gitbuda): Implement Multiframe state transitions.
   /// if nullopt -> useful multiframe is not available.
@@ -116,7 +132,7 @@ class MultiframePool {
     }
     return std::nullopt;
   }
-  void ReturnAccess(int id, bool more_data = true) {
+  void ReturnAccess(int id /*, bool more_data = true*/) {
     std::unique_lock lock{mutex};
     in_use_.erase(id);
   }
