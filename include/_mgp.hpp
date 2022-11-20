@@ -290,6 +290,8 @@ mgp_list *list_make_empty(size_t capacity, mgp_memory *memory) {
 
 mgp_list *list_copy(mgp_list *list, mgp_memory *memory) { return MgInvoke<mgp_list *>(mgp_list_copy, list, memory); }
 
+mgp_value *list_value_copy(mgp_list *val, mgp_memory *memory) { return mgp::value_make_list(list_copy(val, memory)); }
+
 void list_destroy(mgp_list *list) { mgp_list_destroy(list); }
 
 void list_append(mgp_list *list, mgp_value *val) { MgInvokeVoid(mgp_list_append, list, val); }
@@ -307,6 +309,8 @@ mgp_value *list_at(mgp_list *list, size_t index) { return MgInvoke<mgp_value *>(
 mgp_map *map_make_empty(mgp_memory *memory) { return MgInvoke<mgp_map *>(mgp_map_make_empty, memory); }
 
 mgp_map *map_copy(mgp_map *map, mgp_memory *memory) { return MgInvoke<mgp_map *>(mgp_map_copy, map, memory); }
+
+mgp_value *map_value_copy(mgp_map *val, mgp_memory *memory) { return mgp::value_make_map(map_copy(val, memory)); }
 
 void map_destroy(mgp_map *map) { mgp_map_destroy(map); }
 
@@ -340,6 +344,10 @@ mgp_vertex_id vertex_get_id(mgp_vertex *v) { return MgInvoke<mgp_vertex_id>(mgp_
 
 mgp_vertex *vertex_copy(mgp_vertex *v, mgp_memory *memory) {
   return MgInvoke<mgp_vertex *>(mgp_vertex_copy, v, memory);
+}
+
+mgp_value *vertex_value_copy(mgp_vertex *val, mgp_memory *memory) {
+  return mgp::value_make_vertex(vertex_copy(val, memory));
 }
 
 void vertex_destroy(mgp_vertex *v) { mgp_vertex_destroy(v); }
@@ -380,6 +388,8 @@ mgp_edge_id edge_get_id(mgp_edge *e) { return MgInvoke<mgp_edge_id>(mgp_edge_get
 
 mgp_edge *edge_copy(mgp_edge *e, mgp_memory *memory) { return MgInvoke<mgp_edge *>(mgp_edge_copy, e, memory); }
 
+mgp_value *edge_value_copy(mgp_edge *val, mgp_memory *memory) { return mgp::value_make_edge(edge_copy(val, memory)); }
+
 void edge_destroy(mgp_edge *e) { mgp_edge_destroy(e); }
 
 bool edge_equal(mgp_edge *e1, mgp_edge *e2) { return MgInvoke<int>(mgp_edge_equal, e1, e2); }
@@ -405,6 +415,8 @@ mgp_path *path_make_with_start(mgp_vertex *vertex, mgp_memory *memory) {
 }
 
 mgp_path *path_copy(mgp_path *path, mgp_memory *memory) { return MgInvoke<mgp_path *>(mgp_path_copy, path, memory); }
+
+mgp_value *path_value_copy(mgp_path *val, mgp_memory *memory) { return mgp::value_make_path(path_copy(val, memory)); }
 
 void path_destroy(mgp_path *path) { mgp_path_destroy(path); }
 
@@ -433,6 +445,8 @@ mgp_date *date_from_parameters(mgp_date_parameters *parameters, mgp_memory *memo
 }
 
 mgp_date *date_copy(mgp_date *date, mgp_memory *memory) { return MgInvoke<mgp_date *>(mgp_date_copy, date, memory); }
+
+mgp_value *date_value_copy(mgp_date *val, mgp_memory *memory) { return mgp::value_make_date(date_copy(val, memory)); }
 
 void date_destroy(mgp_date *date) { mgp_date_destroy(date); }
 
@@ -472,6 +486,10 @@ mgp_local_time *local_time_from_parameters(mgp_local_time_parameters *parameters
 
 mgp_local_time *local_time_copy(mgp_local_time *local_time, mgp_memory *memory) {
   return MgInvoke<mgp_local_time *>(mgp_local_time_copy, local_time, memory);
+}
+
+mgp_value *local_time_value_copy(mgp_local_time *val, mgp_memory *memory) {
+  return mgp::value_make_local_time(local_time_copy(val, memory));
 }
 
 void local_time_destroy(mgp_local_time *local_time) { mgp_local_time_destroy(local_time); }
@@ -524,6 +542,10 @@ mgp_local_date_time *local_date_time_from_parameters(mgp_local_date_time_paramet
 
 mgp_local_date_time *local_date_time_copy(mgp_local_date_time *local_date_time, mgp_memory *memory) {
   return MgInvoke<mgp_local_date_time *>(mgp_local_date_time_copy, local_date_time, memory);
+}
+
+mgp_value *local_date_time_value_copy(mgp_local_date_time *val, mgp_memory *memory) {
+  return mgp::value_make_local_date_time(local_date_time_copy(val, memory));
 }
 
 void local_date_time_destroy(mgp_local_date_time *local_date_time) { mgp_local_date_time_destroy(local_date_time); }
@@ -602,6 +624,10 @@ mgp_duration *duration_from_microseconds(int64_t microseconds, mgp_memory *memor
 
 mgp_duration *duration_copy(mgp_duration *duration, mgp_memory *memory) {
   return MgInvoke<mgp_duration *>(mgp_duration_copy, duration, memory);
+}
+
+mgp_value *duration_value_copy(mgp_duration *val, mgp_memory *memory) {
+  return mgp::value_make_duration(duration_copy(val, memory));
 }
 
 void duration_destroy(mgp_duration *duration) { mgp_duration_destroy(duration); }
