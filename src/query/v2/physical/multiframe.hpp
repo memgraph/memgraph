@@ -11,9 +11,13 @@
 
 #pragma once
 
+#include <concepts>
 #include <limits>
 #include <mutex>
+#include <optional>
 #include <vector>
+
+#include "utils/logging.hpp"
 
 namespace memgraph::query::v2::physical {
 
@@ -21,6 +25,8 @@ struct Frame {
   int64_t a;
   int64_t b;
 };
+
+namespace multiframe {
 
 /// Fixed in size during query execution.
 /// NOTE/TODO(gitbuda): Accessing Multiframe might be tricky because of multi-threading.
@@ -59,18 +65,49 @@ class Multiframe {
   std::vector<Frame> data_;
 };
 
+struct Token {
+  int id;
+  Multiframe *multiframe;
+};
+
+template <typename TPool>
+concept MultiframePoolConcept = requires(TPool p, int id) {
+  { p.GetEmpty() } -> std::same_as<std::optional<Token>>;
+  { p.GetFull() } -> std::same_as<std::optional<Token>>;
+  { p.ReturnEmpty(id) } -> std::same_as<void>;
+  { p.ReturnFull(id) } -> std::same_as<void>;
+};
+
+enum class Mode {
+  // TODO(gitbuda): To implement FCFS ordering policy a queue of token is
+  // required with round robin id assignment.
+  //   * A queue seem very intuitive choice but there are a lot of issues.
+  //   * Trivial queue doesn't work because returning token is not trivial.
+  // FCFS/LIFO is a probably a wrong concept here, instead:
+  //   * Single/Multiple Producer + Single/Multiple Consumer is probably the way to go.
+  //
+  SPSC,  // With 2 Multiframes SPSC already provides simultaneous operator execution.
+  SPMC,
+  MPSC,
+  MPMC,
+  // All the above 4 modes are meaningful in the overall operator stack. If
+  // MultiframePool is used between the operators, each operator can specify
+  // the actual mode because of the operator semantics.
+  //
+};
+enum class Order {
+  FCFS,
+  RANDOM,
+};
+
 /// Preallocated memory for an operator results.
 /// Responsible only for synchronizing access to a set of Multiframes.
 /// Requires giving back Token after Multiframe is consumed/filled.
 /// Equivalent to a queue of Multiframes with intention to minimize the time
 /// spent in critical sections.
 ///
-class MultiframePool {
+class MPMCMultiframeFCFSPool {
  public:
-  struct Token {
-    int id;
-    Multiframe *multiframe;
-  };
   /// Critical because all filled multiframes should be consumed at some point.
   enum class MultiframeState {
     EMPTY,
@@ -89,29 +126,8 @@ class MultiframePool {
     HAS_MORE,
     EXHAUSTED,
   };
-  enum class Mode {
-    // TODO(gitbuda): To implement FCFS ordering policy a queue of token is
-    // required with round robin id assignment.
-    //   * A queue seem very intuitive choice but there are a lot of issues.
-    //   * Trivial queue doesn't work because returning token is not trivial.
-    // FCFS/LIFO is a probably a wrong concept here, instead:
-    //   * Single/Multiple Producer + Single/Multiple Consumer is probably the way to go.
-    //
-    SPSC,  // With 2 Multiframes SPSC already provides simultaneous operator execution.
-    SPMC,
-    MPSC,
-    MPMC,
-    // All the above 4 modes are meaningful in the overall operator stack. If
-    // MultiframePool is used between the operators, each operator can specify
-    // the actual mode because of the operator semantics.
-    //
-  };
-  enum class Order {
-    FCFS,
-    RANDOM,
-  };
 
-  explicit MultiframePool(int pool_size, size_t multiframe_size) {
+  explicit MPMCMultiframeFCFSPool(int pool_size, size_t multiframe_size) {
     for (int i = 0; i < pool_size; ++i) {
       frames_.emplace_back(Multiframe{multiframe_size});
     }
@@ -119,18 +135,18 @@ class MultiframePool {
       priority_states_.emplace_back(InternalToken{.priority = 0, .state = MultiframeState::EMPTY});
     }
   }
-  MultiframePool() = delete;
-  MultiframePool(const MultiframePool &) = delete;
-  MultiframePool(MultiframePool &&) = delete;
-  MultiframePool &operator=(const MultiframePool &) = delete;
-  MultiframePool &operator=(MultiframePool &&) = delete;
-  ~MultiframePool() = default;
+  MPMCMultiframeFCFSPool() = delete;
+  MPMCMultiframeFCFSPool(const MPMCMultiframeFCFSPool &) = delete;
+  MPMCMultiframeFCFSPool(MPMCMultiframeFCFSPool &&) = delete;
+  MPMCMultiframeFCFSPool &operator=(const MPMCMultiframeFCFSPool &) = delete;
+  MPMCMultiframeFCFSPool &operator=(MPMCMultiframeFCFSPool &&) = delete;
+  ~MPMCMultiframeFCFSPool() = default;
 
   /// if nullopt -> useful multiframe is not available.
   /// The below implementation should be a correct but probably suboptimal
   /// implementation of MPMC mode with FCFS ordering of multiframes.
   ///
-  std::optional<Token> GetFull() {
+  std::optional<multiframe::Token> GetFull() {
     std::unique_lock lock{mutex};
     int64_t min_full = std::numeric_limits<int64_t>::max();
     MultiframeState state = MultiframeState::EMPTY;
@@ -153,19 +169,19 @@ class MultiframePool {
       // TODO(gitbuda): An issue is that sometime out of order frame gets full first
       MG_ASSERT(min_full > order_check_, "has to grow monotonic");
       order_check_ = min_full;
-      return Token{.id = static_cast<int>(index), .multiframe = &frames_.at(index)};
+      return multiframe::Token{.id = static_cast<int>(index), .multiframe = &frames_.at(index)};
     }
     return std::nullopt;
   }
 
-  std::optional<Token> GetEmpty() {
+  std::optional<multiframe::Token> GetEmpty() {
     std::unique_lock lock{mutex};
     ++priority_counter_;
     for (int index = 0; index < priority_states_.size(); ++index) {
       if (priority_states_[index].state == MultiframeState::EMPTY) {
         priority_states_[index].priority = priority_counter_;
         priority_states_[index].state = MultiframeState::IN_USE;
-        return Token{.id = static_cast<int>(index), .multiframe = &frames_.at(index)};
+        return multiframe::Token{.id = static_cast<int>(index), .multiframe = &frames_.at(index)};
       }
     }
     // in case we haven't found an empty frame the priority counter has to be
@@ -187,12 +203,16 @@ class MultiframePool {
   }
 
  private:
-  std::vector<Multiframe> frames_;
+  std::vector<multiframe::Multiframe> frames_;
   std::vector<InternalToken> priority_states_;
   int64_t priority_counter_{-1};
   int64_t order_check_{-1};
   int64_t last_taken_priority_{-1};
   std::mutex mutex;
 };
+
+static_assert(MultiframePoolConcept<MPMCMultiframeFCFSPool>);
+
+}  // namespace multiframe
 
 }  // namespace memgraph::query::v2::physical

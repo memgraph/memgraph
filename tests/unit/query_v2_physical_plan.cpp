@@ -30,7 +30,7 @@ class PhysicalPlanTest : public ::testing::Test {
     thread_pool_.Shutdown();
   }
 
-  physical::MultiframePool multiframe_pool_{16, 100};
+  physical::multiframe::MPMCMultiframeFCFSPool multiframe_pool_{16, 100};
   utils::ThreadPool thread_pool_{16};
 };
 
@@ -50,7 +50,6 @@ TEST_F(PhysicalPlanTest, MultiframePool) {
           multiframe_pool_.ReturnEmpty(token->id);
           break;
         }
-        std::this_thread::sleep_for(std::chrono::microseconds(100));
       }
     });
     // Add writers
@@ -63,7 +62,6 @@ TEST_F(PhysicalPlanTest, MultiframePool) {
           multiframe_pool_.ReturnFull(token->id);
           break;
         }
-        std::this_thread::sleep_for(std::chrono::microseconds(100));
       }
     });
   }

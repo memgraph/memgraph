@@ -73,8 +73,8 @@ class PhysicalOperator {
   /// Init/start execution.
   virtual void Execute(ExecutionContext ctx) = 0;
   /// Get data from children operators.
-  virtual const Multiframe *NextRead() = 0;
-  virtual const Multiframe *NextWrite() = 0;
+  virtual const multiframe::Multiframe *NextRead() = 0;
+  virtual const multiframe::Multiframe *NextWrite() = 0;
   virtual void Reclaim() = 0;
   /// Prepare data for the next call.
   template <typename TTuple>
@@ -99,7 +99,7 @@ class PhysicalOperator {
   std::string name_;
   std::vector<std::shared_ptr<PhysicalOperator>> children_;
   /// TODO(gitbuda): Pass the Multiframe capacity via the PhysicalOperator constructor.
-  Multiframe data_{72};
+  multiframe::Multiframe data_{72};
 
   void BaseExecute(ExecutionContext ctx) {
     for (const auto &child : children_) {
@@ -107,7 +107,7 @@ class PhysicalOperator {
     }
   }
 
-  const Multiframe *BaseNext() const {
+  const multiframe::Multiframe *BaseNext() const {
     // TODO(gitbuda): Implement correct Next logic.
     return &data_;
   }
@@ -124,19 +124,19 @@ class OncePhysicalOperator final : public PhysicalOperator {
     std::cout << name_ << std::endl;
     PhysicalOperator::BaseExecute(ctx);
   }
-  const Multiframe *NextRead() override {
+  const multiframe::Multiframe *NextRead() override {
     if (!executed_) {
       executed_ = true;
       return &multiframe_;
     }
     return nullptr;
   }
-  const Multiframe *NextWrite() override { return nullptr; }
+  const multiframe::Multiframe *NextWrite() override { return nullptr; }
   void Reclaim() override {}
 
  private:
   bool executed_{false};
-  Multiframe multiframe_;
+  multiframe::Multiframe multiframe_;
   // Once has to return 1 empty frame on Next.
   // TODO(gitbuda): An issue because data also exists in the base class.
   // Multiframe data_{{0, 0}};
@@ -178,14 +178,14 @@ class ScanAllPhysicalOperator final : public PhysicalOperator {
     }
   }
 
-  const Multiframe *NextRead() override {
+  const multiframe::Multiframe *NextRead() override {
     if (!next_called_) {
       next_called_ = true;
       return &data_;
     }
     return nullptr;
   }
-  const Multiframe *NextWrite() override { return nullptr; }
+  const multiframe::Multiframe *NextWrite() override { return nullptr; }
   void Reclaim() override {}
 
  private:
@@ -217,8 +217,8 @@ class ProducePhysicalOperator final : public PhysicalOperator {
       }
     }
   }
-  const Multiframe *NextRead() override { return BaseNext(); }
-  const Multiframe *NextWrite() override { return nullptr; }
+  const multiframe::Multiframe *NextRead() override { return BaseNext(); }
+  const multiframe::Multiframe *NextWrite() override { return nullptr; }
   void Reclaim() override {}
 };
 
