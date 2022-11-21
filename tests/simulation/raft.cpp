@@ -253,8 +253,8 @@ void RunWithSeed(uint64_t seed) {
       .abort_time = Time::max(),
   };
 
-  spdlog::info("========================== NEW SIMULATION, replay with RunWithSeed({}) ==========================",
-               seed);
+  spdlog::error("========================== NEW SIMULATION, replay with RunWithSeed({}) ==========================",
+                seed);
   spdlog::info("\tTime\t\tTerm\tPort\tRole\t\tMessage\n");
   auto [sim_stats_1, latency_stats_1] = RunSimulation(config);
 
