@@ -257,13 +257,13 @@ boost::uuids::uuid NewShardUuid(uint64_t shard_id) {
                             0,
                             0,
                             0,
-                            static_cast<unsigned char>(shard_id >> 56u),
-                            static_cast<unsigned char>(shard_id >> 48u),
-                            static_cast<unsigned char>(shard_id >> 40u),
-                            static_cast<unsigned char>(shard_id >> 32u),
-                            static_cast<unsigned char>(shard_id >> 24u),
-                            static_cast<unsigned char>(shard_id >> 16u),
-                            static_cast<unsigned char>(shard_id >> 8u),
+                            static_cast<unsigned char>(shard_id >> 56U),
+                            static_cast<unsigned char>(shard_id >> 48U),
+                            static_cast<unsigned char>(shard_id >> 40U),
+                            static_cast<unsigned char>(shard_id >> 32U),
+                            static_cast<unsigned char>(shard_id >> 24U),
+                            static_cast<unsigned char>(shard_id >> 16U),
+                            static_cast<unsigned char>(shard_id >> 8U),
                             static_cast<unsigned char>(shard_id)};
 }
 
