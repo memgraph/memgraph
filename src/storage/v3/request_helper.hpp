@@ -121,7 +121,14 @@ template <typename T>
 concept VerticesIt = utils::SameAsAnyOf<T, VerticesIterable, std::vector<VertexAccessor>>;
 template <VerticesIt TIterable>
 std::vector<Element<VertexAccessor>> OrderByVertices(Shard::Accessor &acc, DbAccessor &dba, TIterable &iterable,
-                                                     std::vector<msgs::OrderBy> &order_bys) {
+                                                     std::vector<msgs::OrderBy> &original_order_bys) {
+  auto order_bys = original_order_bys;
+  auto it_to_remove = std::remove_if(order_bys.begin(), order_bys.end(), [](const auto &order_by) {
+    // We only want to keep OrderBys not impliying edges-ordering
+    return std::string::npos != order_by.expression.expression.find(expr::identifier_edge_symbol);
+  });
+  order_bys.erase(it_to_remove, order_bys.end());
+
   std::vector<Ordering> ordering;
   ordering.reserve(order_bys.size());
   std::transform(order_bys.begin(), order_bys.end(), std::back_inserter(ordering), [](const auto &order_by) {
