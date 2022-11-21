@@ -304,6 +304,18 @@ class PhysicalPlanGenerator final : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(Produce & /*unused*/) override { return DefaultPost(); }
 
   bool PreVisit(ScanAll & /*unused*/) override {
+    // NOTE: In the ScanAll case srm.Request(state, scanned_vertices) has to be
+    // called until the state becomes COMPLETED. Return data type after all
+    // Request calls is Iterator<Batch> (many std::vector<VertexId>).
+    //
+    // Evaluating the input frames + send requests + putting data into the output frames
+    // is the actual work for the ScanAllPhysicalOperator.
+    //
+    // output_frame[output_symbol_] = TypedValue(std::move(*current_vertex_it));
+    //   * TODO(gitbuda): Add output_symbol to the PhysicalOperators
+    //
+    // TODO(gitbuda): What would be a nice interface for ScanAll::Fetch function?
+    //
     auto data_fun = [](Frame frame) {
       std::vector<Frame> frames;
       frames.push_back(frame);
