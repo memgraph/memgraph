@@ -243,6 +243,13 @@ class MPMCMultiframeFCFSPool {
   }
 
  private:
+  // NOTE: A few potential issue with this design
+  //   * Copying/Moving/Destroying underlying values might be expensive
+  //     * How to move the entire Multiframe/TResult between pools?
+  //       Instead of move+destroy, pass the Multiframe further and create a new one here
+  //         * Good as long as the total number of Multiframes is the same -> ONLY SWAP IS OK
+  //           Go here only when move+destroy is a noticeable problem
+  //
   std::vector<multiframe::Multiframe> frames_;
   std::vector<InternalToken> priority_states_;
   int64_t priority_counter_{-1};
