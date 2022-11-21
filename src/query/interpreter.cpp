@@ -1093,7 +1093,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   // we try to pull the next result to see if there is more.
   // If there is additional result, we leave the pulled result in the frame
   // and set the flag to true.
-  has_unsent_results_ = i == n && pull_result();
+  has_unsent_results_ = i == n && pull_result() && !output_symbols.empty();
 
   execution_time_ += timer.Elapsed();
 
