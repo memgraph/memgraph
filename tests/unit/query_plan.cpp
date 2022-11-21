@@ -437,6 +437,53 @@ TYPED_TEST(TestPlanner, CreateWithSum) {
   CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(), acc, aggr, ExpectProduce());
 }
 
+TYPED_TEST(TestPlanner, MatchWithSumWithDistinctWhereReturn) {
+  // Test MATCH (n) WITH SUM(n.prop) + 42 AS sum WHERE sum < 42
+  //      RETURN sum AS result
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+  AstStorage storage;
+  auto sum = SUM(PROPERTY_LOOKUP("n", prop), true);
+  auto literal = LITERAL(42);
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH(ADD(sum, literal), AS("sum")),
+                                   WHERE(LESS(IDENT("sum"), LITERAL(42))), RETURN("sum", AS("result"))));
+  auto aggr = ExpectAggregate({sum}, {literal});
+  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), aggr, ExpectProduce(), ExpectFilter(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, MatchReturnSumWithDistinct) {
+  // Test MATCH (n) RETURN SUM(n.prop1) AS sum, n.prop2 AS group
+  FakeDbAccessor dba;
+  auto prop1 = dba.Property("prop1");
+  auto prop2 = dba.Property("prop2");
+  AstStorage storage;
+  auto sum = SUM(PROPERTY_LOOKUP("n", prop1), true);
+  auto n_prop2 = PROPERTY_LOOKUP("n", prop2);
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(sum, AS("sum"), n_prop2, AS("group"))));
+  auto aggr = ExpectAggregate({sum}, {n_prop2});
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), aggr, ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, CreateWithSumWithDistinct) {
+  // Test CREATE (n) WITH SUM(n.prop) AS sum
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+  AstStorage storage;
+  auto ident_n = IDENT("n");
+  auto n_prop = PROPERTY_LOOKUP(ident_n, prop);
+  auto sum = SUM(n_prop, true);
+  auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"))), WITH(sum, AS("sum"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
+  auto aggr = ExpectAggregate({sum}, {});
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+  // We expect both the accumulation and aggregation because the part before
+  // WITH updates the database.
+  CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(), acc, aggr, ExpectProduce());
+}
+
 TYPED_TEST(TestPlanner, MatchWithCreate) {
   // Test MATCH (n) WITH n AS a CREATE (a) -[r :r]-> (b)
   FakeDbAccessor dba;
@@ -494,6 +541,23 @@ TYPED_TEST(TestPlanner, CreateReturnSumSkipLimit) {
   CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(), acc, aggr, ExpectProduce(), ExpectSkip(), ExpectLimit());
 }
 
+TYPED_TEST(TestPlanner, CreateReturnSumWithDistinctSkipLimit) {
+  // Test CREATE (n) RETURN SUM(n.prop) AS s SKIP 2 LIMIT 1
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+  AstStorage storage;
+  auto ident_n = IDENT("n");
+  auto n_prop = PROPERTY_LOOKUP(ident_n, prop);
+  auto sum = SUM(n_prop, true);
+  auto query =
+      QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"))), RETURN(sum, AS("s"), SKIP(LITERAL(2)), LIMIT(LITERAL(1)))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
+  auto aggr = ExpectAggregate({sum}, {});
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(), acc, aggr, ExpectProduce(), ExpectSkip(), ExpectLimit());
+}
+
 TYPED_TEST(TestPlanner, MatchReturnOrderBy) {
   // Test MATCH (n) RETURN n AS m ORDER BY n.prop
   FakeDbAccessor dba;
@@ -541,6 +605,16 @@ TYPED_TEST(TestPlanner, ReturnAddSumCountOrderBy) {
   AstStorage storage;
   auto sum = SUM(LITERAL(1), false);
   auto count = COUNT(LITERAL(2), false);
+  auto *query = QUERY(SINGLE_QUERY(RETURN(ADD(sum, count), AS("result"), ORDER_BY(IDENT("result")))));
+  auto aggr = ExpectAggregate({sum, count}, {});
+  CheckPlan<TypeParam>(query, storage, aggr, ExpectProduce(), ExpectOrderBy());
+}
+
+TYPED_TEST(TestPlanner, ReturnAddSumCountWithDistinctOrderBy) {
+  // Test RETURN SUM(1) + COUNT(2) AS result ORDER BY result
+  AstStorage storage;
+  auto sum = SUM(LITERAL(1), true);
+  auto count = COUNT(LITERAL(2), true);
   auto *query = QUERY(SINGLE_QUERY(RETURN(ADD(sum, count), AS("result"), ORDER_BY(IDENT("result")))));
   auto aggr = ExpectAggregate({sum, count}, {});
   CheckPlan<TypeParam>(query, storage, aggr, ExpectProduce(), ExpectOrderBy());

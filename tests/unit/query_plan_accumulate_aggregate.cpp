@@ -109,7 +109,7 @@ std::shared_ptr<Produce> MakeAggregationProduce(std::shared_ptr<LogicalOperator>
                                                 AstStorage &storage, const std::vector<Expression *> aggr_inputs,
                                                 const std::vector<Aggregation::Op> aggr_ops,
                                                 const std::vector<Expression *> group_by_exprs,
-                                                const std::vector<Symbol> remember) {
+                                                const std::vector<Symbol> remember, const bool distinct) {
   // prepare all the aggregations
   std::vector<Aggregate::Element> aggregates;
   std::vector<NamedExpression *> named_expressions;
@@ -124,7 +124,7 @@ std::shared_ptr<Produce> MakeAggregationProduce(std::shared_ptr<LogicalOperator>
     named_expressions.push_back(named_expr);
     // the key expression is only used in COLLECT_MAP
     Expression *key_expr_ptr = aggr_op == Aggregation::Op::COLLECT_MAP ? LITERAL("key") : nullptr;
-    aggregates.emplace_back(Aggregate::Element{*aggr_inputs_it++, key_expr_ptr, aggr_op, aggr_sym});
+    aggregates.emplace_back(Aggregate::Element{*aggr_inputs_it++, key_expr_ptr, aggr_op, aggr_sym, distinct});
   }
 
   // Produce will also evaluate group_by expressions and return them after the
@@ -148,23 +148,29 @@ class QueryPlanAggregateOps : public ::testing::Test {
   AstStorage storage;
   SymbolTable symbol_table;
 
-  void AddData() {
+  void AddData(bool distinct) {
     // setup is several nodes most of which have an int property set
     // we will take the sum, avg, min, max and count
     // we won't group by anything
     ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(5)).HasValue());
     ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(7)).HasValue());
     ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(12)).HasValue());
+    if (distinct) {
+      ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(5)).HasValue());
+      ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(5)).HasValue());
+      ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(12)).HasValue());
+    }
     // a missing property (null) gets ignored by all aggregations except
     // COUNT(*)
     dba.InsertVertex();
     dba.AdvanceCommand();
   }
 
-  auto AggregationResults(bool with_group_by, std::vector<Aggregation::Op> ops = {
-                                                  Aggregation::Op::COUNT, Aggregation::Op::COUNT, Aggregation::Op::MIN,
-                                                  Aggregation::Op::MAX, Aggregation::Op::SUM, Aggregation::Op::AVG,
-                                                  Aggregation::Op::COLLECT_LIST, Aggregation::Op::COLLECT_MAP}) {
+  auto AggregationResults(bool with_group_by, bool distinct,
+                          std::vector<Aggregation::Op> ops = {
+                              Aggregation::Op::COUNT, Aggregation::Op::COUNT, Aggregation::Op::MIN,
+                              Aggregation::Op::MAX, Aggregation::Op::SUM, Aggregation::Op::AVG,
+                              Aggregation::Op::COLLECT_LIST, Aggregation::Op::COLLECT_MAP}) {
     // match all nodes and perform aggregations
     auto n = MakeScanAll(storage, symbol_table, "n");
     auto n_p = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop);
@@ -173,15 +179,16 @@ class QueryPlanAggregateOps : public ::testing::Test {
     std::vector<Expression *> group_bys;
     if (with_group_by) group_bys.push_back(n_p);
     aggregation_expressions[0] = nullptr;
-    auto produce = MakeAggregationProduce(n.op_, symbol_table, storage, aggregation_expressions, ops, group_bys, {});
+    auto produce =
+        MakeAggregationProduce(n.op_, symbol_table, storage, aggregation_expressions, ops, group_bys, {}, distinct);
     auto context = MakeContext(storage, symbol_table, &dba);
     return CollectProduce(*produce, &context);
   }
 };
 
 TEST_F(QueryPlanAggregateOps, WithData) {
-  AddData();
-  auto results = AggregationResults(false);
+  AddData(false);
+  auto results = AggregationResults(false, false);
 
   ASSERT_EQ(results.size(), 1);
   ASSERT_EQ(results[0].size(), 8);
@@ -216,46 +223,46 @@ TEST_F(QueryPlanAggregateOps, WithData) {
 
 TEST_F(QueryPlanAggregateOps, WithoutDataWithGroupBy) {
   {
-    auto results = AggregationResults(true, {Aggregation::Op::COUNT});
+    auto results = AggregationResults(true, false, {Aggregation::Op::COUNT});
     EXPECT_EQ(results.size(), 1);
     EXPECT_EQ(results[0][0].type(), TypedValue::Type::Int);
     EXPECT_EQ(results[0][0].ValueInt(), 0);
   }
   {
-    auto results = AggregationResults(true, {Aggregation::Op::SUM});
+    auto results = AggregationResults(true, false, {Aggregation::Op::SUM});
     EXPECT_EQ(results.size(), 1);
     EXPECT_EQ(results[0][0].type(), TypedValue::Type::Int);
     EXPECT_EQ(results[0][0].ValueInt(), 0);
   }
   {
-    auto results = AggregationResults(true, {Aggregation::Op::AVG});
+    auto results = AggregationResults(true, false, {Aggregation::Op::AVG});
     EXPECT_EQ(results.size(), 1);
     EXPECT_EQ(results[0][0].type(), TypedValue::Type::Null);
   }
   {
-    auto results = AggregationResults(true, {Aggregation::Op::MIN});
+    auto results = AggregationResults(true, false, {Aggregation::Op::MIN});
     EXPECT_EQ(results.size(), 1);
     EXPECT_EQ(results[0][0].type(), TypedValue::Type::Null);
   }
   {
-    auto results = AggregationResults(true, {Aggregation::Op::MAX});
+    auto results = AggregationResults(true, false, {Aggregation::Op::MAX});
     EXPECT_EQ(results.size(), 1);
     EXPECT_EQ(results[0][0].type(), TypedValue::Type::Null);
   }
   {
-    auto results = AggregationResults(true, {Aggregation::Op::COLLECT_LIST});
+    auto results = AggregationResults(true, false, {Aggregation::Op::COLLECT_LIST});
     EXPECT_EQ(results.size(), 1);
     EXPECT_EQ(results[0][0].type(), TypedValue::Type::List);
   }
   {
-    auto results = AggregationResults(true, {Aggregation::Op::COLLECT_MAP});
+    auto results = AggregationResults(true, false, {Aggregation::Op::COLLECT_MAP});
     EXPECT_EQ(results.size(), 1);
     EXPECT_EQ(results[0][0].type(), TypedValue::Type::Map);
   }
 }
 
 TEST_F(QueryPlanAggregateOps, WithoutDataWithoutGroupBy) {
-  auto results = AggregationResults(false);
+  auto results = AggregationResults(false, false);
   ASSERT_EQ(results.size(), 1);
   ASSERT_EQ(results[0].size(), 8);
   // count(*)
@@ -325,7 +332,8 @@ TEST(QueryPlan, AggregateGroupByValues) {
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto n_p = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop);
 
-  auto produce = MakeAggregationProduce(n.op_, symbol_table, storage, {n_p}, {Aggregation::Op::COUNT}, {n_p}, {n.sym_});
+  auto produce =
+      MakeAggregationProduce(n.op_, symbol_table, storage, {n_p}, {Aggregation::Op::COUNT}, {n_p}, {n.sym_}, false);
 
   auto context = MakeContext(storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
@@ -372,7 +380,7 @@ TEST(QueryPlan, AggregateMultipleGroupBy) {
   auto n_p3 = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop3);
 
   auto produce = MakeAggregationProduce(n.op_, symbol_table, storage, {n_p1}, {Aggregation::Op::COUNT},
-                                        {n_p1, n_p2, n_p3}, {n.sym_});
+                                        {n_p1, n_p2, n_p3}, {n.sym_}, false);
 
   auto context = MakeContext(storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
@@ -387,7 +395,7 @@ TEST(QueryPlan, AggregateNoInput) {
   SymbolTable symbol_table;
 
   auto two = LITERAL(2);
-  auto produce = MakeAggregationProduce(nullptr, symbol_table, storage, {two}, {Aggregation::Op::COUNT}, {}, {});
+  auto produce = MakeAggregationProduce(nullptr, symbol_table, storage, {two}, {Aggregation::Op::COUNT}, {}, {}, false);
   auto context = MakeContext(storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(1, results.size());
@@ -419,7 +427,7 @@ TEST(QueryPlan, AggregateCountEdgeCases) {
   // returns -1 when there are no results
   // otherwise returns MATCH (n) RETURN count(n.prop)
   auto count = [&]() {
-    auto produce = MakeAggregationProduce(n.op_, symbol_table, storage, {n_p}, {Aggregation::Op::COUNT}, {}, {});
+    auto produce = MakeAggregationProduce(n.op_, symbol_table, storage, {n_p}, {Aggregation::Op::COUNT}, {}, {}, false);
     auto context = MakeContext(storage, symbol_table, &dba);
     auto results = CollectProduce(*produce, &context);
     if (results.size() == 0) return -1L;
@@ -479,7 +487,7 @@ TEST(QueryPlan, AggregateFirstValueTypes) {
   auto n_id = n_prop_string->expression_;
 
   auto aggregate = [&](Expression *expression, Aggregation::Op aggr_op) {
-    auto produce = MakeAggregationProduce(n.op_, symbol_table, storage, {expression}, {aggr_op}, {}, {});
+    auto produce = MakeAggregationProduce(n.op_, symbol_table, storage, {expression}, {aggr_op}, {}, {}, false);
     auto context = MakeContext(storage, symbol_table, &dba);
     CollectProduce(*produce, &context);
   };
@@ -533,7 +541,7 @@ TEST(QueryPlan, AggregateTypes) {
   auto n_p2 = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), p2);
 
   auto aggregate = [&](Expression *expression, Aggregation::Op aggr_op) {
-    auto produce = MakeAggregationProduce(n.op_, symbol_table, storage, {expression}, {aggr_op}, {}, {});
+    auto produce = MakeAggregationProduce(n.op_, symbol_table, storage, {expression}, {aggr_op}, {}, {}, false);
     auto context = MakeContext(storage, symbol_table, &dba);
     CollectProduce(*produce, &context);
   };
@@ -608,4 +616,397 @@ TEST(QueryPlan, Unwind) {
     expected_x_card_it++;
     expected_y_it++;
   }
+}
+
+TEST_F(QueryPlanAggregateOps, WithDataDistinct) {
+  AddData(true);
+  auto results = AggregationResults(false, true);
+
+  ASSERT_EQ(results.size(), 1);
+  ASSERT_EQ(results[0].size(), 8);
+  // count(*)
+  ASSERT_EQ(results[0][0].type(), TypedValue::Type::Int);
+  EXPECT_EQ(results[0][0].ValueInt(), 7);
+  // count
+  ASSERT_EQ(results[0][1].type(), TypedValue::Type::Int);
+  EXPECT_EQ(results[0][1].ValueInt(), 3);
+  // min
+  ASSERT_EQ(results[0][2].type(), TypedValue::Type::Int);
+  EXPECT_EQ(results[0][2].ValueInt(), 5);
+  // max
+  ASSERT_EQ(results[0][3].type(), TypedValue::Type::Int);
+  EXPECT_EQ(results[0][3].ValueInt(), 12);
+  // sum
+  ASSERT_EQ(results[0][4].type(), TypedValue::Type::Int);
+  EXPECT_EQ(results[0][4].ValueInt(), 24);
+  // avg
+  ASSERT_EQ(results[0][5].type(), TypedValue::Type::Double);
+  EXPECT_FLOAT_EQ(results[0][5].ValueDouble(), 24 / 3.0);
+  // collect list
+  ASSERT_EQ(results[0][6].type(), TypedValue::Type::List);
+  EXPECT_THAT(ToIntList(results[0][6]), UnorderedElementsAre(5, 7, 12));
+  // collect map
+  ASSERT_EQ(results[0][7].type(), TypedValue::Type::Map);
+  auto map = ToIntMap(results[0][7]);
+  ASSERT_EQ(map.size(), 1);
+  EXPECT_EQ(map.begin()->first, "key");
+  EXPECT_FALSE(std::set<int>({5, 7, 12}).insert(map.begin()->second).second);
+}
+
+TEST_F(QueryPlanAggregateOps, WithoutDataWithDistinctAndWithGroupBy) {
+  {
+    auto results = AggregationResults(true, true, {Aggregation::Op::COUNT});
+    EXPECT_EQ(results.size(), 1);
+    EXPECT_EQ(results[0][0].type(), TypedValue::Type::Int);
+    EXPECT_EQ(results[0][0].ValueInt(), 0);
+  }
+  {
+    auto results = AggregationResults(true, true, {Aggregation::Op::SUM});
+    EXPECT_EQ(results.size(), 1);
+    EXPECT_EQ(results[0][0].type(), TypedValue::Type::Int);
+    EXPECT_EQ(results[0][0].ValueInt(), 0);
+  }
+  {
+    auto results = AggregationResults(true, true, {Aggregation::Op::AVG});
+    EXPECT_EQ(results.size(), 1);
+    EXPECT_EQ(results[0][0].type(), TypedValue::Type::Null);
+  }
+  {
+    auto results = AggregationResults(true, true, {Aggregation::Op::MIN});
+    EXPECT_EQ(results.size(), 1);
+    EXPECT_EQ(results[0][0].type(), TypedValue::Type::Null);
+  }
+  {
+    auto results = AggregationResults(true, true, {Aggregation::Op::MAX});
+    EXPECT_EQ(results.size(), 1);
+    EXPECT_EQ(results[0][0].type(), TypedValue::Type::Null);
+  }
+  {
+    auto results = AggregationResults(true, true, {Aggregation::Op::COLLECT_LIST});
+    EXPECT_EQ(results.size(), 1);
+    EXPECT_EQ(results[0][0].type(), TypedValue::Type::List);
+  }
+  {
+    auto results = AggregationResults(true, true, {Aggregation::Op::COLLECT_MAP});
+    EXPECT_EQ(results.size(), 1);
+    EXPECT_EQ(results[0][0].type(), TypedValue::Type::Map);
+  }
+}
+
+TEST_F(QueryPlanAggregateOps, WithoutDataWithDistinctAndWithoutGroupBy) {
+  auto results = AggregationResults(false, true);
+  ASSERT_EQ(results.size(), 1);
+  ASSERT_EQ(results[0].size(), 8);
+  // count(*)
+  ASSERT_EQ(results[0][0].type(), TypedValue::Type::Int);
+  EXPECT_EQ(results[0][0].ValueInt(), 0);
+  // count
+  ASSERT_EQ(results[0][1].type(), TypedValue::Type::Int);
+  EXPECT_EQ(results[0][1].ValueInt(), 0);
+  // min
+  EXPECT_TRUE(results[0][2].IsNull());
+  // max
+  EXPECT_TRUE(results[0][3].IsNull());
+  // sum
+  EXPECT_EQ(results[0][4].ValueInt(), 0);
+  // avg
+  EXPECT_TRUE(results[0][5].IsNull());
+  // collect list
+  ASSERT_EQ(results[0][6].type(), TypedValue::Type::List);
+  EXPECT_EQ(ToIntList(results[0][6]).size(), 0);
+  // collect map
+  ASSERT_EQ(results[0][7].type(), TypedValue::Type::Map);
+  EXPECT_EQ(ToIntMap(results[0][7]).size(), 0);
+}
+
+TEST(QueryPlan, AggregateGroupByValuesWithDistinct) {
+  // Tests that distinct groups are aggregated properly for values of all types.
+  // Also test the "remember" part of the Aggregation API as final results are
+  // obtained via a property lookup of a remembered node.
+  memgraph::storage::Storage db;
+  auto storage_dba = db.Access();
+  memgraph::query::DbAccessor dba(&storage_dba);
+
+  // a vector of memgraph::storage::PropertyValue to be set as property values on vertices
+  // most of them should result in a distinct group (commented where not)
+  std::vector<memgraph::storage::PropertyValue> group_by_vals;
+  group_by_vals.emplace_back(4);
+  group_by_vals.emplace_back(7);
+  group_by_vals.emplace_back(7.3);
+  group_by_vals.emplace_back(7.2);
+  group_by_vals.emplace_back("Johhny");
+  group_by_vals.emplace_back("Jane");
+  group_by_vals.emplace_back("1");
+  group_by_vals.emplace_back(true);
+  group_by_vals.emplace_back(false);
+  group_by_vals.emplace_back(std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(1)});
+  group_by_vals.emplace_back(std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(1),
+                                                                           memgraph::storage::PropertyValue(2)});
+  group_by_vals.emplace_back(std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(2),
+                                                                           memgraph::storage::PropertyValue(1)});
+  group_by_vals.emplace_back(memgraph::storage::PropertyValue());
+  // should NOT result in another group because 7.0 == 7
+  group_by_vals.emplace_back(7.0);
+  // should NOT result in another group
+  group_by_vals.emplace_back(std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(1),
+                                                                           memgraph::storage::PropertyValue(2.0)});
+
+  // generate a lot of vertices and set props on them
+  auto prop = dba.NameToProperty("prop");
+  for (int i = 0; i < 1000; ++i)
+    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, group_by_vals[i % group_by_vals.size()]).HasValue());
+  dba.AdvanceCommand();
+
+  AstStorage storage;
+  SymbolTable symbol_table;
+
+  // match all nodes and perform aggregations
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto n_p = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop);
+
+  auto produce =
+      MakeAggregationProduce(n.op_, symbol_table, storage, {n_p}, {Aggregation::Op::COUNT}, {n_p}, {n.sym_}, true);
+
+  auto context = MakeContext(storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
+  ASSERT_EQ(results.size(), group_by_vals.size() - 2);
+  std::unordered_set<TypedValue, TypedValue::Hash, TypedValue::BoolEqual> result_group_bys;
+  for (const auto &row : results) {
+    ASSERT_EQ(2, row.size());
+    if (!row[1].IsNull()) {
+      ASSERT_EQ(1, row[0].ValueInt());
+    }
+    result_group_bys.insert(row[1]);
+  }
+  ASSERT_EQ(result_group_bys.size(), group_by_vals.size() - 2);
+  std::vector<TypedValue> group_by_tvals;
+  group_by_tvals.reserve(group_by_vals.size());
+  for (const auto &v : group_by_vals) group_by_tvals.emplace_back(v);
+  EXPECT_TRUE(std::is_permutation(group_by_tvals.begin(), group_by_tvals.end() - 2, result_group_bys.begin(),
+                                  TypedValue::BoolEqual{}));
+}
+
+TEST(QueryPlan, AggregateMultipleGroupByWithDistinct) {
+  // in this test we have 3 different properties that have different values
+  // for different records and assert that we get the correct combination
+  // of values in our groups
+  memgraph::storage::Storage db;
+  auto storage_dba = db.Access();
+  memgraph::query::DbAccessor dba(&storage_dba);
+
+  auto prop1 = dba.NameToProperty("prop1");
+  auto prop2 = dba.NameToProperty("prop2");
+  auto prop3 = dba.NameToProperty("prop3");
+  for (int i = 0; i < 2 * 3 * 5; ++i) {
+    auto v = dba.InsertVertex();
+    ASSERT_TRUE(v.SetProperty(prop1, memgraph::storage::PropertyValue(static_cast<bool>(i % 2))).HasValue());
+    ASSERT_TRUE(v.SetProperty(prop2, memgraph::storage::PropertyValue(i % 3)).HasValue());
+    ASSERT_TRUE(v.SetProperty(prop3, memgraph::storage::PropertyValue("value" + std::to_string(i % 5))).HasValue());
+  }
+  dba.AdvanceCommand();
+
+  AstStorage storage;
+  SymbolTable symbol_table;
+
+  // match all nodes and perform aggregations
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto n_p1 = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop1);
+  auto n_p2 = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop2);
+
+  auto produce = MakeAggregationProduce(n.op_, symbol_table, storage, {n_p1}, {Aggregation::Op::COUNT}, {n_p1, n_p2},
+                                        {n.sym_}, true);
+
+  auto context = MakeContext(storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
+  for (const auto &row : results) {
+    ASSERT_EQ(1, row[0].ValueInt());
+  }
+}
+
+TEST(QueryPlan, AggregateNoInputWithDistinct) {
+  memgraph::storage::Storage db;
+  auto storage_dba = db.Access();
+  memgraph::query::DbAccessor dba(&storage_dba);
+  AstStorage storage;
+  SymbolTable symbol_table;
+
+  auto two = LITERAL(2);
+  auto produce = MakeAggregationProduce(nullptr, symbol_table, storage, {two}, {Aggregation::Op::COUNT}, {}, {}, true);
+  auto context = MakeContext(storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
+  EXPECT_EQ(1, results.size());
+  EXPECT_EQ(1, results[0].size());
+  EXPECT_EQ(TypedValue::Type::Int, results[0][0].type());
+  EXPECT_EQ(1, results[0][0].ValueInt());
+}
+
+TEST(QueryPlan, AggregateCountEdgeCasesWithDistinct) {
+  // tests for detected bugs in the COUNT aggregation behavior
+  // ensure that COUNT returns correctly for
+  //  - 0 vertices in database
+  //  - 1 vertex in database, property not set
+  //  - 1 vertex in database, property set
+  //  - 2 vertices in database, property set on one
+  //  - 2 vertices in database, property set on both
+
+  memgraph::storage::Storage db;
+  auto storage_dba = db.Access();
+  memgraph::query::DbAccessor dba(&storage_dba);
+  auto prop = dba.NameToProperty("prop");
+
+  AstStorage storage;
+  SymbolTable symbol_table;
+
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto n_p = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop);
+
+  // returns -1 when there are no results
+  // otherwise returns MATCH (n) RETURN count(n.prop)
+  auto count = [&]() {
+    auto produce = MakeAggregationProduce(n.op_, symbol_table, storage, {n_p}, {Aggregation::Op::COUNT}, {}, {}, true);
+    auto context = MakeContext(storage, symbol_table, &dba);
+    auto results = CollectProduce(*produce, &context);
+    if (results.size() == 0) return -1L;
+    EXPECT_EQ(1, results.size());
+    EXPECT_EQ(1, results[0].size());
+    EXPECT_EQ(TypedValue::Type::Int, results[0][0].type());
+    return results[0][0].ValueInt();
+  };
+
+  // no vertices yet in database
+  EXPECT_EQ(0, count());
+
+  // one vertex, no property set
+  dba.InsertVertex();
+  dba.AdvanceCommand();
+  EXPECT_EQ(0, count());
+
+  // one vertex, property set
+  for (auto va : dba.Vertices(memgraph::storage::View::OLD))
+    ASSERT_TRUE(va.SetProperty(prop, memgraph::storage::PropertyValue(42)).HasValue());
+  dba.AdvanceCommand();
+  EXPECT_EQ(1, count());
+
+  // two vertices, one with property set
+  dba.InsertVertex();
+  dba.AdvanceCommand();
+  EXPECT_EQ(1, count());
+
+  // two vertices, both with property set
+  for (auto va : dba.Vertices(memgraph::storage::View::OLD))
+    ASSERT_TRUE(va.SetProperty(prop, memgraph::storage::PropertyValue(42)).HasValue());
+  dba.AdvanceCommand();
+  EXPECT_EQ(1, count());
+}
+
+TEST(QueryPlan, AggregateFirstValueTypesWithDistinct) {
+  // testing exceptions that get emitted by the first-value
+  // type check
+
+  memgraph::storage::Storage db;
+  auto storage_dba = db.Access();
+  memgraph::query::DbAccessor dba(&storage_dba);
+
+  auto v1 = dba.InsertVertex();
+  auto prop_string = dba.NameToProperty("string");
+  ASSERT_TRUE(v1.SetProperty(prop_string, memgraph::storage::PropertyValue("johhny")).HasValue());
+  auto prop_int = dba.NameToProperty("int");
+  ASSERT_TRUE(v1.SetProperty(prop_int, memgraph::storage::PropertyValue(12)).HasValue());
+  dba.AdvanceCommand();
+
+  AstStorage storage;
+  SymbolTable symbol_table;
+
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto n_prop_string = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop_string);
+  auto n_prop_int = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop_int);
+  auto n_id = n_prop_string->expression_;
+
+  auto aggregate = [&](Expression *expression, Aggregation::Op aggr_op) {
+    auto produce = MakeAggregationProduce(n.op_, symbol_table, storage, {expression}, {aggr_op}, {}, {}, true);
+    auto context = MakeContext(storage, symbol_table, &dba);
+    CollectProduce(*produce, &context);
+  };
+
+  // everything except for COUNT and COLLECT fails on a Vertex
+  aggregate(n_id, Aggregation::Op::COUNT);
+  EXPECT_THROW(aggregate(n_id, Aggregation::Op::MIN), QueryRuntimeException);
+  EXPECT_THROW(aggregate(n_id, Aggregation::Op::MAX), QueryRuntimeException);
+  EXPECT_THROW(aggregate(n_id, Aggregation::Op::AVG), QueryRuntimeException);
+  EXPECT_THROW(aggregate(n_id, Aggregation::Op::SUM), QueryRuntimeException);
+
+  // on strings AVG and SUM fail
+  aggregate(n_prop_string, Aggregation::Op::COUNT);
+  aggregate(n_prop_string, Aggregation::Op::MIN);
+  aggregate(n_prop_string, Aggregation::Op::MAX);
+  EXPECT_THROW(aggregate(n_prop_string, Aggregation::Op::AVG), QueryRuntimeException);
+  EXPECT_THROW(aggregate(n_prop_string, Aggregation::Op::SUM), QueryRuntimeException);
+
+  // on ints nothing fails
+  aggregate(n_prop_int, Aggregation::Op::COUNT);
+  aggregate(n_prop_int, Aggregation::Op::MIN);
+  aggregate(n_prop_int, Aggregation::Op::MAX);
+  aggregate(n_prop_int, Aggregation::Op::AVG);
+  aggregate(n_prop_int, Aggregation::Op::SUM);
+  aggregate(n_prop_int, Aggregation::Op::COLLECT_LIST);
+  aggregate(n_prop_int, Aggregation::Op::COLLECT_MAP);
+}
+
+TEST(QueryPlan, AggregateTypesWithDistinct) {
+  // testing exceptions that can get emitted by an aggregation
+  // does not check all combinations that can result in an exception
+  // (that logic is defined and tested by TypedValue)
+
+  memgraph::storage::Storage db;
+  auto storage_dba = db.Access();
+  memgraph::query::DbAccessor dba(&storage_dba);
+
+  auto p1 = dba.NameToProperty("p1");  // has only string props
+  ASSERT_TRUE(dba.InsertVertex().SetProperty(p1, memgraph::storage::PropertyValue("string")).HasValue());
+  ASSERT_TRUE(dba.InsertVertex().SetProperty(p1, memgraph::storage::PropertyValue("str2")).HasValue());
+  auto p2 = dba.NameToProperty("p2");  // combines int and bool
+  ASSERT_TRUE(dba.InsertVertex().SetProperty(p2, memgraph::storage::PropertyValue(42)).HasValue());
+  ASSERT_TRUE(dba.InsertVertex().SetProperty(p2, memgraph::storage::PropertyValue(true)).HasValue());
+  dba.AdvanceCommand();
+
+  AstStorage storage;
+  SymbolTable symbol_table;
+
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto n_p1 = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), p1);
+  auto n_p2 = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), p2);
+
+  auto aggregate = [&](Expression *expression, Aggregation::Op aggr_op) {
+    auto produce = MakeAggregationProduce(n.op_, symbol_table, storage, {expression}, {aggr_op}, {}, {}, true);
+    auto context = MakeContext(storage, symbol_table, &dba);
+    CollectProduce(*produce, &context);
+  };
+
+  // everything except for COUNT and COLLECT fails on a Vertex
+  auto n_id = n_p1->expression_;
+  aggregate(n_id, Aggregation::Op::COUNT);
+  aggregate(n_id, Aggregation::Op::COLLECT_LIST);
+  aggregate(n_id, Aggregation::Op::COLLECT_MAP);
+  EXPECT_THROW(aggregate(n_id, Aggregation::Op::MIN), QueryRuntimeException);
+  EXPECT_THROW(aggregate(n_id, Aggregation::Op::MAX), QueryRuntimeException);
+  EXPECT_THROW(aggregate(n_id, Aggregation::Op::AVG), QueryRuntimeException);
+  EXPECT_THROW(aggregate(n_id, Aggregation::Op::SUM), QueryRuntimeException);
+
+  // on strings AVG and SUM fail
+  aggregate(n_p1, Aggregation::Op::COUNT);
+  aggregate(n_p1, Aggregation::Op::COLLECT_LIST);
+  aggregate(n_p1, Aggregation::Op::COLLECT_MAP);
+  aggregate(n_p1, Aggregation::Op::MIN);
+  aggregate(n_p1, Aggregation::Op::MAX);
+  EXPECT_THROW(aggregate(n_p1, Aggregation::Op::AVG), QueryRuntimeException);
+  EXPECT_THROW(aggregate(n_p1, Aggregation::Op::SUM), QueryRuntimeException);
+
+  // combination of int and bool, everything except COUNT and COLLECT fails
+  aggregate(n_p2, Aggregation::Op::COUNT);
+  aggregate(n_p2, Aggregation::Op::COLLECT_LIST);
+  aggregate(n_p2, Aggregation::Op::COLLECT_MAP);
+  EXPECT_THROW(aggregate(n_p2, Aggregation::Op::MIN), QueryRuntimeException);
+  EXPECT_THROW(aggregate(n_p2, Aggregation::Op::MAX), QueryRuntimeException);
+  EXPECT_THROW(aggregate(n_p2, Aggregation::Op::AVG), QueryRuntimeException);
+  EXPECT_THROW(aggregate(n_p2, Aggregation::Op::SUM), QueryRuntimeException);
 }
