@@ -175,7 +175,7 @@ std::array<std::vector<EdgeAccessor>, 2> GetEdgesFromVertex(const VertexAccessor
                                                             msgs::EdgeDirection direction);
 
 bool FilterOnVertex(DbAccessor &dba, const storage::v3::VertexAccessor &v_acc, const std::vector<std::string> &filters,
-                    const std::string_view node_name);
+                    std::string_view node_name);
 
 std::vector<TypedValue> EvaluateVertexExpressions(DbAccessor &dba, const VertexAccessor &v_acc,
                                                   const std::vector<std::string> &expressions,
