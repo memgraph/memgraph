@@ -22,12 +22,9 @@ namespace memgraph::storage::v3 {
 using msgs::Label;
 using msgs::PropertyId;
 
-using conversions::ConvertPropertyMap;
 using conversions::ConvertPropertyVector;
-using conversions::ConvertValueVector;
 using conversions::FromPropertyValueToValue;
 using conversions::ToMsgsVertexId;
-using conversions::ToPropertyValue;
 
 namespace {
 namespace msgs = msgs;
