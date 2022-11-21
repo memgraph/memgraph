@@ -550,7 +550,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
       std::vector<EdgeAccessor> out_edge_ordered_accessors;
       std::transform(out_ordered_edges.begin(), out_ordered_edges.end(), std::back_inserter(out_edge_ordered_accessors),
                      [](const auto &edge_element) { return edge_element.object_acc; });
-      auto schema = shard_->GetSchema(shard_->PrimaryLabel());
+      const auto schema = shard_->GetSchema(shard_->PrimaryLabel());
       MG_ASSERT(schema);
       maybe_result =
           GetExpandOneResult(src_vertex_acc, src_vertex, req, in_edge_ordered_accessors, out_edge_ordered_accessors,
