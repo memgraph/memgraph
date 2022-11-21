@@ -680,10 +680,12 @@ void AttemptToExpandOneWithUniqueEdges(ShardClient &client, uint64_t src_vertex_
   }
 }
 
-void AttemptToExpandOneLimitAndOrderBy(ShardClient &client, uint64_t src_vertex_val, EdgeTypeId edge_type_id) {
+void AttemptToExpandOneLimitAndOrderBy(ShardClient &client, uint64_t src_vertex_val, uint64_t other_src_vertex_val,
+                                       EdgeTypeId edge_type_id) {
   // Source vertex
   msgs::Label label = {.id = get_primary_label()};
   auto src_vertex = std::make_pair(label, GetPrimaryKey(src_vertex_val));
+  auto other_src_vertex = std::make_pair(label, GetPrimaryKey(other_src_vertex_val));
 
   // Edge type
   auto edge_type = msgs::EdgeType{};
@@ -699,8 +701,9 @@ void AttemptToExpandOneLimitAndOrderBy(ShardClient &client, uint64_t src_vertex_
   std::optional<std::vector<PropertyId>> edge_properties = {};
 
   std::vector<msgs::OrderBy> order_by = {
-      {msgs::Expression{"MG_SYMBOL_NODE.prop1"}, msgs::OrderingDirection::DESCENDING}};
-  size_t limit = 3;
+      {msgs::Expression{"MG_SYMBOL_NODE.prop1"}, msgs::OrderingDirection::ASCENDING},
+      {msgs::Expression{"MG_SYMBOL_EDGE.prop4"}, msgs::OrderingDirection::DESCENDING}};
+  size_t limit = 1;
   std::vector<std::string> filters = {"MG_SYMBOL_NODE.prop1 != -1"};
 
   msgs::ExpandOneRequest expand_one_req{};
@@ -712,7 +715,7 @@ void AttemptToExpandOneLimitAndOrderBy(ShardClient &client, uint64_t src_vertex_
   expand_one_req.limit = limit;
   expand_one_req.order_by = order_by;
   expand_one_req.src_vertex_properties = src_vertex_properties;
-  expand_one_req.src_vertices = {src_vertex};
+  expand_one_req.src_vertices = {src_vertex, other_src_vertex};
   expand_one_req.transaction_id.logical_id = GetTransactionId();
 
   while (true) {
@@ -727,9 +730,14 @@ void AttemptToExpandOneLimitAndOrderBy(ShardClient &client, uint64_t src_vertex_
     // We check that we do not have more results than the limit. Based on the data in the graph, we know that we should
     // receive exactly limit responses.
     auto expected_number_of_rows = std::min(expand_one_req.src_vertices.size(), limit);
-    MG_ASSERT(expected_number_of_rows == 1);  // We are sending a single vertex to expand
+    MG_ASSERT(expected_number_of_rows == 1);
     MG_ASSERT(write_response.result.size() == expected_number_of_rows);
-    const auto expected_number_of_edges = 10;  // We know there are 10 out-going edges from V2->V3
+
+    // We know there are 1 out-going edges from V1->V2
+    // We know there are 10 out-going edges from V2->V3
+    // Since we sort on prop1 and limit 1, we will have a single response
+    // with two edges corresponding to V1->V2 and V1->V3
+    const auto expected_number_of_edges = 2;
     MG_ASSERT(write_response.result[0].out_edges_with_all_properties.size() == expected_number_of_edges);
     MG_ASSERT(write_response.result[0]
                   .out_edges_with_specific_properties.empty());  // We are not asking for specific properties
@@ -1109,7 +1117,7 @@ void TestExpandOneGraphOne(ShardClient &client) {
     });
 
     AttemptToExpandOneSimple(client, unique_prop_val_1, edge_type_id);
-    AttemptToExpandOneLimitAndOrderBy(client, unique_prop_val_2, edge_type_id);
+    AttemptToExpandOneLimitAndOrderBy(client, unique_prop_val_1, unique_prop_val_2, edge_type_id);
     AttemptToExpandOneWithWrongEdgeType(client, unique_prop_val_1, wrong_edge_type_id);
     AttemptToExpandOneWithSpecifiedSrcVertexProperties(client, unique_prop_val_1, edge_type_id);
     AttemptToExpandOneWithSpecifiedEdgeProperties(client, unique_prop_val_1, edge_type_id, edge_prop_id);
