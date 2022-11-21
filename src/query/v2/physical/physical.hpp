@@ -122,21 +122,23 @@ class PhysicalOperator {
         return;
       }
     }
-    if (current_token_->multiframe->IsFull()) {
-      // TODO(gitbuda): What happens if we don't manage to populate the full multiframe -> pass is_full flag to Emit.
-      data_pool_->ReturnFull(current_token_->id);
-      current_token_ = std::nullopt;
-      current_token_ = data_pool_->GetEmpty();
-      if (!current_token_) {
-        return;
-      }
-    }
+
+    // It might be the case that previous Emit just put a frame at the last
+    // available spot, but that's covered in the next if condition. In other
+    // words, because of the logic above and below, the multiframe in the next
+    // line will have at least one empty spot for the frame.
     current_token_->multiframe->PushBack(tuple);
-    if (!has_more) {
+
+    if (!has_more || current_token_->multiframe->IsFull()) {
       data_pool_->ReturnFull(current_token_->id);
       current_token_ = std::nullopt;
+      return;
     }
   }
+  /// An additional function is required because sometimes, e.g., during
+  /// for-range loop we don't know if there is more elements -> an easy solution
+  /// is to expose an additional method.
+  ///
   void CloseEmit() {
     if (!current_token_) {
       return;

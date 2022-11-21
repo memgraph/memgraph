@@ -63,6 +63,23 @@ class Multiframe {
   void PushBack(const Frame &frame) { data_.push_back(frame); }
   void Put(const Frame &frame, int at) { data_[at] = frame; }
   const std::vector<Frame> &Data() const { return data_; }
+  // The main issue with the Multiframe is that once we have to reuse a filled
+  // frame, the cleanup cost might be high -> ensure Multiframe "reset"
+  // (whatever that might be) is fast.
+  //
+  // If the stored elements have trivial destructors, then the implementation
+  // can optimize the cost away and clear() becomes a cheap O(1) operation
+  // (just resetting the size --end pointer).
+  //
+  // vector<vector<TypedValue>> (all with custom allocator), all have to be cleared
+  //
+  // https://stackoverflow.com/questions/15004517/moving-elements-from-stdvector-to-another-one
+  //   -> v2.insert + v1.erase
+  //   -> test how many times TypedValue destructor is called in case the Frame object is moved
+  //
+  // TODO(gitbuda): Implement fast Multiframe::Clear
+  //
+  void Clear() { data_.clear(); }
 
  private:
   std::vector<Frame> data_;
@@ -185,6 +202,8 @@ class MPMCMultiframeFCFSPool {
       if (priority_states_[index].state == MultiframeState::EMPTY) {
         priority_states_[index].priority = priority_counter_;
         priority_states_[index].state = MultiframeState::IN_USE;
+        // TODO(gitbuda): Make sure Multiframe::Clear is cheap because it can be.
+        frames_[index].Clear();
         return multiframe::Token{.id = static_cast<int>(index), .multiframe = &frames_.at(index)};
       }
     }
@@ -198,6 +217,10 @@ class MPMCMultiframeFCFSPool {
     std::unique_lock lock{mutex};
     MG_ASSERT(priority_states_[id].state == MultiframeState::IN_USE, "should be in use");
     priority_states_[id].state = MultiframeState::EMPTY;
+    // NOTE: At this point we can call Multiframe::Clear but the same call is
+    // done inside GetEmpty method because we are delaying the cleanup as much
+    // as possible. We might not even need to explicitly cleanup the frame
+    // because the frame might not at reused at all.
   }
 
   void ReturnFull(int id) {
