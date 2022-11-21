@@ -59,12 +59,13 @@ struct ExecutionContext {
 /// Each PhysicalOperator has an arbitrary number of children AKA input operators.
 class PhysicalOperator {
  public:
+  explicit PhysicalOperator(const std::string &name)
+      : name_(name), data_pool_(std::make_unique<multiframe::MPMCMultiframeFCFSPool>(16, 100)) {}
   PhysicalOperator() = delete;
-  PhysicalOperator(const PhysicalOperator &) = default;
+  PhysicalOperator(const PhysicalOperator &) = delete;
   PhysicalOperator(PhysicalOperator &&) = default;
-  PhysicalOperator &operator=(const PhysicalOperator &) = default;
+  PhysicalOperator &operator=(const PhysicalOperator &) = delete;
   PhysicalOperator &operator=(PhysicalOperator &&) = default;
-  explicit PhysicalOperator(const std::string &name) : name_(name) {}
   virtual ~PhysicalOperator() {}
 
   void AddChild(std::shared_ptr<PhysicalOperator> child) { children_.push_back(child); }
@@ -72,20 +73,82 @@ class PhysicalOperator {
 
   /// Init/start execution.
   virtual void Execute(ExecutionContext ctx) = 0;
-  /// Get data from children operators.
-  virtual const multiframe::Multiframe *NextRead() = 0;
-  virtual const multiframe::Multiframe *NextWrite() = 0;
-  virtual void Reclaim() = 0;
-  /// Prepare data for the next call.
-  template <typename TTuple>
-  void Emit(const TTuple &tuple) {
-    // TODO(gitbuda): Implement correct Emit logic.
-    //   * Correct frame handling (probably no need to copy).
-    //   * Correct memory management (don't resize multiframe)..
-    //   * Correct multi-threading.
-    std::cout << "An Emit call" << std::endl;
-    data_.Put(Frame{.a = tuple});
+
+  ////// DATA POOL HANDLING
+  /// Get/Push data from/to surrounding operators.
+  /// if nullopt -> there is nothing more to read or write.
+  std::optional<multiframe::Token> NextRead() {
+    while (true) {
+      auto token = data_pool_->GetFull();
+      if (token) {
+        return token;
+      }
+      // First try to read a multiframe because there might be some full frames
+      // even if the whole pool is marked as exhaused. In case we come to this
+      // point and the pool is exhaused ther is no more data for sure.
+      if (data_pool_->IsExhausted()) {
+        return std::nullopt;
+      }
+      // TODO(gitbuda): Replace with exponential backoff or something similar.
+      std::this_thread::sleep_for(std::chrono::microseconds(10));
+    }
   }
+  void PassBackRead(const multiframe::Token &token) { data_pool_->ReturnEmpty(token.id); }
+
+  std::optional<multiframe::Token> NextWrite() {
+    // In this case it's different compared to the NextRead because if
+    // somebody has marked the pool as exhausted furher writes shouldn't be
+    // possible.
+    // TODO(gitbuda): Consider an assert in the NextWrite implementation.
+    if (data_pool_->IsExhausted()) {
+      return std::nullopt;
+    }
+    while (true) {
+      auto token = data_pool_->GetEmpty();
+      if (token) {
+        return token;
+      }
+      // TODO(gitbuda): Replace with exponential backoff or something similar.
+      std::this_thread::sleep_for(std::chrono::microseconds(10));
+    }
+  }
+  void PassBackWrite(const multiframe::Token &token) { data_pool_->ReturnFull(token.id); }
+
+  template <typename TTuple>
+  void Emit(const TTuple &tuple, bool has_more = true) {
+    if (!current_token_) {
+      current_token_ = data_pool_->GetEmpty();
+      if (!current_token_) {
+        return;
+      }
+    }
+    if (current_token_->multiframe->IsFull()) {
+      // TODO(gitbuda): What happens if we don't manage to populate the full multiframe -> pass is_full flag to Emit.
+      data_pool_->ReturnFull(current_token_->id);
+      current_token_ = std::nullopt;
+      current_token_ = data_pool_->GetEmpty();
+      if (!current_token_) {
+        return;
+      }
+    }
+    current_token_->multiframe->PushBack(tuple);
+    if (!has_more) {
+      data_pool_->ReturnFull(current_token_->id);
+      current_token_ = std::nullopt;
+    }
+  }
+  void CloseEmit() {
+    if (!current_token_) {
+      return;
+    }
+    data_pool_->ReturnFull(current_token_->id);
+    current_token_ = std::nullopt;
+  }
+  /// TODO(gitbuda): Create Emit which is suitable to be used in the concurrent environment.
+  template <typename TTuple>
+  void EmitWhere(const multiframe::Token &where, const TTuple &what) {}
+  ////// DATA POOL HANDLING
+
   /// Reset state.
   void Reset() {}
   /// Set execution timeout.
@@ -99,48 +162,29 @@ class PhysicalOperator {
   std::string name_;
   std::vector<std::shared_ptr<PhysicalOperator>> children_;
   /// TODO(gitbuda): Pass the Multiframe capacity via the PhysicalOperator constructor.
-  multiframe::Multiframe data_{72};
+  /// uptr is here to make the PhysicalOperator moveable.
+  std::unique_ptr<multiframe::MPMCMultiframeFCFSPool> data_pool_;
+  std::optional<multiframe::Token> current_token_;
 
   void BaseExecute(ExecutionContext ctx) {
     for (const auto &child : children_) {
       child->Execute(ctx);
     }
   }
-
-  const multiframe::Multiframe *BaseNext() const {
-    // TODO(gitbuda): Implement correct Next logic.
-    return &data_;
-  }
 };
 
 // TODO(gitbuda): Consider kicking out Once because it's an artefact from the single Frame execution.
+/// In the Execute/Next/Emit concept once is implemented very concisely.
 class OncePhysicalOperator final : public PhysicalOperator {
  public:
-  explicit OncePhysicalOperator(const std::string &name) : PhysicalOperator(name), multiframe_(72) {
-    multiframe_.Put(Frame{.a = 0});
-  }
+  explicit OncePhysicalOperator(const std::string &name) : PhysicalOperator(name) {}
   void Execute(ExecutionContext ctx) override {
     MG_ASSERT(children_.empty(), "Once should have 0 inputs");
     std::cout << name_ << std::endl;
     PhysicalOperator::BaseExecute(ctx);
+    this->Emit(Frame{}, false);
+    data_pool_->MarkExhausted();
   }
-  const multiframe::Multiframe *NextRead() override {
-    if (!executed_) {
-      executed_ = true;
-      return &multiframe_;
-    }
-    return nullptr;
-  }
-  const multiframe::Multiframe *NextWrite() override { return nullptr; }
-  void Reclaim() override {}
-
- private:
-  bool executed_{false};
-  multiframe::Multiframe multiframe_;
-  // Once has to return 1 empty frame on Next.
-  // TODO(gitbuda): An issue because data also exists in the base class.
-  // Multiframe data_{{0, 0}};
-  // NOTE: Once is very similar to aggregate because only a single value has to be "processed".
 };
 
 /// NOTE: ScanAll get_vertices needs frame+ctx because ScanAllByXYZValue has an
@@ -165,28 +209,27 @@ class ScanAllPhysicalOperator final : public PhysicalOperator {
     // TODO(gitbuda): It should be possible to parallelize the below ScanAll code.
     auto *input = children_[0].get();
     while (true) {
-      const auto *multiframe = input->NextRead();
-      if (multiframe == nullptr) {
+      auto read_token = input->NextRead();
+      if (read_token) {
+        // TODO(gitbuda): Replace frame w/ multiframe.
+        // NOTE: Again, very concise and parallelizable implementation.
+        for (const auto &frame : read_token->multiframe->Data()) {
+          for (const auto &new_frame : data_fun_(Evaluate(frame))) {
+            Emit(new_frame);
+          }
+        }
+        // Since Emit in the for loops hasn't passed has_more=false,
+        // TODO(gitbuda): Rename CloseEmit to something better.
+        CloseEmit();
+      } else {
+        // TODO(gitbuda): Test  below Execute logic is wrong, reconsider.
+        data_pool_->MarkExhausted();
+      }
+      if (data_pool_->IsExhausted()) {
         break;
       }
-      // TODO(gitbuda): Replace frame w/ multiframe.
-      for (const auto &frame : multiframe->Data()) {
-        for (const auto &tuple : data_fun_(Evaluate(frame))) {
-          Emit(tuple);
-        }
-      }
     }
   }
-
-  const multiframe::Multiframe *NextRead() override {
-    if (!next_called_) {
-      next_called_ = true;
-      return &data_;
-    }
-    return nullptr;
-  }
-  const multiframe::Multiframe *NextWrite() override { return nullptr; }
-  void Reclaim() override {}
 
  private:
   template <typename T>
@@ -194,7 +237,6 @@ class ScanAllPhysicalOperator final : public PhysicalOperator {
     return t;
   }
   TDataFun data_fun_;
-  bool next_called_{false};
 };
 
 class ProducePhysicalOperator final : public PhysicalOperator {
@@ -205,21 +247,22 @@ class ProducePhysicalOperator final : public PhysicalOperator {
     MG_ASSERT(children_.size() == 1, "ScanAll should have exactly 1 input");
     PhysicalOperator::BaseExecute(ctx);
 
+    // NOTE: The single threaded
     auto *input = children_[0].get();
     while (true) {
-      const auto *multiframe = input->NextRead();
-      if (multiframe == nullptr) {
-        break;
+      auto read_token = input->NextRead();
+      if (read_token) {
+        for (const auto &frame : read_token->multiframe->Data()) {
+          std::cout << "Produce: " << frame.a << std::endl;
+        }
+      } else {
+        data_pool_->MarkExhausted();
       }
-      // TODO(gitbuda): Replace frame w/ multiframe.
-      for (const auto &frame : multiframe->Data()) {
-        std::cout << "Produce: " << frame.a << std::endl;
+      if (data_pool_->IsExhausted()) {
+        break;
       }
     }
   }
-  const multiframe::Multiframe *NextRead() override { return BaseNext(); }
-  const multiframe::Multiframe *NextWrite() override { return nullptr; }
-  void Reclaim() override {}
 };
 
 /// TODO(gitbuda): Consider how to add higher level database concepts like
@@ -262,7 +305,11 @@ class PhysicalPlanGenerator final : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(Produce & /*unused*/) override { return DefaultPost(); }
 
   bool PreVisit(ScanAll & /*unused*/) override {
-    auto data_fun = [](Frame) { return std::vector<int>{0, 1, 2}; };
+    auto data_fun = [](Frame frame) {
+      std::vector<Frame> frames;
+      frames.push_back(frame);
+      return frames;
+    };
     auto pop = std::make_shared<ScanAllPhysicalOperator<decltype(data_fun)>>(
         ScanAllPhysicalOperator("Physical ScanAll", std::move(data_fun)));
     return DefaultPre(pop);

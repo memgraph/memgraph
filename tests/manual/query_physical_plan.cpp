@@ -55,8 +55,12 @@ int main(int argc, char *argv[]) {
   memgraph::query::v2::physical::ExecutionContext ctx;
   physical_plan->Execute(ctx);
   // Fetch physical plan execution results.
-  auto data = physical_plan->NextRead();
-  MG_ASSERT(data->Size() == 0);
+  auto token = physical_plan->NextRead();
+  if (token) {
+    std::cout << "Produce token is something" << std::endl;
+  } else {
+    std::cout << "Produce token is nothing" << std::endl;
+  }
 
   return 0;
 }

@@ -57,8 +57,11 @@ class Multiframe {
   explicit Multiframe(const size_t capacity = 0) : data_(0) { data_.reserve(capacity); }
   ~Multiframe() = default;
 
+  size_t Capacity() const { return data_.capacity(); }
   size_t Size() const { return data_.size(); }
-  void Put(const Frame &frame) { data_.push_back(frame); }
+  bool IsFull() const { return Size() == Capacity(); }
+  void PushBack(const Frame &frame) { data_.push_back(frame); }
+  void Put(const Frame &frame, int at) { data_[at] = frame; }
   const std::vector<Frame> &Data() const { return data_; }
 
  private:
@@ -100,6 +103,12 @@ enum class Order {
   RANDOM,
 };
 
+enum class PoolState {
+  EMPTY,
+  HAS_MORE,
+  EXHAUSTED,
+};
+
 /// Preallocated memory for an operator results.
 /// Responsible only for synchronizing access to a set of Multiframes.
 /// Requires giving back Token after Multiframe is consumed/filled.
@@ -121,13 +130,8 @@ class MPMCMultiframeFCFSPool {
   // TODO(gitbuda): Decide how to know that there is no more data for a given operator.
   //   1) Probably better outside the pool because then the pool is more generic.
   //   2) Since Emit and Next are decoupled there has to be some source of truth.
-  enum class PoolState {
-    EMPTY,
-    HAS_MORE,
-    EXHAUSTED,
-  };
 
-  explicit MPMCMultiframeFCFSPool(int pool_size, size_t multiframe_size) {
+  explicit MPMCMultiframeFCFSPool(int pool_size, size_t multiframe_size) : pool_state_(PoolState::EMPTY) {
     for (int i = 0; i < pool_size; ++i) {
       frames_.emplace_back(Multiframe{multiframe_size});
     }
@@ -201,6 +205,19 @@ class MPMCMultiframeFCFSPool {
     MG_ASSERT(priority_states_[id].state == MultiframeState::IN_USE, "should be in use");
     priority_states_[id].state = MultiframeState::FULL;
   }
+  // NOTE: There is a difference between exhaustion of a Multiframe and the entire pool.
+  void MarkExhausted() {
+    std::unique_lock lock{mutex};
+    // MG_ASSERT(std::any_of(priority_states_.cbegin(), priority_states_.cend(), [](const auto& item) {
+    //       return item.state == MultiframeState::EMPTY;
+    //       }));
+    pool_state_ = PoolState::EXHAUSTED;
+  }
+
+  bool IsExhausted() {
+    std::unique_lock lock{mutex};
+    return pool_state_ == PoolState::EXHAUSTED;
+  }
 
  private:
   std::vector<multiframe::Multiframe> frames_;
@@ -209,6 +226,7 @@ class MPMCMultiframeFCFSPool {
   int64_t order_check_{-1};
   int64_t last_taken_priority_{-1};
   std::mutex mutex;
+  PoolState pool_state_;
 };
 
 static_assert(MultiframePoolConcept<MPMCMultiframeFCFSPool>);
