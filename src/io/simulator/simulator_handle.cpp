@@ -63,6 +63,17 @@ void SimulatorHandle::IncrementServerCountAndWaitForQuiescentState(Address addre
   }
 }
 
+bool SortInFlight(const std::pair<Address, OpaqueMessage> &lhs, const std::pair<Address, OpaqueMessage> &rhs) {
+  // NB: never sort based on the request ID etc...
+  // This should only be used from std::stable_sort
+  // because by comparing on the from_address alone,
+  // we expect the sender ordering to remain
+  // deterministic.
+  const auto &[addr_1, om_1] = lhs;
+  const auto &[addr_2, om_2] = rhs;
+  return om_1.from_address < om_2.from_address;
+}
+
 bool SimulatorHandle::MaybeTickSimulator() {
   std::unique_lock<std::mutex> lock(mu_);
 
@@ -106,6 +117,8 @@ bool SimulatorHandle::MaybeTickSimulator() {
   if (in_flight_.empty()) {
     return true;
   }
+
+  std::stable_sort(in_flight_.begin(), in_flight_.end(), SortInFlight);
 
   if (config_.scramble_messages && in_flight_.size() > 1) {
     // scramble messages
