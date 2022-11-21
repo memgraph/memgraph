@@ -171,6 +171,22 @@ class PhysicalOperator {
       child->Execute(ctx);
     }
   }
+
+  void SingleThreadExaust(std::function<void(const multiframe::Multiframe &multiframe)> fun) {
+    auto *input = children_[0].get();
+    while (true) {
+      auto read_token = input->NextRead();
+      if (read_token) {
+        fun(*(read_token->multiframe));
+      } else {
+        // TODO(gitbuda): Test  below Execute logic is wrong, reconsider.
+        data_pool_->MarkExhausted();
+      }
+      if (data_pool_->IsExhausted()) {
+        break;
+      }
+    }
+  }
 };
 
 // TODO(gitbuda): Consider kicking out Once because it's an artefact from the single Frame execution.
@@ -206,29 +222,22 @@ class ScanAllPhysicalOperator final : public PhysicalOperator {
     //  ∀tuple : data_fun(evaluate(mf))
     //   emit(tuple)
     //
-    // TODO(gitbuda): It should be possible to parallelize the below ScanAll code.
-    auto *input = children_[0].get();
-    while (true) {
-      auto read_token = input->NextRead();
-      if (read_token) {
-        // TODO(gitbuda): Replace frame w/ multiframe.
-        // NOTE: Again, very concise and parallelizable implementation.
-        for (const auto &frame : read_token->multiframe->Data()) {
-          for (const auto &new_frame : data_fun_(Evaluate(frame))) {
-            Emit(new_frame);
-          }
+    // NOTE: Again, very concise and parallelizable implementation.
+    //
+    // TODO(gitbuda): It should be possible to parallelize the below ScanAll
+    // because the underlying data pool provides all needed to manage the
+    // result data.
+    SingleThreadExaust([this](const multiframe::Multiframe &multiframe) {
+      // TODO(gitbuda): Replace frame w/ multiframe.
+      for (const auto &frame : multiframe.Data()) {
+        for (const auto &new_frame : data_fun_(Evaluate(frame))) {
+          Emit(new_frame);
         }
-        // Since Emit in the for loops hasn't passed has_more=false,
-        // TODO(gitbuda): Rename CloseEmit to something better.
-        CloseEmit();
-      } else {
-        // TODO(gitbuda): Test  below Execute logic is wrong, reconsider.
-        data_pool_->MarkExhausted();
       }
-      if (data_pool_->IsExhausted()) {
-        break;
-      }
-    }
+      // Since Emit in the for loops hasn't passed has_more=false,
+      // TODO(gitbuda): Rename CloseEmit to something better.
+      CloseEmit();
+    });
   }
 
  private:
@@ -242,26 +251,16 @@ class ScanAllPhysicalOperator final : public PhysicalOperator {
 class ProducePhysicalOperator final : public PhysicalOperator {
  public:
   using PhysicalOperator::PhysicalOperator;
+
   void Execute(ExecutionContext ctx) override {
     std::cout << name_ << std::endl;
     MG_ASSERT(children_.size() == 1, "ScanAll should have exactly 1 input");
     PhysicalOperator::BaseExecute(ctx);
-
-    // NOTE: The single threaded
-    auto *input = children_[0].get();
-    while (true) {
-      auto read_token = input->NextRead();
-      if (read_token) {
-        for (const auto &frame : read_token->multiframe->Data()) {
-          std::cout << "Produce: " << frame.a << std::endl;
-        }
-      } else {
-        data_pool_->MarkExhausted();
+    SingleThreadExaust([](const multiframe::Multiframe &multiframe) {
+      for (const auto &frame : multiframe.Data()) {
+        std::cout << "Produce: " << frame.a << std::endl;
       }
-      if (data_pool_->IsExhausted()) {
-        break;
-      }
-    }
+    });
   }
 };
 
