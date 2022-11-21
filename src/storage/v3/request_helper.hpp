@@ -120,7 +120,7 @@ struct Element {
 template <typename T>
 concept VerticesIt = utils::SameAsAnyOf<T, VerticesIterable, std::vector<VertexAccessor>>;
 template <VerticesIt TIterable>
-std::vector<Element<VertexAccessor>> OrderByVertices(Shard::Accessor &acc, DbAccessor &dba, TIterable &iterable,
+std::vector<Element<VertexAccessor>> OrderByVertices(DbAccessor &dba, TIterable &iterable,
                                                      std::vector<msgs::OrderBy> &original_order_bys) {
   auto order_bys = original_order_bys;
   auto it_to_remove = std::remove_if(order_bys.begin(), order_bys.end(), [](const auto &order_by) {

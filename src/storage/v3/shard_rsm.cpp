@@ -426,7 +426,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
   uint64_t sample_counter{0};
   auto vertex_iterable = acc.Vertices(view);
   if (!req.order_bys.empty()) {
-    const auto ordered = OrderByVertices(acc, dba, vertex_iterable, req.order_bys);
+    const auto ordered = OrderByVertices(dba, vertex_iterable, req.order_bys);
     // we are traversing Elements
     auto it = GetStartOrderedElementsIterator(ordered, start_id, View(req.storage_view));
     for (; it != ordered.end(); ++it) {
@@ -509,7 +509,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
   if (!req.order_by.empty()) {
     // Can we do differently to avoid this? We need OrderByElements but currently it returns vector<Element>, so this
     // workaround is here to avoid more duplication later
-    auto local_sorted_vertices = OrderByVertices(acc, dba, vertex_accessors, req.order_by);
+    auto local_sorted_vertices = OrderByVertices(dba, vertex_accessors, req.order_by);
     vertex_accessors.clear();
     std::transform(local_sorted_vertices.begin(), local_sorted_vertices.end(), std::back_inserter(vertex_accessors),
                    [](auto &vertex) { return vertex.object_acc; });
