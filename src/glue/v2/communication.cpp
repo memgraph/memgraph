@@ -71,9 +71,9 @@ query::v2::TypedValue ToTypedValue(const Value &value) {
   }
 }
 
-storage::v3::ShardResult<communication::bolt::Vertex> ToBoltVertex(
-    const query::v2::accessors::VertexAccessor &vertex, const msgs::ShardRequestManagerInterface *shard_request_manager,
-    storage::v3::View /*view*/) {
+BoltResult<communication::bolt::Vertex> ToBoltVertex(const query::v2::accessors::VertexAccessor &vertex,
+                                                     const msgs::ShardRequestManagerInterface *shard_request_manager,
+                                                     storage::v3::View /*view*/) {
   auto id = communication::bolt::Id::FromUint(0);
 
   auto labels = vertex.Labels();
@@ -91,9 +91,9 @@ storage::v3::ShardResult<communication::bolt::Vertex> ToBoltVertex(
   return communication::bolt::Vertex{id, new_labels, new_properties};
 }
 
-storage::v3::ShardResult<communication::bolt::Edge> ToBoltEdge(
-    const query::v2::accessors::EdgeAccessor &edge, const msgs::ShardRequestManagerInterface *shard_request_manager,
-    storage::v3::View /*view*/) {
+BoltResult<communication::bolt::Edge> ToBoltEdge(const query::v2::accessors::EdgeAccessor &edge,
+                                                 const msgs::ShardRequestManagerInterface *shard_request_manager,
+                                                 storage::v3::View /*view*/) {
   // TODO(jbajic) Fix bolt communication
   auto id = communication::bolt::Id::FromUint(0);
   auto from = communication::bolt::Id::FromUint(0);
@@ -108,16 +108,15 @@ storage::v3::ShardResult<communication::bolt::Edge> ToBoltEdge(
   return communication::bolt::Edge{id, from, to, type, new_properties};
 }
 
-storage::v3::ShardResult<communication::bolt::Path> ToBoltPath(
-    const query::v2::accessors::Path & /*edge*/, const msgs::ShardRequestManagerInterface * /*shard_request_manager*/,
-    storage::v3::View /*view*/) {
+BoltResult<communication::bolt::Path> ToBoltPath(const query::v2::accessors::Path & /*edge*/,
+                                                 const msgs::ShardRequestManagerInterface * /*shard_request_manager*/,
+                                                 storage::v3::View /*view*/) {
   // TODO(jbajic) Fix bolt communication
   return {SHARD_ERROR(common::ErrorCode::DELETED_OBJECT)};
 }
 
-storage::v3::ShardResult<Value> ToBoltValue(const query::v2::TypedValue &value,
-                                            const msgs::ShardRequestManagerInterface *shard_request_manager,
-                                            storage::v3::View view) {
+BoltResult<Value> ToBoltValue(const query::v2::TypedValue &value,
+                              const msgs::ShardRequestManagerInterface *shard_request_manager, storage::v3::View view) {
   switch (value.type()) {
     case query::v2::TypedValue::Type::Null:
       return Value();

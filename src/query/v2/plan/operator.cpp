@@ -564,34 +564,6 @@ UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
                                                                 std::move(vertices), "ScanAllById");
 }
 
-namespace {
-
-template <class TEdges>
-auto UnwrapEdgesResult(storage::v3::ShardResult<TEdges> &&result) {
-  if (result.HasError()) {
-    switch (result.GetError().code) {
-      case common::ErrorCode::DELETED_OBJECT:
-        throw QueryRuntimeException("Trying to get relationships of a deleted node.");
-      case common::ErrorCode::NONEXISTENT_OBJECT:
-        throw query::v2::QueryRuntimeException("Trying to get relationships from a node that doesn't exist.");
-      case common::ErrorCode::VERTEX_HAS_EDGES:
-      case common::ErrorCode::SERIALIZATION_ERROR:
-      case common::ErrorCode::PROPERTIES_DISABLED:
-        throw QueryRuntimeException("Unexpected error when accessing relationships.");
-      case common::ErrorCode::SCHEMA_NO_SCHEMA_DEFINED_FOR_LABEL:
-      case common::ErrorCode::SCHEMA_VERTEX_PROPERTY_WRONG_TYPE:
-      case common::ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_KEY:
-      case common::ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL:
-      case common::ErrorCode::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY:
-      case common::ErrorCode::SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED:
-        throw QueryRuntimeException("SchemaViolation occurred when accessing relationships.");
-    }
-  }
-  return std::move(*result);
-}
-
-}  // namespace
-
 Expand::Expand(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol, Symbol node_symbol,
                Symbol edge_symbol, EdgeAtom::Direction direction,
                const std::vector<storage::v3::EdgeTypeId> &edge_types, bool existing_node, storage::v3::View view)
