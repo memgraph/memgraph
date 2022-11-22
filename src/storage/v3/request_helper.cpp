@@ -59,8 +59,6 @@ std::optional<std::map<PropertyId, Value>> PrimaryKeysFromAccessor(const VertexA
   return ret;
 }
 
-struct LocalError {};
-
 std::optional<std::vector<msgs::Label>> FillUpSourceVertexSecondaryLabels(const std::optional<VertexAccessor> &v_acc,
                                                                           const msgs::ExpandOneRequest &req) {
   auto secondary_labels = v_acc->Labels(View::NEW);
