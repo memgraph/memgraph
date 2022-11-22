@@ -159,7 +159,7 @@ std::vector<Element<VertexAccessor>> OrderByVertices(DbAccessor &dba, TIterable 
 }
 
 std::vector<Element<EdgeAccessor>> OrderByEdges(DbAccessor &dba, std::vector<EdgeAccessor> &iterable,
-                                                std::vector<msgs::OrderBy> &order_bys,
+                                                std::vector<msgs::OrderBy> &order_by_edges,
                                                 const VertexAccessor &vertex_acc);
 
 VerticesIterable::Iterator GetStartVertexIterator(VerticesIterable &vertex_iterable,
