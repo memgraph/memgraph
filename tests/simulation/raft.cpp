@@ -185,6 +185,7 @@ std::pair<SimulatorStats, LatencyHistogramSummaries> RunSimulation(SimulatorConf
 
     auto write_cas_response_result = client.SendWriteRequest(cas_req);
     if (write_cas_response_result.HasError()) {
+      spdlog::debug("timed out");
       // timed out
       continue;
     }

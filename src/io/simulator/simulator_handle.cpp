@@ -100,15 +100,22 @@ bool SimulatorHandle::MaybeTickSimulator() {
   }
 
   const Duration clock_advance = std::chrono::microseconds{time_distrib_(rng_)};
-  cluster_wide_time_microseconds_ += clock_advance;
-  stats_.elapsed_time = cluster_wide_time_microseconds_ - config_.start_time;
 
-  spdlog::info("simulator progressing: clock advanced by {}", clock_advance.count());
+  // We don't always want to advance the clock with every message that we deliver because
+  // when we advance it for every message, it causes timeouts to occur for any "request path"
+  // over a certain length. Alternatively, we don't want to simply deliver multiple messages
+  // in a single simulator tick because that would reduce the amount of concurrent message
+  // mixing that may naturally occur in production. This approach is to mod the random clock
+  // advance by a prime number (hopefully avoiding most harmonic effects that would be introduced
+  // by only advancing the clock by an even amount etc...) and only advancing the clock close to
+  // half of the time.
+  if (clock_advance.count() % 97 > 49) {
+    spdlog::info("simulator progressing: clock advanced by {}", clock_advance.count());
+    cluster_wide_time_microseconds_ += clock_advance;
+    stats_.elapsed_time = cluster_wide_time_microseconds_ - config_.start_time;
+  }
 
   if (cluster_wide_time_microseconds_ >= config_.abort_time) {
-    if (should_shut_down_) {
-      return true;
-    }
     spdlog::error(
         "Cluster has executed beyond its configured abort_time, and something may be failing to make progress "
         "in an expected amount of time.");
