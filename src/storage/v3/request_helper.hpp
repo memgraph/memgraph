@@ -13,8 +13,8 @@
 
 #include <vector>
 
-#include "storage/v3/bindings/ast/ast.hpp"
 #include "query/v2/requests.hpp"
+#include "storage/v3/bindings/ast/ast.hpp"
 #include "storage/v3/bindings/pretty_print_ast_to_original_expression.hpp"
 #include "storage/v3/bindings/typed_value.hpp"
 #include "storage/v3/edge_accessor.hpp"
@@ -133,11 +133,14 @@ std::vector<Element<VertexAccessor>> OrderByVertices(DbAccessor &dba, TIterable 
   std::vector<Ordering> ordering;
   ordering.reserve(order_bys.size());
   std::transform(order_bys.begin(), order_bys.end(), std::back_inserter(ordering), [](const auto &order_by) {
-    if (memgraph::msgs::OrderingDirection::ASCENDING == order_by.direction) {
-      return Ordering::ASC;
+    switch (order_by.direction) {
+      case memgraph::msgs::OrderingDirection::ASCENDING:
+        return Ordering::ASC;
+      case memgraph::msgs::OrderingDirection::DESCENDING:
+        return Ordering::DESC;
+      default:
+        LOG_FATAL("Unknown ordering direction");
     }
-    MG_ASSERT(memgraph::msgs::OrderingDirection::DESCENDING == order_by.direction);
-    return Ordering::DESC;
   });
 
   std::vector<Element<VertexAccessor>> ordered;
