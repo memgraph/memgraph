@@ -26,7 +26,7 @@ def parse_arguments():
     parser.add_argument("--dataset-group", default="basic", help="Select a group of queries")
 
     parser.add_argument(
-        "--mixed-group",
+        "--realistic",
         nargs=5,
         action="append",
         metavar=("num_of_queries", "write", "read", "update", "analytical"),
@@ -34,7 +34,7 @@ def parse_arguments():
     )
 
     parser.add_argument(
-        "--mixed-per-query",
+        "--mixed",
         nargs=6,
         action="append",
         metavar=(
@@ -53,7 +53,7 @@ def parse_arguments():
     return args
 
 
-def run_full_benchmarks(vendor, binary, dataset_size, dataset_group, group_configs, per_query_configs):
+def run_full_benchmarks(vendor, binary, dataset_size, dataset_group, realistic, mixed):
 
     configurations = [
         # Basic full group test cold
@@ -70,7 +70,7 @@ def run_full_benchmarks(vendor, binary, dataset_size, dataset_group, group_confi
     ]
 
     # Configurations for full workload
-    for count, write, read, update, analytical in group_configs:
+    for count, write, read, update, analytical in realistic:
         cold = [
             "--export-results",
             vendor
@@ -103,7 +103,7 @@ def run_full_benchmarks(vendor, binary, dataset_size, dataset_group, group_confi
         configurations.append(hot)
 
     # Configurations for workload per query
-    for count, write, read, update, analytical, query in per_query_configs:
+    for count, write, read, update, analytical, query in mixed:
         cold = [
             "--export-results",
             vendor
@@ -157,7 +157,7 @@ def run_full_benchmarks(vendor, binary, dataset_size, dataset_group, group_confi
 def collect_all_results(vendor_name, dataset_size, dataset_group):
     working_directory = Path().absolute()
     print(working_directory)
-    results = sorted(working_directory.glob(vendor_name + "_*.json"))
+    results = sorted(working_directory.glob(vendor_name + "_" + dataset_size + "_*.json"))
     summary = {"pokec": {dataset_size: {dataset_group: {}}}}
 
     for file in results:
@@ -178,15 +178,15 @@ def collect_all_results(vendor_name, dataset_size, dataset_group):
 
     json_object = json.dumps(summary, indent=4)
     print(json_object)
-    with open(vendor_name + "_summary.json", "w") as f:
+    with open(vendor_name + "_" + dataset_size + "_summary.json", "w") as f:
         json.dump(summary, f)
 
 
 if __name__ == "__main__":
     args = parse_arguments()
 
-    group_run_mixed = args.mixed_group
-    per_query_mixed = args.mixed_per_query
+    realistic = args.realistic
+    mixed = args.mixed
 
     vendor_names = {"memgraph", "neo4j"}
     for vendor_name, vendor_binary in args.vendor:
@@ -197,8 +197,8 @@ if __name__ == "__main__":
                 vendor_binary,
                 args.dataset_size,
                 args.dataset_group,
-                group_run_mixed,
-                per_query_mixed,
+                realistic,
+                mixed,
             )
             collect_all_results(vendor_name, args.dataset_size, args.dataset_group)
         else:

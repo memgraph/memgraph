@@ -142,9 +142,14 @@ parser.add_argument(
     with the presence of 300 write queries from write type or 30%""",
 )
 
-parser.add_argument("--tail_latency", type=int, default=100, help="Number of queries for the tail latency statistics")
+parser.add_argument("--tail-latency", type=int, default=100, help="Number of queries for the tail latency statistics")
 
-parser.add_argument("--performance_tracking", action="store_true", default=False, help="Flag for performance tracking")
+parser.add_argument(
+    "--performance-tracking",
+    action="store_true",
+    default=False,
+    help="Flag for runners performance tracking, this logs RES through time and vendor specific performance tracking.",
+)
 
 args = parser.parse_args()
 

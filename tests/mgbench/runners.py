@@ -63,13 +63,15 @@ def _get_current_usage(pid):
 
 
 class Memgraph:
-    def __init__(self, memgraph_binary, temporary_dir, properties_on_edges, bolt_port, memory_usage):
+    def __init__(self, memgraph_binary, temporary_dir, properties_on_edges, bolt_port, performance_tracking):
         self._memgraph_binary = memgraph_binary
         self._directory = tempfile.TemporaryDirectory(dir=temporary_dir)
         self._properties_on_edges = properties_on_edges
-        self.track_memory = memory_usage
         self._proc_mg = None
         self._bolt_port = bolt_port
+        self.performance_tracking = performance_tracking
+        self._stop_event = threading.Event()
+        self._rss = []
         atexit.register(self._cleanup)
 
         # Determine Memgraph version
@@ -117,32 +119,57 @@ class Memgraph:
         return ret, usage
 
     def start_preparation(self, workload):
-        if self._memgraph_version >= (0, 50, 0):
-            self._start(storage_snapshot_on_exit=True)
-        else:
-            self._start(snapshot_on_exit=True)
+        if self.performance_tracking:
+            p = threading.Thread(target=self.res_background_tracking, args=(self._rss, self._stop_event))
+            self._stop_event.clear()
+            self._rss.clear()
+            p.start()
+        self._start(storage_snapshot_on_exit=True)
 
     def start_benchmark(self, workload):
-        # TODO: support custom benchmarking config files!
-        if self._memgraph_version >= (0, 50, 0):
-            self._start(storage_recover_on_startup=True)
-        else:
-            self._start(db_recover_on_startup=True)
+        if self.performance_tracking:
+            p = threading.Thread(target=self.res_background_tracking, args=(self._rss, self._stop_event))
+            self._stop_event.clear()
+            self._rss.clear()
+            p.start()
+        self._start(storage_recover_on_startup=True)
+
+    def res_background_tracking(self, res, stop_event):
+        print("Started rss tracking.")
+        while not stop_event.is_set():
+            if self._proc_mg != None:
+                self._rss.append(_get_current_usage(self._proc_mg.pid))
+            time.sleep(0.05)
+        print("Stopped rss tracking. ")
+
+    def dump_rss(self, workload):
+        file_name = workload + "_rss"
+        Path.mkdir(Path().cwd() / "memgraph_memory", exist_ok=True)
+        file = Path(Path().cwd() / "memgraph_memory" / file_name)
+        file.touch()
+        with file.open("r+") as f:
+            for rss in self._rss:
+                f.write(str(rss))
+                f.write("\n")
+            f.close()
 
     def stop(self, workload):
+        if self.performance_tracking:
+            self._stop_event.set()
+            self.dump_rss(workload)
         ret, usage = self._cleanup()
         assert ret == 0, "The database process exited with a non-zero " "status ({})!".format(ret)
         return usage
 
 
 class Neo4j:
-    def __init__(self, neo4j_path, temporary_dir, bolt_port, memory_usage):
+    def __init__(self, neo4j_path, temporary_dir, bolt_port, performance_tracking):
         self._neo4j_path = Path(neo4j_path)
         self._neo4j_binary = Path(neo4j_path) / "bin" / "neo4j"
         self._neo4j_config = Path(neo4j_path) / "conf" / "neo4j.conf"
         self._neo4j_pid = Path(neo4j_path) / "run" / "neo4j.pid"
         self._neo4j_admin = Path(neo4j_path) / "bin" / "neo4j-admin"
-        self.track_memory = memory_usage
+        self.performance_tracking = performance_tracking
         self._stop_event = threading.Event()
         self._rss = []
 
@@ -152,10 +179,28 @@ class Neo4j:
         self._bolt_port = bolt_port
         atexit.register(self._cleanup)
         configs = []
-        if self.track_memory:
-            configs.append("server.jvm.additional=-XX:NativeMemoryTracking=detail")
+        memory_flag = "server.jvm.additional=-XX:NativeMemoryTracking=detail"
+        auth_flag = "dbms.security.auth_enabled=false"
 
-        configs.append("dbms.security.auth_enabled=false")
+        if self.performance_tracking:
+            configs.append(memory_flag)
+        else:
+            lines = []
+            with self._neo4j_config.open("r") as file:
+                lines = file.readlines()
+                file.close()
+
+            for i in range(0, len(lines)):
+                if lines[i].strip("\n") == memory_flag:
+                    print("Clear up config flag:  " + memory_flag)
+                    lines[i] = "\n"
+                    print(lines[i])
+
+            with self._neo4j_config.open("w") as file:
+                file.writelines(lines)
+                file.close()
+
+        configs.append(auth_flag)
         print("Check neo4j config flags:")
         for conf in configs:
             with self._neo4j_config.open("r+") as file:
@@ -203,8 +248,8 @@ class Neo4j:
             return 0
 
     def start_preparation(self, workload):
-        if self.track_memory:
-            p = threading.Thread(target=self.background_tracking, args=(self._rss, self._stop_event))
+        if self.performance_tracking:
+            p = threading.Thread(target=self.res_background_tracking, args=(self._rss, self._stop_event))
             self._stop_event.clear()
             self._rss.clear()
             p.start()
@@ -212,19 +257,19 @@ class Neo4j:
         # Start DB
         self._start()
 
-        if self.track_memory:
+        if self.performance_tracking:
             self.get_memory_usage("start_" + workload)
 
     def start_benchmark(self, workload):
-        if self.track_memory:
-            p = threading.Thread(target=self.background_tracking, args=(self._rss, self._stop_event))
+        if self.performance_tracking:
+            p = threading.Thread(target=self.res_background_tracking, args=(self._rss, self._stop_event))
             self._stop_event.clear()
             self._rss.clear()
             p.start()
         # Start DB
         self._start()
 
-        if self.track_memory:
+        if self.performance_tracking:
             self.get_memory_usage("start_" + workload)
 
     def dump_db(self, path):
@@ -262,7 +307,7 @@ class Neo4j:
                 check=True,
             )
 
-    def background_tracking(self, res, stop_event):
+    def res_background_tracking(self, res, stop_event):
         print("Started rss tracking.")
         while not stop_event.is_set():
             if self._neo4j_pid.exists():
@@ -280,7 +325,7 @@ class Neo4j:
             return True
 
     def stop(self, workload):
-        if self.track_memory:
+        if self.performance_tracking:
             self._stop_event.set()
             self.get_memory_usage("stop_" + workload)
             self.dump_rss(workload)
