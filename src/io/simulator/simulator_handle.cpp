@@ -118,7 +118,8 @@ bool SimulatorHandle::MaybeTickSimulator() {
   if (cluster_wide_time_microseconds_ >= config_.abort_time) {
     spdlog::error(
         "Cluster has executed beyond its configured abort_time, and something may be failing to make progress "
-        "in an expected amount of time.");
+        "in an expected amount of time. The SimulatorConfig.rng_seed for this run is {}",
+        config_.rng_seed);
     throw utils::BasicException{"Cluster has executed beyond its configured abort_time"};
   }
 
