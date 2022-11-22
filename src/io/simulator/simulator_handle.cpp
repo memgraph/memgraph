@@ -101,6 +101,7 @@ bool SimulatorHandle::MaybeTickSimulator() {
 
   const Duration clock_advance = std::chrono::microseconds{time_distrib_(rng_)};
   cluster_wide_time_microseconds_ += clock_advance;
+  stats_.elapsed_time = cluster_wide_time_microseconds_ - config_.start_time;
 
   spdlog::info("simulator progressing: clock advanced by {}", clock_advance.count());
 
