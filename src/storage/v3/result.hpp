@@ -37,6 +37,8 @@ struct ShardError {
   std::string source;
 
   inline friend bool operator==(const ShardError &lhs, const ShardError &rhs) { return lhs.code == rhs.code; }
+
+  inline friend bool operator==(const ShardError &lhs, const common::ErrorCode rhs) { return lhs.code == rhs; }
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)

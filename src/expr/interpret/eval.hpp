@@ -407,7 +407,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
             typename TReturnType = std::enable_if_t<std::is_same_v<TTag, StorageTag>, bool>>
   TReturnType HasLabelImpl(const VertexAccessor &vertex, const LabelIx &label, StorageTag /*tag*/) {
     auto has_label = vertex.HasLabel(view_, GetLabel(label));
-    if (has_label.HasError() && has_label.GetError().code == Error::NONEXISTENT_OBJECT) {
+    if (has_label.HasError() && has_label.GetError() == Error::NONEXISTENT_OBJECT) {
       // This is a very nasty and temporary hack in order to make MERGE
       // work. The old storage had the following logic when returning an
       // `OLD` view: `return old ? old : new`. That means that if the
@@ -746,7 +746,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
             class TReturnType = std::enable_if_t<std::is_same_v<TTag, StorageTag>, TypedValue>>
   TypedValue GetProperty(const TRecordAccessor &record_accessor, PropertyIx prop) {
     auto maybe_prop = record_accessor.GetProperty(view_, ctx_->properties[prop.ix]);
-    if (maybe_prop.HasError() && maybe_prop.GetError().code == Error::NONEXISTENT_OBJECT) {
+    if (maybe_prop.HasError() && maybe_prop.GetError() == Error::NONEXISTENT_OBJECT) {
       // This is a very nasty and temporary hack in order to make MERGE work.
       // The old storage had the following logic when returning an `OLD` view:
       // `return old ? old : new`. That means that if the `OLD` view didn't
@@ -765,7 +765,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
             class TReturnType = std::enable_if_t<std::is_same_v<TTag, StorageTag>, TypedValue>>
   TypedValue GetProperty(const TRecordAccessor &record_accessor, const std::string_view name) {
     auto maybe_prop = record_accessor.GetProperty(view_, dba_->NameToProperty(name));
-    if (maybe_prop.HasError() && maybe_prop.GetError().code == Error::NONEXISTENT_OBJECT) {
+    if (maybe_prop.HasError() && maybe_prop.GetError() == Error::NONEXISTENT_OBJECT) {
       // This is a very nasty and temporary hack in order to make MERGE work.
       // The old storage had the following logic when returning an `OLD` view:
       // `return old ? old : new`. That means that if the `OLD` view didn't

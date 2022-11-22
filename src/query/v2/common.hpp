@@ -81,19 +81,5 @@ inline void ExpectType(const Symbol &symbol, const TypedValue &value, TypedValue
     throw QueryRuntimeException("Expected a {} for '{}', but got {}.", expected, symbol.name(), value.type());
 }
 
-template <typename T>
-concept AccessorWithSetProperty = requires(T accessor, const storage::v3::PropertyId key,
-                                           const storage::v3::PropertyValue new_value) {
-  { accessor.SetProperty(key, new_value) } -> std::same_as<storage::v3::ShardResult<storage::v3::PropertyValue>>;
-};
-
-template <typename T>
-concept AccessorWithSetPropertyAndValidate = requires(T accessor, const storage::v3::PropertyId key,
-                                                      const storage::v3::PropertyValue new_value) {
-  {
-    accessor.SetPropertyAndValidate(key, new_value)
-    } -> std::same_as<storage::v3::ShardResult<storage::v3::PropertyValue>>;
-};
-
 int64_t QueryTimestamp();
 }  // namespace memgraph::query::v2

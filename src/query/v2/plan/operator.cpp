@@ -816,45 +816,9 @@ std::vector<Symbol> SetProperties::ModifiedSymbols(const SymbolTable &table) con
 SetProperties::SetPropertiesCursor::SetPropertiesCursor(const SetProperties &self, utils::MemoryResource *mem)
     : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
 
-namespace {
-
-template <typename T>
-concept AccessorWithProperties = requires(T value, storage::v3::PropertyId property_id,
-                                          storage::v3::PropertyValue property_value) {
-  {
-    value.ClearProperties()
-    } -> std::same_as<storage::v3::ShardResult<std::map<storage::v3::PropertyId, storage::v3::PropertyValue>>>;
-  {value.SetProperty(property_id, property_value)};
-};
-
-}  // namespace
-
 bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("SetProperties");
   return false;
-  //  if (!input_cursor_->Pull(frame, context)) return false;
-  //
-  //  TypedValue &lhs = frame[self_.input_symbol_];
-  //
-  //  // Set, just like Create needs to see the latest changes.
-  //  ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-  //                                storage::v3::View::NEW);
-  //  TypedValue rhs = self_.rhs_->Accept(evaluator);
-  //
-  //  switch (lhs.type()) {
-  //    case TypedValue::Type::Vertex:
-  //      SetPropertiesOnRecord(&lhs.ValueVertex(), rhs, self_.op_, &context);
-  //      break;
-  //    case TypedValue::Type::Edge:
-  //      SetPropertiesOnRecord(&lhs.ValueEdge(), rhs, self_.op_, &context);
-  //      break;
-  //    case TypedValue::Type::Null:
-  //      // Skip setting properties on Null (can occur in optional match).
-  //      break;
-  //    default:
-  //      throw QueryRuntimeException("Properties can only be set on edges and vertices.");
-  //  }
-  //  return true;
 }
 
 void SetProperties::SetPropertiesCursor::Shutdown() { input_cursor_->Shutdown(); }
