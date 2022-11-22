@@ -531,7 +531,8 @@ void AttemptToExpandOneWithWrongEdgeType(ShardClient &client, uint64_t src_verte
   std::optional<std::vector<PropertyId>> edge_properties = {};
 
   std::vector<std::string> expressions;
-  std::vector<msgs::OrderBy> order_by = {};
+  std::vector<msgs::OrderBy> order_by_vertices = {};
+  std::vector<msgs::OrderBy> order_by_edges = {};
   std::optional<size_t> limit = {};
   std::vector<std::string> filter = {};
 
@@ -543,7 +544,8 @@ void AttemptToExpandOneWithWrongEdgeType(ShardClient &client, uint64_t src_verte
   expand_one_req.vertex_expressions = expressions;
   expand_one_req.filters = filter;
   expand_one_req.limit = limit;
-  expand_one_req.order_by = order_by;
+  expand_one_req.order_by_vertices = order_by_vertices;
+  expand_one_req.order_by_edges = order_by_edges;
   expand_one_req.src_vertex_properties = src_vertex_properties;
   expand_one_req.src_vertices = {src_vertex};
   expand_one_req.transaction_id.logical_id = GetTransactionId();
@@ -586,7 +588,8 @@ void AttemptToExpandOneSimple(ShardClient &client, uint64_t src_vertex_val, Edge
   std::optional<std::vector<PropertyId>> edge_properties = {};
 
   std::vector<std::string> expressions;
-  std::vector<msgs::OrderBy> order_by = {};
+  std::vector<msgs::OrderBy> order_by_vertices = {};
+  std::vector<msgs::OrderBy> order_by_edges = {};
   std::optional<size_t> limit = {};
   std::vector<std::string> filter = {};
 
@@ -598,7 +601,8 @@ void AttemptToExpandOneSimple(ShardClient &client, uint64_t src_vertex_val, Edge
   expand_one_req.vertex_expressions = expressions;
   expand_one_req.filters = filter;
   expand_one_req.limit = limit;
-  expand_one_req.order_by = order_by;
+  expand_one_req.order_by_vertices = order_by_vertices;
+  expand_one_req.order_by_edges = order_by_edges;
   expand_one_req.src_vertex_properties = src_vertex_properties;
   expand_one_req.src_vertices = {src_vertex};
   expand_one_req.transaction_id.logical_id = GetTransactionId();
@@ -642,7 +646,8 @@ void AttemptToExpandOneWithUniqueEdges(ShardClient &client, uint64_t src_vertex_
   std::optional<std::vector<PropertyId>> edge_properties = {};
 
   std::vector<std::string> expressions;
-  std::vector<msgs::OrderBy> order_by = {};
+  std::vector<msgs::OrderBy> order_by_vertices = {};
+  std::vector<msgs::OrderBy> order_by_edges = {};
   std::optional<size_t> limit = {};
   std::vector<std::string> filter = {};
 
@@ -654,7 +659,8 @@ void AttemptToExpandOneWithUniqueEdges(ShardClient &client, uint64_t src_vertex_
   expand_one_req.vertex_expressions = expressions;
   expand_one_req.filters = filter;
   expand_one_req.limit = limit;
-  expand_one_req.order_by = order_by;
+  expand_one_req.order_by_vertices = order_by_vertices;
+  expand_one_req.order_by_edges = order_by_edges;
   expand_one_req.src_vertex_properties = src_vertex_properties;
   expand_one_req.src_vertices = {src_vertex};
   expand_one_req.only_unique_neighbor_rows = true;
@@ -700,9 +706,11 @@ void AttemptToExpandOneLimitAndOrderBy(ShardClient &client, uint64_t src_vertex_
   // Edge properties to look for
   std::optional<std::vector<PropertyId>> edge_properties = {};
 
-  std::vector<msgs::OrderBy> order_by = {
-      {msgs::Expression{"MG_SYMBOL_NODE.prop1"}, msgs::OrderingDirection::ASCENDING},
+  std::vector<msgs::OrderBy> order_by_vertices = {
+      {msgs::Expression{"MG_SYMBOL_NODE.prop1"}, msgs::OrderingDirection::ASCENDING}};
+  std::vector<msgs::OrderBy> order_by_edges = {
       {msgs::Expression{"MG_SYMBOL_EDGE.prop4"}, msgs::OrderingDirection::DESCENDING}};
+
   size_t limit = 1;
   std::vector<std::string> filters = {"MG_SYMBOL_NODE.prop1 != -1"};
 
@@ -713,7 +721,8 @@ void AttemptToExpandOneLimitAndOrderBy(ShardClient &client, uint64_t src_vertex_
   expand_one_req.edge_types = {edge_type};
   expand_one_req.filters = filters;
   expand_one_req.limit = limit;
-  expand_one_req.order_by = order_by;
+  expand_one_req.order_by_vertices = order_by_vertices;
+  expand_one_req.order_by_edges = order_by_edges;
   expand_one_req.src_vertex_properties = src_vertex_properties;
   expand_one_req.src_vertices = {src_vertex, other_src_vertex};
   expand_one_req.transaction_id.logical_id = GetTransactionId();
@@ -780,7 +789,8 @@ void AttemptToExpandOneWithSpecifiedSrcVertexProperties(ShardClient &client, uin
   std::optional<std::vector<PropertyId>> edge_properties = {};
 
   std::vector<std::string> expressions;
-  std::vector<msgs::OrderBy> order_by = {};
+  std::vector<msgs::OrderBy> order_by_vertices = {};
+  std::vector<msgs::OrderBy> order_by_edges = {};
   std::optional<size_t> limit = {};
   std::vector<std::string> filter = {};
 
@@ -792,7 +802,8 @@ void AttemptToExpandOneWithSpecifiedSrcVertexProperties(ShardClient &client, uin
   expand_one_req.vertex_expressions = expressions;
   expand_one_req.filters = filter;
   expand_one_req.limit = limit;
-  expand_one_req.order_by = order_by;
+  expand_one_req.order_by_vertices = order_by_vertices;
+  expand_one_req.order_by_edges = order_by_edges;
   expand_one_req.src_vertex_properties = src_vertex_properties;
   expand_one_req.src_vertices = {src_vertex};
   expand_one_req.transaction_id.logical_id = GetTransactionId();
@@ -840,7 +851,8 @@ void AttemptToExpandOneWithSpecifiedEdgeProperties(ShardClient &client, uint64_t
   std::optional<std::vector<PropertyId>> edge_properties = {specified_edge_prop};
 
   std::vector<std::string> expressions;
-  std::vector<msgs::OrderBy> order_by = {};
+  std::vector<msgs::OrderBy> order_by_vertices = {};
+  std::vector<msgs::OrderBy> order_by_edges = {};
   std::optional<size_t> limit = {};
   std::vector<std::string> filter = {};
 
@@ -852,7 +864,8 @@ void AttemptToExpandOneWithSpecifiedEdgeProperties(ShardClient &client, uint64_t
   expand_one_req.vertex_expressions = expressions;
   expand_one_req.filters = filter;
   expand_one_req.limit = limit;
-  expand_one_req.order_by = order_by;
+  expand_one_req.order_by_vertices = order_by_vertices;
+  expand_one_req.order_by_edges = order_by_edges;
   expand_one_req.src_vertex_properties = src_vertex_properties;
   expand_one_req.src_vertices = {src_vertex};
   expand_one_req.transaction_id.logical_id = GetTransactionId();
@@ -899,7 +912,8 @@ void AttemptToExpandOneWithFilters(ShardClient &client, uint64_t src_vertex_val,
   std::optional<std::vector<PropertyId>> edge_properties = {};
 
   std::vector<std::string> expressions;
-  std::vector<msgs::OrderBy> order_by = {};
+  std::vector<msgs::OrderBy> order_by_vertices = {};
+  std::vector<msgs::OrderBy> order_by_edges = {};
   std::optional<size_t> limit = {};
   std::vector<std::string> filter = {};
 
@@ -911,7 +925,8 @@ void AttemptToExpandOneWithFilters(ShardClient &client, uint64_t src_vertex_val,
   expand_one_req.vertex_expressions = expressions;
   expand_one_req.filters = {filter_expr1};
   expand_one_req.limit = limit;
-  expand_one_req.order_by = order_by;
+  expand_one_req.order_by_vertices = order_by_vertices;
+  expand_one_req.order_by_edges = order_by_edges;
   expand_one_req.src_vertex_properties = src_vertex_properties;
   expand_one_req.src_vertices = {src_vertex};
   expand_one_req.transaction_id.logical_id = GetTransactionId();

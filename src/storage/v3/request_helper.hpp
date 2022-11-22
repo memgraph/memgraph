@@ -122,33 +122,27 @@ concept VerticesIt = utils::SameAsAnyOf<T, VerticesIterable, std::vector<VertexA
 
 template <VerticesIt TIterable>
 std::vector<Element<VertexAccessor>> OrderByVertices(DbAccessor &dba, TIterable &iterable,
-                                                     std::vector<msgs::OrderBy> &original_order_bys) {
-  auto order_bys = original_order_bys;
-  auto it_to_remove = std::remove_if(order_bys.begin(), order_bys.end(), [](const auto &order_by) {
-    // We only want to keep OrderBys not impliying edges-ordering
-    return std::string::npos != order_by.expression.expression.find(expr::identifier_edge_symbol);
-  });
-  order_bys.erase(it_to_remove, order_bys.end());
-
+                                                     std::vector<msgs::OrderBy> &order_by_vertices) {
   std::vector<Ordering> ordering;
-  ordering.reserve(order_bys.size());
-  std::transform(order_bys.begin(), order_bys.end(), std::back_inserter(ordering), [](const auto &order_by) {
-    switch (order_by.direction) {
-      case memgraph::msgs::OrderingDirection::ASCENDING:
-        return Ordering::ASC;
-      case memgraph::msgs::OrderingDirection::DESCENDING:
-        return Ordering::DESC;
-      default:
-        LOG_FATAL("Unknown ordering direction");
-    }
-  });
+  ordering.reserve(order_by_vertices.size());
+  std::transform(order_by_vertices.begin(), order_by_vertices.end(), std::back_inserter(ordering),
+                 [](const auto &order_by) {
+                   switch (order_by.direction) {
+                     case memgraph::msgs::OrderingDirection::ASCENDING:
+                       return Ordering::ASC;
+                     case memgraph::msgs::OrderingDirection::DESCENDING:
+                       return Ordering::DESC;
+                     default:
+                       LOG_FATAL("Unknown ordering direction");
+                   }
+                 });
 
   std::vector<Element<VertexAccessor>> ordered;
   for (auto it = iterable.begin(); it != iterable.end(); ++it) {
     std::vector<TypedValue> properties_order_by;
-    properties_order_by.reserve(order_bys.size());
+    properties_order_by.reserve(order_by_vertices.size());
 
-    std::transform(order_bys.begin(), order_bys.end(), std::back_inserter(properties_order_by),
+    std::transform(order_by_vertices.begin(), order_by_vertices.end(), std::back_inserter(properties_order_by),
                    [&dba, &it](const auto &order_by) {
                      return ComputeExpression(dba, *it, std::nullopt /*e_acc*/, order_by.expression.expression,
                                               expr::identifier_node_symbol, expr::identifier_edge_symbol);

@@ -506,10 +506,10 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
     vertex_accessors.emplace_back(src_vertex_acc_opt.value());
   }
 
-  if (!req.order_by.empty()) {
+  if (!req.order_by_vertices.empty()) {
     // Can we do differently to avoid this? We need OrderByElements but currently it returns vector<Element>, so this
     // workaround is here to avoid more duplication later
-    auto local_sorted_vertices = OrderByVertices(dba, vertex_accessors, req.order_by);
+    auto local_sorted_vertices = OrderByVertices(dba, vertex_accessors, req.order_by_vertices);
     vertex_accessors.clear();
     std::transform(local_sorted_vertices.begin(), local_sorted_vertices.end(), std::back_inserter(vertex_accessors),
                    [](auto &vertex) { return vertex.object_acc; });
@@ -532,7 +532,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
 
     std::optional<msgs::ExpandOneResultRow> maybe_result;
 
-    if (req.order_by.empty()) {
+    if (req.order_by_vertices.empty()) {
       const auto *schema = shard_->GetSchema(shard_->PrimaryLabel());
       MG_ASSERT(schema);
       maybe_result =
@@ -540,8 +540,8 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
 
     } else {
       auto [in_edge_accessors, out_edge_accessors] = GetEdgesFromVertex(src_vertex_acc, req.direction);
-      const auto in_ordered_edges = OrderByEdges(dba, in_edge_accessors, req.order_by, src_vertex_acc);
-      const auto out_ordered_edges = OrderByEdges(dba, out_edge_accessors, req.order_by, src_vertex_acc);
+      const auto in_ordered_edges = OrderByEdges(dba, in_edge_accessors, req.order_by_edges, src_vertex_acc);
+      const auto out_ordered_edges = OrderByEdges(dba, out_edge_accessors, req.order_by_edges, src_vertex_acc);
 
       std::vector<EdgeAccessor> in_edge_ordered_accessors;
       std::transform(in_ordered_edges.begin(), in_ordered_edges.end(), std::back_inserter(in_edge_ordered_accessors),

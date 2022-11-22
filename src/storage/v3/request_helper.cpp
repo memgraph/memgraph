@@ -495,11 +495,11 @@ std::array<std::vector<EdgeAccessor>, 2> GetEdgesFromVertex(const VertexAccessor
 }
 
 std::vector<Element<EdgeAccessor>> OrderByEdges(DbAccessor &dba, std::vector<EdgeAccessor> &iterable,
-                                                std::vector<msgs::OrderBy> &order_bys,
+                                                std::vector<msgs::OrderBy> &order_by_edges,
                                                 const VertexAccessor &vertex_acc) {
   std::vector<Ordering> ordering;
-  ordering.reserve(order_bys.size());
-  std::transform(order_bys.begin(), order_bys.end(), std::back_inserter(ordering), [](const auto &order_by) {
+  ordering.reserve(order_by_edges.size());
+  std::transform(order_by_edges.begin(), order_by_edges.end(), std::back_inserter(ordering), [](const auto &order_by) {
     if (memgraph::msgs::OrderingDirection::ASCENDING == order_by.direction) {
       return Ordering::ASC;
     }
@@ -510,8 +510,8 @@ std::vector<Element<EdgeAccessor>> OrderByEdges(DbAccessor &dba, std::vector<Edg
   std::vector<Element<EdgeAccessor>> ordered;
   for (auto it = iterable.begin(); it != iterable.end(); ++it) {
     std::vector<TypedValue> properties_order_by;
-    properties_order_by.reserve(order_bys.size());
-    std::transform(order_bys.begin(), order_bys.end(), std::back_inserter(properties_order_by),
+    properties_order_by.reserve(order_by_edges.size());
+    std::transform(order_by_edges.begin(), order_by_edges.end(), std::back_inserter(properties_order_by),
                    [&dba, &vertex_acc, &it](const auto &order_by) {
                      return ComputeExpression(dba, vertex_acc, *it, order_by.expression.expression,
                                               expr::identifier_node_symbol, expr::identifier_edge_symbol);
