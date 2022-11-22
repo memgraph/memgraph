@@ -13,7 +13,7 @@
 
 #include <vector>
 
-#include "ast/ast.hpp"
+#include "storage/v3/bindings/ast/ast.hpp"
 #include "query/v2/requests.hpp"
 #include "storage/v3/bindings/pretty_print_ast_to_original_expression.hpp"
 #include "storage/v3/bindings/typed_value.hpp"
