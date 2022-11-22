@@ -250,7 +250,7 @@ void RunWithSeed(uint64_t seed) {
       .scramble_messages = true,
       .rng_seed = seed,
       .start_time = Time::min() + std::chrono::microseconds{256 * 1024},
-      .abort_time = Time::max(),
+      .abort_time = Time::min() + std::chrono::seconds{3600},
   };
 
   spdlog::error("========================== NEW SIMULATION, replay with RunWithSeed({}) ==========================",
