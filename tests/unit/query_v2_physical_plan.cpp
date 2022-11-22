@@ -21,10 +21,9 @@
 
 namespace memgraph::query::v2::tests {
 
-class PhysicalPlanTest : public ::testing::Test {
+class MultiframePoolFixture : public ::testing::Test {
  protected:
   void SetUp() override {}
-
   void TearDown() override {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     thread_pool_.Shutdown();
@@ -34,7 +33,13 @@ class PhysicalPlanTest : public ::testing::Test {
   utils::ThreadPool thread_pool_{16};
 };
 
-TEST_F(PhysicalPlanTest, MultiframePool) {
+class PhysicalPlanFixture : public ::testing::Test {
+ protected:
+  void SetUp() override {}
+  void TearDown() override {}
+};
+
+TEST_F(MultiframePoolFixture, ConcurrentMultiframePoolAccess) {
   std::atomic<int> readers_got_access_cnt;
   std::atomic<int> writers_got_access_cnt;
   utils::Timer timer;
@@ -74,6 +79,10 @@ TEST_F(PhysicalPlanTest, MultiframePool) {
 
   ASSERT_EQ(readers_got_access_cnt.load(), 1000000);
   ASSERT_EQ(writers_got_access_cnt.load(), 1000000);
+}
+
+TEST_F(PhysicalPlanFixture, PropertyBasedPhysicalPlan) {
+  // TODO(gitbuda): Implement proper single threaded and multithreaded physical plan test.
 }
 
 }  // namespace memgraph::query::v2::tests

@@ -77,7 +77,16 @@ class PhysicalOperator {
   ////// DATA POOL HANDLING
   /// Get/Push data from/to surrounding operators.
   /// if nullopt -> there is nothing more to read or write.
+  ///
+  /// TODO(gitbuda): Calling NextReads on a single thread -> while(forever)!
   std::optional<multiframe::Token> NextRead() {
+    // 2 MAIN CONCERNS:
+    //   * No more data  -> the writer hinted there is no more data
+    //                      read first to check if there is more data and return
+    //                      check for exhaustion because the reader will mark exhausted  when there is no more data +
+    //                      writer hint is set
+    //   * No more space -> the writer is too slow -> wait for a moment
+    std::cout << "PO: NextRead call" << std::endl;
     while (true) {
       auto token = data_pool_->GetFull();
       if (token) {
@@ -85,12 +94,13 @@ class PhysicalOperator {
       }
       // First try to read a multiframe because there might be some full frames
       // even if the whole pool is marked as exhaused. In case we come to this
-      // point and the pool is exhaused ther is no more data for sure.
+      // point and the pool is exhausted there is no more data for sure.
       if (data_pool_->IsExhausted()) {
         return std::nullopt;
       }
+      std::cout << "PO: NextRead call while true" << std::endl;
       // TODO(gitbuda): Replace with exponential backoff or something similar.
-      std::this_thread::sleep_for(std::chrono::microseconds(10));
+      std::this_thread::sleep_for(std::chrono::microseconds(1000000));
     }
   }
   void PassBackRead(const multiframe::Token &token) { data_pool_->ReturnEmpty(token.id); }
@@ -149,6 +159,17 @@ class PhysicalOperator {
   /// TODO(gitbuda): Create Emit which is suitable to be used in the concurrent environment.
   template <typename TTuple>
   void EmitWhere(const multiframe::Token &where, const TTuple &what) {}
+
+  bool IsWriterDone() const { return data_pool_->IsWriterDone(); }
+  /// TODO(gitbuda): Consider renaming this to MarkJobDone because the point is
+  /// just to hint there will be no more data but from the caller perspective
+  /// there is nothing more to do.
+  /// TODO(gitbuda): Consider blending CloseEmit and MarkJobDone into a single
+  /// RAII object.
+  ///
+  void MarkWriterDone() { data_pool_->MarkWriterDone(); }
+  bool IsExhausted() const { return data_pool_->IsExhausted(); }
+  void MarkExhausted() { data_pool_->MarkExhausted(); }
   ////// DATA POOL HANDLING
 
   /// Reset state.
@@ -174,18 +195,31 @@ class PhysicalOperator {
     }
   }
 
-  void SingleThreadExaust(std::function<void(const multiframe::Multiframe &multiframe)> fun) {
+  /// This method is iterating over all multiframes from a single input and
+  /// process them serially. This method is reading all from the input (from
+  /// the input data pool). The injected function (fun) will write data to the
+  /// data pool of this operator.
+  ///
+  void SingleChildSingleThreadExaust(std::function<void(multiframe::Multiframe &multiframe)> fun) {
+    // The logic here is tricky because you have to think about both reader and writer.
     auto *input = children_[0].get();
     while (true) {
       auto read_token = input->NextRead();
-      if (read_token) {
-        fun(*(read_token->multiframe));
-      } else {
-        // TODO(gitbuda): Test  below Execute logic is wrong, reconsider.
-        data_pool_->MarkExhausted();
+      // If empty and the writer has finished his job -> mark exhaustion
+      if (!read_token && input->IsWriterDone()) {
+        input->MarkExhausted();
       }
-      if (data_pool_->IsExhausted()) {
+      // If empty and marked as exhausted -> STOP
+      if (!read_token && input->IsExhausted()) {
         break;
+      }
+      if (read_token) {
+        std::cout << "SA: I have a token to read" << std::endl;
+        fun(*(read_token->multiframe));
+        input->PassBackRead(*read_token);
+        std::cout << "SA: I've passed the read token back" << std::endl;
+      } else {
+        std::cout << "SA: I don't have a token to read" << std::endl;
       }
     }
   }
@@ -200,8 +234,8 @@ class OncePhysicalOperator final : public PhysicalOperator {
     MG_ASSERT(children_.empty(), "Once should have 0 inputs");
     std::cout << name_ << std::endl;
     PhysicalOperator::BaseExecute(ctx);
-    this->Emit(Frame{}, false);
-    data_pool_->MarkExhausted();
+    Emit(Frame{}, false);
+    MarkWriterDone();
   }
 };
 
@@ -229,16 +263,21 @@ class ScanAllPhysicalOperator final : public PhysicalOperator {
     // TODO(gitbuda): It should be possible to parallelize the below ScanAll
     // because the underlying data pool provides all needed to manage the
     // result data.
-    SingleThreadExaust([this](const multiframe::Multiframe &multiframe) {
-      // TODO(gitbuda): Replace frame w/ multiframe.
-      for (const auto &frame : multiframe.Data()) {
-        for (const auto &new_frame : data_fun_(Evaluate(frame))) {
-          Emit(new_frame);
-        }
+    SingleChildSingleThreadExaust([this, &ctx](multiframe::Multiframe &multiframe) {
+      // for (auto &batch : data_fun_(multiframe, ctx)) {
+      //    for (auto &vertex : batch) {
+      //     // PROBLEM/TODO(gitbuda): Emit is designed to accept the full Frame,
+      //     // while we only need to add single variable into the frame.
+      //     // BUT we also need the entire "input" frame to pass it forward
+      //   }
+      // }
+      for (const auto &new_frame : data_fun_(multiframe, ctx)) {
+        Emit(new_frame);
       }
       // Since Emit in the for loops hasn't passed has_more=false,
       // TODO(gitbuda): Rename CloseEmit to something better.
       CloseEmit();
+      MarkWriterDone();
     });
   }
 
@@ -258,10 +297,11 @@ class ProducePhysicalOperator final : public PhysicalOperator {
     std::cout << name_ << std::endl;
     MG_ASSERT(children_.size() == 1, "ScanAll should have exactly 1 input");
     PhysicalOperator::BaseExecute(ctx);
-    SingleThreadExaust([](const multiframe::Multiframe &multiframe) {
+    SingleChildSingleThreadExaust([this](multiframe::Multiframe &multiframe) {
       for (const auto &frame : multiframe.Data()) {
         std::cout << "Produce: " << frame.a << std::endl;
       }
+      MarkWriterDone();
     });
   }
 };
@@ -317,10 +357,15 @@ class PhysicalPlanGenerator final : public HierarchicalLogicalOperatorVisitor {
     //   * TODO(gitbuda): Add output_symbol to the PhysicalOperators
     //
     // TODO(gitbuda): What would be a nice interface for ScanAll::Fetch function?
+    //   * For each Multiframe there will be an Iterator<Batch>
+    //     -> 1 data_fun call for each Multiframe
+    //       -> parallelization possible by calling data_fun from multiple threads
     //
-    auto data_fun = [](Frame frame) {
+    auto data_fun = [](multiframe::Multiframe &multiframe, ExecutionContext &context) {
       std::vector<Frame> frames;
-      frames.push_back(frame);
+      for (auto &frame : multiframe.Data()) {
+        frames.push_back(frame);
+      }
       return frames;
     };
     auto pop = std::make_shared<ScanAllPhysicalOperator<decltype(data_fun)>>(

@@ -123,6 +123,7 @@ enum class Order {
 enum class PoolState {
   EMPTY,
   HAS_MORE,
+  HINT_WRITER_DONE,
   EXHAUSTED,
 };
 
@@ -166,7 +167,6 @@ class MPMCMultiframeFCFSPool {
   /// if nullopt -> useful multiframe is not available.
   /// The below implementation should be a correct but probably suboptimal
   /// implementation of MPMC mode with FCFS ordering of multiframes.
-  ///
   std::optional<multiframe::Token> GetFull() {
     std::unique_lock lock{mutex};
     int64_t min_full = std::numeric_limits<int64_t>::max();
@@ -181,13 +181,14 @@ class MPMCMultiframeFCFSPool {
     }
 
     if (state == MultiframeState::FULL) {
-      // we have to wait for the next multiframe by order, client has to retry
+      // We have to wait for the next multiframe by order, client has to retry
       if (last_taken_priority_ + 1 != min_full) {
         return std::nullopt;
       }
       last_taken_priority_ = min_full;
       priority_states_[index].state = MultiframeState::IN_USE;
-      // TODO(gitbuda): An issue is that sometime out of order frame gets full first
+      // An issue is that sometime out of order multiframe gets full first,
+      // this is just a check to make sure returned multiframes are in order.
       MG_ASSERT(min_full > order_check_, "has to grow monotonic");
       order_check_ = min_full;
       return multiframe::Token{.id = static_cast<int>(index), .multiframe = &frames_.at(index)};
@@ -228,6 +229,17 @@ class MPMCMultiframeFCFSPool {
     MG_ASSERT(priority_states_[id].state == MultiframeState::IN_USE, "should be in use");
     priority_states_[id].state = MultiframeState::FULL;
   }
+
+  void MarkWriterDone() {
+    std::unique_lock lock{mutex};
+    pool_state_ = PoolState::HINT_WRITER_DONE;
+    ;
+  }
+  bool IsWriterDone() {
+    std::unique_lock lock{mutex};
+    return pool_state_ == PoolState::HINT_WRITER_DONE;
+  }
+
   // NOTE: There is a difference between exhaustion of a Multiframe and the entire pool.
   void MarkExhausted() {
     std::unique_lock lock{mutex};
@@ -236,7 +248,6 @@ class MPMCMultiframeFCFSPool {
     //       }));
     pool_state_ = PoolState::EXHAUSTED;
   }
-
   bool IsExhausted() {
     std::unique_lock lock{mutex};
     return pool_state_ == PoolState::EXHAUSTED;
