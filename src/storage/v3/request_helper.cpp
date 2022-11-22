@@ -27,7 +27,6 @@ using conversions::FromPropertyValueToValue;
 using conversions::ToMsgsVertexId;
 
 namespace {
-namespace msgs = msgs;
 
 using AllEdgePropertyDataSructure = std::map<PropertyId, msgs::Value>;
 using SpecificEdgePropertyDataSructure = std::vector<msgs::Value>;
