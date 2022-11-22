@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cstdint>
+#include <experimental/source_location>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -24,10 +25,11 @@ namespace memgraph::storage::v3 {
 static_assert(std::is_same_v<uint8_t, unsigned char>);
 
 struct ShardError {
-  ShardError(common::ErrorCode code, std::string message, std::string source)
-      : code{code}, message{std::move(message)}, source{std::move(source)} {}
+  ShardError(common::ErrorCode code, std::string message, const std::experimental::source_location location)
+      : code{code}, message{std::move(message)}, source{fmt::format("{}:{}", location.file_name(), location.line())} {}
 
-  ShardError(common::ErrorCode code, std::string source) : code{code}, source{std::move(source)} {}
+  ShardError(common::ErrorCode code, const std::experimental::source_location location)
+      : code{code}, source{fmt::format("{}:{}", location.file_name(), location.line())} {}
 
   common::ErrorCode code;
   // TODO Maybe add category
@@ -38,7 +40,7 @@ struct ShardError {
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define SHARD_ERROR(...) memgraph::storage::v3::ShardError(__VA_ARGS__, fmt::format("{}:{}", __FILE__, __LINE__))
+#define SHARD_ERROR(...) memgraph::storage::v3::ShardError(__VA_ARGS__, std::experimental::source_location::current())
 
 template <class TValue>
 using ShardResult = utils::BasicResult<ShardError, TValue>;

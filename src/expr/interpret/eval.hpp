@@ -100,7 +100,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 #undef BINARY_OPERATOR_VISITOR
 #undef UNARY_OPERATOR_VISITOR
 
-  void HandleShardError(Error &shard_error, const std::string_view accessed_object) {
+  void HandleObjectAccessError(Error &shard_error, const std::string_view accessed_object) {
     switch (shard_error) {
       case Error::DELETED_OBJECT:
         throw ExpressionRuntimeException("Trying to access {} on a deleted object.", accessed_object);
@@ -418,7 +418,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       has_label = vertex.HasLabel(StorageView::NEW, GetLabel(label));
     }
     if (has_label.HasError()) {
-      HandleShardError(has_label.GetError().code, "labels");
+      HandleObjectAccessError(has_label.GetError().code, "labels");
     }
     return *has_label;
   }
@@ -756,7 +756,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       maybe_prop = record_accessor.GetProperty(StorageView::NEW, ctx_->properties[prop.ix]);
     }
     if (maybe_prop.HasError()) {
-      HandleShardError(maybe_prop.GetError().code, "property");
+      HandleObjectAccessError(maybe_prop.GetError().code, "property");
     }
     return conv_(*maybe_prop, ctx_->memory);
   }
@@ -775,7 +775,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       maybe_prop = record_accessor.GetProperty(view_, dba_->NameToProperty(name));
     }
     if (maybe_prop.HasError()) {
-      HandleShardError(maybe_prop.GetError().code, "property");
+      HandleObjectAccessError(maybe_prop.GetError().code, "property");
     }
     return conv_(*maybe_prop, ctx_->memory);
   }
