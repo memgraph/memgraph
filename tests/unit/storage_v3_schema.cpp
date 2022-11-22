@@ -14,7 +14,6 @@
 #include <gtest/gtest.h>
 
 #include <fmt/format.h>
-#include <optional>
 #include <string>
 #include <vector>
 
@@ -187,89 +186,92 @@ TEST_F(SchemaValidatorTest, TestSchemaValidateVertexCreate) {
   // Validate against secondary label
   {
     const auto schema_violation = schema_validator.ValidateVertexCreate(NameToLabel("test"), {}, {PropertyValue(1)});
-    ASSERT_NE(schema_violation, std::nullopt);
-    EXPECT_EQ(*schema_violation, SHARD_ERROR(ErrorCode::SCHEMA_NO_SCHEMA_DEFINED_FOR_LABEL));
+    ASSERT_FALSE(schema_violation.HasError());
+    EXPECT_EQ(schema_violation.GetError(), SHARD_ERROR(ErrorCode::SCHEMA_NO_SCHEMA_DEFINED_FOR_LABEL));
   }
 
   {
     const auto schema_violation = schema_validator.ValidateVertexCreate(label2, {}, {});
-    ASSERT_NE(schema_violation, std::nullopt);
-    EXPECT_EQ(*schema_violation, SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED));
+    ASSERT_FALSE(schema_violation.HasError());
+    EXPECT_EQ(schema_violation.GetError(), SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED));
   }
   // Validate wrong secondary label
   {
     const auto schema_violation = schema_validator.ValidateVertexCreate(label1, {label1}, {PropertyValue("test")});
-    ASSERT_NE(schema_violation, std::nullopt);
-    EXPECT_EQ(*schema_violation, SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY));
+    ASSERT_FALSE(schema_violation.HasError());
+    EXPECT_EQ(schema_violation.GetError(), SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY));
   }
   {
     const auto schema_violation = schema_validator.ValidateVertexCreate(label1, {label2}, {PropertyValue("test")});
-    ASSERT_NE(schema_violation, std::nullopt);
-    EXPECT_EQ(*schema_violation, SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY));
+    ASSERT_FALSE(schema_violation.HasError());
+    EXPECT_EQ(schema_violation.GetError(), SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY));
   }
   // Validate wrong property type
   {
     const auto schema_violation = schema_validator.ValidateVertexCreate(label1, {}, {PropertyValue(1)});
-    ASSERT_NE(schema_violation, std::nullopt);
-    EXPECT_EQ(*schema_violation, SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_PROPERTY_WRONG_TYPE));
+    ASSERT_FALSE(schema_violation.HasError());
+    EXPECT_EQ(schema_violation.GetError(), SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_PROPERTY_WRONG_TYPE));
   }
   {
     const auto schema_violation =
         schema_validator.ValidateVertexCreate(label2, {}, {PropertyValue("test"), PropertyValue(12), PropertyValue(1)});
-    ASSERT_NE(schema_violation, std::nullopt);
-    EXPECT_EQ(*schema_violation, SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_PROPERTY_WRONG_TYPE));
+    ASSERT_FALSE(schema_violation.HasError());
+    EXPECT_EQ(schema_violation.GetError(), SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_PROPERTY_WRONG_TYPE));
   }
   {
     const auto wrong_prop = PropertyValue(TemporalData(TemporalType::Date, 1234));
     const auto schema_violation =
         schema_validator.ValidateVertexCreate(label2, {}, {PropertyValue("test"), PropertyValue(12), wrong_prop});
-    ASSERT_NE(schema_violation, std::nullopt);
-    EXPECT_EQ(*schema_violation, SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_PROPERTY_WRONG_TYPE));
+    ASSERT_FALSE(schema_violation.HasError());
+    EXPECT_EQ(schema_violation.GetError(), SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_PROPERTY_WRONG_TYPE));
   }
   // Passing validations
-  EXPECT_EQ(schema_validator.ValidateVertexCreate(label1, {}, {PropertyValue("test")}), std::nullopt);
-  EXPECT_EQ(schema_validator.ValidateVertexCreate(label1, {NameToLabel("label3"), NameToLabel("label4")},
-                                                  {PropertyValue("test")}),
-            std::nullopt);
-  EXPECT_EQ(schema_validator.ValidateVertexCreate(
-                label2, {},
-                {PropertyValue("test"), PropertyValue(122), PropertyValue(TemporalData(TemporalType::Duration, 1234))}),
-            std::nullopt);
-  EXPECT_EQ(schema_validator.ValidateVertexCreate(label2, {NameToLabel("label5"), NameToLabel("label6")},
-                                                  {PropertyValue("test123"), PropertyValue(122221),
-                                                   PropertyValue(TemporalData(TemporalType::Duration, 12344321))}),
-            std::nullopt);
+  EXPECT_FALSE(schema_validator.ValidateVertexCreate(label1, {}, {PropertyValue("test")}).HasError());
+  EXPECT_FALSE(
+      schema_validator
+          .ValidateVertexCreate(label1, {NameToLabel("label3"), NameToLabel("label4")}, {PropertyValue("test")})
+          .HasError());
+  EXPECT_FALSE(schema_validator
+                   .ValidateVertexCreate(label2, {},
+                                         {PropertyValue("test"), PropertyValue(122),
+                                          PropertyValue(TemporalData(TemporalType::Duration, 1234))})
+                   .HasError());
+  EXPECT_FALSE(schema_validator
+                   .ValidateVertexCreate(label2, {NameToLabel("label5"), NameToLabel("label6")},
+                                         {PropertyValue("test123"), PropertyValue(122221),
+                                          PropertyValue(TemporalData(TemporalType::Duration, 12344321))})
+                   .HasError());
 }
 
 TEST_F(SchemaValidatorTest, TestSchemaValidatePropertyUpdate) {
   // Validate updating of primary key
   {
     const auto schema_violation = schema_validator.ValidatePropertyUpdate(label1, prop_string);
-    ASSERT_NE(schema_violation, std::nullopt);
-    EXPECT_EQ(*schema_violation, SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_KEY));
+    ASSERT_FALSE(schema_violation.HasError());
+    EXPECT_EQ(schema_violation.GetError(), SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_KEY));
   }
   {
     const auto schema_violation = schema_validator.ValidatePropertyUpdate(label2, prop_duration);
-    ASSERT_NE(schema_violation, std::nullopt);
-    EXPECT_EQ(*schema_violation, SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_KEY));
+    ASSERT_FALSE(schema_violation.HasError());
+    EXPECT_EQ(schema_violation.GetError(), SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_KEY));
   }
-  EXPECT_EQ(schema_validator.ValidatePropertyUpdate(label1, prop_int), std::nullopt);
-  EXPECT_EQ(schema_validator.ValidatePropertyUpdate(label1, prop_duration), std::nullopt);
-  EXPECT_EQ(schema_validator.ValidatePropertyUpdate(label2, NameToProperty("test")), std::nullopt);
+  EXPECT_FALSE(schema_validator.ValidatePropertyUpdate(label1, prop_int).HasError());
+  EXPECT_FALSE(schema_validator.ValidatePropertyUpdate(label1, prop_duration).HasError());
+  EXPECT_FALSE(schema_validator.ValidatePropertyUpdate(label2, NameToProperty("test")).HasError());
 }
 
 TEST_F(SchemaValidatorTest, TestSchemaValidatePropertyUpdateLabel) {
   // Validate adding primary label
   {
     const auto schema_violation = schema_validator.ValidateLabelUpdate(label1);
-    ASSERT_NE(schema_violation, std::nullopt);
-    EXPECT_EQ(*schema_violation, SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL));
+    ASSERT_FALSE(schema_violation.HasError());
+    EXPECT_EQ(schema_violation.GetError(), SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL));
   }
   {
     const auto schema_violation = schema_validator.ValidateLabelUpdate(label2);
-    ASSERT_NE(schema_violation, std::nullopt);
-    EXPECT_EQ(*schema_violation, SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL));
+    ASSERT_FALSE(schema_violation.HasError());
+    EXPECT_EQ(schema_violation.GetError(), SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL));
   }
-  EXPECT_EQ(schema_validator.ValidateLabelUpdate(NameToLabel("test")), std::nullopt);
+  EXPECT_FALSE(schema_validator.ValidateLabelUpdate(NameToLabel("test")).HasError());
 }
 }  // namespace memgraph::storage::v3::tests

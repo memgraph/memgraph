@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <optional>
 #include <variant>
 
 #include "storage/v2/result.hpp"
@@ -27,13 +26,12 @@ class SchemaValidator {
  public:
   explicit SchemaValidator(Schemas &schemas, const NameIdMapper &name_id_mapper);
 
-  [[nodiscard]] std::optional<ShardError> ValidateVertexCreate(
-      LabelId primary_label, const std::vector<LabelId> &labels,
-      const std::vector<PropertyValue> &primary_properties) const;
+  [[nodiscard]] ShardResult<void> ValidateVertexCreate(LabelId primary_label, const std::vector<LabelId> &labels,
+                                                       const std::vector<PropertyValue> &primary_properties) const;
 
-  [[nodiscard]] std::optional<ShardError> ValidatePropertyUpdate(LabelId primary_label, PropertyId property_id) const;
+  [[nodiscard]] ShardResult<void> ValidatePropertyUpdate(LabelId primary_label, PropertyId property_id) const;
 
-  [[nodiscard]] std::optional<ShardError> ValidateLabelUpdate(LabelId label) const;
+  [[nodiscard]] ShardResult<void> ValidateLabelUpdate(LabelId label) const;
 
   const Schemas::Schema *GetSchema(LabelId label) const;
 
@@ -45,11 +43,11 @@ class SchemaValidator {
 struct VertexValidator {
   explicit VertexValidator(const SchemaValidator &schema_validator, LabelId primary_label);
 
-  [[nodiscard]] std::optional<ShardError> ValidatePropertyUpdate(PropertyId property_id) const;
+  [[nodiscard]] ShardResult<void> ValidatePropertyUpdate(PropertyId property_id) const;
 
-  [[nodiscard]] std::optional<ShardError> ValidateAddLabel(LabelId label) const;
+  [[nodiscard]] ShardResult<void> ValidateAddLabel(LabelId label) const;
 
-  [[nodiscard]] std::optional<ShardError> ValidateRemoveLabel(LabelId label) const;
+  [[nodiscard]] ShardResult<void> ValidateRemoveLabel(LabelId label) const;
 
   const SchemaValidator *schema_validator;
 

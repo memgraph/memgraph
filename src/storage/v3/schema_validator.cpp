@@ -25,9 +25,8 @@ namespace memgraph::storage::v3 {
 SchemaValidator::SchemaValidator(Schemas &schemas, const NameIdMapper &name_id_mapper)
     : schemas_{&schemas}, name_id_mapper_{&name_id_mapper} {}
 
-std::optional<ShardError> SchemaValidator::ValidateVertexCreate(
-    LabelId primary_label, const std::vector<LabelId> &labels,
-    const std::vector<PropertyValue> &primary_properties) const {
+ShardResult<void> SchemaValidator::ValidateVertexCreate(LabelId primary_label, const std::vector<LabelId> &labels,
+                                                        const std::vector<PropertyValue> &primary_properties) const {
   // Schema on primary label
   const auto *schema = schemas_->GetSchema(primary_label);
   if (schema == nullptr) {
@@ -62,11 +61,11 @@ std::optional<ShardError> SchemaValidator::ValidateVertexCreate(
     }
   }
 
-  return std::nullopt;
+  return {};
 }
 
-std::optional<ShardError> SchemaValidator::ValidatePropertyUpdate(const LabelId primary_label,
-                                                                  const PropertyId property_id) const {
+ShardResult<void> SchemaValidator::ValidatePropertyUpdate(const LabelId primary_label,
+                                                          const PropertyId property_id) const {
   // Verify existence of schema on primary label
   const auto *schema = schemas_->GetSchema(primary_label);
   MG_ASSERT(schema, "Cannot validate against non existing schema!");
@@ -81,16 +80,16 @@ std::optional<ShardError> SchemaValidator::ValidatePropertyUpdate(const LabelId 
                        name_id_mapper_->IdToName(schema_property->property_id.AsInt()),
                        name_id_mapper_->IdToName(primary_label.AsInt()));
   }
-  return std::nullopt;
+  return {};
 }
 
-std::optional<ShardError> SchemaValidator::ValidateLabelUpdate(const LabelId label) const {
+ShardResult<void> SchemaValidator::ValidateLabelUpdate(const LabelId label) const {
   const auto *schema = schemas_->GetSchema(label);
   if (schema) {
     return SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL, "Cannot add/remove primary label :{}",
                        name_id_mapper_->IdToName(label.AsInt()));
   }
-  return std::nullopt;
+  return {};
 }
 
 const Schemas::Schema *SchemaValidator::GetSchema(LabelId label) const { return schemas_->GetSchema(label); }
@@ -98,15 +97,15 @@ const Schemas::Schema *SchemaValidator::GetSchema(LabelId label) const { return 
 VertexValidator::VertexValidator(const SchemaValidator &schema_validator, const LabelId primary_label)
     : schema_validator{&schema_validator}, primary_label_{primary_label} {}
 
-std::optional<ShardError> VertexValidator::ValidatePropertyUpdate(PropertyId property_id) const {
+ShardResult<void> VertexValidator::ValidatePropertyUpdate(PropertyId property_id) const {
   return schema_validator->ValidatePropertyUpdate(primary_label_, property_id);
 };
 
-std::optional<ShardError> VertexValidator::ValidateAddLabel(LabelId label) const {
+ShardResult<void> VertexValidator::ValidateAddLabel(LabelId label) const {
   return schema_validator->ValidateLabelUpdate(label);
 }
 
-std::optional<ShardError> VertexValidator::ValidateRemoveLabel(LabelId label) const {
+ShardResult<void> VertexValidator::ValidateRemoveLabel(LabelId label) const {
   return schema_validator->ValidateLabelUpdate(label);
 }
 

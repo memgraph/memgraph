@@ -330,11 +330,11 @@ ShardResult<msgs::ExpandOneResultRow> GetExpandOneResult(
   auto v_acc = acc.FindVertex(primary_key, View::NEW);
 
   msgs::Vertex source_vertex = {.id = src_vertex};
-  const auto maybe_secondary_labels = FillUpSourceVertexSecondaryLabels(v_acc, req);
+  auto maybe_secondary_labels = FillUpSourceVertexSecondaryLabels(v_acc, req);
   if (maybe_secondary_labels.HasError()) {
     return maybe_secondary_labels.GetError();
   }
-  source_vertex.labels = *maybe_secondary_labels;
+  source_vertex.labels = std::move(*maybe_secondary_labels);
 
   auto src_vertex_properties = FillUpSourceVertexProperties(v_acc, req, storage::v3::View::NEW, schema);
 

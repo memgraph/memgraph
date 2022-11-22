@@ -353,8 +353,8 @@ ShardResult<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
 
   auto maybe_schema_violation =
       GetSchemaValidator().ValidateVertexCreate(shard_->primary_label_, labels, primary_properties);
-  if (maybe_schema_violation) {
-    return {std::move(*maybe_schema_violation)};
+  if (maybe_schema_violation.HasError()) {
+    return {std::move(maybe_schema_violation.GetError())};
   }
 
   auto acc = shard_->vertices_.access();

@@ -99,8 +99,8 @@ ShardResult<bool> VertexAccessor::AddLabel(LabelId label) {
 }
 
 ShardResult<bool> VertexAccessor::AddLabelAndValidate(LabelId label) {
-  if (const auto maybe_violation_error = vertex_validator_->ValidateAddLabel(label); maybe_violation_error) {
-    return {*maybe_violation_error};
+  if (const auto maybe_violation_error = vertex_validator_->ValidateAddLabel(label); maybe_violation_error.HasError()) {
+    return {maybe_violation_error.GetError()};
   }
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
@@ -135,8 +135,9 @@ ShardResult<bool> VertexAccessor::RemoveLabel(LabelId label) {
 }
 
 ShardResult<bool> VertexAccessor::RemoveLabelAndValidate(LabelId label) {
-  if (const auto maybe_violation_error = vertex_validator_->ValidateRemoveLabel(label); maybe_violation_error) {
-    return {*maybe_violation_error};
+  if (const auto maybe_violation_error = vertex_validator_->ValidateRemoveLabel(label);
+      maybe_violation_error.HasError()) {
+    return {maybe_violation_error.GetError()};
   }
 
   if (!PrepareForWrite(transaction_, vertex_)) return SHARD_ERROR(ErrorCode::SERIALIZATION_ERROR);
@@ -332,8 +333,9 @@ ShardResult<void> VertexAccessor::CheckVertexExistence(View view) const {
 }
 
 ShardResult<PropertyValue> VertexAccessor::SetPropertyAndValidate(PropertyId property, const PropertyValue &value) {
-  if (auto maybe_violation_error = vertex_validator_->ValidatePropertyUpdate(property); maybe_violation_error) {
-    return {*maybe_violation_error};
+  if (auto maybe_violation_error = vertex_validator_->ValidatePropertyUpdate(property);
+      maybe_violation_error.HasError()) {
+    return {maybe_violation_error.GetError()};
   }
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
