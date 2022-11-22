@@ -48,10 +48,6 @@ class NameIdMapper final {
     return kUnmappedId;
   }
 
-  const std::string &IdToName(const LabelId label_id) const { return IdToName(label_id.AsInt()); }
-
-  const std::string &IdToName(const PropertyId property_id) const { return IdToName(property_id.AsInt()); }
-
   const std::string &IdToName(const uint64_t id) const {
     auto it = id_to_name_.find(id);
     MG_ASSERT(it != id_to_name_.end(), "Id not know in mapper!");
