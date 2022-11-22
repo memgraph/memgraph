@@ -151,7 +151,7 @@ void TestCreateExpand(msgs::ShardRequestManagerInterface &shard_request_manager)
 
   auto responses = shard_request_manager.Request(state, std::move(new_expands));
   MG_ASSERT(responses.size() == 1);
-  MG_ASSERT(responses[0].success);
+  MG_ASSERT(!responses[0].error.has_value());
 }
 
 void TestExpandOne(msgs::ShardRequestManagerInterface &shard_request_manager) {

@@ -367,7 +367,6 @@ struct ScanResultRow {
 };
 
 struct ScanVerticesResponse {
-  bool success;
   std::optional<ShardError> error;
   std::optional<VertexId> next_start_id;
   std::vector<ScanResultRow> results;
@@ -388,7 +387,6 @@ struct GetPropertiesRequest {
 };
 
 struct GetPropertiesResponse {
-  bool success;
   std::optional<ShardError> error;
 };
 
@@ -454,7 +452,6 @@ struct ExpandOneResultRow {
 };
 
 struct ExpandOneResponse {
-  bool success;
   std::optional<ShardError> error;
   std::vector<ExpandOneResultRow> result;
 };
@@ -489,7 +486,6 @@ struct CreateVerticesRequest {
 };
 
 struct CreateVerticesResponse {
-  bool success;
   std::optional<ShardError> error;
 };
 
@@ -501,7 +497,6 @@ struct DeleteVerticesRequest {
 };
 
 struct DeleteVerticesResponse {
-  bool success;
   std::optional<ShardError> error;
 };
 
@@ -511,7 +506,6 @@ struct UpdateVerticesRequest {
 };
 
 struct UpdateVerticesResponse {
-  bool success;
   std::optional<ShardError> error;
 };
 
@@ -534,7 +528,6 @@ struct CreateExpandRequest {
 };
 
 struct CreateExpandResponse {
-  bool success;
   std::optional<ShardError> error;
 };
 
@@ -544,7 +537,6 @@ struct DeleteEdgesRequest {
 };
 
 struct DeleteEdgesResponse {
-  bool success;
   std::optional<ShardError> error;
 };
 
@@ -554,7 +546,6 @@ struct UpdateEdgesRequest {
 };
 
 struct UpdateEdgesResponse {
-  bool success;
   std::optional<ShardError> error;
 };
 
@@ -564,7 +555,6 @@ struct CommitRequest {
 };
 
 struct CommitResponse {
-  bool success;
   std::optional<ShardError> error;
 };
 

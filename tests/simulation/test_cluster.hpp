@@ -173,7 +173,7 @@ void ExecuteOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_mana
   auto result = shard_request_manager.Request(state, std::move(new_vertices));
 
   RC_ASSERT(result.size() == 1);
-  RC_ASSERT(result[0].success);
+  RC_ASSERT(!result[0].error.has_value());
 
   correctness_model.emplace(std::make_pair(create_vertex.first, create_vertex.second));
 }
