@@ -355,16 +355,11 @@ ShardResult<msgs::ExpandOneResultRow> GetExpandOneResult(
   result_row.src_vertex_properties = std::move(*src_vertex_properties);
   static constexpr bool kInEdges = true;
   static constexpr bool kOutEdges = false;
-  if (!in_edges.empty()) {
-    if (const auto fill_edges_res = FillEdges<kInEdges>(in_edges, result_row, edge_filler); fill_edges_res.HasError()) {
-      return fill_edges_res.GetError();
-    }
+  if (const auto fill_edges_res = FillEdges<kInEdges>(in_edges, result_row, edge_filler); fill_edges_res.HasError()) {
+    return fill_edges_res.GetError();
   }
-  if (!out_edges.empty()) {
-    if (const auto fill_edges_res = FillEdges<kOutEdges>(out_edges, result_row, edge_filler);
-        fill_edges_res.HasError()) {
-      return fill_edges_res.GetError();
-    }
+  if (const auto fill_edges_res = FillEdges<kOutEdges>(out_edges, result_row, edge_filler); fill_edges_res.HasError()) {
+    return fill_edges_res.GetError();
   }
 
   return result_row;
@@ -447,7 +442,6 @@ EdgeFiller InitializeEdgeFillerFunction(const msgs::ExpandOneRequest &req) {
       return {};
     };
   } else {
-    // TODO(gvolfing) - do we want to set the action_successful here?
     edge_filler = [&req](const EdgeAccessor &edge, const bool is_in_edge,
                          msgs::ExpandOneResultRow &result_row) -> ShardResult<void> {
       std::vector<msgs::Value> value_properties;
@@ -555,8 +549,6 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteVerticesRequest &&req) {
     auto vertex_acc = acc.FindVertex(ConvertPropertyVector(std::move(propval)), View::OLD);
 
     if (!vertex_acc) {
-      spdlog::debug("Error while trying to delete vertex. Vertex to delete does not exist. Transaction id: {}",
-                    req.transaction_id.logical_id);
       shard_error.emplace(msgs::ShardError{common::ErrorCode::OBJECT_NOT_FOUND});
       spdlog::debug("In transaction {} vertex could not be found while trying to delete it.",
                     req.transaction_id.logical_id);

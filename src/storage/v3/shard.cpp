@@ -444,7 +444,7 @@ ShardResult<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>>
     EdgeAccessor e(edge, edge_type, from_vertex, vertex_id, transaction_, &shard_->indices_, config_);
     auto ret = DeleteEdge(e.FromVertex(), e.ToVertex(), e.Gid());
     if (ret.HasError()) {
-      MG_ASSERT(ret.GetError().code == common::ErrorCode::SERIALIZATION_ERROR, "Invalid database state!");
+      MG_ASSERT(ret.GetError() == common::ErrorCode::SERIALIZATION_ERROR, "Invalid database state!");
       return ret.GetError();
     }
 
@@ -457,7 +457,7 @@ ShardResult<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>>
     EdgeAccessor e(edge, edge_type, vertex_id, to_vertex, transaction_, &shard_->indices_, config_);
     auto ret = DeleteEdge(e.FromVertex(), e.ToVertex(), e.Gid());
     if (ret.HasError()) {
-      MG_ASSERT(ret.GetError().code == common::ErrorCode::SERIALIZATION_ERROR, "Invalid database state!");
+      MG_ASSERT(ret.GetError() == common::ErrorCode::SERIALIZATION_ERROR, "Invalid database state!");
       return ret.GetError();
     }
 

@@ -2657,7 +2657,7 @@ TEST_P(StorageV3, TestCreateVertexAndValidate) {
 
     ASSERT_TRUE(vertex2.HasError());
     auto error = vertex2.GetError();
-    ASSERT_TRUE(error.code == common::ErrorCode::VERTEX_ALREADY_INSERTED);
+    ASSERT_TRUE(error == common::ErrorCode::VERTEX_ALREADY_INSERTED);
   }
   {
     auto acc = store.Access(GetNextHlc());
