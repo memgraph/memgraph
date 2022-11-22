@@ -112,7 +112,7 @@ BoltResult<communication::bolt::Path> ToBoltPath(const query::v2::accessors::Pat
                                                  const msgs::ShardRequestManagerInterface * /*shard_request_manager*/,
                                                  storage::v3::View /*view*/) {
   // TODO(jbajic) Fix bolt communication
-  return {SHARD_ERROR(common::ErrorCode::DELETED_OBJECT)};
+  return {SHARD_ERROR(ErrorCode::DELETED_OBJECT)};
 }
 
 BoltResult<Value> ToBoltValue(const query::v2::TypedValue &value,

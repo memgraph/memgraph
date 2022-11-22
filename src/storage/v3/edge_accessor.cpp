@@ -57,11 +57,11 @@ const VertexId &EdgeAccessor::ToVertex() const { return to_vertex_; }
 
 ShardResult<PropertyValue> EdgeAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-  if (!config_.properties_on_edges) return SHARD_ERROR(common::ErrorCode::PROPERTIES_DISABLED);
+  if (!config_.properties_on_edges) return SHARD_ERROR(ErrorCode::PROPERTIES_DISABLED);
 
-  if (!PrepareForWrite(transaction_, edge_.ptr)) return SHARD_ERROR(common::ErrorCode::SERIALIZATION_ERROR);
+  if (!PrepareForWrite(transaction_, edge_.ptr)) return SHARD_ERROR(ErrorCode::SERIALIZATION_ERROR);
 
-  if (edge_.ptr->deleted) return SHARD_ERROR(common::ErrorCode::DELETED_OBJECT);
+  if (edge_.ptr->deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
 
   auto current_value = edge_.ptr->properties.GetProperty(property);
   // We could skip setting the value if the previous one is the same to the new
@@ -77,11 +77,11 @@ ShardResult<PropertyValue> EdgeAccessor::SetProperty(PropertyId property, const 
 }
 
 ShardResult<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
-  if (!config_.properties_on_edges) return SHARD_ERROR(common::ErrorCode::PROPERTIES_DISABLED);
+  if (!config_.properties_on_edges) return SHARD_ERROR(ErrorCode::PROPERTIES_DISABLED);
 
-  if (!PrepareForWrite(transaction_, edge_.ptr)) return SHARD_ERROR(common::ErrorCode::SERIALIZATION_ERROR);
+  if (!PrepareForWrite(transaction_, edge_.ptr)) return SHARD_ERROR(ErrorCode::SERIALIZATION_ERROR);
 
-  if (edge_.ptr->deleted) return SHARD_ERROR(common::ErrorCode::DELETED_OBJECT);
+  if (edge_.ptr->deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
 
   auto properties = edge_.ptr->properties.Properties();
   for (const auto &property : properties) {
@@ -129,8 +129,8 @@ ShardResult<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View v
         break;
     }
   });
-  if (!exists) return SHARD_ERROR(common::ErrorCode::NONEXISTENT_OBJECT);
-  if (!for_deleted_ && deleted) return SHARD_ERROR(common::ErrorCode::DELETED_OBJECT);
+  if (!exists) return SHARD_ERROR(ErrorCode::NONEXISTENT_OBJECT);
+  if (!for_deleted_ && deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
   return std::move(value);
 }
 
@@ -175,8 +175,8 @@ ShardResult<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View v
         break;
     }
   });
-  if (!exists) return SHARD_ERROR(common::ErrorCode::NONEXISTENT_OBJECT);
-  if (!for_deleted_ && deleted) return SHARD_ERROR(common::ErrorCode::DELETED_OBJECT);
+  if (!exists) return SHARD_ERROR(ErrorCode::NONEXISTENT_OBJECT);
+  if (!for_deleted_ && deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
   return std::move(properties);
 }
 

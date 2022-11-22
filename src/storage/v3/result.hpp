@@ -42,7 +42,11 @@ struct ShardError {
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define SHARD_ERROR(...) memgraph::storage::v3::ShardError(__VA_ARGS__, std::experimental::source_location::current())
+#define SHARD_ERROR(...)                                                                           \
+  ({                                                                                               \
+    using ErrorCode = memgraph::common::ErrorCode;                                                 \
+    memgraph::storage::v3::ShardError(__VA_ARGS__, std::experimental::source_location::current()); \
+  })
 
 template <class TValue>
 using ShardResult = utils::BasicResult<ShardError, TValue>;

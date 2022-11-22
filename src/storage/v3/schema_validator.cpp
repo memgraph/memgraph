@@ -31,14 +31,14 @@ std::optional<ShardError> SchemaValidator::ValidateVertexCreate(
   // Schema on primary label
   const auto *schema = schemas_->GetSchema(primary_label);
   if (schema == nullptr) {
-    return SHARD_ERROR(common::ErrorCode::SCHEMA_NO_SCHEMA_DEFINED_FOR_LABEL,
+    return SHARD_ERROR(ErrorCode::SCHEMA_NO_SCHEMA_DEFINED_FOR_LABEL,
                        fmt::format("Schema not defined for label :{}", name_id_mapper_->IdToName(primary_label)));
   }
 
   // Is there another primary label among secondary labels
   for (const auto &secondary_label : labels) {
     if (schemas_->GetSchema(secondary_label)) {
-      return SHARD_ERROR(common::ErrorCode::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY,
+      return SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY,
                          fmt::format("Cannot add label :{}, since it is defined as a primary label",
                                      name_id_mapper_->IdToName(secondary_label)));
     }
@@ -46,7 +46,7 @@ std::optional<ShardError> SchemaValidator::ValidateVertexCreate(
 
   // Quick size check
   if (schema->second.size() != primary_properties.size()) {
-    return SHARD_ERROR(common::ErrorCode::SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED,
+    return SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED,
                        fmt::format("Not all primary properties have been specified for :{} vertex",
                                    name_id_mapper_->IdToName(primary_label)));
   }
@@ -88,7 +88,7 @@ std::optional<ShardError> SchemaValidator::ValidatePropertyUpdate(const LabelId 
 std::optional<ShardError> SchemaValidator::ValidateLabelUpdate(const LabelId label) const {
   const auto *schema = schemas_->GetSchema(label);
   if (schema) {
-    return SHARD_ERROR(common::ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL,
+    return SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL,
                        fmt::format("Cannot add/remove primary label :{}", name_id_mapper_->IdToName(label)));
   }
   return std::nullopt;
