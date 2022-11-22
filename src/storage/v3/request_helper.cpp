@@ -173,17 +173,6 @@ std::optional<std::array<std::vector<EdgeAccessor>, 2>> FillUpConnectingEdges(
   return std::array<std::vector<EdgeAccessor>, 2>{std::move(in_edges), std::move(out_edges)};
 }
 
-using AllEdgePropertyDataSructure = std::map<PropertyId, msgs::Value>;
-using SpecificEdgePropertyDataSructure = std::vector<msgs::Value>;
-
-using AllEdgeProperties = std::tuple<msgs::VertexId, msgs::Gid, AllEdgePropertyDataSructure>;
-using SpecificEdgeProperties = std::tuple<msgs::VertexId, msgs::Gid, SpecificEdgePropertyDataSructure>;
-
-using SpecificEdgePropertiesVector = std::vector<SpecificEdgeProperties>;
-using AllEdgePropertiesVector = std::vector<AllEdgeProperties>;
-
-using EdgeFiller = std::function<bool(const EdgeAccessor &edge, bool is_in_edge, msgs::ExpandOneResultRow &result_row)>;
-
 template <bool are_in_edges>
 bool FillEdges(const std::vector<EdgeAccessor> &edges, msgs::ExpandOneResultRow &row, const EdgeFiller &edge_filler) {
   for (const auto &edge : edges) {
