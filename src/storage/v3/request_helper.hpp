@@ -119,6 +119,7 @@ struct Element {
 
 template <typename T>
 concept VerticesIt = utils::SameAsAnyOf<T, VerticesIterable, std::vector<VertexAccessor>>;
+
 template <VerticesIt TIterable>
 std::vector<Element<VertexAccessor>> OrderByVertices(DbAccessor &dba, TIterable &iterable,
                                                      std::vector<msgs::OrderBy> &original_order_bys) {
