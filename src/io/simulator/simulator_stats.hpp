@@ -30,7 +30,7 @@ struct SimulatorStats {
   friend bool operator==(const SimulatorStats & /* lhs */, const SimulatorStats & /* rhs */) = default;
 
   friend std::ostream &operator<<(std::ostream &in, const SimulatorStats &stats) {
-    auto elapsed_ms = stats.elapsed_time.count() / 1000;
+    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(stats.elapsed_time).count() / 1000;
 
     std::string formated = fmt::format(
         "SimulatorStats {{ total_messages: {}, dropped_messages: {}, timed_out_requests: {}, total_requests: {}, "
