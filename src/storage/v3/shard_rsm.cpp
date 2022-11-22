@@ -66,7 +66,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
     /// TODO(gvolfing) Consider other methods than converting. Change either
     /// the way that the property map is stored in the messages, or the
     /// signature of CreateVertexAndValidate.
-    auto converted_property_map = ConvertPropertyMap(std::move(new_vertex.properties));
+    auto converted_property_map = ConvertPropertyMap(new_vertex.properties);
 
     // TODO(gvolfing) make sure if this conversion is actually needed.
     std::vector<LabelId> converted_label_ids;

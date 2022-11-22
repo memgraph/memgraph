@@ -131,7 +131,7 @@ inline msgs::VertexId ToMsgsVertexId(const v3::VertexId &vertex_id) {
 }
 
 inline std::vector<std::pair<v3::PropertyId, v3::PropertyValue>> ConvertPropertyMap(
-    std::vector<std::pair<v3::PropertyId, Value>> &&properties) {
+    std::vector<std::pair<v3::PropertyId, Value>> &properties) {
   std::vector<std::pair<v3::PropertyId, v3::PropertyValue>> ret;
   ret.reserve(properties.size());
 
