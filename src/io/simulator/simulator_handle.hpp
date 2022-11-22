@@ -64,7 +64,7 @@ class SimulatorHandle {
     for (auto it = promises_.begin(); it != promises_.end();) {
       auto &[promise_key, dop] = *it;
       if (dop.deadline < now && config_.perform_timeouts) {
-        spdlog::info("timing out request from requester {}.", promise_key.requester_address.ToString());
+        spdlog::trace("timing out request from requester {}.", promise_key.requester_address.ToString());
         std::move(dop).promise.TimeOut();
         it = promises_.erase(it);
 
@@ -106,7 +106,7 @@ class SimulatorHandle {
   template <Message Request, Message Response>
   ResponseFuture<Response> SubmitRequest(Address to_address, Address from_address, Request &&request, Duration timeout,
                                          std::function<bool()> &&maybe_tick_simulator) {
-    spdlog::info("submitting request to {}", to_address.last_known_port);
+    spdlog::trace("submitting request to {}", to_address.last_known_port);
     auto type_info = TypeInfoFor(request);
 
     auto [future, promise] = memgraph::io::FuturePromisePairWithNotifier<ResponseResult<Response>>(
@@ -173,20 +173,20 @@ class SimulatorHandle {
       if (!should_shut_down_) {
         if (!blocked_on_receive_.contains(receiver)) {
           blocked_on_receive_.emplace(receiver);
-          spdlog::info("blocking receiver {}", receiver.ToPartialAddress().port);
+          spdlog::trace("blocking receiver {}", receiver.ToPartialAddress().port);
           cv_.notify_all();
         }
         cv_.wait(lock);
       }
     }
-    spdlog::info("timing out receiver {}", receiver.ToPartialAddress().port);
+    spdlog::trace("timing out receiver {}", receiver.ToPartialAddress().port);
 
     return TimedOut{};
   }
 
   template <Message M>
   void Send(Address to_address, Address from_address, RequestId request_id, M message) {
-    spdlog::info("sending message from {} to {}", from_address.last_known_port, to_address.last_known_port);
+    spdlog::trace("sending message from {} to {}", from_address.last_known_port, to_address.last_known_port);
     auto type_info = TypeInfoFor(message);
     {
       std::unique_lock<std::mutex> lock(mu_);
