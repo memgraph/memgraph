@@ -37,7 +37,7 @@
 // This cannot be avoided by simple include orderings so we
 // simply undefine those macros as we're sure that libkrb5
 // won't and can't be used anywhere in the query engine.
-#include "storage/v3/storage.hpp"
+#include "storage/v3/shard.hpp"
 #include "utils/logging.hpp"
 #include "utils/result.hpp"
 

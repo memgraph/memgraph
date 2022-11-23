@@ -33,21 +33,31 @@ using io::Time;
 using io::simulator::SimulatorConfig;
 using storage::v3::kMaximumCronInterval;
 
-RC_GTEST_PROP(RandomClusterConfig, HappyPath, (ClusterConfig cluster_config, NonEmptyOpVec ops)) {
-  // TODO(tyler) set abort_time to something more restrictive than Time::max()
-
+RC_GTEST_PROP(RandomClusterConfig, HappyPath, (ClusterConfig cluster_config, NonEmptyOpVec ops, uint64_t rng_seed)) {
   spdlog::cfg::load_env_levels();
 
   SimulatorConfig sim_config{
       .drop_percent = 0,
       .perform_timeouts = false,
       .scramble_messages = true,
-      .rng_seed = 0,
+      .rng_seed = rng_seed,
       .start_time = Time::min(),
+      // TODO(tyler) set abort_time to something more restrictive than Time::max()
       .abort_time = Time::max(),
   };
 
-  RunClusterSimulation(sim_config, cluster_config, ops.ops);
+  auto [sim_stats_1, latency_stats_1] = RunClusterSimulation(sim_config, cluster_config, ops.ops);
+  auto [sim_stats_2, latency_stats_2] = RunClusterSimulation(sim_config, cluster_config, ops.ops);
+
+  if (latency_stats_1 != latency_stats_2) {
+    spdlog::error("simulator stats diverged across runs");
+    spdlog::error("run 1 simulator stats: {}", sim_stats_1);
+    spdlog::error("run 2 simulator stats: {}", sim_stats_2);
+    spdlog::error("run 1 latency:\n{}", latency_stats_1.SummaryTable());
+    spdlog::error("run 2 latency:\n{}", latency_stats_2.SummaryTable());
+    RC_ASSERT(latency_stats_1 == latency_stats_2);
+    RC_ASSERT(sim_stats_1 == sim_stats_2);
+  }
 }
 
 }  // namespace memgraph::tests::simulation

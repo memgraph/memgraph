@@ -71,6 +71,9 @@ struct QueueInner {
   // starvation by sometimes randomizing priorities, rather than following a strict
   // prioritization.
   std::deque<Message> queue;
+
+  uint64_t submitted = 0;
+  uint64_t calls_to_pop = 0;
 };
 
 /// There are two reasons to implement our own Queue instead of using
@@ -86,6 +89,8 @@ class Queue {
       MG_ASSERT(inner_.use_count() > 0);
       std::unique_lock<std::mutex> lock(inner_->mu);
 
+      inner_->submitted++;
+
       inner_->queue.emplace_back(std::move(message));
     }  // lock dropped before notifying condition variable
 
@@ -96,6 +101,9 @@ class Queue {
     MG_ASSERT(inner_.use_count() > 0);
     std::unique_lock<std::mutex> lock(inner_->mu);
 
+    inner_->calls_to_pop++;
+    inner_->cv.notify_all();
+
     while (inner_->queue.empty()) {
       inner_->cv.wait(lock);
     }
@@ -104,6 +112,15 @@ class Queue {
     inner_->queue.pop_front();
 
     return message;
+  }
+
+  void BlockOnQuiescence() const {
+    MG_ASSERT(inner_.use_count() > 0);
+    std::unique_lock<std::mutex> lock(inner_->mu);
+
+    while (inner_->calls_to_pop <= inner_->submitted) {
+      inner_->cv.wait(lock);
+    }
   }
 };
 
@@ -129,9 +146,7 @@ class CoordinatorWorker {
 
  public:
   CoordinatorWorker(io::Io<IoImpl> io, Queue queue, Coordinator coordinator)
-      : io_(std::move(io)),
-        queue_(std::move(queue)),
-        coordinator_{std::move(io_.ForkLocal()), {}, std::move(coordinator)} {}
+      : io_(std::move(io)), queue_(std::move(queue)), coordinator_{std::move(io_), {}, std::move(coordinator)} {}
 
   CoordinatorWorker(CoordinatorWorker &&) noexcept = default;
   CoordinatorWorker &operator=(CoordinatorWorker &&) noexcept = default;
@@ -140,15 +155,12 @@ class CoordinatorWorker {
   ~CoordinatorWorker() = default;
 
   void Run() {
-    while (true) {
+    bool should_continue = true;
+    while (should_continue) {
       Message message = queue_.Pop();
 
-      const bool should_continue = std::visit(
-          [this](auto &&msg) { return this->Process(std::forward<decltype(msg)>(msg)); }, std::move(message));
-
-      if (!should_continue) {
-        return;
-      }
+      should_continue = std::visit([this](auto &&msg) { return this->Process(std::forward<decltype(msg)>(msg)); },
+                                   std::move(message));
     }
   }
 };

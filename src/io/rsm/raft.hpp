@@ -19,7 +19,6 @@
 #include <map>
 #include <set>
 #include <thread>
-#include <unordered_map>
 #include <vector>
 
 #include <boost/core/demangle.hpp>
@@ -182,7 +181,7 @@ struct PendingClientRequest {
 
 struct Leader {
   std::map<Address, FollowerTracker> followers;
-  std::unordered_map<LogIndex, PendingClientRequest> pending_client_requests;
+  std::map<LogIndex, PendingClientRequest> pending_client_requests;
   Time last_broadcast = Time::min();
 
   std::string static ToString() { return "\tLeader   \t"; }
@@ -683,7 +682,7 @@ class Raft {
 
       return Leader{
           .followers = std::move(followers),
-          .pending_client_requests = std::unordered_map<LogIndex, PendingClientRequest>(),
+          .pending_client_requests = std::map<LogIndex, PendingClientRequest>(),
       };
     }
 
