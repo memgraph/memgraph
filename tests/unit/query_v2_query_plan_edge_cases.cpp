@@ -21,7 +21,7 @@
 
 #include "query/v2/interpreter.hpp"
 #include "result_stream_faker.hpp"
-#include "storage/v3/storage.hpp"
+#include "storage/v3/shard.hpp"
 
 DECLARE_bool(query_cost_planner);
 
