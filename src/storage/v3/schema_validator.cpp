@@ -54,7 +54,7 @@ ShardResult<void> SchemaValidator::ValidateVertexCreate(LabelId primary_label, c
     // Check schema property type
     if (auto property_schema_type = PropertyTypeToSchemaType(primary_properties[i]);
         property_schema_type && *property_schema_type != schema->second[i].type) {
-      return SHARD_ERROR(common::ErrorCode::SCHEMA_VERTEX_PROPERTY_WRONG_TYPE,
+      return SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_PROPERTY_WRONG_TYPE,
                          "Property {} is of wrong type, expected {}, actual {}",
                          name_id_mapper_->IdToName(schema->second[i].property_id.AsInt()),
                          SchemaTypeToString(schema->second[i].type), SchemaTypeToString(*property_schema_type));
@@ -75,7 +75,7 @@ ShardResult<void> SchemaValidator::ValidatePropertyUpdate(const LabelId primary_
           schema->second,
           [property_id](const auto &schema_property) { return property_id == schema_property.property_id; });
       schema_property != schema->second.end()) {
-    return SHARD_ERROR(common::ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_KEY,
+    return SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_KEY,
                        "Cannot update primary property {} of schema on label :{}",
                        name_id_mapper_->IdToName(schema_property->property_id.AsInt()),
                        name_id_mapper_->IdToName(primary_label.AsInt()));
