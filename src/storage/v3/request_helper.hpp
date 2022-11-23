@@ -15,6 +15,7 @@
 #include "storage/v3/bindings/typed_value.hpp"
 #include "storage/v3/shard.hpp"
 #include "storage/v3/vertex_accessor.hpp"
+#include "utils/template_utils.hpp"
 
 namespace memgraph::storage::v3 {
 
@@ -113,4 +114,6 @@ VerticesIterable::Iterator GetStartVertexIterator(VerticesIterable &vertex_itera
 std::vector<Element>::const_iterator GetStartOrderedElementsIterator(const std::vector<Element> &ordered_elements,
                                                                      const std::vector<PropertyValue> &start_ids,
                                                                      View view);
+
+void LogResultError(const ResultErrorType &error, std::string_view action);
 }  // namespace memgraph::storage::v3
