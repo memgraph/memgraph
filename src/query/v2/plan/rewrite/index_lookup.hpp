@@ -273,15 +273,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  bool PreVisit(ScanAllById &op) override {
-    prev_ops_.push_back(&op);
-    return true;
-  }
-  bool PostVisit(ScanAllById &) override {
-    prev_ops_.pop_back();
-    return true;
-  }
-
   bool PreVisit(ConstructNamedPath &op) override {
     prev_ops_.push_back(&op);
     return true;
@@ -561,25 +552,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     const auto &view = scan.view_;
     const auto &modified_symbols = scan.ModifiedSymbols(*symbol_table_);
     std::unordered_set<Symbol> bound_symbols(modified_symbols.begin(), modified_symbols.end());
-    auto are_bound = [&bound_symbols](const auto &used_symbols) {
-      for (const auto &used_symbol : used_symbols) {
-        if (!utils::Contains(bound_symbols, used_symbol)) {
-          return false;
-        }
-      }
-      return true;
-    };
-    // First, try to see if we can find a vertex by ID.
-    if (!max_vertex_count || *max_vertex_count >= 1) {
-      for (const auto &filter : filters_.IdFilters(node_symbol)) {
-        if (filter.id_filter->is_symbol_in_value_ || !are_bound(filter.used_symbols)) continue;
-        auto *value = filter.id_filter->value_;
-        filter_exprs_for_removal_.insert(filter.expression);
-        filters_.EraseFilter(filter);
-        return std::make_unique<ScanAllById>(input, node_symbol, value, view);
-      }
-    }
-    // Now try to see if we can use label+property index. If not, try to use
+
+    // Try to see if we can use label+property index. If not, try to use
     // just the label index.
     const auto labels = filters_.FilteredLabels(node_symbol);
     if (labels.empty()) {

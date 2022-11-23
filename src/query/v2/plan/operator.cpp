@@ -91,7 +91,6 @@ extern const Event ScanAllByLabelOperator;
 extern const Event ScanAllByLabelPropertyRangeOperator;
 extern const Event ScanAllByLabelPropertyValueOperator;
 extern const Event ScanAllByLabelPropertyOperator;
-extern const Event ScanAllByIdOperator;
 extern const Event ScanAllByPrimaryKeyOperator;
 extern const Event ExpandOperator;
 extern const Event ExpandVariableOperator;
@@ -558,24 +557,6 @@ ACCEPT_WITH_INPUT(ScanAllByPrimaryKey)
 UniqueCursorPtr ScanAllByPrimaryKey::MakeCursor(utils::MemoryResource *mem) const {
   // EventCounter::IncrementCounter(EventCounter::ScanAllByPrimaryKeyOperator);
   throw QueryRuntimeException("ScanAllByPrimaryKey cursur is yet to be implemented.");
-}
-
-ScanAllById::ScanAllById(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, Expression *expression,
-                         storage::v3::View view)
-    : ScanAll(input, output_symbol, view), expression_(expression) {
-  MG_ASSERT(expression);
-}
-
-ACCEPT_WITH_INPUT(ScanAllById)
-
-UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::ScanAllByIdOperator);
-  // TODO Reimplement when we have reliable conversion between hash value and pk
-  auto vertices = [](Frame & /*frame*/, ExecutionContext & /*context*/) -> std::optional<std::vector<VertexAccessor>> {
-    return std::nullopt;
-  };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
-                                                                std::move(vertices), "ScanAllById");
 }
 
 namespace {
