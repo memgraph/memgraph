@@ -360,7 +360,7 @@ bool FilterOnVertex(DbAccessor &dba, const storage::v3::VertexAccessor &v_acc, c
 
 ShardResult<msgs::ExpandOneResultRow> GetExpandOneResult(
     Shard::Accessor &acc, msgs::VertexId src_vertex, const msgs::ExpandOneRequest &req,
-    const EdgeUniquenessFunction &maybe_filter_based_on_edge_uniquness, const EdgeFiller &edge_filler,
+    const EdgeUniquenessFunction &maybe_filter_based_on_edge_uniqueness, const EdgeFiller &edge_filler,
     const Schemas::Schema &schema) {
   /// Fill up source vertex
   const auto primary_key = ConvertPropertyVector(src_vertex.second);
@@ -379,7 +379,7 @@ ShardResult<msgs::ExpandOneResultRow> GetExpandOneResult(
   }
 
   /// Fill up connecting edges
-  auto fill_up_connecting_edges = FillUpConnectingEdges(v_acc, req, maybe_filter_based_on_edge_uniquness);
+  auto fill_up_connecting_edges = FillUpConnectingEdges(v_acc, req, maybe_filter_based_on_edge_uniqueness);
   if (fill_up_connecting_edges.HasError()) {
     return fill_up_connecting_edges.GetError();
   }
@@ -403,7 +403,7 @@ ShardResult<msgs::ExpandOneResultRow> GetExpandOneResult(
 ShardResult<msgs::ExpandOneResultRow> GetExpandOneResult(
     VertexAccessor v_acc, msgs::VertexId src_vertex, const msgs::ExpandOneRequest &req,
     std::vector<EdgeAccessor> in_edge_accessors, std::vector<EdgeAccessor> out_edge_accessors,
-    const EdgeUniquenessFunction &maybe_filter_based_on_edge_uniquness, const EdgeFiller &edge_filler,
+    const EdgeUniquenessFunction &maybe_filter_based_on_edge_uniqueness, const EdgeFiller &edge_filler,
     const Schemas::Schema &schema) {
   /// Fill up source vertex
   msgs::Vertex source_vertex = {.id = src_vertex};
@@ -420,8 +420,8 @@ ShardResult<msgs::ExpandOneResultRow> GetExpandOneResult(
   }
 
   /// Fill up connecting edges
-  auto in_edges = maybe_filter_based_on_edge_uniquness(std::move(in_edge_accessors), msgs::EdgeDirection::IN);
-  auto out_edges = maybe_filter_based_on_edge_uniquness(std::move(out_edge_accessors), msgs::EdgeDirection::OUT);
+  auto in_edges = maybe_filter_based_on_edge_uniqueness(std::move(in_edge_accessors), msgs::EdgeDirection::IN);
+  auto out_edges = maybe_filter_based_on_edge_uniqueness(std::move(out_edge_accessors), msgs::EdgeDirection::OUT);
 
   msgs::ExpandOneResultRow result_row;
   result_row.src_vertex = std::move(source_vertex);

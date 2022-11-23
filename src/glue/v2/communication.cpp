@@ -120,15 +120,15 @@ Value ToBoltValue(const query::v2::TypedValue &value, const msgs::ShardRequestMa
                   storage::v3::View view) {
   switch (value.type()) {
     case query::v2::TypedValue::Type::Null:
-      return Value();
+      return {};
     case query::v2::TypedValue::Type::Bool:
-      return Value(value.ValueBool());
+      return {value.ValueBool()};
     case query::v2::TypedValue::Type::Int:
-      return Value(value.ValueInt());
+      return {value.ValueInt()};
     case query::v2::TypedValue::Type::Double:
-      return Value(value.ValueDouble());
+      return {value.ValueDouble()};
     case query::v2::TypedValue::Type::String:
-      return Value(std::string(value.ValueString()));
+      return {std::string(value.ValueString())};
     case query::v2::TypedValue::Type::List: {
       std::vector<Value> values;
       values.reserve(value.ValueList().size());
@@ -136,7 +136,7 @@ Value ToBoltValue(const query::v2::TypedValue &value, const msgs::ShardRequestMa
         auto value = ToBoltValue(v, shard_request_manager, view);
         values.emplace_back(std::move(value));
       }
-      return Value(std::move(values));
+      return {std::move(values)};
     }
     case query::v2::TypedValue::Type::Map: {
       std::map<std::string, Value> map;
@@ -144,28 +144,28 @@ Value ToBoltValue(const query::v2::TypedValue &value, const msgs::ShardRequestMa
         auto value = ToBoltValue(kv.second, shard_request_manager, view);
         map.emplace(kv.first, std::move(value));
       }
-      return Value(std::move(map));
+      return {std::move(map)};
     }
     case query::v2::TypedValue::Type::Vertex: {
       auto vertex = ToBoltVertex(value.ValueVertex(), shard_request_manager, view);
-      return Value(std::move(vertex));
+      return {std::move(vertex)};
     }
     case query::v2::TypedValue::Type::Edge: {
       auto edge = ToBoltEdge(value.ValueEdge(), shard_request_manager, view);
-      return Value(std::move(edge));
+      return {std::move(edge)};
     }
     case query::v2::TypedValue::Type::Path: {
       auto path = ToBoltPath(value.ValuePath(), shard_request_manager, view);
-      return Value(std::move(path));
+      return {std::move(path)};
     }
     case query::v2::TypedValue::Type::Date:
-      return Value(value.ValueDate());
+      return {value.ValueDate()};
     case query::v2::TypedValue::Type::LocalTime:
-      return Value(value.ValueLocalTime());
+      return {value.ValueLocalTime()};
     case query::v2::TypedValue::Type::LocalDateTime:
-      return Value(value.ValueLocalDateTime());
+      return {value.ValueLocalDateTime()};
     case query::v2::TypedValue::Type::Duration:
-      return Value(value.ValueDuration());
+      return {value.ValueDuration()};
   }
 }
 
