@@ -92,6 +92,7 @@ extern const Event ScanAllByLabelPropertyRangeOperator;
 extern const Event ScanAllByLabelPropertyValueOperator;
 extern const Event ScanAllByLabelPropertyOperator;
 extern const Event ScanAllByIdOperator;
+extern const Event ScanAllByPrimaryKeyOperator;
 extern const Event ExpandOperator;
 extern const Event ExpandVariableOperator;
 extern const Event ConstructNamedPathOperator;
@@ -543,6 +544,20 @@ ACCEPT_WITH_INPUT(ScanAllByLabelProperty)
 UniqueCursorPtr ScanAllByLabelProperty::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllByLabelPropertyOperator);
   throw QueryRuntimeException("ScanAllByLabelProperty is not supported");
+}
+
+ScanAllByPrimaryKey::ScanAllByPrimaryKey(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
+                                         storage::v3::LabelId label, std::vector<query::v2::Expression *> primary_key,
+                                         storage::v3::View view)
+    : ScanAll(input, output_symbol, view), label_(label), primary_key_(primary_key) {
+  MG_ASSERT(primary_key.front());
+}
+
+ACCEPT_WITH_INPUT(ScanAllByPrimaryKey)
+
+UniqueCursorPtr ScanAllByPrimaryKey::MakeCursor(utils::MemoryResource *mem) const {
+  // EventCounter::IncrementCounter(EventCounter::ScanAllByPrimaryKeyOperator);
+  throw QueryRuntimeException("ScanAllByPrimaryKey cursur is yet to be implemented.");
 }
 
 ScanAllById::ScanAllById(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, Expression *expression,

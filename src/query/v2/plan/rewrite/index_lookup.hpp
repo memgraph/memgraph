@@ -25,8 +25,10 @@
 
 #include <gflags/gflags.h>
 
+#include "query/v2/frontend/ast/ast.hpp"
 #include "query/v2/plan/operator.hpp"
 #include "query/v2/plan/preprocess.hpp"
+#include "storage/v3/id_types.hpp"
 
 DECLARE_int64(query_vertex_count_to_expand_existing);
 
@@ -584,6 +586,26 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       // Without labels, we cannot generate any indexed ScanAll.
       return nullptr;
     }
+
+    // First, try to see if we can find a vertex based on the possibly
+    // supplied primary key.
+    auto property_filters = filters_.PropertyFilters(node_symbol);
+    storage::v3::LabelId prim_label;
+    std::vector<query::v2::Expression *> primary_key;
+
+    if (!property_filters.empty()) {
+      for (const auto &label : labels) {
+        if (db_->LabelIndexExists(GetLabel(label))) {
+          prim_label = GetLabel(label);
+          primary_key = db_->ExtractPrimaryKey(prim_label, property_filters);
+          break;
+        }
+      }
+      if (!primary_key.empty()) {
+        return std::make_unique<ScanAllByPrimaryKey>(input, node_symbol, prim_label, primary_key);
+      }
+    }
+
     auto found_index = FindBestLabelPropertyIndex(node_symbol, bound_symbols);
     if (found_index &&
         // Use label+property index if we satisfy max_vertex_count.

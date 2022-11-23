@@ -12,9 +12,11 @@
 /// @file
 #pragma once
 
+#include <iterator>
 #include <optional>
 
 #include "query/v2/bindings/typed_value.hpp"
+#include "query/v2/plan/preprocess.hpp"
 #include "query/v2/shard_request_manager.hpp"
 #include "storage/v3/conversions.hpp"
 #include "storage/v3/id_types.hpp"
@@ -52,10 +54,30 @@ class VertexCountCache {
     return 1;
   }
 
-  // For now return true if label is primary label
   bool LabelIndexExists(storage::v3::LabelId label) { return shard_request_manager_->IsPrimaryLabel(label); }
 
   bool LabelPropertyIndexExists(storage::v3::LabelId /*label*/, storage::v3::PropertyId /*property*/) { return false; }
+
+  std::vector<query::v2::Expression *> ExtractPrimaryKey(storage::v3::LabelId label,
+                                                         std::vector<query::v2::plan::FilterInfo> property_filters) {
+    std::vector<query::v2::Expression *> pk;
+    const auto schema = shard_request_manager_->GetSchemaForLabel(label);
+
+    std::vector<storage::v3::PropertyId> schema_properties;
+    schema_properties.reserve(schema.size());
+
+    std::transform(schema.begin(), schema.end(), std::back_inserter(schema_properties),
+                   [](const auto &schema_elem) { return schema_elem.property_id; });
+
+    for (const auto &property_filter : property_filters) {
+      const auto &property_id = NameToProperty(property_filter.property_filter->property_.name);
+      if (std::find(schema_properties.begin(), schema_properties.end(), property_id) != schema_properties.end()) {
+        pk.push_back(property_filter.expression);
+      }
+    }
+
+    return pk.size() == schema_properties.size() ? pk : std::vector<query::v2::Expression *>{};
+  }
 
   msgs::ShardRequestManagerInterface *shard_request_manager_;
 };
