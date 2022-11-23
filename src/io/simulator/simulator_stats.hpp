@@ -13,6 +13,10 @@
 
 #include <cstdint>
 
+#include <fmt/format.h>
+
+#include "io/time.hpp"
+
 namespace memgraph::io::simulator {
 struct SimulatorStats {
   uint64_t total_messages = 0;
@@ -21,5 +25,22 @@ struct SimulatorStats {
   uint64_t total_requests = 0;
   uint64_t total_responses = 0;
   uint64_t simulator_ticks = 0;
+  Duration elapsed_time;
+
+  friend bool operator==(const SimulatorStats & /* lhs */, const SimulatorStats & /* rhs */) = default;
+
+  friend std::ostream &operator<<(std::ostream &in, const SimulatorStats &stats) {
+    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(stats.elapsed_time).count();
+
+    std::string formated = fmt::format(
+        "SimulatorStats {{ total_messages: {}, dropped_messages: {}, timed_out_requests: {}, total_requests: {}, "
+        "total_responses: {}, simulator_ticks: {}, elapsed_time: {}ms }}",
+        stats.total_messages, stats.dropped_messages, stats.timed_out_requests, stats.total_requests,
+        stats.total_responses, stats.simulator_ticks, elapsed_ms);
+
+    in << formated;
+
+    return in;
+  }
 };
 };  // namespace memgraph::io::simulator
