@@ -23,10 +23,11 @@ EdgeTypeId EdgeAccessor::EdgeType() const { return edge.type.id; }
 const std::vector<std::pair<PropertyId, Value>> &EdgeAccessor::Properties() const { return edge.properties; }
 
 Value EdgeAccessor::GetProperty(const std::string &prop_name) const {
-  if (!manager_->HasProperty(prop_name)) {
+  auto maybe_prop = manager_->MaybeNameToProperty(prop_name);
+  if (!maybe_prop) {
     return {};
   }
-  auto prop_id = manager_->NameToProperty(prop_name);
+  const auto prop_id = *maybe_prop;
   auto it = std::find_if(edge.properties.begin(), edge.properties.end(), [&](auto &pr) { return prop_id == pr.first; });
   return it->second;
 }
@@ -34,6 +35,8 @@ Value EdgeAccessor::GetProperty(const std::string &prop_name) const {
 const Edge &EdgeAccessor::GetEdge() const { return edge; }
 
 bool EdgeAccessor::IsCycle() const { return edge.src == edge.dst; };
+
+size_t EdgeAccessor::CypherId() const { return edge.id.gid; }
 
 VertexAccessor EdgeAccessor::To() const {
   return VertexAccessor(Vertex{edge.dst}, std::vector<std::pair<PropertyId, msgs::Value>>{}, manager_);
@@ -88,10 +91,11 @@ Value VertexAccessor::GetProperty(PropertyId prop_id) const {
 
 // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
 Value VertexAccessor::GetProperty(const std::string &prop_name) const {
-  if (!manager_->HasProperty(prop_name)) {
+  auto maybe_prop = manager_->MaybeNameToProperty(prop_name);
+  if (!maybe_prop) {
     return {};
   }
-  return GetProperty(manager_->NameToProperty(prop_name));
+  return GetProperty(*maybe_prop);
 }
 
 msgs::Vertex VertexAccessor::GetVertex() const { return vertex; }

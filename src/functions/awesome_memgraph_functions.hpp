@@ -409,21 +409,13 @@ void FType(const char *name, const TypedValueT *args, int64_t nargs, int64_t pos
 // TODO: Implement degrees, haversin, radians
 // TODO: Implement spatial functions
 
-template <typename TypedValueT, typename FunctionContextT, typename Tag>
+template <typename TypedValueT, typename FunctionContextT>
 TypedValueT EndNode(const TypedValueT *args, int64_t nargs, const FunctionContextT &ctx) {
   FType<TypedValueT, Or<Null, Edge>>("endNode", args, nargs);
-  if (args[0].IsNull()) return TypedValueT(ctx.memory);
-  if constexpr (std::is_same_v<Tag, StorageEngineTag>) {
-    const auto to = args[0].ValueEdge().To();
-    auto pk = to.primary_key;
-    auto maybe_vertex_accessor = ctx.db_accessor->FindVertex(pk, ctx.view);
-    if (!maybe_vertex_accessor) {
-      throw functions::FunctionRuntimeException("Trying to get properties from a deleted object.");
-    }
-    return TypedValueT(*maybe_vertex_accessor, ctx.memory);
-  } else {
-    return TypedValueT(args[0].ValueEdge().To(), ctx.memory);
+  if (args[0].IsNull()) {
+    return TypedValueT(ctx.memory);
   }
+  return TypedValueT(args[0].ValueEdge().To(), ctx.memory);
 }
 
 template <typename TypedValueT, typename FunctionContextT>
@@ -450,6 +442,7 @@ TypedValueT Properties(const TypedValueT *args, int64_t nargs, const FunctionCon
   auto *dba = ctx.db_accessor;
   auto get_properties = [&](const auto &record_accessor) {
     typename TypedValueT::TMap properties(ctx.memory);
+    Conv conv;
     if constexpr (std::is_same_v<Tag, StorageEngineTag>) {
       auto maybe_props = record_accessor.Properties(ctx.view);
       if (maybe_props.HasError()) {
@@ -466,11 +459,9 @@ TypedValueT Properties(const TypedValueT *args, int64_t nargs, const FunctionCon
         }
       }
       for (const auto &property : *maybe_props) {
-        Conv conv;
         properties.emplace(dba->PropertyToName(property.first), conv(property.second));
       }
     } else {
-      Conv conv;
       for (const auto &property : record_accessor.Properties()) {
         properties.emplace(utils::pmr::string(dba->PropertyToName(property.first), ctx.memory),
                            conv(property.second, dba));
@@ -510,21 +501,13 @@ TypedValueT Size(const TypedValueT *args, int64_t nargs, const FunctionContextT 
   return TypedValueT(static_cast<int64_t>(value.ValuePath().edges().size()), ctx.memory);
 }
 
-template <typename TypedValueT, typename FunctionContextT, typename Tag, typename Conv>
+template <typename TypedValueT, typename FunctionContextT, typename Conv>
 TypedValueT StartNode(const TypedValueT *args, int64_t nargs, const FunctionContextT &ctx) {
   FType<TypedValueT, Or<Null, Edge>>("startNode", args, nargs);
-  if (args[0].IsNull()) return TypedValueT(ctx.memory);
-  if constexpr (std::is_same_v<Tag, StorageEngineTag>) {
-    const auto to = args[0].ValueEdge().From();
-    auto pk = to.primary_key;
-    auto maybe_vertex_accessor = ctx.db_accessor->FindVertex(pk, ctx.view);
-    if (!maybe_vertex_accessor) {
-      throw functions::FunctionRuntimeException("Trying to get properties from a deleted object.");
-    }
-    return TypedValueT(*maybe_vertex_accessor, ctx.memory);
-  } else {
-    return TypedValueT(args[0].ValueEdge().From(), ctx.memory);
+  if (args[0].IsNull()) {
+    return TypedValueT(ctx.memory);
   }
+  return TypedValueT(args[0].ValueEdge().From(), ctx.memory);
 }
 
 // This is needed because clang-tidy fails to identify the use of this function in the if-constexpr branch
@@ -700,49 +683,6 @@ TypedValueT ValueType(const TypedValueT *args, int64_t nargs, const FunctionCont
     case TypedValueT::Type::Duration:
       return TypedValueT("DURATION", ctx.memory);
   }
-}
-
-// TODO: How is Keys different from Properties function?
-template <typename TypedValueT, typename FunctionContextT, typename Tag>
-TypedValueT Keys(const TypedValueT *args, int64_t nargs, const FunctionContextT &ctx) {
-  FType<TypedValueT, Or<Null, Vertex, Edge>>("keys", args, nargs);
-  auto *dba = ctx.db_accessor;
-  auto get_keys = [&](const auto &record_accessor) {
-    typename TypedValueT::TVector keys(ctx.memory);
-    if constexpr (std::same_as<Tag, StorageEngineTag>) {
-      auto maybe_props = record_accessor.Properties(ctx.view);
-      if (maybe_props.HasError()) {
-        switch (maybe_props.GetError()) {
-          case storage::v3::Error::DELETED_OBJECT:
-            throw functions::FunctionRuntimeException("Trying to get keys from a deleted object.");
-          case storage::v3::Error::NONEXISTENT_OBJECT:
-            throw functions::FunctionRuntimeException("Trying to get keys from an object that doesn't exist.");
-          case storage::v3::Error::SERIALIZATION_ERROR:
-          case storage::v3::Error::VERTEX_HAS_EDGES:
-          case storage::v3::Error::PROPERTIES_DISABLED:
-          case storage::v3::Error::VERTEX_ALREADY_INSERTED:
-            throw functions::FunctionRuntimeException("Unexpected error when getting keys.");
-        }
-      }
-      for (const auto &property : *maybe_props) {
-        keys.emplace_back(dba->PropertyToName(property.first));
-      }
-    } else {
-      for (const auto &property : record_accessor.Properties()) {
-        keys.emplace_back(dba->PropertyToName(property.first));
-      }
-    }
-    return TypedValueT(std::move(keys));
-  };
-
-  const auto &value = args[0];
-  if (value.IsNull()) {
-    return TypedValueT(ctx.memory);
-  }
-  if (value.IsVertex()) {
-    return get_keys(value.ValueVertex());
-  }
-  return get_keys(value.ValueEdge());
 }
 
 template <typename TypedValueT, typename FunctionContextT, typename Tag>
@@ -1026,11 +966,8 @@ template <typename TypedValueT, typename FunctionContextT>
 TypedValueT Id(const TypedValueT *args, int64_t nargs, const FunctionContextT &ctx) {
   FType<TypedValueT, Or<Null, Vertex, Edge>>("id", args, nargs);
   const auto &arg = args[0];
-  if (arg.IsNull()) {
+  if (arg.IsNull() || arg.IsVertex()) {
     return TypedValueT(ctx.memory);
-  }
-  if (arg.IsVertex()) {
-    return TypedValueT(static_cast<int64_t>(arg.ValueVertex().CypherId()), ctx.memory);
   }
   return TypedValueT(static_cast<int64_t>(arg.ValueEdge().CypherId()), ctx.memory);
 }
@@ -1382,22 +1319,24 @@ NameToFunction(const std::string &function_name) {
   if (function_name == "DEGREE") return functions::impl::Degree<TypedValueT, FunctionContextT, Tag>;
   if (function_name == "INDEGREE") return functions::impl::InDegree<TypedValueT, FunctionContextT, Tag>;
   if (function_name == "OUTDEGREE") return functions::impl::OutDegree<TypedValueT, FunctionContextT, Tag>;
-  if (function_name == "ENDNODE") return functions::impl::EndNode<TypedValueT, FunctionContextT, Tag>;
   if (function_name == "HEAD") return functions::impl::Head<TypedValueT, FunctionContextT>;
   if (function_name == kId) return functions::impl::Id<TypedValueT, FunctionContextT>;
   if (function_name == "LAST") return functions::impl::Last<TypedValueT, FunctionContextT>;
   if (function_name == "PROPERTIES") return functions::impl::Properties<TypedValueT, FunctionContextT, Tag, Conv>;
   if (function_name == "SIZE") return functions::impl::Size<TypedValueT, FunctionContextT>;
-  if (function_name == "STARTNODE") return functions::impl::StartNode<TypedValueT, FunctionContextT, Tag, Conv>;
   if (function_name == "TIMESTAMP") return functions::impl::Timestamp<TypedValueT, FunctionContextT>;
   if (function_name == "TOBOOLEAN") return functions::impl::ToBoolean<TypedValueT, FunctionContextT>;
   if (function_name == "TOFLOAT") return functions::impl::ToFloat<TypedValueT, FunctionContextT>;
   if (function_name == "TOINTEGER") return functions::impl::ToInteger<TypedValueT, FunctionContextT>;
   if (function_name == "TYPE") return functions::impl::Type<TypedValueT, FunctionContextT>;
   if (function_name == "VALUETYPE") return functions::impl::ValueType<TypedValueT, FunctionContextT>;
+  // Only on QE
+  if constexpr (std::is_same_v<Tag, QueryEngineTag>) {
+    if (function_name == "STARTNODE") return functions::impl::StartNode<TypedValueT, FunctionContextT, Conv>;
+    if (function_name == "ENDNODE") return functions::impl::EndNode<TypedValueT, FunctionContextT>;
+  }
 
   // List functions
-  if (function_name == "KEYS") return functions::impl::Keys<TypedValueT, FunctionContextT, Tag>;
   if (function_name == "LABELS") return functions::impl::Labels<TypedValueT, FunctionContextT, Tag>;
   if (function_name == "NODES") return functions::impl::Nodes<TypedValueT, FunctionContextT>;
   if (function_name == "RANGE") return functions::impl::Range<TypedValueT, FunctionContextT>;
@@ -1449,15 +1388,25 @@ NameToFunction(const std::string &function_name) {
 
   // Memgraph specific functions
   if (function_name == "ASSERT") return functions::impl::Assert<TypedValueT, FunctionContextT>;
-  if (function_name == "COUNTER") return functions::impl::Counter<TypedValueT, FunctionContextT>;
   if (function_name == "TOBYTESTRING") return functions::impl::ToByteString<TypedValueT, FunctionContextT>;
   if (function_name == "FROMBYTESTRING") return functions::impl::FromByteString<TypedValueT, FunctionContextT>;
+  // Only on QE
+  if constexpr (std::is_same_v<Tag, QueryEngineTag>) {
+    if (function_name == "COUNTER") return functions::impl::Counter<TypedValueT, FunctionContextT>;
+  }
 
   // Functions for temporal types
   if (function_name == "DATE") return functions::impl::Date<TypedValueT, FunctionContextT>;
   if (function_name == "LOCALTIME") return functions::impl::LocalTime<TypedValueT, FunctionContextT>;
   if (function_name == "LOCALDATETIME") return functions::impl::LocalDateTime<TypedValueT, FunctionContextT>;
   if (function_name == "DURATION") return functions::impl::Duration<TypedValueT, FunctionContextT>;
+
+  // Only on QE
+  if constexpr (std::is_same_v<Tag, QueryEngineTag>) {
+    if (function_name == "COUNTER") return functions::impl::Counter<TypedValueT, FunctionContextT>;
+    if (function_name == "STARTNODE") return functions::impl::StartNode<TypedValueT, FunctionContextT, Conv>;
+    if (function_name == "ENDNODE") return functions::impl::EndNode<TypedValueT, FunctionContextT>;
+  }
 
   return nullptr;
 }

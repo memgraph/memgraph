@@ -53,12 +53,7 @@ class EdgeAccessor final {
 
   [[nodiscard]] bool IsCycle() const;
 
-  // Dummy function
-  // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-  [[nodiscard]] size_t CypherId() const { return 10; }
-
-  //  bool HasSrcAccessor const { return src == nullptr; }
-  //  bool HasDstAccessor const { return dst == nullptr; }
+  [[nodiscard]] size_t CypherId() const;
 
   [[nodiscard]] VertexAccessor To() const;
   [[nodiscard]] VertexAccessor From() const;
@@ -97,44 +92,6 @@ class VertexAccessor final {
   [[nodiscard]] Value GetProperty(const std::string &prop_name) const;
 
   [[nodiscard]] msgs::Vertex GetVertex() const;
-
-  // Dummy function
-  // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-  [[nodiscard]] size_t CypherId() const { return 10; }
-
-  //  auto InEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types) const
-  //      -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.InEdges(view)))> {
-  //    auto maybe_edges = impl_.InEdges(view, edge_types);
-  //    if (maybe_edges.HasError()) return maybe_edges.GetError();
-  //    return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
-  //  }
-  //
-  //  auto InEdges(storage::View view) const { return InEdges(view, {}); }
-  //
-  //  auto InEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types, const VertexAccessor &dest)
-  //  const
-  //      -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.InEdges(view)))> {
-  //    auto maybe_edges = impl_.InEdges(view, edge_types, &dest.impl_);
-  //    if (maybe_edges.HasError()) return maybe_edges.GetError();
-  //    return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
-  //  }
-  //
-  //  auto OutEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types) const
-  //      -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.OutEdges(view)))> {
-  //    auto maybe_edges = impl_.OutEdges(view, edge_types);
-  //    if (maybe_edges.HasError()) return maybe_edges.GetError();
-  //    return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
-  //  }
-  //
-  //  auto OutEdges(storage::View view) const { return OutEdges(view, {}); }
-  //
-  //  auto OutEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types,
-  //                const VertexAccessor &dest) const
-  //      -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.OutEdges(view)))> {
-  //    auto maybe_edges = impl_.OutEdges(view, edge_types, &dest.impl_);
-  //    if (maybe_edges.HasError()) return maybe_edges.GetError();
-  //    return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
-  //  }
 
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
   [[nodiscard]] size_t InDegree() const { return 0; }

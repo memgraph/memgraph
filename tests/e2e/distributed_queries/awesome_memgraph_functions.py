@@ -19,7 +19,7 @@ import pytest
 from common import *
 
 
-def test_vertex_creation_and_scanall(connection):
+def test_awesome_memgraph_functions(connection):
     wait_for_shard_manager_to_initialize()
     cursor = connection.cursor()
 

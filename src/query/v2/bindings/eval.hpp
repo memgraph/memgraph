@@ -25,11 +25,10 @@
 
 namespace memgraph::msgs {
 class ShardRequestManagerInterface;
-} // namespace memgraph::msgs
+}  // namespace memgraph::msgs
 
 namespace memgraph::query::v2 {
 
-inline const auto lam = [](const auto &val) { return ValueToTypedValue(val); };
 namespace detail {
 class Callable {
  public:

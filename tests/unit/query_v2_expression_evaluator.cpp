@@ -30,15 +30,12 @@
 #include "query/v2/frontend/ast/ast.hpp"
 #include "query/v2/requests.hpp"
 #include "query/v2/shard_request_manager.hpp"
+#include "query_v2_query_common.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/storage.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/string.hpp"
 
-#include "query_v2_query_common.hpp"
-//#include "utils/temporal.hpp"
-
-using namespace memgraph::query::v2;
 using memgraph::query::v2::test_common::ToIntList;
 using testing::ElementsAre;
 using testing::UnorderedElementsAre;
@@ -67,11 +64,11 @@ using CompoundKey = memgraph::coordinator::PrimaryKey;
 using memgraph::expr::ExpressionRuntimeException;
 using memgraph::functions::FunctionRuntimeException;
 
-namespace {
+namespace memgraph::query::v2::tests {
 
 class MockedShardRequestManager : public memgraph::msgs::ShardRequestManagerInterface {
  public:
-  using VertexAccessor = memgraph::query::v2::accessors::VertexAccessor;
+  using VertexAccessor = accessors::VertexAccessor;
   explicit MockedShardRequestManager(ShardMap shard_map) : shards_map_(std::move(shard_map)) { SetUpNameIdMappers(); }
   memgraph::storage::v3::EdgeTypeId NameToEdgeType(const std::string &name) const override {
     return shards_map_.GetEdgeTypeId(name).value();
@@ -118,11 +115,17 @@ class MockedShardRequestManager : public memgraph::msgs::ShardRequestManagerInte
     return edge_types_.IdToName(id.AsUint());
   }
 
-  bool HasProperty(const std::string &name) const override { return shards_map_.GetPropertyId(name).has_value(); }
+  std::optional<storage::v3::PropertyId> MaybeNameToProperty(const std::string &name) const override {
+    return shards_map_.GetPropertyId(name);
+  }
 
-  bool HasEdgeType(const std::string &name) const override { return shards_map_.GetEdgeTypeId(name).has_value(); }
+  std::optional<storage::v3::EdgeTypeId> MaybeNameToEdge(const std::string &name) const override {
+    return shards_map_.GetEdgeTypeId(name);
+  }
 
-  bool HasLabel(const std::string &name) const override { return shards_map_.GetLabelId(name).has_value(); }
+  std::optional<storage::v3::LabelId> MaybeNameToLabel(const std::string &name) const override {
+    return shards_map_.GetLabelId(name);
+  }
 
   bool IsPrimaryLabel(LabelId label) const override { return true; }
 
@@ -211,7 +214,7 @@ class ExpressionEvaluatorTest : public ::testing::Test {
  protected:
   AstStorage storage;
   memgraph::utils::MonotonicBufferResource mem{1024};
-  EvaluationContext ctx{.memory = &mem, .timestamp = memgraph::query::v2::QueryTimestamp()};
+  EvaluationContext ctx{.memory = &mem, .timestamp = QueryTimestamp()};
   SymbolTable symbol_table;
 
   Frame frame{128};
@@ -542,20 +545,19 @@ using Value = memgraph::msgs::Value;
 using VertexId = memgraph::msgs::VertexId;
 using Label = memgraph::msgs::Label;
 
-memgraph::query::v2::accessors::VertexAccessor CreateVertex(std::vector<std::pair<PropertyId, Value>> props,
-                                                            const memgraph::msgs::ShardRequestManagerInterface *manager,
-                                                            Label label = {}) {
-  static size_t id = 0;
-  return {Vertex{VertexId{label, id++}, {label}}, std::move(props), manager};
+accessors::VertexAccessor CreateVertex(std::vector<std::pair<PropertyId, Value>> props,
+                                       const memgraph::msgs::ShardRequestManagerInterface *manager, Label label = {}) {
+  static int64_t id = 0;
+  return {Vertex{VertexId{label, {memgraph::msgs::Value(id++)}}, {label}}, std::move(props), manager};
 }
 
-memgraph::query::v2::accessors::EdgeAccessor CreateEdge(std::vector<std::pair<PropertyId, Value>> props,
-                                                        const memgraph::msgs::ShardRequestManagerInterface *manager) {
-  auto edge = Edge{.src = VertexId{{}, 0},
-                   .dst = VertexId{{}, 0},
+accessors::EdgeAccessor CreateEdge(std::vector<std::pair<PropertyId, Value>> props,
+                                   const memgraph::msgs::ShardRequestManagerInterface *manager) {
+  auto edge = Edge{.src = VertexId{{}, {}},
+                   .dst = VertexId{{}, {}},
                    .properties = std::move(props),
                    .type = EdgeType{manager->NameToEdgeType("edge_type")}};
-  return memgraph::query::v2::accessors::EdgeAccessor{std::move(edge), manager};
+  return accessors::EdgeAccessor{std::move(edge), manager};
 }
 
 TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
@@ -575,8 +577,6 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
     auto value2 = Eval(op2);
     EXPECT_EQ(value2.ValueInt(), 43);
   }
-  // TODO(kostasrim) Investigate
-  //  Shall we return null on missing properties? Or shall we throw bad optional access as we do now?
 
   {
     // Legal indexing, non-existing key.
@@ -1135,16 +1135,6 @@ class ExpressionEvaluatorPropertyLookup : public ExpressionEvaluatorTest {
   }
 };
 
-// TODO(kostasrim) These will fail because of memory resource not propagating correctly. This should be done as part of
-// polishing the allocators.
-// TEST_F(ExpressionEvaluatorPropertyLookup, Vertex) {
-//   auto v1 = CreateVertex({{prop_age.second, memgraph::msgs::Value(static_cast<int64_t>(32))}}, shard_manager.get());
-//   frame[symbol] = TypedValue(v1);
-//   EXPECT_EQ(Value(prop_age).ValueInt(), 10);
-//   EXPECT_TRUE(Value(prop_height).IsNull());
-// }
-//  TEST_F(ExpressionEvaluatorPropertyLookup, Edge) {}
-
 TEST_F(ExpressionEvaluatorPropertyLookup, Null) {
   frame[symbol] = TypedValue();
   EXPECT_TRUE(Value(prop_age).IsNull());
@@ -1266,17 +1256,6 @@ TEST_F(FunctionTest, Size) {
                 .ValueInt(),
             3);
   ASSERT_THROW(EvaluateFunction("SIZE", 5), FunctionRuntimeException);
-
-  // TODO(kostasrim) Add this when we enable paths on the accessors
-  //  auto v0 = dba.InsertVertex();
-  //  memgraph::query::Path path(v0);
-  //  EXPECT_EQ(EvaluateFunction("SIZE", path).ValueInt(), 0);
-  //  auto v1 = dba.InsertVertex();
-  //  auto edge = dba.InsertEdge(&v0, &v1, dba.NameToEdgeType("type"));
-  //  ASSERT_TRUE(edge.HasValue());
-  //  path.Expand(*edge);
-  //  path.Expand(v1);
-  //  EXPECT_EQ(EvaluateFunction("SIZE", path).ValueInt(), 1);
 }
 
 TEST_F(FunctionTest, StartNode) {
@@ -1289,11 +1268,6 @@ TEST_F(FunctionTest, StartNode) {
   ASSERT_EQ(res, expected);
   ASSERT_THROW(EvaluateFunction("STARTNODE", 2), FunctionRuntimeException);
 }
-
-// TODO(kostasrim) Enable this test once we add degree to the accessors
-// TEST_F(FunctionTest, Degree) {}
-// TEST_F(FunctionTest, InDegree) {}
-// TEST_F(FunctionTest, OutDegree) {}
 
 TEST_F(FunctionTest, ToBoolean) {
   ASSERT_THROW(EvaluateFunction("TOBOOLEAN"), FunctionRuntimeException);
@@ -1368,9 +1342,9 @@ TEST_F(FunctionTest, Labels) {
   Label label{shard_manager->NameToLabel("label1")};
   auto v = CreateVertex({}, shard_manager.get(), std::move(label));
   std::vector<std::string> labels;
-  auto _labels = EvaluateFunction("LABELS", v).ValueList();
-  labels.reserve(_labels.size());
-  for (auto label : _labels) {
+  auto evaluated_labels = EvaluateFunction("LABELS", v).ValueList();
+  labels.reserve(evaluated_labels.size());
+  for (auto label : evaluated_labels) {
     labels.emplace_back(label.ValueString());
   }
   ASSERT_THAT(labels, UnorderedElementsAre("label1"));
@@ -1394,27 +1368,6 @@ TEST_F(FunctionTest, Range) {
   EXPECT_THAT(ToIntList(EvaluateFunction("RANGE", 6, 1, -2)), ElementsAre(6, 4, 2));
   EXPECT_THAT(ToIntList(EvaluateFunction("RANGE", 2, 2, -3)), ElementsAre(2));
   EXPECT_THAT(ToIntList(EvaluateFunction("RANGE", -2, 4, -1)), ElementsAre());
-}
-
-TEST_F(FunctionTest, Keys) {
-  ASSERT_THROW(EvaluateFunction("KEYS"), FunctionRuntimeException);
-  ASSERT_TRUE(EvaluateFunction("KEYS", TypedValue()).IsNull());
-  const auto height = shard_manager->NameToProperty("height");
-  const auto age = shard_manager->NameToProperty("age");
-  auto v1 = CreateVertex({{height, Value(static_cast<int64_t>(5))}, {age, Value(static_cast<int64_t>(10))}},
-                         shard_manager.get());
-  auto edge = CreateEdge({{height, Value(static_cast<int64_t>(3))}, {age, Value(static_cast<int64_t>(15))}},
-                         shard_manager.get());
-  auto prop_keys_to_string = [](TypedValue t) {
-    std::vector<std::string> keys;
-    for (auto property : t.ValueList()) {
-      keys.emplace_back(property.ValueString());
-    }
-    return keys;
-  };
-  ASSERT_THAT(prop_keys_to_string(EvaluateFunction("KEYS", v1)), UnorderedElementsAre("height", "age"));
-  ASSERT_THAT(prop_keys_to_string(EvaluateFunction("KEYS", edge)), UnorderedElementsAre("height", "age"));
-  ASSERT_THROW(EvaluateFunction("KEYS", 2), FunctionRuntimeException);
 }
 
 TEST_F(FunctionTest, Tail) {
@@ -1606,18 +1559,6 @@ TEST_F(FunctionTest, Counter) {
   EXPECT_THROW(EvaluateFunction("COUNTER", "c6", 0, 0), FunctionRuntimeException);
 }
 
-// TODO(kostasrim) Add this once we fix accessors CypherId() functions
-// TEST_F(FunctionTest, Id) {
-//  auto v = CreateVertex({}, shard_manager.get());
-//  auto e = CreateEdge({}, shard_manager.get());
-//  EXPECT_TRUE(EvaluateFunction("ID", TypedValue()).IsNull());
-//  EXPECT_EQ(EvaluateFunction("ID", v).ValueInt(), 0);
-//  EXPECT_EQ(EvaluateFunction("ID", e).ValueInt(), 0);
-//  EXPECT_THROW(EvaluateFunction("ID"), FunctionRuntimeException);
-//  EXPECT_THROW(EvaluateFunction("ID", 0), FunctionRuntimeException);
-//  EXPECT_THROW(EvaluateFunction("ID", v, e), FunctionRuntimeException);
-//}
-
 TEST_F(FunctionTest, ToStringNull) { EXPECT_TRUE(EvaluateFunction("TOSTRING", TypedValue()).IsNull()); }
 
 TEST_F(FunctionTest, ToStringString) {
@@ -1782,5 +1723,4 @@ TEST_F(FunctionTest, FromByteString) {
   EXPECT_EQ(EvaluateFunction("FROMBYTESTRING", std::string("\x00\x42", 2)).ValueString(), "0x0042");
 }
 
-// TODO(kostasrim) Add temporal type tests.
-}  // namespace
+}  // namespace memgraph::query::v2::tests
