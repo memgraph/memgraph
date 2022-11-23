@@ -418,61 +418,6 @@ BENCHMARK_TEMPLATE(Aggregate, PoolResource)->Ranges({{4, 1U << 7U}, {512, 1U << 
 
 template <class TMemory>
 // NOLINTNEXTLINE(google-runtime-references)
-static void AggregateWithDistinct(benchmark::State &state) {
-  memgraph::query::AstStorage ast;
-  memgraph::query::Parameters parameters;
-  memgraph::storage::Storage db;
-  AddVertices(&db, state.range(1));
-  memgraph::query::SymbolTable symbol_table;
-  auto scan_all = std::make_shared<memgraph::query::plan::ScanAll>(nullptr, symbol_table.CreateSymbol("v", false));
-  std::vector<memgraph::query::Symbol> symbols;
-  symbols.reserve(state.range(0));
-  std::vector<memgraph::query::Expression *> group_by;
-  group_by.reserve(state.range(0));
-  std::vector<memgraph::query::plan::Aggregate::Element> aggregations;
-  aggregations.reserve(state.range(0));
-  for (int i = 0; i < state.range(0); ++i) {
-    auto sym = symbol_table.CreateSymbol(std::to_string(i), false);
-    symbols.push_back(sym);
-    group_by.push_back(ast.Create<memgraph::query::Identifier>(sym.name())->MapTo(sym));
-    aggregations.push_back({ast.Create<memgraph::query::PrimitiveLiteral>(i), nullptr,
-                            memgraph::query::Aggregation::Op::SUM,
-                            symbol_table.CreateSymbol("out" + std::to_string(i), false), true});
-  }
-  memgraph::query::plan::Aggregate aggregate(scan_all, aggregations, group_by, symbols);
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
-  // We need to only set the memory for temporary (per pull) evaluations
-  TMemory per_pull_memory;
-  memgraph::query::EvaluationContext evaluation_context{per_pull_memory.get()};
-  while (state.KeepRunning()) {
-    memgraph::query::ExecutionContext execution_context{&dba, symbol_table, evaluation_context};
-    TMemory memory;
-    memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
-    auto cursor = aggregate.MakeCursor(memory.get());
-    frame[symbols.front()] = memgraph::query::TypedValue(0);  // initial group_by value
-    while (cursor->Pull(frame, execution_context)) {
-      frame[symbols.front()].ValueInt()++;  // new group_by value
-      per_pull_memory.Reset();
-    }
-  }
-  state.SetItemsProcessed(state.iterations());
-}
-
-BENCHMARK_TEMPLATE(AggregateWithDistinct, NewDeleteResource)
-    ->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})
-    ->Unit(benchmark::kMicrosecond);
-
-BENCHMARK_TEMPLATE(AggregateWithDistinct, MonotonicBufferResource)
-    ->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})
-    ->Unit(benchmark::kMicrosecond);
-
-BENCHMARK_TEMPLATE(AggregateWithDistinct, PoolResource)
-    ->Ranges({{4, 1U << 7U}, {512, 1U << 13U}})
-    ->Unit(benchmark::kMicrosecond);
-
-template <class TMemory>
-// NOLINTNEXTLINE(google-runtime-references)
 static void OrderBy(benchmark::State &state) {
   memgraph::query::AstStorage ast;
   memgraph::query::Parameters parameters;

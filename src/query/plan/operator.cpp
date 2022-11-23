@@ -25,7 +25,6 @@
 
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
-#include "query/typed_value.hpp"
 #include "spdlog/spdlog.h"
 
 #include "license/license.hpp"
@@ -42,6 +41,7 @@
 #include "query/procedure/cypher_types.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
+#include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/algorithm.hpp"
@@ -3305,7 +3305,7 @@ class AggregateCursor : public Cursor {
     for (const auto &agg_elem : self_.aggregations_) {
       auto *mem = agg_value->values_.get_allocator().GetMemoryResource();
       agg_value->values_.emplace_back(DefaultAggregationOpValue(agg_elem, mem));
-      agg_value->unique_values_.emplace_back(AggregateCursor::AggregationValue::TSet(mem));
+      agg_value->unique_values_.emplace_back(AggregationValue::TSet(mem));
     }
     agg_value->counts_.resize(self_.aggregations_.size(), 0);
 
