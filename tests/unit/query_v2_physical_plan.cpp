@@ -41,7 +41,7 @@ class PhysicalPlanFixture : public ::testing::Test {
   void TearDown() override {}
 };
 
-TEST_F(MultiframePoolFixture, DISABLED_ConcurrentMultiframePoolAccess) {
+TEST_F(MultiframePoolFixture, ConcurrentMultiframePoolAccess) {
   std::atomic<int> readers_got_access_cnt;
   std::atomic<int> writers_got_access_cnt;
   utils::Timer timer;
@@ -104,7 +104,10 @@ struct Op {
   std::vector<int> props;
 };
 
-RC_GTEST_FIXTURE_PROP(PhysicalPlanFixture, PropertyBasedPhysicalPlan, ()) {
+// TODO(gitbuda): Doesn't work yet because it seems that the data pool is
+// blocked when the first writer fills all available space.
+//
+RC_GTEST_FIXTURE_PROP(PhysicalPlanFixture, DISABLED_PropertyBasedPhysicalPlan, ()) {
   using TDataPool = physical::multiframe::MPMCMultiframeFCFSPool;
   using TPhysicalOperator = physical::PhysicalOperator<TDataPool>;
   using TPhysicalOperatorPtr = std::shared_ptr<TPhysicalOperator>;

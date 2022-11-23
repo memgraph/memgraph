@@ -131,24 +131,22 @@ class PhysicalOperator {
   void PassBackWrite(const multiframe::Token &token) { data_pool_->ReturnFull(token.id); }
 
   template <typename TTuple>
-  void Emit(const TTuple &tuple, bool has_more = true) {
+  void Emit(const TTuple &tuple) {
     if (!current_token_) {
-      current_token_ = data_pool_->GetEmpty();
+      // TODO(gitbuda): We have to wait here if there is no empty multiframe.
+      current_token_ = NextWrite();
       if (!current_token_) {
         return;
       }
     }
-
     // It might be the case that previous Emit just put a frame at the last
     // available spot, but that's covered in the next if condition. In other
     // words, because of the logic above and below, the multiframe in the next
     // line will have at least one empty spot for the frame.
     current_token_->multiframe->PushBack(tuple);
-
-    if (!has_more || current_token_->multiframe->IsFull()) {
-      data_pool_->ReturnFull(current_token_->id);
-      current_token_ = std::nullopt;
-      return;
+    // TODO(gitbuda): Remove any potential copies from here.
+    if (current_token_->multiframe->IsFull()) {
+      CloseEmit();
     }
   }
   /// An additional function is required because sometimes, e.g., during
@@ -159,7 +157,7 @@ class PhysicalOperator {
     if (!current_token_) {
       return;
     }
-    data_pool_->ReturnFull(current_token_->id);
+    PassBackWrite(*current_token_);
     current_token_ = std::nullopt;
   }
   /// TODO(gitbuda): Create Emit which is suitable to be used in the concurrent environment.
@@ -248,7 +246,8 @@ class OncePhysicalOperator final : public PhysicalOperator<TDataPool> {
     MG_ASSERT(Base::children_.empty(), "Once should have 0 inputs");
     std::cout << Base::name_ << std::endl;
     Base::BaseExecute(ctx);
-    Base::Emit(Frame{}, false);
+    Base::Emit(Frame{});
+    Base::CloseEmit();
     Base::MarkWriterDone();
   }
 };
@@ -291,11 +290,10 @@ class ScanAllPhysicalOperator final : public PhysicalOperator<TDataPool> {
         this->stats_.processed_frames++;
         Base::Emit(new_frame);
       }
-      // Since Emit in the for loops hasn't passed has_more=false,
       // TODO(gitbuda): Rename CloseEmit to something better.
       Base::CloseEmit();
-      Base::MarkWriterDone();
     });
+    Base::MarkWriterDone();
   }
 
  private:
