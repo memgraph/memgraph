@@ -9,17 +9,25 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <memory>
 #include <thread>
 
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
+#include <spdlog/cfg/env.h>
+
+#include "io/message_histogram_collector.hpp"
 #include "io/simulator/simulator.hpp"
 #include "utils/print_helpers.hpp"
 
 using memgraph::io::Address;
 using memgraph::io::Io;
+using memgraph::io::LatencyHistogramSummaries;
 using memgraph::io::ResponseFuture;
 using memgraph::io::ResponseResult;
 using memgraph::io::simulator::Simulator;
 using memgraph::io::simulator::SimulatorConfig;
+using memgraph::io::simulator::SimulatorStats;
 using memgraph::io::simulator::SimulatorTransport;
 
 struct CounterRequest {
@@ -40,6 +48,7 @@ void run_server(Io<SimulatorTransport> io) {
       std::cout << "[SERVER] Error, continue" << std::endl;
       continue;
     }
+    std::cout << "[SERVER] Got message" << std::endl;
     auto request_envelope = request_result.GetValue();
     auto req = std::get<CounterRequest>(request_envelope.message);
 
@@ -50,13 +59,7 @@ void run_server(Io<SimulatorTransport> io) {
   }
 }
 
-int main() {
-  auto config = SimulatorConfig{
-      .drop_percent = 0,
-      .perform_timeouts = true,
-      .scramble_messages = true,
-      .rng_seed = 0,
-  };
+std::pair<SimulatorStats, LatencyHistogramSummaries> RunWorkload(SimulatorConfig &config) {
   auto simulator = Simulator(config);
 
   auto cli_addr = Address::TestAddress(1);
@@ -72,21 +75,47 @@ int main() {
     // send request
     CounterRequest cli_req;
     cli_req.proposal = i;
+    spdlog::info("[CLIENT] calling Request");
     auto res_f = cli_io.Request<CounterRequest, CounterResponse>(srv_addr, cli_req);
+    spdlog::info("[CLIENT] calling Wait");
     auto res_rez = std::move(res_f).Wait();
+    spdlog::info("[CLIENT] Wait returned");
     if (!res_rez.HasError()) {
-      std::cout << "[CLIENT] Got a valid response" << std::endl;
+      spdlog::info("[CLIENT] Got a valid response");
       auto env = res_rez.GetValue();
       MG_ASSERT(env.message.highest_seen == i);
-      std::cout << "response latency: " << env.response_latency.count() << " microseconds" << std::endl;
+      spdlog::info("response latency: {} microseconds", env.response_latency.count());
     } else {
-      std::cout << "[CLIENT] Got an error" << std::endl;
+      spdlog::info("[CLIENT] Got an error");
     }
   }
 
-  using memgraph::utils::print_helpers::operator<<;
-  std::cout << "response latencies: " << cli_io.ResponseLatencies() << std::endl;
-
   simulator.ShutDown();
+
+  return std::make_pair(simulator.Stats(), cli_io.ResponseLatencies());
+}
+
+int main() {
+  spdlog::cfg::load_env_levels();
+
+  auto config = SimulatorConfig{
+      .drop_percent = 0,
+      .perform_timeouts = true,
+      .scramble_messages = true,
+      .rng_seed = 0,
+  };
+
+  auto [sim_stats_1, latency_stats_1] = RunWorkload(config);
+  auto [sim_stats_2, latency_stats_2] = RunWorkload(config);
+
+  if (sim_stats_1 != sim_stats_2 || latency_stats_1 != latency_stats_2) {
+    spdlog::error("simulator stats diverged across runs");
+    spdlog::error("run 1 simulator stats: {}", sim_stats_1);
+    spdlog::error("run 2 simulator stats: {}", sim_stats_2);
+    spdlog::error("run 1 latency:\n{}", latency_stats_1.SummaryTable());
+    spdlog::error("run 2 latency:\n{}", latency_stats_2.SummaryTable());
+    std::terminate();
+  }
+
   return 0;
 }

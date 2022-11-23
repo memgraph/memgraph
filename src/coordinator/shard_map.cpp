@@ -228,7 +228,7 @@ Hlc ShardMap::IncrementShardMapVersion() noexcept {
   return shard_map_version;
 }
 
-// TODO(antaljanosbenjamin) use a single map for all name id 
+// TODO(antaljanosbenjamin) use a single map for all name id
 // mapping and a single counter to maintain the next id
 std::unordered_map<uint64_t, std::string> ShardMap::IdToNames() {
   std::unordered_map<uint64_t, std::string> id_to_names;
@@ -247,6 +247,25 @@ std::unordered_map<uint64_t, std::string> ShardMap::IdToNames() {
 }
 
 Hlc ShardMap::GetHlc() const noexcept { return shard_map_version; }
+
+boost::uuids::uuid NewShardUuid(uint64_t shard_id) {
+  return boost::uuids::uuid{0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            static_cast<unsigned char>(shard_id >> 56U),
+                            static_cast<unsigned char>(shard_id >> 48U),
+                            static_cast<unsigned char>(shard_id >> 40U),
+                            static_cast<unsigned char>(shard_id >> 32U),
+                            static_cast<unsigned char>(shard_id >> 24U),
+                            static_cast<unsigned char>(shard_id >> 16U),
+                            static_cast<unsigned char>(shard_id >> 8U),
+                            static_cast<unsigned char>(shard_id)};
+}
 
 std::vector<ShardToInitialize> ShardMap::AssignShards(Address storage_manager,
                                                       std::set<boost::uuids::uuid> initialized) {
@@ -268,6 +287,7 @@ std::vector<ShardToInitialize> ShardMap::AssignShards(Address storage_manager,
         if (initialized.contains(aas.address.unique_id)) {
           machine_contains_shard = true;
           if (aas.status != Status::CONSENSUS_PARTICIPANT) {
+            mutated = true;
             spdlog::info("marking shard as full consensus participant: {}", aas.address.unique_id);
             aas.status = Status::CONSENSUS_PARTICIPANT;
           }
@@ -292,10 +312,13 @@ std::vector<ShardToInitialize> ShardMap::AssignShards(Address storage_manager,
       }
 
       if (!machine_contains_shard && shard.size() < label_space.replication_factor) {
+        // increment version for each new uuid for deterministic creation
+        IncrementShardMapVersion();
+
         Address address = storage_manager;
 
         // TODO(tyler) use deterministic UUID so that coordinators don't diverge here
-        address.unique_id = boost::uuids::uuid{boost::uuids::random_generator()()},
+        address.unique_id = NewShardUuid(shard_map_version.logical_id);
 
         spdlog::info("assigning shard manager to shard");
 
@@ -383,6 +406,7 @@ std::optional<LabelId> ShardMap::InitializeNewLabel(std::string label_name, std:
 void ShardMap::AddServer(Address server_address) {
   // Find a random place for the server to plug in
 }
+
 std::optional<LabelId> ShardMap::GetLabelId(const std::string &label) const {
   if (const auto it = labels.find(label); it != labels.end()) {
     return it->second;

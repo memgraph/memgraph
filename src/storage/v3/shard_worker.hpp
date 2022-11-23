@@ -80,6 +80,9 @@ struct QueueInner {
   // starvation by sometimes randomizing priorities, rather than following a strict
   // prioritization.
   std::deque<Message> queue;
+
+  uint64_t submitted = 0;
+  uint64_t calls_to_pop = 0;
 };
 
 /// There are two reasons to implement our own Queue instead of using
@@ -95,6 +98,8 @@ class Queue {
       MG_ASSERT(inner_.use_count() > 0);
       std::unique_lock<std::mutex> lock(inner_->mu);
 
+      inner_->submitted++;
+
       inner_->queue.emplace_back(std::forward<Message>(message));
     }  // lock dropped before notifying condition variable
 
@@ -105,6 +110,9 @@ class Queue {
     MG_ASSERT(inner_.use_count() > 0);
     std::unique_lock<std::mutex> lock(inner_->mu);
 
+    inner_->calls_to_pop++;
+    inner_->cv.notify_all();
+
     while (inner_->queue.empty()) {
       inner_->cv.wait(lock);
     }
@@ -114,6 +122,15 @@ class Queue {
 
     return message;
   }
+
+  void BlockOnQuiescence() const {
+    MG_ASSERT(inner_.use_count() > 0);
+    std::unique_lock<std::mutex> lock(inner_->mu);
+
+    while (inner_->calls_to_pop <= inner_->submitted) {
+      inner_->cv.wait(lock);
+    }
+  }
 };
 
 /// A ShardWorker owns Raft<ShardRsm> instances. receives messages from the ShardManager.
@@ -122,7 +139,6 @@ class ShardWorker {
   io::Io<IoImpl> io_;
   Queue queue_;
   std::priority_queue<std::pair<Time, uuid>, std::vector<std::pair<Time, uuid>>, std::greater<>> cron_schedule_;
-  Time next_cron_ = Time::min();
   std::map<uuid, ShardRaft<IoImpl>> rsm_map_;
 
   bool Process(ShutDown && /* shut_down */) { return false; }
@@ -175,10 +191,7 @@ class ShardWorker {
       return;
     }
 
-    auto rsm_io = io_.ForkLocal();
-    auto io_addr = rsm_io.GetAddress();
-    io_addr.unique_id = to_init.uuid;
-    rsm_io.SetAddress(io_addr);
+    auto rsm_io = io_.ForkLocal(to_init.uuid);
 
     // TODO(tyler) get peers from Coordinator in HeartbeatResponse
     std::vector<Address> rsm_peers = {};
@@ -208,15 +221,12 @@ class ShardWorker {
   ~ShardWorker() = default;
 
   void Run() {
-    while (true) {
+    bool should_continue = true;
+    while (should_continue) {
       Message message = queue_.Pop();
 
-      const bool should_continue =
+      should_continue =
           std::visit([&](auto &&msg) { return Process(std::forward<decltype(msg)>(msg)); }, std::move(message));
-
-      if (!should_continue) {
-        return;
-      }
     }
   }
 };

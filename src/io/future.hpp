@@ -64,7 +64,6 @@ class Shared {
     waiting_ = true;
 
     while (!item_) {
-      bool simulator_progressed = false;
       if (simulator_notifier_) [[unlikely]] {
         // We can't hold our own lock while notifying
         // the simulator because notifying the simulator
@@ -77,7 +76,7 @@ class Shared {
         // so we have to get out of its way to avoid
         // a cyclical deadlock.
         lock.unlock();
-        simulator_progressed = std::invoke(simulator_notifier_);
+        std::invoke(simulator_notifier_);
         lock.lock();
         if (item_) {
           // item may have been filled while we
@@ -85,8 +84,7 @@ class Shared {
           // the simulator of our waiting_ status.
           break;
         }
-      }
-      if (!simulator_progressed) [[likely]] {
+      } else {
         cv_.wait(lock);
       }
       MG_ASSERT(!consumed_, "Future consumed twice!");
