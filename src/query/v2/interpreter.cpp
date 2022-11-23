@@ -47,7 +47,6 @@
 #include "query/v2/shard_request_manager.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/shard.hpp"
-#include "storage/v3/storage.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
