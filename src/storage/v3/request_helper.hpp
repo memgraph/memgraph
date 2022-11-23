@@ -84,6 +84,17 @@ inline bool TypedValueCompare(const TypedValue &a, const TypedValue &b) {
   }
 }
 
+inline Ordering ConvertMsgsOrderByToOrdering(msgs::OrderingDirection ordering) {
+  switch (ordering) {
+    case memgraph::msgs::OrderingDirection::ASCENDING:
+      return memgraph::storage::v3::Ordering::ASC;
+    case memgraph::msgs::OrderingDirection::DESCENDING:
+      return memgraph::storage::v3::Ordering::DESC;
+    default:
+      LOG_FATAL("Unknown ordering direction");
+  }
+}
+
 class TypedValueVectorCompare final {
  public:
   explicit TypedValueVectorCompare(const std::vector<Ordering> &ordering) : ordering_(ordering) {}
@@ -126,16 +137,7 @@ std::vector<Element<VertexAccessor>> OrderByVertices(DbAccessor &dba, TIterable 
   std::vector<Ordering> ordering;
   ordering.reserve(order_by_vertices.size());
   std::transform(order_by_vertices.begin(), order_by_vertices.end(), std::back_inserter(ordering),
-                 [](const auto &order_by) {
-                   switch (order_by.direction) {
-                     case memgraph::msgs::OrderingDirection::ASCENDING:
-                       return Ordering::ASC;
-                     case memgraph::msgs::OrderingDirection::DESCENDING:
-                       return Ordering::DESC;
-                     default:
-                       LOG_FATAL("Unknown ordering direction");
-                   }
-                 });
+                 [](const auto &order_by) { return ConvertMsgsOrderByToOrdering(order_by.direction); });
 
   std::vector<Element<VertexAccessor>> ordered;
   for (auto it = iterable.begin(); it != iterable.end(); ++it) {

@@ -499,13 +499,8 @@ std::vector<Element<EdgeAccessor>> OrderByEdges(DbAccessor &dba, std::vector<Edg
                                                 const VertexAccessor &vertex_acc) {
   std::vector<Ordering> ordering;
   ordering.reserve(order_by_edges.size());
-  std::transform(order_by_edges.begin(), order_by_edges.end(), std::back_inserter(ordering), [](const auto &order_by) {
-    if (memgraph::msgs::OrderingDirection::ASCENDING == order_by.direction) {
-      return Ordering::ASC;
-    }
-    MG_ASSERT(memgraph::msgs::OrderingDirection::DESCENDING == order_by.direction);
-    return Ordering::DESC;
-  });
+  std::transform(order_by_edges.begin(), order_by_edges.end(), std::back_inserter(ordering),
+                 [](const auto &order_by) { return ConvertMsgsOrderByToOrdering(order_by.direction); });
 
   std::vector<Element<EdgeAccessor>> ordered;
   for (auto it = iterable.begin(); it != iterable.end(); ++it) {
