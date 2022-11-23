@@ -531,7 +531,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
 
     std::optional<msgs::ExpandOneResultRow> maybe_result;
 
-    if (req.order_by_vertices.empty()) {
+    if (req.order_by_edges.empty()) {
       const auto *schema = shard_->GetSchema(shard_->PrimaryLabel());
       MG_ASSERT(schema);
       maybe_result =
