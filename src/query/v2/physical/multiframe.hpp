@@ -266,6 +266,7 @@ class MPMCMultiframeFCFSPool {
   int64_t priority_counter_{-1};
   int64_t order_check_{-1};
   int64_t last_taken_priority_{-1};
+  // TODO(gitbuda): An interesting metric would be to count calls which require taking the lock?
   std::mutex mutex;
   PoolState pool_state_;
 };

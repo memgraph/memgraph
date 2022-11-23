@@ -83,6 +83,7 @@ TEST_F(MultiframePoolFixture, ConcurrentMultiframePoolAccess) {
 
 TEST_F(PhysicalPlanFixture, PropertyBasedPhysicalPlan) {
   // TODO(gitbuda): Implement proper single threaded and multithreaded physical plan test.
+  ASSERT_TRUE(true);
 }
 
 }  // namespace memgraph::query::v2::tests

@@ -76,32 +76,37 @@ class PhysicalOperator {
 
   ////// DATA POOL HANDLING
   /// Get/Push data from/to surrounding operators.
-  /// if nullopt -> there is nothing more to read or write.
   ///
-  /// TODO(gitbuda): Calling NextReads on a single thread -> while(forever)!
-  std::optional<multiframe::Token> NextRead() {
-    // 2 MAIN CONCERNS:
-    //   * No more data  -> the writer hinted there is no more data
-    //                      read first to check if there is more data and return
-    //                      check for exhaustion because the reader will mark exhausted  when there is no more data +
-    //                      writer hint is set
-    //   * No more space -> the writer is too slow -> wait for a moment
-    std::cout << "PO: NextRead call" << std::endl;
-    while (true) {
-      auto token = data_pool_->GetFull();
-      if (token) {
-        return token;
-      }
-      // First try to read a multiframe because there might be some full frames
-      // even if the whole pool is marked as exhaused. In case we come to this
-      // point and the pool is exhausted there is no more data for sure.
-      if (data_pool_->IsExhausted()) {
-        return std::nullopt;
-      }
-      std::cout << "PO: NextRead call while true" << std::endl;
-      // TODO(gitbuda): Replace with exponential backoff or something similar.
-      std::this_thread::sleep_for(std::chrono::microseconds(1000000));
+  /// 2 MAIN CONCERNS:
+  ///   * No more data  -> the writer hinted there is no more data
+  ///                      read first to check if there is more data and return
+  ///                      check for exhaustion because the reader will mark exhausted  when there is no more data +
+  ///                      writer hint is set
+  ///   * No more space -> the writer is too slow -> wait for a moment
+  ///
+  /// responsible for
+  /// if nullopt -> there is nothing more to read AT THE MOMENT -> repeat again as soon as possible
+  /// NOTE: Caller is responsible for checking if there is no more data at all by checking both token and exhaustion.
+  ///
+  /// TODO(gitbuda): Move the sleep on the caller side | add a flag to enable/disable sleep here?
+  std::optional<multiframe::Token> NextRead(bool exp_backoff = false) {
+    auto token = data_pool_->GetFull();
+    if (token) {
+      return token;
     }
+    // First try to read a multiframe because there might be some full frames
+    // even if the whole pool is marked as exhausted. In case we come to this
+    // point and the pool is exhausted there is no more data for sure.
+    if (data_pool_->IsExhausted()) {
+      return std::nullopt;
+    }
+    if (exp_backoff) {
+      // TODO(gitbuda): Replace with exponential backoff or something similar.
+      // Sleep only once in this loop and return because if the whole plan is
+      // executed in a single thread, this will just block.
+      std::this_thread::sleep_for(std::chrono::microseconds(100));
+    }
+    return std::nullopt;
   }
   void PassBackRead(const multiframe::Token &token) { data_pool_->ReturnEmpty(token.id); }
 
@@ -203,6 +208,7 @@ class PhysicalOperator {
   void SingleChildSingleThreadExaust(std::function<void(multiframe::Multiframe &multiframe)> fun) {
     // The logic here is tricky because you have to think about both reader and writer.
     auto *input = children_[0].get();
+    // TODO(gitbuda): All this logic (except the fun(...) call) could be moved to NextRead!
     while (true) {
       auto read_token = input->NextRead();
       // If empty and the writer has finished his job -> mark exhaustion
@@ -214,12 +220,8 @@ class PhysicalOperator {
         break;
       }
       if (read_token) {
-        std::cout << "SA: I have a token to read" << std::endl;
         fun(*(read_token->multiframe));
         input->PassBackRead(*read_token);
-        std::cout << "SA: I've passed the read token back" << std::endl;
-      } else {
-        std::cout << "SA: I don't have a token to read" << std::endl;
       }
     }
   }
@@ -282,10 +284,6 @@ class ScanAllPhysicalOperator final : public PhysicalOperator {
   }
 
  private:
-  template <typename T>
-  T Evaluate(T t) {
-    return t;
-  }
   TDataFun data_fun_;
 };
 
@@ -361,9 +359,9 @@ class PhysicalPlanGenerator final : public HierarchicalLogicalOperatorVisitor {
     //     -> 1 data_fun call for each Multiframe
     //       -> parallelization possible by calling data_fun from multiple threads
     //
-    auto data_fun = [](multiframe::Multiframe &multiframe, ExecutionContext &context) {
+    auto data_fun = [](multiframe::Multiframe &multiframe, ExecutionContext &) {
       std::vector<Frame> frames;
-      for (auto &frame : multiframe.Data()) {
+      for (const auto &frame : multiframe.Data()) {
         frames.push_back(frame);
       }
       return frames;
