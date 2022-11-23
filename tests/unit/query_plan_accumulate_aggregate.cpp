@@ -148,18 +148,17 @@ class QueryPlanAggregateOps : public ::testing::Test {
   AstStorage storage;
   SymbolTable symbol_table;
 
-  void AddData(bool distinct) {
+  void AddData() {
     // setup is several nodes most of which have an int property set
     // we will take the sum, avg, min, max and count
     // we won't group by anything
     ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(5)).HasValue());
     ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(7)).HasValue());
     ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(12)).HasValue());
-    if (distinct) {
-      ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(5)).HasValue());
-      ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(5)).HasValue());
-      ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(12)).HasValue());
-    }
+    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(5)).HasValue());
+    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(5)).HasValue());
+    ASSERT_TRUE(dba.InsertVertex().SetProperty(prop, memgraph::storage::PropertyValue(12)).HasValue());
+
     // a missing property (null) gets ignored by all aggregations except
     // COUNT(*)
     dba.InsertVertex();
@@ -187,17 +186,17 @@ class QueryPlanAggregateOps : public ::testing::Test {
 };
 
 TEST_F(QueryPlanAggregateOps, WithData) {
-  AddData(false);
+  AddData();
   auto results = AggregationResults(false, false);
 
   ASSERT_EQ(results.size(), 1);
   ASSERT_EQ(results[0].size(), 8);
   // count(*)
   ASSERT_EQ(results[0][0].type(), TypedValue::Type::Int);
-  EXPECT_EQ(results[0][0].ValueInt(), 4);
+  EXPECT_EQ(results[0][0].ValueInt(), 7);
   // count
   ASSERT_EQ(results[0][1].type(), TypedValue::Type::Int);
-  EXPECT_EQ(results[0][1].ValueInt(), 3);
+  EXPECT_EQ(results[0][1].ValueInt(), 6);
   // min
   ASSERT_EQ(results[0][2].type(), TypedValue::Type::Int);
   EXPECT_EQ(results[0][2].ValueInt(), 5);
@@ -206,13 +205,13 @@ TEST_F(QueryPlanAggregateOps, WithData) {
   EXPECT_EQ(results[0][3].ValueInt(), 12);
   // sum
   ASSERT_EQ(results[0][4].type(), TypedValue::Type::Int);
-  EXPECT_EQ(results[0][4].ValueInt(), 24);
+  EXPECT_EQ(results[0][4].ValueInt(), 46);
   // avg
   ASSERT_EQ(results[0][5].type(), TypedValue::Type::Double);
-  EXPECT_FLOAT_EQ(results[0][5].ValueDouble(), 24 / 3.0);
+  EXPECT_FLOAT_EQ(results[0][5].ValueDouble(), 46 / 6.0);
   // collect list
   ASSERT_EQ(results[0][6].type(), TypedValue::Type::List);
-  EXPECT_THAT(ToIntList(results[0][6]), UnorderedElementsAre(5, 7, 12));
+  EXPECT_THAT(ToIntList(results[0][6]), UnorderedElementsAre(5, 7, 12, 5, 5, 12));
   // collect map
   ASSERT_EQ(results[0][7].type(), TypedValue::Type::Map);
   auto map = ToIntMap(results[0][7]);
@@ -619,7 +618,7 @@ TEST(QueryPlan, Unwind) {
 }
 
 TEST_F(QueryPlanAggregateOps, WithDataDistinct) {
-  AddData(true);
+  AddData();
   auto results = AggregationResults(false, true);
 
   ASSERT_EQ(results.size(), 1);

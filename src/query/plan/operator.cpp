@@ -3227,7 +3227,9 @@ class AggregateCursor : public Cursor {
     // remember values.
     utils::pmr::vector<TypedValue> remember_;
 
-    utils::pmr::vector<utils::pmr::unordered_set<TypedValue, TypedValue::Hash, TypedValue::BoolEqual>> unique_values_;
+    using TSet = utils::pmr::unordered_set<TypedValue, TypedValue::Hash, TypedValue::BoolEqual>;
+
+    utils::pmr::vector<TSet> unique_values_;
   };
 
   const Aggregate &self_;
@@ -3303,7 +3305,7 @@ class AggregateCursor : public Cursor {
     for (const auto &agg_elem : self_.aggregations_) {
       auto *mem = agg_value->values_.get_allocator().GetMemoryResource();
       agg_value->values_.emplace_back(DefaultAggregationOpValue(agg_elem, mem));
-      agg_value->unique_values_.emplace_back(TypedValue::TSet(mem));
+      agg_value->unique_values_.emplace_back(AggregateCursor::AggregationValue::TSet(mem));
     }
     agg_value->counts_.resize(self_.aggregations_.size(), 0);
 
@@ -3340,8 +3342,10 @@ class AggregateCursor : public Cursor {
       if (input_value.IsNull()) continue;
       const auto &agg_op = agg_elem_it->op;
       if (agg_elem_it->distinct) {
-        if (unique_values_it->contains(input_value)) break;
-        unique_values_it->emplace(input_value);
+        auto insert_result = unique_values_it->insert(input_value);
+        if (!insert_result.second) {
+          break;
+        }
       }
       *count_it += 1;
       if (*count_it == 1) {

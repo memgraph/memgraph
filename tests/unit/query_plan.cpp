@@ -438,7 +438,7 @@ TYPED_TEST(TestPlanner, CreateWithSum) {
 }
 
 TYPED_TEST(TestPlanner, MatchWithSumWithDistinctWhereReturn) {
-  // Test MATCH (n) WITH SUM(n.prop) + 42 AS sum WHERE sum < 42
+  // Test MATCH (n) WITH SUM(DISTINCT n.prop) + 42 AS sum WHERE sum < 42
   //      RETURN sum AS result
   FakeDbAccessor dba;
   auto prop = dba.Property("prop");
@@ -452,7 +452,7 @@ TYPED_TEST(TestPlanner, MatchWithSumWithDistinctWhereReturn) {
 }
 
 TYPED_TEST(TestPlanner, MatchReturnSumWithDistinct) {
-  // Test MATCH (n) RETURN SUM(n.prop1) AS sum, n.prop2 AS group
+  // Test MATCH (n) RETURN SUM(DISTINCT n.prop1) AS sum, n.prop2 AS group
   FakeDbAccessor dba;
   auto prop1 = dba.Property("prop1");
   auto prop2 = dba.Property("prop2");
@@ -467,7 +467,7 @@ TYPED_TEST(TestPlanner, MatchReturnSumWithDistinct) {
 }
 
 TYPED_TEST(TestPlanner, CreateWithSumWithDistinct) {
-  // Test CREATE (n) WITH SUM(n.prop) AS sum
+  // Test CREATE (n) WITH SUM(DISTINCT n.prop) AS sum
   FakeDbAccessor dba;
   auto prop = dba.Property("prop");
   AstStorage storage;
