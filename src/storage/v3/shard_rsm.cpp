@@ -466,7 +466,7 @@ EdgeFiller InitializeEdgeFillerFunction(const msgs::ExpandOneRequest &req) {
 
 auto CreateErrorResponse(const ShardError &shard_error, const auto transaction_id, const std::string_view action) {
   msgs::ShardError message_shard_error{shard_error.code, shard_error.message};
-  spdlog::debug("{} In transaction {} {} failed: {}: {}", shard_error.source, transaction_id, action,
+  spdlog::debug("{} In transaction {} {} failed: {}: {}", shard_error.source, transaction_id.logical_id, action,
                 ErrorCodeToString(shard_error.code), shard_error.message);
   return message_shard_error;
 }
