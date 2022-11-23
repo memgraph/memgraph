@@ -1115,11 +1115,12 @@ int TestMessages() {
   ConcreteShardRsm shard_server3(std::move(shard_server_io_3), address_for_3, ShardRsm(std::move(shard_ptr3)));
 
   auto server_thread1 = std::jthread([&shard_server1]() { shard_server1.Run(); });
-  auto server_thread2 = std::jthread([&shard_server2]() { shard_server2.Run(); });
-  auto server_thread3 = std::jthread([&shard_server3]() { shard_server3.Run(); });
-
   simulator.IncrementServerCountAndWaitForQuiescentState(shard_server_1_address);
+
+  auto server_thread2 = std::jthread([&shard_server2]() { shard_server2.Run(); });
   simulator.IncrementServerCountAndWaitForQuiescentState(shard_server_2_address);
+
+  auto server_thread3 = std::jthread([&shard_server3]() { shard_server3.Run(); });
   simulator.IncrementServerCountAndWaitForQuiescentState(shard_server_3_address);
 
   std::cout << "Beginning test after servers have become quiescent." << std::endl;

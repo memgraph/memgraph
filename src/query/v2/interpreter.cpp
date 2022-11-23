@@ -800,7 +800,11 @@ InterpreterContext::InterpreterContext(storage::v3::Shard *db, const Interpreter
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
-  auto query_io = interpreter_context_->io.ForkLocal();
+
+  // TODO(tyler) make this deterministic so that it can be tested.
+  auto random_uuid = boost::uuids::uuid{boost::uuids::random_generator()()};
+  auto query_io = interpreter_context_->io.ForkLocal(random_uuid);
+
   shard_request_manager_ = std::make_unique<msgs::ShardRequestManager<io::local_transport::LocalTransport>>(
       coordinator::CoordinatorClient<io::local_transport::LocalTransport>(
           query_io, interpreter_context_->coordinator_address, std::vector{interpreter_context_->coordinator_address}),

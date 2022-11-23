@@ -78,10 +78,10 @@ class MachineManager {
   MachineManager(io::Io<IoImpl> io, MachineConfig config, Coordinator coordinator)
       : io_(io),
         config_(config),
-        coordinator_address_(io.GetAddress().ForkUniqueAddress()),
-        shard_manager_{io.ForkLocal(), config.shard_worker_threads, coordinator_address_} {
-    auto coordinator_io = io.ForkLocal();
-    coordinator_io.SetAddress(coordinator_address_);
+        coordinator_address_(io.GetAddress().ForkLocalCoordinator()),
+        shard_manager_{io.ForkLocal(io.GetAddress().ForkLocalShardManager().unique_id), config.shard_worker_threads,
+                       coordinator_address_} {
+    auto coordinator_io = io.ForkLocal(coordinator_address_.unique_id);
     CoordinatorWorker coordinator_worker{coordinator_io, coordinator_queue_, coordinator};
     coordinator_handle_ = std::jthread([coordinator = std::move(coordinator_worker)]() mutable { coordinator.Run(); });
   }
@@ -101,11 +101,23 @@ class MachineManager {
   Address CoordinatorAddress() { return coordinator_address_; }
 
   void Run() {
-    while (!io_.ShouldShutDown()) {
+    while (true) {
+      MaybeBlockOnSyncHandling();
+
+      if (io_.ShouldShutDown()) {
+        break;
+      }
+
       const auto now = io_.Now();
 
+      uint64_t now_us = now.time_since_epoch().count();
+      uint64_t next_us = next_cron_.time_since_epoch().count();
+
       if (now >= next_cron_) {
+        spdlog::info("now {} >= next_cron_ {}", now_us, next_us);
         next_cron_ = Cron();
+      } else {
+        spdlog::info("now {} < next_cron_ {}", now_us, next_us);
       }
 
       Duration receive_timeout = std::max(next_cron_, now) - now;
@@ -194,10 +206,27 @@ class MachineManager {
   }
 
  private:
+  // This method exists for controlling concurrency
+  // during deterministic simulation testing.
+  void MaybeBlockOnSyncHandling() {
+    if (!config_.sync_message_handling) {
+      return;
+    }
+
+    // block on coordinator
+    coordinator_queue_.BlockOnQuiescence();
+
+    // block on shards
+    shard_manager_.BlockOnQuiescence();
+  }
+
   Time Cron() {
     spdlog::info("running MachineManager::Cron, address {}", io_.GetAddress().ToString());
     coordinator_queue_.Push(coordinator::coordinator_worker::Cron{});
-    return shard_manager_.Cron();
+    MaybeBlockOnSyncHandling();
+    Time ret = shard_manager_.Cron();
+    MaybeBlockOnSyncHandling();
+    return ret;
   }
 };
 
