@@ -223,6 +223,32 @@ Index queries for each supported vendor can be downloaded from “https://s3.eu-
 
 ### Query list
 
+| |Name     | Group | Query |
+|-|-----| -- | ------------ |
+|Q1|aggregate | aggregate | MATCH (n:User) RETURN n.age, COUNT(*)|
+|Q2|aggregate_count | aggregate | MATCH (n) RETURN count(n), count(n.age)|
+|Q3|aggregate_with_filter | aggregate | MATCH (n:User) WHERE n.age >= 18 RETURN n.age, COUNT(*)|
+|Q4|min_max_avg | aggregate | MATCH (n) RETURN min(n.age), max(n.age), avg(n.age)|
+|Q5|expansion_1 | analytical | MATCH (s:User {id: $id})-->(n:User) RETURN n.id|
+|Q6|expansion_1_with_filter| analytical | MATCH (s:User {id: $id})-->(n:User) WHERE n.age >= 18 RETURN n.id|
+|Q7|expansion_2| analytical | MATCH (s:User {id: $id})-->()-->(n:User) RETURN DISTINCT n.id|
+|Q8|expansion_2_with_filter| analytical | MATCH (s:User {id: $id})-->()-->(n:User) WHERE n.age >= 18 RETURN DISTINCT n.id|
+|Q9|expansion_3| analytical | MATCH (s:User {id: $id})-->()-->()-->(n:User) RETURN DISTINCT n.id|
+|Q10|expansion_3_with_filter| analytical | MATCH (s:User {id: $id})-->()-->()-->(n:User) WHERE n.age >= 18 RETURN DISTINCT n.id|
+|Q11|expansion_4| analytical | MATCH (s:User {id: $id})-->()-->()-->()-->(n:User) RETURN DISTINCT n.id|
+|Q12|expansion_4_with_filter| analytical | MATCH (s:User {id: $id})-->()-->()-->()-->(n:User) WHERE n.age >= 18 RETURN DISTINCT n.id|
+|Q13|neighbours_2| analytical | MATCH (s:User {id: $id})-[*1..2]->(n:User) RETURN DISTINCT n.id|
+|Q14|neighbours_2_with_filter| analytical | MATCH (s:User {id: $id})-[*1..2]->(n:User) WHERE n.age >= 18 RETURN DISTINCT n.id|
+|Q15|neighbours_2_with_data| analytical | MATCH (s:User {id: $id})-[*1..2]->(n:User) RETURN DISTINCT n.id, n|
+|Q16|neighbours_2_with_data_and_filter| analytical | MATCH (s:User {id: $id})-[*1..2]->(n:User) WHERE n.age >= 18 RETURN DISTINCT n.id, n|
+|Q17|pattern_cycle| analytical | MATCH (n:User {id: $id})-[e1]->(m)-[e2]->(n) RETURN e1, m, e2|
+|Q18|pattern_long| analytical | MATCH (n1:User {id: $id})-[e1]->(n2)-[e2]->(n3)-[e3]->(n4)<-[e4]-(n5) RETURN n5 LIMIT 1|
+|Q19|pattern_short| analytical | MATCH (n:User {id: $id})-[e]->(m) RETURN m LIMIT 1|
+|Q20|single_edge_write| write | MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m CREATE (n)-[e:Temp]->(m) RETURN e|
+|Q21|single_vertex_write| write |CREATE (n:UserTemp {id : $id}) RETURN n|
+|Q22|single_vertex_property_update| update | MATCH (n:User {id: $id})-[e]->(m) RETURN m LIMIT 1|
+|Q23|single_vertex_read| read | MATCH (n:User {id : $id}) RETURN n|
+
 ## Platform
 
 Testing on different hardware platforms and cloudVMs is essential for validating benchmark results. Currently, the tests are run on two different platforms.
