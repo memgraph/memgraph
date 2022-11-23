@@ -162,6 +162,15 @@ RC_GTEST_FIXTURE_PROP(PhysicalPlanFixture, PropertyBasedPhysicalPlan, ()) {
 
   physical::ExecutionContext ctx;
   plan->Execute(ctx);
+  const auto &stats = plan->GetStats();
+  int64_t scan_all_cnt{1};
+  for (const auto &op : ops) {
+    if (op.type == OpType::ScanAll) {
+      scan_all_cnt *= op.props[ENTITIES_NUM];
+    }
+  }
+  // ASSERT_EQ(stats.processed_frames, scan_all_cnt);
+  std::cout << stats.processed_frames << " " << scan_all_cnt << std::endl;
 }
 
 }  // namespace memgraph::query::v2::tests

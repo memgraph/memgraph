@@ -187,6 +187,11 @@ class PhysicalOperator {
   /// Deallocate all resources.
   void Shutdown() {}
 
+  struct Stats {
+    int64_t processed_frames;
+  };
+  const Stats &GetStats() const { return stats_; }
+
  protected:
   std::string name_;
   std::vector<std::shared_ptr<PhysicalOperator<TDataPool>>> children_;
@@ -195,6 +200,7 @@ class PhysicalOperator {
   /// TODO(gitbuda): Make it more clear that below is a uptr.
   std::unique_ptr<TDataPool> data_pool_;
   std::optional<multiframe::Token> current_token_;
+  Stats stats_{.processed_frames = 0};
 
   void BaseExecute(ExecutionContext ctx) {
     for (const auto &child : children_) {
@@ -282,6 +288,7 @@ class ScanAllPhysicalOperator final : public PhysicalOperator<TDataPool> {
       //   }
       // }
       for (const auto &new_frame : data_fun_(multiframe, ctx)) {
+        this->stats_.processed_frames++;
         Base::Emit(new_frame);
       }
       // Since Emit in the for loops hasn't passed has_more=false,
@@ -306,14 +313,8 @@ class ProducePhysicalOperator final : public PhysicalOperator<TDataPool> {
     std::cout << Base::name_ << std::endl;
     MG_ASSERT(Base::children_.size() == 1, "ScanAll should have exactly 1 input");
     Base::BaseExecute(ctx);
-    // TODO: EXPLICIT QUALIFICATION
-    Base::SingleChildSingleThreadExaust([this](multiframe::Multiframe &multiframe) {
-      std::cout << multiframe.Data().size() << std::endl;
-      // for (const auto &frame : multiframe.Data()) {
-      // std::cout << "Produce: " << frame.a << std::endl;
-      // }
-      Base::MarkWriterDone();
-    });
+    Base::SingleChildSingleThreadExaust(
+        [this](multiframe::Multiframe &multiframe) { this->stats_.processed_frames += multiframe.Data().size(); });
   }
 };
 
