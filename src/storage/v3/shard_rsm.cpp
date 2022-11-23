@@ -37,7 +37,6 @@
 #include "storage/v3/schemas.hpp"
 #include "storage/v3/shard.hpp"
 #include "storage/v3/shard_rsm.hpp"
-#include "storage/v3/storage.hpp"
 #include "storage/v3/value_conversions.hpp"
 #include "storage/v3/vertex_accessor.hpp"
 #include "storage/v3/vertex_id.hpp"
