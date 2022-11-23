@@ -409,7 +409,9 @@ struct ExpandOneRequest {
   std::vector<std::string> vertex_expressions;
   std::vector<std::string> edge_expressions;
 
-  std::optional<std::vector<OrderBy>> order_by;
+  std::vector<OrderBy> order_by_vertices;
+  std::vector<OrderBy> order_by_edges;
+
   // Limit the edges or the vertices?
   std::optional<size_t> limit;
   std::vector<std::string> filters;
