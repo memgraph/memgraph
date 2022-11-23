@@ -32,7 +32,7 @@
 #include "query/v2/shard_request_manager.hpp"
 #include "query_v2_query_common.hpp"
 #include "storage/v3/property_value.hpp"
-#include "storage/v3/storage.hpp"
+#include "storage/v3/shard.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/string.hpp"
 

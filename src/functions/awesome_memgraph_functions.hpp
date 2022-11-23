@@ -45,19 +45,13 @@ struct FunctionContext {
 struct StorageEngineTag {};
 struct QueryEngineTag {};
 
-namespace impl {
-struct SinkCallable {
-  void operator()() {}
-};
-}  // namespace impl
-
 /// Return the function implementation with the given name.
 ///
 /// Note, returned function signature uses C-style access to an array to allow
 /// having an array stored anywhere the caller likes, as long as it is
 /// contiguous in memory. Since most functions don't take many arguments, it's
 /// convenient to have them stored in the calling stack frame.
-template <typename TypedValueT, typename FunctionContextT, typename Tag, typename Conv = impl::SinkCallable>
+template <typename TypedValueT, typename FunctionContextT, typename Tag, typename Conv>
 std::function<TypedValueT(const TypedValueT *arguments, int64_t num_arguments, const FunctionContextT &context)>
 NameToFunction(const std::string &function_name);
 

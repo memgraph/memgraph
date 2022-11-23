@@ -180,6 +180,6 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
 }
 
 // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-size_t EdgeAccessor::CypherId() const { return 10; }
+size_t EdgeAccessor::CypherId() const { return Gid().AsUint(); }
 
 }  // namespace memgraph::storage::v3

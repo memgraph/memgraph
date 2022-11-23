@@ -118,9 +118,6 @@ class VertexAccessor final {
   }
   bool operator!=(const VertexAccessor &other) const noexcept { return !(*this == other); }
 
-  // Dummy function
-  size_t CypherId() const;
-
  private:
   /// Add a label and return `true` if insertion took place.
   /// `false` is returned if the label already existed.
