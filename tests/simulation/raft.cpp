@@ -14,11 +14,15 @@
 #include <iostream>
 #include <map>
 #include <optional>
+#include <random>
 #include <set>
 #include <thread>
 #include <vector>
 
+#include <spdlog/cfg/env.h>
+
 #include "io/address.hpp"
+#include "io/message_histogram_collector.hpp"
 #include "io/rsm/raft.hpp"
 #include "io/rsm/rsm_client.hpp"
 #include "io/simulator/simulator.hpp"
@@ -27,6 +31,7 @@
 using memgraph::io::Address;
 using memgraph::io::Duration;
 using memgraph::io::Io;
+using memgraph::io::LatencyHistogramSummaries;
 using memgraph::io::ResponseEnvelope;
 using memgraph::io::ResponseFuture;
 using memgraph::io::ResponseResult;
@@ -123,16 +128,7 @@ void RunRaft(Raft<IoImpl, TestState, CasRequest, CasResponse, GetRequest, GetRes
   server.Run();
 }
 
-void RunSimulation() {
-  SimulatorConfig config{
-      .drop_percent = 5,
-      .perform_timeouts = true,
-      .scramble_messages = true,
-      .rng_seed = 0,
-      .start_time = Time::min() + std::chrono::microseconds{256 * 1024},
-      .abort_time = Time::max(),
-  };
-
+std::pair<SimulatorStats, LatencyHistogramSummaries> RunSimulation(SimulatorConfig &config) {
   auto simulator = Simulator(config);
 
   auto cli_addr = Address::TestAddress(1);
@@ -189,6 +185,7 @@ void RunSimulation() {
 
     auto write_cas_response_result = client.SendWriteRequest(cas_req);
     if (write_cas_response_result.HasError()) {
+      spdlog::debug("timed out");
       // timed out
       continue;
     }
@@ -229,6 +226,10 @@ void RunSimulation() {
 
   simulator.ShutDown();
 
+  srv_thread_1.join();
+  srv_thread_2.join();
+  srv_thread_3.join();
+
   SimulatorStats stats = simulator.Stats();
 
   spdlog::info("total messages:     {}", stats.total_messages);
@@ -240,21 +241,51 @@ void RunSimulation() {
 
   spdlog::info("========================== SUCCESS :) ==========================");
 
-  /*
-  this is implicit in jthread's dtor
-  srv_thread_1.join();
-  srv_thread_2.join();
-  srv_thread_3.join();
-  */
+  return std::make_pair(simulator.Stats(), cli_io.ResponseLatencies());
+}
+
+void RunWithSeed(uint64_t seed) {
+  SimulatorConfig config{
+      .drop_percent = 5,
+      .perform_timeouts = true,
+      .scramble_messages = true,
+      .rng_seed = seed,
+      .start_time = Time::min() + std::chrono::microseconds{256 * 1024},
+      .abort_time = Time::min() + std::chrono::seconds{3600},
+  };
+
+  spdlog::error("========================== NEW SIMULATION, replay with RunWithSeed({}) ==========================",
+                seed);
+  spdlog::info("\tTime\t\tTerm\tPort\tRole\t\tMessage\n");
+  auto [sim_stats_1, latency_stats_1] = RunSimulation(config);
+
+  spdlog::info("========================== NEW SIMULATION, replay with RunWithSeed({}) ==========================",
+               seed);
+  spdlog::info("\tTime\t\tTerm\tPort\tRole\t\tMessage\n");
+  auto [sim_stats_2, latency_stats_2] = RunSimulation(config);
+
+  if (sim_stats_1 != sim_stats_2 || latency_stats_1 != latency_stats_2) {
+    spdlog::error("simulator stats diverged across runs for test rng_seed: {}", seed);
+    spdlog::error("run 1 simulator stats: {}", sim_stats_1);
+    spdlog::error("run 2 simulator stats: {}", sim_stats_2);
+    spdlog::error("run 1 latency:\n{}", latency_stats_1.SummaryTable());
+    spdlog::error("run 2 latency:\n{}", latency_stats_2.SummaryTable());
+    std::terminate();
+  }
 }
 
 int main() {
+  spdlog::cfg::load_env_levels();
+
+  std::random_device random_device;
+  std::mt19937 generator(random_device());
+  std::uniform_int_distribution<> distribution;
+
   int n_tests = 50;
 
   for (int i = 0; i < n_tests; i++) {
-    spdlog::info("========================== NEW SIMULATION {} ==========================", i);
-    spdlog::info("\tTime\t\tTerm\tPort\tRole\t\tMessage\n");
-    RunSimulation();
+    uint64_t seed = distribution(generator);
+    RunWithSeed(seed);
   }
 
   spdlog::info("passed {} tests!", n_tests);

@@ -24,6 +24,7 @@
 #include "coordinator/shard_map.hpp"
 #include "generated_operations.hpp"
 #include "io/address.hpp"
+#include "io/message_histogram_collector.hpp"
 #include "io/simulator/simulator.hpp"
 #include "io/simulator/simulator_config.hpp"
 #include "io/simulator/simulator_transport.hpp"
@@ -57,6 +58,7 @@ using io::simulator::SimulatorStats;
 using io::simulator::SimulatorTransport;
 using machine_manager::MachineConfig;
 using machine_manager::MachineManager;
+using memgraph::io::LatencyHistogramSummaries;
 using msgs::ReadRequests;
 using msgs::ReadResponses;
 using msgs::WriteRequests;
@@ -75,6 +77,8 @@ MachineManager<SimulatorTransport> MkMm(Simulator &simulator, std::vector<Addres
       .is_coordinator = true,
       .listen_ip = addr.last_known_ip,
       .listen_port = addr.last_known_port,
+      .shard_worker_threads = 4,
+      .sync_message_handling = true,
   };
 
   Io<SimulatorTransport> io = simulator.Register(addr);
@@ -210,17 +214,19 @@ struct DetachIfDropped {
   }
 };
 
-void RunClusterSimulation(const SimulatorConfig &sim_config, const ClusterConfig &cluster_config,
-                          const std::vector<Op> &ops) {
+std::pair<SimulatorStats, LatencyHistogramSummaries> RunClusterSimulation(const SimulatorConfig &sim_config,
+                                                                          const ClusterConfig &cluster_config,
+                                                                          const std::vector<Op> &ops) {
   spdlog::info("========================== NEW SIMULATION ==========================");
 
   auto simulator = Simulator(sim_config);
 
-  auto cli_addr = Address::TestAddress(1);
-  auto machine_1_addr = cli_addr.ForkUniqueAddress();
+  auto machine_1_addr = Address::TestAddress(1);
+  auto cli_addr = Address::TestAddress(2);
+  auto cli_addr_2 = Address::TestAddress(3);
 
   Io<SimulatorTransport> cli_io = simulator.Register(cli_addr);
-  Io<SimulatorTransport> cli_io_2 = simulator.Register(Address::TestAddress(2));
+  Io<SimulatorTransport> cli_io_2 = simulator.Register(cli_addr_2);
 
   auto coordinator_addresses = std::vector{
       machine_1_addr,
@@ -232,6 +238,7 @@ void RunClusterSimulation(const SimulatorConfig &sim_config, const ClusterConfig
   Address coordinator_address = mm_1.CoordinatorAddress();
 
   auto mm_thread_1 = std::jthread(RunMachine, std::move(mm_1));
+  simulator.IncrementServerCountAndWaitForQuiescentState(machine_1_addr);
 
   auto detach_on_error = DetachIfDropped{.handle = mm_thread_1};
 
@@ -257,6 +264,8 @@ void RunClusterSimulation(const SimulatorConfig &sim_config, const ClusterConfig
 
   simulator.ShutDown();
 
+  mm_thread_1.join();
+
   SimulatorStats stats = simulator.Stats();
 
   spdlog::info("total messages:     {}", stats.total_messages);
@@ -268,10 +277,8 @@ void RunClusterSimulation(const SimulatorConfig &sim_config, const ClusterConfig
 
   auto histo = cli_io_2.ResponseLatencies();
 
-  using memgraph::utils::print_helpers::operator<<;
-  std::cout << "response latencies: " << histo << std::endl;
-
   spdlog::info("========================== SUCCESS :) ==========================");
+  return std::make_pair(stats, histo);
 }
 
 }  // namespace memgraph::tests::simulation
