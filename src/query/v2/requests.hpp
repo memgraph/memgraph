@@ -452,10 +452,12 @@ struct ExpandOneResponse {
   std::vector<ExpandOneResultRow> result;
 };
 
-struct UpdateVertexProp {
+struct UpdateVertex {
   PrimaryKey primary_key;
-  // This should be a map
-  std::vector<std::pair<PropertyId, Value>> property_updates;
+  // Labels are first added and then removed from vertices
+  std::vector<LabelId> add_labels;
+  std::vector<LabelId> remove_labels;
+  std::map<PropertyId, Value> property_updates;
 };
 
 struct UpdateEdgeProp {
@@ -498,7 +500,7 @@ struct DeleteVerticesResponse {
 
 struct UpdateVerticesRequest {
   Hlc transaction_id;
-  std::vector<UpdateVertexProp> new_properties;
+  std::vector<UpdateVertex> update_vertices;
 };
 
 struct UpdateVerticesResponse {

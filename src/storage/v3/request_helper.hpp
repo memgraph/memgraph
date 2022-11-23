@@ -21,6 +21,8 @@
 #include "storage/v3/expr.hpp"
 #include "storage/v3/shard.hpp"
 #include "storage/v3/vertex_accessor.hpp"
+#include "utils/template_utils.hpp"
+
 namespace memgraph::storage::v3 {
 using EdgeAccessors = std::vector<storage::v3::EdgeAccessor>;
 using EdgeUniqunessFunction = std::function<EdgeAccessors(EdgeAccessors &&, msgs::EdgeDirection)>;
@@ -159,6 +161,8 @@ std::vector<Element<VertexAccessor>> OrderByVertices(DbAccessor &dba, TIterable 
   });
   return ordered;
 }
+
+void LogResultError(const ResultErrorType &error, std::string_view action);
 
 std::vector<Element<EdgeAccessor>> OrderByEdges(DbAccessor &dba, std::vector<EdgeAccessor> &iterable,
                                                 std::vector<msgs::OrderBy> &order_by_edges,

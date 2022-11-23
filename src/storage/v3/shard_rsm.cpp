@@ -77,42 +77,10 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
     PrimaryKey transformed_pk;
     std::transform(new_vertex.primary_key.begin(), new_vertex.primary_key.end(), std::back_inserter(transformed_pk),
                    [](msgs::Value &val) { return ToPropertyValue(std::move(val)); });
-    auto result_schema = acc.CreateVertexAndValidate(converted_label_ids, transformed_pk, converted_property_map);
 
-    if (result_schema.HasError()) {
-      auto &error = result_schema.GetError();
-
-      std::visit(
-          []<typename T>(T &&error) {
-            using ErrorType = std::remove_cvref_t<T>;
-            if constexpr (std::is_same_v<ErrorType, SchemaViolation>) {
-              spdlog::debug("Creating vertex failed with error: SchemaViolation");
-            } else if constexpr (std::is_same_v<ErrorType, Error>) {
-              switch (error) {
-                case Error::DELETED_OBJECT:
-                  spdlog::debug("Creating vertex failed with error: DELETED_OBJECT");
-                  break;
-                case Error::NONEXISTENT_OBJECT:
-                  spdlog::debug("Creating vertex failed with error: NONEXISTENT_OBJECT");
-                  break;
-                case Error::SERIALIZATION_ERROR:
-                  spdlog::debug("Creating vertex failed with error: SERIALIZATION_ERROR");
-                  break;
-                case Error::PROPERTIES_DISABLED:
-                  spdlog::debug("Creating vertex failed with error: PROPERTIES_DISABLED");
-                  break;
-                case Error::VERTEX_HAS_EDGES:
-                  spdlog::debug("Creating vertex failed with error: VERTEX_HAS_EDGES");
-                  break;
-                case Error::VERTEX_ALREADY_INSERTED:
-                  spdlog::debug("Creating vertex failed with error: VERTEX_ALREADY_INSERTED");
-                  break;
-              }
-            } else {
-              static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
-            }
-          },
-          error);
+    if (auto result_schema = acc.CreateVertexAndValidate(converted_label_ids, transformed_pk, converted_property_map);
+        result_schema.HasError()) {
+      LogResultError(result_schema.GetError(), "Creating Vertex");
 
       action_successful = false;
       break;
@@ -127,7 +95,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateVerticesRequest &&req) {
 
   bool action_successful = true;
 
-  for (auto &vertex : req.new_properties) {
+  for (auto &vertex : req.update_vertices) {
     if (!action_successful) {
       break;
     }
@@ -140,46 +108,27 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateVerticesRequest &&req) {
       continue;
     }
 
-    for (auto &update_prop : vertex.property_updates) {
-      auto result_schema =
-          vertex_to_update->SetPropertyAndValidate(update_prop.first, ToPropertyValue(std::move(update_prop.second)));
-      if (result_schema.HasError()) {
-        auto &error = result_schema.GetError();
-
-        std::visit(
-            []<typename T>(T &&error) {
-              using ErrorType = std::remove_cvref_t<T>;
-              if constexpr (std::is_same_v<ErrorType, SchemaViolation>) {
-                spdlog::debug("Updating vertex failed with error: SchemaViolation");
-              } else if constexpr (std::is_same_v<ErrorType, Error>) {
-                switch (error) {
-                  case Error::DELETED_OBJECT:
-                    spdlog::debug("Updating vertex failed with error: DELETED_OBJECT");
-                    break;
-                  case Error::NONEXISTENT_OBJECT:
-                    spdlog::debug("Updating vertex failed with error: NONEXISTENT_OBJECT");
-                    break;
-                  case Error::SERIALIZATION_ERROR:
-                    spdlog::debug("Updating vertex failed with error: SERIALIZATION_ERROR");
-                    break;
-                  case Error::PROPERTIES_DISABLED:
-                    spdlog::debug("Updating vertex failed with error: PROPERTIES_DISABLED");
-                    break;
-                  case Error::VERTEX_HAS_EDGES:
-                    spdlog::debug("Updating vertex failed with error: VERTEX_HAS_EDGES");
-                    break;
-                  case Error::VERTEX_ALREADY_INSERTED:
-                    spdlog::debug("Updating vertex failed with error: VERTEX_ALREADY_INSERTED");
-                    break;
-                }
-              } else {
-                static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
-              }
-            },
-            error);
-
+    for (const auto label : vertex.add_labels) {
+      if (const auto maybe_error = vertex_to_update->AddLabelAndValidate(label); maybe_error.HasError()) {
+        LogResultError(maybe_error.GetError(), "Add vertex labels");
         action_successful = false;
+        break;
+      }
+    }
+    for (const auto label : vertex.remove_labels) {
+      if (const auto maybe_error = vertex_to_update->RemoveLabelAndValidate(label); maybe_error.HasError()) {
+        LogResultError(maybe_error.GetError(), "Remove vertex labels");
+        action_successful = false;
+        break;
+      }
+    }
 
+    for (auto &update_prop : vertex.property_updates) {
+      if (const auto result_schema = vertex_to_update->SetPropertyAndValidate(
+              update_prop.first, ToPropertyValue(std::move(update_prop.second)));
+          result_schema.HasError()) {
+        action_successful = false;
+        LogResultError(result_schema.GetError(), "Update vertex properties");
         break;
       }
     }
