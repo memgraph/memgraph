@@ -20,7 +20,6 @@
 
 #include "query/v2/bindings/symbol.hpp"
 #include "query/v2/bindings/typed_value.hpp"
-#include "query/v2/db_accessor.hpp"
 #include "query/v2/exceptions.hpp"
 #include "query/v2/frontend/ast/ast.hpp"
 #include "query/v2/path.hpp"

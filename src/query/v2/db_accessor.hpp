@@ -69,19 +69,6 @@ class EdgeAccessor final {
     return impl_.GetProperty(key, view);
   }
 
-  storage::v3::ShardResult<storage::v3::PropertyValue> SetProperty(storage::v3::PropertyId key,
-                                                                   const storage::v3::PropertyValue &value) {
-    return impl_.SetProperty(key, value);
-  }
-
-  storage::v3::ShardResult<storage::v3::PropertyValue> RemoveProperty(storage::v3::PropertyId key) {
-    return SetProperty(key, storage::v3::PropertyValue());
-  }
-
-  storage::v3::ShardResult<std::map<storage::v3::PropertyId, storage::v3::PropertyValue>> ClearProperties() {
-    return impl_.ClearProperties();
-  }
-
   VertexAccessor To() const;
 
   VertexAccessor From() const;
@@ -113,18 +100,6 @@ class VertexAccessor final {
 
   auto PrimaryKey(storage::v3::View view) const { return impl_.PrimaryKey(view); }
 
-  storage::v3::ShardResult<bool> AddLabel(storage::v3::LabelId label) { return impl_.AddLabelAndValidate(label); }
-
-  storage::v3::ShardResult<bool> AddLabelAndValidate(storage::v3::LabelId label) {
-    return impl_.AddLabelAndValidate(label);
-  }
-
-  storage::v3::ShardResult<bool> RemoveLabel(storage::v3::LabelId label) { return impl_.RemoveLabelAndValidate(label); }
-
-  storage::v3::ShardResult<bool> RemoveLabelAndValidate(storage::v3::LabelId label) {
-    return impl_.RemoveLabelAndValidate(label);
-  }
-
   storage::v3::ShardResult<bool> HasLabel(storage::v3::View view, storage::v3::LabelId label) const {
     return impl_.HasLabel(label, view);
   }
@@ -134,24 +109,6 @@ class VertexAccessor final {
   storage::v3::ShardResult<storage::v3::PropertyValue> GetProperty(storage::v3::View view,
                                                                    storage::v3::PropertyId key) const {
     return impl_.GetProperty(key, view);
-  }
-
-  storage::v3::ShardResult<storage::v3::PropertyValue> SetProperty(storage::v3::PropertyId key,
-                                                                   const storage::v3::PropertyValue &value) {
-    return impl_.SetPropertyAndValidate(key, value);
-  }
-
-  storage::v3::ShardResult<storage::v3::PropertyValue> SetPropertyAndValidate(storage::v3::PropertyId key,
-                                                                              const storage::v3::PropertyValue &value) {
-    return impl_.SetPropertyAndValidate(key, value);
-  }
-
-  storage::v3::ShardResult<storage::v3::PropertyValue> RemovePropertyAndValidate(storage::v3::PropertyId key) {
-    return SetPropertyAndValidate(key, storage::v3::PropertyValue{});
-  }
-
-  storage::v3::ShardResult<std::map<storage::v3::PropertyId, storage::v3::PropertyValue>> ClearProperties() {
-    return impl_.ClearProperties();
   }
 
   auto InEdges(storage::v3::View view, const std::vector<storage::v3::EdgeTypeId> &edge_types) const
