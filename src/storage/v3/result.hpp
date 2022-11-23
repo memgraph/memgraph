@@ -32,7 +32,6 @@ struct ShardError {
       : code{code}, source{fmt::format("{}:{}", location.file_name(), location.line())} {}
 
   common::ErrorCode code;
-  // TODO Maybe add category
   std::string message;
   std::string source;
 

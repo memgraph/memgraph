@@ -71,9 +71,9 @@ query::v2::TypedValue ToTypedValue(const Value &value) {
   }
 }
 
-BoltResult<communication::bolt::Vertex> ToBoltVertex(const query::v2::accessors::VertexAccessor &vertex,
-                                                     const msgs::ShardRequestManagerInterface *shard_request_manager,
-                                                     storage::v3::View /*view*/) {
+communication::bolt::Vertex ToBoltVertex(const query::v2::accessors::VertexAccessor &vertex,
+                                         const msgs::ShardRequestManagerInterface *shard_request_manager,
+                                         storage::v3::View /*view*/) {
   auto id = communication::bolt::Id::FromUint(0);
 
   auto labels = vertex.Labels();
@@ -91,9 +91,9 @@ BoltResult<communication::bolt::Vertex> ToBoltVertex(const query::v2::accessors:
   return communication::bolt::Vertex{id, new_labels, new_properties};
 }
 
-BoltResult<communication::bolt::Edge> ToBoltEdge(const query::v2::accessors::EdgeAccessor &edge,
-                                                 const msgs::ShardRequestManagerInterface *shard_request_manager,
-                                                 storage::v3::View /*view*/) {
+communication::bolt::Edge ToBoltEdge(const query::v2::accessors::EdgeAccessor &edge,
+                                     const msgs::ShardRequestManagerInterface *shard_request_manager,
+                                     storage::v3::View /*view*/) {
   // TODO(jbajic) Fix bolt communication
   auto id = communication::bolt::Id::FromUint(0);
   auto from = communication::bolt::Id::FromUint(0);
@@ -108,15 +108,16 @@ BoltResult<communication::bolt::Edge> ToBoltEdge(const query::v2::accessors::Edg
   return communication::bolt::Edge{id, from, to, type, new_properties};
 }
 
-BoltResult<communication::bolt::Path> ToBoltPath(const query::v2::accessors::Path & /*edge*/,
-                                                 const msgs::ShardRequestManagerInterface * /*shard_request_manager*/,
-                                                 storage::v3::View /*view*/) {
+communication::bolt::Path ToBoltPath(const query::v2::accessors::Path & /*edge*/,
+                                     const msgs::ShardRequestManagerInterface * /*shard_request_manager*/,
+                                     storage::v3::View /*view*/) {
   // TODO(jbajic) Fix bolt communication
-  return {SHARD_ERROR(ErrorCode::DELETED_OBJECT)};
+  MG_ASSERT(false, "Path is unimplemented!");
+  return {};
 }
 
-BoltResult<Value> ToBoltValue(const query::v2::TypedValue &value,
-                              const msgs::ShardRequestManagerInterface *shard_request_manager, storage::v3::View view) {
+Value ToBoltValue(const query::v2::TypedValue &value, const msgs::ShardRequestManagerInterface *shard_request_manager,
+                  storage::v3::View view) {
   switch (value.type()) {
     case query::v2::TypedValue::Type::Null:
       return Value();
@@ -132,35 +133,30 @@ BoltResult<Value> ToBoltValue(const query::v2::TypedValue &value,
       std::vector<Value> values;
       values.reserve(value.ValueList().size());
       for (const auto &v : value.ValueList()) {
-        auto maybe_value = ToBoltValue(v, shard_request_manager, view);
-        if (maybe_value.HasError()) return maybe_value.GetError();
-        values.emplace_back(std::move(*maybe_value));
+        auto value = ToBoltValue(v, shard_request_manager, view);
+        values.emplace_back(std::move(value));
       }
       return Value(std::move(values));
     }
     case query::v2::TypedValue::Type::Map: {
       std::map<std::string, Value> map;
       for (const auto &kv : value.ValueMap()) {
-        auto maybe_value = ToBoltValue(kv.second, shard_request_manager, view);
-        if (maybe_value.HasError()) return maybe_value.GetError();
-        map.emplace(kv.first, std::move(*maybe_value));
+        auto value = ToBoltValue(kv.second, shard_request_manager, view);
+        map.emplace(kv.first, std::move(value));
       }
       return Value(std::move(map));
     }
     case query::v2::TypedValue::Type::Vertex: {
-      auto maybe_vertex = ToBoltVertex(value.ValueVertex(), shard_request_manager, view);
-      if (maybe_vertex.HasError()) return maybe_vertex.GetError();
-      return Value(std::move(*maybe_vertex));
+      auto vertex = ToBoltVertex(value.ValueVertex(), shard_request_manager, view);
+      return Value(std::move(vertex));
     }
     case query::v2::TypedValue::Type::Edge: {
-      auto maybe_edge = ToBoltEdge(value.ValueEdge(), shard_request_manager, view);
-      if (maybe_edge.HasError()) return maybe_edge.GetError();
-      return Value(std::move(*maybe_edge));
+      auto edge = ToBoltEdge(value.ValueEdge(), shard_request_manager, view);
+      return Value(std::move(edge));
     }
     case query::v2::TypedValue::Type::Path: {
-      auto maybe_path = ToBoltPath(value.ValuePath(), shard_request_manager, view);
-      if (maybe_path.HasError()) return maybe_path.GetError();
-      return Value(std::move(*maybe_path));
+      auto path = ToBoltPath(value.ValuePath(), shard_request_manager, view);
+      return Value(std::move(path));
     }
     case query::v2::TypedValue::Type::Date:
       return Value(value.ValueDate());

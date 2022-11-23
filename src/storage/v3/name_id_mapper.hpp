@@ -17,7 +17,6 @@
 #include <string_view>
 #include <unordered_map>
 
-#include "storage/v3/id_types.hpp"
 #include "utils/logging.hpp"
 #include "utils/skip_list.hpp"
 

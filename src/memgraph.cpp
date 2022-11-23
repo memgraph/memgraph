@@ -481,27 +481,9 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
       const auto &summary = interpreter_.Pull(&stream, n, qid);
       std::map<std::string, memgraph::communication::bolt::Value> decoded_summary;
       for (const auto &kv : summary) {
-        auto maybe_value = memgraph::glue::v2::ToBoltValue(kv.second, interpreter_.GetShardRequestManager(),
-                                                           memgraph::storage::v3::View::NEW);
-        if (maybe_value.HasError()) {
-          switch (maybe_value.GetError().code) {
-            case memgraph::common::ErrorCode::DELETED_OBJECT:
-            case memgraph::common::ErrorCode::SERIALIZATION_ERROR:
-            case memgraph::common::ErrorCode::VERTEX_HAS_EDGES:
-            case memgraph::common::ErrorCode::PROPERTIES_DISABLED:
-            case memgraph::common::ErrorCode::NONEXISTENT_OBJECT:
-            case memgraph::common::ErrorCode::VERTEX_ALREADY_INSERTED:
-            case memgraph::common::ErrorCode::SCHEMA_NO_SCHEMA_DEFINED_FOR_LABEL:
-            case memgraph::common::ErrorCode::SCHEMA_VERTEX_PROPERTY_WRONG_TYPE:
-            case memgraph::common::ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_KEY:
-            case memgraph::common::ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL:
-            case memgraph::common::ErrorCode::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY:
-            case memgraph::common::ErrorCode::SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED:
-            case memgraph::common::ErrorCode::OBJECT_NOT_FOUND:
-              throw memgraph::communication::bolt::ClientError("Unexpected storage error when streaming summary.");
-          }
-        }
-        decoded_summary.emplace(kv.first, std::move(*maybe_value));
+        auto bolt_value = memgraph::glue::v2::ToBoltValue(kv.second, interpreter_.GetShardRequestManager(),
+                                                          memgraph::storage::v3::View::NEW);
+        decoded_summary.emplace(kv.first, std::move(bolt_value));
       }
       return decoded_summary;
     } catch (const memgraph::query::v2::QueryException &e) {
@@ -522,28 +504,8 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
       std::vector<memgraph::communication::bolt::Value> decoded_values;
       decoded_values.reserve(values.size());
       for (const auto &v : values) {
-        auto maybe_value = memgraph::glue::v2::ToBoltValue(v, shard_request_manager_, memgraph::storage::v3::View::NEW);
-        if (maybe_value.HasError()) {
-          switch (maybe_value.GetError().code) {
-            case memgraph::common::ErrorCode::DELETED_OBJECT:
-              throw memgraph::communication::bolt::ClientError("Returning a deleted object as a result.");
-            case memgraph::common::ErrorCode::NONEXISTENT_OBJECT:
-            case memgraph::common::ErrorCode::OBJECT_NOT_FOUND:
-              throw memgraph::communication::bolt::ClientError("Returning a nonexistent object as a result.");
-            case memgraph::common::ErrorCode::VERTEX_HAS_EDGES:
-            case memgraph::common::ErrorCode::SERIALIZATION_ERROR:
-            case memgraph::common::ErrorCode::PROPERTIES_DISABLED:
-            case memgraph::common::ErrorCode::VERTEX_ALREADY_INSERTED:
-            case memgraph::common::ErrorCode::SCHEMA_NO_SCHEMA_DEFINED_FOR_LABEL:
-            case memgraph::common::ErrorCode::SCHEMA_VERTEX_PROPERTY_WRONG_TYPE:
-            case memgraph::common::ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_KEY:
-            case memgraph::common::ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL:
-            case memgraph::common::ErrorCode::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY:
-            case memgraph::common::ErrorCode::SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED:
-              throw memgraph::communication::bolt::ClientError("Unexpected storage error when streaming results.");
-          }
-        }
-        decoded_values.emplace_back(std::move(*maybe_value));
+        auto bolt_value = memgraph::glue::v2::ToBoltValue(v, shard_request_manager_, memgraph::storage::v3::View::NEW);
+        decoded_values.emplace_back(std::move(bolt_value));
       }
       encoder_->MessageRecord(decoded_values);
     }
