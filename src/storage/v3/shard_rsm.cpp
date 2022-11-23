@@ -805,7 +805,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
   }
 
   msgs::ScanVerticesResponse resp{.error = std::move(shard_error)};
-  if (resp.error) {
+  if (!resp.error) {
     resp.next_start_id = next_start_id;
     resp.results = std::move(results);
   }

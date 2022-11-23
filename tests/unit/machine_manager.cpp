@@ -131,6 +131,7 @@ void TestCreateVertices(msgs::ShardRequestManagerInterface &shard_request_manage
 
   auto result = shard_request_manager.Request(state, std::move(new_vertices));
   EXPECT_EQ(result.size(), 1);
+  EXPECT_FALSE(result[0].error.has_value()) << result[0].error->message;
 }
 
 void TestCreateExpand(msgs::ShardRequestManagerInterface &shard_request_manager) {

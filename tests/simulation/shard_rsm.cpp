@@ -156,7 +156,7 @@ bool AttemptToCreateVertex(ShardClient &client, int64_t value) {
   create_req.transaction_id.logical_id = GetTransactionId();
 
   auto write_res = client.SendWriteRequest(create_req);
-  MG_ASSERT(write_res.HasValue() && std::get<msgs::CreateVerticesResponse>(write_res.GetValue()).error,
+  MG_ASSERT(write_res.HasValue() && !std::get<msgs::CreateVerticesResponse>(write_res.GetValue()).error.has_value(),
             "Unexpected failure");
 
   Commit(client, create_req.transaction_id);

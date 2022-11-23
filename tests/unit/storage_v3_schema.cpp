@@ -186,43 +186,43 @@ TEST_F(SchemaValidatorTest, TestSchemaValidateVertexCreate) {
   // Validate against secondary label
   {
     const auto schema_violation = schema_validator.ValidateVertexCreate(NameToLabel("test"), {}, {PropertyValue(1)});
-    ASSERT_FALSE(schema_violation.HasError());
+    ASSERT_TRUE(schema_violation.HasError());
     EXPECT_EQ(schema_violation.GetError(), SHARD_ERROR(ErrorCode::SCHEMA_NO_SCHEMA_DEFINED_FOR_LABEL));
   }
 
   {
     const auto schema_violation = schema_validator.ValidateVertexCreate(label2, {}, {});
-    ASSERT_FALSE(schema_violation.HasError());
+    ASSERT_TRUE(schema_violation.HasError());
     EXPECT_EQ(schema_violation.GetError(), SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED));
   }
   // Validate wrong secondary label
   {
     const auto schema_violation = schema_validator.ValidateVertexCreate(label1, {label1}, {PropertyValue("test")});
-    ASSERT_FALSE(schema_violation.HasError());
+    ASSERT_TRUE(schema_violation.HasError());
     EXPECT_EQ(schema_violation.GetError(), SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY));
   }
   {
     const auto schema_violation = schema_validator.ValidateVertexCreate(label1, {label2}, {PropertyValue("test")});
-    ASSERT_FALSE(schema_violation.HasError());
+    ASSERT_TRUE(schema_violation.HasError());
     EXPECT_EQ(schema_violation.GetError(), SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY));
   }
   // Validate wrong property type
   {
     const auto schema_violation = schema_validator.ValidateVertexCreate(label1, {}, {PropertyValue(1)});
-    ASSERT_FALSE(schema_violation.HasError());
+    ASSERT_TRUE(schema_violation.HasError());
     EXPECT_EQ(schema_violation.GetError(), SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_PROPERTY_WRONG_TYPE));
   }
   {
     const auto schema_violation =
         schema_validator.ValidateVertexCreate(label2, {}, {PropertyValue("test"), PropertyValue(12), PropertyValue(1)});
-    ASSERT_FALSE(schema_violation.HasError());
+    ASSERT_TRUE(schema_violation.HasError());
     EXPECT_EQ(schema_violation.GetError(), SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_PROPERTY_WRONG_TYPE));
   }
   {
     const auto wrong_prop = PropertyValue(TemporalData(TemporalType::Date, 1234));
     const auto schema_violation =
         schema_validator.ValidateVertexCreate(label2, {}, {PropertyValue("test"), PropertyValue(12), wrong_prop});
-    ASSERT_FALSE(schema_violation.HasError());
+    ASSERT_TRUE(schema_violation.HasError());
     EXPECT_EQ(schema_violation.GetError(), SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_PROPERTY_WRONG_TYPE));
   }
   // Passing validations
@@ -247,12 +247,12 @@ TEST_F(SchemaValidatorTest, TestSchemaValidatePropertyUpdate) {
   // Validate updating of primary key
   {
     const auto schema_violation = schema_validator.ValidatePropertyUpdate(label1, prop_string);
-    ASSERT_FALSE(schema_violation.HasError());
+    ASSERT_TRUE(schema_violation.HasError());
     EXPECT_EQ(schema_violation.GetError(), SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_KEY));
   }
   {
     const auto schema_violation = schema_validator.ValidatePropertyUpdate(label2, prop_duration);
-    ASSERT_FALSE(schema_violation.HasError());
+    ASSERT_TRUE(schema_violation.HasError());
     EXPECT_EQ(schema_violation.GetError(), SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_KEY));
   }
   EXPECT_FALSE(schema_validator.ValidatePropertyUpdate(label1, prop_int).HasError());
@@ -264,12 +264,12 @@ TEST_F(SchemaValidatorTest, TestSchemaValidatePropertyUpdateLabel) {
   // Validate adding primary label
   {
     const auto schema_violation = schema_validator.ValidateLabelUpdate(label1);
-    ASSERT_FALSE(schema_violation.HasError());
+    ASSERT_TRUE(schema_violation.HasError());
     EXPECT_EQ(schema_violation.GetError(), SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL));
   }
   {
     const auto schema_violation = schema_validator.ValidateLabelUpdate(label2);
-    ASSERT_FALSE(schema_violation.HasError());
+    ASSERT_TRUE(schema_violation.HasError());
     EXPECT_EQ(schema_violation.GetError(), SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL));
   }
   EXPECT_FALSE(schema_validator.ValidateLabelUpdate(NameToLabel("test")).HasError());
