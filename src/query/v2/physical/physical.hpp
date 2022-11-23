@@ -57,15 +57,16 @@ struct ExecutionContext {
 ///
 /// Each derived PhysicalOperator may be constructed with 0|1 function providing the data.
 /// Each PhysicalOperator has an arbitrary number of children AKA input operators.
+template <typename TDataPool>
 class PhysicalOperator {
  public:
-  explicit PhysicalOperator(const std::string &name)
-      : name_(name), data_pool_(std::make_unique<multiframe::MPMCMultiframeFCFSPool>(16, 100)) {}
+  explicit PhysicalOperator(const std::string &name, std::unique_ptr<TDataPool> &&data_pool)
+      : name_(name), data_pool_(std::move(data_pool)) {}
   PhysicalOperator() = delete;
   PhysicalOperator(const PhysicalOperator &) = delete;
-  PhysicalOperator(PhysicalOperator &&) = default;
+  PhysicalOperator(PhysicalOperator &&) noexcept = default;
   PhysicalOperator &operator=(const PhysicalOperator &) = delete;
-  PhysicalOperator &operator=(PhysicalOperator &&) = default;
+  PhysicalOperator &operator=(PhysicalOperator &&) noexcept = default;
   virtual ~PhysicalOperator() {}
 
   void AddChild(std::shared_ptr<PhysicalOperator> child) { children_.push_back(child); }
@@ -188,10 +189,11 @@ class PhysicalOperator {
 
  protected:
   std::string name_;
-  std::vector<std::shared_ptr<PhysicalOperator>> children_;
+  std::vector<std::shared_ptr<PhysicalOperator<TDataPool>>> children_;
   /// TODO(gitbuda): Pass the Multiframe capacity via the PhysicalOperator constructor.
   /// uptr is here to make the PhysicalOperator moveable.
-  std::unique_ptr<multiframe::MPMCMultiframeFCFSPool> data_pool_;
+  /// TODO(gitbuda): Make it more clear that below is a uptr.
+  std::unique_ptr<TDataPool> data_pool_;
   std::optional<multiframe::Token> current_token_;
 
   void BaseExecute(ExecutionContext ctx) {
@@ -229,31 +231,37 @@ class PhysicalOperator {
 
 // TODO(gitbuda): Consider kicking out Once because it's an artefact from the single Frame execution.
 /// In the Execute/Next/Emit concept once is implemented very concisely.
-class OncePhysicalOperator final : public PhysicalOperator {
+template <typename TDataPool>
+class OncePhysicalOperator final : public PhysicalOperator<TDataPool> {
+  using Base = PhysicalOperator<TDataPool>;
+
  public:
-  explicit OncePhysicalOperator(const std::string &name) : PhysicalOperator(name) {}
+  explicit OncePhysicalOperator(const std::string &name, std::unique_ptr<TDataPool> &&data_pool)
+      : PhysicalOperator<TDataPool>(name, std::move(data_pool)) {}
   void Execute(ExecutionContext ctx) override {
-    MG_ASSERT(children_.empty(), "Once should have 0 inputs");
-    std::cout << name_ << std::endl;
-    PhysicalOperator::BaseExecute(ctx);
-    Emit(Frame{}, false);
-    MarkWriterDone();
+    MG_ASSERT(Base::children_.empty(), "Once should have 0 inputs");
+    std::cout << Base::name_ << std::endl;
+    Base::BaseExecute(ctx);
+    Base::Emit(Frame{}, false);
+    Base::MarkWriterDone();
   }
 };
 
 /// NOTE: ScanAll get_vertices needs frame+ctx because ScanAllByXYZValue has an
 /// expression that has to be evaluated.
 ///
-template <typename TDataFun>
-class ScanAllPhysicalOperator final : public PhysicalOperator {
+template <typename TDataFun, typename TDataPool>
+class ScanAllPhysicalOperator final : public PhysicalOperator<TDataPool> {
+  using Base = PhysicalOperator<TDataPool>;
+
  public:
-  ScanAllPhysicalOperator(const std::string &name, TDataFun data_fun)
-      : PhysicalOperator(name), data_fun_(std::move(data_fun)) {}
+  ScanAllPhysicalOperator(const std::string &name, TDataFun data_fun, std::unique_ptr<TDataPool> &&data_pool)
+      : PhysicalOperator<TDataPool>(name, std::move(data_pool)), data_fun_(std::move(data_fun)) {}
 
   void Execute(ExecutionContext ctx) override {
-    std::cout << name_ << std::endl;
-    MG_ASSERT(children_.size() == 1, "ScanAll should have exactly 1 input");
-    PhysicalOperator::BaseExecute(ctx);
+    std::cout << Base::name_ << std::endl;
+    MG_ASSERT(Base::children_.size() == 1, "ScanAll should have exactly 1 input");
+    Base::BaseExecute(ctx);
 
     // SCANALL PSEUDO
     // ∀mf : input multiframes
@@ -265,7 +273,7 @@ class ScanAllPhysicalOperator final : public PhysicalOperator {
     // TODO(gitbuda): It should be possible to parallelize the below ScanAll
     // because the underlying data pool provides all needed to manage the
     // result data.
-    SingleChildSingleThreadExaust([this, &ctx](multiframe::Multiframe &multiframe) {
+    Base::SingleChildSingleThreadExaust([this, &ctx](multiframe::Multiframe &multiframe) {
       // for (auto &batch : data_fun_(multiframe, ctx)) {
       //    for (auto &vertex : batch) {
       //     // PROBLEM/TODO(gitbuda): Emit is designed to accept the full Frame,
@@ -274,12 +282,12 @@ class ScanAllPhysicalOperator final : public PhysicalOperator {
       //   }
       // }
       for (const auto &new_frame : data_fun_(multiframe, ctx)) {
-        Emit(new_frame);
+        Base::Emit(new_frame);
       }
       // Since Emit in the for loops hasn't passed has_more=false,
       // TODO(gitbuda): Rename CloseEmit to something better.
-      CloseEmit();
-      MarkWriterDone();
+      Base::CloseEmit();
+      Base::MarkWriterDone();
     });
   }
 
@@ -287,19 +295,24 @@ class ScanAllPhysicalOperator final : public PhysicalOperator {
   TDataFun data_fun_;
 };
 
-class ProducePhysicalOperator final : public PhysicalOperator {
+template <typename TDataPool>
+class ProducePhysicalOperator final : public PhysicalOperator<TDataPool> {
+  using Base = PhysicalOperator<TDataPool>;
+
  public:
-  using PhysicalOperator::PhysicalOperator;
+  using PhysicalOperator<TDataPool>::PhysicalOperator;
 
   void Execute(ExecutionContext ctx) override {
-    std::cout << name_ << std::endl;
-    MG_ASSERT(children_.size() == 1, "ScanAll should have exactly 1 input");
-    PhysicalOperator::BaseExecute(ctx);
-    SingleChildSingleThreadExaust([this](multiframe::Multiframe &multiframe) {
-      for (const auto &frame : multiframe.Data()) {
-        std::cout << "Produce: " << frame.a << std::endl;
-      }
-      MarkWriterDone();
+    std::cout << Base::name_ << std::endl;
+    MG_ASSERT(Base::children_.size() == 1, "ScanAll should have exactly 1 input");
+    Base::BaseExecute(ctx);
+    // TODO: EXPLICIT QUALIFICATION
+    Base::SingleChildSingleThreadExaust([this](multiframe::Multiframe &multiframe) {
+      std::cout << multiframe.Data().size() << std::endl;
+      // for (const auto &frame : multiframe.Data()) {
+      // std::cout << "Produce: " << frame.a << std::endl;
+      // }
+      Base::MarkWriterDone();
     });
   }
 };
@@ -307,15 +320,23 @@ class ProducePhysicalOperator final : public PhysicalOperator {
 /// TODO(gitbuda): Consider how to add higher level database concepts like
 /// authorization.
 
+template <typename TDataPool>
 class PhysicalPlanGenerator final : public HierarchicalLogicalOperatorVisitor {
  public:
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
   using HierarchicalLogicalOperatorVisitor::Visit;
 
-  std::vector<std::shared_ptr<PhysicalOperator>> pops_;
+  using TPhysicalOperator = PhysicalOperator<TDataPool>;
+  using TPhysicalOperatorPtr = std::shared_ptr<TPhysicalOperator>;
+  using TOnceOperator = OncePhysicalOperator<TDataPool>;
+  template <typename TDataFun>
+  using TScanAllOperator = ScanAllPhysicalOperator<TDataFun, TDataPool>;
+  using TProduceOperator = ProducePhysicalOperator<TDataPool>;
 
-  std::shared_ptr<PhysicalOperator> Generate() {
+  std::vector<TPhysicalOperatorPtr> pops_;
+
+  TPhysicalOperatorPtr Generate() {
     MG_ASSERT(pops_.size() == 1, "Number of generated physical operators too big.");
     return pops_.back();
   }
@@ -326,7 +347,7 @@ class PhysicalPlanGenerator final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  bool DefaultPre(std::shared_ptr<PhysicalOperator> pop) {
+  bool DefaultPre(TPhysicalOperatorPtr pop) {
     if (pops_.empty()) {
       pops_.push_back(pop);
       return true;
@@ -337,7 +358,8 @@ class PhysicalPlanGenerator final : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PreVisit(Produce & /*unused*/) override {
-    auto pop = std::make_shared<ProducePhysicalOperator>(ProducePhysicalOperator("Physical Produce"));
+    auto data_pool = std::make_unique<TDataPool>(16, 100);
+    auto pop = std::make_shared<TProduceOperator>(TProduceOperator("Physical Produce", std::move(data_pool)));
     return DefaultPre(pop);
   }
 
@@ -366,15 +388,17 @@ class PhysicalPlanGenerator final : public HierarchicalLogicalOperatorVisitor {
       }
       return frames;
     };
-    auto pop = std::make_shared<ScanAllPhysicalOperator<decltype(data_fun)>>(
-        ScanAllPhysicalOperator("Physical ScanAll", std::move(data_fun)));
+    auto data_pool = std::make_unique<TDataPool>(16, 100);
+    auto pop = std::make_shared<TScanAllOperator<decltype(data_fun)>>(
+        TScanAllOperator<decltype(data_fun)>("Physical ScanAll", std::move(data_fun), std::move(data_pool)));
     return DefaultPre(pop);
   }
 
   bool PostVisit(ScanAll & /*unused*/) override { return DefaultPost(); }
 
   bool Visit(Once & /*unused*/) override {
-    auto pop = std::make_shared<OncePhysicalOperator>(OncePhysicalOperator("Physical Once"));
+    auto data_pool = std::make_unique<TDataPool>(16, 100);
+    auto pop = std::make_shared<TOnceOperator>(TOnceOperator("Physical Once", std::move(data_pool)));
     MG_ASSERT(!pops_.empty(), "There is nothing where Once could be attached.");
     pops_.back()->AddChild(pop);
     return true;

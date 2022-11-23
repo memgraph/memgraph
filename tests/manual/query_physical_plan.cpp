@@ -47,7 +47,8 @@ int main(int argc, char *argv[]) {
   }
 
   // Example of the physical plan execution.
-  memgraph::query::v2::physical::PhysicalPlanGenerator physical_plan_generator;
+  using TDataPool = memgraph::query::v2::physical::multiframe::MPMCMultiframeFCFSPool;
+  memgraph::query::v2::physical::PhysicalPlanGenerator<TDataPool> physical_plan_generator;
   // Generate physical plan.
   plans[0].unoptimized_plan->Accept(physical_plan_generator);
   auto physical_plan = physical_plan_generator.Generate();

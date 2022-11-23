@@ -326,7 +326,7 @@ add_unit_test(query_v2_dummy_test.cpp)
 target_link_libraries(${test_prefix}query_v2_dummy_test mg-query-v2)
 
 add_unit_test(query_v2_physical_plan.cpp)
-target_link_libraries(${test_prefix}query_v2_physical_plan mg-query-v2)
+target_link_libraries(${test_prefix}query_v2_physical_plan mg-query-v2 rapidcheck rapidcheck_gtest)
 
 add_unit_test(storage_v3_property_store.cpp)
 target_link_libraries(${test_prefix}storage_v3_property_store mg-storage-v3 fmt)
