@@ -83,18 +83,6 @@ TEST_F(MultiframePoolFixture, DISABLED_ConcurrentMultiframePoolAccess) {
   ASSERT_EQ(writers_got_access_cnt.load(), 1000000);
 }
 
-template <class TupType, size_t... I>
-void print(const TupType &_tup, std::index_sequence<I...>) {
-  std::cout << "(";
-  (..., (std::cout << (I == 0 ? "" : ", ") << std::get<I>(_tup)));
-  std::cout << ")\n";
-}
-
-template <class... T>
-void print(const std::tuple<T...> &_tup) {
-  print(_tup, std::make_index_sequence<sizeof...(T)>());
-}
-
 enum class OpType { Once, ScanAll, Produce };
 std::ostream &operator<<(std::ostream &os, const OpType &op_type) {
   switch (op_type) {
@@ -110,7 +98,7 @@ std::ostream &operator<<(std::ostream &os, const OpType &op_type) {
   }
   return os;
 }
-enum ScanAllConfig { SCAN_ENTITIES_NUM = 0 };
+constexpr int ENTITIES_NUM = 0;
 struct Op {
   OpType type;
   std::vector<int> props;
@@ -120,13 +108,13 @@ RC_GTEST_FIXTURE_PROP(PhysicalPlanFixture, PropertyBasedPhysicalPlan, ()) {
   using TDataPool = physical::multiframe::MPMCMultiframeFCFSPool;
   using TPhysicalOperator = physical::PhysicalOperator<TDataPool>;
   using TPhysicalOperatorPtr = std::shared_ptr<TPhysicalOperator>;
-
   using TOnceOperator = physical::OncePhysicalOperator<TDataPool>;
   using TProduceOperator = physical::ProducePhysicalOperator<TDataPool>;
 
-  // Define plan generator and generate a new PhysicalOperator plan.
   int multiframes_no_per_op = *rc::gen::inRange(1, 32);
   int multiframe_size = *rc::gen::inRange(1, 2000);
+  std::cout << "#MF: " << multiframes_no_per_op << " #F: " << multiframe_size << std::endl;
+
   std::vector<rc::Gen<Op>> gens;
   gens.push_back(rc::gen::construct<Op>(rc::gen::element(OpType::ScanAll),
                                         rc::gen::container<std::vector<int>>(1, rc::gen::inRange(1, 10000))));
@@ -141,28 +129,30 @@ RC_GTEST_FIXTURE_PROP(PhysicalPlanFixture, PropertyBasedPhysicalPlan, ()) {
   for (const auto &op : ops) {
     if (op.type == OpType::Once) {
       std::cout << op.type << std::endl;
-      auto data_pool = std::make_unique<TDataPool>(16, 100);
+      auto data_pool = std::make_unique<TDataPool>(multiframes_no_per_op, multiframe_size);
       auto once = std::make_shared<TOnceOperator>(TOnceOperator("Physical Once", std::move(data_pool)));
       current->AddChild(once);
       current = once;
+
     } else if (op.type == OpType::ScanAll) {
       std::cout << op.type << " elems: " << op.props[0] << std::endl;
       auto data_fun = [&op](physical::multiframe::Multiframe &, physical::ExecutionContext &) {
         std::vector<physical::Frame> frames;
-        for (int i = 0; i < op.props[0]; ++i) {
+        for (int i = 0; i < op.props[ENTITIES_NUM]; ++i) {
           frames.push_back(physical::Frame{});
         }
         return frames;
       };
-      auto data_pool = std::make_unique<TDataPool>(16, 100);
+      auto data_pool = std::make_unique<TDataPool>(multiframes_no_per_op, multiframe_size);
       auto scan_all = std::make_shared<physical::ScanAllPhysicalOperator<decltype(data_fun), TDataPool>>(
           physical::ScanAllPhysicalOperator<decltype(data_fun), TDataPool>("Physical ScanAll", std::move(data_fun),
                                                                            std::move(data_pool)));
       current->AddChild(scan_all);
       current = scan_all;
+
     } else if (op.type == OpType::Produce) {
       std::cout << op.type << std::endl;
-      auto data_pool = std::make_unique<TDataPool>(16, 100);
+      auto data_pool = std::make_unique<TDataPool>(multiframes_no_per_op, multiframe_size);
       plan = std::make_shared<TProduceOperator>(TProduceOperator("Physical Produce", std::move(data_pool)));
       current = plan;
     } else {
