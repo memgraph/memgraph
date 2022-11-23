@@ -153,6 +153,7 @@ class PhysicalOperator {
   /// for-range loop we don't know if there is more elements -> an easy solution
   /// is to expose an additional method.
   ///
+  /// TODO(gitbuda): Rename CloseEmit to something better.
   void CloseEmit() {
     if (!current_token_) {
       return;
@@ -199,6 +200,8 @@ class PhysicalOperator {
   std::unique_ptr<TDataPool> data_pool_;
   std::optional<multiframe::Token> current_token_;
   Stats stats_{.processed_frames = 0};
+  std::function<void(multiframe::Multiframe &multiframe)> fun_;
+  std::function<void(void)> after_done_fun_;
 
   void BaseExecute(ExecutionContext ctx) {
     for (const auto &child : children_) {
@@ -211,25 +214,32 @@ class PhysicalOperator {
   /// the input data pool). The injected function (fun) will write data to the
   /// data pool of this operator.
   ///
-  void SingleChildSingleThreadExaust(std::function<void(multiframe::Multiframe &multiframe)> fun) {
+  void SingleChildSingleThreadExaust(ExecutionContext ctx, std::function<void(multiframe::Multiframe &multiframe)> fun,
+                                     std::function<void(void)> after_done_fun) {
+    // If we don't store the function, it's gets deleted.
+    fun_ = fun;
+    after_done_fun_ = after_done_fun;
     // The logic here is tricky because you have to think about both reader and writer.
-    auto *input = children_[0].get();
-    // TODO(gitbuda): All this logic (except the fun(...) call) could be moved to NextRead!
-    while (true) {
-      auto read_token = input->NextRead();
-      // If empty and the writer has finished his job -> mark exhaustion
-      if (!read_token && input->IsWriterDone()) {
-        input->MarkExhausted();
+    ctx.thread_pool->AddTask([&, this]() {
+      auto *input = children_[0].get();
+      // TODO(gitbuda): All this logic (except the fun(...) call) could be moved to NextRead!
+      while (true) {
+        auto read_token = input->NextRead();
+        // If empty and the writer has finished his job -> mark exhaustion
+        if (!read_token && input->IsWriterDone()) {
+          input->MarkExhausted();
+        }
+        // If empty and marked as exhausted -> STOP
+        if (!read_token && input->IsExhausted()) {
+          break;
+        }
+        if (read_token) {
+          fun_(*(read_token->multiframe));
+          input->PassBackRead(*read_token);
+        }
       }
-      // If empty and marked as exhausted -> STOP
-      if (!read_token && input->IsExhausted()) {
-        break;
-      }
-      if (read_token) {
-        fun(*(read_token->multiframe));
-        input->PassBackRead(*read_token);
-      }
-    }
+      after_done_fun_();
+    });
   }
 };
 
@@ -278,22 +288,26 @@ class ScanAllPhysicalOperator final : public PhysicalOperator<TDataPool> {
     // TODO(gitbuda): It should be possible to parallelize the below ScanAll
     // because the underlying data pool provides all needed to manage the
     // result data.
-    Base::SingleChildSingleThreadExaust([this, &ctx](multiframe::Multiframe &multiframe) {
-      // for (auto &batch : data_fun_(multiframe, ctx)) {
-      //    for (auto &vertex : batch) {
-      //     // PROBLEM/TODO(gitbuda): Emit is designed to accept the full Frame,
-      //     // while we only need to add single variable into the frame.
-      //     // BUT we also need the entire "input" frame to pass it forward
-      //   }
-      // }
-      for (const auto &new_frame : data_fun_(multiframe, ctx)) {
-        this->stats_.processed_frames++;
-        Base::Emit(new_frame);
-      }
-      // TODO(gitbuda): Rename CloseEmit to something better.
-      Base::CloseEmit();
-    });
-    Base::MarkWriterDone();
+    Base::SingleChildSingleThreadExaust(
+        ctx,
+        [this, &ctx](multiframe::Multiframe &multiframe) {
+          // for (auto &batch : data_fun_(multiframe, ctx)) {
+          //    for (auto &vertex : batch) {
+          //     // PROBLEM/TODO(gitbuda): Emit is designed to accept the full Frame,
+          //     // while we only need to add single variable into the frame.
+          //     // BUT we also need the entire "input" frame to pass it forward
+          //   }
+          // }
+          for (const auto &new_frame : data_fun_(multiframe, ctx)) {
+            this->stats_.processed_frames++;
+            Base::Emit(new_frame);
+          }
+          Base::CloseEmit();
+        },
+        [this]() {
+          // TODO(gitbuda): MarkWritterDone has to know when all the thread is done.
+          Base::MarkWriterDone();
+        });
   }
 
  private:
@@ -311,8 +325,10 @@ class ProducePhysicalOperator final : public PhysicalOperator<TDataPool> {
     std::cout << Base::name_ << std::endl;
     MG_ASSERT(Base::children_.size() == 1, "ScanAll should have exactly 1 input");
     Base::BaseExecute(ctx);
+
     Base::SingleChildSingleThreadExaust(
-        [this](multiframe::Multiframe &multiframe) { this->stats_.processed_frames += multiframe.Data().size(); });
+        ctx, [this](multiframe::Multiframe &multiframe) { this->stats_.processed_frames += multiframe.Data().size(); },
+        [this]() { Base::MarkWriterDone(); });
   }
 };
 

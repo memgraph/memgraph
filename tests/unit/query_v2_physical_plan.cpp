@@ -39,6 +39,7 @@ class PhysicalPlanFixture : public ::testing::Test {
  protected:
   void SetUp() override {}
   void TearDown() override {}
+  utils::ThreadPool thread_pool_{16};
 };
 
 TEST_F(MultiframePoolFixture, ConcurrentMultiframePoolAccess) {
@@ -107,7 +108,7 @@ struct Op {
 // TODO(gitbuda): Doesn't work yet because it seems that the data pool is
 // blocked when the first writer fills all available space.
 //
-RC_GTEST_FIXTURE_PROP(PhysicalPlanFixture, DISABLED_PropertyBasedPhysicalPlan, ()) {
+RC_GTEST_FIXTURE_PROP(PhysicalPlanFixture, PropertyBasedPhysicalPlan, ()) {
   using TDataPool = physical::multiframe::MPMCMultiframeFCFSPool;
   using TPhysicalOperator = physical::PhysicalOperator<TDataPool>;
   using TPhysicalOperatorPtr = std::shared_ptr<TPhysicalOperator>;
@@ -120,7 +121,8 @@ RC_GTEST_FIXTURE_PROP(PhysicalPlanFixture, DISABLED_PropertyBasedPhysicalPlan, (
 
   std::vector<rc::Gen<Op>> gens;
   gens.push_back(rc::gen::construct<Op>(rc::gen::element(OpType::ScanAll),
-                                        rc::gen::container<std::vector<int>>(1, rc::gen::inRange(1, 10000))));
+                                        // rc::gen::container<std::vector<int>>(1, rc::gen::inRange(1, 10000))));
+                                        rc::gen::container<std::vector<int>>(1, rc::gen::inRange(1, 100))));
   std::vector<Op> ops = {Op{.type = OpType::Produce}};
   const auto body =
       *rc::gen::container<std::vector<Op>>(*rc::gen::inRange(1, 4), rc::gen::join(rc::gen::elementOf(gens)));
@@ -163,8 +165,10 @@ RC_GTEST_FIXTURE_PROP(PhysicalPlanFixture, DISABLED_PropertyBasedPhysicalPlan, (
     }
   }
 
-  physical::ExecutionContext ctx;
+  physical::ExecutionContext ctx{.thread_pool = &thread_pool_};
   plan->Execute(ctx);
+  // TODO(gitbuda): Segfault if not enough sleep -> something gets allocated too early.
+  std::this_thread::sleep_for(std::chrono::microseconds(100000));
   const auto &stats = plan->GetStats();
   int64_t scan_all_cnt{1};
   for (const auto &op : ops) {
