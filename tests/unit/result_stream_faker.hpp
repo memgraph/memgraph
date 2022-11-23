@@ -16,7 +16,7 @@
 #include "glue/v2/communication.hpp"
 #include "query/v2/bindings/typed_value.hpp"
 
-#include "storage/v3/storage.hpp"
+#include "storage/v3/shard.hpp"
 #include "utils/algorithm.hpp"
 
 /**

@@ -23,7 +23,7 @@
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/schema_validator.hpp"
 #include "storage/v3/schemas.hpp"
-#include "storage/v3/storage.hpp"
+#include "storage/v3/shard.hpp"
 #include "storage/v3/temporal.hpp"
 
 using testing::Pair;
