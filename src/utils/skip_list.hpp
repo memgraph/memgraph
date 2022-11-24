@@ -621,6 +621,8 @@ class SkipList final {
     TNode *node_;
   };
 
+  using iterator = Iterator;
+
   class Accessor final {
    private:
     friend class SkipList;
