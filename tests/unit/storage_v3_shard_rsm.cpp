@@ -94,7 +94,7 @@ class ShardRSMTest : public testing::Test {
 
     auto commit_res = Commit(create_req);
     ASSERT_TRUE(std::holds_alternative<msgs::CommitResponse>(commit_res));
-    ASSERT_TRUE(std::get<msgs::CommitResponse>(commit_res).success);
+    ASSERT_FALSE(std::get<msgs::CommitResponse>(commit_res).error.has_value());
   }
 
   void AssertVertexExists(const msgs::PrimaryKey &primary_key, const std::vector<msgs::Label> &labels,
@@ -109,7 +109,7 @@ class ShardRSMTest : public testing::Test {
     auto maybe_read_res = shard_rsm->Read(scan_req);
     ASSERT_TRUE(std::holds_alternative<msgs::ScanVerticesResponse>(maybe_read_res));
     const auto read_res = std::get<msgs::ScanVerticesResponse>(maybe_read_res);
-    EXPECT_TRUE(read_res.success);
+    EXPECT_FALSE(read_res.error.has_value());
     EXPECT_EQ(read_res.results.size(), 1);
 
     // Read results
@@ -148,11 +148,11 @@ TEST_F(ShardRSMTest, TestUpdateVertexSecondaryProperty) {
 
     const auto write_res = shard_rsm->Apply(update_req);
     ASSERT_TRUE(std::holds_alternative<msgs::UpdateVerticesResponse>(write_res));
-    EXPECT_TRUE(std::get<msgs::UpdateVerticesResponse>(write_res).success);
+    EXPECT_FALSE(std::get<msgs::UpdateVerticesResponse>(write_res).error.has_value());
 
     const auto commit_res = Commit(update_req);
     ASSERT_TRUE(std::holds_alternative<msgs::CommitResponse>(commit_res));
-    EXPECT_TRUE(std::get<msgs::CommitResponse>(commit_res).success);
+    EXPECT_FALSE(std::get<msgs::CommitResponse>(commit_res).error.has_value());
   }
   AssertVertexExists(pk, {}, {{primary_property1, primary_key_val}, {prop, msgs::Value(updated_vertex_id)}});
 
@@ -167,11 +167,11 @@ TEST_F(ShardRSMTest, TestUpdateVertexSecondaryProperty) {
 
     const auto write_res = shard_rsm->Apply(update_req);
     ASSERT_TRUE(std::holds_alternative<msgs::UpdateVerticesResponse>(write_res));
-    ASSERT_TRUE(std::get<msgs::UpdateVerticesResponse>(write_res).success);
+    EXPECT_FALSE(std::get<msgs::UpdateVerticesResponse>(write_res).error.has_value());
 
     const auto commit_res = Commit(update_req);
     ASSERT_TRUE(std::holds_alternative<msgs::CommitResponse>(commit_res));
-    EXPECT_TRUE(std::get<msgs::CommitResponse>(commit_res).success);
+    EXPECT_FALSE(std::get<msgs::CommitResponse>(commit_res).error.has_value());
     AssertVertexExists(pk, {}, {{primary_property1, primary_key_val}, {prop, msgs::Value(updated_vertex_id_2)}});
   }
   AssertVertexExists(pk, {}, {{primary_property1, primary_key_val}, {prop, msgs::Value(updated_vertex_id_2)}});
@@ -186,11 +186,11 @@ TEST_F(ShardRSMTest, TestUpdateVertexSecondaryProperty) {
 
     const auto write_res = shard_rsm->Apply(update_req);
     ASSERT_TRUE(std::holds_alternative<msgs::UpdateVerticesResponse>(write_res));
-    EXPECT_TRUE(std::get<msgs::UpdateVerticesResponse>(write_res).success);
+    EXPECT_FALSE(std::get<msgs::UpdateVerticesResponse>(write_res).error.has_value());
 
     const auto commit_res = Commit(update_req);
     ASSERT_TRUE(std::holds_alternative<msgs::CommitResponse>(commit_res));
-    EXPECT_TRUE(std::get<msgs::CommitResponse>(commit_res).success);
+    EXPECT_FALSE(std::get<msgs::CommitResponse>(commit_res).error.has_value());
   }
   AssertVertexExists(pk, {}, {{primary_property1, primary_key_val}});
 }
@@ -213,7 +213,7 @@ TEST_F(ShardRSMTest, TestUpdateVertexPrimaryProperty) {
 
     const auto write_res = shard_rsm->Apply(update_req);
     ASSERT_TRUE(std::holds_alternative<msgs::UpdateVerticesResponse>(write_res));
-    EXPECT_FALSE(std::get<msgs::UpdateVerticesResponse>(write_res).success);
+    EXPECT_TRUE(std::get<msgs::UpdateVerticesResponse>(write_res).error.has_value());
   }
   AssertVertexExists(pk, {}, {{primary_property1, primary_key_val}});
   // Try to update primary property of another schema
@@ -226,11 +226,11 @@ TEST_F(ShardRSMTest, TestUpdateVertexPrimaryProperty) {
 
     const auto write_res = shard_rsm->Apply(update_req);
     ASSERT_TRUE(std::holds_alternative<msgs::UpdateVerticesResponse>(write_res));
-    EXPECT_TRUE(std::get<msgs::UpdateVerticesResponse>(write_res).success);
+    EXPECT_FALSE(std::get<msgs::UpdateVerticesResponse>(write_res).error.has_value());
 
     const auto commit_res = Commit(update_req);
     ASSERT_TRUE(std::holds_alternative<msgs::CommitResponse>(commit_res));
-    EXPECT_TRUE(std::get<msgs::CommitResponse>(commit_res).success);
+    EXPECT_FALSE(std::get<msgs::CommitResponse>(commit_res).error.has_value());
   }
   AssertVertexExists(pk, {},
                      {{primary_property1, primary_key_val}, {primary_property2, msgs::Value(updated_vertex_id)}});
@@ -253,11 +253,11 @@ TEST_F(ShardRSMTest, TestUpdateSecondaryLabel) {
 
     const auto write_res = shard_rsm->Apply(update_req);
     ASSERT_TRUE(std::holds_alternative<msgs::UpdateVerticesResponse>(write_res));
-    ASSERT_TRUE(std::get<msgs::UpdateVerticesResponse>(write_res).success);
+    EXPECT_FALSE(std::get<msgs::UpdateVerticesResponse>(write_res).error.has_value());
 
     const auto commit_res = Commit(update_req);
     ASSERT_TRUE(std::holds_alternative<msgs::CommitResponse>(commit_res));
-    EXPECT_TRUE(std::get<msgs::CommitResponse>(commit_res).success);
+    EXPECT_FALSE(std::get<msgs::CommitResponse>(commit_res).error.has_value());
   }
   AssertVertexExists(pk, {secondary_label}, {{primary_property1, primary_key_val}});
 
@@ -270,11 +270,11 @@ TEST_F(ShardRSMTest, TestUpdateSecondaryLabel) {
 
     const auto write_res = shard_rsm->Apply(update_req);
     ASSERT_TRUE(std::holds_alternative<msgs::UpdateVerticesResponse>(write_res));
-    EXPECT_TRUE(std::get<msgs::UpdateVerticesResponse>(write_res).success);
+    EXPECT_FALSE(std::get<msgs::UpdateVerticesResponse>(write_res).error.has_value());
 
     const auto commit_res = Commit(update_req);
     ASSERT_TRUE(std::holds_alternative<msgs::CommitResponse>(commit_res));
-    EXPECT_TRUE(std::get<msgs::CommitResponse>(commit_res).success);
+    EXPECT_FALSE(std::get<msgs::CommitResponse>(commit_res).error.has_value());
   }
   AssertVertexExists(pk, {}, {{primary_property1, primary_key_val}});
 }
@@ -295,7 +295,7 @@ TEST_F(ShardRSMTest, TestUpdatePrimaryLabel) {
 
     const auto write_res = shard_rsm->Apply(update_req);
     ASSERT_TRUE(std::holds_alternative<msgs::UpdateVerticesResponse>(write_res));
-    EXPECT_FALSE(std::get<msgs::UpdateVerticesResponse>(write_res).success);
+    EXPECT_TRUE(std::get<msgs::UpdateVerticesResponse>(write_res).error.has_value());
   }
   AssertVertexExists(pk, {}, {{primary_property1, primary_key_val}});
 
@@ -308,7 +308,7 @@ TEST_F(ShardRSMTest, TestUpdatePrimaryLabel) {
 
     const auto write_res = shard_rsm->Apply(update_req);
     ASSERT_TRUE(std::holds_alternative<msgs::UpdateVerticesResponse>(write_res));
-    EXPECT_FALSE(std::get<msgs::UpdateVerticesResponse>(write_res).success);
+    EXPECT_TRUE(std::get<msgs::UpdateVerticesResponse>(write_res).error.has_value());
   }
   AssertVertexExists(pk, {}, {{primary_property1, primary_key_val}});
 }

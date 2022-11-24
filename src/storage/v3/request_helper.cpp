@@ -16,6 +16,7 @@
 #include "storage/v3/bindings/db_accessor.hpp"
 #include "storage/v3/bindings/pretty_print_ast_to_original_expression.hpp"
 #include "storage/v3/expr.hpp"
+#include "storage/v3/result.hpp"
 #include "storage/v3/value_conversions.hpp"
 
 namespace memgraph::storage::v3 {
@@ -28,11 +29,11 @@ using conversions::ToMsgsVertexId;
 
 namespace {
 
-using AllEdgePropertyDataSructure = std::map<PropertyId, msgs::Value>;
-using SpecificEdgePropertyDataSructure = std::vector<msgs::Value>;
+using AllEdgePropertyDataStucture = std::map<PropertyId, msgs::Value>;
+using SpecificEdgePropertyDataStucture = std::vector<msgs::Value>;
 
-using AllEdgeProperties = std::tuple<msgs::VertexId, msgs::Gid, AllEdgePropertyDataSructure>;
-using SpecificEdgeProperties = std::tuple<msgs::VertexId, msgs::Gid, SpecificEdgePropertyDataSructure>;
+using AllEdgeProperties = std::tuple<msgs::VertexId, msgs::Gid, AllEdgePropertyDataStucture>;
+using SpecificEdgeProperties = std::tuple<msgs::VertexId, msgs::Gid, SpecificEdgePropertyDataStucture>;
 
 using SpecificEdgePropertiesVector = std::vector<SpecificEdgeProperties>;
 using AllEdgePropertiesVector = std::vector<AllEdgeProperties>;
@@ -59,13 +60,13 @@ std::optional<std::map<PropertyId, Value>> PrimaryKeysFromAccessor(const VertexA
   return ret;
 }
 
-std::optional<std::vector<msgs::Label>> FillUpSourceVertexSecondaryLabels(const std::optional<VertexAccessor> &v_acc,
-                                                                          const msgs::ExpandOneRequest &req) {
+ShardResult<std::vector<msgs::Label>> FillUpSourceVertexSecondaryLabels(const std::optional<VertexAccessor> &v_acc,
+                                                                        const msgs::ExpandOneRequest &req) {
   auto secondary_labels = v_acc->Labels(View::NEW);
   if (secondary_labels.HasError()) {
     spdlog::debug("Encountered an error while trying to get the secondary labels of a vertex. Transaction id: {}",
                   req.transaction_id.logical_id);
-    return std::nullopt;
+    return secondary_labels.GetError();
   }
 
   auto &sec_labels = secondary_labels.GetValue();
@@ -78,10 +79,10 @@ std::optional<std::vector<msgs::Label>> FillUpSourceVertexSecondaryLabels(const 
   return msgs_secondary_labels;
 }
 
-std::optional<std::map<PropertyId, Value>> FillUpSourceVertexProperties(const std::optional<VertexAccessor> &v_acc,
-                                                                        const msgs::ExpandOneRequest &req,
-                                                                        storage::v3::View view,
-                                                                        const Schemas::Schema &schema) {
+ShardResult<std::map<PropertyId, Value>> FillUpSourceVertexProperties(const std::optional<VertexAccessor> &v_acc,
+                                                                      const msgs::ExpandOneRequest &req,
+                                                                      storage::v3::View view,
+                                                                      const Schemas::Schema &schema) {
   std::map<PropertyId, Value> src_vertex_properties;
 
   if (!req.src_vertex_properties) {
@@ -89,7 +90,7 @@ std::optional<std::map<PropertyId, Value>> FillUpSourceVertexProperties(const st
     if (props.HasError()) {
       spdlog::debug("Encountered an error while trying to access vertex properties. Transaction id: {}",
                     req.transaction_id.logical_id);
-      return std::nullopt;
+      return props.GetError();
     }
 
     for (auto &[key, val] : props.GetValue()) {
@@ -108,7 +109,7 @@ std::optional<std::map<PropertyId, Value>> FillUpSourceVertexProperties(const st
       if (prop_val.HasError()) {
         spdlog::debug("Encountered an error while trying to access vertex properties. Transaction id: {}",
                       req.transaction_id.logical_id);
-        return std::nullopt;
+        return prop_val.GetError();
       }
       src_vertex_properties.insert(std::make_pair(prop, FromPropertyValueToValue(std::move(prop_val.GetValue()))));
     }
@@ -117,9 +118,9 @@ std::optional<std::map<PropertyId, Value>> FillUpSourceVertexProperties(const st
   return src_vertex_properties;
 }
 
-std::optional<std::array<std::vector<EdgeAccessor>, 2>> FillUpConnectingEdges(
+ShardResult<std::array<std::vector<EdgeAccessor>, 2>> FillUpConnectingEdges(
     const std::optional<VertexAccessor> &v_acc, const msgs::ExpandOneRequest &req,
-    const EdgeUniqunessFunction &maybe_filter_based_on_edge_uniquness) {
+    const EdgeUniquenessFunction &maybe_filter_based_on_edge_uniqueness) {
   std::vector<EdgeTypeId> edge_types{};
   edge_types.reserve(req.edge_types.size());
   std::transform(req.edge_types.begin(), req.edge_types.end(), std::back_inserter(edge_types),
@@ -134,10 +135,10 @@ std::optional<std::array<std::vector<EdgeAccessor>, 2>> FillUpConnectingEdges(
       if (out_edges_result.HasError()) {
         spdlog::debug("Encountered an error while trying to get out-going EdgeAccessors. Transaction id: {}",
                       req.transaction_id.logical_id);
-        return std::nullopt;
+        return out_edges_result.GetError();
       }
       out_edges =
-          maybe_filter_based_on_edge_uniquness(std::move(out_edges_result.GetValue()), msgs::EdgeDirection::OUT);
+          maybe_filter_based_on_edge_uniqueness(std::move(out_edges_result.GetValue()), msgs::EdgeDirection::OUT);
       break;
     }
     case msgs::EdgeDirection::IN: {
@@ -146,9 +147,9 @@ std::optional<std::array<std::vector<EdgeAccessor>, 2>> FillUpConnectingEdges(
         spdlog::debug(
             "Encountered an error while trying to get in-going EdgeAccessors. Transaction id: {}"[req.transaction_id
                                                                                                       .logical_id]);
-        return std::nullopt;
+        return in_edges_result.GetError();
       }
-      in_edges = maybe_filter_based_on_edge_uniquness(std::move(in_edges_result.GetValue()), msgs::EdgeDirection::IN);
+      in_edges = maybe_filter_based_on_edge_uniqueness(std::move(in_edges_result.GetValue()), msgs::EdgeDirection::IN);
       break;
     }
     case msgs::EdgeDirection::BOTH: {
@@ -156,17 +157,17 @@ std::optional<std::array<std::vector<EdgeAccessor>, 2>> FillUpConnectingEdges(
       if (in_edges_result.HasError()) {
         spdlog::debug("Encountered an error while trying to get in-going EdgeAccessors. Transaction id: {}",
                       req.transaction_id.logical_id);
-        return std::nullopt;
+        return in_edges_result.GetError();
       }
-      in_edges = maybe_filter_based_on_edge_uniquness(std::move(in_edges_result.GetValue()), msgs::EdgeDirection::IN);
+      in_edges = maybe_filter_based_on_edge_uniqueness(std::move(in_edges_result.GetValue()), msgs::EdgeDirection::IN);
       auto out_edges_result = v_acc->OutEdges(View::NEW, edge_types);
       if (out_edges_result.HasError()) {
         spdlog::debug("Encountered an error while trying to get out-going EdgeAccessors. Transaction id: {}",
                       req.transaction_id.logical_id);
-        return std::nullopt;
+        return out_edges_result.GetError();
       }
       out_edges =
-          maybe_filter_based_on_edge_uniquness(std::move(out_edges_result.GetValue()), msgs::EdgeDirection::OUT);
+          maybe_filter_based_on_edge_uniqueness(std::move(out_edges_result.GetValue()), msgs::EdgeDirection::OUT);
       break;
     }
   }
@@ -174,28 +175,29 @@ std::optional<std::array<std::vector<EdgeAccessor>, 2>> FillUpConnectingEdges(
 }
 
 template <bool are_in_edges>
-bool FillEdges(const std::vector<EdgeAccessor> &edges, msgs::ExpandOneResultRow &row, const EdgeFiller &edge_filler) {
+ShardResult<void> FillEdges(const std::vector<EdgeAccessor> &edges, msgs::ExpandOneResultRow &row,
+                            const EdgeFiller &edge_filler) {
   for (const auto &edge : edges) {
-    if (!edge_filler(edge, are_in_edges, row)) {
-      return false;
+    if (const auto res = edge_filler(edge, are_in_edges, row); res.HasError()) {
+      return res.GetError();
     }
   }
 
-  return true;
+  return {};
 }
 
 };  // namespace
 
-std::optional<std::map<PropertyId, Value>> CollectSpecificPropertiesFromAccessor(const VertexAccessor &acc,
-                                                                                 const std::vector<PropertyId> &props,
-                                                                                 View view) {
+ShardResult<std::map<PropertyId, Value>> CollectSpecificPropertiesFromAccessor(const VertexAccessor &acc,
+                                                                               const std::vector<PropertyId> &props,
+                                                                               View view) {
   std::map<PropertyId, Value> ret;
 
   for (const auto &prop : props) {
     auto result = acc.GetProperty(prop, view);
     if (result.HasError()) {
       spdlog::debug("Encountered an Error while trying to get a vertex property.");
-      return std::nullopt;
+      return result.GetError();
     }
     auto &value = result.GetValue();
     ret.emplace(std::make_pair(prop, FromPropertyValueToValue(std::move(value))));
@@ -218,13 +220,13 @@ std::vector<TypedValue> EvaluateVertexExpressions(DbAccessor &dba, const VertexA
   return evaluated_expressions;
 }
 
-std::optional<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(const VertexAccessor &acc, View view,
-                                                                            const Schemas::Schema &schema) {
+ShardResult<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(const VertexAccessor &acc, View view,
+                                                                          const Schemas::Schema &schema) {
   std::map<PropertyId, Value> ret;
   auto props = acc.Properties(view);
   if (props.HasError()) {
     spdlog::debug("Encountered an error while trying to get vertex properties.");
-    return std::nullopt;
+    return props.GetError();
   }
 
   auto &properties = props.GetValue();
@@ -242,9 +244,9 @@ std::optional<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(cons
   return ret;
 }
 
-EdgeUniqunessFunction InitializeEdgeUniqunessFunction(bool only_unique_neighbor_rows) {
+EdgeUniquenessFunction InitializeEdgeUniquenessFunction(bool only_unique_neighbor_rows) {
   // Functions to select connecting edges based on uniquness
-  EdgeUniqunessFunction maybe_filter_based_on_edge_uniquness;
+  EdgeUniquenessFunction maybe_filter_based_on_edge_uniquness;
 
   if (only_unique_neighbor_rows) {
     maybe_filter_based_on_edge_uniquness = [](EdgeAccessors &&edges,
@@ -295,12 +297,13 @@ EdgeFiller InitializeEdgeFillerFunction(const msgs::ExpandOneRequest &req) {
   EdgeFiller edge_filler;
 
   if (!req.edge_properties) {
-    edge_filler = [transaction_id = req.transaction_id.logical_id](const EdgeAccessor &edge, const bool is_in_edge,
-                                                                   msgs::ExpandOneResultRow &result_row) -> bool {
+    edge_filler = [transaction_id = req.transaction_id.logical_id](
+                      const EdgeAccessor &edge, const bool is_in_edge,
+                      msgs::ExpandOneResultRow &result_row) -> ShardResult<void> {
       auto properties_results = edge.Properties(View::NEW);
       if (properties_results.HasError()) {
         spdlog::debug("Encountered an error while trying to get edge properties. Transaction id: {}", transaction_id);
-        return false;
+        return properties_results.GetError();
       }
 
       std::map<PropertyId, msgs::Value> value_properties;
@@ -315,12 +318,12 @@ EdgeFiller InitializeEdgeFillerFunction(const msgs::ExpandOneRequest &req) {
       } else {
         result_row.out_edges_with_all_properties.push_back(std::move(edges));
       }
-      return true;
+      return {};
     };
   } else {
     // TODO(gvolfing) - do we want to set the action_successful here?
     edge_filler = [&req](const EdgeAccessor &edge, const bool is_in_edge,
-                         msgs::ExpandOneResultRow &result_row) -> bool {
+                         msgs::ExpandOneResultRow &result_row) -> ShardResult<void> {
       std::vector<msgs::Value> value_properties;
       value_properties.reserve(req.edge_properties.value().size());
       for (const auto &edge_prop : req.edge_properties.value()) {
@@ -328,7 +331,7 @@ EdgeFiller InitializeEdgeFillerFunction(const msgs::ExpandOneRequest &req) {
         if (property_result.HasError()) {
           spdlog::debug("Encountered an error while trying to get edge properties. Transaction id: {}",
                         req.transaction_id.logical_id);
-          return false;
+          return property_result.GetError();
         }
         value_properties.emplace_back(FromPropertyValueToValue(std::move(property_result.GetValue())));
       }
@@ -340,7 +343,7 @@ EdgeFiller InitializeEdgeFillerFunction(const msgs::ExpandOneRequest &req) {
       } else {
         result_row.out_edges_with_specific_properties.push_back(std::move(edges));
       }
-      return true;
+      return {};
     };
   }
 
@@ -355,83 +358,81 @@ bool FilterOnVertex(DbAccessor &dba, const storage::v3::VertexAccessor &v_acc, c
   });
 }
 
-std::optional<msgs::ExpandOneResultRow> GetExpandOneResult(
+ShardResult<msgs::ExpandOneResultRow> GetExpandOneResult(
     Shard::Accessor &acc, msgs::VertexId src_vertex, const msgs::ExpandOneRequest &req,
-    const EdgeUniqunessFunction &maybe_filter_based_on_edge_uniquness, const EdgeFiller &edge_filler,
+    const EdgeUniquenessFunction &maybe_filter_based_on_edge_uniqueness, const EdgeFiller &edge_filler,
     const Schemas::Schema &schema) {
   /// Fill up source vertex
   const auto primary_key = ConvertPropertyVector(src_vertex.second);
   auto v_acc = acc.FindVertex(primary_key, View::NEW);
 
   msgs::Vertex source_vertex = {.id = src_vertex};
-  if (const auto maybe_secondary_labels = FillUpSourceVertexSecondaryLabels(v_acc, req); maybe_secondary_labels) {
-    source_vertex.labels = *maybe_secondary_labels;
-  } else {
-    return std::nullopt;
+  auto maybe_secondary_labels = FillUpSourceVertexSecondaryLabels(v_acc, req);
+  if (maybe_secondary_labels.HasError()) {
+    return maybe_secondary_labels.GetError();
   }
+  source_vertex.labels = std::move(*maybe_secondary_labels);
 
   auto src_vertex_properties = FillUpSourceVertexProperties(v_acc, req, storage::v3::View::NEW, schema);
-
-  if (!src_vertex_properties) {
-    return std::nullopt;
+  if (src_vertex_properties.HasError()) {
+    return src_vertex_properties.GetError();
   }
 
   /// Fill up connecting edges
-  auto fill_up_connecting_edges = FillUpConnectingEdges(v_acc, req, maybe_filter_based_on_edge_uniquness);
-  if (!fill_up_connecting_edges) {
-    return std::nullopt;
+  auto fill_up_connecting_edges = FillUpConnectingEdges(v_acc, req, maybe_filter_based_on_edge_uniqueness);
+  if (fill_up_connecting_edges.HasError()) {
+    return fill_up_connecting_edges.GetError();
   }
-
-  auto [in_edges, out_edges] = fill_up_connecting_edges.value();
+  auto [in_edges, out_edges] = fill_up_connecting_edges.GetValue();
 
   msgs::ExpandOneResultRow result_row;
   result_row.src_vertex = std::move(source_vertex);
   result_row.src_vertex_properties = std::move(*src_vertex_properties);
   static constexpr bool kInEdges = true;
   static constexpr bool kOutEdges = false;
-  if (!in_edges.empty() && !FillEdges<kInEdges>(in_edges, result_row, edge_filler)) {
-    return std::nullopt;
+  if (const auto fill_edges_res = FillEdges<kInEdges>(in_edges, result_row, edge_filler); fill_edges_res.HasError()) {
+    return fill_edges_res.GetError();
   }
-  if (!out_edges.empty() && !FillEdges<kOutEdges>(out_edges, result_row, edge_filler)) {
-    return std::nullopt;
+  if (const auto fill_edges_res = FillEdges<kOutEdges>(out_edges, result_row, edge_filler); fill_edges_res.HasError()) {
+    return fill_edges_res.GetError();
   }
 
   return result_row;
 }
 
-std::optional<msgs::ExpandOneResultRow> GetExpandOneResult(
+ShardResult<msgs::ExpandOneResultRow> GetExpandOneResult(
     VertexAccessor v_acc, msgs::VertexId src_vertex, const msgs::ExpandOneRequest &req,
     std::vector<EdgeAccessor> in_edge_accessors, std::vector<EdgeAccessor> out_edge_accessors,
-    const EdgeUniqunessFunction &maybe_filter_based_on_edge_uniquness, const EdgeFiller &edge_filler,
+    const EdgeUniquenessFunction &maybe_filter_based_on_edge_uniqueness, const EdgeFiller &edge_filler,
     const Schemas::Schema &schema) {
   /// Fill up source vertex
   msgs::Vertex source_vertex = {.id = src_vertex};
-  if (const auto maybe_secondary_labels = FillUpSourceVertexSecondaryLabels(v_acc, req); maybe_secondary_labels) {
-    source_vertex.labels = *maybe_secondary_labels;
-  } else {
-    return std::nullopt;
+  auto maybe_secondary_labels = FillUpSourceVertexSecondaryLabels(v_acc, req);
+  if (maybe_secondary_labels.HasError()) {
+    return maybe_secondary_labels.GetError();
   }
+  source_vertex.labels = std::move(*maybe_secondary_labels);
 
   /// Fill up source vertex properties
   auto src_vertex_properties = FillUpSourceVertexProperties(v_acc, req, storage::v3::View::NEW, schema);
-  if (!src_vertex_properties) {
-    return std::nullopt;
+  if (src_vertex_properties.HasError()) {
+    return src_vertex_properties.GetError();
   }
 
   /// Fill up connecting edges
-  auto in_edges = maybe_filter_based_on_edge_uniquness(std::move(in_edge_accessors), msgs::EdgeDirection::IN);
-  auto out_edges = maybe_filter_based_on_edge_uniquness(std::move(out_edge_accessors), msgs::EdgeDirection::OUT);
+  auto in_edges = maybe_filter_based_on_edge_uniqueness(std::move(in_edge_accessors), msgs::EdgeDirection::IN);
+  auto out_edges = maybe_filter_based_on_edge_uniqueness(std::move(out_edge_accessors), msgs::EdgeDirection::OUT);
 
   msgs::ExpandOneResultRow result_row;
   result_row.src_vertex = std::move(source_vertex);
   result_row.src_vertex_properties = std::move(*src_vertex_properties);
   static constexpr bool kInEdges = true;
   static constexpr bool kOutEdges = false;
-  if (!in_edges.empty() && !FillEdges<kInEdges>(in_edges, result_row, edge_filler)) {
-    return std::nullopt;
+  if (const auto fill_edges_res = FillEdges<kInEdges>(in_edges, result_row, edge_filler); fill_edges_res.HasError()) {
+    return fill_edges_res.GetError();
   }
-  if (!out_edges.empty() && !FillEdges<kOutEdges>(out_edges, result_row, edge_filler)) {
-    return std::nullopt;
+  if (const auto fill_edges_res = FillEdges<kOutEdges>(out_edges, result_row, edge_filler); fill_edges_res.HasError()) {
+    return fill_edges_res.GetError();
   }
 
   return result_row;
@@ -523,40 +524,6 @@ std::vector<Element<EdgeAccessor>> OrderByEdges(DbAccessor &dba, std::vector<Edg
     return compare_typed_values(pair1.properties_order_by, pair2.properties_order_by);
   });
   return ordered;
-}
-
-void LogResultError(const ResultErrorType &error, const std::string_view action) {
-  std::visit(
-      [action]<typename T>(T &&error) {
-        using ErrorType = std::remove_cvref_t<T>;
-        if constexpr (std::is_same_v<ErrorType, SchemaViolation>) {
-          spdlog::debug("{} failed with error: SchemaViolation", action);
-        } else if constexpr (std::is_same_v<ErrorType, Error>) {
-          switch (error) {
-            case Error::DELETED_OBJECT:
-              spdlog::debug("{} failed with error: DELETED_OBJECT", action);
-              break;
-            case Error::NONEXISTENT_OBJECT:
-              spdlog::debug("{} failed with error: NONEXISTENT_OBJECT", action);
-              break;
-            case Error::SERIALIZATION_ERROR:
-              spdlog::debug("{} failed with error: SERIALIZATION_ERROR", action);
-              break;
-            case Error::PROPERTIES_DISABLED:
-              spdlog::debug("{} failed with error: PROPERTIES_DISABLED", action);
-              break;
-            case Error::VERTEX_HAS_EDGES:
-              spdlog::debug("{} failed with error: VERTEX_HAS_EDGES", action);
-              break;
-            case Error::VERTEX_ALREADY_INSERTED:
-              spdlog::debug("{} failed with error: VERTEX_ALREADY_INSERTED", action);
-              break;
-          }
-        } else {
-          static_assert(utils::kAlwaysFalse<T>, "Missing type from variant visitor");
-        }
-      },
-      error);
 }
 
 }  // namespace memgraph::storage::v3
