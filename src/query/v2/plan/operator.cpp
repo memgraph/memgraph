@@ -554,7 +554,7 @@ ScanAllByPrimaryKey::ScanAllByPrimaryKey(const std::shared_ptr<LogicalOperator> 
 
 ACCEPT_WITH_INPUT(ScanAllByPrimaryKey)
 
-UniqueCursorPtr ScanAllByPrimaryKey::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanAllByPrimaryKey::MakeCursor(utils::MemoryResource * /*mem*/) const {
   // EventCounter::IncrementCounter(EventCounter::ScanAllByPrimaryKeyOperator);
   throw QueryRuntimeException("ScanAllByPrimaryKey cursur is yet to be implemented.");
 }
