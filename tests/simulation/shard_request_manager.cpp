@@ -221,8 +221,22 @@ void TestExpandOne(msgs::ShardRequestManagerInterface &shard_request_manager) {
   MG_ASSERT(result_rows.size() == 2);
 }
 
-template <typename ShardRequestManager>
-void TestAggregate(ShardRequestManager &io) {}
+void TestGetProperties(msgs::ShardRequestManagerInterface &shard_request_manager) {
+  using PropVal = msgs::Value;
+
+  auto label_id = shard_request_manager.NameToLabel("test_label");
+  msgs::VertexId v1{{label_id}, {PropVal(int64_t(1)), PropVal(int64_t(0))}};
+  msgs::VertexId v2{{label_id}, {PropVal(int64_t(13)), PropVal(int64_t(13))}};
+
+  msgs::ExecutionState<msgs::GetPropertiesRequest> state;
+  msgs::GetPropertiesRequest request;
+
+  request.vertices_and_edges.push_back({v1});
+  request.vertices_and_edges.push_back({v2});
+
+  auto result = shard_request_manager.Request(state, std::move(request));
+  MG_ASSERT(result.size() == 2);
+}
 
 void DoTest() {
   SimulatorConfig config{
@@ -343,6 +357,7 @@ void DoTest() {
   TestScanVertices(io);
   TestCreateVertices(io);
   TestCreateExpand(io);
+  TestGetProperties(io);
 
   simulator.ShutDown();
 
