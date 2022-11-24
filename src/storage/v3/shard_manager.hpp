@@ -190,6 +190,12 @@ class ShardManager {
                                      });
   }
 
+  void BlockOnQuiescence() {
+    for (const auto &worker : workers_) {
+      worker.BlockOnQuiescence();
+    }
+  }
+
  private:
   io::Io<IoImpl> io_;
   std::vector<shard_worker::Queue> workers_;

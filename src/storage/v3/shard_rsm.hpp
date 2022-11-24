@@ -21,9 +21,6 @@
 
 namespace memgraph::storage::v3 {
 
-template <typename>
-constexpr auto kAlwaysFalse = false;
-
 class ShardRsm {
   std::unique_ptr<Shard> shard_;
 

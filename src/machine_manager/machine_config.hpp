@@ -42,6 +42,7 @@ struct MachineConfig {
   boost::asio::ip::address listen_ip;
   uint16_t listen_port;
   size_t shard_worker_threads = std::max(static_cast<unsigned int>(1), std::thread::hardware_concurrency());
+  bool sync_message_handling = false;
 };
 
 }  // namespace memgraph::machine_manager

@@ -23,7 +23,6 @@
 #include "storage/v3/key_store.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/result.hpp"
-#include "storage/v3/shard_operation_result.hpp"
 
 ///////////////////////////////////////////////////////////
 // Our communication layer and query engine don't mix
@@ -37,7 +36,7 @@
 // This cannot be avoided by simple include orderings so we
 // simply undefine those macros as we're sure that libkrb5
 // won't and can't be used anywhere in the query engine.
-#include "storage/v3/storage.hpp"
+#include "storage/v3/shard.hpp"
 #include "utils/logging.hpp"
 #include "utils/result.hpp"
 
@@ -65,22 +64,9 @@ class EdgeAccessor final {
 
   auto Properties(storage::v3::View view) const { return impl_.Properties(view); }
 
-  storage::v3::Result<storage::v3::PropertyValue> GetProperty(storage::v3::View view,
-                                                              storage::v3::PropertyId key) const {
+  storage::v3::ShardResult<storage::v3::PropertyValue> GetProperty(storage::v3::View view,
+                                                                   storage::v3::PropertyId key) const {
     return impl_.GetProperty(key, view);
-  }
-
-  storage::v3::Result<storage::v3::PropertyValue> SetProperty(storage::v3::PropertyId key,
-                                                              const storage::v3::PropertyValue &value) {
-    return impl_.SetProperty(key, value);
-  }
-
-  storage::v3::Result<storage::v3::PropertyValue> RemoveProperty(storage::v3::PropertyId key) {
-    return SetProperty(key, storage::v3::PropertyValue());
-  }
-
-  storage::v3::Result<std::map<storage::v3::PropertyId, storage::v3::PropertyValue>> ClearProperties() {
-    return impl_.ClearProperties();
   }
 
   VertexAccessor To() const;
@@ -114,53 +100,19 @@ class VertexAccessor final {
 
   auto PrimaryKey(storage::v3::View view) const { return impl_.PrimaryKey(view); }
 
-  storage::v3::ShardOperationResult<bool> AddLabel(storage::v3::LabelId label) {
-    return impl_.AddLabelAndValidate(label);
-  }
-
-  storage::v3::ShardOperationResult<bool> AddLabelAndValidate(storage::v3::LabelId label) {
-    return impl_.AddLabelAndValidate(label);
-  }
-
-  storage::v3::ShardOperationResult<bool> RemoveLabel(storage::v3::LabelId label) {
-    return impl_.RemoveLabelAndValidate(label);
-  }
-
-  storage::v3::ShardOperationResult<bool> RemoveLabelAndValidate(storage::v3::LabelId label) {
-    return impl_.RemoveLabelAndValidate(label);
-  }
-
-  storage::v3::Result<bool> HasLabel(storage::v3::View view, storage::v3::LabelId label) const {
+  storage::v3::ShardResult<bool> HasLabel(storage::v3::View view, storage::v3::LabelId label) const {
     return impl_.HasLabel(label, view);
   }
 
   auto Properties(storage::v3::View view) const { return impl_.Properties(view); }
 
-  storage::v3::Result<storage::v3::PropertyValue> GetProperty(storage::v3::View view,
-                                                              storage::v3::PropertyId key) const {
+  storage::v3::ShardResult<storage::v3::PropertyValue> GetProperty(storage::v3::View view,
+                                                                   storage::v3::PropertyId key) const {
     return impl_.GetProperty(key, view);
   }
 
-  storage::v3::ShardOperationResult<storage::v3::PropertyValue> SetProperty(storage::v3::PropertyId key,
-                                                                            const storage::v3::PropertyValue &value) {
-    return impl_.SetPropertyAndValidate(key, value);
-  }
-
-  storage::v3::ShardOperationResult<storage::v3::PropertyValue> SetPropertyAndValidate(
-      storage::v3::PropertyId key, const storage::v3::PropertyValue &value) {
-    return impl_.SetPropertyAndValidate(key, value);
-  }
-
-  storage::v3::ShardOperationResult<storage::v3::PropertyValue> RemovePropertyAndValidate(storage::v3::PropertyId key) {
-    return SetPropertyAndValidate(key, storage::v3::PropertyValue{});
-  }
-
-  storage::v3::Result<std::map<storage::v3::PropertyId, storage::v3::PropertyValue>> ClearProperties() {
-    return impl_.ClearProperties();
-  }
-
   auto InEdges(storage::v3::View view, const std::vector<storage::v3::EdgeTypeId> &edge_types) const
-      -> storage::v3::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.InEdges(view)))> {
+      -> storage::v3::ShardResult<decltype(iter::imap(MakeEdgeAccessor, *impl_.InEdges(view)))> {
     auto maybe_edges = impl_.InEdges(view, edge_types);
     if (maybe_edges.HasError()) return maybe_edges.GetError();
     return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
@@ -170,7 +122,7 @@ class VertexAccessor final {
 
   auto InEdges(storage::v3::View view, const std::vector<storage::v3::EdgeTypeId> &edge_types,
                const VertexAccessor &dest) const
-      -> storage::v3::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.InEdges(view)))> {
+      -> storage::v3::ShardResult<decltype(iter::imap(MakeEdgeAccessor, *impl_.InEdges(view)))> {
     const auto dest_id = dest.impl_.Id(view).GetValue();
     auto maybe_edges = impl_.InEdges(view, edge_types, &dest_id);
     if (maybe_edges.HasError()) return maybe_edges.GetError();
@@ -178,7 +130,7 @@ class VertexAccessor final {
   }
 
   auto OutEdges(storage::v3::View view, const std::vector<storage::v3::EdgeTypeId> &edge_types) const
-      -> storage::v3::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.OutEdges(view)))> {
+      -> storage::v3::ShardResult<decltype(iter::imap(MakeEdgeAccessor, *impl_.OutEdges(view)))> {
     auto maybe_edges = impl_.OutEdges(view, edge_types);
     if (maybe_edges.HasError()) return maybe_edges.GetError();
     return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
@@ -188,16 +140,16 @@ class VertexAccessor final {
 
   auto OutEdges(storage::v3::View view, const std::vector<storage::v3::EdgeTypeId> &edge_types,
                 const VertexAccessor &dest) const
-      -> storage::v3::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.OutEdges(view)))> {
+      -> storage::v3::ShardResult<decltype(iter::imap(MakeEdgeAccessor, *impl_.OutEdges(view)))> {
     const auto dest_id = dest.impl_.Id(view).GetValue();
     auto maybe_edges = impl_.OutEdges(view, edge_types, &dest_id);
     if (maybe_edges.HasError()) return maybe_edges.GetError();
     return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
   }
 
-  storage::v3::Result<size_t> InDegree(storage::v3::View view) const { return impl_.InDegree(view); }
+  storage::v3::ShardResult<size_t> InDegree(storage::v3::View view) const { return impl_.InDegree(view); }
 
-  storage::v3::Result<size_t> OutDegree(storage::v3::View view) const { return impl_.OutDegree(view); }
+  storage::v3::ShardResult<size_t> OutDegree(storage::v3::View view) const { return impl_.OutDegree(view); }
 
   // TODO(jbajic) Fix Remove Gid
   static int64_t CypherId() { return 1; }
