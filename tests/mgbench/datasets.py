@@ -147,6 +147,9 @@ class Pokec(Dataset):
     def benchmark__arango__aggregate(self):
         return ("MATCH (n:User) RETURN n.age, COUNT(*)", {})
 
+    def benchmark__arango__aggregate_with_distinct(self):
+        return ("MATCH (n:User) RETURN COUNT(DISTINCT n.age)", {})
+
     def benchmark__arango__aggregate_with_filter(self):
         return ("MATCH (n:User) WHERE n.age >= 18 RETURN n.age, COUNT(*)", {})
 

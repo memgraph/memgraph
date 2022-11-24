@@ -643,17 +643,70 @@ TEST_F(PrintToJsonTest, Aggregate) {
               {
                 "value" : "(PropertyLookup (Identifier \"node\") \"value\")",
                 "op" : "sum",
-                "output_symbol" : "sum"
+                "output_symbol" : "sum",
+                "distinct" : false
               },
               {
                 "value" : "(PropertyLookup (Identifier \"node\") \"value\")",
                 "key" : "(PropertyLookup (Identifier \"node\") \"color\")",
                 "op" : "collect",
-                "output_symbol" : "map"
+                "output_symbol" : "map",
+                "distinct" : false
               },
               {
                 "op": "count",
-                "output_symbol": "count"
+                "output_symbol": "count",
+                "distinct" : false
+              }
+            ],
+            "group_by" : [
+              "(PropertyLookup (Identifier \"node\") \"type\")"
+            ],
+            "remember" : ["node"],
+            "input" : {
+              "name" : "ScanAll",
+              "output_symbol" : "node",
+              "input" : { "name" : "Once" }
+            }
+          })sep");
+}
+
+TEST_F(PrintToJsonTest, AggregateWithDistinct) {
+  memgraph::storage::PropertyId value = dba.NameToProperty("value");
+  memgraph::storage::PropertyId color = dba.NameToProperty("color");
+  memgraph::storage::PropertyId type = dba.NameToProperty("type");
+  auto node_sym = GetSymbol("node");
+  std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node_sym);
+  last_op = std::make_shared<plan::Aggregate>(
+      last_op,
+      std::vector<Aggregate::Element>{
+          {PROPERTY_LOOKUP("node", value), nullptr, Aggregation::Op::SUM, GetSymbol("sum"), true},
+          {PROPERTY_LOOKUP("node", value), PROPERTY_LOOKUP("node", color), Aggregation::Op::COLLECT_MAP,
+           GetSymbol("map"), true},
+          {nullptr, nullptr, Aggregation::Op::COUNT, GetSymbol("count"), true}},
+      std::vector<Expression *>{PROPERTY_LOOKUP("node", type)}, std::vector<Symbol>{node_sym});
+
+  Check(last_op.get(), R"sep(
+          {
+            "name" : "Aggregate",
+            "aggregations" : [
+              {
+                "value" : "(PropertyLookup (Identifier \"node\") \"value\")",
+                "op" : "sum",
+                "output_symbol" : "sum",
+                "distinct" : true
+              },
+              {
+                "value" : "(PropertyLookup (Identifier \"node\") \"value\")",
+                "key" : "(PropertyLookup (Identifier \"node\") \"color\")",
+                "op" : "collect",
+                "output_symbol" : "map",
+                "distinct" : true
+              },
+              {
+                "op": "count",
+                "output_symbol": "count",
+                "distinct" : true
               }
             ],
             "group_by" : [
