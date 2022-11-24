@@ -111,7 +111,7 @@ class PhysicalOperator {
   }
   void PassBackRead(const multiframe::Token &token) { data_pool_->ReturnEmpty(token.id); }
 
-  std::optional<multiframe::Token> NextWrite() {
+  std::optional<multiframe::Token> NextWrite(bool exp_backoff = false) {
     // In this case it's different compared to the NextRead because if
     // somebody has marked the pool as exhausted furher writes shouldn't be
     // possible.
@@ -124,8 +124,11 @@ class PhysicalOperator {
       if (token) {
         return token;
       }
-      // TODO(gitbuda): Replace with exponential backoff or something similar.
-      std::this_thread::sleep_for(std::chrono::microseconds(10));
+      if (exp_backoff) {
+        // TODO(gitbuda): Replace with exponential backoff or something similar.
+        // TODO(gitbuda): Sleeping is not that good of an option -> consider conditional variables.
+        std::this_thread::sleep_for(std::chrono::microseconds(10));
+      }
     }
   }
   void PassBackWrite(const multiframe::Token &token) { data_pool_->ReturnFull(token.id); }
@@ -216,26 +219,44 @@ class PhysicalOperator {
   ///
   void SingleChildSingleThreadExaust(ExecutionContext ctx, std::function<void(multiframe::Multiframe &multiframe)> fun,
                                      std::function<void(void)> after_done_fun) {
-    // If we don't store the function, it's gets deleted.
+    // If we don't store functions, they are deleted because this function ends
+    // quickly (AddTask does not block).
     fun_ = fun;
     after_done_fun_ = after_done_fun;
     // The logic here is tricky because you have to think about both reader and writer.
     ctx.thread_pool->AddTask([&, this]() {
       auto *input = children_[0].get();
-      // TODO(gitbuda): All this logic (except the fun(...) call) could be moved to NextRead!
+      // TODO(gitbuda): All this logic (except the fun(...) call) could be moved to NextRead?
+      // TODO(gitbuda): One obvious problem is the top level operator are spinning a lot until some data comes in.
+      int64_t iter{0};
       while (true) {
+        iter++;
         auto read_token = input->NextRead();
+        if (read_token) {
+          // TODO/ERROR(gitbuda): This might be broken because MF is not processed completely?
+          fun_(*(read_token->multiframe));
+          input->PassBackRead(*read_token);
+        }
         // If empty and the writer has finished his job -> mark exhaustion
         if (!read_token && input->IsWriterDone()) {
+          // Even if read token was null before we have to exhaust the pool
+          // again because in the meantime the writer could write more and hint
+          // that it's done.
+          while (true) {
+            read_token = input->NextRead();
+            if (read_token) {
+              // TODO/ERROR(gitbuda): This might be broken because MF is not processed completely?
+              fun_(*(read_token->multiframe));
+              input->PassBackRead(*read_token);
+            } else {
+              break;
+            }
+          }
           input->MarkExhausted();
         }
         // If empty and marked as exhausted -> STOP
         if (!read_token && input->IsExhausted()) {
           break;
-        }
-        if (read_token) {
-          fun_(*(read_token->multiframe));
-          input->PassBackRead(*read_token);
         }
       }
       after_done_fun_();
@@ -298,10 +319,13 @@ class ScanAllPhysicalOperator final : public PhysicalOperator<TDataPool> {
           //     // BUT we also need the entire "input" frame to pass it forward
           //   }
           // }
+          int64_t cnt{0};
           for (const auto &new_frame : data_fun_(multiframe, ctx)) {
-            this->stats_.processed_frames++;
+            cnt++;
             Base::Emit(new_frame);
           }
+          this->stats_.processed_frames += cnt;
+
           Base::CloseEmit();
         },
         [this]() {
@@ -327,7 +351,11 @@ class ProducePhysicalOperator final : public PhysicalOperator<TDataPool> {
     Base::BaseExecute(ctx);
 
     Base::SingleChildSingleThreadExaust(
-        ctx, [this](multiframe::Multiframe &multiframe) { this->stats_.processed_frames += multiframe.Data().size(); },
+        ctx,
+        [this](multiframe::Multiframe &multiframe) {
+          auto size = multiframe.Data().size();
+          this->stats_.processed_frames += size;
+        },
         [this]() { Base::MarkWriterDone(); });
   }
 };

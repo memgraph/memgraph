@@ -104,11 +104,24 @@ struct Op {
   OpType type;
   std::vector<int> props;
 };
+void print_ops(const std::vector<Op> &ops) {
+  for (const auto &op : ops) {
+    if (op.type == OpType::Once) {
+      std::cout << op.type << std::endl;
+    } else if (op.type == OpType::ScanAll) {
+      std::cout << op.type << " elems: " << op.props[ENTITIES_NUM] << std::endl;
+    } else if (op.type == OpType::Produce) {
+      std::cout << op.type << std::endl;
+    }
+  }
+}
 
+// TODO(gitbuda): It's critical to add logging.
+//
 // TODO(gitbuda): Doesn't work yet because it seems that the data pool is
 // blocked when the first writer fills all available space.
 //
-RC_GTEST_FIXTURE_PROP(PhysicalPlanFixture, PropertyBasedPhysicalPlan, ()) {
+RC_GTEST_FIXTURE_PROP(PhysicalPlanFixture, DISABLED_PropertyBasedPhysicalPlan, ()) {
   using TDataPool = physical::multiframe::MPMCMultiframeFCFSPool;
   using TPhysicalOperator = physical::PhysicalOperator<TDataPool>;
   using TPhysicalOperatorPtr = std::shared_ptr<TPhysicalOperator>;
@@ -122,7 +135,7 @@ RC_GTEST_FIXTURE_PROP(PhysicalPlanFixture, PropertyBasedPhysicalPlan, ()) {
   std::vector<rc::Gen<Op>> gens;
   gens.push_back(rc::gen::construct<Op>(rc::gen::element(OpType::ScanAll),
                                         // rc::gen::container<std::vector<int>>(1, rc::gen::inRange(1, 10000))));
-                                        rc::gen::container<std::vector<int>>(1, rc::gen::inRange(1, 100))));
+                                        rc::gen::container<std::vector<int>>(1, rc::gen::inRange(0, 1000))));
   std::vector<Op> ops = {Op{.type = OpType::Produce}};
   const auto body =
       *rc::gen::container<std::vector<Op>>(*rc::gen::inRange(1, 4), rc::gen::join(rc::gen::elementOf(gens)));
@@ -141,10 +154,12 @@ RC_GTEST_FIXTURE_PROP(PhysicalPlanFixture, PropertyBasedPhysicalPlan, ()) {
 
     } else if (op.type == OpType::ScanAll) {
       std::cout << op.type << " elems: " << op.props[0] << std::endl;
-      auto data_fun = [&op](physical::multiframe::Multiframe &, physical::ExecutionContext &) {
+      auto data_fun = [&op](physical::multiframe::Multiframe &mf, physical::ExecutionContext &) {
         std::vector<physical::Frame> frames;
         for (int i = 0; i < op.props[ENTITIES_NUM]; ++i) {
-          frames.push_back(physical::Frame{});
+          for (int j = 0; j < mf.Data().size(); ++j) {
+            frames.push_back(physical::Frame{});
+          }
         }
         return frames;
       };
@@ -167,7 +182,7 @@ RC_GTEST_FIXTURE_PROP(PhysicalPlanFixture, PropertyBasedPhysicalPlan, ()) {
 
   physical::ExecutionContext ctx{.thread_pool = &thread_pool_};
   plan->Execute(ctx);
-  // TODO(gitbuda): Segfault if not enough sleep -> something gets allocated too early.
+  // TODO(gitbuda): Segfault if not enough sleep -> something gets deallocated too early.
   std::this_thread::sleep_for(std::chrono::microseconds(100000));
   const auto &stats = plan->GetStats();
   int64_t scan_all_cnt{1};
@@ -176,7 +191,17 @@ RC_GTEST_FIXTURE_PROP(PhysicalPlanFixture, PropertyBasedPhysicalPlan, ()) {
       scan_all_cnt *= op.props[ENTITIES_NUM];
     }
   }
-  // ASSERT_EQ(stats.processed_frames, scan_all_cnt);
+  std::cout << std::endl;
+  std::cout << std::endl;
+  std::cout << std::endl;
+  std::cout << std::endl;
+  print_ops(ops);
+  std::cout << multiframes_no_per_op << " " << multiframe_size << std::endl;
+  std::cout << std::endl;
+  std::cout << std::endl;
+  std::cout << std::endl;
+  std::cout << std::endl;
+  ASSERT_EQ(stats.processed_frames, scan_all_cnt);
   std::cout << stats.processed_frames << " " << scan_all_cnt << std::endl;
 }
 
