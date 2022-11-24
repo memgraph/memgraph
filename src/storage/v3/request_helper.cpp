@@ -472,12 +472,14 @@ std::array<std::vector<EdgeAccessor>, 2> GetEdgesFromVertex(const VertexAccessor
       if (edges.HasValue()) {
         in_edges = edges.GetValue();
       }
+      break;
     }
     case memgraph::msgs::EdgeDirection::OUT: {
       auto edges = vertex_accessor.OutEdges(View::OLD);
       if (edges.HasValue()) {
         out_edges = edges.GetValue();
       }
+      break;
     }
     case memgraph::msgs::EdgeDirection::BOTH: {
       auto maybe_in_edges = vertex_accessor.InEdges(View::OLD);
@@ -489,6 +491,7 @@ std::array<std::vector<EdgeAccessor>, 2> GetEdgesFromVertex(const VertexAccessor
       if (maybe_out_edges.HasValue()) {
         out_edges = maybe_out_edges.GetValue();
       }
+      break;
     }
   }
 
