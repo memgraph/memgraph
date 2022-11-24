@@ -137,7 +137,7 @@ void Commit(ShardClient &client, const coordinator::Hlc &transaction_timestamp) 
 
     auto write_response_result = write_res.GetValue();
     auto write_response = std::get<msgs::CommitResponse>(write_response_result);
-    MG_ASSERT(write_response.success, "Commit expected to be successful, but it is failed");
+    MG_ASSERT(!write_response.error.has_value(), "Commit expected to be successful, but it is failed");
 
     break;
   }
@@ -156,7 +156,7 @@ bool AttemptToCreateVertex(ShardClient &client, int64_t value) {
   create_req.transaction_id.logical_id = GetTransactionId();
 
   auto write_res = client.SendWriteRequest(create_req);
-  MG_ASSERT(write_res.HasValue() && std::get<msgs::CreateVerticesResponse>(write_res.GetValue()).success,
+  MG_ASSERT(write_res.HasValue() && !std::get<msgs::CreateVerticesResponse>(write_res.GetValue()).error.has_value(),
             "Unexpected failure");
 
   Commit(client, create_req.transaction_id);
@@ -179,7 +179,7 @@ bool AttemptToDeleteVertex(ShardClient &client, int64_t value) {
     auto write_response = std::get<msgs::DeleteVerticesResponse>(write_response_result);
 
     Commit(client, delete_req.transaction_id);
-    return write_response.success;
+    return !write_response.error.has_value();
   }
 }
 
@@ -210,7 +210,7 @@ bool AttemptToUpdateVertex(ShardClient &client, int64_t vertex_primary_key, std:
     auto write_response = std::get<msgs::UpdateVerticesResponse>(write_response_result);
 
     Commit(client, update_req.transaction_id);
-    return write_response.success;
+    return !write_response.error.has_value();
   }
 }
 
@@ -241,7 +241,7 @@ bool AttemptToRemoveVertexProperty(ShardClient &client, int64_t primary_key, std
     auto write_response = std::get<msgs::UpdateVerticesResponse>(write_response_result);
 
     Commit(client, update_req.transaction_id);
-    return write_response.success;
+    return !write_response.error.has_value();
   }
 }
 
@@ -278,7 +278,7 @@ bool AttemptToAddEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t va
 
     Commit(client, create_req.transaction_id);
 
-    return write_response.success;
+    return !write_response.error.has_value();
   }
   return true;
 }
@@ -310,7 +310,7 @@ bool AttemptToAddEdgeWithProperties(ShardClient &client, int64_t value_of_vertex
   create_req.transaction_id.logical_id = GetTransactionId();
 
   auto write_res = client.SendWriteRequest(create_req);
-  MG_ASSERT(write_res.HasValue() && std::get<msgs::CreateExpandResponse>(write_res.GetValue()).success,
+  MG_ASSERT(write_res.HasValue() && !std::get<msgs::CreateExpandResponse>(write_res.GetValue()).error.has_value(),
             "Unexpected failure");
 
   Commit(client, create_req.transaction_id);
@@ -350,7 +350,7 @@ bool AttemptToDeleteEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t
     auto write_response = std::get<msgs::DeleteEdgesResponse>(write_response_result);
 
     Commit(client, delete_req.transaction_id);
-    return write_response.success;
+    return !write_response.error.has_value();
   }
 }
 
@@ -390,7 +390,7 @@ bool AttemptToUpdateEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t
     auto write_response = std::get<msgs::UpdateEdgesResponse>(write_response_result);
 
     Commit(client, update_req.transaction_id);
-    return write_response.success;
+    return !write_response.error.has_value();
   }
 }
 
@@ -413,7 +413,7 @@ std::tuple<size_t, std::optional<msgs::VertexId>> AttemptToScanAllWithoutBatchLi
     auto write_response_result = read_res.GetValue();
     auto write_response = std::get<msgs::ScanVerticesResponse>(write_response_result);
 
-    MG_ASSERT(write_response.success);
+    MG_ASSERT(write_response.error == std::nullopt);
 
     return {write_response.results.size(), write_response.next_start_id};
   }
@@ -439,7 +439,7 @@ std::tuple<size_t, std::optional<msgs::VertexId>> AttemptToScanAllWithBatchLimit
     auto write_response_result = read_res.GetValue();
     auto write_response = std::get<msgs::ScanVerticesResponse>(write_response_result);
 
-    MG_ASSERT(write_response.success);
+    MG_ASSERT(!write_response.error.has_value());
 
     return {write_response.results.size(), write_response.next_start_id};
   }
@@ -473,7 +473,7 @@ std::tuple<size_t, std::optional<msgs::VertexId>> AttemptToScanAllWithExpression
     auto write_response_result = read_res.GetValue();
     auto write_response = std::get<msgs::ScanVerticesResponse>(write_response_result);
 
-    MG_ASSERT(write_response.success);
+    MG_ASSERT(!write_response.error.has_value());
     MG_ASSERT(!write_response.results.empty(), "There are no results!");
     MG_ASSERT(write_response.results[0].evaluated_vertex_expressions[0].int_v == 4);
     return {write_response.results.size(), write_response.next_start_id};
@@ -498,7 +498,7 @@ void AttemptToScanAllWithOrderByOnPrimaryProperty(ShardClient &client, msgs::Ver
     auto write_response_result = read_res.GetValue();
     auto write_response = std::get<msgs::ScanVerticesResponse>(write_response_result);
 
-    MG_ASSERT(write_response.success);
+    MG_ASSERT(!write_response.error.has_value());
     MG_ASSERT(write_response.results.size() == 5, "Expecting 5 results!");
     for (int64_t i{0}; i < 5; ++i) {
       const auto expected_primary_key = std::vector{msgs::Value(1023 - i)};
@@ -528,7 +528,7 @@ void AttemptToScanAllWithOrderByOnSecondaryProperty(ShardClient &client, msgs::V
     auto write_response_result = read_res.GetValue();
     auto write_response = std::get<msgs::ScanVerticesResponse>(write_response_result);
 
-    MG_ASSERT(write_response.success);
+    MG_ASSERT(!write_response.error.has_value());
     MG_ASSERT(write_response.results.size() == 5, "Expecting 5 results!");
     for (int64_t i{0}; i < 5; ++i) {
       const auto expected_prop4 = std::vector{msgs::Value(1023 - i)};

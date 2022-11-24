@@ -24,6 +24,7 @@
 #include "coordinator/hybrid_logical_clock.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
+#include "storage/v3/result.hpp"
 
 namespace memgraph::msgs {
 
@@ -317,6 +318,11 @@ struct Value {
   }
 };
 
+struct ShardError {
+  common::ErrorCode code;
+  std::string message;
+};
+
 struct Expression {
   std::string expression;
 };
@@ -361,7 +367,7 @@ struct ScanResultRow {
 };
 
 struct ScanVerticesResponse {
-  bool success;
+  std::optional<ShardError> error;
   std::optional<VertexId> next_start_id;
   std::vector<ScanResultRow> results;
 };
@@ -381,7 +387,7 @@ struct GetPropertiesRequest {
 };
 
 struct GetPropertiesResponse {
-  bool success;
+  std::optional<ShardError> error;
 };
 
 enum class EdgeDirection : uint8_t { OUT = 1, IN = 2, BOTH = 3 };
@@ -448,7 +454,7 @@ struct ExpandOneResultRow {
 };
 
 struct ExpandOneResponse {
-  bool success;
+  std::optional<ShardError> error;
   std::vector<ExpandOneResultRow> result;
 };
 
@@ -484,7 +490,7 @@ struct CreateVerticesRequest {
 };
 
 struct CreateVerticesResponse {
-  bool success;
+  std::optional<ShardError> error;
 };
 
 struct DeleteVerticesRequest {
@@ -495,7 +501,7 @@ struct DeleteVerticesRequest {
 };
 
 struct DeleteVerticesResponse {
-  bool success;
+  std::optional<ShardError> error;
 };
 
 struct UpdateVerticesRequest {
@@ -504,7 +510,7 @@ struct UpdateVerticesRequest {
 };
 
 struct UpdateVerticesResponse {
-  bool success;
+  std::optional<ShardError> error;
 };
 
 /*
@@ -526,7 +532,7 @@ struct CreateExpandRequest {
 };
 
 struct CreateExpandResponse {
-  bool success;
+  std::optional<ShardError> error;
 };
 
 struct DeleteEdgesRequest {
@@ -535,7 +541,7 @@ struct DeleteEdgesRequest {
 };
 
 struct DeleteEdgesResponse {
-  bool success;
+  std::optional<ShardError> error;
 };
 
 struct UpdateEdgesRequest {
@@ -544,7 +550,7 @@ struct UpdateEdgesRequest {
 };
 
 struct UpdateEdgesResponse {
-  bool success;
+  std::optional<ShardError> error;
 };
 
 struct CommitRequest {
@@ -553,7 +559,7 @@ struct CommitRequest {
 };
 
 struct CommitResponse {
-  bool success;
+  std::optional<ShardError> error;
 };
 
 using ReadRequests = std::variant<ExpandOneRequest, GetPropertiesRequest, ScanVerticesRequest>;
