@@ -33,6 +33,8 @@ extern "C" {
 
 namespace memgraph::query::procedure {
 
+void DeleteFromSysModule(PyObject *sys_dict, PyObject *module);
+
 ModuleRegistry gModuleRegistry;
 
 Module::~Module() {}
@@ -996,6 +998,10 @@ bool PythonModule::Close() {
   transformations_.clear();
   functions_.clear();
 
+  // Get the reference to sys.modules dictionary
+  py::Object sys(PyImport_ImportModule("sys"));
+  PyObject *sys_mod_ref = sys.GetAttr("modules").Ptr();
+
   const char *func_code =
       "import ast\n\n"
       "modules = set()\n\n"
@@ -1015,10 +1021,12 @@ bool PythonModule::Close() {
 
   if (!maybe_content) {
     spdlog::error("Couldn't read the content of the file.");
+    return false;
   } else {
     const char *content_value = maybe_content->c_str();
     if (!content_value) {
       spdlog::error("Couldn't convert the content of the file to string.");
+      return false;
     }
     PyObject *py_main, *py_global_dict;
     py_main = PyImport_AddModule("__main__");
@@ -1035,19 +1043,17 @@ bool PythonModule::Close() {
       spdlog::warn("Iterator is null...");
     } else {
       while ((item = PyIter_Next(iterator))) {
-        const char *res = PyUnicode_AsUTF8(item);
-        spdlog::info("Set element: {}", res);
+        DeleteFromSysModule(sys_mod_ref, item);
         Py_DECREF(item);
       }
       Py_DECREF(iterator);
     }
   }
 
-  // TODO: needs to be refactored
+  // This has to succeed because it is top root module so the module DeleteFromSysModule cannot be used.
   // Delete the module from the `sys.modules` directory so that the module will
   // be properly imported if imported again.
-  py::Object sys(PyImport_ImportModule("sys"));
-  if (PyDict_DelItemString(sys.GetAttr("modules").Ptr(), file_path_.stem().c_str()) != 0) {
+  if (PyDict_DelItemString(sys_mod_ref, file_path_.stem().c_str()) != 0) {
     spdlog::warn("Failed to remove the module from sys.modules");
     py_module_ = py::Object(nullptr);
     return false;
@@ -1058,6 +1064,20 @@ bool PythonModule::Close() {
   py_module_ = py::Object(nullptr);
   spdlog::info("Closed module {}", file_path_);
   return true;
+}
+
+void DeleteFromSysModule(PyObject *sys_dict, PyObject *module) {
+  // here module can be our query module but also Python package
+  const char *module_name = PyUnicode_AsUTF8(module);
+  if (PyDict_Contains(sys_dict, module) == 1) {  // if the item is in dictionary
+    if (PyDict_DelItemString(sys_dict, module_name) != 0) {
+      spdlog::warn("Failed to remove module {}, from sys.modules", module_name);
+    } else {
+      spdlog::info("Module {} successfully removed from the cache", module_name);
+    }
+  } else {
+    spdlog::info("Module {} not in cache", module_name);
+  }
 }
 
 const std::map<std::string, mgp_proc, std::less<>> *PythonModule::Procedures() const {
