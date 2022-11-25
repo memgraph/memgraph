@@ -119,7 +119,7 @@ class MockedShardRequestManager : public memgraph::msgs::ShardRequestManagerInte
     return shards_map_.GetPropertyId(name);
   }
 
-  std::optional<storage::v3::EdgeTypeId> MaybeNameToEdge(const std::string &name) const override {
+  std::optional<storage::v3::EdgeTypeId> MaybeNameToEdgeType(const std::string &name) const override {
     return shards_map_.GetEdgeTypeId(name);
   }
 

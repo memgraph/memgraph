@@ -17,6 +17,7 @@
 #include <unordered_map>
 
 #include "storage/v3/result.hpp"
+#include "storage/v3/shard.hpp"
 #include "storage/v3/view.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/cast.hpp"
@@ -440,15 +441,22 @@ TypedValueT Properties(const TypedValueT *args, int64_t nargs, const FunctionCon
     if constexpr (std::is_same_v<Tag, StorageEngineTag>) {
       auto maybe_props = record_accessor.Properties(ctx.view);
       if (maybe_props.HasError()) {
-        switch (maybe_props.GetError()) {
-          case storage::v3::Error::DELETED_OBJECT:
+        switch (maybe_props.GetError().code) {
+          case common::ErrorCode::DELETED_OBJECT:
             throw functions::FunctionRuntimeException("Trying to get properties from a deleted object.");
-          case storage::v3::Error::NONEXISTENT_OBJECT:
+          case common::ErrorCode::NONEXISTENT_OBJECT:
             throw functions::FunctionRuntimeException("Trying to get properties from an object that doesn't exist.");
-          case storage::v3::Error::SERIALIZATION_ERROR:
-          case storage::v3::Error::VERTEX_HAS_EDGES:
-          case storage::v3::Error::PROPERTIES_DISABLED:
-          case storage::v3::Error::VERTEX_ALREADY_INSERTED:
+          case common::ErrorCode::SERIALIZATION_ERROR:
+          case common::ErrorCode::VERTEX_HAS_EDGES:
+          case common::ErrorCode::PROPERTIES_DISABLED:
+          case common::ErrorCode::VERTEX_ALREADY_INSERTED:
+          case common::ErrorCode::SCHEMA_NO_SCHEMA_DEFINED_FOR_LABEL:
+          case common::ErrorCode::SCHEMA_VERTEX_PROPERTY_WRONG_TYPE:
+          case common::ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_KEY:
+          case common::ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL:
+          case common::ErrorCode::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY:
+          case common::ErrorCode::SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED:
+          case common::ErrorCode::OBJECT_NOT_FOUND:
             throw functions::FunctionRuntimeException("Unexpected error when getting properties.");
         }
       }
@@ -506,17 +514,24 @@ TypedValueT StartNode(const TypedValueT *args, int64_t nargs, const FunctionCont
 
 // This is needed because clang-tidy fails to identify the use of this function in the if-constexpr branch
 // NOLINTNEXTLINE(clang-diagnostic-unused-function)
-inline size_t UnwrapDegreeResult(storage::v3::Result<size_t> maybe_degree) {
+inline size_t UnwrapDegreeResult(storage::v3::ShardResult<size_t> maybe_degree) {
   if (maybe_degree.HasError()) {
-    switch (maybe_degree.GetError()) {
-      case storage::v3::Error::DELETED_OBJECT:
+    switch (maybe_degree.GetError().code) {
+      case common::ErrorCode::DELETED_OBJECT:
         throw functions::FunctionRuntimeException("Trying to get degree of a deleted node.");
-      case storage::v3::Error::NONEXISTENT_OBJECT:
+      case common::ErrorCode::NONEXISTENT_OBJECT:
         throw functions::FunctionRuntimeException("Trying to get degree of a node that doesn't exist.");
-      case storage::v3::Error::SERIALIZATION_ERROR:
-      case storage::v3::Error::VERTEX_HAS_EDGES:
-      case storage::v3::Error::PROPERTIES_DISABLED:
-      case storage::v3::Error::VERTEX_ALREADY_INSERTED:
+      case common::ErrorCode::SERIALIZATION_ERROR:
+      case common::ErrorCode::VERTEX_HAS_EDGES:
+      case common::ErrorCode::PROPERTIES_DISABLED:
+      case common::ErrorCode::VERTEX_ALREADY_INSERTED:
+      case common::ErrorCode::SCHEMA_NO_SCHEMA_DEFINED_FOR_LABEL:
+      case common::ErrorCode::SCHEMA_VERTEX_PROPERTY_WRONG_TYPE:
+      case common::ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_KEY:
+      case common::ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL:
+      case common::ErrorCode::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY:
+      case common::ErrorCode::SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED:
+      case common::ErrorCode::OBJECT_NOT_FOUND:
         throw functions::FunctionRuntimeException("Unexpected error when getting node degree.");
     }
   }
@@ -688,15 +703,22 @@ TypedValueT Labels(const TypedValueT *args, int64_t nargs, const FunctionContext
   if constexpr (std::is_same_v<Tag, StorageEngineTag>) {
     auto maybe_labels = args[0].ValueVertex().Labels(ctx.view);
     if (maybe_labels.HasError()) {
-      switch (maybe_labels.GetError()) {
-        case storage::v3::Error::DELETED_OBJECT:
+      switch (maybe_labels.GetError().code) {
+        case common::ErrorCode::DELETED_OBJECT:
           throw functions::FunctionRuntimeException("Trying to get labels from a deleted node.");
-        case storage::v3::Error::NONEXISTENT_OBJECT:
+        case common::ErrorCode::NONEXISTENT_OBJECT:
           throw functions::FunctionRuntimeException("Trying to get labels from a node that doesn't exist.");
-        case storage::v3::Error::SERIALIZATION_ERROR:
-        case storage::v3::Error::VERTEX_HAS_EDGES:
-        case storage::v3::Error::PROPERTIES_DISABLED:
-        case storage::v3::Error::VERTEX_ALREADY_INSERTED:
+        case common::ErrorCode::SERIALIZATION_ERROR:
+        case common::ErrorCode::VERTEX_HAS_EDGES:
+        case common::ErrorCode::PROPERTIES_DISABLED:
+        case common::ErrorCode::VERTEX_ALREADY_INSERTED:
+        case common::ErrorCode::SCHEMA_NO_SCHEMA_DEFINED_FOR_LABEL:
+        case common::ErrorCode::SCHEMA_VERTEX_PROPERTY_WRONG_TYPE:
+        case common::ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_KEY:
+        case common::ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL:
+        case common::ErrorCode::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY:
+        case common::ErrorCode::SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED:
+        case common::ErrorCode::OBJECT_NOT_FOUND:
           throw functions::FunctionRuntimeException("Unexpected error when getting labels.");
       }
     }
@@ -958,9 +980,9 @@ TypedValueT Counter(const TypedValueT *args, int64_t nargs, const FunctionContex
 
 template <typename TypedValueT, typename FunctionContextT>
 TypedValueT Id(const TypedValueT *args, int64_t nargs, const FunctionContextT &ctx) {
-  FType<TypedValueT, Or<Null, Vertex, Edge>>("id", args, nargs);
+  FType<TypedValueT, Or<Null, Edge>>("id", args, nargs);
   const auto &arg = args[0];
-  if (arg.IsNull() || arg.IsVertex()) {
+  if (arg.IsNull()) {
     return TypedValueT(ctx.memory);
   }
   return TypedValueT(static_cast<int64_t>(arg.ValueEdge().CypherId()), ctx.memory);
@@ -1394,13 +1416,6 @@ NameToFunction(const std::string &function_name) {
   if (function_name == "LOCALTIME") return functions::impl::LocalTime<TypedValueT, FunctionContextT>;
   if (function_name == "LOCALDATETIME") return functions::impl::LocalDateTime<TypedValueT, FunctionContextT>;
   if (function_name == "DURATION") return functions::impl::Duration<TypedValueT, FunctionContextT>;
-
-  // Only on QE
-  if constexpr (std::is_same_v<Tag, QueryEngineTag>) {
-    if (function_name == "COUNTER") return functions::impl::Counter<TypedValueT, FunctionContextT>;
-    if (function_name == "STARTNODE") return functions::impl::StartNode<TypedValueT, FunctionContextT, Conv>;
-    if (function_name == "ENDNODE") return functions::impl::EndNode<TypedValueT, FunctionContextT>;
-  }
 
   return nullptr;
 }

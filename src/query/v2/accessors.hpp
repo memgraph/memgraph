@@ -94,11 +94,10 @@ class VertexAccessor final {
   [[nodiscard]] msgs::Vertex GetVertex() const;
 
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-  [[nodiscard]] size_t InDegree() const { return 0; }
+  [[nodiscard]] size_t InDegree() const { throw utils::NotYetImplemented("InDegree() not yet implemented"); }
 
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-  [[nodiscard]] size_t OutDegree() const { return 0; }
-  //
+  [[nodiscard]] size_t OutDegree() const { throw utils::NotYetImplemented("OutDegree() not yet implemented"); }
 
   friend bool operator==(const VertexAccessor &lhs, const VertexAccessor &rhs) {
     return lhs.vertex == rhs.vertex && lhs.properties == rhs.properties;

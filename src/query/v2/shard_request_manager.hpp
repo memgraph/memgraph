@@ -130,7 +130,7 @@ class ShardRequestManagerInterface {
   virtual const std::string &LabelToName(memgraph::storage::v3::LabelId label) const = 0;
   virtual const std::string &EdgeTypeToName(memgraph::storage::v3::EdgeTypeId type) const = 0;
   virtual std::optional<storage::v3::PropertyId> MaybeNameToProperty(const std::string &name) const = 0;
-  virtual std::optional<storage::v3::EdgeTypeId> MaybeNameToEdge(const std::string &name) const = 0;
+  virtual std::optional<storage::v3::EdgeTypeId> MaybeNameToEdgeType(const std::string &name) const = 0;
   virtual std::optional<storage::v3::LabelId> MaybeNameToLabel(const std::string &name) const = 0;
   virtual bool IsPrimaryLabel(LabelId label) const = 0;
   virtual bool IsPrimaryKey(LabelId primary_label, PropertyId property) const = 0;
@@ -360,7 +360,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     return shards_map_.GetPropertyId(name);
   }
 
-  std::optional<storage::v3::EdgeTypeId> MaybeNameToEdge(const std::string &name) const override {
+  std::optional<storage::v3::EdgeTypeId> MaybeNameToEdgeType(const std::string &name) const override {
     return shards_map_.GetEdgeTypeId(name);
   }
 
