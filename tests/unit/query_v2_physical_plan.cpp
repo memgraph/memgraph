@@ -121,7 +121,7 @@ void print_ops(const std::vector<Op> &ops) {
 // TODO(gitbuda): Doesn't work yet because it seems that the data pool is
 // blocked when the first writer fills all available space.
 //
-RC_GTEST_FIXTURE_PROP(PhysicalPlanFixture, DISABLED_PropertyBasedPhysicalPlan, ()) {
+RC_GTEST_FIXTURE_PROP(PhysicalPlanFixture, PropertyBasedPhysicalPlan, ()) {
   using TDataPool = physical::multiframe::MPMCMultiframeFCFSPool;
   using TPhysicalOperator = physical::PhysicalOperator<TDataPool>;
   using TPhysicalOperatorPtr = std::shared_ptr<TPhysicalOperator>;
@@ -135,7 +135,7 @@ RC_GTEST_FIXTURE_PROP(PhysicalPlanFixture, DISABLED_PropertyBasedPhysicalPlan, (
   std::vector<rc::Gen<Op>> gens;
   gens.push_back(rc::gen::construct<Op>(rc::gen::element(OpType::ScanAll),
                                         // rc::gen::container<std::vector<int>>(1, rc::gen::inRange(1, 10000))));
-                                        rc::gen::container<std::vector<int>>(1, rc::gen::inRange(0, 1000))));
+                                        rc::gen::container<std::vector<int>>(1, rc::gen::inRange(0, 100))));
   std::vector<Op> ops = {Op{.type = OpType::Produce}};
   const auto body =
       *rc::gen::container<std::vector<Op>>(*rc::gen::inRange(1, 4), rc::gen::join(rc::gen::elementOf(gens)));
@@ -182,15 +182,17 @@ RC_GTEST_FIXTURE_PROP(PhysicalPlanFixture, DISABLED_PropertyBasedPhysicalPlan, (
 
   physical::ExecutionContext ctx{.thread_pool = &thread_pool_};
   plan->Execute(ctx);
-  // TODO(gitbuda): Segfault if not enough sleep -> something gets deallocated too early.
-  std::this_thread::sleep_for(std::chrono::microseconds(100000));
-  const auto &stats = plan->GetStats();
+  // TODO(gitbuda): Extremely suboptimal because Execute is an async op -> introduce futures (L).
+  std::this_thread::sleep_for(std::chrono::microseconds(1000000));
+
   int64_t scan_all_cnt{1};
   for (const auto &op : ops) {
     if (op.type == OpType::ScanAll) {
       scan_all_cnt *= op.props[ENTITIES_NUM];
     }
   }
+  const auto &stats = plan->GetStats();
+
   std::cout << std::endl;
   std::cout << std::endl;
   std::cout << std::endl;

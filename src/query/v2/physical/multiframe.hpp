@@ -28,6 +28,8 @@ struct Frame {
 
 namespace multiframe {
 
+// TODO(gitbuda): Add Multiframe as a concept.
+
 /// Fixed in size during query execution.
 /// NOTE/TODO(gitbuda): Accessing Multiframe might be tricky because of multi-threading.
 /// As soon as one operator "gives" data to the other operator (in any direction), if operators
@@ -78,6 +80,10 @@ class Multiframe {
   //   -> test how many times TypedValue destructor is called in case the Frame object is moved
   //
   // TODO(gitbuda): Implement fast Multiframe::Clear
+  //   Clear implementation should be fast because the pool will call Clear to
+  //   ensure each returned empty multiframe is a clear state. E.g. if
+  //   Multiframe contains objects which are expensive to delete (e.g. lists),
+  //   Clear will be slower.
   //
   void Clear() { data_.clear(); }
 
@@ -132,7 +138,7 @@ enum class PoolState {
 /// Requires giving back Token after Multiframe is consumed/filled.
 /// Equivalent to a queue of Multiframes with intention to minimize the time
 /// spent in critical sections.
-///
+/// TODO(gitbuda): Templatize multiframe pool implementation (token should also be templatized).
 class MPMCMultiframeFCFSPool {
  public:
   /// Critical because all filled multiframes should be consumed at some point.
@@ -203,7 +209,6 @@ class MPMCMultiframeFCFSPool {
       if (priority_states_[index].state == MultiframeState::EMPTY) {
         priority_states_[index].priority = priority_counter_;
         priority_states_[index].state = MultiframeState::IN_USE;
-        // TODO(gitbuda): Make sure Multiframe::Clear is cheap because it can be.
         frames_[index].Clear();
         return multiframe::Token{.id = static_cast<int>(index), .multiframe = &frames_.at(index)};
       }
@@ -221,7 +226,7 @@ class MPMCMultiframeFCFSPool {
     // NOTE: At this point we can call Multiframe::Clear but the same call is
     // done inside GetEmpty method because we are delaying the cleanup as much
     // as possible. We might not even need to explicitly cleanup the frame
-    // because the frame might not at reused at all.
+    // because the frame might not be reused at all.
   }
 
   void ReturnFull(int id) {
@@ -233,7 +238,6 @@ class MPMCMultiframeFCFSPool {
   void MarkWriterDone() {
     std::unique_lock lock{mutex};
     pool_state_ = PoolState::HINT_WRITER_DONE;
-    ;
   }
   bool IsWriterDone() {
     std::unique_lock lock{mutex};
@@ -243,9 +247,6 @@ class MPMCMultiframeFCFSPool {
   // NOTE: There is a difference between exhaustion of a Multiframe and the entire pool.
   void MarkExhausted() {
     std::unique_lock lock{mutex};
-    // MG_ASSERT(std::any_of(priority_states_.cbegin(), priority_states_.cend(), [](const auto& item) {
-    //       return item.state == MultiframeState::EMPTY;
-    //       }));
     pool_state_ = PoolState::EXHAUSTED;
   }
   bool IsExhausted() {
