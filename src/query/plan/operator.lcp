@@ -132,6 +132,7 @@ class Cartesian;
 class CallProcedure;
 class LoadCsv;
 class Foreach;
+class EmptyResult;
 
 using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel,
@@ -140,7 +141,7 @@ using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Expand, ExpandVariable, ConstructNamedPath, Filter, Produce, Delete,
     SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels,
     EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit, OrderBy, Merge,
-    Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv, Foreach>;
+    Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv, Foreach, EmptyResult>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -1554,6 +1555,57 @@ edge lists).")
   (:serialize (:slk))
   (:clone))
 
+
+(lcp:define-class empty-result (logical-operator)
+  ((input "std::shared_ptr<LogicalOperator>" :scope :public
+          :slk-save #'slk-save-operator-pointer
+          :slk-load #'slk-load-operator-pointer)
+   (symbols "std::vector<Symbol>" :scope :public)
+   (advance-command :bool :scope :public))
+  (:documentation
+   "Pulls everything from the input and discards it.
+Optionally advances the command after accumulation and before emitting.
+
+On the first Pull from this operator's Cursor the input Cursor will be Pulled
+until it is empty. The results will be accumulated in the temporary cache. Once
+the input Cursor is empty, this operator's Cursor will start returning cached
+stuff from its Pull.
+
+This technique is used for ensuring all the operations from the
+previous logical operator have been performed before exposing data
+to the next. A typical use case is a `MATCH--SET--RETURN`
+query in which every SET iteration must be performed before
+RETURN starts iterating (see Memgraph Wiki for detailed reasoning).
+
+IMPORTANT: This operator does not cache all the results but only those
+elements from the frame whose symbols (frame positions) it was given.
+All other frame positions will contain undefined junk after this
+operator has executed, and should not be used.
+
+
+@param input Input @c LogicalOperator.
+@param symbols A vector of Symbols that need to be accumulated
+ and exposed to the next op.")
+  (:public
+   #>cpp
+   EmptyResult() {}
+
+   EmptyResult(const std::shared_ptr<LogicalOperator> &input,
+              const std::vector<Symbol> &symbols);
+   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+   bool HasSingleInput() const override { return true; }
+   std::shared_ptr<LogicalOperator> input() const override { return input_; }
+   void set_input(std::shared_ptr<LogicalOperator> input) override {
+     input_ = input;
+   }
+   cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+
 (lcp:define-class accumulate (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
           :slk-save #'slk-save-operator-pointer
@@ -2282,9 +2334,9 @@ clauses.
   (:public
    #>cpp
    Foreach() = default;
-   Foreach(std::shared_ptr<LogicalOperator> input, 
+   Foreach(std::shared_ptr<LogicalOperator> input,
            std::shared_ptr<LogicalOperator> updates,
-           Expression *named_expr, 
+           Expression *named_expr,
            Symbol loop_variable_symbol);
 
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
