@@ -702,66 +702,65 @@ for dataset, queries in benchmarks:
             )
             vendor.stop("authorization")
 
-            for group in sorted(queries.keys()):
-                for query, funcname in queries[group]:
+            for query, funcname in queries[group]:
 
-                    log.info(
-                        "Running query:",
-                        "{}/{}/{}/{}".format(group, query, funcname, WITH_FINE_GRAINED_AUTHORIZATION),
-                    )
-                    func = getattr(dataset, funcname)
+                log.info(
+                    "Running query:",
+                    "{}/{}/{}/{}".format(group, query, funcname, WITH_FINE_GRAINED_AUTHORIZATION),
+                )
+                func = getattr(dataset, funcname)
 
-                    query_statistics = tail_latency(vendor, client, func)
+                query_statistics = tail_latency(vendor, client, func)
 
-                    config_key = [
-                        dataset.NAME,
-                        dataset.get_variant(),
-                        args.vendor_name,
-                        group,
-                        query,
-                    ]
-                    count = get_query_cache_count(vendor, client, func, config_key)
+                config_key = [
+                    dataset.NAME,
+                    dataset.get_variant(),
+                    args.vendor_name,
+                    group,
+                    query,
+                ]
+                count = get_query_cache_count(vendor, client, func, config_key)
 
-                    vendor.start_benchmark("authorization")
-                    if args.warmup_run:
-                        warmup(client)
-                    ret = client.execute(
-                        queries=get_queries(func, count),
-                        num_workers=args.num_workers_for_benchmark,
-                    )[0]
-                    usage = vendor.stop("authorization")
-                    ret["database"] = usage
-                    ret["query_statistics"] = query_statistics
+                vendor.start_benchmark("authorization")
+                if args.warmup_run:
+                    warmup(client)
+                ret = client.execute(
+                    queries=get_queries(func, count),
+                    num_workers=args.num_workers_for_benchmark,
+                )[0]
+                usage = vendor.stop("authorization")
+                ret["database"] = usage
+                ret["query_statistics"] = query_statistics
 
-                    # Output summary.
-                    print()
+                # Output summary.
+                print()
+                print(
+                    "Executed",
+                    ret["count"],
+                    "queries in",
+                    ret["duration"],
+                    "seconds.",
+                )
+                print("Queries have been retried", ret["retries"], "times.")
+                print("Database used {:.3f} seconds of CPU time.".format(usage["cpu"]))
+                print("Database peaked at {:.3f} MiB of memory.".format(usage["memory"] / 1024.0 / 1024.0))
+                print("{:<31} {:>20} {:>20} {:>20}".format("Metadata:", "min", "avg", "max"))
+                metadata = ret["metadata"]
+                for key in sorted(metadata.keys()):
                     print(
-                        "Executed",
-                        ret["count"],
-                        "queries in",
-                        ret["duration"],
-                        "seconds.",
+                        "{name:>30}: {minimum:>20.06f} {average:>20.06f} "
+                        "{maximum:>20.06f}".format(name=key, **metadata[key])
                     )
-                    print("Queries have been retried", ret["retries"], "times.")
-                    print("Database used {:.3f} seconds of CPU time.".format(usage["cpu"]))
-                    print("Database peaked at {:.3f} MiB of memory.".format(usage["memory"] / 1024.0 / 1024.0))
-                    print("{:<31} {:>20} {:>20} {:>20}".format("Metadata:", "min", "avg", "max"))
-                    metadata = ret["metadata"]
-                    for key in sorted(metadata.keys()):
-                        print(
-                            "{name:>30}: {minimum:>20.06f} {average:>20.06f} "
-                            "{maximum:>20.06f}".format(name=key, **metadata[key])
-                        )
-                    log.success("Throughput: {:02f} QPS".format(ret["throughput"]))
-                    # Save results.
-                    results_key = [
-                        dataset.NAME,
-                        dataset.get_variant(),
-                        group,
-                        query,
-                        WITH_FINE_GRAINED_AUTHORIZATION,
-                    ]
-                    results.set_value(*results_key, value=ret)
+                log.success("Throughput: {:02f} QPS".format(ret["throughput"]))
+                # Save results.
+                results_key = [
+                    dataset.NAME,
+                    dataset.get_variant(),
+                    group,
+                    query,
+                    WITH_FINE_GRAINED_AUTHORIZATION,
+                ]
+                results.set_value(*results_key, value=ret)
 
             # Clean up database from any roles and users job
             vendor.start_benchmark("authorizations")
