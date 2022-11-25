@@ -145,6 +145,7 @@ def run_full_benchmarks(vendor, binary, dataset_size, dataset_group, realistic, 
         vendor,
         "--num-workers-for-benchmark",
         "12",
+        "--no-authorization",
         "pokec/" + dataset_size + "/" + dataset_group + "/*",
     ]
 

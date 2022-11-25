@@ -109,9 +109,9 @@ parser.add_argument("--no-properties-on-edges", action="store_true", help="disab
 parser.add_argument("--bolt-port", default=7687, help="memgraph bolt port")
 
 parser.add_argument(
-    "--with-authorization",
-    action="store_true",
-    default=False,
+    "--no-authorization",
+    action="store_false",
+    default=True,
     help="Run each query with authorization",
 )
 
@@ -682,7 +682,7 @@ for dataset, queries in benchmarks:
                 results.set_value(*results_key, value=ret)
 
         ## If there is need for authorization testing.
-        if args.with_authorization:
+        if args.no_authorization:
             print("Running query with authorization")
             vendor.start_benchmark("authorization")
             client.execute(
@@ -772,8 +772,6 @@ for dataset, queries in benchmarks:
                     ("DROP USER user;", {}),
                 ]
             )
-            print("Cleanup status: ")
-            print(ret)
             vendor.stop("authorization")
 
 
