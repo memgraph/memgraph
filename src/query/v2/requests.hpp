@@ -24,6 +24,7 @@
 #include "coordinator/hybrid_logical_clock.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
+#include "storage/v3/result.hpp"
 
 namespace memgraph::msgs {
 
@@ -317,6 +318,11 @@ struct Value {
   }
 };
 
+struct ShardError {
+  common::ErrorCode code;
+  std::string message;
+};
+
 struct Expression {
   std::string expression;
 };
@@ -361,7 +367,7 @@ struct ScanResultRow {
 };
 
 struct ScanVerticesResponse {
-  bool success;
+  std::optional<ShardError> error;
   std::optional<VertexId> next_start_id;
   std::vector<ScanResultRow> results;
 };
@@ -381,7 +387,7 @@ struct GetPropertiesRequest {
 };
 
 struct GetPropertiesResponse {
-  bool success;
+  std::optional<ShardError> error;
 };
 
 enum class EdgeDirection : uint8_t { OUT = 1, IN = 2, BOTH = 3 };
@@ -403,7 +409,9 @@ struct ExpandOneRequest {
   std::vector<std::string> vertex_expressions;
   std::vector<std::string> edge_expressions;
 
-  std::optional<std::vector<OrderBy>> order_by;
+  std::vector<OrderBy> order_by_vertices;
+  std::vector<OrderBy> order_by_edges;
+
   // Limit the edges or the vertices?
   std::optional<size_t> limit;
   std::vector<std::string> filters;
@@ -446,14 +454,16 @@ struct ExpandOneResultRow {
 };
 
 struct ExpandOneResponse {
-  bool success;
+  std::optional<ShardError> error;
   std::vector<ExpandOneResultRow> result;
 };
 
-struct UpdateVertexProp {
+struct UpdateVertex {
   PrimaryKey primary_key;
-  // This should be a map
-  std::vector<std::pair<PropertyId, Value>> property_updates;
+  // Labels are first added and then removed from vertices
+  std::vector<LabelId> add_labels;
+  std::vector<LabelId> remove_labels;
+  std::map<PropertyId, Value> property_updates;
 };
 
 struct UpdateEdgeProp {
@@ -480,7 +490,7 @@ struct CreateVerticesRequest {
 };
 
 struct CreateVerticesResponse {
-  bool success;
+  std::optional<ShardError> error;
 };
 
 struct DeleteVerticesRequest {
@@ -491,16 +501,16 @@ struct DeleteVerticesRequest {
 };
 
 struct DeleteVerticesResponse {
-  bool success;
+  std::optional<ShardError> error;
 };
 
 struct UpdateVerticesRequest {
   Hlc transaction_id;
-  std::vector<UpdateVertexProp> new_properties;
+  std::vector<UpdateVertex> update_vertices;
 };
 
 struct UpdateVerticesResponse {
-  bool success;
+  std::optional<ShardError> error;
 };
 
 /*
@@ -522,7 +532,7 @@ struct CreateExpandRequest {
 };
 
 struct CreateExpandResponse {
-  bool success;
+  std::optional<ShardError> error;
 };
 
 struct DeleteEdgesRequest {
@@ -531,7 +541,7 @@ struct DeleteEdgesRequest {
 };
 
 struct DeleteEdgesResponse {
-  bool success;
+  std::optional<ShardError> error;
 };
 
 struct UpdateEdgesRequest {
@@ -540,7 +550,7 @@ struct UpdateEdgesRequest {
 };
 
 struct UpdateEdgesResponse {
-  bool success;
+  std::optional<ShardError> error;
 };
 
 struct CommitRequest {
@@ -549,7 +559,7 @@ struct CommitRequest {
 };
 
 struct CommitResponse {
-  bool success;
+  std::optional<ShardError> error;
 };
 
 using ReadRequests = std::variant<ExpandOneRequest, GetPropertiesRequest, ScanVerticesRequest>;

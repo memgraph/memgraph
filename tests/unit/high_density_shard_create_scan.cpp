@@ -187,7 +187,7 @@ void ExecuteOp(msgs::ShardRequestManager<LocalTransport> &shard_request_manager,
   auto result = shard_request_manager.Request(state, std::move(new_vertices));
 
   MG_ASSERT(result.size() == 1);
-  MG_ASSERT(result[0].success);
+  MG_ASSERT(!result[0].error.has_value());
 
   correctness_model.emplace(std::make_pair(create_vertex.first, create_vertex.second));
 }

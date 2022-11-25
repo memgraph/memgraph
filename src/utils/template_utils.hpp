@@ -11,16 +11,9 @@
 
 #pragma once
 
-#include <variant>
+namespace memgraph::utils {
 
-#include "storage/v3/result.hpp"
-#include "storage/v3/schema_validator.hpp"
+template <typename>
+constexpr auto kAlwaysFalse{false};
 
-namespace memgraph::storage::v3 {
-
-using ResultErrorType = std::variant<SchemaViolation, Error>;
-
-template <typename TValue>
-using ShardOperationResult = utils::BasicResult<ResultErrorType, TValue>;
-
-}  // namespace memgraph::storage::v3
+}  // namespace memgraph::utils

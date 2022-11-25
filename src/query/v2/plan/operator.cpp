@@ -26,6 +26,7 @@
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
 
+#include "common/errors.hpp"
 #include "expr/ast/pretty_print_ast_to_original_expression.hpp"
 #include "expr/exceptions.hpp"
 #include "query/exceptions.hpp"
@@ -563,27 +564,6 @@ UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
                                                                 std::move(vertices), "ScanAllById");
 }
 
-namespace {
-
-template <class TEdges>
-auto UnwrapEdgesResult(storage::v3::Result<TEdges> &&result) {
-  if (result.HasError()) {
-    switch (result.GetError()) {
-      case storage::v3::Error::DELETED_OBJECT:
-        throw QueryRuntimeException("Trying to get relationships of a deleted node.");
-      case storage::v3::Error::NONEXISTENT_OBJECT:
-        throw query::v2::QueryRuntimeException("Trying to get relationships from a node that doesn't exist.");
-      case storage::v3::Error::VERTEX_HAS_EDGES:
-      case storage::v3::Error::SERIALIZATION_ERROR:
-      case storage::v3::Error::PROPERTIES_DISABLED:
-        throw QueryRuntimeException("Unexpected error when accessing relationships.");
-    }
-  }
-  return std::move(*result);
-}
-
-}  // namespace
-
 Expand::Expand(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol, Symbol node_symbol,
                Symbol edge_symbol, EdgeAtom::Direction direction,
                const std::vector<storage::v3::EdgeTypeId> &edge_types, bool existing_node, storage::v3::View view)
@@ -836,45 +816,9 @@ std::vector<Symbol> SetProperties::ModifiedSymbols(const SymbolTable &table) con
 SetProperties::SetPropertiesCursor::SetPropertiesCursor(const SetProperties &self, utils::MemoryResource *mem)
     : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
 
-namespace {
-
-template <typename T>
-concept AccessorWithProperties = requires(T value, storage::v3::PropertyId property_id,
-                                          storage::v3::PropertyValue property_value) {
-  {
-    value.ClearProperties()
-    } -> std::same_as<storage::v3::Result<std::map<storage::v3::PropertyId, storage::v3::PropertyValue>>>;
-  {value.SetProperty(property_id, property_value)};
-};
-
-}  // namespace
-
 bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("SetProperties");
   return false;
-  //  if (!input_cursor_->Pull(frame, context)) return false;
-  //
-  //  TypedValue &lhs = frame[self_.input_symbol_];
-  //
-  //  // Set, just like Create needs to see the latest changes.
-  //  ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-  //                                storage::v3::View::NEW);
-  //  TypedValue rhs = self_.rhs_->Accept(evaluator);
-  //
-  //  switch (lhs.type()) {
-  //    case TypedValue::Type::Vertex:
-  //      SetPropertiesOnRecord(&lhs.ValueVertex(), rhs, self_.op_, &context);
-  //      break;
-  //    case TypedValue::Type::Edge:
-  //      SetPropertiesOnRecord(&lhs.ValueEdge(), rhs, self_.op_, &context);
-  //      break;
-  //    case TypedValue::Type::Null:
-  //      // Skip setting properties on Null (can occur in optional match).
-  //      break;
-  //    default:
-  //      throw QueryRuntimeException("Properties can only be set on edges and vertices.");
-  //  }
-  //  return true;
 }
 
 void SetProperties::SetPropertiesCursor::Shutdown() { input_cursor_->Shutdown(); }

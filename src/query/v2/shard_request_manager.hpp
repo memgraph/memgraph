@@ -209,7 +209,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
         }
         WriteResponses write_response_variant = commit_response.GetValue();
         auto &response = std::get<CommitResponse>(write_response_variant);
-        if (!response.success) {
+        if (response.error) {
           throw std::runtime_error("Commit request did not succeed");
         }
       }
@@ -314,7 +314,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
       WriteResponses response_variant = write_response_result.GetValue();
       CreateExpandResponse mapped_response = std::get<CreateExpandResponse>(response_variant);
 
-      if (!mapped_response.success) {
+      if (mapped_response.error) {
         throw std::runtime_error("CreateExpand request did not succeed");
       }
       responses.push_back(mapped_response);
@@ -616,7 +616,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
       WriteResponses response_variant = poll_result->GetValue();
       auto response = std::get<CreateVerticesResponse>(response_variant);
 
-      if (!response.success) {
+      if (response.error) {
         throw std::runtime_error("CreateVertices request did not succeed");
       }
       responses.push_back(response);
@@ -652,7 +652,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
       // Currently a boolean flag for signaling the overall success of the
       // ExpandOne request does not exist. But it should, so here we assume
       // that it is already in place.
-      if (!response.success) {
+      if (response.error) {
         throw std::runtime_error("ExpandOne request did not succeed");
       }
 
@@ -695,7 +695,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
 
       ReadResponses read_response_variant = await_result->GetValue();
       auto response = std::get<ScanVerticesResponse>(read_response_variant);
-      if (!response.success) {
+      if (response.error) {
         throw std::runtime_error("ScanAll request did not succeed");
       }
 
