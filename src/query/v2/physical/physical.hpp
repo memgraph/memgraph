@@ -16,7 +16,7 @@
 #include <vector>
 
 #include "query/plan/operator.hpp"
-#include "query/v2/physical/mock.hpp"
+#include "query/v2/physical/mock/frame.hpp"
 #include "query/v2/physical/multiframe.hpp"
 #include "utils/thread_pool.hpp"
 #include "utils/visitor.hpp"
@@ -332,6 +332,7 @@ class ScanAllPhysicalOperator final : public PhysicalOperator<TDataPool> {
     // ∀mf : input multiframes
     //  ∀tuple : data_fun(evaluate(mf))
     //   emit(tuple)
+    this->stats_.processed_frames = 0;
     Base::SingleChildSingleThreadExaust(
         ctx,
         [this, &ctx](typename TDataPool::TMultiframe &multiframe) {
@@ -363,6 +364,7 @@ class ProducePhysicalOperator final : public PhysicalOperator<TDataPool> {
     SPDLOG_TRACE("{} Execute()", Base::name_);
     Base::ExecuteChildren(ctx);
 
+    this->stats_.processed_frames = 0;
     Base::SingleChildSingleThreadExaust(
         ctx,
         [this](typename TDataPool::TMultiframe &multiframe) {

@@ -17,7 +17,7 @@
 #include <optional>
 #include <vector>
 
-#include "query/v2/physical/mock.hpp"
+#include "query/v2/physical/mock/frame.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::query::v2::physical::multiframe {
