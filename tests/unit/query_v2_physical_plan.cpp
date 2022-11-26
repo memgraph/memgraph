@@ -134,13 +134,14 @@ RC_GTEST_FIXTURE_PROP(PhysicalPlanFixture, PropertyBasedPhysicalPlan, ()) {
 
   std::vector<rc::Gen<Op>> gens;
   gens.push_back(rc::gen::construct<Op>(rc::gen::element(OpType::ScanAll),
-                                        // rc::gen::container<std::vector<int>>(1, rc::gen::inRange(1, 10000))));
-                                        rc::gen::container<std::vector<int>>(1, rc::gen::inRange(0, 100))));
+                                        rc::gen::container<std::vector<int>>(1, rc::gen::inRange(0, 1000))));
   std::vector<Op> ops = {Op{.type = OpType::Produce}};
   const auto body =
       *rc::gen::container<std::vector<Op>>(*rc::gen::inRange(1, 4), rc::gen::join(rc::gen::elementOf(gens)));
   ops.insert(ops.end(), body.begin(), body.end());
   ops.push_back(Op{.type = OpType::Once});
+
+  // TODO(gitbuda): Inject random sleeps in during Operator::Execute.
 
   TPhysicalOperatorPtr plan = nullptr;
   auto current = plan;
@@ -182,8 +183,6 @@ RC_GTEST_FIXTURE_PROP(PhysicalPlanFixture, PropertyBasedPhysicalPlan, ()) {
 
   physical::ExecutionContext ctx{.thread_pool = &thread_pool_};
   plan->Execute(ctx);
-  // TODO(gitbuda): Extremely suboptimal because Execute is an async op -> introduce futures (L).
-  std::this_thread::sleep_for(std::chrono::microseconds(1000000));
 
   int64_t scan_all_cnt{1};
   for (const auto &op : ops) {

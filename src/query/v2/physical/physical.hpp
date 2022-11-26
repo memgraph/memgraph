@@ -61,7 +61,7 @@ template <typename TDataPool>
 class PhysicalOperator {
  public:
   explicit PhysicalOperator(const std::string &name, std::unique_ptr<TDataPool> &&data_pool)
-      : name_(name), data_pool_(std::move(data_pool)) {}
+      : name_(name), data_pool_(std::move(data_pool)), mcv_(std::make_unique<Mcv>()) {}
   PhysicalOperator() = delete;
   PhysicalOperator(const PhysicalOperator &) = delete;
   PhysicalOperator(PhysicalOperator &&) noexcept = default;
@@ -73,6 +73,7 @@ class PhysicalOperator {
   std::string Name() const { return name_; }
 
   /// Init/start execution.
+  /// NOTE: In the current implementation Executes behave blocking only for the root operator.
   virtual void Execute(ExecutionContext ctx) = 0;
 
   ////// DATA POOL HANDLING
@@ -205,6 +206,14 @@ class PhysicalOperator {
   Stats stats_{.processed_frames = 0};
   std::function<void(multiframe::Multiframe &multiframe)> fun_;
   std::function<void(void)> after_done_fun_;
+  // mutex + conditional variable, uptr because moves
+  // NOTE: uptr has to be constructed!
+  // TODO(gitbuda): Rename Mcv to something better.
+  struct Mcv {
+    std::mutex completion_mutex_;
+    std::condition_variable completion_cv_;
+  };
+  std::unique_ptr<Mcv> mcv_;
 
   void BaseExecute(ExecutionContext ctx) {
     for (const auto &child : children_) {
@@ -260,7 +269,18 @@ class PhysicalOperator {
         }
       }
       after_done_fun_();
+      // TODO/BROKEN(gitbuda): Replace this with something better, top operator should be notified.
+      if (name_ == "Physical Produce") {
+        std::cout << "After " << name_ << " done, notifying" << std::endl;
+        mcv_->completion_cv_.notify_one();
+      }
     });
+    if (name_ == "Physical Produce") {
+      std::unique_lock<std::mutex> lock{mcv_->completion_mutex_};
+      std::cout << name_ << " waiting to be executed" << std::endl;
+      mcv_->completion_cv_.wait(lock);
+      std::cout << name_ << " notified" << std::endl;
+    }
   }
 };
 
@@ -338,6 +358,7 @@ class ScanAllPhysicalOperator final : public PhysicalOperator<TDataPool> {
   TDataFun data_fun_;
 };
 
+/// Produce responsibility is to evaluate the result list of expressions.
 template <typename TDataPool>
 class ProducePhysicalOperator final : public PhysicalOperator<TDataPool> {
   using Base = PhysicalOperator<TDataPool>;
@@ -347,7 +368,7 @@ class ProducePhysicalOperator final : public PhysicalOperator<TDataPool> {
 
   void Execute(ExecutionContext ctx) override {
     std::cout << Base::name_ << std::endl;
-    MG_ASSERT(Base::children_.size() == 1, "ScanAll should have exactly 1 input");
+    MG_ASSERT(Base::children_.size() == 1, "PhysicalProduce should have exactly 1 input");
     Base::BaseExecute(ctx);
 
     Base::SingleChildSingleThreadExaust(
