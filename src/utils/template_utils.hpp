@@ -9,12 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v3/storage.hpp"
+#pragma once
 
-#include "storage/v3/config.hpp"
+namespace memgraph::utils {
 
-namespace memgraph::storage::v3 {
+template <typename>
+constexpr auto kAlwaysFalse{false};
 
-Storage::Storage(Config config) : config_{config} {}
-
-}  // namespace memgraph::storage::v3
+}  // namespace memgraph::utils
