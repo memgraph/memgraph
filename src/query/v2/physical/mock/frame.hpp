@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 namespace memgraph::query::v2::physical::mock {
 
 struct Frame {
