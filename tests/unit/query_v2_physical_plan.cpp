@@ -18,6 +18,7 @@
 #include <rapidcheck/gtest.h>
 
 #include "query/v2/physical/physical.hpp"
+#include "utils/logging.hpp"
 #include "utils/thread_pool.hpp"
 #include "utils/timer.hpp"
 
@@ -42,7 +43,7 @@ class PhysicalPlanFixture : public ::testing::Test {
   utils::ThreadPool thread_pool_{16};
 };
 
-TEST_F(MultiframePoolFixture, ConcurrentMultiframePoolAccess) {
+TEST_F(MultiframePoolFixture, DISABLED_ConcurrentMultiframePoolAccess) {
   std::atomic<int> readers_got_access_cnt;
   std::atomic<int> writers_got_access_cnt;
   utils::Timer timer;
@@ -73,13 +74,11 @@ TEST_F(MultiframePoolFixture, ConcurrentMultiframePoolAccess) {
       }
     });
   }
-  std::cout << "All readers and writters scheduled" << std::endl;
+  SPDLOG_TRACE("All readers and writters scheduled");
 
   while (thread_pool_.UnfinishedTasksNum() != 0) {
     std::this_thread::sleep_for(std::chrono::microseconds(100));
   }
-  std::cout << "TIME: " << timer.Elapsed<std::chrono::milliseconds>().count() << std::endl;
-
   ASSERT_EQ(readers_got_access_cnt.load(), 1000000);
   ASSERT_EQ(writers_got_access_cnt.load(), 1000000);
 }
@@ -104,14 +103,12 @@ struct Op {
   OpType type;
   std::vector<int> props;
 };
-void print_ops(const std::vector<Op> &ops) {
+void log_ops(const std::vector<Op> &ops) {
   for (const auto &op : ops) {
-    if (op.type == OpType::Once) {
-      std::cout << op.type << std::endl;
-    } else if (op.type == OpType::ScanAll) {
-      std::cout << op.type << " elems: " << op.props[ENTITIES_NUM] << std::endl;
-    } else if (op.type == OpType::Produce) {
-      std::cout << op.type << std::endl;
+    if (op.type == OpType::ScanAll) {
+      SPDLOG_INFO("{} elems: {}", op.type, op.props[ENTITIES_NUM]);
+    } else {
+      SPDLOG_INFO("{}", op.type);
     }
   }
 }
@@ -128,18 +125,20 @@ RC_GTEST_FIXTURE_PROP(PhysicalPlanFixture, PropertyBasedPhysicalPlan, ()) {
   using TOnceOperator = physical::OncePhysicalOperator<TDataPool>;
   using TProduceOperator = physical::ProducePhysicalOperator<TDataPool>;
 
+  SPDLOG_INFO("--- TEST START ----");
   int multiframes_no_per_op = *rc::gen::inRange(1, 32);
   int multiframe_size = *rc::gen::inRange(1, 2000);
-  std::cout << "#MF: " << multiframes_no_per_op << " #F: " << multiframe_size << std::endl;
+  SPDLOG_INFO("#MF: {}, #F: {}", multiframes_no_per_op, multiframe_size);
 
   std::vector<rc::Gen<Op>> gens;
   gens.push_back(rc::gen::construct<Op>(rc::gen::element(OpType::ScanAll),
-                                        rc::gen::container<std::vector<int>>(1, rc::gen::inRange(0, 1000))));
+                                        rc::gen::container<std::vector<int>>(1, rc::gen::inRange(0, 100))));
   std::vector<Op> ops = {Op{.type = OpType::Produce}};
   const auto body =
       *rc::gen::container<std::vector<Op>>(*rc::gen::inRange(1, 4), rc::gen::join(rc::gen::elementOf(gens)));
   ops.insert(ops.end(), body.begin(), body.end());
   ops.push_back(Op{.type = OpType::Once});
+  log_ops(ops);
 
   // TODO(gitbuda): Inject random sleeps in during Operator::Execute.
 
@@ -147,14 +146,12 @@ RC_GTEST_FIXTURE_PROP(PhysicalPlanFixture, PropertyBasedPhysicalPlan, ()) {
   auto current = plan;
   for (const auto &op : ops) {
     if (op.type == OpType::Once) {
-      std::cout << op.type << std::endl;
       auto data_pool = std::make_unique<TDataPool>(multiframes_no_per_op, multiframe_size);
       auto once = std::make_shared<TOnceOperator>(TOnceOperator("Physical Once", std::move(data_pool)));
       current->AddChild(once);
       current = once;
 
     } else if (op.type == OpType::ScanAll) {
-      std::cout << op.type << " elems: " << op.props[0] << std::endl;
       auto data_fun = [&op](physical::multiframe::Multiframe &mf, physical::ExecutionContext &) {
         std::vector<physical::Frame> frames;
         for (int i = 0; i < op.props[ENTITIES_NUM]; ++i) {
@@ -172,17 +169,14 @@ RC_GTEST_FIXTURE_PROP(PhysicalPlanFixture, PropertyBasedPhysicalPlan, ()) {
       current = scan_all;
 
     } else if (op.type == OpType::Produce) {
-      std::cout << op.type << std::endl;
       auto data_pool = std::make_unique<TDataPool>(multiframes_no_per_op, multiframe_size);
       plan = std::make_shared<TProduceOperator>(TProduceOperator("Physical Produce", std::move(data_pool)));
       current = plan;
+
     } else {
-      std::cout << op.type << std::endl;
+      SPDLOG_ERROR("Unknown operator {}", op.type);
     }
   }
-
-  physical::ExecutionContext ctx{.thread_pool = &thread_pool_};
-  plan->Execute(ctx);
 
   int64_t scan_all_cnt{1};
   for (const auto &op : ops) {
@@ -190,20 +184,15 @@ RC_GTEST_FIXTURE_PROP(PhysicalPlanFixture, PropertyBasedPhysicalPlan, ()) {
       scan_all_cnt *= op.props[ENTITIES_NUM];
     }
   }
-  const auto &stats = plan->GetStats();
+  SPDLOG_INFO("Total ScanAll elements: {}", scan_all_cnt);
 
-  std::cout << std::endl;
-  std::cout << std::endl;
-  std::cout << std::endl;
-  std::cout << std::endl;
-  print_ops(ops);
-  std::cout << multiframes_no_per_op << " " << multiframe_size << std::endl;
-  std::cout << std::endl;
-  std::cout << std::endl;
-  std::cout << std::endl;
-  std::cout << std::endl;
+  SPDLOG_INFO("-- EXECUTION START --");
+  physical::ExecutionContext ctx{.thread_pool = &thread_pool_};
+  plan->Execute(ctx);
+  const auto &stats = plan->GetStats();
   ASSERT_EQ(stats.processed_frames, scan_all_cnt);
-  std::cout << stats.processed_frames << " " << scan_all_cnt << std::endl;
+  SPDLOG_INFO("-- EXECUTION DONE --");
+  SPDLOG_INFO("--- TEST END ----");
 }
 
 }  // namespace memgraph::query::v2::tests

@@ -58,9 +58,9 @@ int main(int argc, char *argv[]) {
   // Fetch physical plan execution results.
   auto token = physical_plan->NextRead();
   if (token) {
-    std::cout << "Produce token is something" << std::endl;
+    SPDLOG_TRACE("Produce token is some") << std::endl;
   } else {
-    std::cout << "Produce token is nothing" << std::endl;
+    SPDLOG_TRACE("Produce token is none") << std::endl;
   }
 
   return 0;

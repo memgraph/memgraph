@@ -208,14 +208,15 @@ class PhysicalOperator {
   std::function<void(void)> after_done_fun_;
   // mutex + conditional variable, uptr because moves
   // NOTE: uptr has to be constructed!
-  // TODO(gitbuda): Rename Mcv to something better.
+  // TODO(gitbuda): Rename Mcv to something better + maybe it's possible to replace all this with one C++20 atomic.
   struct Mcv {
+    std::atomic<int> waiting_no_{0};
     std::mutex completion_mutex_;
     std::condition_variable completion_cv_;
   };
   std::unique_ptr<Mcv> mcv_;
 
-  void BaseExecute(ExecutionContext ctx) {
+  void ExecuteChildren(ExecutionContext ctx) {
     for (const auto &child : children_) {
       child->Execute(ctx);
     }
@@ -242,7 +243,6 @@ class PhysicalOperator {
         iter++;
         auto read_token = input->NextRead();
         if (read_token) {
-          // TODO/ERROR(gitbuda): This might be broken because MF is not processed completely?
           fun_(*(read_token->multiframe));
           input->PassBackRead(*read_token);
         }
@@ -254,7 +254,6 @@ class PhysicalOperator {
           while (true) {
             read_token = input->NextRead();
             if (read_token) {
-              // TODO/ERROR(gitbuda): This might be broken because MF is not processed completely?
               fun_(*(read_token->multiframe));
               input->PassBackRead(*read_token);
             } else {
@@ -271,15 +270,22 @@ class PhysicalOperator {
       after_done_fun_();
       // TODO/BROKEN(gitbuda): Replace this with something better, top operator should be notified.
       if (name_ == "Physical Produce") {
-        std::cout << "After " << name_ << " done, notifying" << std::endl;
+        // With 0 elements this gets executed too quickly before the below CV lock has been taken.
+        // TODO(gitbuda): See how to solve this in a more elegant way.
+        // The atomic counter solution doesn't work, I suspect because of the reordering.
+        std::this_thread::sleep_for(std::chrono::microseconds(1));
+        // while (mcv_->waiting_no_ == 0) {
+        //   std::this_thread::sleep_for(std::chrono::microseconds(1));
+        // };
         mcv_->completion_cv_.notify_one();
       }
     });
     if (name_ == "Physical Produce") {
       std::unique_lock<std::mutex> lock{mcv_->completion_mutex_};
-      std::cout << name_ << " waiting to be executed" << std::endl;
+      mcv_->waiting_no_.store(1);
+      SPDLOG_TRACE("{} main thread waiting for the operator to be executed", this->name_);
       mcv_->completion_cv_.wait(lock);
-      std::cout << name_ << " notified" << std::endl;
+      SPDLOG_TRACE("{} main thread notified for the completion and exiting", this->name_);
     }
   }
 };
@@ -294,9 +300,10 @@ class OncePhysicalOperator final : public PhysicalOperator<TDataPool> {
   explicit OncePhysicalOperator(const std::string &name, std::unique_ptr<TDataPool> &&data_pool)
       : PhysicalOperator<TDataPool>(name, std::move(data_pool)) {}
   void Execute(ExecutionContext ctx) override {
-    MG_ASSERT(Base::children_.empty(), "Once should have 0 inputs");
-    std::cout << Base::name_ << std::endl;
-    Base::BaseExecute(ctx);
+    MG_ASSERT(Base::children_.empty(), "{} should have 0 input/child", Base::name_);
+    SPDLOG_TRACE("{} Execute()", Base::name_);
+    Base::ExecuteChildren(ctx);
+
     Base::Emit(Frame{});
     Base::CloseEmit();
     Base::MarkWriterDone();
@@ -315,43 +322,26 @@ class ScanAllPhysicalOperator final : public PhysicalOperator<TDataPool> {
       : PhysicalOperator<TDataPool>(name, std::move(data_pool)), data_fun_(std::move(data_fun)) {}
 
   void Execute(ExecutionContext ctx) override {
-    std::cout << Base::name_ << std::endl;
-    MG_ASSERT(Base::children_.size() == 1, "ScanAll should have exactly 1 input");
-    Base::BaseExecute(ctx);
+    MG_ASSERT(Base::children_.size() == 1, "{} should have exactly 1 input/child", Base::name_);
+    SPDLOG_TRACE("{} Execute()", Base::name_);
+    Base::ExecuteChildren(ctx);
 
     // SCANALL PSEUDO
     // ∀mf : input multiframes
     //  ∀tuple : data_fun(evaluate(mf))
     //   emit(tuple)
-    //
-    // NOTE: Again, very concise and parallelizable implementation.
-    //
-    // TODO(gitbuda): It should be possible to parallelize the below ScanAll
-    // because the underlying data pool provides all needed to manage the
-    // result data.
     Base::SingleChildSingleThreadExaust(
         ctx,
         [this, &ctx](multiframe::Multiframe &multiframe) {
-          // for (auto &batch : data_fun_(multiframe, ctx)) {
-          //    for (auto &vertex : batch) {
-          //     // PROBLEM/TODO(gitbuda): Emit is designed to accept the full Frame,
-          //     // while we only need to add single variable into the frame.
-          //     // BUT we also need the entire "input" frame to pass it forward
-          //   }
-          // }
           int64_t cnt{0};
           for (const auto &new_frame : data_fun_(multiframe, ctx)) {
-            cnt++;
             Base::Emit(new_frame);
+            cnt++;
           }
           this->stats_.processed_frames += cnt;
-
           Base::CloseEmit();
         },
-        [this]() {
-          // TODO(gitbuda): MarkWritterDone has to know when all the thread is done.
-          Base::MarkWriterDone();
-        });
+        [this]() { Base::MarkWriterDone(); });
   }
 
  private:
@@ -367,9 +357,9 @@ class ProducePhysicalOperator final : public PhysicalOperator<TDataPool> {
   using PhysicalOperator<TDataPool>::PhysicalOperator;
 
   void Execute(ExecutionContext ctx) override {
-    std::cout << Base::name_ << std::endl;
-    MG_ASSERT(Base::children_.size() == 1, "PhysicalProduce should have exactly 1 input");
-    Base::BaseExecute(ctx);
+    MG_ASSERT(Base::children_.size() == 1, "{} should have exactly 1 input/child", Base::name_);
+    SPDLOG_TRACE("{} Execute()", Base::name_);
+    Base::ExecuteChildren(ctx);
 
     Base::SingleChildSingleThreadExaust(
         ctx,
