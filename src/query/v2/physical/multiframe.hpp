@@ -17,16 +17,10 @@
 #include <optional>
 #include <vector>
 
+#include "query/v2/physical/mock.hpp"
 #include "utils/logging.hpp"
 
-namespace memgraph::query::v2::physical {
-
-struct DummyFrame {
-  int64_t a;
-  int64_t b;
-};
-
-namespace multiframe {
+namespace memgraph::query::v2::physical::multiframe {
 
 // TODO(gitbuda): Add Multiframe as a concept.
 
@@ -107,7 +101,7 @@ concept MultiframePoolConcept = requires(TPool p, int id) {
 /// spent in critical sections.
 class MPMCMultiframeFCFSPool {
  public:
-  using TFrame = DummyFrame;
+  using TFrame = mock::Frame;
   using TMultiframe = Multiframe<TFrame>;
 
   enum class PoolState {
@@ -254,6 +248,4 @@ class MPMCMultiframeFCFSPool {
 
 static_assert(MultiframePoolConcept<MPMCMultiframeFCFSPool>);
 
-}  // namespace multiframe
-
-}  // namespace memgraph::query::v2::physical
+}  // namespace memgraph::query::v2::physical::multiframe

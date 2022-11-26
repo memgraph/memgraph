@@ -23,6 +23,18 @@
 
 namespace memgraph::query::v2::tests {
 
+using Op = physical::mock::Op;
+using OpType = physical::mock::OpType;
+auto SCANALL_ELEMS_POS = physical::mock::SCANALL_ELEMS_POS;
+
+using TDataPool = physical::multiframe::MPMCMultiframeFCFSPool;
+using TPhysicalOperator = physical::PhysicalOperator<TDataPool>;
+using TPhysicalOperatorPtr = std::shared_ptr<TPhysicalOperator>;
+using TOnceOperator = physical::OncePhysicalOperator<TDataPool>;
+template <typename TDataFun>
+using TScanAllOperator = physical::ScanAllPhysicalOperator<TDataFun, TDataPool>;
+using TProduceOperator = physical::ProducePhysicalOperator<TDataPool>;
+
 class PhysicalPlanFixture : public ::testing::Test {
  protected:
   void SetUp() override {}
@@ -30,48 +42,7 @@ class PhysicalPlanFixture : public ::testing::Test {
   utils::ThreadPool thread_pool_{16};
 };
 
-enum class OpType { Once, ScanAll, Produce };
-std::ostream &operator<<(std::ostream &os, const OpType &op_type) {
-  switch (op_type) {
-    case OpType::Once:
-      os << "Once";
-      break;
-    case OpType::ScanAll:
-      os << "ScanAll";
-      break;
-    case OpType::Produce:
-      os << "Produce";
-      break;
-  }
-  return os;
-}
-constexpr int ENTITIES_NUM = 0;
-struct Op {
-  OpType type;
-  std::vector<int> props;
-};
-void log_ops(const std::vector<Op> &ops) {
-  for (const auto &op : ops) {
-    if (op.type == OpType::ScanAll) {
-      SPDLOG_INFO("{} elems: {}", op.type, op.props[ENTITIES_NUM]);
-    } else {
-      SPDLOG_INFO("{}", op.type);
-    }
-  }
-}
-
-// TODO(gitbuda): It's critical to add logging.
-//
-// TODO(gitbuda): Doesn't work yet because it seems that the data pool is
-// blocked when the first writer fills all available space.
-//
 RC_GTEST_FIXTURE_PROP(PhysicalPlanFixture, PropertyBasedPhysicalPlan, ()) {
-  using TDataPool = physical::multiframe::MPMCMultiframeFCFSPool;
-  using TPhysicalOperator = physical::PhysicalOperator<TDataPool>;
-  using TPhysicalOperatorPtr = std::shared_ptr<TPhysicalOperator>;
-  using TOnceOperator = physical::OncePhysicalOperator<TDataPool>;
-  using TProduceOperator = physical::ProducePhysicalOperator<TDataPool>;
-
   SPDLOG_INFO("--- TEST START ----");
   int multiframes_no_per_op = *rc::gen::inRange(1, 32);
   int multiframe_size = *rc::gen::inRange(1, 2000);
@@ -100,18 +71,17 @@ RC_GTEST_FIXTURE_PROP(PhysicalPlanFixture, PropertyBasedPhysicalPlan, ()) {
 
     } else if (op.type == OpType::ScanAll) {
       auto data_fun = [&op](TDataPool::TMultiframe &mf, physical::ExecutionContext &) {
-        std::vector<physical::DummyFrame> frames;
-        for (int i = 0; i < op.props[ENTITIES_NUM]; ++i) {
+        std::vector<physical::mock::Frame> frames;
+        for (int i = 0; i < op.props[SCANALL_ELEMS_POS]; ++i) {
           for (int j = 0; j < mf.Data().size(); ++j) {
-            frames.push_back(physical::DummyFrame{});
+            frames.push_back(physical::mock::Frame{});
           }
         }
         return frames;
       };
       auto data_pool = std::make_unique<TDataPool>(multiframes_no_per_op, multiframe_size);
-      auto scan_all = std::make_shared<physical::ScanAllPhysicalOperator<decltype(data_fun), TDataPool>>(
-          physical::ScanAllPhysicalOperator<decltype(data_fun), TDataPool>("Physical ScanAll", std::move(data_fun),
-                                                                           std::move(data_pool)));
+      auto scan_all = std::make_shared<TScanAllOperator<decltype(data_fun)>>(
+          TScanAllOperator<decltype(data_fun)>("Physical ScanAll", std::move(data_fun), std::move(data_pool)));
       current->AddChild(scan_all);
       current = scan_all;
 
@@ -128,7 +98,7 @@ RC_GTEST_FIXTURE_PROP(PhysicalPlanFixture, PropertyBasedPhysicalPlan, ()) {
   int64_t scan_all_cnt{1};
   for (const auto &op : ops) {
     if (op.type == OpType::ScanAll) {
-      scan_all_cnt *= op.props[ENTITIES_NUM];
+      scan_all_cnt *= op.props[SCANALL_ELEMS_POS];
     }
   }
   SPDLOG_INFO("Total ScanAll elements: {}", scan_all_cnt);

@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "query/plan/operator.hpp"
+#include "query/v2/physical/mock.hpp"
 #include "query/v2/physical/multiframe.hpp"
 #include "utils/thread_pool.hpp"
 #include "utils/visitor.hpp"
@@ -437,7 +438,7 @@ class PhysicalPlanGenerator final : public HierarchicalLogicalOperatorVisitor {
     //       -> parallelization possible by calling data_fun from multiple threads
     //
     auto data_fun = [](typename TDataPool::TMultiframe &multiframe, ExecutionContext &) {
-      std::vector<DummyFrame> frames;
+      std::vector<mock::Frame> frames;
       for (const auto &frame : multiframe.Data()) {
         frames.push_back(frame);
       }

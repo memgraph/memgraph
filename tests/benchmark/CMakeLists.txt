@@ -65,3 +65,6 @@ target_link_libraries(${test_prefix}storage_v2_property_store mg-storage-v2)
 
 add_benchmark(future.cpp)
 target_link_libraries(${test_prefix}future mg-io)
+
+add_benchmark(physical_plan.cpp)
+target_link_libraries(${test_prefix}physical_plan mg-query-v2 mg-utils)
