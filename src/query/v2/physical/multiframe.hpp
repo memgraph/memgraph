@@ -21,7 +21,7 @@
 
 namespace memgraph::query::v2::physical {
 
-struct Frame {
+struct DummyFrame {
   int64_t a;
   int64_t b;
 };
@@ -49,22 +49,23 @@ namespace multiframe {
 /// Moving/copying Frames between operators is questionable because operators
 /// mostly operate on a single Frame value.
 ///
+template <typename TFrame>
 class Multiframe {
  public:
   Multiframe() = delete;
-  Multiframe(const Multiframe &) = default;
-  Multiframe(Multiframe &&) = default;
-  Multiframe &operator=(const Multiframe &) = default;
-  Multiframe &operator=(Multiframe &&) = default;
+  Multiframe(const Multiframe &) = delete;
+  Multiframe(Multiframe &&) noexcept = default;
+  Multiframe &operator=(const Multiframe &) = delete;
+  Multiframe &operator=(Multiframe &&) noexcept = default;
   explicit Multiframe(const size_t capacity = 0) : data_(0) { data_.reserve(capacity); }
   ~Multiframe() = default;
 
   size_t Capacity() const { return data_.capacity(); }
   size_t Size() const { return data_.size(); }
   bool IsFull() const { return Size() == Capacity(); }
-  void PushBack(const Frame &frame) { data_.push_back(frame); }
-  void Put(const Frame &frame, int at) { data_[at] = frame; }
-  const std::vector<Frame> &Data() const { return data_; }
+  void PushBack(const TFrame &frame) { data_.push_back(frame); }
+  void Put(const TFrame &frame, int at) { data_[at] = frame; }
+  const std::vector<TFrame> &Data() const { return data_; }
   // The main issue with the Multiframe is that once we have to reuse a filled
   // frame, the cleanup cost might be high -> ensure Multiframe "reset"
   // (whatever that might be) is fast.
@@ -88,49 +89,15 @@ class Multiframe {
   void Clear() { data_.clear(); }
 
  private:
-  std::vector<Frame> data_;
-};
-
-struct Token {
-  int id;
-  Multiframe *multiframe;
+  std::vector<TFrame> data_;
 };
 
 template <typename TPool>
 concept MultiframePoolConcept = requires(TPool p, int id) {
-  { p.GetEmpty() } -> std::same_as<std::optional<Token>>;
-  { p.GetFull() } -> std::same_as<std::optional<Token>>;
+  { p.GetEmpty() } -> std::same_as<std::optional<typename TPool::Token>>;
+  { p.GetFull() } -> std::same_as<std::optional<typename TPool::Token>>;
   { p.ReturnEmpty(id) } -> std::same_as<void>;
   { p.ReturnFull(id) } -> std::same_as<void>;
-};
-
-enum class Mode {
-  // TODO(gitbuda): To implement FCFS ordering policy a queue of token is
-  // required with round robin id assignment.
-  //   * A queue seem very intuitive choice but there are a lot of issues.
-  //   * Trivial queue doesn't work because returning token is not trivial.
-  // FCFS/LIFO is a probably a wrong concept here, instead:
-  //   * Single/Multiple Producer + Single/Multiple Consumer is probably the way to go.
-  //
-  SPSC,  // With 2 Multiframes SPSC already provides simultaneous operator execution.
-  SPMC,
-  MPSC,
-  MPMC,
-  // All the above 4 modes are meaningful in the overall operator stack. If
-  // MultiframePool is used between the operators, each operator can specify
-  // the actual mode because of the operator semantics.
-  //
-};
-enum class Order {
-  FCFS,
-  RANDOM,
-};
-
-enum class PoolState {
-  EMPTY,
-  HAS_MORE,
-  HINT_WRITER_DONE,
-  EXHAUSTED,
 };
 
 /// Preallocated memory for an operator results.
@@ -138,9 +105,21 @@ enum class PoolState {
 /// Requires giving back Token after Multiframe is consumed/filled.
 /// Equivalent to a queue of Multiframes with intention to minimize the time
 /// spent in critical sections.
-/// TODO(gitbuda): Templatize multiframe pool implementation (token should also be templatized).
 class MPMCMultiframeFCFSPool {
  public:
+  using TFrame = DummyFrame;
+  using TMultiframe = Multiframe<TFrame>;
+
+  enum class PoolState {
+    EMPTY,
+    HAS_MORE,
+    HINT_WRITER_DONE,
+    EXHAUSTED,
+  };
+  struct Token {
+    int id;
+    Multiframe<TFrame> *multiframe;
+  };
   /// Critical because all filled multiframes should be consumed at some point.
   enum class MultiframeState {
     EMPTY,
@@ -157,7 +136,7 @@ class MPMCMultiframeFCFSPool {
 
   explicit MPMCMultiframeFCFSPool(int pool_size, size_t multiframe_size) : pool_state_(PoolState::EMPTY) {
     for (int i = 0; i < pool_size; ++i) {
-      frames_.emplace_back(Multiframe{multiframe_size});
+      frames_.emplace_back(Multiframe<TFrame>{multiframe_size});
     }
     for (int i = 0; i < pool_size; ++i) {
       priority_states_.emplace_back(InternalToken{.priority = 0, .state = MultiframeState::EMPTY});
@@ -173,7 +152,7 @@ class MPMCMultiframeFCFSPool {
   /// if nullopt -> useful multiframe is not available.
   /// The below implementation should be a correct but probably suboptimal
   /// implementation of MPMC mode with FCFS ordering of multiframes.
-  std::optional<multiframe::Token> GetFull() {
+  std::optional<Token> GetFull() {
     std::unique_lock lock{mutex};
     int64_t min_full = std::numeric_limits<int64_t>::max();
     MultiframeState state = MultiframeState::EMPTY;
@@ -197,12 +176,12 @@ class MPMCMultiframeFCFSPool {
       // this is just a check to make sure returned multiframes are in order.
       MG_ASSERT(min_full > order_check_, "has to grow monotonic");
       order_check_ = min_full;
-      return multiframe::Token{.id = static_cast<int>(index), .multiframe = &frames_.at(index)};
+      return Token{.id = static_cast<int>(index), .multiframe = &frames_.at(index)};
     }
     return std::nullopt;
   }
 
-  std::optional<multiframe::Token> GetEmpty() {
+  std::optional<Token> GetEmpty() {
     std::unique_lock lock{mutex};
     ++priority_counter_;
     for (int index = 0; index < priority_states_.size(); ++index) {
@@ -210,7 +189,7 @@ class MPMCMultiframeFCFSPool {
         priority_states_[index].priority = priority_counter_;
         priority_states_[index].state = MultiframeState::IN_USE;
         frames_[index].Clear();
-        return multiframe::Token{.id = static_cast<int>(index), .multiframe = &frames_.at(index)};
+        return Token{.id = static_cast<int>(index), .multiframe = &frames_.at(index)};
       }
     }
     // in case we haven't found an empty frame the priority counter has to be
@@ -233,6 +212,7 @@ class MPMCMultiframeFCFSPool {
     std::unique_lock lock{mutex};
     MG_ASSERT(priority_states_[id].state == MultiframeState::IN_USE, "should be in use");
     priority_states_[id].state = MultiframeState::FULL;
+    pool_state_ = PoolState::HAS_MORE;
   }
 
   void MarkWriterDone() {
@@ -262,7 +242,7 @@ class MPMCMultiframeFCFSPool {
   //         * Good as long as the total number of Multiframes is the same -> ONLY SWAP IS OK
   //           Go here only when move+destroy is a noticeable problem
   //
-  std::vector<multiframe::Multiframe> frames_;
+  std::vector<multiframe::Multiframe<TFrame>> frames_;
   std::vector<InternalToken> priority_states_;
   int64_t priority_counter_{-1};
   int64_t order_check_{-1};

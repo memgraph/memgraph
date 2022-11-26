@@ -21,11 +21,12 @@
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/v2/physical/physical.hpp"
 #include "storage/v2/storage.hpp"
+#include "utils/logging.hpp"
 #include "utils/string.hpp"
 
 int main(int argc, char *argv[]) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  spdlog::set_level(spdlog::level::info);
+  spdlog::set_level(spdlog::level::trace);
 
   memgraph::storage::Storage db;
   auto storage_dba = db.Access();
@@ -53,14 +54,15 @@ int main(int argc, char *argv[]) {
   plans[0].unoptimized_plan->Accept(physical_plan_generator);
   auto physical_plan = physical_plan_generator.Generate();
   // Start physical plan execution.
-  memgraph::query::v2::physical::ExecutionContext ctx;
+  memgraph::utils::ThreadPool thread_pool{16};
+  memgraph::query::v2::physical::ExecutionContext ctx{.thread_pool = &thread_pool};
   physical_plan->Execute(ctx);
   // Fetch physical plan execution results.
   auto token = physical_plan->NextRead();
   if (token) {
-    SPDLOG_TRACE("Produce token is some") << std::endl;
+    SPDLOG_TRACE("Produce token is some");
   } else {
-    SPDLOG_TRACE("Produce token is none") << std::endl;
+    SPDLOG_TRACE("Produce token is none");
   }
 
   return 0;

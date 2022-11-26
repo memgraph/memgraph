@@ -20,21 +20,8 @@
 #include "query/v2/physical/physical.hpp"
 #include "utils/logging.hpp"
 #include "utils/thread_pool.hpp"
-#include "utils/timer.hpp"
 
 namespace memgraph::query::v2::tests {
-
-class MultiframePoolFixture : public ::testing::Test {
- protected:
-  void SetUp() override {}
-  void TearDown() override {
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    thread_pool_.Shutdown();
-  }
-
-  physical::multiframe::MPMCMultiframeFCFSPool multiframe_pool_{16, 100};
-  utils::ThreadPool thread_pool_{16};
-};
 
 class PhysicalPlanFixture : public ::testing::Test {
  protected:
@@ -42,46 +29,6 @@ class PhysicalPlanFixture : public ::testing::Test {
   void TearDown() override {}
   utils::ThreadPool thread_pool_{16};
 };
-
-TEST_F(MultiframePoolFixture, DISABLED_ConcurrentMultiframePoolAccess) {
-  std::atomic<int> readers_got_access_cnt;
-  std::atomic<int> writers_got_access_cnt;
-  utils::Timer timer;
-
-  for (int i = 0; i < 1000000; ++i) {
-    // Add readers
-    thread_pool_.AddTask([&]() {
-      while (true) {
-        auto token = multiframe_pool_.GetFull();
-        if (token) {
-          ASSERT_TRUE(token->id >= 0 && token->id < 16);
-          readers_got_access_cnt.fetch_add(1);
-          multiframe_pool_.ReturnEmpty(token->id);
-          break;
-        }
-      }
-    });
-    // Add writers
-    thread_pool_.AddTask([&]() {
-      while (true) {
-        auto token = multiframe_pool_.GetEmpty();
-        if (token) {
-          ASSERT_TRUE(token->id >= 0 && token->id < 16);
-          writers_got_access_cnt.fetch_add(1);
-          multiframe_pool_.ReturnFull(token->id);
-          break;
-        }
-      }
-    });
-  }
-  SPDLOG_TRACE("All readers and writters scheduled");
-
-  while (thread_pool_.UnfinishedTasksNum() != 0) {
-    std::this_thread::sleep_for(std::chrono::microseconds(100));
-  }
-  ASSERT_EQ(readers_got_access_cnt.load(), 1000000);
-  ASSERT_EQ(writers_got_access_cnt.load(), 1000000);
-}
 
 enum class OpType { Once, ScanAll, Produce };
 std::ostream &operator<<(std::ostream &os, const OpType &op_type) {
@@ -152,11 +99,11 @@ RC_GTEST_FIXTURE_PROP(PhysicalPlanFixture, PropertyBasedPhysicalPlan, ()) {
       current = once;
 
     } else if (op.type == OpType::ScanAll) {
-      auto data_fun = [&op](physical::multiframe::Multiframe &mf, physical::ExecutionContext &) {
-        std::vector<physical::Frame> frames;
+      auto data_fun = [&op](TDataPool::TMultiframe &mf, physical::ExecutionContext &) {
+        std::vector<physical::DummyFrame> frames;
         for (int i = 0; i < op.props[ENTITIES_NUM]; ++i) {
           for (int j = 0; j < mf.Data().size(); ++j) {
-            frames.push_back(physical::Frame{});
+            frames.push_back(physical::DummyFrame{});
           }
         }
         return frames;

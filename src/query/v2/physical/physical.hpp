@@ -30,13 +30,8 @@ using memgraph::utils::ThreadPool;
 
 /// Moving/copying Frames between operators is questionable because operators
 /// mostly operate on a single Frame value.
-///
-/// TODO(gitbuda): Consider adding PipelineSegment abstraction.
-///
-struct PipelineSegment {};
 
-/// Access to the thread and data pools should be given via the
-/// ExecutionContext.
+/// Access to the thread pools should be given via the ExecutionContext.
 ///
 struct ExecutionContext {
   ThreadPool *thread_pool;
@@ -49,6 +44,7 @@ struct ExecutionContext {
 ///   * Operator Pool -> Responsible for the operator work (e.g. data moves)
 ///   * IO       Pool -> Responsible for the interactions with the storage
 ///   * CPU      Pool -> Responsible for CPU heavy operations like aggregations
+///
 /// TODO(gitbuda): Design thread pools and allocators.
 ///   * Thread pool has to support cooperative cancellation of specific tasks.
 
@@ -60,6 +56,10 @@ struct ExecutionContext {
 template <typename TDataPool>
 class PhysicalOperator {
  public:
+  // TODO(gitbuda): Consider moving TDataPool as an alias here because the
+  // implementation of execution is dependent on the way how the data pool is
+  // operating. -> it would simplify both implementation and usage.
+  //
   explicit PhysicalOperator(const std::string &name, std::unique_ptr<TDataPool> &&data_pool)
       : name_(name), data_pool_(std::move(data_pool)), mcv_(std::make_unique<Mcv>()) {}
   PhysicalOperator() = delete;
@@ -91,7 +91,7 @@ class PhysicalOperator {
   /// NOTE: Caller is responsible for checking if there is no more data at all by checking both token and exhaustion.
   ///
   /// TODO(gitbuda): Move the sleep on the caller side | add a flag to enable/disable sleep here?
-  std::optional<multiframe::Token> NextRead(bool exp_backoff = false) {
+  std::optional<typename TDataPool::Token> NextRead(bool exp_backoff = false) {
     auto token = data_pool_->GetFull();
     if (token) {
       return token;
@@ -110,9 +110,9 @@ class PhysicalOperator {
     }
     return std::nullopt;
   }
-  void PassBackRead(const multiframe::Token &token) { data_pool_->ReturnEmpty(token.id); }
+  void PassBackRead(const typename TDataPool::Token &token) { data_pool_->ReturnEmpty(token.id); }
 
-  std::optional<multiframe::Token> NextWrite(bool exp_backoff = false) {
+  std::optional<typename TDataPool::Token> NextWrite(bool exp_backoff = false) {
     // In this case it's different compared to the NextRead because if
     // somebody has marked the pool as exhausted furher writes shouldn't be
     // possible.
@@ -132,7 +132,7 @@ class PhysicalOperator {
       }
     }
   }
-  void PassBackWrite(const multiframe::Token &token) { data_pool_->ReturnFull(token.id); }
+  void PassBackWrite(const typename TDataPool::Token &token) { data_pool_->ReturnFull(token.id); }
 
   template <typename TTuple>
   void Emit(const TTuple &tuple) {
@@ -167,7 +167,7 @@ class PhysicalOperator {
   }
   /// TODO(gitbuda): Create Emit which is suitable to be used in the concurrent environment.
   template <typename TTuple>
-  void EmitWhere(const multiframe::Token &where, const TTuple &what) {}
+  void EmitWhere(const typename TDataPool::Token &where, const TTuple &what) {}
 
   bool IsWriterDone() const { return data_pool_->IsWriterDone(); }
   /// TODO(gitbuda): Consider renaming this to MarkJobDone because the point is
@@ -202,9 +202,9 @@ class PhysicalOperator {
   /// uptr is here to make the PhysicalOperator moveable.
   /// TODO(gitbuda): Make it more clear that below is a uptr.
   std::unique_ptr<TDataPool> data_pool_;
-  std::optional<multiframe::Token> current_token_;
+  std::optional<typename TDataPool::Token> current_token_;
   Stats stats_{.processed_frames = 0};
-  std::function<void(multiframe::Multiframe &multiframe)> fun_;
+  std::function<void(typename TDataPool::TMultiframe &multiframe)> fun_;
   std::function<void(void)> after_done_fun_;
   // mutex + conditional variable, uptr because moves
   // NOTE: uptr has to be constructed!
@@ -227,7 +227,8 @@ class PhysicalOperator {
   /// the input data pool). The injected function (fun) will write data to the
   /// data pool of this operator.
   ///
-  void SingleChildSingleThreadExaust(ExecutionContext ctx, std::function<void(multiframe::Multiframe &multiframe)> fun,
+  void SingleChildSingleThreadExaust(ExecutionContext ctx,
+                                     std::function<void(typename TDataPool::TMultiframe &multiframe)> fun,
                                      std::function<void(void)> after_done_fun) {
     // If we don't store functions, they are deleted because this function ends
     // quickly (AddTask does not block).
@@ -304,7 +305,7 @@ class OncePhysicalOperator final : public PhysicalOperator<TDataPool> {
     SPDLOG_TRACE("{} Execute()", Base::name_);
     Base::ExecuteChildren(ctx);
 
-    Base::Emit(Frame{});
+    Base::Emit(typename TDataPool::TFrame{});
     Base::CloseEmit();
     Base::MarkWriterDone();
   }
@@ -332,7 +333,7 @@ class ScanAllPhysicalOperator final : public PhysicalOperator<TDataPool> {
     //   emit(tuple)
     Base::SingleChildSingleThreadExaust(
         ctx,
-        [this, &ctx](multiframe::Multiframe &multiframe) {
+        [this, &ctx](typename TDataPool::TMultiframe &multiframe) {
           int64_t cnt{0};
           for (const auto &new_frame : data_fun_(multiframe, ctx)) {
             Base::Emit(new_frame);
@@ -363,7 +364,7 @@ class ProducePhysicalOperator final : public PhysicalOperator<TDataPool> {
 
     Base::SingleChildSingleThreadExaust(
         ctx,
-        [this](multiframe::Multiframe &multiframe) {
+        [this](typename TDataPool::TMultiframe &multiframe) {
           auto size = multiframe.Data().size();
           this->stats_.processed_frames += size;
         },
@@ -435,8 +436,8 @@ class PhysicalPlanGenerator final : public HierarchicalLogicalOperatorVisitor {
     //     -> 1 data_fun call for each Multiframe
     //       -> parallelization possible by calling data_fun from multiple threads
     //
-    auto data_fun = [](multiframe::Multiframe &multiframe, ExecutionContext &) {
-      std::vector<Frame> frames;
+    auto data_fun = [](typename TDataPool::TMultiframe &multiframe, ExecutionContext &) {
+      std::vector<DummyFrame> frames;
       for (const auto &frame : multiframe.Data()) {
         frames.push_back(frame);
       }
