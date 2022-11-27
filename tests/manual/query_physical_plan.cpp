@@ -81,7 +81,10 @@ int main(int argc, char *argv[]) {
   // TODO(gitbuda): Single Frame Pull Execution
   memgraph::query::v2::physical::mock::Frame frame;
   auto plan = memgraph::query::v2::physical::mock::MakePullPlan(ops);
-  plan->Pull(frame, ctx);
+  int64_t cnt{0};
+  while (plan->Pull(frame, ctx)) {
+    cnt++;
+  }
 
   // Multi Frame Single Thread per Operator Execution
   for (const auto &pool_size : pool_sizes) {

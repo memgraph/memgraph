@@ -16,6 +16,7 @@
 #include "query/v2/physical/mock/mock.hpp"
 #include "query/v2/physical/multiframe.hpp"
 #include "query/v2/physical/physical_ene.hpp"
+#include "query/v2/physical/physical_pull.hpp"
 
 static const std::size_t kThreadsNum = std::thread::hardware_concurrency();
 
@@ -39,11 +40,11 @@ class PhysicalFixture : public benchmark::Fixture {
   std::unique_ptr<memgraph::utils::ThreadPool> thread_pool_;
 };
 
-BENCHMARK_DEFINE_F(PhysicalFixture, TestSingleThread)
+BENCHMARK_DEFINE_F(PhysicalFixture, TestENESingleThread)
 (benchmark::State &state) {
   int pool_size = state.range(0);
   int mf_size = state.range(1);
-  int scan_all_elems = 100;
+  int scan_all_elems = 1000;
   std::vector<Op> ops{
       Op{.type = OpType::Produce},
       Op{.type = OpType::ScanAll, .props = {scan_all_elems}},
@@ -57,13 +58,32 @@ BENCHMARK_DEFINE_F(PhysicalFixture, TestSingleThread)
     plan->Execute(ctx);
   }
 }
-
-BENCHMARK_REGISTER_F(PhysicalFixture, TestSingleThread)
+BENCHMARK_REGISTER_F(PhysicalFixture, TestENESingleThread)
     ->ArgsProduct({
         benchmark::CreateRange(4, 16, 2),
         benchmark::CreateRange(10, 10000, 10),
     })
     ->Unit(benchmark::kMillisecond)
     ->UseRealTime();
+
+BENCHMARK_DEFINE_F(PhysicalFixture, TestCursorPull)
+(benchmark::State &state) {
+  int scan_all_elems = 1000;
+  std::vector<Op> ops{
+      Op{.type = OpType::Produce},
+      Op{.type = OpType::ScanAll, .props = {scan_all_elems}},
+      Op{.type = OpType::ScanAll, .props = {scan_all_elems}},
+      Op{.type = OpType::Once},
+  };
+
+  for (auto _ : state) {
+    auto plan = memgraph::query::v2::physical::mock::MakePullPlan(ops);
+    memgraph::query::v2::physical::mock::Frame frame;
+    TExecutionContext ctx{.thread_pool = thread_pool_.get()};
+    while (plan->Pull(frame, ctx))
+      ;
+  }
+}
+BENCHMARK_REGISTER_F(PhysicalFixture, TestCursorPull)->Unit(benchmark::kMillisecond)->UseRealTime();
 
 BENCHMARK_MAIN();

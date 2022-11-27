@@ -34,7 +34,8 @@ using TExecutionContext = ExecutionContext;
 using TCursor = physical::Cursor;
 using TCursorPtr = std::unique_ptr<TCursor>;
 using TCursorOnce = physical::OnceCursor;
-using TCursorScanAll = physical::ScanAllCursor;
+template <typename TDataFun>
+using TCursorScanAll = physical::ScanAllCursor<TDataFun>;
 using TCursorProduce = physical::ProduceCursor;
 
 enum class OpType { Once, ScanAll, Produce };
@@ -122,20 +123,28 @@ inline TPhysicalOperatorPtr MakeENEPlan(const std::vector<Op> &ops, int pool_siz
 
 inline TCursorPtr MakePullOnce() { return std::make_unique<TCursorOnce>(nullptr); }
 
-inline TCursorPtr MakePullScanAll(TCursorPtr &&input) { return std::make_unique<TCursorScanAll>(std::move(input)); }
+inline TCursorPtr MakePullScanAll(TCursorPtr &&input, int scan_all_elems) {
+  auto data_fun = [scan_all_elems](TFrame &, TExecutionContext &) {
+    std::vector<TFrame> frames;
+    for (int i = 0; i < scan_all_elems; ++i) {
+      frames.push_back(TFrame{});
+    }
+    return frames;
+  };
+  return std::make_unique<TCursorScanAll<decltype(data_fun)>>(std::move(input), std::move(data_fun));
+}
 
 inline TCursorPtr MakePullProduce(TCursorPtr &&input) { return std::make_unique<TCursorProduce>(std::move(input)); }
 
 inline TCursorPtr MakePullPlan(const std::vector<Op> &ops) {
   std::vector<Op> reversed_ops(ops.rbegin(), ops.rend());
-
   TCursorPtr plan = nullptr;
   for (const auto &op : reversed_ops) {
     if (op.type == OpType::Once) {
       plan = MakePullOnce();
 
     } else if (op.type == OpType::ScanAll) {
-      plan = MakePullScanAll(std::move(plan));
+      plan = MakePullScanAll(std::move(plan), op.props[SCANALL_ELEMS_POS]);
 
     } else if (op.type == OpType::Produce) {
       plan = MakePullProduce(std::move(plan));

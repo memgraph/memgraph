@@ -53,23 +53,48 @@ class OnceCursor : public Cursor {
   explicit OnceCursor(TCursorPtr &&input) : Cursor(std::move(input)) {}
 
   bool Pull(TFrame &, TExecutionContext &) override {
-    SPDLOG_INFO("Once Cursor Pull");
-    return false;
+    if (did_pool_) return false;
+    did_pool_ = true;
+    return true;
   }
+
+ private:
+  bool did_pool_{false};
 };
 
+template <typename TDataFun>
 class ScanAllCursor : public Cursor {
  public:
   using Cursor::TCursorPtr;
   using Cursor::TExecutionContext;
   using Cursor::TFrame;
 
-  explicit ScanAllCursor(TCursorPtr &&input) : Cursor(std::move(input)) {}
+  explicit ScanAllCursor(TCursorPtr &&input, TDataFun &&data_fun)
+      : Cursor(std::move(input)), data_fun_(std::move(data_fun)) {}
 
   bool Pull(TFrame &frame, TExecutionContext &ctx) override {
-    SPDLOG_INFO("Scan All Cursor Pull");
-    return input_->Pull(frame, ctx);
+    if (data_it_ != data_.end()) {
+      frame.a = data_it_->a;
+      frame.b = data_it_->b;
+      data_it_++;
+      return true;
+    } else {
+      while (input_->Pull(frame, ctx)) {
+        data_ = std::move(data_fun_(frame, ctx));
+        data_it_ = data_.begin();
+        frame.a = data_it_->a;
+        frame.b = data_it_->b;
+        data_it_++;
+        return true;
+      }
+      return false;
+    }
   }
+
+ private:
+  TDataFun data_fun_;
+  std::vector<TFrame> data_;
+  std::vector<TFrame>::iterator data_it_{data_.end()};
 };
 
 class ProduceCursor : public Cursor {
@@ -80,10 +105,7 @@ class ProduceCursor : public Cursor {
 
   explicit ProduceCursor(TCursorPtr &&input) : Cursor(std::move(input)) {}
 
-  bool Pull(TFrame &frame, TExecutionContext &ctx) override {
-    SPDLOG_INFO("Produce Cursor Pull");
-    return input_->Pull(frame, ctx);
-  }
+  bool Pull(TFrame &frame, TExecutionContext &ctx) override { return input_->Pull(frame, ctx); }
 };
 
 }  // namespace memgraph::query::v2::physical
