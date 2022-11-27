@@ -19,6 +19,7 @@
 #include "interactive/db_accessor.hpp"
 #include "interactive/plan.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
+#include "query/v2/physical/mock/mock.hpp"
 #include "query/v2/physical/physical.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/logging.hpp"
@@ -26,14 +27,14 @@
 
 int main(int argc, char *argv[]) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  spdlog::set_level(spdlog::level::trace);
+  spdlog::set_level(spdlog::level::err);
 
   memgraph::storage::Storage db;
   auto storage_dba = db.Access();
   memgraph::query::DbAccessor dba(&storage_dba);
 
-  Timer planning_timer;
-  InteractiveDbAccessor interactive_db(&dba, 10, planning_timer);
+  Timer timer;
+  InteractiveDbAccessor interactive_db(&dba, 10, timer);
   std::string input_query = "MATCH (n) RETURN n;";
   memgraph::query::AstStorage ast;
   auto *query = dynamic_cast<memgraph::query::CypherQuery *>(MakeAst(input_query, &ast));
@@ -41,7 +42,6 @@ int main(int argc, char *argv[]) {
     throw memgraph::utils::BasicException("Create CypherQuery failed");
   }
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  planning_timer.Start();
   auto plans = MakeLogicalPlans(query, ast, symbol_table, &interactive_db);
   if (plans.empty()) {
     throw memgraph::utils::BasicException("No plans");
@@ -63,6 +63,28 @@ int main(int argc, char *argv[]) {
     SPDLOG_TRACE("Produce token is some");
   } else {
     SPDLOG_TRACE("Produce token is none");
+  }
+
+  using Op = memgraph::query::v2::physical::mock::Op;
+  using OpType = memgraph::query::v2::physical::mock::OpType;
+  std::vector<int> pool_sizes = {1, 2, 4, 8, 16};
+  std::vector<int> mf_sizes = {1, 10, 100, 1000, 10000};
+  int scan_all_elems = 100;
+  std::vector<Op> ops{
+      Op{.type = OpType::Produce},
+      Op{.type = OpType::ScanAll, .props = {scan_all_elems}},
+      Op{.type = OpType::ScanAll, .props = {scan_all_elems}},
+      Op{.type = OpType::ScanAll, .props = {scan_all_elems}},
+      Op{.type = OpType::Once},
+  };
+  for (const auto &pool_size : pool_sizes) {
+    for (const auto &mf_size : mf_sizes) {
+      auto plan = MakePlan(ops, pool_size, mf_size);
+      timer.Start();
+      plan->Execute(ctx);
+      auto time = std::chrono::duration_cast<std::chrono::milliseconds>(timer.Elapsed()).count();
+      std::cout << pool_size << " " << mf_size << " " << time << std::endl;
+    }
   }
 
   return 0;
