@@ -44,32 +44,26 @@ BENCHMARK_DEFINE_F(PhysicalFixture, TestSingleThread)
   int pool_size = state.range(0);
   int mf_size = state.range(1);
   int scan_all_elems = 1000;
-
   std::vector<Op> ops{
       Op{.type = OpType::Produce},
+      Op{.type = OpType::ScanAll, .props = {scan_all_elems}},
       Op{.type = OpType::ScanAll, .props = {scan_all_elems}},
       Op{.type = OpType::Once},
   };
 
   for (auto _ : state) {
-    // // TODO(gitbuda): Make gbench work.
-    // auto plan = MakePlan(ops, pool_size, mf_size);
-    // TExecutionContext ctx{.thread_pool = thread_pool_.get()};
-    // plan->Execute(ctx);
+    auto plan = MakePlan(ops, pool_size, mf_size);
+    TExecutionContext ctx{.thread_pool = thread_pool_.get()};
+    plan->Execute(ctx);
   }
 }
-// multiframes, frames, threads
+
 BENCHMARK_REGISTER_F(PhysicalFixture, TestSingleThread)
-    ->Args({2, 1})
-    ->Args({2, 10})
-    ->Args({2, 100})
-    ->Args({2, 1000})
-    // ->Args({1, 1})
-    // ->Args({1, 10})
-    // ->Args({1, 100})
-    // TODO(gitbuda): Doesn't work...
-    // ->Args({1, 1000})
-    ->Unit(benchmark::kNanosecond)
+    ->ArgsProduct({
+        benchmark::CreateRange(1, 16, 2),
+        benchmark::CreateRange(1, 10000, 10),
+    })
+    ->Unit(benchmark::kMillisecond)
     ->UseRealTime();
 
 BENCHMARK_MAIN();
