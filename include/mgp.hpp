@@ -2444,7 +2444,7 @@ inline double Value::ValueDouble() const {
 }
 
 inline double Value::ValueNumeric() const {
-  if (Type() != Type::Int || Type() != Type::Double) {
+  if (Type() != Type::Int && Type() != Type::Double) {
     throw ValueException("Type of value is wrong: expected Int or Double.");
   }
   if (Type() == Type::Int) {
