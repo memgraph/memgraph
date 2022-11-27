@@ -18,7 +18,7 @@
 #include <rapidcheck/gtest.h>
 
 #include "query/v2/physical/mock/mock.hpp"
-#include "query/v2/physical/physical.hpp"
+#include "query/v2/physical/physical_ene.hpp"
 #include "utils/logging.hpp"
 #include "utils/thread_pool.hpp"
 

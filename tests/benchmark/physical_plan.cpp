@@ -15,7 +15,7 @@
 
 #include "query/v2/physical/mock/mock.hpp"
 #include "query/v2/physical/multiframe.hpp"
-#include "query/v2/physical/physical.hpp"
+#include "query/v2/physical/physical_ene.hpp"
 
 static const std::size_t kThreadsNum = std::thread::hardware_concurrency();
 
@@ -51,10 +51,11 @@ BENCHMARK_DEFINE_F(PhysicalFixture, TestSingleThread)
       Op{.type = OpType::Once},
   };
 
-  auto plan = MakePlan(ops, pool_size, mf_size);
   for (auto _ : state) {
-    TExecutionContext ctx{.thread_pool = thread_pool_.get()};
-    plan->Execute(ctx);
+    // // TODO(gitbuda): Make gbench work.
+    // auto plan = MakePlan(ops, pool_size, mf_size);
+    // TExecutionContext ctx{.thread_pool = thread_pool_.get()};
+    // plan->Execute(ctx);
   }
 }
 // multiframes, frames, threads

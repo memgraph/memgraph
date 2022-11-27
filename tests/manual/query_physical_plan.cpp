@@ -20,7 +20,7 @@
 #include "interactive/plan.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/v2/physical/mock/mock.hpp"
-#include "query/v2/physical/physical.hpp"
+#include "query/v2/physical/physical_ene.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
@@ -77,8 +77,13 @@ int main(int argc, char *argv[]) {
       Op{.type = OpType::ScanAll, .props = {scan_all_elems}},
       Op{.type = OpType::Once},
   };
+
+  // TODO(gitbuda): Single Frame Pull Execution
+
+  // Multi Frame Single Thread per Operator Execution
   for (const auto &pool_size : pool_sizes) {
     for (const auto &mf_size : mf_sizes) {
+      // TODO(gitbuda): MakePlan is allocating space for data pools -> measure the overhead.
       auto plan = MakePlan(ops, pool_size, mf_size);
       timer.Start();
       plan->Execute(ctx);
@@ -86,6 +91,8 @@ int main(int argc, char *argv[]) {
       std::cout << pool_size << " " << mf_size << " " << time << std::endl;
     }
   }
+
+  // TODO(gitbuda): Multi Frame Multi Thread per Operator Execution
 
   return 0;
 }
