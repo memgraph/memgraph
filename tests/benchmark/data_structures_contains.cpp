@@ -36,9 +36,9 @@
 namespace memgraph::benchmark {
 
 ///////////////////////////////////////////////////////////////////////////////
-// Testing Find Operation
+// Testing Contains Operation
 ///////////////////////////////////////////////////////////////////////////////
-static void BM_BenchmarkFindSkipList(::benchmark::State &state) {
+static void BM_BenchmarkContainsSkipList(::benchmark::State &state) {
   utils::SkipList<storage::v3::LexicographicallyOrderedVertex> skip_list;
   PrepareData(skip_list, state.range(0));
   // So we can also have elements that does don't exist
@@ -49,7 +49,7 @@ static void BM_BenchmarkFindSkipList(::benchmark::State &state) {
     for (auto i{0}; i < state.range(0); ++i) {
       int64_t value = i_distribution(i_generator);
       auto acc = skip_list.access();
-      if (acc.find(storage::v3::PrimaryKey{{storage::v3::PropertyValue(value)}}) != acc.end()) {
+      if (acc.contains(storage::v3::PrimaryKey{{storage::v3::PropertyValue(value)}})) {
         found_elems++;
       }
     }
@@ -57,9 +57,10 @@ static void BM_BenchmarkFindSkipList(::benchmark::State &state) {
   state.SetItemsProcessed(found_elems);
 }
 
-static void BM_BenchmarkFindStdMap(::benchmark::State &state) {
+static void BM_BenchmarkContainsStdMap(::benchmark::State &state) {
   std::map<storage::v3::PrimaryKey, storage::v3::LexicographicallyOrderedVertex> std_map;
   PrepareData(std_map, state.range(0));
+
   // So we can also have elements that does don't exist
   std::mt19937 i_generator(std::random_device{}());
   std::uniform_int_distribution<int64_t> i_distribution(0, state.range(0) * 2);
@@ -67,7 +68,7 @@ static void BM_BenchmarkFindStdMap(::benchmark::State &state) {
   for (auto _ : state) {
     for (auto i{0}; i < state.range(0); ++i) {
       int64_t value = i_distribution(i_generator);
-      if (std_map.find(storage::v3::PrimaryKey{{storage::v3::PropertyValue(value)}}) != std_map.end()) {
+      if (std_map.contains(storage::v3::PrimaryKey{{storage::v3::PropertyValue(value)}})) {
         found_elems++;
       }
     }
@@ -75,14 +76,13 @@ static void BM_BenchmarkFindStdMap(::benchmark::State &state) {
   state.SetItemsProcessed(found_elems);
 }
 
-static void BM_BenchmarkFindStdSet(::benchmark::State &state) {
+static void BM_BenchmarkContainsStdSet(::benchmark::State &state) {
   std::set<storage::v3::LexicographicallyOrderedVertex> std_set;
   PrepareData(std_set, state.range(0));
   coordinator::Hlc start_timestamp;
   storage::v3::IsolationLevel isolation_level{storage::v3::IsolationLevel::SNAPSHOT_ISOLATION};
   storage::v3::Transaction transaction{start_timestamp, isolation_level};
   auto *delta = storage::v3::CreateDeleteObjectDelta(&transaction);
-
   // So we can also have elements that does don't exist
   std::mt19937 i_generator(std::random_device{}());
   std::uniform_int_distribution<int64_t> i_distribution(0, state.range(0) * 2);
@@ -90,8 +90,8 @@ static void BM_BenchmarkFindStdSet(::benchmark::State &state) {
   for (auto _ : state) {
     for (auto i{0}; i < state.range(0); ++i) {
       int64_t value = i_distribution(i_generator);
-      if (std_set.find(storage::v3::LexicographicallyOrderedVertex{storage::v3::Vertex{
-              delta, storage::v3::PrimaryKey{storage::v3::PropertyValue{value}}}}) != std_set.end()) {
+      if (std_set.contains(storage::v3::LexicographicallyOrderedVertex{
+              storage::v3::Vertex{delta, storage::v3::PrimaryKey{storage::v3::PropertyValue{value}}}})) {
         found_elems++;
       }
     }
@@ -99,9 +99,10 @@ static void BM_BenchmarkFindStdSet(::benchmark::State &state) {
   state.SetItemsProcessed(found_elems);
 }
 
-static void BM_BenchmarkFindBppTree(::benchmark::State &state) {
+static void BM_BenchmarkContainsBppTree(::benchmark::State &state) {
   tlx::btree_map<storage::v3::PrimaryKey, storage::v3::LexicographicallyOrderedVertex> bpp_tree;
   PrepareData(bpp_tree, state.range(0));
+
   // So we can also have elements that does don't exist
   std::mt19937 i_generator(std::random_device{}());
   std::uniform_int_distribution<int64_t> i_distribution(0, state.range(0) * 2);
@@ -109,7 +110,7 @@ static void BM_BenchmarkFindBppTree(::benchmark::State &state) {
   for (auto _ : state) {
     for (auto i{0}; i < state.range(0); ++i) {
       int64_t value = i_distribution(i_generator);
-      if (bpp_tree.find(storage::v3::PrimaryKey{{storage::v3::PropertyValue(value)}}) != bpp_tree.end()) {
+      if (bpp_tree.count(storage::v3::PrimaryKey{{storage::v3::PropertyValue(value)}}) > 0) {
         found_elems++;
       }
     }
@@ -117,13 +118,13 @@ static void BM_BenchmarkFindBppTree(::benchmark::State &state) {
   state.SetItemsProcessed(found_elems);
 }
 
-BENCHMARK(BM_BenchmarkFindSkipList)->Arg(1000);
+BENCHMARK(BM_BenchmarkContainsSkipList)->Arg(1000);
 
-BENCHMARK(BM_BenchmarkFindStdMap)->Arg(1000);
+BENCHMARK(BM_BenchmarkContainsStdMap)->Arg(1000);
 
-BENCHMARK(BM_BenchmarkFindStdSet)->Arg(1000);
+BENCHMARK(BM_BenchmarkContainsStdSet)->Arg(1000);
 
-BENCHMARK(BM_BenchmarkFindBppTree)->Arg(1000);
+BENCHMARK(BM_BenchmarkContainsBppTree)->Arg(1000);
 
 }  // namespace memgraph::benchmark
 

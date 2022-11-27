@@ -24,7 +24,6 @@
 #include <gflags/gflags.h>
 
 #include "btree_map.hpp"
-#include "skip_list_common.hpp"
 #include "storage/v3/key_store.hpp"
 #include "storage/v3/lexicographically_ordered_vertex.hpp"
 #include "storage/v3/mvcc.hpp"
