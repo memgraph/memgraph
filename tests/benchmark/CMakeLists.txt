@@ -68,5 +68,14 @@ target_link_libraries(${test_prefix}storage_v2_property_store mg-storage-v2)
 add_benchmark(future.cpp)
 target_link_libraries(${test_prefix}future mg-io)
 
-add_benchmark(data_structures.cpp)
-target_link_libraries(${test_prefix}data_structures mg-utils)
+add_benchmark(data_structures_random.cpp)
+target_link_libraries(${test_prefix}data_structures_random mg-utils)
+
+add_benchmark(data_structures_insert.cpp)
+target_link_libraries(${test_prefix}data_structures_insert mg-utils mg-storage-v3)
+
+add_benchmark(data_structures_find.cpp)
+target_link_libraries(${test_prefix}data_structures_find mg-utils mg-storage-v3)
+
+add_benchmark(data_structures_contains.cpp)
+target_link_libraries(${test_prefix}data_structures_contains mg-utils mg-storage-v3)

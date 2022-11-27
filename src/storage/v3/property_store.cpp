@@ -928,6 +928,16 @@ void SetSizeData(uint8_t *buffer, uint64_t size, uint8_t *data) {
 
 PropertyStore::PropertyStore() { memset(buffer_, 0, sizeof(buffer_)); }
 
+PropertyStore::PropertyStore(const PropertyStore &other) { memcpy(buffer_, other.buffer_, sizeof(buffer_)); }
+
+PropertyStore &PropertyStore::operator=(const PropertyStore &other) {
+  if (this == &other) {
+    return *this;
+  }
+  memcpy(buffer_, other.buffer_, sizeof(buffer_));
+  return *this;
+}
+
 PropertyStore::PropertyStore(PropertyStore &&other) noexcept {
   memcpy(buffer_, other.buffer_, sizeof(buffer_));
   memset(other.buffer_, 0, sizeof(other.buffer_));

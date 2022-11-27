@@ -31,6 +31,8 @@ namespace memgraph::storage::v3 {
 struct Vertex {
   using EdgeLink = std::tuple<EdgeTypeId, VertexId, EdgeRef>;
 
+  Vertex() = default;
+
   Vertex(Delta *delta, const std::vector<PropertyValue> &primary_properties) : keys{primary_properties}, delta{delta} {
     MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
               "Vertex must be created with an initial DELETE_OBJECT delta!");
