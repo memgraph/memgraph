@@ -43,7 +43,7 @@ BENCHMARK_DEFINE_F(PhysicalFixture, TestSingleThread)
 (benchmark::State &state) {
   int pool_size = state.range(0);
   int mf_size = state.range(1);
-  int scan_all_elems = 1000;
+  int scan_all_elems = 100;
   std::vector<Op> ops{
       Op{.type = OpType::Produce},
       Op{.type = OpType::ScanAll, .props = {scan_all_elems}},
@@ -60,8 +60,8 @@ BENCHMARK_DEFINE_F(PhysicalFixture, TestSingleThread)
 
 BENCHMARK_REGISTER_F(PhysicalFixture, TestSingleThread)
     ->ArgsProduct({
-        benchmark::CreateRange(1, 16, 2),
-        benchmark::CreateRange(1, 10000, 10),
+        benchmark::CreateRange(4, 16, 2),
+        benchmark::CreateRange(10, 10000, 10),
     })
     ->Unit(benchmark::kMillisecond)
     ->UseRealTime();

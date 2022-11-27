@@ -28,7 +28,7 @@ using TOnceOperator = physical::OncePhysicalOperator<TDataPool>;
 template <typename TDataFun>
 using TScanAllOperator = physical::ScanAllPhysicalOperator<TDataFun, TDataPool>;
 using TProduceOperator = physical::ProducePhysicalOperator<TDataPool>;
-using TExecutionContext = physical::ExecutionContext;
+using TExecutionContext = ExecutionContext;
 
 enum class OpType { Once, ScanAll, Produce };
 inline std::ostream &operator<<(std::ostream &os, const OpType &op_type) {

@@ -19,6 +19,7 @@
 #include "interactive/db_accessor.hpp"
 #include "interactive/plan.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
+#include "query/v2/physical/mock/context.hpp"
 #include "query/v2/physical/mock/mock.hpp"
 #include "query/v2/physical/physical_ene.hpp"
 #include "storage/v2/storage.hpp"
@@ -55,7 +56,7 @@ int main(int argc, char *argv[]) {
   auto physical_plan = physical_plan_generator.Generate();
   // Start physical plan execution.
   memgraph::utils::ThreadPool thread_pool{16};
-  memgraph::query::v2::physical::ExecutionContext ctx{.thread_pool = &thread_pool};
+  memgraph::query::v2::physical::mock::ExecutionContext ctx{.thread_pool = &thread_pool};
   physical_plan->Execute(ctx);
   // Fetch physical plan execution results.
   auto token = physical_plan->NextRead();
@@ -72,7 +73,6 @@ int main(int argc, char *argv[]) {
   int scan_all_elems = 100;
   std::vector<Op> ops{
       Op{.type = OpType::Produce},
-      Op{.type = OpType::ScanAll, .props = {scan_all_elems}},
       Op{.type = OpType::ScanAll, .props = {scan_all_elems}},
       Op{.type = OpType::ScanAll, .props = {scan_all_elems}},
       Op{.type = OpType::Once},

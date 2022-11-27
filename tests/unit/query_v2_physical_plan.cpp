@@ -17,6 +17,7 @@
 #include <rapidcheck.h>
 #include <rapidcheck/gtest.h>
 
+#include "query/v2/physical/mock/context.hpp"
 #include "query/v2/physical/mock/mock.hpp"
 #include "query/v2/physical/physical_ene.hpp"
 #include "utils/logging.hpp"
@@ -63,7 +64,7 @@ RC_GTEST_FIXTURE_PROP(PhysicalPlanFixture, PropertyBasedPhysicalPlan, ()) {
   SPDLOG_INFO("Total ScanAll elements: {}", scan_all_cnt);
 
   SPDLOG_INFO("-- EXECUTION START --");
-  physical::ExecutionContext ctx{.thread_pool = &thread_pool_};
+  physical::mock::ExecutionContext ctx{.thread_pool = &thread_pool_};
   auto plan = physical::mock::MakePlan(ops, multiframes_no_per_op, multiframe_size);
   plan->Execute(ctx);
   auto stats = plan->GetStats();

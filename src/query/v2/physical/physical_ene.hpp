@@ -20,9 +20,9 @@
 #include <vector>
 
 #include "query/plan/operator.hpp"
+#include "query/v2/physical/mock/context.hpp"
 #include "query/v2/physical/mock/frame.hpp"
 #include "query/v2/physical/multiframe.hpp"
-#include "utils/thread_pool.hpp"
 #include "utils/visitor.hpp"
 
 namespace memgraph::query::v2::physical {
@@ -31,16 +31,9 @@ using memgraph::query::plan::HierarchicalLogicalOperatorVisitor;
 using memgraph::query::plan::Once;
 using memgraph::query::plan::Produce;
 using memgraph::query::plan::ScanAll;
-using memgraph::utils::ThreadPool;
 
 /// Moving/copying Frames between operators is questionable because operators
 /// mostly operate on a single Frame value.
-
-/// Access to the thread pools should be given via the ExecutionContext.
-///
-struct ExecutionContext {
-  ThreadPool *thread_pool;
-};
 
 /// THREAD POOLS
 /// There might be the case we need many different thread pools (some of them
@@ -61,6 +54,7 @@ struct ExecutionContext {
 template <typename TDataPool>
 class PhysicalOperator {
  public:
+  using TExecutionContext = mock::ExecutionContext;
   // TODO(gitbuda): Consider moving TDataPool as an alias here because the
   // implementation of execution is dependent on the way how the data pool is
   // operating. -> it would simplify both implementation and usage.
@@ -79,7 +73,7 @@ class PhysicalOperator {
 
   /// Init/start execution.
   /// NOTE: In the current implementation Executes behave blocking only for the root operator.
-  virtual void Execute(ExecutionContext ctx) = 0;
+  virtual void Execute(TExecutionContext ctx) = 0;
 
   ////// DATA POOL HANDLING
   /// Get/Push data from/to surrounding operators.
@@ -221,7 +215,7 @@ class PhysicalOperator {
   };
   std::unique_ptr<Mcv> mcv_;
 
-  void ExecuteChildren(ExecutionContext ctx) {
+  void ExecuteChildren(TExecutionContext ctx) {
     for (const auto &child : children_) {
       child->Execute(ctx);
     }
@@ -232,7 +226,7 @@ class PhysicalOperator {
   /// the input data pool). The injected function (fun) will write data to the
   /// data pool of this operator.
   ///
-  void SingleChildSingleThreadExaust(ExecutionContext ctx,
+  void SingleChildSingleThreadExaust(TExecutionContext ctx,
                                      std::function<void(typename TDataPool::TMultiframe &multiframe)> fun,
                                      std::function<void(void)> after_done_fun) {
     // If we don't store functions, they are deleted because this function ends
@@ -301,11 +295,12 @@ class PhysicalOperator {
 template <typename TDataPool>
 class OncePhysicalOperator final : public PhysicalOperator<TDataPool> {
   using Base = PhysicalOperator<TDataPool>;
+  using TExecutionContext = mock::ExecutionContext;
 
  public:
   explicit OncePhysicalOperator(const std::string &name, std::unique_ptr<TDataPool> &&data_pool)
       : PhysicalOperator<TDataPool>(name, std::move(data_pool)) {}
-  void Execute(ExecutionContext ctx) override {
+  void Execute(TExecutionContext ctx) override {
     MG_ASSERT(Base::children_.empty(), "{} should have 0 input/child", Base::name_);
     SPDLOG_TRACE("{} Execute()", Base::name_);
     Base::ExecuteChildren(ctx);
@@ -322,12 +317,13 @@ class OncePhysicalOperator final : public PhysicalOperator<TDataPool> {
 template <typename TDataFun, typename TDataPool>
 class ScanAllPhysicalOperator final : public PhysicalOperator<TDataPool> {
   using Base = PhysicalOperator<TDataPool>;
+  using TExecutionContext = mock::ExecutionContext;
 
  public:
   ScanAllPhysicalOperator(const std::string &name, TDataFun data_fun, std::unique_ptr<TDataPool> &&data_pool)
       : PhysicalOperator<TDataPool>(name, std::move(data_pool)), data_fun_(std::move(data_fun)) {}
 
-  void Execute(ExecutionContext ctx) override {
+  void Execute(TExecutionContext ctx) override {
     MG_ASSERT(Base::children_.size() == 1, "{} should have exactly 1 input/child", Base::name_);
     SPDLOG_TRACE("{} Execute()", Base::name_);
     Base::ExecuteChildren(ctx);
@@ -359,11 +355,12 @@ class ScanAllPhysicalOperator final : public PhysicalOperator<TDataPool> {
 template <typename TDataPool>
 class ProducePhysicalOperator final : public PhysicalOperator<TDataPool> {
   using Base = PhysicalOperator<TDataPool>;
+  using TExecutionContext = mock::ExecutionContext;
 
  public:
   using PhysicalOperator<TDataPool>::PhysicalOperator;
 
-  void Execute(ExecutionContext ctx) override {
+  void Execute(TExecutionContext ctx) override {
     MG_ASSERT(Base::children_.size() == 1, "{} should have exactly 1 input/child", Base::name_);
     SPDLOG_TRACE("{} Execute()", Base::name_);
     Base::ExecuteChildren(ctx);
@@ -395,6 +392,7 @@ class PhysicalPlanGenerator final : public HierarchicalLogicalOperatorVisitor {
   template <typename TDataFun>
   using TScanAllOperator = ScanAllPhysicalOperator<TDataFun, TDataPool>;
   using TProduceOperator = ProducePhysicalOperator<TDataPool>;
+  using TExecutionContext = mock::ExecutionContext;
 
   std::vector<TPhysicalOperatorPtr> pops_;
 
@@ -443,7 +441,7 @@ class PhysicalPlanGenerator final : public HierarchicalLogicalOperatorVisitor {
     //     -> 1 data_fun call for each Multiframe
     //       -> parallelization possible by calling data_fun from multiple threads
     //
-    auto data_fun = [](typename TDataPool::TMultiframe &multiframe, ExecutionContext &) {
+    auto data_fun = [](typename TDataPool::TMultiframe &multiframe, TExecutionContext &) {
       std::vector<mock::Frame> frames;
       for (const auto &frame : multiframe.Data()) {
         frames.push_back(frame);
