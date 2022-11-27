@@ -65,7 +65,7 @@ RC_GTEST_FIXTURE_PROP(PhysicalPlanFixture, PropertyBasedPhysicalPlan, ()) {
 
   SPDLOG_INFO("-- EXECUTION START --");
   physical::mock::ExecutionContext ctx{.thread_pool = &thread_pool_};
-  auto plan = physical::mock::MakePlan(ops, multiframes_no_per_op, multiframe_size);
+  auto plan = physical::mock::MakeENEPlan(ops, multiframes_no_per_op, multiframe_size);
   plan->Execute(ctx);
   auto stats = plan->GetStats();
   ASSERT_EQ(stats.processed_frames, scan_all_cnt);

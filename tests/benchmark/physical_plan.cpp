@@ -52,7 +52,7 @@ BENCHMARK_DEFINE_F(PhysicalFixture, TestSingleThread)
   };
 
   for (auto _ : state) {
-    auto plan = MakePlan(ops, pool_size, mf_size);
+    auto plan = MakeENEPlan(ops, pool_size, mf_size);
     TExecutionContext ctx{.thread_pool = thread_pool_.get()};
     plan->Execute(ctx);
   }

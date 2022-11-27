@@ -28,7 +28,7 @@
 
 int main(int argc, char *argv[]) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  spdlog::set_level(spdlog::level::err);
+  spdlog::set_level(spdlog::level::info);
 
   memgraph::storage::Storage db;
   auto storage_dba = db.Access();
@@ -79,12 +79,15 @@ int main(int argc, char *argv[]) {
   };
 
   // TODO(gitbuda): Single Frame Pull Execution
+  memgraph::query::v2::physical::mock::Frame frame;
+  auto plan = memgraph::query::v2::physical::mock::MakePullPlan(ops);
+  plan->Pull(frame, ctx);
 
   // Multi Frame Single Thread per Operator Execution
   for (const auto &pool_size : pool_sizes) {
     for (const auto &mf_size : mf_sizes) {
       // TODO(gitbuda): MakePlan is allocating space for data pools -> measure the overhead.
-      auto plan = MakePlan(ops, pool_size, mf_size);
+      auto plan = MakeENEPlan(ops, pool_size, mf_size);
       timer.Start();
       plan->Execute(ctx);
       auto time = std::chrono::duration_cast<std::chrono::milliseconds>(timer.Elapsed()).count();

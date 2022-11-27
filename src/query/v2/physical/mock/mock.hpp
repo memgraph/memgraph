@@ -16,6 +16,7 @@
 #include "query/v2/physical/mock/frame.hpp"
 #include "query/v2/physical/multiframe.hpp"
 #include "query/v2/physical/physical_ene.hpp"
+#include "query/v2/physical/physical_pull.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::query::v2::physical::mock {
@@ -29,6 +30,12 @@ template <typename TDataFun>
 using TScanAllOperator = physical::ScanAllPhysicalOperator<TDataFun, TDataPool>;
 using TProduceOperator = physical::ProducePhysicalOperator<TDataPool>;
 using TExecutionContext = ExecutionContext;
+
+using TCursor = physical::Cursor;
+using TCursorPtr = std::unique_ptr<TCursor>;
+using TCursorOnce = physical::OnceCursor;
+using TCursorScanAll = physical::ScanAllCursor;
+using TCursorProduce = physical::ProduceCursor;
 
 enum class OpType { Once, ScanAll, Produce };
 inline std::ostream &operator<<(std::ostream &os, const OpType &op_type) {
@@ -62,12 +69,12 @@ inline void LogOps(const std::vector<Op> &ops) {
   }
 }
 
-inline TPhysicalOperatorPtr MakeOnce(int pool_size, int mf_size) {
+inline TPhysicalOperatorPtr MakeENEOnce(int pool_size, int mf_size) {
   auto data_pool = std::make_unique<TDataPool>(pool_size, mf_size);
   return std::make_shared<TOnceOperator>(TOnceOperator("Physical Once", std::move(data_pool)));
 }
 
-inline TPhysicalOperatorPtr MakeScanAll(int pool_size, int mf_size, int scan_all_elems) {
+inline TPhysicalOperatorPtr MakeENEScanAll(int pool_size, int mf_size, int scan_all_elems) {
   auto data_fun = [scan_all_elems](TDataPool::TMultiframe &mf, TExecutionContext &) {
     std::vector<TFrame> frames;
     for (int i = 0; i < scan_all_elems; ++i) {
@@ -82,29 +89,56 @@ inline TPhysicalOperatorPtr MakeScanAll(int pool_size, int mf_size, int scan_all
       TScanAllOperator<decltype(data_fun)>("Physical ScanAll", std::move(data_fun), std::move(data_pool)));
 }
 
-inline TPhysicalOperatorPtr MakeProduce(int pool_size, int mf_size) {
+inline TPhysicalOperatorPtr MakeENEProduce(int pool_size, int mf_size) {
   auto data_pool = std::make_unique<TDataPool>(pool_size, mf_size);
   return std::make_shared<TProduceOperator>(TProduceOperator("Physical Produce", std::move(data_pool)));
 }
 
-inline TPhysicalOperatorPtr MakePlan(const std::vector<Op> &ops, int pool_size, int mf_size) {
+inline TPhysicalOperatorPtr MakeENEPlan(const std::vector<Op> &ops, int pool_size, int mf_size) {
   TPhysicalOperatorPtr plan = nullptr;
   auto current = plan;
   for (const auto &op : ops) {
     if (op.type == OpType::Once) {
-      auto once = MakeOnce(pool_size, mf_size);
+      auto once = MakeENEOnce(pool_size, mf_size);
       current->AddChild(once);
       current = once;
 
     } else if (op.type == OpType::ScanAll) {
-      auto scan_all = MakeScanAll(pool_size, mf_size, op.props[SCANALL_ELEMS_POS]);
+      auto scan_all = MakeENEScanAll(pool_size, mf_size, op.props[SCANALL_ELEMS_POS]);
       current->AddChild(scan_all);
       current = scan_all;
 
     } else if (op.type == OpType::Produce) {
-      auto produce = MakeProduce(pool_size, mf_size);
+      auto produce = MakeENEProduce(pool_size, mf_size);
       plan = produce;  // top level operator
       current = plan;
+
+    } else {
+      SPDLOG_ERROR("Unknown operator {}", op.type);
+    }
+  }
+  return plan;
+}
+
+inline TCursorPtr MakePullOnce() { return std::make_unique<TCursorOnce>(nullptr); }
+
+inline TCursorPtr MakePullScanAll(TCursorPtr &&input) { return std::make_unique<TCursorScanAll>(std::move(input)); }
+
+inline TCursorPtr MakePullProduce(TCursorPtr &&input) { return std::make_unique<TCursorProduce>(std::move(input)); }
+
+inline TCursorPtr MakePullPlan(const std::vector<Op> &ops) {
+  std::vector<Op> reversed_ops(ops.rbegin(), ops.rend());
+
+  TCursorPtr plan = nullptr;
+  for (const auto &op : reversed_ops) {
+    if (op.type == OpType::Once) {
+      plan = MakePullOnce();
+
+    } else if (op.type == OpType::ScanAll) {
+      plan = MakePullScanAll(std::move(plan));
+
+    } else if (op.type == OpType::Produce) {
+      plan = MakePullProduce(std::move(plan));
 
     } else {
       SPDLOG_ERROR("Unknown operator {}", op.type);

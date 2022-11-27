@@ -15,37 +15,75 @@
 /// Physical Single Frame Pull Architecture Implementation
 ///
 
+#include "utils/logging.hpp"
+
+#include "query/v2/physical/mock/context.hpp"
 #include "query/v2/physical/mock/frame.hpp"
 
 namespace memgraph::query::v2::physical {
 
-/// Base class for iteration cursors of @c LogicalOperator classes.
-///
-/// Each @c LogicalOperator must produce a concrete @c Cursor, which provides
-/// the iteration mechanism.
 class Cursor {
  public:
   using TFrame = mock::Frame;
-  using TExecutionContext =
+  using TExecutionContext = mock::ExecutionContext;
+  using TCursorPtr = std::unique_ptr<Cursor>;
 
-      /// Run an iteration of a @c LogicalOperator.
-      ///
-      /// Since operators may be chained, the iteration may pull results from
-      /// multiple operators.
-      ///
-      /// @param Frame May be read from or written to while performing the
-      ///     iteration.
-      /// @param ExecutionContext Used to get the position of symbols in frame and
-      ///     other information.
-      ///
-      /// @throws QueryRuntimeException if something went wrong with execution
-      virtual bool Pull(TFrame &, ExecutionContext &) = 0;
+  explicit Cursor(TCursorPtr &&input) : input_(std::move(input)) {}
+  Cursor() = delete;
+  Cursor(const Cursor &) = delete;
+  Cursor(Cursor &&) noexcept = delete;
+  Cursor &operator=(const Cursor &) = delete;
+  Cursor &operator=(Cursor &&) noexcept = delete;
+  virtual ~Cursor() {}
 
-  /// Resets the Cursor to its initial state.
+  virtual bool Pull(TFrame &, TExecutionContext &) = 0;
   void Reset() {}
-
-  /// Perform cleanup which may throw an exception
   void Shutdown() {}
 
-  virtual ~Cursor() {}
+ protected:
+  TCursorPtr input_;
 };
+
+class OnceCursor : public Cursor {
+ public:
+  using Cursor::TCursorPtr;
+  using Cursor::TExecutionContext;
+  using Cursor::TFrame;
+
+  explicit OnceCursor(TCursorPtr &&input) : Cursor(std::move(input)) {}
+
+  bool Pull(TFrame &, TExecutionContext &) override {
+    SPDLOG_INFO("Once Cursor Pull");
+    return false;
+  }
+};
+
+class ScanAllCursor : public Cursor {
+ public:
+  using Cursor::TCursorPtr;
+  using Cursor::TExecutionContext;
+  using Cursor::TFrame;
+
+  explicit ScanAllCursor(TCursorPtr &&input) : Cursor(std::move(input)) {}
+
+  bool Pull(TFrame &frame, TExecutionContext &ctx) override {
+    SPDLOG_INFO("Scan All Cursor Pull");
+    return input_->Pull(frame, ctx);
+  }
+};
+
+class ProduceCursor : public Cursor {
+ public:
+  using Cursor::TCursorPtr;
+  using Cursor::TExecutionContext;
+  using Cursor::TFrame;
+
+  explicit ProduceCursor(TCursorPtr &&input) : Cursor(std::move(input)) {}
+
+  bool Pull(TFrame &frame, TExecutionContext &ctx) override {
+    SPDLOG_INFO("Produce Cursor Pull");
+    return input_->Pull(frame, ctx);
+  }
+};
+
+}  // namespace memgraph::query::v2::physical
