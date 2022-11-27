@@ -81,4 +81,4 @@ add_benchmark(data_structures_contains.cpp)
 target_link_libraries(${test_prefix}data_structures_contains mg-utils mg-storage-v3)
 
 add_benchmark(data_structures_remove.cpp)
-target_link_libraries(${test_prefix}data_structures_contains mg-utils mg-storage-v3)
+target_link_libraries(${test_prefix}data_structures_remove mg-utils mg-storage-v3)
