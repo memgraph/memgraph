@@ -17,6 +17,7 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/preprocess.hpp"
+#include "query/v2/plan/operator.hpp"
 
 namespace memgraph::query::plan {
 
@@ -90,7 +91,7 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   }
   PRE_VISIT(Unwind);
   PRE_VISIT(Distinct);
-  
+
   bool PreVisit(Foreach &op) override {
     CheckOp(op);
     return false;
@@ -336,6 +337,39 @@ class ExpectScanAllByLabelProperty : public OpChecker<ScanAllByLabelProperty> {
   memgraph::storage::PropertyId property_;
 };
 
+class ExpectScanAllByPrimaryKey : public OpChecker<v2::plan::ScanAllByPrimaryKey> {
+ public:
+  ExpectScanAllByPrimaryKey(memgraph::storage::v3::LabelId label, const std::vector<Expression *> &properties)
+      : label_(label), properties_(properties) {}
+
+  void ExpectOp(v2::plan::ScanAllByPrimaryKey &scan_all, const SymbolTable &) override {
+    EXPECT_EQ(scan_all.label_, label_);
+    // EXPECT_EQ(scan_all.property_, property_);
+
+    // TODO(gvolfing) maybe assert the size of the 2 vectors.
+    // TODO(gvolfing) maybe use some std alg if Expression lets us.
+
+    bool primary_property_match = true;
+    for (const auto &expected_prop : properties_) {
+      bool has_match = false;
+      for (const auto &prop : scan_all.primary_key_) {
+        if (typeid(prop).hash_code() == typeid(expected_prop).hash_code()) {
+          has_match = true;
+        }
+      }
+      if (!has_match) {
+        primary_property_match = false;
+      }
+    }
+
+    EXPECT_TRUE(primary_property_match);
+  }
+
+ private:
+  memgraph::storage::v3::LabelId label_;
+  std::vector<Expression *> properties_;
+};
+
 class ExpectCartesian : public OpChecker<Cartesian> {
  public:
   ExpectCartesian(const std::list<std::unique_ptr<BaseOpChecker>> &left,
@@ -485,5 +519,109 @@ class FakeDbAccessor {
   std::unordered_map<memgraph::storage::LabelId, int64_t> label_index_;
   std::vector<std::tuple<memgraph::storage::LabelId, memgraph::storage::PropertyId, int64_t>> label_property_index_;
 };
+
+// class FakeDistributedDbAccessor {
+//  public:
+//   int64_t VerticesCount(memgraph::storage::v3::LabelId label) const {
+//     auto found = label_index_.find(label);
+//     if (found != label_index_.end()) return found->second;
+//     return 0;
+//   }
+
+//   int64_t VerticesCount(memgraph::storage::v3::LabelId label, memgraph::storage::PropertyId property) const {
+//     for (auto &index : label_property_index_) {
+//       if (std::get<0>(index) == label && std::get<1>(index) == property) {
+//         return std::get<2>(index);
+//       }
+//     }
+//     return 0;
+//   }
+
+//   bool LabelIndexExists(memgraph::storage::v3::LabelId label) const {
+//     return label_index_.find(label) != label_index_.end();
+//   }
+
+//   bool LabelPropertyIndexExists(memgraph::storage::v3::LabelId label, memgraph::storage::PropertyId property) const {
+//     for (auto &index : label_property_index_) {
+//       if (std::get<0>(index) == label && std::get<1>(index) == property) {
+//         return true;
+//       }
+//     }
+//     return false;
+//   }
+
+//   void SetIndexCount(memgraph::storage::v3::LabelId label, int64_t count) { label_index_[label] = count; }
+
+//   void SetIndexCount(memgraph::storage::v3::LabelId label, memgraph::storage::PropertyId property, int64_t count) {
+//     for (auto &index : label_property_index_) {
+//       if (std::get<0>(index) == label && std::get<1>(index) == property) {
+//         std::get<2>(index) = count;
+//         return;
+//       }
+//     }
+//     label_property_index_.emplace_back(label, property, count);
+//   }
+
+//   memgraph::storage::v3::LabelId NameToLabel(const std::string &name) {
+//     auto found = primary_labels_.find(name);
+//     if (found != primary_labels_.end()) return found->second;
+//     return primary_labels_.emplace(name,
+//     memgraph::storage::v3::LabelId::FromUint(primary_labels_.size())).first->second;
+//   }
+
+//   memgraph::storage::v3::LabelId Label(const std::string &name) { return NameToLabel(name); }
+
+//   memgraph::storage::EdgeTypeId NameToEdgeType(const std::string &name) {
+//     auto found = edge_types_.find(name);
+//     if (found != edge_types_.end()) return found->second;
+//     return edge_types_.emplace(name, memgraph::storage::EdgeTypeId::FromUint(edge_types_.size())).first->second;
+//   }
+
+//   memgraph::storage::PropertyId NameToPrimaryProperty(const std::string &name) {
+//     auto found = primary_properties_.find(name);
+//     if (found != primary_properties_.end()) return found->second;
+//     return primary_properties_.emplace(name,
+//     memgraph::storage::PropertyId::FromUint(primary_properties_.size())).first->second;
+//   }
+
+//   memgraph::storage::PropertyId NameToSecondaryProperty(const std::string &name) {
+//     auto found = secondary_properties_.find(name);
+//     if (found != secondary_properties_.end()) return found->second;
+//     return secondary_properties_.emplace(name,
+//     memgraph::storage::PropertyId::FromUint(secondary_properties_.size())).first->second;
+//   }
+
+//   memgraph::storage::PropertyId PrimaryProperty(const std::string &name) { return NameToPrimaryProperty(name); }
+//   memgraph::storage::PropertyId SecondaryProperty(const std::string &name) { return NameToSecondaryProperty(name); }
+
+//   std::string PrimaryPropertyToName(memgraph::storage::PropertyId property) const {
+//     for (const auto &kv : primary_properties_) {
+//       if (kv.second == property) return kv.first;
+//     }
+//     LOG_FATAL("Unable to find primary property name");
+//   }
+
+//   std::string SecondaryPropertyToName(memgraph::storage::PropertyId property) const {
+//     for (const auto &kv : secondary_properties_) {
+//       if (kv.second == property) return kv.first;
+//     }
+//     LOG_FATAL("Unable to find secondary property name");
+//   }
+
+//   std::string PrimaryPropertyName(memgraph::storage::PropertyId property) const { return
+//   PrimaryPropertyToName(property); } std::string SecondaryPropertyName(memgraph::storage::PropertyId property) const
+//   { return SecondaryPropertyToName(property); }
+
+//  private:
+//   std::unordered_map<std::string, memgraph::storage::v3::LabelId> primary_labels_;
+//   std::unordered_map<std::string, memgraph::storage::v3::LabelId> secondary_labels_;
+//   std::unordered_map<std::string, memgraph::storage::EdgeTypeId> edge_types_;
+//   std::unordered_map<std::string, memgraph::storage::PropertyId> primary_properties_;
+//   std::unordered_map<std::string, memgraph::storage::PropertyId> secondary_properties_;
+
+//   std::unordered_map<memgraph::storage::v3::LabelId, int64_t> label_index_;
+//   std::vector<std::tuple<memgraph::storage::v3::LabelId, memgraph::storage::PropertyId, int64_t>>
+//   label_property_index_;
+// };
 
 }  // namespace memgraph::query::plan

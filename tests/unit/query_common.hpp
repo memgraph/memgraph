@@ -46,6 +46,8 @@
 #include "storage/v2/id_types.hpp"
 #include "utils/string.hpp"
 
+#include "query/v2/frontend/ast/ast.hpp"
+
 namespace memgraph::query {
 
 namespace test_common {
@@ -81,12 +83,39 @@ std::string ToString(NamedExpression *expr) {
 struct OrderBy {
   std::vector<SortItem> expressions;
 };
+
+// new stuff begin
+
+struct OrderByv2 {
+  std::vector<query::v2::SortItem> expressions;
+};
+
+// new stuff end
+
 struct Skip {
   Expression *expression = nullptr;
 };
+
+// new stuff begin
+
+struct Skipv2 {
+  query::v2::Expression *expression = nullptr;
+};
+
+// new stuff end
+
 struct Limit {
   Expression *expression = nullptr;
 };
+
+// new stuff begin
+
+struct Limitv2 {
+  query::v2::Expression *expression = nullptr;
+};
+
+// new stuff end
+
 struct OnMatch {
   std::vector<Clause *> set;
 };
@@ -153,6 +182,42 @@ auto GetPropertyLookup(AstStorage &storage, TDbAccessor &, Expression *expr,
   return storage.Create<PropertyLookup>(expr, storage.GetPropertyIx(prop_pair.first));
 }
 
+// new stuff begin
+
+template <class TDbAccessor>
+auto GetPropertyLookup(memgraph::query::v2::AstStorage &storage, TDbAccessor &dba, const std::string &name,
+                       memgraph::storage::v3::PropertyId property) {
+  return storage.Create<query::v2::PropertyLookup>(storage.Create<query::v2::Identifier>(name),
+                                                   storage.GetPropertyIx(dba.PropertyToName(property)));
+}
+
+template <class TDbAccessor>
+auto GetPropertyLookup(memgraph::query::v2::AstStorage &storage, TDbAccessor &dba,
+                       memgraph::query::v2::Expression *expr, memgraph::storage::v3::PropertyId property) {
+  return storage.Create<query::v2::PropertyLookup>(expr, storage.GetPropertyIx(dba.PropertyToName(property)));
+}
+
+template <class TDbAccessor>
+auto GetPropertyLookup(memgraph::query::v2::AstStorage &storage, TDbAccessor &dba,
+                       memgraph::query::v2::Expression *expr, const std::string &property) {
+  return storage.Create<query::v2::PropertyLookup>(expr, storage.GetPropertyIx(property));
+}
+
+template <class TDbAccessor>
+auto GetPropertyLookup(memgraph::query::v2::AstStorage &storage, TDbAccessor &, const std::string &name,
+                       const std::pair<std::string, memgraph::storage::v3::PropertyId> &prop_pair) {
+  return storage.Create<query::v2::PropertyLookup>(storage.Create<query::v2::Identifier>(name),
+                                                   storage.GetPropertyIx(prop_pair.first));
+}
+
+template <class TDbAccessor>
+auto GetPropertyLookup(memgraph::query::v2::AstStorage &storage, TDbAccessor &, memgraph::query::v2::Expression *expr,
+                       const std::pair<std::string, memgraph::storage::v3::PropertyId> &prop_pair) {
+  return storage.Create<query::v2::PropertyLookup>(expr, storage.GetPropertyIx(prop_pair.first));
+}
+
+// new stuff end
+
 /// Create an EdgeAtom with given name, direction and edge_type.
 ///
 /// Name is used to create the Identifier which is assigned to the edge.
@@ -211,6 +276,15 @@ auto GetNode(AstStorage &storage, const std::string &name, std::optional<std::st
   return node;
 }
 
+// new stuff begin
+auto GetNode(memgraph::query::v2::AstStorage &storage, const std::string &name,
+             std::optional<std::string> label = std::nullopt) {
+  auto node = storage.Create<query::v2::NodeAtom>(storage.Create<query::v2::Identifier>(name));
+  if (label) node->labels_.emplace_back(storage.GetLabelIx(*label));
+  return node;
+}
+// new stuff end
+
 /// Create a Pattern with given atoms.
 auto GetPattern(AstStorage &storage, std::vector<PatternAtom *> atoms) {
   auto pattern = storage.Create<Pattern>();
@@ -227,6 +301,26 @@ auto GetPattern(AstStorage &storage, const std::string &name, std::vector<Patter
   return pattern;
 }
 
+// new stuff begin
+
+auto GetPattern(memgraph::query::v2::AstStorage &storage, std::vector<query::v2::PatternAtom *> atoms) {
+  auto pattern = storage.Create<query::v2::Pattern>();
+  pattern->identifier_ = storage.Create<query::v2::Identifier>(memgraph::utils::RandomString(20), false);
+  pattern->atoms_.insert(pattern->atoms_.begin(), atoms.begin(), atoms.end());
+  return pattern;
+}
+
+/// Create a Pattern with given name and atoms.
+auto GetPattern(memgraph::query::v2::AstStorage &storage, const std::string &name,
+                std::vector<query::v2::PatternAtom *> atoms) {
+  auto pattern = storage.Create<query::v2::Pattern>();
+  pattern->identifier_ = storage.Create<query::v2::Identifier>(name, true);
+  pattern->atoms_.insert(pattern->atoms_.begin(), atoms.begin(), atoms.end());
+  return pattern;
+}
+
+// new stuff end
+
 /// This function fills an AST node which with given patterns.
 ///
 /// The function is most commonly used to create Match and Create clauses.
@@ -235,6 +329,16 @@ auto GetWithPatterns(TWithPatterns *with_patterns, std::vector<Pattern *> patter
   with_patterns->patterns_.insert(with_patterns->patterns_.begin(), patterns.begin(), patterns.end());
   return with_patterns;
 }
+
+// new stuff begin
+
+template <class TWithPatterns>
+auto GetWithPatterns(TWithPatterns *with_patterns, std::vector<query::v2::Pattern *> patterns) {
+  with_patterns->patterns_.insert(with_patterns->patterns_.begin(), patterns.begin(), patterns.end());
+  return with_patterns;
+}
+
+// new stuff end
 
 /// Create a query with given clauses.
 
@@ -271,6 +375,45 @@ auto GetSingleQuery(SingleQuery *single_query, Clause *clause, T *...clauses) {
   return GetSingleQuery(single_query, clauses...);
 }
 
+// new stuff begin
+
+auto GetSingleQuery(query::v2::SingleQuery *single_query, query::v2::Clause *clause) {
+  single_query->clauses_.emplace_back(clause);
+  return single_query;
+}
+auto GetSingleQuery(query::v2::SingleQuery *single_query, query::v2::Match *match, query::v2::Where *where) {
+  match->where_ = where;
+  single_query->clauses_.emplace_back(match);
+  return single_query;
+}
+auto GetSingleQuery(query::v2::SingleQuery *single_query, query::v2::With *with, query::v2::Where *where) {
+  with->where_ = where;
+  single_query->clauses_.emplace_back(with);
+  return single_query;
+}
+template <class... T>
+auto GetSingleQuery(query::v2::SingleQuery *single_query, query::v2::Match *match, query::v2::Where *where,
+                    T *...clauses) {
+  match->where_ = where;
+  single_query->clauses_.emplace_back(match);
+  return GetSingleQuery(single_query, clauses...);
+}
+template <class... T>
+auto GetSingleQuery(query::v2::SingleQuery *single_query, query::v2::With *with, query::v2::Where *where,
+                    T *...clauses) {
+  with->where_ = where;
+  single_query->clauses_.emplace_back(with);
+  return GetSingleQuery(single_query, clauses...);
+}
+
+template <class... T>
+auto GetSingleQuery(query::v2::SingleQuery *single_query, query::v2::Clause *clause, T *...clauses) {
+  single_query->clauses_.emplace_back(clause);
+  return GetSingleQuery(single_query, clauses...);
+}
+
+// new stuff end
+
 auto GetCypherUnion(CypherUnion *cypher_union, SingleQuery *single_query) {
   cypher_union->single_query_ = single_query;
   return cypher_union;
@@ -289,6 +432,24 @@ auto GetQuery(AstStorage &storage, SingleQuery *single_query, T *...cypher_union
   query->cypher_unions_ = std::vector<CypherUnion *>{cypher_unions...};
   return query;
 }
+
+// new stuff begin
+
+auto GetQuery(query::v2::AstStorage &storage, query::v2::SingleQuery *single_query) {
+  auto *query = storage.Create<query::v2::CypherQuery>();
+  query->single_query_ = single_query;
+  return query;
+}
+
+template <class... T>
+auto GetQuery(query::v2::AstStorage &storage, query::v2::SingleQuery *single_query, T *...cypher_unions) {
+  auto *query = storage.Create<query::v2::CypherQuery>();
+  query->single_query_ = single_query;
+  query->cypher_unions_ = std::vector<query::v2::CypherUnion *>{cypher_unions...};
+  return query;
+}
+
+// new stuff end
 
 // Helper functions for constructing RETURN and WITH clauses.
 void FillReturnBody(AstStorage &, ReturnBody &body, NamedExpression *named_expr) {
@@ -353,6 +514,80 @@ void FillReturnBody(AstStorage &storage, ReturnBody &body, const std::string &na
   FillReturnBody(storage, body, rest...);
 }
 
+// new stuff begin
+
+void FillReturnBody(query::v2::AstStorage &, query::v2::ReturnBody &body, query::v2::NamedExpression *named_expr) {
+  body.named_expressions.emplace_back(named_expr);
+}
+void FillReturnBody(query::v2::AstStorage &storage, query::v2::ReturnBody &body, const std::string &name) {
+  if (name == "*") {
+    body.all_identifiers = true;
+  } else {
+    auto *ident = storage.Create<memgraph::query::v2::Identifier>(name);
+    auto *named_expr = storage.Create<memgraph::query::v2::NamedExpression>(name, ident);
+    body.named_expressions.emplace_back(named_expr);
+  }
+}
+void FillReturnBody(query::v2::AstStorage &, query::v2::ReturnBody &body, Limitv2 limit) {
+  body.limit = limit.expression;
+}
+void FillReturnBody(query::v2::AstStorage &, query::v2::ReturnBody &body, Skipv2 skip, Limitv2 limit = Limitv2{}) {
+  body.skip = skip.expression;
+  body.limit = limit.expression;
+}
+void FillReturnBody(query::v2::AstStorage &, query::v2::ReturnBody &body, OrderByv2 order_by,
+                    Limitv2 limit = Limitv2{}) {
+  body.order_by = order_by.expressions;
+  body.limit = limit.expression;
+}
+void FillReturnBody(query::v2::AstStorage &, query::v2::ReturnBody &body, OrderByv2 order_by, Skipv2 skip,
+                    Limitv2 limit = Limitv2{}) {
+  body.order_by = order_by.expressions;
+  body.skip = skip.expression;
+  body.limit = limit.expression;
+}
+void FillReturnBody(query::v2::AstStorage &, query::v2::ReturnBody &body, query::v2::Expression *expr,
+                    query::v2::NamedExpression *named_expr) {
+  // This overload supports `RETURN(expr, AS(name))` construct, since
+  // NamedExpression does not inherit Expression.
+  named_expr->expression_ = expr;
+  body.named_expressions.emplace_back(named_expr);
+}
+void FillReturnBody(query::v2::AstStorage &storage, query::v2::ReturnBody &body, const std::string &name,
+                    query::v2::NamedExpression *named_expr) {
+  named_expr->expression_ = storage.Create<memgraph::query::v2::Identifier>(name);
+  body.named_expressions.emplace_back(named_expr);
+}
+template <class... T>
+void FillReturnBody(query::v2::AstStorage &storage, query::v2::ReturnBody &body, query::v2::Expression *expr,
+                    query::v2::NamedExpression *named_expr, T... rest) {
+  named_expr->expression_ = expr;
+  body.named_expressions.emplace_back(named_expr);
+  FillReturnBody(storage, body, rest...);
+}
+template <class... T>
+void FillReturnBody(query::v2::AstStorage &storage, query::v2::ReturnBody &body, query::v2::NamedExpression *named_expr,
+                    T... rest) {
+  body.named_expressions.emplace_back(named_expr);
+  FillReturnBody(storage, body, rest...);
+}
+template <class... T>
+void FillReturnBody(query::v2::AstStorage &storage, query::v2::ReturnBody &body, const std::string &name,
+                    query::v2::NamedExpression *named_expr, T... rest) {
+  named_expr->expression_ = storage.Create<memgraph::query::v2::Identifier>(name);
+  body.named_expressions.emplace_back(named_expr);
+  FillReturnBody(storage, body, rest...);
+}
+template <class... T>
+void FillReturnBody(query::v2::AstStorage &storage, query::v2::ReturnBody &body, const std::string &name, T... rest) {
+  auto *ident = storage.Create<memgraph::query::v2::Identifier>(name);
+  auto *named_expr = storage.Create<memgraph::query::v2::NamedExpression>(name, ident);
+  body.named_expressions.emplace_back(named_expr);
+  FillReturnBody(storage, body, rest...);
+}
+
+// new stuff end
+
 /// Create the return clause with given expressions.
 ///
 /// The supported expression combination of arguments is:
@@ -373,6 +608,18 @@ auto GetReturn(AstStorage &storage, bool distinct, T... exprs) {
   FillReturnBody(storage, ret->body_, exprs...);
   return ret;
 }
+
+// new stuff begin
+
+template <class... T>
+auto GetReturn(query::v2::AstStorage &storage, bool distinct, T... exprs) {
+  auto ret = storage.Create<query::v2::Return>();
+  ret->body_.distinct = distinct;
+  FillReturnBody(storage, ret->body_, exprs...);
+  return ret;
+}
+
+// new stuff end
 
 /// Create the with clause with given expressions.
 ///
@@ -486,12 +733,16 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
 #define EDGE(...) memgraph::query::test_common::GetEdge(storage, __VA_ARGS__)
 #define EDGE_VARIABLE(...) memgraph::query::test_common::GetEdgeVariable(storage, __VA_ARGS__)
 #define PATTERN(...) memgraph::query::test_common::GetPattern(storage, {__VA_ARGS__})
+#define PATTERN(...) memgraph::query::test_common::GetPattern(storage, {__VA_ARGS__})
 #define NAMED_PATTERN(name, ...) memgraph::query::test_common::GetPattern(storage, name, {__VA_ARGS__})
 #define OPTIONAL_MATCH(...) \
   memgraph::query::test_common::GetWithPatterns(storage.Create<memgraph::query::Match>(true), {__VA_ARGS__})
 #define MATCH(...) \
   memgraph::query::test_common::GetWithPatterns(storage.Create<memgraph::query::Match>(), {__VA_ARGS__})
+#define MATCH_V2(...) \
+  memgraph::query::test_common::GetWithPatterns(storage.Create<memgraph::query::v2::Match>(), {__VA_ARGS__})
 #define WHERE(expr) storage.Create<memgraph::query::Where>((expr))
+#define WHERE_V2(expr) storage.Create<memgraph::query::v2::Where>((expr))
 #define CREATE(...) \
   memgraph::query::test_common::GetWithPatterns(storage.Create<memgraph::query::Create>(), {__VA_ARGS__})
 #define IDENT(...) storage.Create<memgraph::query::Identifier>(__VA_ARGS__)
@@ -501,6 +752,8 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
   storage.Create<memgraph::query::MapLiteral>( \
       std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>{__VA_ARGS__})
 #define PROPERTY_PAIR(property_name) std::make_pair(property_name, dba.NameToProperty(property_name))
+#define PRIMARY_PROPERTY_PAIR(property_name) std::make_pair(property_name, dba.NameToPrimaryProperty(property_name))
+#define SECONDARY_PROPERTY_PAIR(property_name) std::make_pair(property_name, dba.NameToSecondaryProperty(property_name))
 #define PROPERTY_LOOKUP(...) memgraph::query::test_common::GetPropertyLookup(storage, dba, __VA_ARGS__)
 #define PARAMETER_LOOKUP(token_position) storage.Create<memgraph::query::ParameterLookup>((token_position))
 #define NEXPR(name, expr) storage.Create<memgraph::query::NamedExpression>((name), (expr))
@@ -536,6 +789,8 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
                                               std::vector<memgraph::query::PropertyIx>{(property)})
 #define QUERY(...) memgraph::query::test_common::GetQuery(storage, __VA_ARGS__)
 #define SINGLE_QUERY(...) memgraph::query::test_common::GetSingleQuery(storage.Create<SingleQuery>(), __VA_ARGS__)
+#define SINGLE_QUERY_V2(...) \
+  memgraph::query::test_common::GetSingleQuery(storage.Create<memgraph::query::v2::SingleQuery>(), __VA_ARGS__)
 #define UNION(...) memgraph::query::test_common::GetCypherUnion(storage.Create<CypherUnion>(true), __VA_ARGS__)
 #define UNION_ALL(...) memgraph::query::test_common::GetCypherUnion(storage.Create<CypherUnion>(false), __VA_ARGS__)
 #define FOREACH(...) memgraph::query::test_common::GetForeach(storage, __VA_ARGS__)
