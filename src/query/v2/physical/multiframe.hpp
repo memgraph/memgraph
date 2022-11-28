@@ -24,6 +24,8 @@ namespace memgraph::query::v2::physical::multiframe {
 
 // TODO(gitbuda): Add Multiframe as a concept.
 
+// TODO(gitbuda): Move this Multiframe to the mocks.
+
 /// Fixed in size during query execution.
 /// NOTE/TODO(gitbuda): Accessing Multiframe might be tricky because of multi-threading.
 /// As soon as one operator "gives" data to the other operator (in any direction), if operators
@@ -83,6 +85,14 @@ class Multiframe {
   void Clear() { data_.clear(); }
 
  private:
+  // The multiframe don't have to be moved in our case, but since Frame has the
+  // allocator -> move noexcept is not possible (Frame is a vector) -> moving
+  // Frame is not possible
+  //
+  // Because the above -> don't mark mocked frame's move noexcept
+  //
+  // TODO(gitbuda): Make test on how to move individual Frame between vectors.
+  //
   std::vector<TFrame> data_;
 };
 

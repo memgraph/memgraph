@@ -34,9 +34,19 @@ using TExecutionContext = ExecutionContext;
 
 class PhysicalFixture : public benchmark::Fixture {
  protected:
-  void SetUp(const benchmark::State &) { thread_pool_ = std::make_unique<memgraph::utils::ThreadPool>(kThreadsNum); }
+  void SetUp(const benchmark::State &) {
+    int scan_all_elems = 1000;
+    ops_ = {
+        Op{.type = OpType::Produce},
+        Op{.type = OpType::ScanAll, .props = {scan_all_elems}},
+        Op{.type = OpType::ScanAll, .props = {scan_all_elems}},
+        Op{.type = OpType::Once},
+    };
+    thread_pool_ = std::make_unique<memgraph::utils::ThreadPool>(kThreadsNum);
+  }
   void TearDown(const benchmark::State &) {}
 
+  std::vector<Op> ops_;
   std::unique_ptr<memgraph::utils::ThreadPool> thread_pool_;
 };
 
@@ -44,42 +54,26 @@ BENCHMARK_DEFINE_F(PhysicalFixture, TestENESingleThread)
 (benchmark::State &state) {
   int pool_size = state.range(0);
   int mf_size = state.range(1);
-  int scan_all_elems = 1000;
-  std::vector<Op> ops{
-      Op{.type = OpType::Produce},
-      Op{.type = OpType::ScanAll, .props = {scan_all_elems}},
-      Op{.type = OpType::ScanAll, .props = {scan_all_elems}},
-      Op{.type = OpType::Once},
-  };
-
   for (auto _ : state) {
-    auto plan = MakeENEPlan(ops, pool_size, mf_size);
+    auto plan = MakeENEPlan(ops_, pool_size, mf_size);
     TExecutionContext ctx{.thread_pool = thread_pool_.get()};
     plan->Execute(ctx);
   }
 }
 BENCHMARK_REGISTER_F(PhysicalFixture, TestENESingleThread)
     ->ArgsProduct({
-        benchmark::CreateRange(4, 16, 2),
-        benchmark::CreateRange(10, 10000, 10),
+        benchmark::CreateRange(1, 16, 2),
+        benchmark::CreateRange(1, 10000, 10),
     })
     ->Unit(benchmark::kMillisecond)
     ->UseRealTime();
 
 BENCHMARK_DEFINE_F(PhysicalFixture, TestCursorPull)
 (benchmark::State &state) {
-  int scan_all_elems = 1000;
-  std::vector<Op> ops{
-      Op{.type = OpType::Produce},
-      Op{.type = OpType::ScanAll, .props = {scan_all_elems}},
-      Op{.type = OpType::ScanAll, .props = {scan_all_elems}},
-      Op{.type = OpType::Once},
-  };
-
   for (auto _ : state) {
-    auto plan = memgraph::query::v2::physical::mock::MakePullPlan(ops);
+    auto plan = memgraph::query::v2::physical::mock::MakePullPlan(ops_);
     memgraph::query::v2::physical::mock::Frame frame;
-    TExecutionContext ctx{.thread_pool = thread_pool_.get()};
+    TExecutionContext ctx;
     while (plan->Pull(frame, ctx))
       ;
   }
