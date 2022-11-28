@@ -15,7 +15,7 @@
 #include <optional>
 
 #include "query/v2/bindings/typed_value.hpp"
-#include "query/v2/shard_request_manager.hpp"
+#include "query/v2/request_runtime.hpp"
 #include "storage/v3/conversions.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
@@ -29,11 +29,11 @@ namespace memgraph::query::v2::plan {
 template <class TDbAccessor>
 class VertexCountCache {
  public:
-  explicit VertexCountCache(TDbAccessor *shard_request_manager) : shard_request_manager_{shard_request_manager} {}
+  explicit VertexCountCache(TDbAccessor *request_runtime) : request_runtime_{request_runtime} {}
 
-  auto NameToLabel(const std::string &name) { return shard_request_manager_->NameToLabel(name); }
-  auto NameToProperty(const std::string &name) { return shard_request_manager_->NameToProperty(name); }
-  auto NameToEdgeType(const std::string &name) { return shard_request_manager_->NameToEdgeType(name); }
+  auto NameToLabel(const std::string &name) { return request_runtime_->NameToLabel(name); }
+  auto NameToProperty(const std::string &name) { return request_runtime_->NameToProperty(name); }
+  auto NameToEdgeType(const std::string &name) { return request_runtime_->NameToEdgeType(name); }
 
   int64_t VerticesCount() { return 1; }
 
@@ -53,11 +53,11 @@ class VertexCountCache {
   }
 
   // For now return true if label is primary label
-  bool LabelIndexExists(storage::v3::LabelId label) { return shard_request_manager_->IsPrimaryLabel(label); }
+  bool LabelIndexExists(storage::v3::LabelId label) { return request_runtime_->IsPrimaryLabel(label); }
 
   bool LabelPropertyIndexExists(storage::v3::LabelId /*label*/, storage::v3::PropertyId /*property*/) { return false; }
 
-  ShardRequestManagerInterface *shard_request_manager_;
+  RequestRuntimeInterface *request_runtime_;
 };
 
 template <class TDbAccessor>

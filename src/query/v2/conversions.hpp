@@ -12,12 +12,12 @@
 #pragma once
 #include "bindings/typed_value.hpp"
 #include "query/v2/accessors.hpp"
+#include "query/v2/request_runtime.hpp"
 #include "query/v2/requests.hpp"
-#include "query/v2/shard_request_manager.hpp"
 
 namespace memgraph::query::v2 {
 
-inline TypedValue ValueToTypedValue(const msgs::Value &value, ShardRequestManagerInterface *manager) {
+inline TypedValue ValueToTypedValue(const msgs::Value &value, RequestRuntimeInterface *manager) {
   using Value = msgs::Value;
   switch (value.type) {
     case Value::Type::Null:

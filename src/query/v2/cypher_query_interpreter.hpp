@@ -132,7 +132,7 @@ class SingleNodeLogicalPlan final : public LogicalPlan {
 };
 
 std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters,
-                                             ShardRequestManagerInterface *shard_manager,
+                                             RequestRuntimeInterface *shard_manager,
                                              const std::vector<Identifier *> &predefined_identifiers);
 
 /**
@@ -145,7 +145,7 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery
  */
 std::shared_ptr<CachedPlan> CypherQueryToPlan(uint64_t hash, AstStorage ast_storage, CypherQuery *query,
                                               const Parameters &parameters, utils::SkipList<PlanCacheEntry> *plan_cache,
-                                              ShardRequestManagerInterface *shard_manager,
+                                              RequestRuntimeInterface *shard_manager,
                                               const std::vector<Identifier *> &predefined_identifiers = {});
 
 }  // namespace memgraph::query::v2

@@ -23,7 +23,7 @@
 #include "query/v2/bindings/typed_value.hpp"
 #include "query/v2/conversions.hpp"
 #include "query/v2/exceptions.hpp"
-#include "query/v2/shard_request_manager.hpp"
+#include "query/v2/request_runtime.hpp"
 #include "storage/v3/conversions.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"

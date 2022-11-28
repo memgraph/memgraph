@@ -11,7 +11,7 @@
 
 #include "query/v2/cypher_query_interpreter.hpp"
 #include "query/v2/bindings/symbol_generator.hpp"
-#include "query/v2/shard_request_manager.hpp"
+#include "query/v2/request_runtime.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_HIDDEN_bool(query_cost_planner, true, "Use the cost-estimating query planner.");
@@ -118,7 +118,7 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
 }
 
 std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters,
-                                             ShardRequestManagerInterface *shard_manager,
+                                             RequestRuntimeInterface *shard_manager,
                                              const std::vector<Identifier *> &predefined_identifiers) {
   auto vertex_counts = plan::MakeVertexCountCache(shard_manager);
   auto symbol_table = expr::MakeSymbolTable(query, predefined_identifiers);
@@ -130,7 +130,7 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery
 
 std::shared_ptr<CachedPlan> CypherQueryToPlan(uint64_t hash, AstStorage ast_storage, CypherQuery *query,
                                               const Parameters &parameters, utils::SkipList<PlanCacheEntry> *plan_cache,
-                                              ShardRequestManagerInterface *shard_manager,
+                                              RequestRuntimeInterface *shard_manager,
                                               const std::vector<Identifier *> &predefined_identifiers) {
   std::optional<utils::SkipList<PlanCacheEntry>::Accessor> plan_cache_access;
   if (plan_cache) {

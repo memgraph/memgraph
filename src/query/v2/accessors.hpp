@@ -25,7 +25,7 @@
 #include "utils/memory_tracker.hpp"
 
 namespace memgraph::query::v2 {
-class ShardRequestManagerInterface;
+class RequestRuntimeInterface;
 }  // namespace memgraph::query::v2
 
 namespace memgraph::query::v2::accessors {
@@ -41,7 +41,7 @@ class VertexAccessor;
 
 class EdgeAccessor final {
  public:
-  explicit EdgeAccessor(Edge edge, const ShardRequestManagerInterface *manager);
+  explicit EdgeAccessor(Edge edge, const RequestRuntimeInterface *manager);
 
   [[nodiscard]] EdgeTypeId EdgeType() const;
 
@@ -69,7 +69,7 @@ class EdgeAccessor final {
 
  private:
   Edge edge;
-  const ShardRequestManagerInterface *manager_;
+  const RequestRuntimeInterface *manager_;
 };
 
 class VertexAccessor final {
@@ -77,11 +77,10 @@ class VertexAccessor final {
   using PropertyId = msgs::PropertyId;
   using Label = msgs::Label;
   using VertexId = msgs::VertexId;
-  VertexAccessor(Vertex v, std::vector<std::pair<PropertyId, Value>> props,
-                 const ShardRequestManagerInterface *manager);
+  VertexAccessor(Vertex v, std::vector<std::pair<PropertyId, Value>> props, const RequestRuntimeInterface *manager);
 
-  VertexAccessor(Vertex v, std::map<PropertyId, Value> &&props, const ShardRequestManagerInterface *manager);
-  VertexAccessor(Vertex v, const std::map<PropertyId, Value> &props, const ShardRequestManagerInterface *manager);
+  VertexAccessor(Vertex v, std::map<PropertyId, Value> &&props, const RequestRuntimeInterface *manager);
+  VertexAccessor(Vertex v, const std::map<PropertyId, Value> &props, const RequestRuntimeInterface *manager);
 
   [[nodiscard]] Label PrimaryLabel() const;
 
@@ -150,7 +149,7 @@ class VertexAccessor final {
  private:
   Vertex vertex;
   std::vector<std::pair<PropertyId, Value>> properties;
-  const ShardRequestManagerInterface *manager_;
+  const RequestRuntimeInterface *manager_;
 };
 
 // inline VertexAccessor EdgeAccessor::To() const { return VertexAccessor(impl_.ToVertex()); }

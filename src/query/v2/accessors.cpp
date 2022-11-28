@@ -10,12 +10,12 @@
 // licenses/APL.txt.
 
 #include "query/v2/accessors.hpp"
+#include "query/v2/request_runtime.hpp"
 #include "query/v2/requests.hpp"
-#include "query/v2/shard_request_manager.hpp"
 #include "storage/v3/id_types.hpp"
 
 namespace memgraph::query::v2::accessors {
-EdgeAccessor::EdgeAccessor(Edge edge, const ShardRequestManagerInterface *manager)
+EdgeAccessor::EdgeAccessor(Edge edge, const RequestRuntimeInterface *manager)
     : edge(std::move(edge)), manager_(manager) {}
 
 EdgeTypeId EdgeAccessor::EdgeType() const { return edge.type.id; }
@@ -44,11 +44,10 @@ VertexAccessor EdgeAccessor::From() const {
 }
 
 VertexAccessor::VertexAccessor(Vertex v, std::vector<std::pair<PropertyId, Value>> props,
-                               const ShardRequestManagerInterface *manager)
+                               const RequestRuntimeInterface *manager)
     : vertex(std::move(v)), properties(std::move(props)), manager_(manager) {}
 
-VertexAccessor::VertexAccessor(Vertex v, std::map<PropertyId, Value> &&props,
-                               const ShardRequestManagerInterface *manager)
+VertexAccessor::VertexAccessor(Vertex v, std::map<PropertyId, Value> &&props, const RequestRuntimeInterface *manager)
     : vertex(std::move(v)), manager_(manager) {
   properties.reserve(props.size());
   for (auto &[id, value] : props) {
@@ -57,7 +56,7 @@ VertexAccessor::VertexAccessor(Vertex v, std::map<PropertyId, Value> &&props,
 }
 
 VertexAccessor::VertexAccessor(Vertex v, const std::map<PropertyId, Value> &props,
-                               const ShardRequestManagerInterface *manager)
+                               const RequestRuntimeInterface *manager)
     : vertex(std::move(v)), manager_(manager) {
   properties.reserve(props.size());
   for (const auto &[id, value] : props) {
