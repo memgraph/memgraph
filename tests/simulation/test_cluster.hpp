@@ -151,7 +151,7 @@ ShardMap TestShardMap(int n_splits, int replication_factor) {
   return sm;
 }
 
-void ExecuteOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_manager,
+void ExecuteOp(query::v2::ShardRequestManager<SimulatorTransport> &shard_request_manager,
                std::set<CompoundKey> &correctness_model, CreateVertex create_vertex) {
   const auto key1 = memgraph::storage::v3::PropertyValue(create_vertex.first);
   const auto key2 = memgraph::storage::v3::PropertyValue(create_vertex.second);
@@ -164,7 +164,7 @@ void ExecuteOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_mana
     return;
   }
 
-  msgs::ExecutionState<msgs::CreateVerticesRequest> state;
+  query::v2::ExecutionState<msgs::CreateVerticesRequest> state;
 
   auto label_id = shard_request_manager.NameToLabel("test_label");
 
@@ -182,9 +182,9 @@ void ExecuteOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_mana
   correctness_model.emplace(std::make_pair(create_vertex.first, create_vertex.second));
 }
 
-void ExecuteOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_manager,
+void ExecuteOp(query::v2::ShardRequestManager<SimulatorTransport> &shard_request_manager,
                std::set<CompoundKey> &correctness_model, ScanAll scan_all) {
-  msgs::ExecutionState<msgs::ScanVerticesRequest> request{.label = "test_label"};
+  query::v2::ExecutionState<msgs::ScanVerticesRequest> request{.label = "test_label"};
 
   auto results = shard_request_manager.Request(request);
 
@@ -247,7 +247,8 @@ std::pair<SimulatorStats, LatencyHistogramSummaries> RunClusterSimulation(const 
   CoordinatorClient<SimulatorTransport> coordinator_client(cli_io, coordinator_address, {coordinator_address});
   WaitForShardsToInitialize(coordinator_client);
 
-  msgs::ShardRequestManager<SimulatorTransport> shard_request_manager(std::move(coordinator_client), std::move(cli_io));
+  query::v2::ShardRequestManager<SimulatorTransport> shard_request_manager(std::move(coordinator_client),
+                                                                           std::move(cli_io));
 
   shard_request_manager.StartTransaction();
 

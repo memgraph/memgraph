@@ -497,7 +497,8 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
   /// before forwarding the calls to original TEncoder.
   class TypedValueResultStream {
    public:
-    TypedValueResultStream(TEncoder *encoder, const memgraph::msgs::ShardRequestManagerInterface *shard_request_manager)
+    TypedValueResultStream(TEncoder *encoder,
+                           const memgraph::query::v2::ShardRequestManagerInterface *shard_request_manager)
         : encoder_(encoder), shard_request_manager_(shard_request_manager) {}
 
     void Result(const std::vector<memgraph::query::v2::TypedValue> &values) {
@@ -512,7 +513,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 
    private:
     TEncoder *encoder_;
-    const memgraph::msgs::ShardRequestManagerInterface *shard_request_manager_{nullptr};
+    const memgraph::query::v2::ShardRequestManagerInterface *shard_request_manager_{nullptr};
   };
   memgraph::query::v2::Interpreter interpreter_;
   memgraph::communication::v2::ServerEndpoint endpoint_;

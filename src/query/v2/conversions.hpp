@@ -17,7 +17,7 @@
 
 namespace memgraph::query::v2 {
 
-inline TypedValue ValueToTypedValue(const msgs::Value &value, msgs::ShardRequestManagerInterface *manager) {
+inline TypedValue ValueToTypedValue(const msgs::Value &value, ShardRequestManagerInterface *manager) {
   using Value = msgs::Value;
   switch (value.type) {
     case Value::Type::Null:

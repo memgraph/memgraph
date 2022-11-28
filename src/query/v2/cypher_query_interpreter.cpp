@@ -118,7 +118,7 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
 }
 
 std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters,
-                                             msgs::ShardRequestManagerInterface *shard_manager,
+                                             ShardRequestManagerInterface *shard_manager,
                                              const std::vector<Identifier *> &predefined_identifiers) {
   auto vertex_counts = plan::MakeVertexCountCache(shard_manager);
   auto symbol_table = expr::MakeSymbolTable(query, predefined_identifiers);
@@ -130,7 +130,7 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery
 
 std::shared_ptr<CachedPlan> CypherQueryToPlan(uint64_t hash, AstStorage ast_storage, CypherQuery *query,
                                               const Parameters &parameters, utils::SkipList<PlanCacheEntry> *plan_cache,
-                                              msgs::ShardRequestManagerInterface *shard_manager,
+                                              ShardRequestManagerInterface *shard_manager,
                                               const std::vector<Identifier *> &predefined_identifiers) {
   std::optional<utils::SkipList<PlanCacheEntry>::Accessor> plan_cache_access;
   if (plan_cache) {

@@ -57,7 +57,7 @@ class VertexCountCache {
 
   bool LabelPropertyIndexExists(storage::v3::LabelId /*label*/, storage::v3::PropertyId /*property*/) { return false; }
 
-  msgs::ShardRequestManagerInterface *shard_request_manager_;
+  ShardRequestManagerInterface *shard_request_manager_;
 };
 
 template <class TDbAccessor>
