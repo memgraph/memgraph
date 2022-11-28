@@ -10,13 +10,16 @@
 # licenses/APL.txt.
 
 import sys
-import time
-import typing
 
 import mgclient
 import pytest
 
-from common import *
+from common import (
+    connection,
+    execute_and_fetch_all,
+    has_n_result_row,
+    wait_for_shard_manager_to_initialize,
+)
 
 
 def test_awesome_memgraph_functions(connection):

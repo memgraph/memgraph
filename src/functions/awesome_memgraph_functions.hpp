@@ -56,10 +56,10 @@ template <typename TypedValueT, typename FunctionContextT, typename Tag, typenam
 std::function<TypedValueT(const TypedValueT *arguments, int64_t num_arguments, const FunctionContextT &context)>
 NameToFunction(const std::string &function_name);
 
-inline const char kStartsWith[] = "STARTSWITH";
-inline const char kEndsWith[] = "ENDSWITH";
-inline const char kContains[] = "CONTAINS";
-inline const char kId[] = "ID";
+inline constexpr char kStartsWith[] = "STARTSWITH";
+inline constexpr char kEndsWith[] = "ENDSWITH";
+inline constexpr char kContains[] = "CONTAINS";
+inline constexpr char kId[] = "ID";
 
 }  // namespace memgraph::functions
 
