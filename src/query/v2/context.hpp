@@ -60,8 +60,8 @@ struct EvaluationContext {
   mutable std::unordered_map<std::string, int64_t> counters;
 };
 
-inline std::vector<storage::v3::PropertyId> NamesToProperties(
-    const std::vector<std::string> &property_names, msgs::ShardRequestManagerInterface *shard_request_manager) {
+inline std::vector<storage::v3::PropertyId> NamesToProperties(const std::vector<std::string> &property_names,
+                                                              ShardRequestManagerInterface *shard_request_manager) {
   std::vector<storage::v3::PropertyId> properties;
   // TODO Fix by using reference
   properties.reserve(property_names.size());
@@ -74,7 +74,7 @@ inline std::vector<storage::v3::PropertyId> NamesToProperties(
 }
 
 inline std::vector<storage::v3::LabelId> NamesToLabels(const std::vector<std::string> &label_names,
-                                                       msgs::ShardRequestManagerInterface *shard_request_manager) {
+                                                       ShardRequestManagerInterface *shard_request_manager) {
   std::vector<storage::v3::LabelId> labels;
   labels.reserve(label_names.size());
   // TODO Fix by using reference
@@ -97,7 +97,7 @@ struct ExecutionContext {
   plan::ProfilingStats *stats_root{nullptr};
   ExecutionStats execution_stats;
   utils::AsyncTimer timer;
-  msgs::ShardRequestManagerInterface *shard_request_manager{nullptr};
+  ShardRequestManagerInterface *shard_request_manager{nullptr};
   IdAllocator *edge_ids_alloc;
 };
 

@@ -72,7 +72,7 @@ query::v2::TypedValue ToTypedValue(const Value &value) {
 }
 
 communication::bolt::Vertex ToBoltVertex(const query::v2::accessors::VertexAccessor &vertex,
-                                         const msgs::ShardRequestManagerInterface *shard_request_manager,
+                                         const query::v2::ShardRequestManagerInterface *shard_request_manager,
                                          storage::v3::View /*view*/) {
   auto id = communication::bolt::Id::FromUint(0);
 
@@ -92,7 +92,7 @@ communication::bolt::Vertex ToBoltVertex(const query::v2::accessors::VertexAcces
 }
 
 communication::bolt::Edge ToBoltEdge(const query::v2::accessors::EdgeAccessor &edge,
-                                     const msgs::ShardRequestManagerInterface *shard_request_manager,
+                                     const query::v2::ShardRequestManagerInterface *shard_request_manager,
                                      storage::v3::View /*view*/) {
   // TODO(jbajic) Fix bolt communication
   auto id = communication::bolt::Id::FromUint(0);
@@ -109,15 +109,15 @@ communication::bolt::Edge ToBoltEdge(const query::v2::accessors::EdgeAccessor &e
 }
 
 communication::bolt::Path ToBoltPath(const query::v2::accessors::Path & /*edge*/,
-                                     const msgs::ShardRequestManagerInterface * /*shard_request_manager*/,
+                                     const query::v2::ShardRequestManagerInterface * /*shard_request_manager*/,
                                      storage::v3::View /*view*/) {
   // TODO(jbajic) Fix bolt communication
   MG_ASSERT(false, "Path is unimplemented!");
   return {};
 }
 
-Value ToBoltValue(const query::v2::TypedValue &value, const msgs::ShardRequestManagerInterface *shard_request_manager,
-                  storage::v3::View view) {
+Value ToBoltValue(const query::v2::TypedValue &value,
+                  const query::v2::ShardRequestManagerInterface *shard_request_manager, storage::v3::View view) {
   switch (value.type()) {
     case query::v2::TypedValue::Type::Null:
       return {};
