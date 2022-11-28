@@ -33,7 +33,7 @@ extern "C" {
 
 namespace memgraph::query::procedure {
 
-void DeleteFromSysModule(PyObject *sys_dict, PyObject *module);
+bool ProcessFileDependencies(std::filesystem::path file_path_, const char *func_code, PyObject *sys_mod_ref);
 
 ModuleRegistry gModuleRegistry;
 
@@ -1016,68 +1016,57 @@ bool PythonModule::Close() {
       "node_iter.visit_ImportFrom = visit_ImportFrom\n"
       "node_iter.visit(ast.parse(code))\n";
 
+  bool status = ProcessFileDependencies(file_path_, func_code, sys_mod_ref);
+  py_module_ = py::Object(nullptr);
+  return status;
+}
+
+bool ProcessFileDependencies(std::filesystem::path file_path_, const char *func_code, PyObject *sys_mod_ref) {
+  // now start processing dependencies
   const auto maybe_content =
-      ReadFile(file_path_);  // this is already done at Load so it can somehow be optimized but not sure how
+      ReadFile(file_path_);  // this is already done at Load so it can somehow be optimized but not sure how yet
 
-  if (!maybe_content) {
-    spdlog::error("Couldn't read the content of the file.");
-    return false;
-  } else {
+  if (maybe_content) {
     const char *content_value = maybe_content->c_str();
-    if (!content_value) {
-      spdlog::error("Couldn't convert the content of the file to string.");
-      return false;
-    }
-    PyObject *py_main, *py_global_dict;
-    py_main = PyImport_AddModule("__main__");
-    py_global_dict = PyModule_GetDict(py_main);
+    if (content_value) {
+      PyObject *py_main, *py_global_dict;
+      py_main = PyImport_AddModule("__main__");
+      py_global_dict = PyModule_GetDict(py_main);
 
-    PyDict_SetItemString(py_global_dict, "code", PyUnicode_FromString(content_value));
-    PyRun_String(func_code, Py_file_input, py_global_dict, py_global_dict);
-    PyObject *py_res = PyDict_GetItemString(py_global_dict, "modules");
+      PyDict_SetItemString(py_global_dict, "code", PyUnicode_FromString(content_value));
+      PyRun_String(func_code, Py_file_input, py_global_dict, py_global_dict);
+      PyObject *py_res = PyDict_GetItemString(py_global_dict, "modules");
 
-    PyObject *iterator = PyObject_GetIter(py_res);
-    PyObject *item;
+      PyObject *iterator = PyObject_GetIter(py_res);
+      PyObject *module;
 
-    if (iterator == NULL) {
-      spdlog::warn("Iterator is null...");
-    } else {
-      while ((item = PyIter_Next(iterator))) {
-        DeleteFromSysModule(sys_mod_ref, item);
-        Py_DECREF(item);
+      if (iterator != NULL) {
+        while ((module = PyIter_Next(iterator))) {
+          if (PyDict_Contains(sys_mod_ref, module) == 1) {  // if the item is in dictionary
+            const char *module_name = PyUnicode_AsUTF8(module);
+            if (PyDict_DelItemString(sys_mod_ref, module_name) != 0) {
+              spdlog::info("Module {} couldn't be removed from the cache", module_name);
+            } else {
+              spdlog::info("Module {} removed from the cache", module_name);
+            }
+          }
+          Py_DECREF(module);
+        }
+        Py_DECREF(iterator);
       }
-      Py_DECREF(iterator);
     }
   }
 
-  // This has to succeed because it is top root module so the module DeleteFromSysModule cannot be used.
-  // Delete the module from the `sys.modules` directory so that the module will
-  // be properly imported if imported again.
+  // first throw out of cache file and bytecode
   if (PyDict_DelItemString(sys_mod_ref, file_path_.stem().c_str()) != 0) {
     spdlog::warn("Failed to remove the module from sys.modules");
-    py_module_ = py::Object(nullptr);
     return false;
   }
 
   // Remove the cached bytecode if it's present
   std::filesystem::remove_all(file_path_.parent_path() / "__pycache__");
-  py_module_ = py::Object(nullptr);
   spdlog::info("Closed module {}", file_path_);
   return true;
-}
-
-void DeleteFromSysModule(PyObject *sys_dict, PyObject *module) {
-  // here module can be our query module but also Python package
-  const char *module_name = PyUnicode_AsUTF8(module);
-  if (PyDict_Contains(sys_dict, module) == 1) {  // if the item is in dictionary
-    if (PyDict_DelItemString(sys_dict, module_name) != 0) {
-      spdlog::warn("Failed to remove module {}, from sys.modules", module_name);
-    } else {
-      spdlog::info("Module {} successfully removed from the cache", module_name);
-    }
-  } else {
-    spdlog::info("Module {} not in cache", module_name);
-  }
 }
 
 const std::map<std::string, mgp_proc, std::less<>> *PythonModule::Procedures() const {
