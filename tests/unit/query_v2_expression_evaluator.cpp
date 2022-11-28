@@ -66,7 +66,7 @@ using memgraph::functions::FunctionRuntimeException;
 
 namespace memgraph::query::v2::tests {
 
-class MockedShardRequestManager : public memgraph::msgs::ShardRequestManagerInterface {
+class MockedShardRequestManager : public ShardRequestManagerInterface {
  public:
   using VertexAccessor = accessors::VertexAccessor;
   explicit MockedShardRequestManager(ShardMap shard_map) : shards_map_(std::move(shard_map)) { SetUpNameIdMappers(); }
@@ -83,22 +83,20 @@ class MockedShardRequestManager : public memgraph::msgs::ShardRequestManagerInte
   }
   void StartTransaction() override {}
   void Commit() override {}
-  std::vector<VertexAccessor> Request(
-      memgraph::msgs::ExecutionState<memgraph::msgs::ScanVerticesRequest> &state) override {
+  std::vector<VertexAccessor> Request(ExecutionState<memgraph::msgs::ScanVerticesRequest> &state) override {
     return {};
   }
 
-  std::vector<CreateVerticesResponse> Request(memgraph::msgs::ExecutionState<CreateVerticesRequest> &state,
+  std::vector<CreateVerticesResponse> Request(ExecutionState<CreateVerticesRequest> &state,
                                               std::vector<memgraph::msgs::NewVertex> new_vertices) override {
     return {};
   }
 
-  std::vector<ExpandOneResultRow> Request(memgraph::msgs::ExecutionState<ExpandOneRequest> &state,
-                                          ExpandOneRequest request) override {
+  std::vector<ExpandOneResultRow> Request(ExecutionState<ExpandOneRequest> &state, ExpandOneRequest request) override {
     return {};
   }
 
-  std::vector<CreateExpandResponse> Request(memgraph::msgs::ExecutionState<CreateExpandRequest> &state,
+  std::vector<CreateExpandResponse> Request(ExecutionState<CreateExpandRequest> &state,
                                             std::vector<NewExpand> new_edges) override {
     return {};
   }
@@ -218,7 +216,7 @@ class ExpressionEvaluatorTest : public ::testing::Test {
   SymbolTable symbol_table;
 
   Frame frame{128};
-  std::unique_ptr<memgraph::msgs::ShardRequestManagerInterface> shard_manager =
+  std::unique_ptr<ShardRequestManagerInterface> shard_manager =
       std::make_unique<MockedShardRequestManager>(CreateDummyShardmap());
   ExpressionEvaluator eval{&frame, symbol_table, ctx, shard_manager.get(), memgraph::storage::v3::View::OLD};
 
@@ -546,13 +544,13 @@ using VertexId = memgraph::msgs::VertexId;
 using Label = memgraph::msgs::Label;
 
 accessors::VertexAccessor CreateVertex(std::vector<std::pair<PropertyId, Value>> props,
-                                       const memgraph::msgs::ShardRequestManagerInterface *manager, Label label = {}) {
+                                       const ShardRequestManagerInterface *manager, Label label = {}) {
   static int64_t id = 0;
   return {Vertex{VertexId{label, {memgraph::msgs::Value(id++)}}, {label}}, std::move(props), manager};
 }
 
 accessors::EdgeAccessor CreateEdge(std::vector<std::pair<PropertyId, Value>> props,
-                                   const memgraph::msgs::ShardRequestManagerInterface *manager) {
+                                   const ShardRequestManagerInterface *manager) {
   auto edge = Edge{.src = VertexId{{}, {}},
                    .dst = VertexId{{}, {}},
                    .properties = std::move(props),

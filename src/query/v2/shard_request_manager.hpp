@@ -131,8 +131,8 @@ class ShardRequestManagerInterface {
   virtual std::optional<storage::v3::PropertyId> MaybeNameToProperty(const std::string &name) const = 0;
   virtual std::optional<storage::v3::EdgeTypeId> MaybeNameToEdgeType(const std::string &name) const = 0;
   virtual std::optional<storage::v3::LabelId> MaybeNameToLabel(const std::string &name) const = 0;
-  virtual bool IsPrimaryLabel(LabelId label) const = 0;
-  virtual bool IsPrimaryKey(LabelId primary_label, PropertyId property) const = 0;
+  virtual bool IsPrimaryLabel(storage::v3::LabelId label) const = 0;
+  virtual bool IsPrimaryKey(storage::v3::LabelId primary_label, storage::v3::PropertyId property) const = 0;
 };
 
 // TODO(kostasrim)rename this class template
