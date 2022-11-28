@@ -56,6 +56,10 @@ inline TypedValue ValueToTypedValue(const msgs::Value &value, ShardRequestManage
   throw std::runtime_error("Incorrect type in conversion");
 }
 
+inline const auto ValueToTypedValueFunctor = [](const msgs::Value &value, ShardRequestManagerInterface *manager) {
+  return ValueToTypedValue(value, manager);
+};
+
 inline msgs::Value TypedValueToValue(const TypedValue &value) {
   using Value = msgs::Value;
   switch (value.type()) {

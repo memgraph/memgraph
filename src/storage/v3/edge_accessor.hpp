@@ -48,9 +48,9 @@ class EdgeAccessor final {
   /// @return true if the object is visible from the current transaction
   bool IsVisible(View view) const;
 
-  const VertexId &FromVertex() const;
+  const VertexId &From() const;
 
-  const VertexId &ToVertex() const;
+  const VertexId &To() const;
 
   EdgeTypeId EdgeType() const { return edge_type_; }
 
@@ -83,6 +83,9 @@ class EdgeAccessor final {
     return edge_ == other.edge_ && transaction_ == other.transaction_;
   }
   bool operator!=(const EdgeAccessor &other) const noexcept { return !(*this == other); }
+
+  // Dummy function
+  size_t CypherId() const;
 
  private:
   EdgeRef edge_;

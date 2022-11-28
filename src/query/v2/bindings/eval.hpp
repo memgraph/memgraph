@@ -28,7 +28,6 @@ namespace memgraph::query::v2 {
 
 class ShardRequestManagerInterface;
 
-inline const auto lam = [](const auto &val) { return ValueToTypedValue(val); };
 namespace detail {
 class Callable {
  public:
