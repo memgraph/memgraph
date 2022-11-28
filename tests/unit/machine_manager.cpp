@@ -111,15 +111,15 @@ ShardMap TestShardMap() {
 
 template <typename ShardRequestManager>
 void TestScanAll(ShardRequestManager &shard_request_manager) {
-  msgs::ExecutionState<msgs::ScanVerticesRequest> state{.label = kLabelName};
+  query::v2::ExecutionState<msgs::ScanVerticesRequest> state{.label = kLabelName};
 
   auto result = shard_request_manager.Request(state);
   EXPECT_EQ(result.size(), 2);
 }
 
-void TestCreateVertices(msgs::ShardRequestManagerInterface &shard_request_manager) {
+void TestCreateVertices(query::v2::ShardRequestManagerInterface &shard_request_manager) {
   using PropVal = msgs::Value;
-  msgs::ExecutionState<msgs::CreateVerticesRequest> state;
+  query::v2::ExecutionState<msgs::CreateVerticesRequest> state;
   std::vector<msgs::NewVertex> new_vertices;
   auto label_id = shard_request_manager.NameToLabel(kLabelName);
   msgs::NewVertex a1{.primary_key = {PropVal(int64_t(0)), PropVal(int64_t(0))}};
@@ -131,11 +131,12 @@ void TestCreateVertices(msgs::ShardRequestManagerInterface &shard_request_manage
 
   auto result = shard_request_manager.Request(state, std::move(new_vertices));
   EXPECT_EQ(result.size(), 1);
+  EXPECT_FALSE(result[0].error.has_value()) << result[0].error->message;
 }
 
-void TestCreateExpand(msgs::ShardRequestManagerInterface &shard_request_manager) {
+void TestCreateExpand(query::v2::ShardRequestManagerInterface &shard_request_manager) {
   using PropVal = msgs::Value;
-  msgs::ExecutionState<msgs::CreateExpandRequest> state;
+  query::v2::ExecutionState<msgs::CreateExpandRequest> state;
   std::vector<msgs::NewExpand> new_expands;
 
   const auto edge_type_id = shard_request_manager.NameToEdgeType("edge_type");
@@ -151,11 +152,11 @@ void TestCreateExpand(msgs::ShardRequestManagerInterface &shard_request_manager)
 
   auto responses = shard_request_manager.Request(state, std::move(new_expands));
   MG_ASSERT(responses.size() == 1);
-  MG_ASSERT(responses[0].success);
+  MG_ASSERT(!responses[0].error.has_value());
 }
 
-void TestExpandOne(msgs::ShardRequestManagerInterface &shard_request_manager) {
-  msgs::ExecutionState<msgs::ExpandOneRequest> state{};
+void TestExpandOne(query::v2::ShardRequestManagerInterface &shard_request_manager) {
+  query::v2::ExecutionState<msgs::ExpandOneRequest> state{};
   msgs::ExpandOneRequest request;
   const auto edge_type_id = shard_request_manager.NameToEdgeType("edge_type");
   const auto label = msgs::Label{shard_request_manager.NameToLabel("test_label")};
@@ -225,7 +226,8 @@ TEST(MachineManager, BasicFunctionality) {
 
   CoordinatorClient<LocalTransport> coordinator_client(cli_io, coordinator_address, {coordinator_address});
 
-  msgs::ShardRequestManager<LocalTransport> shard_request_manager(std::move(coordinator_client), std::move(cli_io));
+  query::v2::ShardRequestManager<LocalTransport> shard_request_manager(std::move(coordinator_client),
+                                                                       std::move(cli_io));
 
   shard_request_manager.StartTransaction();
   TestCreateVertices(shard_request_manager);

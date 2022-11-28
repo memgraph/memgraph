@@ -17,7 +17,7 @@
 
 namespace memgraph::query::v2 {
 
-inline TypedValue ValueToTypedValue(const msgs::Value &value, msgs::ShardRequestManagerInterface *manager) {
+inline TypedValue ValueToTypedValue(const msgs::Value &value, ShardRequestManagerInterface *manager) {
   using Value = msgs::Value;
   switch (value.type) {
     case Value::Type::Null:
@@ -55,6 +55,10 @@ inline TypedValue ValueToTypedValue(const msgs::Value &value, msgs::ShardRequest
   }
   throw std::runtime_error("Incorrect type in conversion");
 }
+
+inline const auto ValueToTypedValueFunctor = [](const msgs::Value &value, ShardRequestManagerInterface *manager) {
+  return ValueToTypedValue(value, manager);
+};
 
 inline msgs::Value TypedValueToValue(const TypedValue &value) {
   using Value = msgs::Value;

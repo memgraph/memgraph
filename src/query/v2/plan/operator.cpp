@@ -26,6 +26,7 @@
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
 
+#include "common/errors.hpp"
 #include "expr/ast/pretty_print_ast_to_original_expression.hpp"
 #include "expr/exceptions.hpp"
 #include "query/exceptions.hpp"
@@ -251,7 +252,7 @@ class DistributedCreateNodeCursor : public Cursor {
   std::vector<const NodeCreationInfo *> nodes_info_;
   std::vector<std::vector<std::pair<storage::v3::PropertyId, msgs::Value>>> src_vertex_props_;
   std::vector<msgs::PrimaryKey> primary_keys_;
-  msgs::ExecutionState<msgs::CreateVerticesRequest> state_;
+  ExecutionState<msgs::CreateVerticesRequest> state_;
 };
 
 bool Once::OnceCursor::Pull(Frame &, ExecutionContext &context) {
@@ -381,7 +382,7 @@ class ScanAllCursor : public Cursor {
   std::optional<decltype(vertices_.value().begin())> vertices_it_;
   const char *op_name_;
   std::vector<msgs::ScanVerticesResponse> current_batch;
-  msgs::ExecutionState<msgs::ScanVerticesRequest> request_state;
+  ExecutionState<msgs::ScanVerticesRequest> request_state;
 };
 
 class DistributedScanAllAndFilterCursor : public Cursor {
@@ -402,7 +403,7 @@ class DistributedScanAllAndFilterCursor : public Cursor {
 
   using VertexAccessor = accessors::VertexAccessor;
 
-  bool MakeRequest(msgs::ShardRequestManagerInterface &shard_manager, ExecutionContext &context) {
+  bool MakeRequest(ShardRequestManagerInterface &shard_manager, ExecutionContext &context) {
     {
       SCOPED_REQUEST_WAIT_PROFILE;
       current_batch = shard_manager.Request(request_state_);
@@ -419,7 +420,7 @@ class DistributedScanAllAndFilterCursor : public Cursor {
       if (MustAbort(context)) {
         throw HintedAbortError();
       }
-      using State = msgs::ExecutionState<msgs::ScanVerticesRequest>;
+      using State = ExecutionState<msgs::ScanVerticesRequest>;
 
       if (request_state_.state == State::INITIALIZING) {
         if (!input_cursor_->Pull(frame, context)) {
@@ -446,7 +447,7 @@ class DistributedScanAllAndFilterCursor : public Cursor {
   void ResetExecutionState() {
     current_batch.clear();
     current_vertex_it = current_batch.end();
-    request_state_ = msgs::ExecutionState<msgs::ScanVerticesRequest>{};
+    request_state_ = ExecutionState<msgs::ScanVerticesRequest>{};
   }
 
   void Reset() override {
@@ -460,7 +461,7 @@ class DistributedScanAllAndFilterCursor : public Cursor {
   const char *op_name_;
   std::vector<VertexAccessor> current_batch;
   std::vector<VertexAccessor>::iterator current_vertex_it;
-  msgs::ExecutionState<msgs::ScanVerticesRequest> request_state_;
+  ExecutionState<msgs::ScanVerticesRequest> request_state_;
   std::optional<storage::v3::LabelId> label_;
   std::optional<std::pair<storage::v3::PropertyId, Expression *>> property_expression_pair_;
   std::optional<std::vector<Expression *>> filter_expressions_;
@@ -579,27 +580,6 @@ UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
                                                                 std::move(vertices), "ScanAllById");
 }
-
-namespace {
-
-template <class TEdges>
-auto UnwrapEdgesResult(storage::v3::Result<TEdges> &&result) {
-  if (result.HasError()) {
-    switch (result.GetError()) {
-      case storage::v3::Error::DELETED_OBJECT:
-        throw QueryRuntimeException("Trying to get relationships of a deleted node.");
-      case storage::v3::Error::NONEXISTENT_OBJECT:
-        throw query::v2::QueryRuntimeException("Trying to get relationships from a node that doesn't exist.");
-      case storage::v3::Error::VERTEX_HAS_EDGES:
-      case storage::v3::Error::SERIALIZATION_ERROR:
-      case storage::v3::Error::PROPERTIES_DISABLED:
-        throw QueryRuntimeException("Unexpected error when accessing relationships.");
-    }
-  }
-  return std::move(*result);
-}
-
-}  // namespace
 
 Expand::Expand(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol, Symbol node_symbol,
                Symbol edge_symbol, EdgeAtom::Direction direction,
@@ -870,45 +850,9 @@ std::vector<Symbol> SetProperties::ModifiedSymbols(const SymbolTable &table) con
 SetProperties::SetPropertiesCursor::SetPropertiesCursor(const SetProperties &self, utils::MemoryResource *mem)
     : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
 
-namespace {
-
-template <typename T>
-concept AccessorWithProperties = requires(T value, storage::v3::PropertyId property_id,
-                                          storage::v3::PropertyValue property_value) {
-  {
-    value.ClearProperties()
-    } -> std::same_as<storage::v3::Result<std::map<storage::v3::PropertyId, storage::v3::PropertyValue>>>;
-  {value.SetProperty(property_id, property_value)};
-};
-
-}  // namespace
-
 bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("SetProperties");
   return false;
-  //  if (!input_cursor_->Pull(frame, context)) return false;
-  //
-  //  TypedValue &lhs = frame[self_.input_symbol_];
-  //
-  //  // Set, just like Create needs to see the latest changes.
-  //  ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-  //                                storage::v3::View::NEW);
-  //  TypedValue rhs = self_.rhs_->Accept(evaluator);
-  //
-  //  switch (lhs.type()) {
-  //    case TypedValue::Type::Vertex:
-  //      SetPropertiesOnRecord(&lhs.ValueVertex(), rhs, self_.op_, &context);
-  //      break;
-  //    case TypedValue::Type::Edge:
-  //      SetPropertiesOnRecord(&lhs.ValueEdge(), rhs, self_.op_, &context);
-  //      break;
-  //    case TypedValue::Type::Null:
-  //      // Skip setting properties on Null (can occur in optional match).
-  //      break;
-  //    default:
-  //      throw QueryRuntimeException("Properties can only be set on edges and vertices.");
-  //  }
-  //  return true;
 }
 
 void SetProperties::SetPropertiesCursor::Shutdown() { input_cursor_->Shutdown(); }
@@ -2516,7 +2460,7 @@ class DistributedCreateExpandCursor : public Cursor {
 
   const UniqueCursorPtr input_cursor_;
   const CreateExpand &self_;
-  msgs::ExecutionState<msgs::CreateExpandRequest> state_;
+  ExecutionState<msgs::CreateExpandRequest> state_;
 };
 
 class DistributedExpandCursor : public Cursor {
@@ -2563,7 +2507,7 @@ class DistributedExpandCursor : public Cursor {
     request.edge_properties.emplace();
     request.src_vertices.push_back(get_dst_vertex(edge, direction));
     request.direction = (direction == EdgeAtom::Direction::IN) ? msgs::EdgeDirection::OUT : msgs::EdgeDirection::IN;
-    msgs::ExecutionState<msgs::ExpandOneRequest> request_state;
+    ExecutionState<msgs::ExpandOneRequest> request_state;
     auto result_rows = context.shard_request_manager->Request(request_state, std::move(request));
     MG_ASSERT(result_rows.size() == 1);
     auto &result_row = result_rows.front();
@@ -2589,7 +2533,7 @@ class DistributedExpandCursor : public Cursor {
       // to not fetch any properties of the edges
       request.edge_properties.emplace();
       request.src_vertices.push_back(vertex.Id());
-      msgs::ExecutionState<msgs::ExpandOneRequest> request_state;
+      ExecutionState<msgs::ExpandOneRequest> request_state;
       auto result_rows = std::invoke([&context, &request_state, &request]() mutable {
         SCOPED_REQUEST_WAIT_PROFILE;
         return context.shard_request_manager->Request(request_state, std::move(request));

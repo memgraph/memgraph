@@ -15,7 +15,7 @@
 #include "storage/v3/id_types.hpp"
 
 namespace memgraph::query::v2::accessors {
-EdgeAccessor::EdgeAccessor(Edge edge, const msgs::ShardRequestManagerInterface *manager)
+EdgeAccessor::EdgeAccessor(Edge edge, const ShardRequestManagerInterface *manager)
     : edge(std::move(edge)), manager_(manager) {}
 
 EdgeTypeId EdgeAccessor::EdgeType() const { return edge.type.id; }
@@ -23,17 +23,20 @@ EdgeTypeId EdgeAccessor::EdgeType() const { return edge.type.id; }
 const std::vector<std::pair<PropertyId, Value>> &EdgeAccessor::Properties() const { return edge.properties; }
 
 Value EdgeAccessor::GetProperty(const std::string &prop_name) const {
-  auto prop_id = manager_->NameToProperty(prop_name);
-  auto it = std::find_if(edge.properties.begin(), edge.properties.end(), [&](auto &pr) { return prop_id == pr.first; });
-  if (it == edge.properties.end()) {
+  auto maybe_prop = manager_->MaybeNameToProperty(prop_name);
+  if (!maybe_prop) {
     return {};
   }
+  const auto prop_id = *maybe_prop;
+  auto it = std::find_if(edge.properties.begin(), edge.properties.end(), [&](auto &pr) { return prop_id == pr.first; });
   return it->second;
 }
 
 const Edge &EdgeAccessor::GetEdge() const { return edge; }
 
 bool EdgeAccessor::IsCycle() const { return edge.src == edge.dst; };
+
+size_t EdgeAccessor::CypherId() const { return edge.id.gid; }
 
 VertexAccessor EdgeAccessor::To() const {
   return VertexAccessor(Vertex{edge.dst}, std::vector<std::pair<PropertyId, msgs::Value>>{}, manager_);
@@ -44,11 +47,11 @@ VertexAccessor EdgeAccessor::From() const {
 }
 
 VertexAccessor::VertexAccessor(Vertex v, std::vector<std::pair<PropertyId, Value>> props,
-                               const msgs::ShardRequestManagerInterface *manager)
+                               const ShardRequestManagerInterface *manager)
     : vertex(std::move(v)), properties(std::move(props)), manager_(manager) {}
 
 VertexAccessor::VertexAccessor(Vertex v, std::map<PropertyId, Value> &&props,
-                               const msgs::ShardRequestManagerInterface *manager)
+                               const ShardRequestManagerInterface *manager)
     : vertex(std::move(v)), manager_(manager) {
   properties.reserve(props.size());
   for (auto &[id, value] : props) {
@@ -57,7 +60,7 @@ VertexAccessor::VertexAccessor(Vertex v, std::map<PropertyId, Value> &&props,
 }
 
 VertexAccessor::VertexAccessor(Vertex v, const std::map<PropertyId, Value> &props,
-                               const msgs::ShardRequestManagerInterface *manager)
+                               const ShardRequestManagerInterface *manager)
     : vertex(std::move(v)), manager_(manager) {
   properties.reserve(props.size());
   for (const auto &[id, value] : props) {
@@ -88,7 +91,11 @@ Value VertexAccessor::GetProperty(PropertyId prop_id) const {
 
 // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
 Value VertexAccessor::GetProperty(const std::string &prop_name) const {
-  return GetProperty(manager_->NameToProperty(prop_name));
+  auto maybe_prop = manager_->MaybeNameToProperty(prop_name);
+  if (!maybe_prop) {
+    return {};
+  }
+  return GetProperty(*maybe_prop);
 }
 
 msgs::Vertex VertexAccessor::GetVertex() const { return vertex; }

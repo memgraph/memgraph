@@ -20,6 +20,7 @@
 #include "storage/v3/result.hpp"
 #include "storage/v3/shard.hpp"
 #include "storage/v3/view.hpp"
+#include "utils/result.hpp"
 
 namespace memgraph::storage::v3 {
 class EdgeAccessor;
@@ -31,40 +32,40 @@ namespace memgraph::glue::v2 {
 
 /// @param storage::v3::VertexAccessor for converting to
 ///        communication::bolt::Vertex.
-/// @param msgs::ShardRequestManagerInterface *shard_request_manager getting label and property names.
+/// @param query::v2::ShardRequestManagerInterface *shard_request_manager getting label and property names.
 /// @param storage::v3::View for deciding which vertex attributes are visible.
 ///
 /// @throw std::bad_alloc
-storage::v3::Result<communication::bolt::Vertex> ToBoltVertex(
-    const storage::v3::VertexAccessor &vertex, const msgs::ShardRequestManagerInterface *shard_request_manager,
-    storage::v3::View view);
+communication::bolt::Vertex ToBoltVertex(const storage::v3::VertexAccessor &vertex,
+                                         const query::v2::ShardRequestManagerInterface *shard_request_manager,
+                                         storage::v3::View view);
 
 /// @param storage::v3::EdgeAccessor for converting to communication::bolt::Edge.
-/// @param msgs::ShardRequestManagerInterface *shard_request_manager getting edge type and property names.
+/// @param query::v2::ShardRequestManagerInterface *shard_request_manager getting edge type and property names.
 /// @param storage::v3::View for deciding which edge attributes are visible.
 ///
 /// @throw std::bad_alloc
-storage::v3::Result<communication::bolt::Edge> ToBoltEdge(
-    const storage::v3::EdgeAccessor &edge, const msgs::ShardRequestManagerInterface *shard_request_manager,
-    storage::v3::View view);
+communication::bolt::Edge ToBoltEdge(const storage::v3::EdgeAccessor &edge,
+                                     const query::v2::ShardRequestManagerInterface *shard_request_manager,
+                                     storage::v3::View view);
 
 /// @param query::v2::Path for converting to communication::bolt::Path.
-/// @param msgs::ShardRequestManagerInterface *shard_request_manager ToBoltVertex and ToBoltEdge.
+/// @param query::v2::ShardRequestManagerInterface *shard_request_manager ToBoltVertex and ToBoltEdge.
 /// @param storage::v3::View for ToBoltVertex and ToBoltEdge.
 ///
 /// @throw std::bad_alloc
-storage::v3::Result<communication::bolt::Path> ToBoltPath(
-    const query::v2::accessors::Path &path, const msgs::ShardRequestManagerInterface *shard_request_manager,
-    storage::v3::View view);
+communication::bolt::Path ToBoltPath(const query::v2::accessors::Path &path,
+                                     const query::v2::ShardRequestManagerInterface *shard_request_manager,
+                                     storage::v3::View view);
 
 /// @param query::v2::TypedValue for converting to communication::bolt::Value.
-/// @param msgs::ShardRequestManagerInterface *shard_request_manager ToBoltVertex and ToBoltEdge.
+/// @param query::v2::ShardRequestManagerInterface *shard_request_manager ToBoltVertex and ToBoltEdge.
 /// @param storage::v3::View for ToBoltVertex and ToBoltEdge.
 ///
 /// @throw std::bad_alloc
-storage::v3::Result<communication::bolt::Value> ToBoltValue(
-    const query::v2::TypedValue &value, const msgs::ShardRequestManagerInterface *shard_request_manager,
-    storage::v3::View view);
+communication::bolt::Value ToBoltValue(const query::v2::TypedValue &value,
+                                       const query::v2::ShardRequestManagerInterface *shard_request_manager,
+                                       storage::v3::View view);
 
 query::v2::TypedValue ToTypedValue(const communication::bolt::Value &value);
 
@@ -75,7 +76,7 @@ storage::v3::PropertyValue ToPropertyValue(const communication::bolt::Value &val
 communication::bolt::Value ToBoltValue(msgs::Value value);
 
 communication::bolt::Value ToBoltValue(msgs::Value value,
-                                       const msgs::ShardRequestManagerInterface *shard_request_manager,
+                                       const query::v2::ShardRequestManagerInterface *shard_request_manager,
                                        storage::v3::View view);
 
 }  // namespace memgraph::glue::v2

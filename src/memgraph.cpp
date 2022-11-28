@@ -33,6 +33,7 @@
 #include <spdlog/sinks/dist_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
+#include "common/errors.hpp"
 #include "communication/bolt/v1/constants.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
@@ -480,20 +481,9 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
       const auto &summary = interpreter_.Pull(&stream, n, qid);
       std::map<std::string, memgraph::communication::bolt::Value> decoded_summary;
       for (const auto &kv : summary) {
-        auto maybe_value = memgraph::glue::v2::ToBoltValue(kv.second, interpreter_.GetShardRequestManager(),
-                                                           memgraph::storage::v3::View::NEW);
-        if (maybe_value.HasError()) {
-          switch (maybe_value.GetError()) {
-            case memgraph::storage::v3::Error::DELETED_OBJECT:
-            case memgraph::storage::v3::Error::SERIALIZATION_ERROR:
-            case memgraph::storage::v3::Error::VERTEX_HAS_EDGES:
-            case memgraph::storage::v3::Error::PROPERTIES_DISABLED:
-            case memgraph::storage::v3::Error::NONEXISTENT_OBJECT:
-            case memgraph::storage::v3::Error::VERTEX_ALREADY_INSERTED:
-              throw memgraph::communication::bolt::ClientError("Unexpected storage error when streaming summary.");
-          }
-        }
-        decoded_summary.emplace(kv.first, std::move(*maybe_value));
+        auto bolt_value = memgraph::glue::v2::ToBoltValue(kv.second, interpreter_.GetShardRequestManager(),
+                                                          memgraph::storage::v3::View::NEW);
+        decoded_summary.emplace(kv.first, std::move(bolt_value));
       }
       return decoded_summary;
     } catch (const memgraph::query::v2::QueryException &e) {
@@ -507,35 +497,23 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
   /// before forwarding the calls to original TEncoder.
   class TypedValueResultStream {
    public:
-    TypedValueResultStream(TEncoder *encoder, const memgraph::msgs::ShardRequestManagerInterface *shard_request_manager)
+    TypedValueResultStream(TEncoder *encoder,
+                           const memgraph::query::v2::ShardRequestManagerInterface *shard_request_manager)
         : encoder_(encoder), shard_request_manager_(shard_request_manager) {}
 
     void Result(const std::vector<memgraph::query::v2::TypedValue> &values) {
       std::vector<memgraph::communication::bolt::Value> decoded_values;
       decoded_values.reserve(values.size());
       for (const auto &v : values) {
-        auto maybe_value = memgraph::glue::v2::ToBoltValue(v, shard_request_manager_, memgraph::storage::v3::View::NEW);
-        if (maybe_value.HasError()) {
-          switch (maybe_value.GetError()) {
-            case memgraph::storage::v3::Error::DELETED_OBJECT:
-              throw memgraph::communication::bolt::ClientError("Returning a deleted object as a result.");
-            case memgraph::storage::v3::Error::NONEXISTENT_OBJECT:
-              throw memgraph::communication::bolt::ClientError("Returning a nonexistent object as a result.");
-            case memgraph::storage::v3::Error::VERTEX_HAS_EDGES:
-            case memgraph::storage::v3::Error::SERIALIZATION_ERROR:
-            case memgraph::storage::v3::Error::PROPERTIES_DISABLED:
-            case memgraph::storage::v3::Error::VERTEX_ALREADY_INSERTED:
-              throw memgraph::communication::bolt::ClientError("Unexpected storage error when streaming results.");
-          }
-        }
-        decoded_values.emplace_back(std::move(*maybe_value));
+        auto bolt_value = memgraph::glue::v2::ToBoltValue(v, shard_request_manager_, memgraph::storage::v3::View::NEW);
+        decoded_values.emplace_back(std::move(bolt_value));
       }
       encoder_->MessageRecord(decoded_values);
     }
 
    private:
     TEncoder *encoder_;
-    const memgraph::msgs::ShardRequestManagerInterface *shard_request_manager_{nullptr};
+    const memgraph::query::v2::ShardRequestManagerInterface *shard_request_manager_{nullptr};
   };
   memgraph::query::v2::Interpreter interpreter_;
   memgraph::communication::v2::ServerEndpoint endpoint_;
