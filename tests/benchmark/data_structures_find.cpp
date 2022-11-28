@@ -117,13 +117,13 @@ static void BM_BenchmarkFindBppTree(::benchmark::State &state) {
   state.SetItemsProcessed(found_elems);
 }
 
-BENCHMARK(BM_BenchmarkFindSkipList)->Arg(1000);
+BENCHMARK(BM_BenchmarkFindSkipList)->RangeMultiplier(10)->Range(1000, 1000000)->Unit(::benchmark::kMillisecond);
 
-BENCHMARK(BM_BenchmarkFindStdMap)->Arg(1000);
+BENCHMARK(BM_BenchmarkFindStdMap)->RangeMultiplier(10)->Range(1000, 1000000)->Unit(::benchmark::kMillisecond);
 
-BENCHMARK(BM_BenchmarkFindStdSet)->Arg(1000);
+BENCHMARK(BM_BenchmarkFindStdSet)->RangeMultiplier(10)->Range(1000, 1000000)->Unit(::benchmark::kMillisecond);
 
-BENCHMARK(BM_BenchmarkFindBppTree)->Arg(1000);
+BENCHMARK(BM_BenchmarkFindBppTree)->RangeMultiplier(10)->Range(1000, 1000000)->Unit(::benchmark::kMillisecond);
 
 }  // namespace memgraph::benchmark
 

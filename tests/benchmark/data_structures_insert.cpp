@@ -99,13 +99,13 @@ static void BM_BenchmarkInsertBppTree(::benchmark::State &state) {
   }
 }
 
-BENCHMARK(BM_BenchmarkInsertSkipList)->Arg(1000);
+BENCHMARK(BM_BenchmarkInsertSkipList)->RangeMultiplier(10)->Range(1000, 1000000)->Unit(::benchmark::kMillisecond);
 
-BENCHMARK(BM_BenchmarkInsertStdMap)->Arg(1000);
+BENCHMARK(BM_BenchmarkInsertStdMap)->RangeMultiplier(10)->Range(1000, 1000000)->Unit(::benchmark::kMillisecond);
 
-BENCHMARK(BM_BenchmarkInsertStdSet)->Arg(1000);
+BENCHMARK(BM_BenchmarkInsertStdSet)->RangeMultiplier(10)->Range(1000, 1000000)->Unit(::benchmark::kMillisecond);
 
-BENCHMARK(BM_BenchmarkInsertBppTree)->Arg(1000);
+BENCHMARK(BM_BenchmarkInsertBppTree)->RangeMultiplier(10)->Range(1000, 1000000)->Unit(::benchmark::kMillisecond);
 
 }  // namespace memgraph::benchmark
 

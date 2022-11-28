@@ -103,7 +103,7 @@ static void BM_BenchmarkContainsBppTree(::benchmark::State &state) {
   tlx::btree_map<storage::v3::PrimaryKey, storage::v3::LexicographicallyOrderedVertex> bpp_tree;
   PrepareData(bpp_tree, state.range(0));
 
-  // So we can also have elements that does don't exist
+  // So we can also have elements that does don't exists
   std::mt19937 i_generator(std::random_device{}());
   std::uniform_int_distribution<int64_t> i_distribution(0, state.range(0) * 2);
   int64_t found_elems{0};
@@ -118,13 +118,13 @@ static void BM_BenchmarkContainsBppTree(::benchmark::State &state) {
   state.SetItemsProcessed(found_elems);
 }
 
-BENCHMARK(BM_BenchmarkContainsSkipList)->Arg(1000);
+BENCHMARK(BM_BenchmarkContainsSkipList)->RangeMultiplier(10)->Range(1000, 1000000)->Unit(::benchmark::kMillisecond);
 
-BENCHMARK(BM_BenchmarkContainsStdMap)->Arg(1000);
+BENCHMARK(BM_BenchmarkContainsStdMap)->RangeMultiplier(10)->Range(1000, 1000000)->Unit(::benchmark::kMillisecond);
 
-BENCHMARK(BM_BenchmarkContainsStdSet)->Arg(1000);
+BENCHMARK(BM_BenchmarkContainsStdSet)->RangeMultiplier(10)->Range(1000, 1000000)->Unit(::benchmark::kMillisecond);
 
-BENCHMARK(BM_BenchmarkContainsBppTree)->Arg(1000);
+BENCHMARK(BM_BenchmarkContainsBppTree)->RangeMultiplier(10)->Range(1000, 1000000)->Unit(::benchmark::kMillisecond);
 
 }  // namespace memgraph::benchmark
 
