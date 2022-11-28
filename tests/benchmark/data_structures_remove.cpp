@@ -125,13 +125,13 @@ static void BM_BenchmarkRemoveBppTree(::benchmark::State &state) {
   state.SetItemsProcessed(removed_elems);
 }
 
-BENCHMARK(BM_BenchmarkRemoveSkipList)->RangeMultiplier(10)->Range(1000, 1000000)->Unit(::benchmark::kMillisecond);
+BENCHMARK(BM_BenchmarkRemoveSkipList)->RangeMultiplier(10)->Range(1000, 10000000)->Unit(::benchmark::kMillisecond);
 
-BENCHMARK(BM_BenchmarkRemoveStdMap)->RangeMultiplier(10)->Range(1000, 1000000)->Unit(::benchmark::kMillisecond);
+BENCHMARK(BM_BenchmarkRemoveStdMap)->RangeMultiplier(10)->Range(1000, 10000000)->Unit(::benchmark::kMillisecond);
 
-BENCHMARK(BM_BenchmarkRemoveStdSet)->RangeMultiplier(10)->Range(1000, 1000000)->Unit(::benchmark::kMillisecond);
+BENCHMARK(BM_BenchmarkRemoveStdSet)->RangeMultiplier(10)->Range(1000, 10000000)->Unit(::benchmark::kMillisecond);
 
-BENCHMARK(BM_BenchmarkRemoveBppTree)->RangeMultiplier(10)->Range(1000, 1000000)->Unit(::benchmark::kMillisecond);
+BENCHMARK(BM_BenchmarkRemoveBppTree)->RangeMultiplier(10)->Range(1000, 10000000)->Unit(::benchmark::kMillisecond);
 
 }  // namespace memgraph::benchmark
 

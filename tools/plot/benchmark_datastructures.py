@@ -9,6 +9,17 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+####################################
+#  Benchmark datastructures analyzer
+####################################
+# This scripts uses the output from dataset benchmark tests to plot charts
+# comparing the results of different datastructures on the same operation.
+#
+# Note: Naming the tests is very important in order for this script to recognize
+# which operation is being performed and on which DS, so it should come in this
+# form: BM_Benchmark<Operation><Datastructure>/<RunArgument>
+# where run_argument will be added automatically by google benchmark framework
+
 import argparse
 import json
 import sys
@@ -142,7 +153,9 @@ def plot_operation(results: GoogleBenchmarkResult, save: bool) -> None:
             plt.plot(x_axis, y_axis, marker="", color=colors.pop(0), linewidth="2", label=f"{ds}")
             plt.title(f"Benchmark results for operation {results.operation.value}")
             plt.xlabel(f"Time [{benchmarks[0].time_unit}]")
+            plt.grid(True)
             plt.legend()
+            plt.draw()
         else:
             print(f"Nothing to do for {ds}...")
     if save:
