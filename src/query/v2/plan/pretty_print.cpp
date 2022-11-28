@@ -14,12 +14,12 @@
 
 #include "query/v2/bindings/pretty_print.hpp"
 #include "query/v2/db_accessor.hpp"
-#include "query/v2/shard_request_manager.hpp"
+#include "query/v2/request_router.hpp"
 #include "utils/string.hpp"
 
 namespace memgraph::query::v2::plan {
 
-PlanPrinter::PlanPrinter(const ShardRequestManagerInterface *request_manager, std::ostream *out)
+PlanPrinter::PlanPrinter(const RequestRouterInterface *request_manager, std::ostream *out)
     : request_manager_(request_manager), out_(out) {}
 
 #define PRE_VISIT(TOp)                                   \
@@ -263,14 +263,13 @@ void PlanPrinter::Branch(query::v2::plan::LogicalOperator &op, const std::string
   --depth_;
 }
 
-void PrettyPrint(const ShardRequestManagerInterface &request_manager, const LogicalOperator *plan_root,
-                 std::ostream *out) {
+void PrettyPrint(const RequestRouterInterface &request_manager, const LogicalOperator *plan_root, std::ostream *out) {
   PlanPrinter printer(&request_manager, out);
   // FIXME(mtomic): We should make visitors that take const arguments.
   const_cast<LogicalOperator *>(plan_root)->Accept(printer);
 }
 
-nlohmann::json PlanToJson(const ShardRequestManagerInterface &request_manager, const LogicalOperator *plan_root) {
+nlohmann::json PlanToJson(const RequestRouterInterface &request_manager, const LogicalOperator *plan_root) {
   impl::PlanToJsonVisitor visitor(&request_manager);
   // FIXME(mtomic): We should make visitors that take const arguments.
   const_cast<LogicalOperator *>(plan_root)->Accept(visitor);
@@ -349,15 +348,15 @@ json ToJson(const utils::Bound<Expression *> &bound) {
 
 json ToJson(const Symbol &symbol) { return symbol.name(); }
 
-json ToJson(storage::v3::EdgeTypeId edge_type, const ShardRequestManagerInterface &request_manager) {
+json ToJson(storage::v3::EdgeTypeId edge_type, const RequestRouterInterface &request_manager) {
   return request_manager.EdgeTypeToName(edge_type);
 }
 
-json ToJson(storage::v3::LabelId label, const ShardRequestManagerInterface &request_manager) {
+json ToJson(storage::v3::LabelId label, const RequestRouterInterface &request_manager) {
   return request_manager.LabelToName(label);
 }
 
-json ToJson(storage::v3::PropertyId property, const ShardRequestManagerInterface &request_manager) {
+json ToJson(storage::v3::PropertyId property, const RequestRouterInterface &request_manager) {
   return request_manager.PropertyToName(property);
 }
 
@@ -369,7 +368,7 @@ json ToJson(NamedExpression *nexpr) {
 }
 
 json ToJson(const std::vector<std::pair<storage::v3::PropertyId, Expression *>> &properties,
-            const ShardRequestManagerInterface &request_manager) {
+            const RequestRouterInterface &request_manager) {
   json json;
   for (const auto &prop_pair : properties) {
     json.emplace(ToJson(prop_pair.first, request_manager), ToJson(prop_pair.second));
@@ -377,7 +376,7 @@ json ToJson(const std::vector<std::pair<storage::v3::PropertyId, Expression *>> 
   return json;
 }
 
-json ToJson(const NodeCreationInfo &node_info, const ShardRequestManagerInterface &request_manager) {
+json ToJson(const NodeCreationInfo &node_info, const RequestRouterInterface &request_manager) {
   json self;
   self["symbol"] = ToJson(node_info.symbol);
   self["labels"] = ToJson(node_info.labels, request_manager);
@@ -386,7 +385,7 @@ json ToJson(const NodeCreationInfo &node_info, const ShardRequestManagerInterfac
   return self;
 }
 
-json ToJson(const EdgeCreationInfo &edge_info, const ShardRequestManagerInterface &request_manager) {
+json ToJson(const EdgeCreationInfo &edge_info, const RequestRouterInterface &request_manager) {
   json self;
   self["symbol"] = ToJson(edge_info.symbol);
   const auto *props = std::get_if<PropertiesMapList>(&edge_info.properties);
