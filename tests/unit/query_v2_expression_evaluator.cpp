@@ -20,7 +20,6 @@
 #include <gtest/gtest.h>
 
 #include "coordinator/shard_map.hpp"
-#include "exceptions.hpp"
 #include "functions/awesome_memgraph_functions.hpp"
 #include "parser/opencypher/parser.hpp"
 #include "query/v2/accessors.hpp"
@@ -539,29 +538,31 @@ TEST_F(ExpressionEvaluatorTest, MapIndexing) {
 using Vertex = memgraph::msgs::Vertex;
 using Edge = memgraph::msgs::Edge;
 using EdgeType = memgraph::msgs::EdgeType;
+using EdgeId = memgraph::msgs::EdgeId;
 using Value = memgraph::msgs::Value;
 using VertexId = memgraph::msgs::VertexId;
 using Label = memgraph::msgs::Label;
 
 accessors::VertexAccessor CreateVertex(std::vector<std::pair<PropertyId, Value>> props,
-                                       const ShardRequestManagerInterface *manager, Label label = {}) {
-  static int64_t id = 0;
-  return {Vertex{VertexId{label, {memgraph::msgs::Value(id++)}}, {label}}, std::move(props), manager};
+                                       const ShardRequestManagerInterface *manager, Vertex v = {}) {
+  return {std::move(v), std::move(props), manager};
 }
 
 accessors::EdgeAccessor CreateEdge(std::vector<std::pair<PropertyId, Value>> props,
-                                   const ShardRequestManagerInterface *manager) {
-  auto edge = Edge{.src = VertexId{{}, {}},
-                   .dst = VertexId{{}, {}},
+                                   const ShardRequestManagerInterface *manager, EdgeId edge_id = {}, VertexId src = {},
+                                   VertexId dst = {}) {
+  auto edge = Edge{.src = std::move(src),
+                   .dst = std::move(dst),
                    .properties = std::move(props),
+                   .id = edge_id,
                    .type = EdgeType{manager->NameToEdgeType("edge_type")}};
   return accessors::EdgeAccessor{std::move(edge), manager};
 }
 
 TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
   auto prop = shard_manager->NameToProperty("prop");
-  auto vertex = CreateVertex({{prop, Value(static_cast<int64_t>(42))}}, shard_manager.get());
-  auto edge = CreateEdge({{prop, Value(static_cast<int64_t>(43))}}, shard_manager.get());
+  auto vertex = CreateVertex({{prop, Value(static_cast<int64_t>(42))}}, shard_manager.get(), {});
+  auto edge = CreateEdge({{prop, Value(static_cast<int64_t>(43))}}, shard_manager.get(), {}, {}, {});
 
   auto *vertex_id = CreateIdentifierWithValue("v1", TypedValue(vertex));
   auto *edge_id = CreateIdentifierWithValue("e11", TypedValue(edge));
@@ -741,7 +742,8 @@ TEST_F(ExpressionEvaluatorTest, IsNullOperator) {
 
 TEST_F(ExpressionEvaluatorTest, LabelsTest) {
   Label label{shard_manager->NameToLabel("label1")};
-  auto v1 = CreateVertex({}, shard_manager.get(), label);
+  Vertex vertex = {{}, {label}};
+  auto v1 = CreateVertex({}, shard_manager.get(), vertex);
   auto *identifier = storage.Create<Identifier>("n");
   auto node_symbol = symbol_table.CreateSymbol("n", true);
   identifier->MapTo(node_symbol);
@@ -1189,11 +1191,12 @@ static TypedValue MakeTypedValueList(TArgs &&...args) {
 TEST_F(FunctionTest, EndNode) {
   ASSERT_THROW(EvaluateFunction("ENDNODE"), FunctionRuntimeException);
   ASSERT_TRUE(EvaluateFunction("ENDNODE", TypedValue()).IsNull());
-  auto v1 = CreateVertex({}, shard_manager.get());
-  auto e = CreateEdge({}, shard_manager.get());
-  const auto expected = VertexId{{}, 0};
+  Label l{shard_manager->NameToLabel("label1")};
+  EdgeId e_id{10};
+  VertexId dst{l, {msgs::Value(static_cast<int64_t>(2))}};
+  auto e = CreateEdge({}, shard_manager.get(), e_id, {}, dst);
   const auto res = EvaluateFunction("ENDNODE", e).ValueVertex().Id();
-  ASSERT_EQ(res, expected);
+  ASSERT_EQ(res, dst);
   ASSERT_THROW(EvaluateFunction("ENDNODE", 2), FunctionRuntimeException);
 }
 
@@ -1259,11 +1262,12 @@ TEST_F(FunctionTest, Size) {
 TEST_F(FunctionTest, StartNode) {
   ASSERT_THROW(EvaluateFunction("STARTNODE"), FunctionRuntimeException);
   ASSERT_TRUE(EvaluateFunction("STARTNODE", TypedValue()).IsNull());
-  auto v1 = CreateVertex({}, shard_manager.get());
-  auto e = CreateEdge({}, shard_manager.get());
-  const auto expected = VertexId{{}, 0};
+  Label l{shard_manager->NameToLabel("label1")};
+  EdgeId e_id{5};
+  VertexId src{l, {msgs::Value(static_cast<int64_t>(4))}};
+  auto e = CreateEdge({}, shard_manager.get(), e_id, src);
   const auto res = EvaluateFunction("STARTNODE", e).ValueVertex().Id();
-  ASSERT_EQ(res, expected);
+  ASSERT_EQ(res, src);
   ASSERT_THROW(EvaluateFunction("STARTNODE", 2), FunctionRuntimeException);
 }
 
@@ -1329,16 +1333,13 @@ TEST_F(FunctionTest, ValueType) {
   ASSERT_EQ(EvaluateFunction("VALUETYPE", v1).ValueString(), "NODE");
   auto e = CreateEdge({}, shard_manager.get());
   ASSERT_EQ(EvaluateFunction("VALUETYPE", e).ValueString(), "RELATIONSHIP");
-  // TODO(kostasrim) Fix this when we add Path to accessors
-  //  Path p(v1, *e, v2);
-  //  ASSERT_EQ(EvaluateFunction("VALUETYPE", p).ValueString(), "PATH");
 }
 
 TEST_F(FunctionTest, Labels) {
   ASSERT_THROW(EvaluateFunction("LABELS"), FunctionRuntimeException);
   ASSERT_TRUE(EvaluateFunction("LABELS", TypedValue()).IsNull());
   Label label{shard_manager->NameToLabel("label1")};
-  auto v = CreateVertex({}, shard_manager.get(), std::move(label));
+  auto v = CreateVertex({}, shard_manager.get(), {{}, {label}});
   std::vector<std::string> labels;
   auto evaluated_labels = EvaluateFunction("LABELS", v).ValueList();
   labels.reserve(evaluated_labels.size());
@@ -1348,9 +1349,6 @@ TEST_F(FunctionTest, Labels) {
   ASSERT_THAT(labels, UnorderedElementsAre("label1"));
   ASSERT_THROW(EvaluateFunction("LABELS", 2), FunctionRuntimeException);
 }
-
-// TODO(kostasrim) Enable this once we fix accessors Path
-// TEST_F(FunctionTest, NodesRelationships) {}
 
 TEST_F(FunctionTest, Range) {
   EXPECT_THROW(EvaluateFunction("RANGE"), FunctionRuntimeException);
@@ -1555,6 +1553,13 @@ TEST_F(FunctionTest, Counter) {
   EXPECT_EQ(EvaluateFunction("COUNTER", "c5", 0, -5).ValueInt(), -10);
 
   EXPECT_THROW(EvaluateFunction("COUNTER", "c6", 0, 0), FunctionRuntimeException);
+}
+
+TEST_F(FunctionTest, Id) {
+  auto v = CreateVertex({}, shard_manager.get());
+  EXPECT_THROW(EvaluateFunction("ID", v), FunctionRuntimeException);
+  auto e = CreateEdge({}, shard_manager.get(), EdgeId{10});
+  EXPECT_EQ(EvaluateFunction("ID", e).ValueInt(), 10);
 }
 
 TEST_F(FunctionTest, ToStringNull) { EXPECT_TRUE(EvaluateFunction("TOSTRING", TypedValue()).IsNull()); }
