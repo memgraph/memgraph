@@ -15,15 +15,15 @@
 #include "storage/v3/id_types.hpp"
 
 namespace memgraph::query::v2::accessors {
-EdgeAccessor::EdgeAccessor(Edge edge, const RequestRouterInterface *manager)
-    : edge(std::move(edge)), manager_(manager) {}
+EdgeAccessor::EdgeAccessor(Edge edge, const RequestRouterInterface *request_router)
+    : edge(std::move(edge)), request_router_(request_router) {}
 
 EdgeTypeId EdgeAccessor::EdgeType() const { return edge.type.id; }
 
 const std::vector<std::pair<PropertyId, Value>> &EdgeAccessor::Properties() const { return edge.properties; }
 
 Value EdgeAccessor::GetProperty(const std::string &prop_name) const {
-  auto prop_id = manager_->NameToProperty(prop_name);
+  auto prop_id = request_router_->NameToProperty(prop_name);
   auto it = std::find_if(edge.properties.begin(), edge.properties.end(), [&](auto &pr) { return prop_id == pr.first; });
   if (it == edge.properties.end()) {
     return {};
@@ -36,19 +36,20 @@ const Edge &EdgeAccessor::GetEdge() const { return edge; }
 bool EdgeAccessor::IsCycle() const { return edge.src == edge.dst; };
 
 VertexAccessor EdgeAccessor::To() const {
-  return VertexAccessor(Vertex{edge.dst}, std::vector<std::pair<PropertyId, msgs::Value>>{}, manager_);
+  return VertexAccessor(Vertex{edge.dst}, std::vector<std::pair<PropertyId, msgs::Value>>{}, request_router_);
 }
 
 VertexAccessor EdgeAccessor::From() const {
-  return VertexAccessor(Vertex{edge.src}, std::vector<std::pair<PropertyId, msgs::Value>>{}, manager_);
+  return VertexAccessor(Vertex{edge.src}, std::vector<std::pair<PropertyId, msgs::Value>>{}, request_router_);
 }
 
 VertexAccessor::VertexAccessor(Vertex v, std::vector<std::pair<PropertyId, Value>> props,
-                               const RequestRouterInterface *manager)
-    : vertex(std::move(v)), properties(std::move(props)), manager_(manager) {}
+                               const RequestRouterInterface *request_router)
+    : vertex(std::move(v)), properties(std::move(props)), request_router_(request_router) {}
 
-VertexAccessor::VertexAccessor(Vertex v, std::map<PropertyId, Value> &&props, const RequestRouterInterface *manager)
-    : vertex(std::move(v)), manager_(manager) {
+VertexAccessor::VertexAccessor(Vertex v, std::map<PropertyId, Value> &&props,
+                               const RequestRouterInterface *request_router)
+    : vertex(std::move(v)), request_router_(request_router) {
   properties.reserve(props.size());
   for (auto &[id, value] : props) {
     properties.emplace_back(std::make_pair(id, std::move(value)));
@@ -56,8 +57,8 @@ VertexAccessor::VertexAccessor(Vertex v, std::map<PropertyId, Value> &&props, co
 }
 
 VertexAccessor::VertexAccessor(Vertex v, const std::map<PropertyId, Value> &props,
-                               const RequestRouterInterface *manager)
-    : vertex(std::move(v)), manager_(manager) {
+                               const RequestRouterInterface *request_router)
+    : vertex(std::move(v)), request_router_(request_router) {
   properties.reserve(props.size());
   for (const auto &[id, value] : props) {
     properties.emplace_back(std::make_pair(id, value));
@@ -87,7 +88,7 @@ Value VertexAccessor::GetProperty(PropertyId prop_id) const {
 
 // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
 Value VertexAccessor::GetProperty(const std::string &prop_name) const {
-  return GetProperty(manager_->NameToProperty(prop_name));
+  return GetProperty(request_router_->NameToProperty(prop_name));
 }
 
 msgs::Vertex VertexAccessor::GetVertex() const { return vertex; }

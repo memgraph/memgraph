@@ -177,10 +177,10 @@ class DistributedCreateNodeCursor : public Cursor {
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("CreateNode");
     if (input_cursor_->Pull(frame, context)) {
-      auto &shard_manager = context.request_router;
+      auto &request_router = context.request_router;
       {
         SCOPED_REQUEST_WAIT_PROFILE;
-        shard_manager->Request(state_, NodeCreationInfoToRequest(context, frame));
+        request_router->Request(state_, NodeCreationInfoToRequest(context, frame));
       }
       PlaceNodeOnTheFrame(frame, context);
       return true;
@@ -386,10 +386,10 @@ class DistributedScanAllAndFilterCursor : public Cursor {
 
   using VertexAccessor = accessors::VertexAccessor;
 
-  bool MakeRequest(RequestRouterInterface &shard_manager, ExecutionContext &context) {
+  bool MakeRequest(RequestRouterInterface &request_router, ExecutionContext &context) {
     {
       SCOPED_REQUEST_WAIT_PROFILE;
-      current_batch = shard_manager.Request(request_state_);
+      current_batch = request_router.Request(request_state_);
     }
     current_vertex_it = current_batch.begin();
     return !current_batch.empty();
@@ -398,7 +398,7 @@ class DistributedScanAllAndFilterCursor : public Cursor {
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP(op_name_);
 
-    auto &shard_manager = *context.request_router;
+    auto &request_router = *context.request_router;
     while (true) {
       if (MustAbort(context)) {
         throw HintedAbortError();
@@ -411,10 +411,11 @@ class DistributedScanAllAndFilterCursor : public Cursor {
         }
       }
 
-      request_state_.label = label_.has_value() ? std::make_optional(shard_manager.LabelToName(*label_)) : std::nullopt;
+      request_state_.label =
+          label_.has_value() ? std::make_optional(request_router.LabelToName(*label_)) : std::nullopt;
 
       if (current_vertex_it == current_batch.end() &&
-          (request_state_.state == State::COMPLETED || !MakeRequest(shard_manager, context))) {
+          (request_state_.state == State::COMPLETED || !MakeRequest(request_router, context))) {
         ResetExecutionState();
         continue;
       }
@@ -2338,11 +2339,11 @@ class DistributedCreateExpandCursor : public Cursor {
     if (!input_cursor_->Pull(frame, context)) {
       return false;
     }
-    auto &shard_manager = context.request_router;
+    auto &request_router = context.request_router;
     ResetExecutionState();
     {
       SCOPED_REQUEST_WAIT_PROFILE;
-      shard_manager->Request(state_, ExpandCreationInfoToRequest(context, frame));
+      request_router->Request(state_, ExpandCreationInfoToRequest(context, frame));
     }
     return true;
   }

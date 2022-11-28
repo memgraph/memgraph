@@ -143,7 +143,7 @@ class ReplQueryHandler final : public query::v2::ReplicationQueryHandler {
 /// @throw QueryRuntimeException if an error ocurred.
 
 Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Parameters &parameters,
-                         RequestRouterInterface *manager) {
+                         RequestRouterInterface *request_router) {
   // Empty frame for evaluation of password expression. This is OK since
   // password should be either null or string literal and it's evaluation
   // should not depend on frame.
@@ -154,7 +154,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
   // the argument to Callback.
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parameters;
-  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, manager, storage::v3::View::OLD);
+  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, request_router, storage::v3::View::OLD);
 
   std::string username = auth_query->user_;
   std::string rolename = auth_query->role_;
@@ -312,7 +312,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
 }
 
 Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &parameters,
-                                InterpreterContext *interpreter_context, RequestRouterInterface *manager,
+                                InterpreterContext *interpreter_context, RequestRouterInterface *request_router,
                                 std::vector<Notification> *notifications) {
   expr::Frame<TypedValue> frame(0);
   SymbolTable symbol_table;
@@ -321,7 +321,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
   // the argument to Callback.
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parameters;
-  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, manager, storage::v3::View::OLD);
+  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, request_router, storage::v3::View::OLD);
 
   Callback callback;
   switch (repl_query->action_) {
@@ -448,7 +448,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
 }
 
 Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &parameters,
-                            RequestRouterInterface *manager) {
+                            RequestRouterInterface *request_router) {
   expr::Frame<TypedValue> frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
@@ -458,7 +458,7 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
       std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
           .count();
   evaluation_context.parameters = parameters;
-  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, manager, storage::v3::View::OLD);
+  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, request_router, storage::v3::View::OLD);
 
   Callback callback;
   switch (setting_query->action_) {
@@ -1182,14 +1182,14 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
 PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
                                DbAccessor *dba, utils::MemoryResource *execution_memory,
-                               RequestRouterInterface *manager) {
+                               RequestRouterInterface *request_router) {
   if (in_explicit_transaction) {
     throw UserModificationInMulticommandTxException();
   }
 
   auto *auth_query = utils::Downcast<AuthQuery>(parsed_query.query);
 
-  auto callback = HandleAuthQuery(auth_query, interpreter_context->auth, parsed_query.parameters, manager);
+  auto callback = HandleAuthQuery(auth_query, interpreter_context->auth, parsed_query.parameters, request_router);
 
   SymbolTable symbol_table;
   std::vector<Symbol> output_symbols;
@@ -1218,14 +1218,14 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
 
 PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
                                       std::vector<Notification> *notifications, InterpreterContext *interpreter_context,
-                                      RequestRouterInterface *manager) {
+                                      RequestRouterInterface *request_router) {
   if (in_explicit_transaction) {
     throw ReplicationModificationInMulticommandTxException();
   }
 
   auto *replication_query = utils::Downcast<ReplicationQuery>(parsed_query.query);
-  auto callback =
-      HandleReplicationQuery(replication_query, parsed_query.parameters, interpreter_context, manager, notifications);
+  auto callback = HandleReplicationQuery(replication_query, parsed_query.parameters, interpreter_context,
+                                         request_router, notifications);
 
   return PreparedQuery{callback.header, std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -1314,14 +1314,14 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
 }
 
 PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
-                                  RequestRouterInterface *manager) {
+                                  RequestRouterInterface *request_router) {
   if (in_explicit_transaction) {
     throw SettingConfigInMulticommandTxException{};
   }
 
   auto *setting_query = utils::Downcast<SettingQuery>(parsed_query.query);
   MG_ASSERT(setting_query);
-  auto callback = HandleSettingQuery(setting_query, parsed_query.parameters, manager);
+  auto callback = HandleSettingQuery(setting_query, parsed_query.parameters, request_router);
 
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](

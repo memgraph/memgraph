@@ -151,10 +151,10 @@ void RunStorageRaft(Raft<IoImpl, MockedShardRsm, WriteRequests, WriteResponses, 
   server.Run();
 }
 
-void TestScanVertices(query::v2::RequestRouterInterface &io) {
+void TestScanVertices(query::v2::RequestRouterInterface &request_router) {
   msgs::ExecutionState<ScanVerticesRequest> state{.label = "test_label"};
 
-  auto result = io.Request(state);
+  auto result = request_router.Request(state);
   MG_ASSERT(result.size() == 2);
   {
     auto prop = result[0].GetProperty(msgs::PropertyId::FromUint(0));
@@ -163,7 +163,7 @@ void TestScanVertices(query::v2::RequestRouterInterface &io) {
     MG_ASSERT(prop.int_v == 444);
   }
 
-  result = io.Request(state);
+  result = request_router.Request(state);
   {
     MG_ASSERT(result.size() == 1);
     auto prop = result[0].GetProperty(msgs::PropertyId::FromUint(0));
@@ -171,11 +171,11 @@ void TestScanVertices(query::v2::RequestRouterInterface &io) {
   }
 }
 
-void TestCreateVertices(query::v2::RequestRouterInterface &io) {
+void TestCreateVertices(query::v2::RequestRouterInterface &request_router) {
   using PropVal = msgs::Value;
   msgs::ExecutionState<CreateVerticesRequest> state;
   std::vector<msgs::NewVertex> new_vertices;
-  auto label_id = io.NameToLabel("test_label");
+  auto label_id = request_router.NameToLabel("test_label");
   msgs::NewVertex a1{.primary_key = {PropVal(int64_t(1)), PropVal(int64_t(0))}};
   a1.label_ids.push_back({label_id});
   msgs::NewVertex a2{.primary_key = {PropVal(int64_t(13)), PropVal(int64_t(13))}};
@@ -183,17 +183,17 @@ void TestCreateVertices(query::v2::RequestRouterInterface &io) {
   new_vertices.push_back(std::move(a1));
   new_vertices.push_back(std::move(a2));
 
-  auto result = io.Request(state, std::move(new_vertices));
+  auto result = request_router.Request(state, std::move(new_vertices));
   MG_ASSERT(result.size() == 2);
 }
 
-void TestCreateExpand(query::v2::RequestRouterInterface &io) {
+void TestCreateExpand(query::v2::RequestRouterInterface &request_router) {
   using PropVal = msgs::Value;
   msgs::ExecutionState<msgs::CreateExpandRequest> state;
   std::vector<msgs::NewExpand> new_expands;
 
-  const auto edge_type_id = io.NameToEdgeType("edge_type");
-  const auto label = msgs::Label{io.NameToLabel("test_label")};
+  const auto edge_type_id = request_router.NameToEdgeType("edge_type");
+  const auto label = msgs::Label{request_router.NameToLabel("test_label")};
   const msgs::VertexId vertex_id_1{label, {PropVal(int64_t(0)), PropVal(int64_t(0))}};
   const msgs::VertexId vertex_id_2{label, {PropVal(int64_t(13)), PropVal(int64_t(13))}};
   msgs::NewExpand expand_1{
@@ -203,7 +203,7 @@ void TestCreateExpand(query::v2::RequestRouterInterface &io) {
   new_expands.push_back(std::move(expand_1));
   new_expands.push_back(std::move(expand_2));
 
-  auto responses = io.Request(state, std::move(new_expands));
+  auto responses = request_router.Request(state, std::move(new_expands));
   MG_ASSERT(responses.size() == 2);
   MG_ASSERT(responses[0].success);
   MG_ASSERT(responses[1].success);
@@ -222,7 +222,7 @@ void TestExpandOne(query::v2::RequestRouterInterface &request_router) {
 }
 
 template <typename RequestRouter>
-void TestAggregate(RequestRouter &io) {}
+void TestAggregate(RequestRouter &request_router) {}
 
 void DoTest() {
   SimulatorConfig config{
@@ -337,12 +337,12 @@ void DoTest() {
   // also get the current shard map
   CoordinatorClient<SimulatorTransport> coordinator_client(cli_io, c_addrs[0], c_addrs);
 
-  query::v2::RequestRouter<SimulatorTransport> io(std::move(coordinator_client), std::move(cli_io));
+  query::v2::RequestRouter<SimulatorTransport> request_router(std::move(coordinator_client), std::move(cli_io));
 
-  io.StartTransaction();
-  TestScanVertices(io);
-  TestCreateVertices(io);
-  TestCreateExpand(io);
+  request_router.StartTransaction();
+  TestScanVertices(request_router);
+  TestCreateVertices(request_router);
+  TestCreateExpand(request_router);
 
   simulator.ShutDown();
 

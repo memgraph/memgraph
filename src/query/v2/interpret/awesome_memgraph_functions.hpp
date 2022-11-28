@@ -34,7 +34,7 @@ const char kId[] = "ID";
 struct FunctionContext {
   // TODO(kostasrim) consider optional here. RequestRouter does not exist on the storage.
   // DbAccessor *db_accessor;
-  RequestRouterInterface *manager;
+  RequestRouterInterface *request_router;
   utils::MemoryResource *memory;
   int64_t timestamp;
   std::unordered_map<std::string, int64_t> *counters;

@@ -41,7 +41,7 @@ class VertexAccessor;
 
 class EdgeAccessor final {
  public:
-  explicit EdgeAccessor(Edge edge, const RequestRouterInterface *manager);
+  explicit EdgeAccessor(Edge edge, const RequestRouterInterface *request_router);
 
   [[nodiscard]] EdgeTypeId EdgeType() const;
 
@@ -69,7 +69,7 @@ class EdgeAccessor final {
 
  private:
   Edge edge;
-  const RequestRouterInterface *manager_;
+  const RequestRouterInterface *request_router_;
 };
 
 class VertexAccessor final {
@@ -77,10 +77,11 @@ class VertexAccessor final {
   using PropertyId = msgs::PropertyId;
   using Label = msgs::Label;
   using VertexId = msgs::VertexId;
-  VertexAccessor(Vertex v, std::vector<std::pair<PropertyId, Value>> props, const RequestRouterInterface *manager);
+  VertexAccessor(Vertex v, std::vector<std::pair<PropertyId, Value>> props,
+                 const RequestRouterInterface *request_router);
 
-  VertexAccessor(Vertex v, std::map<PropertyId, Value> &&props, const RequestRouterInterface *manager);
-  VertexAccessor(Vertex v, const std::map<PropertyId, Value> &props, const RequestRouterInterface *manager);
+  VertexAccessor(Vertex v, std::map<PropertyId, Value> &&props, const RequestRouterInterface *request_router);
+  VertexAccessor(Vertex v, const std::map<PropertyId, Value> &props, const RequestRouterInterface *request_router);
 
   [[nodiscard]] Label PrimaryLabel() const;
 
@@ -149,7 +150,7 @@ class VertexAccessor final {
  private:
   Vertex vertex;
   std::vector<std::pair<PropertyId, Value>> properties;
-  const RequestRouterInterface *manager_;
+  const RequestRouterInterface *request_router_;
 };
 
 // inline VertexAccessor EdgeAccessor::To() const { return VertexAccessor(impl_.ToVertex()); }

@@ -35,8 +35,8 @@ class Callable {
   auto operator()(const storage::v3::PropertyValue &val) const {
     return storage::v3::PropertyToTypedValue<TypedValue>(val);
   };
-  auto operator()(const msgs::Value &val, RequestRouterInterface *manager) const {
-    return ValueToTypedValue(val, manager);
+  auto operator()(const msgs::Value &val, RequestRouterInterface *request_router) const {
+    return ValueToTypedValue(val, request_router);
   };
 };
 
