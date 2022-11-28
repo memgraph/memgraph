@@ -24,7 +24,8 @@ set(mg_query_v2_sources
     plan/variable_start_planner.cpp
     serialization/property_value.cpp
     bindings/typed_value.cpp
-    accessors.cpp)
+    accessors.cpp
+    multiframe.cpp)
 
 find_package(Boost REQUIRED)
 

@@ -1,0 +1,128 @@
+// Copyright 2022 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#include "query/v2/multiframe.hpp"
+
+#include "query/v2/bindings/frame.hpp"
+#include "utils/pmr/vector.hpp"
+
+namespace memgraph::query::v2 {
+
+MultiFrame::MultiFrame(FrameWithValidity default_frame, size_t number_of_frames,
+                       utils::MemoryResource *execution_memory)
+    : default_frame_(default_frame),
+      frames_(utils::pmr::vector<FrameWithValidity>(number_of_frames, default_frame, execution_memory)) {
+  MG_ASSERT(number_of_frames > 0);
+  MG_ASSERT(!default_frame.IsValid());
+}
+
+MultiFrame::~MultiFrame() = default;
+
+MultiFrame::MultiFrame(const MultiFrame &other) : default_frame_(other.default_frame_) {
+  /*
+  #NoCommit maybe not needed
+  Do we just copy all frames or do we make distinctions between valid and not valid frames? Does it make any
+  difference?
+  */
+  frames_.reserve(other.frames_.size());
+  std::transform(other.frames_.begin(), other.frames_.end(), std::back_inserter(frames_),
+                 [&default_frame = default_frame_](const auto &other_frame) {
+                   if (other_frame.IsValid()) {
+                     return other_frame;
+                   } else {
+                     return default_frame;
+                   }
+                 });
+}
+
+MultiFrame::MultiFrame(MultiFrame &&other) noexcept : default_frame_(std::move(other.default_frame_)) {
+  /*
+  #NoCommit maybe not needed
+  Do we just copy all frames or do we make distinctions between valid and not valid frames? Does it make any
+  difference?
+  */
+  frames_.reserve(other.frames_.size());
+  std::transform(make_move_iterator(other.frames_.begin()), make_move_iterator(other.frames_.end()),
+                 std::back_inserter(frames_), [&default_frame = default_frame_](const auto &other_frame) {
+                   if (other_frame.IsValid()) {
+                     return other_frame;
+                   } else {
+                     return default_frame;
+                   }
+                 });
+}
+
+void MultiFrame::ResetAllFramesInvalid() noexcept {
+  std::for_each(frames_.begin(), frames_.end(), [](auto &frame) { frame.MakeInvalid(); });
+}
+
+bool MultiFrame::HasValidFrame() const noexcept {
+  return std::any_of(frames_.begin(), frames_.end(), [](auto &frame) { return frame.IsValid(); });
+}
+
+void MultiFrame::DefragmentValidFrames() noexcept {
+  /*
+  from: https://en.cppreference.com/w/cpp/algorithm/remove
+  "Removing is done by shifting (by means of copy assignment (until C++11)move assignment (since C++11)) the elements
+  in the range in such a way that the elements that are not to be removed appear in the beginning of the range.
+  Relative order of the elements that remain is preserved and the physical size of the container is unchanged."
+  */
+  std::remove_if(frames_.begin(), frames_.end(), [](auto &frame) { return !frame.IsValid(); });
+}
+
+ItOnConstValidFrames MultiFrame::GetItOnConstValidFrames() { return ItOnConstValidFrames(*this); }
+
+ItOnNonConstValidFrames MultiFrame::GetItOnNonConstValidFrames() { return ItOnNonConstValidFrames(*this); }
+
+ItOnNonConstInvalidFrames MultiFrame::GetItOnNonConstInvalidFrames() { return ItOnNonConstInvalidFrames(*this); }
+
+ItOnConstValidFrames::ItOnConstValidFrames(MultiFrame &multiframe) : multiframe_(multiframe) {}
+
+ItOnConstValidFrames::~ItOnConstValidFrames() = default;
+
+ItOnConstValidFrames::Iterator ItOnConstValidFrames::begin() { return Iterator(&multiframe_.frames_[0], *this); }
+ItOnConstValidFrames::Iterator ItOnConstValidFrames::end() {
+  return Iterator(&multiframe_.frames_[multiframe_.frames_.size()], *this);
+}
+
+ItOnNonConstValidFrames::ItOnNonConstValidFrames(MultiFrame &multiframe) : multiframe_(multiframe) {}
+
+ItOnNonConstValidFrames::~ItOnNonConstValidFrames() {
+  // #NoCommit possible optimisation: only DefragmentValidFrames if one frame has been invalidated? Only if does not
+  // cost too much to store it
+  multiframe_.DefragmentValidFrames();
+}
+
+ItOnNonConstValidFrames::Iterator ItOnNonConstValidFrames::begin() { return Iterator(&multiframe_.frames_[0], *this); }
+
+ItOnNonConstValidFrames::Iterator ItOnNonConstValidFrames::end() {
+  return Iterator(&multiframe_.frames_[multiframe_.frames_.size()], *this);
+}
+
+ItOnNonConstInvalidFrames::ItOnNonConstInvalidFrames(MultiFrame &multiframe) : multiframe_(multiframe) {}
+
+ItOnNonConstInvalidFrames::~ItOnNonConstInvalidFrames() = default;
+
+ItOnNonConstInvalidFrames::Iterator ItOnNonConstInvalidFrames::begin() {
+  for (auto idx = 0UL; idx < multiframe_.frames_.size(); ++idx) {
+    if (!multiframe_.frames_[idx].IsValid()) {
+      return Iterator(&multiframe_.frames_[idx]);
+    }
+  }
+
+  return end();
+}
+
+ItOnNonConstInvalidFrames::Iterator ItOnNonConstInvalidFrames::end() {
+  return Iterator(&multiframe_.frames_[multiframe_.frames_.size()]);
+}
+
+}  // namespace memgraph::query::v2

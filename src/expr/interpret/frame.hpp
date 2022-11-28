@@ -42,4 +42,19 @@ class Frame {
   utils::pmr::vector<TypedValue> elems_;
 };
 
+template <typename TypedValue>
+class FrameWithValidity final : public Frame<TypedValue> {
+ public:
+  explicit FrameWithValidity(int64_t size) : Frame<TypedValue>(size), is_valid_(false) {}
+
+  FrameWithValidity(int64_t size, utils::MemoryResource *memory) : Frame<TypedValue>(size, memory), is_valid_(false) {}
+
+  bool IsValid() const { return is_valid_; }
+  void MakeValid() { is_valid_ = true; }
+  void MakeInvalid() { is_valid_ = false; }
+
+ private:
+  bool is_valid_;
+};
+
 }  // namespace memgraph::expr

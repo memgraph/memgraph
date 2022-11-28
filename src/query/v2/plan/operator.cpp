@@ -257,11 +257,28 @@ class DistributedCreateNodeCursor : public Cursor {
 bool Once::OnceCursor::Pull(Frame &, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Once");
 
-  if (!did_pull_) {
-    did_pull_ = true;
+  if (pull_count_ < 1) {
+    pull_count_++;
     return true;
   }
   return false;
+}
+
+void Once::OnceCursor::PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) {
+  SCOPED_PROFILE_OP("OnceMF");
+
+  auto iterator_for_valid_frame_only = multi_frame.GetItOnNonConstInvalidFrames();
+  auto first_it = iterator_for_valid_frame_only.begin();
+  MG_ASSERT(first_it != iterator_for_valid_frame_only.end());
+  if (pull_count_ < 1) {
+    auto *memory_resource = multi_frame.GetMemoryResource();
+    auto &frame = *first_it;
+    frame.MakeValid();
+    for (auto &value : frame.elems()) {
+      value = TypedValue{memory_resource};
+    }
+    pull_count_++;
+  }
 }
 
 UniqueCursorPtr Once::MakeCursor(utils::MemoryResource *mem) const {
@@ -274,7 +291,7 @@ WITHOUT_SINGLE_INPUT(Once);
 
 void Once::OnceCursor::Shutdown() {}
 
-void Once::OnceCursor::Reset() { did_pull_ = false; }
+void Once::OnceCursor::Reset() { pull_count_ = 0; }
 
 CreateNode::CreateNode(const std::shared_ptr<LogicalOperator> &input, const NodeCreationInfo &node_info)
     : input_(input ? input : std::make_shared<Once>()), node_info_(node_info) {}
@@ -765,6 +782,23 @@ bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
   }
   return false;
 }
+
+void Produce::ProduceCursor::PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) {
+  SCOPED_PROFILE_OP("ProduceMF");
+
+  input_cursor_->PullMultiple(multi_frame, context);
+
+  auto iterator_for_valid_frame_only = multi_frame.GetItOnConstValidFrames();
+  for (auto &frame : iterator_for_valid_frame_only) {
+    // Produce should always yield the latest results.
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context,
+                                  context.shard_request_manager, storage::v3::View::NEW);
+
+    for (auto *named_expr : self_.named_expressions_) {
+      named_expr->Accept(evaluator);
+    }
+  }
+};
 
 void Produce::ProduceCursor::Shutdown() { input_cursor_->Shutdown(); }
 
