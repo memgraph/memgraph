@@ -14,6 +14,7 @@
 #include <chrono>
 #include <csignal>
 #include <cstdint>
+#include <cstdlib>
 #include <exception>
 #include <filesystem>
 #include <functional>
@@ -235,6 +236,8 @@ DEFINE_string(kafka_bootstrap_servers, "",
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(pulsar_service_url, "", "Default URL used while connecting to Pulsar brokers.");
+
+DEFINE_bool(authentication, false, "Start memgraph with user");
 
 // Audit logging flags.
 #ifdef MG_ENTERPRISE
@@ -876,9 +879,21 @@ int main(int argc, char **argv) {
   memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
 
   memgraph::glue::AuthQueryHandler auth_handler(&auth, FLAGS_auth_user_or_role_name_regex);
+
   memgraph::glue::AuthChecker auth_checker{&auth};
   interpreter_context.auth = &auth_handler;
   interpreter_context.auth_checker = &auth_checker;
+
+  if (FLAGS_authentication) {
+    auto maybe_username = std::getenv("MEMGRAPH_USERNAME");
+    auto maybe_password = std::getenv("MEMGRAPH_PASSWORD");
+
+    auto username = maybe_username == NULL ? "memgraph" : std::string(maybe_username);
+    auto password = maybe_password == NULL ? "memgraph" : std::string(maybe_password);
+
+    auth_handler.CreateUser(username, password);
+    // memgraph::query::Interpreter interpreter{&interpreter_context};
+  }
 
   {
     // Triggers can execute query procedures, so we need to reload the modules first and then
