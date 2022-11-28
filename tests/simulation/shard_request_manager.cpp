@@ -151,7 +151,7 @@ void RunStorageRaft(Raft<IoImpl, MockedShardRsm, WriteRequests, WriteResponses, 
   server.Run();
 }
 
-void TestScanVertices(msgs::ShardRequestManagerInterface &io) {
+void TestScanVertices(query::v2::ShardRequestManagerInterface &io) {
   msgs::ExecutionState<ScanVerticesRequest> state{.label = "test_label"};
 
   auto result = io.Request(state);
@@ -171,7 +171,7 @@ void TestScanVertices(msgs::ShardRequestManagerInterface &io) {
   }
 }
 
-void TestCreateVertices(msgs::ShardRequestManagerInterface &io) {
+void TestCreateVertices(query::v2::ShardRequestManagerInterface &io) {
   using PropVal = msgs::Value;
   msgs::ExecutionState<CreateVerticesRequest> state;
   std::vector<msgs::NewVertex> new_vertices;
@@ -187,7 +187,7 @@ void TestCreateVertices(msgs::ShardRequestManagerInterface &io) {
   MG_ASSERT(result.size() == 2);
 }
 
-void TestCreateExpand(msgs::ShardRequestManagerInterface &io) {
+void TestCreateExpand(query::v2::ShardRequestManagerInterface &io) {
   using PropVal = msgs::Value;
   msgs::ExecutionState<msgs::CreateExpandRequest> state;
   std::vector<msgs::NewExpand> new_expands;
@@ -209,7 +209,7 @@ void TestCreateExpand(msgs::ShardRequestManagerInterface &io) {
   MG_ASSERT(responses[1].success);
 }
 
-void TestExpandOne(msgs::ShardRequestManagerInterface &shard_request_manager) {
+void TestExpandOne(query::v2::ShardRequestManagerInterface &shard_request_manager) {
   msgs::ExecutionState<msgs::ExpandOneRequest> state{};
   msgs::ExpandOneRequest request;
   const auto edge_type_id = shard_request_manager.NameToEdgeType("edge_type");
@@ -337,7 +337,7 @@ void DoTest() {
   // also get the current shard map
   CoordinatorClient<SimulatorTransport> coordinator_client(cli_io, c_addrs[0], c_addrs);
 
-  msgs::ShardRequestManager<SimulatorTransport> io(std::move(coordinator_client), std::move(cli_io));
+  query::v2::ShardRequestManager<SimulatorTransport> io(std::move(coordinator_client), std::move(cli_io));
 
   io.StartTransaction();
   TestScanVertices(io);

@@ -24,24 +24,24 @@
 #include "utils/memory.hpp"
 #include "utils/memory_tracker.hpp"
 
-namespace memgraph::msgs {
+namespace memgraph::query::v2 {
 class ShardRequestManagerInterface;
-}  // namespace memgraph::msgs
+}
 
 namespace memgraph::query::v2::accessors {
 
-using Value = memgraph::msgs::Value;
-using Edge = memgraph::msgs::Edge;
-using Vertex = memgraph::msgs::Vertex;
-using Label = memgraph::msgs::Label;
-using PropertyId = memgraph::msgs::PropertyId;
-using EdgeTypeId = memgraph::msgs::EdgeTypeId;
+using Value = msgs::Value;
+using Edge = msgs::Edge;
+using Vertex = msgs::Vertex;
+using Label = msgs::Label;
+using PropertyId = msgs::PropertyId;
+using EdgeTypeId = msgs::EdgeTypeId;
 
 class VertexAccessor;
 
 class EdgeAccessor final {
  public:
-  explicit EdgeAccessor(Edge edge, const msgs::ShardRequestManagerInterface *manager);
+  explicit EdgeAccessor(Edge edge, const ShardRequestManagerInterface *manager);
 
   [[nodiscard]] EdgeTypeId EdgeType() const;
 
@@ -69,7 +69,7 @@ class EdgeAccessor final {
 
  private:
   Edge edge;
-  const msgs::ShardRequestManagerInterface *manager_;
+  const ShardRequestManagerInterface *manager_;
 };
 
 class VertexAccessor final {
@@ -78,10 +78,10 @@ class VertexAccessor final {
   using Label = msgs::Label;
   using VertexId = msgs::VertexId;
   VertexAccessor(Vertex v, std::vector<std::pair<PropertyId, Value>> props,
-                 const msgs::ShardRequestManagerInterface *manager);
+                 const ShardRequestManagerInterface *manager);
 
-  VertexAccessor(Vertex v, std::map<PropertyId, Value> &&props, const msgs::ShardRequestManagerInterface *manager);
-  VertexAccessor(Vertex v, const std::map<PropertyId, Value> &props, const msgs::ShardRequestManagerInterface *manager);
+  VertexAccessor(Vertex v, std::map<PropertyId, Value> &&props, const ShardRequestManagerInterface *manager);
+  VertexAccessor(Vertex v, const std::map<PropertyId, Value> &props, const ShardRequestManagerInterface *manager);
 
   [[nodiscard]] Label PrimaryLabel() const;
 
@@ -150,7 +150,7 @@ class VertexAccessor final {
  private:
   Vertex vertex;
   std::vector<std::pair<PropertyId, Value>> properties;
-  const msgs::ShardRequestManagerInterface *manager_;
+  const ShardRequestManagerInterface *manager_;
 };
 
 // inline VertexAccessor EdgeAccessor::To() const { return VertexAccessor(impl_.ToVertex()); }

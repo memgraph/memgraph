@@ -143,7 +143,7 @@ class ReplQueryHandler final : public query::v2::ReplicationQueryHandler {
 /// @throw QueryRuntimeException if an error ocurred.
 
 Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Parameters &parameters,
-                         msgs::ShardRequestManagerInterface *manager) {
+                         ShardRequestManagerInterface *manager) {
   // Empty frame for evaluation of password expression. This is OK since
   // password should be either null or string literal and it's evaluation
   // should not depend on frame.
@@ -312,7 +312,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
 }
 
 Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &parameters,
-                                InterpreterContext *interpreter_context, msgs::ShardRequestManagerInterface *manager,
+                                InterpreterContext *interpreter_context, ShardRequestManagerInterface *manager,
                                 std::vector<Notification> *notifications) {
   expr::Frame<TypedValue> frame(0);
   SymbolTable symbol_table;
@@ -448,7 +448,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
 }
 
 Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &parameters,
-                            msgs::ShardRequestManagerInterface *manager) {
+                            ShardRequestManagerInterface *manager) {
   expr::Frame<TypedValue> frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
@@ -649,7 +649,7 @@ struct PullPlanVector {
 struct PullPlan {
   explicit PullPlan(std::shared_ptr<CachedPlan> plan, const Parameters &parameters, bool is_profile_query,
                     DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
-                    msgs::ShardRequestManagerInterface *shard_request_manager = nullptr,
+                    ShardRequestManagerInterface *shard_request_manager = nullptr,
                     //                    TriggerContextCollector *trigger_context_collector = nullptr,
                     std::optional<size_t> memory_limit = {});
   std::optional<plan::ProfilingStatsWithTotalTime> Pull(AnyStream *stream, std::optional<int> n,
@@ -679,7 +679,7 @@ struct PullPlan {
 
 PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &parameters, const bool is_profile_query,
                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
-                   msgs::ShardRequestManagerInterface *shard_request_manager, const std::optional<size_t> memory_limit)
+                   ShardRequestManagerInterface *shard_request_manager, const std::optional<size_t> memory_limit)
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory)),
       frame_(plan->symbol_table().max_position(), execution_memory),
@@ -804,7 +804,7 @@ Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_
   auto random_uuid = boost::uuids::uuid{boost::uuids::random_generator()()};
   auto query_io = interpreter_context_->io.ForkLocal(random_uuid);
 
-  shard_request_manager_ = std::make_unique<msgs::ShardRequestManager<io::local_transport::LocalTransport>>(
+  shard_request_manager_ = std::make_unique<ShardRequestManager<io::local_transport::LocalTransport>>(
       coordinator::CoordinatorClient<io::local_transport::LocalTransport>(
           query_io, interpreter_context_->coordinator_address, std::vector{interpreter_context_->coordinator_address}),
       std::move(query_io));
@@ -881,7 +881,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
 PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
                                  InterpreterContext *interpreter_context, DbAccessor *dba,
                                  utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
-                                 msgs::ShardRequestManagerInterface *shard_request_manager) {
+                                 ShardRequestManagerInterface *shard_request_manager) {
   //                                 TriggerContextCollector *trigger_context_collector = nullptr) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
 
@@ -942,7 +942,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
 
 PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
                                   InterpreterContext *interpreter_context,
-                                  msgs::ShardRequestManagerInterface *shard_request_manager,
+                                  ShardRequestManagerInterface *shard_request_manager,
                                   utils::MemoryResource *execution_memory) {
   const std::string kExplainQueryStart = "explain ";
   MG_ASSERT(utils::StartsWith(utils::ToLowerCase(parsed_query.stripped_query.query()), kExplainQueryStart),
@@ -991,7 +991,7 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
 PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                   std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
                                   DbAccessor *dba, utils::MemoryResource *execution_memory,
-                                  msgs::ShardRequestManagerInterface *shard_request_manager = nullptr) {
+                                  ShardRequestManagerInterface *shard_request_manager = nullptr) {
   const std::string kProfileQueryStart = "profile ";
 
   MG_ASSERT(utils::StartsWith(utils::ToLowerCase(parsed_query.stripped_query.query()), kProfileQueryStart),
@@ -1185,7 +1185,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
 PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
                                DbAccessor *dba, utils::MemoryResource *execution_memory,
-                               msgs::ShardRequestManagerInterface *manager) {
+                               ShardRequestManagerInterface *manager) {
   if (in_explicit_transaction) {
     throw UserModificationInMulticommandTxException();
   }
@@ -1221,7 +1221,7 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
 
 PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
                                       std::vector<Notification> *notifications, InterpreterContext *interpreter_context,
-                                      msgs::ShardRequestManagerInterface *manager) {
+                                      ShardRequestManagerInterface *manager) {
   if (in_explicit_transaction) {
     throw ReplicationModificationInMulticommandTxException();
   }
@@ -1317,7 +1317,7 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
 }
 
 PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
-                                  msgs::ShardRequestManagerInterface *manager) {
+                                  ShardRequestManagerInterface *manager) {
   if (in_explicit_transaction) {
     throw SettingConfigInMulticommandTxException{};
   }

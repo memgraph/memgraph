@@ -161,7 +161,7 @@ ShardMap TestShardMap(int shards, int replication_factor, int gap_between_shards
   return sm;
 }
 
-void ExecuteOp(msgs::ShardRequestManager<LocalTransport> &shard_request_manager,
+void ExecuteOp(query::v2::ShardRequestManager<LocalTransport> &shard_request_manager,
                std::set<CompoundKey> &correctness_model, CreateVertex create_vertex) {
   const auto key1 = memgraph::storage::v3::PropertyValue(create_vertex.first);
   const auto key2 = memgraph::storage::v3::PropertyValue(create_vertex.second);
@@ -174,7 +174,7 @@ void ExecuteOp(msgs::ShardRequestManager<LocalTransport> &shard_request_manager,
     return;
   }
 
-  msgs::ExecutionState<msgs::CreateVerticesRequest> state;
+  query::v2::ExecutionState<msgs::CreateVerticesRequest> state;
 
   auto label_id = shard_request_manager.NameToLabel("test_label");
 
@@ -192,9 +192,9 @@ void ExecuteOp(msgs::ShardRequestManager<LocalTransport> &shard_request_manager,
   correctness_model.emplace(std::make_pair(create_vertex.first, create_vertex.second));
 }
 
-void ExecuteOp(msgs::ShardRequestManager<LocalTransport> &shard_request_manager,
+void ExecuteOp(query::v2::ShardRequestManager<LocalTransport> &shard_request_manager,
                std::set<CompoundKey> &correctness_model, ScanAll scan_all) {
-  msgs::ExecutionState<msgs::ScanVerticesRequest> request{.label = "test_label"};
+  query::v2::ExecutionState<msgs::ScanVerticesRequest> request{.label = "test_label"};
 
   auto results = shard_request_manager.Request(request);
 
@@ -245,7 +245,8 @@ void RunWorkload(int shards, int replication_factor, int create_ops, int scan_op
   WaitForShardsToInitialize(coordinator_client);
   auto time_after_shard_stabilization = cli_io_2.Now();
 
-  msgs::ShardRequestManager<LocalTransport> shard_request_manager(std::move(coordinator_client), std::move(cli_io));
+  query::v2::ShardRequestManager<LocalTransport> shard_request_manager(std::move(coordinator_client),
+                                                                       std::move(cli_io));
 
   shard_request_manager.StartTransaction();
 

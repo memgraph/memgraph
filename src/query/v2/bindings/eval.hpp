@@ -24,27 +24,26 @@
 #include "storage/v3/result.hpp"
 #include "storage/v3/view.hpp"
 
-namespace memgraph::msgs {
-class ShardRequestManagerInterface;
-}  // namespace memgraph::msgs
-
 namespace memgraph::query::v2 {
+
+class ShardRequestManagerInterface;
 
 inline const auto lam = [](const auto &val) { return ValueToTypedValue(val); };
 namespace detail {
 class Callable {
  public:
-  auto operator()(const memgraph::storage::v3::PropertyValue &val) const {
-    return memgraph::storage::v3::PropertyToTypedValue<TypedValue>(val);
+  auto operator()(const storage::v3::PropertyValue &val) const {
+    return storage::v3::PropertyToTypedValue<TypedValue>(val);
   };
-  auto operator()(const msgs::Value &val, memgraph::msgs::ShardRequestManagerInterface *manager) const {
+  auto operator()(const msgs::Value &val, ShardRequestManagerInterface *manager) const {
     return ValueToTypedValue(val, manager);
   };
 };
 
 }  // namespace detail
-using ExpressionEvaluator = memgraph::expr::ExpressionEvaluator<
-    TypedValue, memgraph::query::v2::EvaluationContext, memgraph::msgs::ShardRequestManagerInterface, storage::v3::View,
-    storage::v3::LabelId, msgs::Value, detail::Callable, common::ErrorCode, memgraph::expr::QueryEngineTag>;
+using ExpressionEvaluator =
+    expr::ExpressionEvaluator<TypedValue, query::v2::EvaluationContext, ShardRequestManagerInterface, storage::v3::View,
+                              storage::v3::LabelId, msgs::Value, detail::Callable, common::ErrorCode,
+                              expr::QueryEngineTag>;
 
 }  // namespace memgraph::query::v2

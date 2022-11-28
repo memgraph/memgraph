@@ -20,11 +20,9 @@
 #include "storage/v3/view.hpp"
 #include "utils/memory.hpp"
 
-namespace memgraph::msgs {
-class ShardRequestManagerInterface;
-} // namespace memgraph::msgs
-
 namespace memgraph::query::v2 {
+
+class ShardRequestManagerInterface;
 
 namespace {
 const char kStartsWith[] = "STARTSWITH";
@@ -36,7 +34,7 @@ const char kId[] = "ID";
 struct FunctionContext {
   // TODO(kostasrim) consider optional here. ShardRequestManager does not exist on the storage.
   // DbAccessor *db_accessor;
-  msgs::ShardRequestManagerInterface *manager;
+  ShardRequestManagerInterface *manager;
   utils::MemoryResource *memory;
   int64_t timestamp;
   std::unordered_map<std::string, int64_t> *counters;
