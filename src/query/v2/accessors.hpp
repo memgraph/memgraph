@@ -26,7 +26,7 @@
 
 namespace memgraph::query::v2 {
 class ShardRequestManagerInterface;
-}
+}  // namespace memgraph::query::v2
 
 namespace memgraph::query::v2::accessors {
 
