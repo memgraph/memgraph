@@ -20,13 +20,13 @@ constexpr unsigned long kNumberOfFramesInMultiframe = 1000;  // #NoCommit have i
 
 class ValidFramesReader;
 class ValidFramesInvalidator;
-class ItOnNonConstInvalidFrames;
+class InvalidFramesPopulator;
 
 class MultiFrame {
  public:
   friend class ValidFramesReader;
   friend class ValidFramesInvalidator;
-  friend class ItOnNonConstInvalidFrames;
+  friend class InvalidFramesPopulator;
 
   MultiFrame(FrameWithValidity default_frame, size_t number_of_frames, utils::MemoryResource *execution_memory);
   ~MultiFrame();
@@ -59,7 +59,7 @@ class MultiFrame {
   Iteration goes in a deterministic order.
   One can modify the validity of the frame with this implementation.
   */
-  ItOnNonConstInvalidFrames GetItOnNonConstInvalidFrames();
+  InvalidFramesPopulator GetInvalidFramesPopulator();
 
   void ResetAllFramesInvalid() noexcept;
 
@@ -170,15 +170,15 @@ class ValidFramesInvalidator {
   MultiFrame &multiframe_;
 };
 
-class ItOnNonConstInvalidFrames {
+class InvalidFramesPopulator {
  public:
-  ItOnNonConstInvalidFrames(MultiFrame &multiframe);
-  ~ItOnNonConstInvalidFrames();
+  InvalidFramesPopulator(MultiFrame &multiframe);
+  ~InvalidFramesPopulator();
 
-  ItOnNonConstInvalidFrames(const ItOnNonConstInvalidFrames &other) = delete;                 // copy constructor
-  ItOnNonConstInvalidFrames(ItOnNonConstInvalidFrames &&other) noexcept = delete;             // move constructor
-  ItOnNonConstInvalidFrames &operator=(const ItOnNonConstInvalidFrames &other) = delete;      // copy assignment
-  ItOnNonConstInvalidFrames &operator=(ItOnNonConstInvalidFrames &&other) noexcept = delete;  // move assignment
+  InvalidFramesPopulator(const InvalidFramesPopulator &other) = delete;                 // copy constructor
+  InvalidFramesPopulator(InvalidFramesPopulator &&other) noexcept = delete;             // move constructor
+  InvalidFramesPopulator &operator=(const InvalidFramesPopulator &other) = delete;      // copy assignment
+  InvalidFramesPopulator &operator=(InvalidFramesPopulator &&other) noexcept = delete;  // move assignment
 
   struct Iterator {
     using iterator_category = std::forward_iterator_tag;

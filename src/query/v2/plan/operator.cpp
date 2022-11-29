@@ -268,7 +268,7 @@ bool Once::OnceCursor::Pull(Frame &, ExecutionContext &context) {
 void Once::OnceCursor::PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("OnceMF");
 
-  auto iterator_for_valid_frame_only = multi_frame.GetItOnNonConstInvalidFrames();
+  auto iterator_for_valid_frame_only = multi_frame.GetValidFramesInvalidator();
   auto first_it = iterator_for_valid_frame_only.begin();
   MG_ASSERT(first_it != iterator_for_valid_frame_only.end());
   if (pull_count_ < 1) {

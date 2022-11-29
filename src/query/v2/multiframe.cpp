@@ -82,7 +82,7 @@ ValidFramesReader MultiFrame::GetValidFramesReader() { return ValidFramesReader(
 
 ValidFramesInvalidator MultiFrame::GetValidFramesInvalidator() { return ValidFramesInvalidator(*this); }
 
-ItOnNonConstInvalidFrames MultiFrame::GetItOnNonConstInvalidFrames() { return ItOnNonConstInvalidFrames(*this); }
+InvalidFramesPopulator MultiFrame::GetInvalidFramesPopulator() { return InvalidFramesPopulator(*this); }
 
 ValidFramesReader::ValidFramesReader(MultiFrame &multiframe) : multiframe_(multiframe) {}
 
@@ -107,11 +107,11 @@ ValidFramesInvalidator::Iterator ValidFramesInvalidator::end() {
   return Iterator(&multiframe_.frames_[multiframe_.frames_.size()], *this);
 }
 
-ItOnNonConstInvalidFrames::ItOnNonConstInvalidFrames(MultiFrame &multiframe) : multiframe_(multiframe) {}
+InvalidFramesPopulator::InvalidFramesPopulator(MultiFrame &multiframe) : multiframe_(multiframe) {}
 
-ItOnNonConstInvalidFrames::~ItOnNonConstInvalidFrames() = default;
+InvalidFramesPopulator::~InvalidFramesPopulator() = default;
 
-ItOnNonConstInvalidFrames::Iterator ItOnNonConstInvalidFrames::begin() {
+InvalidFramesPopulator::Iterator InvalidFramesPopulator::begin() {
   for (auto idx = 0UL; idx < multiframe_.frames_.size(); ++idx) {
     if (!multiframe_.frames_[idx].IsValid()) {
       return Iterator(&multiframe_.frames_[idx]);
@@ -121,7 +121,7 @@ ItOnNonConstInvalidFrames::Iterator ItOnNonConstInvalidFrames::begin() {
   return end();
 }
 
-ItOnNonConstInvalidFrames::Iterator ItOnNonConstInvalidFrames::end() {
+InvalidFramesPopulator::Iterator InvalidFramesPopulator::end() {
   return Iterator(&multiframe_.frames_[multiframe_.frames_.size()]);
 }
 
