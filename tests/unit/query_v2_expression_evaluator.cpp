@@ -82,23 +82,15 @@ class MockedRequestRouter : public RequestRouterInterface {
   }
   void StartTransaction() override {}
   void Commit() override {}
-  std::vector<VertexAccessor> Request(ExecutionState<memgraph::msgs::ScanVerticesRequest> &state) override {
+  std::vector<VertexAccessor> ScanVertices(std::optional<std::string> /* label */) override { return {}; }
+
+  std::vector<CreateVerticesResponse> CreateVertices(std::vector<memgraph::msgs::NewVertex> new_vertices) override {
     return {};
   }
 
-  std::vector<CreateVerticesResponse> Request(ExecutionState<CreateVerticesRequest> &state,
-                                              std::vector<memgraph::msgs::NewVertex> new_vertices) override {
-    return {};
-  }
+  std::vector<ExpandOneResultRow> ExpandOne(ExpandOneRequest request) override { return {}; }
 
-  std::vector<ExpandOneResultRow> Request(ExecutionState<ExpandOneRequest> &state, ExpandOneRequest request) override {
-    return {};
-  }
-
-  std::vector<CreateExpandResponse> Request(ExecutionState<CreateExpandRequest> &state,
-                                            std::vector<NewExpand> new_edges) override {
-    return {};
-  }
+  std::vector<CreateExpandResponse> CreateExpand(std::vector<NewExpand> new_edges) override { return {}; }
 
   const std::string &PropertyToName(memgraph::storage::v3::PropertyId id) const override {
     return properties_.IdToName(id.AsUint());
