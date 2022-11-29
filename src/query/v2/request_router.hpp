@@ -309,14 +309,14 @@ class RequestRouter : public RequestRouterInterface {
     // begin all requests in parallel
     for (auto &request : state.requests) {
       auto &storage_client = GetStorageClientForShard(request.shard);
-      msgs::ReadRequests req = request.request;
-      request.async_request_token = storage_client.SendAsyncReadRequest(req);
+      msgs::WriteRequests req = request.request;
+      request.async_request_token = storage_client.SendAsyncWriteRequest(req);
     }
 
     // drive requests to completion
-    std::vector<msgs::ExpandOneResponse> responses;
+    std::vector<msgs::CreateExpandResponse> responses;
     do {
-      DriveReadResponses(state, responses);
+      DriveWriteResponses(state, responses);
     } while (!state.requests.empty());
 
     return responses;
