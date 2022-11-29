@@ -33,8 +33,8 @@ class MultiFrame {
   MultiFrame(FrameWithValidity default_frame, size_t number_of_frames, utils::MemoryResource *execution_memory);
   ~MultiFrame();
 
-  MultiFrame(const MultiFrame &other);      // copy constructor
-  MultiFrame(MultiFrame &&other) noexcept;  // move constructor
+  MultiFrame(const MultiFrame &other);  // copy constructor
+  MultiFrame(MultiFrame &&other);       // move constructor
   MultiFrame &operator=(const MultiFrame &other) = delete;
   MultiFrame &operator=(MultiFrame &&other) noexcept = delete;
 
@@ -79,7 +79,7 @@ class MultiFrame {
   inline utils::MemoryResource *GetMemoryResource() { return frames_[0].GetMemoryResource(); }
 
  private:
-  void DefragmentValidFrames() noexcept;
+  void DefragmentValidFrames();
 
   FrameWithValidity default_frame_;
   utils::pmr::vector<FrameWithValidity> frames_ =
@@ -90,7 +90,7 @@ class ValidFramesReader {
  public:
   ValidFramesReader(MultiFrame &multiframe);
 
-  ~ValidFramesReader();
+  ~ValidFramesReader() = default;
   ValidFramesReader(const ValidFramesReader &other) = delete;                 // copy constructor
   ValidFramesReader(ValidFramesReader &&other) noexcept = delete;             // move constructor
   ValidFramesReader &operator=(const ValidFramesReader &other) = delete;      // copy assignment
@@ -137,7 +137,7 @@ class ValidFramesModifier {
  public:
   ValidFramesModifier(MultiFrame &multiframe);
 
-  ~ValidFramesModifier();
+  ~ValidFramesModifier() = default;
   ValidFramesModifier(const ValidFramesModifier &other) = delete;                 // copy constructor
   ValidFramesModifier(ValidFramesModifier &&other) noexcept = delete;             // move constructor
   ValidFramesModifier &operator=(const ValidFramesModifier &other) = delete;      // copy assignment

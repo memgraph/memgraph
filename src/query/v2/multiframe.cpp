@@ -37,13 +37,12 @@ MultiFrame::MultiFrame(const MultiFrame &other) : default_frame_(other.default_f
                  [&default_frame = default_frame_](const auto &other_frame) {
                    if (other_frame.IsValid()) {
                      return other_frame;
-                   } else {
-                     return default_frame;
                    }
+                   return default_frame;
                  });
 }
 
-MultiFrame::MultiFrame(MultiFrame &&other) noexcept : default_frame_(std::move(other.default_frame_)) {
+MultiFrame::MultiFrame(MultiFrame &&other) : default_frame_(std::move(other.default_frame_)) {
   /*
   TODO
   Do we just copy all frames or do we make distinctions between valid and not valid frames? Does it make any
@@ -54,9 +53,8 @@ MultiFrame::MultiFrame(MultiFrame &&other) noexcept : default_frame_(std::move(o
                  std::back_inserter(frames_), [&default_frame = default_frame_](const auto &other_frame) {
                    if (other_frame.IsValid()) {
                      return other_frame;
-                   } else {
-                     return default_frame;
                    }
+                   return default_frame;
                  });
 }
 
@@ -68,38 +66,35 @@ bool MultiFrame::HasValidFrame() const noexcept {
   return std::any_of(frames_.begin(), frames_.end(), [](auto &frame) { return frame.IsValid(); });
 }
 
-void MultiFrame::DefragmentValidFrames() noexcept {
+void MultiFrame::DefragmentValidFrames() {
   /*
   from: https://en.cppreference.com/w/cpp/algorithm/remove
   "Removing is done by shifting (by means of copy assignment (until C++11)move assignment (since C++11)) the elements
   in the range in such a way that the elements that are not to be removed appear in the beginning of the range.
   Relative order of the elements that remain is preserved and the physical size of the container is unchanged."
   */
-  std::remove_if(frames_.begin(), frames_.end(), [](auto &frame) { return !frame.IsValid(); });
+  [[maybe_unused]] const auto it =
+      std::remove_if(frames_.begin(), frames_.end(), [](auto &frame) { return !frame.IsValid(); });
 }
 
-ValidFramesReader MultiFrame::GetValidFramesReader() { return ValidFramesReader(*this); }
+ValidFramesReader MultiFrame::GetValidFramesReader() { return ValidFramesReader{*this}; }
 
-ValidFramesModifier MultiFrame::GetValidFramesModifier() { return ValidFramesModifier(*this); }
+ValidFramesModifier MultiFrame::GetValidFramesModifier() { return ValidFramesModifier{*this}; }
 
-ValidFramesConsumer MultiFrame::GetValidFramesConsumer() { return ValidFramesConsumer(*this); }
+ValidFramesConsumer MultiFrame::GetValidFramesConsumer() { return ValidFramesConsumer{*this}; }
 
-InvalidFramesPopulator MultiFrame::GetInvalidFramesPopulator() { return InvalidFramesPopulator(*this); }
+InvalidFramesPopulator MultiFrame::GetInvalidFramesPopulator() { return InvalidFramesPopulator{*this}; }
 
 ValidFramesReader::ValidFramesReader(MultiFrame &multiframe) : multiframe_(multiframe) {}
 
-ValidFramesReader::~ValidFramesReader() = default;
-
-ValidFramesReader::Iterator ValidFramesReader::begin() { return Iterator(&multiframe_.frames_[0], *this); }
+ValidFramesReader::Iterator ValidFramesReader::begin() { return Iterator{&multiframe_.frames_[0], *this}; }
 ValidFramesReader::Iterator ValidFramesReader::end() {
   return Iterator(&multiframe_.frames_[multiframe_.frames_.size()], *this);
 }
 
 ValidFramesModifier::ValidFramesModifier(MultiFrame &multiframe) : multiframe_(multiframe) {}
 
-ValidFramesModifier::~ValidFramesModifier() = default;
-
-ValidFramesModifier::Iterator ValidFramesModifier::begin() { return Iterator(&multiframe_.frames_[0], *this); }
+ValidFramesModifier::Iterator ValidFramesModifier::begin() { return Iterator{&multiframe_.frames_[0], *this}; }
 ValidFramesModifier::Iterator ValidFramesModifier::end() {
   return Iterator(&multiframe_.frames_[multiframe_.frames_.size()], *this);
 }
@@ -112,7 +107,7 @@ ValidFramesConsumer::~ValidFramesConsumer() {
   multiframe_.DefragmentValidFrames();
 }
 
-ValidFramesConsumer::Iterator ValidFramesConsumer::begin() { return Iterator(&multiframe_.frames_[0], *this); }
+ValidFramesConsumer::Iterator ValidFramesConsumer::begin() { return Iterator{&multiframe_.frames_[0], *this}; }
 
 ValidFramesConsumer::Iterator ValidFramesConsumer::end() {
   return Iterator(&multiframe_.frames_[multiframe_.frames_.size()], *this);
@@ -133,7 +128,7 @@ InvalidFramesPopulator::Iterator InvalidFramesPopulator::begin() {
 }
 
 InvalidFramesPopulator::Iterator InvalidFramesPopulator::end() {
-  return Iterator(&multiframe_.frames_[multiframe_.frames_.size()]);
+  return Iterator{&multiframe_.frames_[multiframe_.frames_.size()]};
 }
 
 }  // namespace memgraph::query::v2
