@@ -25,7 +25,7 @@
 #include "utils/memory_tracker.hpp"
 
 namespace memgraph::query::v2 {
-class ShardRequestManagerInterface;
+class RequestRouterInterface;
 }  // namespace memgraph::query::v2
 
 namespace memgraph::query::v2::accessors {
@@ -41,7 +41,7 @@ class VertexAccessor;
 
 class EdgeAccessor final {
  public:
-  explicit EdgeAccessor(Edge edge, const ShardRequestManagerInterface *manager);
+  explicit EdgeAccessor(Edge edge, const RequestRouterInterface *request_router);
 
   [[nodiscard]] EdgeTypeId EdgeType() const;
 
@@ -64,7 +64,7 @@ class EdgeAccessor final {
 
  private:
   Edge edge;
-  const ShardRequestManagerInterface *manager_;
+  const RequestRouterInterface *request_router_;
 };
 
 class VertexAccessor final {
@@ -73,10 +73,10 @@ class VertexAccessor final {
   using Label = msgs::Label;
   using VertexId = msgs::VertexId;
   VertexAccessor(Vertex v, std::vector<std::pair<PropertyId, Value>> props,
-                 const ShardRequestManagerInterface *manager);
+                 const RequestRouterInterface *request_router);
 
-  VertexAccessor(Vertex v, std::map<PropertyId, Value> &&props, const ShardRequestManagerInterface *manager);
-  VertexAccessor(Vertex v, const std::map<PropertyId, Value> &props, const ShardRequestManagerInterface *manager);
+  VertexAccessor(Vertex v, std::map<PropertyId, Value> &&props, const RequestRouterInterface *request_router);
+  VertexAccessor(Vertex v, const std::map<PropertyId, Value> &props, const RequestRouterInterface *request_router);
 
   [[nodiscard]] Label PrimaryLabel() const;
 
@@ -108,7 +108,7 @@ class VertexAccessor final {
  private:
   Vertex vertex;
   std::vector<std::pair<PropertyId, Value>> properties;
-  const ShardRequestManagerInterface *manager_;
+  const RequestRouterInterface *request_router_;
 };
 
 // Highly mocked interface. Won't work if used.

@@ -83,10 +83,10 @@ struct ExecutionState {
   // CompoundKey is optional because some operators require to iterate over all the available keys
   // of a shard. One example is ScanAll, where we only require the field label.
   std::optional<CompoundKey> key;
-  // Transaction id to be filled by the ShardRequestManager implementation
+  // Transaction id to be filled by the RequestRouter implementation
   coordinator::Hlc transaction_id;
-  // Initialized by ShardRequestManager implementation. This vector is filled with the shards that
-  // the ShardRequestManager impl will send requests to. When a request to a shard exhausts it, meaning that
+  // Initialized by RequestRouter implementation. This vector is filled with the shards that
+  // the RequestRouter impl will send requests to. When a request to a shard exhausts it, meaning that
   // it pulled all the requested data from the given Shard, it will be removed from the Vector. When the Vector becomes
   // empty, it means that all of the requests have completed succefully.
   // TODO(gvolfing)
@@ -101,16 +101,16 @@ struct ExecutionState {
   State state = INITIALIZING;
 };
 
-class ShardRequestManagerInterface {
+class RequestRouterInterface {
  public:
   using VertexAccessor = query::v2::accessors::VertexAccessor;
-  ShardRequestManagerInterface() = default;
-  ShardRequestManagerInterface(const ShardRequestManagerInterface &) = delete;
-  ShardRequestManagerInterface(ShardRequestManagerInterface &&) = delete;
-  ShardRequestManagerInterface &operator=(const ShardRequestManagerInterface &) = delete;
-  ShardRequestManagerInterface &&operator=(ShardRequestManagerInterface &&) = delete;
+  RequestRouterInterface() = default;
+  RequestRouterInterface(const RequestRouterInterface &) = delete;
+  RequestRouterInterface(RequestRouterInterface &&) = delete;
+  RequestRouterInterface &operator=(const RequestRouterInterface &) = delete;
+  RequestRouterInterface &&operator=(RequestRouterInterface &&) = delete;
 
-  virtual ~ShardRequestManagerInterface() = default;
+  virtual ~RequestRouterInterface() = default;
 
   virtual void StartTransaction() = 0;
   virtual void Commit() = 0;
@@ -137,7 +137,7 @@ class ShardRequestManagerInterface {
 
 // TODO(kostasrim)rename this class template
 template <typename TTransport>
-class ShardRequestManager : public ShardRequestManagerInterface {
+class RequestRouter : public RequestRouterInterface {
  public:
   using StorageClient = coordinator::RsmClient<TTransport, msgs::WriteRequests, msgs::WriteResponses,
                                                msgs::ReadRequests, msgs::ReadResponses>;
@@ -148,15 +148,14 @@ class ShardRequestManager : public ShardRequestManagerInterface {
   using ShardMap = coordinator::ShardMap;
   using CompoundKey = coordinator::PrimaryKey;
   using VertexAccessor = query::v2::accessors::VertexAccessor;
-  ShardRequestManager(CoordinatorClient coord, io::Io<TTransport> &&io)
-      : coord_cli_(std::move(coord)), io_(std::move(io)) {}
+  RequestRouter(CoordinatorClient coord, io::Io<TTransport> &&io) : coord_cli_(std::move(coord)), io_(std::move(io)) {}
 
-  ShardRequestManager(const ShardRequestManager &) = delete;
-  ShardRequestManager(ShardRequestManager &&) = delete;
-  ShardRequestManager &operator=(const ShardRequestManager &) = delete;
-  ShardRequestManager &operator=(ShardRequestManager &&) = delete;
+  RequestRouter(const RequestRouter &) = delete;
+  RequestRouter(RequestRouter &&) = delete;
+  RequestRouter &operator=(const RequestRouter &) = delete;
+  RequestRouter &operator=(RequestRouter &&) = delete;
 
-  ~ShardRequestManager() override {}
+  ~RequestRouter() override {}
 
   void StartTransaction() override {
     coordinator::HlcRequest req{.last_shard_map_version = shards_map_.GetHlc()};
