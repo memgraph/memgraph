@@ -16,7 +16,7 @@
 #include "query/v2/bindings/frame.hpp"
 
 namespace memgraph::query::v2 {
-constexpr unsigned long kNumberOfFramesInMultiframe = 1000;  // #NoCommit have it configurable
+constexpr uint64 kNumberOfFramesInMultiframe = 1000;  // TODO have it configurable
 
 class ValidFramesConsumer;
 class ValidFramesModifier;
