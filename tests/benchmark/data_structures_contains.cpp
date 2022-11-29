@@ -23,7 +23,6 @@
 #include <benchmark/benchmark.h>
 #include <gflags/gflags.h>
 
-#include "btree_map.hpp"
 #include "data_structures_common.hpp"
 #include "storage/v3/key_store.hpp"
 #include "storage/v3/lexicographically_ordered_vertex.hpp"
@@ -79,10 +78,7 @@ static void BM_BenchmarkContainsStdMap(::benchmark::State &state) {
 static void BM_BenchmarkContainsStdSet(::benchmark::State &state) {
   std::set<storage::v3::PrimaryKey> std_set;
   PrepareData(std_set, state.range(0));
-  coordinator::Hlc start_timestamp;
-  storage::v3::IsolationLevel isolation_level{storage::v3::IsolationLevel::SNAPSHOT_ISOLATION};
-  storage::v3::Transaction transaction{start_timestamp, isolation_level};
-  auto *delta = storage::v3::CreateDeleteObjectDelta(&transaction);
+
   // So we can also have elements that does don't exist
   std::mt19937 i_generator(std::random_device{}());
   std::uniform_int_distribution<int64_t> i_distribution(0, state.range(0) * 2);
@@ -98,32 +94,11 @@ static void BM_BenchmarkContainsStdSet(::benchmark::State &state) {
   state.SetItemsProcessed(found_elems);
 }
 
-static void BM_BenchmarkContainsBppTree(::benchmark::State &state) {
-  tlx::btree_map<storage::v3::PrimaryKey, storage::v3::LexicographicallyOrderedVertex> bpp_tree;
-  PrepareData(bpp_tree, state.range(0));
-
-  // So we can also have elements that does don't exists
-  std::mt19937 i_generator(std::random_device{}());
-  std::uniform_int_distribution<int64_t> i_distribution(0, state.range(0) * 2);
-  int64_t found_elems{0};
-  for (auto _ : state) {
-    for (auto i{0}; i < state.range(0); ++i) {
-      int64_t value = i_distribution(i_generator);
-      if (bpp_tree.count(storage::v3::PrimaryKey{{storage::v3::PropertyValue(value)}}) > 0) {
-        found_elems++;
-      }
-    }
-  }
-  state.SetItemsProcessed(found_elems);
-}
-
 BENCHMARK(BM_BenchmarkContainsSkipList)->RangeMultiplier(10)->Range(1000, 10000000)->Unit(::benchmark::kMillisecond);
 
 BENCHMARK(BM_BenchmarkContainsStdMap)->RangeMultiplier(10)->Range(1000, 10000000)->Unit(::benchmark::kMillisecond);
 
 BENCHMARK(BM_BenchmarkContainsStdSet)->RangeMultiplier(10)->Range(1000, 10000000)->Unit(::benchmark::kMillisecond);
-
-BENCHMARK(BM_BenchmarkContainsBppTree)->RangeMultiplier(10)->Range(1000, 10000000)->Unit(::benchmark::kMillisecond);
 
 }  // namespace memgraph::benchmark
 

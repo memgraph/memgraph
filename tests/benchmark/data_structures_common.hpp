@@ -15,7 +15,6 @@
 #include <set>
 #include <vector>
 
-#include "btree_map.hpp"
 #include "coordinator/hybrid_logical_clock.hpp"
 #include "storage/v3/key_store.hpp"
 #include "storage/v3/lexicographically_ordered_vertex.hpp"
@@ -30,7 +29,6 @@ inline void PrepareData(utils::SkipList<T> &skip_list, const int64_t num_element
   coordinator::Hlc start_timestamp;
   storage::v3::IsolationLevel isolation_level{storage::v3::IsolationLevel::SNAPSHOT_ISOLATION};
   storage::v3::Transaction transaction{start_timestamp, isolation_level};
-  auto *delta = storage::v3::CreateDeleteObjectDelta(&transaction);
   for (auto i{0}; i < num_elements; ++i) {
     auto acc = skip_list.access();
     acc.insert({storage::v3::PrimaryKey{storage::v3::PropertyValue{i}}});
@@ -55,22 +53,9 @@ inline void PrepareData(std::set<T> &std_set, const int64_t num_elements) {
   coordinator::Hlc start_timestamp;
   storage::v3::IsolationLevel isolation_level{storage::v3::IsolationLevel::SNAPSHOT_ISOLATION};
   storage::v3::Transaction transaction{start_timestamp, isolation_level};
-  auto *delta = storage::v3::CreateDeleteObjectDelta(&transaction);
   for (auto i{0}; i < num_elements; ++i) {
     std_set.insert(std::vector<storage::v3::PropertyValue>{storage::v3::PropertyValue{i}});
   }
 }
 
-template <typename TKey, typename TValue>
-inline void PrepareData(tlx::btree_map<TKey, TValue> &bpp_tree, const int64_t num_elements) {
-  coordinator::Hlc start_timestamp;
-  storage::v3::IsolationLevel isolation_level{storage::v3::IsolationLevel::SNAPSHOT_ISOLATION};
-  storage::v3::Transaction transaction{start_timestamp, isolation_level};
-  auto *delta = storage::v3::CreateDeleteObjectDelta(&transaction);
-  for (auto i{0}; i < num_elements; ++i) {
-    bpp_tree.insert({storage::v3::PrimaryKey{storage::v3::PropertyValue{i}},
-                     storage::v3::LexicographicallyOrderedVertex{storage::v3::Vertex{
-                         delta, std::vector<storage::v3::PropertyValue>{storage::v3::PropertyValue{i}}}}});
-  }
-}
 }  // namespace memgraph::benchmark

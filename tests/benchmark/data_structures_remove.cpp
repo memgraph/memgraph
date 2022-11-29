@@ -23,7 +23,6 @@
 #include <benchmark/benchmark.h>
 #include <gflags/gflags.h>
 
-#include "btree_map.hpp"
 #include "data_structures_common.hpp"
 #include "storage/v3/key_store.hpp"
 #include "storage/v3/lexicographically_ordered_vertex.hpp"
@@ -41,10 +40,6 @@ namespace memgraph::benchmark {
 static void BM_BenchmarkRemoveSkipList(::benchmark::State &state) {
   utils::SkipList<storage::v3::PrimaryKey> skip_list;
   PrepareData(skip_list, state.range(0));
-  coordinator::Hlc start_timestamp;
-  storage::v3::IsolationLevel isolation_level{storage::v3::IsolationLevel::SNAPSHOT_ISOLATION};
-  storage::v3::Transaction transaction{start_timestamp, isolation_level};
-  auto *delta = storage::v3::CreateDeleteObjectDelta(&transaction);
 
   // So we can also have elements that does don't exist
   std::mt19937 i_generator(std::random_device{}());
@@ -84,10 +79,6 @@ static void BM_BenchmarkRemoveStdMap(::benchmark::State &state) {
 static void BM_BenchmarkRemoveStdSet(::benchmark::State &state) {
   std::set<storage::v3::PrimaryKey> std_set;
   PrepareData(std_set, state.range(0));
-  coordinator::Hlc start_timestamp;
-  storage::v3::IsolationLevel isolation_level{storage::v3::IsolationLevel::SNAPSHOT_ISOLATION};
-  storage::v3::Transaction transaction{start_timestamp, isolation_level};
-  auto *delta = storage::v3::CreateDeleteObjectDelta(&transaction);
 
   // So we can also have elements that does don't exist
   std::mt19937 i_generator(std::random_device{}());
@@ -104,32 +95,11 @@ static void BM_BenchmarkRemoveStdSet(::benchmark::State &state) {
   state.SetItemsProcessed(removed_elems);
 }
 
-static void BM_BenchmarkRemoveBppTree(::benchmark::State &state) {
-  tlx::btree_map<storage::v3::PrimaryKey, storage::v3::LexicographicallyOrderedVertex> bpp_tree;
-  PrepareData(bpp_tree, state.range(0));
-
-  // So we can also have elements that does don't exist
-  std::mt19937 i_generator(std::random_device{}());
-  std::uniform_int_distribution<int64_t> i_distribution(0, state.range(0) * 2);
-  int64_t removed_elems{0};
-  for (auto _ : state) {
-    for (auto i{0}; i < state.range(0); ++i) {
-      int64_t value = i_distribution(i_generator);
-      if (bpp_tree.erase(storage::v3::PrimaryKey{storage::v3::PropertyValue{value}}) > 0) {
-        removed_elems++;
-      }
-    }
-  }
-  state.SetItemsProcessed(removed_elems);
-}
-
 BENCHMARK(BM_BenchmarkRemoveSkipList)->RangeMultiplier(10)->Range(1000, 10000000)->Unit(::benchmark::kMillisecond);
 
 BENCHMARK(BM_BenchmarkRemoveStdMap)->RangeMultiplier(10)->Range(1000, 10000000)->Unit(::benchmark::kMillisecond);
 
 BENCHMARK(BM_BenchmarkRemoveStdSet)->RangeMultiplier(10)->Range(1000, 10000000)->Unit(::benchmark::kMillisecond);
-
-BENCHMARK(BM_BenchmarkRemoveBppTree)->RangeMultiplier(10)->Range(1000, 10000000)->Unit(::benchmark::kMillisecond);
 
 }  // namespace memgraph::benchmark
 

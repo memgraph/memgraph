@@ -23,7 +23,6 @@
 #include <benchmark/benchmark.h>
 #include <gflags/gflags.h>
 
-#include "btree_map.hpp"
 #include "storage/v3/key_store.hpp"
 #include "storage/v3/lexicographically_ordered_vertex.hpp"
 #include "storage/v3/mvcc.hpp"
@@ -82,29 +81,11 @@ static void BM_BenchmarkInsertStdSet(::benchmark::State &state) {
   }
 }
 
-static void BM_BenchmarkInsertBppTree(::benchmark::State &state) {
-  tlx::btree_map<storage::v3::PrimaryKey, storage::v3::LexicographicallyOrderedVertex> bpp_tree;
-  coordinator::Hlc start_timestamp;
-  storage::v3::IsolationLevel isolation_level{storage::v3::IsolationLevel::SNAPSHOT_ISOLATION};
-  storage::v3::Transaction transaction{start_timestamp, isolation_level};
-  auto *delta = storage::v3::CreateDeleteObjectDelta(&transaction);
-
-  for (auto _ : state) {
-    for (auto i{0}; i < state.range(0); ++i) {
-      bpp_tree.insert({storage::v3::PrimaryKey{storage::v3::PropertyValue{i}},
-                       storage::v3::LexicographicallyOrderedVertex{storage::v3::Vertex{
-                           delta, std::vector<storage::v3::PropertyValue>{storage::v3::PropertyValue{i}}}}});
-    }
-  }
-}
-
 BENCHMARK(BM_BenchmarkInsertSkipList)->RangeMultiplier(10)->Range(1000, 10000000)->Unit(::benchmark::kMillisecond);
 
 BENCHMARK(BM_BenchmarkInsertStdMap)->RangeMultiplier(10)->Range(1000, 10000000)->Unit(::benchmark::kMillisecond);
 
 BENCHMARK(BM_BenchmarkInsertStdSet)->RangeMultiplier(10)->Range(1000, 10000000)->Unit(::benchmark::kMillisecond);
-
-BENCHMARK(BM_BenchmarkInsertBppTree)->RangeMultiplier(10)->Range(1000, 10000000)->Unit(::benchmark::kMillisecond);
 
 }  // namespace memgraph::benchmark
 
