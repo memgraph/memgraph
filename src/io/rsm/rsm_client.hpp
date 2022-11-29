@@ -41,7 +41,7 @@ class AsyncRequestToken {
   size_t id_;
 
  public:
-  AsyncRequestToken(size_t id) : id_(id) {}
+  explicit AsyncRequestToken(size_t id) : id_(id) {}
   size_t GetId() const { return id_; }
 };
 
@@ -132,7 +132,7 @@ class RsmClient {
 
     async_reads_.emplace(token, std::move(async_request));
 
-    return AsyncRequestToken(token);
+    return AsyncRequestToken{token};
   }
 
   void ResendAsyncReadRequest(AsyncRequestToken &token) {
@@ -203,7 +203,7 @@ class RsmClient {
 
     async_writes_.emplace(token, std::move(async_request));
 
-    return AsyncRequestToken(token);
+    return AsyncRequestToken{token};
   }
 
   void ResendAsyncWriteRequest(AsyncRequestToken &token) {
