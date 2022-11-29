@@ -11,7 +11,7 @@
 
 #include "query/v2/cypher_query_interpreter.hpp"
 #include "query/v2/bindings/symbol_generator.hpp"
-#include "query/v2/shard_request_manager.hpp"
+#include "query/v2/request_router.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_HIDDEN_bool(query_cost_planner, true, "Use the cost-estimating query planner.");
@@ -118,9 +118,9 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
 }
 
 std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters,
-                                             msgs::ShardRequestManagerInterface *shard_manager,
+                                             RequestRouterInterface *request_router,
                                              const std::vector<Identifier *> &predefined_identifiers) {
-  auto vertex_counts = plan::MakeVertexCountCache(shard_manager);
+  auto vertex_counts = plan::MakeVertexCountCache(request_router);
   auto symbol_table = expr::MakeSymbolTable(query, predefined_identifiers);
   auto planning_context = plan::MakePlanningContext(&ast_storage, &symbol_table, query, &vertex_counts);
   auto [root, cost] = plan::MakeLogicalPlan(&planning_context, parameters, FLAGS_query_cost_planner);
@@ -130,7 +130,7 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery
 
 std::shared_ptr<CachedPlan> CypherQueryToPlan(uint64_t hash, AstStorage ast_storage, CypherQuery *query,
                                               const Parameters &parameters, utils::SkipList<PlanCacheEntry> *plan_cache,
-                                              msgs::ShardRequestManagerInterface *shard_manager,
+                                              RequestRouterInterface *request_router,
                                               const std::vector<Identifier *> &predefined_identifiers) {
   std::optional<utils::SkipList<PlanCacheEntry>::Accessor> plan_cache_access;
   if (plan_cache) {
@@ -146,7 +146,7 @@ std::shared_ptr<CachedPlan> CypherQueryToPlan(uint64_t hash, AstStorage ast_stor
   }
 
   auto plan = std::make_shared<CachedPlan>(
-      MakeLogicalPlan(std::move(ast_storage), query, parameters, shard_manager, predefined_identifiers));
+      MakeLogicalPlan(std::move(ast_storage), query, parameters, request_router, predefined_identifiers));
   if (plan_cache_access) {
     plan_cache_access->insert({hash, plan});
   }

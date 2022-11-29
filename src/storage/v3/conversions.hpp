@@ -69,6 +69,10 @@ TTypedValue PropertyToTypedValue(const PropertyValue &value) {
   LOG_FATAL("Unsupported type");
 }
 
+template <typename TypedValueT>
+inline const auto PropertyToTypedValueFunctor =
+    [](const PropertyValue &value) { return PropertyToTypedValue<TypedValueT>(value); };
+
 template <typename TTypedValue>
 TTypedValue PropertyToTypedValue(const PropertyValue &value, utils::MemoryResource *mem) {
   switch (value.type()) {

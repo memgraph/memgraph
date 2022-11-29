@@ -257,7 +257,7 @@ EdgeUniquenessFunction InitializeEdgeUniquenessFunction(bool only_unique_neighbo
         case msgs::EdgeDirection::OUT: {
           is_edge_unique = [](std::set<const storage::v3::VertexId *, VertexIdCmpr> &other_vertex_set,
                               const storage::v3::EdgeAccessor &edge_acc) {
-            auto [it, insertion_happened] = other_vertex_set.insert(&edge_acc.ToVertex());
+            auto [it, insertion_happened] = other_vertex_set.insert(&edge_acc.To());
             return insertion_happened;
           };
           break;
@@ -265,7 +265,7 @@ EdgeUniquenessFunction InitializeEdgeUniquenessFunction(bool only_unique_neighbo
         case msgs::EdgeDirection::IN: {
           is_edge_unique = [](std::set<const storage::v3::VertexId *, VertexIdCmpr> &other_vertex_set,
                               const storage::v3::EdgeAccessor &edge_acc) {
-            auto [it, insertion_happened] = other_vertex_set.insert(&edge_acc.FromVertex());
+            auto [it, insertion_happened] = other_vertex_set.insert(&edge_acc.From());
             return insertion_happened;
           };
           break;
@@ -311,8 +311,8 @@ EdgeFiller InitializeEdgeFillerFunction(const msgs::ExpandOneRequest &req) {
         value_properties.insert(std::make_pair(prop_key, FromPropertyValueToValue(std::move(prop_val))));
       }
       using EdgeWithAllProperties = msgs::ExpandOneResultRow::EdgeWithAllProperties;
-      EdgeWithAllProperties edges{ToMsgsVertexId(edge.FromVertex()), msgs::EdgeType{edge.EdgeType()},
-                                  edge.Gid().AsUint(), std::move(value_properties)};
+      EdgeWithAllProperties edges{ToMsgsVertexId(edge.From()), msgs::EdgeType{edge.EdgeType()}, edge.Gid().AsUint(),
+                                  std::move(value_properties)};
       if (is_in_edge) {
         result_row.in_edges_with_all_properties.push_back(std::move(edges));
       } else {
@@ -336,7 +336,7 @@ EdgeFiller InitializeEdgeFillerFunction(const msgs::ExpandOneRequest &req) {
         value_properties.emplace_back(FromPropertyValueToValue(std::move(property_result.GetValue())));
       }
       using EdgeWithSpecificProperties = msgs::ExpandOneResultRow::EdgeWithSpecificProperties;
-      EdgeWithSpecificProperties edges{ToMsgsVertexId(edge.FromVertex()), msgs::EdgeType{edge.EdgeType()},
+      EdgeWithSpecificProperties edges{ToMsgsVertexId(edge.From()), msgs::EdgeType{edge.EdgeType()},
                                        edge.Gid().AsUint(), std::move(value_properties)};
       if (is_in_edge) {
         result_row.in_edges_with_specific_properties.push_back(std::move(edges));
@@ -472,12 +472,14 @@ std::array<std::vector<EdgeAccessor>, 2> GetEdgesFromVertex(const VertexAccessor
       if (edges.HasValue()) {
         in_edges = edges.GetValue();
       }
+      break;
     }
     case memgraph::msgs::EdgeDirection::OUT: {
       auto edges = vertex_accessor.OutEdges(View::OLD);
       if (edges.HasValue()) {
         out_edges = edges.GetValue();
       }
+      break;
     }
     case memgraph::msgs::EdgeDirection::BOTH: {
       auto maybe_in_edges = vertex_accessor.InEdges(View::OLD);
@@ -489,6 +491,7 @@ std::array<std::vector<EdgeAccessor>, 2> GetEdgesFromVertex(const VertexAccessor
       if (maybe_out_edges.HasValue()) {
         out_edges = maybe_out_edges.GetValue();
       }
+      break;
     }
   }
 

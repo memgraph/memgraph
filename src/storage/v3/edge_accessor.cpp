@@ -51,9 +51,9 @@ bool EdgeAccessor::IsVisible(const View view) const {
   return exists && (for_deleted_ || !deleted);
 }
 
-const VertexId &EdgeAccessor::FromVertex() const { return from_vertex_; }
+const VertexId &EdgeAccessor::From() const { return from_vertex_; }
 
-const VertexId &EdgeAccessor::ToVertex() const { return to_vertex_; }
+const VertexId &EdgeAccessor::To() const { return to_vertex_; }
 
 ShardResult<PropertyValue> EdgeAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
@@ -179,5 +179,8 @@ ShardResult<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View v
   if (!for_deleted_ && deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
   return std::move(properties);
 }
+
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+size_t EdgeAccessor::CypherId() const { return Gid().AsUint(); }
 
 }  // namespace memgraph::storage::v3

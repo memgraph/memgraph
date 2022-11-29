@@ -42,13 +42,12 @@
 #include "storage/v3/value_conversions.hpp"
 #include "utils/result.hpp"
 
-namespace memgraph::msgs {
+namespace memgraph::query::v2 {
 template <typename TStorageClient>
 class RsmStorageClientManager {
  public:
-  using CompoundKey = memgraph::io::rsm::ShardRsmKey;
-  using Shard = memgraph::coordinator::Shard;
-  using LabelId = memgraph::storage::v3::LabelId;
+  using CompoundKey = io::rsm::ShardRsmKey;
+  using Shard = coordinator::Shard;
   RsmStorageClientManager() = default;
   RsmStorageClientManager(const RsmStorageClientManager &) = delete;
   RsmStorageClientManager(RsmStorageClientManager &&) = delete;
@@ -74,8 +73,8 @@ class RsmStorageClientManager {
 
 template <typename TRequest>
 struct ExecutionState {
-  using CompoundKey = memgraph::io::rsm::ShardRsmKey;
-  using Shard = memgraph::coordinator::Shard;
+  using CompoundKey = io::rsm::ShardRsmKey;
+  using Shard = coordinator::Shard;
 
   enum State : int8_t { INITIALIZING, EXECUTING, COMPLETED };
   // label is optional because some operators can create/remove etc, vertices. These kind of requests contain the label
@@ -84,10 +83,10 @@ struct ExecutionState {
   // CompoundKey is optional because some operators require to iterate over all the available keys
   // of a shard. One example is ScanAll, where we only require the field label.
   std::optional<CompoundKey> key;
-  // Transaction id to be filled by the ShardRequestManager implementation
-  memgraph::coordinator::Hlc transaction_id;
-  // Initialized by ShardRequestManager implementation. This vector is filled with the shards that
-  // the ShardRequestManager impl will send requests to. When a request to a shard exhausts it, meaning that
+  // Transaction id to be filled by the RequestRouter implementation
+  coordinator::Hlc transaction_id;
+  // Initialized by RequestRouter implementation. This vector is filled with the shards that
+  // the RequestRouter impl will send requests to. When a request to a shard exhausts it, meaning that
   // it pulled all the requested data from the given Shard, it will be removed from the Vector. When the Vector becomes
   // empty, it means that all of the requests have completed succefully.
   // TODO(gvolfing)
@@ -102,26 +101,26 @@ struct ExecutionState {
   State state = INITIALIZING;
 };
 
-class ShardRequestManagerInterface {
+class RequestRouterInterface {
  public:
-  using VertexAccessor = memgraph::query::v2::accessors::VertexAccessor;
-  ShardRequestManagerInterface() = default;
-  ShardRequestManagerInterface(const ShardRequestManagerInterface &) = delete;
-  ShardRequestManagerInterface(ShardRequestManagerInterface &&) = delete;
-  ShardRequestManagerInterface &operator=(const ShardRequestManagerInterface &) = delete;
-  ShardRequestManagerInterface &&operator=(ShardRequestManagerInterface &&) = delete;
+  using VertexAccessor = query::v2::accessors::VertexAccessor;
+  RequestRouterInterface() = default;
+  RequestRouterInterface(const RequestRouterInterface &) = delete;
+  RequestRouterInterface(RequestRouterInterface &&) = delete;
+  RequestRouterInterface &operator=(const RequestRouterInterface &) = delete;
+  RequestRouterInterface &&operator=(RequestRouterInterface &&) = delete;
 
-  virtual ~ShardRequestManagerInterface() = default;
+  virtual ~RequestRouterInterface() = default;
 
   virtual void StartTransaction() = 0;
   virtual void Commit() = 0;
-  virtual std::vector<VertexAccessor> Request(ExecutionState<ScanVerticesRequest> &state) = 0;
-  virtual std::vector<CreateVerticesResponse> Request(ExecutionState<CreateVerticesRequest> &state,
-                                                      std::vector<NewVertex> new_vertices) = 0;
-  virtual std::vector<ExpandOneResultRow> Request(ExecutionState<ExpandOneRequest> &state,
-                                                  ExpandOneRequest request) = 0;
-  virtual std::vector<CreateExpandResponse> Request(ExecutionState<CreateExpandRequest> &state,
-                                                    std::vector<NewExpand> new_edges) = 0;
+  virtual std::vector<VertexAccessor> Request(ExecutionState<msgs::ScanVerticesRequest> &state) = 0;
+  virtual std::vector<msgs::CreateVerticesResponse> Request(ExecutionState<msgs::CreateVerticesRequest> &state,
+                                                            std::vector<msgs::NewVertex> new_vertices) = 0;
+  virtual std::vector<msgs::ExpandOneResultRow> Request(ExecutionState<msgs::ExpandOneRequest> &state,
+                                                        msgs::ExpandOneRequest request) = 0;
+  virtual std::vector<msgs::CreateExpandResponse> Request(ExecutionState<msgs::CreateExpandRequest> &state,
+                                                          std::vector<msgs::NewExpand> new_edges) = 0;
 
   virtual storage::v3::EdgeTypeId NameToEdgeType(const std::string &name) const = 0;
   virtual storage::v3::PropertyId NameToProperty(const std::string &name) const = 0;
@@ -129,42 +128,44 @@ class ShardRequestManagerInterface {
   virtual const std::string &PropertyToName(memgraph::storage::v3::PropertyId prop) const = 0;
   virtual const std::string &LabelToName(memgraph::storage::v3::LabelId label) const = 0;
   virtual const std::string &EdgeTypeToName(memgraph::storage::v3::EdgeTypeId type) const = 0;
-  virtual bool IsPrimaryLabel(LabelId label) const = 0;
-  virtual bool IsPrimaryKey(LabelId primary_label, PropertyId property) const = 0;
+  virtual std::optional<storage::v3::PropertyId> MaybeNameToProperty(const std::string &name) const = 0;
+  virtual std::optional<storage::v3::EdgeTypeId> MaybeNameToEdgeType(const std::string &name) const = 0;
+  virtual std::optional<storage::v3::LabelId> MaybeNameToLabel(const std::string &name) const = 0;
+  virtual bool IsPrimaryLabel(storage::v3::LabelId label) const = 0;
+  virtual bool IsPrimaryKey(storage::v3::LabelId primary_label, storage::v3::PropertyId property) const = 0;
 };
 
 // TODO(kostasrim)rename this class template
 template <typename TTransport>
-class ShardRequestManager : public ShardRequestManagerInterface {
+class RequestRouter : public RequestRouterInterface {
  public:
-  using StorageClient =
-      memgraph::coordinator::RsmClient<TTransport, WriteRequests, WriteResponses, ReadRequests, ReadResponses>;
-  using CoordinatorWriteRequests = memgraph::coordinator::CoordinatorWriteRequests;
-  using CoordinatorClient = memgraph::coordinator::CoordinatorClient<TTransport>;
-  using Address = memgraph::io::Address;
-  using Shard = memgraph::coordinator::Shard;
-  using ShardMap = memgraph::coordinator::ShardMap;
-  using CompoundKey = memgraph::coordinator::PrimaryKey;
-  using VertexAccessor = memgraph::query::v2::accessors::VertexAccessor;
-  ShardRequestManager(CoordinatorClient coord, memgraph::io::Io<TTransport> &&io)
-      : coord_cli_(std::move(coord)), io_(std::move(io)) {}
+  using StorageClient = coordinator::RsmClient<TTransport, msgs::WriteRequests, msgs::WriteResponses,
+                                               msgs::ReadRequests, msgs::ReadResponses>;
+  using CoordinatorWriteRequests = coordinator::CoordinatorWriteRequests;
+  using CoordinatorClient = coordinator::CoordinatorClient<TTransport>;
+  using Address = io::Address;
+  using Shard = coordinator::Shard;
+  using ShardMap = coordinator::ShardMap;
+  using CompoundKey = coordinator::PrimaryKey;
+  using VertexAccessor = query::v2::accessors::VertexAccessor;
+  RequestRouter(CoordinatorClient coord, io::Io<TTransport> &&io) : coord_cli_(std::move(coord)), io_(std::move(io)) {}
 
-  ShardRequestManager(const ShardRequestManager &) = delete;
-  ShardRequestManager(ShardRequestManager &&) = delete;
-  ShardRequestManager &operator=(const ShardRequestManager &) = delete;
-  ShardRequestManager &operator=(ShardRequestManager &&) = delete;
+  RequestRouter(const RequestRouter &) = delete;
+  RequestRouter(RequestRouter &&) = delete;
+  RequestRouter &operator=(const RequestRouter &) = delete;
+  RequestRouter &operator=(RequestRouter &&) = delete;
 
-  ~ShardRequestManager() override {}
+  ~RequestRouter() override {}
 
   void StartTransaction() override {
-    memgraph::coordinator::HlcRequest req{.last_shard_map_version = shards_map_.GetHlc()};
+    coordinator::HlcRequest req{.last_shard_map_version = shards_map_.GetHlc()};
     CoordinatorWriteRequests write_req = req;
     auto write_res = coord_cli_.SendWriteRequest(write_req);
     if (write_res.HasError()) {
       throw std::runtime_error("HLC request failed");
     }
     auto coordinator_write_response = write_res.GetValue();
-    auto hlc_response = std::get<memgraph::coordinator::HlcResponse>(coordinator_write_response);
+    auto hlc_response = std::get<coordinator::HlcResponse>(coordinator_write_response);
 
     // Transaction ID to be used later...
     transaction_id_ = hlc_response.new_hlc;
@@ -176,14 +177,14 @@ class ShardRequestManager : public ShardRequestManagerInterface {
   }
 
   void Commit() override {
-    memgraph::coordinator::HlcRequest req{.last_shard_map_version = shards_map_.GetHlc()};
+    coordinator::HlcRequest req{.last_shard_map_version = shards_map_.GetHlc()};
     CoordinatorWriteRequests write_req = req;
     auto write_res = coord_cli_.SendWriteRequest(write_req);
     if (write_res.HasError()) {
       throw std::runtime_error("HLC request for commit failed");
     }
     auto coordinator_write_response = write_res.GetValue();
-    auto hlc_response = std::get<memgraph::coordinator::HlcResponse>(coordinator_write_response);
+    auto hlc_response = std::get<coordinator::HlcResponse>(coordinator_write_response);
 
     if (hlc_response.fresher_shard_map) {
       shards_map_ = hlc_response.fresher_shard_map.value();
@@ -204,8 +205,8 @@ class ShardRequestManager : public ShardRequestManagerInterface {
         if (commit_response.HasError()) {
           throw std::runtime_error("Commit request timed out");
         }
-        WriteResponses write_response_variant = commit_response.GetValue();
-        auto &response = std::get<CommitResponse>(write_response_variant);
+        msgs::WriteResponses write_response_variant = commit_response.GetValue();
+        auto &response = std::get<msgs::CommitResponse>(write_response_variant);
         if (response.error) {
           throw std::runtime_error("Commit request did not succeed");
         }
@@ -225,17 +226,15 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     return shards_map_.GetLabelId(name).value();
   }
 
-  const std::string &PropertyToName(memgraph::storage::v3::PropertyId id) const override {
+  const std::string &PropertyToName(storage::v3::PropertyId id) const override {
     return properties_.IdToName(id.AsUint());
   }
-  const std::string &LabelToName(memgraph::storage::v3::LabelId id) const override {
-    return labels_.IdToName(id.AsUint());
-  }
-  const std::string &EdgeTypeToName(memgraph::storage::v3::EdgeTypeId id) const override {
+  const std::string &LabelToName(storage::v3::LabelId id) const override { return labels_.IdToName(id.AsUint()); }
+  const std::string &EdgeTypeToName(storage::v3::EdgeTypeId id) const override {
     return edge_types_.IdToName(id.AsUint());
   }
 
-  bool IsPrimaryKey(LabelId primary_label, PropertyId property) const override {
+  bool IsPrimaryKey(storage::v3::LabelId primary_label, storage::v3::PropertyId property) const override {
     const auto schema_it = shards_map_.schemas.find(primary_label);
     MG_ASSERT(schema_it != shards_map_.schemas.end(), "Invalid primary label id: {}", primary_label.AsUint());
 
@@ -244,12 +243,12 @@ class ShardRequestManager : public ShardRequestManagerInterface {
            }) != schema_it->second.end();
   }
 
-  bool IsPrimaryLabel(LabelId label) const override { return shards_map_.label_spaces.contains(label); }
+  bool IsPrimaryLabel(storage::v3::LabelId label) const override { return shards_map_.label_spaces.contains(label); }
 
   // TODO(kostasrim) Simplify return result
-  std::vector<VertexAccessor> Request(ExecutionState<ScanVerticesRequest> &state) override {
+  std::vector<VertexAccessor> Request(ExecutionState<msgs::ScanVerticesRequest> &state) override {
     MaybeInitializeExecutionState(state);
-    std::vector<ScanVerticesResponse> responses;
+    std::vector<msgs::ScanVerticesResponse> responses;
 
     SendAllRequests(state);
     auto all_requests_gathered = [](auto &paginated_rsp_tracker) {
@@ -273,11 +272,11 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     return PostProcess(std::move(responses));
   }
 
-  std::vector<CreateVerticesResponse> Request(ExecutionState<CreateVerticesRequest> &state,
-                                              std::vector<NewVertex> new_vertices) override {
+  std::vector<msgs::CreateVerticesResponse> Request(ExecutionState<msgs::CreateVerticesRequest> &state,
+                                                    std::vector<msgs::NewVertex> new_vertices) override {
     MG_ASSERT(!new_vertices.empty());
     MaybeInitializeExecutionState(state, new_vertices);
-    std::vector<CreateVerticesResponse> responses;
+    std::vector<msgs::CreateVerticesResponse> responses;
     auto &shard_cache_ref = state.shard_cache;
 
     // 1. Send the requests.
@@ -294,22 +293,22 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     return responses;
   }
 
-  std::vector<CreateExpandResponse> Request(ExecutionState<CreateExpandRequest> &state,
-                                            std::vector<NewExpand> new_edges) override {
+  std::vector<msgs::CreateExpandResponse> Request(ExecutionState<msgs::CreateExpandRequest> &state,
+                                                  std::vector<msgs::NewExpand> new_edges) override {
     MG_ASSERT(!new_edges.empty());
     MaybeInitializeExecutionState(state, new_edges);
-    std::vector<CreateExpandResponse> responses;
+    std::vector<msgs::CreateExpandResponse> responses;
     auto &shard_cache_ref = state.shard_cache;
     size_t id{0};
     for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++id) {
       auto &storage_client = GetStorageClientForShard(*shard_it);
-      WriteRequests req = state.requests[id];
+      msgs::WriteRequests req = state.requests[id];
       auto write_response_result = storage_client.SendWriteRequest(std::move(req));
       if (write_response_result.HasError()) {
         throw std::runtime_error("CreateVertices request timedout");
       }
-      WriteResponses response_variant = write_response_result.GetValue();
-      CreateExpandResponse mapped_response = std::get<CreateExpandResponse>(response_variant);
+      msgs::WriteResponses response_variant = write_response_result.GetValue();
+      msgs::CreateExpandResponse mapped_response = std::get<msgs::CreateExpandResponse>(response_variant);
 
       if (mapped_response.error) {
         throw std::runtime_error("CreateExpand request did not succeed");
@@ -322,14 +321,15 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     return responses;
   }
 
-  std::vector<ExpandOneResultRow> Request(ExecutionState<ExpandOneRequest> &state, ExpandOneRequest request) override {
+  std::vector<msgs::ExpandOneResultRow> Request(ExecutionState<msgs::ExpandOneRequest> &state,
+                                                msgs::ExpandOneRequest request) override {
     // TODO(kostasrim)Update to limit the batch size here
     // Expansions of the destination must be handled by the caller. For example
     // match (u:L1 { prop : 1 })-[:Friend]-(v:L1)
     // For each vertex U, the ExpandOne will result in <U, Edges>. The destination vertex and its properties
     // must be fetched again with an ExpandOne(Edges.dst)
     MaybeInitializeExecutionState(state, std::move(request));
-    std::vector<ExpandOneResponse> responses;
+    std::vector<msgs::ExpandOneResponse> responses;
     auto &shard_cache_ref = state.shard_cache;
 
     // 1. Send the requests.
@@ -339,10 +339,11 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     do {
       AwaitOnResponses(state, responses);
     } while (!state.shard_cache.empty());
-    std::vector<ExpandOneResultRow> result_rows;
-    const auto total_row_count = std::accumulate(
-        responses.begin(), responses.end(), 0,
-        [](const int64_t partial_count, const ExpandOneResponse &resp) { return partial_count + resp.result.size(); });
+    std::vector<msgs::ExpandOneResultRow> result_rows;
+    const auto total_row_count = std::accumulate(responses.begin(), responses.end(), 0,
+                                                 [](const int64_t partial_count, const msgs::ExpandOneResponse &resp) {
+                                                   return partial_count + resp.result.size();
+                                                 });
     result_rows.reserve(total_row_count);
 
     for (auto &response : responses) {
@@ -353,10 +354,22 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     return result_rows;
   }
 
+  std::optional<storage::v3::PropertyId> MaybeNameToProperty(const std::string &name) const override {
+    return shards_map_.GetPropertyId(name);
+  }
+
+  std::optional<storage::v3::EdgeTypeId> MaybeNameToEdgeType(const std::string &name) const override {
+    return shards_map_.GetEdgeTypeId(name);
+  }
+
+  std::optional<storage::v3::LabelId> MaybeNameToLabel(const std::string &name) const override {
+    return shards_map_.GetLabelId(name);
+  }
+
  private:
   enum class PaginatedResponseState { Pending, PartiallyFinished };
 
-  std::vector<VertexAccessor> PostProcess(std::vector<ScanVerticesResponse> &&responses) const {
+  std::vector<VertexAccessor> PostProcess(std::vector<msgs::ScanVerticesResponse> &&responses) const {
     std::vector<VertexAccessor> accessors;
     for (auto &response : responses) {
       for (auto &result_row : response.results) {
@@ -385,22 +398,22 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     return state.state != ExecutionState::INITIALIZING;
   }
 
-  void MaybeInitializeExecutionState(ExecutionState<CreateVerticesRequest> &state,
-                                     std::vector<NewVertex> new_vertices) {
+  void MaybeInitializeExecutionState(ExecutionState<msgs::CreateVerticesRequest> &state,
+                                     std::vector<msgs::NewVertex> new_vertices) {
     ThrowIfStateCompleted(state);
     if (ShallNotInitializeState(state)) {
       return;
     }
     state.transaction_id = transaction_id_;
 
-    std::map<Shard, CreateVerticesRequest> per_shard_request_table;
+    std::map<Shard, msgs::CreateVerticesRequest> per_shard_request_table;
 
     for (auto &new_vertex : new_vertices) {
       MG_ASSERT(!new_vertex.label_ids.empty(), "This is error!");
       auto shard = shards_map_.GetShardForKey(new_vertex.label_ids[0].id,
                                               storage::conversions::ConvertPropertyVector(new_vertex.primary_key));
       if (!per_shard_request_table.contains(shard)) {
-        CreateVerticesRequest create_v_rqst{.transaction_id = transaction_id_};
+        msgs::CreateVerticesRequest create_v_rqst{.transaction_id = transaction_id_};
         per_shard_request_table.insert(std::pair(shard, std::move(create_v_rqst)));
         state.shard_cache.push_back(shard);
       }
@@ -410,21 +423,22 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     for (auto &[shard, rqst] : per_shard_request_table) {
       state.requests.push_back(std::move(rqst));
     }
-    state.state = ExecutionState<CreateVerticesRequest>::EXECUTING;
+    state.state = ExecutionState<msgs::CreateVerticesRequest>::EXECUTING;
   }
 
-  void MaybeInitializeExecutionState(ExecutionState<CreateExpandRequest> &state, std::vector<NewExpand> new_expands) {
+  void MaybeInitializeExecutionState(ExecutionState<msgs::CreateExpandRequest> &state,
+                                     std::vector<msgs::NewExpand> new_expands) {
     ThrowIfStateCompleted(state);
     if (ShallNotInitializeState(state)) {
       return;
     }
     state.transaction_id = transaction_id_;
 
-    std::map<Shard, CreateExpandRequest> per_shard_request_table;
+    std::map<Shard, msgs::CreateExpandRequest> per_shard_request_table;
     auto ensure_shard_exists_in_table = [&per_shard_request_table,
                                          transaction_id = transaction_id_](const Shard &shard) {
       if (!per_shard_request_table.contains(shard)) {
-        CreateExpandRequest create_expand_request{.transaction_id = transaction_id};
+        msgs::CreateExpandRequest create_expand_request{.transaction_id = transaction_id};
         per_shard_request_table.insert({shard, std::move(create_expand_request)});
       }
     };
@@ -448,10 +462,10 @@ class ShardRequestManager : public ShardRequestManagerInterface {
       state.shard_cache.push_back(shard);
       state.requests.push_back(std::move(request));
     }
-    state.state = ExecutionState<CreateExpandRequest>::EXECUTING;
+    state.state = ExecutionState<msgs::CreateExpandRequest>::EXECUTING;
   }
 
-  void MaybeInitializeExecutionState(ExecutionState<ScanVerticesRequest> &state) {
+  void MaybeInitializeExecutionState(ExecutionState<msgs::ScanVerticesRequest> &state) {
     ThrowIfStateCompleted(state);
     if (ShallNotInitializeState(state)) {
       return;
@@ -471,23 +485,23 @@ class ShardRequestManager : public ShardRequestManagerInterface {
       for (auto &[key, shard] : shards) {
         MG_ASSERT(!shard.empty());
         state.shard_cache.push_back(std::move(shard));
-        ScanVerticesRequest rqst;
+        msgs::ScanVerticesRequest rqst;
         rqst.transaction_id = transaction_id_;
         rqst.start_id.second = storage::conversions::ConvertValueVector(key);
         state.requests.push_back(std::move(rqst));
       }
     }
-    state.state = ExecutionState<ScanVerticesRequest>::EXECUTING;
+    state.state = ExecutionState<msgs::ScanVerticesRequest>::EXECUTING;
   }
 
-  void MaybeInitializeExecutionState(ExecutionState<ExpandOneRequest> &state, ExpandOneRequest request) {
+  void MaybeInitializeExecutionState(ExecutionState<msgs::ExpandOneRequest> &state, msgs::ExpandOneRequest request) {
     ThrowIfStateCompleted(state);
     if (ShallNotInitializeState(state)) {
       return;
     }
     state.transaction_id = transaction_id_;
 
-    std::map<Shard, ExpandOneRequest> per_shard_request_table;
+    std::map<Shard, msgs::ExpandOneRequest> per_shard_request_table;
     auto top_level_rqst_template = request;
     top_level_rqst_template.transaction_id = transaction_id_;
     top_level_rqst_template.src_vertices.clear();
@@ -505,7 +519,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     for (auto &[shard, rqst] : per_shard_request_table) {
       state.requests.push_back(std::move(rqst));
     }
-    state.state = ExecutionState<ExpandOneRequest>::EXECUTING;
+    state.state = ExecutionState<msgs::ExpandOneRequest>::EXECUTING;
   }
 
   StorageClient &GetStorageClientForShard(Shard shard) {
@@ -532,20 +546,20 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     storage_cli_manager_.AddClient(target_shard, std::move(cli));
   }
 
-  void SendAllRequests(ExecutionState<ScanVerticesRequest> &state) {
+  void SendAllRequests(ExecutionState<msgs::ScanVerticesRequest> &state) {
     int64_t shard_idx = 0;
     for (const auto &request : state.requests) {
       const auto &current_shard = state.shard_cache[shard_idx];
 
       auto &storage_client = GetStorageClientForShard(current_shard);
-      ReadRequests req = request;
+      msgs::ReadRequests req = request;
       storage_client.SendAsyncReadRequest(request);
 
       ++shard_idx;
     }
   }
 
-  void SendAllRequests(ExecutionState<CreateVerticesRequest> &state,
+  void SendAllRequests(ExecutionState<msgs::CreateVerticesRequest> &state,
                        std::vector<memgraph::coordinator::Shard> &shard_cache_ref) {
     size_t id = 0;
     for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++shard_it) {
@@ -559,24 +573,25 @@ class ShardRequestManager : public ShardRequestManagerInterface {
 
       auto &storage_client = GetStorageClientForShard(*shard_it);
 
-      WriteRequests req = req_deep_copy;
+      msgs::WriteRequests req = req_deep_copy;
       storage_client.SendAsyncWriteRequest(req);
       ++id;
     }
   }
 
-  void SendAllRequests(ExecutionState<ExpandOneRequest> &state,
+  void SendAllRequests(ExecutionState<msgs::ExpandOneRequest> &state,
                        std::vector<memgraph::coordinator::Shard> &shard_cache_ref) {
     size_t id = 0;
     for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++shard_it) {
       auto &storage_client = GetStorageClientForShard(*shard_it);
-      ReadRequests req = state.requests[id];
+      msgs::ReadRequests req = state.requests[id];
       storage_client.SendAsyncReadRequest(req);
       ++id;
     }
   }
 
-  void AwaitOnResponses(ExecutionState<CreateVerticesRequest> &state, std::vector<CreateVerticesResponse> &responses) {
+  void AwaitOnResponses(ExecutionState<msgs::CreateVerticesRequest> &state,
+                        std::vector<msgs::CreateVerticesResponse> &responses) {
     auto &shard_cache_ref = state.shard_cache;
     int64_t request_idx = 0;
 
@@ -598,8 +613,8 @@ class ShardRequestManager : public ShardRequestManagerInterface {
         throw std::runtime_error("CreateVertices request timed out");
       }
 
-      WriteResponses response_variant = poll_result->GetValue();
-      auto response = std::get<CreateVerticesResponse>(response_variant);
+      msgs::WriteResponses response_variant = poll_result->GetValue();
+      auto response = std::get<msgs::CreateVerticesResponse>(response_variant);
 
       if (response.error) {
         throw std::runtime_error("CreateVertices request did not succeed");
@@ -613,7 +628,8 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     }
   }
 
-  void AwaitOnResponses(ExecutionState<ExpandOneRequest> &state, std::vector<ExpandOneResponse> &responses) {
+  void AwaitOnResponses(ExecutionState<msgs::ExpandOneRequest> &state,
+                        std::vector<msgs::ExpandOneResponse> &responses) {
     auto &shard_cache_ref = state.shard_cache;
     int64_t request_idx = 0;
 
@@ -631,8 +647,8 @@ class ShardRequestManager : public ShardRequestManagerInterface {
         throw std::runtime_error("ExpandOne request timed out");
       }
 
-      ReadResponses response_variant = poll_result->GetValue();
-      auto response = std::get<ExpandOneResponse>(response_variant);
+      msgs::ReadResponses response_variant = poll_result->GetValue();
+      auto response = std::get<msgs::ExpandOneResponse>(response_variant);
       // -NOTE-
       // Currently a boolean flag for signaling the overall success of the
       // ExpandOne request does not exist. But it should, so here we assume
@@ -649,8 +665,8 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     }
   }
 
-  void AwaitOnPaginatedRequests(ExecutionState<ScanVerticesRequest> &state,
-                                std::vector<ScanVerticesResponse> &responses,
+  void AwaitOnPaginatedRequests(ExecutionState<msgs::ScanVerticesRequest> &state,
+                                std::vector<msgs::ScanVerticesResponse> &responses,
                                 std::map<Shard, PaginatedResponseState> &paginated_response_tracker) {
     auto &shard_cache_ref = state.shard_cache;
 
@@ -678,8 +694,8 @@ class ShardRequestManager : public ShardRequestManagerInterface {
         throw std::runtime_error("ScanAll request timed out");
       }
 
-      ReadResponses read_response_variant = await_result->GetValue();
-      auto response = std::get<ScanVerticesResponse>(read_response_variant);
+      msgs::ReadResponses read_response_variant = await_result->GetValue();
+      auto response = std::get<msgs::ScanVerticesResponse>(read_response_variant);
       if (response.error) {
         throw std::runtime_error("ScanAll request did not succeed");
       }
@@ -723,8 +739,8 @@ class ShardRequestManager : public ShardRequestManagerInterface {
   storage::v3::NameIdMapper labels_;
   CoordinatorClient coord_cli_;
   RsmStorageClientManager<StorageClient> storage_cli_manager_;
-  memgraph::io::Io<TTransport> io_;
-  memgraph::coordinator::Hlc transaction_id_;
+  io::Io<TTransport> io_;
+  coordinator::Hlc transaction_id_;
   // TODO(kostasrim) Add batch prefetching
 };
-}  // namespace memgraph::msgs
+}  // namespace memgraph::query::v2
