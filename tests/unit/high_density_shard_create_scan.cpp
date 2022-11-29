@@ -192,8 +192,6 @@ void ExecuteOp(query::v2::RequestRouter<LocalTransport> &request_router, std::se
 
 void ExecuteOp(query::v2::RequestRouter<LocalTransport> &request_router, std::set<CompoundKey> &correctness_model,
                ScanAll scan_all) {
-  query::v2::ExecutionState<msgs::ScanVerticesRequest> request{.label = "test_label"};
-
   auto results = request_router.ScanVertices("test_label");
 
   MG_ASSERT(results.size() == correctness_model.size());

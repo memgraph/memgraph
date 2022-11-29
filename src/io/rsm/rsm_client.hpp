@@ -135,7 +135,7 @@ class RsmClient {
     return AsyncRequestToken{token};
   }
 
-  void ResendAsyncReadRequest(AsyncRequestToken &token) {
+  void ResendAsyncReadRequest(const AsyncRequestToken &token) {
     auto &async_request = async_reads_.at(token.GetId());
 
     ReadRequest<ReadRequestT> read_req = {.operation = async_request.request};
@@ -144,7 +144,7 @@ class RsmClient {
         io_.template Request<ReadRequest<ReadRequestT>, ReadResponse<ReadResponseT>>(leader_, read_req);
   }
 
-  std::optional<BasicResult<TimedOut, ReadResponseT>> PollAsyncReadRequest(AsyncRequestToken &token) {
+  std::optional<BasicResult<TimedOut, ReadResponseT>> PollAsyncReadRequest(const AsyncRequestToken &token) {
     auto &async_request = async_reads_.at(token.GetId());
 
     if (!async_request.future.IsReady()) {
@@ -154,7 +154,7 @@ class RsmClient {
     return AwaitAsyncReadRequest();
   }
 
-  std::optional<BasicResult<TimedOut, ReadResponseT>> AwaitAsyncReadRequest(AsyncRequestToken &token) {
+  std::optional<BasicResult<TimedOut, ReadResponseT>> AwaitAsyncReadRequest(const AsyncRequestToken &token) {
     auto &async_request = async_reads_.at(token.GetId());
     ResponseResult<ReadResponse<ReadResponseT>> get_response_result = std::move(async_request.future).Wait();
 
@@ -206,7 +206,7 @@ class RsmClient {
     return AsyncRequestToken{token};
   }
 
-  void ResendAsyncWriteRequest(AsyncRequestToken &token) {
+  void ResendAsyncWriteRequest(const AsyncRequestToken &token) {
     auto &async_request = async_writes_.at(token.GetId());
 
     WriteRequest<WriteRequestT> write_req = {.operation = async_request.request};
@@ -215,7 +215,7 @@ class RsmClient {
         io_.template Request<WriteRequest<WriteRequestT>, WriteResponse<WriteResponseT>>(leader_, write_req);
   }
 
-  std::optional<BasicResult<TimedOut, WriteResponseT>> PollAsyncWriteRequest(AsyncRequestToken &token) {
+  std::optional<BasicResult<TimedOut, WriteResponseT>> PollAsyncWriteRequest(const AsyncRequestToken &token) {
     auto &async_request = async_writes_.at(token.GetId());
 
     if (!async_request.future.IsReady()) {
@@ -225,7 +225,7 @@ class RsmClient {
     return AwaitAsyncWriteRequest();
   }
 
-  std::optional<BasicResult<TimedOut, WriteResponseT>> AwaitAsyncWriteRequest(AsyncRequestToken &token) {
+  std::optional<BasicResult<TimedOut, WriteResponseT>> AwaitAsyncWriteRequest(const AsyncRequestToken &token) {
     auto &async_request = async_writes_.at(token.GetId());
     ResponseResult<WriteResponse<WriteResponseT>> get_response_result = std::move(async_request.future).Wait();
 

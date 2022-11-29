@@ -254,12 +254,14 @@ class RequestRouter : public RequestRouterInterface {
 
     // drive requests to completion
     std::vector<msgs::ScanVerticesResponse> responses;
+    responses.reserve(state.requests.size());
     do {
       DriveReadResponses(state, responses);
     } while (!state.requests.empty());
 
     // convert responses into VertexAccessor objects to return
     std::vector<VertexAccessor> accessors;
+    accessors.reserve(responses.size());
     for (auto &response : responses) {
       for (auto &result_row : response.results) {
         accessors.emplace_back(VertexAccessor(std::move(result_row.vertex), std::move(result_row.props), this));
@@ -292,6 +294,7 @@ class RequestRouter : public RequestRouterInterface {
 
     // drive requests to completion
     std::vector<msgs::CreateVerticesResponse> responses;
+    responses.reserve(state.requests.size());
     do {
       DriveWriteResponses(state, responses);
     } while (!state.requests.empty());
@@ -315,6 +318,7 @@ class RequestRouter : public RequestRouterInterface {
 
     // drive requests to completion
     std::vector<msgs::CreateExpandResponse> responses;
+    responses.reserve(state.requests.size());
     do {
       DriveWriteResponses(state, responses);
     } while (!state.requests.empty());
@@ -342,6 +346,7 @@ class RequestRouter : public RequestRouterInterface {
 
     // drive requests to completion
     std::vector<msgs::ExpandOneResponse> responses;
+    responses.reserve(state.requests.size());
     do {
       DriveReadResponses(state, responses);
     } while (!state.requests.empty());
