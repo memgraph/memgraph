@@ -20,7 +20,7 @@
 #include "query/v2/parameters.hpp"
 #include "query/v2/plan/profile.hpp"
 //#include "query/v2/trigger.hpp"
-#include "query/v2/shard_request_manager.hpp"
+#include "query/v2/request_router.hpp"
 #include "utils/async_timer.hpp"
 
 namespace memgraph::query::v2 {
@@ -60,27 +60,27 @@ struct EvaluationContext {
   mutable std::unordered_map<std::string, int64_t> counters;
 };
 
-inline std::vector<storage::v3::PropertyId> NamesToProperties(
-    const std::vector<std::string> &property_names, msgs::ShardRequestManagerInterface *shard_request_manager) {
+inline std::vector<storage::v3::PropertyId> NamesToProperties(const std::vector<std::string> &property_names,
+                                                              RequestRouterInterface *request_router) {
   std::vector<storage::v3::PropertyId> properties;
   // TODO Fix by using reference
   properties.reserve(property_names.size());
-  if (shard_request_manager != nullptr) {
+  if (request_router != nullptr) {
     for (const auto &name : property_names) {
-      properties.push_back(shard_request_manager->NameToProperty(name));
+      properties.push_back(request_router->NameToProperty(name));
     }
   }
   return properties;
 }
 
 inline std::vector<storage::v3::LabelId> NamesToLabels(const std::vector<std::string> &label_names,
-                                                       msgs::ShardRequestManagerInterface *shard_request_manager) {
+                                                       RequestRouterInterface *request_router) {
   std::vector<storage::v3::LabelId> labels;
   labels.reserve(label_names.size());
   // TODO Fix by using reference
-  if (shard_request_manager != nullptr) {
+  if (request_router != nullptr) {
     for (const auto &name : label_names) {
-      labels.push_back(shard_request_manager->NameToLabel(name));
+      labels.push_back(request_router->NameToLabel(name));
     }
   }
   return labels;
@@ -97,7 +97,7 @@ struct ExecutionContext {
   plan::ProfilingStats *stats_root{nullptr};
   ExecutionStats execution_stats;
   utils::AsyncTimer timer;
-  msgs::ShardRequestManagerInterface *shard_request_manager{nullptr};
+  RequestRouterInterface *request_router{nullptr};
   IdAllocator *edge_ids_alloc;
 };
 

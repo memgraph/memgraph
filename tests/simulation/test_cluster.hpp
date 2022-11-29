@@ -30,8 +30,8 @@
 #include "io/simulator/simulator_transport.hpp"
 #include "machine_manager/machine_config.hpp"
 #include "machine_manager/machine_manager.hpp"
+#include "query/v2/request_router.hpp"
 #include "query/v2/requests.hpp"
-#include "query/v2/shard_request_manager.hpp"
 #include "testing_constants.hpp"
 #include "utils/print_helpers.hpp"
 #include "utils/variant_helpers.hpp"
@@ -151,8 +151,8 @@ ShardMap TestShardMap(int n_splits, int replication_factor) {
   return sm;
 }
 
-void ExecuteOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_manager,
-               std::set<CompoundKey> &correctness_model, CreateVertex create_vertex) {
+void ExecuteOp(query::v2::RequestRouter<SimulatorTransport> &request_router, std::set<CompoundKey> &correctness_model,
+               CreateVertex create_vertex) {
   const auto key1 = memgraph::storage::v3::PropertyValue(create_vertex.first);
   const auto key2 = memgraph::storage::v3::PropertyValue(create_vertex.second);
 
@@ -164,9 +164,9 @@ void ExecuteOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_mana
     return;
   }
 
-  msgs::ExecutionState<msgs::CreateVerticesRequest> state;
+  query::v2::ExecutionState<msgs::CreateVerticesRequest> state;
 
-  auto label_id = shard_request_manager.NameToLabel("test_label");
+  auto label_id = request_router.NameToLabel("test_label");
 
   msgs::NewVertex nv{.primary_key = primary_key};
   nv.label_ids.push_back({label_id});
@@ -174,7 +174,7 @@ void ExecuteOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_mana
   std::vector<msgs::NewVertex> new_vertices;
   new_vertices.push_back(std::move(nv));
 
-  auto result = shard_request_manager.Request(state, std::move(new_vertices));
+  auto result = request_router.Request(state, std::move(new_vertices));
 
   RC_ASSERT(result.size() == 1);
   RC_ASSERT(!result[0].error.has_value());
@@ -182,11 +182,11 @@ void ExecuteOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_mana
   correctness_model.emplace(std::make_pair(create_vertex.first, create_vertex.second));
 }
 
-void ExecuteOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_manager,
-               std::set<CompoundKey> &correctness_model, ScanAll scan_all) {
-  msgs::ExecutionState<msgs::ScanVerticesRequest> request{.label = "test_label"};
+void ExecuteOp(query::v2::RequestRouter<SimulatorTransport> &request_router, std::set<CompoundKey> &correctness_model,
+               ScanAll scan_all) {
+  query::v2::ExecutionState<msgs::ScanVerticesRequest> request{.label = "test_label"};
 
-  auto results = shard_request_manager.Request(request);
+  auto results = request_router.Request(request);
 
   RC_ASSERT(results.size() == correctness_model.size());
 
@@ -247,14 +247,14 @@ std::pair<SimulatorStats, LatencyHistogramSummaries> RunClusterSimulation(const 
   CoordinatorClient<SimulatorTransport> coordinator_client(cli_io, coordinator_address, {coordinator_address});
   WaitForShardsToInitialize(coordinator_client);
 
-  msgs::ShardRequestManager<SimulatorTransport> shard_request_manager(std::move(coordinator_client), std::move(cli_io));
+  query::v2::RequestRouter<SimulatorTransport> request_router(std::move(coordinator_client), std::move(cli_io));
 
-  shard_request_manager.StartTransaction();
+  request_router.StartTransaction();
 
   auto correctness_model = std::set<CompoundKey>{};
 
   for (const Op &op : ops) {
-    std::visit([&](auto &o) { ExecuteOp(shard_request_manager, correctness_model, o); }, op.inner);
+    std::visit([&](auto &o) { ExecuteOp(request_router, correctness_model, o); }, op.inner);
   }
 
   // We have now completed our workload without failing any assertions, so we can
