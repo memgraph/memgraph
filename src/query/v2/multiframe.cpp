@@ -28,7 +28,7 @@ MultiFrame::~MultiFrame() = default;
 
 MultiFrame::MultiFrame(const MultiFrame &other) : default_frame_(other.default_frame_) {
   /*
-  #NoCommit maybe not needed
+  TODO
   Do we just copy all frames or do we make distinctions between valid and not valid frames? Does it make any
   difference?
   */
@@ -45,7 +45,7 @@ MultiFrame::MultiFrame(const MultiFrame &other) : default_frame_(other.default_f
 
 MultiFrame::MultiFrame(MultiFrame &&other) noexcept : default_frame_(std::move(other.default_frame_)) {
   /*
-  #NoCommit maybe not needed
+  TODO
   Do we just copy all frames or do we make distinctions between valid and not valid frames? Does it make any
   difference?
   */
@@ -107,7 +107,7 @@ ValidFramesModifier::Iterator ValidFramesModifier::end() {
 ValidFramesConsumer::ValidFramesConsumer(MultiFrame &multiframe) : multiframe_(multiframe) {}
 
 ValidFramesConsumer::~ValidFramesConsumer() {
-  // #NoCommit possible optimisation: only DefragmentValidFrames if one frame has been invalidated? Only if does not
+  // TODO Possible optimisation: only DefragmentValidFrames if one frame has been invalidated? Only if does not
   // cost too much to store it
   multiframe_.DefragmentValidFrames();
 }
