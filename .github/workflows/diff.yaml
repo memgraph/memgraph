@@ -32,6 +32,14 @@ jobs:
           # branches and tags. (default: 1)
           fetch-depth: 0
 
+      - name: Cache libs
+        uses: actions/cache@v2
+        env:
+          cache-name: cache-community-libs
+        with:
+          path: libs
+          key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles('libs/setup.sh') }}
+
       - name: Build community binaries
         run: |
           # Activate toolchain.
@@ -74,6 +82,14 @@ jobs:
         # See https://github.community/t/checkout-code-fails-when-it-runs-lerna-run-test-since-master/17920
       - name: Fetch all history for all tags and branches
         run: git fetch
+
+      - name: Cache libs
+        uses: actions/cache@v2
+        env:
+          cache-name: cache-libs
+        with:
+          path: libs
+          key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles('libs/setup.sh') }}
 
       - name: Initialize deps
         run: |
@@ -176,6 +192,14 @@ jobs:
           # branches and tags. (default: 1)
           fetch-depth: 0
 
+      - name: Cache libs
+        uses: actions/cache@v2
+        env:
+          cache-name: cache-libs
+        with:
+          path: libs
+          key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles('libs/setup.sh') }}
+
       - name: Build debug binaries
         run: |
           # Activate toolchain.
@@ -222,6 +246,14 @@ jobs:
           # Number of commits to fetch. `0` indicates all history for all
           # branches and tags. (default: 1)
           fetch-depth: 0
+
+      - name: Cache libs
+        uses: actions/cache@v2
+        env:
+          cache-name: cache-release-libs
+        with:
+          path: libs
+          key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles('libs/setup.sh') }}
 
       - name: Build release binaries
         run: |
