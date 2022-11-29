@@ -18,14 +18,14 @@
 namespace memgraph::query::v2 {
 constexpr unsigned long kNumberOfFramesInMultiframe = 1000;  // #NoCommit have it configurable
 
-class ValidFramesInvalidator;
+class ValidFramesConsumer;
 class ValidFramesModifier;
 class ValidFramesReader;
 class InvalidFramesPopulator;
 
 class MultiFrame {
  public:
-  friend class ValidFramesInvalidator;
+  friend class ValidFramesConsumer;
   friend class ValidFramesModifier;
   friend class ValidFramesReader;
   friend class InvalidFramesPopulator;
@@ -62,7 +62,7 @@ class MultiFrame {
   If you do not plan to modify the validity of the frames, use GetValidFramesReader/GetValidFramesModifer instead as
   this is faster.
   */
-  ValidFramesInvalidator GetValidFramesInvalidator();
+  ValidFramesConsumer GetValidFramesConsumer();
 
   /*!
   Returns a object on which one can iterate in a for-loop. By doing so, you will only get frames that are in an invalid
@@ -181,15 +181,15 @@ class ValidFramesModifier {
   MultiFrame &multiframe_;
 };
 
-class ValidFramesInvalidator {
+class ValidFramesConsumer {
  public:
-  ValidFramesInvalidator(MultiFrame &multiframe);
+  ValidFramesConsumer(MultiFrame &multiframe);
 
-  ~ValidFramesInvalidator();
-  ValidFramesInvalidator(const ValidFramesInvalidator &other) = delete;                 // copy constructor
-  ValidFramesInvalidator(ValidFramesInvalidator &&other) noexcept = delete;             // move constructor
-  ValidFramesInvalidator &operator=(const ValidFramesInvalidator &other) = delete;      // copy assignment
-  ValidFramesInvalidator &operator=(ValidFramesInvalidator &&other) noexcept = delete;  // move assignment
+  ~ValidFramesConsumer();
+  ValidFramesConsumer(const ValidFramesConsumer &other) = delete;                 // copy constructor
+  ValidFramesConsumer(ValidFramesConsumer &&other) noexcept = delete;             // move constructor
+  ValidFramesConsumer &operator=(const ValidFramesConsumer &other) = delete;      // copy assignment
+  ValidFramesConsumer &operator=(ValidFramesConsumer &&other) noexcept = delete;  // move assignment
 
   struct Iterator {
     using iterator_category = std::forward_iterator_tag;
@@ -199,7 +199,7 @@ class ValidFramesInvalidator {
     using reference = FrameWithValidity &;
     using internal_ptr = FrameWithValidity *;
 
-    Iterator(internal_ptr ptr, ValidFramesInvalidator &iterator_wrapper)
+    Iterator(internal_ptr ptr, ValidFramesConsumer &iterator_wrapper)
         : ptr_(ptr), iterator_wrapper_(iterator_wrapper) {}
 
     reference operator*() const { return *ptr_; }
@@ -219,7 +219,7 @@ class ValidFramesInvalidator {
 
    private:
     internal_ptr ptr_;
-    ValidFramesInvalidator &iterator_wrapper_;
+    ValidFramesConsumer &iterator_wrapper_;
   };
 
   Iterator begin();

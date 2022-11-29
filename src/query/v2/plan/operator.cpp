@@ -268,7 +268,7 @@ bool Once::OnceCursor::Pull(Frame &, ExecutionContext &context) {
 void Once::OnceCursor::PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("OnceMF");
 
-  auto iterator_for_valid_frame_only = multi_frame.GetValidFramesInvalidator();
+  auto iterator_for_valid_frame_only = multi_frame.GetValidFramesConsumer();
   auto first_it = iterator_for_valid_frame_only.begin();
   MG_ASSERT(first_it != iterator_for_valid_frame_only.end());
   if (pull_count_ < 1) {
@@ -772,8 +772,8 @@ void Produce::ProduceCursor::PullMultiple(MultiFrame &multi_frame, ExecutionCont
   auto iterator_for_valid_frame_only = multi_frame.GetValidFramesModifier();
   for (auto &frame : iterator_for_valid_frame_only) {
     // Produce should always yield the latest results.
-    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context,
-                                  context.shard_request_manager, storage::v3::View::NEW);
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.request_router,
+                                  storage::v3::View::NEW);
 
     for (auto *named_expr : self_.named_expressions_) {
       named_expr->Accept(evaluator);

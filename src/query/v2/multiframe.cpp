@@ -82,7 +82,7 @@ ValidFramesReader MultiFrame::GetValidFramesReader() { return ValidFramesReader(
 
 ValidFramesModifier MultiFrame::GetValidFramesModifier() { return ValidFramesModifier(*this); }
 
-ValidFramesInvalidator MultiFrame::GetValidFramesInvalidator() { return ValidFramesInvalidator(*this); }
+ValidFramesConsumer MultiFrame::GetValidFramesConsumer() { return ValidFramesConsumer(*this); }
 
 InvalidFramesPopulator MultiFrame::GetInvalidFramesPopulator() { return InvalidFramesPopulator(*this); }
 
@@ -104,17 +104,17 @@ ValidFramesModifier::Iterator ValidFramesModifier::end() {
   return Iterator(&multiframe_.frames_[multiframe_.frames_.size()], *this);
 }
 
-ValidFramesInvalidator::ValidFramesInvalidator(MultiFrame &multiframe) : multiframe_(multiframe) {}
+ValidFramesConsumer::ValidFramesConsumer(MultiFrame &multiframe) : multiframe_(multiframe) {}
 
-ValidFramesInvalidator::~ValidFramesInvalidator() {
+ValidFramesConsumer::~ValidFramesConsumer() {
   // #NoCommit possible optimisation: only DefragmentValidFrames if one frame has been invalidated? Only if does not
   // cost too much to store it
   multiframe_.DefragmentValidFrames();
 }
 
-ValidFramesInvalidator::Iterator ValidFramesInvalidator::begin() { return Iterator(&multiframe_.frames_[0], *this); }
+ValidFramesConsumer::Iterator ValidFramesConsumer::begin() { return Iterator(&multiframe_.frames_[0], *this); }
 
-ValidFramesInvalidator::Iterator ValidFramesInvalidator::end() {
+ValidFramesConsumer::Iterator ValidFramesConsumer::end() {
   return Iterator(&multiframe_.frames_[multiframe_.frames_.size()], *this);
 }
 
