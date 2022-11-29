@@ -78,18 +78,18 @@ void MultiFrame::DefragmentValidFrames() noexcept {
   std::remove_if(frames_.begin(), frames_.end(), [](auto &frame) { return !frame.IsValid(); });
 }
 
-ItOnConstValidFrames MultiFrame::GetItOnConstValidFrames() { return ItOnConstValidFrames(*this); }
+ValidFramesReader MultiFrame::GetValidFramesReader() { return ValidFramesReader(*this); }
 
 ItOnNonConstValidFrames MultiFrame::GetItOnNonConstValidFrames() { return ItOnNonConstValidFrames(*this); }
 
 ItOnNonConstInvalidFrames MultiFrame::GetItOnNonConstInvalidFrames() { return ItOnNonConstInvalidFrames(*this); }
 
-ItOnConstValidFrames::ItOnConstValidFrames(MultiFrame &multiframe) : multiframe_(multiframe) {}
+ValidFramesReader::ValidFramesReader(MultiFrame &multiframe) : multiframe_(multiframe) {}
 
-ItOnConstValidFrames::~ItOnConstValidFrames() = default;
+ValidFramesReader::~ValidFramesReader() = default;
 
-ItOnConstValidFrames::Iterator ItOnConstValidFrames::begin() { return Iterator(&multiframe_.frames_[0], *this); }
-ItOnConstValidFrames::Iterator ItOnConstValidFrames::end() {
+ValidFramesReader::Iterator ValidFramesReader::begin() { return Iterator(&multiframe_.frames_[0], *this); }
+ValidFramesReader::Iterator ValidFramesReader::end() {
   return Iterator(&multiframe_.frames_[multiframe_.frames_.size()], *this);
 }
 

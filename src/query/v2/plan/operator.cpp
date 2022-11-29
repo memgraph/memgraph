@@ -768,7 +768,7 @@ void Produce::ProduceCursor::PullMultiple(MultiFrame &multi_frame, ExecutionCont
 
   input_cursor_->PullMultiple(multi_frame, context);
 
-  auto iterator_for_valid_frame_only = multi_frame.GetItOnConstValidFrames();
+  auto iterator_for_valid_frame_only = multi_frame.GetValidFramesReader();
   for (auto &frame : iterator_for_valid_frame_only) {
     // Produce should always yield the latest results.
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context,

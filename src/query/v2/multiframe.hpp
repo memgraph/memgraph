@@ -18,13 +18,13 @@
 namespace memgraph::query::v2 {
 constexpr unsigned long kNumberOfFramesInMultiframe = 1000;  // #NoCommit have it configurable
 
-class ItOnConstValidFrames;
+class ValidFramesReader;
 class ItOnNonConstValidFrames;
 class ItOnNonConstInvalidFrames;
 
 class MultiFrame {
  public:
-  friend class ItOnConstValidFrames;
+  friend class ValidFramesReader;
   friend class ItOnNonConstValidFrames;
   friend class ItOnNonConstInvalidFrames;
 
@@ -42,14 +42,14 @@ class MultiFrame {
   Iteration goes in a deterministic order.
   One can't modify the validity of the frame with this implementation.
   */
-  ItOnConstValidFrames GetItOnConstValidFrames();
+  ValidFramesReader GetValidFramesReader();
 
   /*!
   Returns a object on which one can iterate in a for-loop. By doing so, you will only get frames that are in a valid
   state in the multiframe.
   Iteration goes in a deterministic order.
   One can modify the validity of the frame with this implementation.
-  If you do not plan to modify the validity of the frames, use GetItOnConstValidFrames instead as this is faster.
+  If you do not plan to modify the validity of the frames, use GetReader instead as this is faster.
   */
   ItOnNonConstValidFrames GetItOnNonConstValidFrames();
 
@@ -75,15 +75,15 @@ class MultiFrame {
       utils::pmr::vector<FrameWithValidity>(0, FrameWithValidity{1}, utils::NewDeleteResource());
 };
 
-class ItOnConstValidFrames {
+class ValidFramesReader {
  public:
-  ItOnConstValidFrames(MultiFrame &multiframe);
+  ValidFramesReader(MultiFrame &multiframe);
 
-  ~ItOnConstValidFrames();
-  ItOnConstValidFrames(const ItOnConstValidFrames &other) = delete;                 // copy constructor
-  ItOnConstValidFrames(ItOnConstValidFrames &&other) noexcept = delete;             // move constructor
-  ItOnConstValidFrames &operator=(const ItOnConstValidFrames &other) = delete;      // copy assignment
-  ItOnConstValidFrames &operator=(ItOnConstValidFrames &&other) noexcept = delete;  // move assignment
+  ~ValidFramesReader();
+  ValidFramesReader(const ValidFramesReader &other) = delete;                 // copy constructor
+  ValidFramesReader(ValidFramesReader &&other) noexcept = delete;             // move constructor
+  ValidFramesReader &operator=(const ValidFramesReader &other) = delete;      // copy assignment
+  ValidFramesReader &operator=(ValidFramesReader &&other) noexcept = delete;  // move assignment
 
   struct Iterator {
     using iterator_category = std::forward_iterator_tag;
@@ -93,8 +93,7 @@ class ItOnConstValidFrames {
     using reference = Frame &;
     using internal_ptr = FrameWithValidity *;
 
-    Iterator(internal_ptr ptr, ItOnConstValidFrames &iterator_wrapper)
-        : ptr_(ptr), iterator_wrapper_(iterator_wrapper) {}
+    Iterator(internal_ptr ptr, ValidFramesReader &iterator_wrapper) : ptr_(ptr), iterator_wrapper_(iterator_wrapper) {}
 
     reference operator*() const { return *ptr_; }
     pointer operator->() { return ptr_; }
@@ -113,7 +112,7 @@ class ItOnConstValidFrames {
 
    private:
     internal_ptr ptr_;
-    ItOnConstValidFrames &iterator_wrapper_;
+    ValidFramesReader &iterator_wrapper_;
   };
 
   Iterator begin();
