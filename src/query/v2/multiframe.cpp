@@ -80,7 +80,7 @@ void MultiFrame::DefragmentValidFrames() noexcept {
 
 ValidFramesReader MultiFrame::GetValidFramesReader() { return ValidFramesReader(*this); }
 
-ItOnNonConstValidFrames MultiFrame::GetItOnNonConstValidFrames() { return ItOnNonConstValidFrames(*this); }
+ValidFramesInvalidator MultiFrame::GetValidFramesInvalidator() { return ValidFramesInvalidator(*this); }
 
 ItOnNonConstInvalidFrames MultiFrame::GetItOnNonConstInvalidFrames() { return ItOnNonConstInvalidFrames(*this); }
 
@@ -93,17 +93,17 @@ ValidFramesReader::Iterator ValidFramesReader::end() {
   return Iterator(&multiframe_.frames_[multiframe_.frames_.size()], *this);
 }
 
-ItOnNonConstValidFrames::ItOnNonConstValidFrames(MultiFrame &multiframe) : multiframe_(multiframe) {}
+ValidFramesInvalidator::ValidFramesInvalidator(MultiFrame &multiframe) : multiframe_(multiframe) {}
 
-ItOnNonConstValidFrames::~ItOnNonConstValidFrames() {
+ValidFramesInvalidator::~ValidFramesInvalidator() {
   // #NoCommit possible optimisation: only DefragmentValidFrames if one frame has been invalidated? Only if does not
   // cost too much to store it
   multiframe_.DefragmentValidFrames();
 }
 
-ItOnNonConstValidFrames::Iterator ItOnNonConstValidFrames::begin() { return Iterator(&multiframe_.frames_[0], *this); }
+ValidFramesInvalidator::Iterator ValidFramesInvalidator::begin() { return Iterator(&multiframe_.frames_[0], *this); }
 
-ItOnNonConstValidFrames::Iterator ItOnNonConstValidFrames::end() {
+ValidFramesInvalidator::Iterator ValidFramesInvalidator::end() {
   return Iterator(&multiframe_.frames_[multiframe_.frames_.size()], *this);
 }
 
