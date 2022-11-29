@@ -180,7 +180,7 @@ class DistributedCreateNodeCursor : public Cursor {
       auto &request_router = context.request_router;
       {
         SCOPED_REQUEST_WAIT_PROFILE;
-        request_router->Request(NodeCreationInfoToRequest(context, frame));
+        request_router->CreateVertices(NodeCreationInfoToRequest(context, frame));
       }
       PlaceNodeOnTheFrame(frame, context);
       return true;
@@ -393,7 +393,7 @@ class DistributedScanAllAndFilterCursor : public Cursor {
       if (label_.has_value()) {
         request_label = request_router.LabelToName(*label_);
       }
-      current_batch = request_router.Request(request_label);
+      current_batch = request_router.ScanVertices(request_label);
     }
     current_vertex_it = current_batch.begin();
     request_state_ = State::COMPLETED;
@@ -2344,7 +2344,7 @@ class DistributedCreateExpandCursor : public Cursor {
     ResetExecutionState();
     {
       SCOPED_REQUEST_WAIT_PROFILE;
-      request_router->Request(ExpandCreationInfoToRequest(context, frame));
+      request_router->CreateExpand(ExpandCreationInfoToRequest(context, frame));
     }
     return true;
   }
@@ -2474,7 +2474,7 @@ class DistributedExpandCursor : public Cursor {
     request.edge_properties.emplace();
     request.src_vertices.push_back(get_dst_vertex(edge, direction));
     request.direction = (direction == EdgeAtom::Direction::IN) ? msgs::EdgeDirection::OUT : msgs::EdgeDirection::IN;
-    auto result_rows = context.request_router->Request(std::move(request));
+    auto result_rows = context.request_router->ExpandOne(std::move(request));
     MG_ASSERT(result_rows.size() == 1);
     auto &result_row = result_rows.front();
     frame[self_.common_.node_symbol] = accessors::VertexAccessor(
@@ -2501,7 +2501,7 @@ class DistributedExpandCursor : public Cursor {
       request.src_vertices.push_back(vertex.Id());
       auto result_rows = std::invoke([&context, &request]() mutable {
         SCOPED_REQUEST_WAIT_PROFILE;
-        return context.request_router->Request(std::move(request));
+        return context.request_router->ExpandOne(std::move(request));
       });
       MG_ASSERT(result_rows.size() == 1);
       auto &result_row = result_rows.front();

@@ -86,9 +86,6 @@ struct ExecutionState {
   // label is optional because some operators can create/remove etc, vertices. These kind of requests contain the label
   // on the request itself.
   std::optional<std::string> label;
-  // CompoundKey is optional because some operators require to iterate over all the available keys
-  // of a shard. One example is ScanAll, where we only require the field label.
-  std::optional<CompoundKey> key;
   // Transaction id to be filled by the RequestRouter implementation
   coordinator::Hlc transaction_id;
   // Initialized by RequestRouter implementation. This vector is filled with the shards that
@@ -111,10 +108,10 @@ class RequestRouterInterface {
 
   virtual void StartTransaction() = 0;
   virtual void Commit() = 0;
-  virtual std::vector<VertexAccessor> Request(std::optional<std::string> &label) = 0;
-  virtual std::vector<msgs::CreateVerticesResponse> Request(std::vector<msgs::NewVertex> new_vertices) = 0;
-  virtual std::vector<msgs::ExpandOneResultRow> Request(msgs::ExpandOneRequest request) = 0;
-  virtual std::vector<msgs::CreateExpandResponse> Request(std::vector<msgs::NewExpand> new_edges) = 0;
+  virtual std::vector<VertexAccessor> ScanVertices(std::optional<std::string> label) = 0;
+  virtual std::vector<msgs::CreateVerticesResponse> CreateVertices(std::vector<msgs::NewVertex> new_vertices) = 0;
+  virtual std::vector<msgs::ExpandOneResultRow> ExpandOne(msgs::ExpandOneRequest request) = 0;
+  virtual std::vector<msgs::CreateExpandResponse> CreateExpand(std::vector<msgs::NewExpand> new_edges) = 0;
 
   virtual storage::v3::EdgeTypeId NameToEdgeType(const std::string &name) const = 0;
   virtual storage::v3::PropertyId NameToProperty(const std::string &name) const = 0;
@@ -240,10 +237,10 @@ class RequestRouter : public RequestRouterInterface {
   bool IsPrimaryLabel(storage::v3::LabelId label) const override { return shards_map_.label_spaces.contains(label); }
 
   // TODO(kostasrim) Simplify return result
-  std::vector<VertexAccessor> Request(std::optional<std::string> &label) override {
+  std::vector<VertexAccessor> ScanVertices(std::optional<std::string> label) override {
     ExecutionState<msgs::ScanVerticesRequest> state = {};
     state.label = label;
-    MaybeInitializeExecutionState(state);
+    InitializeExecutionState(state);
     std::vector<msgs::ScanVerticesResponse> responses;
 
     SendAllRequests(state);
@@ -257,10 +254,10 @@ class RequestRouter : public RequestRouterInterface {
     return PostProcess(std::move(responses));
   }
 
-  std::vector<msgs::CreateVerticesResponse> Request(std::vector<msgs::NewVertex> new_vertices) override {
+  std::vector<msgs::CreateVerticesResponse> CreateVertices(std::vector<msgs::NewVertex> new_vertices) override {
     ExecutionState<msgs::CreateVerticesRequest> state = {};
     MG_ASSERT(!new_vertices.empty());
-    MaybeInitializeExecutionState(state, new_vertices);
+    InitializeExecutionState(state, new_vertices);
     std::vector<msgs::CreateVerticesResponse> responses;
 
     // 1. Send the requests.
@@ -276,10 +273,10 @@ class RequestRouter : public RequestRouterInterface {
     return responses;
   }
 
-  std::vector<msgs::CreateExpandResponse> Request(std::vector<msgs::NewExpand> new_edges) override {
+  std::vector<msgs::CreateExpandResponse> CreateExpand(std::vector<msgs::NewExpand> new_edges) override {
     ExecutionState<msgs::CreateExpandRequest> state = {};
     MG_ASSERT(!new_edges.empty());
-    MaybeInitializeExecutionState(state, new_edges);
+    InitializeExecutionState(state, new_edges);
     std::vector<msgs::CreateExpandResponse> responses;
     for (auto &request : state.requests) {
       auto &storage_client = GetStorageClientForShard(request.shard);
@@ -301,14 +298,14 @@ class RequestRouter : public RequestRouterInterface {
     return responses;
   }
 
-  std::vector<msgs::ExpandOneResultRow> Request(msgs::ExpandOneRequest request) override {
+  std::vector<msgs::ExpandOneResultRow> ExpandOne(msgs::ExpandOneRequest request) override {
     ExecutionState<msgs::ExpandOneRequest> state = {};
     // TODO(kostasrim)Update to limit the batch size here
     // Expansions of the destination must be handled by the caller. For example
     // match (u:L1 { prop : 1 })-[:Friend]-(v:L1)
     // For each vertex U, the ExpandOne will result in <U, Edges>. The destination vertex and its properties
     // must be fetched again with an ExpandOne(Edges.dst)
-    MaybeInitializeExecutionState(state, std::move(request));
+    InitializeExecutionState(state, std::move(request));
     std::vector<msgs::ExpandOneResponse> responses;
 
     // 1. Send the requests.
@@ -355,8 +352,8 @@ class RequestRouter : public RequestRouterInterface {
     return accessors;
   }
 
-  void MaybeInitializeExecutionState(ExecutionState<msgs::CreateVerticesRequest> &state,
-                                     std::vector<msgs::NewVertex> new_vertices) {
+  void InitializeExecutionState(ExecutionState<msgs::CreateVerticesRequest> &state,
+                                std::vector<msgs::NewVertex> new_vertices) {
     state.transaction_id = transaction_id_;
 
     std::map<Shard, msgs::CreateVerticesRequest> per_shard_request_table;
@@ -382,8 +379,8 @@ class RequestRouter : public RequestRouterInterface {
     }
   }
 
-  void MaybeInitializeExecutionState(ExecutionState<msgs::CreateExpandRequest> &state,
-                                     std::vector<msgs::NewExpand> new_expands) {
+  void InitializeExecutionState(ExecutionState<msgs::CreateExpandRequest> &state,
+                                std::vector<msgs::NewExpand> new_expands) {
     state.transaction_id = transaction_id_;
 
     std::map<Shard, msgs::CreateExpandRequest> per_shard_request_table;
@@ -420,7 +417,7 @@ class RequestRouter : public RequestRouterInterface {
     }
   }
 
-  void MaybeInitializeExecutionState(ExecutionState<msgs::ScanVerticesRequest> &state) {
+  void InitializeExecutionState(ExecutionState<msgs::ScanVerticesRequest> &state) {
     std::vector<coordinator::Shards> multi_shards;
     state.transaction_id = transaction_id_;
     if (!state.label) {
@@ -450,7 +447,7 @@ class RequestRouter : public RequestRouterInterface {
     }
   }
 
-  void MaybeInitializeExecutionState(ExecutionState<msgs::ExpandOneRequest> &state, msgs::ExpandOneRequest request) {
+  void InitializeExecutionState(ExecutionState<msgs::ExpandOneRequest> &state, msgs::ExpandOneRequest request) {
     state.transaction_id = transaction_id_;
 
     std::map<Shard, msgs::ExpandOneRequest> per_shard_request_table;
