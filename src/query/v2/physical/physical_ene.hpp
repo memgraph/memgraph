@@ -229,10 +229,23 @@ class PhysicalOperator {
   void SingleChildSingleThreadExaust(TExecutionContext ctx,
                                      std::function<void(typename TDataPool::TMultiframe &multiframe)> fun,
                                      std::function<void(void)> after_done_fun) {
+    // NOTE/PROBLEM/TODO(gitbuda): Since all operators are while true loops,
+    // what if there is more operators then threads in the pool -> infinite
+    // looping -> "bottom" operators should run first. Keep in mind that's not
+    // the full story. Because of the limited data/result pool, the "upper"
+    // operators should also be executed at some point.
+    //
+    //   * IDEA: Introduce phsical plan executor who will execute plan based on
+    //           the available number of threads in the thread pool.
+
     // If we don't store functions, they are deleted because this function ends
     // quickly (AddTask does not block).
     fun_ = fun;
     after_done_fun_ = after_done_fun;
+
+    // Since the problem with the "scheduling" maybe the worker thread should
+    // process one multiframe and then return.
+
     // The logic here is tricky because you have to think about both reader and writer.
     ctx.thread_pool->AddTask([&, this]() {
       auto *input = children_[0].get();
@@ -287,6 +300,14 @@ class PhysicalOperator {
       mcv_->completion_cv_.wait(lock);
       SPDLOG_TRACE("{} main thread notified for the completion and exiting", this->name_);
     }
+  }
+
+  void SingleChildParallelExaust(TExecutionContext /*unused*/,
+                                 std::function<void(typename TDataPool::TMultiframe &multiframe)> fun,
+                                 std::function<void(void)> after_done_fun) {
+    fun_ = fun;
+    after_done_fun_ = after_done_fun;
+    // TODO(gitbuda): Start N threads in parallel
   }
 };
 
@@ -463,6 +484,19 @@ class PhysicalPlanGenerator final : public HierarchicalLogicalOperatorVisitor {
     pops_.back()->AddChild(pop);
     return true;
   }
+};
+
+/// The responsibility of an executor is to be aware of how much resources is
+/// available in the data/thread pools and initiate operator execution guided
+/// by the query semantics.
+///
+/// E.g. Call Execute on an operator if:
+///   1) There is data in the input data pool
+///   2) There is an available worker thread
+///
+class Executor {
+  // ThreadPools
+  // PhysicalPlans
 };
 
 }  // namespace memgraph::query::v2::physical

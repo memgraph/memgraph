@@ -64,9 +64,9 @@ inline void LogOps(const std::vector<Op> &ops) {
   for (const auto &op : ops) {
     if (op.type == OpType::ScanAll) {
       SPDLOG_INFO("{} elems: {}", op.type, op.props[SCANALL_ELEMS_POS]);
-    } else {
-      SPDLOG_INFO("{}", op.type);
+      continue;
     }
+    SPDLOG_INFO("{}", op.type);
   }
 }
 
@@ -125,7 +125,7 @@ inline TCursorPtr MakePullOnce() { return std::make_unique<TCursorOnce>(nullptr)
 
 inline TCursorPtr MakePullScanAll(TCursorPtr &&input, int scan_all_elems) {
   auto data_fun = [scan_all_elems](TFrame &, TExecutionContext &) {
-    std::vector<TFrame> frames;
+    std::vector<TFrame> frames(scan_all_elems);
     for (int i = 0; i < scan_all_elems; ++i) {
       frames.push_back(TFrame{});
     }

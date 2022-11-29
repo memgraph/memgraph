@@ -21,6 +21,7 @@ namespace memgraph::query::v2::physical::mock {
 ///
 struct ExecutionContext {
   memgraph::utils::ThreadPool *thread_pool;
+  int number_of_threads_per_operator;
 };
 
 }  // namespace memgraph::query::v2::physical::mock

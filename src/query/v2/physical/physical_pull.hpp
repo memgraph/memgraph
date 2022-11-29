@@ -52,7 +52,7 @@ class OnceCursor : public Cursor {
 
   explicit OnceCursor(TCursorPtr &&input) : Cursor(std::move(input)) {}
 
-  bool Pull(TFrame &, TExecutionContext &) override {
+  bool Pull(TFrame & /*unused*/, TExecutionContext & /*unused*/) override {
     if (did_pool_) return false;
     did_pool_ = true;
     return true;
@@ -78,17 +78,16 @@ class ScanAllCursor : public Cursor {
       frame.b = data_it_->b;
       data_it_++;
       return true;
-    } else {
-      while (input_->Pull(frame, ctx)) {
-        data_ = std::move(data_fun_(frame, ctx));
-        data_it_ = data_.begin();
-        frame.a = data_it_->a;
-        frame.b = data_it_->b;
-        data_it_++;
-        return true;
-      }
-      return false;
     }
+    while (input_->Pull(frame, ctx)) {
+      data_ = std::move(data_fun_(frame, ctx));
+      data_it_ = data_.begin();
+      frame.a = data_it_->a;
+      frame.b = data_it_->b;
+      data_it_++;
+      return true;
+    }
+    return false;
   }
 
  private:
