@@ -31,10 +31,10 @@ class MultiFrame {
   friend class InvalidFramesPopulator;
 
   MultiFrame(FrameWithValidity default_frame, size_t number_of_frames, utils::MemoryResource *execution_memory);
-  ~MultiFrame();
+  ~MultiFrame() = default;
 
-  MultiFrame(const MultiFrame &other);  // copy constructor
-  MultiFrame(MultiFrame &&other);       // move constructor
+  MultiFrame(const MultiFrame &other);      // copy constructor
+  MultiFrame(MultiFrame &&other) noexcept;  // move constructor
   MultiFrame &operator=(const MultiFrame &other) = delete;
   MultiFrame &operator=(MultiFrame &&other) noexcept = delete;
 
@@ -88,7 +88,7 @@ class MultiFrame {
 
 class ValidFramesReader {
  public:
-  ValidFramesReader(MultiFrame &multiframe);
+  explicit ValidFramesReader(MultiFrame &multiframe);
 
   ~ValidFramesReader() = default;
   ValidFramesReader(const ValidFramesReader &other) = delete;                 // copy constructor
@@ -135,7 +135,7 @@ class ValidFramesReader {
 
 class ValidFramesModifier {
  public:
-  ValidFramesModifier(MultiFrame &multiframe);
+  explicit ValidFramesModifier(MultiFrame &multiframe);
 
   ~ValidFramesModifier() = default;
   ValidFramesModifier(const ValidFramesModifier &other) = delete;                 // copy constructor
@@ -183,7 +183,7 @@ class ValidFramesModifier {
 
 class ValidFramesConsumer {
  public:
-  ValidFramesConsumer(MultiFrame &multiframe);
+  explicit ValidFramesConsumer(MultiFrame &multiframe);
 
   ~ValidFramesConsumer();
   ValidFramesConsumer(const ValidFramesConsumer &other) = delete;                 // copy constructor
@@ -231,8 +231,8 @@ class ValidFramesConsumer {
 
 class InvalidFramesPopulator {
  public:
-  InvalidFramesPopulator(MultiFrame &multiframe);
-  ~InvalidFramesPopulator();
+  explicit InvalidFramesPopulator(MultiFrame &multiframe);
+  ~InvalidFramesPopulator() = default;
 
   InvalidFramesPopulator(const InvalidFramesPopulator &other) = delete;                 // copy constructor
   InvalidFramesPopulator(InvalidFramesPopulator &&other) noexcept = delete;             // move constructor
@@ -247,7 +247,7 @@ class InvalidFramesPopulator {
     using reference = FrameWithValidity &;
     using internal_ptr = FrameWithValidity *;
 
-    Iterator(internal_ptr ptr) : ptr_(ptr) {}
+    explicit Iterator(internal_ptr ptr) : ptr_(ptr) {}
 
     reference operator*() const { return *ptr_; }
     pointer operator->() { return ptr_; }

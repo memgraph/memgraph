@@ -24,8 +24,6 @@ MultiFrame::MultiFrame(FrameWithValidity default_frame, size_t number_of_frames,
   MG_ASSERT(!default_frame.IsValid());
 }
 
-MultiFrame::~MultiFrame() = default;
-
 MultiFrame::MultiFrame(const MultiFrame &other) : default_frame_(other.default_frame_) {
   /*
   TODO
@@ -42,7 +40,7 @@ MultiFrame::MultiFrame(const MultiFrame &other) : default_frame_(other.default_f
                  });
 }
 
-MultiFrame::MultiFrame(MultiFrame &&other) : default_frame_(std::move(other.default_frame_)) {
+MultiFrame::MultiFrame(MultiFrame &&other) noexcept : default_frame_(std::move(other.default_frame_)) {
   /*
   TODO
   Do we just copy all frames or do we make distinctions between valid and not valid frames? Does it make any
@@ -89,14 +87,14 @@ ValidFramesReader::ValidFramesReader(MultiFrame &multiframe) : multiframe_(multi
 
 ValidFramesReader::Iterator ValidFramesReader::begin() { return Iterator{&multiframe_.frames_[0], *this}; }
 ValidFramesReader::Iterator ValidFramesReader::end() {
-  return Iterator(&multiframe_.frames_[multiframe_.frames_.size()], *this);
+  return Iterator{&multiframe_.frames_[multiframe_.frames_.size()], *this};
 }
 
 ValidFramesModifier::ValidFramesModifier(MultiFrame &multiframe) : multiframe_(multiframe) {}
 
 ValidFramesModifier::Iterator ValidFramesModifier::begin() { return Iterator{&multiframe_.frames_[0], *this}; }
 ValidFramesModifier::Iterator ValidFramesModifier::end() {
-  return Iterator(&multiframe_.frames_[multiframe_.frames_.size()], *this);
+  return Iterator{&multiframe_.frames_[multiframe_.frames_.size()], *this};
 }
 
 ValidFramesConsumer::ValidFramesConsumer(MultiFrame &multiframe) : multiframe_(multiframe) {}
@@ -110,17 +108,15 @@ ValidFramesConsumer::~ValidFramesConsumer() {
 ValidFramesConsumer::Iterator ValidFramesConsumer::begin() { return Iterator{&multiframe_.frames_[0], *this}; }
 
 ValidFramesConsumer::Iterator ValidFramesConsumer::end() {
-  return Iterator(&multiframe_.frames_[multiframe_.frames_.size()], *this);
+  return Iterator{&multiframe_.frames_[multiframe_.frames_.size()], *this};
 }
 
 InvalidFramesPopulator::InvalidFramesPopulator(MultiFrame &multiframe) : multiframe_(multiframe) {}
 
-InvalidFramesPopulator::~InvalidFramesPopulator() = default;
-
 InvalidFramesPopulator::Iterator InvalidFramesPopulator::begin() {
   for (auto idx = 0UL; idx < multiframe_.frames_.size(); ++idx) {
     if (!multiframe_.frames_[idx].IsValid()) {
-      return Iterator(&multiframe_.frames_[idx]);
+      return Iterator{&multiframe_.frames_[idx]};
     }
   }
 
