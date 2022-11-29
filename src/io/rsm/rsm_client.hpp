@@ -101,68 +101,21 @@ class RsmClient {
   ~RsmClient() = default;
 
   BasicResult<TimedOut, WriteResponseT> SendWriteRequest(WriteRequestT req) {
-    WriteRequest<WriteRequestT> client_req;
-    client_req.operation = req;
-
-    const Duration overall_timeout = io_.GetDefaultTimeout();
-    const Time before = io_.Now();
-
-    do {
-      spdlog::debug("client sending WriteRequest to Leader {}", leader_.ToString());
-      ResponseFuture<WriteResponse<WriteResponseT>> response_future =
-          io_.template Request<WriteRequest<WriteRequestT>, WriteResponse<WriteResponseT>>(leader_, client_req);
-      ResponseResult<WriteResponse<WriteResponseT>> response_result = std::move(response_future).Wait();
-
-      if (response_result.HasError()) {
-        spdlog::debug("client timed out while trying to communicate with leader server {}", leader_.ToString());
-        return response_result.GetError();
-      }
-
-      ResponseEnvelope<WriteResponse<WriteResponseT>> &&response_envelope = std::move(response_result.GetValue());
-      WriteResponse<WriteResponseT> &&write_response = std::move(response_envelope.message);
-
-      if (write_response.success) {
-        return std::move(write_response.write_return);
-      }
-
-      PossiblyRedirectLeader(write_response);
-    } while (io_.Now() < before + overall_timeout);
-
-    return TimedOut{};
+    auto token = SendAsyncWriteRequest(req);
+    auto poll_result = AwaitAsyncWriteRequest(token);
+    while (!poll_result) {
+      poll_result = AwaitAsyncWriteRequest(token);
+    }
+    return poll_result.value();
   }
 
   BasicResult<TimedOut, ReadResponseT> SendReadRequest(ReadRequestT req) {
-    ReadRequest<ReadRequestT> read_req;
-    read_req.operation = req;
-
-    const Duration overall_timeout = io_.GetDefaultTimeout();
-    const Time before = io_.Now();
-
-    do {
-      spdlog::debug("client sending ReadRequest to Leader {}", leader_.ToString());
-
-      ResponseFuture<ReadResponse<ReadResponseT>> get_response_future =
-          io_.template Request<ReadRequest<ReadRequestT>, ReadResponse<ReadResponseT>>(leader_, read_req);
-
-      // receive response
-      ResponseResult<ReadResponse<ReadResponseT>> get_response_result = std::move(get_response_future).Wait();
-
-      if (get_response_result.HasError()) {
-        spdlog::debug("client timed out while trying to communicate with leader server {}", leader_.ToString());
-        return get_response_result.GetError();
-      }
-
-      ResponseEnvelope<ReadResponse<ReadResponseT>> &&get_response_envelope = std::move(get_response_result.GetValue());
-      ReadResponse<ReadResponseT> &&read_get_response = std::move(get_response_envelope.message);
-
-      if (read_get_response.success) {
-        return std::move(read_get_response.read_return);
-      }
-
-      PossiblyRedirectLeader(read_get_response);
-    } while (io_.Now() < before + overall_timeout);
-
-    return TimedOut{};
+    auto token = SendAsyncReadRequest(req);
+    auto poll_result = AwaitAsyncReadRequest(token);
+    while (!poll_result) {
+      poll_result = AwaitAsyncReadRequest(token);
+    }
+    return poll_result.value();
   }
 
   /// AsyncRead methods
