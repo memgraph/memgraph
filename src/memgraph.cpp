@@ -658,8 +658,6 @@ void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, std::string c
       if (!line.empty()) {
         auto results = interpreter.Prepare(line, {}, {});
         memgraph::query::DiscardValueResultStream stream;
-        // TypedValueResultStream stream({}, db);
-
         interpreter.Pull(&stream, {}, results.qid);
       }
     }
