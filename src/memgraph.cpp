@@ -17,6 +17,7 @@
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <limits>
 #include <map>
@@ -238,6 +239,8 @@ DEFINE_string(kafka_bootstrap_servers, "",
 DEFINE_string(pulsar_service_url, "", "Default URL used while connecting to Pulsar brokers.");
 
 DEFINE_bool(authentication, false, "Start memgraph with user");
+
+DEFINE_string(cypherl_init_file, "", "Cypherl init file");
 
 // Audit logging flags.
 #ifdef MG_ENTERPRISE
@@ -474,7 +477,6 @@ struct SessionData {
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(auth_user_or_role_name_regex, memgraph::glue::kDefaultUserRoleRegex.data(),
               "Set to the regular expression that each user or role name must fulfill.");
-
 class BoltSession final : public memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                                         memgraph::communication::v2::OutputStream> {
  public:
@@ -646,6 +648,24 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
   // NOTE: run_id should be const but that complicates code a lot.
   std::optional<std::string> run_id_;
 };
+
+void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, std::string cypherl_file) {
+  memgraph::query::Interpreter interpreter(&ctx);
+  std::ifstream file(cypherl_file);
+  if (file.is_open()) {
+    std::string line;
+    while (std::getline(file, line)) {
+      if (!line.empty()) {
+        auto results = interpreter.Prepare(line, {}, {});
+        memgraph::query::DiscardValueResultStream stream;
+        // TypedValueResultStream stream({}, db);
+
+        interpreter.Pull(&stream, {}, results.qid);
+      }
+    }
+    file.close();
+  }
+}
 
 using ServerT = memgraph::communication::v2::Server<BoltSession, SessionData>;
 using memgraph::communication::ServerContext;
@@ -888,11 +908,14 @@ int main(int argc, char **argv) {
     auto maybe_username = std::getenv("MEMGRAPH_USERNAME");
     auto maybe_password = std::getenv("MEMGRAPH_PASSWORD");
 
-    auto username = maybe_username == NULL ? "memgraph" : std::string(maybe_username);
-    auto password = maybe_password == NULL ? "memgraph" : std::string(maybe_password);
+    auto username = maybe_username == nullptr ? "memgraph" : std::string(maybe_username);
+    auto password = maybe_password == nullptr ? "memgraph" : std::string(maybe_password);
 
     auth_handler.CreateUser(username, password);
-    // memgraph::query::Interpreter interpreter{&interpreter_context};
+  }
+
+  if (!FLAGS_cypherl_init_file.empty()) {
+    InitFromCypherlFile(interpreter_context, FLAGS_cypherl_init_file);
   }
 
   {
