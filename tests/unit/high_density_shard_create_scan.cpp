@@ -174,8 +174,6 @@ void ExecuteOp(query::v2::RequestRouter<LocalTransport> &request_router, std::se
     return;
   }
 
-  query::v2::ExecutionState<msgs::CreateVerticesRequest> state;
-
   auto label_id = request_router.NameToLabel("test_label");
 
   msgs::NewVertex nv{.primary_key = primary_key};
@@ -184,7 +182,7 @@ void ExecuteOp(query::v2::RequestRouter<LocalTransport> &request_router, std::se
   std::vector<msgs::NewVertex> new_vertices;
   new_vertices.push_back(std::move(nv));
 
-  auto result = request_router.Request(state, std::move(new_vertices));
+  auto result = request_router.Request(std::move(new_vertices));
 
   MG_ASSERT(result.size() == 1);
   MG_ASSERT(!result[0].error.has_value());

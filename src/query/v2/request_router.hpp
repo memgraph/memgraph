@@ -83,7 +83,6 @@ struct ExecutionState {
   using CompoundKey = io::rsm::ShardRsmKey;
   using Shard = coordinator::Shard;
 
-  enum State : int8_t { INITIALIZING, EXECUTING, COMPLETED };
   // label is optional because some operators can create/remove etc, vertices. These kind of requests contain the label
   // on the request itself.
   std::optional<std::string> label;
@@ -97,7 +96,6 @@ struct ExecutionState {
   // it pulled all the requested data from the given Shard, it will be removed from the Vector. When the Vector becomes
   // empty, it means that all of the requests have completed succefully.
   std::vector<ShardRequestState<TRequest>> requests;
-  State state = INITIALIZING;
 };
 
 class RequestRouterInterface {
@@ -113,13 +111,10 @@ class RequestRouterInterface {
 
   virtual void StartTransaction() = 0;
   virtual void Commit() = 0;
-  virtual std::vector<VertexAccessor> Request(ExecutionState<msgs::ScanVerticesRequest> &state) = 0;
-  virtual std::vector<msgs::CreateVerticesResponse> Request(ExecutionState<msgs::CreateVerticesRequest> &state,
-                                                            std::vector<msgs::NewVertex> new_vertices) = 0;
-  virtual std::vector<msgs::ExpandOneResultRow> Request(ExecutionState<msgs::ExpandOneRequest> &state,
-                                                        msgs::ExpandOneRequest request) = 0;
-  virtual std::vector<msgs::CreateExpandResponse> Request(ExecutionState<msgs::CreateExpandRequest> &state,
-                                                          std::vector<msgs::NewExpand> new_edges) = 0;
+  virtual std::vector<VertexAccessor> Request(std::optional<std::string> &label) = 0;
+  virtual std::vector<msgs::CreateVerticesResponse> Request(std::vector<msgs::NewVertex> new_vertices) = 0;
+  virtual std::vector<msgs::ExpandOneResultRow> Request(msgs::ExpandOneRequest request) = 0;
+  virtual std::vector<msgs::CreateExpandResponse> Request(std::vector<msgs::NewExpand> new_edges) = 0;
 
   virtual storage::v3::EdgeTypeId NameToEdgeType(const std::string &name) const = 0;
   virtual storage::v3::PropertyId NameToProperty(const std::string &name) const = 0;
@@ -245,7 +240,9 @@ class RequestRouter : public RequestRouterInterface {
   bool IsPrimaryLabel(storage::v3::LabelId label) const override { return shards_map_.label_spaces.contains(label); }
 
   // TODO(kostasrim) Simplify return result
-  std::vector<VertexAccessor> Request(ExecutionState<msgs::ScanVerticesRequest> &state) override {
+  std::vector<VertexAccessor> Request(std::optional<std::string> &label) override {
+    ExecutionState<msgs::ScanVerticesRequest> state = {};
+    state.label = label;
     MaybeInitializeExecutionState(state);
     std::vector<msgs::ScanVerticesResponse> responses;
 
@@ -255,14 +252,13 @@ class RequestRouter : public RequestRouterInterface {
       DriveReadResponses(state, responses);
     } while (!state.requests.empty());
 
-    MaybeCompleteState(state);
     // TODO(kostasrim) Before returning start prefetching the batch (this shall be done once we get MgFuture as return
     // result of storage_client.SendReadRequest()).
     return PostProcess(std::move(responses));
   }
 
-  std::vector<msgs::CreateVerticesResponse> Request(ExecutionState<msgs::CreateVerticesRequest> &state,
-                                                    std::vector<msgs::NewVertex> new_vertices) override {
+  std::vector<msgs::CreateVerticesResponse> Request(std::vector<msgs::NewVertex> new_vertices) override {
+    ExecutionState<msgs::CreateVerticesRequest> state = {};
     MG_ASSERT(!new_vertices.empty());
     MaybeInitializeExecutionState(state, new_vertices);
     std::vector<msgs::CreateVerticesResponse> responses;
@@ -275,14 +271,13 @@ class RequestRouter : public RequestRouterInterface {
       DriveWriteResponses(state, responses);
     } while (!state.requests.empty());
 
-    MaybeCompleteState(state);
     // TODO(kostasrim) Before returning start prefetching the batch (this shall be done once we get MgFuture as return
     // result of storage_client.SendReadRequest()).
     return responses;
   }
 
-  std::vector<msgs::CreateExpandResponse> Request(ExecutionState<msgs::CreateExpandRequest> &state,
-                                                  std::vector<msgs::NewExpand> new_edges) override {
+  std::vector<msgs::CreateExpandResponse> Request(std::vector<msgs::NewExpand> new_edges) override {
+    ExecutionState<msgs::CreateExpandRequest> state = {};
     MG_ASSERT(!new_edges.empty());
     MaybeInitializeExecutionState(state, new_edges);
     std::vector<msgs::CreateExpandResponse> responses;
@@ -303,12 +298,11 @@ class RequestRouter : public RequestRouterInterface {
     }
     // We are done with this state
     state.requests.clear();
-    MaybeCompleteState(state);
     return responses;
   }
 
-  std::vector<msgs::ExpandOneResultRow> Request(ExecutionState<msgs::ExpandOneRequest> &state,
-                                                msgs::ExpandOneRequest request) override {
+  std::vector<msgs::ExpandOneResultRow> Request(msgs::ExpandOneRequest request) override {
+    ExecutionState<msgs::ExpandOneRequest> state = {};
     // TODO(kostasrim)Update to limit the batch size here
     // Expansions of the destination must be handled by the caller. For example
     // match (u:L1 { prop : 1 })-[:Friend]-(v:L1)
@@ -335,7 +329,6 @@ class RequestRouter : public RequestRouterInterface {
       result_rows.insert(result_rows.end(), std::make_move_iterator(response.result.begin()),
                          std::make_move_iterator(response.result.end()));
     }
-    MaybeCompleteState(state);
     return result_rows;
   }
 
@@ -362,31 +355,8 @@ class RequestRouter : public RequestRouterInterface {
     return accessors;
   }
 
-  template <typename ExecutionState>
-  void ThrowIfStateCompleted(ExecutionState &state) const {
-    if (state.state == ExecutionState::COMPLETED) [[unlikely]] {
-      throw std::runtime_error("State is completed and must be reset");
-    }
-  }
-
-  template <typename ExecutionState>
-  void MaybeCompleteState(ExecutionState &state) const {
-    if (state.requests.empty()) {
-      state.state = ExecutionState::COMPLETED;
-    }
-  }
-
-  template <typename ExecutionState>
-  bool ShallNotInitializeState(ExecutionState &state) const {
-    return state.state != ExecutionState::INITIALIZING;
-  }
-
   void MaybeInitializeExecutionState(ExecutionState<msgs::CreateVerticesRequest> &state,
                                      std::vector<msgs::NewVertex> new_vertices) {
-    ThrowIfStateCompleted(state);
-    if (ShallNotInitializeState(state)) {
-      return;
-    }
     state.transaction_id = transaction_id_;
 
     std::map<Shard, msgs::CreateVerticesRequest> per_shard_request_table;
@@ -410,15 +380,10 @@ class RequestRouter : public RequestRouterInterface {
       };
       state.requests.emplace_back(std::move(shard_request_state));
     }
-    state.state = ExecutionState<msgs::CreateVerticesRequest>::EXECUTING;
   }
 
   void MaybeInitializeExecutionState(ExecutionState<msgs::CreateExpandRequest> &state,
                                      std::vector<msgs::NewExpand> new_expands) {
-    ThrowIfStateCompleted(state);
-    if (ShallNotInitializeState(state)) {
-      return;
-    }
     state.transaction_id = transaction_id_;
 
     std::map<Shard, msgs::CreateExpandRequest> per_shard_request_table;
@@ -453,15 +418,9 @@ class RequestRouter : public RequestRouterInterface {
       };
       state.requests.emplace_back(std::move(shard_request_state));
     }
-    state.state = ExecutionState<msgs::CreateExpandRequest>::EXECUTING;
   }
 
   void MaybeInitializeExecutionState(ExecutionState<msgs::ScanVerticesRequest> &state) {
-    ThrowIfStateCompleted(state);
-    if (ShallNotInitializeState(state)) {
-      return;
-    }
-
     std::vector<coordinator::Shards> multi_shards;
     state.transaction_id = transaction_id_;
     if (!state.label) {
@@ -489,14 +448,9 @@ class RequestRouter : public RequestRouterInterface {
         state.requests.emplace_back(std::move(shard_request_state));
       }
     }
-    state.state = ExecutionState<msgs::ScanVerticesRequest>::EXECUTING;
   }
 
   void MaybeInitializeExecutionState(ExecutionState<msgs::ExpandOneRequest> &state, msgs::ExpandOneRequest request) {
-    ThrowIfStateCompleted(state);
-    if (ShallNotInitializeState(state)) {
-      return;
-    }
     state.transaction_id = transaction_id_;
 
     std::map<Shard, msgs::ExpandOneRequest> per_shard_request_table;
@@ -522,7 +476,6 @@ class RequestRouter : public RequestRouterInterface {
 
       state.requests.emplace_back(std::move(shard_request_state));
     }
-    state.state = ExecutionState<msgs::ExpandOneRequest>::EXECUTING;
   }
 
   StorageClient &GetStorageClientForShard(Shard shard) {
