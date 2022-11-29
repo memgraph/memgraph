@@ -26,12 +26,11 @@ using PrimaryKey = std::vector<PropertyValue>;
 
 class KeyStore {
  public:
-  KeyStore() = default;
   explicit KeyStore(const PrimaryKey &key_values);
 
-  KeyStore(const KeyStore &) = default;
+  KeyStore(const KeyStore &) = delete;
   KeyStore(KeyStore &&other) noexcept = default;
-  KeyStore &operator=(const KeyStore &) = default;
+  KeyStore &operator=(const KeyStore &) = delete;
   KeyStore &operator=(KeyStore &&other) noexcept = default;
 
   ~KeyStore() = default;

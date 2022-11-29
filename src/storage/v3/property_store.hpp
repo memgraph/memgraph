@@ -25,9 +25,9 @@ class PropertyStore {
  public:
   PropertyStore();
 
-  PropertyStore(const PropertyStore &);
+  PropertyStore(const PropertyStore &) = delete;
   PropertyStore(PropertyStore &&other) noexcept;
-  PropertyStore &operator=(const PropertyStore &);
+  PropertyStore &operator=(const PropertyStore &) = delete;
   PropertyStore &operator=(PropertyStore &&other) noexcept;
 
   ~PropertyStore();

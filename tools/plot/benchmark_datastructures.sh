@@ -10,7 +10,7 @@ CPUS=$(grep -c processor < /proc/cpuinfo)
 BENCHMARK_FILES=$(find ${WORKSPACE_DIR}/tests/benchmark -type f -iname "data_structures_*")
 
 function test_all() {
-    for BENCH_FILE in ${BENCHMARK_FILES}; do
+    for BENCH_FILE in ${BENCHMARK_FILES[@]}; do
         local BASE_NAME=$(basename $BENCH_FILE)
         local NAME=${BASE_NAME%%.*}
         echo "Running $NAME"
