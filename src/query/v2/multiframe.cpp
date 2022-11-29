@@ -80,6 +80,8 @@ void MultiFrame::DefragmentValidFrames() noexcept {
 
 ValidFramesReader MultiFrame::GetValidFramesReader() { return ValidFramesReader(*this); }
 
+ValidFramesModifier MultiFrame::GetValidFramesModifier() { return ValidFramesModifier(*this); }
+
 ValidFramesInvalidator MultiFrame::GetValidFramesInvalidator() { return ValidFramesInvalidator(*this); }
 
 InvalidFramesPopulator MultiFrame::GetInvalidFramesPopulator() { return InvalidFramesPopulator(*this); }
@@ -90,6 +92,15 @@ ValidFramesReader::~ValidFramesReader() = default;
 
 ValidFramesReader::Iterator ValidFramesReader::begin() { return Iterator(&multiframe_.frames_[0], *this); }
 ValidFramesReader::Iterator ValidFramesReader::end() {
+  return Iterator(&multiframe_.frames_[multiframe_.frames_.size()], *this);
+}
+
+ValidFramesModifier::ValidFramesModifier(MultiFrame &multiframe) : multiframe_(multiframe) {}
+
+ValidFramesModifier::~ValidFramesModifier() = default;
+
+ValidFramesModifier::Iterator ValidFramesModifier::begin() { return Iterator(&multiframe_.frames_[0], *this); }
+ValidFramesModifier::Iterator ValidFramesModifier::end() {
   return Iterator(&multiframe_.frames_[multiframe_.frames_.size()], *this);
 }
 

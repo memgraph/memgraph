@@ -737,7 +737,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::PullMultiple(AnyStrea
     return multi_frame_.HasValidFrame();
   };
 
-  const auto stream_values = [&output_symbols, &stream](Frame &frame) {
+  const auto stream_values = [&output_symbols, &stream](const Frame &frame) {
     // TODO: The streamed values should also probably use the above memory.
     std::vector<TypedValue> values;
     values.reserve(output_symbols.size());
