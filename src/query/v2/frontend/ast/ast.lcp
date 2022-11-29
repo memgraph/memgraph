@@ -24,7 +24,7 @@
 #include "query/v2/bindings/typed_value.hpp"
 #include "query/v2/db_accessor.hpp"
 #include "query/v2/path.hpp"
-#include "query/v2/shard_request_manager.hpp"
+#include "query/v2/request_router.hpp"
 #include "utils/typeinfo.hpp"
 #include "query/v2/conversions.hpp"
 
@@ -838,14 +838,14 @@ cpp<#
               :slk-load (slk-load-ast-vector "Expression"))
    (function-name "std::string" :scope :public)
    (function "std::function<TypedValue(const TypedValue *, int64_t,
-                                       const functions::FunctionContext<ShardRequestManagerInterface> &)>"
+                                       const functions::FunctionContext<RequestRouterInterface> &)>"
              :scope :public
              :dont-save t
              :clone :copy
              :slk-load (lambda (member)
                         #>cpp
                         self->${member} = functions::NameToFunction<TypedValue,
-                                            functions::FunctionContext<ShardRequestManagerInterface>,
+                                            functions::FunctionContext<RequestRouterInterface>,
                                             functions::QueryEngineTag, decltype(ValueToTypedValueFunctor)>(self->function_name_);
                         cpp<#)))
   (:public
@@ -869,7 +869,7 @@ cpp<#
              const std::vector<Expression *> &arguments)
         : arguments_(arguments),
           function_name_(function_name),
-          function_(functions::NameToFunction<TypedValue, functions::FunctionContext<ShardRequestManagerInterface>,
+          function_(functions::NameToFunction<TypedValue, functions::FunctionContext<RequestRouterInterface>,
                                               functions::QueryEngineTag, decltype(ValueToTypedValueFunctor)>(function_name_)) {
       if (!function_) {
         throw SemanticException("Function '{}' doesn't exist.", function_name);
