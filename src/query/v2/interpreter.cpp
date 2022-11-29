@@ -757,7 +757,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::PullMultiple(AnyStrea
     // stream unsent results from previous pull
 
     auto iterator_for_valid_frame_only = multi_frame_.GetValidFramesReader();
-    for (auto &frame : iterator_for_valid_frame_only) {
+    for (const auto &frame : iterator_for_valid_frame_only) {
       stream_values(frame);
       ++i;
     }
@@ -771,7 +771,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::PullMultiple(AnyStrea
 
     if (!output_symbols.empty()) {
       auto iterator_for_valid_frame_only = multi_frame_.GetValidFramesReader();
-      for (auto &frame : iterator_for_valid_frame_only) {
+      for (const auto &frame : iterator_for_valid_frame_only) {
         stream_values(frame);
         ++i;
       }
