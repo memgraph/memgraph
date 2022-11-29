@@ -56,6 +56,10 @@ inline TypedValue ValueToTypedValue(const msgs::Value &value, RequestRouterInter
   throw std::runtime_error("Incorrect type in conversion");
 }
 
+inline const auto ValueToTypedValueFunctor = [](const msgs::Value &value, RequestRouterInterface *request_router) {
+  return ValueToTypedValue(value, request_router);
+};
+
 inline msgs::Value TypedValueToValue(const TypedValue &value) {
   using Value = msgs::Value;
   switch (value.type()) {

@@ -125,9 +125,12 @@ class RequestRouterInterface {
   virtual storage::v3::EdgeTypeId NameToEdgeType(const std::string &name) const = 0;
   virtual storage::v3::PropertyId NameToProperty(const std::string &name) const = 0;
   virtual storage::v3::LabelId NameToLabel(const std::string &name) const = 0;
-  virtual const std::string &PropertyToName(storage::v3::PropertyId prop) const = 0;
-  virtual const std::string &LabelToName(storage::v3::LabelId label) const = 0;
-  virtual const std::string &EdgeTypeToName(storage::v3::EdgeTypeId type) const = 0;
+  virtual const std::string &PropertyToName(memgraph::storage::v3::PropertyId prop) const = 0;
+  virtual const std::string &LabelToName(memgraph::storage::v3::LabelId label) const = 0;
+  virtual const std::string &EdgeTypeToName(memgraph::storage::v3::EdgeTypeId type) const = 0;
+  virtual std::optional<storage::v3::PropertyId> MaybeNameToProperty(const std::string &name) const = 0;
+  virtual std::optional<storage::v3::EdgeTypeId> MaybeNameToEdgeType(const std::string &name) const = 0;
+  virtual std::optional<storage::v3::LabelId> MaybeNameToLabel(const std::string &name) const = 0;
   virtual bool IsPrimaryLabel(storage::v3::LabelId label) const = 0;
   virtual bool IsPrimaryKey(storage::v3::LabelId primary_label, storage::v3::PropertyId property) const = 0;
 };
@@ -349,6 +352,18 @@ class RequestRouter : public RequestRouterInterface {
     }
     MaybeCompleteState(state);
     return result_rows;
+  }
+
+  std::optional<storage::v3::PropertyId> MaybeNameToProperty(const std::string &name) const override {
+    return shards_map_.GetPropertyId(name);
+  }
+
+  std::optional<storage::v3::EdgeTypeId> MaybeNameToEdgeType(const std::string &name) const override {
+    return shards_map_.GetEdgeTypeId(name);
+  }
+
+  std::optional<storage::v3::LabelId> MaybeNameToLabel(const std::string &name) const override {
+    return shards_map_.GetLabelId(name);
   }
 
  private:

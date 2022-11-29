@@ -52,13 +52,12 @@ msgs::Value ConstructValueEdge(const EdgeAccessor &acc, View view) {
   msgs::EdgeType type = {.id = acc.EdgeType()};
   msgs::EdgeId gid = {.gid = acc.Gid().AsUint()};
 
-  msgs::Label src_prim_label = {.id = acc.FromVertex().primary_label};
+  msgs::Label src_prim_label = {.id = acc.From().primary_label};
   memgraph::msgs::VertexId src_vertex =
-      std::make_pair(src_prim_label, conversions::ConvertValueVector(acc.FromVertex().primary_key));
+      std::make_pair(src_prim_label, conversions::ConvertValueVector(acc.From().primary_key));
 
-  msgs::Label dst_prim_label = {.id = acc.ToVertex().primary_label};
-  msgs::VertexId dst_vertex =
-      std::make_pair(dst_prim_label, conversions::ConvertValueVector(acc.ToVertex().primary_key));
+  msgs::Label dst_prim_label = {.id = acc.To().primary_label};
+  msgs::VertexId dst_vertex = std::make_pair(dst_prim_label, conversions::ConvertValueVector(acc.To().primary_key));
 
   auto properties = acc.Properties(view);
 
