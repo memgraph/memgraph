@@ -296,7 +296,7 @@ class Interpreter final {
    */
   void Abort();
 
-  const ShardRequestManagerInterface *GetShardRequestManager() const { return shard_request_manager_.get(); }
+  const RequestRouterInterface *GetRequestRouter() const { return request_router_.get(); }
 
  private:
   struct QueryExecution {
@@ -342,7 +342,7 @@ class Interpreter final {
   // move this unique_ptr into a shared_ptr.
   std::unique_ptr<storage::v3::Shard::Accessor> db_accessor_;
   std::optional<DbAccessor> execution_db_accessor_;
-  std::unique_ptr<ShardRequestManagerInterface> shard_request_manager_;
+  std::unique_ptr<RequestRouterInterface> request_router_;
   bool in_explicit_transaction_{false};
   bool expect_rollback_{false};
 
