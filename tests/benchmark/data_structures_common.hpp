@@ -17,6 +17,7 @@
 
 #include "btree_map.hpp"
 #include "coordinator/hybrid_logical_clock.hpp"
+#include "storage/v3/key_store.hpp"
 #include "storage/v3/lexicographically_ordered_vertex.hpp"
 #include "storage/v3/mvcc.hpp"
 #include "storage/v3/transaction.hpp"
@@ -32,7 +33,7 @@ inline void PrepareData(utils::SkipList<T> &skip_list, const int64_t num_element
   auto *delta = storage::v3::CreateDeleteObjectDelta(&transaction);
   for (auto i{0}; i < num_elements; ++i) {
     auto acc = skip_list.access();
-    acc.insert({storage::v3::Vertex(delta, std::vector<storage::v3::PropertyValue>{storage::v3::PropertyValue{i}})});
+    acc.insert({storage::v3::PrimaryKey{storage::v3::PropertyValue{i}}});
   }
 }
 
@@ -56,8 +57,7 @@ inline void PrepareData(std::set<T> &std_set, const int64_t num_elements) {
   storage::v3::Transaction transaction{start_timestamp, isolation_level};
   auto *delta = storage::v3::CreateDeleteObjectDelta(&transaction);
   for (auto i{0}; i < num_elements; ++i) {
-    std_set.insert(storage::v3::LexicographicallyOrderedVertex{
-        storage::v3::Vertex{delta, std::vector<storage::v3::PropertyValue>{storage::v3::PropertyValue{i}}}});
+    std_set.insert(std::vector<storage::v3::PropertyValue>{storage::v3::PropertyValue{i}});
   }
 }
 

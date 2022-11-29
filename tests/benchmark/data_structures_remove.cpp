@@ -39,7 +39,7 @@ namespace memgraph::benchmark {
 // Testing Remove Operation
 ///////////////////////////////////////////////////////////////////////////////
 static void BM_BenchmarkRemoveSkipList(::benchmark::State &state) {
-  utils::SkipList<storage::v3::LexicographicallyOrderedVertex> skip_list;
+  utils::SkipList<storage::v3::PrimaryKey> skip_list;
   PrepareData(skip_list, state.range(0));
   coordinator::Hlc start_timestamp;
   storage::v3::IsolationLevel isolation_level{storage::v3::IsolationLevel::SNAPSHOT_ISOLATION};
@@ -54,8 +54,7 @@ static void BM_BenchmarkRemoveSkipList(::benchmark::State &state) {
     for (auto i{0}; i < state.range(0); ++i) {
       int64_t value = i_distribution(i_generator);
       auto acc = skip_list.access();
-      if (acc.remove(storage::v3::LexicographicallyOrderedVertex{
-              storage::v3::Vertex{delta, storage::v3::PrimaryKey{storage::v3::PropertyValue(value)}}})) {
+      if (acc.remove(storage::v3::PrimaryKey{storage::v3::PropertyValue(value)})) {
         removed_elems++;
       }
     }
@@ -83,7 +82,7 @@ static void BM_BenchmarkRemoveStdMap(::benchmark::State &state) {
 }
 
 static void BM_BenchmarkRemoveStdSet(::benchmark::State &state) {
-  std::set<storage::v3::LexicographicallyOrderedVertex> std_set;
+  std::set<storage::v3::PrimaryKey> std_set;
   PrepareData(std_set, state.range(0));
   coordinator::Hlc start_timestamp;
   storage::v3::IsolationLevel isolation_level{storage::v3::IsolationLevel::SNAPSHOT_ISOLATION};
@@ -97,8 +96,7 @@ static void BM_BenchmarkRemoveStdSet(::benchmark::State &state) {
   for (auto _ : state) {
     for (auto i{0}; i < state.range(0); ++i) {
       int64_t value = i_distribution(i_generator);
-      if (std_set.erase(storage::v3::LexicographicallyOrderedVertex{
-              storage::v3::Vertex{delta, {storage::v3::PropertyValue{value}}}}) > 0) {
+      if (std_set.erase(storage::v3::PrimaryKey{storage::v3::PropertyValue{value}}) > 0) {
         removed_elems++;
       }
     }

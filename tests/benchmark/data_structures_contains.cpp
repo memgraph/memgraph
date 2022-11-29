@@ -39,7 +39,7 @@ namespace memgraph::benchmark {
 // Testing Contains Operation
 ///////////////////////////////////////////////////////////////////////////////
 static void BM_BenchmarkContainsSkipList(::benchmark::State &state) {
-  utils::SkipList<storage::v3::LexicographicallyOrderedVertex> skip_list;
+  utils::SkipList<storage::v3::PrimaryKey> skip_list;
   PrepareData(skip_list, state.range(0));
   // So we can also have elements that does don't exist
   std::mt19937 i_generator(std::random_device{}());
@@ -77,7 +77,7 @@ static void BM_BenchmarkContainsStdMap(::benchmark::State &state) {
 }
 
 static void BM_BenchmarkContainsStdSet(::benchmark::State &state) {
-  std::set<storage::v3::LexicographicallyOrderedVertex> std_set;
+  std::set<storage::v3::PrimaryKey> std_set;
   PrepareData(std_set, state.range(0));
   coordinator::Hlc start_timestamp;
   storage::v3::IsolationLevel isolation_level{storage::v3::IsolationLevel::SNAPSHOT_ISOLATION};
@@ -90,8 +90,7 @@ static void BM_BenchmarkContainsStdSet(::benchmark::State &state) {
   for (auto _ : state) {
     for (auto i{0}; i < state.range(0); ++i) {
       int64_t value = i_distribution(i_generator);
-      if (std_set.contains(storage::v3::LexicographicallyOrderedVertex{
-              storage::v3::Vertex{delta, storage::v3::PrimaryKey{storage::v3::PropertyValue{value}}}})) {
+      if (std_set.contains(storage::v3::PrimaryKey{storage::v3::PropertyValue{value}})) {
         found_elems++;
       }
     }

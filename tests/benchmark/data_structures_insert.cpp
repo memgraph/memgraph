@@ -38,7 +38,7 @@ namespace memgraph::benchmark {
 // Testing Insert Operation
 ///////////////////////////////////////////////////////////////////////////////
 static void BM_BenchmarkInsertSkipList(::benchmark::State &state) {
-  utils::SkipList<storage::v3::LexicographicallyOrderedVertex> skip_list;
+  utils::SkipList<storage::v3::PrimaryKey> skip_list;
   coordinator::Hlc start_timestamp;
   storage::v3::IsolationLevel isolation_level{storage::v3::IsolationLevel::SNAPSHOT_ISOLATION};
   storage::v3::Transaction transaction{start_timestamp, isolation_level};
@@ -47,7 +47,7 @@ static void BM_BenchmarkInsertSkipList(::benchmark::State &state) {
   for (auto _ : state) {
     for (auto i{0}; i < state.range(0); ++i) {
       auto acc = skip_list.access();
-      acc.insert({storage::v3::Vertex(delta, std::vector<storage::v3::PropertyValue>{storage::v3::PropertyValue{i}})});
+      acc.insert({storage::v3::PrimaryKey{storage::v3::PropertyValue{i}}});
     }
   }
 }
@@ -69,7 +69,7 @@ static void BM_BenchmarkInsertStdMap(::benchmark::State &state) {
 }
 
 static void BM_BenchmarkInsertStdSet(::benchmark::State &state) {
-  std::set<storage::v3::LexicographicallyOrderedVertex> std_set;
+  std::set<storage::v3::PrimaryKey> std_set;
   coordinator::Hlc start_timestamp;
   storage::v3::IsolationLevel isolation_level{storage::v3::IsolationLevel::SNAPSHOT_ISOLATION};
   storage::v3::Transaction transaction{start_timestamp, isolation_level};
@@ -77,8 +77,7 @@ static void BM_BenchmarkInsertStdSet(::benchmark::State &state) {
 
   for (auto _ : state) {
     for (auto i{0}; i < state.range(0); ++i) {
-      std_set.insert(storage::v3::LexicographicallyOrderedVertex{
-          storage::v3::Vertex{delta, std::vector<storage::v3::PropertyValue>{storage::v3::PropertyValue{i}}}});
+      std_set.insert(storage::v3::PrimaryKey{std::vector<storage::v3::PropertyValue>{storage::v3::PropertyValue{i}}});
     }
   }
 }
