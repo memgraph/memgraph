@@ -33,11 +33,12 @@ jobs:
           fetch-depth: 0
 
       - name: Cache libs
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         env:
           cache-name: cache-community-libs
         with:
-          path: libs
+          path: |
+            libs
           key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles('libs/setup.sh') }}
 
       - name: Build community binaries
@@ -84,11 +85,12 @@ jobs:
         run: git fetch
 
       - name: Cache libs
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         env:
           cache-name: cache-libs
         with:
-          path: libs
+          path: |
+            libs
           key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles('libs/setup.sh') }}
 
       - name: Initialize deps
@@ -193,11 +195,12 @@ jobs:
           fetch-depth: 0
 
       - name: Cache libs
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         env:
           cache-name: cache-libs
         with:
-          path: libs
+          path: |
+            libs
           key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles('libs/setup.sh') }}
 
       - name: Build debug binaries
@@ -248,11 +251,12 @@ jobs:
           fetch-depth: 0
 
       - name: Cache libs
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         env:
           cache-name: cache-release-libs
         with:
-          path: libs
+          path: |
+            libs
           key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles('libs/setup.sh') }}
 
       - name: Build release binaries
