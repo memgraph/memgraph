@@ -185,7 +185,7 @@ class ValidFramesConsumer {
  public:
   explicit ValidFramesConsumer(MultiFrame &multiframe);
 
-  ~ValidFramesConsumer() = default;
+  ~ValidFramesConsumer();
   ValidFramesConsumer(const ValidFramesConsumer &other) = delete;                 // copy constructor
   ValidFramesConsumer(ValidFramesConsumer &&other) noexcept = delete;             // move constructor
   ValidFramesConsumer &operator=(const ValidFramesConsumer &other) = delete;      // copy assignment
