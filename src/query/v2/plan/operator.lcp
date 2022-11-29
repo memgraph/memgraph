@@ -341,7 +341,7 @@ and false on every following Pull.")
      void Reset() override;
 
     private:
-     size_t pull_count_{false};
+     size_t pull_count_{0};
    };
    cpp<#)
   (:serialize (:slk))
