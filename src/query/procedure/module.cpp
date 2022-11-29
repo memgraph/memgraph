@@ -33,7 +33,7 @@ extern "C" {
 
 namespace memgraph::query::procedure {
 
-bool ProcessFileDependencies(std::filesystem::path file_path_, const char *func_code, PyObject *sys_mod_ref);
+void ProcessFileDependencies(std::filesystem::path file_path_, const char *func_code, PyObject *sys_mod_ref);
 
 ModuleRegistry gModuleRegistry;
 
@@ -1010,18 +1010,55 @@ bool PythonModule::Close() {
       "    modules.add(name.name.split('.')[0])\n\n"
       "def visit_ImportFrom(node):\n"
       "  if node.module is not None and node.level == 0:\n"
-      "    modules.add(node.module.split('.')[0])\n"
+      "    mod_name = node.module.split('.')[0]\n"
+      "    if mod_name != 'collections':\n"
+      "      modules.add(mod_name)\n"
       "node_iter = ast.NodeVisitor()\n"
       "node_iter.visit_Import = visit_Import\n"
       "node_iter.visit_ImportFrom = visit_ImportFrom\n"
       "node_iter.visit(ast.parse(code))\n";
 
-  bool status = ProcessFileDependencies(file_path_, func_code, sys_mod_ref);
+  std::filesystem::path submodules_path = file_path_.parent_path();
+  std::string_view stem = std::string_view(file_path_.stem().c_str());
+  submodules_path /= "mage";
+  std::filesystem::path submodules;
+
+  spdlog::info("Submodules path is {} and the stem is {}", submodules_path, stem);
+
+  ProcessFileDependencies(file_path_, func_code, sys_mod_ref);
+
+  for (auto const &dir_entry : std::filesystem::directory_iterator(submodules_path)) {
+    std::string_view dir_entry_stem = std::string_view(dir_entry.path().stem().c_str());
+    if (dir_entry.is_regular_file() || dir_entry_stem.compare("__pycache__") == 0) continue;
+    if (dir_entry_stem.find(stem) != std::string_view::npos &&
+        (submodules.empty() || std::string_view(submodules.stem().c_str()).length() > dir_entry_stem.length())) {
+      submodules = dir_entry.path();
+    }
+  }
+  if (!submodules.empty()) {
+    spdlog::info("Found submodule {}", submodules);
+    for (auto const &rec_dir_entry : std::filesystem::recursive_directory_iterator(submodules)) {
+      std::string_view rec_dir_entry_ext = std::string_view(rec_dir_entry.path().extension().c_str());
+      if (!rec_dir_entry.is_regular_file() || rec_dir_entry_ext.compare(".pyc") == 0) continue;
+      ProcessFileDependencies(rec_dir_entry.path().c_str(), func_code, sys_mod_ref);
+    }
+  }
+
+  // first throw out of cache file and bytecode
+  if (PyDict_DelItemString(sys_mod_ref, file_path_.stem().c_str()) != 0) {
+    spdlog::warn("Failed to remove the module {} from sys.modules", file_path_.stem().c_str());
+    py_module_ = py::Object(nullptr);
+    return false;
+  }
+
+  // Remove the cached bytecode if it's present
+  std::filesystem::remove_all(file_path_.parent_path() / "__pycache__");
   py_module_ = py::Object(nullptr);
-  return status;
+  spdlog::info("Closed module {}", file_path_);
+  return true;
 }
 
-bool ProcessFileDependencies(std::filesystem::path file_path_, const char *func_code, PyObject *sys_mod_ref) {
+void ProcessFileDependencies(std::filesystem::path file_path_, const char *func_code, PyObject *sys_mod_ref) {
   // now start processing dependencies
   const auto maybe_content =
       ReadFile(file_path_);  // this is already done at Load so it can somehow be optimized but not sure how yet
@@ -1030,7 +1067,8 @@ bool ProcessFileDependencies(std::filesystem::path file_path_, const char *func_
     const char *content_value = maybe_content->c_str();
     if (content_value) {
       PyObject *py_main, *py_global_dict;
-      py_main = PyImport_AddModule("__main__");
+
+      py_main = PyImport_ImportModule("__main__");
       py_global_dict = PyModule_GetDict(py_main);
 
       PyDict_SetItemString(py_global_dict, "code", PyUnicode_FromString(content_value));
@@ -1042,31 +1080,28 @@ bool ProcessFileDependencies(std::filesystem::path file_path_, const char *func_
 
       if (iterator != NULL) {
         while ((module = PyIter_Next(iterator))) {
-          if (PyDict_Contains(sys_mod_ref, module) == 1) {  // if the item is in dictionary
-            const char *module_name = PyUnicode_AsUTF8(module);
-            if (PyDict_DelItemString(sys_mod_ref, module_name) != 0) {
-              spdlog::info("Module {} couldn't be removed from the cache", module_name);
-            } else {
-              spdlog::info("Module {} removed from the cache", module_name);
-            }
+          const char *module_name = PyUnicode_AsUTF8(module);
+          std::string_view module_name_str = std::string_view(module_name);
+          PyObject *sys_iterator = PyObject_GetIter(PyDict_Keys(sys_mod_ref));
+          if (sys_iterator == NULL) {
+            spdlog::warn("Cannot get reference to the sys.modules.keys()");
+            break;
           }
+          PyObject *sys_mod_key;
+          while ((sys_mod_key = PyIter_Next(sys_iterator))) {
+            const char *sys_mod_key_name = PyUnicode_AsUTF8(sys_mod_key);
+            if (std::string_view(sys_mod_key_name).rfind(module_name_str, 0) == 0) {
+              PyDict_DelItemString(sys_mod_ref, sys_mod_key_name);  // don't test output
+            }
+            Py_DECREF(sys_mod_key);
+          }
+          Py_DECREF(sys_iterator);
           Py_DECREF(module);
         }
         Py_DECREF(iterator);
       }
     }
   }
-
-  // first throw out of cache file and bytecode
-  if (PyDict_DelItemString(sys_mod_ref, file_path_.stem().c_str()) != 0) {
-    spdlog::warn("Failed to remove the module from sys.modules");
-    return false;
-  }
-
-  // Remove the cached bytecode if it's present
-  std::filesystem::remove_all(file_path_.parent_path() / "__pycache__");
-  spdlog::info("Closed module {}", file_path_);
-  return true;
 }
 
 const std::map<std::string, mgp_proc, std::less<>> *PythonModule::Procedures() const {
