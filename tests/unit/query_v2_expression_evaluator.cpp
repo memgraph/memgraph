@@ -27,8 +27,8 @@
 #include "query/v2/bindings/frame.hpp"
 #include "query/v2/context.hpp"
 #include "query/v2/frontend/ast/ast.hpp"
+#include "query/v2/request_router.hpp"
 #include "query/v2/requests.hpp"
-#include "query/v2/shard_request_manager.hpp"
 #include "query_v2_query_common.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/shard.hpp"
@@ -65,10 +65,10 @@ using memgraph::functions::FunctionRuntimeException;
 
 namespace memgraph::query::v2::tests {
 
-class MockedShardRequestManager : public ShardRequestManagerInterface {
+class MockedRequestRouter : public RequestRouterInterface {
  public:
   using VertexAccessor = accessors::VertexAccessor;
-  explicit MockedShardRequestManager(ShardMap shard_map) : shards_map_(std::move(shard_map)) { SetUpNameIdMappers(); }
+  explicit MockedRequestRouter(ShardMap shard_map) : shards_map_(std::move(shard_map)) { SetUpNameIdMappers(); }
   memgraph::storage::v3::EdgeTypeId NameToEdgeType(const std::string &name) const override {
     return shards_map_.GetEdgeTypeId(name).value();
   }
@@ -215,9 +215,8 @@ class ExpressionEvaluatorTest : public ::testing::Test {
   SymbolTable symbol_table;
 
   Frame frame{128};
-  std::unique_ptr<ShardRequestManagerInterface> shard_manager =
-      std::make_unique<MockedShardRequestManager>(CreateDummyShardmap());
-  ExpressionEvaluator eval{&frame, symbol_table, ctx, shard_manager.get(), memgraph::storage::v3::View::OLD};
+  std::unique_ptr<RequestRouterInterface> request_router = std::make_unique<MockedRequestRouter>(CreateDummyShardmap());
+  ExpressionEvaluator eval{&frame, symbol_table, ctx, request_router.get(), memgraph::storage::v3::View::OLD};
 
   Identifier *CreateIdentifierWithValue(std::string name, const TypedValue &value) {
     auto id = storage.Create<Identifier>(name, true);
@@ -229,8 +228,8 @@ class ExpressionEvaluatorTest : public ::testing::Test {
 
   template <class TExpression>
   auto Eval(TExpression *expr) {
-    ctx.properties = NamesToProperties(storage.properties_, shard_manager.get());
-    ctx.labels = NamesToLabels(storage.labels_, shard_manager.get());
+    ctx.properties = NamesToProperties(storage.properties_, request_router.get());
+    ctx.labels = NamesToLabels(storage.labels_, request_router.get());
     auto value = expr->Accept(eval);
     EXPECT_EQ(value.GetMemoryResource(), &mem) << "ExpressionEvaluator must use the MemoryResource from "
                                                   "EvaluationContext for allocations!";
@@ -544,25 +543,25 @@ using VertexId = memgraph::msgs::VertexId;
 using Label = memgraph::msgs::Label;
 
 accessors::VertexAccessor CreateVertex(std::vector<std::pair<PropertyId, Value>> props,
-                                       const ShardRequestManagerInterface *manager, Vertex v = {}) {
-  return {std::move(v), std::move(props), manager};
+                                       const RequestRouterInterface *request_router, Vertex v = {}) {
+  return {std::move(v), std::move(props), request_router};
 }
 
 accessors::EdgeAccessor CreateEdge(std::vector<std::pair<PropertyId, Value>> props,
-                                   const ShardRequestManagerInterface *manager, EdgeId edge_id = {}, VertexId src = {},
+                                   const RequestRouterInterface *request_router, EdgeId edge_id = {}, VertexId src = {},
                                    VertexId dst = {}) {
   auto edge = Edge{.src = std::move(src),
                    .dst = std::move(dst),
                    .properties = std::move(props),
                    .id = edge_id,
-                   .type = EdgeType{manager->NameToEdgeType("edge_type")}};
-  return accessors::EdgeAccessor{std::move(edge), manager};
+                   .type = EdgeType{request_router->NameToEdgeType("edge_type")}};
+  return accessors::EdgeAccessor{std::move(edge), request_router};
 }
 
 TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
-  auto prop = shard_manager->NameToProperty("prop");
-  auto vertex = CreateVertex({{prop, Value(static_cast<int64_t>(42))}}, shard_manager.get(), {});
-  auto edge = CreateEdge({{prop, Value(static_cast<int64_t>(43))}}, shard_manager.get(), {}, {}, {});
+  auto prop = request_router->NameToProperty("prop");
+  auto vertex = CreateVertex({{prop, Value(static_cast<int64_t>(42))}}, request_router.get(), {});
+  auto edge = CreateEdge({{prop, Value(static_cast<int64_t>(43))}}, request_router.get(), {}, {}, {});
 
   auto *vertex_id = CreateIdentifierWithValue("v1", TypedValue(vertex));
   auto *edge_id = CreateIdentifierWithValue("e11", TypedValue(edge));
@@ -741,9 +740,9 @@ TEST_F(ExpressionEvaluatorTest, IsNullOperator) {
 }
 
 TEST_F(ExpressionEvaluatorTest, LabelsTest) {
-  Label label{shard_manager->NameToLabel("label1")};
+  Label label{request_router->NameToLabel("label1")};
   Vertex vertex = {{}, {label}};
-  auto v1 = CreateVertex({}, shard_manager.get(), vertex);
+  auto v1 = CreateVertex({}, request_router.get(), vertex);
   auto *identifier = storage.Create<Identifier>("n");
   auto node_symbol = symbol_table.CreateSymbol("n", true);
   identifier->MapTo(node_symbol);
@@ -1121,9 +1120,9 @@ TEST_F(ExpressionEvaluatorTest, RegexMatch) {
 class ExpressionEvaluatorPropertyLookup : public ExpressionEvaluatorTest {
  protected:
   std::pair<std::string, memgraph::storage::v3::PropertyId> prop_age =
-      std::make_pair("age", shard_manager->NameToProperty("age"));
+      std::make_pair("age", request_router->NameToProperty("age"));
   std::pair<std::string, memgraph::storage::v3::PropertyId> prop_height =
-      std::make_pair("height", shard_manager->NameToProperty("height"));
+      std::make_pair("height", request_router->NameToProperty("height"));
   Identifier *identifier = storage.Create<Identifier>("element");
   Symbol symbol = symbol_table.CreateSymbol("element", true);
 
@@ -1191,10 +1190,10 @@ static TypedValue MakeTypedValueList(TArgs &&...args) {
 TEST_F(FunctionTest, EndNode) {
   ASSERT_THROW(EvaluateFunction("ENDNODE"), FunctionRuntimeException);
   ASSERT_TRUE(EvaluateFunction("ENDNODE", TypedValue()).IsNull());
-  Label l{shard_manager->NameToLabel("label1")};
+  Label l{request_router->NameToLabel("label1")};
   EdgeId e_id{10};
   VertexId dst{l, {msgs::Value(static_cast<int64_t>(2))}};
-  auto e = CreateEdge({}, shard_manager.get(), e_id, {}, dst);
+  auto e = CreateEdge({}, request_router.get(), e_id, {}, dst);
   const auto res = EvaluateFunction("ENDNODE", e).ValueVertex().Id();
   ASSERT_EQ(res, dst);
   ASSERT_THROW(EvaluateFunction("ENDNODE", 2), FunctionRuntimeException);
@@ -1213,12 +1212,12 @@ TEST_F(FunctionTest, Head) {
 TEST_F(FunctionTest, Properties) {
   ASSERT_THROW(EvaluateFunction("PROPERTIES"), FunctionRuntimeException);
   ASSERT_TRUE(EvaluateFunction("PROPERTIES", TypedValue()).IsNull());
-  const auto height = shard_manager->NameToProperty("height");
-  const auto age = shard_manager->NameToProperty("age");
+  const auto height = request_router->NameToProperty("height");
+  const auto age = request_router->NameToProperty("age");
   auto v1 = CreateVertex({{height, Value(static_cast<int64_t>(5))}, {age, Value(static_cast<int64_t>(10))}},
-                         shard_manager.get());
+                         request_router.get());
   auto e = CreateEdge({{height, Value(static_cast<int64_t>(3))}, {age, Value(static_cast<int64_t>(15))}},
-                      shard_manager.get());
+                      request_router.get());
 
   auto prop_values_to_int = [](TypedValue t) {
     std::unordered_map<std::string, int> properties;
@@ -1262,10 +1261,10 @@ TEST_F(FunctionTest, Size) {
 TEST_F(FunctionTest, StartNode) {
   ASSERT_THROW(EvaluateFunction("STARTNODE"), FunctionRuntimeException);
   ASSERT_TRUE(EvaluateFunction("STARTNODE", TypedValue()).IsNull());
-  Label l{shard_manager->NameToLabel("label1")};
+  Label l{request_router->NameToLabel("label1")};
   EdgeId e_id{5};
   VertexId src{l, {msgs::Value(static_cast<int64_t>(4))}};
-  auto e = CreateEdge({}, shard_manager.get(), e_id, src);
+  auto e = CreateEdge({}, request_router.get(), e_id, src);
   const auto res = EvaluateFunction("STARTNODE", e).ValueVertex().Id();
   ASSERT_EQ(res, src);
   ASSERT_THROW(EvaluateFunction("STARTNODE", 2), FunctionRuntimeException);
@@ -1310,7 +1309,7 @@ TEST_F(FunctionTest, ToInteger) {
 TEST_F(FunctionTest, Type) {
   ASSERT_THROW(EvaluateFunction("TYPE"), FunctionRuntimeException);
   ASSERT_TRUE(EvaluateFunction("TYPE", TypedValue()).IsNull());
-  auto e = CreateEdge({}, shard_manager.get());
+  auto e = CreateEdge({}, request_router.get());
   ASSERT_EQ(EvaluateFunction("TYPE", e).ValueString(), "edge_type");
   ASSERT_THROW(EvaluateFunction("TYPE", 2), FunctionRuntimeException);
 }
@@ -1329,17 +1328,17 @@ TEST_F(FunctionTest, ValueType) {
   ASSERT_EQ(EvaluateFunction("VALUETYPE", TypedValue(std::map<std::string, TypedValue>{{"test", TypedValue(1)}}))
                 .ValueString(),
             "MAP");
-  auto v1 = CreateVertex({}, shard_manager.get());
+  auto v1 = CreateVertex({}, request_router.get());
   ASSERT_EQ(EvaluateFunction("VALUETYPE", v1).ValueString(), "NODE");
-  auto e = CreateEdge({}, shard_manager.get());
+  auto e = CreateEdge({}, request_router.get());
   ASSERT_EQ(EvaluateFunction("VALUETYPE", e).ValueString(), "RELATIONSHIP");
 }
 
 TEST_F(FunctionTest, Labels) {
   ASSERT_THROW(EvaluateFunction("LABELS"), FunctionRuntimeException);
   ASSERT_TRUE(EvaluateFunction("LABELS", TypedValue()).IsNull());
-  Label label{shard_manager->NameToLabel("label1")};
-  auto v = CreateVertex({}, shard_manager.get(), {{}, {label}});
+  Label label{request_router->NameToLabel("label1")};
+  auto v = CreateVertex({}, request_router.get(), {{}, {label}});
   std::vector<std::string> labels;
   auto evaluated_labels = EvaluateFunction("LABELS", v).ValueList();
   labels.reserve(evaluated_labels.size());
@@ -1556,9 +1555,9 @@ TEST_F(FunctionTest, Counter) {
 }
 
 TEST_F(FunctionTest, Id) {
-  auto v = CreateVertex({}, shard_manager.get());
+  auto v = CreateVertex({}, request_router.get());
   EXPECT_THROW(EvaluateFunction("ID", v), FunctionRuntimeException);
-  auto e = CreateEdge({}, shard_manager.get(), EdgeId{10});
+  auto e = CreateEdge({}, request_router.get(), EdgeId{10});
   EXPECT_EQ(EvaluateFunction("ID", e).ValueInt(), 10);
 }
 

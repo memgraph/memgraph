@@ -39,8 +39,8 @@
 #include "query/v2/frontend/ast/ast.hpp"
 #include "query/v2/path.hpp"
 #include "query/v2/plan/scoped_profile.hpp"
+#include "query/v2/request_router.hpp"
 #include "query/v2/requests.hpp"
-#include "query/v2/shard_request_manager.hpp"
 #include "storage/v3/conversions.hpp"
 #include "storage/v3/property_value.hpp"
 #include "utils/algorithm.hpp"
@@ -177,10 +177,10 @@ class DistributedCreateNodeCursor : public Cursor {
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("CreateNode");
     if (input_cursor_->Pull(frame, context)) {
-      auto &shard_manager = context.shard_request_manager;
+      auto &request_router = context.request_router;
       {
         SCOPED_REQUEST_WAIT_PROFILE;
-        shard_manager->Request(state_, NodeCreationInfoToRequest(context, frame));
+        request_router->Request(state_, NodeCreationInfoToRequest(context, frame));
       }
       PlaceNodeOnTheFrame(frame, context);
       return true;
@@ -197,8 +197,8 @@ class DistributedCreateNodeCursor : public Cursor {
     // TODO(kostasrim) Make this work with batching
     const auto primary_label = msgs::Label{.id = nodes_info_[0]->labels[0]};
     msgs::Vertex v{.id = std::make_pair(primary_label, primary_keys_[0])};
-    frame[nodes_info_.front()->symbol] = TypedValue(
-        query::v2::accessors::VertexAccessor(std::move(v), src_vertex_props_[0], context.shard_request_manager));
+    frame[nodes_info_.front()->symbol] =
+        TypedValue(query::v2::accessors::VertexAccessor(std::move(v), src_vertex_props_[0], context.request_router));
   }
 
   std::vector<msgs::NewVertex> NodeCreationInfoToRequest(ExecutionContext &context, Frame &frame) {
@@ -218,7 +218,7 @@ class DistributedCreateNodeCursor : public Cursor {
       if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info->properties)) {
         for (const auto &[key, value_expression] : *node_info_properties) {
           TypedValue val = value_expression->Accept(evaluator);
-          if (context.shard_request_manager->IsPrimaryKey(primary_label, key)) {
+          if (context.request_router->IsPrimaryKey(primary_label, key)) {
             rqst.primary_key.push_back(TypedValueToValue(val));
             pk.push_back(TypedValueToValue(val));
           }
@@ -227,8 +227,8 @@ class DistributedCreateNodeCursor : public Cursor {
         auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info->properties)).ValueMap();
         for (const auto &[key, value] : property_map) {
           auto key_str = std::string(key);
-          auto property_id = context.shard_request_manager->NameToProperty(key_str);
-          if (context.shard_request_manager->IsPrimaryKey(primary_label, property_id)) {
+          auto property_id = context.request_router->NameToProperty(key_str);
+          if (context.request_router->IsPrimaryKey(primary_label, property_id)) {
             rqst.primary_key.push_back(TypedValueToValue(value));
             pk.push_back(TypedValueToValue(value));
           }
@@ -386,10 +386,10 @@ class DistributedScanAllAndFilterCursor : public Cursor {
 
   using VertexAccessor = accessors::VertexAccessor;
 
-  bool MakeRequest(ShardRequestManagerInterface &shard_manager, ExecutionContext &context) {
+  bool MakeRequest(RequestRouterInterface &request_router, ExecutionContext &context) {
     {
       SCOPED_REQUEST_WAIT_PROFILE;
-      current_batch = shard_manager.Request(request_state_);
+      current_batch = request_router.Request(request_state_);
     }
     current_vertex_it = current_batch.begin();
     return !current_batch.empty();
@@ -398,7 +398,7 @@ class DistributedScanAllAndFilterCursor : public Cursor {
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP(op_name_);
 
-    auto &shard_manager = *context.shard_request_manager;
+    auto &request_router = *context.request_router;
     while (true) {
       if (MustAbort(context)) {
         throw HintedAbortError();
@@ -411,10 +411,11 @@ class DistributedScanAllAndFilterCursor : public Cursor {
         }
       }
 
-      request_state_.label = label_.has_value() ? std::make_optional(shard_manager.LabelToName(*label_)) : std::nullopt;
+      request_state_.label =
+          label_.has_value() ? std::make_optional(request_router.LabelToName(*label_)) : std::nullopt;
 
       if (current_vertex_it == current_batch.end() &&
-          (request_state_.state == State::COMPLETED || !MakeRequest(shard_manager, context))) {
+          (request_state_.state == State::COMPLETED || !MakeRequest(request_router, context))) {
         ResetExecutionState();
         continue;
       }
@@ -696,7 +697,7 @@ bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
 
   // Like all filters, newly set values should not affect filtering of old
   // nodes and edges.
-  ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.shard_request_manager,
+  ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.request_router,
                                 storage::v3::View::OLD);
   while (input_cursor_->Pull(frame, context)) {
     if (EvaluateFilter(evaluator, self_.expression_)) return true;
@@ -737,8 +738,8 @@ bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
 
   if (input_cursor_->Pull(frame, context)) {
     // Produce should always yield the latest results.
-    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context,
-                                  context.shard_request_manager, storage::v3::View::NEW);
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.request_router,
+                                  storage::v3::View::NEW);
     for (auto named_expr : self_.named_expressions_) named_expr->Accept(evaluator);
 
     return true;
@@ -1122,8 +1123,8 @@ class AggregateCursor : public Cursor {
    * aggregation results, and not on the number of inputs.
    */
   void ProcessAll(Frame *frame, ExecutionContext *context) {
-    ExpressionEvaluator evaluator(frame, context->symbol_table, context->evaluation_context,
-                                  context->shard_request_manager, storage::v3::View::NEW);
+    ExpressionEvaluator evaluator(frame, context->symbol_table, context->evaluation_context, context->request_router,
+                                  storage::v3::View::NEW);
     while (input_cursor_->Pull(*frame, *context)) {
       ProcessOne(*frame, &evaluator);
     }
@@ -1343,8 +1344,8 @@ bool Skip::SkipCursor::Pull(Frame &frame, ExecutionContext &context) {
       // First successful pull from the input, evaluate the skip expression.
       // The skip expression doesn't contain identifiers so graph view
       // parameter is not important.
-      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context,
-                                    context.shard_request_manager, storage::v3::View::OLD);
+      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.request_router,
+                                    storage::v3::View::OLD);
       TypedValue to_skip = self_.expression_->Accept(evaluator);
       if (to_skip.type() != TypedValue::Type::Int)
         throw QueryRuntimeException("Number of elements to skip must be an integer.");
@@ -1398,8 +1399,8 @@ bool Limit::LimitCursor::Pull(Frame &frame, ExecutionContext &context) {
   if (limit_ == -1) {
     // Limit expression doesn't contain identifiers so graph view is not
     // important.
-    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context,
-                                  context.shard_request_manager, storage::v3::View::OLD);
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.request_router,
+                                  storage::v3::View::OLD);
     TypedValue limit = self_.expression_->Accept(evaluator);
     if (limit.type() != TypedValue::Type::Int)
       throw QueryRuntimeException("Limit on number of returned elements must be an integer.");
@@ -1454,8 +1455,8 @@ class OrderByCursor : public Cursor {
     SCOPED_PROFILE_OP("OrderBy");
 
     if (!did_pull_all_) {
-      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context,
-                                    context.shard_request_manager, storage::v3::View::OLD);
+      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.request_router,
+                                    storage::v3::View::OLD);
       auto *mem = cache_.get_allocator().GetMemoryResource();
       while (input_cursor_->Pull(frame, context)) {
         // collect the order_by elements
@@ -1712,8 +1713,8 @@ class UnwindCursor : public Cursor {
         if (!input_cursor_->Pull(frame, context)) return false;
 
         // successful pull from input, initialize value and iterator
-        ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context,
-                                      context.shard_request_manager, storage::v3::View::OLD);
+        ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.request_router,
+                                      storage::v3::View::OLD);
         TypedValue input_value = self_.input_expression_->Accept(evaluator);
         if (input_value.type() != TypedValue::Type::List)
           throw QueryRuntimeException("Argument of UNWIND must be a list, but '{}' was provided.", input_value.type());
@@ -2224,7 +2225,7 @@ class LoadCsvCursor : public Cursor {
     Frame frame(0);
     SymbolTable symbol_table;
     auto evaluator =
-        ExpressionEvaluator(&frame, symbol_table, eval_context, context.shard_request_manager, storage::v3::View::OLD);
+        ExpressionEvaluator(&frame, symbol_table, eval_context, context.request_router, storage::v3::View::OLD);
 
     auto maybe_file = ToOptionalString(&evaluator, self_->file_);
     auto maybe_delim = ToOptionalString(&evaluator, self_->delimiter_);
@@ -2261,8 +2262,8 @@ class ForeachCursor : public Cursor {
       return false;
     }
 
-    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context,
-                                  context.shard_request_manager, storage::v3::View::NEW);
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.request_router,
+                                  storage::v3::View::NEW);
     TypedValue expr_result = expression->Accept(evaluator);
 
     if (expr_result.IsNull()) {
@@ -2338,11 +2339,11 @@ class DistributedCreateExpandCursor : public Cursor {
     if (!input_cursor_->Pull(frame, context)) {
       return false;
     }
-    auto &shard_manager = context.shard_request_manager;
+    auto &request_router = context.request_router;
     ResetExecutionState();
     {
       SCOPED_REQUEST_WAIT_PROFILE;
-      shard_manager->Request(state_, ExpandCreationInfoToRequest(context, frame));
+      request_router->Request(state_, ExpandCreationInfoToRequest(context, frame));
     }
     return true;
   }
@@ -2379,7 +2380,7 @@ class DistributedCreateExpandCursor : public Cursor {
         // handle parameter
         auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(edge_info.properties)).ValueMap();
         for (const auto &[property, value] : property_map) {
-          const auto property_id = context.shard_request_manager->NameToProperty(std::string(property));
+          const auto property_id = context.request_router->NameToProperty(std::string(property));
           request.properties.emplace_back(property_id, storage::v3::TypedValueToValue(value));
         }
       }
@@ -2394,7 +2395,7 @@ class DistributedCreateExpandCursor : public Cursor {
       const auto set_vertex = [&context](const auto &vertex, auto &vertex_id) {
         vertex_id.first = vertex.PrimaryLabel();
         for (const auto &[key, val] : vertex.Properties()) {
-          if (context.shard_request_manager->IsPrimaryKey(vertex_id.first.id, key)) {
+          if (context.request_router->IsPrimaryKey(vertex_id.first.id, key)) {
             vertex_id.second.push_back(val);
           }
         }
@@ -2474,11 +2475,11 @@ class DistributedExpandCursor : public Cursor {
     request.src_vertices.push_back(get_dst_vertex(edge, direction));
     request.direction = (direction == EdgeAtom::Direction::IN) ? msgs::EdgeDirection::OUT : msgs::EdgeDirection::IN;
     ExecutionState<msgs::ExpandOneRequest> request_state;
-    auto result_rows = context.shard_request_manager->Request(request_state, std::move(request));
+    auto result_rows = context.request_router->Request(request_state, std::move(request));
     MG_ASSERT(result_rows.size() == 1);
     auto &result_row = result_rows.front();
     frame[self_.common_.node_symbol] = accessors::VertexAccessor(
-        msgs::Vertex{result_row.src_vertex}, result_row.src_vertex_properties, context.shard_request_manager);
+        msgs::Vertex{result_row.src_vertex}, result_row.src_vertex_properties, context.request_router);
   }
 
   bool InitEdges(Frame &frame, ExecutionContext &context) {
@@ -2502,7 +2503,7 @@ class DistributedExpandCursor : public Cursor {
       ExecutionState<msgs::ExpandOneRequest> request_state;
       auto result_rows = std::invoke([&context, &request_state, &request]() mutable {
         SCOPED_REQUEST_WAIT_PROFILE;
-        return context.shard_request_manager->Request(request_state, std::move(request));
+        return context.request_router->Request(request_state, std::move(request));
       });
       MG_ASSERT(result_rows.size() == 1);
       auto &result_row = result_rows.front();
@@ -2525,14 +2526,14 @@ class DistributedExpandCursor : public Cursor {
           case EdgeAtom::Direction::IN: {
             for (auto &edge : edge_messages) {
               edge_accessors.emplace_back(msgs::Edge{std::move(edge.other_end), vertex.Id(), {}, {edge.gid}, edge.type},
-                                          context.shard_request_manager);
+                                          context.request_router);
             }
             break;
           }
           case EdgeAtom::Direction::OUT: {
             for (auto &edge : edge_messages) {
               edge_accessors.emplace_back(msgs::Edge{vertex.Id(), std::move(edge.other_end), {}, {edge.gid}, edge.type},
-                                          context.shard_request_manager);
+                                          context.request_router);
             }
             break;
           }

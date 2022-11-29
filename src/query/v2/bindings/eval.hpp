@@ -26,7 +26,7 @@
 
 namespace memgraph::query::v2 {
 
-class ShardRequestManagerInterface;
+class RequestRouterInterface;
 
 namespace detail {
 class Callable {
@@ -34,15 +34,14 @@ class Callable {
   auto operator()(const storage::v3::PropertyValue &val) const {
     return storage::v3::PropertyToTypedValue<TypedValue>(val);
   };
-  auto operator()(const msgs::Value &val, ShardRequestManagerInterface *manager) const {
-    return ValueToTypedValue(val, manager);
+  auto operator()(const msgs::Value &val, RequestRouterInterface *request_router) const {
+    return ValueToTypedValue(val, request_router);
   };
 };
 
 }  // namespace detail
-using ExpressionEvaluator =
-    expr::ExpressionEvaluator<TypedValue, query::v2::EvaluationContext, ShardRequestManagerInterface, storage::v3::View,
-                              storage::v3::LabelId, msgs::Value, detail::Callable, common::ErrorCode,
-                              expr::QueryEngineTag>;
+using ExpressionEvaluator = expr::ExpressionEvaluator<TypedValue, query::v2::EvaluationContext, RequestRouterInterface,
+                                                      storage::v3::View, storage::v3::LabelId, msgs::Value,
+                                                      detail::Callable, common::ErrorCode, expr::QueryEngineTag>;
 
 }  // namespace memgraph::query::v2
