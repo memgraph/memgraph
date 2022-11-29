@@ -96,13 +96,6 @@ struct ExecutionState {
   // the RequestRouter impl will send requests to. When a request to a shard exhausts it, meaning that
   // it pulled all the requested data from the given Shard, it will be removed from the Vector. When the Vector becomes
   // empty, it means that all of the requests have completed succefully.
-  // TODO(gvolfing)
-  // Maybe make this into a more complex object to be able to keep track of paginated results. E.g. instead of a vector
-  // of Shards make it into a std::vector<std::pair<Shard, PaginatedResultType>> (probably a struct instead of a pair)
-  // where PaginatedResultType is an enum signaling the progress on the given request. This way we can easily check if
-  // a partial response on a shard(if there is one) is finished and we can send off the request for the next batch.
-  // 1-1 mapping with `shard_cache`.
-  // A vector that tracks request metadata for each shard (For example, next_id for a ScanAll on Shard A)
   std::vector<ShardRequestState<TRequest>> requests;
   State state = INITIALIZING;
 };
@@ -257,20 +250,10 @@ class RequestRouter : public RequestRouterInterface {
     std::vector<msgs::ScanVerticesResponse> responses;
 
     SendAllRequests(state);
-    auto all_requests_gathered = [](auto &paginated_rsp_tracker) {
-      return std::ranges::all_of(paginated_rsp_tracker, [](const auto &state) {
-        return state.second == PaginatedResponseState::PartiallyFinished;
-      });
-    };
-
-    std::map<Shard, PaginatedResponseState> paginated_response_tracker;
-    for (const auto &request : state.requests) {
-      paginated_response_tracker.insert(std::make_pair(request.shard, PaginatedResponseState::Pending));
-    }
 
     do {
-      AwaitOnPaginatedRequests(state, responses, paginated_response_tracker);
-    } while (!all_requests_gathered(paginated_response_tracker));
+      DriveReadResponses(state, responses);
+    } while (!state.requests.empty());
 
     MaybeCompleteState(state);
     // TODO(kostasrim) Before returning start prefetching the batch (this shall be done once we get MgFuture as return
@@ -289,7 +272,7 @@ class RequestRouter : public RequestRouterInterface {
 
     // 2. Block untill all the futures are exhausted
     do {
-      AwaitOnResponses(state, responses);
+      DriveWriteResponses(state, responses);
     } while (!state.requests.empty());
 
     MaybeCompleteState(state);
@@ -339,7 +322,7 @@ class RequestRouter : public RequestRouterInterface {
 
     // 2. Block untill all the futures are exhausted
     do {
-      AwaitOnResponses(state, responses);
+      DriveReadResponses(state, responses);
     } while (!state.requests.empty());
     std::vector<msgs::ExpandOneResultRow> result_rows;
     const auto total_row_count = std::accumulate(responses.begin(), responses.end(), 0,
@@ -369,8 +352,6 @@ class RequestRouter : public RequestRouterInterface {
   }
 
  private:
-  enum class PaginatedResponseState { Pending, PartiallyFinished };
-
   std::vector<VertexAccessor> PostProcess(std::vector<msgs::ScanVerticesResponse> &&responses) const {
     std::vector<VertexAccessor> accessors;
     for (auto &response : responses) {
@@ -602,33 +583,8 @@ class RequestRouter : public RequestRouterInterface {
     }
   }
 
-  void AwaitOnResponses(ExecutionState<msgs::CreateVerticesRequest> &state,
-                        std::vector<msgs::CreateVerticesResponse> &responses) {
-    for (auto &request : state.requests) {
-      auto &storage_client = GetStorageClientForShard(request.shard);
-
-      auto poll_result = storage_client.AwaitAsyncWriteRequest(request.async_request_token.value());
-      while (!poll_result) {
-        poll_result = storage_client.AwaitAsyncWriteRequest(request.async_request_token.value());
-      }
-
-      if (poll_result->HasError()) {
-        throw std::runtime_error("CreateVertices request timed out");
-      }
-
-      msgs::WriteResponses response_variant = poll_result->GetValue();
-      auto response = std::get<msgs::CreateVerticesResponse>(response_variant);
-
-      if (response.error) {
-        throw std::runtime_error("CreateVertices request did not succeed");
-      }
-      responses.push_back(response);
-    }
-    state.requests.clear();
-  }
-
-  void AwaitOnResponses(ExecutionState<msgs::ExpandOneRequest> &state,
-                        std::vector<msgs::ExpandOneResponse> &responses) {
+  template <typename RequestT, typename ResponseT>
+  void DriveReadResponses(ExecutionState<RequestT> &state, std::vector<ResponseT> &responses) {
     for (auto &request : state.requests) {
       auto &storage_client = GetStorageClientForShard(request.shard);
 
@@ -638,17 +594,13 @@ class RequestRouter : public RequestRouterInterface {
       }
 
       if (poll_result->HasError()) {
-        throw std::runtime_error("ExpandOne request timed out");
+        throw std::runtime_error("RequestRouter Read request timed out");
       }
 
       msgs::ReadResponses response_variant = poll_result->GetValue();
-      auto response = std::get<msgs::ExpandOneResponse>(response_variant);
-      // -NOTE-
-      // Currently a boolean flag for signaling the overall success of the
-      // ExpandOne request does not exist. But it should, so here we assume
-      // that it is already in place.
+      auto response = std::get<ResponseT>(response_variant);
       if (response.error) {
-        throw std::runtime_error("ExpandOne request did not succeed");
+        throw std::runtime_error("RequestRouter Read request did not succeed");
       }
 
       responses.push_back(std::move(response));
@@ -656,54 +608,29 @@ class RequestRouter : public RequestRouterInterface {
     state.requests.clear();
   }
 
-  void AwaitOnPaginatedRequests(ExecutionState<msgs::ScanVerticesRequest> &state,
-                                std::vector<msgs::ScanVerticesResponse> &responses,
-                                std::map<Shard, PaginatedResponseState> &paginated_response_tracker) {
-    std::vector<int> to_erase{};
-
-    for (int i = 0; i < state.requests.size(); i++) {
-      auto &request = state.requests[i];
-      // only operate on paginated requests
-      if (paginated_response_tracker.at(request.shard) != PaginatedResponseState::Pending) {
-        continue;
-      }
-
+  template <typename RequestT, typename ResponseT>
+  void DriveWriteResponses(ExecutionState<RequestT> &state, std::vector<ResponseT> &responses) {
+    for (auto &request : state.requests) {
       auto &storage_client = GetStorageClientForShard(request.shard);
 
-      // drive it to completion
-      auto await_result = storage_client.AwaitAsyncReadRequest(request.async_request_token.value());
-      while (!await_result) {
-        await_result = storage_client.AwaitAsyncReadRequest(request.async_request_token.value());
+      auto poll_result = storage_client.AwaitAsyncWriteRequest(request.async_request_token.value());
+      while (!poll_result) {
+        poll_result = storage_client.AwaitAsyncWriteRequest(request.async_request_token.value());
       }
 
-      if (await_result->HasError()) {
-        throw std::runtime_error("ScanAll request timed out");
+      if (poll_result->HasError()) {
+        throw std::runtime_error("RequestRouter Write request timed out");
       }
 
-      msgs::ReadResponses read_response_variant = await_result->GetValue();
-      auto response = std::get<msgs::ScanVerticesResponse>(read_response_variant);
+      msgs::WriteResponses response_variant = poll_result->GetValue();
+      auto response = std::get<ResponseT>(response_variant);
       if (response.error) {
-        throw std::runtime_error("ScanAll request did not succeed");
-      }
-
-      if (!response.next_start_id) {
-        paginated_response_tracker.erase(request.shard);
-        to_erase.push_back(i);
-      } else {
-        request.request.start_id.second = response.next_start_id->second;
-        paginated_response_tracker[request.shard] = PaginatedResponseState::PartiallyFinished;
+        throw std::runtime_error("RequestRouter Write request did not succeed");
       }
 
       responses.push_back(std::move(response));
-
-      // reverse sort to_erase to remove requests in reverse order for correctness
-      std::sort(to_erase.begin(), to_erase.end(), std::greater<>());
-
-      auto requests_begin = state.requests.begin();
-      for (int i : to_erase) {
-        state.requests.erase(requests_begin + i);
-      }
     }
+    state.requests.clear();
   }
 
   void SetUpNameIdMappers() {

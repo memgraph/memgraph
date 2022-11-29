@@ -73,10 +73,7 @@ class RsmClient {
     size_t addr_index = io_.Rand(addr_distrib);
     leader_ = server_addrs_[addr_index];
 
-    spdlog::debug(
-        "client NOT redirected to leader server despite our success failing to be processed (it probably was sent to "
-        "a RSM Candidate) trying a random one at index {} with address {}",
-        addr_index, leader_.ToString());
+    spdlog::debug("selecting a random leader at index {} with address {}", addr_index, leader_.ToString());
   }
 
   template <typename ResponseT>
@@ -227,6 +224,7 @@ class RsmClient {
 
       if (read_get_response.success) {
         async_reads_.erase(token.GetId());
+        spdlog::debug("returning read_return for RSM request");
         return std::move(read_get_response.read_return);
       }
     } else {
