@@ -180,7 +180,7 @@ class DistributedCreateNodeCursor : public Cursor {
       auto &request_router = context.request_router;
       {
         SCOPED_REQUEST_WAIT_PROFILE;
-        request_router->Request(state_, NodeCreationInfoToRequest(context, frame));
+        request_router->CreateVertices(NodeCreationInfoToRequest(context, frame));
       }
       PlaceNodeOnTheFrame(frame, context);
       return true;
@@ -191,7 +191,7 @@ class DistributedCreateNodeCursor : public Cursor {
 
   void Shutdown() override { input_cursor_->Shutdown(); }
 
-  void Reset() override { state_ = {}; }
+  void Reset() override {}
 
   void PlaceNodeOnTheFrame(Frame &frame, ExecutionContext &context) {
     // TODO(kostasrim) Make this work with batching
@@ -252,7 +252,6 @@ class DistributedCreateNodeCursor : public Cursor {
   std::vector<const NodeCreationInfo *> nodes_info_;
   std::vector<std::vector<std::pair<storage::v3::PropertyId, msgs::Value>>> src_vertex_props_;
   std::vector<msgs::PrimaryKey> primary_keys_;
-  ExecutionState<msgs::CreateVerticesRequest> state_;
 };
 
 bool Once::OnceCursor::Pull(Frame &, ExecutionContext &context) {
@@ -382,7 +381,6 @@ class ScanAllCursor : public Cursor {
   std::optional<decltype(vertices_.value().begin())> vertices_it_;
   const char *op_name_;
   std::vector<msgs::ScanVerticesResponse> current_batch;
-  ExecutionState<msgs::ScanVerticesRequest> request_state;
 };
 
 class DistributedScanAllAndFilterCursor : public Cursor {
@@ -401,14 +399,21 @@ class DistributedScanAllAndFilterCursor : public Cursor {
     ResetExecutionState();
   }
 
+  enum class State : int8_t { INITIALIZING, COMPLETED };
+
   using VertexAccessor = accessors::VertexAccessor;
 
   bool MakeRequest(RequestRouterInterface &request_router, ExecutionContext &context) {
     {
       SCOPED_REQUEST_WAIT_PROFILE;
-      current_batch = request_router.Request(request_state_);
+      std::optional<std::string> request_label = std::nullopt;
+      if (label_.has_value()) {
+        request_label = request_router.LabelToName(*label_);
+      }
+      current_batch = request_router.ScanVertices(request_label);
     }
     current_vertex_it = current_batch.begin();
+    request_state_ = State::COMPLETED;
     return !current_batch.empty();
   }
 
@@ -420,19 +425,15 @@ class DistributedScanAllAndFilterCursor : public Cursor {
       if (MustAbort(context)) {
         throw HintedAbortError();
       }
-      using State = ExecutionState<msgs::ScanVerticesRequest>;
 
-      if (request_state_.state == State::INITIALIZING) {
+      if (request_state_ == State::INITIALIZING) {
         if (!input_cursor_->Pull(frame, context)) {
           return false;
         }
       }
 
-      request_state_.label =
-          label_.has_value() ? std::make_optional(request_router.LabelToName(*label_)) : std::nullopt;
-
       if (current_vertex_it == current_batch.end() &&
-          (request_state_.state == State::COMPLETED || !MakeRequest(request_router, context))) {
+          (request_state_ == State::COMPLETED || !MakeRequest(request_router, context))) {
         ResetExecutionState();
         continue;
       }
@@ -448,7 +449,7 @@ class DistributedScanAllAndFilterCursor : public Cursor {
   void ResetExecutionState() {
     current_batch.clear();
     current_vertex_it = current_batch.end();
-    request_state_ = ExecutionState<msgs::ScanVerticesRequest>{};
+    request_state_ = State::INITIALIZING;
   }
 
   void Reset() override {
@@ -462,7 +463,7 @@ class DistributedScanAllAndFilterCursor : public Cursor {
   const char *op_name_;
   std::vector<VertexAccessor> current_batch;
   std::vector<VertexAccessor>::iterator current_vertex_it;
-  ExecutionState<msgs::ScanVerticesRequest> request_state_;
+  State request_state_ = State::INITIALIZING;
   std::optional<storage::v3::LabelId> label_;
   std::optional<std::pair<storage::v3::PropertyId, Expression *>> property_expression_pair_;
   std::optional<std::vector<Expression *>> filter_expressions_;
@@ -2377,7 +2378,7 @@ class DistributedCreateExpandCursor : public Cursor {
     ResetExecutionState();
     {
       SCOPED_REQUEST_WAIT_PROFILE;
-      request_router->Request(state_, ExpandCreationInfoToRequest(context, frame));
+      request_router->CreateExpand(ExpandCreationInfoToRequest(context, frame));
     }
     return true;
   }
@@ -2457,11 +2458,10 @@ class DistributedCreateExpandCursor : public Cursor {
   }
 
  private:
-  void ResetExecutionState() { state_ = {}; }
+  void ResetExecutionState() {}
 
   const UniqueCursorPtr input_cursor_;
   const CreateExpand &self_;
-  ExecutionState<msgs::CreateExpandRequest> state_;
 };
 
 class DistributedExpandCursor : public Cursor {
@@ -2508,8 +2508,7 @@ class DistributedExpandCursor : public Cursor {
     request.edge_properties.emplace();
     request.src_vertices.push_back(get_dst_vertex(edge, direction));
     request.direction = (direction == EdgeAtom::Direction::IN) ? msgs::EdgeDirection::OUT : msgs::EdgeDirection::IN;
-    ExecutionState<msgs::ExpandOneRequest> request_state;
-    auto result_rows = context.request_router->Request(request_state, std::move(request));
+    auto result_rows = context.request_router->ExpandOne(std::move(request));
     MG_ASSERT(result_rows.size() == 1);
     auto &result_row = result_rows.front();
     frame[self_.common_.node_symbol] = accessors::VertexAccessor(
@@ -2534,10 +2533,9 @@ class DistributedExpandCursor : public Cursor {
       // to not fetch any properties of the edges
       request.edge_properties.emplace();
       request.src_vertices.push_back(vertex.Id());
-      ExecutionState<msgs::ExpandOneRequest> request_state;
-      auto result_rows = std::invoke([&context, &request_state, &request]() mutable {
+      auto result_rows = std::invoke([&context, &request]() mutable {
         SCOPED_REQUEST_WAIT_PROFILE;
-        return context.request_router->Request(request_state, std::move(request));
+        return context.request_router->ExpandOne(std::move(request));
       });
       MG_ASSERT(result_rows.size() == 1);
       auto &result_row = result_rows.front();
