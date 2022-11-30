@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <exception>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <limits>
 #include <map>
@@ -52,6 +53,7 @@
 #include "query/procedure/module.hpp"
 #include "query/procedure/py_module.hpp"
 #include "requests/requests.hpp"
+#include "spdlog/spdlog.h"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/view.hpp"
@@ -422,6 +424,37 @@ void InitializeLogger() {
         FLAGS_log_file, local_time->tm_hour, local_time->tm_min, false, log_retention_count));
   }
   CreateLoggerFromSink(sinks, ParseLogLevel());
+}
+
+std::pair<std::string, std::string> LoadUsernameAndPassword(std::string pass_file) {
+  std::ifstream file(pass_file);
+  if (file.fail()) {
+    spdlog::warn("Problem with opening MG_PASSFILE, memgraph server will start without user");
+    return {"", ""};
+  }
+  std::vector<std::string> result;
+
+  std::string line;
+  std::getline(file, line);
+  size_t pos = 0;
+  std::string token;
+  std::string delimiter = ":";
+  while ((pos = line.find(delimiter)) != std::string::npos) {
+    token = line.substr(0, pos);
+    result.push_back(token);
+    line.erase(0, pos + delimiter.length());
+  }
+  result.push_back(line);
+  file.close();
+
+  if (result.size() != 2) {
+    spdlog::warn(
+        "Wrong data format. Data should be store in format: username:password, memgraph server will start without "
+        "user");
+    return {"", ""};
+  }
+
+  return {result[0], result[1]};
 }
 
 void AddLoggerSink(spdlog::sink_ptr new_sink) {
@@ -879,6 +912,19 @@ int main(int argc, char **argv) {
   memgraph::glue::AuthChecker auth_checker{&auth};
   interpreter_context.auth = &auth_handler;
   interpreter_context.auth_checker = &auth_checker;
+
+  // auto *maybe_username = std::getenv("MG_USER");
+  // auto *maybe_password = std::getenv("MG_PASSWORD");
+  auto *maybe_pass_file = std::getenv("MG_PASSFILE");
+  // if (maybe_username && maybe_password) {
+  //   auth_handler.CreateUser(maybe_username, maybe_password);
+  // } else
+  if (maybe_pass_file) {
+    auto [username, password] = LoadUsernameAndPassword(maybe_pass_file);
+    if (!username.empty() && !password.empty()) {
+      auth_handler.CreateUser(username, password);
+    }
+  }
 
   {
     // Triggers can execute query procedures, so we need to reload the modules first and then
