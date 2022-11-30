@@ -688,7 +688,7 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory)),
       frame_(plan->symbol_table().max_position(), execution_memory),
-      multi_frame_(frame_, kNumberOfFramesInMultiframe, execution_memory),
+      multi_frame_(plan->symbol_table().max_position(), kNumberOfFramesInMultiframe, execution_memory),
       memory_limit_(memory_limit) {
   ctx_.db_accessor = dba;
   ctx_.symbol_table = plan->symbol_table();

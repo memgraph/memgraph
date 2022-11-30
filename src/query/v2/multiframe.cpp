@@ -26,12 +26,11 @@ namespace memgraph::query::v2 {
 // static_assert(std::forward_iterator<InvalidFramesPopulator::Iterator> &&
 //               std::equality_comparable<InvalidFramesPopulator::Iterator>);
 
-MultiFrame::MultiFrame(FrameWithValidity default_frame, size_t number_of_frames,
-                       utils::MemoryResource *execution_memory)
-    : default_frame_(default_frame),
-      frames_(utils::pmr::vector<FrameWithValidity>(number_of_frames, default_frame, execution_memory)) {
+MultiFrame::MultiFrame(size_t size_of_frame, size_t number_of_frames, utils::MemoryResource *execution_memory)
+    : default_frame_(FrameWithValidity(size_of_frame, execution_memory)),
+      frames_(utils::pmr::vector<FrameWithValidity>(number_of_frames, default_frame_, execution_memory)) {
   MG_ASSERT(number_of_frames > 0);
-  MG_ASSERT(!default_frame.IsValid());
+  MG_ASSERT(!default_frame_.IsValid());
 }
 
 MultiFrame::MultiFrame(const MultiFrame &other) : default_frame_(other.default_frame_) {
