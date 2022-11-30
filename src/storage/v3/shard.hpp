@@ -308,9 +308,6 @@ class Shard final {
     void Abort();
 
    private:
-    /// @throw std::bad_alloc
-    VertexAccessor CreateVertex(Gid gid, LabelId primary_label);
-
     Shard *shard_;
     Transaction *transaction_;
     Config::Items config_;

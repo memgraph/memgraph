@@ -394,18 +394,13 @@ PropertyValue VertexAccessor::GetPropertyValue(PropertyId property, View view) c
     return value;
   }
   // Find PropertyId index in keystore
-  size_t property_index{0};
-  for (; property_index < schema->second.size(); ++property_index) {
+  for (size_t property_index{0}; property_index < schema->second.size(); ++property_index) {
     if (schema->second[property_index].property_id == property) {
-      break;
+      return vertex_->keys[property_index];
     }
   }
 
-  value = vertex_->keys[property_index];
-  if (value.IsNull()) {
-    value = vertex_->properties.GetProperty(property);
-  }
-  return value;
+  return value = vertex_->properties.GetProperty(property);
 }
 
 ShardResult<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view) const {
@@ -443,8 +438,12 @@ ShardResult<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View
         break;
     }
   });
-  if (!exists) return SHARD_ERROR(ErrorCode::NONEXISTENT_OBJECT);
-  if (!for_deleted_ && deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
+  if (!exists) {
+    return SHARD_ERROR(ErrorCode::NONEXISTENT_OBJECT);
+  }
+  if (!for_deleted_ && deleted) {
+    return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
+  }
   return std::move(value);
 }
 
