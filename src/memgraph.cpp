@@ -921,13 +921,12 @@ int main(int argc, char **argv) {
   interpreter_context.auth = &auth_handler;
   interpreter_context.auth_checker = &auth_checker;
 
-  // auto *maybe_username = std::getenv("MG_USER");
-  // auto *maybe_password = std::getenv("MG_PASSWORD");
+  auto *maybe_username = std::getenv("MG_USER");
+  auto *maybe_password = std::getenv("MG_PASSWORD");
   auto *maybe_pass_file = std::getenv("MG_PASSFILE");
-  // if (maybe_username && maybe_password) {
-  //   auth_handler.CreateUser(maybe_username, maybe_password);
-  // } else
-  if (maybe_pass_file) {
+  if (maybe_username && maybe_password) {
+    auth_handler.CreateUser(maybe_username, maybe_password);
+  } else if (maybe_pass_file) {
     auto [username, password] = LoadUsernameAndPassword(maybe_pass_file);
     if (!username.empty() && !password.empty()) {
       auth_handler.CreateUser(username, password);
