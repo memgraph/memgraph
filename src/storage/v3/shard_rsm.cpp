@@ -533,7 +533,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::GetPropertiesRequest &&req) {
     std::vector<std::pair<PropertyId, Value>> result;
     result.reserve(value.size());
     for (auto &[id, val] : value) {
-      result.push_back({id, std::move(val)});
+      result.emplace_back(std::make_pair(id, std::move(val)));
     }
     return result;
   };
