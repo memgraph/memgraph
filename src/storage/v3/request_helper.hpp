@@ -32,7 +32,7 @@ using EdgeFiller =
 using msgs::Value;
 
 template <typename T>
-concept ObjectAccessor = utils::SameAsAnyOf<T, VertexAccessor, EdgeAccessor, std::pair<VertexAccessor, EdgeAccessor>>;
+concept OrderableObject = utils::SameAsAnyOf<T, VertexAccessor, EdgeAccessor, std::pair<VertexAccessor, EdgeAccessor>>;
 
 inline bool TypedValueCompare(const TypedValue &a, const TypedValue &b) {
   // in ordering null comes after everything else
@@ -126,7 +126,7 @@ class TypedValueVectorCompare final {
   std::vector<Ordering> ordering_;
 };
 
-template <ObjectAccessor TObjectAccessor>
+template <OrderableObject TObjectAccessor>
 struct Element {
   std::vector<TypedValue> properties_order_by;
   TObjectAccessor object_acc;
@@ -164,9 +164,6 @@ std::vector<Element<VertexAccessor>> OrderByVertices(DbAccessor &dba, TIterable 
   return ordered;
 }
 
-template <typename T>
-concept EdgeObjectAccessor = utils::SameAsAnyOf<T, EdgeAccessor, std::pair<VertexAccessor, EdgeAccessor>>;
-
 std::vector<Element<EdgeAccessor>> OrderByEdges(DbAccessor &dba, std::vector<EdgeAccessor> &iterable,
                                                 std::vector<msgs::OrderBy> &order_by_edges,
                                                 const VertexAccessor &vertex_acc);
@@ -198,9 +195,9 @@ std::vector<TypedValue> EvaluateEdgeExpressions(DbAccessor &dba, const VertexAcc
                                                 const std::vector<std::string> &expressions);
 
 template <typename T>
-concept TAccessor = utils::SameAsAnyOf<T, VertexAccessor, EdgeAccessor>;
+concept PropertiesAccessor = utils::SameAsAnyOf<T, VertexAccessor, EdgeAccessor>;
 
-template <typename TAccessor>
+template <PropertiesAccessor TAccessor>
 ShardResult<std::map<PropertyId, Value>> CollectSpecificPropertiesFromAccessor(const TAccessor &acc,
                                                                                const std::vector<PropertyId> &props,
                                                                                View view) {
@@ -222,7 +219,7 @@ ShardResult<std::map<PropertyId, Value>> CollectSpecificPropertiesFromAccessor(c
 ShardResult<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(const VertexAccessor &acc, View view,
                                                                           const Schemas::Schema &schema);
 namespace impl {
-template <typename TAccessor>
+template <PropertiesAccessor TAccessor>
 ShardResult<std::map<PropertyId, Value>> CollectAllPropertiesImpl(const TAccessor &acc, View view) {
   std::map<PropertyId, Value> ret;
   auto props = acc.Properties(view);
@@ -240,7 +237,7 @@ ShardResult<std::map<PropertyId, Value>> CollectAllPropertiesImpl(const TAccesso
 }
 }  // namespace impl
 
-template <typename TAccessor>
+template <PropertiesAccessor TAccessor>
 ShardResult<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(const TAccessor &acc, View view) {
   return impl::CollectAllPropertiesImpl<TAccessor>(acc, view);
 }

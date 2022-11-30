@@ -517,9 +517,12 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CommitRequest &&req) {
 
 msgs::ReadResponses ShardRsm::HandleRead(msgs::GetPropertiesRequest &&req) {
   if (!req.vertex_ids.empty() && !req.vertices_and_edges.empty()) {
-    auto error = CreateErrorResponse(
-        {common::ErrorCode::VERTEX_HAS_EDGES, std::experimental::source_location::current()}, req.transaction_id, "");
+    auto shard_error = SHARD_ERROR(ErrorCode::NONEXISTENT_OBJECT);
+    auto error = CreateErrorResponse(shard_error, req.transaction_id, "");
     return msgs::GetPropertiesResponse{.error = {}};
+  }
+  if (req.property_ids && req.property_ids->empty()) {
+    return {};
   }
 
   auto shard_acc = shard_->Access(req.transaction_id);
@@ -535,8 +538,9 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::GetPropertiesRequest &&req) {
     return result;
   };
 
-  auto collect_props = [&req](const VertexAccessor &v_acc, const std::optional<EdgeAccessor> &e_acc) {
-    if (req.property_ids) {
+  auto collect_props = [&req](const VertexAccessor &v_acc,
+                              const std::optional<EdgeAccessor> &e_acc) -> ShardResult<std::map<PropertyId, Value>> {
+    if (!req.property_ids) {
       if (e_acc) {
         return CollectAllPropertiesFromAccessor(*e_acc, view);
       }
@@ -544,9 +548,9 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::GetPropertiesRequest &&req) {
     }
 
     if (e_acc) {
-      return CollectSpecificPropertiesFromAccessor(v_acc, *req.property_ids, view);
+      return CollectSpecificPropertiesFromAccessor(*e_acc, *req.property_ids, view);
     }
-    return CollectSpecificPropertiesFromAccessor(*e_acc, *req.property_ids, view);
+    return CollectSpecificPropertiesFromAccessor(v_acc, *req.property_ids, view);
   };
 
   auto find_edge = [](const VertexAccessor &v, msgs::EdgeId e) -> std::optional<EdgeAccessor> {
@@ -577,9 +581,9 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::GetPropertiesRequest &&req) {
       return {maybe_id.GetError()};
     }
     const auto &id = maybe_id.GetValue();
-    std::optional<msgs::EdgeId> e_type;
+    std::optional<msgs::EdgeId> e_id;
     if (e_acc) {
-      e_type = msgs::EdgeId{e_acc->Gid().AsUint()};
+      e_id = msgs::EdgeId{e_acc->Gid().AsUint()};
     }
     msgs::VertexId v_id{msgs::Label{id.primary_label}, ConvertValueVector(id.primary_key)};
     auto maybe_props = collect_props(v_acc, e_acc);
@@ -587,7 +591,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::GetPropertiesRequest &&req) {
       return {maybe_props.GetError()};
     }
     auto props = transform_props(std::move(maybe_props.GetValue()));
-    auto result = msgs::GetPropertiesResultRow{.vertex = std::move(v_id), .edge = e_type, .props = std::move(props)};
+    auto result = msgs::GetPropertiesResultRow{.vertex = std::move(v_id), .edge = e_id, .props = std::move(props)};
     if (has_expr_to_evaluate) {
       std::vector<Value> e_results;
       if (e_acc) {
@@ -610,11 +614,11 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::GetPropertiesRequest &&req) {
     return limit;
   };
 
-  auto collect_response = [get_limit, &req](auto &elements, auto result_row_functor) {
+  auto collect_response = [get_limit, &req](auto &elements, auto create_result_row) {
     msgs::GetPropertiesResponse response;
     const auto limit = get_limit(elements);
     for (size_t index = 0; index != limit; ++index) {
-      auto result_row = result_row_functor(elements[index]);
+      auto result_row = create_result_row(elements[index]);
       if (result_row.HasError()) {
         return msgs::GetPropertiesResponse{.error = CreateErrorResponse(result_row.GetError(), req.transaction_id, "")};
       }
@@ -626,15 +630,15 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::GetPropertiesRequest &&req) {
   std::vector<VertexAccessor> vertices;
   std::vector<EdgeAccessor> edges;
 
-  auto parse_and_filter = [dba, &vertices](auto &cont, auto projection, auto filter, auto maybe_get_edge) mutable {
-    for (const auto &elem : cont) {
+  auto parse_and_filter = [dba, &vertices](auto &container, auto projection, auto filter, auto maybe_get_edge) mutable {
+    for (const auto &elem : container) {
       const auto &[label, pk_v] = projection(elem);
       auto pk = ConvertPropertyVector(pk_v);
       auto v_acc = dba.FindVertex(pk, view);
       if (!v_acc || filter(*v_acc, maybe_get_edge(elem))) {
         continue;
       }
-      vertices.push_back({*v_acc});
+      vertices.push_back(*v_acc);
     }
   };
   auto identity = [](auto &elem) { return elem; };
@@ -648,11 +652,15 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::GetPropertiesRequest &&req) {
 
   auto filter_edge = [dba, &edges, &req, find_edge](const auto &acc, const auto &edge) mutable {
     auto e_acc = find_edge(acc, edge);
-    if (!req.filter || !e_acc || !FilterOnEdge(dba, acc, *e_acc, {*req.filter})) {
-      return false;
+    if (!e_acc) {
+      return true;
+    }
+
+    if (req.filter && !FilterOnEdge(dba, acc, *e_acc, {*req.filter})) {
+      return true;
     }
     edges.push_back(*e_acc);
-    return true;
+    return false;
   };
 
   // Handler logic here
@@ -673,6 +681,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::GetPropertiesRequest &&req) {
     return collect_response(vertices,
                             [emplace_result_row](auto &acc) mutable { return emplace_result_row(acc, std::nullopt); });
   }
+
   if (!req.order_by.empty()) {
     auto elements = OrderByEdges(dba, edges, req.order_by, vertices);
     return collect_response(elements, [emplace_result_row](auto &element) mutable {

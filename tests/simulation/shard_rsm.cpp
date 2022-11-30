@@ -489,7 +489,9 @@ msgs::GetPropertiesResponse AttemptToGetProperties(ShardClient &client, std::vec
                                                    std::optional<std::string> order_by = std::nullopt) {
   msgs::GetPropertiesRequest req{};
   req.transaction_id.logical_id = GetTransactionId();
-  req.property_ids = std::move(properties);
+  if (!properties.empty()) {
+    req.property_ids = std::move(properties);
+  }
 
   if (filter_prop) {
     std::string filter_expr = (!edge) ? "MG_SYMBOL_NODE.prop1 >= " : "MG_SYMBOL_EDGE.e_prop = ";
@@ -1294,13 +1296,15 @@ void TestGetProperties(ShardClient &client) {
   const auto prop_id_5 = PropertyId::FromUint(5);
   // Vertices
   {
-    // No properties
-    const auto result = AttemptToGetProperties(client, {}, {v_id, v_id_2}, {}, std::nullopt, unique_prop_val_2);
+    const auto result = AttemptToGetProperties(client, {}, {v_id, v_id_2}, {});
     MG_ASSERT(!result.error);
-    MG_ASSERT(result.result_row.empty());
+    MG_ASSERT(result.result_row.size() == 2);
+    for (const auto &elem : result.result_row) {
+      MG_ASSERT(elem.props.size() == 3);
+    }
   }
   {
-    // All properties
+    // Specific properties
     const auto result = AttemptToGetProperties(client, {prop_id_2, prop_id_4, prop_id_5}, {v_id, v_id_2, v_id_3}, {});
     MG_ASSERT(!result.error);
     MG_ASSERT(!result.result_row.empty());
@@ -1393,11 +1397,14 @@ void TestGetProperties(ShardClient &client) {
                                            unique_edge_prop_id, edge_prop_val_2, {edge_type_id}));
   const auto edge_prop_id = PropertyId::FromUint(unique_edge_prop_id);
   std::vector<msgs::EdgeId> edge_ids = {{edge_gid}, {edge_gid_2}};
-  // no properties
+  // all properties
   {
     const auto result = AttemptToGetProperties(client, {}, {v_id_2, v_id_3}, edge_ids);
     MG_ASSERT(!result.error);
-    MG_ASSERT(result.result_row.empty());
+    MG_ASSERT(result.result_row.size() == 2);
+    for (const auto &elem : result.result_row) {
+      MG_ASSERT(elem.props.size() == 1);
+    }
   }
   // properties for two vertices
   {

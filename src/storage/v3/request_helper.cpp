@@ -14,7 +14,6 @@
 #include <iterator>
 #include <vector>
 
-#include "pretty_print_ast_to_original_expression.hpp"
 #include "storage/v3/bindings/db_accessor.hpp"
 #include "storage/v3/bindings/pretty_print_ast_to_original_expression.hpp"
 #include "storage/v3/expr.hpp"
@@ -245,7 +244,7 @@ ShardResult<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(const 
 
   auto pks = PrimaryKeysFromAccessor(acc, view, schema);
   if (pks) {
-    ret.GetValue().merge(*pks);
+    ret.GetValue().merge(std::move(*pks));
   }
 
   return ret;
