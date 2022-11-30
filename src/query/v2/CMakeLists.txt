@@ -11,7 +11,6 @@ set(mg_query_v2_sources
     cypher_query_interpreter.cpp
     frontend/semantic/required_privileges.cpp
     frontend/stripped.cpp
-    interpret/awesome_memgraph_functions.cpp
     interpreter.cpp
     metadata.cpp
     plan/operator.cpp
@@ -34,7 +33,7 @@ target_include_directories(mg-query-v2 PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_include_directories(mg-query-v2 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/bindings)
 target_link_libraries(mg-query-v2 dl cppitertools Boost::headers)
 target_link_libraries(mg-query-v2 mg-integrations-pulsar mg-integrations-kafka mg-storage-v3 mg-license mg-utils mg-kvstore mg-memory mg-coordinator)
-target_link_libraries(mg-query-v2 mg-expr)
+target_link_libraries(mg-query-v2 mg-expr mg-functions)
 
 if(NOT "${MG_PYTHON_PATH}" STREQUAL "")
     set(Python3_ROOT_DIR "${MG_PYTHON_PATH}")

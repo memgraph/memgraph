@@ -18,8 +18,8 @@
 #include "common/errors.hpp"
 #include "coordinator/shard_map.hpp"
 #include "query/v2/accessors.hpp"
+#include "query/v2/request_router.hpp"
 #include "query/v2/requests.hpp"
-#include "query/v2/shard_request_manager.hpp"
 #include "storage/v3/edge_accessor.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/shard.hpp"
@@ -72,7 +72,7 @@ query::v2::TypedValue ToTypedValue(const Value &value) {
 }
 
 communication::bolt::Vertex ToBoltVertex(const query::v2::accessors::VertexAccessor &vertex,
-                                         const msgs::ShardRequestManagerInterface *shard_request_manager,
+                                         const query::v2::RequestRouterInterface *request_router,
                                          storage::v3::View /*view*/) {
   auto id = communication::bolt::Id::FromUint(0);
 
@@ -80,43 +80,43 @@ communication::bolt::Vertex ToBoltVertex(const query::v2::accessors::VertexAcces
   std::vector<std::string> new_labels;
   new_labels.reserve(labels.size());
   for (const auto &label : labels) {
-    new_labels.push_back(shard_request_manager->LabelToName(label.id));
+    new_labels.push_back(request_router->LabelToName(label.id));
   }
 
   auto properties = vertex.Properties();
   std::map<std::string, Value> new_properties;
   for (const auto &[prop, property_value] : properties) {
-    new_properties[shard_request_manager->PropertyToName(prop)] = ToBoltValue(property_value);
+    new_properties[request_router->PropertyToName(prop)] = ToBoltValue(property_value);
   }
   return communication::bolt::Vertex{id, new_labels, new_properties};
 }
 
 communication::bolt::Edge ToBoltEdge(const query::v2::accessors::EdgeAccessor &edge,
-                                     const msgs::ShardRequestManagerInterface *shard_request_manager,
+                                     const query::v2::RequestRouterInterface *request_router,
                                      storage::v3::View /*view*/) {
   // TODO(jbajic) Fix bolt communication
   auto id = communication::bolt::Id::FromUint(0);
   auto from = communication::bolt::Id::FromUint(0);
   auto to = communication::bolt::Id::FromUint(0);
-  const auto &type = shard_request_manager->EdgeTypeToName(edge.EdgeType());
+  const auto &type = request_router->EdgeTypeToName(edge.EdgeType());
 
   auto properties = edge.Properties();
   std::map<std::string, Value> new_properties;
   for (const auto &[prop, property_value] : properties) {
-    new_properties[shard_request_manager->PropertyToName(prop)] = ToBoltValue(property_value);
+    new_properties[request_router->PropertyToName(prop)] = ToBoltValue(property_value);
   }
   return communication::bolt::Edge{id, from, to, type, new_properties};
 }
 
 communication::bolt::Path ToBoltPath(const query::v2::accessors::Path & /*edge*/,
-                                     const msgs::ShardRequestManagerInterface * /*shard_request_manager*/,
+                                     const query::v2::RequestRouterInterface * /*request_router*/,
                                      storage::v3::View /*view*/) {
   // TODO(jbajic) Fix bolt communication
   MG_ASSERT(false, "Path is unimplemented!");
   return {};
 }
 
-Value ToBoltValue(const query::v2::TypedValue &value, const msgs::ShardRequestManagerInterface *shard_request_manager,
+Value ToBoltValue(const query::v2::TypedValue &value, const query::v2::RequestRouterInterface *request_router,
                   storage::v3::View view) {
   switch (value.type()) {
     case query::v2::TypedValue::Type::Null:
@@ -133,7 +133,7 @@ Value ToBoltValue(const query::v2::TypedValue &value, const msgs::ShardRequestMa
       std::vector<Value> values;
       values.reserve(value.ValueList().size());
       for (const auto &v : value.ValueList()) {
-        auto value = ToBoltValue(v, shard_request_manager, view);
+        auto value = ToBoltValue(v, request_router, view);
         values.emplace_back(std::move(value));
       }
       return {std::move(values)};
@@ -141,21 +141,21 @@ Value ToBoltValue(const query::v2::TypedValue &value, const msgs::ShardRequestMa
     case query::v2::TypedValue::Type::Map: {
       std::map<std::string, Value> map;
       for (const auto &kv : value.ValueMap()) {
-        auto value = ToBoltValue(kv.second, shard_request_manager, view);
+        auto value = ToBoltValue(kv.second, request_router, view);
         map.emplace(kv.first, std::move(value));
       }
       return {std::move(map)};
     }
     case query::v2::TypedValue::Type::Vertex: {
-      auto vertex = ToBoltVertex(value.ValueVertex(), shard_request_manager, view);
+      auto vertex = ToBoltVertex(value.ValueVertex(), request_router, view);
       return {std::move(vertex)};
     }
     case query::v2::TypedValue::Type::Edge: {
-      auto edge = ToBoltEdge(value.ValueEdge(), shard_request_manager, view);
+      auto edge = ToBoltEdge(value.ValueEdge(), request_router, view);
       return {std::move(edge)};
     }
     case query::v2::TypedValue::Type::Path: {
-      auto path = ToBoltPath(value.ValuePath(), shard_request_manager, view);
+      auto path = ToBoltPath(value.ValuePath(), request_router, view);
       return {std::move(path)};
     }
     case query::v2::TypedValue::Type::Date:

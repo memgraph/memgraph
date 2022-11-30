@@ -12,12 +12,12 @@
 #pragma once
 #include "bindings/typed_value.hpp"
 #include "query/v2/accessors.hpp"
+#include "query/v2/request_router.hpp"
 #include "query/v2/requests.hpp"
-#include "query/v2/shard_request_manager.hpp"
 
 namespace memgraph::query::v2 {
 
-inline TypedValue ValueToTypedValue(const msgs::Value &value, msgs::ShardRequestManagerInterface *manager) {
+inline TypedValue ValueToTypedValue(const msgs::Value &value, RequestRouterInterface *request_router) {
   using Value = msgs::Value;
   switch (value.type) {
     case Value::Type::Null:
@@ -35,7 +35,7 @@ inline TypedValue ValueToTypedValue(const msgs::Value &value, msgs::ShardRequest
       std::vector<TypedValue> dst;
       dst.reserve(lst.size());
       for (const auto &elem : lst) {
-        dst.push_back(ValueToTypedValue(elem, manager));
+        dst.push_back(ValueToTypedValue(elem, request_router));
       }
       return TypedValue(std::move(dst));
     }
@@ -43,18 +43,22 @@ inline TypedValue ValueToTypedValue(const msgs::Value &value, msgs::ShardRequest
       const auto &value_map = value.map_v;
       std::map<std::string, TypedValue> dst;
       for (const auto &[key, val] : value_map) {
-        dst[key] = ValueToTypedValue(val, manager);
+        dst[key] = ValueToTypedValue(val, request_router);
       }
       return TypedValue(std::move(dst));
     }
     case Value::Type::Vertex:
       return TypedValue(accessors::VertexAccessor(
-          value.vertex_v, std::vector<std::pair<storage::v3::PropertyId, msgs::Value>>{}, manager));
+          value.vertex_v, std::vector<std::pair<storage::v3::PropertyId, msgs::Value>>{}, request_router));
     case Value::Type::Edge:
-      return TypedValue(accessors::EdgeAccessor(value.edge_v, manager));
+      return TypedValue(accessors::EdgeAccessor(value.edge_v, request_router));
   }
   throw std::runtime_error("Incorrect type in conversion");
 }
+
+inline const auto ValueToTypedValueFunctor = [](const msgs::Value &value, RequestRouterInterface *request_router) {
+  return ValueToTypedValue(value, request_router);
+};
 
 inline msgs::Value TypedValueToValue(const TypedValue &value) {
   using Value = msgs::Value;

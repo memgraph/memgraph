@@ -454,7 +454,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 
   std::map<std::string, memgraph::communication::bolt::Value> Pull(TEncoder *encoder, std::optional<int> n,
                                                                    std::optional<int> qid) override {
-    TypedValueResultStream stream(encoder, interpreter_.GetShardRequestManager());
+    TypedValueResultStream stream(encoder, interpreter_.GetRequestRouter());
     return PullResults(stream, n, qid);
   }
 
@@ -481,7 +481,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
       const auto &summary = interpreter_.Pull(&stream, n, qid);
       std::map<std::string, memgraph::communication::bolt::Value> decoded_summary;
       for (const auto &kv : summary) {
-        auto bolt_value = memgraph::glue::v2::ToBoltValue(kv.second, interpreter_.GetShardRequestManager(),
+        auto bolt_value = memgraph::glue::v2::ToBoltValue(kv.second, interpreter_.GetRequestRouter(),
                                                           memgraph::storage::v3::View::NEW);
         decoded_summary.emplace(kv.first, std::move(bolt_value));
       }
@@ -497,14 +497,14 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
   /// before forwarding the calls to original TEncoder.
   class TypedValueResultStream {
    public:
-    TypedValueResultStream(TEncoder *encoder, const memgraph::msgs::ShardRequestManagerInterface *shard_request_manager)
-        : encoder_(encoder), shard_request_manager_(shard_request_manager) {}
+    TypedValueResultStream(TEncoder *encoder, const memgraph::query::v2::RequestRouterInterface *request_router)
+        : encoder_(encoder), request_router_(request_router) {}
 
     void Result(const std::vector<memgraph::query::v2::TypedValue> &values) {
       std::vector<memgraph::communication::bolt::Value> decoded_values;
       decoded_values.reserve(values.size());
       for (const auto &v : values) {
-        auto bolt_value = memgraph::glue::v2::ToBoltValue(v, shard_request_manager_, memgraph::storage::v3::View::NEW);
+        auto bolt_value = memgraph::glue::v2::ToBoltValue(v, request_router_, memgraph::storage::v3::View::NEW);
         decoded_values.emplace_back(std::move(bolt_value));
       }
       encoder_->MessageRecord(decoded_values);
@@ -512,7 +512,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 
    private:
     TEncoder *encoder_;
-    const memgraph::msgs::ShardRequestManagerInterface *shard_request_manager_{nullptr};
+    const memgraph::query::v2::RequestRouterInterface *request_router_{nullptr};
   };
   memgraph::query::v2::Interpreter interpreter_;
   memgraph::communication::v2::ServerEndpoint endpoint_;
