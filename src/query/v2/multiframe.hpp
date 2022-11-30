@@ -79,6 +79,7 @@ class MultiFrame {
   inline utils::MemoryResource *GetMemoryResource() { return frames_[0].GetMemoryResource(); }
 
  private:
+  // NOLINTNEXTLINE (bugprone-exception-escape)
   void DefragmentValidFrames() noexcept;
 
   FrameWithValidity default_frame_;
@@ -185,7 +186,7 @@ class ValidFramesConsumer {
  public:
   explicit ValidFramesConsumer(MultiFrame &multiframe);
 
-  ~ValidFramesConsumer();
+  ~ValidFramesConsumer() noexcept;
   ValidFramesConsumer(const ValidFramesConsumer &other) = delete;                 // copy constructor
   ValidFramesConsumer(ValidFramesConsumer &&other) noexcept = delete;             // move constructor
   ValidFramesConsumer &operator=(const ValidFramesConsumer &other) = delete;      // copy assignment

@@ -88,7 +88,8 @@ ValidFramesModifier::Iterator ValidFramesModifier::end() {
 
 ValidFramesConsumer::ValidFramesConsumer(MultiFrame &multiframe) : multiframe_(multiframe) {}
 
-ValidFramesConsumer::~ValidFramesConsumer() {
+// NOLINTNEXTLINE (bugprone-exception-escape)
+ValidFramesConsumer::~ValidFramesConsumer() noexcept {
   // TODO Possible optimisation: only DefragmentValidFrames if one frame has been invalidated? Only if does not
   // cost too much to store it
   multiframe_.DefragmentValidFrames();
