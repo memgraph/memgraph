@@ -81,7 +81,6 @@ class MultiFrame {
   // NOLINTNEXTLINE (bugprone-exception-escape)
   void DefragmentValidFrames() noexcept;
 
-  FrameWithValidity default_frame_;
   utils::pmr::vector<FrameWithValidity> frames_ =
       utils::pmr::vector<FrameWithValidity>(0, FrameWithValidity{1}, utils::NewDeleteResource());
 };

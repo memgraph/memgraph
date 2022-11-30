@@ -27,31 +27,19 @@ namespace memgraph::query::v2 {
 //               std::equality_comparable<InvalidFramesPopulator::Iterator>);
 
 MultiFrame::MultiFrame(size_t size_of_frame, size_t number_of_frames, utils::MemoryResource *execution_memory)
-    : default_frame_(FrameWithValidity(size_of_frame, execution_memory)),
-      frames_(utils::pmr::vector<FrameWithValidity>(number_of_frames, default_frame_, execution_memory)) {
+    : frames_(utils::pmr::vector<FrameWithValidity>(
+          number_of_frames, FrameWithValidity(size_of_frame, execution_memory), execution_memory)) {
   MG_ASSERT(number_of_frames > 0);
-  MG_ASSERT(!default_frame_.IsValid());
 }
 
-MultiFrame::MultiFrame(const MultiFrame &other) : default_frame_(other.default_frame_) {
-  /*
-  TODO
-  Do we just copy all frames or do we make distinctions between valid and not valid frames? Does it make any
-  difference?
-  */
+MultiFrame::MultiFrame(const MultiFrame &other) {
   frames_.reserve(other.frames_.size());
   std::transform(other.frames_.begin(), other.frames_.end(), std::back_inserter(frames_),
-                 [&default_frame = default_frame_](const auto &other_frame) {
-                   if (other_frame.IsValid()) {
-                     return other_frame;
-                   }
-                   return default_frame;
-                 });
+                 [](const auto &other_frame) { return other_frame; });
 }
 
 // NOLINTNEXTLINE (bugprone-exception-escape)
-MultiFrame::MultiFrame(MultiFrame &&other) noexcept
-    : default_frame_(std::move(other.default_frame_)), frames_(std::move(other.frames_)) {}
+MultiFrame::MultiFrame(MultiFrame &&other) noexcept : frames_(std::move(other.frames_)) {}
 
 void MultiFrame::MakeAllFramesInvalid() noexcept {
   std::for_each(frames_.begin(), frames_.end(), [](auto &frame) { frame.MakeInvalid(); });
