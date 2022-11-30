@@ -102,9 +102,9 @@ class ValidFramesReader {
     using value_type = const Frame;
     using pointer = value_type *;
     using reference = const Frame &;
-    using internal_ptr = FrameWithValidity *;
 
-    Iterator(internal_ptr ptr, ValidFramesReader &iterator_wrapper) : ptr_(ptr), iterator_wrapper_(iterator_wrapper) {}
+    Iterator(FrameWithValidity *ptr, ValidFramesReader &iterator_wrapper)
+        : ptr_(ptr), iterator_wrapper_(iterator_wrapper) {}
 
     reference operator*() const { return *ptr_; }
     pointer operator->() { return ptr_; }
@@ -122,7 +122,7 @@ class ValidFramesReader {
     friend bool operator!=(const Iterator &a, const Iterator &b) { return a.ptr_ != b.ptr_; };
 
    private:
-    internal_ptr ptr_;
+    FrameWithValidity *ptr_;
     ValidFramesReader &iterator_wrapper_;
   };
 
@@ -149,9 +149,8 @@ class ValidFramesModifier {
     using value_type = Frame;
     using pointer = value_type *;
     using reference = Frame &;
-    using internal_ptr = FrameWithValidity *;
 
-    Iterator(internal_ptr ptr, ValidFramesModifier &iterator_wrapper)
+    Iterator(FrameWithValidity *ptr, ValidFramesModifier &iterator_wrapper)
         : ptr_(ptr), iterator_wrapper_(iterator_wrapper) {}
 
     reference operator*() const { return *ptr_; }
@@ -170,7 +169,7 @@ class ValidFramesModifier {
     friend bool operator!=(const Iterator &a, const Iterator &b) { return a.ptr_ != b.ptr_; };
 
    private:
-    internal_ptr ptr_;
+    FrameWithValidity *ptr_;
     ValidFramesModifier &iterator_wrapper_;
   };
 
@@ -197,9 +196,8 @@ class ValidFramesConsumer {
     using value_type = FrameWithValidity;
     using pointer = value_type *;
     using reference = FrameWithValidity &;
-    using internal_ptr = FrameWithValidity *;
 
-    Iterator(internal_ptr ptr, ValidFramesConsumer &iterator_wrapper)
+    Iterator(FrameWithValidity *ptr, ValidFramesConsumer &iterator_wrapper)
         : ptr_(ptr), iterator_wrapper_(iterator_wrapper) {}
 
     reference operator*() const { return *ptr_; }
@@ -218,7 +216,7 @@ class ValidFramesConsumer {
     friend bool operator!=(const Iterator &a, const Iterator &b) { return a.ptr_ != b.ptr_; };
 
    private:
-    internal_ptr ptr_;
+    FrameWithValidity *ptr_;
     ValidFramesConsumer &iterator_wrapper_;
   };
 
@@ -245,9 +243,8 @@ class InvalidFramesPopulator {
     using value_type = FrameWithValidity;
     using pointer = value_type *;
     using reference = FrameWithValidity &;
-    using internal_ptr = FrameWithValidity *;
 
-    explicit Iterator(internal_ptr ptr) : ptr_(ptr) {}
+    explicit Iterator(FrameWithValidity *ptr) : ptr_(ptr) {}
 
     reference operator*() const { return *ptr_; }
     pointer operator->() { return ptr_; }
@@ -263,7 +260,7 @@ class InvalidFramesPopulator {
     friend bool operator!=(const Iterator &a, const Iterator &b) { return a.ptr_ != b.ptr_; };
 
    private:
-    internal_ptr ptr_;
+    FrameWithValidity *ptr_;
   };
 
   Iterator begin();
