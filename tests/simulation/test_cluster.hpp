@@ -164,8 +164,6 @@ void ExecuteOp(query::v2::RequestRouter<SimulatorTransport> &request_router, std
     return;
   }
 
-  query::v2::ExecutionState<msgs::CreateVerticesRequest> state;
-
   auto label_id = request_router.NameToLabel("test_label");
 
   msgs::NewVertex nv{.primary_key = primary_key};
@@ -174,7 +172,7 @@ void ExecuteOp(query::v2::RequestRouter<SimulatorTransport> &request_router, std
   std::vector<msgs::NewVertex> new_vertices;
   new_vertices.push_back(std::move(nv));
 
-  auto result = request_router.Request(state, std::move(new_vertices));
+  auto result = request_router.CreateVertices(std::move(new_vertices));
 
   RC_ASSERT(result.size() == 1);
   RC_ASSERT(!result[0].error.has_value());
@@ -184,9 +182,7 @@ void ExecuteOp(query::v2::RequestRouter<SimulatorTransport> &request_router, std
 
 void ExecuteOp(query::v2::RequestRouter<SimulatorTransport> &request_router, std::set<CompoundKey> &correctness_model,
                ScanAll scan_all) {
-  query::v2::ExecutionState<msgs::ScanVerticesRequest> request{.label = "test_label"};
-
-  auto results = request_router.Request(request);
+  auto results = request_router.ScanVertices("test_label");
 
   RC_ASSERT(results.size() == correctness_model.size());
 

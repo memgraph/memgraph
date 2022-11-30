@@ -72,33 +72,27 @@ class RsmStorageClientManager {
 };
 
 template <typename TRequest>
+struct ShardRequestState {
+  memgraph::coordinator::Shard shard;
+  TRequest request;
+  std::optional<io::rsm::AsyncRequestToken> async_request_token;
+};
+
+template <typename TRequest>
 struct ExecutionState {
   using CompoundKey = io::rsm::ShardRsmKey;
   using Shard = coordinator::Shard;
 
-  enum State : int8_t { INITIALIZING, EXECUTING, COMPLETED };
   // label is optional because some operators can create/remove etc, vertices. These kind of requests contain the label
   // on the request itself.
   std::optional<std::string> label;
-  // CompoundKey is optional because some operators require to iterate over all the available keys
-  // of a shard. One example is ScanAll, where we only require the field label.
-  std::optional<CompoundKey> key;
   // Transaction id to be filled by the RequestRouter implementation
   coordinator::Hlc transaction_id;
   // Initialized by RequestRouter implementation. This vector is filled with the shards that
   // the RequestRouter impl will send requests to. When a request to a shard exhausts it, meaning that
   // it pulled all the requested data from the given Shard, it will be removed from the Vector. When the Vector becomes
   // empty, it means that all of the requests have completed succefully.
-  // TODO(gvolfing)
-  // Maybe make this into a more complex object to be able to keep track of paginated resutls. E.g. instead of a vector
-  // of Shards make it into a std::vector<std::pair<Shard, PaginatedResultType>> (probably a struct instead of a pair)
-  // where PaginatedResultType is an enum signaling the progress on the given request. This way we can easily check if
-  // a partial response on a shard(if there is one) is finished and we can send off the request for the next batch.
-  std::vector<Shard> shard_cache;
-  // 1-1 mapping with `shard_cache`.
-  // A vector that tracks request metadata for each shard (For example, next_id for a ScanAll on Shard A)
-  std::vector<TRequest> requests;
-  State state = INITIALIZING;
+  std::vector<ShardRequestState<TRequest>> requests;
 };
 
 class RequestRouterInterface {
@@ -114,13 +108,10 @@ class RequestRouterInterface {
 
   virtual void StartTransaction() = 0;
   virtual void Commit() = 0;
-  virtual std::vector<VertexAccessor> Request(ExecutionState<msgs::ScanVerticesRequest> &state) = 0;
-  virtual std::vector<msgs::CreateVerticesResponse> Request(ExecutionState<msgs::CreateVerticesRequest> &state,
-                                                            std::vector<msgs::NewVertex> new_vertices) = 0;
-  virtual std::vector<msgs::ExpandOneResultRow> Request(ExecutionState<msgs::ExpandOneRequest> &state,
-                                                        msgs::ExpandOneRequest request) = 0;
-  virtual std::vector<msgs::CreateExpandResponse> Request(ExecutionState<msgs::CreateExpandRequest> &state,
-                                                          std::vector<msgs::NewExpand> new_edges) = 0;
+  virtual std::vector<VertexAccessor> ScanVertices(std::optional<std::string> label) = 0;
+  virtual std::vector<msgs::CreateVerticesResponse> CreateVertices(std::vector<msgs::NewVertex> new_vertices) = 0;
+  virtual std::vector<msgs::ExpandOneResultRow> ExpandOne(msgs::ExpandOneRequest request) = 0;
+  virtual std::vector<msgs::CreateExpandResponse> CreateExpand(std::vector<msgs::NewExpand> new_edges) = 0;
 
   virtual storage::v3::EdgeTypeId NameToEdgeType(const std::string &name) const = 0;
   virtual storage::v3::PropertyId NameToProperty(const std::string &name) const = 0;
@@ -246,99 +237,121 @@ class RequestRouter : public RequestRouterInterface {
   bool IsPrimaryLabel(storage::v3::LabelId label) const override { return shards_map_.label_spaces.contains(label); }
 
   // TODO(kostasrim) Simplify return result
-  std::vector<VertexAccessor> Request(ExecutionState<msgs::ScanVerticesRequest> &state) override {
-    MaybeInitializeExecutionState(state);
+  std::vector<VertexAccessor> ScanVertices(std::optional<std::string> label) override {
+    ExecutionState<msgs::ScanVerticesRequest> state = {};
+    state.label = label;
+
+    // create requests
+    InitializeExecutionState(state);
+
+    // begin all requests in parallel
+    for (auto &request : state.requests) {
+      auto &storage_client = GetStorageClientForShard(request.shard);
+      msgs::ReadRequests req = request.request;
+
+      request.async_request_token = storage_client.SendAsyncReadRequest(request.request);
+    }
+
+    // drive requests to completion
     std::vector<msgs::ScanVerticesResponse> responses;
+    responses.reserve(state.requests.size());
+    do {
+      DriveReadResponses(state, responses);
+    } while (!state.requests.empty());
 
-    SendAllRequests(state);
-    auto all_requests_gathered = [](auto &paginated_rsp_tracker) {
-      return std::ranges::all_of(paginated_rsp_tracker, [](const auto &state) {
-        return state.second == PaginatedResponseState::PartiallyFinished;
-      });
-    };
-
-    std::map<Shard, PaginatedResponseState> paginated_response_tracker;
-    for (const auto &shard : state.shard_cache) {
-      paginated_response_tracker.insert(std::make_pair(shard, PaginatedResponseState::Pending));
+    // convert responses into VertexAccessor objects to return
+    std::vector<VertexAccessor> accessors;
+    accessors.reserve(responses.size());
+    for (auto &response : responses) {
+      for (auto &result_row : response.results) {
+        accessors.emplace_back(VertexAccessor(std::move(result_row.vertex), std::move(result_row.props), this));
+      }
     }
 
-    do {
-      AwaitOnPaginatedRequests(state, responses, paginated_response_tracker);
-    } while (!all_requests_gathered(paginated_response_tracker));
-
-    MaybeCompleteState(state);
-    // TODO(kostasrim) Before returning start prefetching the batch (this shall be done once we get MgFuture as return
-    // result of storage_client.SendReadRequest()).
-    return PostProcess(std::move(responses));
+    return accessors;
   }
 
-  std::vector<msgs::CreateVerticesResponse> Request(ExecutionState<msgs::CreateVerticesRequest> &state,
-                                                    std::vector<msgs::NewVertex> new_vertices) override {
+  std::vector<msgs::CreateVerticesResponse> CreateVertices(std::vector<msgs::NewVertex> new_vertices) override {
+    ExecutionState<msgs::CreateVerticesRequest> state = {};
     MG_ASSERT(!new_vertices.empty());
-    MaybeInitializeExecutionState(state, new_vertices);
-    std::vector<msgs::CreateVerticesResponse> responses;
-    auto &shard_cache_ref = state.shard_cache;
 
-    // 1. Send the requests.
-    SendAllRequests(state, shard_cache_ref);
+    // create requests
+    InitializeExecutionState(state, new_vertices);
 
-    // 2. Block untill all the futures are exhausted
-    do {
-      AwaitOnResponses(state, responses);
-    } while (!state.shard_cache.empty());
+    // begin all requests in parallel
+    for (auto &request : state.requests) {
+      auto req_deep_copy = request.request;
 
-    MaybeCompleteState(state);
-    // TODO(kostasrim) Before returning start prefetching the batch (this shall be done once we get MgFuture as return
-    // result of storage_client.SendReadRequest()).
-    return responses;
-  }
-
-  std::vector<msgs::CreateExpandResponse> Request(ExecutionState<msgs::CreateExpandRequest> &state,
-                                                  std::vector<msgs::NewExpand> new_edges) override {
-    MG_ASSERT(!new_edges.empty());
-    MaybeInitializeExecutionState(state, new_edges);
-    std::vector<msgs::CreateExpandResponse> responses;
-    auto &shard_cache_ref = state.shard_cache;
-    size_t id{0};
-    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++id) {
-      auto &storage_client = GetStorageClientForShard(*shard_it);
-      msgs::WriteRequests req = state.requests[id];
-      auto write_response_result = storage_client.SendWriteRequest(std::move(req));
-      if (write_response_result.HasError()) {
-        throw std::runtime_error("CreateVertices request timedout");
+      for (auto &new_vertex : req_deep_copy.new_vertices) {
+        new_vertex.label_ids.erase(new_vertex.label_ids.begin());
       }
-      msgs::WriteResponses response_variant = write_response_result.GetValue();
-      msgs::CreateExpandResponse mapped_response = std::get<msgs::CreateExpandResponse>(response_variant);
 
-      if (mapped_response.error) {
-        throw std::runtime_error("CreateExpand request did not succeed");
-      }
-      responses.push_back(mapped_response);
-      shard_it = shard_cache_ref.erase(shard_it);
+      auto &storage_client = GetStorageClientForShard(request.shard);
+
+      msgs::WriteRequests req = req_deep_copy;
+      request.async_request_token = storage_client.SendAsyncWriteRequest(req);
     }
-    // We are done with this state
-    MaybeCompleteState(state);
+
+    // drive requests to completion
+    std::vector<msgs::CreateVerticesResponse> responses;
+    responses.reserve(state.requests.size());
+    do {
+      DriveWriteResponses(state, responses);
+    } while (!state.requests.empty());
+
     return responses;
   }
 
-  std::vector<msgs::ExpandOneResultRow> Request(ExecutionState<msgs::ExpandOneRequest> &state,
-                                                msgs::ExpandOneRequest request) override {
+  std::vector<msgs::CreateExpandResponse> CreateExpand(std::vector<msgs::NewExpand> new_edges) override {
+    ExecutionState<msgs::CreateExpandRequest> state = {};
+    MG_ASSERT(!new_edges.empty());
+
+    // create requests
+    InitializeExecutionState(state, new_edges);
+
+    // begin all requests in parallel
+    for (auto &request : state.requests) {
+      auto &storage_client = GetStorageClientForShard(request.shard);
+      msgs::WriteRequests req = request.request;
+      request.async_request_token = storage_client.SendAsyncWriteRequest(req);
+    }
+
+    // drive requests to completion
+    std::vector<msgs::CreateExpandResponse> responses;
+    responses.reserve(state.requests.size());
+    do {
+      DriveWriteResponses(state, responses);
+    } while (!state.requests.empty());
+
+    return responses;
+  }
+
+  std::vector<msgs::ExpandOneResultRow> ExpandOne(msgs::ExpandOneRequest request) override {
+    ExecutionState<msgs::ExpandOneRequest> state = {};
     // TODO(kostasrim)Update to limit the batch size here
     // Expansions of the destination must be handled by the caller. For example
     // match (u:L1 { prop : 1 })-[:Friend]-(v:L1)
     // For each vertex U, the ExpandOne will result in <U, Edges>. The destination vertex and its properties
     // must be fetched again with an ExpandOne(Edges.dst)
-    MaybeInitializeExecutionState(state, std::move(request));
+
+    // create requests
+    InitializeExecutionState(state, std::move(request));
+
+    // begin all requests in parallel
+    for (auto &request : state.requests) {
+      auto &storage_client = GetStorageClientForShard(request.shard);
+      msgs::ReadRequests req = request.request;
+      request.async_request_token = storage_client.SendAsyncReadRequest(req);
+    }
+
+    // drive requests to completion
     std::vector<msgs::ExpandOneResponse> responses;
-    auto &shard_cache_ref = state.shard_cache;
-
-    // 1. Send the requests.
-    SendAllRequests(state, shard_cache_ref);
-
-    // 2. Block untill all the futures are exhausted
+    responses.reserve(state.requests.size());
     do {
-      AwaitOnResponses(state, responses);
-    } while (!state.shard_cache.empty());
+      DriveReadResponses(state, responses);
+    } while (!state.requests.empty());
+
+    // post-process responses
     std::vector<msgs::ExpandOneResultRow> result_rows;
     const auto total_row_count = std::accumulate(responses.begin(), responses.end(), 0,
                                                  [](const int64_t partial_count, const msgs::ExpandOneResponse &resp) {
@@ -350,7 +363,7 @@ class RequestRouter : public RequestRouterInterface {
       result_rows.insert(result_rows.end(), std::make_move_iterator(response.result.begin()),
                          std::make_move_iterator(response.result.end()));
     }
-    MaybeCompleteState(state);
+
     return result_rows;
   }
 
@@ -367,71 +380,35 @@ class RequestRouter : public RequestRouterInterface {
   }
 
  private:
-  enum class PaginatedResponseState { Pending, PartiallyFinished };
-
-  std::vector<VertexAccessor> PostProcess(std::vector<msgs::ScanVerticesResponse> &&responses) const {
-    std::vector<VertexAccessor> accessors;
-    for (auto &response : responses) {
-      for (auto &result_row : response.results) {
-        accessors.emplace_back(VertexAccessor(std::move(result_row.vertex), std::move(result_row.props), this));
-      }
-    }
-    return accessors;
-  }
-
-  template <typename ExecutionState>
-  void ThrowIfStateCompleted(ExecutionState &state) const {
-    if (state.state == ExecutionState::COMPLETED) [[unlikely]] {
-      throw std::runtime_error("State is completed and must be reset");
-    }
-  }
-
-  template <typename ExecutionState>
-  void MaybeCompleteState(ExecutionState &state) const {
-    if (state.requests.empty()) {
-      state.state = ExecutionState::COMPLETED;
-    }
-  }
-
-  template <typename ExecutionState>
-  bool ShallNotInitializeState(ExecutionState &state) const {
-    return state.state != ExecutionState::INITIALIZING;
-  }
-
-  void MaybeInitializeExecutionState(ExecutionState<msgs::CreateVerticesRequest> &state,
-                                     std::vector<msgs::NewVertex> new_vertices) {
-    ThrowIfStateCompleted(state);
-    if (ShallNotInitializeState(state)) {
-      return;
-    }
+  void InitializeExecutionState(ExecutionState<msgs::CreateVerticesRequest> &state,
+                                std::vector<msgs::NewVertex> new_vertices) {
     state.transaction_id = transaction_id_;
 
     std::map<Shard, msgs::CreateVerticesRequest> per_shard_request_table;
 
     for (auto &new_vertex : new_vertices) {
-      MG_ASSERT(!new_vertex.label_ids.empty(), "This is error!");
+      MG_ASSERT(!new_vertex.label_ids.empty(), "No label_ids provided for new vertex in RequestRouter::CreateVertices");
       auto shard = shards_map_.GetShardForKey(new_vertex.label_ids[0].id,
                                               storage::conversions::ConvertPropertyVector(new_vertex.primary_key));
       if (!per_shard_request_table.contains(shard)) {
         msgs::CreateVerticesRequest create_v_rqst{.transaction_id = transaction_id_};
         per_shard_request_table.insert(std::pair(shard, std::move(create_v_rqst)));
-        state.shard_cache.push_back(shard);
       }
       per_shard_request_table[shard].new_vertices.push_back(std::move(new_vertex));
     }
 
-    for (auto &[shard, rqst] : per_shard_request_table) {
-      state.requests.push_back(std::move(rqst));
+    for (auto &[shard, request] : per_shard_request_table) {
+      ShardRequestState<msgs::CreateVerticesRequest> shard_request_state{
+          .shard = shard,
+          .request = request,
+          .async_request_token = std::nullopt,
+      };
+      state.requests.emplace_back(std::move(shard_request_state));
     }
-    state.state = ExecutionState<msgs::CreateVerticesRequest>::EXECUTING;
   }
 
-  void MaybeInitializeExecutionState(ExecutionState<msgs::CreateExpandRequest> &state,
-                                     std::vector<msgs::NewExpand> new_expands) {
-    ThrowIfStateCompleted(state);
-    if (ShallNotInitializeState(state)) {
-      return;
-    }
+  void InitializeExecutionState(ExecutionState<msgs::CreateExpandRequest> &state,
+                                std::vector<msgs::NewExpand> new_expands) {
     state.transaction_id = transaction_id_;
 
     std::map<Shard, msgs::CreateExpandRequest> per_shard_request_table;
@@ -459,18 +436,16 @@ class RequestRouter : public RequestRouterInterface {
     }
 
     for (auto &[shard, request] : per_shard_request_table) {
-      state.shard_cache.push_back(shard);
-      state.requests.push_back(std::move(request));
+      ShardRequestState<msgs::CreateExpandRequest> shard_request_state{
+          .shard = shard,
+          .request = request,
+          .async_request_token = std::nullopt,
+      };
+      state.requests.emplace_back(std::move(shard_request_state));
     }
-    state.state = ExecutionState<msgs::CreateExpandRequest>::EXECUTING;
   }
 
-  void MaybeInitializeExecutionState(ExecutionState<msgs::ScanVerticesRequest> &state) {
-    ThrowIfStateCompleted(state);
-    if (ShallNotInitializeState(state)) {
-      return;
-    }
-
+  void InitializeExecutionState(ExecutionState<msgs::ScanVerticesRequest> &state) {
     std::vector<coordinator::Shards> multi_shards;
     state.transaction_id = transaction_id_;
     if (!state.label) {
@@ -484,21 +459,23 @@ class RequestRouter : public RequestRouterInterface {
     for (auto &shards : multi_shards) {
       for (auto &[key, shard] : shards) {
         MG_ASSERT(!shard.empty());
-        state.shard_cache.push_back(std::move(shard));
-        msgs::ScanVerticesRequest rqst;
-        rqst.transaction_id = transaction_id_;
-        rqst.start_id.second = storage::conversions::ConvertValueVector(key);
-        state.requests.push_back(std::move(rqst));
+
+        msgs::ScanVerticesRequest request;
+        request.transaction_id = transaction_id_;
+        request.start_id.second = storage::conversions::ConvertValueVector(key);
+
+        ShardRequestState<msgs::ScanVerticesRequest> shard_request_state{
+            .shard = shard,
+            .request = std::move(request),
+            .async_request_token = std::nullopt,
+        };
+
+        state.requests.emplace_back(std::move(shard_request_state));
       }
     }
-    state.state = ExecutionState<msgs::ScanVerticesRequest>::EXECUTING;
   }
 
-  void MaybeInitializeExecutionState(ExecutionState<msgs::ExpandOneRequest> &state, msgs::ExpandOneRequest request) {
-    ThrowIfStateCompleted(state);
-    if (ShallNotInitializeState(state)) {
-      return;
-    }
+  void InitializeExecutionState(ExecutionState<msgs::ExpandOneRequest> &state, msgs::ExpandOneRequest request) {
     state.transaction_id = transaction_id_;
 
     std::map<Shard, msgs::ExpandOneRequest> per_shard_request_table;
@@ -511,15 +488,19 @@ class RequestRouter : public RequestRouterInterface {
           shards_map_.GetShardForKey(vertex.first.id, storage::conversions::ConvertPropertyVector(vertex.second));
       if (!per_shard_request_table.contains(shard)) {
         per_shard_request_table.insert(std::pair(shard, top_level_rqst_template));
-        state.shard_cache.push_back(shard);
       }
       per_shard_request_table[shard].src_vertices.push_back(vertex);
     }
 
-    for (auto &[shard, rqst] : per_shard_request_table) {
-      state.requests.push_back(std::move(rqst));
+    for (auto &[shard, request] : per_shard_request_table) {
+      ShardRequestState<msgs::ExpandOneRequest> shard_request_state{
+          .shard = shard,
+          .request = request,
+          .async_request_token = std::nullopt,
+      };
+
+      state.requests.emplace_back(std::move(shard_request_state));
     }
-    state.state = ExecutionState<msgs::ExpandOneRequest>::EXECUTING;
   }
 
   StorageClient &GetStorageClientForShard(Shard shard) {
@@ -546,173 +527,54 @@ class RequestRouter : public RequestRouterInterface {
     storage_cli_manager_.AddClient(target_shard, std::move(cli));
   }
 
-  void SendAllRequests(ExecutionState<msgs::ScanVerticesRequest> &state) {
-    int64_t shard_idx = 0;
-    for (const auto &request : state.requests) {
-      const auto &current_shard = state.shard_cache[shard_idx];
+  template <typename RequestT, typename ResponseT>
+  void DriveReadResponses(ExecutionState<RequestT> &state, std::vector<ResponseT> &responses) {
+    for (auto &request : state.requests) {
+      auto &storage_client = GetStorageClientForShard(request.shard);
 
-      auto &storage_client = GetStorageClientForShard(current_shard);
-      msgs::ReadRequests req = request;
-      storage_client.SendAsyncReadRequest(request);
-
-      ++shard_idx;
-    }
-  }
-
-  void SendAllRequests(ExecutionState<msgs::CreateVerticesRequest> &state,
-                       std::vector<memgraph::coordinator::Shard> &shard_cache_ref) {
-    size_t id = 0;
-    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++shard_it) {
-      // This is fine because all new_vertices of each request end up on the same shard
-      const auto labels = state.requests[id].new_vertices[0].label_ids;
-      auto req_deep_copy = state.requests[id];
-
-      for (auto &new_vertex : req_deep_copy.new_vertices) {
-        new_vertex.label_ids.erase(new_vertex.label_ids.begin());
-      }
-
-      auto &storage_client = GetStorageClientForShard(*shard_it);
-
-      msgs::WriteRequests req = req_deep_copy;
-      storage_client.SendAsyncWriteRequest(req);
-      ++id;
-    }
-  }
-
-  void SendAllRequests(ExecutionState<msgs::ExpandOneRequest> &state,
-                       std::vector<memgraph::coordinator::Shard> &shard_cache_ref) {
-    size_t id = 0;
-    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++shard_it) {
-      auto &storage_client = GetStorageClientForShard(*shard_it);
-      msgs::ReadRequests req = state.requests[id];
-      storage_client.SendAsyncReadRequest(req);
-      ++id;
-    }
-  }
-
-  void AwaitOnResponses(ExecutionState<msgs::CreateVerticesRequest> &state,
-                        std::vector<msgs::CreateVerticesResponse> &responses) {
-    auto &shard_cache_ref = state.shard_cache;
-    int64_t request_idx = 0;
-
-    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end();) {
-      // This is fine because all new_vertices of each request end up on the same shard
-      const auto labels = state.requests[request_idx].new_vertices[0].label_ids;
-
-      auto &storage_client = GetStorageClientForShard(*shard_it);
-
-      auto poll_result = storage_client.AwaitAsyncWriteRequest();
-      if (!poll_result) {
-        ++shard_it;
-        ++request_idx;
-
-        continue;
+      auto poll_result = storage_client.AwaitAsyncReadRequest(request.async_request_token.value());
+      while (!poll_result) {
+        poll_result = storage_client.AwaitAsyncReadRequest(request.async_request_token.value());
       }
 
       if (poll_result->HasError()) {
-        throw std::runtime_error("CreateVertices request timed out");
-      }
-
-      msgs::WriteResponses response_variant = poll_result->GetValue();
-      auto response = std::get<msgs::CreateVerticesResponse>(response_variant);
-
-      if (response.error) {
-        throw std::runtime_error("CreateVertices request did not succeed");
-      }
-      responses.push_back(response);
-
-      shard_it = shard_cache_ref.erase(shard_it);
-      // Needed to maintain the 1-1 mapping between the ShardCache and the requests.
-      auto it = state.requests.begin() + request_idx;
-      state.requests.erase(it);
-    }
-  }
-
-  void AwaitOnResponses(ExecutionState<msgs::ExpandOneRequest> &state,
-                        std::vector<msgs::ExpandOneResponse> &responses) {
-    auto &shard_cache_ref = state.shard_cache;
-    int64_t request_idx = 0;
-
-    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end();) {
-      auto &storage_client = GetStorageClientForShard(*shard_it);
-
-      auto poll_result = storage_client.PollAsyncReadRequest();
-      if (!poll_result) {
-        ++shard_it;
-        ++request_idx;
-        continue;
-      }
-
-      if (poll_result->HasError()) {
-        throw std::runtime_error("ExpandOne request timed out");
+        throw std::runtime_error("RequestRouter Read request timed out");
       }
 
       msgs::ReadResponses response_variant = poll_result->GetValue();
-      auto response = std::get<msgs::ExpandOneResponse>(response_variant);
-      // -NOTE-
-      // Currently a boolean flag for signaling the overall success of the
-      // ExpandOne request does not exist. But it should, so here we assume
-      // that it is already in place.
+      auto response = std::get<ResponseT>(response_variant);
       if (response.error) {
-        throw std::runtime_error("ExpandOne request did not succeed");
+        throw std::runtime_error("RequestRouter Read request did not succeed");
       }
 
       responses.push_back(std::move(response));
-      shard_it = shard_cache_ref.erase(shard_it);
-      // Needed to maintain the 1-1 mapping between the ShardCache and the requests.
-      auto it = state.requests.begin() + request_idx;
-      state.requests.erase(it);
     }
+    state.requests.clear();
   }
 
-  void AwaitOnPaginatedRequests(ExecutionState<msgs::ScanVerticesRequest> &state,
-                                std::vector<msgs::ScanVerticesResponse> &responses,
-                                std::map<Shard, PaginatedResponseState> &paginated_response_tracker) {
-    auto &shard_cache_ref = state.shard_cache;
+  template <typename RequestT, typename ResponseT>
+  void DriveWriteResponses(ExecutionState<RequestT> &state, std::vector<ResponseT> &responses) {
+    for (auto &request : state.requests) {
+      auto &storage_client = GetStorageClientForShard(request.shard);
 
-    // Find the first request that is not holding a paginated response.
-    int64_t request_idx = 0;
-    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end();) {
-      if (paginated_response_tracker.at(*shard_it) != PaginatedResponseState::Pending) {
-        ++shard_it;
-        ++request_idx;
-        continue;
+      auto poll_result = storage_client.AwaitAsyncWriteRequest(request.async_request_token.value());
+      while (!poll_result) {
+        poll_result = storage_client.AwaitAsyncWriteRequest(request.async_request_token.value());
       }
 
-      auto &storage_client = GetStorageClientForShard(*shard_it);
-
-      auto await_result = storage_client.AwaitAsyncReadRequest();
-
-      if (!await_result) {
-        // Redirection has occured.
-        ++shard_it;
-        ++request_idx;
-        continue;
+      if (poll_result->HasError()) {
+        throw std::runtime_error("RequestRouter Write request timed out");
       }
 
-      if (await_result->HasError()) {
-        throw std::runtime_error("ScanAll request timed out");
-      }
-
-      msgs::ReadResponses read_response_variant = await_result->GetValue();
-      auto response = std::get<msgs::ScanVerticesResponse>(read_response_variant);
+      msgs::WriteResponses response_variant = poll_result->GetValue();
+      auto response = std::get<ResponseT>(response_variant);
       if (response.error) {
-        throw std::runtime_error("ScanAll request did not succeed");
+        throw std::runtime_error("RequestRouter Write request did not succeed");
       }
 
-      if (!response.next_start_id) {
-        paginated_response_tracker.erase((*shard_it));
-        shard_cache_ref.erase(shard_it);
-        // Needed to maintain the 1-1 mapping between the ShardCache and the requests.
-        auto it = state.requests.begin() + request_idx;
-        state.requests.erase(it);
-
-      } else {
-        state.requests[request_idx].start_id.second = response.next_start_id->second;
-        paginated_response_tracker[*shard_it] = PaginatedResponseState::PartiallyFinished;
-      }
       responses.push_back(std::move(response));
     }
+    state.requests.clear();
   }
 
   void SetUpNameIdMappers() {
