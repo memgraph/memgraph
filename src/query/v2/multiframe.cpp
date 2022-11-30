@@ -40,21 +40,9 @@ MultiFrame::MultiFrame(const MultiFrame &other) : default_frame_(other.default_f
                  });
 }
 
-MultiFrame::MultiFrame(MultiFrame &&other) noexcept : default_frame_(std::move(other.default_frame_)) {
-  /*
-  TODO
-  Do we just copy all frames or do we make distinctions between valid and not valid frames? Does it make any
-  difference?
-  */
-  frames_.reserve(other.frames_.size());
-  std::transform(make_move_iterator(other.frames_.begin()), make_move_iterator(other.frames_.end()),
-                 std::back_inserter(frames_), [&default_frame = default_frame_](const auto &other_frame) {
-                   if (other_frame.IsValid()) {
-                     return other_frame;
-                   }
-                   return default_frame;
-                 });
-}
+// NOLINTNEXTLINE (bugprone-exception-escape)
+MultiFrame::MultiFrame(MultiFrame &&other) noexcept
+    : default_frame_(std::move(other.default_frame_)), frames_(std::move(other.frames_)) {}
 
 void MultiFrame::ResetAllFramesInvalid() noexcept {
   std::for_each(frames_.begin(), frames_.end(), [](auto &frame) { frame.MakeInvalid(); });
@@ -64,7 +52,8 @@ bool MultiFrame::HasValidFrame() const noexcept {
   return std::any_of(frames_.begin(), frames_.end(), [](auto &frame) { return frame.IsValid(); });
 }
 
-void MultiFrame::DefragmentValidFrames() {
+// NOLINTNEXTLINE (bugprone-exception-escape)
+void MultiFrame::DefragmentValidFrames() noexcept {
   /*
   from: https://en.cppreference.com/w/cpp/algorithm/remove
   "Removing is done by shifting (by means of copy assignment (until C++11)move assignment (since C++11)) the elements

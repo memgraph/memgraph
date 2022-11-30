@@ -79,7 +79,7 @@ class MultiFrame {
   inline utils::MemoryResource *GetMemoryResource() { return frames_[0].GetMemoryResource(); }
 
  private:
-  void DefragmentValidFrames();
+  void DefragmentValidFrames() noexcept;
 
   FrameWithValidity default_frame_;
   utils::pmr::vector<FrameWithValidity> frames_ =
