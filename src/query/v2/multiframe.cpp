@@ -73,14 +73,14 @@ ValidFramesReader::ValidFramesReader(MultiFrame &multiframe) : multiframe_(multi
 
 ValidFramesReader::Iterator ValidFramesReader::begin() { return Iterator{&multiframe_.frames_[0], *this}; }
 ValidFramesReader::Iterator ValidFramesReader::end() {
-  return Iterator{&multiframe_.frames_[multiframe_.frames_.size()], *this};
+  return Iterator{multiframe_.frames_.data() + multiframe_.frames_.size(), *this};
 }
 
 ValidFramesModifier::ValidFramesModifier(MultiFrame &multiframe) : multiframe_(multiframe) {}
 
 ValidFramesModifier::Iterator ValidFramesModifier::begin() { return Iterator{&multiframe_.frames_[0], *this}; }
 ValidFramesModifier::Iterator ValidFramesModifier::end() {
-  return Iterator{&multiframe_.frames_[multiframe_.frames_.size()], *this};
+  return Iterator{multiframe_.frames_.data() + multiframe_.frames_.size(), *this};
 }
 
 ValidFramesConsumer::ValidFramesConsumer(MultiFrame &multiframe) : multiframe_(multiframe) {}
@@ -95,7 +95,7 @@ ValidFramesConsumer::~ValidFramesConsumer() noexcept {
 ValidFramesConsumer::Iterator ValidFramesConsumer::begin() { return Iterator{&multiframe_.frames_[0], *this}; }
 
 ValidFramesConsumer::Iterator ValidFramesConsumer::end() {
-  return Iterator{&multiframe_.frames_[multiframe_.frames_.size()], *this};
+  return Iterator{multiframe_.frames_.data() + multiframe_.frames_.size(), *this};
 }
 
 InvalidFramesPopulator::InvalidFramesPopulator(MultiFrame &multiframe) : multiframe_(multiframe) {}
@@ -111,7 +111,7 @@ InvalidFramesPopulator::Iterator InvalidFramesPopulator::begin() {
 }
 
 InvalidFramesPopulator::Iterator InvalidFramesPopulator::end() {
-  return Iterator{&multiframe_.frames_[multiframe_.frames_.size()]};
+  return Iterator{multiframe_.frames_.data() + multiframe_.frames_.size()};
 }
 
 }  // namespace memgraph::query::v2
