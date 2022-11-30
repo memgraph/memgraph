@@ -49,9 +49,9 @@ class FrameWithValidity final : public Frame<TypedValue> {
 
   FrameWithValidity(int64_t size, utils::MemoryResource *memory) : Frame<TypedValue>(size, memory), is_valid_(false) {}
 
-  bool IsValid() const { return is_valid_; }
-  void MakeValid() { is_valid_ = true; }
-  void MakeInvalid() { is_valid_ = false; }
+  bool IsValid() const noexcept { return is_valid_; }
+  void MakeValid() noexcept { is_valid_ = true; }
+  void MakeInvalid() noexcept { is_valid_ = false; }
 
  private:
   bool is_valid_;
