@@ -14,6 +14,7 @@
 #include <iterator>
 #include <vector>
 
+#include "pretty_print_ast_to_original_expression.hpp"
 #include "storage/v3/bindings/db_accessor.hpp"
 #include "storage/v3/bindings/pretty_print_ast_to_original_expression.hpp"
 #include "storage/v3/expr.hpp"
@@ -221,28 +222,37 @@ std::vector<TypedValue> EvaluateVertexExpressions(DbAccessor &dba, const VertexA
   return evaluated_expressions;
 }
 
+std::vector<TypedValue> EvaluateEdgeExpressions(DbAccessor &dba, const VertexAccessor &v_acc, const EdgeAccessor &e_acc,
+                                                const std::vector<std::string> &expressions) {
+  std::vector<TypedValue> evaluated_expressions;
+  evaluated_expressions.reserve(expressions.size());
+
+  std::transform(expressions.begin(), expressions.end(), std::back_inserter(evaluated_expressions),
+                 [&dba, &v_acc, &e_acc](const auto &expression) {
+                   return ComputeExpression(dba, v_acc, e_acc, expression, expr::identifier_node_symbol,
+                                            expr::identifier_edge_symbol);
+                 });
+
+  return evaluated_expressions;
+}
+
 ShardResult<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(const VertexAccessor &acc, View view,
                                                                           const Schemas::Schema &schema) {
-  std::map<PropertyId, Value> ret;
-  auto props = acc.Properties(view);
-  if (props.HasError()) {
-    spdlog::debug("Encountered an error while trying to get vertex properties.");
-    return props.GetError();
+  auto ret = impl::CollectAllPropertiesImpl<VertexAccessor>(acc, view);
+  if (ret.HasError()) {
+    return ret.GetError();
   }
-
-  auto &properties = props.GetValue();
-  std::transform(properties.begin(), properties.end(), std::inserter(ret, ret.begin()),
-                 [](std::pair<const PropertyId, PropertyValue> &pair) {
-                   return std::make_pair(pair.first, FromPropertyValueToValue(std::move(pair.second)));
-                 });
-  properties.clear();
 
   auto pks = PrimaryKeysFromAccessor(acc, view, schema);
   if (pks) {
-    ret.merge(*pks);
+    ret.GetValue().merge(*pks);
   }
 
   return ret;
+}
+
+ShardResult<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(const VertexAccessor &acc, View view) {
+  return impl::CollectAllPropertiesImpl(acc, view);
 }
 
 EdgeUniquenessFunction InitializeEdgeUniquenessFunction(bool only_unique_neighbor_rows) {
@@ -351,15 +361,19 @@ EdgeFiller InitializeEdgeFillerFunction(const msgs::ExpandOneRequest &req) {
   return edge_filler;
 }
 
-bool FilterOnVertex(DbAccessor &dba, const storage::v3::VertexAccessor &v_acc, const std::vector<std::string> &filters,
-                    const std::string_view node_name, const std::optional<EdgeAccessor> &e_acc) {
-  return std::ranges::all_of(filters, [&node_name, &dba, &v_acc, &e_acc](const auto &filter_expr) {
-    TypedValue result;
-    if (e_acc) {
-      result = ComputeExpression(dba, v_acc, e_acc, filter_expr, "", node_name);
-    } else {
-      result = ComputeExpression(dba, v_acc, e_acc, filter_expr, node_name, "");
-    }
+bool FilterOnVertex(DbAccessor &dba, const storage::v3::VertexAccessor &v_acc,
+                    const std::vector<std::string> &filters) {
+  return std::ranges::all_of(filters, [&dba, &v_acc](const auto &filter_expr) {
+    const auto result = ComputeExpression(dba, v_acc, std::nullopt, filter_expr, expr::identifier_node_symbol, "");
+    return result.IsBool() && result.ValueBool();
+  });
+}
+
+bool FilterOnEdge(DbAccessor &dba, const storage::v3::VertexAccessor &v_acc, const EdgeAccessor &e_acc,
+                  const std::vector<std::string> &filters) {
+  return std::ranges::all_of(filters, [&dba, &v_acc, &e_acc](const auto &filter_expr) {
+    const auto result =
+        ComputeExpression(dba, v_acc, e_acc, filter_expr, expr::identifier_node_symbol, expr::identifier_edge_symbol);
     return result.IsBool() && result.ValueBool();
   });
 }
@@ -444,61 +458,6 @@ ShardResult<msgs::ExpandOneResultRow> GetExpandOneResult(
   return result_row;
 }
 
-std::vector<GetPropElement> OrderByElements(DbAccessor &dba, std::vector<msgs::OrderBy> &order_by,
-                                            std::vector<GetPropElement> &&vertices) {
-  std::vector<Ordering> ordering;
-  ordering.reserve(order_by.size());
-  for (const auto &order : order_by) {
-    switch (order.direction) {
-      case memgraph::msgs::OrderingDirection::ASCENDING: {
-        ordering.push_back(Ordering::ASC);
-        break;
-      }
-      case memgraph::msgs::OrderingDirection::DESCENDING: {
-        ordering.push_back(Ordering::DESC);
-        break;
-      }
-    }
-  }
-  struct PropElement {
-    std::vector<TypedValue> properties_order_by;
-    VertexAccessor vertex_acc;
-    GetPropElement *original_element;
-  };
-
-  std::vector<PropElement> ordered;
-  auto compare_typed_values = TypedValueVectorCompare(ordering);
-  for (auto &vertex : vertices) {
-    std::vector<TypedValue> properties;
-    properties.reserve(order_by.size());
-    const auto *symbol = (vertex.edge_acc) ? expr::identifier_edge_symbol : expr::identifier_node_symbol;
-    for (const auto &order : order_by) {
-      TypedValue val;
-      if (vertex.edge_acc) {
-        val = ComputeExpression(dba, vertex.vertex_acc, vertex.edge_acc, order.expression.expression, "", symbol);
-      } else {
-        val = ComputeExpression(dba, vertex.vertex_acc, vertex.edge_acc, order.expression.expression, symbol, "");
-      }
-      properties.push_back(std::move(val));
-    }
-
-    ordered.push_back({std::move(properties), vertex.vertex_acc, &vertex});
-  }
-
-  std::sort(ordered.begin(), ordered.end(), [&compare_typed_values](const auto &lhs, const auto &rhs) {
-    return compare_typed_values(lhs.properties_order_by, rhs.properties_order_by);
-  });
-
-  std::vector<GetPropElement> results_ordered;
-  results_ordered.reserve(ordered.size());
-
-  for (auto &elem : ordered) {
-    results_ordered.push_back(std::move(*elem.original_element));
-  }
-
-  return results_ordered;
-}
-
 VerticesIterable::Iterator GetStartVertexIterator(VerticesIterable &vertex_iterable,
                                                   const std::vector<PropertyValue> &primary_key, const View view) {
   auto it = vertex_iterable.begin();
@@ -575,6 +534,38 @@ std::vector<Element<EdgeAccessor>> OrderByEdges(DbAccessor &dba, std::vector<Edg
                    });
 
     ordered.push_back({std::move(properties_order_by), *it});
+  }
+
+  auto compare_typed_values = TypedValueVectorCompare(ordering);
+  std::sort(ordered.begin(), ordered.end(), [compare_typed_values](const auto &pair1, const auto &pair2) {
+    return compare_typed_values(pair1.properties_order_by, pair2.properties_order_by);
+  });
+  return ordered;
+}
+
+std::vector<Element<std::pair<VertexAccessor, EdgeAccessor>>> OrderByEdges(
+    DbAccessor &dba, std::vector<EdgeAccessor> &iterable, std::vector<msgs::OrderBy> &order_by_edges,
+    const std::vector<VertexAccessor> &vertex_acc) {
+  MG_ASSERT(vertex_acc.size() == iterable.size());
+  std::vector<Ordering> ordering;
+  ordering.reserve(order_by_edges.size());
+  std::transform(order_by_edges.begin(), order_by_edges.end(), std::back_inserter(ordering),
+                 [](const auto &order_by) { return ConvertMsgsOrderByToOrdering(order_by.direction); });
+
+  std::vector<Element<std::pair<VertexAccessor, EdgeAccessor>>> ordered;
+  VertexAccessor current = vertex_acc.front();
+  size_t id = 0;
+  for (auto it = iterable.begin(); it != iterable.end(); it++, id++) {
+    current = vertex_acc[id];
+    std::vector<TypedValue> properties_order_by;
+    properties_order_by.reserve(order_by_edges.size());
+    std::transform(order_by_edges.begin(), order_by_edges.end(), std::back_inserter(properties_order_by),
+                   [&dba, it, current](const auto &order_by) {
+                     return ComputeExpression(dba, current, *it, order_by.expression.expression,
+                                              expr::identifier_node_symbol, expr::identifier_edge_symbol);
+                   });
+
+    ordered.push_back({std::move(properties_order_by), {current, *it}});
   }
 
   auto compare_typed_values = TypedValueVectorCompare(ordering);
