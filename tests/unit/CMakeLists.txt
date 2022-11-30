@@ -93,8 +93,8 @@ target_link_libraries(${test_prefix}query_expression_evaluator mg-query)
 add_unit_test(query_plan.cpp)
 target_link_libraries(${test_prefix}query_plan mg-query)
 
-add_unit_test(query_plan_v2.cpp)
-target_link_libraries(${test_prefix}query_plan_v2 mg-query-v2)
+add_unit_test(query_v2_plan.cpp)
+target_link_libraries(${test_prefix}query_v2_plan mg-query-v2)
 
 add_unit_test(query_plan_accumulate_aggregate.cpp)
 target_link_libraries(${test_prefix}query_plan_accumulate_aggregate mg-query)

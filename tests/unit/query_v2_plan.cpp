@@ -22,14 +22,13 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "query/v2/frontend/ast/ast.hpp"
-// #include "query/frontend/semantic/symbol_generator.hpp"
 #include "expr/semantic/symbol_generator.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
+#include "query/v2/frontend/ast/ast.hpp"
 #include "query/v2/plan/operator.hpp"
 #include "query/v2/plan/planner.hpp"
 
-#include "query_common.hpp"
+#include "query_v2_common.hpp"
 
 namespace memgraph::query {
 ::std::ostream &operator<<(::std::ostream &os, const Symbol &sym) {
@@ -39,10 +38,10 @@ namespace memgraph::query {
 
 // using namespace memgraph::query::v2::plan;
 using namespace memgraph::expr::plan;
-using memgraph::query::AstStorage;
-using memgraph::query::SingleQuery;
 using memgraph::query::Symbol;
 using memgraph::query::SymbolGenerator;
+using memgraph::query::v2::AstStorage;
+using memgraph::query::v2::SingleQuery;
 using memgraph::query::v2::SymbolTable;
 using Type = memgraph::query::v2::EdgeAtom::Type;
 using Direction = memgraph::query::v2::EdgeAtom::Direction;
@@ -75,8 +74,8 @@ auto CheckPlan(LogicalOperator &plan, const SymbolTable &symbol_table, TChecker.
 }
 
 template <class TPlanner, class... TChecker>
-auto CheckPlan(memgraph::query::CypherQuery *query, AstStorage &storage, TChecker... checker) {
-  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+auto CheckPlan(memgraph::query::v2::CypherQuery *query, AstStorage &storage, TChecker... checker) {
+  auto symbol_table = memgraph::expr::MakeSymbolTable(query);
   FakeDistributedDbAccessor dba;
   auto planner = MakePlanner<TPlanner>(&dba, storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, checker...);
@@ -95,45 +94,91 @@ void DeleteListContent(std::list<BaseOpChecker *> *list) {
 TYPED_TEST_CASE(TestPlanner, PlannerTypes);
 
 TYPED_TEST(TestPlanner, MatchFilterPropIsNotNull) {
-  FakeDistributedDbAccessor dba;
-  auto label = dba.Label("prim_label_one");
-  auto prim_prop_one = PRIMARY_PROPERTY_PAIR("prim_prop_one");
-  // auto prim_prop_two = PRIMARY_PROPERTY_PAIR("prim_prop_two");
-  auto sec_prop_one = PRIMARY_PROPERTY_PAIR("sec_prop_one");
-  auto sec_prop_two = PRIMARY_PROPERTY_PAIR("sec_prop_two");
-  auto sec_prop_three = PRIMARY_PROPERTY_PAIR("sec_prop_three");
-  dba.SetIndexCount(label, 1);
-  dba.SetIndexCount(label, prim_prop_one.second, 1);
-  // dba.SetIndexCount(label, prim_prop_two.second, 1);
-  dba.SetIndexCount(label, sec_prop_one.second, 1);
-  dba.SetIndexCount(label, sec_prop_two.second, 1);
-  dba.SetIndexCount(label, sec_prop_three.second, 1);
-  memgraph::query::v2::AstStorage storage;
+  const char *prim_label_name = "prim_label_one";
+  // Exact primary key match, one elem as PK.
   {
+    FakeDistributedDbAccessor dba;
+    auto label = dba.Label(prim_label_name);
+    auto prim_prop_one = PRIMARY_PROPERTY_PAIR("prim_prop_one");
+
+    dba.SetIndexCount(label, 1);
+    dba.SetIndexCount(label, prim_prop_one.second, 1);
+
+    dba.CreateSchema(label, {prim_prop_one.second});
+
+    memgraph::query::v2::AstStorage storage;
+
     memgraph::query::v2::Expression *expected_primary_key;
-
-    // Pray and hope for the best...
     expected_primary_key = PROPERTY_LOOKUP("n", prim_prop_one);
-
-    // auto asd1 = NODE("n", "label");
-    // auto asd2 = PATTERN(NODE("n", "label"));
-    // auto asd3 = MATCH_V2(PATTERN(NODE("n", "label")));
-    // auto asd4 = WHERE_V2(PROPERTY_LOOKUP("n", prim_prop_one));
-
-    auto *query = QUERY(SINGLE_QUERY_V2(MATCH_V2(PATTERN(NODE("n", "label"))),
-                                        WHERE_V2(PROPERTY_LOOKUP("n", prim_prop_one)), RETURN("n")));
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", prim_label_name))),
+                                     WHERE(EQ(PROPERTY_LOOKUP("n", prim_prop_one), LITERAL(1))), RETURN("n")));
     auto symbol_table = (memgraph::expr::MakeSymbolTable(query));
     auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
     CheckPlan(planner.plan(), symbol_table, ExpectScanAllByPrimaryKey(label, {expected_primary_key}), ExpectProduce());
+  }
+  // Exact primary key match, two elem as PK.
+  {
+    FakeDistributedDbAccessor dba;
+    auto label = dba.Label(prim_label_name);
+    auto prim_prop_one = PRIMARY_PROPERTY_PAIR("prim_prop_one");
 
-    // // Test MATCH (n :label) -[r]- (m) WHERE n.prop IS NOT NULL RETURN n
-    // auto *query2 = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"), EDGE("r"), NODE("m"))),
-    //                                  WHERE(NOT(IS_NULL(PROPERTY_LOOKUP("n", prop)))), RETURN("n")));
-    // auto symbol_table = memgraph::query::MakeSymbolTable(query);
-    // auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-    // // We expect ScanAllByLabelProperty to come instead of ScanAll > Filter.
-    // CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelProperty(label, prop), ExpectExpand(),
-    // ExpectProduce());
+    auto prim_prop_two = PRIMARY_PROPERTY_PAIR("prim_prop_two");
+    auto sec_prop_one = PRIMARY_PROPERTY_PAIR("sec_prop_one");
+    auto sec_prop_two = PRIMARY_PROPERTY_PAIR("sec_prop_two");
+    auto sec_prop_three = PRIMARY_PROPERTY_PAIR("sec_prop_three");
+
+    dba.SetIndexCount(label, 1);
+    dba.SetIndexCount(label, prim_prop_one.second, 1);
+
+    dba.CreateSchema(label, {prim_prop_one.second, prim_prop_two.second});
+
+    dba.SetIndexCount(label, prim_prop_two.second, 1);
+    dba.SetIndexCount(label, sec_prop_one.second, 1);
+    dba.SetIndexCount(label, sec_prop_two.second, 1);
+    dba.SetIndexCount(label, sec_prop_three.second, 1);
+    memgraph::query::v2::AstStorage storage;
+
+    memgraph::query::v2::Expression *expected_primary_key;
+    expected_primary_key = PROPERTY_LOOKUP("n", prim_prop_one);
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", prim_label_name))),
+                                     WHERE(AND(EQ(PROPERTY_LOOKUP("n", prim_prop_one), LITERAL(1)),
+                                               EQ(PROPERTY_LOOKUP("n", prim_prop_two), LITERAL(1)))),
+                                     RETURN("n")));
+    auto symbol_table = (memgraph::expr::MakeSymbolTable(query));
+    auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByPrimaryKey(label, {expected_primary_key}), ExpectProduce());
+  }
+  // One elem is missing from PK, default to ScanAllByLabelPropertyValue.
+  {
+    FakeDistributedDbAccessor dba;
+    auto label = dba.Label(prim_label_name);
+
+    auto prim_prop_one = PRIMARY_PROPERTY_PAIR("prim_prop_one");
+    auto prim_prop_two = PRIMARY_PROPERTY_PAIR("prim_prop_two");
+
+    auto sec_prop_one = PRIMARY_PROPERTY_PAIR("sec_prop_one");
+    auto sec_prop_two = PRIMARY_PROPERTY_PAIR("sec_prop_two");
+    auto sec_prop_three = PRIMARY_PROPERTY_PAIR("sec_prop_three");
+
+    dba.SetIndexCount(label, 1);
+    dba.SetIndexCount(label, prim_prop_one.second, 1);
+
+    dba.CreateSchema(label, {prim_prop_one.second, prim_prop_two.second});
+
+    dba.SetIndexCount(label, prim_prop_two.second, 1);
+    dba.SetIndexCount(label, sec_prop_one.second, 1);
+    dba.SetIndexCount(label, sec_prop_two.second, 1);
+    dba.SetIndexCount(label, sec_prop_three.second, 1);
+    memgraph::query::v2::AstStorage storage;
+
+    memgraph::query::v2::Expression *expected_primary_key;
+    expected_primary_key = PROPERTY_LOOKUP("n", prim_prop_one);
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", prim_label_name))),
+                                     WHERE(EQ(PROPERTY_LOOKUP("n", prim_prop_one), LITERAL(1))), RETURN("n")));
+    auto symbol_table = (memgraph::expr::MakeSymbolTable(query));
+    auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelPropertyValue(label, prim_prop_one, IDENT("n")),
+              ExpectProduce());
   }
 }
 

@@ -273,6 +273,16 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(ScanAllByPrimaryKey &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByPrimaryKey &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
   bool PreVisit(ConstructNamedPath &op) override {
     prev_ops_.push_back(&op);
     return true;
@@ -480,6 +490,12 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   storage::v3::PropertyId GetProperty(PropertyIx prop) { return db_->NameToProperty(prop.name); }
 
+  void EraseLabelFilters(const memgraph::query::v2::Symbol &node_symbol, memgraph::query::v2::LabelIx prim_label) {
+    std::vector<query::v2::Expression *> removed_expressions;
+    filters_.EraseLabelFilter(node_symbol, prim_label, &removed_expressions);
+    filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
+  }
+
   std::optional<LabelIx> FindBestLabelIndex(const std::unordered_set<LabelIx> &labels) {
     MG_ASSERT(!labels.empty(), "Trying to find the best label without any labels.");
     std::optional<LabelIx> best_label;
@@ -564,19 +580,28 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     // First, try to see if we can find a vertex based on the possibly
     // supplied primary key.
     auto property_filters = filters_.PropertyFilters(node_symbol);
-    storage::v3::LabelId prim_label;
-    std::vector<query::v2::Expression *> primary_key;
+    query::v2::LabelIx prim_label;
+    std::vector<std::pair<query::v2::Expression *, query::v2::plan::FilterInfo>> primary_key;
 
     if (!property_filters.empty()) {
       for (const auto &label : labels) {
         if (db_->LabelIndexExists(GetLabel(label))) {
-          prim_label = GetLabel(label);
-          primary_key = db_->ExtractPrimaryKey(prim_label, property_filters);
+          prim_label = label;
+          primary_key = db_->ExtractPrimaryKey(GetLabel(prim_label), property_filters);
           break;
         }
       }
       if (!primary_key.empty()) {
-        return std::make_unique<ScanAllByPrimaryKey>(input, node_symbol, prim_label, primary_key);
+        // Mark the expressions so they won't be used for an additional, unnecessary filter.
+        for (const auto &pk : primary_key) {
+          filter_exprs_for_removal_.insert(pk.first);
+          filters_.EraseFilter(pk.second);
+        }
+        EraseLabelFilters(node_symbol, prim_label);
+        std::vector<query::v2::Expression *> pk_expressions;
+        std::transform(primary_key.begin(), primary_key.end(), std::back_inserter(pk_expressions),
+                       [](const auto &exp) { return exp.first; });
+        return std::make_unique<ScanAllByPrimaryKey>(input, node_symbol, GetLabel(prim_label), pk_expressions);
       }
     }
 
@@ -593,9 +618,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         filter_exprs_for_removal_.insert(found_index->filter.expression);
       }
       filters_.EraseFilter(found_index->filter);
-      std::vector<Expression *> removed_expressions;
-      filters_.EraseLabelFilter(node_symbol, found_index->label, &removed_expressions);
-      filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
+      EraseLabelFilters(node_symbol, found_index->label);
       if (prop_filter.lower_bound_ || prop_filter.upper_bound_) {
         return std::make_unique<ScanAllByLabelPropertyRange>(
             input, node_symbol, GetLabel(found_index->label), GetProperty(prop_filter.property_),

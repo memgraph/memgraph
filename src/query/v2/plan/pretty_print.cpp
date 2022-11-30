@@ -86,6 +86,14 @@ bool PlanPrinter::PreVisit(query::v2::plan::ScanAllByLabelProperty &op) {
   return true;
 }
 
+bool PlanPrinter::PreVisit(query::v2::plan::ScanAllByPrimaryKey &op) {
+  WithPrintLn([&](auto &out) {
+    out << "* ScanAllByPrimaryKey"
+        << " (" << op.output_symbol_.name() << " :" << request_manager_->LabelToName(op.label_) << ")";
+  });
+  return true;
+}
+
 bool PlanPrinter::PreVisit(query::v2::plan::Expand &op) {
   WithPrintLn([&](auto &out) {
     *out_ << "* Expand (" << op.input_symbol_.name() << ")"
@@ -471,6 +479,19 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByLabelProperty &op) {
   self["name"] = "ScanAllByLabelProperty";
   self["label"] = ToJson(op.label_, *request_manager_);
   self["property"] = ToJson(op.property_, *request_manager_);
+  self["output_symbol"] = ToJson(op.output_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanAllByPrimaryKey &op) {
+  json self;
+  self["name"] = "ScanAllByPrimaryKey";
+  self["label"] = ToJson(op.label_, *request_manager_);
   self["output_symbol"] = ToJson(op.output_symbol_);
 
   op.input_->Accept(*this);

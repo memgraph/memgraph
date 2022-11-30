@@ -58,9 +58,9 @@ class VertexCountCache {
 
   bool LabelPropertyIndexExists(storage::v3::LabelId /*label*/, storage::v3::PropertyId /*property*/) { return false; }
 
-  std::vector<query::v2::Expression *> ExtractPrimaryKey(storage::v3::LabelId label,
-                                                         std::vector<query::v2::plan::FilterInfo> property_filters) {
-    std::vector<query::v2::Expression *> pk;
+  std::vector<std::pair<query::v2::Expression *, query::v2::plan::FilterInfo>> ExtractPrimaryKey(
+      storage::v3::LabelId label, std::vector<query::v2::plan::FilterInfo> property_filters) {
+    std::vector<std::pair<query::v2::Expression *, query::v2::plan::FilterInfo>> pk;
     const auto schema = shard_request_manager_->GetSchemaForLabel(label);
 
     std::vector<storage::v3::PropertyId> schema_properties;
@@ -72,11 +72,13 @@ class VertexCountCache {
     for (const auto &property_filter : property_filters) {
       const auto &property_id = NameToProperty(property_filter.property_filter->property_.name);
       if (std::find(schema_properties.begin(), schema_properties.end(), property_id) != schema_properties.end()) {
-        pk.push_back(property_filter.expression);
+        pk.emplace_back(std::make_pair(property_filter.expression, property_filter));
       }
     }
 
-    return pk.size() == schema_properties.size() ? pk : std::vector<query::v2::Expression *>{};
+    return pk.size() == schema_properties.size()
+               ? pk
+               : std::vector<std::pair<query::v2::Expression *, query::v2::plan::FilterInfo>>{};
   }
 
   msgs::ShardRequestManagerInterface *shard_request_manager_;

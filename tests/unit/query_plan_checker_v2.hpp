@@ -61,6 +61,7 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(ScanAllByLabelPropertyValue);
   PRE_VISIT(ScanAllByLabelPropertyRange);
   PRE_VISIT(ScanAllByLabelProperty);
+  PRE_VISIT(ScanAllByPrimaryKey);
   PRE_VISIT(Expand);
   PRE_VISIT(ExpandVariable);
   PRE_VISIT(Filter);
@@ -270,25 +271,25 @@ using ExpectDistinct = OpChecker<Distinct>;
 //   const std::list<BaseOpChecker *> &optional_;
 // };
 
-// class ExpectScanAllByLabelPropertyValue : public OpChecker<ScanAllByLabelPropertyValue> {
-//  public:
-//   ExpectScanAllByLabelPropertyValue(memgraph::storage::LabelId label,
-//                                     const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair,
-//                                     memgraph::query::Expression *expression)
-//       : label_(label), property_(prop_pair.second), expression_(expression) {}
+class ExpectScanAllByLabelPropertyValue : public OpChecker<ScanAllByLabelPropertyValue> {
+ public:
+  ExpectScanAllByLabelPropertyValue(memgraph::storage::v3::LabelId label,
+                                    const std::pair<std::string, memgraph::storage::v3::PropertyId> &prop_pair,
+                                    memgraph::query::v2::Expression *expression)
+      : label_(label), property_(prop_pair.second), expression_(expression) {}
 
-//   void ExpectOp(ScanAllByLabelPropertyValue &scan_all, const SymbolTable &) override {
-//     EXPECT_EQ(scan_all.label_, label_);
-//     EXPECT_EQ(scan_all.property_, property_);
-//     // TODO: Proper expression equality
-//     EXPECT_EQ(typeid(scan_all.expression_).hash_code(), typeid(expression_).hash_code());
-//   }
+  void ExpectOp(ScanAllByLabelPropertyValue &scan_all, const SymbolTable &) override {
+    EXPECT_EQ(scan_all.label_, label_);
+    EXPECT_EQ(scan_all.property_, property_);
+    // TODO: Proper expression equality
+    EXPECT_EQ(typeid(scan_all.expression_).hash_code(), typeid(expression_).hash_code());
+  }
 
-//  private:
-//   memgraph::storage::LabelId label_;
-//   memgraph::storage::PropertyId property_;
-//   memgraph::query::Expression *expression_;
-// };
+ private:
+  memgraph::storage::v3::LabelId label_;
+  memgraph::storage::v3::PropertyId property_;
+  memgraph::query::v2::Expression *expression_;
+};
 
 // class ExpectScanAllByLabelPropertyRange : public OpChecker<ScanAllByLabelPropertyRange> {
 //  public:
@@ -536,12 +537,53 @@ class FakeDistributedDbAccessor {
   }
 
   memgraph::storage::v3::PropertyId NameToProperty(const std::string &name) {
-    return storage::v3::PropertyId::FromUint(0);
+    auto find_in_prim_properties = primary_properties_.find(name);
+    if (find_in_prim_properties != primary_properties_.end()) {
+      return find_in_prim_properties->second;
+    }
+    auto find_in_secondary_properties = secondary_properties_.find(name);
+    if (find_in_secondary_properties != secondary_properties_.end()) {
+      return find_in_secondary_properties->second;
+    }
+
+    MG_ASSERT(false, "The property does not exist as a primary or a secondary property.");
+    return memgraph::storage::v3::PropertyId::FromUint(0);
   }
 
-  std::vector<query::v2::Expression *> ExtractPrimaryKey(storage::v3::LabelId label,
-                                                         std::vector<query::v2::plan::FilterInfo> property_filters) {
-    return std::vector<query::v2::Expression *>{};
+  std::vector<std::pair<query::v2::Expression *, query::v2::plan::FilterInfo>> ExtractPrimaryKey(
+      storage::v3::LabelId label, std::vector<query::v2::plan::FilterInfo> property_filters) {
+    MG_ASSERT(schemas_.contains(label),
+              "You did not specify the Schema for this label! Use FakeDistributedDbAccessor::CreateSchema(...).");
+
+    std::vector<std::pair<query::v2::Expression *, query::v2::plan::FilterInfo>> pk;
+    const auto schema = GetSchemaForLabel(label);
+
+    std::vector<storage::v3::PropertyId> schema_properties;
+    schema_properties.reserve(schema.size());
+
+    std::transform(schema.begin(), schema.end(), std::back_inserter(schema_properties),
+                   [](const auto &schema_elem) { return schema_elem; });
+
+    for (const auto &property_filter : property_filters) {
+      const auto &property_id = NameToProperty(property_filter.property_filter->property_.name);
+      if (std::find(schema_properties.begin(), schema_properties.end(), property_id) != schema_properties.end()) {
+        pk.emplace_back(std::make_pair(property_filter.expression, property_filter));
+      }
+    }
+
+    return pk.size() == schema_properties.size()
+               ? pk
+               : std::vector<std::pair<query::v2::Expression *, query::v2::plan::FilterInfo>>{};
+  }
+
+  std::vector<memgraph::storage::v3::PropertyId> GetSchemaForLabel(storage::v3::LabelId label) {
+    return schemas_.at(label);
+  }
+
+  void CreateSchema(const memgraph::storage::v3::LabelId primary_label,
+                    const std::vector<memgraph::storage::v3::PropertyId> &schemas_types) {
+    MG_ASSERT(!schemas_.contains(primary_label), "You already created the schema for this label!");
+    schemas_.emplace(primary_label, schemas_types);
   }
 
  private:
@@ -554,6 +596,8 @@ class FakeDistributedDbAccessor {
   std::unordered_map<memgraph::storage::v3::LabelId, int64_t> label_index_;
   std::vector<std::tuple<memgraph::storage::v3::LabelId, memgraph::storage::v3::PropertyId, int64_t>>
       label_property_index_;
+
+  std::unordered_map<memgraph::storage::v3::LabelId, std::vector<memgraph::storage::v3::PropertyId>> schemas_;
 };
 
 }  // namespace memgraph::query::v2::plan
