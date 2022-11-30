@@ -101,12 +101,11 @@ ValidFramesConsumer::Iterator ValidFramesConsumer::end() {
 InvalidFramesPopulator::InvalidFramesPopulator(MultiFrame &multiframe) : multiframe_(multiframe) {}
 
 InvalidFramesPopulator::Iterator InvalidFramesPopulator::begin() {
-  for (auto idx = 0UL; idx < multiframe_.frames_.size(); ++idx) {
-    if (!multiframe_.frames_[idx].IsValid()) {
-      return Iterator{&multiframe_.frames_[idx]};
+  for (auto &frame : multiframe_.frames_) {
+    if (!frame.IsValid()) {
+      return Iterator{&frame};
     }
   }
-
   return end();
 }
 
