@@ -440,9 +440,17 @@ std::pair<std::string, std::string> LoadUsernameAndPassword(std::string pass_fil
   std::string token;
   std::string delimiter = ":";
   while ((pos = line.find(delimiter)) != std::string::npos) {
-    token = line.substr(0, pos);
-    result.push_back(token);
-    line.erase(0, pos + delimiter.length());
+    if (line[pos - 1] == '\\') {
+      line.erase(pos - 1, 1);
+      token += line.substr(0, pos);
+      line.erase(0, pos);
+
+    } else {
+      token += line.substr(0, pos);
+      result.push_back(token);
+      line.erase(0, pos + delimiter.length());
+      token = "";
+    }
   }
   result.push_back(line);
   file.close();
