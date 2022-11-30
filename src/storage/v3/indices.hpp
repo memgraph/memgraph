@@ -59,7 +59,7 @@ class LabelIndex {
   void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx);
 
   /// @throw std::bad_alloc
-  bool CreateIndex(LabelId label, VertexContainer vertices);
+  bool CreateIndex(LabelId label, VertexContainer &vertices);
 
   /// Returns false if there was no index to drop
   bool DropIndex(LabelId label) { return index_.erase(label) > 0; }
@@ -157,7 +157,7 @@ class LabelPropertyIndex {
   void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, const Transaction &tx);
 
   /// @throw std::bad_alloc
-  bool CreateIndex(LabelId label, PropertyId property, VertexContainer vertices);
+  bool CreateIndex(LabelId label, PropertyId property, VertexContainer &vertices);
 
   bool DropIndex(LabelId label, PropertyId property) { return index_.erase({label, property}) > 0; }
 

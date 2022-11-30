@@ -64,7 +64,7 @@ namespace memgraph::storage::v3 {
 /// An instance of this will be usually be wrapped inside VerticesIterable for
 /// generic, public use.
 class AllVerticesIterable final {
-  VertexContainer vertices_accessor_;
+  VertexContainer *vertices_accessor_;
   Transaction *transaction_;
   View view_;
   Indices *indices_;
@@ -89,17 +89,17 @@ class AllVerticesIterable final {
     bool operator!=(const Iterator &other) const { return !(*this == other); }
   };
 
-  AllVerticesIterable(VertexContainer vertices_accessor, Transaction *transaction, View view, Indices *indices,
+  AllVerticesIterable(VertexContainer &vertices_accessor, Transaction *transaction, View view, Indices *indices,
                       Config::Items config, const VertexValidator &vertex_validator)
-      : vertices_accessor_(std::move(vertices_accessor)),
+      : vertices_accessor_(&vertices_accessor),
         transaction_(transaction),
         view_(view),
         indices_(indices),
         config_(config),
         vertex_validator_{&vertex_validator} {}
 
-  Iterator begin() { return {this, vertices_accessor_.begin()}; }
-  Iterator end() { return {this, vertices_accessor_.end()}; }
+  Iterator begin() { return {this, vertices_accessor_->begin()}; }
+  Iterator end() { return {this, vertices_accessor_->end()}; }
 };
 
 /// Generic access to different kinds of vertex iterations.

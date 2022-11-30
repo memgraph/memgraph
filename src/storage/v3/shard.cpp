@@ -91,15 +91,15 @@ auto AdvanceToVisibleVertex(VertexContainer::iterator it, VertexContainer::itera
 
 AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, VertexContainer::iterator it)
     : self_(self),
-      it_(AdvanceToVisibleVertex(it, self->vertices_accessor_.end(), &self->vertex_, self->transaction_, self->view_,
+      it_(AdvanceToVisibleVertex(it, self->vertices_accessor_->end(), &self->vertex_, self->transaction_, self->view_,
                                  self->indices_, self->config_, *self_->vertex_validator_)) {}
 
 VertexAccessor AllVerticesIterable::Iterator::operator*() const { return *self_->vertex_; }
 
 AllVerticesIterable::Iterator &AllVerticesIterable::Iterator::operator++() {
   ++it_;
-  it_ = AdvanceToVisibleVertex(it_, self_->vertices_accessor_.end(), &self_->vertex_, self_->transaction_, self_->view_,
-                               self_->indices_, self_->config_, *self_->vertex_validator_);
+  it_ = AdvanceToVisibleVertex(it_, self_->vertices_accessor_->end(), &self_->vertex_, self_->transaction_,
+                               self_->view_, self_->indices_, self_->config_, *self_->vertex_validator_);
   return *this;
 }
 

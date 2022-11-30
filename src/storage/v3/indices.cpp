@@ -270,7 +270,7 @@ void LabelIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transacti
   acc.insert(Entry{vertex, tx.start_timestamp.logical_id});
 }
 
-bool LabelIndex::CreateIndex(LabelId label, VertexContainer vertices) {
+bool LabelIndex::CreateIndex(LabelId label, VertexContainer &vertices) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   auto [it, emplaced] = index_.emplace(std::piecewise_construct, std::forward_as_tuple(label), std::forward_as_tuple());
   if (!emplaced) {
@@ -416,7 +416,7 @@ void LabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const Property
   }
 }
 
-bool LabelPropertyIndex::CreateIndex(LabelId label, PropertyId property, VertexContainer vertices) {
+bool LabelPropertyIndex::CreateIndex(LabelId label, PropertyId property, VertexContainer &vertices) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   auto [it, emplaced] =
       index_.emplace(std::piecewise_construct, std::forward_as_tuple(label, property), std::forward_as_tuple());
