@@ -9,8 +9,6 @@ set(storage_v3_src_files
     temporal.cpp
     edge_accessor.cpp
     indices.cpp
-    key_store.cpp
-    lexicographically_ordered_vertex.cpp
     property_store.cpp
     vertex_accessor.cpp
     schemas.cpp

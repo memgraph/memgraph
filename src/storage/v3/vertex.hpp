@@ -31,14 +31,14 @@ namespace memgraph::storage::v3 {
 struct Vertex {
   using EdgeLink = std::tuple<EdgeTypeId, VertexId, EdgeRef>;
 
-  Vertex(Delta *delta, const std::vector<PropertyValue> &primary_properties) : keys{primary_properties}, delta{delta} {
+  Vertex(Delta *delta, PrimaryKey primary_properties) : keys{std::move(primary_properties)}, delta{delta} {
     MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
               "Vertex must be created with an initial DELETE_OBJECT delta!");
   }
 
   friend bool operator==(const Vertex &vertex, const PrimaryKey &primary_key) { return vertex.keys == primary_key; }
 
-  KeyStore keys;
+  PrimaryKey keys;
 
   std::vector<LabelId> labels;
   PropertyStore properties;

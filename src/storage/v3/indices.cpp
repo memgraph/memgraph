@@ -17,6 +17,7 @@
 #include "storage/v3/mvcc.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/schemas.hpp"
+#include "storage/v3/vertices_container.hpp"
 #include "utils/bound.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -269,7 +270,7 @@ void LabelIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transacti
   acc.insert(Entry{vertex, tx.start_timestamp.logical_id});
 }
 
-bool LabelIndex::CreateIndex(LabelId label, VerticesSkipList::Accessor vertices) {
+bool LabelIndex::CreateIndex(LabelId label, VertexContainer vertices) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   auto [it, emplaced] = index_.emplace(std::piecewise_construct, std::forward_as_tuple(label), std::forward_as_tuple());
   if (!emplaced) {
@@ -278,8 +279,7 @@ bool LabelIndex::CreateIndex(LabelId label, VerticesSkipList::Accessor vertices)
   }
   try {
     auto acc = it->second.access();
-    for (auto &lgo_vertex : vertices) {
-      auto &vertex = lgo_vertex.vertex;
+    for ([[maybe_unused]] auto &[pk, vertex] : vertices) {
       if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
         continue;
       }
@@ -416,7 +416,7 @@ void LabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const Property
   }
 }
 
-bool LabelPropertyIndex::CreateIndex(LabelId label, PropertyId property, VerticesSkipList::Accessor vertices) {
+bool LabelPropertyIndex::CreateIndex(LabelId label, PropertyId property, VertexContainer vertices) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   auto [it, emplaced] =
       index_.emplace(std::piecewise_construct, std::forward_as_tuple(label, property), std::forward_as_tuple());
@@ -426,8 +426,7 @@ bool LabelPropertyIndex::CreateIndex(LabelId label, PropertyId property, Vertice
   }
   try {
     auto acc = it->second.access();
-    for (auto &lgo_vertex : vertices) {
-      auto &vertex = lgo_vertex.vertex;
+    for ([[maybe_unused]] auto &[pk, vertex] : vertices) {
       if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
         continue;
       }

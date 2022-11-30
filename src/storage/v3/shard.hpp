@@ -31,7 +31,6 @@
 #include "storage/v3/indices.hpp"
 #include "storage/v3/isolation_level.hpp"
 #include "storage/v3/key_store.hpp"
-#include "storage/v3/lexicographically_ordered_vertex.hpp"
 #include "storage/v3/mvcc.hpp"
 #include "storage/v3/name_id_mapper.hpp"
 #include "storage/v3/property_value.hpp"
@@ -42,7 +41,7 @@
 #include "storage/v3/vertex.hpp"
 #include "storage/v3/vertex_accessor.hpp"
 #include "storage/v3/vertex_id.hpp"
-#include "storage/v3/vertices_skip_list.hpp"
+#include "storage/v3/vertices_container.hpp"
 #include "storage/v3/view.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file_locker.hpp"
@@ -65,7 +64,7 @@ namespace memgraph::storage::v3 {
 /// An instance of this will be usually be wrapped inside VerticesIterable for
 /// generic, public use.
 class AllVerticesIterable final {
-  VerticesSkipList::Accessor vertices_accessor_;
+  VertexContainer vertices_accessor_;
   Transaction *transaction_;
   View view_;
   Indices *indices_;
@@ -76,10 +75,10 @@ class AllVerticesIterable final {
  public:
   class Iterator final {
     AllVerticesIterable *self_;
-    VerticesSkipList::Iterator it_;
+    VertexContainer::iterator it_;
 
    public:
-    Iterator(AllVerticesIterable *self, VerticesSkipList::Iterator it);
+    Iterator(AllVerticesIterable *self, VertexContainer::iterator it);
 
     VertexAccessor operator*() const;
 
@@ -90,8 +89,8 @@ class AllVerticesIterable final {
     bool operator!=(const Iterator &other) const { return !(*this == other); }
   };
 
-  AllVerticesIterable(VerticesSkipList::Accessor vertices_accessor, Transaction *transaction, View view,
-                      Indices *indices, Config::Items config, const VertexValidator &vertex_validator)
+  AllVerticesIterable(VertexContainer vertices_accessor, Transaction *transaction, View view, Indices *indices,
+                      Config::Items config, const VertexValidator &vertex_validator)
       : vertices_accessor_(std::move(vertices_accessor)),
         transaction_(transaction),
         view_(view),
@@ -213,7 +212,7 @@ class Shard final {
     std::optional<VertexAccessor> FindVertex(std::vector<PropertyValue> primary_key, View view);
 
     VerticesIterable Vertices(View view) {
-      return VerticesIterable(AllVerticesIterable(shard_->vertices_.access(), transaction_, view, &shard_->indices_,
+      return VerticesIterable(AllVerticesIterable(shard_->vertices_, transaction_, view, &shard_->indices_,
                                                   shard_->config_.items, shard_->vertex_validator_));
     }
 
@@ -377,7 +376,7 @@ class Shard final {
   // The shard's range is [min, max)
   PrimaryKey min_primary_key_;
   std::optional<PrimaryKey> max_primary_key_;
-  VerticesSkipList vertices_;
+  VertexContainer vertices_;
   utils::SkipList<Edge> edges_;
   // Even though the edge count is already kept in the `edges_` SkipList, the
   // list is used only when properties are enabled for edges. Because of that we

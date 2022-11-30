@@ -9,6 +9,13 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v3/lexicographically_ordered_vertex.hpp"
+#pragma once
 
-namespace memgraph::storage::v3 {}  // namespace memgraph::storage::v3
+#include <map>
+
+#include "storage/v3/key_store.hpp"
+#include "storage/v3/vertex.hpp"
+
+namespace memgraph::storage::v3 {
+using VertexContainer = std::map<PrimaryKey, Vertex>;
+}  // namespace memgraph::storage::v3

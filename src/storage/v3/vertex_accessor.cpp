@@ -215,14 +215,14 @@ ShardResult<PrimaryKey> VertexAccessor::PrimaryKey(const View view) const {
   if (const auto result = CheckVertexExistence(view); result.HasError()) {
     return result.GetError();
   }
-  return vertex_->keys.Keys();
+  return vertex_->keys;
 }
 
 ShardResult<VertexId> VertexAccessor::Id(View view) const {
   if (const auto result = CheckVertexExistence(view); result.HasError()) {
     return result.GetError();
   }
-  return VertexId{vertex_validator_->primary_label_, vertex_->keys.Keys()};
+  return VertexId{vertex_validator_->primary_label_, vertex_->keys};
 };
 
 ShardResult<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
@@ -401,7 +401,7 @@ PropertyValue VertexAccessor::GetPropertyValue(PropertyId property, View view) c
     }
   }
 
-  value = vertex_->keys.GetKey(property_index);
+  value = vertex_->keys[property_index];
   if (value.IsNull()) {
     value = vertex_->properties.GetProperty(property);
   }
@@ -572,7 +572,7 @@ ShardResult<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, const 
     return ret;
   }
   ret.reserve(in_edges.size());
-  const auto id = VertexId{vertex_validator_->primary_label_, vertex_->keys.Keys()};
+  const auto id = VertexId{vertex_validator_->primary_label_, vertex_->keys};
   for (const auto &item : in_edges) {
     const auto &[edge_type, from_vertex, edge] = item;
     ret.emplace_back(edge, edge_type, from_vertex, id, transaction_, indices_, config_);
@@ -652,7 +652,7 @@ ShardResult<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(View view, const
     return ret;
   }
   ret.reserve(out_edges.size());
-  const auto id = VertexId{vertex_validator_->primary_label_, vertex_->keys.Keys()};
+  const auto id = VertexId{vertex_validator_->primary_label_, vertex_->keys};
   for (const auto &item : out_edges) {
     const auto &[edge_type, to_vertex, edge] = item;
     ret.emplace_back(edge, edge_type, id, to_vertex, transaction_, indices_, config_);

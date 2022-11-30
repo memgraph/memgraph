@@ -38,7 +38,7 @@
 #include "storage/v3/transaction.hpp"
 #include "storage/v3/vertex.hpp"
 #include "storage/v3/vertex_accessor.hpp"
-#include "storage/v3/vertices_skip_list.hpp"
+#include "storage/v3/vertices_container.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
@@ -75,11 +75,11 @@ uint64_t GetCleanupBeforeTimestamp(const std::map<uint64_t, std::unique_ptr<Tran
 
 }  // namespace
 
-auto AdvanceToVisibleVertex(VerticesSkipList::Iterator it, VerticesSkipList::Iterator end,
+auto AdvanceToVisibleVertex(VertexContainer::iterator it, VertexContainer::iterator end,
                             std::optional<VertexAccessor> *vertex, Transaction *tx, View view, Indices *indices,
                             Config::Items config, const VertexValidator &vertex_validator) {
   while (it != end) {
-    *vertex = VertexAccessor::Create(&it->vertex, tx, indices, config, vertex_validator, view);
+    *vertex = VertexAccessor::Create(&it->second, tx, indices, config, vertex_validator, view);
     if (!*vertex) {
       ++it;
       continue;
@@ -89,7 +89,7 @@ auto AdvanceToVisibleVertex(VerticesSkipList::Iterator it, VerticesSkipList::Ite
   return it;
 }
 
-AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, VerticesSkipList::Iterator it)
+AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, VertexContainer::iterator it)
     : self_(self),
       it_(AdvanceToVisibleVertex(it, self->vertices_accessor_.end(), &self->vertex_, self->transaction_, self->view_,
                                  self->indices_, self->config_, *self_->vertex_validator_)) {}
@@ -357,16 +357,15 @@ ShardResult<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
     return {std::move(maybe_schema_violation.GetError())};
   }
 
-  auto acc = shard_->vertices_.access();
   auto *delta = CreateDeleteObjectDelta(transaction_);
-  auto [it, inserted] = acc.insert({Vertex{delta, primary_properties}});
-  delta->prev.Set(&it->vertex);
+  auto [it, inserted] = shard_->vertices_.emplace(primary_properties, Vertex(delta, primary_properties));
+  delta->prev.Set(&it->second);
 
-  VertexAccessor vertex_acc{&it->vertex, transaction_, &shard_->indices_, config_, shard_->vertex_validator_};
+  VertexAccessor vertex_acc{&it->second, transaction_, &shard_->indices_, config_, shard_->vertex_validator_};
   if (!inserted) {
     return SHARD_ERROR(ErrorCode::VERTEX_ALREADY_INSERTED);
   }
-  MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
+  MG_ASSERT(it != shard_->vertices_.end(), "Invalid Vertex accessor!");
 
   // TODO(jbajic) Improve, maybe delay index update
   for (const auto &[property_id, property_value] : properties) {
@@ -386,13 +385,11 @@ ShardResult<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
 }
 
 std::optional<VertexAccessor> Shard::Accessor::FindVertex(std::vector<PropertyValue> primary_key, View view) {
-  auto acc = shard_->vertices_.access();
-  // Later on use label space
-  auto it = acc.find(primary_key);
-  if (it == acc.end()) {
+  auto it = shard_->vertices_.find(primary_key);
+  if (it == shard_->vertices_.end()) {
     return std::nullopt;
   }
-  return VertexAccessor::Create(&it->vertex, transaction_, &shard_->indices_, config_, shard_->vertex_validator_, view);
+  return VertexAccessor::Create(&it->second, transaction_, &shard_->indices_, config_, shard_->vertex_validator_, view);
 }
 
 ShardResult<std::optional<VertexAccessor>> Shard::Accessor::DeleteVertex(VertexAccessor *vertex) {
@@ -438,7 +435,7 @@ ShardResult<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>>
   }
 
   std::vector<EdgeAccessor> deleted_edges;
-  const VertexId vertex_id{shard_->primary_label_, vertex_ptr->keys.Keys()};
+  const VertexId vertex_id{shard_->primary_label_, vertex_ptr->keys};
   for (const auto &item : in_edges) {
     auto [edge_type, from_vertex, edge] = item;
     EdgeAccessor e(edge, edge_type, from_vertex, vertex_id, transaction_, &shard_->indices_, config_);
@@ -488,22 +485,22 @@ ShardResult<EdgeAccessor> Shard::Accessor::CreateEdge(VertexId from_vertex_id, V
   Vertex *from_vertex{nullptr};
   Vertex *to_vertex{nullptr};
 
-  auto acc = shard_->vertices_.access();
+  auto &vertices = shard_->vertices_;
 
   const auto from_is_local = shard_->IsVertexBelongToShard(from_vertex_id);
   const auto to_is_local = shard_->IsVertexBelongToShard(to_vertex_id);
   MG_ASSERT(from_is_local || to_is_local, "Trying to create an edge without having a local vertex");
 
   if (from_is_local) {
-    auto it = acc.find(from_vertex_id.primary_key);
-    MG_ASSERT(it != acc.end(), "Cannot find local vertex");
-    from_vertex = &it->vertex;
+    auto it = vertices.find(from_vertex_id.primary_key);
+    MG_ASSERT(it != vertices.end(), "Cannot find local vertex");
+    from_vertex = &it->second;
   }
 
   if (to_is_local) {
-    auto it = acc.find(to_vertex_id.primary_key);
-    MG_ASSERT(it != acc.end(), "Cannot find local vertex");
-    to_vertex = &it->vertex;
+    auto it = vertices.find(to_vertex_id.primary_key);
+    MG_ASSERT(it != vertices.end(), "Cannot find local vertex");
+    to_vertex = &it->second;
   }
 
   if (from_is_local) {
@@ -546,21 +543,21 @@ ShardResult<std::optional<EdgeAccessor>> Shard::Accessor::DeleteEdge(VertexId fr
   Vertex *from_vertex{nullptr};
   Vertex *to_vertex{nullptr};
 
-  auto acc = shard_->vertices_.access();
+  auto &vertices = shard_->vertices_;
 
   const auto from_is_local = shard_->IsVertexBelongToShard(from_vertex_id);
   const auto to_is_local = shard_->IsVertexBelongToShard(to_vertex_id);
 
   if (from_is_local) {
-    auto it = acc.find(from_vertex_id.primary_key);
-    MG_ASSERT(it != acc.end(), "Cannot find local vertex");
-    from_vertex = &it->vertex;
+    auto it = vertices.find(from_vertex_id.primary_key);
+    MG_ASSERT(it != vertices.end(), "Cannot find local vertex");
+    from_vertex = &it->second;
   }
 
   if (to_is_local) {
-    auto it = acc.find(to_vertex_id.primary_key);
-    MG_ASSERT(it != acc.end(), "Cannot find local vertex");
-    to_vertex = &it->vertex;
+    auto it = vertices.find(to_vertex_id.primary_key);
+    MG_ASSERT(it != vertices.end(), "Cannot find local vertex");
+    to_vertex = &it->second;
   }
 
   MG_ASSERT(from_is_local || to_is_local, "Trying to delete an edge without having a local vertex");
@@ -762,7 +759,7 @@ void Shard::Accessor::Abort() {
             }
             case Delta::Action::DELETE_OBJECT: {
               vertex->deleted = true;
-              shard_->deleted_vertices_.push_back(vertex->keys.Keys());
+              shard_->deleted_vertices_.push_back(vertex->keys);
               break;
             }
             case Delta::Action::RECREATE_OBJECT: {
@@ -851,10 +848,7 @@ const std::string &Shard::EdgeTypeToName(EdgeTypeId edge_type) const {
 
 bool Shard::CreateIndex(LabelId label, const std::optional<uint64_t> /*desired_commit_timestamp*/) {
   // TODO(jbajic) response should be different when label == primary_label
-  if (label == primary_label_ || !indices_.label_index.CreateIndex(label, vertices_.access())) {
-    return false;
-  }
-  return true;
+  return !(label == primary_label_ || !indices_.label_index.CreateIndex(label, vertices_));
 }
 
 bool Shard::CreateIndex(LabelId label, PropertyId property,
@@ -865,7 +859,7 @@ bool Shard::CreateIndex(LabelId label, PropertyId property,
     // Index already exists on primary key
     return false;
   }
-  if (!indices_.label_property_index.CreateIndex(label, property, vertices_.access())) {
+  if (!indices_.label_property_index.CreateIndex(label, property, vertices_)) {
     return false;
   }
   return true;
@@ -975,7 +969,7 @@ void Shard::CollectGarbage(const io::Time current_time) {
               Vertex *vertex = prev.vertex;
               vertex->delta = nullptr;
               if (vertex->deleted) {
-                deleted_vertices_.push_back(vertex->keys.Keys());
+                deleted_vertices_.push_back(vertex->keys);
               }
               break;
             }
@@ -1022,9 +1016,8 @@ void Shard::CollectGarbage(const io::Time current_time) {
     RemoveObsoleteEntries(&indices_, clean_up_before_timestamp);
   }
 
-  auto vertex_acc = vertices_.access();
   for (const auto &vertex : deleted_vertices_) {
-    MG_ASSERT(vertex_acc.remove(vertex), "Invalid database state!");
+    MG_ASSERT(vertices_.erase(vertex), "Invalid database state!");
   }
   deleted_vertices_.clear();
   {
