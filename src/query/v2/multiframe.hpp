@@ -113,7 +113,7 @@ class ValidFramesReader {
     Iterator &operator++() {
       do {
         ptr_++;
-      } while (!this->ptr_->IsValid() && *this != iterator_wrapper_.end());
+      } while (*this != iterator_wrapper_.end() && !this->ptr_->IsValid());
 
       return *this;
     }
@@ -160,7 +160,7 @@ class ValidFramesModifier {
     Iterator &operator++() {
       do {
         ptr_++;
-      } while (!this->ptr_->IsValid() && *this != iterator_wrapper_.end());
+      } while (*this != iterator_wrapper_.end() && !this->ptr_->IsValid());
 
       return *this;
     }
@@ -207,7 +207,7 @@ class ValidFramesConsumer {
     Iterator &operator++() {
       do {
         ptr_++;
-      } while (!this->ptr_->IsValid() && *this != iterator_wrapper_.end());
+      } while (*this != iterator_wrapper_.end() && !this->ptr_->IsValid());
 
       return *this;
     }

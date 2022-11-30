@@ -16,6 +16,16 @@
 
 namespace memgraph::query::v2 {
 
+// #NoCommit uncomment https://github.com/memgraph/memgraph/pull/676#discussion_r1035704661
+// static_assert(std::forward_iterator<ValidFramesReader::Iterator> &&
+//               std::equality_comparable<ValidFramesReader::Iterator>);
+// static_assert(std::forward_iterator<ValidFramesModifier::Iterator> &&
+//               std::equality_comparable<ValidFramesModifier::Iterator>);
+// static_assert(std::forward_iterator<ValidFramesConsumer::Iterator> &&
+//               std::equality_comparable<ValidFramesConsumer::Iterator>);
+// static_assert(std::forward_iterator<InvalidFramesPopulator::Iterator> &&
+//               std::equality_comparable<InvalidFramesPopulator::Iterator>);
+
 MultiFrame::MultiFrame(FrameWithValidity default_frame, size_t number_of_frames,
                        utils::MemoryResource *execution_memory)
     : default_frame_(default_frame),
