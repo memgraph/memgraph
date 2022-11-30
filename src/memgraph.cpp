@@ -26,6 +26,7 @@
 #include <string_view>
 #include <thread>
 
+#include <fmt/core.h>
 #include <fmt/format.h>
 #include <gflags/gflags.h>
 #include <spdlog/common.h>
@@ -759,6 +760,10 @@ int main(int argc, char **argv) {
   } catch (const std::filesystem::filesystem_error &e) {
     spdlog::error(memgraph::utils::MessageWithLink("Unable to load support for embedded Python: {}.", e.what(),
                                                    "https://memgr.ph/python"));
+  }
+
+  if (!FLAGS_init_file.empty()) {
+    std::filesystem::remove_all(FLAGS_data_directory);
   }
 
   // Initialize the communication library.
