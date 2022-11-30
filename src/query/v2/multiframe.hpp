@@ -38,38 +38,37 @@ class MultiFrame {
   MultiFrame &operator=(const MultiFrame &other) = delete;
   MultiFrame &operator=(MultiFrame &&other) noexcept = delete;
 
-  /*!
-  Returns a object on which one can iterate in a for-loop. By doing so, you will only get frames that are in a valid
-  state in the multiframe.
-  Iteration goes in a deterministic order.
-  One can't modify the validity of the frame nor its content with this implementation.
-  */
+  /*
+   * Returns a object on which one can iterate in a for-loop. By doing so, you will only get Frames that are in a valid
+   * state in the MultiFrame.
+   * Iteration goes in a deterministic order.
+   * One can't modify the validity of the Frame nor its content with this implementation.
+   */
   ValidFramesReader GetValidFramesReader();
 
-  /*!
-  Returns a object on which one can iterate in a for-loop. By doing so, you will only get frames that are in a valid
-  state in the multiframe.
-  Iteration goes in a deterministic order.
-  One can't modify the validity of the frame with this implementation. One can modify its content.
-  */
+  /*
+   * Returns a object on which one can iterate in a for-loop. By doing so, you will only get Frames that are in a valid
+   * state in the MultiFrame.
+   * Iteration goes in a deterministic order.
+   * One can't modify the validity of the Frame with this implementation. One can modify its content.
+   */
   ValidFramesModifier GetValidFramesModifier();
 
-  /*!
-  Returns a object on which one can iterate in a for-loop. By doing so, you will only get frames that are in a valid
-  state in the multiframe.
-  Iteration goes in a deterministic order.
-  One can modify the validity of the frame with this implementation.
-  If you do not plan to modify the validity of the frames, use GetValidFramesReader/GetValidFramesModifer instead as
-  this is faster.
-  */
+  /*
+   * Returns a object on which one can iterate in a for-loop. By doing so, you will only get Frames that are in a valid
+   * state in the MultiFrame.
+   * Iteration goes in a deterministic order.
+   * One can modify the validity of the Frame with this implementation.
+   * If you do not plan to modify the validity of the Frames, use GetValidFramesReader/GetValidFramesModifer instead as
+   * this is faster.
+   */
   ValidFramesConsumer GetValidFramesConsumer();
 
-  /*!
-  Returns a object on which one can iterate in a for-loop. By doing so, you will only get frames that are in an invalid
-  state in the multiframe.
-  Iteration goes in a deterministic order.
-  One can modify the validity of the frame with this implementation.
-  */
+  /*
+   * Returns a object on which one can iterate in a for-loop. By doing so, you will only get Frames that are in an
+   * invalid state in the MultiFrame. Iteration goes in a deterministic order. One can modify the validity of
+   * the Frame with this implementation.
+   */
   InvalidFramesPopulator GetInvalidFramesPopulator();
 
   void ResetAllFramesInvalid() noexcept;
