@@ -24,6 +24,7 @@
 #include "expr/exceptions.hpp"
 #include "expr/interpret/frame.hpp"
 #include "expr/semantic/symbol_table.hpp"
+#include "functions/awesome_memgraph_functions.hpp"
 #include "utils/exceptions.hpp"
 
 namespace memgraph::expr {
@@ -427,8 +428,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
             typename TReturnType = std::enable_if_t<std::is_same_v<TTag, QueryEngineTag>, bool>>
   TReturnType HasLabelImpl(const VertexAccessor &vertex, const LabelIx &label_ix, QueryEngineTag /*tag*/) {
     auto label = typename VertexAccessor::Label{LabelId::FromUint(label_ix.ix)};
-    auto has_label = vertex.HasLabel(label);
-    return !has_label;
+    return vertex.HasLabel(label);
   }
 
   TypedValue Visit(LabelsTest &labels_test) override {
@@ -491,7 +491,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(Function &function) override {
-    FunctionContext function_ctx{dba_, ctx_->memory, ctx_->timestamp, &ctx_->counters, view_};
+    functions::FunctionContext<DbAccessor> function_ctx{dba_, ctx_->memory, ctx_->timestamp, &ctx_->counters, view_};
     // Stack allocate evaluated arguments when there's a small number of them.
     if (function.arguments_.size() <= 8) {
       TypedValue arguments[8] = {TypedValue(ctx_->memory), TypedValue(ctx_->memory), TypedValue(ctx_->memory),
