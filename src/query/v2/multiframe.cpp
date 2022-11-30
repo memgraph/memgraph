@@ -44,7 +44,7 @@ MultiFrame::MultiFrame(const MultiFrame &other) : default_frame_(other.default_f
 MultiFrame::MultiFrame(MultiFrame &&other) noexcept
     : default_frame_(std::move(other.default_frame_)), frames_(std::move(other.frames_)) {}
 
-void MultiFrame::ResetAllFramesInvalid() noexcept {
+void MultiFrame::MakeAllFramesInvalid() noexcept {
   std::for_each(frames_.begin(), frames_.end(), [](auto &frame) { frame.MakeInvalid(); });
 }
 

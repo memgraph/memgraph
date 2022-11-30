@@ -761,7 +761,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::PullMultiple(AnyStrea
       stream_values(frame);
       ++i;
     }
-    multi_frame_.ResetAllFramesInvalid();
+    multi_frame_.MakeAllFramesInvalid();
   }
 
   for (; !n || i < n;) {
@@ -776,7 +776,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::PullMultiple(AnyStrea
         ++i;
       }
     }
-    multi_frame_.ResetAllFramesInvalid();
+    multi_frame_.MakeAllFramesInvalid();
   }
 
   // If we finished because we streamed the requested n results,

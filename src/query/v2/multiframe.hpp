@@ -71,7 +71,7 @@ class MultiFrame {
    */
   InvalidFramesPopulator GetInvalidFramesPopulator();
 
-  void ResetAllFramesInvalid() noexcept;
+  void MakeAllFramesInvalid() noexcept;
 
   bool HasValidFrame() const noexcept;
 
