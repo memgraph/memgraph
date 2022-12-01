@@ -140,8 +140,12 @@ class LocalTransportHandle {
 
   template <Message RequestT, Message ResponseT>
   ResponseFuture<ResponseT> SubmitRequest(Address to_address, Address from_address, RequestT &&request,
-                                          Duration timeout) {
-    auto [future, promise] = memgraph::io::FuturePromisePair<ResponseResult<ResponseT>>();
+                                          Duration timeout, std::function<void()> fill_notifier) {
+    auto [future, promise] = memgraph::io::FuturePromisePairWithNotifications<ResponseResult<ResponseT>>(
+        // set null notifier for when the Future::Wait is called
+        nullptr,
+        // set notifier for when Promise::Fill is called
+        std::forward<std::function<void()>>(fill_notifier));
 
     const bool port_matches = to_address.last_known_port == from_address.last_known_port;
     const bool ip_matches = to_address.last_known_ip == from_address.last_known_ip;

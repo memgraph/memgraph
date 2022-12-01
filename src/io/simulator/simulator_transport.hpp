@@ -15,6 +15,7 @@
 #include <utility>
 
 #include "io/address.hpp"
+#include "io/notifier.hpp"
 #include "io/simulator/simulator_handle.hpp"
 #include "io/time.hpp"
 
@@ -33,11 +34,13 @@ class SimulatorTransport {
       : simulator_handle_(simulator_handle), address_(address), rng_(std::mt19937{seed}) {}
 
   template <Message RequestT, Message ResponseT>
-  ResponseFuture<ResponseT> Request(Address to_address, Address from_address, RequestT request, Duration timeout) {
+  ResponseFuture<ResponseT> Request(Address to_address, Address from_address, RequestT request,
+                                    std::function<void()> notification, Duration timeout) {
     std::function<bool()> maybe_tick_simulator = [this] { return simulator_handle_->MaybeTickSimulator(); };
 
     return simulator_handle_->template SubmitRequest<RequestT, ResponseT>(to_address, from_address, std::move(request),
-                                                                          timeout, std::move(maybe_tick_simulator));
+                                                                          timeout, std::move(maybe_tick_simulator),
+                                                                          std::move(notification));
   }
 
   template <Message... Ms>

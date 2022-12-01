@@ -20,6 +20,7 @@
 #include "io/errors.hpp"
 #include "io/future.hpp"
 #include "io/message_histogram_collector.hpp"
+#include "io/notifier.hpp"
 #include "io/time.hpp"
 #include "utils/result.hpp"
 
@@ -84,7 +85,9 @@ class Io {
   template <Message RequestT, Message ResponseT>
   ResponseFuture<ResponseT> RequestWithTimeout(Address address, RequestT request, Duration timeout) {
     const Address from_address = address_;
-    return implementation_.template Request<RequestT, ResponseT>(address, from_address, request, timeout);
+    std::function<void()> fill_notifier = nullptr;
+    return implementation_.template Request<RequestT, ResponseT>(address, from_address, request, fill_notifier,
+                                                                 timeout);
   }
 
   /// Issue a request that times out after the default timeout. This tends
@@ -93,7 +96,30 @@ class Io {
   ResponseFuture<ResponseT> Request(Address to_address, RequestT request) {
     const Duration timeout = default_timeout_;
     const Address from_address = address_;
-    return implementation_.template Request<RequestT, ResponseT>(to_address, from_address, std::move(request), timeout);
+    std::function<void()> fill_notifier = nullptr;
+    return implementation_.template Request<RequestT, ResponseT>(to_address, from_address, std::move(request),
+                                                                 fill_notifier, timeout);
+  }
+
+  /// Issue a request that will notify a Notifier when it is filled or times out.
+  template <Message RequestT, Message ResponseT>
+  ResponseFuture<ResponseT> RequestWithNotification(Address to_address, RequestT request, Notifier notifier,
+                                                    ReadinessToken readiness_token) {
+    const Duration timeout = default_timeout_;
+    const Address from_address = address_;
+    std::function<void()> fill_notifier = std::bind(&Notifier::Notify, notifier, readiness_token);
+    return implementation_.template Request<RequestT, ResponseT>(to_address, from_address, std::move(request),
+                                                                 fill_notifier, timeout);
+  }
+
+  /// Issue a request that will notify a Notifier when it is filled or times out.
+  template <Message RequestT, Message ResponseT>
+  ResponseFuture<ResponseT> RequestWithNotificationAndTimeout(Address to_address, RequestT request, Notifier notifier,
+                                                              ReadinessToken readiness_token, Duration timeout) {
+    const Address from_address = address_;
+    std::function<void()> fill_notifier = std::bind(&Notifier::Notify, notifier, readiness_token);
+    return implementation_.template Request<RequestT, ResponseT>(to_address, from_address, std::move(request),
+                                                                 fill_notifier, timeout);
   }
 
   /// Wait for an explicit number of microseconds for a request of one of the

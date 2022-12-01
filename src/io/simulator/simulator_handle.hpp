@@ -105,12 +105,16 @@ class SimulatorHandle {
 
   template <Message Request, Message Response>
   ResponseFuture<Response> SubmitRequest(Address to_address, Address from_address, Request &&request, Duration timeout,
-                                         std::function<bool()> &&maybe_tick_simulator) {
+                                         std::function<bool()> &&maybe_tick_simulator,
+                                         std::function<void()> &&fill_notifier) {
     spdlog::trace("submitting request to {}", to_address.last_known_port);
     auto type_info = TypeInfoFor(request);
 
-    auto [future, promise] = memgraph::io::FuturePromisePairWithNotifier<ResponseResult<Response>>(
-        std::forward<std::function<bool()>>(maybe_tick_simulator));
+    auto [future, promise] = memgraph::io::FuturePromisePairWithNotifications<ResponseResult<Response>>(
+        // set notifier for when the Future::Wait is called
+        std::forward<std::function<bool()>>(maybe_tick_simulator),
+        // set notifier for when Promise::Fill is called
+        std::forward<std::function<void()>>(fill_notifier));
 
     std::unique_lock<std::mutex> lock(mu_);
 
