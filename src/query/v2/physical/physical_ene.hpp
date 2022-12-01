@@ -138,7 +138,13 @@ class PhysicalOperator {
   template <typename TTuple>
   void Emit(const TTuple &tuple) {
     if (!current_token_) {
-      // TODO(gitbuda): We have to wait here if there is no empty multiframe.
+      // TODO(gitbuda): We have to wait here if there is no empty multiframe,
+      // NOTE: This wait here is tricky because if there is no more space, this
+      // thread will spin -> one less thread in the thread pool -> REFACTOR ->
+      // everything has to give the control back at some point. NOTE: An issue
+      // on the other side are active iterators, because that's context has to
+      // be restored.
+      //
       current_token_ = NextWrite();
       if (!current_token_) {
         return;
