@@ -15,10 +15,12 @@
 /// Physical Execute/Next/Emit Architecture Implementation
 ///
 
+#include <future>
 #include <iostream>
 #include <memory>
 #include <vector>
 
+#include "io/future.hpp"
 #include "query/plan/operator.hpp"
 #include "query/v2/physical/mock/context.hpp"
 #include "query/v2/physical/mock/frame.hpp"
@@ -60,7 +62,7 @@ class PhysicalOperator {
   // operating. -> it would simplify both implementation and usage.
   //
   explicit PhysicalOperator(const std::string &name, std::unique_ptr<TDataPool> &&data_pool)
-      : name_(name), data_pool_(std::move(data_pool)), mcv_(std::make_unique<Mcv>()) {}
+      : name_(name), data_pool_(std::move(data_pool)) {}
   PhysicalOperator() = delete;
   PhysicalOperator(const PhysicalOperator &) = delete;
   PhysicalOperator(PhysicalOperator &&) noexcept = default;
@@ -205,15 +207,6 @@ class PhysicalOperator {
   Stats stats_{.processed_frames = 0};
   std::function<void(typename TDataPool::TMultiframe &multiframe)> fun_;
   std::function<void(void)> after_done_fun_;
-  // mutex + conditional variable, uptr because moves
-  // NOTE: uptr has to be constructed!
-  // TODO(gitbuda): Rename Mcv to something better + maybe it's possible to replace all this with one C++20 atomic.
-  struct Mcv {
-    std::atomic<int> waiting_no_{0};
-    std::mutex completion_mutex_;
-    std::condition_variable completion_cv_;
-  };
-  std::unique_ptr<Mcv> mcv_;
 
   void ExecuteChildren(TExecutionContext ctx) {
     for (const auto &child : children_) {
@@ -245,6 +238,11 @@ class PhysicalOperator {
 
     // Since the problem with the "scheduling" maybe the worker thread should
     // process one multiframe and then return.
+
+    // It's possible to use the future + promise to sync execution and
+    // exchange some data.
+    std::promise<bool> promise;
+    auto future = promise.get_future();
 
     // The logic here is tricky because you have to think about both reader and writer.
     ctx.thread_pool->AddTask([&, this]() {
@@ -283,22 +281,12 @@ class PhysicalOperator {
       after_done_fun_();
       // TODO/BROKEN(gitbuda): Replace this with something better, top operator should be notified.
       if (name_ == "Physical Produce") {
-        // With 0 elements this gets executed too quickly before the below CV lock has been taken.
-        // TODO(gitbuda): See how to solve this in a more elegant way.
-        // The atomic counter solution doesn't work, I suspect because of the reordering.
-        std::this_thread::sleep_for(std::chrono::microseconds(1));
-        // while (mcv_->waiting_no_ == 0) {
-        //   std::this_thread::sleep_for(std::chrono::microseconds(1));
-        // };
-        mcv_->completion_cv_.notify_one();
+        promise.set_value(true);
       }
     });
+
     if (name_ == "Physical Produce") {
-      std::unique_lock<std::mutex> lock{mcv_->completion_mutex_};
-      mcv_->waiting_no_.store(1);
-      SPDLOG_TRACE("{} main thread waiting for the operator to be executed", this->name_);
-      mcv_->completion_cv_.wait(lock);
-      SPDLOG_TRACE("{} main thread notified for the completion and exiting", this->name_);
+      future.wait();
     }
   }
 
