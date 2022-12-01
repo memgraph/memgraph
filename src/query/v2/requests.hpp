@@ -368,16 +368,12 @@ struct ScanVerticesResponse {
   std::vector<ScanResultRow> results;
 };
 
-struct VertexAndEdgeId {
-  VertexId vertex;
-  std::optional<EdgeTypeId> edge;
-};
-
 struct GetPropertiesRequest {
   Hlc transaction_id;
-  std::vector<VertexAndEdgeId> vertices_and_edges;
+  std::vector<VertexId> vertex_ids;
+  std::vector<std::pair<VertexId, EdgeId>> vertices_and_edges;
 
-  std::vector<PropertyId> property_ids;
+  std::optional<std::vector<PropertyId>> property_ids;
   std::vector<std::string> expressions;
 
   std::vector<OrderBy> order_by;
@@ -388,22 +384,16 @@ struct GetPropertiesRequest {
   std::optional<std::string> filter;
 };
 
-struct PropIdValue {
-  std::vector<PropertyId> ids;
-  std::vector<Value> properties;
-};
-
 struct GetPropertiesResultRow {
-  VertexAndEdgeId vertex_and_edge;
+  VertexId vertex;
+  std::optional<EdgeId> edge;
 
-  PropIdValue properies_and_ids;
+  std::vector<std::pair<PropertyId, Value>> props;
   std::vector<Value> evaluated_expressions;
 };
 
 struct GetPropertiesResponse {
   std::vector<GetPropertiesResultRow> result_row;
-  enum RequestResult : uint16_t { OUT_OF_SHARD_RANGE, SUCCESS, FAILURE };
-  RequestResult result;
   std::optional<ShardError> error;
 };
 
