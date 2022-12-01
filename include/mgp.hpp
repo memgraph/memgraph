@@ -799,7 +799,7 @@ class Node {
   Node(Node &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
 
   Node &operator=(const Node &other) = delete;
-  Node &operator=(Node &&other) { return *this; }
+  Node &operator=(Node &&other) = delete;
 
   ~Node();
 
