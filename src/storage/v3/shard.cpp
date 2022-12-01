@@ -26,6 +26,7 @@
 
 #include "io/network/endpoint.hpp"
 #include "io/time.hpp"
+#include "storage/v3/containers.hpp"
 #include "storage/v3/edge_accessor.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/indices.hpp"
@@ -38,7 +39,6 @@
 #include "storage/v3/transaction.hpp"
 #include "storage/v3/vertex.hpp"
 #include "storage/v3/vertex_accessor.hpp"
-#include "storage/v3/vertices_container.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
@@ -514,13 +514,12 @@ ShardResult<EdgeAccessor> Shard::Accessor::CreateEdge(VertexId from_vertex_id, V
 
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
-    auto acc = shard_->edges_.access();
     auto *delta = CreateDeleteObjectDelta(transaction_);
-    auto [it, inserted] = acc.insert(Edge(gid, delta));
+    auto [it, inserted] = shard_->edges_.emplace(gid, Edge{gid, delta});
     MG_ASSERT(inserted, "The edge must be inserted here!");
-    MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
-    edge = EdgeRef(&*it);
-    delta->prev.Set(&*it);
+    MG_ASSERT(it != shard_->edges_.end(), "Invalid Edge accessor!");
+    edge = EdgeRef(&it->second);
+    delta->prev.Set(&it->second);
   }
 
   if (from_is_local) {
@@ -579,10 +578,9 @@ ShardResult<std::optional<EdgeAccessor>> Shard::Accessor::DeleteEdge(VertexId fr
     if (!config_.properties_on_edges) {
       return EdgeRef(edge_id);
     }
-    auto edge_acc = shard_->edges_.access();
-    auto res = edge_acc.find(edge_id);
-    MG_ASSERT(res != edge_acc.end(), "Cannot find edge");
-    return EdgeRef(&*res);
+    auto res = shard_->edges_.find(edge_id);
+    MG_ASSERT(res != shard_->edges_.end(), "Cannot find edge");
+    return EdgeRef(&res->second);
   });
 
   std::optional<EdgeTypeId> edge_type{};
@@ -1021,9 +1019,8 @@ void Shard::CollectGarbage(const io::Time current_time) {
   }
   deleted_vertices_.clear();
   {
-    auto edge_acc = edges_.access();
     for (auto edge : deleted_edges_) {
-      MG_ASSERT(edge_acc.remove(edge), "Invalid database state!");
+      MG_ASSERT(edges_.erase(edge), "Invalid database state!");
     }
   }
   deleted_edges_.clear();

@@ -13,9 +13,12 @@
 
 #include <map>
 
+#include "storage/v3/edge.hpp"
+#include "storage/v3/id_types.hpp"
 #include "storage/v3/key_store.hpp"
 #include "storage/v3/vertex.hpp"
 
 namespace memgraph::storage::v3 {
 using VertexContainer = std::map<PrimaryKey, Vertex>;
+using EdgeContainer = std::map<Gid, Edge>;
 }  // namespace memgraph::storage::v3

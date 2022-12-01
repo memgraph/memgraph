@@ -25,6 +25,7 @@
 #include "io/time.hpp"
 #include "kvstore/kvstore.hpp"
 #include "storage/v3/config.hpp"
+#include "storage/v3/containers.hpp"
 #include "storage/v3/edge.hpp"
 #include "storage/v3/edge_accessor.hpp"
 #include "storage/v3/id_types.hpp"
@@ -41,7 +42,6 @@
 #include "storage/v3/vertex.hpp"
 #include "storage/v3/vertex_accessor.hpp"
 #include "storage/v3/vertex_id.hpp"
-#include "storage/v3/vertices_container.hpp"
 #include "storage/v3/view.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file_locker.hpp"
@@ -374,7 +374,7 @@ class Shard final {
   PrimaryKey min_primary_key_;
   std::optional<PrimaryKey> max_primary_key_;
   VertexContainer vertices_;
-  utils::SkipList<Edge> edges_;
+  EdgeContainer edges_;
   // Even though the edge count is already kept in the `edges_` SkipList, the
   // list is used only when properties are enabled for edges. Because of that we
   // keep a separate count of edges that is always updated.
