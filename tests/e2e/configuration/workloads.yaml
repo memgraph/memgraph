@@ -18,8 +18,3 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["configuration/configuration_check.py"]
     <<: *template_cluster
-
-  - name: "Environment variables check"
-    binary: "tests/e2e/pytest_runner.sh"
-    args: ["configuration/env_variable_check.py"]
-    <<: *template_cluster
