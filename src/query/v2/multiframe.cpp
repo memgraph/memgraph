@@ -32,11 +32,7 @@ MultiFrame::MultiFrame(int64_t size_of_frame, size_t number_of_frames, utils::Me
   MG_ASSERT(number_of_frames > 0);
 }
 
-MultiFrame::MultiFrame(const MultiFrame &other) {
-  frames_.reserve(other.frames_.size());
-  std::transform(other.frames_.begin(), other.frames_.end(), std::back_inserter(frames_),
-                 [](const auto &other_frame) { return other_frame; });
-}
+MultiFrame::MultiFrame(const MultiFrame &other) :frames_{other.frames_} {}
 
 // NOLINTNEXTLINE (bugprone-exception-escape)
 MultiFrame::MultiFrame(MultiFrame &&other) noexcept : frames_(std::move(other.frames_)) {}
