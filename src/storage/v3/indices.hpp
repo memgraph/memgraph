@@ -17,10 +17,10 @@
 #include <utility>
 
 #include "storage/v3/config.hpp"
+#include "storage/v3/containers.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/transaction.hpp"
 #include "storage/v3/vertex_accessor.hpp"
-#include "storage/v3/vertices_container.hpp"
 #include "utils/bound.hpp"
 #include "utils/logging.hpp"
 #include "utils/skip_list.hpp"
@@ -133,7 +133,6 @@ class LabelIndex {
 };
 
 class LabelPropertyIndex {
- public:
   struct Entry {
     PropertyValue value;
     Vertex *vertex;
@@ -146,6 +145,7 @@ class LabelPropertyIndex {
     bool operator==(const PropertyValue &rhs) const;
   };
 
+ public:
   using LabelPropertyIndexContainer = std::map<PropertyValue, Entry>;
 
   LabelPropertyIndex(Indices *indices, Config::Items config, const VertexValidator &vertex_validator)

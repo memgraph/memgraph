@@ -21,7 +21,6 @@
 #include "storage/v3/mvcc.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/schemas.hpp"
-#include "storage/v3/vertices_container.hpp"
 #include "utils/bound.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -392,13 +391,13 @@ bool LabelPropertyIndex::Entry::operator<(const PropertyValue &rhs) const { retu
 bool LabelPropertyIndex::Entry::operator==(const PropertyValue &rhs) const { return value == rhs; }
 
 void LabelPropertyIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) {
-  for (auto &[label_prop, container] : index_) {
+  for (auto &[label_prop, index] : index_) {
     if (label_prop.first != label) {
       continue;
     }
     auto prop_value = vertex->properties.GetProperty(label_prop.second);
     if (!prop_value.IsNull()) {
-      container.emplace(vertex->keys, Entry{std::move(prop_value), vertex, tx.start_timestamp.logical_id});
+      index.emplace(prop_value, Entry{prop_value, vertex, tx.start_timestamp.logical_id});
     }
   }
 }
@@ -408,12 +407,12 @@ void LabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const Property
   if (value.IsNull()) {
     return;
   }
-  for (auto &[label_prop, container] : index_) {
+  for (auto &[label_prop, index] : index_) {
     if (label_prop.second != property) {
       continue;
     }
     if (utils::Contains(vertex->labels, label_prop.first)) {
-      container.emplace(vertex->keys, Entry{value, vertex, tx.start_timestamp.logical_id});
+      index.emplace(value, Entry{value, vertex, tx.start_timestamp.logical_id});
     }
   }
 }
@@ -435,7 +434,7 @@ bool LabelPropertyIndex::CreateIndex(LabelId label, PropertyId property, VertexC
       if (value.IsNull()) {
         continue;
       }
-      it->second.emplace(vertex.keys, Entry{std::move(value), &vertex, 0});
+      it->second.emplace(value, Entry{value, &vertex, 0});
     }
   } catch (const utils::OutOfMemoryException &) {
     utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
@@ -455,8 +454,8 @@ std::vector<std::pair<LabelId, PropertyId>> LabelPropertyIndex::ListIndices() co
 }
 
 void LabelPropertyIndex::RemoveObsoleteEntries(const uint64_t clean_up_before_timestamp) {
-  for (auto &[label_property, container] : index_) {
-    for (auto it = container.begin(); it != container.end();) {
+  for (auto &[label_property, index] : index_) {
+    for (auto it = index.begin(); it != index.end();) {
       auto next_it = it;
       ++next_it;
 
@@ -465,11 +464,11 @@ void LabelPropertyIndex::RemoveObsoleteEntries(const uint64_t clean_up_before_ti
         continue;
       }
 
-      if (auto &entry = it->second;
-          (next_it != container.end() && entry.vertex == next_it->second.vertex && entry.value == entry.value) ||
+      if (auto &entry = it->second, &next_entry = next_it->second;
+          (next_it != index.end() && entry.vertex == next_entry.vertex && entry.value == next_entry.value) ||
           !AnyVersionHasLabelProperty(*entry.vertex, label_property.first, label_property.second, entry.value,
                                       clean_up_before_timestamp)) {
-        container.erase(it->first);
+        index.erase(it->first);
       }
       it = next_it;
     }
@@ -683,7 +682,7 @@ int64_t LabelPropertyIndex::VertexCount(LabelId label, PropertyId property,
       if (value->IsInclusive()) {
         return found_it;
       }
-      return ++found_it;
+      return found_it != it->second.end() ? ++found_it : found_it;
     }
     return def;
   };

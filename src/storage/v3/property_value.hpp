@@ -331,7 +331,7 @@ inline bool operator<(const PropertyValue &first, const PropertyValue &second) {
 }
 
 inline bool operator>=(const PropertyValue &first, const PropertyValue &second) {
-  if (!PropertyValue::AreComparableTypes(first.type(), second.type())) return first.type() < second.type();
+  if (!PropertyValue::AreComparableTypes(first.type(), second.type())) return first.type() >= second.type();
   switch (first.type()) {
     case PropertyValue::Type::Null:
       return false;
@@ -347,7 +347,7 @@ inline bool operator>=(const PropertyValue &first, const PropertyValue &second) 
       if (second.type() == PropertyValue::Type::Double) {
         return first.ValueDouble() >= second.ValueDouble();
       } else {
-        return first.ValueDouble() < static_cast<double>(second.ValueInt());
+        return first.ValueDouble() >= static_cast<double>(second.ValueInt());
       }
     case PropertyValue::Type::String:
       return first.ValueString() >= second.ValueString();
