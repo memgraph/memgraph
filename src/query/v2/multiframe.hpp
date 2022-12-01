@@ -33,8 +33,8 @@ class MultiFrame {
   MultiFrame(int64_t size_of_frame, size_t number_of_frames, utils::MemoryResource *execution_memory);
   ~MultiFrame() = default;
 
-  MultiFrame(const MultiFrame &other);      // copy constructor
-  MultiFrame(MultiFrame &&other) noexcept;  // move constructor
+  MultiFrame(const MultiFrame &other);
+  MultiFrame(MultiFrame &&other) noexcept;
   MultiFrame &operator=(const MultiFrame &other) = delete;
   MultiFrame &operator=(MultiFrame &&other) noexcept = delete;
 
@@ -96,10 +96,10 @@ class ValidFramesReader {
   explicit ValidFramesReader(MultiFrame &multiframe);
 
   ~ValidFramesReader() = default;
-  ValidFramesReader(const ValidFramesReader &other) = delete;                 // copy constructor
-  ValidFramesReader(ValidFramesReader &&other) noexcept = delete;             // move constructor
-  ValidFramesReader &operator=(const ValidFramesReader &other) = delete;      // copy assignment
-  ValidFramesReader &operator=(ValidFramesReader &&other) noexcept = delete;  // move assignment
+  ValidFramesReader(const ValidFramesReader &other) = delete;
+  ValidFramesReader(ValidFramesReader &&other) noexcept = delete;
+  ValidFramesReader &operator=(const ValidFramesReader &other) = delete;
+  ValidFramesReader &operator=(ValidFramesReader &&other) noexcept = delete;
 
   struct Iterator {
     using iterator_category = std::forward_iterator_tag;
@@ -165,7 +165,7 @@ class ValidFramesModifier {
     Iterator &operator++() {
       do {
         ptr_++;
-      } while (*this != iterator_wrapper_->end() && !this->ptr_->IsValid());
+      } while (*this != iterator_wrapper_.end() && ptr_->IsValid());
 
       return *this;
     }
