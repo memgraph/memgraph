@@ -34,7 +34,7 @@ class MultiFrame {
   ~MultiFrame() = default;
 
   MultiFrame(const MultiFrame &other); 
-  MultiFrame(MultiFrame &&other) noexcept;  // move constructor
+  MultiFrame(MultiFrame &&other) noexcept; 
   MultiFrame &operator=(const MultiFrame &other) = delete;
   MultiFrame &operator=(MultiFrame &&other) noexcept = delete;
 
