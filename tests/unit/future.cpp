@@ -15,8 +15,10 @@
 #include "gtest/gtest.h"
 
 #include "io/future.hpp"
+#include "utils/thread_pool.hpp"
 
 using namespace memgraph::io;
+using namespace memgraph::utils;
 
 void Fill(Promise<std::string> promise_1) { promise_1.Fill("success"); }
 
@@ -52,4 +54,14 @@ TEST(Future, BasicLifecycle) {
 
   std::string result_2 = std::move(future_2).Wait();
   EXPECT_TRUE(result_2 == "it worked");
+}
+
+TEST(Future, MgThreadPool) {
+  ThreadPool thread_pool{8};
+  for (int i = 0; i < 100000; ++i) {
+    auto fp_pair = FuturePromisePair<bool>();
+    thread_pool.AddTask([&]() { fp_pair.second.Fill(true); });
+    auto value = std::move(fp_pair.first).Wait();
+    ASSERT_TRUE(value);
+  }
 }
