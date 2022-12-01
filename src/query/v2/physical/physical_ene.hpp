@@ -75,6 +75,11 @@ class PhysicalOperator {
 
   /// Init/start execution.
   /// NOTE: In the current implementation Executes behave blocking only for the root operator.
+  ///
+  /// If Execute does not block, in other words, if it's limited in time or
+  /// space, it has to return some status. The status should contain is there
+  /// more to do + any error.
+  ///
   virtual void Execute(TExecutionContext ctx) = 0;
 
   ////// DATA POOL HANDLING
@@ -150,6 +155,7 @@ class PhysicalOperator {
         return;
       }
     }
+
     // It might be the case that previous Emit just put a frame at the last
     // available spot, but that's covered in the next if condition. In other
     // words, because of the logic above and below, the multiframe in the next
@@ -160,6 +166,7 @@ class PhysicalOperator {
       CloseEmit();
     }
   }
+
   /// An additional function is required because sometimes, e.g., during
   /// for-range loop we don't know if there is more elements -> an easy solution
   /// is to expose an additional method.
@@ -172,6 +179,7 @@ class PhysicalOperator {
     PassBackWrite(*current_token_);
     current_token_ = std::nullopt;
   }
+
   /// TODO(gitbuda): Create Emit which is suitable to be used in the concurrent environment.
   template <typename TTuple>
   void EmitWhere(const typename TDataPool::Token &where, const TTuple &what) {}
@@ -234,8 +242,16 @@ class PhysicalOperator {
     // the full story. Because of the limited data/result pool, the "upper"
     // operators should also be executed at some point.
     //
+    // Inability to write has to block the thread if the context should be
+    // preserved. On the other side, if a function context can be preserved in
+    // some way -> it's ok to return from Emit.
+    //
     //   * IDEA: Introduce phsical plan executor who will execute plan based on
-    //           the available number of threads in the thread pool.
+    //   the available number of threads in the thread pool.
+    //
+    //   * IDEA: Introduce read and write thread pools, or maintain limited
+    //   number of threads in a pool -> hard because operators are both read
+    //   and write in terms of processing frames.
 
     // If we don't store functions, they are deleted because this function ends
     // quickly (AddTask does not block).
@@ -263,6 +279,7 @@ class PhysicalOperator {
           fun_(*(read_token->multiframe));
           input->PassBackRead(*read_token);
         }
+
         // If empty and the writer has finished his job -> mark exhaustion
         if (!read_token && input->IsWriterDone()) {
           // Even if read token was null before we have to exhaust the pool
@@ -285,12 +302,12 @@ class PhysicalOperator {
         }
       }
       after_done_fun_();
+
       // TODO/BROKEN(gitbuda): Replace this with something better, top operator should be notified.
       if (name_ == "Physical Produce") {
         promise.set_value(true);
       }
     });
-
     if (name_ == "Physical Produce") {
       future.wait();
     }
@@ -348,6 +365,23 @@ class ScanAllPhysicalOperator final : public PhysicalOperator<TDataPool> {
     //  ∀tuple : data_fun(evaluate(mf))
     //   emit(tuple)
     this->stats_.processed_frames = 0;
+    // The general logic here is:
+    //  1. give me the input multiframe
+    //  2. iterate over fetched or calculated data (more iterators might be involved here)
+    //  3. store results to the output multiframes (owned multiframes)
+    //
+    //  THE TRADEOFF -> iterate / wait forever (both because of input or
+    //  output) OR return control to the caller
+    //
+    //    * IDEA: Limiting of the input data is done by design (each multiframe
+    //    is limited), but limiting the amount of the produced data could be
+    //    injected. In addition, limiting the execution time might also be
+    //    valuable.
+    //
+    //    * IDEA: In both cases (limiting time or output data), state/stack
+    //    preserve mechanism has to be in place. With multiple concurrent
+    //    threads per operator, it gets more complex.
+    //
     Base::SingleChildSingleThreadExaust(
         ctx,
         [this, &ctx](typename TDataPool::TMultiframe &multiframe) {
