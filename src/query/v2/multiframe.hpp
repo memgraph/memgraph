@@ -159,7 +159,7 @@ class ValidFramesModifier {
     Iterator &operator++() {
       do {
         ptr_++;
-      } while (*this != iterator_wrapper_.end() && !this->ptr_->IsValid());
+      } while (*this != iterator_wrapper_.end() && ptr_->IsValid());
 
       return *this;
     }
