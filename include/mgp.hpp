@@ -1220,11 +1220,10 @@ class Value {
   // String constructors:
   explicit Value(const char *value) : ptr_(mgp::value_make_string(value, memory)) {}
   explicit Value(const std::string_view value) : ptr_(mgp::value_make_string(value.data(), memory)) {}
-
   // Container constructors:
 
   /// @brief Constructs a List value from the copy of the given `list`.
-  explicit Value(const List &list) : ptr_(mgp::value_make_list(list.ptr_)) {}
+  explicit Value(const List &list) : ptr_(mgp::value_make_list(mgp::list_copy(list.ptr_, memory))) {}
   /// @note The behavior of accessing `list` after performing this operation is undefined.
   explicit Value(List &&list) {
     ptr_ = mgp::value_make_list(list.ptr_);
@@ -1232,7 +1231,7 @@ class Value {
   }
 
   /// @brief Constructs a Map value from the copy of the given `map`.
-  explicit Value(const Map &map) : ptr_(mgp::value_make_map(map.ptr_)) {}
+  explicit Value(const Map &map) : ptr_(mgp::value_make_map(mgp::map_copy(map.ptr_, memory))) {}
   /// @brief Constructs a Map value and takes ownership of the given `map`.
   /// @note The behavior of accessing `map` after performing this operation is undefined.
   explicit Value(Map &&map) {
@@ -1243,7 +1242,7 @@ class Value {
   // Graph element type constructors:
 
   /// @brief Constructs a Node value from the copy of the given `node`.
-  explicit Value(const Node &node) : ptr_(mgp::value_make_vertex(node.ptr_)) {}
+  explicit Value(const Node &node) : ptr_(mgp::value_make_vertex(mgp::vertex_copy(node.ptr_, memory))) {}
   /// @brief Constructs a Node value and takes ownership of the given `node`.
   /// @note The behavior of accessing `node` after performing this operation is undefined.
   explicit Value(Node &&node) {
@@ -1252,16 +1251,17 @@ class Value {
   }
 
   /// @brief Constructs a Relationship value from the copy of the given `node`.
-  explicit Value(const Relationship &relationship) : ptr_(mgp::value_make_edge(relationship.ptr_)) {}
+  explicit Value(const Relationship &relationship)
+      : ptr_(mgp::value_make_edge(mgp::edge_copy(relationship.ptr_, memory))) {}
   /// @brief Constructs a Relationship value and takes ownership of the given `relationship`.
   /// @note The behavior of accessing `relationship` after performing this operation is undefined.
   explicit Value(Relationship &&relationship) {
-    ptr_ = mgp::value_make_edge(relationship.ptr_);
+    ptr_ = mgp::value_make_edge(const_cast<mgp_edge *>(relationship.ptr_));
     relationship.ptr_ = nullptr;
   }
 
   /// @brief Constructs a Path value from the copy of the given `path`.
-  explicit Value(const Path &path) : ptr_(mgp::value_make_path(path.ptr_)) {}
+  explicit Value(const Path &path) : ptr_(mgp::value_make_path(mgp::path_copy(path.ptr_, memory))) {}
   /// @brief Constructs a Path value and takes ownership of the given `path`.
   /// @note The behavior of accessing `path` after performing this operation is undefined.
   explicit Value(Path &&path) {
@@ -1272,7 +1272,7 @@ class Value {
   // Temporal type constructors:
 
   /// @brief Constructs a Date value from the copy of the given `date`.
-  explicit Value(const Date &date) : ptr_(mgp::value_make_date(date.ptr_)) {}
+  explicit Value(const Date &date) : ptr_(mgp::value_make_date(mgp::date_copy(date.ptr_, memory))) {}
   /// @brief Constructs a Date value and takes ownership of the given `path`.
   /// @note The behavior of accessing `date` after performing this operation is undefined.
   explicit Value(Date &&date) {
@@ -1281,7 +1281,8 @@ class Value {
   }
 
   /// @brief Constructs a LocalTime value from the copy of the given `local_time`.
-  explicit Value(const LocalTime &local_time) : ptr_(mgp::value_make_local_time(local_time.ptr_)) {}
+  explicit Value(const LocalTime &local_time)
+      : ptr_(mgp::value_make_local_time(mgp::local_time_copy(local_time.ptr_, memory))) {}
   /// @brief Constructs a LocalTime value and takes ownership of the given `local_time`.
   /// @note The behavior of accessing `local_time` after performing this operation is undefined.
   explicit Value(LocalTime &&local_time) {
@@ -1290,8 +1291,8 @@ class Value {
   }
 
   /// @brief Constructs a LocalDateTime value from the copy of the given `local_date_time`.
-  explicit Value(const LocalDateTime &local_date_time) : ptr_(mgp::value_make_local_date_time(local_date_time.ptr_)) {}
-
+  explicit Value(const LocalDateTime &local_date_time)
+      : ptr_(mgp::value_make_local_date_time(mgp::local_date_time_copy(local_date_time.ptr_, memory))) {}
   /// @brief Constructs a LocalDateTime value and takes ownership of the given `local_date_time`.
   /// @note The behavior of accessing `local_date_time` after performing this operation is undefined.
   explicit Value(LocalDateTime &&local_date_time) {
@@ -1300,7 +1301,8 @@ class Value {
   }
 
   /// @brief Constructs a Duration value from the copy of the given `duration`.
-  explicit Value(const Duration &duration) : ptr_(mgp::value_make_duration(duration.ptr_)) {}
+  explicit Value(const Duration &duration)
+      : ptr_(mgp::value_make_duration(mgp::duration_copy(duration.ptr_, memory))) {}
   /// @brief Constructs a Duration value and takes ownership of the given `duration`.
   /// @note The behavior of accessing `duration` after performing this operation is undefined.
   explicit Value(Duration &&duration) {
@@ -1309,6 +1311,7 @@ class Value {
   }
 
   Value(const Value &other) : Value(other.ptr_) {}
+  // Value(const Value &other) : Value(mgp::value_copy(other.ptr_, memory)) {}
   Value(Value &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
 
   ~Value();
@@ -2015,7 +2018,7 @@ inline void List::AppendExtend(const Value &value) { mgp::list_append_extend(ptr
 
 inline void List::AppendExtend(Value &&value) {
   mgp::list_append_extend(ptr_, value.ptr_);
-  value.ptr_ = nullptr;
+  // value.ptr_ = nullptr;
 }
 
 inline bool List::operator==(const List &other) const { return util::ListsEqual(ptr_, other.ptr_); }
