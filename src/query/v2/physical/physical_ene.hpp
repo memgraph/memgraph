@@ -34,6 +34,11 @@ using memgraph::query::plan::Once;
 using memgraph::query::plan::Produce;
 using memgraph::query::plan::ScanAll;
 
+struct ExecuteStatus {
+  bool has_more;
+  // TODO(gitbuda): Add std::optional<ExecuteError>
+};
+
 /// Moving/copying Frames between operators is questionable because operators
 /// mostly operate on a single Frame value.
 
