@@ -1573,7 +1573,7 @@ class Return {
   mgp_type *GetMGPType() const;
 };
 
-enum class ProdecureType : uint8_t {
+enum class ProcedureType : uint8_t {
   Read,
   Write,
 };
@@ -1586,7 +1586,7 @@ enum class ProdecureType : uint8_t {
 /// @param returns - procedure return values
 /// @param module - the query module that the procedure is added to
 /// @param memory - access to memory
-void AddProcedure(mgp_proc_cb callback, std::string_view name, ProdecureType proc_type,
+void AddProcedure(mgp_proc_cb callback, std::string_view name, ProcedureType proc_type,
                   std::vector<mgp::Parameter> parameters, std::vector<Return> returns, mgp_module *module,
                   mgp_memory *memory);
 
@@ -2712,10 +2712,10 @@ inline mgp_type *Return::GetMGPType() const {
   return util::ToMGPType(type_);
 }
 
-void AddProcedure(mgp_proc_cb callback, std::string_view name, ProdecureType proc_type,
+void AddProcedure(mgp_proc_cb callback, std::string_view name, ProcedureType proc_type,
                   std::vector<mgp::Parameter> parameters, std::vector<Return> returns, mgp_module *module,
                   mgp_memory *memory) {
-  auto proc = (proc_type == ProdecureType::Read) ? mgp::module_add_read_procedure(module, name.data(), callback)
+  auto proc = (proc_type == ProcedureType::Read) ? mgp::module_add_read_procedure(module, name.data(), callback)
                                                  : mgp::module_add_write_procedure(module, name.data(), callback);
 
   for (const auto &parameter : parameters) {
