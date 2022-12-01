@@ -267,14 +267,11 @@ bool Once::OnceCursor::Pull(Frame &, ExecutionContext &context) {
 void Once::OnceCursor::PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("OnceMF");
 
-  auto iterator_for_valid_frame_only = multi_frame.GetValidFramesConsumer();
-  auto first_it = iterator_for_valid_frame_only.begin();
-  MG_ASSERT(first_it != iterator_for_valid_frame_only.end());
   if (!did_pull_) {
-    auto *memory_resource = multi_frame.GetMemoryResource();
-    auto &frame = *first_it;
-    frame.MakeValid();
-    for (auto &value : frame.elems()) {
+    auto &first_frame = multi_frame.GetFirstFrame();
+    auto *memory_resource = first_frame.GetMemoryResource();
+    first_frame.MakeValid();
+    for (auto &value : first_frame.elems()) {
       value = TypedValue{memory_resource};
     }
     did_pull_ = true;

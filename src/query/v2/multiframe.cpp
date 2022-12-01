@@ -41,6 +41,11 @@ MultiFrame::MultiFrame(const MultiFrame &other) {
 // NOLINTNEXTLINE (bugprone-exception-escape)
 MultiFrame::MultiFrame(MultiFrame &&other) noexcept : frames_(std::move(other.frames_)) {}
 
+FrameWithValidity &MultiFrame::GetFirstFrame() {
+  MG_ASSERT(!frames_.empty());
+  return frames_.front();
+}
+
 void MultiFrame::MakeAllFramesInvalid() noexcept {
   std::for_each(frames_.begin(), frames_.end(), [](auto &frame) { frame.MakeInvalid(); });
 }

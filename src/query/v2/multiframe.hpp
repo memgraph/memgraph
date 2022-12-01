@@ -71,6 +71,13 @@ class MultiFrame {
    */
   InvalidFramesPopulator GetInvalidFramesPopulator();
 
+  /**
+   * Return the first Frame of the MultiFrame. This is only meant to be used in very specific cases. Please consider
+   * using the iterators instead.
+   * The Frame can be valid or invalid.
+   */
+  FrameWithValidity &GetFirstFrame();
+
   void MakeAllFramesInvalid() noexcept;
 
   bool HasValidFrame() const noexcept;
