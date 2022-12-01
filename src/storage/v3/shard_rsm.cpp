@@ -521,9 +521,6 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::GetPropertiesRequest &&req) {
     auto error = CreateErrorResponse(shard_error, req.transaction_id, "");
     return msgs::GetPropertiesResponse{.error = {}};
   }
-  if (req.property_ids && req.property_ids->empty()) {
-    return {};
-  }
 
   auto shard_acc = shard_->Access(req.transaction_id);
   auto dba = DbAccessor{&shard_acc};
