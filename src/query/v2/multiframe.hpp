@@ -33,7 +33,7 @@ class MultiFrame {
   MultiFrame(int64_t size_of_frame, size_t number_of_frames, utils::MemoryResource *execution_memory);
   ~MultiFrame() = default;
 
-  MultiFrame(const MultiFrame &other);      // copy constructor
+  MultiFrame(const MultiFrame &other); 
   MultiFrame(MultiFrame &&other) noexcept;  // move constructor
   MultiFrame &operator=(const MultiFrame &other) = delete;
   MultiFrame &operator=(MultiFrame &&other) noexcept = delete;
