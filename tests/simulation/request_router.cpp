@@ -160,13 +160,6 @@ void TestScanVertices(query::v2::RequestRouterInterface &request_router) {
     prop = result[1].GetProperty(msgs::PropertyId::FromUint(0));
     MG_ASSERT(prop.int_v == 444);
   }
-
-  //  result = request_router.ScanVertices("test_label");
-  //  {
-  //    MG_ASSERT(result.size() == 1);
-  //    auto prop = result[0].GetProperty(msgs::PropertyId::FromUint(0));
-  //    MG_ASSERT(prop.int_v == 1);
-  //  }
 }
 
 void TestCreateVertices(query::v2::RequestRouterInterface &request_router) {
