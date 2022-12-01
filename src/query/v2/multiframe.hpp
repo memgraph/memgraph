@@ -90,10 +90,10 @@ class ValidFramesReader {
   explicit ValidFramesReader(MultiFrame &multiframe);
 
   ~ValidFramesReader() = default;
-  ValidFramesReader(const ValidFramesReader &other) = delete;                 // copy constructor
-  ValidFramesReader(ValidFramesReader &&other) noexcept = delete;             // move constructor
-  ValidFramesReader &operator=(const ValidFramesReader &other) = delete;      // copy assignment
-  ValidFramesReader &operator=(ValidFramesReader &&other) noexcept = delete;  // move assignment
+  ValidFramesReader(const ValidFramesReader &other) = delete;          
+  ValidFramesReader(ValidFramesReader &&other) noexcept = delete;            
+  ValidFramesReader &operator=(const ValidFramesReader &other) = delete;    
+  ValidFramesReader &operator=(ValidFramesReader &&other) noexcept = delete; 
 
   struct Iterator {
     using iterator_category = std::forward_iterator_tag;
