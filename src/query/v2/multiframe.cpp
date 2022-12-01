@@ -89,8 +89,8 @@ ValidFramesReader::ValidFramesReader(MultiFrame &multiframe) : multiframe_(multi
   after_last_valid_frame_ = multiframe_.frames_.data() + std::distance(multiframe.frames_.begin(), it);
 }
 
-ValidFramesReader::Iterator ValidFramesReader::begin() { return Iterator{&multiframe_.frames_[0], *this}; }
-ValidFramesReader::Iterator ValidFramesReader::end() { return Iterator{after_last_valid_frame_, *this}; }
+ValidFramesReader::Iterator ValidFramesReader::begin() { return Iterator{&multiframe_.frames_[0]}; }
+ValidFramesReader::Iterator ValidFramesReader::end() { return Iterator{after_last_valid_frame_}; }
 
 ValidFramesModifier::ValidFramesModifier(MultiFrame &multiframe) : multiframe_(multiframe) {}
 
