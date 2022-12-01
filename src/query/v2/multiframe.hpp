@@ -107,7 +107,7 @@ class ValidFramesReader {
     using pointer = value_type *;
     using reference = const Frame &;
 
-    explicit Iterator(FrameWithValidity *ptr, ValidFramesReader &iterator_wrapper) : ptr_(ptr) {}
+    explicit Iterator(FrameWithValidity *ptr) : ptr_(ptr) {}
 
     reference operator*() const { return *ptr_; }
     pointer operator->() { return ptr_; }
