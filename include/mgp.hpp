@@ -1228,7 +1228,6 @@ class Value {
   /// @note The behavior of accessing `list` after performing this operation is undefined.
   explicit Value(List &&list) {
     ptr_ = mgp::value_make_list(list.ptr_);
-    delete &list;
     list.ptr_ = nullptr;
   }
 
@@ -1238,7 +1237,6 @@ class Value {
   /// @note The behavior of accessing `map` after performing this operation is undefined.
   explicit Value(Map &&map) {
     ptr_ = mgp::value_make_map(map.ptr_);
-    delete &map;
     map.ptr_ = nullptr;
   }
 
@@ -1250,7 +1248,6 @@ class Value {
   /// @note The behavior of accessing `node` after performing this operation is undefined.
   explicit Value(Node &&node) {
     ptr_ = mgp::value_make_vertex(const_cast<mgp_vertex *>(node.ptr_));
-    delete &node;
     node.ptr_ = nullptr;
   }
 
@@ -1260,7 +1257,6 @@ class Value {
   /// @note The behavior of accessing `relationship` after performing this operation is undefined.
   explicit Value(Relationship &&relationship) {
     ptr_ = mgp::value_make_edge(relationship.ptr_);
-    delete &relationship;
     relationship.ptr_ = nullptr;
   }
 
@@ -1270,7 +1266,6 @@ class Value {
   /// @note The behavior of accessing `path` after performing this operation is undefined.
   explicit Value(Path &&path) {
     ptr_ = mgp::value_make_path(path.ptr_);
-    delete &path;
     path.ptr_ = nullptr;
   }
 
@@ -1282,7 +1277,6 @@ class Value {
   /// @note The behavior of accessing `date` after performing this operation is undefined.
   explicit Value(Date &&date) {
     ptr_ = mgp::value_make_date(date.ptr_);
-    delete &date;
     date.ptr_ = nullptr;
   }
 
@@ -1292,7 +1286,6 @@ class Value {
   /// @note The behavior of accessing `local_time` after performing this operation is undefined.
   explicit Value(LocalTime &&local_time) {
     ptr_ = mgp::value_make_local_time(local_time.ptr_);
-    delete &local_time;
     local_time.ptr_ = nullptr;
   }
 
@@ -1303,7 +1296,6 @@ class Value {
   /// @note The behavior of accessing `local_date_time` after performing this operation is undefined.
   explicit Value(LocalDateTime &&local_date_time) {
     ptr_ = mgp::value_make_local_date_time(local_date_time.ptr_);
-    delete &local_date_time;
     local_date_time.ptr_ = nullptr;
   }
 
@@ -1313,7 +1305,6 @@ class Value {
   /// @note The behavior of accessing `duration` after performing this operation is undefined.
   explicit Value(Duration &&duration) {
     ptr_ = mgp::value_make_duration(duration.ptr_);
-    delete &duration;
     duration.ptr_ = nullptr;
   }
 
@@ -1923,6 +1914,7 @@ void Graph::DeleteRelationship(const Relationship &relationship) { mgp::graph_de
 
 // Nodes:
 
+// TODO: remove comments if possible
 inline const Node Nodes::Iterator::operator*() const {
   if (nodes_iterator_ == nullptr) {
     return Node((const mgp_vertex *)nullptr);
@@ -2615,6 +2607,7 @@ inline void Record::Insert(const char *field_name, const Duration &duration) {
   { mgp::result_record_insert(record_, field_name, mgp_val); }
   mgp::value_destroy(mgp_val);
 }
+
 // RecordFactory:
 
 inline const Record RecordFactory::NewRecord() const {
@@ -2724,7 +2717,6 @@ void AddProcedure(mgp_proc_cb callback, std::string_view name, ProdecureType pro
 
   for (const auto &parameter : parameters) {
     auto parameter_name = parameter.name.data();
-
     if (!parameter.optional) {
       mgp::proc_add_arg(proc, parameter_name, parameter.GetMGPType());
     } else {
