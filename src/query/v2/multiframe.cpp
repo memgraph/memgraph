@@ -57,7 +57,6 @@ void MultiFrame::DefragmentValidFrames() noexcept {
   in the range in such a way that the elements that are not to be removed appear in the beginning of the range.
   Relative order of the elements that remain is preserved and the physical size of the container is unchanged."
   */
-  [[maybe_unused]] const auto it =
       std::remove_if(frames_.begin(), frames_.end(), [](auto &frame) { return !frame.IsValid(); });
 }
 
