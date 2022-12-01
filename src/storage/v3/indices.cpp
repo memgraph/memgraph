@@ -11,8 +11,12 @@
 
 #include "indices.hpp"
 
+#include <cstddef>
+#include <cstdint>
+#include <functional>
 #include <limits>
 
+#include "storage/v3/delta.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/mvcc.hpp"
 #include "storage/v3/property_value.hpp"
@@ -388,14 +392,13 @@ bool LabelPropertyIndex::Entry::operator<(const PropertyValue &rhs) const { retu
 bool LabelPropertyIndex::Entry::operator==(const PropertyValue &rhs) const { return value == rhs; }
 
 void LabelPropertyIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) {
-  for (auto &[label_prop, storage] : index_) {
+  for (auto &[label_prop, container] : index_) {
     if (label_prop.first != label) {
       continue;
     }
     auto prop_value = vertex->properties.GetProperty(label_prop.second);
     if (!prop_value.IsNull()) {
-      auto acc = storage.access();
-      acc.insert(Entry{std::move(prop_value), vertex, tx.start_timestamp.logical_id});
+      container.emplace(vertex->keys, Entry{std::move(prop_value), vertex, tx.start_timestamp.logical_id});
     }
   }
 }
@@ -405,13 +408,12 @@ void LabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const Property
   if (value.IsNull()) {
     return;
   }
-  for (auto &[label_prop, storage] : index_) {
+  for (auto &[label_prop, container] : index_) {
     if (label_prop.second != property) {
       continue;
     }
     if (utils::Contains(vertex->labels, label_prop.first)) {
-      auto acc = storage.access();
-      acc.insert(Entry{value, vertex, tx.start_timestamp.logical_id});
+      container.emplace(vertex->keys, Entry{value, vertex, tx.start_timestamp.logical_id});
     }
   }
 }
@@ -425,7 +427,6 @@ bool LabelPropertyIndex::CreateIndex(LabelId label, PropertyId property, VertexC
     return false;
   }
   try {
-    auto acc = it->second.access();
     for ([[maybe_unused]] auto &[pk, vertex] : vertices) {
       if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
         continue;
@@ -434,7 +435,7 @@ bool LabelPropertyIndex::CreateIndex(LabelId label, PropertyId property, VertexC
       if (value.IsNull()) {
         continue;
       }
-      acc.insert(Entry{std::move(value), &vertex, 0});
+      it->second.emplace(vertex.keys, Entry{std::move(value), &vertex, 0});
     }
   } catch (const utils::OutOfMemoryException &) {
     utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
@@ -454,28 +455,28 @@ std::vector<std::pair<LabelId, PropertyId>> LabelPropertyIndex::ListIndices() co
 }
 
 void LabelPropertyIndex::RemoveObsoleteEntries(const uint64_t clean_up_before_timestamp) {
-  for (auto &[label_property, index] : index_) {
-    auto index_acc = index.access();
-    for (auto it = index_acc.begin(); it != index_acc.end();) {
+  for (auto &[label_property, container] : index_) {
+    for (auto it = container.begin(); it != container.end();) {
       auto next_it = it;
       ++next_it;
 
-      if (it->timestamp >= clean_up_before_timestamp) {
+      if (it->second.timestamp >= clean_up_before_timestamp) {
         it = next_it;
         continue;
       }
 
-      if ((next_it != index_acc.end() && it->vertex == next_it->vertex && it->value == next_it->value) ||
-          !AnyVersionHasLabelProperty(*it->vertex, label_property.first, label_property.second, it->value,
+      if (auto &entry = it->second;
+          (next_it != container.end() && entry.vertex == next_it->second.vertex && entry.value == entry.value) ||
+          !AnyVersionHasLabelProperty(*entry.vertex, label_property.first, label_property.second, entry.value,
                                       clean_up_before_timestamp)) {
-        index_acc.remove(*it);
+        container.erase(it->first);
       }
       it = next_it;
     }
   }
 }
 
-LabelPropertyIndex::Iterable::Iterator::Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator)
+LabelPropertyIndex::Iterable::Iterator::Iterator(Iterable *self, LabelPropertyIndexContainer::iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
       current_vertex_accessor_(nullptr, nullptr, nullptr, self_->config_, *self_->vertex_validator_),
@@ -490,33 +491,33 @@ LabelPropertyIndex::Iterable::Iterator &LabelPropertyIndex::Iterable::Iterator::
 }
 
 void LabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
-  for (; index_iterator_ != self_->index_accessor_.end(); ++index_iterator_) {
-    if (index_iterator_->vertex == current_vertex_) {
+  for (; index_iterator_ != self_->index_accessor_->end(); ++index_iterator_) {
+    if (index_iterator_->second.vertex == current_vertex_) {
       continue;
     }
 
     if (self_->lower_bound_) {
-      if (index_iterator_->value < self_->lower_bound_->value()) {
+      if (index_iterator_->second.value < self_->lower_bound_->value()) {
         continue;
       }
-      if (!self_->lower_bound_->IsInclusive() && index_iterator_->value == self_->lower_bound_->value()) {
+      if (!self_->lower_bound_->IsInclusive() && index_iterator_->second.value == self_->lower_bound_->value()) {
         continue;
       }
     }
     if (self_->upper_bound_) {
-      if (self_->upper_bound_->value() < index_iterator_->value) {
-        index_iterator_ = self_->index_accessor_.end();
+      if (self_->upper_bound_->value() < index_iterator_->second.value) {
+        index_iterator_ = self_->index_accessor_->end();
         break;
       }
-      if (!self_->upper_bound_->IsInclusive() && index_iterator_->value == self_->upper_bound_->value()) {
-        index_iterator_ = self_->index_accessor_.end();
+      if (!self_->upper_bound_->IsInclusive() && index_iterator_->second.value == self_->upper_bound_->value()) {
+        index_iterator_ = self_->index_accessor_->end();
         break;
       }
     }
 
-    if (CurrentVersionHasLabelProperty(*index_iterator_->vertex, self_->label_, self_->property_,
-                                       index_iterator_->value, self_->transaction_, self_->view_)) {
-      current_vertex_ = index_iterator_->vertex;
+    if (CurrentVersionHasLabelProperty(*index_iterator_->second.vertex, self_->label_, self_->property_,
+                                       index_iterator_->second.value, self_->transaction_, self_->view_)) {
+      current_vertex_ = index_iterator_->second.vertex;
       current_vertex_accessor_ = VertexAccessor(current_vertex_, self_->transaction_, self_->indices_, self_->config_,
                                                 *self_->vertex_validator_);
       break;
@@ -536,13 +537,12 @@ const PropertyValue kSmallestMap = PropertyValue(std::map<std::string, PropertyV
 const PropertyValue kSmallestTemporalData =
     PropertyValue(TemporalData{static_cast<TemporalType>(0), std::numeric_limits<int64_t>::min()});
 
-LabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label,
-                                       PropertyId property,
+LabelPropertyIndex::Iterable::Iterable(LabelPropertyIndexContainer &index_accessor, LabelId label, PropertyId property,
                                        const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                        const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
                                        Transaction *transaction, Indices *indices, Config::Items config,
                                        const VertexValidator &vertex_validator)
-    : index_accessor_(std::move(index_accessor)),
+    : index_accessor_(&index_accessor),
       label_(label),
       property_(property),
       lower_bound_(lower_bound),
@@ -650,49 +650,53 @@ LabelPropertyIndex::Iterable::Iterator LabelPropertyIndex::Iterable::begin() {
   // If the bounds are set and don't have comparable types we don't yield any
   // items from the index.
   if (!bounds_valid_) {
-    return {this, index_accessor_.end()};
+    return {this, index_accessor_->end()};
   }
-  auto index_iterator = index_accessor_.begin();
+  auto index_iterator = index_accessor_->begin();
   if (lower_bound_) {
-    index_iterator = index_accessor_.find_equal_or_greater(lower_bound_->value());
+    index_iterator = std::ranges::find_if(*index_accessor_, [lower_bound = lower_bound_->value()](const auto &pair) {
+      return pair.second.value >= lower_bound;
+    });
   }
   return {this, index_iterator};
 }
 
-LabelPropertyIndex::Iterable::Iterator LabelPropertyIndex::Iterable::end() { return {this, index_accessor_.end()}; }
+LabelPropertyIndex::Iterable::Iterator LabelPropertyIndex::Iterable::end() { return {this, index_accessor_->end()}; }
 
-int64_t LabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId property,
-                                                   const PropertyValue &value) const {
+int64_t LabelPropertyIndex::VertexCount(LabelId label, PropertyId property, const PropertyValue &value) const {
   auto it = index_.find({label, property});
   MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
-  auto acc = it->second.access();
   if (!value.IsNull()) {
-    return static_cast<int64_t>(
-        acc.estimate_count(value, static_cast<int>(utils::SkipListLayerForCountEstimation(acc.size()))));
+    return static_cast<int64_t>(it->second.count(value));
   }
-  // The value `Null` won't ever appear in the index because it indicates that
-  // the property shouldn't exist. Instead, this value is used as an indicator
-  // to estimate the average number of equal elements in the list (for any
-  // given value).
-  return static_cast<int64_t>(acc.estimate_average_number_of_equals(
-      [](const auto &first, const auto &second) { return first.value == second.value; },
-      static_cast<int>(utils::SkipListLayerForAverageEqualsEstimation(acc.size()))));
+  return static_cast<int64_t>(it->second.count(value));
 }
 
-int64_t LabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId property,
-                                                   const std::optional<utils::Bound<PropertyValue>> &lower,
-                                                   const std::optional<utils::Bound<PropertyValue>> &upper) const {
+int64_t LabelPropertyIndex::VertexCount(LabelId label, PropertyId property,
+                                        const std::optional<utils::Bound<PropertyValue>> &lower,
+                                        const std::optional<utils::Bound<PropertyValue>> &upper) const {
   auto it = index_.find({label, property});
   MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
-  auto acc = it->second.access();
-  return static_cast<int64_t>(
-      acc.estimate_range_count(lower, upper, static_cast<int>(utils::SkipListLayerForCountEstimation(acc.size()))));
+  const auto get_iter = [&it](const auto &value, const auto def) {
+    if (value) {
+      auto found_it = it->second.find(value->value());
+      if (value->IsInclusive()) {
+        return found_it;
+      }
+      return ++found_it;
+    }
+    return def;
+  };
+  const auto lower_it = get_iter(lower, it->second.begin());
+  const auto upper_it = get_iter(upper, it->second.end());
+  return static_cast<int64_t>(std::distance(lower_it, upper_it));
 }
 
 void LabelPropertyIndex::RunGC() {
-  for (auto &index_entry : index_) {
-    index_entry.second.run_gc();
-  }
+  // TODO What to do?
+  // for (auto &index_entry : index_) {
+  //   index_entry.second.run_gc();
+  // }
 }
 
 void RemoveObsoleteEntries(Indices *indices, const uint64_t clean_up_before_timestamp) {

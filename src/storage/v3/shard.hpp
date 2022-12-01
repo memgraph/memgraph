@@ -239,14 +239,14 @@ class Shard final {
     /// Return approximate number of vertices with the given label and property.
     /// Note that this is always an over-estimate and never an under-estimate.
     int64_t ApproximateVertexCount(LabelId label, PropertyId property) const {
-      return shard_->indices_.label_property_index.ApproximateVertexCount(label, property);
+      return shard_->indices_.label_property_index.VertexCount(label, property);
     }
 
     /// Return approximate number of vertices with the given label and the given
     /// value for the given property. Note that this is always an over-estimate
     /// and never an under-estimate.
     int64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const {
-      return shard_->indices_.label_property_index.ApproximateVertexCount(label, property, value);
+      return shard_->indices_.label_property_index.VertexCount(label, property, value);
     }
 
     /// Return approximate number of vertices with the given label and value for
@@ -255,7 +255,7 @@ class Shard final {
     int64_t ApproximateVertexCount(LabelId label, PropertyId property,
                                    const std::optional<utils::Bound<PropertyValue>> &lower,
                                    const std::optional<utils::Bound<PropertyValue>> &upper) const {
-      return shard_->indices_.label_property_index.ApproximateVertexCount(label, property, lower, upper);
+      return shard_->indices_.label_property_index.VertexCount(label, property, lower, upper);
     }
 
     /// @return Accessor to the deleted vertex if a deletion took place, std::nullopt otherwise

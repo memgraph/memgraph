@@ -133,7 +133,7 @@ class LabelIndex {
 };
 
 class LabelPropertyIndex {
- private:
+ public:
   struct Entry {
     PropertyValue value;
     Vertex *vertex;
@@ -146,7 +146,8 @@ class LabelPropertyIndex {
     bool operator==(const PropertyValue &rhs) const;
   };
 
- public:
+  using LabelPropertyIndexContainer = std::map<PropertyValue, Entry>;
+
   LabelPropertyIndex(Indices *indices, Config::Items config, const VertexValidator &vertex_validator)
       : indices_(indices), config_(config), vertex_validator_{&vertex_validator} {}
 
@@ -169,14 +170,14 @@ class LabelPropertyIndex {
 
   class Iterable {
    public:
-    Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, PropertyId property,
+    Iterable(LabelPropertyIndexContainer &index_accessor, LabelId label, PropertyId property,
              const std::optional<utils::Bound<PropertyValue>> &lower_bound,
              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Transaction *transaction,
              Indices *indices, Config::Items config, const VertexValidator &vertex_validator);
 
     class Iterator {
      public:
-      Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator);
+      Iterator(Iterable *self, LabelPropertyIndexContainer::iterator index_iterator);
 
       VertexAccessor operator*() const { return current_vertex_accessor_; }
 
@@ -189,7 +190,7 @@ class LabelPropertyIndex {
       void AdvanceUntilValid();
 
       Iterable *self_;
-      utils::SkipList<Entry>::Iterator index_iterator_;
+      LabelPropertyIndexContainer::iterator index_iterator_;
       VertexAccessor current_vertex_accessor_;
       Vertex *current_vertex_;
     };
@@ -198,7 +199,7 @@ class LabelPropertyIndex {
     Iterator end();
 
    private:
-    utils::SkipList<Entry>::Accessor index_accessor_;
+    LabelPropertyIndexContainer *index_accessor_;
     LabelId label_;
     PropertyId property_;
     std::optional<utils::Bound<PropertyValue>> lower_bound_;
@@ -217,11 +218,11 @@ class LabelPropertyIndex {
     auto it = index_.find({label, property});
     MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
               property.AsUint());
-    return {it->second.access(), label,    property, lower_bound,       upper_bound, view,
-            transaction,         indices_, config_,  *vertex_validator_};
+    return {it->second, label,       property, lower_bound, upper_bound,
+            view,       transaction, indices_, config_,     *vertex_validator_};
   }
 
-  int64_t ApproximateVertexCount(LabelId label, PropertyId property) const {
+  int64_t VertexCount(LabelId label, PropertyId property) const {
     auto it = index_.find({label, property});
     MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
               property.AsUint());
@@ -232,18 +233,17 @@ class LabelPropertyIndex {
   /// an estimated count of nodes which have their property's value set to
   /// `value`. If the `value` specified is `Null`, then an average number of
   /// equal elements is returned.
-  int64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const;
+  int64_t VertexCount(LabelId label, PropertyId property, const PropertyValue &value) const;
 
-  int64_t ApproximateVertexCount(LabelId label, PropertyId property,
-                                 const std::optional<utils::Bound<PropertyValue>> &lower,
-                                 const std::optional<utils::Bound<PropertyValue>> &upper) const;
+  int64_t VertexCount(LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower,
+                      const std::optional<utils::Bound<PropertyValue>> &upper) const;
 
   void Clear() { index_.clear(); }
 
   void RunGC();
 
  private:
-  std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>> index_;
+  std::map<std::pair<LabelId, PropertyId>, LabelPropertyIndexContainer> index_;
   Indices *indices_;
   Config::Items config_;
   const VertexValidator *vertex_validator_;
