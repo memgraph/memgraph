@@ -480,6 +480,65 @@ std::tuple<size_t, std::optional<msgs::VertexId>> AttemptToScanAllWithExpression
   }
 }
 
+msgs::GetPropertiesResponse AttemptToGetProperties(
+    ShardClient &client, std::optional<std::vector<PropertyId>> properties, std::vector<msgs::VertexId> vertices,
+    std::vector<msgs::EdgeId> edges, std::optional<size_t> limit = std::nullopt,
+    std::optional<uint64_t> filter_prop = std::nullopt, bool edge = false,
+    std::optional<std::string> order_by = std::nullopt) {
+  msgs::GetPropertiesRequest req{};
+  req.transaction_id.logical_id = GetTransactionId();
+  req.property_ids = std::move(properties);
+
+  if (filter_prop) {
+    std::string filter_expr = (!edge) ? "MG_SYMBOL_NODE.prop1 >= " : "MG_SYMBOL_EDGE.e_prop = ";
+    filter_expr += std::to_string(*filter_prop);
+    req.filter = std::make_optional(std::move(filter_expr));
+  }
+  if (order_by) {
+    std::string filter_expr = (!edge) ? "MG_SYMBOL_NODE." : "MG_SYMBOL_EDGE.";
+    filter_expr += *order_by;
+    msgs::OrderBy order_by{.expression = {std::move(filter_expr)}, .direction = msgs::OrderingDirection::DESCENDING};
+    std::vector<msgs::OrderBy> request_order_by;
+    request_order_by.push_back(std::move(order_by));
+    req.order_by = std::move(request_order_by);
+  }
+  if (limit) {
+    req.limit = limit;
+  }
+  req.expressions = {std::string("5 = 5")};
+  std::vector<msgs::VertexId> req_v;
+  std::vector<msgs::EdgeId> req_e;
+  for (auto &v : vertices) {
+    req_v.push_back(std::move(v));
+  }
+  for (auto &e : edges) {
+    req_e.push_back(std::move(e));
+  }
+
+  if (!edges.empty()) {
+    MG_ASSERT(edges.size() == vertices.size());
+    size_t id = 0;
+    req.vertices_and_edges.reserve(req_v.size());
+    for (auto &v : req_v) {
+      req.vertices_and_edges.push_back({std::move(v), std::move(req_e[id++])});
+    }
+  } else {
+    req.vertex_ids = std::move(req_v);
+  }
+
+  while (true) {
+    auto read_res = client.SendReadRequest(req);
+    if (read_res.HasError()) {
+      continue;
+    }
+
+    auto write_response_result = read_res.GetValue();
+    auto write_response = std::get<msgs::GetPropertiesResponse>(write_response_result);
+
+    return write_response;
+  }
+}
+
 void AttemptToScanAllWithOrderByOnPrimaryProperty(ShardClient &client, msgs::VertexId start_id, uint64_t batch_limit) {
   msgs::ScanVerticesRequest scan_req;
   scan_req.batch_limit = batch_limit;
@@ -1204,6 +1263,205 @@ void TestExpandOneGraphTwo(ShardClient &client) {
   }
 }
 
+void TestGetProperties(ShardClient &client) {
+  const auto unique_prop_val_1 = GetUniqueInteger();
+  const auto unique_prop_val_2 = GetUniqueInteger();
+  const auto unique_prop_val_3 = GetUniqueInteger();
+  const auto unique_prop_val_4 = GetUniqueInteger();
+  const auto unique_prop_val_5 = GetUniqueInteger();
+
+  MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_1));
+  MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_2));
+  MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_3));
+  MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_4));
+  MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_5));
+
+  const msgs::Label prim_label = {.id = get_primary_label()};
+  const msgs::PrimaryKey prim_key = {msgs::Value(static_cast<int64_t>(unique_prop_val_1))};
+  const msgs::VertexId v_id = {prim_label, prim_key};
+  const msgs::PrimaryKey prim_key_2 = {msgs::Value(static_cast<int64_t>(unique_prop_val_2))};
+  const msgs::VertexId v_id_2 = {prim_label, prim_key_2};
+  const msgs::PrimaryKey prim_key_3 = {msgs::Value(static_cast<int64_t>(unique_prop_val_3))};
+  const msgs::VertexId v_id_3 = {prim_label, prim_key_3};
+  const msgs::PrimaryKey prim_key_4 = {msgs::Value(static_cast<int64_t>(unique_prop_val_4))};
+  const msgs::VertexId v_id_4 = {prim_label, prim_key_4};
+  const msgs::PrimaryKey prim_key_5 = {msgs::Value(static_cast<int64_t>(unique_prop_val_5))};
+  const msgs::VertexId v_id_5 = {prim_label, prim_key_5};
+  const auto prop_id_2 = PropertyId::FromUint(2);
+  const auto prop_id_4 = PropertyId::FromUint(4);
+  const auto prop_id_5 = PropertyId::FromUint(5);
+  // No properties
+  {
+    const auto result = AttemptToGetProperties(client, {{}}, {v_id, v_id_2}, {});
+    MG_ASSERT(!result.error);
+    MG_ASSERT(result.result_row.size() == 2);
+    for (const auto &elem : result.result_row) {
+      MG_ASSERT(elem.props.size() == 0);
+    }
+  }
+  // All properties
+  {
+    const auto result = AttemptToGetProperties(client, std::nullopt, {v_id, v_id_2}, {});
+    MG_ASSERT(!result.error);
+    MG_ASSERT(result.result_row.size() == 2);
+    for (const auto &elem : result.result_row) {
+      MG_ASSERT(elem.props.size() == 3);
+    }
+  }
+  {
+    // Specific properties
+    const auto result =
+        AttemptToGetProperties(client, std::vector{prop_id_2, prop_id_4, prop_id_5}, {v_id, v_id_2, v_id_3}, {});
+    MG_ASSERT(!result.error);
+    MG_ASSERT(!result.result_row.empty());
+    MG_ASSERT(result.result_row.size() == 3);
+    for (const auto &elem : result.result_row) {
+      MG_ASSERT(elem.props.size() == 3);
+    }
+  }
+  {
+    // Two properties from two vertices with a filter on unique_prop_5
+    const auto result = AttemptToGetProperties(client, std::vector{prop_id_2, prop_id_4}, {v_id, v_id_2, v_id_5}, {},
+                                               std::nullopt, unique_prop_val_5);
+    MG_ASSERT(!result.error);
+    MG_ASSERT(result.result_row.size() == 1);
+  }
+  {
+    // One property from three vertices.
+    const auto result = AttemptToGetProperties(client, std::vector{prop_id_2}, {v_id, v_id_2, v_id_3}, {});
+    MG_ASSERT(!result.error);
+    MG_ASSERT(result.result_row.size() == 3);
+    MG_ASSERT(result.result_row[0].props.size() == 1);
+    MG_ASSERT(result.result_row[1].props.size() == 1);
+    MG_ASSERT(result.result_row[2].props.size() == 1);
+  }
+  {
+    // Same as before but with limit of 1 row
+    const auto result = AttemptToGetProperties(client, std::vector{prop_id_2}, {v_id, v_id_2, v_id_3}, {},
+                                               std::make_optional<size_t>(1));
+    MG_ASSERT(!result.error);
+    MG_ASSERT(result.result_row.size() == 1);
+  }
+  {
+    // Same as before but with a limit greater than the elements returned
+    const auto result = AttemptToGetProperties(client, std::vector{prop_id_2}, std::vector{v_id, v_id_2, v_id_3}, {},
+                                               std::make_optional<size_t>(5));
+    MG_ASSERT(!result.error);
+    MG_ASSERT(result.result_row.size() == 3);
+  }
+  {
+    // Order by on `prop1` (descending)
+    const auto result = AttemptToGetProperties(client, std::vector{prop_id_2}, {v_id, v_id_2, v_id_3}, {}, std::nullopt,
+                                               std::nullopt, false, "prop1");
+    MG_ASSERT(!result.error);
+    MG_ASSERT(result.result_row.size() == 3);
+    MG_ASSERT(result.result_row[0].vertex == v_id_3);
+    MG_ASSERT(result.result_row[1].vertex == v_id_2);
+    MG_ASSERT(result.result_row[2].vertex == v_id);
+  }
+  {
+    // Order by and filter on >= unique_prop_val_3 && assert result row data members
+    const auto result = AttemptToGetProperties(client, std::vector{prop_id_2}, {v_id, v_id_2, v_id_3, v_id_4, v_id_5},
+                                               {}, std::nullopt, unique_prop_val_3, false, "prop1");
+    MG_ASSERT(!result.error);
+    MG_ASSERT(result.result_row.size() == 3);
+    MG_ASSERT(result.result_row[0].vertex == v_id_5);
+    MG_ASSERT(result.result_row[0].props.size() == 1);
+    MG_ASSERT(result.result_row[0].props.front().second == prim_key_5.front());
+    MG_ASSERT(result.result_row[0].props.size() == 1);
+    MG_ASSERT(result.result_row[0].props.front().first == prop_id_2);
+    MG_ASSERT(result.result_row[0].evaluated_expressions.size() == 1);
+    MG_ASSERT(result.result_row[0].evaluated_expressions.front() == msgs::Value(true));
+
+    MG_ASSERT(result.result_row[1].vertex == v_id_4);
+    MG_ASSERT(result.result_row[1].props.size() == 1);
+    MG_ASSERT(result.result_row[1].props.front().second == prim_key_4.front());
+    MG_ASSERT(result.result_row[1].props.size() == 1);
+    MG_ASSERT(result.result_row[1].props.front().first == prop_id_2);
+    MG_ASSERT(result.result_row[1].evaluated_expressions.size() == 1);
+    MG_ASSERT(result.result_row[1].evaluated_expressions.front() == msgs::Value(true));
+
+    MG_ASSERT(result.result_row[2].vertex == v_id_3);
+    MG_ASSERT(result.result_row[2].props.size() == 1);
+    MG_ASSERT(result.result_row[2].props.front().second == prim_key_3.front());
+    MG_ASSERT(result.result_row[2].props.size() == 1);
+    MG_ASSERT(result.result_row[2].props.front().first == prop_id_2);
+    MG_ASSERT(result.result_row[2].evaluated_expressions.size() == 1);
+    MG_ASSERT(result.result_row[2].evaluated_expressions.front() == msgs::Value(true));
+  }
+
+  // Edges
+  const auto edge_gid = GetUniqueInteger();
+  const auto edge_type_id = EdgeTypeId::FromUint(GetUniqueInteger());
+  const auto unique_edge_prop_id = 7;
+  const auto edge_prop_val = GetUniqueInteger();
+  MG_ASSERT(AttemptToAddEdgeWithProperties(client, unique_prop_val_1, unique_prop_val_2, edge_gid, unique_edge_prop_id,
+                                           edge_prop_val, {edge_type_id}));
+  const auto edge_gid_2 = GetUniqueInteger();
+  const auto edge_prop_val_2 = GetUniqueInteger();
+  MG_ASSERT(AttemptToAddEdgeWithProperties(client, unique_prop_val_3, unique_prop_val_4, edge_gid_2,
+                                           unique_edge_prop_id, edge_prop_val_2, {edge_type_id}));
+  const auto edge_prop_id = PropertyId::FromUint(unique_edge_prop_id);
+  std::vector<msgs::EdgeId> edge_ids = {{edge_gid}, {edge_gid_2}};
+  // No properties
+  {
+    const auto result = AttemptToGetProperties(client, {{}}, {v_id_2, v_id_3}, edge_ids);
+    MG_ASSERT(!result.error);
+    MG_ASSERT(result.result_row.size() == 2);
+    for (const auto &elem : result.result_row) {
+      MG_ASSERT(elem.props.size() == 0);
+    }
+  }
+  // All properties
+  {
+    const auto result = AttemptToGetProperties(client, std::nullopt, {v_id_2, v_id_3}, edge_ids);
+    MG_ASSERT(!result.error);
+    MG_ASSERT(result.result_row.size() == 2);
+    for (const auto &elem : result.result_row) {
+      MG_ASSERT(elem.props.size() == 1);
+    }
+  }
+  // Properties for two vertices
+  {
+    const auto result = AttemptToGetProperties(client, std::vector{edge_prop_id}, {v_id_2, v_id_3}, edge_ids);
+    MG_ASSERT(!result.error);
+    MG_ASSERT(result.result_row.size() == 2);
+  }
+  // Filter
+  {
+    const auto result = AttemptToGetProperties(client, std::vector{edge_prop_id}, {v_id_2, v_id_3}, edge_ids, {},
+                                               {edge_prop_val}, true);
+    MG_ASSERT(!result.error);
+    MG_ASSERT(result.result_row.size() == 1);
+    MG_ASSERT(result.result_row.front().edge);
+    MG_ASSERT(result.result_row.front().edge.value().gid == edge_gid);
+    MG_ASSERT(result.result_row.front().props.size() == 1);
+    MG_ASSERT(result.result_row.front().props.front().second == msgs::Value(static_cast<int64_t>(edge_prop_val)));
+  }
+  // Order by
+  {
+    const auto result =
+        AttemptToGetProperties(client, std::vector{edge_prop_id}, {v_id_2, v_id_3}, edge_ids, {}, {}, true, "e_prop");
+    MG_ASSERT(!result.error);
+    MG_ASSERT(result.result_row.size() == 2);
+    MG_ASSERT(result.result_row[0].vertex == v_id_3);
+    MG_ASSERT(result.result_row[0].edge);
+    MG_ASSERT(result.result_row[0].edge.value().gid == edge_gid_2);
+    MG_ASSERT(result.result_row[0].props.size() == 1);
+    MG_ASSERT(result.result_row[0].props.front().second == msgs::Value(static_cast<int64_t>(edge_prop_val_2)));
+    MG_ASSERT(result.result_row[0].evaluated_expressions.size() == 1);
+    MG_ASSERT(result.result_row[0].evaluated_expressions.front() == msgs::Value(true));
+
+    MG_ASSERT(result.result_row[1].vertex == v_id_2);
+    MG_ASSERT(result.result_row[1].edge);
+    MG_ASSERT(result.result_row[1].edge.value().gid == edge_gid);
+    MG_ASSERT(result.result_row[1].props.size() == 1);
+    MG_ASSERT(result.result_row[1].props.front().second == msgs::Value(static_cast<int64_t>(edge_prop_val)));
+    MG_ASSERT(result.result_row[1].evaluated_expressions.size() == 1);
+    MG_ASSERT(result.result_row[1].evaluated_expressions.front() == msgs::Value(true));
+  }
+}
+
 }  // namespace
 
 int TestMessages() {
@@ -1242,9 +1500,12 @@ int TestMessages() {
   auto shard_ptr2 = std::make_unique<Shard>(get_primary_label(), min_prim_key, max_prim_key, schema_prop);
   auto shard_ptr3 = std::make_unique<Shard>(get_primary_label(), min_prim_key, max_prim_key, schema_prop);
 
-  shard_ptr1->StoreMapping({{1, "label"}, {2, "prop1"}, {3, "label1"}, {4, "prop2"}, {5, "prop3"}, {6, "prop4"}});
-  shard_ptr2->StoreMapping({{1, "label"}, {2, "prop1"}, {3, "label1"}, {4, "prop2"}, {5, "prop3"}, {6, "prop4"}});
-  shard_ptr3->StoreMapping({{1, "label"}, {2, "prop1"}, {3, "label1"}, {4, "prop2"}, {5, "prop3"}, {6, "prop4"}});
+  shard_ptr1->StoreMapping(
+      {{1, "label"}, {2, "prop1"}, {3, "label1"}, {4, "prop2"}, {5, "prop3"}, {6, "prop4"}, {7, "e_prop"}});
+  shard_ptr2->StoreMapping(
+      {{1, "label"}, {2, "prop1"}, {3, "label1"}, {4, "prop2"}, {5, "prop3"}, {6, "prop4"}, {7, "e_prop"}});
+  shard_ptr3->StoreMapping(
+      {{1, "label"}, {2, "prop1"}, {3, "label1"}, {4, "prop2"}, {5, "prop3"}, {6, "prop4"}, {7, "e_prop"}});
 
   std::vector<Address> address_for_1{shard_server_2_address, shard_server_3_address};
   std::vector<Address> address_for_2{shard_server_1_address, shard_server_3_address};
@@ -1286,6 +1547,8 @@ int TestMessages() {
   TestExpandOneGraphOne(client);
   TestExpandOneGraphTwo(client);
 
+  // GetProperties tests
+  TestGetProperties(client);
   simulator.ShutDown();
 
   SimulatorStats stats = simulator.Stats();
