@@ -103,7 +103,7 @@ class ValidFramesReader {
     using reference = const Frame &;
 
     Iterator(FrameWithValidity *ptr, ValidFramesReader &iterator_wrapper)
-        : ptr_(ptr), iterator_wrapper_(iterator_wrapper) {}
+        : ptr_(ptr), iterator_wrapper_(&iterator_wrapper) {}
 
     reference operator*() const { return *ptr_; }
     pointer operator->() { return ptr_; }
@@ -112,7 +112,7 @@ class ValidFramesReader {
     Iterator &operator++() {
       do {
         ptr_++;
-      } while (*this != iterator_wrapper_.end() && !this->ptr_->IsValid());
+      } while (*this != iterator_wrapper_->end() && !this->ptr_->IsValid());
 
       return *this;
     }
@@ -122,7 +122,7 @@ class ValidFramesReader {
 
    private:
     FrameWithValidity *ptr_;
-    ValidFramesReader &iterator_wrapper_;
+    ValidFramesReader *iterator_wrapper_;
   };
 
   Iterator begin();
@@ -150,7 +150,7 @@ class ValidFramesModifier {
     using reference = Frame &;
 
     Iterator(FrameWithValidity *ptr, ValidFramesModifier &iterator_wrapper)
-        : ptr_(ptr), iterator_wrapper_(iterator_wrapper) {}
+        : ptr_(ptr), iterator_wrapper_(&iterator_wrapper) {}
 
     reference operator*() const { return *ptr_; }
     pointer operator->() { return ptr_; }
@@ -159,7 +159,7 @@ class ValidFramesModifier {
     Iterator &operator++() {
       do {
         ptr_++;
-      } while (*this != iterator_wrapper_.end() && !this->ptr_->IsValid());
+      } while (*this != iterator_wrapper_->end() && !this->ptr_->IsValid());
 
       return *this;
     }
@@ -169,7 +169,7 @@ class ValidFramesModifier {
 
    private:
     FrameWithValidity *ptr_;
-    ValidFramesModifier &iterator_wrapper_;
+    ValidFramesModifier *iterator_wrapper_;
   };
 
   Iterator begin();
@@ -197,7 +197,7 @@ class ValidFramesConsumer {
     using reference = FrameWithValidity &;
 
     Iterator(FrameWithValidity *ptr, ValidFramesConsumer &iterator_wrapper)
-        : ptr_(ptr), iterator_wrapper_(iterator_wrapper) {}
+        : ptr_(ptr), iterator_wrapper_(&iterator_wrapper) {}
 
     reference operator*() const { return *ptr_; }
     pointer operator->() { return ptr_; }
@@ -206,7 +206,7 @@ class ValidFramesConsumer {
     Iterator &operator++() {
       do {
         ptr_++;
-      } while (*this != iterator_wrapper_.end() && !this->ptr_->IsValid());
+      } while (*this != iterator_wrapper_->end() && !this->ptr_->IsValid());
 
       return *this;
     }
@@ -216,7 +216,7 @@ class ValidFramesConsumer {
 
    private:
     FrameWithValidity *ptr_;
-    ValidFramesConsumer &iterator_wrapper_;
+    ValidFramesConsumer *iterator_wrapper_;
   };
 
   Iterator begin();
