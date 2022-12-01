@@ -11,6 +11,10 @@
 
 #pragma once
 
+#include <condition_variable>
+#include <mutex>
+#include <vector>
+
 namespace memgraph::io {
 
 class ReadinessToken {
@@ -30,7 +34,6 @@ class Inner {
   void Notify(ReadinessToken readiness_token) {
     {
       std::unique_lock<std::mutex> lock(mu_);
-      spdlog::trace("Notifier notifying token {}", readiness_token.GetId());
       ready_.emplace_back(readiness_token);
     }  // mutex dropped
 
@@ -61,9 +64,9 @@ class Notifier {
   Notifier &operator=(Notifier &&old) = default;
   ~Notifier() = default;
 
-  void Notify(ReadinessToken readiness_token) { inner_->Notify(readiness_token); }
+  void Notify(ReadinessToken readiness_token) const { inner_->Notify(readiness_token); }
 
-  ReadinessToken Await() { return inner_->Await(); }
+  ReadinessToken Await() const { return inner_->Await(); }
 };
 
 }  // namespace memgraph::io

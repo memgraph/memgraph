@@ -107,7 +107,7 @@ class Io {
                                                     ReadinessToken readiness_token) {
     const Duration timeout = default_timeout_;
     const Address from_address = address_;
-    std::function<void()> fill_notifier = std::bind(&Notifier::Notify, notifier, readiness_token);
+    std::function<void()> fill_notifier = [notifier, readiness_token]() { notifier.Notify(readiness_token); };
     return implementation_.template Request<RequestT, ResponseT>(to_address, from_address, std::move(request),
                                                                  fill_notifier, timeout);
   }
@@ -117,7 +117,7 @@ class Io {
   ResponseFuture<ResponseT> RequestWithNotificationAndTimeout(Address to_address, RequestT request, Notifier notifier,
                                                               ReadinessToken readiness_token, Duration timeout) {
     const Address from_address = address_;
-    std::function<void()> fill_notifier = std::bind(&Notifier::Notify, notifier, readiness_token);
+    std::function<void()> fill_notifier = [notifier, readiness_token]() { notifier.Notify(readiness_token); };
     return implementation_.template Request<RequestT, ResponseT>(to_address, from_address, std::move(request),
                                                                  fill_notifier, timeout);
   }
