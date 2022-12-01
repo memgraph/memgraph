@@ -11,6 +11,9 @@
 
 #include "query/v2/multiframe.hpp"
 
+#include <algorithm>
+#include <iterator>
+
 #include "query/v2/bindings/frame.hpp"
 #include "utils/pmr/vector.hpp"
 
@@ -71,12 +74,23 @@ ValidFramesConsumer MultiFrame::GetValidFramesConsumer() { return ValidFramesCon
 
 InvalidFramesPopulator MultiFrame::GetInvalidFramesPopulator() { return InvalidFramesPopulator{*this}; }
 
-ValidFramesReader::ValidFramesReader(MultiFrame &multiframe) : multiframe_(multiframe) {}
+ValidFramesReader::ValidFramesReader(MultiFrame &multiframe) : multiframe_(multiframe) {
+  /*
+  From: https://en.cppreference.com/w/cpp/algorithm/find
+  Returns an iterator to the first element in the range [first, last) that satisfies specific criteria:
+  find_if searches for an element for which predicate p returns true
+  Return value
+    Iterator to the first element satisfying the condition or last if no such element is found.
+
+  -> this is what we want. We want the "after" last valid frame (weather this is vector::end or and invalid frame).
+  */
+  auto it = std::find_if(multiframe.frames_.begin(), multiframe.frames_.end(),
+                         [](const auto &frame) { return !frame.IsValid(); });
+  after_last_valid_frame_ = multiframe_.frames_.data() + std::distance(multiframe.frames_.begin(), it);
+}
 
 ValidFramesReader::Iterator ValidFramesReader::begin() { return Iterator{&multiframe_.frames_[0], *this}; }
-ValidFramesReader::Iterator ValidFramesReader::end() {
-  return Iterator{multiframe_.frames_.data() + multiframe_.frames_.size(), *this};
-}
+ValidFramesReader::Iterator ValidFramesReader::end() { return Iterator{after_last_valid_frame_, *this}; }
 
 ValidFramesModifier::ValidFramesModifier(MultiFrame &multiframe) : multiframe_(multiframe) {}
 

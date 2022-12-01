@@ -107,18 +107,14 @@ class ValidFramesReader {
     using pointer = value_type *;
     using reference = const Frame &;
 
-    Iterator(FrameWithValidity *ptr, ValidFramesReader &iterator_wrapper)
-        : ptr_(ptr), iterator_wrapper_(&iterator_wrapper) {}
+    explicit Iterator(FrameWithValidity *ptr, ValidFramesReader &iterator_wrapper) : ptr_(ptr) {}
 
     reference operator*() const { return *ptr_; }
     pointer operator->() { return ptr_; }
 
     // Prefix increment
     Iterator &operator++() {
-      do {
-        ptr_++;
-      } while (*this != iterator_wrapper_->end() && !ptr_->IsValid());
-
+      ptr_++;
       return *this;
     }
 
@@ -127,13 +123,13 @@ class ValidFramesReader {
 
    private:
     FrameWithValidity *ptr_;
-    ValidFramesReader *iterator_wrapper_;
   };
 
   Iterator begin();
   Iterator end();
 
  private:
+  FrameWithValidity *after_last_valid_frame_;
   MultiFrame &multiframe_;
 };
 
