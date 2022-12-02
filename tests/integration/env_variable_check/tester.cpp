@@ -37,7 +37,7 @@ int ProcessException(const std::string &exception_message) {
   } else {
     LOG_FATAL(
         "The query shoudn't have failed but it failed with an "
-        "error message '{}' KITA",
+        "error message '{}'",
         exception_message);
     return 1;
   }
