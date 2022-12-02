@@ -36,6 +36,7 @@ using memgraph::query::plan::ScanAll;
 
 struct ExecuteStatus {
   bool has_more;
+  std::optional<std::string> error;
   // TODO(gitbuda): Add std::optional<ExecuteError>
 };
 
@@ -274,8 +275,12 @@ class PhysicalOperator {
     // The logic here is tricky because you have to think about both reader and writer.
     ctx.thread_pool->AddTask([&, this]() {
       auto *input = children_[0].get();
-      // TODO(gitbuda): All this logic (except the fun(...) call) could be moved to NextRead?
-      // TODO(gitbuda): One obvious problem is the top level operator are spinning a lot until some data comes in.
+      // TODO(gitbuda): All this logic (except the fun(...) call) could be
+      // moved to NextRead?
+      //
+      // TODO(gitbuda): One obvious problem is the top level operator are
+      // spinning a lot until some data comes in.
+      //
       int64_t iter{0};
       while (true) {
         iter++;
@@ -337,6 +342,7 @@ class OncePhysicalOperator final : public PhysicalOperator<TDataPool> {
  public:
   explicit OncePhysicalOperator(const std::string &name, std::unique_ptr<TDataPool> &&data_pool)
       : PhysicalOperator<TDataPool>(name, std::move(data_pool)) {}
+
   void Execute(TExecutionContext ctx) override {
     MG_ASSERT(Base::children_.empty(), "{} should have 0 input/child", Base::name_);
     SPDLOG_TRACE("{} Execute()", Base::name_);
@@ -369,7 +375,11 @@ class ScanAllPhysicalOperator final : public PhysicalOperator<TDataPool> {
     // ∀mf : input multiframes
     //  ∀tuple : data_fun(evaluate(mf))
     //   emit(tuple)
-    this->stats_.processed_frames = 0;
+    //
+    // NOTE: ScanAll is about getting data from the database and evaluate the
+    // filtering expression -> if the whole filter is pushed down -> ScanAll is
+    // only about fetching data and passing it further.
+    //
     // The general logic here is:
     //  1. give me the input multiframe
     //  2. iterate over fetched or calculated data (more iterators might be involved here)
@@ -387,6 +397,7 @@ class ScanAllPhysicalOperator final : public PhysicalOperator<TDataPool> {
     //    preserve mechanism has to be in place. With multiple concurrent
     //    threads per operator, it gets more complex.
     //
+    this->stats_.processed_frames = 0;
     Base::SingleChildSingleThreadExaust(
         ctx,
         [this, &ctx](typename TDataPool::TMultiframe &multiframe) {
@@ -527,9 +538,29 @@ class PhysicalPlanGenerator final : public HierarchicalLogicalOperatorVisitor {
 ///   1) There is data in the input data pool
 ///   2) There is an available worker thread
 ///
+/// In addition, an executor is responsible to take data out of the produce
+/// data pool and ship it to the data stream.
+///
 class Executor {
   // ThreadPools
   // PhysicalPlans
+
+  /// Each operator should have a method of the following signature
+  ///   future<status> Execute(context);
+  /// because the execution will end up in a thread pool.
+  ///
+  /// Each Execute method should essentially process one input batch.
+  ///
+  /// Parallelization can easily be achieved by multiple concurrent Execute
+  /// calls on a single operator.
+  ///
+  /// Aggregations are essentially single threaded operator which will exhaust
+  /// all available input, since Executor is responsible for the semantic, it
+  /// has to ensure all dependencies are executed before.
+  ///
+  void Execute(/*data_stream*/) {
+    // Iterate over streams, as soon as there is some result data push it to the stream.
+  }
 };
 
 }  // namespace memgraph::query::v2::physical
