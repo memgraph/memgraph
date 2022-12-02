@@ -33,7 +33,7 @@ extern "C" {
 
 namespace memgraph::query::procedure {
 
-const char *func_code =
+constexpr const char *func_code =
     "import ast\n\n"
     "no_removals = ['collections', 'abc', 'sys']\n"
     "modules = set()\n\n"
@@ -1065,28 +1065,26 @@ void ProcessFileDependencies(std::filesystem::path file_path_, const char *func_
   if (maybe_content) {
     const char *content_value = maybe_content->c_str();
     if (content_value) {
-      PyObject *py_main, *py_global_dict;
-
-      py_main = PyImport_ImportModule("__main__");
-      py_global_dict = PyModule_GetDict(py_main);
+      PyObject *py_main = PyImport_ImportModule("__main__");
+      PyObject *py_global_dict = PyModule_GetDict(py_main);
 
       PyDict_SetItemString(py_global_dict, "code", PyUnicode_FromString(content_value));
       PyRun_String(func_code, Py_file_input, py_global_dict, py_global_dict);
       PyObject *py_res = PyDict_GetItemString(py_global_dict, "modules");
 
       PyObject *iterator = PyObject_GetIter(py_res);
-      PyObject *module;
+      PyObject *module = nullptr;
 
-      if (iterator != NULL) {
+      if (iterator != nullptr) {
         while ((module = PyIter_Next(iterator))) {
           const char *module_name = PyUnicode_AsUTF8(module);
-          std::string_view module_name_str = std::string_view(module_name);
+          auto module_name_str = std::string_view(module_name);
           PyObject *sys_iterator = PyObject_GetIter(PyDict_Keys(sys_mod_ref));
-          if (sys_iterator == NULL) {
+          if (sys_iterator == nullptr) {
             spdlog::warn("Cannot get reference to the sys.modules.keys()");
             break;
           }
-          PyObject *sys_mod_key;
+          PyObject *sys_mod_key = nullptr;
           while ((sys_mod_key = PyIter_Next(sys_iterator))) {
             const char *sys_mod_key_name = PyUnicode_AsUTF8(sys_mod_key);
             if (std::string_view(sys_mod_key_name).rfind(module_name_str, 0) == 0) {
