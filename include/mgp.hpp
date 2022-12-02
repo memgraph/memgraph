@@ -184,7 +184,6 @@ class Nodes {
     }
 
     Iterator(const Iterator &other) : Iterator(other.nodes_iterator_) {}
-
     Iterator &operator=(const Iterator &other) = delete;
 
     ~Iterator() {
@@ -289,7 +288,6 @@ class GraphRelationships {
     }
 
     Iterator(const Iterator &other) : Iterator(other.nodes_iterator_) {}
-
     Iterator &operator=(const Iterator &other) = delete;
 
     ~Iterator() {
@@ -406,7 +404,6 @@ class Relationships {
     }
 
     Iterator(const Iterator &other) : Iterator(other.relationships_iterator_) {}
-
     Iterator &operator=(const Iterator &other) = delete;
 
     ~Iterator() {
@@ -504,6 +501,14 @@ class Properties {
 class Labels {
  public:
   explicit Labels(mgp_vertex *node_ptr) : node_ptr_(node_ptr) {}
+
+  Labels(const Labels &other) : Labels(other.node_ptr_) {}
+  Labels(Labels &&other) noexcept : node_ptr_(other.node_ptr_) { other.node_ptr_ = nullptr; }
+
+  Labels &operator=(const Labels &other) noexcept;
+  Labels &operator=(Labels &&other) noexcept;
+
+  ~Labels();
 
   /// @brief Returns the number of the labels, i.e. the size of their list.
   size_t Size() const { return mgp::vertex_labels_count(node_ptr_); }
@@ -709,7 +714,6 @@ class Map {
     }
 
     Iterator(const Iterator &other) : Iterator(other.map_items_iterator_) {}
-
     Iterator &operator=(const Iterator &other) = delete;
 
     ~Iterator() {
@@ -1452,11 +1456,11 @@ class Record {
 class RecordFactory {
  public:
   explicit RecordFactory(mgp_result *result) : result_(result) {}
-  RecordFactory(RecordFactory const &) = delete;
+  // RecordFactory(RecordFactory const &) = delete;
 
   const mgp::Record NewRecord() const;
 
-  void operator=(RecordFactory const &) = delete;
+  // void operator=(RecordFactory const &) = delete;
 
  private:
   mgp_result *result_;
@@ -1466,7 +1470,7 @@ class RecordFactory {
 class Result {
  public:
   explicit Result(mgp_func_result *result) : result_(result) {}
-  Result(Result const &) = delete;
+  // Result(Result const &) = delete;
 
   /// @brief Sets a boolean value to be returned.
   inline void SetValue(bool value);
@@ -1497,7 +1501,7 @@ class Result {
   /// @brief Sets a @ref Duration value to be returned.
   inline void SetValue(const Duration &duration);
 
-  void operator=(Result const &) = delete;
+  // void operator=(Result const &) = delete;
 
  private:
   mgp_func_result *result_;
@@ -1970,6 +1974,31 @@ inline Value Properties::operator[](const std::string_view key) const { return p
 inline bool Properties::operator==(const Properties &other) const { return property_map_ == other.property_map_; }
 
 // Labels:
+
+inline Labels &Labels::operator=(const Labels &other) noexcept {
+  if (this != &other) {
+    mgp::vertex_destroy(node_ptr_);
+
+    node_ptr_ = mgp::vertex_copy(other.node_ptr_, memory);
+  }
+  return *this;
+}
+
+inline Labels &Labels::operator=(Labels &&other) noexcept {
+  if (this != &other) {
+    mgp::vertex_destroy(node_ptr_);
+
+    node_ptr_ = other.node_ptr_;
+    other.node_ptr_ = nullptr;
+  }
+  return *this;
+}
+
+inline Labels::~Labels() {
+  if (node_ptr_ != nullptr) {
+    mgp::vertex_destroy(node_ptr_);
+  }
+}
 
 inline const std::string_view Labels::Iterator::operator*() const { return (*iterable_)[index_]; }
 
