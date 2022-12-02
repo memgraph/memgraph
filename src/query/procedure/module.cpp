@@ -33,6 +33,25 @@ extern "C" {
 
 namespace memgraph::query::procedure {
 
+const char *func_code =
+    "import ast\n\n"
+    "no_removals = ['collections', 'abc', 'sys']\n"
+    "modules = set()\n\n"
+    "def visit_Import(node):\n"
+    "  for name in node.names:\n"
+    "    mod_name = name.name.split('.')[0]\n"
+    "    if mod_name not in no_removals:\n"
+    "      modules.add(mod_name)\n\n"
+    "def visit_ImportFrom(node):\n"
+    "  if node.module is not None and node.level == 0:\n"
+    "    mod_name = node.module.split('.')[0]\n"
+    "    if mod_name not in no_removals:\n"
+    "      modules.add(mod_name)\n"
+    "node_iter = ast.NodeVisitor()\n"
+    "node_iter.visit_Import = visit_Import\n"
+    "node_iter.visit_ImportFrom = visit_ImportFrom\n"
+    "node_iter.visit(ast.parse(code))\n";
+
 void ProcessFileDependencies(std::filesystem::path file_path_, const char *func_code, PyObject *sys_mod_ref);
 
 ModuleRegistry gModuleRegistry;
@@ -1002,28 +1021,10 @@ bool PythonModule::Close() {
   py::Object sys(PyImport_ImportModule("sys"));
   PyObject *sys_mod_ref = sys.GetAttr("modules").Ptr();
 
-  const char *func_code =
-      "import ast\n\n"
-      "modules = set()\n\n"
-      "def visit_Import(node):\n"
-      "  for name in node.names:\n"
-      "    modules.add(name.name.split('.')[0])\n\n"
-      "def visit_ImportFrom(node):\n"
-      "  if node.module is not None and node.level == 0:\n"
-      "    mod_name = node.module.split('.')[0]\n"
-      "    if mod_name != 'collections':\n"
-      "      modules.add(mod_name)\n"
-      "node_iter = ast.NodeVisitor()\n"
-      "node_iter.visit_Import = visit_Import\n"
-      "node_iter.visit_ImportFrom = visit_ImportFrom\n"
-      "node_iter.visit(ast.parse(code))\n";
-
   std::filesystem::path submodules_path = file_path_.parent_path();
   std::string_view stem = std::string_view(file_path_.stem().c_str());
   submodules_path /= "mage";
   std::filesystem::path submodules;
-
-  spdlog::info("Submodules path is {} and the stem is {}", submodules_path, stem);
 
   ProcessFileDependencies(file_path_, func_code, sys_mod_ref);
 
@@ -1036,7 +1037,6 @@ bool PythonModule::Close() {
     }
   }
   if (!submodules.empty()) {
-    spdlog::info("Found submodule {}", submodules);
     for (auto const &rec_dir_entry : std::filesystem::recursive_directory_iterator(submodules)) {
       std::string_view rec_dir_entry_ext = std::string_view(rec_dir_entry.path().extension().c_str());
       if (!rec_dir_entry.is_regular_file() || rec_dir_entry_ext.compare(".pyc") == 0) continue;
@@ -1059,7 +1059,6 @@ bool PythonModule::Close() {
 }
 
 void ProcessFileDependencies(std::filesystem::path file_path_, const char *func_code, PyObject *sys_mod_ref) {
-  // now start processing dependencies
   const auto maybe_content =
       ReadFile(file_path_);  // this is already done at Load so it can somehow be optimized but not sure how yet
 
