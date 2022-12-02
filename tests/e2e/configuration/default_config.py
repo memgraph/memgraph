@@ -166,7 +166,7 @@ startup_config_dict = {
     "init_file": (
         "",
         "",
-        "Path to cypherl file that is used for configuring users and database schema before server starts",
+        "Path to cypherl file that is used for configuring users and database schema before server starts.",
     ),
-    "init_data_file": ("", "", "Path to cypherl file that is used for creating data after server starts"),
+    "init_data_file": ("", "", "Path to cypherl file that is used for creating data after server starts."),
 }
