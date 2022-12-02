@@ -166,9 +166,9 @@ DEFINE_string(bolt_server_name_for_init, "",
               "Bolt INIT message.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(init_file, "",
-              "Path to cypherl file that is used for configuring users and database schema before server starts");
+              "Path to cypherl file that is used for configuring users and database schema before server starts.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(init_data_file, "", "Path to cypherl file that is used for creating data after server starts");
+DEFINE_string(init_data_file, "", "Path to cypherl file that is used for creating data after server starts.");
 
 // General purpose flags.
 // NOTE: The `data_directory` flag must be the same here and in
