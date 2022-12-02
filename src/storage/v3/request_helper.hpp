@@ -20,6 +20,7 @@
 #include "storage/v3/edge_accessor.hpp"
 #include "storage/v3/expr.hpp"
 #include "storage/v3/shard.hpp"
+#include "storage/v3/value_conversions.hpp"
 #include "storage/v3/vertex_accessor.hpp"
 #include "utils/template_utils.hpp"
 
@@ -31,7 +32,7 @@ using EdgeFiller =
 using msgs::Value;
 
 template <typename T>
-concept ObjectAccessor = utils::SameAsAnyOf<T, VertexAccessor, EdgeAccessor>;
+concept OrderableObject = utils::SameAsAnyOf<T, VertexAccessor, EdgeAccessor, std::pair<VertexAccessor, EdgeAccessor>>;
 
 inline bool TypedValueCompare(const TypedValue &a, const TypedValue &b) {
   // in ordering null comes after everything else
@@ -125,7 +126,7 @@ class TypedValueVectorCompare final {
   std::vector<Ordering> ordering_;
 };
 
-template <ObjectAccessor TObjectAccessor>
+template <OrderableObject TObjectAccessor>
 struct Element {
   std::vector<TypedValue> properties_order_by;
   TObjectAccessor object_acc;
@@ -167,6 +168,10 @@ std::vector<Element<EdgeAccessor>> OrderByEdges(DbAccessor &dba, std::vector<Edg
                                                 std::vector<msgs::OrderBy> &order_by_edges,
                                                 const VertexAccessor &vertex_acc);
 
+std::vector<Element<std::pair<VertexAccessor, EdgeAccessor>>> OrderByEdges(
+    DbAccessor &dba, std::vector<EdgeAccessor> &iterable, std::vector<msgs::OrderBy> &order_by_edges,
+    const std::vector<VertexAccessor> &vertex_acc);
+
 VerticesIterable::Iterator GetStartVertexIterator(VerticesIterable &vertex_iterable,
                                                   const std::vector<PropertyValue> &primary_key, View view);
 
@@ -177,19 +182,65 @@ std::vector<Element<VertexAccessor>>::const_iterator GetStartOrderedElementsIter
 std::array<std::vector<EdgeAccessor>, 2> GetEdgesFromVertex(const VertexAccessor &vertex_accessor,
                                                             msgs::EdgeDirection direction);
 
-bool FilterOnVertex(DbAccessor &dba, const storage::v3::VertexAccessor &v_acc, const std::vector<std::string> &filters,
-                    std::string_view node_name);
+bool FilterOnVertex(DbAccessor &dba, const storage::v3::VertexAccessor &v_acc, const std::vector<std::string> &filters);
+
+bool FilterOnEdge(DbAccessor &dba, const storage::v3::VertexAccessor &v_acc, const EdgeAccessor &e_acc,
+                  const std::vector<std::string> &filters);
 
 std::vector<TypedValue> EvaluateVertexExpressions(DbAccessor &dba, const VertexAccessor &v_acc,
                                                   const std::vector<std::string> &expressions,
                                                   std::string_view node_name);
 
-ShardResult<std::map<PropertyId, Value>> CollectSpecificPropertiesFromAccessor(const VertexAccessor &acc,
+std::vector<TypedValue> EvaluateEdgeExpressions(DbAccessor &dba, const VertexAccessor &v_acc, const EdgeAccessor &e_acc,
+                                                const std::vector<std::string> &expressions);
+
+template <typename T>
+concept PropertiesAccessor = utils::SameAsAnyOf<T, VertexAccessor, EdgeAccessor>;
+
+template <PropertiesAccessor TAccessor>
+ShardResult<std::map<PropertyId, Value>> CollectSpecificPropertiesFromAccessor(const TAccessor &acc,
                                                                                const std::vector<PropertyId> &props,
-                                                                               View view);
+                                                                               View view) {
+  std::map<PropertyId, Value> ret;
+
+  for (const auto &prop : props) {
+    auto result = acc.GetProperty(prop, view);
+    if (result.HasError()) {
+      spdlog::debug("Encountered an Error while trying to get a vertex property.");
+      return result.GetError();
+    }
+    auto &value = result.GetValue();
+    ret.emplace(std::make_pair(prop, FromPropertyValueToValue(std::move(value))));
+  }
+
+  return ret;
+}
 
 ShardResult<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(const VertexAccessor &acc, View view,
                                                                           const Schemas::Schema &schema);
+namespace impl {
+template <PropertiesAccessor TAccessor>
+ShardResult<std::map<PropertyId, Value>> CollectAllPropertiesImpl(const TAccessor &acc, View view) {
+  std::map<PropertyId, Value> ret;
+  auto props = acc.Properties(view);
+  if (props.HasError()) {
+    spdlog::debug("Encountered an error while trying to get vertex properties.");
+    return props.GetError();
+  }
+
+  auto &properties = props.GetValue();
+  std::transform(properties.begin(), properties.end(), std::inserter(ret, ret.begin()),
+                 [](std::pair<const PropertyId, PropertyValue> &pair) {
+                   return std::make_pair(pair.first, conversions::FromPropertyValueToValue(std::move(pair.second)));
+                 });
+  return ret;
+}
+}  // namespace impl
+
+template <PropertiesAccessor TAccessor>
+ShardResult<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(const TAccessor &acc, View view) {
+  return impl::CollectAllPropertiesImpl<TAccessor>(acc, view);
+}
 
 EdgeUniquenessFunction InitializeEdgeUniquenessFunction(bool only_unique_neighbor_rows);
 
