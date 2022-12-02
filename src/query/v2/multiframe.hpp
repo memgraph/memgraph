@@ -107,22 +107,31 @@ class ValidFramesReader {
     using pointer = value_type *;
     using reference = const Frame &;
 
+    Iterator() {}
     explicit Iterator(FrameWithValidity *ptr) : ptr_(ptr) {}
 
     reference operator*() const { return *ptr_; }
     pointer operator->() { return ptr_; }
 
-    // Prefix increment
     Iterator &operator++() {
       ptr_++;
       return *this;
     }
 
-    friend bool operator==(const Iterator &a, const Iterator &b) { return a.ptr_ == b.ptr_; };
-    friend bool operator!=(const Iterator &a, const Iterator &b) { return a.ptr_ != b.ptr_; };
+    // clang-tidy warning is wrong here, because we & qualify the function, meaning that you can't post increment
+    // temporaries, e.g, (it++)++
+    // NOLINTNEXTLINE (cert-dcl21-cpp)
+    Iterator operator++(int) & {
+      auto old = *this;
+      ptr_++;
+      return old;
+    }
+
+    friend bool operator==(const Iterator &lhs, const Iterator &rhs) { return lhs.ptr_ == rhs.ptr_; };
+    friend bool operator!=(const Iterator &lhs, const Iterator &rhs) { return lhs.ptr_ != rhs.ptr_; };
 
    private:
-    FrameWithValidity *ptr_;
+    FrameWithValidity *ptr_{nullptr};
   };
 
   Iterator begin();
@@ -138,10 +147,10 @@ class ValidFramesModifier {
   explicit ValidFramesModifier(MultiFrame &multiframe);
 
   ~ValidFramesModifier() = default;
-  ValidFramesModifier(const ValidFramesModifier &other) = delete;                 // copy constructor
-  ValidFramesModifier(ValidFramesModifier &&other) noexcept = delete;             // move constructor
-  ValidFramesModifier &operator=(const ValidFramesModifier &other) = delete;      // copy assignment
-  ValidFramesModifier &operator=(ValidFramesModifier &&other) noexcept = delete;  // move assignment
+  ValidFramesModifier(const ValidFramesModifier &other) = delete;
+  ValidFramesModifier(ValidFramesModifier &&other) noexcept = delete;
+  ValidFramesModifier &operator=(const ValidFramesModifier &other) = delete;
+  ValidFramesModifier &operator=(ValidFramesModifier &&other) noexcept = delete;
 
   struct Iterator {
     using iterator_category = std::forward_iterator_tag;
@@ -149,6 +158,7 @@ class ValidFramesModifier {
     using value_type = Frame;
     using pointer = value_type *;
     using reference = Frame &;
+    Iterator() {}
 
     Iterator(FrameWithValidity *ptr, ValidFramesModifier &iterator_wrapper)
         : ptr_(ptr), iterator_wrapper_(&iterator_wrapper) {}
@@ -165,12 +175,21 @@ class ValidFramesModifier {
       return *this;
     }
 
-    friend bool operator==(const Iterator &a, const Iterator &b) { return a.ptr_ == b.ptr_; };
-    friend bool operator!=(const Iterator &a, const Iterator &b) { return a.ptr_ != b.ptr_; };
+    // clang-tidy warning is wrong here, because we & qualify the function, meaning that you can't post increment
+    // temporaries, e.g, (it++)++
+    // NOLINTNEXTLINE (cert-dcl21-cpp)
+    Iterator operator++(int) & {
+      auto old = *this;
+      ++*this;
+      return old;
+    }
+
+    friend bool operator==(const Iterator &lhs, const Iterator &rhs) { return lhs.ptr_ == rhs.ptr_; };
+    friend bool operator!=(const Iterator &lhs, const Iterator &rhs) { return lhs.ptr_ != rhs.ptr_; };
 
    private:
-    FrameWithValidity *ptr_;
-    ValidFramesModifier *iterator_wrapper_;
+    FrameWithValidity *ptr_{nullptr};
+    ValidFramesModifier *iterator_wrapper_{nullptr};
   };
 
   Iterator begin();
@@ -185,10 +204,10 @@ class ValidFramesConsumer {
   explicit ValidFramesConsumer(MultiFrame &multiframe);
 
   ~ValidFramesConsumer() noexcept;
-  ValidFramesConsumer(const ValidFramesConsumer &other) = delete;                 // copy constructor
-  ValidFramesConsumer(ValidFramesConsumer &&other) noexcept = delete;             // move constructor
-  ValidFramesConsumer &operator=(const ValidFramesConsumer &other) = delete;      // copy assignment
-  ValidFramesConsumer &operator=(ValidFramesConsumer &&other) noexcept = delete;  // move assignment
+  ValidFramesConsumer(const ValidFramesConsumer &other) = delete;
+  ValidFramesConsumer(ValidFramesConsumer &&other) noexcept = delete;
+  ValidFramesConsumer &operator=(const ValidFramesConsumer &other) = delete;
+  ValidFramesConsumer &operator=(ValidFramesConsumer &&other) noexcept = delete;
 
   struct Iterator {
     using iterator_category = std::forward_iterator_tag;
@@ -197,13 +216,14 @@ class ValidFramesConsumer {
     using pointer = value_type *;
     using reference = FrameWithValidity &;
 
+    Iterator() {}
+
     Iterator(FrameWithValidity *ptr, ValidFramesConsumer &iterator_wrapper)
         : ptr_(ptr), iterator_wrapper_(&iterator_wrapper) {}
 
     reference operator*() const { return *ptr_; }
     pointer operator->() { return ptr_; }
 
-    // Prefix increment
     Iterator &operator++() {
       do {
         ptr_++;
@@ -212,12 +232,21 @@ class ValidFramesConsumer {
       return *this;
     }
 
-    friend bool operator==(const Iterator &a, const Iterator &b) { return a.ptr_ == b.ptr_; };
-    friend bool operator!=(const Iterator &a, const Iterator &b) { return a.ptr_ != b.ptr_; };
+    // clang-tidy warning is wrong here, because we & qualify the function, meaning that you can't post increment
+    // temporaries, e.g, (it++)++
+    // NOLINTNEXTLINE (cert-dcl21-cpp)
+    Iterator operator++(int) & {
+      auto old = *this;
+      ++*this;
+      return old;
+    }
+
+    friend bool operator==(const Iterator &lhs, const Iterator &rhs) { return lhs.ptr_ == rhs.ptr_; };
+    friend bool operator!=(const Iterator &lhs, const Iterator &rhs) { return lhs.ptr_ != rhs.ptr_; };
 
    private:
-    FrameWithValidity *ptr_;
-    ValidFramesConsumer *iterator_wrapper_;
+    FrameWithValidity *ptr_{nullptr};
+    ValidFramesConsumer *iterator_wrapper_{nullptr};
   };
 
   Iterator begin();
@@ -232,10 +261,10 @@ class InvalidFramesPopulator {
   explicit InvalidFramesPopulator(MultiFrame &multiframe);
   ~InvalidFramesPopulator() = default;
 
-  InvalidFramesPopulator(const InvalidFramesPopulator &other) = delete;                 // copy constructor
-  InvalidFramesPopulator(InvalidFramesPopulator &&other) noexcept = delete;             // move constructor
-  InvalidFramesPopulator &operator=(const InvalidFramesPopulator &other) = delete;      // copy assignment
-  InvalidFramesPopulator &operator=(InvalidFramesPopulator &&other) noexcept = delete;  // move assignment
+  InvalidFramesPopulator(const InvalidFramesPopulator &other) = delete;
+  InvalidFramesPopulator(InvalidFramesPopulator &&other) noexcept = delete;
+  InvalidFramesPopulator &operator=(const InvalidFramesPopulator &other) = delete;
+  InvalidFramesPopulator &operator=(InvalidFramesPopulator &&other) noexcept = delete;
 
   struct Iterator {
     using iterator_category = std::forward_iterator_tag;
@@ -244,23 +273,32 @@ class InvalidFramesPopulator {
     using pointer = value_type *;
     using reference = FrameWithValidity &;
 
+    Iterator() {}
     explicit Iterator(FrameWithValidity *ptr) : ptr_(ptr) {}
 
     reference operator*() const { return *ptr_; }
     pointer operator->() { return ptr_; }
 
-    // Prefix increment
     Iterator &operator++() {
       ptr_->MakeValid();
       ptr_++;
       return *this;
     }
 
-    friend bool operator==(const Iterator &a, const Iterator &b) { return a.ptr_ == b.ptr_; };
-    friend bool operator!=(const Iterator &a, const Iterator &b) { return a.ptr_ != b.ptr_; };
+    // clang-tidy warning is wrong here, because we & qualify the function, meaning that you can't post increment
+    // temporaries, e.g, (it++)++
+    // NOLINTNEXTLINE (cert-dcl21-cpp)
+    Iterator operator++(int) & {
+      auto old = *this;
+      ++ptr_;
+      return old;
+    }
+
+    friend bool operator==(const Iterator &lhs, const Iterator &rhs) { return lhs.ptr_ == rhs.ptr_; };
+    friend bool operator!=(const Iterator &lhs, const Iterator &rhs) { return lhs.ptr_ != rhs.ptr_; };
 
    private:
-    FrameWithValidity *ptr_;
+    FrameWithValidity *ptr_{nullptr};
   };
 
   Iterator begin();
