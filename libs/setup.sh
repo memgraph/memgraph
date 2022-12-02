@@ -208,7 +208,7 @@ pymgclient_tag="4f85c179e56302d46a1e3e2cf43509db65f062b3" # (2021-01-15)
 repo_clone_try_double "${primary_urls[pymgclient]}" "${secondary_urls[pymgclient]}" "pymgclient" "$pymgclient_tag"
 
 # mgconsole
-mgconsole_tag="v1.1.0" # (2021-10-07)
+mgconsole_tag="v1.3.0" # (2022-11-20)
 repo_clone_try_double "${primary_urls[mgconsole]}" "${secondary_urls[mgconsole]}" "mgconsole" "$mgconsole_tag" true
 
 spdlog_tag="v1.9.2" # (2021-08-12)
