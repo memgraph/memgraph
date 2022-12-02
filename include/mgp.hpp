@@ -581,7 +581,7 @@ class List {
   List(List &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
 
   List &operator=(const List &other) = delete;
-  List &operator=(List &&other) = delete;
+  List &operator=(List &&other) noexcept;
 
   ~List();
 
@@ -676,7 +676,7 @@ class Map {
   Map(Map &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
 
   Map &operator=(const Map &other) = delete;
-  Map &operator=(Map &&other) = delete;
+  Map &operator=(Map &&other) noexcept;
 
   ~Map();
 
@@ -799,7 +799,7 @@ class Node {
   Node(Node &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
 
   Node &operator=(const Node &other) = delete;
-  Node &operator=(Node &&other) = delete;
+  Node &operator=(Node &&other) noexcept;
 
   ~Node();
 
@@ -858,7 +858,7 @@ class Relationship {
   Relationship(Relationship &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
 
   Relationship &operator=(const Relationship &other) = delete;
-  Relationship &operator=(Relationship &&other) = delete;
+  Relationship &operator=(Relationship &&other) noexcept;
 
   ~Relationship();
 
@@ -912,7 +912,7 @@ class Path {
   Path(Path &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
 
   Path &operator=(const Path &other);
-  Path &operator=(Path &&other);
+  Path &operator=(Path &&other) noexcept;
 
   ~Path();
 
@@ -968,7 +968,7 @@ class Date {
   Date(Date &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
 
   Date &operator=(const Date &other) = delete;
-  Date &operator=(Date &&other) = delete;
+  Date &operator=(Date &&other) noexcept;
 
   ~Date();
 
@@ -1024,7 +1024,7 @@ class LocalTime {
   LocalTime(LocalTime &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; };
 
   LocalTime &operator=(const LocalTime &other) = delete;
-  LocalTime &operator=(LocalTime &&other) = delete;
+  LocalTime &operator=(LocalTime &&other) noexcept;
 
   ~LocalTime();
 
@@ -1084,7 +1084,7 @@ class LocalDateTime {
   LocalDateTime(LocalDateTime &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; };
 
   LocalDateTime &operator=(const LocalDateTime &other) = delete;
-  LocalDateTime &operator=(LocalDateTime &&other) = delete;
+  LocalDateTime &operator=(LocalDateTime &&other) noexcept;
 
   ~LocalDateTime();
 
@@ -1156,7 +1156,7 @@ class Duration {
   Duration(Duration &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; };
 
   Duration &operator=(const Duration &other) = delete;
-  Duration &operator=(Duration &&other) = delete;
+  Duration &operator=(Duration &&other) noexcept;
 
   ~Duration();
 
@@ -1997,6 +1997,16 @@ inline List::List(const std::initializer_list<Value> values) : ptr_(mgp::list_ma
   }
 }
 
+inline List &List::operator=(List &&other) noexcept {
+  if (this != &other) {
+    mgp::list_destroy(ptr_);
+
+    ptr_ = other.ptr_;
+    other.ptr_ = nullptr;
+  }
+  return *this;
+}
+
 inline List::~List() {
   if (ptr_ != nullptr) {
     mgp::list_destroy(ptr_);
@@ -2049,6 +2059,16 @@ inline Map::Map(const std::initializer_list<std::pair<std::string_view, Value>> 
   }
 }
 
+inline Map &Map::operator=(Map &&other) noexcept {
+  if (this != &other) {
+    mgp::map_destroy(ptr_);
+
+    ptr_ = other.ptr_;
+    other.ptr_ = nullptr;
+  }
+  return *this;
+}
+
 inline Map::~Map() {
   if (ptr_ != nullptr) {
     mgp::map_destroy(ptr_);
@@ -2086,6 +2106,16 @@ inline bool Map::operator==(const Map &other) const { return util::MapsEqual(ptr
 /* #region Graph elements (Node, Relationship & Path) */
 
 // Node:
+
+inline Node &Node::operator=(Node &&other) noexcept {
+  if (this != &other) {
+    mgp::vertex_destroy(ptr_);
+
+    ptr_ = other.ptr_;
+    other.ptr_ = nullptr;
+  }
+  return *this;
+}
 
 inline Node::~Node() {
   if (ptr_ != nullptr) {
@@ -2128,6 +2158,16 @@ inline bool Node::operator==(const Node &other) const { return util::NodesEqual(
 
 // Relationship:
 
+inline Relationship &Relationship::operator=(Relationship &&other) noexcept {
+  if (this != &other) {
+    mgp::edge_destroy(ptr_);
+
+    ptr_ = other.ptr_;
+    other.ptr_ = nullptr;
+  }
+  return *this;
+}
+
 inline Relationship::~Relationship() {
   if (ptr_ != nullptr) {
     mgp::edge_destroy(ptr_);
@@ -2147,6 +2187,16 @@ inline bool Relationship::operator==(const Relationship &other) const {
 // Path:
 
 inline Path::Path(const Node &start_node) : ptr_(mgp::path_make_with_start(start_node.ptr_, memory)) {}
+
+inline Path &Path::operator=(Path &&other) noexcept {
+  if (this != &other) {
+    mgp::path_destroy(ptr_);
+
+    ptr_ = other.ptr_;
+    other.ptr_ = nullptr;
+  }
+  return *this;
+}
 
 inline Path::~Path() {
   if (ptr_ != nullptr) {
@@ -2182,6 +2232,16 @@ inline bool Path::operator==(const Path &other) const { return util::PathsEqual(
 inline Date::Date(int year, int month, int day) {
   mgp_date_parameters params{.year = year, .month = month, .day = day};
   ptr_ = mgp::date_from_parameters(&params, memory);
+}
+
+inline Date &Date::operator=(Date &&other) noexcept {
+  if (this != &other) {
+    mgp::date_destroy(ptr_);
+
+    ptr_ = other.ptr_;
+    other.ptr_ = nullptr;
+  }
+  return *this;
 }
 
 inline Date::~Date() {
@@ -2238,6 +2298,16 @@ inline LocalTime::LocalTime(int hour, int minute, int second, int millisecond, i
   mgp_local_time_parameters params{
       .hour = hour, .minute = minute, .second = second, .millisecond = millisecond, .microsecond = microsecond};
   ptr_ = mgp::local_time_from_parameters(&params, memory);
+}
+
+inline LocalTime &LocalTime::operator=(LocalTime &&other) noexcept {
+  if (this != &other) {
+    mgp::local_time_destroy(ptr_);
+
+    ptr_ = other.ptr_;
+    other.ptr_ = nullptr;
+  }
+  return *this;
 }
 
 inline LocalTime::~LocalTime() {
@@ -2302,6 +2372,16 @@ inline LocalDateTime::LocalDateTime(int year, int month, int day, int hour, int 
   ptr_ = mgp::local_date_time_from_parameters(&params, memory);
 }
 
+inline LocalDateTime &LocalDateTime::operator=(LocalDateTime &&other) noexcept {
+  if (this != &other) {
+    mgp::local_date_time_destroy(ptr_);
+
+    ptr_ = other.ptr_;
+    other.ptr_ = nullptr;
+  }
+  return *this;
+}
+
 inline LocalDateTime::~LocalDateTime() {
   if (ptr_ != nullptr) {
     mgp::local_date_time_destroy(ptr_);
@@ -2363,6 +2443,16 @@ inline Duration::Duration(double day, double hour, double minute, double second,
                                  .millisecond = millisecond,
                                  .microsecond = microsecond};
   ptr_ = mgp::duration_from_parameters(&params, memory);
+}
+
+inline Duration &Duration::operator=(Duration &&other) noexcept {
+  if (this != &other) {
+    mgp::duration_destroy(ptr_);
+
+    ptr_ = other.ptr_;
+    other.ptr_ = nullptr;
+  }
+  return *this;
 }
 
 inline Duration::~Duration() {
