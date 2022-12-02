@@ -100,9 +100,9 @@
 #include "audit/log.hpp"
 #endif
 
-#define MG_USER "MG_USER"
-#define MG_PASSWORD "MG_PASSWORD"
-#define MG_PASSFILE "MG_PASSFILE"
+constexpr auto MG_USER = "MG_USER";
+constexpr auto MG_PASSWORD = "MG_PASSWORD";
+constexpr auto MG_PASSFILE = "MG_PASSFILE";
 
 namespace {
 std::string GetAllowedEnumValuesString(const auto &mappings) {
