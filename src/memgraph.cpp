@@ -986,12 +986,12 @@ int main(int argc, char **argv) {
   MG_ASSERT(server.Start(), "Couldn't start the Bolt server!");
   websocket_server.Start();
 
-  server.AwaitShutdown();
-  websocket_server.AwaitShutdown();
-
   if (!FLAGS_init_data_file.empty()) {
     InitFromCypherlFile(interpreter_context, FLAGS_init_data_file);
   }
+
+  server.AwaitShutdown();
+  websocket_server.AwaitShutdown();
 
   memgraph::query::procedure::gModuleRegistry.UnloadAllModules();
 

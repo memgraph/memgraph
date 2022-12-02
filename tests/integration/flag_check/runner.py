@@ -77,13 +77,13 @@ def execute_test(memgraph_binary: str, tester_binary: str, flag_checker_binary: 
 
     # Start the memgraph binary
     memgraph = start_memgraph(memgraph_args)
-    with open(os.path.join(storage_directory.name, "init_file.txt"), "w") as temp_file:
-        temp_file.write("CREATE USER admin IDENTIFIED BY 'admin'")
-        temp_file.write("CREATE USER user IDENTIFIED BY 'user'")
+    with open(os.path.join(os.getcwd(), "dummy_init_file.cypherl"), "w") as temp_file:
+        temp_file.write("CREATE USER admin IDENTIFIED BY 'admin';\n")
+        temp_file.write("CREATE USER user IDENTIFIED BY 'user';\n")
 
-    with open(os.path.join(storage_directory.name, "init_data_file.txt"), "w") as temp_file:
-        temp_file.write("CREATE (n:RANDOM {name:'niko'}")
-        temp_file.write("CREATE (n:RANDOM {name:'niko'}")
+    with open(os.path.join(os.getcwd(), "dummy_init_data_file.cypherl"), "w") as temp_file:
+        temp_file.write("CREATE (n:RANDOM) RETURN n;\n")
+        temp_file.write("CREATE (n:RANDOM {name:'1'}) RETURN n;\n")
 
     # Register cleanup function
     @atexit.register
@@ -96,30 +96,39 @@ def execute_test(memgraph_binary: str, tester_binary: str, flag_checker_binary: 
     print("\033[1;36m~~ Starting env variable check test ~~\033[0m")
     execute_without_user(["MATCH (n) RETURN n"], False)
     cleanup()
-    memgraph_args_with_init_file = memgraph_args + ["--init-file", storage_directory.name + "/init_file.txt"]
-    print(memgraph_args_with_init_file)
+    memgraph_args_with_init_file = memgraph_args + [
+        "--init-file",
+        os.path.join(os.getcwd(), "dummy_init_file.cypherl"),
+    ]
+    # print(memgraph_args_with_init_file)
     memgraph = start_memgraph(memgraph_args_with_init_file)
     execute_with_user(["MATCH (n) RETURN n"])
     execute_without_user(["MATCH (n) RETURN n"], True, "Handshake with the server failed!", True)
     cleanup()
 
-    memgraph_args_with_init_data_file = memgraph_args + ["--init-file", storage_directory.name + "/init_data_file.txt"]
+    memgraph_args_with_init_data_file = memgraph_args + [
+        "--init-data-file",
+        os.path.join(os.getcwd(), "dummy_init_data_file.cypherl"),
+    ]
     memgraph = start_memgraph(memgraph_args_with_init_data_file)
     execute_flag_check(flag_check_binary, ["MATCH (n) RETURN n"], 2, "user", "user")
     cleanup()
 
     memgraph_args_with_init_file_and_init_data_file = memgraph_args + [
         "--init-file",
-        storage_directory.name + "/init_file.txt",
+        os.path.join(os.getcwd(), "dummy_init_file.cypherl"),
         "--init-data-file",
-        storage_directory.name + "/init_data_file.txt",
+        os.path.join(os.getcwd(), "dummy_init_data_file.cypherl"),
     ]
     memgraph = start_memgraph(memgraph_args_with_init_file_and_init_data_file)
     execute_with_user(["MATCH (n) RETURN n"])
     execute_without_user(["MATCH (n) RETURN n"], True, "Handshake with the server failed!", True)
-    execute_flag_check(flag_check_binary, ["MATCH (n) RETURN n"], 2, "user", "user")
+    execute_flag_check(flag_checker_binary, ["MATCH (n) RETURN n"], 2, "user", "user")
     print("\033[1;36m~~ Ended env variable check test ~~\033[0m")
     cleanup()
+
+    os.remove(os.path.join(os.getcwd(), "dummy_init_data_file.cypherl"))
+    os.remove(os.path.join(os.getcwd(), "dummy_init_file.cypherl"))
 
 
 if __name__ == "__main__":
