@@ -135,10 +135,16 @@ class RequestRouter : public RequestRouterInterface {
 
   ~RequestRouter() override {}
 
+  void InstallSimulatorTicker(std::function<bool()> tick_simulator) {
+    notifier_.InstallSimulatorTicker(tick_simulator);
+  }
+
   void StartTransaction() override {
     coordinator::HlcRequest req{.last_shard_map_version = shards_map_.GetHlc()};
     CoordinatorWriteRequests write_req = req;
+    spdlog::trace("sending hlc request to start transaction");
     auto write_res = coord_cli_.SendWriteRequest(write_req);
+    spdlog::trace("received hlc response to start transaction");
     if (write_res.HasError()) {
       throw std::runtime_error("HLC request failed");
     }
@@ -157,7 +163,9 @@ class RequestRouter : public RequestRouterInterface {
   void Commit() override {
     coordinator::HlcRequest req{.last_shard_map_version = shards_map_.GetHlc()};
     CoordinatorWriteRequests write_req = req;
+    spdlog::trace("sending hlc request before committing transaction");
     auto write_res = coord_cli_.SendWriteRequest(write_req);
+    spdlog::trace("received hlc response before committing transaction");
     if (write_res.HasError()) {
       throw std::runtime_error("HLC request for commit failed");
     }
@@ -227,7 +235,7 @@ class RequestRouter : public RequestRouterInterface {
   std::vector<VertexAccessor> ScanVertices(std::optional<std::string> label) override {
     // create requests
     std::vector<ShardRequestState<msgs::ScanVerticesRequest>> unsent_requests = RequestsForScanVertices(label);
-    spdlog::error("created {} ScanVertices requests", unsent_requests.size());
+    spdlog::trace("created {} ScanVertices requests", unsent_requests.size());
 
     // begin all requests in parallel
     RunningRequests<msgs::ScanVerticesRequest> running_requests = {};
@@ -239,11 +247,11 @@ class RequestRouter : public RequestRouterInterface {
       storage_client.SendAsyncReadRequest(request.request, notifier_, readiness_token);
       running_requests.emplace(readiness_token.GetId(), request);
     }
-    spdlog::error("sent {} ScanVertices requests in parallel", running_requests.size());
+    spdlog::trace("sent {} ScanVertices requests in parallel", running_requests.size());
 
     // drive requests to completion
     auto responses = DriveReadResponses<msgs::ScanVerticesRequest, msgs::ScanVerticesResponse>(running_requests);
-    spdlog::error("got back {} ScanVertices responses after driving to completion", responses.size());
+    spdlog::trace("got back {} ScanVertices responses after driving to completion", responses.size());
 
     // convert responses into VertexAccessor objects to return
     std::vector<VertexAccessor> accessors;
@@ -263,6 +271,7 @@ class RequestRouter : public RequestRouterInterface {
     // create requests
     std::vector<ShardRequestState<msgs::CreateVerticesRequest>> unsent_requests =
         RequestsForCreateVertices(new_vertices);
+    spdlog::trace("created {} CreateVertices requests", unsent_requests.size());
 
     // begin all requests in parallel
     RunningRequests<msgs::CreateVerticesRequest> running_requests = {};
@@ -277,6 +286,7 @@ class RequestRouter : public RequestRouterInterface {
       storage_client.SendAsyncWriteRequest(request.request, notifier_, readiness_token);
       running_requests.emplace(readiness_token.GetId(), request);
     }
+    spdlog::trace("sent {} CreateVertices requests in parallel", running_requests.size());
 
     // drive requests to completion
     return DriveWriteResponses<msgs::CreateVerticesRequest, msgs::CreateVerticesResponse>(running_requests);
@@ -519,8 +529,10 @@ class RequestRouter : public RequestRouterInterface {
     // even if they came back in randomized orders.
     std::map<size_t, ResponseT> response_map;
 
+    spdlog::trace("waiting on readiness for token");
     while (response_map.size() < running_requests.size()) {
       auto ready = notifier_.Await();
+      spdlog::trace("got readiness for token {}", ready.GetId());
       auto &request = running_requests.at(ready.GetId());
       auto &storage_client = GetStorageClientForShard(request.shard);
 

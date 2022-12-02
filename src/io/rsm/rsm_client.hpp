@@ -73,7 +73,6 @@ class RsmClient {
     if (response.retry_leader) {
       MG_ASSERT(!response.success, "retry_leader should never be set for successful responses");
       leader_ = response.retry_leader.value();
-      spdlog::error("client redirected to leader server {}", leader_.ToString());
       spdlog::debug("client redirected to leader server {}", leader_.ToString());
     }
     if (!response.success) {

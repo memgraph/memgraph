@@ -338,6 +338,8 @@ void DoTest() {
   CoordinatorClient<SimulatorTransport> coordinator_client(cli_io, c_addrs[0], c_addrs);
 
   query::v2::RequestRouter<SimulatorTransport> request_router(std::move(coordinator_client), std::move(cli_io));
+  std::function<bool()> tick_simulator = simulator.GetSimulatorTickClosure();
+  request_router.InstallSimulatorTicker(tick_simulator);
 
   request_router.StartTransaction();
   TestScanVertices(request_router);

@@ -12,6 +12,7 @@
 #pragma once
 
 #include <condition_variable>
+#include <functional>
 #include <mutex>
 #include <vector>
 
@@ -29,6 +30,7 @@ class Inner {
   std::condition_variable cv_;
   std::mutex mu_;
   std::vector<ReadinessToken> ready_;
+  std::optional<std::function<bool()>> tick_simulator_;
 
  public:
   void Notify(ReadinessToken readiness_token) {
@@ -44,12 +46,28 @@ class Inner {
     std::unique_lock<std::mutex> lock(mu_);
 
     while (ready_.empty()) {
-      cv_.wait(lock);
+      if (tick_simulator_) [[unlikely]] {
+        // This avoids a deadlock in a similar way that
+        // Future::Wait will release its mutex while
+        // interacting with the simulator, due to
+        // the fact that the simulator may cause
+        // notifications that we are interested in.
+        lock.unlock();
+        std::invoke(tick_simulator_.value());
+        lock.lock();
+      } else {
+        cv_.wait(lock);
+      }
     }
 
     ReadinessToken ret = ready_.back();
     ready_.pop_back();
     return ret;
+  }
+
+  void InstallSimulatorTicker(std::function<bool()> tick_simulator) {
+    std::unique_lock<std::mutex> lock(mu_);
+    tick_simulator_ = tick_simulator;
   }
 };
 
@@ -67,6 +85,8 @@ class Notifier {
   void Notify(ReadinessToken readiness_token) const { inner_->Notify(readiness_token); }
 
   ReadinessToken Await() const { return inner_->Await(); }
+
+  void InstallSimulatorTicker(std::function<bool()> tick_simulator) { inner_->InstallSimulatorTicker(tick_simulator); }
 };
 
 }  // namespace memgraph::io
