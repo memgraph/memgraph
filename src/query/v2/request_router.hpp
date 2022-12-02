@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <chrono>
 #include <deque>
 #include <iostream>
@@ -112,6 +113,7 @@ class RequestRouterInterface {
   virtual std::vector<msgs::CreateVerticesResponse> CreateVertices(std::vector<msgs::NewVertex> new_vertices) = 0;
   virtual std::vector<msgs::ExpandOneResultRow> ExpandOne(msgs::ExpandOneRequest request) = 0;
   virtual std::vector<msgs::CreateExpandResponse> CreateExpand(std::vector<msgs::NewExpand> new_edges) = 0;
+  virtual std::vector<msgs::GetPropertiesResultRow> GetProperties(msgs::GetPropertiesRequest request) = 0;
 
   virtual storage::v3::EdgeTypeId NameToEdgeType(const std::string &name) const = 0;
   virtual storage::v3::PropertyId NameToProperty(const std::string &name) const = 0;
@@ -367,6 +369,28 @@ class RequestRouter : public RequestRouterInterface {
     return result_rows;
   }
 
+  std::vector<msgs::GetPropertiesResultRow> GetProperties(msgs::GetPropertiesRequest requests) override {
+    ExecutionState<msgs::GetPropertiesRequest> state = {};
+    InitializeExecutionState(state, std::move(requests));
+    for (auto &request : state.requests) {
+      auto &storage_client = GetStorageClientForShard(request.shard);
+      msgs::ReadRequests req = request.request;
+      request.async_request_token = storage_client.SendAsyncReadRequest(req);
+    }
+
+    std::vector<msgs::GetPropertiesResponse> responses;
+    do {
+      DriveReadResponses(state, responses);
+    } while (!state.requests.empty());
+
+    std::vector<msgs::GetPropertiesResultRow> result;
+    for (auto &res : responses) {
+      std::move(res.result_row.begin(), res.result_row.end(), std::back_inserter(result));
+    }
+
+    return result;
+  }
+
   std::optional<storage::v3::PropertyId> MaybeNameToProperty(const std::string &name) const override {
     return shards_map_.GetPropertyId(name);
   }
@@ -496,6 +520,44 @@ class RequestRouter : public RequestRouterInterface {
       ShardRequestState<msgs::ExpandOneRequest> shard_request_state{
           .shard = shard,
           .request = request,
+          .async_request_token = std::nullopt,
+      };
+
+      state.requests.emplace_back(std::move(shard_request_state));
+    }
+  }
+
+  void InitializeExecutionState(ExecutionState<msgs::GetPropertiesRequest> &state, msgs::GetPropertiesRequest request) {
+    std::map<Shard, msgs::GetPropertiesRequest> per_shard_request_table;
+    auto top_level_rqst_template = request;
+    top_level_rqst_template.transaction_id = transaction_id_;
+    top_level_rqst_template.vertex_ids.clear();
+    top_level_rqst_template.vertices_and_edges.clear();
+
+    state.transaction_id = transaction_id_;
+
+    for (auto &vertex : request.vertex_ids) {
+      auto shard =
+          shards_map_.GetShardForKey(vertex.first.id, storage::conversions::ConvertPropertyVector(vertex.second));
+      if (!per_shard_request_table.contains(shard)) {
+        per_shard_request_table.insert(std::pair(shard, top_level_rqst_template));
+      }
+      per_shard_request_table[shard].vertex_ids.emplace_back(std::move(vertex));
+    }
+
+    for (auto &[vertex, maybe_edge] : request.vertices_and_edges) {
+      auto shard =
+          shards_map_.GetShardForKey(vertex.first.id, storage::conversions::ConvertPropertyVector(vertex.second));
+      if (!per_shard_request_table.contains(shard)) {
+        per_shard_request_table.insert(std::pair(shard, top_level_rqst_template));
+      }
+      per_shard_request_table[shard].vertices_and_edges.emplace_back(std::move(vertex), maybe_edge);
+    }
+
+    for (auto &[shard, rqst] : per_shard_request_table) {
+      ShardRequestState<msgs::GetPropertiesRequest> shard_request_state{
+          .shard = shard,
+          .request = std::move(rqst),
           .async_request_token = std::nullopt,
       };
 
