@@ -1024,23 +1024,27 @@ bool PythonModule::Close() {
   std::filesystem::path submodules_path = file_path_.parent_path();
   std::string_view stem = std::string_view(file_path_.stem().c_str());
   submodules_path /= "mage";
-  std::filesystem::path submodules;
 
-  ProcessFileDependencies(file_path_, func_code, sys_mod_ref);
+  if (std::filesystem::exists(submodules_path)) {
+    std::filesystem::path submodules;
 
-  for (auto const &dir_entry : std::filesystem::directory_iterator(submodules_path)) {
-    std::string_view dir_entry_stem = std::string_view(dir_entry.path().stem().c_str());
-    if (dir_entry.is_regular_file() || dir_entry_stem.compare("__pycache__") == 0) continue;
-    if (dir_entry_stem.find(stem) != std::string_view::npos &&
-        (submodules.empty() || std::string_view(submodules.stem().c_str()).length() > dir_entry_stem.length())) {
-      submodules = dir_entry.path();
+    ProcessFileDependencies(file_path_, func_code, sys_mod_ref);
+
+    for (auto const &dir_entry : std::filesystem::directory_iterator(submodules_path)) {
+      std::string_view dir_entry_stem = std::string_view(dir_entry.path().stem().c_str());
+      if (dir_entry.is_regular_file() || dir_entry_stem.compare("__pycache__") == 0) continue;
+      if (dir_entry_stem.find(stem) != std::string_view::npos &&
+          (submodules.empty() || std::string_view(submodules.stem().c_str()).length() > dir_entry_stem.length())) {
+        submodules = dir_entry.path();
+      }
     }
-  }
-  if (!submodules.empty()) {
-    for (auto const &rec_dir_entry : std::filesystem::recursive_directory_iterator(submodules)) {
-      std::string_view rec_dir_entry_ext = std::string_view(rec_dir_entry.path().extension().c_str());
-      if (!rec_dir_entry.is_regular_file() || rec_dir_entry_ext.compare(".pyc") == 0) continue;
-      ProcessFileDependencies(rec_dir_entry.path().c_str(), func_code, sys_mod_ref);
+
+    if (!submodules.empty()) {
+      for (auto const &rec_dir_entry : std::filesystem::recursive_directory_iterator(submodules)) {
+        std::string_view rec_dir_entry_ext = std::string_view(rec_dir_entry.path().extension().c_str());
+        if (!rec_dir_entry.is_regular_file() || rec_dir_entry_ext.compare(".pyc") == 0) continue;
+        ProcessFileDependencies(rec_dir_entry.path().c_str(), func_code, sys_mod_ref);
+      }
     }
   }
 

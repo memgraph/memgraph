@@ -6,7 +6,6 @@ from mage.test_module.test_functions import test_function as test_function1
 # fmt: off
 from mage.test_module.test_functions_dir.test_functions import \
     test_function as test_function2
-
 # fmt: on
 
 
