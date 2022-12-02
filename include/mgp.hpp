@@ -580,7 +580,7 @@ class List {
   List(const List &other) : List(other.ptr_) {}
   List(List &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
 
-  List &operator=(const List &other) = delete;
+  List &operator=(const List &other) noexcept;
   List &operator=(List &&other) noexcept;
 
   ~List();
@@ -675,7 +675,7 @@ class Map {
   Map(const Map &other) : Map(other.ptr_) {}
   Map(Map &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
 
-  Map &operator=(const Map &other) = delete;
+  Map &operator=(const Map &other) noexcept;
   Map &operator=(Map &&other) noexcept;
 
   ~Map();
@@ -798,7 +798,7 @@ class Node {
   Node(const Node &other) : Node(other.ptr_) {}
   Node(Node &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
 
-  Node &operator=(const Node &other) = delete;
+  Node &operator=(const Node &other) noexcept;
   Node &operator=(Node &&other) noexcept;
 
   ~Node();
@@ -857,7 +857,7 @@ class Relationship {
   Relationship(const Relationship &other) : Relationship(other.ptr_) {}
   Relationship(Relationship &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
 
-  Relationship &operator=(const Relationship &other) = delete;
+  Relationship &operator=(const Relationship &other) noexcept;
   Relationship &operator=(Relationship &&other) noexcept;
 
   ~Relationship();
@@ -911,7 +911,7 @@ class Path {
   Path(const Path &other) : Path(other.ptr_) {}
   Path(Path &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
 
-  Path &operator=(const Path &other);
+  Path &operator=(const Path &other) noexcept;
   Path &operator=(Path &&other) noexcept;
 
   ~Path();
@@ -967,7 +967,7 @@ class Date {
   Date(const Date &other) : Date(other.ptr_) {}
   Date(Date &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
 
-  Date &operator=(const Date &other) = delete;
+  Date &operator=(const Date &other) noexcept;
   Date &operator=(Date &&other) noexcept;
 
   ~Date();
@@ -1023,7 +1023,7 @@ class LocalTime {
   LocalTime(const LocalTime &other) : LocalTime(other.ptr_) {}
   LocalTime(LocalTime &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; };
 
-  LocalTime &operator=(const LocalTime &other) = delete;
+  LocalTime &operator=(const LocalTime &other) noexcept;
   LocalTime &operator=(LocalTime &&other) noexcept;
 
   ~LocalTime();
@@ -1083,7 +1083,7 @@ class LocalDateTime {
   LocalDateTime(const LocalDateTime &other) : LocalDateTime(other.ptr_) {}
   LocalDateTime(LocalDateTime &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; };
 
-  LocalDateTime &operator=(const LocalDateTime &other) = delete;
+  LocalDateTime &operator=(const LocalDateTime &other) noexcept;
   LocalDateTime &operator=(LocalDateTime &&other) noexcept;
 
   ~LocalDateTime();
@@ -1155,7 +1155,7 @@ class Duration {
   Duration(const Duration &other) : Duration(other.ptr_) {}
   Duration(Duration &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; };
 
-  Duration &operator=(const Duration &other) = delete;
+  Duration &operator=(const Duration &other) noexcept;
   Duration &operator=(Duration &&other) noexcept;
 
   ~Duration();
@@ -1314,6 +1314,7 @@ class Value {
   // Value(const Value &other) : Value(mgp::value_copy(other.ptr_, memory)) {}
   Value(Value &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
 
+  Value &operator=(const Value &other) noexcept;
   Value &operator=(Value &&other) noexcept;
 
   ~Value();
@@ -1999,6 +2000,15 @@ inline List::List(const std::initializer_list<Value> values) : ptr_(mgp::list_ma
   }
 }
 
+inline List &List::operator=(const List &other) noexcept {
+  if (this != &other) {
+    mgp::list_destroy(ptr_);
+
+    ptr_ = mgp::list_copy(other.ptr_, memory);
+  }
+  return *this;
+}
+
 inline List &List::operator=(List &&other) noexcept {
   if (this != &other) {
     mgp::list_destroy(ptr_);
@@ -2061,6 +2071,15 @@ inline Map::Map(const std::initializer_list<std::pair<std::string_view, Value>> 
   }
 }
 
+inline Map &Map::operator=(const Map &other) noexcept {
+  if (this != &other) {
+    mgp::map_destroy(ptr_);
+
+    ptr_ = mgp::map_copy(other.ptr_, memory);
+  }
+  return *this;
+}
+
 inline Map &Map::operator=(Map &&other) noexcept {
   if (this != &other) {
     mgp::map_destroy(ptr_);
@@ -2108,6 +2127,17 @@ inline bool Map::operator==(const Map &other) const { return util::MapsEqual(ptr
 /* #region Graph elements (Node, Relationship & Path) */
 
 // Node:
+
+inline Node &Node::operator=(const Node &other) noexcept {
+  std::cout << "copy assignment called"
+            << "\n";
+  if (this != &other) {
+    mgp::vertex_destroy(ptr_);
+
+    ptr_ = mgp::vertex_copy(other.ptr_, memory);
+  }
+  return *this;
+}
 
 inline Node &Node::operator=(Node &&other) noexcept {
   if (this != &other) {
@@ -2160,6 +2190,15 @@ inline bool Node::operator==(const Node &other) const { return util::NodesEqual(
 
 // Relationship:
 
+inline Relationship &Relationship::operator=(const Relationship &other) noexcept {
+  if (this != &other) {
+    mgp::edge_destroy(ptr_);
+
+    ptr_ = mgp::edge_copy(other.ptr_, memory);
+  }
+  return *this;
+}
+
 inline Relationship &Relationship::operator=(Relationship &&other) noexcept {
   if (this != &other) {
     mgp::edge_destroy(ptr_);
@@ -2189,6 +2228,15 @@ inline bool Relationship::operator==(const Relationship &other) const {
 // Path:
 
 inline Path::Path(const Node &start_node) : ptr_(mgp::path_make_with_start(start_node.ptr_, memory)) {}
+
+inline Path &Path::operator=(const Path &other) noexcept {
+  if (this != &other) {
+    mgp::path_destroy(ptr_);
+
+    ptr_ = mgp::path_copy(other.ptr_, memory);
+  }
+  return *this;
+}
 
 inline Path &Path::operator=(Path &&other) noexcept {
   if (this != &other) {
@@ -2234,6 +2282,15 @@ inline bool Path::operator==(const Path &other) const { return util::PathsEqual(
 inline Date::Date(int year, int month, int day) {
   mgp_date_parameters params{.year = year, .month = month, .day = day};
   ptr_ = mgp::date_from_parameters(&params, memory);
+}
+
+inline Date &Date::operator=(const Date &other) noexcept {
+  if (this != &other) {
+    mgp::date_destroy(ptr_);
+
+    ptr_ = mgp::date_copy(other.ptr_, memory);
+  }
+  return *this;
 }
 
 inline Date &Date::operator=(Date &&other) noexcept {
@@ -2300,6 +2357,15 @@ inline LocalTime::LocalTime(int hour, int minute, int second, int millisecond, i
   mgp_local_time_parameters params{
       .hour = hour, .minute = minute, .second = second, .millisecond = millisecond, .microsecond = microsecond};
   ptr_ = mgp::local_time_from_parameters(&params, memory);
+}
+
+inline LocalTime &LocalTime::operator=(const LocalTime &other) noexcept {
+  if (this != &other) {
+    mgp::local_time_destroy(ptr_);
+
+    ptr_ = mgp::local_time_copy(other.ptr_, memory);
+  }
+  return *this;
 }
 
 inline LocalTime &LocalTime::operator=(LocalTime &&other) noexcept {
@@ -2372,6 +2438,15 @@ inline LocalDateTime::LocalDateTime(int year, int month, int day, int hour, int 
   };
   mgp_local_date_time_parameters params{.date_parameters = &date_params, .local_time_parameters = &local_time_params};
   ptr_ = mgp::local_date_time_from_parameters(&params, memory);
+}
+
+inline LocalDateTime &LocalDateTime::operator=(const LocalDateTime &other) noexcept {
+  if (this != &other) {
+    mgp::local_date_time_destroy(ptr_);
+
+    ptr_ = mgp::local_date_time_copy(other.ptr_, memory);
+  }
+  return *this;
 }
 
 inline LocalDateTime &LocalDateTime::operator=(LocalDateTime &&other) noexcept {
@@ -2447,6 +2522,15 @@ inline Duration::Duration(double day, double hour, double minute, double second,
   ptr_ = mgp::duration_from_parameters(&params, memory);
 }
 
+inline Duration &Duration::operator=(const Duration &other) noexcept {
+  if (this != &other) {
+    mgp::duration_destroy(ptr_);
+
+    ptr_ = mgp::duration_copy(other.ptr_, memory);
+  }
+  return *this;
+}
+
 inline Duration &Duration::operator=(Duration &&other) noexcept {
   if (this != &other) {
     mgp::duration_destroy(ptr_);
@@ -2501,6 +2585,15 @@ inline bool Duration::operator<(const Duration &other) const {
 /* #endregion */
 
 /* #region Value */
+inline Value &Value::operator=(const Value &other) noexcept {
+  if (this != &other) {
+    mgp::value_destroy(ptr_);
+
+    ptr_ = mgp::value_copy(other.ptr_, memory);
+  }
+  return *this;
+}
+
 inline Value &Value::operator=(Value &&other) noexcept {
   if (this != &other) {
     mgp::value_destroy(ptr_);
