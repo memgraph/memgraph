@@ -18,10 +18,11 @@ import subprocess
 import sys
 import tempfile
 import time
+from pathlib import Path
 from typing import List
 
-SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
-PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
+SCRIPT_DIR = Path(__file__).absolute()
+PROJECT_DIR = SCRIPT_DIR.parents[3]
 
 
 def wait_for_server(port, delay=0.1):
@@ -32,8 +33,14 @@ def wait_for_server(port, delay=0.1):
 
 
 def execute_tester(
-    binary, queries, should_fail=False, failure_message="", username="", password="", check_failure=True
-):
+    binary: str,
+    queries: List[str],
+    should_fail: bool = False,
+    failure_message: str = "",
+    username: str = "",
+    password: str = "",
+    check_failure: bool = True,
+) -> None:
     args = [binary, "--username", username, "--password", password]
     if should_fail:
         args.append("--should-fail")
@@ -45,7 +52,7 @@ def execute_tester(
     subprocess.run(args).check_returncode()
 
 
-def start_memgraph(memgraph_args):
+def start_memgraph(memgraph_args: List[any]) -> subprocess:
     memgraph = subprocess.Popen(list(map(str, memgraph_args)))
     time.sleep(0.1)
     assert memgraph.poll() is None, "Memgraph process died prematurely!"
@@ -54,17 +61,54 @@ def start_memgraph(memgraph_args):
     return memgraph
 
 
+def execute_with_user(queries):
+    return execute_tester(
+        tester_binary, queries, should_fail=False, check_failure=True, username="admin", password="admin"
+    )
+
+
+def cleanup(memgraph):
+    if memgraph.poll() is None:
+        memgraph.terminate()
+    assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
+
+
+def execute_without_user(queries, should_fail=False, failure_message="", check_failure=True):
+    return execute_tester(tester_binary, queries, should_fail, failure_message, "", "", check_failure)
+
+
+def test_without_env_variables(memgraph_args: List[any]) -> None:
+    memgraph = start_memgraph(memgraph_args)
+    execute_without_user(["MATCH (n) RETURN n"], False)
+    cleanup(memgraph)
+
+
+def test_with_user_password_env_variables(memgraph_args: List[any]) -> None:
+    os.environ["MG_USER"] = "admin"
+    os.environ["MG_PASSWORD"] = "admin"
+    memgraph = start_memgraph(memgraph_args)
+    execute_with_user(["MATCH (n) RETURN n"])
+    execute_without_user(["MATCH (n) RETURN n"], True, "Handshake with the server failed!", True)
+    cleanup(memgraph)
+    del os.environ["MG_USER"]
+    del os.environ["MG_PASSWORD"]
+
+
+def test_with_passfile_env_variable(storage_directory: tempfile.TemporaryDirectory, memgraph_args: List[any]) -> None:
+    with open(os.path.join(storage_directory.name, "passfile.txt"), "w") as temp_file:
+        temp_file.write("admin:admin")
+
+    os.environ["MG_PASSFILE"] = storage_directory.name + "/passfile.txt"
+    memgraph = start_memgraph(memgraph_args)
+    execute_with_user(["MATCH (n) RETURN n"])
+    execute_without_user(["MATCH (n) RETURN n"], True, "Handshake with the server failed!", True)
+    del os.environ["MG_PASSFILE"]
+    cleanup(memgraph)
+
+
 def execute_test(memgraph_binary: str, tester_binary: str) -> None:
     storage_directory = tempfile.TemporaryDirectory()
     memgraph_args = [memgraph_binary, "--data-directory", storage_directory.name]
-
-    def execute_with_user(queries):
-        return execute_tester(
-            tester_binary, queries, should_fail=False, check_failure=True, username="admin", password="admin"
-        )
-
-    def execute_without_user(queries, should_fail=False, failure_message="", check_failure=True):
-        return execute_tester(tester_binary, queries, should_fail, failure_message, "", "", check_failure)
 
     return_to_prev_state = {}
     if "MG_USER" in os.environ:
@@ -78,37 +122,13 @@ def execute_test(memgraph_binary: str, tester_binary: str) -> None:
         del os.environ["MG_PASSFILE"]
 
     # Start the memgraph binary
-    memgraph = start_memgraph(memgraph_args)
-
-    # Register cleanup function
-    @atexit.register
-    def cleanup():
-        if memgraph.poll() is None:
-            memgraph.terminate()
-        assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
 
     # Run the test with all combinations of permissions
     print("\033[1;36m~~ Starting env variable check test ~~\033[0m")
-    execute_without_user(["MATCH (n) RETURN n"], False)
-    cleanup()
-    os.environ["MG_USER"] = "admin"
-    os.environ["MG_PASSWORD"] = "admin"
-    memgraph = start_memgraph(memgraph_args)
-    execute_with_user(["MATCH (n) RETURN n"])
-    execute_without_user(["MATCH (n) RETURN n"], True, "Handshake with the server failed!", True)
-    cleanup()
-    del os.environ["MG_USER"]
-    del os.environ["MG_PASSWORD"]
-    with open(os.path.join(storage_directory.name, "passfile.txt"), "w") as temp_file:
-        temp_file.write("admin:admin")
-
-    os.environ["MG_PASSFILE"] = storage_directory.name + "/passfile.txt"
-    memgraph = start_memgraph(memgraph_args)
-    execute_with_user(["MATCH (n) RETURN n"])
-    execute_without_user(["MATCH (n) RETURN n"], True, "Handshake with the server failed!", True)
-    del os.environ["MG_PASSFILE"]
+    test_without_env_variables(memgraph_args)
+    test_with_user_password_env_variables(memgraph_args)
+    test_with_passfile_env_variable(storage_directory, memgraph_args)
     print("\033[1;36m~~ Ended env variable check test ~~\033[0m")
-    cleanup()
 
     if "MG_USER" in return_to_prev_state:
         os.environ["MG_USER"] = return_to_prev_state["MG_USER"]
@@ -121,7 +141,6 @@ def execute_test(memgraph_binary: str, tester_binary: str) -> None:
 if __name__ == "__main__":
     memgraph_binary = os.path.join(PROJECT_DIR, "build", "memgraph")
     tester_binary = os.path.join(PROJECT_DIR, "build", "tests", "integration", "env_variable_check", "tester")
-    env_check_binary = os.path.join(PROJECT_DIR, "build", "tests", "integration", "env_variable_check", "env_check")
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--memgraph", default=memgraph_binary)

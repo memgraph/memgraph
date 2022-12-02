@@ -53,7 +53,6 @@
 #include "query/procedure/module.hpp"
 #include "query/procedure/py_module.hpp"
 #include "requests/requests.hpp"
-#include "spdlog/spdlog.h"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/view.hpp"
@@ -100,9 +99,9 @@
 #include "audit/log.hpp"
 #endif
 
-constexpr auto MG_USER = "MG_USER";
-constexpr auto MG_PASSWORD = "MG_PASSWORD";
-constexpr auto MG_PASSFILE = "MG_PASSFILE";
+constexpr char *MG_USER = "MG_USER";
+constexpr char *MG_PASSWORD = "MG_PASSWORD";
+constexpr char *MG_PASSFILE = "MG_PASSFILE";
 
 namespace {
 std::string GetAllowedEnumValuesString(const auto &mappings) {
@@ -430,11 +429,11 @@ void InitializeLogger() {
   CreateLoggerFromSink(sinks, ParseLogLevel());
 }
 
-std::pair<std::string, std::string> LoadUsernameAndPassword(std::string pass_file) {
+std::pair<std::string, std::string> LoadUsernameAndPassword(const std::string &pass_file) {
   std::ifstream file(pass_file);
   if (file.fail()) {
     spdlog::warn("Problem with opening MG_PASSFILE, memgraph server will start without user");
-    return {"", ""};
+    return {};
   }
   std::vector<std::string> result;
 
@@ -442,7 +441,7 @@ std::pair<std::string, std::string> LoadUsernameAndPassword(std::string pass_fil
   std::getline(file, line);
   size_t pos = 0;
   std::string token;
-  std::string delimiter = ":";
+  static constexpr std::string_view delimiter{":"};
   while ((pos = line.find(delimiter)) != std::string::npos) {
     if (line[pos - 1] == '\\') {
       line.erase(pos - 1, 1);
@@ -463,7 +462,7 @@ std::pair<std::string, std::string> LoadUsernameAndPassword(std::string pass_fil
     spdlog::warn(
         "Wrong data format. Data should be store in format: username:password, memgraph server will start without "
         "user");
-    return {"", ""};
+    return {};
   }
 
   return {result[0], result[1]};
@@ -931,7 +930,7 @@ int main(int argc, char **argv) {
   if (maybe_username && maybe_password) {
     auth_handler.CreateUser(maybe_username, maybe_password);
   } else if (maybe_pass_file) {
-    auto [username, password] = LoadUsernameAndPassword(maybe_pass_file);
+    const auto [username, password] = LoadUsernameAndPassword(maybe_pass_file);
     if (!username.empty() && !password.empty()) {
       auth_handler.CreateUser(username, password);
     }

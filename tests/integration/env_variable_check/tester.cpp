@@ -25,6 +25,23 @@ DEFINE_bool(check_failure, false, "Set to true to enable failure checking.");
 DEFINE_bool(should_fail, false, "Set to true to expect a failure.");
 DEFINE_string(failure_message, "", "Set to the expected failure message.");
 
+int ProcessException(const std::string &exception_message) {
+  if (FLAGS_should_fail) {
+    if (!FLAGS_failure_message.empty() && exception_message != FLAGS_failure_message) {
+      LOG_FATAL(
+          "The query should have failed with an error message of '{}'' but "
+          "instead it failed with '{}'",
+          FLAGS_failure_message, exception_message);
+    }
+    return 0;
+  } else {
+    LOG_FATAL(
+        "The query shoudn't have failed but it failed with an "
+        "error message '{}' KITA",
+        exception_message);
+    return 1;
+  }
+}
 /**
  * Executes queries passed as positional arguments and verifies whether they
  * succeeded, failed, failed with a specific error message or executed without a
@@ -42,36 +59,8 @@ int main(int argc, char **argv) {
 
   try {
     client.Connect(endpoint, FLAGS_username, FLAGS_password);
-  } catch (const memgraph::communication::bolt::ClientFatalException &e) {
-    if (FLAGS_should_fail) {
-      if (!FLAGS_failure_message.empty() && e.what() != FLAGS_failure_message) {
-        LOG_FATAL(
-            "The query should have failed with an error message of '{}'' but "
-            "instead it failed with '{}'",
-            FLAGS_failure_message, e.what());
-      }
-      return 0;
-    } else {
-      LOG_FATAL(
-          "The query shoudn't have failed but it failed with an "
-          "error message '{}'",
-          e.what());
-    }
-  } catch (const memgraph::communication::bolt::ServerCommunicationException &e) {
-    if (FLAGS_should_fail) {
-      if (!FLAGS_failure_message.empty() && e.what() != FLAGS_failure_message) {
-        LOG_FATAL(
-            "The query should have failed with an error message of '{}'' but "
-            "instead it failed with '{}'",
-            FLAGS_failure_message, e.what());
-      }
-      return 0;
-    } else {
-      LOG_FATAL(
-          "The query shoudn't have failed but it failed with an "
-          "error message '{}'",
-          e.what());
-    }
+  } catch (const memgraph::utils::BasicException &e) {
+    return ProcessException(e.what());
   }
 
   for (int i = 1; i < argc; ++i) {
@@ -89,19 +78,8 @@ int main(int argc, char **argv) {
         }
         continue;
       }
-      if (FLAGS_should_fail) {
-        if (!FLAGS_failure_message.empty() && e.what() != FLAGS_failure_message) {
-          LOG_FATAL(
-              "The query should have failed with an error message of '{}'' but "
-              "instead it failed with '{}'",
-              FLAGS_failure_message, e.what());
-        }
+      if (!ProcessException(e.what())) {
         return 0;
-      } else {
-        LOG_FATAL(
-            "The query shoudn't have failed but it failed with an "
-            "error message '{}'",
-            e.what());
       }
     }
     if (!FLAGS_check_failure) continue;
