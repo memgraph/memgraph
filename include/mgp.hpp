@@ -1314,6 +1314,8 @@ class Value {
   // Value(const Value &other) : Value(mgp::value_copy(other.ptr_, memory)) {}
   Value(Value &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
 
+  Value &operator=(Value &&other) noexcept;
+
   ~Value();
 
   /// @brief Returns the pointer to the stored value.
@@ -2499,6 +2501,16 @@ inline bool Duration::operator<(const Duration &other) const {
 /* #endregion */
 
 /* #region Value */
+inline Value &Value::operator=(Value &&other) noexcept {
+  if (this != &other) {
+    mgp::value_destroy(ptr_);
+
+    ptr_ = other.ptr_;
+    other.ptr_ = nullptr;
+  }
+  return *this;
+}
+
 inline Value::~Value() {
   if (ptr_ != nullptr) {
     mgp::value_destroy(ptr_);
