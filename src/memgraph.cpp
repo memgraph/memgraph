@@ -16,7 +16,6 @@
 #include <cstdint>
 #include <exception>
 #include <filesystem>
-#include <fstream>
 #include <functional>
 #include <limits>
 #include <map>
@@ -427,45 +426,6 @@ void InitializeLogger() {
         FLAGS_log_file, local_time->tm_hour, local_time->tm_min, false, log_retention_count));
   }
   CreateLoggerFromSink(sinks, ParseLogLevel());
-}
-
-std::pair<std::string, std::string> LoadUsernameAndPassword(const std::string &pass_file) {
-  std::ifstream file(pass_file);
-  if (file.fail()) {
-    spdlog::warn("Problem with opening MG_PASSFILE, memgraph server will start without user");
-    return {};
-  }
-  std::vector<std::string> result;
-
-  std::string line;
-  std::getline(file, line);
-  size_t pos = 0;
-  std::string token;
-  static constexpr std::string_view delimiter{":"};
-  while ((pos = line.find(delimiter)) != std::string::npos) {
-    if (line[pos - 1] == '\\') {
-      line.erase(pos - 1, 1);
-      token += line.substr(0, pos);
-      line.erase(0, pos);
-
-    } else {
-      token += line.substr(0, pos);
-      result.push_back(token);
-      line.erase(0, pos + delimiter.length());
-      token = "";
-    }
-  }
-  result.push_back(line);
-  file.close();
-
-  if (result.size() != 2) {
-    spdlog::warn(
-        "Wrong data format. Data should be store in format: username:password, memgraph server will start without "
-        "user");
-    return {};
-  }
-
-  return {result[0], result[1]};
 }
 
 void AddLoggerSink(spdlog::sink_ptr new_sink) {
