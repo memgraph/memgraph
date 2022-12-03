@@ -3059,7 +3059,7 @@ void EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Shutdown() { input_cursor
 void EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Reset() { input_cursor_->Reset(); }
 
 EmptyResult::EmptyResult(const std::shared_ptr<LogicalOperator> &input, const std::vector<Symbol> &symbols)
-    : input_(input), symbols_(symbols) {}
+    : input_(input ? input : std::make_shared<Once>()), symbols_(symbols) {}
 
 ACCEPT_WITH_INPUT(EmptyResult)
 
@@ -3073,12 +3073,14 @@ class EmptyResultCursor : public Cursor {
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("EmptyResult");
 
-    // cache all the input
+    // spdlog::info("Executing EmptyResult operator");
     if (!pulled_all_input_) {
-      while (input_cursor_->Pull(frame, context)) pulled_all_input_ = true;
+      while (input_cursor_->Pull(frame, context)) {
+      }
+      pulled_all_input_ = true;
     }
     if (MustAbort(context)) throw HintedAbortError();
-    return true;
+    return false;
   }
 
   void Shutdown() override { input_cursor_->Shutdown(); }

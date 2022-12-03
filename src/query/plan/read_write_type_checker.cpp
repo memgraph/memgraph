@@ -54,6 +54,7 @@ bool ReadWriteTypeChecker::PreVisit(Cartesian &op) {
   return false;
 }
 
+PRE_VISIT(EmptyResult, RWType::NONE, true)
 PRE_VISIT(Produce, RWType::NONE, true)
 PRE_VISIT(Accumulate, RWType::NONE, true)
 PRE_VISIT(Aggregate, RWType::NONE, true)

@@ -180,6 +180,7 @@ class RuleBasedPlanner {
         }
       }
       uint64_t merge_id = 0;
+      bool handle_write_clause = false;
       for (auto *clause : query_part.remaining_clauses) {
         MG_ASSERT(!utils::IsSubtype(*clause, Match::kType), "Unexpected Match in remaining clauses");
         if (auto *ret = utils::Downcast<Return>(clause)) {
@@ -198,6 +199,7 @@ class RuleBasedPlanner {
         } else if (auto op = HandleWriteClause(clause, input_op, *context.symbol_table, context.bound_symbols)) {
           is_write = true;
           input_op = std::move(op);
+          handle_write_clause = true;
         } else if (auto *unwind = utils::Downcast<query::Unwind>(clause)) {
           const auto &symbol = context.symbol_table->at(*unwind->named_expression_);
           context.bound_symbols.insert(symbol);
@@ -231,6 +233,11 @@ class RuleBasedPlanner {
         } else {
           throw utils::NotYetImplemented("clause '{}' conversion to operator(s)", clause->GetTypeInfo().name);
         }
+      }
+      // Is this the only situation that should be covered
+      if (query_part.remaining_clauses.size() == 1 && handle_write_clause) {
+        std::vector<Symbol> bound_symbols(context_->bound_symbols.begin(), context_->bound_symbols.end());
+        input_op = std::make_unique<EmptyResult>(std::move(input_op), bound_symbols);
       }
     }
     return input_op;
@@ -418,7 +425,8 @@ class RuleBasedPlanner {
           std::optional<ExpansionLambda> weight_lambda;
           std::optional<Symbol> total_weight;
 
-          if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH || edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS) {
+          if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH ||
+              edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS) {
             weight_lambda.emplace(ExpansionLambda{symbol_table.at(*edge->weight_lambda_.inner_edge),
                                                   symbol_table.at(*edge->weight_lambda_.inner_node),
                                                   edge->weight_lambda_.expression});
