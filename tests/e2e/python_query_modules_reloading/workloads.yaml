@@ -9,6 +9,6 @@ test_reload_query_module: &test_reload_query_module
 workloads:
   - name: "test-reload-query-module" # should be the same as the python file
     binary: "tests/e2e/pytest_runner.sh"
-    proc: "tests/e2e/python_query_module_reloading/procedures/"
-    args: ["python_query_module_reloading/test_reload_query_module.py"]
+    proc: "tests/e2e/python_query_modules_reloading/procedures/"
+    args: ["python_query_modules_reloading/test_reload_query_module.py"]
     <<: *test_reload_query_module
