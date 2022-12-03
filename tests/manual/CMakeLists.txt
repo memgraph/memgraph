@@ -53,6 +53,12 @@ if (READLINE_FOUND)
   target_link_libraries(${test_prefix}query_physical_plan readline)
 endif()
 
+add_manual_test(query_physical_async.cpp)
+target_link_libraries(${test_prefix}query_physical_async mg-query)
+if (READLINE_FOUND)
+  target_link_libraries(${test_prefix}query_physical_async readline)
+endif()
+
 add_manual_test(expression_pretty_printer.cpp)
 target_link_libraries(${test_prefix}expression_pretty_printer mg-query)
 
