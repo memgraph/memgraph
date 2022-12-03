@@ -16,6 +16,19 @@
 ///
 /// The whole new set of possibilities!
 ///
+/// Since most of the operators have complex internal state, each Execute
+/// function should be implemented in a way so that single threaded execution
+/// of the whole query is possible via SingleThreadedExecutor. With the right
+/// implementation, it should also be possible to parallelize execution of
+/// stateless operators and simpler statefull operators like ScanAll by using
+/// the same Execute implementation and MultiThreadedExecutor.
+///
+/// Blocking but time and space limited implementations of Execute functions,
+/// should be wrapped into ExecuteAsync to allow efficient multi-threaded
+/// execution.
+///
+
+#include <variant>
 
 #include "utils/logging.hpp"
 
@@ -25,8 +38,9 @@ struct NonCopyable {
   NonCopyable() = default;
   NonCopyable(const NonCopyable &) = delete;
   NonCopyable &operator=(const NonCopyable &) = delete;
-  NonCopyable(NonCopyable &&) = default;
-  NonCopyable &operator=(NonCopyable &&) = default;
+  NonCopyable(NonCopyable &&) noexcept = default;
+  NonCopyable &operator=(NonCopyable &&) noexcept = default;
+  ~NonCopyable() = default;
 };
 
 struct Once : private NonCopyable {};
@@ -37,10 +51,10 @@ struct Produce : private NonCopyable {};
 
 using OperatorStates = std::variant<Once, ScanAll, Produce>;
 
-void Execute(Once &state) { SPDLOG_INFO("Once"); }
+void Execute(Once &) { SPDLOG_INFO("Once"); }
 
-void Execute(ScanAll &state) { SPDLOG_INFO("ScanAll"); }
+void Execute(ScanAll &) { SPDLOG_INFO("ScanAll"); }
 
-void Execute(Produce &state) { SPDLOG_INFO("Produce"); }
+void Execute(Produce &) { SPDLOG_INFO("Produce"); }
 
 }  // namespace memgraph::query::v2::physical
