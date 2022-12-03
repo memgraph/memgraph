@@ -107,22 +107,22 @@ def pip_uninstall(uninstall: str):
     subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", uninstall])
 
 
-def test_mg_load_python_packages_versioning():
-    cursor = connect().cursor()
-    ver1 = execute_and_fetch_all(cursor, "CALL test_module.test(20, 1) YIELD * RETURN *;")
-    assert ver1[0][2] == "2.6.2"
-    pip_uninstall("networkx==2.6.2")
-    pip_install("networkx==2.6.3")
-    ver2 = execute_and_fetch_all(cursor, "CALL test_module.test(20, 1) YIELD * RETURN *;")
-    assert ver2[0][2] == "2.6.2"
-    execute_and_fetch_all(cursor, "CALL mg.load('test_module');")
-    ver3 = execute_and_fetch_all(cursor, "CALL test_module.test(20, 1) YIELD * RETURN *;")
-    assert ver3[0][2] == "2.6.3"
-    pip_uninstall("networkx==2.6.3")
+# def test_mg_load_python_packages_versioning():
+#     cursor = connect().cursor()
+#     ver1 = execute_and_fetch_all(cursor, "CALL test_module.test(20, 1) YIELD * RETURN *;")
+#     assert ver1[0][2] == "2.6.2"
+#     pip_uninstall("networkx==2.6.2")
+#     pip_install("networkx==2.6.3")
+#     ver2 = execute_and_fetch_all(cursor, "CALL test_module.test(20, 1) YIELD * RETURN *;")
+#     assert ver2[0][2] == "2.6.2"
+#     execute_and_fetch_all(cursor, "CALL mg.load('test_module');")
+#     ver3 = execute_and_fetch_all(cursor, "CALL test_module.test(20, 1) YIELD * RETURN *;")
+#     assert ver3[0][2] == "2.6.3"
+#     pip_uninstall("networkx==2.6.3")
 
 
 if __name__ == "__main__":
-    pip_install("networkx==2.6.2")
-    cursor = connect().cursor()
-    execute_and_fetch_all(cursor, "CALL mg.load('test_module');")
+    # pip_install("networkx==2.6.2")
+    # cursor = connect().cursor()
+    # execute_and_fetch_all(cursor, "CALL mg.load('test_module');")
     sys.exit(pytest.main([__file__, "-rA"]))
