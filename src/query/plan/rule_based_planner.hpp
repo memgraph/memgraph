@@ -239,6 +239,11 @@ class RuleBasedPlanner {
           input_op =
               std::make_unique<plan::LoadCsv>(std::move(input_op), load_csv->file_, load_csv->with_header_,
                                               load_csv->ignore_bad_, load_csv->delimiter_, load_csv->quote_, row_sym);
+
+          // CHECK
+          if (&clause == &query_part.remaining_clauses.back()) {
+            handle_empty_result = true;
+          }
         } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
           is_write = true;
           input_op = HandleForeachClause(foreach, std::move(input_op), *context.symbol_table, context.bound_symbols,
