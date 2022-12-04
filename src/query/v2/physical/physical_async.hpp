@@ -48,15 +48,18 @@ struct NonCopyable {
 
 struct Operator;
 
-struct Cursor {
-  /// Operator Part
-  Operator *op;                      // access to the write data pool and other op data
-  std::vector<Operator *> children;  // access to the read data pool
-  std::vector<Operator *> upstream;  // access to the read data pool
-
-  /// Internal Part
-  // internal state in the derived struct
+struct ExecuteStatus {
+  bool has_more;
+  std::optional<std::string> error;
 };
+/// NOTE: In theory status and state could be coupled together, but since STATE
+/// is a variant it's easier to STATUS via generic object.
+
+struct Cursor {
+  Operator *op;                      // access to the associated operator (data pool and other operator info)
+  std::vector<Operator *> children;  // access to child operators
+};
+// NOTE: Cursors have to be moveable.
 struct Once : public Cursor {
   bool has_more{true};
 };
@@ -65,12 +68,9 @@ struct ScanAll : public Cursor {
 };
 struct Produce : public Cursor {};
 using ExecuteState = std::variant<Once, ScanAll, Produce>;
-
-/// NOTE: In theory status and state could be coupled together.
-
-struct ExecuteStatus {
-  bool has_more;
-  std::optional<std::string> error;
+struct Execution {
+  ExecuteStatus status;
+  ExecuteState state;
 };
 
 struct Operator {
@@ -80,12 +80,14 @@ struct Operator {
   ExecuteState state;
 };
 
-ExecuteStatus Execute(Once &state) {
+/// SINGLE THREADED EXECUTE IMPLEMENTATIONS
+
+inline ExecuteStatus Execute(Once &state) {
   state.has_more = false;
   return ExecuteStatus{.has_more = false};
 }
 
-ExecuteStatus Execute(ScanAll &state) {
+inline ExecuteStatus Execute(ScanAll &state) {
   state.cnt++;
   if (state.cnt >= 10) {
     return ExecuteStatus{.has_more = false};
@@ -93,38 +95,27 @@ ExecuteStatus Execute(ScanAll &state) {
   return ExecuteStatus{.has_more = true};
 }
 
-ExecuteStatus Execute(Produce &) { return ExecuteStatus{.has_more = false}; }
+inline ExecuteStatus Execute(Produce & /*unused*/) { return ExecuteStatus{.has_more = false}; }
 
-// TODO(gitbuda): Macro would be much better here.
+/// ASYNC EXECUTE WRAPPERS
 
-std::future<std::pair<ExecuteStatus, ExecuteState>> ExecuteAsync(mock::ExecutionContext &ctx, Once &&state) {
-  std::promise<std::pair<ExecuteStatus, ExecuteState>> promise;
-  auto future = promise.get_future();
-  ctx.thread_pool->AddTask(
-      [state = std::move(state), promise = std::make_shared<decltype(promise)>(std::move(promise))]() mutable {
-        promise->set_value({Execute(state), std::move(state)});
-      });
-  return future;
-}
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define DEFINE_EXECUTE_ASYNC(state_type)                                                                 \
+  /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                                                       \
+  inline std::future<Execution> ExecuteAsync(mock::ExecutionContext &ctx, state_type &&state) {          \
+    std::promise<Execution> promise;                                                                     \
+    auto future = promise.get_future();                                                                  \
+    auto shared_promise = std::make_shared<decltype(promise)>(std::move(promise));                       \
+    ctx.thread_pool->AddTask([state = std::move(state), promise = std::move(shared_promise)]() mutable { \
+      promise->set_value({.status = Execute(state), .state = std::move(state)});                         \
+    });                                                                                                  \
+    return future;                                                                                       \
+  }
 
-std::future<std::pair<ExecuteStatus, ExecuteState>> ExecuteAsync(mock::ExecutionContext &ctx, ScanAll &&state) {
-  std::promise<std::pair<ExecuteStatus, ExecuteState>> promise;
-  auto future = promise.get_future();
-  ctx.thread_pool->AddTask(
-      [state = std::move(state), promise = std::make_shared<decltype(promise)>(std::move(promise))]() mutable {
-        promise->set_value({Execute(state), std::move(state)});
-      });
-  return future;
-}
+DEFINE_EXECUTE_ASYNC(Once)
+DEFINE_EXECUTE_ASYNC(ScanAll)
+DEFINE_EXECUTE_ASYNC(Produce)
 
-std::future<std::pair<ExecuteStatus, ExecuteState>> ExecuteAsync(mock::ExecutionContext &ctx, Produce &&state) {
-  std::promise<std::pair<ExecuteStatus, ExecuteState>> promise;
-  auto future = promise.get_future();
-  ctx.thread_pool->AddTask(
-      [state = std::move(state), promise = std::make_shared<decltype(promise)>(std::move(promise))]() mutable {
-        promise->set_value({Execute(state), std::move(state)});
-      });
-  return future;
-}
+#undef DEFINE_EXECUTE_ASYNC
 
 }  // namespace memgraph::query::v2::physical
