@@ -10,25 +10,76 @@
 // licenses/APL.txt.
 
 #include <gflags/gflags.h>
+#include <future>
 #include <variant>
 #include <vector>
 
+#include "query/v2/physical/mock/context.hpp"
 #include "query/v2/physical/physical_async.hpp"
 #include "utils/logging.hpp"
 
 using namespace memgraph::query::v2::physical;
 
+ExecuteStatus Call(ExecuteState &execute_state) {
+  return std::visit([](auto &state) { return Execute(state); }, execute_state);
+}
+
+std::future<std::pair<ExecuteStatus, ExecuteState>> CallAsync(mock::ExecutionContext &ctx,
+                                                              ExecuteState &&execute_state) {
+  return std::visit([&ctx](auto &&state) { return ExecuteAsync(ctx, std::forward<decltype(state)>(state)); },
+                    std::move(execute_state));
+}
+
 int main(int argc, char *argv[]) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   spdlog::set_level(spdlog::level::info);
 
-  std::vector<OperatorStates> ops;
-  ops.emplace_back(Once{});
-  ops.emplace_back(ScanAll{});
-  ops.emplace_back(Produce{});
+  /// SYNC
+
+  std::vector<Operator> ops;
+  ops.emplace_back(Operator{.name = "Produce", .state = Produce{}});
+  ops.emplace_back(Operator{.name = "ScanAll", .state = ScanAll{}});
+  ops.emplace_back(Operator{.name = "ScanAll", .state = ScanAll{}});
+  ops.emplace_back(Operator{.name = "Once", .state = Once{}});
 
   for (auto &op : ops) {
-    std::visit([](auto &op) { Execute(op); }, op);
+    if (op.name == "ScanAll") {
+      SPDLOG_INFO("name: {} cnt: {}", op.name, std::get<ScanAll>(op.state).cnt);
+    }
+  }
+
+  for (auto &op : ops) {
+    auto status = Call(op.state);
+    SPDLOG_INFO("name: {} has_more: {}", op.name, status.has_more);
+    while (status.has_more) {
+      status = Call(op.state);
+      SPDLOG_INFO("name: {} has_more: {}", op.name, status.has_more);
+    }
+  }
+
+  for (auto &op : ops) {
+    if (op.name == "ScanAll") {
+      SPDLOG_INFO("name: {} : {}", op.name, std::get<ScanAll>(op.state).cnt);
+    }
+  }
+
+  /// ASYNC
+  std::vector<Operator> ops_async;
+  ops_async.emplace_back(Operator{.name = "Once", .state = Once{}});
+  ops_async.emplace_back(Operator{.name = "ScanAll", .state = ScanAll{}});
+  memgraph::utils::ThreadPool thread_pool{8};
+  mock::ExecutionContext ctx{.thread_pool = &thread_pool};
+  for (auto &op : ops_async) {
+    // TODO(gitbuda): This is not correct, the point it so illustrate the concept (op.state) is moved!
+    auto future = CallAsync(ctx, std::move(op.state));
+    future.wait();
+    auto status_state = future.get();
+    SPDLOG_INFO("name: {} has_more: {}", op.name, status_state.first.has_more);
+    while (status_state.first.has_more) {
+      auto future = CallAsync(ctx, std::move(status_state.second));
+      status_state = future.get();
+      SPDLOG_INFO("name: {} has_more: {}", op.name, status_state.first.has_more);
+    }
   }
 
   return 0;
