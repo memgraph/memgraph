@@ -707,7 +707,6 @@ bool PlanToJsonVisitor::PreVisit(EdgeUniquenessFilter &op) {
 bool PlanToJsonVisitor::PreVisit(EmptyResult &op) {
   json self;
   self["name"] = "EmptyResult";
-  self["symbols"] = ToJson(op.symbols_);
 
   op.input_->Accept(*this);
   self["input"] = PopOutput();

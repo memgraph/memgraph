@@ -1559,41 +1559,25 @@ edge lists).")
 (lcp:define-class empty-result (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
           :slk-save #'slk-save-operator-pointer
-          :slk-load #'slk-load-operator-pointer)
-   (symbols "std::vector<Symbol>" :scope :public)
-   (advance-command :bool :scope :public))
+          :slk-load #'slk-load-operator-pointer))
   (:documentation
    "Pulls everything from the input and discards it.
-Optionally advances the command after accumulation and before emitting.
 
 On the first Pull from this operator's Cursor the input Cursor will be Pulled
-until it is empty. The results will be accumulated in the temporary cache. Once
-the input Cursor is empty, this operator's Cursor will start returning cached
-stuff from its Pull.
+until it is empty. The results won't be accumulated in the temporary cache.
 
-This technique is used for ensuring all the operations from the
-previous logical operator have been performed before exposing data
-to the next. A typical use case is a `MATCH--SET--RETURN`
-query in which every SET iteration must be performed before
-RETURN starts iterating (see Memgraph Wiki for detailed reasoning).
-
-IMPORTANT: This operator does not cache all the results but only those
-elements from the frame whose symbols (frame positions) it was given.
-All other frame positions will contain undefined junk after this
-operator has executed, and should not be used.
-
-
-@param input Input @c LogicalOperator.
-@param symbols A vector of Symbols that need to be accumulated
- and exposed to the next op.")
+This technique is used for ensuring that the cursor has been exhausted after
+a WriteHandleClause. A typical use case is a `MATCH--SET` query with RETURN statement
+missing.
+@param input Input @c LogicalOperator. ")
   (:public
    #>cpp
    EmptyResult() {}
 
-   EmptyResult(const std::shared_ptr<LogicalOperator> &input,
-              const std::vector<Symbol> &symbols);
+   EmptyResult(const std::shared_ptr<LogicalOperator> &input);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
    bool HasSingleInput() const override { return true; }

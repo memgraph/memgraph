@@ -3058,12 +3058,19 @@ void EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Shutdown() { input_cursor
 
 void EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Reset() { input_cursor_->Reset(); }
 
-EmptyResult::EmptyResult(const std::shared_ptr<LogicalOperator> &input, const std::vector<Symbol> &symbols)
-    : input_(input ? input : std::make_shared<Once>()), symbols_(symbols) {}
+EmptyResult::EmptyResult(const std::shared_ptr<LogicalOperator> &input)
+    : input_(input ? input : std::make_shared<Once>()) {}
 
 ACCEPT_WITH_INPUT(EmptyResult)
 
-std::vector<Symbol> EmptyResult::ModifiedSymbols(const SymbolTable &) const { return symbols_; }
+std::vector<Symbol> EmptyResult::OutputSymbols(const SymbolTable &symbol_table) const {
+  // Propagate this to potential Produce.
+  return input_->OutputSymbols(symbol_table);
+}
+
+std::vector<Symbol> EmptyResult::ModifiedSymbols(const SymbolTable &table) const {
+  return input_->ModifiedSymbols(table);
+}
 
 class EmptyResultCursor : public Cursor {
  public:
