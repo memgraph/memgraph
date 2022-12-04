@@ -35,7 +35,7 @@
 #include "query/v2/physical/multiframe.hpp"
 #include "utils/logging.hpp"
 
-namespace memgraph::query::v2::physical {
+namespace memgraph::query::v2::physical::execution {
 
 struct NonCopyable {
   NonCopyable() = default;
@@ -48,54 +48,55 @@ struct NonCopyable {
 
 struct Operator;
 
-struct ExecuteStatus {
+struct Status {
   bool has_more;
   std::optional<std::string> error;
 };
 /// NOTE: In theory status and state could be coupled together, but since STATE
 /// is a variant it's easier to STATUS via generic object.
 
-struct Cursor {
+struct State {
   Operator *op;                      // access to the associated operator (data pool and other operator info)
   std::vector<Operator *> children;  // access to child operators
 };
-// NOTE: Cursors have to be moveable.
-struct Once : public Cursor {
+
+struct Once : public State {
   bool has_more{true};
 };
-struct ScanAll : public Cursor {
+struct ScanAll : public State {
   int cnt{0};
 };
-struct Produce : public Cursor {};
-using ExecuteState = std::variant<Once, ScanAll, Produce>;
+struct Produce : public State {};
+using VarState = std::variant<Once, ScanAll, Produce>;
+
 struct Execution {
-  ExecuteStatus status;
-  ExecuteState state;
+  Status status;
+  VarState state;
 };
 
 struct Operator {
   std::string name;
   std::vector<std::unique_ptr<Operator>> children;
   std::unique_ptr<multiframe::MPMCMultiframeFCFSPool> data_pool;
-  ExecuteState state;
+  VarState state;
 };
 
 /// SINGLE THREADED EXECUTE IMPLEMENTATIONS
 
-inline ExecuteStatus Execute(Once &state) {
+inline Status Execute(Once &state) {
   state.has_more = false;
-  return ExecuteStatus{.has_more = false};
+  return Status{.has_more = false};
 }
 
-inline ExecuteStatus Execute(ScanAll &state) {
+inline Status Execute(ScanAll &state) {
   state.cnt++;
   if (state.cnt >= 10) {
-    return ExecuteStatus{.has_more = false};
+    return Status{.has_more = false};
   }
-  return ExecuteStatus{.has_more = true};
+  return Status{.has_more = true};
 }
 
-inline ExecuteStatus Execute(Produce & /*unused*/) { return ExecuteStatus{.has_more = false}; }
+inline Status Execute(Produce & /*unused*/) { return Status{.has_more = false}; }
 
 /// ASYNC EXECUTE WRAPPERS
 
@@ -118,4 +119,4 @@ DEFINE_EXECUTE_ASYNC(Produce)
 
 #undef DEFINE_EXECUTE_ASYNC
 
-}  // namespace memgraph::query::v2::physical
+}  // namespace memgraph::query::v2::physical::execution

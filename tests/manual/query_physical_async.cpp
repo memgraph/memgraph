@@ -14,19 +14,20 @@
 #include <variant>
 #include <vector>
 
+#include "query/v2/physical/execution.hpp"
 #include "query/v2/physical/mock/context.hpp"
-#include "query/v2/physical/physical_async.hpp"
 #include "utils/logging.hpp"
 
 using namespace memgraph::query::v2::physical;
+using namespace memgraph::query::v2::physical::execution;
 
-ExecuteStatus Call(ExecuteState &execute_state) {
-  return std::visit([](auto &state) { return Execute(state); }, execute_state);
+Status Call(VarState &any_state) {
+  return std::visit([](auto &state) { return Execute(state); }, any_state);
 }
 
-std::future<Execution> CallAsync(mock::ExecutionContext &ctx, ExecuteState &&execute_state) {
+std::future<Execution> CallAsync(mock::ExecutionContext &ctx, VarState &&any_state) {
   return std::visit([&ctx](auto &&state) { return ExecuteAsync(ctx, std::forward<decltype(state)>(state)); },
-                    std::move(execute_state));
+                    std::move(any_state));
 }
 
 int main(int argc, char *argv[]) {
