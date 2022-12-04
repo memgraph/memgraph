@@ -13,6 +13,7 @@
 
 #include <vector>
 
+#include "query/v2/physical/execution.hpp"
 #include "query/v2/physical/mock/frame.hpp"
 #include "query/v2/physical/multiframe.hpp"
 #include "query/v2/physical/physical_ene.hpp"
@@ -23,6 +24,7 @@ namespace memgraph::query::v2::physical::mock {
 
 using TFrame = Frame;
 using TDataPool = physical::multiframe::MPMCMultiframeFCFSPool;
+
 using TPhysicalOperator = physical::PhysicalOperator<TDataPool>;
 using TPhysicalOperatorPtr = std::shared_ptr<TPhysicalOperator>;
 using TOnceOperator = physical::OncePhysicalOperator<TDataPool>;
@@ -37,6 +39,11 @@ using TCursorOnce = physical::OnceCursor;
 template <typename TDataFun>
 using TCursorScanAll = physical::ScanAllCursor<TDataFun>;
 using TCursorProduce = physical::ProduceCursor;
+
+using TExecutionOperator = physical::execution::Operator;
+using TExecutionOnce = physical::execution::Once;
+using TExecutionScanAll = physical::execution::ScanAll;
+using TExecutionProduce = physical::execution::Produce;
 
 enum class OpType { Once, ScanAll, Produce };
 inline std::ostream &operator<<(std::ostream &os, const OpType &op_type) {
@@ -74,7 +81,6 @@ inline TPhysicalOperatorPtr MakeENEOnce(int pool_size, int mf_size) {
   auto data_pool = std::make_unique<TDataPool>(pool_size, mf_size);
   return std::make_shared<TOnceOperator>(TOnceOperator("Physical Once", std::move(data_pool)));
 }
-
 inline TPhysicalOperatorPtr MakeENEScanAll(int pool_size, int mf_size, int scan_all_elems) {
   auto data_fun = [scan_all_elems](TDataPool::TMultiframe &mf, TExecutionContext &) {
     std::vector<TFrame> frames;
@@ -89,12 +95,10 @@ inline TPhysicalOperatorPtr MakeENEScanAll(int pool_size, int mf_size, int scan_
   return std::make_shared<TScanAllOperator<decltype(data_fun)>>(
       TScanAllOperator<decltype(data_fun)>("Physical ScanAll", std::move(data_fun), std::move(data_pool)));
 }
-
 inline TPhysicalOperatorPtr MakeENEProduce(int pool_size, int mf_size) {
   auto data_pool = std::make_unique<TDataPool>(pool_size, mf_size);
   return std::make_shared<TProduceOperator>(TProduceOperator("Physical Produce", std::move(data_pool)));
 }
-
 inline TPhysicalOperatorPtr MakeENEPlan(const std::vector<Op> &ops, int pool_size, int mf_size) {
   TPhysicalOperatorPtr plan = nullptr;
   auto current = plan;
@@ -103,17 +107,14 @@ inline TPhysicalOperatorPtr MakeENEPlan(const std::vector<Op> &ops, int pool_siz
       auto once = MakeENEOnce(pool_size, mf_size);
       current->AddChild(once);
       current = once;
-
     } else if (op.type == OpType::ScanAll) {
       auto scan_all = MakeENEScanAll(pool_size, mf_size, op.props[SCANALL_ELEMS_POS]);
       current->AddChild(scan_all);
       current = scan_all;
-
     } else if (op.type == OpType::Produce) {
       auto produce = MakeENEProduce(pool_size, mf_size);
       plan = produce;  // top level operator
       current = plan;
-
     } else {
       SPDLOG_ERROR("Unknown operator {}", op.type);
     }
@@ -122,7 +123,6 @@ inline TPhysicalOperatorPtr MakeENEPlan(const std::vector<Op> &ops, int pool_siz
 }
 
 inline TCursorPtr MakePullOnce() { return std::make_unique<TCursorOnce>(nullptr); }
-
 inline TCursorPtr MakePullScanAll(TCursorPtr &&input, int scan_all_elems) {
   auto data_fun = [scan_all_elems](TFrame &, TExecutionContext &) {
     std::vector<TFrame> frames(scan_all_elems);
@@ -133,22 +133,57 @@ inline TCursorPtr MakePullScanAll(TCursorPtr &&input, int scan_all_elems) {
   };
   return std::make_unique<TCursorScanAll<decltype(data_fun)>>(std::move(input), std::move(data_fun));
 }
-
 inline TCursorPtr MakePullProduce(TCursorPtr &&input) { return std::make_unique<TCursorProduce>(std::move(input)); }
-
 inline TCursorPtr MakePullPlan(const std::vector<Op> &ops) {
   std::vector<Op> reversed_ops(ops.rbegin(), ops.rend());
   TCursorPtr plan = nullptr;
   for (const auto &op : reversed_ops) {
     if (op.type == OpType::Once) {
       plan = MakePullOnce();
-
     } else if (op.type == OpType::ScanAll) {
       plan = MakePullScanAll(std::move(plan), op.props[SCANALL_ELEMS_POS]);
-
     } else if (op.type == OpType::Produce) {
       plan = MakePullProduce(std::move(plan));
+    } else {
+      SPDLOG_ERROR("Unknown operator {}", op.type);
+    }
+  }
+  return plan;
+}
 
+// TODO(gitbuda): Here should be some https://en.wikipedia.org/wiki/Topological_sorting container.
+inline std::vector<std::shared_ptr<execution::Operator>> MakeAsyncPlan(const std::vector<Op> &ops, int pool_size,
+                                                                       int mf_size) {
+  std::vector<Op> reversed_ops(ops.rbegin(), ops.rend());
+  std::shared_ptr<execution::Operator> prev_operator_ptr = nullptr;
+  std::vector<std::shared_ptr<execution::Operator>> plan;
+  plan.reserve(reversed_ops.size());
+  // TODO(gitbuda): This looks messy, implement factory functions.
+  for (const auto &op : reversed_ops) {
+    if (op.type == OpType::Once) {
+      prev_operator_ptr = std::make_shared<execution::Operator>(execution::Operator{
+          .name = "Once", .children = {}, .data_pool = std::make_unique<TDataPool>(pool_size, mf_size)});
+      execution::Once once_state{.op = prev_operator_ptr.get()};
+      prev_operator_ptr->state = std::move(once_state);
+      plan.push_back(prev_operator_ptr);
+    } else if (op.type == OpType::ScanAll) {
+      auto scan_all_ptr = std::make_shared<execution::Operator>(
+          execution::Operator{.name = "ScanAll",
+                              .children = {prev_operator_ptr},
+                              .data_pool = std::make_unique<TDataPool>(pool_size, mf_size)});
+      prev_operator_ptr = scan_all_ptr;
+      execution::ScanAll scan_all_state{.op = prev_operator_ptr.get()};
+      prev_operator_ptr->state = std::move(scan_all_state);
+      plan.push_back(prev_operator_ptr);
+    } else if (op.type == OpType::Produce) {
+      auto produce_ptr = std::make_shared<execution::Operator>(
+          execution::Operator{.name = "Produce",
+                              .children = {prev_operator_ptr},
+                              .data_pool = std::make_unique<TDataPool>(pool_size, mf_size)});
+      prev_operator_ptr = produce_ptr;
+      execution::Produce produce_state{.op = prev_operator_ptr.get()};
+      prev_operator_ptr->state = std::move(produce_state);
+      plan.push_back(prev_operator_ptr);
     } else {
       SPDLOG_ERROR("Unknown operator {}", op.type);
     }

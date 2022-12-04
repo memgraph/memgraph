@@ -41,21 +41,11 @@ int main(int argc, char *argv[]) {
   ops.emplace_back(Operator{.name = "ScanAll", .state = ScanAll{}});
   ops.emplace_back(Operator{.name = "Once", .state = Once{}});
   for (auto &op : ops) {
-    if (op.name == "ScanAll") {
-      SPDLOG_INFO("name: {} cnt: {}", op.name, std::get<ScanAll>(op.state).cnt);
-    }
-  }
-  for (auto &op : ops) {
     auto status = Call(op.state);
     SPDLOG_INFO("name: {} has_more: {}", op.name, status.has_more);
     while (status.has_more) {
       status = Call(op.state);
       SPDLOG_INFO("name: {} has_more: {}", op.name, status.has_more);
-    }
-  }
-  for (auto &op : ops) {
-    if (op.name == "ScanAll") {
-      SPDLOG_INFO("name: {} : {}", op.name, std::get<ScanAll>(op.state).cnt);
     }
   }
 

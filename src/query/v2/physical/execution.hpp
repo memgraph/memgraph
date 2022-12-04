@@ -11,23 +11,6 @@
 
 #pragma once
 
-///
-/// Physical Execute/Next/Emit Async Architecture Implementation
-///
-/// The whole new set of possibilities!
-///
-/// Since most of the operators have complex internal state, each Execute
-/// function should be implemented in a way so that single threaded execution
-/// of the whole query is possible via SingleThreadedExecutor. With the right
-/// implementation, it should also be possible to parallelize execution of
-/// stateless operators and simpler statefull operators like ScanAll by using
-/// the same Execute implementation and MultiThreadedExecutor.
-///
-/// Blocking, but time and space limited, implementations of Execute functions,
-/// should be wrapped into ExecuteAsync to allow efficient multi-threaded
-/// execution.
-///
-
 #include <future>
 #include <variant>
 
@@ -55,18 +38,18 @@ struct Status {
 /// NOTE: In theory status and state could be coupled together, but since STATE
 /// is a variant it's easier to STATUS via generic object.
 
-struct State {
-  Operator *op;                      // access to the associated operator (data pool and other operator info)
-  std::vector<Operator *> children;  // access to child operators
-};
-
-struct Once : public State {
+struct Once {
+  Operator *op;
   bool has_more{true};
 };
-struct ScanAll : public State {
-  int cnt{0};
+struct ScanAll {
+  Operator *op;
+  std::vector<Operator *> children;
 };
-struct Produce : public State {};
+struct Produce {
+  Operator *op;
+  std::vector<Operator *> children;
+};
 using VarState = std::variant<Once, ScanAll, Produce>;
 
 struct Execution {
@@ -76,25 +59,16 @@ struct Execution {
 
 struct Operator {
   std::string name;
-  std::vector<std::unique_ptr<Operator>> children;
+  std::vector<std::shared_ptr<Operator>> children;
   std::unique_ptr<multiframe::MPMCMultiframeFCFSPool> data_pool;
   VarState state;
 };
 
 /// SINGLE THREADED EXECUTE IMPLEMENTATIONS
 
-inline Status Execute(Once &state) {
-  state.has_more = false;
-  return Status{.has_more = false};
-}
+inline Status Execute(Once & /*unused*/) { return Status{.has_more = false}; }
 
-inline Status Execute(ScanAll &state) {
-  state.cnt++;
-  if (state.cnt >= 10) {
-    return Status{.has_more = false};
-  }
-  return Status{.has_more = true};
-}
+inline Status Execute(ScanAll & /*unused*/) { return Status{.has_more = false}; }
 
 inline Status Execute(Produce & /*unused*/) { return Status{.has_more = false}; }
 

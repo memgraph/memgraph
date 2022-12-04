@@ -101,7 +101,12 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  // TODO(gitbuda): Multi Frame Multi Thread per Operator Execution
+  // Multi Frame Multi Thread per Operator Execution
+  auto async_plan = memgraph::query::v2::physical::mock::MakeAsyncPlan(ops, 10, 100);
+  for (auto &op : async_plan) {
+    SPDLOG_INFO("op name: {}", op->name);
+    std::visit([](auto &state) { SPDLOG_INFO("op name via state: {}", state.op->name); }, op->state);
+  }
 
   return 0;
 }
