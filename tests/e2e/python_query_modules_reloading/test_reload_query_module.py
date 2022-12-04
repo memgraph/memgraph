@@ -10,14 +10,13 @@
 # licenses/APL.txt.
 
 import os  # To be removed
-import subprocess
 import sys
 
 import pytest
 from common import connect, execute_and_fetch_all
 
 FUNC1_PATH = "./procedures/mage/test_module/test_functions.py"
-FUNC2_PATH = "./procedures/mage/test_module/test_functions_dir/test_functions.py"
+FUNC2_PATH = "./procedures/mage/test_module/test_functions_dir/test_subfunctions.py"
 
 
 def preprocess_functions():
@@ -30,7 +29,7 @@ def preprocess_functions():
 
     with open(FUNC2_PATH, "w") as func2_file:
         func2_file.write(
-            """def test_function(a: int, b: int) -> int:
+            """def test_subfunction(a: int, b: int) -> int:
                  return a / b
             """
         )
@@ -46,7 +45,7 @@ def postprocess_functions():
 
     with open(FUNC2_PATH, "w") as func2_file:
         func2_file.write(
-            """def test_function(a: int, b: int) -> int:
+            """def test_subfunction(a: int, b: int) -> int:
             return a * b
             """
         )
@@ -99,12 +98,12 @@ def test_mg_load_reload_submodule():
     execute_and_fetch_all(cursor, "CALL mg.load('test_module');")
 
 
-def pip_install(install: str):
-    subprocess.check_call([sys.executable, "-m", "pip", "install", install])
-
-
-def pip_uninstall(uninstall: str):
-    subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", uninstall])
+# def pip_install(install: str):
+#     subprocess.check_call([sys.executable, "-m", "pip", "install", install])
+#
+#
+# def pip_uninstall(uninstall: str):
+#     subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", uninstall])
 
 
 # def test_mg_load_python_packages_versioning():
