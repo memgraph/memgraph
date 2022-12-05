@@ -148,7 +148,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
   // Empty frame for evaluation of password expression. This is OK since
   // password should be either null or string literal and it's evaluation
   // should not depend on frame.
-  expr::Frame<TypedValue> frame(0);
+  expr::Frame frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
@@ -315,7 +315,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
 Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &parameters,
                                 InterpreterContext *interpreter_context, RequestRouterInterface *request_router,
                                 std::vector<Notification> *notifications) {
-  expr::Frame<TypedValue> frame(0);
+  expr::Frame frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
@@ -450,7 +450,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
 
 Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &parameters,
                             RequestRouterInterface *request_router) {
-  expr::Frame<TypedValue> frame(0);
+  expr::Frame frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
@@ -663,7 +663,7 @@ struct PullPlan {
  private:
   std::shared_ptr<CachedPlan> plan_ = nullptr;
   plan::UniqueCursorPtr cursor_ = nullptr;
-  expr::FrameWithValidity<TypedValue> frame_;
+  expr::FrameWithValidity frame_;
   MultiFrame multi_frame_;
   ExecutionContext ctx_;
   std::optional<size_t> memory_limit_;
@@ -998,7 +998,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   //                                 TriggerContextCollector *trigger_context_collector = nullptr) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
 
-  expr::Frame<TypedValue> frame(0);
+  expr::Frame frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
@@ -1140,7 +1140,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in PROFILE");
-  expr::Frame<TypedValue> frame(0);
+  expr::Frame frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();

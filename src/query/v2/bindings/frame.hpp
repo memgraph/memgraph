@@ -17,6 +17,6 @@
 #include "query/v2/bindings/typed_value.hpp"
 
 namespace memgraph::query::v2 {
-using Frame = memgraph::expr::Frame<TypedValue>;
-using FrameWithValidity = memgraph::expr::FrameWithValidity<TypedValue>;
+using Frame = memgraph::expr::Frame;
+using FrameWithValidity = memgraph::expr::FrameWithValidity;
 }  // namespace memgraph::query::v2
