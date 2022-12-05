@@ -358,25 +358,23 @@ class RequestRouter : public RequestRouterInterface {
   }
 
   std::vector<msgs::GetPropertiesResultRow> GetProperties(msgs::GetPropertiesRequest requests) override {
-    ExecutionState<msgs::GetPropertiesRequest> state = {};
-    InitializeExecutionState(state, std::move(requests));
-    for (auto &request : state.requests) {
+    // create requests
+    std::vector<msgs::GetPropertiesRequest> unsent_requests = RequestsForGetProperties(requests);
+
+    // begin all requests in parallel
+    RunningRequests<msgs::GetPropertiesRequest> running_requests = {};
+    running_requests.reserve(unsent_requests.size());
+    for (size_t i = 0; i < unsent_requests.size(); i++) {
+      auto &request = unsent_requests[i];
+      io::ReadinessToken readiness_token{i};
       auto &storage_client = GetStorageClientForShard(request.shard);
       msgs::ReadRequests req = request.request;
-      request.async_request_token = storage_client.SendAsyncReadRequest(req);
+      storage_client.SendAsyncReadRequest(req, notifier_, readiness_token);
+      running_requests.emplace(readiness_token.GetId(), request);
     }
 
-    std::vector<msgs::GetPropertiesResponse> responses;
-    do {
-      DriveReadResponses(state, responses);
-    } while (!state.requests.empty());
-
-    std::vector<msgs::GetPropertiesResultRow> result;
-    for (auto &res : responses) {
-      std::move(res.result_row.begin(), res.result_row.end(), std::back_inserter(result));
-    }
-
-    return result;
+    // drive requests to completion
+    return DriveReadResponses<msgs::GetPropertiesRequest, msgs::GetPropertiesResponse>(running_requests);
   }
 
   std::optional<storage::v3::PropertyId> MaybeNameToProperty(const std::string &name) const override {
@@ -522,7 +520,7 @@ class RequestRouter : public RequestRouterInterface {
     return requests;
   }
 
-  void InitializeExecutionState(ExecutionState<msgs::GetPropertiesRequest> &state, msgs::GetPropertiesRequest request) {
+  std::vector<msgs::GetPropertiesRequest> RequestsForGetProperties(const msgs::GetPropertiesRequest &request) {
     std::map<Shard, msgs::GetPropertiesRequest> per_shard_request_table;
     auto top_level_rqst_template = request;
     top_level_rqst_template.transaction_id = transaction_id_;
