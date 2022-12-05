@@ -1657,7 +1657,8 @@ elements are in an undefined state after aggregation.")
            :slk-save #'slk-save-ast-pointer
            :slk-load (slk-load-ast-pointer "Expression"))
       (op "::Aggregation::Op")
-      (output-sym "Symbol"))
+      (output-sym "Symbol")
+      (distinct bool :initval "false" ))
      (:documentation
       "An aggregation element, contains:
        (input data expression, key expression - only used in COLLECT_MAP, type of
@@ -2282,9 +2283,9 @@ clauses.
   (:public
    #>cpp
    Foreach() = default;
-   Foreach(std::shared_ptr<LogicalOperator> input, 
+   Foreach(std::shared_ptr<LogicalOperator> input,
            std::shared_ptr<LogicalOperator> updates,
-           Expression *named_expr, 
+           Expression *named_expr,
            Symbol loop_variable_symbol);
 
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
