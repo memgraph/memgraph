@@ -587,7 +587,7 @@ class Node {
   ~Node();
 
   /// @brief Returns the node’s ID.
-  Id Id() const;
+  mgp::Id Id() const;
 
   /// @brief Returns an iterable & indexable structure of the node’s labels.
   class Labels Labels() const;
@@ -644,7 +644,7 @@ class Relationship {
   ~Relationship();
 
   /// @brief Returns the relationship’s ID.
-  Id Id() const;
+  mgp::Id Id() const;
 
   /// @brief Returns the relationship’s type.
   std::string_view Type() const;
@@ -1069,7 +1069,7 @@ class Value {
 
   /// @brief Returns the type of the value.
   /// @exception std::runtime_error The value type is unknown.
-  Type Type() const;
+  mgp::Type Type() const;
 
   /// @pre Value type needs to be Type::Bool.
   bool ValueBool() const;
@@ -2353,7 +2353,7 @@ inline Node::~Node() {
   }
 }
 
-inline Id Node::Id() const { return Id::FromInt(mgp::vertex_get_id(ptr_).as_int); }
+inline mgp::Id Node::Id() const { return Id::FromInt(mgp::vertex_get_id(ptr_).as_int); }
 
 inline class Labels Node::Labels() const { return mgp::Labels(ptr_); }
 
@@ -2432,7 +2432,7 @@ inline Relationship::~Relationship() {
   }
 }
 
-inline Id Relationship::Id() const { return Id::FromInt(mgp::edge_get_id(ptr_).as_int); }
+inline mgp::Id Relationship::Id() const { return Id::FromInt(mgp::edge_get_id(ptr_).as_int); }
 
 inline std::string_view Relationship::Type() const { return mgp::edge_get_type(ptr_).name; }
 
@@ -3028,7 +3028,7 @@ inline Value::~Value() {
 
 inline mgp_value *Value::ptr() const { return ptr_; }
 
-inline Type Value::Type() const { return util::ToAPIType(mgp::value_get_type(ptr_)); }
+inline mgp::Type Value::Type() const { return util::ToAPIType(mgp::value_get_type(ptr_)); }
 
 inline bool Value::ValueBool() const {
   if (Type() != Type::Bool) {
