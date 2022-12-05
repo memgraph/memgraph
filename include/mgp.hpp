@@ -1200,9 +1200,9 @@ class RecordFactory {
 
   const Record NewRecord() const;
 
-  const void SetErrorMsg(const std::string_view error_msg) const;
+  void SetErrorMessage(const std::string_view error_msg) const;
 
-  const void SetErrorMsg(const char *error_msg) const;
+  void SetErrorMessage(const char *error_msg) const;
 
  private:
   mgp_result *result_;
@@ -1242,9 +1242,9 @@ class Result {
   /// @brief Sets a @ref Duration value to be returned.
   inline void SetValue(const Duration &duration);
 
-  const void SetErrorMsg(const std::string_view error_msg) const;
+  void SetErrorMessage(const std::string_view error_msg) const;
 
-  const void SetErrorMsg(const char *error_msg) const;
+  void SetErrorMessage(const char *error_msg) const;
 
  private:
   mgp_func_result *result_;
@@ -3267,11 +3267,11 @@ inline const Record RecordFactory::NewRecord() const {
   return Record(record);
 }
 
-inline const void RecordFactory::SetErrorMsg(const std::string_view error_msg) const {
+inline void RecordFactory::SetErrorMessage(const std::string_view error_msg) const {
   mgp::result_set_error_msg(result_, error_msg.data());
 }
 
-inline const void RecordFactory::SetErrorMsg(const char *error_msg) const {
+inline void RecordFactory::SetErrorMessage(const char *error_msg) const {
   mgp::result_set_error_msg(result_, error_msg);
 }
 
@@ -3363,11 +3363,11 @@ inline void Result::SetValue(const Duration &duration) {
   mgp::value_destroy(mgp_val);
 }
 
-inline const void Result::SetErrorMsg(const std::string_view error_msg) const {
+inline void Result::SetErrorMessage(const std::string_view error_msg) const {
   mgp::func_result_set_error_msg(result_, error_msg.data(), memory);
 }
 
-inline const void Result::SetErrorMsg(const char *error_msg) const {
+inline void Result::SetErrorMessage(const char *error_msg) const {
   mgp::func_result_set_error_msg(result_, error_msg, memory);
 }
 
