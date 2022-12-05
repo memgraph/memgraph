@@ -762,10 +762,6 @@ int main(int argc, char **argv) {
                                                    "https://memgr.ph/python"));
   }
 
-  if (!FLAGS_init_file.empty()) {
-    std::filesystem::remove_all(FLAGS_data_directory);
-  }
-
   // Initialize the communication library.
   memgraph::communication::SSLInit sslInit;
 
