@@ -2989,7 +2989,7 @@ inline Value::Value(Duration &&duration) {
   duration.ptr_ = nullptr;
 }
 
-inline Value::Value(const Value &other) : Value(mgp::value_copy(other.ptr_, memory)) {}
+inline Value::Value(const Value &other) : Value(other.ptr_) {}
 
 inline Value::Value(Value &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
 
