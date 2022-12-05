@@ -66,7 +66,7 @@ struct MapItem;
 class Duration;
 class Value;
 
-mgp_memory *memory;
+inline mgp_memory *memory{nullptr};
 
 /* #region Graph (Id, Graph, Nodes, GraphRelationships, Relationships, Properties & Labels) */
 
@@ -587,7 +587,7 @@ class Node {
   ~Node();
 
   /// @brief Returns the node’s ID.
-  mgp::Id Id() const;
+  Id Id() const;
 
   /// @brief Returns an iterable & indexable structure of the node’s labels.
   class Labels Labels() const;
@@ -644,7 +644,7 @@ class Relationship {
   ~Relationship();
 
   /// @brief Returns the relationship’s ID.
-  mgp::Id Id() const;
+  Id Id() const;
 
   /// @brief Returns the relationship’s type.
   std::string_view Type() const;
@@ -1069,7 +1069,7 @@ class Value {
 
   /// @brief Returns the type of the value.
   /// @exception std::runtime_error The value type is unknown.
-  mgp::Type Type() const;
+  Type Type() const;
 
   /// @pre Value type needs to be Type::Bool.
   bool ValueBool() const;
@@ -1198,7 +1198,7 @@ class RecordFactory {
  public:
   explicit RecordFactory(mgp_result *result);
 
-  const mgp::Record NewRecord() const;
+  const Record NewRecord() const;
 
  private:
   mgp_result *result_;
@@ -1276,13 +1276,13 @@ class Parameter {
   Parameter(std::string_view name, Type type, const char *default_value);
 
   /// @brief Creates an optional parameter with the given `name` and `default_value`.
-  Parameter(std::string_view name, Type type, mgp::Value default_value);
+  Parameter(std::string_view name, Type type, Value default_value);
 
   /// @brief Creates a non-optional ListParameter with the given `name` and `item_type`.
   Parameter(std::string_view name, std::pair<Type, Type> list_type);
 
   /// @brief Creates an optional List parameter with the given `name`, `item_type`, and `default_value`.
-  Parameter(std::string_view name, std::pair<Type, Type> list_type, mgp::Value default_value);
+  Parameter(std::string_view name, std::pair<Type, Type> list_type, Value default_value);
 
   mgp_type *GetMGPType() const;
 };
@@ -1295,7 +1295,7 @@ class Return {
   Type list_item_type_;
 
   /// @brief Creates a return value with the given `name` and `type`.
-  Return(std::string_view name, mgp::Type type);
+  Return(std::string_view name, Type type);
 
   Return(std::string_view name, std::pair<Type, Type> list_type);
 
@@ -1315,9 +1315,9 @@ enum class ProcedureType : uint8_t {
 /// @param returns - procedure return values
 /// @param module - the query module that the procedure is added to
 /// @param memory - access to memory
-void AddProcedure(mgp_proc_cb callback, std::string_view name, ProcedureType proc_type,
-                  std::vector<mgp::Parameter> parameters, std::vector<Return> returns, mgp_module *module,
-                  mgp_memory *memory);
+inline void AddProcedure(mgp_proc_cb callback, std::string_view name, ProcedureType proc_type,
+                         std::vector<Parameter> parameters, std::vector<Return> returns, mgp_module *module,
+                         mgp_memory *memory);
 
 /// @brief Adds a function to the query module.
 /// @param callback - function callback
@@ -1325,8 +1325,8 @@ void AddProcedure(mgp_proc_cb callback, std::string_view name, ProcedureType pro
 /// @param parameters - function parameters
 /// @param module - the query module that the function is added to
 /// @param memory - access to memory
-void AddFunction(mgp_func_cb callback, std::string_view name, std::vector<mgp::Parameter> parameters,
-                 mgp_module *module, mgp_memory *memory);
+inline void AddFunction(mgp_func_cb callback, std::string_view name, std::vector<Parameter> parameters,
+                        mgp_module *module, mgp_memory *memory);
 
 /* #endregion */
 
@@ -2217,7 +2217,7 @@ inline Map::~Map() {
 
 inline size_t Map::Size() const { return mgp::map_size(ptr_); }
 
-bool Map::Empty() const { return Size() == 0; }
+inline bool Map::Empty() const { return Size() == 0; }
 
 inline const Value Map::operator[](std::string_view key) const { return Value(mgp::map_at(ptr_, key.data())); }
 
@@ -2345,7 +2345,7 @@ inline Node::~Node() {
   }
 }
 
-inline mgp::Id Node::Id() const { return Id::FromInt(mgp::vertex_get_id(ptr_).as_int); }
+inline Id Node::Id() const { return Id::FromInt(mgp::vertex_get_id(ptr_).as_int); }
 
 inline class Labels Node::Labels() const { return mgp::Labels(ptr_); }
 
@@ -2424,7 +2424,7 @@ inline Relationship::~Relationship() {
   }
 }
 
-inline mgp::Id Relationship::Id() const { return Id::FromInt(mgp::edge_get_id(ptr_).as_int); }
+inline Id Relationship::Id() const { return Id::FromInt(mgp::edge_get_id(ptr_).as_int); }
 
 inline std::string_view Relationship::Type() const { return mgp::edge_get_type(ptr_).name; }
 
@@ -3370,13 +3370,13 @@ inline Parameter::Parameter(std::string_view name, Type type, std::string_view d
 inline Parameter::Parameter(std::string_view name, Type type, const char *default_value)
     : name(name), type_(type), optional(true), default_value(Value(default_value)) {}
 
-inline Parameter::Parameter(std::string_view name, Type type, mgp::Value default_value)
+inline Parameter::Parameter(std::string_view name, Type type, Value default_value)
     : name(name), type_(type), optional(true), default_value(default_value) {}
 
 inline Parameter::Parameter(std::string_view name, std::pair<Type, Type> list_type)
     : name(name), type_(list_type.first), list_item_type_(list_type.second) {}
 
-inline Parameter::Parameter(std::string_view name, std::pair<Type, Type> list_type, mgp::Value default_value)
+inline Parameter::Parameter(std::string_view name, std::pair<Type, Type> list_type, Value default_value)
     : name(name),
       type_(list_type.first),
       list_item_type_(list_type.second),
@@ -3393,7 +3393,7 @@ inline mgp_type *Parameter::GetMGPType() const {
 
 // Return:
 
-inline Return::Return(std::string_view name, mgp::Type type) : name(name), type_(type) {}
+inline Return::Return(std::string_view name, Type type) : name(name), type_(type) {}
 
 inline Return::Return(std::string_view name, std::pair<Type, Type> list_type)
     : name(name), type_(list_type.first), list_item_type_(list_type.second) {}
@@ -3407,7 +3407,7 @@ inline mgp_type *Return::GetMGPType() const {
 }
 
 void AddProcedure(mgp_proc_cb callback, std::string_view name, ProcedureType proc_type,
-                  std::vector<mgp::Parameter> parameters, std::vector<Return> returns, mgp_module *module,
+                  std::vector<Parameter> parameters, std::vector<Return> returns, mgp_module *module,
                   mgp_memory *memory) {
   auto proc = (proc_type == ProcedureType::Read) ? mgp::module_add_read_procedure(module, name.data(), callback)
                                                  : mgp::module_add_write_procedure(module, name.data(), callback);
@@ -3428,8 +3428,8 @@ void AddProcedure(mgp_proc_cb callback, std::string_view name, ProcedureType pro
   }
 }
 
-void AddFunction(mgp_func_cb callback, std::string_view name, std::vector<mgp::Parameter> parameters,
-                 mgp_module *module, mgp_memory *memory) {
+void AddFunction(mgp_func_cb callback, std::string_view name, std::vector<Parameter> parameters, mgp_module *module,
+                 mgp_memory *memory) {
   auto func = mgp::module_add_function(module, name.data(), callback);
 
   for (const auto &parameter : parameters) {
