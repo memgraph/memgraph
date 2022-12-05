@@ -162,23 +162,23 @@ class DbAccessor final {
     return accessor_->LabelPropertyIndexExists(label, prop);
   }
 
-  int64_t VerticesCount() const { return accessor_->ApproximateVertexCount(); }
+  int64_t VerticesCount() const { return accessor_->VertexCount(); }
 
   int64_t VerticesCount(storage::v3::LabelId label) const { return accessor_->ApproximateVertexCount(label); }
 
   int64_t VerticesCount(storage::v3::LabelId label, storage::v3::PropertyId property) const {
-    return accessor_->ApproximateVertexCount(label, property);
+    return accessor_->VertexCount(label, property);
   }
 
   int64_t VerticesCount(storage::v3::LabelId label, storage::v3::PropertyId property,
                         const storage::v3::PropertyValue &value) const {
-    return accessor_->ApproximateVertexCount(label, property, value);
+    return accessor_->VertexCount(label, property, value);
   }
 
   int64_t VerticesCount(storage::v3::LabelId label, storage::v3::PropertyId property,
                         const std::optional<utils::Bound<storage::v3::PropertyValue>> &lower,
                         const std::optional<utils::Bound<storage::v3::PropertyValue>> &upper) const {
-    return accessor_->ApproximateVertexCount(label, property, lower, upper);
+    return accessor_->VertexCount(label, property, lower, upper);
   }
 
   storage::v3::IndicesInfo ListAllIndices() const { return accessor_->ListAllIndices(); }
