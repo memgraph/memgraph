@@ -99,7 +99,7 @@ inline void RunTest(std::function<void(const std::atomic<bool> &, Stats &)> test
   std::cout << "    Successful find: " << stats.succ[3] << std::endl;
   std::cout << std::endl;
 
-  const auto tot = stats.succ[0] + stats.succ[1] + stats.succ[2] + stats.succ[3];
+  const auto tot = std::accumulate(stats.succ.begin(),  + stats.succ.begin() + 3, 0);
   const auto tops = stats.total;
 
   std::cout << "Total successful: " << tot << " (" << tot / FLAGS_duration << " calls/s)" << std::endl;

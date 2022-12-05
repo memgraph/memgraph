@@ -41,7 +41,7 @@ static void BM_BenchmarkRemoveSkipList(::benchmark::State &state) {
   utils::SkipList<storage::v3::PrimaryKey> skip_list;
   PrepareData(skip_list, state.range(0));
 
-  // So we can also have elements that does don't exist
+  // So we can also have elements that don't exist
   std::mt19937 i_generator(std::random_device{}());
   std::uniform_int_distribution<int64_t> i_distribution(0, state.range(0) * 2);
   int64_t removed_elems{0};
