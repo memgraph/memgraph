@@ -269,11 +269,7 @@ void Once::OnceCursor::PullMultiple(MultiFrame &multi_frame, ExecutionContext &c
 
   if (!did_pull_) {
     auto &first_frame = multi_frame.GetFirstFrame();
-    auto *memory_resource = first_frame.GetMemoryResource();
     first_frame.MakeValid();
-    for (auto &value : first_frame.elems()) {
-      value = TypedValue{memory_resource};
-    }
     did_pull_ = true;
   }
 }
