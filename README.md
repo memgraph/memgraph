@@ -141,6 +141,15 @@ Memgraph Community is available under the [BSL
 license](./licenses/BSL.txt).</br> Memgraph Enterprise is available under the
 [MEL license](./licenses/MEL.txt).
 
+## 🙋 Community
+
+- :purple_heart: [**Discord**](https://discord.gg/memgraph)
+- :busts_in_silhouette: [**Discourse forum**](https://discourse.memgraph.com/)
+- :open_file_folder: [**Memgraph GitHub**](https://github.com/memgraph)
+- :bird: [**Twitter**](https://twitter.com/memgraphdb)
+- :movie_camera:
+  [**YouTube**](https://www.youtube.com/channel/UCZ3HOJvHGxtQ_JHxOselBYg)
+
 <p align="center">
   <a href="#">
     <img src="https://img.shields.io/badge/⬆️back_to_top_⬆️-white" alt="Back to top" title="Back to top"/>
