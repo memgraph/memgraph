@@ -1325,7 +1325,7 @@ void AddProcedure(mgp_proc_cb callback, std::string_view name, ProcedureType pro
 /// @param parameters - function parameters
 /// @param module - the query module that the function is added to
 /// @param memory - access to memory
-void AddFunction(mgp_func_cb callback, std::string_view name, std::vector<mgp::Parameter> parameters, ,
+void AddFunction(mgp_func_cb callback, std::string_view name, std::vector<mgp::Parameter> parameters,
                  mgp_module *module, mgp_memory *memory);
 
 /* #endregion */
