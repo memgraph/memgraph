@@ -27,8 +27,7 @@ namespace memgraph::benchmark {
 template <typename T>
 inline void PrepareData(utils::SkipList<T> &skip_list, const int64_t num_elements) {
   coordinator::Hlc start_timestamp;
-  storage::v3::IsolationLevel isolation_level{storage::v3::IsolationLevel::SNAPSHOT_ISOLATION};
-  storage::v3::Transaction transaction{start_timestamp, isolation_level};
+  storage::v3::Transaction transaction{start_timestamp, storage::v3::IsolationLevel::SNAPSHOT_ISOLATION};
   for (auto i{0}; i < num_elements; ++i) {
     auto acc = skip_list.access();
     acc.insert({storage::v3::PrimaryKey{storage::v3::PropertyValue{i}}});
@@ -38,8 +37,7 @@ inline void PrepareData(utils::SkipList<T> &skip_list, const int64_t num_element
 template <typename TKey, typename TValue>
 inline void PrepareData(std::map<TKey, TValue> &std_map, const int64_t num_elements) {
   coordinator::Hlc start_timestamp;
-  storage::v3::IsolationLevel isolation_level{storage::v3::IsolationLevel::SNAPSHOT_ISOLATION};
-  storage::v3::Transaction transaction{start_timestamp, isolation_level};
+  storage::v3::Transaction transaction{start_timestamp, storage::v3::IsolationLevel::SNAPSHOT_ISOLATION};
   auto *delta = storage::v3::CreateDeleteObjectDelta(&transaction);
   for (auto i{0}; i < num_elements; ++i) {
     std_map.insert({storage::v3::PrimaryKey{storage::v3::PropertyValue{i}},
@@ -51,8 +49,7 @@ inline void PrepareData(std::map<TKey, TValue> &std_map, const int64_t num_eleme
 template <typename T>
 inline void PrepareData(std::set<T> &std_set, const int64_t num_elements) {
   coordinator::Hlc start_timestamp;
-  storage::v3::IsolationLevel isolation_level{storage::v3::IsolationLevel::SNAPSHOT_ISOLATION};
-  storage::v3::Transaction transaction{start_timestamp, isolation_level};
+  storage::v3::Transaction transaction{start_timestamp, storage::v3::IsolationLevel::SNAPSHOT_ISOLATION};
   for (auto i{0}; i < num_elements; ++i) {
     std_set.insert(std::vector<storage::v3::PropertyValue>{storage::v3::PropertyValue{i}});
   }

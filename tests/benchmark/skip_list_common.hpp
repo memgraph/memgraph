@@ -11,11 +11,14 @@
 
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <functional>
 #include <iostream>
 #include <memory>
+#include <numeric>
 #include <thread>
 #include <vector>
 
@@ -26,7 +29,7 @@ DEFINE_int32(duration, 10, "Duration of test (in seconds)");
 
 struct Stats {
   uint64_t total{0};
-  uint64_t succ[4] = {0, 0, 0, 0};
+  std::array<uint64_t, 4> succ = {0, 0, 0, 0};
 };
 
 const int OP_INSERT = 0;
@@ -99,7 +102,7 @@ inline void RunTest(std::function<void(const std::atomic<bool> &, Stats &)> test
   std::cout << "    Successful find: " << stats.succ[3] << std::endl;
   std::cout << std::endl;
 
-  const auto tot = std::accumulate(stats.succ.begin(),  + stats.succ.begin() + 3, 0);
+  const auto tot = std::accumulate(stats.succ.begin(), +stats.succ.begin() + 3, 0);
   const auto tops = stats.total;
 
   std::cout << "Total successful: " << tot << " (" << tot / FLAGS_duration << " calls/s)" << std::endl;

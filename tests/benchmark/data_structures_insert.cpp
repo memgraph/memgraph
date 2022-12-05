@@ -39,8 +39,7 @@ namespace memgraph::benchmark {
 static void BM_BenchmarkInsertSkipList(::benchmark::State &state) {
   utils::SkipList<storage::v3::PrimaryKey> skip_list;
   coordinator::Hlc start_timestamp;
-  storage::v3::IsolationLevel isolation_level{storage::v3::IsolationLevel::SNAPSHOT_ISOLATION};
-  storage::v3::Transaction transaction{start_timestamp, isolation_level};
+  storage::v3::Transaction transaction{start_timestamp, storage::v3::IsolationLevel::SNAPSHOT_ISOLATION};
   auto *delta = storage::v3::CreateDeleteObjectDelta(&transaction);
 
   for (auto _ : state) {
@@ -54,8 +53,7 @@ static void BM_BenchmarkInsertSkipList(::benchmark::State &state) {
 static void BM_BenchmarkInsertStdMap(::benchmark::State &state) {
   std::map<storage::v3::PrimaryKey, storage::v3::LexicographicallyOrderedVertex> std_map;
   coordinator::Hlc start_timestamp;
-  storage::v3::IsolationLevel isolation_level{storage::v3::IsolationLevel::SNAPSHOT_ISOLATION};
-  storage::v3::Transaction transaction{start_timestamp, isolation_level};
+  storage::v3::Transaction transaction{start_timestamp, storage::v3::IsolationLevel::SNAPSHOT_ISOLATION};
   auto *delta = storage::v3::CreateDeleteObjectDelta(&transaction);
 
   for (auto _ : state) {
@@ -69,11 +67,6 @@ static void BM_BenchmarkInsertStdMap(::benchmark::State &state) {
 
 static void BM_BenchmarkInsertStdSet(::benchmark::State &state) {
   std::set<storage::v3::PrimaryKey> std_set;
-  coordinator::Hlc start_timestamp;
-  storage::v3::IsolationLevel isolation_level{storage::v3::IsolationLevel::SNAPSHOT_ISOLATION};
-  storage::v3::Transaction transaction{start_timestamp, isolation_level};
-  auto *delta = storage::v3::CreateDeleteObjectDelta(&transaction);
-
   for (auto _ : state) {
     for (auto i{0}; i < state.range(0); ++i) {
       std_set.insert(storage::v3::PrimaryKey{std::vector<storage::v3::PropertyValue>{storage::v3::PropertyValue{i}}});
