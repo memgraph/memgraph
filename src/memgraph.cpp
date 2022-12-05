@@ -135,6 +135,7 @@ std::optional<Enum> StringToEnum(const auto &value, const auto &mappings) {
 }  // namespace
 
 // Short help flag.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(h, false, "Print usage and exit.");
 
 // Bolt server flags.
