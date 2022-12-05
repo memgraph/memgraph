@@ -37,9 +37,10 @@ Build modern, graph-based applications on top of your streaming data in minutes.
 
 ## :clipboard: Description
 
-Memgraph is a streaming graph application platform that helps you wrangle your
-streaming data, build sophisticated models that you can query in real-time, and
-develop graph applications.
+Memgraph is an open source graph database built for real-time streaming and
+compatible with Neo4j. Whether you're a developer or a data scientist with
+interconnected data, Memgraph will get you the immediate actionable insights
+fast.
 
 Memgraph directly connects to your streaming infrastructure. You can ingest data
 from sources like Kafka, SQL, or plain CSV files. Memgraph provides a standard
@@ -51,8 +52,9 @@ natural and effective way to model many real-world problems without relying on
 complex SQL schemas.
 
 Memgraph is implemented in C/C++ and leverages an in-memory first architecture
-to ensure that you’re getting the best possible performance consistently and
-without surprises. It’s also ACID-compliant and highly available.
+to ensure that you’re getting the [best possible
+performance](http://memgraph.com/benchgraph) consistently and without surprises.
+It’s also ACID-compliant and highly available.
 
 ## :video_game: Memgraph Playground
 
