@@ -676,23 +676,33 @@ int64_t LabelPropertyIndex::VertexCount(LabelId label, PropertyId property,
                                         const std::optional<utils::Bound<PropertyValue>> &upper) const {
   auto it = index_.find({label, property});
   MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
-  const auto get_iter = [&it](const auto &value, const auto def) {
-    if (value) {
-      auto found_it = it->second.find(value->value());
-      if (value->IsInclusive()) {
-        return found_it;
-      }
-      return found_it != it->second.end() ? ++found_it : found_it;
-    }
-    return def;
-  };
-  const auto lower_it = get_iter(lower, it->second.begin());
-  const auto upper_it = get_iter(upper, it->second.end());
+  const auto lower_it = std::invoke(
+      [&index = it->second](const auto value, const auto def) {
+        if (value) {
+          if (value->IsInclusive()) {
+            return index.lower_bound(value->value());
+          }
+          return index.upper_bound(value->value());
+        }
+        return def;
+      },
+      lower, it->second.begin());
+  const auto upper_it = std::invoke(
+      [&index = it->second](const auto value, const auto def) {
+        if (value) {
+          if (value->IsInclusive()) {
+            return index.upper_bound(value->value());
+          }
+          return index.lower_bound(value->value());
+        }
+        return def;
+      },
+      upper, it->second.end());
   return static_cast<int64_t>(std::distance(lower_it, upper_it));
 }
 
 void LabelPropertyIndex::RunGC() {
-  // TODO What to do?
+  // TODO(jbajic) What to do?
   // for (auto &index_entry : index_) {
   //   index_entry.second.run_gc();
   // }
