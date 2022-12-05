@@ -36,8 +36,7 @@ class SimulatorTransport {
   template <Message RequestT, Message ResponseT>
   ResponseFuture<ResponseT> Request(Address to_address, Address from_address, RequestT request,
                                     std::function<void()> notification, Duration timeout) {
-    std::shared_ptr<SimulatorHandle> handle_copy = simulator_handle_;
-    std::function<bool()> tick_simulator = [handle_copy] { return handle_copy->MaybeTickSimulator(); };
+    std::function<bool()> tick_simulator = [handle_copy = simulator_handle_] { return handle_copy->MaybeTickSimulator(); };
 
     return simulator_handle_->template SubmitRequest<RequestT, ResponseT>(
         to_address, from_address, std::move(request), timeout, std::move(tick_simulator), std::move(notification));
