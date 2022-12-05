@@ -118,10 +118,8 @@ class ValidFramesReader {
       return *this;
     }
 
-    // clang-tidy warning is wrong here, because we & qualify the function, meaning that you can't post increment
-    // temporaries, e.g, (it++)++
-    // NOLINTNEXTLINE (cert-dcl21-cpp)
-    Iterator operator++(int) & {
+    // NOLINTNEXTLINE(cert-dcl21-cpp)
+    Iterator operator++(int) {
       auto old = *this;
       ptr_++;
       return old;
@@ -175,10 +173,8 @@ class ValidFramesModifier {
       return *this;
     }
 
-    // clang-tidy warning is wrong here, because we & qualify the function, meaning that you can't post increment
-    // temporaries, e.g, (it++)++
-    // NOLINTNEXTLINE (cert-dcl21-cpp)
-    Iterator operator++(int) & {
+    // NOLINTNEXTLINE(cert-dcl21-cpp)
+    Iterator operator++(int) {
       auto old = *this;
       ++*this;
       return old;
@@ -231,10 +227,8 @@ class ValidFramesConsumer {
       return *this;
     }
 
-    // clang-tidy warning is wrong here, because we & qualify the function, meaning that you can't post increment
-    // temporaries, e.g, (it++)++
-    // NOLINTNEXTLINE (cert-dcl21-cpp)
-    Iterator operator++(int) & {
+    // NOLINTNEXTLINE(cert-dcl21-cpp)
+    Iterator operator++(int) {
       auto old = *this;
       ++*this;
       return old;
@@ -284,10 +278,8 @@ class InvalidFramesPopulator {
       return *this;
     }
 
-    // clang-tidy warning is wrong here, because we & qualify the function, meaning that you can't post increment
-    // temporaries, e.g, (it++)++
-    // NOLINTNEXTLINE (cert-dcl21-cpp)
-    Iterator operator++(int) & {
+    // NOLINTNEXTLINE(cert-dcl21-cpp)
+    Iterator operator++(int) {
       auto old = *this;
       ++ptr_;
       return old;
