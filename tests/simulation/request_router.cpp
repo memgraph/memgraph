@@ -18,6 +18,8 @@
 #include <thread>
 #include <vector>
 
+#include <spdlog/cfg/env.h>
+
 #include "common.hpp"
 #include "common/types.hpp"
 #include "coordinator/coordinator_client.hpp"
@@ -370,4 +372,7 @@ void DoTest() {
 }
 }  // namespace memgraph::query::v2::tests
 
-int main() { memgraph::query::v2::tests::DoTest(); }
+int main() {
+  spdlog::cfg::load_env_levels();
+  memgraph::query::v2::tests::DoTest();
+}

@@ -45,6 +45,7 @@
 #include "utils/result.hpp"
 
 namespace memgraph::query::v2 {
+
 template <typename TStorageClient>
 class RsmStorageClientManager {
  public:
@@ -608,7 +609,12 @@ class RequestRouter : public RequestRouterInterface {
       auto &request = running_requests.at(ready.GetId());
       auto &storage_client = GetStorageClientForShard(request.shard);
 
-      auto poll_result = storage_client.PollAsyncReadRequest(ready);
+      std::optional<utils::BasicResult<io::TimedOut, msgs::ReadResponses>> poll_result =
+          storage_client.PollAsyncReadRequest(ready);
+
+      if (!poll_result.has_value()) {
+        continue;
+      }
 
       if (poll_result->HasError()) {
         throw std::runtime_error("RequestRouter Read request timed out");
@@ -649,7 +655,12 @@ class RequestRouter : public RequestRouterInterface {
       auto &request = running_requests.at(ready.GetId());
       auto &storage_client = GetStorageClientForShard(request.shard);
 
-      auto poll_result = storage_client.PollAsyncWriteRequest(ready);
+      std::optional<utils::BasicResult<io::TimedOut, msgs::WriteResponses>> poll_result =
+          storage_client.PollAsyncWriteRequest(ready);
+
+      if (!poll_result.has_value()) {
+        continue;
+      }
 
       if (poll_result->HasError()) {
         throw std::runtime_error("RequestRouter Write request timed out");
