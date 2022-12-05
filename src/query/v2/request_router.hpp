@@ -359,7 +359,8 @@ class RequestRouter : public RequestRouterInterface {
 
   std::vector<msgs::GetPropertiesResultRow> GetProperties(msgs::GetPropertiesRequest requests) override {
     // create requests
-    std::vector<ShardRequestState<msgs::GetPropertiesRequest>> unsent_requests = RequestsForGetProperties(requests);
+    std::vector<ShardRequestState<msgs::GetPropertiesRequest>> unsent_requests =
+        RequestsForGetProperties(std::move(requests));
 
     // begin all requests in parallel
     RunningRequests<msgs::GetPropertiesRequest> running_requests = {};
@@ -530,14 +531,14 @@ class RequestRouter : public RequestRouterInterface {
   }
 
   std::vector<ShardRequestState<msgs::GetPropertiesRequest>> RequestsForGetProperties(
-      const msgs::GetPropertiesRequest &request) {
+      msgs::GetPropertiesRequest &&request) {
     std::map<Shard, msgs::GetPropertiesRequest> per_shard_request_table;
     auto top_level_rqst_template = request;
     top_level_rqst_template.transaction_id = transaction_id_;
     top_level_rqst_template.vertex_ids.clear();
     top_level_rqst_template.vertices_and_edges.clear();
 
-    for (auto &vertex : request.vertex_ids) {
+    for (auto &&vertex : request.vertex_ids) {
       auto shard =
           shards_map_.GetShardForKey(vertex.first.id, storage::conversions::ConvertPropertyVector(vertex.second));
       if (!per_shard_request_table.contains(shard)) {
