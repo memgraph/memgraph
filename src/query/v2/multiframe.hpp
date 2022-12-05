@@ -107,7 +107,7 @@ class ValidFramesReader {
     using pointer = value_type *;
     using reference = const Frame &;
 
-    Iterator() {}
+    Iterator() = default;
     explicit Iterator(FrameWithValidity *ptr) : ptr_(ptr) {}
 
     reference operator*() const { return *ptr_; }
@@ -158,8 +158,8 @@ class ValidFramesModifier {
     using value_type = Frame;
     using pointer = value_type *;
     using reference = Frame &;
-    Iterator() {}
 
+    Iterator() = default;
     Iterator(FrameWithValidity *ptr, ValidFramesModifier &iterator_wrapper)
         : ptr_(ptr), iterator_wrapper_(&iterator_wrapper) {}
 
@@ -216,8 +216,7 @@ class ValidFramesConsumer {
     using pointer = value_type *;
     using reference = FrameWithValidity &;
 
-    Iterator() {}
-
+    Iterator() = default;
     Iterator(FrameWithValidity *ptr, ValidFramesConsumer &iterator_wrapper)
         : ptr_(ptr), iterator_wrapper_(&iterator_wrapper) {}
 
@@ -273,7 +272,7 @@ class InvalidFramesPopulator {
     using pointer = value_type *;
     using reference = FrameWithValidity &;
 
-    Iterator() {}
+    Iterator() = default;
     explicit Iterator(FrameWithValidity *ptr) : ptr_(ptr) {}
 
     reference operator*() const { return *ptr_; }
