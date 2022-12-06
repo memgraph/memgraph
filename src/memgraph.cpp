@@ -923,6 +923,7 @@ int main(int argc, char **argv) {
   }
 
   if (!FLAGS_init_file.empty()) {
+    spdlog::info("Running init file.");
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
       InitFromCypherlFile(interpreter_context, FLAGS_init_file, &audit_log);
@@ -1000,6 +1001,7 @@ int main(int argc, char **argv) {
   websocket_server.Start();
 
   if (!FLAGS_init_data_file.empty()) {
+    spdlog::info("Running init data file.");
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
       InitFromCypherlFile(interpreter_context, FLAGS_init_data_file, &audit_log);
