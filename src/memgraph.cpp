@@ -98,9 +98,9 @@
 #include "audit/log.hpp"
 #endif
 
-const char *const MG_USER = "MG_USER";
-const char *const MG_PASSWORD = "MG_PASSWORD";
-const char *const MG_PASSFILE = "MG_PASSFILE";
+const char *const kMgUser = "MG_USER";
+const char *const kMgPassword = "MG_PASSWORD";
+const char *const kMgPassfile = "MG_PASSFILE";
 
 namespace {
 std::string GetAllowedEnumValuesString(const auto &mappings) {
@@ -884,9 +884,9 @@ int main(int argc, char **argv) {
   interpreter_context.auth = &auth_handler;
   interpreter_context.auth_checker = &auth_checker;
 
-  auto *maybe_username = std::getenv(MG_USER);
-  auto *maybe_password = std::getenv(MG_PASSWORD);
-  auto *maybe_pass_file = std::getenv(MG_PASSFILE);
+  auto *maybe_username = std::getenv(kMgUser);
+  auto *maybe_password = std::getenv(kMgPassword);
+  auto *maybe_pass_file = std::getenv(kMgPassfile);
   if (maybe_username && maybe_password) {
     auth_handler.CreateUser(maybe_username, maybe_password);
   } else if (maybe_pass_file) {
