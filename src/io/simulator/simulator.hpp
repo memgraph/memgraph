@@ -49,5 +49,10 @@ class Simulator {
   }
 
   SimulatorStats Stats() { return simulator_handle_->Stats(); }
+
+  std::function<bool()> GetSimulatorTickClosure() {
+    std::function<bool()> tick_closure = [handle_copy = simulator_handle_] { return handle_copy->MaybeTickSimulator(); };
+    return tick_closure;
+  }
 };
 };  // namespace memgraph::io::simulator
