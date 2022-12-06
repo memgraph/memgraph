@@ -35,10 +35,13 @@ class Shared {
   std::optional<T> item_;
   bool consumed_ = false;
   bool waiting_ = false;
-  std::function<bool()> simulator_notifier_ = nullptr;
+  bool filled_ = false;
+  std::function<bool()> wait_notifier_ = nullptr;
+  std::function<void()> fill_notifier_ = nullptr;
 
  public:
-  explicit Shared(std::function<bool()> simulator_notifier) : simulator_notifier_(simulator_notifier) {}
+  explicit Shared(std::function<bool()> wait_notifier, std::function<void()> fill_notifier)
+      : wait_notifier_(wait_notifier), fill_notifier_(fill_notifier) {}
   Shared() = default;
   Shared(Shared &&) = delete;
   Shared &operator=(Shared &&) = delete;
@@ -64,7 +67,7 @@ class Shared {
     waiting_ = true;
 
     while (!item_) {
-      if (simulator_notifier_) [[unlikely]] {
+      if (wait_notifier_) [[unlikely]] {
         // We can't hold our own lock while notifying
         // the simulator because notifying the simulator
         // involves acquiring the simulator's mutex
@@ -76,7 +79,7 @@ class Shared {
         // so we have to get out of its way to avoid
         // a cyclical deadlock.
         lock.unlock();
-        std::invoke(simulator_notifier_);
+        std::invoke(wait_notifier_);
         lock.lock();
         if (item_) {
           // item may have been filled while we
@@ -115,10 +118,18 @@ class Shared {
       std::unique_lock<std::mutex> lock(mu_);
 
       MG_ASSERT(!consumed_, "Promise filled after it was already consumed!");
-      MG_ASSERT(!item_, "Promise filled twice!");
+      MG_ASSERT(!filled_, "Promise filled twice!");
 
       item_ = item;
+      filled_ = true;
     }  // lock released before condition variable notification
+
+    if (fill_notifier_) {
+      spdlog::trace("calling fill notifier");
+      std::invoke(fill_notifier_);
+    } else {
+      spdlog::trace("not calling fill notifier");
+    }
 
     cv_.notify_all();
   }
@@ -251,8 +262,9 @@ std::pair<Future<T>, Promise<T>> FuturePromisePair() {
 }
 
 template <typename T>
-std::pair<Future<T>, Promise<T>> FuturePromisePairWithNotifier(std::function<bool()> simulator_notifier) {
-  std::shared_ptr<details::Shared<T>> shared = std::make_shared<details::Shared<T>>(simulator_notifier);
+std::pair<Future<T>, Promise<T>> FuturePromisePairWithNotifications(std::function<bool()> wait_notifier,
+                                                                    std::function<void()> fill_notifier) {
+  std::shared_ptr<details::Shared<T>> shared = std::make_shared<details::Shared<T>>(wait_notifier, fill_notifier);
 
   Future<T> future = Future<T>(shared);
   Promise<T> promise = Promise<T>(shared);
