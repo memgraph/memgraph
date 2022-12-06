@@ -392,38 +392,6 @@ class Shard final {
   // storage.
   std::list<Gid> deleted_edges_;
 
-  // UUID used to distinguish snapshots and to link snapshots to WALs
-  std::string uuid_;
-  // Sequence number used to keep track of the chain of WALs.
-  uint64_t wal_seq_num_{0};
-
-  // UUID to distinguish different main instance runs for replication process
-  // on SAME storage.
-  // Multiple instances can have same storage UUID and be MAIN at the same time.
-  // We cannot compare commit timestamps of those instances if one of them
-  // becomes the replica of the other so we use epoch_id_ as additional
-  // discriminating property.
-  // Example of this:
-  // We have 2 instances of the same storage, S1 and S2.
-  // S1 and S2 are MAIN and accept their own commits and write them to the WAL.
-  // At the moment when S1 commited a transaction with timestamp 20, and S2
-  // a different transaction with timestamp 15, we change S2's role to REPLICA
-  // and register it on S1.
-  // Without using the epoch_id, we don't know that S1 and S2 have completely
-  // different transactions, we think that the S2 is behind only by 5 commits.
-  std::string epoch_id_;
-  // History of the previous epoch ids.
-  // Each value consists of the epoch id along the last commit belonging to that
-  // epoch.
-  std::deque<std::pair<std::string, uint64_t>> epoch_history_;
-
-  uint64_t wal_unsynced_transactions_{0};
-
-  utils::FileRetainer file_retainer_;
-
-  // Global locker that is used for clients file locking
-  utils::FileRetainer::FileLocker global_locker_;
-
   // Holds all of the (in progress, committed and aborted) transactions that are read or write to this shard, but
   // haven't been cleaned up yet
   std::map<uint64_t, std::unique_ptr<Transaction>> start_logical_id_to_transaction_{};
