@@ -332,10 +332,7 @@ Shard::Shard(const LabelId primary_label, const PrimaryKey min_primary_key,
       vertex_validator_{schema_validator_, primary_label},
       indices_{config.items, vertex_validator_},
       isolation_level_{config.transaction.isolation_level},
-      config_{config},
-      uuid_{utils::GenerateUUID()},
-      epoch_id_{utils::GenerateUUID()},
-      global_locker_{file_retainer_.AddLocker()} {
+      config_{config} {
   CreateSchema(primary_label_, schema);
   StoreMapping(std::move(id_to_name));
 }
