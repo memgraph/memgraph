@@ -3064,7 +3064,6 @@ EmptyResult::EmptyResult(const std::shared_ptr<LogicalOperator> &input)
 ACCEPT_WITH_INPUT(EmptyResult)
 
 std::vector<Symbol> EmptyResult::OutputSymbols(const SymbolTable &symbol_table) const {
-  // Propagate this to potential Produce.
   return input_->OutputSymbols(symbol_table);
 }
 
@@ -3080,7 +3079,6 @@ class EmptyResultCursor : public Cursor {
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("EmptyResult");
 
-    // spdlog::info("Executing EmptyResult operator");
     if (!pulled_all_input_) {
       while (input_cursor_->Pull(frame, context)) {
       }
