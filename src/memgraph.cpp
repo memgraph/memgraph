@@ -478,7 +478,12 @@ struct SessionData {
 DEFINE_string(auth_user_or_role_name_regex, memgraph::glue::kDefaultUserRoleRegex.data(),
               "Set to the regular expression that each user or role name must fulfill.");
 
-void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, std::string cypherl_file_path) {
+void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, std::string cypherl_file_path
+#ifdef MG_ENTERPRISE
+                         ,
+                         memgraph::audit::Log *audit_log
+#endif
+) {
   memgraph::query::Interpreter interpreter(&ctx);
   std::ifstream file(cypherl_file_path);
   if (file.is_open()) {
@@ -488,6 +493,12 @@ void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, std::string c
         auto results = interpreter.Prepare(line, {}, {});
         memgraph::query::DiscardValueResultStream stream;
         interpreter.Pull(&stream, {}, results.qid);
+
+#ifdef MG_ENTERPRISE
+        if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+          audit_log->Record("", "", line, {});
+        }
+#endif
       }
     }
     file.close();
@@ -912,7 +923,13 @@ int main(int argc, char **argv) {
   }
 
   if (!FLAGS_init_file.empty()) {
+#ifdef MG_ENTERPRISE
+    if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+      InitFromCypherlFile(interpreter_context, FLAGS_init_file, &audit_log);
+    }
+#else
     InitFromCypherlFile(interpreter_context, FLAGS_init_file);
+#endif
   }
   // As the Stream transformations are using modules, they have to be restored after the query modules are loaded.
   interpreter_context.streams.RestoreStreams();
@@ -983,7 +1000,13 @@ int main(int argc, char **argv) {
   websocket_server.Start();
 
   if (!FLAGS_init_data_file.empty()) {
+#ifdef MG_ENTERPRISE
+    if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+      InitFromCypherlFile(interpreter_context, FLAGS_init_data_file, &audit_log);
+    }
+#else
     InitFromCypherlFile(interpreter_context, FLAGS_init_data_file);
+#endif
   }
 
   server.AwaitShutdown();

@@ -69,14 +69,18 @@ def start_memgraph(memgraph_args: List[any]) -> subprocess:
     return memgraph
 
 
-def execute_with_user(queries: List[str]) -> None:
+def execute_with_user(tester_binary: str, queries: List[str]) -> None:
     return execute_tester(
         tester_binary, queries, should_fail=False, check_failure=True, username="admin", password="admin"
     )
 
 
 def execute_without_user(
-    queries: List[str], should_fail: bool = False, failure_message: str = "", check_failure: bool = True
+    tester_binary: str,
+    queries: List[str],
+    should_fail: bool = False,
+    failure_message: str = "",
+    check_failure: bool = True,
 ) -> None:
     return execute_tester(tester_binary, queries, should_fail, failure_message, "", "", check_failure)
 
@@ -87,34 +91,34 @@ def cleanup(memgraph: subprocess):
     assert memgraph.wait() == 0, "Memgraph process didn't exit cleanly!"
 
 
-def test_without_any_files(memgraph_args: List[str]):
+def test_without_any_files(tester_binary: str, memgraph_args: List[str]):
     memgraph = start_memgraph(memgraph_args)
-    execute_without_user(["MATCH (n) RETURN n"], False)
+    execute_without_user(tester_binary, ["MATCH (n) RETURN n"], False)
     cleanup(memgraph)
 
 
-def test_init_file(memgraph_args: List[str]):
+def test_init_file(tester_binary: str, memgraph_args: List[str]):
     memgraph = start_memgraph(memgraph_args)
-    execute_with_user(["MATCH (n) RETURN n"])
-    execute_without_user(["MATCH (n) RETURN n"], True, "Handshake with the server failed!", True)
+    execute_with_user(tester_binary, ["MATCH (n) RETURN n"])
+    execute_without_user(tester_binary, ["MATCH (n) RETURN n"], True, "Handshake with the server failed!", True)
     cleanup(memgraph)
 
 
-def test_init_data_file(memgraph_args: List[str]):
+def test_init_data_file(flag_checker_binary: str, memgraph_args: List[str]):
     memgraph = start_memgraph(memgraph_args)
     execute_flag_check(flag_checker_binary, ["MATCH (n) RETURN n"], 2, "user", "user")
     cleanup(memgraph)
 
 
-def test_init_and_init_data_file(memgraph_args: List[str]):
+def test_init_and_init_data_file(flag_checker_binary: str, tester_binary: str, memgraph_args: List[str]):
     memgraph = start_memgraph(memgraph_args)
-    execute_with_user(["MATCH (n) RETURN n"])
-    execute_without_user(["MATCH (n) RETURN n"], True, "Handshake with the server failed!", True)
+    execute_with_user(tester_binary, ["MATCH (n) RETURN n"])
+    execute_without_user(tester_binary, ["MATCH (n) RETURN n"], True, "Handshake with the server failed!", True)
     execute_flag_check(flag_checker_binary, ["MATCH (n) RETURN n"], 2, "user", "user")
     cleanup(memgraph)
 
 
-def execute_test(memgraph_binary: str) -> None:
+def execute_test(memgraph_binary: str, tester_binary: str, flag_checker_binary: str) -> None:
     storage_directory = tempfile.TemporaryDirectory()
     memgraph_args = [memgraph_binary, "--data-directory", storage_directory.name]
 
@@ -129,25 +133,25 @@ def execute_test(memgraph_binary: str) -> None:
 
     # Run the test with all combinations of permissions
     print("\033[1;36m~~ Starting env variable check test ~~\033[0m")
-    test_without_any_files(memgraph_args)
+    test_without_any_files(tester_binary, memgraph_args)
     memgraph_args_with_init_file = memgraph_args + [
         "--init-file",
         os.path.join(os.getcwd(), "dummy_init_file.cypherl"),
     ]
-    test_init_file(memgraph_args_with_init_file)
+    test_init_file(tester_binary, memgraph_args_with_init_file)
     memgraph_args_with_init_data_file = memgraph_args + [
         "--init-data-file",
         os.path.join(os.getcwd(), "dummy_init_data_file.cypherl"),
     ]
 
-    test_init_data_file(memgraph_args_with_init_data_file)
+    test_init_data_file(flag_checker_binary, memgraph_args_with_init_data_file)
     memgraph_args_with_init_file_and_init_data_file = memgraph_args + [
         "--init-file",
         os.path.join(os.getcwd(), "dummy_init_file.cypherl"),
         "--init-data-file",
         os.path.join(os.getcwd(), "dummy_init_data_file.cypherl"),
     ]
-    test_init_and_init_data_file(memgraph_args_with_init_file_and_init_data_file)
+    test_init_and_init_data_file(flag_checker_binary, tester_binary, memgraph_args_with_init_file_and_init_data_file)
     print("\033[1;36m~~ Ended env variable check test ~~\033[0m")
 
     os.remove(os.path.join(os.getcwd(), "dummy_init_data_file.cypherl"))
@@ -165,6 +169,6 @@ if __name__ == "__main__":
     parser.add_argument("--flag_checker", default=flag_checker_binary)
     args = parser.parse_args()
 
-    execute_test(args.memgraph)
+    execute_test(args.memgraph, args.tester, args.flag_checker)
 
     sys.exit(0)
