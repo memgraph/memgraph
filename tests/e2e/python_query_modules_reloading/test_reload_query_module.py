@@ -15,22 +15,32 @@ import sys
 import pytest
 from common import connect, execute_and_fetch_all
 
-FUNC1_PATH = "./python_query_modules_reloading/procedures/mage/test_module/test_functions.py"
-FUNC2_PATH = "./python_query_modules_reloading/procedures/mage/test_module/test_functions_dir/test_subfunctions.py"
+COMMON_PATH_PREFIX = "procedures/mage/test_module"
+FUNC1_PATH = os.path.join(
+    os.path.dirname(__file__),
+    COMMON_PATH_PREFIX,
+    "test_functions.py",
+)
+
+FUNC2_PATH = os.path.join(
+    os.path.dirname(__file__),
+    COMMON_PATH_PREFIX,
+    "test_functions_dir/test_subfunctions.py",
+)
 
 
 def preprocess_functions():
     with open(FUNC1_PATH, "w") as func1_file:
         func1_file.write(
             """def test_function(a: int, b: int) -> int:
-                 return a - b
+    return a - b
             """
         )
 
     with open(FUNC2_PATH, "w") as func2_file:
         func2_file.write(
             """def test_subfunction(a: int, b: int) -> int:
-                 return a / b
+    return a / b
             """
         )
 
@@ -39,14 +49,14 @@ def postprocess_functions():
     with open(FUNC1_PATH, "w") as func1_file:
         func1_file.write(
             """def test_function(a: int, b: int) -> int:
-            return a + b
+    return a + b
             """
         )
 
     with open(FUNC2_PATH, "w") as func2_file:
         func2_file.write(
             """def test_subfunction(a: int, b: int) -> int:
-            return a * b
+    return a * b
             """
         )
 
