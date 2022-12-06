@@ -253,7 +253,7 @@ TEST_F(TestSymbolGenerator, MatchWithWhere) {
 TEST_F(TestSymbolGenerator, MatchWithWhereUnbound) {
   // Test MATCH (old) WITH COUNT(old) AS c WHERE old.prop < 42
   auto prop = dba.NameToProperty("prop");
-  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))), WITH(COUNT(IDENT("old")), AS("c")),
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))), WITH(COUNT(IDENT("old"), false), AS("c")),
                                   WHERE(LESS(PROPERTY_LOOKUP("old", prop), LITERAL(42)))));
   EXPECT_THROW(memgraph::query::MakeSymbolTable(query), UnboundVariableError);
 }
@@ -313,7 +313,7 @@ TEST_F(TestSymbolGenerator, MatchReturnSum) {
   // Test MATCH (n) RETURN SUM(n.prop) + 42 AS result
   auto prop = dba.NameToProperty("prop");
   auto node = NODE("n");
-  auto sum = SUM(PROPERTY_LOOKUP("n", prop));
+  auto sum = SUM(PROPERTY_LOOKUP("n", prop), false);
   auto as_result = AS("result");
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), RETURN(ADD(sum, LITERAL(42)), as_result)));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
@@ -330,8 +330,9 @@ TEST_F(TestSymbolGenerator, MatchReturnSum) {
 TEST_F(TestSymbolGenerator, NestedAggregation) {
   // Test MATCH (n) RETURN SUM(42 + SUM(n.prop)) AS s
   auto prop = dba.NameToProperty("prop");
-  auto query = QUERY(
-      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(SUM(ADD(LITERAL(42), SUM(PROPERTY_LOOKUP("n", prop)))), AS("s"))));
+  auto query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                         RETURN(SUM(ADD(LITERAL(42), SUM(PROPERTY_LOOKUP("n", prop), false)), false), AS("s"))));
   EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
 
@@ -339,7 +340,7 @@ TEST_F(TestSymbolGenerator, WrongAggregationContext) {
   // Test MATCH (n) WITH n.prop AS prop WHERE SUM(prop) < 42
   auto prop = dba.NameToProperty("prop");
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH(PROPERTY_LOOKUP("n", prop), AS("prop")),
-                                  WHERE(LESS(SUM(IDENT("prop")), LITERAL(42)))));
+                                  WHERE(LESS(SUM(IDENT("prop"), false), LITERAL(42)))));
   EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
 
@@ -429,14 +430,15 @@ TEST_F(TestSymbolGenerator, LimitUsingIdentifier) {
 
 TEST_F(TestSymbolGenerator, OrderByAggregation) {
   // Test MATCH (old) RETURN old AS new ORDER BY COUNT(1)
-  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))), RETURN("old", AS("new"), ORDER_BY(COUNT(LITERAL(1))))));
+  auto query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))), RETURN("old", AS("new"), ORDER_BY(COUNT(LITERAL(1), false)))));
   EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
 
 TEST_F(TestSymbolGenerator, OrderByUnboundVariable) {
   // Test MATCH (old) RETURN COUNT(old) AS new ORDER BY old
-  auto query =
-      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))), RETURN(COUNT(IDENT("old")), AS("new"), ORDER_BY(IDENT("old")))));
+  auto query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("old"))), RETURN(COUNT(IDENT("old"), false), AS("new"), ORDER_BY(IDENT("old")))));
   EXPECT_THROW(memgraph::query::MakeSymbolTable(query), UnboundVariableError);
 }
 
@@ -446,7 +448,7 @@ TEST_F(TestSymbolGenerator, AggregationOrderBy) {
   auto ident_old = IDENT("old");
   auto as_new = AS("new");
   auto ident_new = IDENT("new");
-  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), RETURN(COUNT(ident_old), as_new, ORDER_BY(ident_new))));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), RETURN(COUNT(ident_old, false), as_new, ORDER_BY(ident_new))));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   // Symbols for pattern, `old`, `count(old)` and `new`
   EXPECT_EQ(symbol_table.max_position(), 4);
