@@ -40,12 +40,11 @@ static void BM_BenchmarkInsertSkipList(::benchmark::State &state) {
   utils::SkipList<storage::v3::PrimaryKey> skip_list;
   coordinator::Hlc start_timestamp;
   storage::v3::Transaction transaction{start_timestamp, storage::v3::IsolationLevel::SNAPSHOT_ISOLATION};
-  auto *delta = storage::v3::CreateDeleteObjectDelta(&transaction);
 
   for (auto _ : state) {
     for (auto i{0}; i < state.range(0); ++i) {
       auto acc = skip_list.access();
-      acc.insert({storage::v3::PrimaryKey{storage::v3::PropertyValue{i}}});
+      acc.insert({storage::v3::PrimaryKey{storage::v3::PropertyValue{true}}});
     }
   }
 }
@@ -60,7 +59,7 @@ static void BM_BenchmarkInsertStdMap(::benchmark::State &state) {
     for (auto i{0}; i < state.range(0); ++i) {
       std_map.insert({storage::v3::PrimaryKey{storage::v3::PropertyValue{i}},
                       storage::v3::LexicographicallyOrderedVertex{storage::v3::Vertex{
-                          delta, std::vector<storage::v3::PropertyValue>{storage::v3::PropertyValue{i}}}}});
+                          delta, std::vector<storage::v3::PropertyValue>{storage::v3::PropertyValue{true}}}}});
     }
   }
 }
@@ -69,7 +68,8 @@ static void BM_BenchmarkInsertStdSet(::benchmark::State &state) {
   std::set<storage::v3::PrimaryKey> std_set;
   for (auto _ : state) {
     for (auto i{0}; i < state.range(0); ++i) {
-      std_set.insert(storage::v3::PrimaryKey{std::vector<storage::v3::PropertyValue>{storage::v3::PropertyValue{i}}});
+      std_set.insert(
+          storage::v3::PrimaryKey{std::vector<storage::v3::PropertyValue>{storage::v3::PropertyValue{true}}});
     }
   }
 }
