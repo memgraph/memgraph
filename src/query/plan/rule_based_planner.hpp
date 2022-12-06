@@ -181,13 +181,12 @@ class RuleBasedPlanner {
       }
       uint64_t merge_id = 0;
       bool handle_empty_result = true;
-      const auto *last_clause = &query_part.remaining_clauses.back();
       for (const auto &clause : query_part.remaining_clauses) {
         MG_ASSERT(!utils::IsSubtype(*clause, Match::kType), "Unexpected Match in remaining clauses");
         if (auto *ret = utils::Downcast<Return>(clause)) {
           input_op = impl::GenReturn(*ret, std::move(input_op), *context.symbol_table, is_write, context.bound_symbols,
                                      *context.ast_storage);
-          if (&clause == last_clause) {
+          if (&clause == &query_part.remaining_clauses.back()) {
             handle_empty_result = false;
           }
         } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
@@ -200,7 +199,7 @@ class RuleBasedPlanner {
                                    *context.ast_storage);
           // WITH clause advances the command, so reset the flag.
           is_write = false;
-          if (&clause == last_clause) {
+          if (&clause == &query_part.remaining_clauses.back()) {
             handle_empty_result = false;
           }
         } else if (auto op = HandleWriteClause(clause, input_op, *context.symbol_table, context.bound_symbols)) {
@@ -212,7 +211,7 @@ class RuleBasedPlanner {
           input_op =
               std::make_unique<plan::Unwind>(std::move(input_op), unwind->named_expression_->expression_, symbol);
 
-          if (&clause == last_clause) {
+          if (&clause == &query_part.remaining_clauses.back()) {
             handle_empty_result = false;
           }
         } else if (auto *call_proc = utils::Downcast<query::CallProcedure>(clause)) {
@@ -230,7 +229,7 @@ class RuleBasedPlanner {
               std::move(input_op), call_proc->procedure_name_, call_proc->arguments_, call_proc->result_fields_,
               result_symbols, call_proc->memory_limit_, call_proc->memory_scale_, call_proc->is_write_);
           // CHECK
-          if (&clause == last_clause) {
+          if (&clause == &query_part.remaining_clauses.back()) {
             handle_empty_result = false;
           }
         } else if (auto *load_csv = utils::Downcast<query::LoadCsv>(clause)) {
@@ -242,7 +241,7 @@ class RuleBasedPlanner {
                                               load_csv->ignore_bad_, load_csv->delimiter_, load_csv->quote_, row_sym);
 
           // CHECK
-          if (&clause == last_clause) {
+          if (&clause == &query_part.remaining_clauses.back()) {
             handle_empty_result = false;
           }
         } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
