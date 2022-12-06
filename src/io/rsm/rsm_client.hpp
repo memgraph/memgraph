@@ -94,7 +94,7 @@ class RsmClient {
 
   BasicResult<TimedOut, WriteResponseT> SendWriteRequest(WriteRequestT req) {
     Notifier notifier;
-    ReadinessToken readiness_token{0};
+    const ReadinessToken readiness_token{0};
     SendAsyncWriteRequest(req, notifier, readiness_token);
     auto poll_result = AwaitAsyncWriteRequest(readiness_token);
     while (!poll_result) {
