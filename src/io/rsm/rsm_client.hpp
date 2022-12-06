@@ -105,7 +105,7 @@ class RsmClient {
 
   BasicResult<TimedOut, ReadResponseT> SendReadRequest(ReadRequestT req) {
     Notifier notifier;
-    ReadinessToken readiness_token{0};
+    const ReadinessToken readiness_token{0};
     SendAsyncReadRequest(req, notifier, readiness_token);
     auto poll_result = AwaitAsyncReadRequest(readiness_token);
     while (!poll_result) {
