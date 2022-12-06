@@ -237,14 +237,14 @@ class RequestRouter : public RequestRouterInterface {
   // TODO(kostasrim) Simplify return result
   std::vector<VertexAccessor> ScanVertices(std::optional<std::string> label) override {
     // create requests
-    std::vector<ShardRequestState<msgs::ScanVerticesRequest>> unsent_requests = RequestsForScanVertices(label);
-    spdlog::trace("created {} ScanVertices requests", unsent_requests.size());
+    std::vector<ShardRequestState<msgs::ScanVerticesRequest>> requests_to_be_sent = RequestsForScanVertices(label);
+    spdlog::trace("created {} ScanVertices requests", requests_to_be_sent.size());
 
     // begin all requests in parallel
     RunningRequests<msgs::ScanVerticesRequest> running_requests = {};
-    running_requests.reserve(unsent_requests.size());
-    for (size_t i = 0; i < unsent_requests.size(); i++) {
-      auto &request = unsent_requests[i];
+    running_requests.reserve(requests_to_be_sent.size());
+    for (size_t i = 0; i < requests_to_be_sent.size(); i++) {
+      auto &request = requests_to_be_sent[i];
       io::ReadinessToken readiness_token{i};
       auto &storage_client = GetStorageClientForShard(request.shard);
       storage_client.SendAsyncReadRequest(request.request, notifier_, readiness_token);
@@ -272,15 +272,15 @@ class RequestRouter : public RequestRouterInterface {
     MG_ASSERT(!new_vertices.empty());
 
     // create requests
-    std::vector<ShardRequestState<msgs::CreateVerticesRequest>> unsent_requests =
+    std::vector<ShardRequestState<msgs::CreateVerticesRequest>> requests_to_be_sent =
         RequestsForCreateVertices(new_vertices);
-    spdlog::trace("created {} CreateVertices requests", unsent_requests.size());
+    spdlog::trace("created {} CreateVertices requests", requests_to_be_sent.size());
 
     // begin all requests in parallel
     RunningRequests<msgs::CreateVerticesRequest> running_requests = {};
-    running_requests.reserve(unsent_requests.size());
-    for (size_t i = 0; i < unsent_requests.size(); i++) {
-      auto &request = unsent_requests[i];
+    running_requests.reserve(requests_to_be_sent.size());
+    for (size_t i = 0; i < requests_to_be_sent.size(); i++) {
+      auto &request = requests_to_be_sent[i];
       io::ReadinessToken readiness_token{i};
       for (auto &new_vertex : request.request.new_vertices) {
         new_vertex.label_ids.erase(new_vertex.label_ids.begin());
@@ -299,13 +299,13 @@ class RequestRouter : public RequestRouterInterface {
     MG_ASSERT(!new_edges.empty());
 
     // create requests
-    std::vector<ShardRequestState<msgs::CreateExpandRequest>> unsent_requests = RequestsForCreateExpand(new_edges);
+    std::vector<ShardRequestState<msgs::CreateExpandRequest>> requests_to_be_sent = RequestsForCreateExpand(new_edges);
 
     // begin all requests in parallel
     RunningRequests<msgs::CreateExpandRequest> running_requests = {};
-    running_requests.reserve(unsent_requests.size());
-    for (size_t i = 0; i < unsent_requests.size(); i++) {
-      auto &request = unsent_requests[i];
+    running_requests.reserve(requests_to_be_sent.size());
+    for (size_t i = 0; i < requests_to_be_sent.size(); i++) {
+      auto &request = requests_to_be_sent[i];
       io::ReadinessToken readiness_token{i};
       auto &storage_client = GetStorageClientForShard(request.shard);
       msgs::WriteRequests req = request.request;
@@ -325,13 +325,13 @@ class RequestRouter : public RequestRouterInterface {
     // must be fetched again with an ExpandOne(Edges.dst)
 
     // create requests
-    std::vector<ShardRequestState<msgs::ExpandOneRequest>> unsent_requests = RequestsForExpandOne(request);
+    std::vector<ShardRequestState<msgs::ExpandOneRequest>> requests_to_be_sent = RequestsForExpandOne(request);
 
     // begin all requests in parallel
     RunningRequests<msgs::ExpandOneRequest> running_requests = {};
-    running_requests.reserve(unsent_requests.size());
-    for (size_t i = 0; i < unsent_requests.size(); i++) {
-      auto &request = unsent_requests[i];
+    running_requests.reserve(requests_to_be_sent.size());
+    for (size_t i = 0; i < requests_to_be_sent.size(); i++) {
+      auto &request = requests_to_be_sent[i];
       io::ReadinessToken readiness_token{i};
       auto &storage_client = GetStorageClientForShard(request.shard);
       msgs::ReadRequests req = request.request;
@@ -360,14 +360,14 @@ class RequestRouter : public RequestRouterInterface {
 
   std::vector<msgs::GetPropertiesResultRow> GetProperties(msgs::GetPropertiesRequest requests) override {
     // create requests
-    std::vector<ShardRequestState<msgs::GetPropertiesRequest>> unsent_requests =
+    std::vector<ShardRequestState<msgs::GetPropertiesRequest>> requests_to_be_sent =
         RequestsForGetProperties(std::move(requests));
 
     // begin all requests in parallel
     RunningRequests<msgs::GetPropertiesRequest> running_requests = {};
-    running_requests.reserve(unsent_requests.size());
-    for (size_t i = 0; i < unsent_requests.size(); i++) {
-      auto &request = unsent_requests[i];
+    running_requests.reserve(requests_to_be_sent.size());
+    for (size_t i = 0; i < requests_to_be_sent.size(); i++) {
+      auto &request = requests_to_be_sent[i];
       io::ReadinessToken readiness_token{i};
       auto &storage_client = GetStorageClientForShard(request.shard);
       msgs::ReadRequests req = request.request;
