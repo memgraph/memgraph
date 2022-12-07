@@ -136,7 +136,7 @@ std::optional<Enum> StringToEnum(const auto &value, const auto &mappings) {
 
 // Short help flag.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(h, false, "Print usage and exit.");
+DEFINE_HIDDEN_bool(h, false, "Print usage and exit.");
 
 // Bolt server flags.
 DEFINE_string(bolt_address, "0.0.0.0", "IP address on which the Bolt server should listen.");
