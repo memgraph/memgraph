@@ -174,6 +174,19 @@ struct SchemasInfo {
   Schemas::SchemasList schemas;
 };
 
+struct SplitInfo {
+  uint64_t shard_version;
+  PrimaryKey split_point;
+};
+
+// If edge properties-on-edges is false then we don't need to send edges but
+// only vertices, since they will contain those edges
+struct SplitData {
+  VertexContainer vertices;
+  std::optional<EdgeContainer> edges;
+  IndicesInfo indices_info;
+};
+
 /// Structure used to return information about the storage.
 struct StorageInfo {
   uint64_t vertex_count;
@@ -356,6 +369,10 @@ class Shard final {
 
   void StoreMapping(std::unordered_map<uint64_t, std::string> id_to_name);
 
+  std::optional<SplitInfo> ShouldSplit() const noexcept;
+
+  SplitData PerformSplit(const PrimaryKey &split_key);
+
  private:
   Transaction &GetTransaction(coordinator::Hlc start_timestamp, IsolationLevel isolation_level);
 
@@ -373,6 +390,7 @@ class Shard final {
   // list is used only when properties are enabled for edges. Because of that we
   // keep a separate count of edges that is always updated.
   uint64_t edge_count_{0};
+  uint64_t shard_version_{0};
 
   SchemaValidator schema_validator_;
   VertexValidator vertex_validator_;
