@@ -3063,12 +3063,12 @@ EmptyResult::EmptyResult(const std::shared_ptr<LogicalOperator> &input)
 
 ACCEPT_WITH_INPUT(EmptyResult)
 
-std::vector<Symbol> EmptyResult::OutputSymbols(const SymbolTable &symbol_table) const {
-  return input_->OutputSymbols(symbol_table);
+std::vector<Symbol> EmptyResult::OutputSymbols(const SymbolTable &) const {  // NOLINT(hicpp-named-parameter)
+  return {};
 }
 
-std::vector<Symbol> EmptyResult::ModifiedSymbols(const SymbolTable &table) const {
-  return input_->ModifiedSymbols(table);
+std::vector<Symbol> EmptyResult::ModifiedSymbols(const SymbolTable &) const {  // NOLINT(hicpp-named-parameter)
+  return {};
 }
 
 class EmptyResultCursor : public Cursor {
@@ -3081,10 +3081,12 @@ class EmptyResultCursor : public Cursor {
 
     if (!pulled_all_input_) {
       while (input_cursor_->Pull(frame, context)) {
+        if (MustAbort(context)) {
+          throw HintedAbortError();
+        }
       }
       pulled_all_input_ = true;
     }
-    if (MustAbort(context)) throw HintedAbortError();
     return false;
   }
 

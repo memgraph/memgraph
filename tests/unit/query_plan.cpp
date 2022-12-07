@@ -538,7 +538,7 @@ TYPED_TEST(TestPlanner, CreateWithOrderByWhere) {
   });
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(), ExpectCreateExpand(), acc, ExpectProduce(),
-            ExpectOrderBy(), ExpectFilter());
+            ExpectOrderBy(), ExpectFilter(), ExpectEmptyResult());
 }
 
 TYPED_TEST(TestPlanner, ReturnAddSumCountOrderBy) {

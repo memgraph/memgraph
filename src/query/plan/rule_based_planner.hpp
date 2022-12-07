@@ -180,15 +180,11 @@ class RuleBasedPlanner {
         }
       }
       uint64_t merge_id = 0;
-      bool handle_empty_result = true;
       for (const auto &clause : query_part.remaining_clauses) {
         MG_ASSERT(!utils::IsSubtype(*clause, Match::kType), "Unexpected Match in remaining clauses");
         if (auto *ret = utils::Downcast<Return>(clause)) {
           input_op = impl::GenReturn(*ret, std::move(input_op), *context.symbol_table, is_write, context.bound_symbols,
                                      *context.ast_storage);
-          if (&clause == &query_part.remaining_clauses.back()) {
-            handle_empty_result = false;
-          }
         } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
           input_op = GenMerge(*merge, std::move(input_op), query_part.merge_matching[merge_id++]);
           // Treat MERGE clause as write, because we do not know if it will
@@ -199,9 +195,6 @@ class RuleBasedPlanner {
                                    *context.ast_storage);
           // WITH clause advances the command, so reset the flag.
           is_write = false;
-          if (&clause == &query_part.remaining_clauses.back()) {
-            handle_empty_result = false;
-          }
         } else if (auto op = HandleWriteClause(clause, input_op, *context.symbol_table, context.bound_symbols)) {
           is_write = true;
           input_op = std::move(op);
@@ -211,9 +204,6 @@ class RuleBasedPlanner {
           input_op =
               std::make_unique<plan::Unwind>(std::move(input_op), unwind->named_expression_->expression_, symbol);
 
-          if (&clause == &query_part.remaining_clauses.back()) {
-            handle_empty_result = false;
-          }
         } else if (auto *call_proc = utils::Downcast<query::CallProcedure>(clause)) {
           std::vector<Symbol> result_symbols;
           result_symbols.reserve(call_proc->result_identifiers_.size());
@@ -228,10 +218,6 @@ class RuleBasedPlanner {
           input_op = std::make_unique<plan::CallProcedure>(
               std::move(input_op), call_proc->procedure_name_, call_proc->arguments_, call_proc->result_fields_,
               result_symbols, call_proc->memory_limit_, call_proc->memory_scale_, call_proc->is_write_);
-          // CHECK
-          if (&clause == &query_part.remaining_clauses.back()) {
-            handle_empty_result = false;
-          }
         } else if (auto *load_csv = utils::Downcast<query::LoadCsv>(clause)) {
           const auto &row_sym = context.symbol_table->at(*load_csv->row_var_);
           context.bound_symbols.insert(row_sym);
@@ -240,10 +226,6 @@ class RuleBasedPlanner {
               std::make_unique<plan::LoadCsv>(std::move(input_op), load_csv->file_, load_csv->with_header_,
                                               load_csv->ignore_bad_, load_csv->delimiter_, load_csv->quote_, row_sym);
 
-          // CHECK
-          if (&clause == &query_part.remaining_clauses.back()) {
-            handle_empty_result = false;
-          }
         } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
           is_write = true;
           input_op = HandleForeachClause(foreach, std::move(input_op), *context.symbol_table, context.bound_symbols,
@@ -252,10 +234,10 @@ class RuleBasedPlanner {
           throw utils::NotYetImplemented("clause '{}' conversion to operator(s)", clause->GetTypeInfo().name);
         }
       }
-      // Is this the only situation that should be covered
-      if (handle_empty_result && !query_part.remaining_clauses.empty()) {
-        input_op = std::make_unique<EmptyResult>(std::move(input_op));
-      }
+    }
+    // Is this the only situation that should be covered
+    if (input_op->OutputSymbols(*context.symbol_table).empty()) {
+      input_op = std::make_unique<EmptyResult>(std::move(input_op));
     }
     return input_op;
   }
