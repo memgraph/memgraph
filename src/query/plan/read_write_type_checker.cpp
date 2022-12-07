@@ -11,10 +11,11 @@
 
 #include "query/plan/read_write_type_checker.hpp"
 
-#define PRE_VISIT(TOp, RWType, continue_visiting) \
-  bool ReadWriteTypeChecker::PreVisit(TOp &) {    \
-    UpdateType(RWType);                           \
-    return continue_visiting;                     \
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define PRE_VISIT(TOp, RWType, continue_visiting)                                     \
+  bool ReadWriteTypeChecker::PreVisit(TOp &) { /*NOLINT(bugprone-macro-parentheses)*/ \
+    UpdateType(RWType);                                                               \
+    return continue_visiting;                                                         \
   }
 
 namespace memgraph::query::plan {
