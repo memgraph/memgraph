@@ -94,19 +94,19 @@ ValidFramesModifier::Iterator ValidFramesModifier::end() {
   return Iterator{multiframe_.frames_.data() + multiframe_.frames_.size(), *this};
 }
 
-ValidFramesConsumer::ValidFramesConsumer(MultiFrame &multiframe) : multiframe_(multiframe) {}
+ValidFramesConsumer::ValidFramesConsumer(MultiFrame &multiframe) : multiframe_(&multiframe) {}
 
 // NOLINTNEXTLINE (bugprone-exception-escape)
 ValidFramesConsumer::~ValidFramesConsumer() noexcept {
   // TODO Possible optimisation: only DefragmentValidFrames if one frame has been invalidated? Only if does not
   // cost too much to store it
-  multiframe_.DefragmentValidFrames();
+  multiframe_->DefragmentValidFrames();
 }
 
-ValidFramesConsumer::Iterator ValidFramesConsumer::begin() { return Iterator{&multiframe_.frames_[0], *this}; }
+ValidFramesConsumer::Iterator ValidFramesConsumer::begin() { return Iterator{&multiframe_->frames_[0], *this}; }
 
 ValidFramesConsumer::Iterator ValidFramesConsumer::end() {
-  return Iterator{multiframe_.frames_.data() + multiframe_.frames_.size(), *this};
+  return Iterator{multiframe_->frames_.data() + multiframe_->frames_.size(), *this};
 }
 
 InvalidFramesPopulator::InvalidFramesPopulator(MultiFrame &multiframe) : multiframe_(multiframe) {}
