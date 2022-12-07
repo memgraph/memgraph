@@ -1,49 +1,50 @@
-# mgBench: Benchmark for graph databases
+# :fire: mgBench: Benchmark for graph databases
 
-## Benchmark Overview
+## :clipboard: Benchmark Overview
 
-mgBench is primarily designed to benchmark graph databases. To test graph database performance, this benchmark executes Cypher queries (write, read, update, aggregate, and analyze) on a given dataset. Queries are general and represent a typical workload that would be used to analyze any graph dataset. [BenchGraph](https://memgraph.github.io/benchgraph) platform shows the results of running these queries on supported vendors. It shows the overall performance of each system relative to others.
+mgBench is primarily designed to benchmark graph databases. To test graph database performance, this benchmark executes Cypher queries (write, read, update, aggregate, and analyze) on a given dataset. Queries are general and represent a typical workload that would be used to analyze any graph dataset. [BenchGraph](https://memgraph.com/benchgraph/) platform shows the results of running these queries on supported vendors. It shows the overall performance of each system relative to others.
 
 Three workload types can be executed:
-- Isolated - Concurrent execution of a single query,
-- Mixed - Concurrent execution of a single query mixed with a certain percentage of queries from a designated query group,
+- Isolated - Concurrent execution of a single type of query,
+- Mixed - Concurrent execution of a single type of query mixed with a certain percentage of queries from a designated query group,
 - Realistic - Concurrent execution of queries from write, read, update and analyze groups.
 
 Currently, the benchmark is executed on the social media dataset Pokec, available in different sizes. The full list of queries and their grouping is available as [query list](#query-list).
 
 This methodology is designed to be read from top to bottom to understand what is being tested and how, but feel free to jump to parts that interest you.
 
-- [mgBench: Benchmark for graph databases](#mgbench-benchmark-for-graph-databases)
-  - [Benchmark Overview](#benchmark-overview)
-  - [Design goals](#design-goals)
+- [:fire: mgBench: Benchmark for graph databases](#fire-mgbench-benchmark-for-graph-databases)
+  - [:clipboard: Benchmark Overview](#clipboard-benchmark-overview)
+  - [:dart: Design goals](#dart-design-goals)
     - [Reproducibility and validation](#reproducibility-and-validation)
     - [Database compatibility](#database-compatibility)
     - [Workloads](#workloads)
     - [Fine-tuning](#fine-tuning)
     - [Limitations](#limitations)
-  - [mgBench](#mgbench)
+  - [:wrench: mgBench](#wrench-mgbench)
     - [Important files](#important-files)
     - [Prerequisites](#prerequisites)
     - [Running the benchmark](#running-the-benchmark)
     - [Database conditions](#database-conditions)
     - [Comparing results](#comparing-results)
-  - [Results](#results)
-  - [Datasets](#datasets)
+  - [:bar\_chart: Results](#bar_chart-results)
+  - [:books: Datasets](#books-datasets)
     - [Pokec](#pokec)
-    - [Query list](#query-list)
-  - [Platform](#platform)
+      - [Query list](#query-list)
+  - [:computer: Platform](#computer-platform)
     - [Intel - HP](#intel---hp)
-  - [Supported databases](#supported-databases)
+  - [:nut\_and\_bolt: Supported databases](#nut_and_bolt-supported-databases)
     - [Database notes](#database-notes)
-  - [History and Future of mgBench](#history-and-future-of-mgbench)
+  - [:raised\_hands: Contributions](#raised_hands-contributions)
+  - [:mega: History and Future of mgBench](#mega-history-and-future-of-mgbench)
     - [History of mgBench](#history-of-mgbench)
-  - [Future of mgBench](#future-of-mgbench)
+    - [Future of mgBench](#future-of-mgbench)
 
-## Design goals
+## :dart: Design goals
 
 ### Reproducibility and validation
 
-Running this benchmark is automated, and the code used to run benchmarks is publicly available. You can  [run mgBench](#running-the-benchmark) with default settings to validate the results at [BenchGraph platform](https://memgraph.github.io/benchgraph). The results may differ depending on the hardware, database configuration, and other variables involved in your setup.  But if the results you get are significantly different, feel free to [open a GitHub issue](https://github.com/memgraph/memgraph/issues).
+Running this benchmark is automated, and the code used to run benchmarks is publicly available. You can  [run mgBench](#running-the-benchmark) with default settings to validate the results at [BenchGraph platform](https://memgraph.com/benchgraph). The results may differ depending on the hardware, database configuration, and other variables involved in your setup.  But if the results you get are significantly different, feel free to [open a GitHub issue](https://github.com/memgraph/memgraph/issues).
 
 In the future, the project will be expanded to include more platforms to see how systems perform on different OS and hardware configurations. If you are interested in what will be added and tested, read the section about [the future of mgBench](#future-of-mgbench)
 
@@ -61,10 +62,10 @@ If your database does not support the mentioned requirements, follow the project
 ### Workloads
 Running queries as standalone units is simple and relatively easy to measure, but vendors often apply various caching and pre-aggregations that influence the results in these kinds of scenarios.  Results from running single queries can hint at the database's general performance, but in real life, a database is queried by multiple clients from multiple sides. That is why the mgBench client supports the consecutive execution of various queries. Concurrently writing, reading, updating and executing aggregational and analytical queries provides a better view of overall system performance than executing and measuring a single query. Queries that the mgBench executes are grouped into 5 groups - write, read, update, aggregate and analytical.
 
-The [BenchGraph platform](https://memgraph.github.io/benchgraph) shows results made by mgBench by executing three types of workloads:
-- Isolated workload
-- Mixed workload
-- Realistic workload
+The [BenchGraph platform](https://memgraph.com/benchgraph) shows results made by mgBench by executing three types of workloads:
+- ***Isolated workload***
+- ***Mixed workload***
+- ***Realistic workload***
 
 Each of these workloads has a specific purpose:
 
@@ -95,7 +96,7 @@ Query results are not verified or important. The queries might return different 
 5. Architecturally different systems can be set up and measured biasedly.
 
 
-## mgBench
+## :wrench: mgBench
 ### Important files
 
 Listed below are the main scripts used to run the benchmarks:
@@ -144,7 +145,7 @@ In the example of `--realistic 100 30 40 10 20` the distribution is as follows:
 
 For `--mixed` workload argument, the first five parameters are the same, with an addition of a parameter for defining the percentage of individual queries.
 
-Feel free to add different configurations if you want. Results from the above benchmark run are visible on [BenchGraph platform](https://memgraph.github.io/benchgraph)
+Feel free to add different configurations if you want. Results from the above benchmark run are visible on [BenchGraph platform](https://memgraph.com/benchgraph)
 
 ### Database conditions
 In a production environment, database query caches are usually warmed from usage or pre-warm procedure to provide the best possible performance. Each workload in mgBench will be executed under the following conditions:
@@ -173,8 +174,8 @@ compare_results.py
 
 The output is an HTML file with the visual representation of the performance differences between two compared vendors. The first passed summary JSON file is the reference point.
 
-## Results
-Results visible in the HTML file or at [BenchGraph](https://memgraph.github.io/benchgraph) are throughput, memory, and latency. Database throughput and memory usage directly impact database usability and cost, while the latency of the query shows the base query execution duration.
+## :bar_chart: Results
+Results visible in the HTML file or at [BenchGraph](https://memgraph.com/benchgraph) are throughput, memory, and latency. Database throughput and memory usage directly impact database usability and cost, while the latency of the query shows the base query execution duration.
 
 ***Throughput*** directly defines how performant the database is and how much query traffic it can handle in a fixed time interval. It is expressed in queries per second. In each concurrent workload, execution is split across multiple clients. Each client executes queries concurrently. The duration of total execution is the sum of all concurrent clients' execution duration in seconds. In mgBench, the total count of executed queries and the total duration defines throughput per second across concurrent execution.
 
@@ -205,7 +206,7 @@ Here is the code snippet from the client, that calculates ***throughput*** and m
 
 Each workload and all the results are based on concurrent query execution, except ***latency***.  As stated in [limitations](#limitations) section, mgBench tracks just a subset of resources, but the chapter on [mgBench future](#future-of-mgbench) explains the expansion plans.
 
-## Datasets
+## :books: Datasets
 Before workload execution, appropriate dataset indexes are set.  Each vendor can have a specific syntax for setting up indexes, but those indexes should be schematically as similar as possible.
 
 After each workload is executed, the database is cleaned, and a new dataset is imported to provide a clean start for the following workload run. When executing isolated and mixed workloads, the database is also restarted after executing each query to minimize the impact on the following query execution.
@@ -221,7 +222,7 @@ Dataset is imported as a CYPHERL file of Cypher queries. Feel free to check data
 Once the script is started, a single index is configured on (:User{id}). Only then are queries executed.
 Index queries for each supported vendor can be downloaded from “https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/vendor_name.cypher”, just make sure to use the proper vendor name such as `memgraph.cypher`.
 
-### Query list
+#### Query list
 
 | |Name     | Group | Query |
 |-|-----| -- | ------------ |
@@ -249,7 +250,7 @@ Index queries for each supported vendor can be downloaded from “https://s3.eu-
 |Q22|single_vertex_property_update| update | MATCH (n:User {id: $id})-[e]->(m) RETURN m LIMIT 1|
 |Q23|single_vertex_read| read | MATCH (n:User {id : $id}) RETURN n|
 
-## Platform
+## :computer: Platform
 
 Testing on different hardware platforms and cloudVMs is essential for validating benchmark results. Currently, the tests are run on two different platforms.
 
@@ -260,13 +261,12 @@ Testing on different hardware platforms and cloudVMs is essential for validating
 - RAM: 144GB
 - OS: Debian 4.19
 
-## Supported databases
+## :nut_and_bolt: Supported databases
 
 Due to current [database compatibility](link) requirements, the only supported database systems at the moment are:
 1. Memgraph v2.4
 2. Neo4j Community Edition v5.1.
 
-Feel free to contribute and add more databases.
 ### Database notes
 
 Running configurations that differ from default configuration:
@@ -274,14 +274,18 @@ Running configurations that differ from default configuration:
 - Memgraph - `storage_snapshot_on_exit=true`, `storage_recover_on_startup=true`
 - Neo4j - `dbms.security.auth_enabled=false`
 
-## History and Future of mgBench
+## :raised_hands: Contributions
+
+As previously stated, mgBench will expand, and we will need help adding more datasets, queries, databases, and support for protocols in mgBench. Feel free to contribute to any of those, and throw us a start :star:!
+
+## :mega: History and Future of mgBench
 ### History of mgBench
 
 Infrastructure around mgBench was developed to test and maintain Memgraph performance. When critical code is changed, a performance test is run on Memgraph’s CI/CD infrastructure to ensure performance is not impacted. Due to the usage of mgBench for internal testing, some parts of the code are still tightly connected to Memgraph’s CI/CD infrastructure. The remains of that code do not impact benchmark setup or performance in any way.
 
-## Future of mgBench
-We have big plans for mgBench infrastructure that refers to the above mentioned [limitations](). Even though a basic dataset can give a solid indication of performance, adding bigger and more complex datasets is a priority to enable the execution of complex analytical queries.
+### Future of mgBench
+We have big plans for mgBench infrastructure that refers to the above mentioned [limitations](#limitations). Even though a basic dataset can give a solid indication of performance, adding bigger and more complex datasets is a priority to enable the execution of complex analytical queries.
 
 Also high on the list is expanding the list of vendors and providing support for different protocols and languages. The goal is to use mgBench to see how well Memgraph performs on various benchmarks tasks and publicly commit to improving.
 
-mgBench is currently a passive benchmark since resource usage and saturation across execution are not tracked. Sanity checks were performed, but these values are needed to get the full picture after each test. mgBench also deserves its own repository, and it will be decupled from Memgraph’s testing infrastructure.
+mgBench is currently a passive benchmark since resource usage and saturation across execution are not tracked. Sanity checks were performed, but these values are needed to get the full picture after each test. mgBench also deserves its own repository, and it will be decoupled from Memgraph’s testing infrastructure.

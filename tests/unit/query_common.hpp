@@ -549,12 +549,15 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
 #define LESS_EQ(expr1, expr2) storage.Create<memgraph::query::LessEqualOperator>((expr1), (expr2))
 #define GREATER(expr1, expr2) storage.Create<memgraph::query::GreaterOperator>((expr1), (expr2))
 #define GREATER_EQ(expr1, expr2) storage.Create<memgraph::query::GreaterEqualOperator>((expr1), (expr2))
-#define SUM(expr) storage.Create<memgraph::query::Aggregation>((expr), nullptr, memgraph::query::Aggregation::Op::SUM)
-#define COUNT(expr) \
-  storage.Create<memgraph::query::Aggregation>((expr), nullptr, memgraph::query::Aggregation::Op::COUNT)
-#define AVG(expr) storage.Create<memgraph::query::Aggregation>((expr), nullptr, memgraph::query::Aggregation::Op::AVG)
-#define COLLECT_LIST(expr) \
-  storage.Create<memgraph::query::Aggregation>((expr), nullptr, memgraph::query::Aggregation::Op::COLLECT_LIST)
+#define SUM(expr, distinct) \
+  storage.Create<memgraph::query::Aggregation>((expr), nullptr, memgraph::query::Aggregation::Op::SUM, (distinct))
+#define COUNT(expr, distinct) \
+  storage.Create<memgraph::query::Aggregation>((expr), nullptr, memgraph::query::Aggregation::Op::COUNT, (distinct))
+#define AVG(expr, distinct) \
+  storage.Create<memgraph::query::Aggregation>((expr), nullptr, memgraph::query::Aggregation::Op::AVG, (distinct))
+#define COLLECT_LIST(expr, distinct)                                                                            \
+  storage.Create<memgraph::query::Aggregation>((expr), nullptr, memgraph::query::Aggregation::Op::COLLECT_LIST, \
+                                               (distinct))
 #define EQ(expr1, expr2) storage.Create<memgraph::query::EqualOperator>((expr1), (expr2))
 #define NEQ(expr1, expr2) storage.Create<memgraph::query::NotEqualOperator>((expr1), (expr2))
 #define AND(expr1, expr2) storage.Create<memgraph::query::AndOperator>((expr1), (expr2))
