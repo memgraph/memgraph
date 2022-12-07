@@ -53,10 +53,12 @@ constexpr const char *func_code =
     "node_iter.visit_ImportFrom = visit_ImportFrom\n"
     "node_iter.visit(ast.parse(code))\n";
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)w
 DEFINE_string(python_submodules_directory, "mage",
-              "Directory where the python submodules utility procedures are saved.");
+              "Directory in which the Python submodules' utility procedures are saved.");
 
-void ProcessFileDependencies(std::filesystem::path file_path_, const char *func_code, PyObject *sys_mod_ref);
+void ProcessFileDependencies(std::filesystem::path file_path_, const char *module_path, const char *func_code,
+                             PyObject *sys_mod_ref);
 
 ModuleRegistry gModuleRegistry;
 
@@ -1032,7 +1034,7 @@ bool PythonModule::Close() {
   if (std::filesystem::exists(submodules_path)) {
     std::filesystem::path submodules;
 
-    ProcessFileDependencies(file_path_, func_code, sys_mod_ref);
+    ProcessFileDependencies(file_path_, file_path_.stem().c_str(), func_code, sys_mod_ref);
 
     for (auto const &dir_entry : std::filesystem::directory_iterator(submodules_path)) {
       std::string_view dir_entry_stem = std::string_view(dir_entry.path().stem().c_str());
@@ -1052,7 +1054,7 @@ bool PythonModule::Close() {
         }
         std::string_view rec_dir_entry_ext = std::string_view(rec_dir_entry.path().extension().c_str());
         if (!rec_dir_entry.is_regular_file() || rec_dir_entry_ext.compare(".pyc") == 0) continue;
-        ProcessFileDependencies(rec_dir_entry.path().c_str(), func_code, sys_mod_ref);
+        ProcessFileDependencies(rec_dir_entry.path().c_str(), file_path_.stem().c_str(), func_code, sys_mod_ref);
       }
     }
   }
@@ -1071,7 +1073,8 @@ bool PythonModule::Close() {
   return true;
 }
 
-void ProcessFileDependencies(std::filesystem::path file_path_, const char *func_code, PyObject *sys_mod_ref) {
+void ProcessFileDependencies(std::filesystem::path file_path_, const char *module_path, const char *func_code,
+                             PyObject *sys_mod_ref) {
   const auto maybe_content =
       ReadFile(file_path_);  // this is already done at Load so it can somehow be optimized but not sure how yet
 
@@ -1100,7 +1103,8 @@ void ProcessFileDependencies(std::filesystem::path file_path_, const char *func_
           PyObject *sys_mod_key = nullptr;
           while ((sys_mod_key = PyIter_Next(sys_iterator))) {
             const char *sys_mod_key_name = PyUnicode_AsUTF8(sys_mod_key);
-            if (std::string_view(sys_mod_key_name).rfind(module_name_str, 0) == 0) {
+            std::string_view sys_mod_key_name_str = std::string_view(sys_mod_key_name);
+            if (sys_mod_key_name_str.rfind(module_name_str, 0) == 0 && sys_mod_key_name_str.compare(module_path) != 0) {
               PyDict_DelItemString(sys_mod_ref, sys_mod_key_name);  // don't test output
             }
             Py_DECREF(sys_mod_key);
