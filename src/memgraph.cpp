@@ -917,6 +917,17 @@ int main(int argc, char **argv) {
   interpreter_context.auth = &auth_handler;
   interpreter_context.auth_checker = &auth_checker;
 
+  if (!FLAGS_init_file.empty()) {
+    spdlog::info("Running init file.");
+#ifdef MG_ENTERPRISE
+    if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+      InitFromCypherlFile(interpreter_context, FLAGS_init_file, &audit_log);
+    }
+#else
+    InitFromCypherlFile(interpreter_context, FLAGS_init_file);
+#endif
+  }
+
   auto *maybe_username = std::getenv(kMgUser);
   auto *maybe_password = std::getenv(kMgPassword);
   auto *maybe_pass_file = std::getenv(kMgPassfile);
@@ -938,16 +949,6 @@ int main(int argc, char **argv) {
         &interpreter_context.ast_cache, &dba, interpreter_context.config.query, interpreter_context.auth_checker);
   }
 
-  if (!FLAGS_init_file.empty()) {
-    spdlog::info("Running init file.");
-#ifdef MG_ENTERPRISE
-    if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-      InitFromCypherlFile(interpreter_context, FLAGS_init_file, &audit_log);
-    }
-#else
-    InitFromCypherlFile(interpreter_context, FLAGS_init_file);
-#endif
-  }
   // As the Stream transformations are using modules, they have to be restored after the query modules are loaded.
   interpreter_context.streams.RestoreStreams();
 
