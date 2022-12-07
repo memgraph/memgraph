@@ -12,7 +12,7 @@
 #include "query/plan/read_write_type_checker.hpp"
 
 #define PRE_VISIT(TOp, RWType, continue_visiting) \
-  bool ReadWriteTypeChecker::PreVisit(TOp &op) {  \
+  bool ReadWriteTypeChecker::PreVisit(TOp &) {    \
     UpdateType(RWType);                           \
     return continue_visiting;                     \
   }
@@ -87,7 +87,7 @@ bool ReadWriteTypeChecker::PreVisit([[maybe_unused]] Foreach &op) {
 
 #undef PRE_VISIT
 
-bool ReadWriteTypeChecker::Visit(Once &op) { return false; }
+bool ReadWriteTypeChecker::Visit(Once &) { return false; }  // NOLINT(hicpp-named-parameter)
 
 void ReadWriteTypeChecker::UpdateType(RWType op_type) {
   // Update type only if it's not the NONE type and the current operator's type
