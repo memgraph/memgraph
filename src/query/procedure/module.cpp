@@ -1053,7 +1053,7 @@ bool PythonModule::Close() {
           std::filesystem::remove_all(rec_dir_entry.path() / "__pycache__");
         }
         std::string_view rec_dir_entry_ext = std::string_view(rec_dir_entry.path().extension().c_str());
-        if (!rec_dir_entry.is_regular_file() || rec_dir_entry_ext.compare(".pyc") == 0) continue;
+        if (!rec_dir_entry.is_regular_file() || rec_dir_entry_ext.compare(".py") != 0) continue;
         ProcessFileDependencies(rec_dir_entry.path().c_str(), file_path_.stem().c_str(), func_code, sys_mod_ref);
       }
     }
@@ -1103,7 +1103,7 @@ void ProcessFileDependencies(std::filesystem::path file_path_, const char *modul
           PyObject *sys_mod_key = nullptr;
           while ((sys_mod_key = PyIter_Next(sys_iterator))) {
             const char *sys_mod_key_name = PyUnicode_AsUTF8(sys_mod_key);
-            std::string_view sys_mod_key_name_str = std::string_view(sys_mod_key_name);
+            auto sys_mod_key_name_str = std::string_view(sys_mod_key_name);
             if (sys_mod_key_name_str.rfind(module_name_str, 0) == 0 && sys_mod_key_name_str.compare(module_path) != 0) {
               PyDict_DelItemString(sys_mod_ref, sys_mod_key_name);  // don't test output
             }
