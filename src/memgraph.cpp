@@ -99,6 +99,10 @@
 #include "audit/log.hpp"
 #endif
 
+constexpr const char *kMgUser = "MG_USER";
+constexpr const char *kMgPassword = "MG_PASSWORD";
+constexpr const char *kMgPassfile = "MG_PASSFILE";
+
 namespace {
 std::string GetAllowedEnumValuesString(const auto &mappings) {
   std::vector<std::string> allowed_values;
@@ -913,15 +917,6 @@ int main(int argc, char **argv) {
   interpreter_context.auth = &auth_handler;
   interpreter_context.auth_checker = &auth_checker;
 
-  {
-    // Triggers can execute query procedures, so we need to reload the modules first and then
-    // the triggers
-    auto storage_accessor = interpreter_context.db->Access();
-    auto dba = memgraph::query::DbAccessor{&storage_accessor};
-    interpreter_context.trigger_store.RestoreTriggers(
-        &interpreter_context.ast_cache, &dba, interpreter_context.config.query, interpreter_context.auth_checker);
-  }
-
   if (!FLAGS_init_file.empty()) {
     spdlog::info("Running init file.");
 #ifdef MG_ENTERPRISE
@@ -932,6 +927,28 @@ int main(int argc, char **argv) {
     InitFromCypherlFile(interpreter_context, FLAGS_init_file);
 #endif
   }
+
+  auto *maybe_username = std::getenv(kMgUser);
+  auto *maybe_password = std::getenv(kMgPassword);
+  auto *maybe_pass_file = std::getenv(kMgPassfile);
+  if (maybe_username && maybe_password) {
+    auth_handler.CreateUser(maybe_username, maybe_password);
+  } else if (maybe_pass_file) {
+    const auto [username, password] = LoadUsernameAndPassword(maybe_pass_file);
+    if (!username.empty() && !password.empty()) {
+      auth_handler.CreateUser(username, password);
+    }
+  }
+
+  {
+    // Triggers can execute query procedures, so we need to reload the modules first and then
+    // the triggers
+    auto storage_accessor = interpreter_context.db->Access();
+    auto dba = memgraph::query::DbAccessor{&storage_accessor};
+    interpreter_context.trigger_store.RestoreTriggers(
+        &interpreter_context.ast_cache, &dba, interpreter_context.config.query, interpreter_context.auth_checker);
+  }
+
   // As the Stream transformations are using modules, they have to be restored after the query modules are loaded.
   interpreter_context.streams.RestoreStreams();
 
