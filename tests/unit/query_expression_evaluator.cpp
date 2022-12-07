@@ -596,7 +596,7 @@ TEST_F(ExpressionEvaluatorTest, LabelsTest) {
 }
 
 TEST_F(ExpressionEvaluatorTest, Aggregation) {
-  auto aggr = storage.Create<Aggregation>(storage.Create<PrimitiveLiteral>(42), nullptr, Aggregation::Op::COUNT);
+  auto aggr = storage.Create<Aggregation>(storage.Create<PrimitiveLiteral>(42), nullptr, Aggregation::Op::COUNT, false);
   auto aggr_sym = symbol_table.CreateSymbol("aggr", true);
   aggr->MapTo(aggr_sym);
   frame[aggr_sym] = TypedValue(1);
