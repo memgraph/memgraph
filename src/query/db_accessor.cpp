@@ -115,7 +115,7 @@ auto SubgraphVertexAccessor::OutEdges(storage::View view) const -> decltype(impl
   auto maybe_edges = impl_.impl_.OutEdges(view, {});
   if (maybe_edges.HasError()) return maybe_edges.GetError();
   auto edges = std::move(*maybe_edges);
-  auto &graph_edges = graph_->edges();
+  const auto &graph_edges = graph_->edges();
 
   std::vector<storage::EdgeAccessor> filteredOutEdges;
   for (auto &edge : edges) {
@@ -132,7 +132,7 @@ auto SubgraphVertexAccessor::InEdges(storage::View view) const -> decltype(impl_
   auto maybe_edges = impl_.impl_.InEdges(view, {});
   if (maybe_edges.HasError()) return maybe_edges.GetError();
   auto edges = std::move(*maybe_edges);
-  auto &graph_edges = graph_->edges();
+  const auto &graph_edges = graph_->edges();
 
   std::vector<storage::EdgeAccessor> filteredOutEdges;
   for (auto &edge : edges) {
