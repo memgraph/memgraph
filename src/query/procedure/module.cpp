@@ -21,6 +21,7 @@ extern "C" {
 #include <fmt/format.h>
 #include <unistd.h>
 
+#include <gflags/gflags.h>
 #include "py/py.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/procedure/py_module.hpp"
@@ -51,6 +52,9 @@ constexpr const char *func_code =
     "node_iter.visit_Import = visit_Import\n"
     "node_iter.visit_ImportFrom = visit_ImportFrom\n"
     "node_iter.visit(ast.parse(code))\n";
+
+DEFINE_string(python_submodules_directory, "mage",
+              "Directory where the python submodules utility procedures are saved.");
 
 void ProcessFileDependencies(std::filesystem::path file_path_, const char *func_code, PyObject *sys_mod_ref);
 
@@ -1023,7 +1027,7 @@ bool PythonModule::Close() {
 
   std::filesystem::path submodules_path = file_path_.parent_path();
   std::string_view stem = std::string_view(file_path_.stem().c_str());
-  submodules_path /= "mage";
+  submodules_path /= FLAGS_python_submodules_directory;
 
   if (std::filesystem::exists(submodules_path)) {
     std::filesystem::path submodules;
@@ -1038,9 +1042,14 @@ bool PythonModule::Close() {
         submodules = dir_entry.path();
       }
     }
+    std::filesystem::remove_all(submodules / "__pycache__");
 
-    if (!submodules.empty()) {
+    if (std::filesystem::exists(submodules)) {
       for (auto const &rec_dir_entry : std::filesystem::recursive_directory_iterator(submodules)) {
+        std::string_view rec_dir_entry_stem = std::string_view(rec_dir_entry.path().stem().c_str());
+        if (rec_dir_entry.is_directory() && rec_dir_entry_stem.compare("__pycache__") != 0) {
+          std::filesystem::remove_all(rec_dir_entry.path() / "__pycache__");
+        }
         std::string_view rec_dir_entry_ext = std::string_view(rec_dir_entry.path().extension().c_str());
         if (!rec_dir_entry.is_regular_file() || rec_dir_entry_ext.compare(".pyc") == 0) continue;
         ProcessFileDependencies(rec_dir_entry.path().c_str(), func_code, sys_mod_ref);
@@ -1048,7 +1057,7 @@ bool PythonModule::Close() {
     }
   }
 
-  // first throw out of cache file and bytecode
+  // first throw out of cache file
   if (PyDict_DelItemString(sys_mod_ref, file_path_.stem().c_str()) != 0) {
     spdlog::warn("Failed to remove the module {} from sys.modules", file_path_.stem().c_str());
     py_module_ = py::Object(nullptr);
