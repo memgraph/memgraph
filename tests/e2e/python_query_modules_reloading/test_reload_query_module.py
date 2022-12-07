@@ -61,31 +61,6 @@ def postprocess_functions():
         )
 
 
-def test_mg_load_all_reload_submodule():
-    """Tests whether mg.load_all reloads content of some submodule code"""
-    cursor = connect().cursor()
-    # First do a simple experiment
-    test_module_res = execute_and_fetch_all(cursor, "CALL test_module.test(10, 2) YIELD * RETURN *;")
-    try:
-        assert test_module_res[0][0] == 12  # + operator
-        assert test_module_res[0][1] == 20  # * operator
-        # Now modify content of test function
-        preprocess_functions()
-        # Test that it doesn't work without calling reload
-        test_module_res = execute_and_fetch_all(cursor, "CALL test_module.test(10, 2) YIELD * RETURN *;")
-        assert test_module_res[0][0] == 12  # + operator
-        assert test_module_res[0][1] == 20  # * operator
-        # Reload module
-        execute_and_fetch_all(cursor, "CALL mg.load_all();")
-        test_module_res = execute_and_fetch_all(cursor, "CALL test_module.test(10, 2) YIELD * RETURN *;")
-        assert test_module_res[0][0] == 8  # - operator
-        assert test_module_res[0][1] == 5  # / operator
-    finally:
-        # Revert to the original state for the consistency
-        postprocess_functions()
-    execute_and_fetch_all(cursor, "CALL mg.load_all();")
-
-
 def test_mg_load_reload_submodule():
     """Tests whether mg.load reloads content of some submodule code."""
     cursor = connect().cursor()
@@ -109,6 +84,31 @@ def test_mg_load_reload_submodule():
         # Revert to the original state for the consistency
         postprocess_functions()
     execute_and_fetch_all(cursor, "CALL mg.load('test_module');")
+
+
+def test_mg_load_all_reload_submodule():
+    """Tests whether mg.load_all reloads content of some submodule code"""
+    cursor = connect().cursor()
+    # First do a simple experiment
+    test_module_res = execute_and_fetch_all(cursor, "CALL test_module.test(10, 2) YIELD * RETURN *;")
+    try:
+        assert test_module_res[0][0] == 12  # + operator
+        assert test_module_res[0][1] == 20  # * operator
+        # Now modify content of test function
+        preprocess_functions()
+        # Test that it doesn't work without calling reload
+        test_module_res = execute_and_fetch_all(cursor, "CALL test_module.test(10, 2) YIELD * RETURN *;")
+        assert test_module_res[0][0] == 12  # + operator
+        assert test_module_res[0][1] == 20  # * operator
+        # Reload module
+        execute_and_fetch_all(cursor, "CALL mg.load_all();")
+        test_module_res = execute_and_fetch_all(cursor, "CALL test_module.test(10, 2) YIELD * RETURN *;")
+        assert test_module_res[0][0] == 8  # - operator
+        assert test_module_res[0][1] == 5  # / operator
+    finally:
+        # Revert to the original state for the consistency
+        postprocess_functions()
+    execute_and_fetch_all(cursor, "CALL mg.load_all();")
 
 
 if __name__ == "__main__":

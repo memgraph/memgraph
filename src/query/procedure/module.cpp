@@ -1031,10 +1031,10 @@ bool PythonModule::Close() {
   std::string_view stem = std::string_view(file_path_.stem().c_str());
   submodules_path /= FLAGS_python_submodules_directory;
 
+  ProcessFileDependencies(file_path_, file_path_.stem().c_str(), func_code, sys_mod_ref);
+
   if (std::filesystem::exists(submodules_path)) {
     std::filesystem::path submodules;
-
-    ProcessFileDependencies(file_path_, file_path_.stem().c_str(), func_code, sys_mod_ref);
 
     for (auto const &dir_entry : std::filesystem::directory_iterator(submodules_path)) {
       std::string_view dir_entry_stem = std::string_view(dir_entry.path().stem().c_str());
@@ -1044,17 +1044,20 @@ bool PythonModule::Close() {
         submodules = dir_entry.path();
       }
     }
-    std::filesystem::remove_all(submodules / "__pycache__");
 
     if (std::filesystem::exists(submodules)) {
-      for (auto const &rec_dir_entry : std::filesystem::recursive_directory_iterator(submodules)) {
-        std::string_view rec_dir_entry_stem = std::string_view(rec_dir_entry.path().stem().c_str());
-        if (rec_dir_entry.is_directory() && rec_dir_entry_stem.compare("__pycache__") != 0) {
-          std::filesystem::remove_all(rec_dir_entry.path() / "__pycache__");
+      if (!std::filesystem::remove_all(submodules / "__pycache__")) {
+        spdlog::trace("Submodules cache couldn't be cleared!");
+      } else {
+        for (auto const &rec_dir_entry : std::filesystem::recursive_directory_iterator(submodules)) {
+          std::string_view rec_dir_entry_stem = std::string_view(rec_dir_entry.path().stem().c_str());
+          if (rec_dir_entry.is_directory() && rec_dir_entry_stem.compare("__pycache__") != 0) {
+            std::filesystem::remove_all(rec_dir_entry.path() / "__pycache__");
+          }
+          std::string_view rec_dir_entry_ext = std::string_view(rec_dir_entry.path().extension().c_str());
+          if (!rec_dir_entry.is_regular_file() || rec_dir_entry_ext.compare(".py") != 0) continue;
+          ProcessFileDependencies(rec_dir_entry.path().c_str(), file_path_.stem().c_str(), func_code, sys_mod_ref);
         }
-        std::string_view rec_dir_entry_ext = std::string_view(rec_dir_entry.path().extension().c_str());
-        if (!rec_dir_entry.is_regular_file() || rec_dir_entry_ext.compare(".py") != 0) continue;
-        ProcessFileDependencies(rec_dir_entry.path().c_str(), file_path_.stem().c_str(), func_code, sys_mod_ref);
       }
     }
   }
