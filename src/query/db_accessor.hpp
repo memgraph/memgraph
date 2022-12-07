@@ -200,7 +200,7 @@ class SubgraphVertexAccessor final {
     return impl_ == v.impl_;
   }
 
-  auto InEdges(storage::View view) const -> decltype(impl_.OutEdges(view));
+  auto InEdges(storage::View view) const -> decltype(impl_.InEdges(view));
 
   auto OutEdges(storage::View view) const -> decltype(impl_.OutEdges(view));
 
