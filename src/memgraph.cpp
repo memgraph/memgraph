@@ -26,6 +26,7 @@
 #include <string_view>
 #include <thread>
 
+#include <fmt/core.h>
 #include <fmt/format.h>
 #include <gflags/gflags.h>
 #include <spdlog/common.h>
@@ -167,6 +168,11 @@ DEFINE_string(bolt_key_file, "", "Key file which should be used for the Bolt ser
 DEFINE_string(bolt_server_name_for_init, "",
               "Server name which the database should send to the client in the "
               "Bolt INIT message.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(init_file, "",
+              "Path to cypherl file that is used for configuring users and database schema before server starts.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(init_data_file, "", "Path to cypherl file that is used for creating data after server starts.");
 
 // General purpose flags.
 // NOTE: The `data_directory` flag must be the same here and in
@@ -475,6 +481,33 @@ struct SessionData {
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(auth_user_or_role_name_regex, memgraph::glue::kDefaultUserRoleRegex.data(),
               "Set to the regular expression that each user or role name must fulfill.");
+
+void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, std::string cypherl_file_path
+#ifdef MG_ENTERPRISE
+                         ,
+                         memgraph::audit::Log *audit_log
+#endif
+) {
+  memgraph::query::Interpreter interpreter(&ctx);
+  std::ifstream file(cypherl_file_path);
+  if (file.is_open()) {
+    std::string line;
+    while (std::getline(file, line)) {
+      if (!line.empty()) {
+        auto results = interpreter.Prepare(line, {}, {});
+        memgraph::query::DiscardValueResultStream stream;
+        interpreter.Pull(&stream, {}, results.qid);
+
+#ifdef MG_ENTERPRISE
+        if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+          audit_log->Record("", "", line, {});
+        }
+#endif
+      }
+    }
+    file.close();
+  }
+}
 
 class BoltSession final : public memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                                         memgraph::communication::v2::OutputStream> {
@@ -905,6 +938,16 @@ int main(int argc, char **argv) {
         &interpreter_context.ast_cache, &dba, interpreter_context.config.query, interpreter_context.auth_checker);
   }
 
+  if (!FLAGS_init_file.empty()) {
+    spdlog::info("Running init file.");
+#ifdef MG_ENTERPRISE
+    if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+      InitFromCypherlFile(interpreter_context, FLAGS_init_file, &audit_log);
+    }
+#else
+    InitFromCypherlFile(interpreter_context, FLAGS_init_file);
+#endif
+  }
   // As the Stream transformations are using modules, they have to be restored after the query modules are loaded.
   interpreter_context.streams.RestoreStreams();
 
@@ -972,6 +1015,17 @@ int main(int argc, char **argv) {
 
   MG_ASSERT(server.Start(), "Couldn't start the Bolt server!");
   websocket_server.Start();
+
+  if (!FLAGS_init_data_file.empty()) {
+    spdlog::info("Running init data file.");
+#ifdef MG_ENTERPRISE
+    if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+      InitFromCypherlFile(interpreter_context, FLAGS_init_data_file, &audit_log);
+    }
+#else
+    InitFromCypherlFile(interpreter_context, FLAGS_init_data_file);
+#endif
+  }
 
   server.AwaitShutdown();
   websocket_server.AwaitShutdown();
