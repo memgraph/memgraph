@@ -24,7 +24,7 @@ static_assert(std::forward_iterator<ValidFramesModifier::Iterator>);
 static_assert(std::forward_iterator<ValidFramesConsumer::Iterator>);
 static_assert(std::forward_iterator<InvalidFramesPopulator::Iterator>);
 
-MultiFrame::MultiFrame(int64_t size_of_frame, size_t number_of_frames, utils::MemoryResource *execution_memory)
+MultiFrame::MultiFrame(size_t size_of_frame, size_t number_of_frames, utils::MemoryResource *execution_memory)
     : frames_(utils::pmr::vector<FrameWithValidity>(
           number_of_frames, FrameWithValidity(size_of_frame, execution_memory), execution_memory)) {
   MG_ASSERT(number_of_frames > 0);
