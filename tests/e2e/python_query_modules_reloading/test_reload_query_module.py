@@ -88,7 +88,6 @@ def test_mg_load_all_reload_submodule():
 
 def test_mg_load_reload_submodule():
     """Tests whether mg.load reloads content of some submodule code."""
-    print(f"Current dir: {os.getcwd()}")
     cursor = connect().cursor()
     # First do a simple experiment
     test_module_res = execute_and_fetch_all(cursor, "CALL test_module.test(10, 2) YIELD * RETURN *;")
