@@ -3,6 +3,10 @@ concurrency:
   group: ${{ github.head_ref || github.sha }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  pull-requests: write
+
 on:
   push:
     branches:
@@ -271,7 +275,7 @@ jobs:
             "split-file splitfiles/accesscontrol_small.shard_configuration bolt-num-workers 1"
 
       - name: Adapt benchmark results to benchmark github
-        run: ./tests/mgbench/format_json.py -i output_github_benchmark.json -o formatted_output_benchmark.json
+        run: ./tests/mgbench/format_json.py -i ./tests/mgbench/output_github_benchmark.json -o formatted_output_benchmark.json
 
       # Download previous benchmark result from cache (if exists)
       - name: Download previous benchmark data
