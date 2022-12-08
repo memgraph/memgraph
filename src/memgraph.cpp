@@ -134,6 +134,10 @@ std::optional<Enum> StringToEnum(const auto &value, const auto &mappings) {
 }
 }  // namespace
 
+// Short help flag.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_HIDDEN_bool(h, false, "Print usage and exit.");
+
 // Bolt server flags.
 DEFINE_string(bolt_address, "0.0.0.0", "IP address on which the Bolt server should listen.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -686,6 +690,11 @@ int main(int argc, char **argv) {
   // overwrite the config.
   LoadConfig("memgraph");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
+
+  if (FLAGS_h) {
+    gflags::ShowUsageWithFlags(argv[0]);
+    exit(1);
+  }
 
   InitializeLogger();
 

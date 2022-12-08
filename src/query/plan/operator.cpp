@@ -41,6 +41,7 @@
 #include "query/procedure/cypher_types.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
+#include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/algorithm.hpp"
@@ -3262,7 +3263,8 @@ class AggregateCursor : public Cursor {
   // aggregation map. The vectors in an AggregationValue contain one element for
   // each aggregation in this LogicalOp.
   struct AggregationValue {
-    explicit AggregationValue(utils::MemoryResource *mem) : counts_(mem), values_(mem), remember_(mem) {}
+    explicit AggregationValue(utils::MemoryResource *mem)
+        : counts_(mem), values_(mem), remember_(mem), unique_values_(mem) {}
 
     // how many input rows have been aggregated in respective values_ element so
     // far
@@ -3275,6 +3277,10 @@ class AggregateCursor : public Cursor {
     utils::pmr::vector<TypedValue> values_;
     // remember values.
     utils::pmr::vector<TypedValue> remember_;
+
+    using TSet = utils::pmr::unordered_set<TypedValue, TypedValue::Hash, TypedValue::BoolEqual>;
+
+    utils::pmr::vector<TSet> unique_values_;
   };
 
   const Aggregate &self_;
@@ -3350,6 +3356,7 @@ class AggregateCursor : public Cursor {
     for (const auto &agg_elem : self_.aggregations_) {
       auto *mem = agg_value->values_.get_allocator().GetMemoryResource();
       agg_value->values_.emplace_back(DefaultAggregationOpValue(agg_elem, mem));
+      agg_value->unique_values_.emplace_back(AggregationValue::TSet(mem));
     }
     agg_value->counts_.resize(self_.aggregations_.size(), 0);
 
@@ -3368,8 +3375,9 @@ class AggregateCursor : public Cursor {
 
     auto count_it = agg_value->counts_.begin();
     auto value_it = agg_value->values_.begin();
+    auto unique_values_it = agg_value->unique_values_.begin();
     auto agg_elem_it = self_.aggregations_.begin();
-    for (; count_it < agg_value->counts_.end(); count_it++, value_it++, agg_elem_it++) {
+    for (; count_it < agg_value->counts_.end(); count_it++, value_it++, unique_values_it++, agg_elem_it++) {
       // COUNT(*) is the only case where input expression is optional
       // handle it here
       auto input_expr_ptr = agg_elem_it->value;
@@ -3384,6 +3392,12 @@ class AggregateCursor : public Cursor {
       // Aggregations skip Null input values.
       if (input_value.IsNull()) continue;
       const auto &agg_op = agg_elem_it->op;
+      if (agg_elem_it->distinct) {
+        auto insert_result = unique_values_it->insert(input_value);
+        if (!insert_result.second) {
+          break;
+        }
+      }
       *count_it += 1;
       if (*count_it == 1) {
         // first value, nothing to aggregate. check type, set and continue.
