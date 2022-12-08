@@ -73,7 +73,12 @@ jobs:
         # This is also needed if we want do to comparison against other branches
         # See https://github.community/t/checkout-code-fails-when-it-runs-lerna-run-test-since-master/17920
       - name: Fetch all history for all tags and branches
-        run: git fetch
+        uses: nick-fields/retry@v2
+        with:
+          timeout_minutes: 1
+          max_attempts: 3
+          shell: bash
+          command: git fetch
 
       - name: Initialize deps
         run: |
@@ -261,7 +266,37 @@ jobs:
 
           # Run simulation tests.
           cd tests/mgbench
-          ./benchmark.py accesscontrol/small --num-workers-for-import 1 --test-system-arg  "split-file splitfiles/accesscontrol_small.shard_configuration bolt-num-workers 1"
+          ./benchmark.py accesscontrol/small --num-workers-for-import 1 \
+            --export-results=output_github_benchmark.json --test-system-arg \
+            "split-file splitfiles/accesscontrol_small.shard_configuration bolt-num-workers 1"
+
+      - name: Adapt benchmark results to benchmark github
+        run: ./tests/mgbench/format_json.py -i output_github_benchmark.json -o formatted_output_benchmark.json
+
+      # Download previous benchmark result from cache (if exists)
+      - name: Download previous benchmark data
+        uses: actions/cache@v3
+        with:
+          path: ./cache
+          key: ${{ runner.os }}-benchmark
+
+      # Run `github-action-benchmark` action
+      - name: Store benchmark result
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          # What benchmark tool the output.txt came from
+          tool: "customBiggerIsBetter"
+          # Where the output from the benchmark tool is stored
+          output-file-path: formatted_output_benchmark.json
+          # Where the previous data file is stored
+          external-data-json-path: ./cache/benchmark-data.json
+          # Workflow will fail when an alert happens
+          fail-on-alert: true
+          # GitHub API token to make a commit comment
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          # Enable alert commit comment
+          comment-on-alert: true
+          alert-threshold: "150%"
 
       - name: Run e2e tests
         run: |
