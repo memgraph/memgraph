@@ -10,10 +10,10 @@
 # licenses/APL.txt.
 
 import sys
-import mgclient
-import pytest
 
 import default_config
+import mgclient
+import pytest
 
 
 def test_does_default_config_match():
@@ -24,7 +24,15 @@ def test_does_default_config_match():
     cursor.execute("SHOW CONFIG")
     config = cursor.fetchall()
 
-    assert len(config) == len(default_config.startup_config_dict)
+    define_msg = """
+        If this test fails after adding a new DEFINE_* flag,
+        you should decide whether your new flag needs to be
+        returned in the SHOW CONFIG command. If not, please
+        use the DEFINE_HIDDEN_* macro instead of DEFINE_* to
+        prevent SHOW CONFIG from returning it.
+    """
+
+    assert len(config) == len(default_config.startup_config_dict), define_msg
 
     for flag in config:
         flag_name = flag[0]
