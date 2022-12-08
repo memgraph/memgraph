@@ -17,5 +17,5 @@
 #include "storage/v3/bindings/typed_value.hpp"
 
 namespace memgraph::storage::v3 {
-using Frame = memgraph::expr::Frame<TypedValue>;
+using Frame = memgraph::expr::Frame;
 }  // namespace memgraph::storage::v3
