@@ -66,6 +66,7 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(ExpandVariable);
   PRE_VISIT(Filter);
   PRE_VISIT(ConstructNamedPath);
+  PRE_VISIT(EmptyResult);
   PRE_VISIT(Produce);
   PRE_VISIT(SetProperty);
   PRE_VISIT(SetProperties);
@@ -143,6 +144,7 @@ using ExpectExpand = OpChecker<Expand>;
 using ExpectFilter = OpChecker<Filter>;
 using ExpectConstructNamedPath = OpChecker<ConstructNamedPath>;
 using ExpectProduce = OpChecker<Produce>;
+using ExpectEmptyResult = OpChecker<EmptyResult>;
 using ExpectSetProperty = OpChecker<SetProperty>;
 using ExpectSetProperties = OpChecker<SetProperties>;
 using ExpectSetLabels = OpChecker<SetLabels>;
