@@ -73,6 +73,7 @@ class ReadWriteTypeChecker : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(Optional &) override;
   bool PreVisit(Cartesian &) override;
 
+  bool PreVisit(EmptyResult &) override;
   bool PreVisit(Produce &) override;
   bool PreVisit(Accumulate &) override;
   bool PreVisit(Aggregate &) override;
