@@ -298,6 +298,15 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(EmptyResult &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+  bool PostVisit(EmptyResult &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
   bool PreVisit(Delete &op) override {
     prev_ops_.push_back(&op);
     return true;

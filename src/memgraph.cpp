@@ -99,9 +99,9 @@
 #include "audit/log.hpp"
 #endif
 
-constexpr const char *kMgUser = "MG_USER";
-constexpr const char *kMgPassword = "MG_PASSWORD";
-constexpr const char *kMgPassfile = "MG_PASSFILE";
+constexpr const char *kMgUser = "MEMGRAPH_USER";
+constexpr const char *kMgPassword = "MEMGRAPH_PASSWORD";
+constexpr const char *kMgPassfile = "MEMGRAPH_PASSFILE";
 
 namespace {
 std::string GetAllowedEnumValuesString(const auto &mappings) {
