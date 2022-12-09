@@ -84,12 +84,24 @@ ValidFramesReader::ValidFramesReader(MultiFrame &multiframe) : multiframe_(multi
   after_last_valid_frame_ = multiframe_.frames_.data() + std::distance(multiframe.frames_.begin(), it);
 }
 
-ValidFramesReader::Iterator ValidFramesReader::begin() { return Iterator{&multiframe_.frames_[0]}; }
+ValidFramesReader::Iterator ValidFramesReader::begin() {
+  if (multiframe_.frames_[0].IsValid()) {
+    return Iterator{&multiframe_.frames_[0]};
+  }
+  return end();
+}
+
 ValidFramesReader::Iterator ValidFramesReader::end() { return Iterator{after_last_valid_frame_}; }
 
 ValidFramesModifier::ValidFramesModifier(MultiFrame &multiframe) : multiframe_(multiframe) {}
 
-ValidFramesModifier::Iterator ValidFramesModifier::begin() { return Iterator{&multiframe_.frames_[0], *this}; }
+ValidFramesModifier::Iterator ValidFramesModifier::begin() {
+  if (multiframe_.frames_[0].IsValid()) {
+    return Iterator{&multiframe_.frames_[0], *this};
+  }
+  return end();
+}
+
 ValidFramesModifier::Iterator ValidFramesModifier::end() {
   return Iterator{multiframe_.frames_.data() + multiframe_.frames_.size(), *this};
 }
@@ -103,7 +115,12 @@ ValidFramesConsumer::~ValidFramesConsumer() noexcept {
   multiframe_.DefragmentValidFrames();
 }
 
-ValidFramesConsumer::Iterator ValidFramesConsumer::begin() { return Iterator{&multiframe_.frames_[0], *this}; }
+ValidFramesConsumer::Iterator ValidFramesConsumer::begin() {
+  if (multiframe_.frames_[0].IsValid()) {
+    return Iterator{&multiframe_.frames_[0], *this};
+  }
+  return end();
+}
 
 ValidFramesConsumer::Iterator ValidFramesConsumer::end() {
   return Iterator{multiframe_.frames_.data() + multiframe_.frames_.size(), *this};
