@@ -121,14 +121,14 @@ TYPED_TEST(TestPlanner, CreateExpand) {
   FakeDbAccessor dba;
   auto relationship = "relationship";
   auto *query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"), EDGE("r", Direction::OUT, {relationship}), NODE("m")))));
-  CheckPlan<TypeParam>(query, storage, ExpectCreateNode(), ExpectCreateExpand());
+  CheckPlan<TypeParam>(query, storage, ExpectCreateNode(), ExpectCreateExpand(), ExpectEmptyResult());
 }
 
 TYPED_TEST(TestPlanner, CreateMultipleNode) {
   // Test CREATE (n), (m)
   AstStorage storage;
   auto *query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n")), PATTERN(NODE("m")))));
-  CheckPlan<TypeParam>(query, storage, ExpectCreateNode(), ExpectCreateNode());
+  CheckPlan<TypeParam>(query, storage, ExpectCreateNode(), ExpectCreateNode(), ExpectEmptyResult());
 }
 
 TYPED_TEST(TestPlanner, CreateNodeExpandNode) {
@@ -138,7 +138,8 @@ TYPED_TEST(TestPlanner, CreateNodeExpandNode) {
   auto relationship = "rel";
   auto *query = QUERY(SINGLE_QUERY(
       CREATE(PATTERN(NODE("n"), EDGE("r", Direction::OUT, {relationship}), NODE("m")), PATTERN(NODE("l")))));
-  CheckPlan<TypeParam>(query, storage, ExpectCreateNode(), ExpectCreateExpand(), ExpectCreateNode());
+  CheckPlan<TypeParam>(query, storage, ExpectCreateNode(), ExpectCreateExpand(), ExpectCreateNode(),
+                       ExpectEmptyResult());
 }
 
 TYPED_TEST(TestPlanner, CreateNamedPattern) {
@@ -148,7 +149,8 @@ TYPED_TEST(TestPlanner, CreateNamedPattern) {
   auto relationship = "rel";
   auto *query =
       QUERY(SINGLE_QUERY(CREATE(NAMED_PATTERN("p", NODE("n"), EDGE("r", Direction::OUT, {relationship}), NODE("m")))));
-  CheckPlan<TypeParam>(query, storage, ExpectCreateNode(), ExpectCreateExpand(), ExpectConstructNamedPath());
+  CheckPlan<TypeParam>(query, storage, ExpectCreateNode(), ExpectCreateExpand(), ExpectConstructNamedPath(),
+                       ExpectEmptyResult());
 }
 
 TYPED_TEST(TestPlanner, MatchCreateExpand) {
@@ -158,7 +160,7 @@ TYPED_TEST(TestPlanner, MatchCreateExpand) {
   auto relationship = "relationship";
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
                                    CREATE(PATTERN(NODE("n"), EDGE("r", Direction::OUT, {relationship}), NODE("m")))));
-  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectCreateExpand());
+  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectCreateExpand(), ExpectEmptyResult());
 }
 
 TYPED_TEST(TestPlanner, MatchLabeledNodes) {
@@ -260,7 +262,7 @@ TYPED_TEST(TestPlanner, MatchDelete) {
   // Test MATCH (n) DELETE n
   AstStorage storage;
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), DELETE(IDENT("n"))));
-  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectDelete());
+  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectDelete(), ExpectEmptyResult());
 }
 
 TYPED_TEST(TestPlanner, MatchNodeSet) {
@@ -271,7 +273,8 @@ TYPED_TEST(TestPlanner, MatchNodeSet) {
   auto label = "label";
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), SET(PROPERTY_LOOKUP("n", prop), LITERAL(42)),
                                    SET("n", IDENT("n")), SET("n", {label})));
-  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectSetProperty(), ExpectSetProperties(), ExpectSetLabels());
+  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectSetProperty(), ExpectSetProperties(), ExpectSetLabels(),
+                       ExpectEmptyResult());
 }
 
 TYPED_TEST(TestPlanner, MatchRemove) {
@@ -282,7 +285,8 @@ TYPED_TEST(TestPlanner, MatchRemove) {
   auto label = "label";
   auto *query =
       QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), REMOVE(PROPERTY_LOOKUP("n", prop)), REMOVE("n", {label})));
-  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectRemoveProperty(), ExpectRemoveLabels());
+  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectRemoveProperty(), ExpectRemoveLabels(),
+                       ExpectEmptyResult());
 }
 
 TYPED_TEST(TestPlanner, MatchMultiPattern) {
@@ -387,7 +391,8 @@ TYPED_TEST(TestPlanner, CreateMultiExpand) {
   AstStorage storage;
   auto *query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"), EDGE("r", Direction::OUT, {r}), NODE("m")),
                                           PATTERN(NODE("n"), EDGE("p", Direction::OUT, {p}), NODE("l")))));
-  CheckPlan<TypeParam>(query, storage, ExpectCreateNode(), ExpectCreateExpand(), ExpectCreateExpand());
+  CheckPlan<TypeParam>(query, storage, ExpectCreateNode(), ExpectCreateExpand(), ExpectCreateExpand(),
+                       ExpectEmptyResult());
 }
 
 TYPED_TEST(TestPlanner, MatchWithSumWhereReturn) {
@@ -491,7 +496,7 @@ TYPED_TEST(TestPlanner, MatchWithCreate) {
   AstStorage storage;
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH("n", AS("a")),
                                    CREATE(PATTERN(NODE("a"), EDGE("r", Direction::OUT, {r_type}), NODE("b")))));
-  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectProduce(), ExpectCreateExpand());
+  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectProduce(), ExpectCreateExpand(), ExpectEmptyResult());
 }
 
 TYPED_TEST(TestPlanner, MatchReturnSkipLimit) {
@@ -597,7 +602,7 @@ TYPED_TEST(TestPlanner, CreateWithOrderByWhere) {
   });
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(), ExpectCreateExpand(), acc, ExpectProduce(),
-            ExpectOrderBy(), ExpectFilter());
+            ExpectOrderBy(), ExpectFilter(), ExpectEmptyResult());
 }
 
 TYPED_TEST(TestPlanner, ReturnAddSumCountOrderBy) {
@@ -854,7 +859,7 @@ TYPED_TEST(TestPlanner, UnwindMergeNodeProperty) {
   auto *query = QUERY(SINGLE_QUERY(UNWIND(LIST(LITERAL(1)), AS("i")), MERGE(PATTERN(node_n))));
   std::list<BaseOpChecker *> on_match{new ExpectScanAll(), new ExpectFilter()};
   std::list<BaseOpChecker *> on_create{new ExpectCreateNode()};
-  CheckPlan<TypeParam>(query, storage, ExpectUnwind(), ExpectMerge(on_match, on_create));
+  CheckPlan<TypeParam>(query, storage, ExpectUnwind(), ExpectMerge(on_match, on_create), ExpectEmptyResult());
   DeleteListContent(&on_match);
   DeleteListContent(&on_create);
 }
@@ -874,7 +879,7 @@ TYPED_TEST(TestPlanner, UnwindMergeNodePropertyWithIndex) {
   std::list<BaseOpChecker *> on_create{new ExpectCreateNode()};
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectUnwind(), ExpectMerge(on_match, on_create));
+  CheckPlan(planner.plan(), symbol_table, ExpectUnwind(), ExpectMerge(on_match, on_create), ExpectEmptyResult());
   DeleteListContent(&on_match);
   DeleteListContent(&on_create);
 }
@@ -1637,7 +1642,7 @@ TYPED_TEST(TestPlanner, Foreach) {
     auto create = ExpectCreateNode();
     std::list<BaseOpChecker *> updates{&create};
     std::list<BaseOpChecker *> input;
-    CheckPlan<TypeParam>(query, storage, ExpectForeach(input, updates));
+    CheckPlan<TypeParam>(query, storage, ExpectForeach(input, updates), ExpectEmptyResult());
   }
   {
     auto *i = NEXPR("i", IDENT("i"));
@@ -1645,7 +1650,7 @@ TYPED_TEST(TestPlanner, Foreach) {
     auto del = ExpectDelete();
     std::list<BaseOpChecker *> updates{&del};
     std::list<BaseOpChecker *> input;
-    CheckPlan<TypeParam>(query, storage, ExpectForeach({input}, updates));
+    CheckPlan<TypeParam>(query, storage, ExpectForeach({input}, updates), ExpectEmptyResult());
   }
   {
     auto prop = dba.Property("prop");
@@ -1654,7 +1659,7 @@ TYPED_TEST(TestPlanner, Foreach) {
     auto set_prop = ExpectSetProperty();
     std::list<BaseOpChecker *> updates{&set_prop};
     std::list<BaseOpChecker *> input;
-    CheckPlan<TypeParam>(query, storage, ExpectForeach({input}, updates));
+    CheckPlan<TypeParam>(query, storage, ExpectForeach({input}, updates), ExpectEmptyResult());
   }
   {
     auto *i = NEXPR("i", IDENT("i"));
@@ -1666,7 +1671,7 @@ TYPED_TEST(TestPlanner, Foreach) {
     std::list<BaseOpChecker *> nested_updates{{&create, &del}};
     auto nested_foreach = ExpectForeach(input, nested_updates);
     std::list<BaseOpChecker *> updates{&nested_foreach};
-    CheckPlan<TypeParam>(query, storage, ExpectForeach(input, updates));
+    CheckPlan<TypeParam>(query, storage, ExpectForeach(input, updates), ExpectEmptyResult());
   }
   {
     auto *i = NEXPR("i", IDENT("i"));
@@ -1678,7 +1683,7 @@ TYPED_TEST(TestPlanner, Foreach) {
     std::list<BaseOpChecker *> input{&input_op};
     auto *query =
         QUERY(SINGLE_QUERY(FOREACH(i, {CREATE(PATTERN(NODE("n")))}), FOREACH(j, {CREATE(PATTERN(NODE("n")))})));
-    CheckPlan<TypeParam>(query, storage, ExpectForeach(input, updates));
+    CheckPlan<TypeParam>(query, storage, ExpectForeach(input, updates), ExpectEmptyResult());
   }
 }
 }  // namespace
