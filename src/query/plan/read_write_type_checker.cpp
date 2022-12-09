@@ -11,10 +11,11 @@
 
 #include "query/plan/read_write_type_checker.hpp"
 
-#define PRE_VISIT(TOp, RWType, continue_visiting) \
-  bool ReadWriteTypeChecker::PreVisit(TOp &op) {  \
-    UpdateType(RWType);                           \
-    return continue_visiting;                     \
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define PRE_VISIT(TOp, RWType, continue_visiting)                                     \
+  bool ReadWriteTypeChecker::PreVisit(TOp &) { /*NOLINT(bugprone-macro-parentheses)*/ \
+    UpdateType(RWType);                                                               \
+    return continue_visiting;                                                         \
   }
 
 namespace memgraph::query::plan {
@@ -54,6 +55,7 @@ bool ReadWriteTypeChecker::PreVisit(Cartesian &op) {
   return false;
 }
 
+PRE_VISIT(EmptyResult, RWType::NONE, true)
 PRE_VISIT(Produce, RWType::NONE, true)
 PRE_VISIT(Accumulate, RWType::NONE, true)
 PRE_VISIT(Aggregate, RWType::NONE, true)
@@ -86,7 +88,7 @@ bool ReadWriteTypeChecker::PreVisit([[maybe_unused]] Foreach &op) {
 
 #undef PRE_VISIT
 
-bool ReadWriteTypeChecker::Visit(Once &op) { return false; }
+bool ReadWriteTypeChecker::Visit(Once &) { return false; }  // NOLINT(hicpp-named-parameter)
 
 void ReadWriteTypeChecker::UpdateType(RWType op_type) {
   // Update type only if it's not the NONE type and the current operator's type
