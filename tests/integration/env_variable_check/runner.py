@@ -83,25 +83,25 @@ def test_without_env_variables(memgraph_args: List[any]) -> None:
 
 
 def test_with_user_password_env_variables(memgraph_args: List[any]) -> None:
-    os.environ["ENTERPRISE_MEMGRAPH_USER"] = "admin"
-    os.environ["ENTERPRISE_MEMGRAPH_PASSWORD"] = "admin"
+    os.environ["MEMGRAPH_USER"] = "admin"
+    os.environ["MEMGRAPH_PASSWORD"] = "admin"
     memgraph = start_memgraph(memgraph_args)
     execute_with_user(["MATCH (n) RETURN n"])
     execute_without_user(["MATCH (n) RETURN n"], True, "Handshake with the server failed!", True)
     cleanup(memgraph)
-    del os.environ["ENTERPRISE_MEMGRAPH_USER"]
-    del os.environ["ENTERPRISE_MEMGRAPH_PASSWORD"]
+    del os.environ["MEMGRAPH_USER"]
+    del os.environ["MEMGRAPH_PASSWORD"]
 
 
 def test_with_passfile_env_variable(storage_directory: tempfile.TemporaryDirectory, memgraph_args: List[any]) -> None:
     with open(os.path.join(storage_directory.name, "passfile.txt"), "w") as temp_file:
         temp_file.write("admin:admin")
 
-    os.environ["ENTERPRISE_MEMGRAPH_PASSFILE"] = storage_directory.name + "/passfile.txt"
+    os.environ["MEMGRAPH_PASSFILE"] = storage_directory.name + "/passfile.txt"
     memgraph = start_memgraph(memgraph_args)
     execute_with_user(["MATCH (n) RETURN n"])
     execute_without_user(["MATCH (n) RETURN n"], True, "Handshake with the server failed!", True)
-    del os.environ["ENTERPRISE_MEMGRAPH_PASSFILE"]
+    del os.environ["MEMGRAPH_PASSFILE"]
     cleanup(memgraph)
 
 
@@ -110,15 +110,15 @@ def execute_test(memgraph_binary: str, tester_binary: str) -> None:
     memgraph_args = [memgraph_binary, "--data-directory", storage_directory.name]
 
     return_to_prev_state = {}
-    if "ENTERPRISE_MEMGRAPH_USER" in os.environ:
-        return_to_prev_state["ENTERPRISE_MEMGRAPH_USER"] = os.environ["ENTERPRISE_MEMGRAPH_USER"]
+    if "MEMGRAPH_USER" in os.environ:
+        return_to_prev_state["MEMGRAPH_USER"] = os.environ["MEMGRAPH_USER"]
         del os.environ["MG_USER"]
-    if "ENTERPRISE_MEMGRAPH_PASSWORD" in os.environ:
-        return_to_prev_state["ENTERPRISE_MEMGRAPH_PASSWORD"] = os.environ["ENTERPRISE_MEMGRAPH_PASSWORD"]
-        del os.environ["ENTERPRISE_MEMGRAPH_PASSWORD"]
-    if "ENTERPRISE_MEMGRAPH_PASSFILE" in os.environ:
-        return_to_prev_state["ENTERPRISE_MEMGRAPH_PASSFILE"] = os.environ["ENTERPRISE_MEMGRAPH_PASSFILE"]
-        del os.environ["ENTERPRISE_MEMGRAPH_PASSFILE"]
+    if "MEMGRAPH_PASSWORD" in os.environ:
+        return_to_prev_state["MEMGRAPH_PASSWORD"] = os.environ["MEMGRAPH_PASSWORD"]
+        del os.environ["MEMGRAPH_PASSWORD"]
+    if "MEMGRAPH_PASSFILE" in os.environ:
+        return_to_prev_state["MEMGRAPH_PASSFILE"] = os.environ["MEMGRAPH_PASSFILE"]
+        del os.environ["MEMGRAPH_PASSFILE"]
 
     # Start the memgraph binary
 
@@ -129,12 +129,12 @@ def execute_test(memgraph_binary: str, tester_binary: str) -> None:
     test_with_passfile_env_variable(storage_directory, memgraph_args)
     print("\033[1;36m~~ Ended env variable check test ~~\033[0m")
 
-    if "ENTERPRISE_MEMGRAPH_USER" in return_to_prev_state:
-        os.environ["ENTERPRISE_MEMGRAPH_USER"] = return_to_prev_state["ENTERPRISE_MEMGRAPH_USER"]
-    if "ENTERPRISE_MEMGRAPH_PASSWORD" in return_to_prev_state:
-        os.environ["ENTERPRISE_MEMGRAPH_PASSWORD"] = return_to_prev_state["ENTERPRISE_MEMGRAPH_PASSWORD"]
-    if "ENTERPRISE_MEMGRAPH_PASSFILE" in return_to_prev_state:
-        os.environ["ENTERPRISE_MEMGRAPH_PASSFILE"] = return_to_prev_state["ENTERPRISE_MEMGRAPH_PASSFILE"]
+    if "MEMGRAPH_USER" in return_to_prev_state:
+        os.environ["MEMGRAPH_USER"] = return_to_prev_state["MEMGRAPH_USER"]
+    if "MEMGRAPH_PASSWORD" in return_to_prev_state:
+        os.environ["MEMGRAPH_PASSWORD"] = return_to_prev_state["MEMGRAPH_PASSWORD"]
+    if "MEMGRAPH_PASSFILE" in return_to_prev_state:
+        os.environ["MEMGRAPH_PASSFILE"] = return_to_prev_state["MEMGRAPH_PASSFILE"]
 
 
 if __name__ == "__main__":
