@@ -103,12 +103,7 @@ ValidFramesConsumer::~ValidFramesConsumer() noexcept {
   multiframe_->DefragmentValidFrames();
 }
 
-ValidFramesConsumer::Iterator ValidFramesConsumer::begin() {
-  if (multiframe_->frames_[0].IsValid()) {
-    return Iterator{&multiframe_->frames_[0], *this};
-  }
-  return end();
-}
+ValidFramesConsumer::Iterator ValidFramesConsumer::begin() { return Iterator{&multiframe_->frames_[0], *this}; }
 
 ValidFramesConsumer::Iterator ValidFramesConsumer::end() {
   return Iterator{multiframe_->frames_.data() + multiframe_->frames_.size(), *this};
