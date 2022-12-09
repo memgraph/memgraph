@@ -37,6 +37,7 @@
 #include "query/v2/db_accessor.hpp"
 #include "query/v2/exceptions.hpp"
 #include "query/v2/frontend/ast/ast.hpp"
+#include "query/v2/multiframe.hpp"
 #include "query/v2/path.hpp"
 #include "query/v2/plan/scoped_profile.hpp"
 #include "query/v2/request_router.hpp"
@@ -270,6 +271,11 @@ void Once::OnceCursor::PullMultiple(MultiFrame &multi_frame, ExecutionContext &c
   if (!did_pull_) {
     auto &first_frame = multi_frame.GetFirstFrame();
     first_frame.MakeValid();
+    // #NoCommit why do we make the first valid? I'm not so sure anymore
+    // Shouldn't it be no frame?
+    // Shouldn't it be all frame?
+
+    // #NoCommit I think none of them should become valid
     did_pull_ = true;
   }
 }
@@ -437,6 +443,59 @@ class DistributedScanAllAndFilterCursor : public Cursor {
     }
   }
 
+  void PullMultiple(MultiFrame &input_multi_frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP(op_name_);
+
+    if (!own_multi_frames_.has_value()) {
+      own_multi_frames_.emplace(MultiFrame(input_multi_frame.GetFirstFrame().elems().size(),
+                                           kNumberOfFramesInMultiframe, input_multi_frame.GetMemoryResource()));
+    }
+    auto &request_router = *context.request_router;
+
+    while (true) {
+      if (MustAbort(context)) {
+        throw HintedAbortError();
+      }
+
+      if (request_state_ == State::INITIALIZING || valid_frames_consumer_->end() == valid_frames_it_) {
+        input_cursor_->PullMultiple(*own_multi_frames_, context);
+        valid_frames_consumer_ = own_multi_frames_->GetValidFramesConsumer();
+        valid_frames_it_ = valid_frames_consumer_->begin();
+      }
+      if (current_vertex_it == current_batch.end() &&
+          (request_state_ == State::COMPLETED || !MakeRequest(request_router, context))) {
+        ResetExecutionState();
+
+        continue;
+      }
+
+      auto invalid_frames_populator = input_multi_frame.GetInvalidFramesPopulator();
+
+      auto invalid_frame_it = invalid_frames_populator.begin();
+      auto has_modified_at_least_one_frame = false;
+
+      while (invalid_frames_populator.end() != invalid_frame_it && valid_frames_consumer_->end() != valid_frames_it_) {
+        MG_ASSERT(valid_frames_it_->IsValid());
+        *invalid_frame_it = *valid_frames_it_;
+        (*invalid_frame_it)[output_symbol_] = TypedValue(*current_vertex_it);
+        valid_frames_it_->MakeInvalid();
+
+        ++valid_frames_it_;
+        ++invalid_frame_it;
+        has_modified_at_least_one_frame = true;
+      }
+
+      if (!has_modified_at_least_one_frame) {
+        return;
+      }
+
+      ++current_vertex_it;
+      if (invalid_frames_populator.end() == invalid_frame_it) {
+        return;
+      }
+    }
+  };
+
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void ResetExecutionState() {
@@ -460,6 +519,9 @@ class DistributedScanAllAndFilterCursor : public Cursor {
   std::optional<storage::v3::LabelId> label_;
   std::optional<std::pair<storage::v3::PropertyId, Expression *>> property_expression_pair_;
   std::optional<std::vector<Expression *>> filter_expressions_;
+  std::optional<MultiFrame> own_multi_frames_;
+  std::optional<ValidFramesConsumer> valid_frames_consumer_;
+  ValidFramesConsumer::Iterator valid_frames_it_;
 };
 
 ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::v3::View view)
