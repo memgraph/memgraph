@@ -41,7 +41,7 @@ class Simulator {
   Io<SimulatorTransport> Register(Address address) {
     std::uniform_int_distribution<uint64_t> seed_distrib;
     uint64_t seed = seed_distrib(rng_);
-    return Io{SimulatorTransport{simulator_handle_, address, seed}, address};
+    return Io{SimulatorTransport(simulator_handle_, address, seed), address};
   }
 
   void IncrementServerCountAndWaitForQuiescentState(Address address) {
@@ -49,5 +49,7 @@ class Simulator {
   }
 
   SimulatorStats Stats() { return simulator_handle_->Stats(); }
+
+  std::shared_ptr<SimulatorHandle> GetSimulatorHandle() { return simulator_handle_; }
 };
 };  // namespace memgraph::io::simulator

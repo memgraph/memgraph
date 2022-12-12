@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <boost/uuid/uuid.hpp>
 #include <chrono>
 #include <deque>
 #include <iostream>
@@ -23,6 +24,7 @@
 #include <stdexcept>
 #include <thread>
 #include <unordered_map>
+#include <variant>
 #include <vector>
 
 #include "coordinator/coordinator.hpp"
@@ -31,6 +33,7 @@
 #include "coordinator/shard_map.hpp"
 #include "io/address.hpp"
 #include "io/errors.hpp"
+#include "io/local_transport/local_transport.hpp"
 #include "io/rsm/raft.hpp"
 #include "io/rsm/rsm_client.hpp"
 #include "io/rsm/shard_rsm.hpp"
@@ -124,6 +127,10 @@ class RequestRouterInterface {
   virtual std::optional<storage::v3::LabelId> MaybeNameToLabel(const std::string &name) const = 0;
   virtual bool IsPrimaryLabel(storage::v3::LabelId label) const = 0;
   virtual bool IsPrimaryKey(storage::v3::LabelId primary_label, storage::v3::PropertyId property) const = 0;
+
+  virtual std::optional<std::pair<uint64_t, uint64_t>> AllocateInitialEdgeIds(io::Address coordinator_address) {
+    return {};
+  }
 };
 
 // TODO(kostasrim)rename this class template
@@ -595,6 +602,23 @@ class RequestRouter : public RequestRouterInterface {
     edge_types_.StoreMapping(std::move(id_to_name));
   }
 
+  std::optional<std::pair<uint64_t, uint64_t>> AllocateInitialEdgeIds(io::Address coordinator_address) override {
+    coordinator::CoordinatorWriteRequests requests{coordinator::AllocateEdgeIdBatchRequest{.batch_size = 1000000}};
+
+    io::rsm::WriteRequest<coordinator::CoordinatorWriteRequests> ww;
+    ww.operation = requests;
+    auto resp =
+        io_.template Request<io::rsm::WriteRequest<coordinator::CoordinatorWriteRequests>,
+                             io::rsm::WriteResponse<coordinator::CoordinatorWriteResponses>>(coordinator_address, ww)
+            .Wait();
+    if (resp.HasValue()) {
+      const auto alloc_edge_id_reps =
+          std::get<coordinator::AllocateEdgeIdBatchResponse>(resp.GetValue().message.write_return);
+      return std::make_pair(alloc_edge_id_reps.low, alloc_edge_id_reps.high);
+    }
+    return {};
+  }
+
   ShardMap shards_map_;
   storage::v3::NameIdMapper properties_;
   storage::v3::NameIdMapper edge_types_;
@@ -605,4 +629,89 @@ class RequestRouter : public RequestRouterInterface {
   coordinator::Hlc transaction_id_;
   // TODO(kostasrim) Add batch prefetching
 };
+
+class RequestRouterFactory {
+ protected:
+  using LocalTransport = io::Io<io::local_transport::LocalTransport>;
+  using SimulatorTransport = io::Io<io::simulator::SimulatorTransport>;
+
+  using LocalTransportHandlePtr = std::shared_ptr<io::local_transport::LocalTransportHandle>;
+  using SimulatorTransportHandlePtr = std::shared_ptr<io::simulator::SimulatorHandle>;
+
+  using TransportHandleVariant = std::variant<LocalTransportHandlePtr, SimulatorTransportHandlePtr>;
+
+  TransportHandleVariant transport_handle_;
+
+ public:
+  explicit RequestRouterFactory(const TransportHandleVariant &transport_handle) : transport_handle_(transport_handle) {}
+
+  RequestRouterFactory(const RequestRouterFactory &) = delete;
+  RequestRouterFactory &operator=(const RequestRouterFactory &) = delete;
+  RequestRouterFactory(RequestRouterFactory &&) = delete;
+  RequestRouterFactory &operator=(RequestRouterFactory &&) = delete;
+
+  virtual ~RequestRouterFactory() = default;
+
+  virtual TransportHandleVariant GetTransportHandle() { return transport_handle_; }
+
+  virtual std::unique_ptr<RequestRouterInterface> CreateRequestRouter(
+      const coordinator::Address &coordinator_address) const noexcept = 0;
+};
+
+class LocalRequestRouterFactory : public RequestRouterFactory {
+ public:
+  explicit LocalRequestRouterFactory(const TransportHandleVariant &transport_handle)
+      : RequestRouterFactory(transport_handle) {}
+
+  std::unique_ptr<RequestRouterInterface> CreateRequestRouter(
+      const coordinator::Address &coordinator_address) const noexcept override {
+    using TransportType = io::local_transport::LocalTransport;
+    auto actual_transport_handle = std::get<LocalTransportHandlePtr>(transport_handle_);
+
+    boost::uuids::uuid random_uuid;
+    io::Address unique_local_addr_query;
+
+    random_uuid = boost::uuids::uuid{boost::uuids::random_generator()()};
+    unique_local_addr_query = memgraph::coordinator::Address::UniqueLocalAddress();
+
+    TransportType local_transport(actual_transport_handle);
+    auto local_transport_io = io::Io<TransportType>(local_transport, unique_local_addr_query);
+
+    auto query_io = local_transport_io.ForkLocal(random_uuid);
+
+    return std::make_unique<RequestRouter<TransportType>>(
+        coordinator::CoordinatorClient<TransportType>(query_io, coordinator_address, {coordinator_address}),
+        std::move(local_transport_io));
+  }
+};
+
+class SimulatedRequestRouterFactory : public RequestRouterFactory {
+  mutable io::simulator::Simulator *simulator_;
+  coordinator::Address address_;
+
+ public:
+  explicit SimulatedRequestRouterFactory(io::simulator::Simulator &simulator, coordinator::Address address)
+      : RequestRouterFactory(simulator.GetSimulatorHandle()), simulator_(&simulator), address_(address) {}
+
+  std::unique_ptr<RequestRouterInterface> CreateRequestRouter(
+      const coordinator::Address &coordinator_address) const noexcept override {
+    using TransportType = io::simulator::SimulatorTransport;
+    auto actual_transport_handle = std::get<SimulatorTransportHandlePtr>(transport_handle_);
+
+    boost::uuids::uuid random_uuid;
+    io::Address unique_local_addr_query;
+
+    // The simulated RR should not introduce stochastic behavior.
+    random_uuid = boost::uuids::uuid{3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    unique_local_addr_query = {.unique_id = boost::uuids::uuid{4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}};
+
+    auto io = simulator_->Register(unique_local_addr_query);
+    auto query_io = io.ForkLocal(random_uuid);
+
+    return std::make_unique<RequestRouter<TransportType>>(
+        coordinator::CoordinatorClient<TransportType>(query_io, coordinator_address, {coordinator_address}),
+        std::move(io));
+  }
+};
+
 }  // namespace memgraph::query::v2

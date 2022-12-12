@@ -17,6 +17,7 @@
 #include "coordinator/coordinator.hpp"
 #include "coordinator/coordinator_client.hpp"
 #include "io/local_transport/local_transport.hpp"
+#include "io/simulator/simulator_transport.hpp"
 #include "io/transport.hpp"
 #include "query/v2/auth_checker.hpp"
 #include "query/v2/bindings/cypher_main_visitor.hpp"
@@ -172,7 +173,8 @@ struct PreparedQuery {
 struct InterpreterContext {
   explicit InterpreterContext(storage::v3::Shard *db, InterpreterConfig config,
                               const std::filesystem::path &data_directory,
-                              io::Io<io::local_transport::LocalTransport> io, coordinator::Address coordinator_addr);
+                              std::unique_ptr<RequestRouterFactory> &&request_router_factory,
+                              coordinator::Address coordinator_addr);
 
   storage::v3::Shard *db;
 
@@ -188,26 +190,25 @@ struct InterpreterContext {
   const InterpreterConfig config;
   IdAllocator edge_ids_alloc;
 
-  // TODO (antaljanosbenjamin) Figure out an abstraction for io::Io to make it possible to construct an interpreter
-  // context with a simulator transport without templatizing it.
-  io::Io<io::local_transport::LocalTransport> io;
   coordinator::Address coordinator_address;
 
   storage::v3::LabelId NameToLabelId(std::string_view label_name) {
-    return storage::v3::LabelId::FromUint(query_id_mapper.NameToId(label_name));
+    return storage::v3::LabelId::FromUint(query_id_mapper_.NameToId(label_name));
   }
 
   storage::v3::PropertyId NameToPropertyId(std::string_view property_name) {
-    return storage::v3::PropertyId::FromUint(query_id_mapper.NameToId(property_name));
+    return storage::v3::PropertyId::FromUint(query_id_mapper_.NameToId(property_name));
   }
 
   storage::v3::EdgeTypeId NameToEdgeTypeId(std::string_view edge_type_name) {
-    return storage::v3::EdgeTypeId::FromUint(query_id_mapper.NameToId(edge_type_name));
+    return storage::v3::EdgeTypeId::FromUint(query_id_mapper_.NameToId(edge_type_name));
   }
+
+  std::unique_ptr<RequestRouterFactory> request_router_factory_;
 
  private:
   // TODO Replace with local map of labels, properties and edge type ids
-  storage::v3::NameIdMapper query_id_mapper;
+  storage::v3::NameIdMapper query_id_mapper_;
 };
 
 /// Function that is used to tell all active interpreters that they should stop
@@ -296,7 +297,7 @@ class Interpreter final {
    */
   void Abort();
 
-  const RequestRouterInterface *GetRequestRouter() const { return request_router_.get(); }
+  RequestRouterInterface *GetRequestRouter() { return request_router_.get(); }
 
  private:
   struct QueryExecution {
