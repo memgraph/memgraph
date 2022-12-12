@@ -34,7 +34,7 @@ def adapt_to_benchmark_action(data: Dict[str, Any]) -> List[Dict[str, Any]]:
             assert "throughput" in type_data, f"There is no throughput in {type_data}!"
             output.append(
                 {
-                    "name": f"{dataset_name}_{dataset_type}_{execution_type}",
+                    "name": f"{dataset_name}_{dataset_type}_{execution_type}_{type}",
                     "unit": "QPS",
                     "value": type_data["throughput"],
                 }

@@ -282,7 +282,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ./cache
-          key: ${{ runner.os }}-benchmark
+          key: ${{ runner.os }}-v1-benchmark
 
       # Run `github-action-benchmark` action
       - name: Store benchmark result
