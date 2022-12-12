@@ -97,6 +97,22 @@ Feature: Update clauses
             |  a           |  b           | c          |
             | (:q{x: 'y'}) | [:X{x: 'y'}] | ({y: 't'}) |
 
+    Scenario: Match node set properties without return
+        Given an empty graph
+        And having executed
+            """
+            CREATE (n1:Node {test: 1})
+            CREATE (n2:Node {test: 2})
+            CREATE (n3:Node {test: 3})
+            """
+        When executing query:
+            """
+            MATCH (n:Node)
+            SET n.test = 4
+            """
+        Then the result should be empty
+
+
     Scenario: Match, set properties from relationship to relationship, return test
         Given an empty graph
         When executing query:
