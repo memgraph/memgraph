@@ -21,6 +21,7 @@
 #include "storage/v3/mvcc.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/schemas.hpp"
+#include "storage/v3/vertex.hpp"
 #include "utils/bound.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -57,9 +58,9 @@ bool AnyVersionHasLabel(const Vertex &vertex, LabelId label, uint64_t timestamp)
   bool deleted{false};
   const Delta *delta{nullptr};
   {
-    has_label = utils::Contains(vertex.labels, label);
-    deleted = vertex.deleted;
-    delta = vertex.delta;
+    has_label = utils::Contains(vertex.second.labels, label);
+    deleted = vertex.second.deleted;
+    delta = vertex.second.delta;
   }
   if (!deleted && has_label) {
     return true;
@@ -109,10 +110,10 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, PropertyId 
   bool deleted{false};
   const Delta *delta{nullptr};
   {
-    has_label = utils::Contains(vertex.labels, label);
-    current_value_equal_to_value = vertex.properties.IsPropertyEqual(key, value);
-    deleted = vertex.deleted;
-    delta = vertex.delta;
+    has_label = utils::Contains(vertex.second.labels, label);
+    current_value_equal_to_value = vertex.second.properties.IsPropertyEqual(key, value);
+    deleted = vertex.second.deleted;
+    delta = vertex.second.delta;
   }
 
   if (!deleted && has_label && current_value_equal_to_value) {
@@ -167,9 +168,9 @@ bool CurrentVersionHasLabel(const Vertex &vertex, LabelId label, Transaction *tr
   bool has_label{false};
   const Delta *delta{nullptr};
   {
-    deleted = vertex.deleted;
-    has_label = utils::Contains(vertex.labels, label);
-    delta = vertex.delta;
+    deleted = vertex.second.deleted;
+    has_label = utils::Contains(vertex.second.labels, label);
+    delta = vertex.second.delta;
   }
   ApplyDeltasForRead(transaction, delta, view, [&deleted, &has_label, label](const Delta &delta) {
     switch (delta.action) {
@@ -218,10 +219,10 @@ bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label, Propert
   bool current_value_equal_to_value = value.IsNull();
   const Delta *delta{nullptr};
   {
-    deleted = vertex.deleted;
-    has_label = utils::Contains(vertex.labels, label);
-    current_value_equal_to_value = vertex.properties.IsPropertyEqual(key, value);
-    delta = vertex.delta;
+    deleted = vertex.second.deleted;
+    has_label = utils::Contains(vertex.second.labels, label);
+    current_value_equal_to_value = vertex.second.properties.IsPropertyEqual(key, value);
+    delta = vertex.second.delta;
   }
   ApplyDeltasForRead(transaction, delta, view,
                      [&deleted, &has_label, &current_value_equal_to_value, key, label, &value](const Delta &delta) {
@@ -282,8 +283,8 @@ bool LabelIndex::CreateIndex(LabelId label, VertexContainer &vertices) {
   }
   try {
     auto acc = it->second.access();
-    for ([[maybe_unused]] auto &[pk, vertex] : vertices) {
-      if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
+    for ([[maybe_unused]] auto &vertex : vertices) {
+      if (vertex.second.deleted || !VertexHasLabel(vertex, label)) {
         continue;
       }
       acc.insert(Entry{&vertex, 0});
@@ -395,7 +396,7 @@ void LabelPropertyIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const T
     if (label_prop.first != label) {
       continue;
     }
-    auto prop_value = vertex->properties.GetProperty(label_prop.second);
+    auto prop_value = vertex->second.properties.GetProperty(label_prop.second);
     if (!prop_value.IsNull()) {
       index.emplace(prop_value, Entry{prop_value, vertex, tx.start_timestamp.logical_id});
     }
@@ -411,7 +412,7 @@ void LabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const Property
     if (label_prop.second != property) {
       continue;
     }
-    if (utils::Contains(vertex->labels, label_prop.first)) {
+    if (VertexHasLabel(*vertex, label_prop.first)) {
       index.emplace(value, Entry{value, vertex, tx.start_timestamp.logical_id});
     }
   }
@@ -426,11 +427,11 @@ bool LabelPropertyIndex::CreateIndex(LabelId label, PropertyId property, VertexC
     return false;
   }
   try {
-    for ([[maybe_unused]] auto &[pk, vertex] : vertices) {
-      if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
+    for ([[maybe_unused]] auto &vertex : vertices) {
+      if (vertex.second.deleted || !VertexHasLabel(vertex, label)) {
         continue;
       }
-      auto value = vertex.properties.GetProperty(property);
+      auto value = vertex.second.properties.GetProperty(property);
       if (value.IsNull()) {
         continue;
       }

@@ -36,8 +36,8 @@ std::pair<bool, bool> IsVisible(Vertex *vertex, Transaction *transaction, View v
   bool deleted = false;
   Delta *delta = nullptr;
   {
-    deleted = vertex->deleted;
-    delta = vertex->delta;
+    deleted = vertex->second.deleted;
+    delta = vertex->second.delta;
   }
   ApplyDeltasForRead(transaction, delta, view, [&](const Delta &delta) {
     switch (delta.action) {
@@ -85,13 +85,14 @@ ShardResult<bool> VertexAccessor::AddLabel(LabelId label) {
 
   if (!PrepareForWrite(transaction_, vertex_)) return SHARD_ERROR(ErrorCode::SERIALIZATION_ERROR);
 
-  if (vertex_->deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
+  if (vertex_->second.deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
 
-  if (std::find(vertex_->labels.begin(), vertex_->labels.end(), label) != vertex_->labels.end()) return false;
+  if (std::find(vertex_->second.labels.begin(), vertex_->second.labels.end(), label) != vertex_->second.labels.end())
+    return false;
 
   CreateAndLinkDelta(transaction_, vertex_, Delta::RemoveLabelTag(), label);
 
-  vertex_->labels.push_back(label);
+  vertex_->second.labels.push_back(label);
 
   UpdateOnAddLabel(indices_, label, vertex_, *transaction_);
 
@@ -106,13 +107,14 @@ ShardResult<bool> VertexAccessor::AddLabelAndValidate(LabelId label) {
 
   if (!PrepareForWrite(transaction_, vertex_)) return SHARD_ERROR(ErrorCode::SERIALIZATION_ERROR);
 
-  if (vertex_->deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
+  if (vertex_->second.deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
 
-  if (std::find(vertex_->labels.begin(), vertex_->labels.end(), label) != vertex_->labels.end()) return false;
+  if (std::find(vertex_->second.labels.begin(), vertex_->second.labels.end(), label) != vertex_->second.labels.end())
+    return false;
 
   CreateAndLinkDelta(transaction_, vertex_, Delta::RemoveLabelTag(), label);
 
-  vertex_->labels.push_back(label);
+  vertex_->second.labels.push_back(label);
 
   UpdateOnAddLabel(indices_, label, vertex_, *transaction_);
 
@@ -122,15 +124,15 @@ ShardResult<bool> VertexAccessor::AddLabelAndValidate(LabelId label) {
 ShardResult<bool> VertexAccessor::RemoveLabel(LabelId label) {
   if (!PrepareForWrite(transaction_, vertex_)) return SHARD_ERROR(ErrorCode::SERIALIZATION_ERROR);
 
-  if (vertex_->deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
+  if (vertex_->second.deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
 
-  auto it = std::find(vertex_->labels.begin(), vertex_->labels.end(), label);
-  if (it == vertex_->labels.end()) return false;
+  auto it = std::find(vertex_->second.labels.begin(), vertex_->second.labels.end(), label);
+  if (it == vertex_->second.labels.end()) return false;
 
   CreateAndLinkDelta(transaction_, vertex_, Delta::AddLabelTag(), label);
 
-  std::swap(*it, *vertex_->labels.rbegin());
-  vertex_->labels.pop_back();
+  std::swap(*it, *vertex_->second.labels.rbegin());
+  vertex_->second.labels.pop_back();
   return true;
 }
 
@@ -142,15 +144,15 @@ ShardResult<bool> VertexAccessor::RemoveLabelAndValidate(LabelId label) {
 
   if (!PrepareForWrite(transaction_, vertex_)) return SHARD_ERROR(ErrorCode::SERIALIZATION_ERROR);
 
-  if (vertex_->deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
+  if (vertex_->second.deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
 
-  auto it = std::find(vertex_->labels.begin(), vertex_->labels.end(), label);
-  if (it == vertex_->labels.end()) return false;
+  auto it = std::find(vertex_->second.labels.begin(), vertex_->second.labels.end(), label);
+  if (it == vertex_->second.labels.end()) return false;
 
   CreateAndLinkDelta(transaction_, vertex_, Delta::AddLabelTag(), label);
 
-  std::swap(*it, *vertex_->labels.rbegin());
-  vertex_->labels.pop_back();
+  std::swap(*it, *vertex_->second.labels.rbegin());
+  vertex_->second.labels.pop_back();
   return true;
 }
 
@@ -162,9 +164,9 @@ ShardResult<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
   bool has_label = false;
   Delta *delta = nullptr;
   {
-    deleted = vertex_->deleted;
+    deleted = vertex_->second.deleted;
     has_label = label == vertex_validator_->primary_label_ || VertexHasLabel(*vertex_, label);
-    delta = vertex_->delta;
+    delta = vertex_->second.delta;
   }
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &has_label, label](const Delta &delta) {
     switch (delta.action) {
@@ -215,14 +217,14 @@ ShardResult<PrimaryKey> VertexAccessor::PrimaryKey(const View view) const {
   if (const auto result = CheckVertexExistence(view); result.HasError()) {
     return result.GetError();
   }
-  return vertex_->keys;
+  return vertex_->first;
 }
 
 ShardResult<VertexId> VertexAccessor::Id(View view) const {
   if (const auto result = CheckVertexExistence(view); result.HasError()) {
     return result.GetError();
   }
-  return VertexId{vertex_validator_->primary_label_, vertex_->keys};
+  return VertexId{vertex_validator_->primary_label_, vertex_->first};
 };
 
 ShardResult<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
@@ -231,9 +233,9 @@ ShardResult<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
   std::vector<LabelId> labels;
   Delta *delta = nullptr;
   {
-    deleted = vertex_->deleted;
-    labels = vertex_->labels;
-    delta = vertex_->delta;
+    deleted = vertex_->second.deleted;
+    labels = vertex_->second.labels;
+    delta = vertex_->second.delta;
   }
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &labels](const Delta &delta) {
     switch (delta.action) {
@@ -278,9 +280,9 @@ ShardResult<PropertyValue> VertexAccessor::SetProperty(PropertyId property, cons
 
   if (!PrepareForWrite(transaction_, vertex_)) return SHARD_ERROR(ErrorCode::SERIALIZATION_ERROR);
 
-  if (vertex_->deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
+  if (vertex_->second.deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
 
-  auto current_value = vertex_->properties.GetProperty(property);
+  auto current_value = vertex_->second.properties.GetProperty(property);
   // We could skip setting the value if the previous one is the same to the new
   // one. This would save some memory as a delta would not be created as well as
   // avoid copying the value. The reason we are not doing that is because the
@@ -288,7 +290,7 @@ ShardResult<PropertyValue> VertexAccessor::SetProperty(PropertyId property, cons
   // "modify in-place". Additionally, the created delta will make other
   // transactions get a SERIALIZATION_ERROR.
   CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, current_value);
-  vertex_->properties.SetProperty(property, value);
+  vertex_->second.properties.SetProperty(property, value);
 
   UpdateOnSetProperty(indices_, property, value, vertex_, *transaction_);
 
@@ -300,8 +302,8 @@ ShardResult<void> VertexAccessor::CheckVertexExistence(View view) const {
   bool deleted = false;
   Delta *delta = nullptr;
   {
-    deleted = vertex_->deleted;
-    delta = vertex_->delta;
+    deleted = vertex_->second.deleted;
+    delta = vertex_->second.delta;
   }
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted](const Delta &delta) {
     switch (delta.action) {
@@ -343,11 +345,11 @@ ShardResult<PropertyValue> VertexAccessor::SetPropertyAndValidate(PropertyId pro
     return SHARD_ERROR(ErrorCode::SERIALIZATION_ERROR);
   }
 
-  if (vertex_->deleted) {
+  if (vertex_->second.deleted) {
     return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
   }
 
-  auto current_value = vertex_->properties.GetProperty(property);
+  auto current_value = vertex_->second.properties.GetProperty(property);
   // We could skip setting the value if the previous one is the same to the new
   // one. This would save some memory as a delta would not be created as well as
   // avoid copying the value. The reason we are not doing that is because the
@@ -355,7 +357,7 @@ ShardResult<PropertyValue> VertexAccessor::SetPropertyAndValidate(PropertyId pro
   // "modify in-place". Additionally, the created delta will make other
   // transactions get a SERIALIZATION_ERROR.
   CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, current_value);
-  vertex_->properties.SetProperty(property, value);
+  vertex_->second.properties.SetProperty(property, value);
 
   UpdateOnSetProperty(indices_, property, value, vertex_, *transaction_);
 
@@ -365,15 +367,15 @@ ShardResult<PropertyValue> VertexAccessor::SetPropertyAndValidate(PropertyId pro
 ShardResult<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
   if (!PrepareForWrite(transaction_, vertex_)) return SHARD_ERROR(ErrorCode::SERIALIZATION_ERROR);
 
-  if (vertex_->deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
+  if (vertex_->second.deleted) return SHARD_ERROR(ErrorCode::DELETED_OBJECT);
 
-  auto properties = vertex_->properties.Properties();
+  auto properties = vertex_->second.properties.Properties();
   for (const auto &property : properties) {
     CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property.first, property.second);
     UpdateOnSetProperty(indices_, property.first, PropertyValue(), vertex_, *transaction_);
   }
 
-  vertex_->properties.ClearProperties();
+  vertex_->second.properties.ClearProperties();
 
   return std::move(properties);
 }
@@ -396,11 +398,11 @@ PropertyValue VertexAccessor::GetPropertyValue(PropertyId property, View view) c
   // Find PropertyId index in keystore
   for (size_t property_index{0}; property_index < schema->second.size(); ++property_index) {
     if (schema->second[property_index].property_id == property) {
-      return vertex_->keys[property_index];
+      return vertex_->first[property_index];
     }
   }
 
-  return value = vertex_->properties.GetProperty(property);
+  return value = vertex_->second.properties.GetProperty(property);
 }
 
 ShardResult<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view) const {
@@ -409,9 +411,9 @@ ShardResult<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View
   PropertyValue value;
   Delta *delta = nullptr;
   {
-    deleted = vertex_->deleted;
+    deleted = vertex_->second.deleted;
     value = GetPropertyValue(property, view);
-    delta = vertex_->delta;
+    delta = vertex_->second.delta;
   }
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &value, property](const Delta &delta) {
     switch (delta.action) {
@@ -453,10 +455,10 @@ ShardResult<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View
   std::map<PropertyId, PropertyValue> properties;
   Delta *delta = nullptr;
   {
-    deleted = vertex_->deleted;
+    deleted = vertex_->second.deleted;
     // TODO(antaljanosbenjamin): Should this also return the primary key?
-    properties = vertex_->properties.Properties();
-    delta = vertex_->delta;
+    properties = vertex_->second.properties.Properties();
+    delta = vertex_->second.delta;
   }
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &properties](const Delta &delta) {
     switch (delta.action) {
@@ -501,14 +503,14 @@ ShardResult<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, const 
                                                                const VertexId *destination_id) const {
   bool exists = true;
   bool deleted = false;
-  std::vector<Vertex::EdgeLink> in_edges;
+  std::vector<VertexData::EdgeLink> in_edges;
   Delta *delta = nullptr;
   {
-    deleted = vertex_->deleted;
+    deleted = vertex_->second.deleted;
     if (edge_types.empty() && nullptr == destination_id) {
-      in_edges = vertex_->in_edges;
+      in_edges = vertex_->second.in_edges;
     } else {
-      for (const auto &item : vertex_->in_edges) {
+      for (const auto &item : vertex_->second.in_edges) {
         const auto &[edge_type, from_vertex, edge] = item;
         if (nullptr != destination_id && from_vertex != *destination_id) {
           continue;
@@ -518,7 +520,7 @@ ShardResult<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, const 
         in_edges.push_back(item);
       }
     }
-    delta = vertex_->delta;
+    delta = vertex_->second.delta;
   }
   ApplyDeltasForRead(
       transaction_, delta, view, [&exists, &deleted, &in_edges, &edge_types, destination_id](const Delta &delta) {
@@ -529,7 +531,7 @@ ShardResult<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, const 
                 std::find(edge_types.begin(), edge_types.end(), delta.vertex_edge.edge_type) == edge_types.end())
               break;
             // Add the edge because we don't see the removal.
-            Vertex::EdgeLink link{delta.vertex_edge.edge_type, delta.vertex_edge.vertex_id, delta.vertex_edge.edge};
+            VertexData::EdgeLink link{delta.vertex_edge.edge_type, delta.vertex_edge.vertex_id, delta.vertex_edge.edge};
             auto it = std::find(in_edges.begin(), in_edges.end(), link);
             MG_ASSERT(it == in_edges.end(), "Invalid database state!");
             in_edges.push_back(link);
@@ -541,7 +543,7 @@ ShardResult<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, const 
                 std::find(edge_types.begin(), edge_types.end(), delta.vertex_edge.edge_type) == edge_types.end())
               break;
             // Remove the label because we don't see the addition.
-            Vertex::EdgeLink link{delta.vertex_edge.edge_type, delta.vertex_edge.vertex_id, delta.vertex_edge.edge};
+            VertexData::EdgeLink link{delta.vertex_edge.edge_type, delta.vertex_edge.vertex_id, delta.vertex_edge.edge};
             auto it = std::find(in_edges.begin(), in_edges.end(), link);
             MG_ASSERT(it != in_edges.end(), "Invalid database state!");
             std::swap(*it, *in_edges.rbegin());
@@ -571,7 +573,7 @@ ShardResult<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, const 
     return ret;
   }
   ret.reserve(in_edges.size());
-  const auto id = VertexId{vertex_validator_->primary_label_, vertex_->keys};
+  const auto id = VertexId{vertex_validator_->primary_label_, vertex_->first};
   for (const auto &item : in_edges) {
     const auto &[edge_type, from_vertex, edge] = item;
     ret.emplace_back(edge, edge_type, from_vertex, id, transaction_, indices_, config_);
@@ -583,14 +585,14 @@ ShardResult<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(View view, const
                                                                 const VertexId *destination_id) const {
   bool exists = true;
   bool deleted = false;
-  std::vector<Vertex::EdgeLink> out_edges;
+  std::vector<VertexData::EdgeLink> out_edges;
   Delta *delta = nullptr;
   {
-    deleted = vertex_->deleted;
+    deleted = vertex_->second.deleted;
     if (edge_types.empty() && nullptr == destination_id) {
-      out_edges = vertex_->out_edges;
+      out_edges = vertex_->second.out_edges;
     } else {
-      for (const auto &item : vertex_->out_edges) {
+      for (const auto &item : vertex_->second.out_edges) {
         const auto &[edge_type, to_vertex, edge] = item;
         if (nullptr != destination_id && to_vertex != *destination_id) continue;
         if (!edge_types.empty() && std::find(edge_types.begin(), edge_types.end(), edge_type) == edge_types.end())
@@ -598,7 +600,7 @@ ShardResult<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(View view, const
         out_edges.push_back(item);
       }
     }
-    delta = vertex_->delta;
+    delta = vertex_->second.delta;
   }
   ApplyDeltasForRead(
       transaction_, delta, view, [&exists, &deleted, &out_edges, &edge_types, destination_id](const Delta &delta) {
@@ -609,7 +611,7 @@ ShardResult<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(View view, const
                 std::find(edge_types.begin(), edge_types.end(), delta.vertex_edge.edge_type) == edge_types.end())
               break;
             // Add the edge because we don't see the removal.
-            Vertex::EdgeLink link{delta.vertex_edge.edge_type, delta.vertex_edge.vertex_id, delta.vertex_edge.edge};
+            VertexData::EdgeLink link{delta.vertex_edge.edge_type, delta.vertex_edge.vertex_id, delta.vertex_edge.edge};
             auto it = std::find(out_edges.begin(), out_edges.end(), link);
             MG_ASSERT(it == out_edges.end(), "Invalid database state!");
             out_edges.push_back(link);
@@ -621,7 +623,7 @@ ShardResult<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(View view, const
                 std::find(edge_types.begin(), edge_types.end(), delta.vertex_edge.edge_type) == edge_types.end())
               break;
             // Remove the label because we don't see the addition.
-            Vertex::EdgeLink link{delta.vertex_edge.edge_type, delta.vertex_edge.vertex_id, delta.vertex_edge.edge};
+            VertexData::EdgeLink link{delta.vertex_edge.edge_type, delta.vertex_edge.vertex_id, delta.vertex_edge.edge};
             auto it = std::find(out_edges.begin(), out_edges.end(), link);
             MG_ASSERT(it != out_edges.end(), "Invalid database state!");
             std::swap(*it, *out_edges.rbegin());
@@ -651,7 +653,7 @@ ShardResult<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(View view, const
     return ret;
   }
   ret.reserve(out_edges.size());
-  const auto id = VertexId{vertex_validator_->primary_label_, vertex_->keys};
+  const auto id = VertexId{vertex_validator_->primary_label_, vertex_->first};
   for (const auto &item : out_edges) {
     const auto &[edge_type, to_vertex, edge] = item;
     ret.emplace_back(edge, edge_type, id, to_vertex, transaction_, indices_, config_);
@@ -665,9 +667,9 @@ ShardResult<size_t> VertexAccessor::InDegree(View view) const {
   size_t degree = 0;
   Delta *delta = nullptr;
   {
-    deleted = vertex_->deleted;
-    degree = vertex_->in_edges.size();
-    delta = vertex_->delta;
+    deleted = vertex_->second.deleted;
+    degree = vertex_->second.in_edges.size();
+    delta = vertex_->second.delta;
   }
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &degree](const Delta &delta) {
     switch (delta.action) {
@@ -702,9 +704,9 @@ ShardResult<size_t> VertexAccessor::OutDegree(View view) const {
   size_t degree = 0;
   Delta *delta = nullptr;
   {
-    deleted = vertex_->deleted;
-    degree = vertex_->out_edges.size();
-    delta = vertex_->delta;
+    deleted = vertex_->second.deleted;
+    degree = vertex_->second.out_edges.size();
+    delta = vertex_->second.delta;
   }
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &degree](const Delta &delta) {
     switch (delta.action) {

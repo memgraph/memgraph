@@ -17,6 +17,7 @@ set(storage_v3_src_files
     shard_rsm.cpp
     bindings/typed_value.cpp
     expr.cpp
+    vertex.cpp
     request_helper.cpp)
 
 # ######################

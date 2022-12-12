@@ -25,7 +25,6 @@
 #include "io/time.hpp"
 #include "kvstore/kvstore.hpp"
 #include "storage/v3/config.hpp"
-#include "storage/v3/containers.hpp"
 #include "storage/v3/edge.hpp"
 #include "storage/v3/edge_accessor.hpp"
 #include "storage/v3/id_types.hpp"
@@ -387,7 +386,7 @@ class Shard final {
 
   // Vertices that are logically deleted but still have to be removed from
   // indices before removing them from the main storage.
-  std::list<PrimaryKey> deleted_vertices_;
+  std::list<const PrimaryKey *> deleted_vertices_;
 
   // Edges that are logically deleted and wait to be removed from the main
   // storage.

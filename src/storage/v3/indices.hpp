@@ -18,7 +18,6 @@
 #include <utility>
 
 #include "storage/v3/config.hpp"
-#include "storage/v3/containers.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/transaction.hpp"
 #include "storage/v3/vertex_accessor.hpp"
