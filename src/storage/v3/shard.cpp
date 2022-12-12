@@ -529,7 +529,7 @@ ShardResult<EdgeAccessor> Shard::Accessor::CreateEdge(VertexId from_vertex_id, V
   }
   if (to_is_local) {
     CreateAndLinkDelta(transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex_id, edge);
-    from_vertex->second.in_edges.emplace_back(edge_type, from_vertex_id, edge);
+    to_vertex->second.in_edges.emplace_back(edge_type, from_vertex_id, edge);
   }
   // Increment edge count.
   ++shard_->edge_count_;
