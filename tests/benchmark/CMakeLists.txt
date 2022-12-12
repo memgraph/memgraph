@@ -9,11 +9,13 @@ function(add_benchmark test_cpp)
   get_filename_component(exec_name ${test_cpp} NAME_WE)
   set(target_name ${test_prefix}${exec_name})
   add_executable(${target_name} ${test_cpp} ${ARGN})
+
   # OUTPUT_NAME sets the real name of a target when it is built and can be
   # used to help create two targets of the same name even though CMake
   # requires unique logical target names
   set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
   target_link_libraries(${target_name} benchmark gflags)
+
   # register test
   add_test(${target_name} ${exec_name})
   add_dependencies(memgraph__benchmark ${target_name})
@@ -37,9 +39,9 @@ target_link_libraries(${test_prefix}profile mg-query)
 add_benchmark(query/stripped.cpp)
 target_link_libraries(${test_prefix}stripped mg-query)
 
-if (MG_ENTERPRISE)
-add_benchmark(rpc.cpp)
-target_link_libraries(${test_prefix}rpc mg-rpc)
+if(MG_ENTERPRISE)
+  add_benchmark(rpc.cpp)
+  target_link_libraries(${test_prefix}rpc mg-rpc)
 endif()
 
 add_benchmark(skip_list_random.cpp)
@@ -65,3 +67,15 @@ target_link_libraries(${test_prefix}storage_v2_property_store mg-storage-v2)
 
 add_benchmark(future.cpp)
 target_link_libraries(${test_prefix}future mg-io)
+
+add_benchmark(data_structures_insert.cpp)
+target_link_libraries(${test_prefix}data_structures_insert mg-utils mg-storage-v3)
+
+add_benchmark(data_structures_find.cpp)
+target_link_libraries(${test_prefix}data_structures_find mg-utils mg-storage-v3)
+
+add_benchmark(data_structures_contains.cpp)
+target_link_libraries(${test_prefix}data_structures_contains mg-utils mg-storage-v3)
+
+add_benchmark(data_structures_remove.cpp)
+target_link_libraries(${test_prefix}data_structures_remove mg-utils mg-storage-v3)

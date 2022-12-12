@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,11 +11,14 @@
 
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <functional>
 #include <iostream>
 #include <memory>
+#include <numeric>
 #include <thread>
 #include <vector>
 
@@ -26,7 +29,7 @@ DEFINE_int32(duration, 10, "Duration of test (in seconds)");
 
 struct Stats {
   uint64_t total{0};
-  uint64_t succ[4] = {0, 0, 0, 0};
+  std::array<uint64_t, 4> succ = {0, 0, 0, 0};
 };
 
 const int OP_INSERT = 0;
@@ -78,6 +81,30 @@ inline void RunConcurrentTest(std::function<void(std::atomic<bool> *, Stats *)> 
   for (int i = 0; i < FLAGS_num_threads; ++i) {
     tops += stats.get()[i].total;
   }
+  std::cout << "Total successful: " << tot << " (" << tot / FLAGS_duration << " calls/s)" << std::endl;
+  std::cout << "Total ops: " << tops << " (" << tops / FLAGS_duration << " calls/s)" << std::endl;
+}
+
+inline void RunTest(std::function<void(const std::atomic<bool> &, Stats &)> test_func) {
+  Stats stats;
+  std::atomic<bool> run{true};
+
+  {
+    std::jthread bg_thread(test_func, std::cref(run), std::ref(stats));
+    std::this_thread::sleep_for(std::chrono::seconds(FLAGS_duration));
+    run.store(false, std::memory_order_relaxed);
+  }
+
+  std::cout << "    Operations: " << stats.total << std::endl;
+  std::cout << "    Successful insert: " << stats.succ[0] << std::endl;
+  std::cout << "    Successful contains: " << stats.succ[1] << std::endl;
+  std::cout << "    Successful remove: " << stats.succ[2] << std::endl;
+  std::cout << "    Successful find: " << stats.succ[3] << std::endl;
+  std::cout << std::endl;
+
+  const auto tot = std::accumulate(stats.succ.begin(), +stats.succ.begin() + 3, 0);
+  const auto tops = stats.total;
+
   std::cout << "Total successful: " << tot << " (" << tot / FLAGS_duration << " calls/s)" << std::endl;
   std::cout << "Total ops: " << tops << " (" << tops / FLAGS_duration << " calls/s)" << std::endl;
 }
