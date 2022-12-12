@@ -1355,3 +1355,4 @@ std::optional<std::pair<ModulePtr, const mgp_func *>> FindFunction(const ModuleR
 }
 
 }  // namespace memgraph::query::procedure
+
