@@ -484,7 +484,7 @@ class RequestRouter : public RequestRouterInterface {
 
     for (auto &shards : multi_shards) {
       for (auto &[key, shard] : shards) {
-        MG_ASSERT(!shard.empty());
+        MG_ASSERT(!shard.peers.empty());
 
         msgs::ScanVerticesRequest request;
         request.transaction_id = transaction_id_;
@@ -584,11 +584,11 @@ class RequestRouter : public RequestRouterInterface {
   }
 
   void AddStorageClientToManager(Shard target_shard) {
-    MG_ASSERT(!target_shard.empty());
-    auto leader_addr = target_shard.front();
+    MG_ASSERT(!target_shard.peers.empty());
+    auto leader_addr = target_shard.peers.front();
     std::vector<Address> addresses;
-    addresses.reserve(target_shard.size());
-    for (auto &address : target_shard) {
+    addresses.reserve(target_shard.peers.size());
+    for (auto &address : target_shard.peers) {
       addresses.push_back(std::move(address.address));
     }
     auto cli = StorageClient(io_, std::move(leader_addr.address), std::move(addresses));

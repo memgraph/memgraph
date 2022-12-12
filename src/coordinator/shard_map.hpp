@@ -76,7 +76,34 @@ struct AddressAndStatus {
 };
 
 using PrimaryKey = std::vector<PropertyValue>;
-using Shard = std::vector<AddressAndStatus>;
+
+struct Shard {
+  std::vector<AddressAndStatus> peers;
+  uint64_t version;
+
+  friend std::ostream &operator<<(std::ostream &in, const Shard &shard) {
+    using utils::print_helpers::operator<<;
+
+    in << "Shard { peers: ";
+    in << shard.peers;
+    in << " version: ";
+    in << shard.version;
+    in << " }";
+
+    return in;
+  }
+
+  friend bool operator==(const Shard &lhs, const Shard &rhs) = default;
+
+  friend bool operator<(const Shard &lhs, const Shard &rhs) {
+    if (lhs.peers != rhs.peers) {
+      return lhs.peers < rhs.peers;
+    }
+
+    return lhs.version < rhs.version;
+  }
+};
+
 using Shards = std::map<PrimaryKey, Shard>;
 using LabelName = std::string;
 using PropertyName = std::string;
