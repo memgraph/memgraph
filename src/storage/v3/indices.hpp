@@ -12,8 +12,8 @@
 #pragma once
 
 #include <cstdint>
-#include <map>
 #include <optional>
+#include <set>
 #include <tuple>
 #include <utility>
 
@@ -146,7 +146,7 @@ class LabelPropertyIndex {
   };
 
  public:
-  using LabelPropertyIndexContainer = std::multimap<PropertyValue, Entry>;
+  using LabelPropertyIndexContainer = std::set<Entry>;
 
   LabelPropertyIndex(Indices *indices, Config::Items config, const VertexValidator &vertex_validator)
       : indices_(indices), config_(config), vertex_validator_{&vertex_validator} {}

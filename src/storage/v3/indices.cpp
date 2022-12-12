@@ -11,6 +11,7 @@
 
 #include "indices.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -398,7 +399,7 @@ void LabelPropertyIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const T
     }
     auto prop_value = vertex->second.properties.GetProperty(label_prop.second);
     if (!prop_value.IsNull()) {
-      index.emplace(prop_value, Entry{prop_value, vertex, tx.start_timestamp.logical_id});
+      index.emplace(Entry{prop_value, vertex, tx.start_timestamp.logical_id});
     }
   }
 }
@@ -413,7 +414,7 @@ void LabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const Property
       continue;
     }
     if (VertexHasLabel(*vertex, label_prop.first)) {
-      index.emplace(value, Entry{value, vertex, tx.start_timestamp.logical_id});
+      index.emplace(Entry{value, vertex, tx.start_timestamp.logical_id});
     }
   }
 }
@@ -435,7 +436,7 @@ bool LabelPropertyIndex::CreateIndex(LabelId label, PropertyId property, VertexC
       if (value.IsNull()) {
         continue;
       }
-      it->second.emplace(value, Entry{value, &vertex, 0});
+      it->second.emplace(Entry{value, &vertex, 0});
     }
   } catch (const utils::OutOfMemoryException &) {
     utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
@@ -460,16 +461,15 @@ void LabelPropertyIndex::RemoveObsoleteEntries(const uint64_t clean_up_before_ti
       auto next_it = it;
       ++next_it;
 
-      if (it->second.timestamp >= clean_up_before_timestamp) {
+      if (it->timestamp >= clean_up_before_timestamp) {
         it = next_it;
         continue;
       }
 
-      if (auto &entry = it->second, &next_entry = next_it->second;
-          (next_it != index.end() && entry.vertex == next_entry.vertex && entry.value == next_entry.value) ||
-          !AnyVersionHasLabelProperty(*entry.vertex, label_property.first, label_property.second, entry.value,
+      if ((next_it != index.end() && it->vertex == next_it->vertex && it->value == next_it->value) ||
+          !AnyVersionHasLabelProperty(*it->vertex, label_property.first, label_property.second, it->value,
                                       clean_up_before_timestamp)) {
-        index.erase(it->first);
+        index.erase(it);
       }
       it = next_it;
     }
@@ -492,32 +492,32 @@ LabelPropertyIndex::Iterable::Iterator &LabelPropertyIndex::Iterable::Iterator::
 
 void LabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
   for (; index_iterator_ != self_->index_accessor_->end(); ++index_iterator_) {
-    if (index_iterator_->second.vertex == current_vertex_) {
+    if (index_iterator_->vertex == current_vertex_) {
       continue;
     }
 
     if (self_->lower_bound_) {
-      if (index_iterator_->second.value < self_->lower_bound_->value()) {
+      if (index_iterator_->value < self_->lower_bound_->value()) {
         continue;
       }
-      if (!self_->lower_bound_->IsInclusive() && index_iterator_->second.value == self_->lower_bound_->value()) {
+      if (!self_->lower_bound_->IsInclusive() && index_iterator_->value == self_->lower_bound_->value()) {
         continue;
       }
     }
     if (self_->upper_bound_) {
-      if (self_->upper_bound_->value() < index_iterator_->second.value) {
+      if (self_->upper_bound_->value() < index_iterator_->value) {
         index_iterator_ = self_->index_accessor_->end();
         break;
       }
-      if (!self_->upper_bound_->IsInclusive() && index_iterator_->second.value == self_->upper_bound_->value()) {
+      if (!self_->upper_bound_->IsInclusive() && index_iterator_->value == self_->upper_bound_->value()) {
         index_iterator_ = self_->index_accessor_->end();
         break;
       }
     }
 
-    if (CurrentVersionHasLabelProperty(*index_iterator_->second.vertex, self_->label_, self_->property_,
-                                       index_iterator_->second.value, self_->transaction_, self_->view_)) {
-      current_vertex_ = index_iterator_->second.vertex;
+    if (CurrentVersionHasLabelProperty(*index_iterator_->vertex, self_->label_, self_->property_,
+                                       index_iterator_->value, self_->transaction_, self_->view_)) {
+      current_vertex_ = index_iterator_->vertex;
       current_vertex_accessor_ = VertexAccessor(current_vertex_, self_->transaction_, self_->indices_, self_->config_,
                                                 *self_->vertex_validator_);
       break;
@@ -655,7 +655,7 @@ LabelPropertyIndex::Iterable::Iterator LabelPropertyIndex::Iterable::begin() {
   auto index_iterator = index_accessor_->begin();
   if (lower_bound_) {
     index_iterator = std::ranges::find_if(*index_accessor_, [lower_bound = lower_bound_->value()](const auto &pair) {
-      return pair.second.value >= lower_bound;
+      return pair.value >= lower_bound;
     });
   }
   return {this, index_iterator};
@@ -667,9 +667,12 @@ int64_t LabelPropertyIndex::VertexCount(LabelId label, PropertyId property, cons
   auto it = index_.find({label, property});
   MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
   if (!value.IsNull()) {
-    return static_cast<int64_t>(it->second.count(value));
+    return static_cast<int64_t>(
+        std::ranges::count_if(it->second, [&value](const auto &elem) { return elem.value == value; }));
   }
-  return static_cast<int64_t>(it->second.count(value));
+  // TODO Do check this
+  return static_cast<int64_t>(
+      std::ranges::count_if(it->second, [&value](const auto &elem) { return elem.value == value; }));
 }
 
 int64_t LabelPropertyIndex::VertexCount(LabelId label, PropertyId property,
@@ -681,9 +684,11 @@ int64_t LabelPropertyIndex::VertexCount(LabelId label, PropertyId property,
       [&index = it->second](const auto value, const auto def) {
         if (value) {
           if (value->IsInclusive()) {
-            return index.lower_bound(value->value());
+            return std::lower_bound(index.begin(), index.end(), value->value(),
+                                    [](const Entry &elem, const PropertyValue &val) { return elem.value < val; });
           }
-          return index.upper_bound(value->value());
+          return std::upper_bound(index.begin(), index.end(), value->value(),
+                                  [](const PropertyValue &val, const Entry &elem) { return val < elem.value; });
         }
         return def;
       },
@@ -692,9 +697,11 @@ int64_t LabelPropertyIndex::VertexCount(LabelId label, PropertyId property,
       [&index = it->second](const auto value, const auto def) {
         if (value) {
           if (value->IsInclusive()) {
-            return index.upper_bound(value->value());
+            return std::upper_bound(index.begin(), index.end(), value->value(),
+                                    [](const PropertyValue &val, const Entry &elem) { return val < elem.value; });
           }
-          return index.lower_bound(value->value());
+          return std::lower_bound(index.begin(), index.end(), value->value(),
+                                  [](const Entry &elem, const PropertyValue &val) { return elem.value < val; });
         }
         return def;
       },
