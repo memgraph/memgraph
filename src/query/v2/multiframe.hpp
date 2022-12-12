@@ -137,7 +137,7 @@ class ValidFramesReader {
 
  private:
   FrameWithValidity *after_last_valid_frame_;
-  MultiFrame &multiframe_;
+  MultiFrame *multiframe_;
 };
 
 class ValidFramesModifier {
@@ -192,7 +192,7 @@ class ValidFramesModifier {
   Iterator end();
 
  private:
-  MultiFrame &multiframe_;
+  MultiFrame *multiframe_;
 };
 
 class ValidFramesConsumer {
@@ -246,7 +246,7 @@ class ValidFramesConsumer {
   Iterator end();
 
  private:
-  MultiFrame &multiframe_;
+  MultiFrame *multiframe_;
 };
 
 class InvalidFramesPopulator {
@@ -296,7 +296,7 @@ class InvalidFramesPopulator {
   Iterator end();
 
  private:
-  MultiFrame &multiframe_;
+  MultiFrame *multiframe_;
 };
 
 }  // namespace memgraph::query::v2

@@ -69,7 +69,7 @@ ValidFramesConsumer MultiFrame::GetValidFramesConsumer() { return ValidFramesCon
 
 InvalidFramesPopulator MultiFrame::GetInvalidFramesPopulator() { return InvalidFramesPopulator{*this}; }
 
-ValidFramesReader::ValidFramesReader(MultiFrame &multiframe) : multiframe_(multiframe) {
+ValidFramesReader::ValidFramesReader(MultiFrame &multiframe) : multiframe_(&multiframe) {
   /*
   From: https://en.cppreference.com/w/cpp/algorithm/find
   Returns an iterator to the first element in the range [first, last) that satisfies specific criteria:
@@ -81,38 +81,55 @@ ValidFramesReader::ValidFramesReader(MultiFrame &multiframe) : multiframe_(multi
   */
   auto it = std::find_if(multiframe.frames_.begin(), multiframe.frames_.end(),
                          [](const auto &frame) { return !frame.IsValid(); });
-  after_last_valid_frame_ = multiframe_.frames_.data() + std::distance(multiframe.frames_.begin(), it);
+  after_last_valid_frame_ = multiframe_->frames_.data() + std::distance(multiframe.frames_.begin(), it);
 }
 
-ValidFramesReader::Iterator ValidFramesReader::begin() { return Iterator{&multiframe_.frames_[0]}; }
+ValidFramesReader::Iterator ValidFramesReader::begin() {
+  if (multiframe_->frames_[0].IsValid()) {
+    return Iterator{&multiframe_->frames_[0]};
+  }
+  return end();
+}
+
 ValidFramesReader::Iterator ValidFramesReader::end() { return Iterator{after_last_valid_frame_}; }
 
-ValidFramesModifier::ValidFramesModifier(MultiFrame &multiframe) : multiframe_(multiframe) {}
+ValidFramesModifier::ValidFramesModifier(MultiFrame &multiframe) : multiframe_(&multiframe) {}
 
-ValidFramesModifier::Iterator ValidFramesModifier::begin() { return Iterator{&multiframe_.frames_[0], *this}; }
-ValidFramesModifier::Iterator ValidFramesModifier::end() {
-  return Iterator{multiframe_.frames_.data() + multiframe_.frames_.size(), *this};
+ValidFramesModifier::Iterator ValidFramesModifier::begin() {
+  if (multiframe_->frames_[0].IsValid()) {
+    return Iterator{&multiframe_->frames_[0], *this};
+  }
+  return end();
 }
 
-ValidFramesConsumer::ValidFramesConsumer(MultiFrame &multiframe) : multiframe_(multiframe) {}
+ValidFramesModifier::Iterator ValidFramesModifier::end() {
+  return Iterator{multiframe_->frames_.data() + multiframe_->frames_.size(), *this};
+}
+
+ValidFramesConsumer::ValidFramesConsumer(MultiFrame &multiframe) : multiframe_(&multiframe) {}
 
 // NOLINTNEXTLINE (bugprone-exception-escape)
 ValidFramesConsumer::~ValidFramesConsumer() noexcept {
   // TODO Possible optimisation: only DefragmentValidFrames if one frame has been invalidated? Only if does not
   // cost too much to store it
-  multiframe_.DefragmentValidFrames();
+  multiframe_->DefragmentValidFrames();
 }
 
-ValidFramesConsumer::Iterator ValidFramesConsumer::begin() { return Iterator{&multiframe_.frames_[0], *this}; }
+ValidFramesConsumer::Iterator ValidFramesConsumer::begin() {
+  if (multiframe_->frames_[0].IsValid()) {
+    return Iterator{&multiframe_->frames_[0], *this};
+  }
+  return end();
+}
 
 ValidFramesConsumer::Iterator ValidFramesConsumer::end() {
-  return Iterator{multiframe_.frames_.data() + multiframe_.frames_.size(), *this};
+  return Iterator{multiframe_->frames_.data() + multiframe_->frames_.size(), *this};
 }
 
-InvalidFramesPopulator::InvalidFramesPopulator(MultiFrame &multiframe) : multiframe_(multiframe) {}
+InvalidFramesPopulator::InvalidFramesPopulator(MultiFrame &multiframe) : multiframe_(&multiframe) {}
 
 InvalidFramesPopulator::Iterator InvalidFramesPopulator::begin() {
-  for (auto &frame : multiframe_.frames_) {
+  for (auto &frame : multiframe_->frames_) {
     if (!frame.IsValid()) {
       return Iterator{&frame};
     }
@@ -121,7 +138,7 @@ InvalidFramesPopulator::Iterator InvalidFramesPopulator::begin() {
 }
 
 InvalidFramesPopulator::Iterator InvalidFramesPopulator::end() {
-  return Iterator{multiframe_.frames_.data() + multiframe_.frames_.size()};
+  return Iterator{multiframe_->frames_.data() + multiframe_->frames_.size()};
 }
 
 }  // namespace memgraph::query::v2
