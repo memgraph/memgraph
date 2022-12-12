@@ -1029,6 +1029,14 @@ bool PythonModule::Close() {
   std::vector<std::filesystem::path> submodules;
 
   for (auto const &dir_entry : std::filesystem::recursive_directory_iterator(file_path_.parent_path())) {
+    bool prefix_of_existing_submodule = false;
+    for (auto const &submodule_path : submodules) {
+      if (dir_entry.path().string().starts_with(submodule_path.string())) {
+        prefix_of_existing_submodule = true;
+        break;
+      }
+    }
+    if (prefix_of_existing_submodule) continue;
     std::string dir_entry_stem = dir_entry.path().stem().string();
     if (dir_entry.is_regular_file() || dir_entry_stem == "__pycache__") continue;
     if (dir_entry_stem.find(stem) != std::string_view::npos) {
@@ -1355,4 +1363,3 @@ std::optional<std::pair<ModulePtr, const mgp_func *>> FindFunction(const ModuleR
 }
 
 }  // namespace memgraph::query::procedure
-
