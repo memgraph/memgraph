@@ -20,28 +20,9 @@
 #include "query/v2/requests.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/shard.hpp"
-#include "utils/logging.hpp"
 #include "utils/memory.hpp"
 
-using namespace memgraph::query::v2;
-using namespace memgraph::query::v2::plan;
-namespace memgraph {
-class TestTemplate : public testing::Test {
- protected:
-  void SetUp() override {}
-};
-
-ExecutionContext MakeContext(const AstStorage &storage, const SymbolTable &symbol_table, RequestRouterInterface *router,
-                             IdAllocator *id_alloc) {
-  ExecutionContext context;
-  context.symbol_table = symbol_table;
-  context.evaluation_context.properties = NamesToProperties(storage.properties_, router);
-  context.evaluation_context.labels = NamesToLabels(storage.labels_, router);
-  context.edge_ids_alloc = id_alloc;
-  context.request_router = router;
-  return context;
-}
-
+namespace memgraph::query::v2 {
 MultiFrame CreateMultiFrame(const size_t max_pos) {
   static constexpr size_t frame_size = 100;
   MultiFrame multi_frame(max_pos, frame_size, utils::NewDeleteResource());
@@ -53,29 +34,36 @@ MultiFrame CreateMultiFrame(const size_t max_pos) {
   return multi_frame;
 }
 
-TEST_F(TestTemplate, CreateNode) {
-  MockedRequestRouter router;
+TEST(CreateNodeTest, CreateNodeCursor) {
+  using testing::_;
+  using testing::Return;
 
   AstStorage ast;
   SymbolTable symbol_table;
 
-  query::v2::plan::NodeCreationInfo node;
-  query::v2::plan::EdgeCreationInfo edge;
+  plan::NodeCreationInfo node;
+  plan::EdgeCreationInfo edge;
   edge.edge_type = msgs::EdgeTypeId::FromUint(1);
   edge.direction = EdgeAtom::Direction::IN;
   auto id_alloc = IdAllocator(0, 100);
 
   node.symbol = symbol_table.CreateSymbol("n", true);
   node.labels.push_back(msgs::LabelId::FromUint(2));
-  auto literal = query::v2::PrimitiveLiteral();
+  auto literal = PrimitiveLiteral();
   literal.value_ = TypedValue(static_cast<int64_t>(200));
-  auto p = query::v2::plan::PropertiesMapList{};
+  auto p = plan::PropertiesMapList{};
   p.push_back(std::make_pair(msgs::PropertyId::FromUint(2), &literal));
   node.properties.emplace<0>(std::move(p));
 
-  auto create_expand = query::v2::plan::CreateNode(nullptr, node);
-  auto cursor = create_expand.MakeCursor(utils::NewDeleteResource());
+  auto once_cur = plan::MakeUniqueCursorPtr<MockedCursor>(utils::NewDeleteResource());
+  EXPECT_CALL(BaseToMock(once_cur.get()), PullMultiple(_, _)).Times(1);
 
+  std::shared_ptr<plan::LogicalOperator> once_op = std::make_shared<MockedLogicalOperator>();
+  EXPECT_CALL(BaseToMock(once_op.get()), MakeCursor(_)).Times(1).WillOnce(Return(std::move(once_cur)));
+
+  auto create_expand = plan::CreateNode(once_op, node);
+  auto cursor = create_expand.MakeCursor(utils::NewDeleteResource());
+  MockedRequestRouter router;
   EXPECT_CALL(router, CreateVertices(testing::_))
       .Times(1)
       .WillOnce(::testing::Return(std::vector<msgs::CreateVerticesResponse>{}));
@@ -84,4 +72,4 @@ TEST_F(TestTemplate, CreateNode) {
   auto multi_frame = CreateMultiFrame(context.symbol_table.max_position());
   cursor->PullMultiple(multi_frame, context);
 }
-}  // namespace memgraph
+}  // namespace memgraph::query::v2
