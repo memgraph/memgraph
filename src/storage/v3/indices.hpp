@@ -123,8 +123,6 @@ class LabelIndex {
 
   void Clear() { index_.clear(); }
 
-  void RunGC();
-
  private:
   std::map<LabelId, utils::SkipList<Entry>> index_;
   Indices *indices_;
@@ -239,8 +237,6 @@ class LabelPropertyIndex {
                       const std::optional<utils::Bound<PropertyValue>> &upper) const;
 
   void Clear() { index_.clear(); }
-
-  void RunGC();
 
  private:
   std::map<std::pair<LabelId, PropertyId>, LabelPropertyIndexContainer> index_;

@@ -368,12 +368,6 @@ LabelIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, 
       config_(config),
       vertex_validator_(&vertex_validator) {}
 
-void LabelIndex::RunGC() {
-  for (auto &index_entry : index_) {
-    index_entry.second.run_gc();
-  }
-}
-
 bool LabelPropertyIndex::Entry::operator<(const Entry &rhs) const {
   if (value < rhs.value) {
     return true;
@@ -707,13 +701,6 @@ int64_t LabelPropertyIndex::VertexCount(LabelId label, PropertyId property,
       },
       upper, it->second.end());
   return static_cast<int64_t>(std::distance(lower_it, upper_it));
-}
-
-void LabelPropertyIndex::RunGC() {
-  // TODO(jbajic) What to do?
-  // for (auto &index_entry : index_) {
-  //   index_entry.second.run_gc();
-  // }
 }
 
 void RemoveObsoleteEntries(Indices *indices, const uint64_t clean_up_before_timestamp) {

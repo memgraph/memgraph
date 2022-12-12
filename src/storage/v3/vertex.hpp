@@ -46,7 +46,7 @@ struct VertexData {
   Delta *delta;
 };
 
-// static_assert(alignof(Vertex) >= 8, "The Vertex should be aligned to at least 8!");
+static_assert(alignof(VertexData) >= 8, "The Vertex should be aligned to at least 8!");
 
 using VertexContainer = std::map<PrimaryKey, VertexData>;
 using Vertex = VertexContainer::value_type;

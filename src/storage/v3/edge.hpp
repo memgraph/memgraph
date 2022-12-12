@@ -34,13 +34,13 @@ struct Edge {
   PropertyStore properties;
 
   bool deleted;
-  uint8_t PAD;
+  // uint8_t PAD;
   // uint16_t PAD;
 
   Delta *delta;
 };
 
-// static_assert(alignof(Edge) >= 8, "The Edge should be aligned to at least 8!");
+static_assert(alignof(Edge) >= 8, "The Edge should be aligned to at least 8!");
 
 inline bool operator==(const Edge &first, const Edge &second) { return first.gid == second.gid; }
 inline bool operator<(const Edge &first, const Edge &second) { return first.gid < second.gid; }
