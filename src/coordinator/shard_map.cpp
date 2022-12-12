@@ -360,9 +360,9 @@ bool ShardMap::SplitShard(Hlc previous_shard_map_version, LabelId label_id, cons
   MG_ASSERT(!shards_in_map.contains(key));
   MG_ASSERT(label_spaces.contains(label_id));
 
-  // Finding the Shard that the new PrimaryKey should map to.
+  // Finding the ShardMetadata that the new PrimaryKey should map to.
   auto prev = std::prev(shards_in_map.upper_bound(key));
-  Shard duplicated_shard = prev->second;
+  ShardMetadata duplicated_shard = prev->second;
 
   // Apply the split
   shards_in_map[key] = duplicated_shard;
@@ -383,7 +383,7 @@ std::optional<LabelId> ShardMap::InitializeNewLabel(std::string label_name, std:
   labels.emplace(std::move(label_name), label_id);
 
   PrimaryKey initial_key = SchemaToMinKey(schema);
-  Shard empty_shard = {};
+  ShardMetadata empty_shard = {};
 
   Shards shards = {
       {initial_key, empty_shard},
@@ -479,7 +479,7 @@ Shards ShardMap::GetShardsForRange(const LabelName &label_name, const PrimaryKey
   return shards;
 }
 
-Shard ShardMap::GetShardForKey(const LabelName &label_name, const PrimaryKey &key) const {
+ShardMetadata ShardMap::GetShardForKey(const LabelName &label_name, const PrimaryKey &key) const {
   MG_ASSERT(labels.contains(label_name));
 
   LabelId label_id = labels.at(label_name);
@@ -492,7 +492,7 @@ Shard ShardMap::GetShardForKey(const LabelName &label_name, const PrimaryKey &ke
   return std::prev(label_space.shards.upper_bound(key))->second;
 }
 
-Shard ShardMap::GetShardForKey(const LabelId &label_id, const PrimaryKey &key) const {
+ShardMetadata ShardMap::GetShardForKey(const LabelId &label_id, const PrimaryKey &key) const {
   MG_ASSERT(label_spaces.contains(label_id));
 
   const auto &label_space = label_spaces.at(label_id);

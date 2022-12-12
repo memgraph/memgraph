@@ -50,7 +50,7 @@ template <typename TStorageClient>
 class RsmStorageClientManager {
  public:
   using CompoundKey = io::rsm::ShardRsmKey;
-  using Shard = coordinator::Shard;
+  using ShardMetadata = coordinator::ShardMetadata;
   RsmStorageClientManager() = default;
   RsmStorageClientManager(const RsmStorageClientManager &) = delete;
   RsmStorageClientManager(RsmStorageClientManager &&) = delete;
@@ -58,25 +58,25 @@ class RsmStorageClientManager {
   RsmStorageClientManager &operator=(RsmStorageClientManager &&) = delete;
   ~RsmStorageClientManager() = default;
 
-  void AddClient(Shard key, TStorageClient client) { cli_cache_.emplace(std::move(key), std::move(client)); }
+  void AddClient(ShardMetadata key, TStorageClient client) { cli_cache_.emplace(std::move(key), std::move(client)); }
 
-  bool Exists(const Shard &key) { return cli_cache_.contains(key); }
+  bool Exists(const ShardMetadata &key) { return cli_cache_.contains(key); }
 
   void PurgeCache() { cli_cache_.clear(); }
 
-  TStorageClient &GetClient(const Shard &key) {
+  TStorageClient &GetClient(const ShardMetadata &key) {
     auto it = cli_cache_.find(key);
     MG_ASSERT(it != cli_cache_.end(), "Non-existing shard client");
     return it->second;
   }
 
  private:
-  std::map<Shard, TStorageClient> cli_cache_;
+  std::map<ShardMetadata, TStorageClient> cli_cache_;
 };
 
 template <typename TRequest>
 struct ShardRequestState {
-  memgraph::coordinator::Shard shard;
+  memgraph::coordinator::ShardMetadata shard;
   TRequest request;
 };
 
@@ -125,7 +125,7 @@ class RequestRouter : public RequestRouterInterface {
   using CoordinatorWriteRequests = coordinator::CoordinatorWriteRequests;
   using CoordinatorClient = coordinator::CoordinatorClient<TTransport>;
   using Address = io::Address;
-  using Shard = coordinator::Shard;
+  using ShardMetadata = coordinator::ShardMetadata;
   using ShardMap = coordinator::ShardMap;
   using CompoundKey = coordinator::PrimaryKey;
   using VertexAccessor = query::v2::accessors::VertexAccessor;
@@ -403,7 +403,7 @@ class RequestRouter : public RequestRouterInterface {
  private:
   std::vector<ShardRequestState<msgs::CreateVerticesRequest>> RequestsForCreateVertices(
       const std::vector<msgs::NewVertex> &new_vertices) {
-    std::map<Shard, msgs::CreateVerticesRequest> per_shard_request_table;
+    std::map<ShardMetadata, msgs::CreateVerticesRequest> per_shard_request_table;
 
     for (auto &new_vertex : new_vertices) {
       MG_ASSERT(!new_vertex.label_ids.empty(), "No label_ids provided for new vertex in RequestRouter::CreateVertices");
@@ -431,9 +431,9 @@ class RequestRouter : public RequestRouterInterface {
 
   std::vector<ShardRequestState<msgs::CreateExpandRequest>> RequestsForCreateExpand(
       const std::vector<msgs::NewExpand> &new_expands) {
-    std::map<Shard, msgs::CreateExpandRequest> per_shard_request_table;
+    std::map<ShardMetadata, msgs::CreateExpandRequest> per_shard_request_table;
     auto ensure_shard_exists_in_table = [&per_shard_request_table,
-                                         transaction_id = transaction_id_](const Shard &shard) {
+                                         transaction_id = transaction_id_](const ShardMetadata &shard) {
       if (!per_shard_request_table.contains(shard)) {
         msgs::CreateExpandRequest create_expand_request{.transaction_id = transaction_id};
         per_shard_request_table.insert({shard, std::move(create_expand_request)});
@@ -503,7 +503,7 @@ class RequestRouter : public RequestRouterInterface {
   }
 
   std::vector<ShardRequestState<msgs::ExpandOneRequest>> RequestsForExpandOne(const msgs::ExpandOneRequest &request) {
-    std::map<Shard, msgs::ExpandOneRequest> per_shard_request_table;
+    std::map<ShardMetadata, msgs::ExpandOneRequest> per_shard_request_table;
     msgs::ExpandOneRequest top_level_rqst_template = request;
     top_level_rqst_template.transaction_id = transaction_id_;
     top_level_rqst_template.src_vertices.clear();
@@ -533,7 +533,7 @@ class RequestRouter : public RequestRouterInterface {
 
   std::vector<ShardRequestState<msgs::GetPropertiesRequest>> RequestsForGetProperties(
       msgs::GetPropertiesRequest &&request) {
-    std::map<Shard, msgs::GetPropertiesRequest> per_shard_request_table;
+    std::map<ShardMetadata, msgs::GetPropertiesRequest> per_shard_request_table;
     auto top_level_rqst_template = request;
     top_level_rqst_template.transaction_id = transaction_id_;
     top_level_rqst_template.vertex_ids.clear();
@@ -571,7 +571,7 @@ class RequestRouter : public RequestRouterInterface {
     return requests;
   }
 
-  StorageClient &GetStorageClientForShard(Shard shard) {
+  StorageClient &GetStorageClientForShard(ShardMetadata shard) {
     if (!storage_cli_manager_.Exists(shard)) {
       AddStorageClientToManager(shard);
     }
@@ -583,7 +583,7 @@ class RequestRouter : public RequestRouterInterface {
     return GetStorageClientForShard(std::move(shard));
   }
 
-  void AddStorageClientToManager(Shard target_shard) {
+  void AddStorageClientToManager(ShardMetadata target_shard) {
     MG_ASSERT(!target_shard.peers.empty());
     auto leader_addr = target_shard.peers.front();
     std::vector<Address> addresses;
