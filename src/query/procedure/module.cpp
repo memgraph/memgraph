@@ -21,7 +21,6 @@ extern "C" {
 #include <fmt/format.h>
 #include <unistd.h>
 
-#include <gflags/gflags.h>
 #include "py/py.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/procedure/py_module.hpp"
@@ -52,10 +51,6 @@ constexpr const char *func_code =
     "node_iter.visit_Import = visit_Import\n"
     "node_iter.visit_ImportFrom = visit_ImportFrom\n"
     "node_iter.visit(ast.parse(code))\n";
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)w
-DEFINE_string(python_submodules_directory, "mage",
-              "Directory in which the Python submodules' utility procedures are saved.");
 
 void ProcessFileDependencies(std::filesystem::path file_path_, const char *module_path, const char *func_code,
                              PyObject *sys_mod_ref);
@@ -1027,37 +1022,33 @@ bool PythonModule::Close() {
   py::Object sys(PyImport_ImportModule("sys"));
   PyObject *sys_mod_ref = sys.GetAttr("modules").Ptr();
 
-  std::filesystem::path submodules_path = file_path_.parent_path();
-  std::string_view stem = std::string_view(file_path_.stem().c_str());
-  submodules_path /= FLAGS_python_submodules_directory;
+  std::string stem = file_path_.stem().string();
 
   ProcessFileDependencies(file_path_, file_path_.stem().c_str(), func_code, sys_mod_ref);
 
-  if (std::filesystem::exists(submodules_path)) {
-    std::filesystem::path submodules;
+  std::filesystem::path submodules;
 
-    for (auto const &dir_entry : std::filesystem::directory_iterator(submodules_path)) {
-      std::string_view dir_entry_stem = std::string_view(dir_entry.path().stem().c_str());
-      if (dir_entry.is_regular_file() || dir_entry_stem.compare("__pycache__") == 0) continue;
-      if (dir_entry_stem.find(stem) != std::string_view::npos &&
-          (submodules.empty() || std::string_view(submodules.stem().c_str()).length() > dir_entry_stem.length())) {
-        submodules = dir_entry.path();
-      }
+  for (auto const &dir_entry : std::filesystem::recursive_directory_iterator(file_path_.parent_path())) {
+    std::string dir_entry_stem = dir_entry.path().stem().string();
+    if (dir_entry.is_regular_file() || dir_entry_stem == "__pycache__") continue;
+    if (dir_entry_stem.find(stem) != std::string_view::npos &&
+        (submodules.empty() || submodules.stem().string().size() > dir_entry_stem.length())) {
+      submodules = dir_entry.path();
     }
+  }
 
-    if (std::filesystem::exists(submodules)) {
-      if (!std::filesystem::remove_all(submodules / "__pycache__")) {
-        spdlog::trace("Submodules cache couldn't be cleared!");
-      } else {
-        for (auto const &rec_dir_entry : std::filesystem::recursive_directory_iterator(submodules)) {
-          std::string_view rec_dir_entry_stem = std::string_view(rec_dir_entry.path().stem().c_str());
-          if (rec_dir_entry.is_directory() && rec_dir_entry_stem.compare("__pycache__") != 0) {
-            std::filesystem::remove_all(rec_dir_entry.path() / "__pycache__");
-          }
-          std::string_view rec_dir_entry_ext = std::string_view(rec_dir_entry.path().extension().c_str());
-          if (!rec_dir_entry.is_regular_file() || rec_dir_entry_ext.compare(".py") != 0) continue;
-          ProcessFileDependencies(rec_dir_entry.path().c_str(), file_path_.stem().c_str(), func_code, sys_mod_ref);
+  if (std::filesystem::exists(submodules)) {
+    if (!std::filesystem::remove_all(submodules / "__pycache__")) {
+      spdlog::trace("Submodules cache couldn't be cleared!");
+    } else {
+      for (auto const &rec_dir_entry : std::filesystem::recursive_directory_iterator(submodules)) {
+        std::string rec_dir_entry_stem = rec_dir_entry.path().stem().string();
+        if (rec_dir_entry.is_directory() && rec_dir_entry_stem != "__pycache__") {
+          std::filesystem::remove_all(rec_dir_entry.path() / "__pycache__");
         }
+        std::string rec_dir_entry_ext = rec_dir_entry.path().extension().string();
+        if (!rec_dir_entry.is_regular_file() || rec_dir_entry_ext != ".py") continue;
+        ProcessFileDependencies(rec_dir_entry.path().c_str(), file_path_.stem().c_str(), func_code, sys_mod_ref);
       }
     }
   }

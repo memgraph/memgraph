@@ -163,9 +163,4 @@ startup_config_dict = {
     ),
     "query_max_plans": ("1000", "1000", "Maximum number of generated plans for a query."),
     "flag_file": ("", "", "load flags from file"),
-    "python_submodules_directory": (
-        "mage",
-        "mage",
-        "Directory in which the Python submodules' utility procedures are saved.",
-    ),
 }
