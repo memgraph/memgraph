@@ -13,51 +13,70 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include "query/v2/common.hpp"
+#include "query/v2/context.hpp"
 #include "query/v2/plan/operator.hpp"
 #include "query/v2/request_router.hpp"
 
-namespace memgraph {
-class MockedRequestRouter : public query::v2::RequestRouterInterface {
+namespace memgraph::query::v2 {
+class MockedRequestRouter : public RequestRouterInterface {
  public:
-  MOCK_METHOD1(ScanVertices, std::vector<VertexAccessor>(std::optional<std::string> label));
-  MOCK_METHOD1(CreateVertices, std::vector<msgs::CreateVerticesResponse>(std::vector<msgs::NewVertex>));
-  MOCK_METHOD1(ExpandOne, std::vector<msgs::ExpandOneResultRow>(msgs::ExpandOneRequest));
-  MOCK_METHOD1(CreateExpand, std::vector<msgs::CreateExpandResponse>(std::vector<msgs::NewExpand>));
-  MOCK_METHOD1(GetProperties, std::vector<msgs::GetPropertiesResultRow>(msgs::GetPropertiesRequest));
-  MOCK_METHOD0(StartTransaction, void());
-  MOCK_METHOD0(Commit, void());
+  MOCK_METHOD(std::vector<VertexAccessor>, ScanVertices, (std::optional<std::string> label));
+  MOCK_METHOD(std::vector<msgs::CreateVerticesResponse>, CreateVertices, (std::vector<msgs::NewVertex>));
+  MOCK_METHOD(std::vector<msgs::ExpandOneResultRow>, ExpandOne, (msgs::ExpandOneRequest));
+  MOCK_METHOD(std::vector<msgs::CreateExpandResponse>, CreateExpand, (std::vector<msgs::NewExpand>));
+  MOCK_METHOD(std::vector<msgs::GetPropertiesResultRow>, GetProperties, (msgs::GetPropertiesRequest));
+  MOCK_METHOD(void, StartTransaction, ());
+  MOCK_METHOD(void, Commit, ());
 
-  MOCK_CONST_METHOD1(NameToEdgeType, storage::v3::EdgeTypeId(const std::string &));
-  MOCK_CONST_METHOD1(NameToProperty, storage::v3::PropertyId(const std::string &));
-  MOCK_CONST_METHOD1(NameToLabel, storage::v3::LabelId(const std::string &));
-  MOCK_CONST_METHOD1(LabelToName, storage::v3::LabelId(const std::string &));
-  MOCK_CONST_METHOD1(PropertyToName, const std::string &(storage::v3::PropertyId));
-  MOCK_CONST_METHOD1(LabelToName, const std::string &(storage::v3::LabelId label));
-  MOCK_CONST_METHOD1(EdgeTypeToName, const std::string &(storage::v3::EdgeTypeId type));
-  MOCK_CONST_METHOD1(MaybeNameToProperty, std::optional<storage::v3::PropertyId>(const std::string &));
-  MOCK_CONST_METHOD1(MaybeNameToEdgeType, std::optional<storage::v3::EdgeTypeId>(const std::string &));
-  MOCK_CONST_METHOD1(MaybeNameToLabel, std::optional<storage::v3::LabelId>(const std::string &));
-  MOCK_CONST_METHOD1(IsPrimaryLabel, bool(storage::v3::LabelId));
-  MOCK_CONST_METHOD2(IsPrimaryKey, bool(storage::v3::LabelId, storage::v3::PropertyId));
+  MOCK_METHOD(storage::v3::EdgeTypeId, NameToEdgeType, (const std::string &), (const));
+  MOCK_METHOD(storage::v3::PropertyId, NameToProperty, (const std::string &), (const));
+  MOCK_METHOD(storage::v3::LabelId, NameToLabel, (const std::string &), (const));
+  MOCK_METHOD(storage::v3::LabelId, LabelToName, (const std::string &), (const));
+  MOCK_METHOD(const std::string &, PropertyToName, (storage::v3::PropertyId), (const));
+  MOCK_METHOD(const std::string &, LabelToName, (storage::v3::LabelId label), (const));
+  MOCK_METHOD(const std::string &, EdgeTypeToName, (storage::v3::EdgeTypeId type), (const));
+  MOCK_METHOD(std::optional<storage::v3::PropertyId>, MaybeNameToProperty, (const std::string &), (const));
+  MOCK_METHOD(std::optional<storage::v3::EdgeTypeId>, MaybeNameToEdgeType, (const std::string &), (const));
+  MOCK_METHOD(std::optional<storage::v3::LabelId>, MaybeNameToLabel, (const std::string &), (const));
+  MOCK_METHOD(bool, IsPrimaryLabel, (storage::v3::LabelId), (const));
+  MOCK_METHOD(bool, IsPrimaryKey, (storage::v3::LabelId, storage::v3::PropertyId), (const));
 };
 
-class MockedLogicalOperator : query::v2::plan::LogicalOperator {
+class MockedLogicalOperator : public plan::LogicalOperator {
  public:
-  MOCK_CONST_METHOD1(MakeCursor, query::v2::plan::UniqueCursorPtr(utils::MemoryResource *));
-  MOCK_CONST_METHOD1(OutputSymbols, std::vector<expr::Symbol>(const expr::SymbolTable &));
-  MOCK_CONST_METHOD1(ModifiedSymbols, std::vector<expr::Symbol>(const expr::SymbolTable &));
-  MOCK_CONST_METHOD0(HasSingleInput, bool());
-  MOCK_CONST_METHOD0(input, std::shared_ptr<LogicalOperator>());
-  MOCK_METHOD1(set_input, void(std::shared_ptr<LogicalOperator>));
-  MOCK_CONST_METHOD1(Clone, std::unique_ptr<LogicalOperator>(query::v2::AstStorage *storage));
+  MOCK_METHOD(plan::UniqueCursorPtr, MakeCursor, (utils::MemoryResource *), (const));
+  MOCK_METHOD(std::vector<expr::Symbol>, ModifiedSymbols, (const expr::SymbolTable &), (const));
+  MOCK_METHOD(bool, HasSingleInput, (), (const));
+  MOCK_METHOD(std::shared_ptr<LogicalOperator>, input, (), (const));
+  MOCK_METHOD(void, set_input, (std::shared_ptr<LogicalOperator>));
+  MOCK_METHOD(std::unique_ptr<LogicalOperator>, Clone, (AstStorage * storage), (const));
+  MOCK_METHOD(bool, Accept, (plan::HierarchicalLogicalOperatorVisitor & visitor));
 };
 
-class MockedCursor : memgraph::query::v2::plan::Cursor {
+class MockedCursor : public plan::Cursor {
  public:
-  MOCK_METHOD2(Pull, bool(query::v2::Frame &, expr::ExecutionContext &));
-  MOCK_METHOD2(PullMultiple, void(query::v2::MultiFrame &, expr::ExecutionContext &));
-  MOCK_METHOD0(Reset, void());
-  MOCK_METHOD0(Shutdown, void());
+  MOCK_METHOD(bool, Pull, (Frame &, expr::ExecutionContext &));
+  MOCK_METHOD(void, PullMultiple, (MultiFrame &, expr::ExecutionContext &));
+  MOCK_METHOD(void, Reset, ());
+  MOCK_METHOD(void, Shutdown, ());
 };
 
-}  // namespace memgraph
+inline expr::ExecutionContext MakeContext(const expr::AstStorage &storage, const expr::SymbolTable &symbol_table,
+                                          RequestRouterInterface *router, IdAllocator *id_alloc) {
+  expr::ExecutionContext context;
+  context.symbol_table = symbol_table;
+  context.evaluation_context.properties = NamesToProperties(storage.properties_, router);
+  context.evaluation_context.labels = NamesToLabels(storage.labels_, router);
+  context.edge_ids_alloc = id_alloc;
+  context.request_router = router;
+  return context;
+}
+
+inline MockedLogicalOperator &BaseToMock(plan::LogicalOperator *op) {
+  return *static_cast<MockedLogicalOperator *>(op);
+}
+
+inline MockedCursor &BaseToMock(plan::Cursor *cursor) { return *static_cast<MockedCursor *>(cursor); }
+
+}  // namespace memgraph::query::v2

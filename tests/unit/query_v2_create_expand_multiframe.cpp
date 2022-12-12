@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <memory>
 #include "mock_helpers.hpp"
 
 #include "query/v2/bindings/frame.hpp"
@@ -22,24 +23,7 @@
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 
-using namespace memgraph::query::v2;
-using namespace memgraph::query::v2::plan;
-namespace memgraph {
-class TestTemplate : public testing::Test {
- protected:
-  void SetUp() override {}
-};
-
-ExecutionContext MakeContext(const AstStorage &storage, const SymbolTable &symbol_table, RequestRouterInterface *router,
-                             IdAllocator *id_alloc) {
-  ExecutionContext context;
-  context.symbol_table = symbol_table;
-  context.evaluation_context.properties = NamesToProperties(storage.properties_, router);
-  context.evaluation_context.labels = NamesToLabels(storage.labels_, router);
-  context.edge_ids_alloc = id_alloc;
-  context.request_router = router;
-  return context;
-}
+namespace memgraph::query::v2 {
 
 MultiFrame CreateMultiFrame(const size_t max_pos, const Symbol &src, const Symbol &dst, MockedRequestRouter *router) {
   static constexpr size_t frame_size = 100;
@@ -60,14 +44,15 @@ MultiFrame CreateMultiFrame(const size_t max_pos, const Symbol &src, const Symbo
   return multi_frame;
 }
 
-TEST_F(TestTemplate, CreateExpand) {
-  MockedRequestRouter router;
+TEST(CreateExpandTest, Cursor) {
+  using testing::_;
+  using testing::Return;
 
   AstStorage ast;
   SymbolTable symbol_table;
 
-  query::v2::plan::NodeCreationInfo node;
-  query::v2::plan::EdgeCreationInfo edge;
+  plan::NodeCreationInfo node;
+  plan::EdgeCreationInfo edge;
   edge.edge_type = msgs::EdgeTypeId::FromUint(1);
   edge.direction = EdgeAtom::Direction::IN;
   auto id_alloc = IdAllocator(0, 100);
@@ -75,14 +60,20 @@ TEST_F(TestTemplate, CreateExpand) {
   const auto &src = symbol_table.CreateSymbol("n", true);
   node.symbol = symbol_table.CreateSymbol("u", true);
 
-  auto create_expand = query::v2::plan::CreateExpand(node, edge, nullptr, src, true);
+  auto once_cur = plan::MakeUniqueCursorPtr<MockedCursor>(utils::NewDeleteResource());
+  EXPECT_CALL(BaseToMock(once_cur.get()), PullMultiple(_, _)).Times(1);
+
+  std::shared_ptr<plan::LogicalOperator> once_op = std::make_shared<MockedLogicalOperator>();
+  EXPECT_CALL(BaseToMock(once_op.get()), MakeCursor(_)).Times(1).WillOnce(Return(std::move(once_cur)));
+
+  auto create_expand = plan::CreateExpand(node, edge, once_op, src, true);
   auto cursor = create_expand.MakeCursor(utils::NewDeleteResource());
 
-  EXPECT_CALL(router, CreateExpand(testing::_))
-      .Times(1)
-      .WillOnce(::testing::Return(std::vector<msgs::CreateExpandResponse>{}));
+  MockedRequestRouter router;
+  EXPECT_CALL(router, CreateExpand(_)).Times(1).WillOnce(Return(std::vector<msgs::CreateExpandResponse>{}));
   auto context = MakeContext(ast, symbol_table, &router, &id_alloc);
   auto multi_frame = CreateMultiFrame(context.symbol_table.max_position(), src, node.symbol, &router);
   cursor->PullMultiple(multi_frame, context);
 }
-}  // namespace memgraph
+
+}  // namespace memgraph::query::v2

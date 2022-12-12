@@ -2538,7 +2538,7 @@ class DistributedCreateExpandCursor : public Cursor {
 
   std::vector<msgs::NewExpand> ExpandCreationInfoToRequests(MultiFrame &multi_frame, ExecutionContext &context) const {
     std::vector<msgs::NewExpand> edge_requests;
-    auto reader = multi_frame.GetValidFramesConsumer();
+    auto reader = multi_frame.GetValidFramesModifier();
 
     for (auto &frame : reader) {
       const auto &edge_info = self_.edge_info_;
