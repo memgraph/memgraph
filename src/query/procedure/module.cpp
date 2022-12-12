@@ -1030,15 +1030,10 @@ bool PythonModule::Close() {
 
   for (auto it = std::filesystem::recursive_directory_iterator(file_path_.parent_path());
        it != std::filesystem::recursive_directory_iterator(); ++it) {
-    for (auto const &submodule_path : submodules) {
-      if (it->path().string().starts_with(submodule_path.string())) {
-        it.disable_recursion_pending();
-        break;
-      }
-    }
     std::string dir_entry_stem = it->path().stem().string();
     if (it->is_regular_file() || dir_entry_stem == "__pycache__") continue;
     if (dir_entry_stem.find(stem) != std::string_view::npos) {
+      it.disable_recursion_pending();
       submodules.emplace_back(it->path());
     }
   }
