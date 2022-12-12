@@ -9,35 +9,50 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+
 import os  # To be removed
 import sys
 
 import pytest
 from common import connect, execute_and_fetch_all
 
-COMMON_PATH_PREFIX = "procedures/mage/test_module"
+COMMON_PATH_PREFIX_TEST1 = "procedures/mage/test_module"
+COMMON_PATH_PREFIX_TEST2 = "procedures/new_test_module_utils"
+
 FUNC1_PATH = os.path.join(
     os.path.dirname(__file__),
-    COMMON_PATH_PREFIX,
+    COMMON_PATH_PREFIX_TEST1,
     "test_functions.py",
 )
 
 FUNC2_PATH = os.path.join(
     os.path.dirname(__file__),
-    COMMON_PATH_PREFIX,
+    COMMON_PATH_PREFIX_TEST1,
     "test_functions_dir/test_subfunctions.py",
 )
 
+FUNC3_PATH = os.path.join(
+    os.path.dirname(__file__),
+    COMMON_PATH_PREFIX_TEST2,
+    "new_test_functions.py",
+)
 
-def preprocess_functions():
-    with open(FUNC1_PATH, "w") as func1_file:
+FUNC4_PATH = os.path.join(
+    os.path.dirname(__file__),
+    COMMON_PATH_PREFIX_TEST2,
+    "new_test_functions_dir/new_test_subfunctions.py",
+)
+
+
+def preprocess_functions(path1: str, path2: str):
+    with open(path1, "w") as func1_file:
         func1_file.write(
             """def test_function(a: int, b: int) -> int:
     return a - b
             """
         )
 
-    with open(FUNC2_PATH, "w") as func2_file:
+    with open(path2, "w") as func2_file:
         func2_file.write(
             """def test_subfunction(a: int, b: int) -> int:
     return a / b
@@ -45,20 +60,70 @@ def preprocess_functions():
         )
 
 
-def postprocess_functions():
-    with open(FUNC1_PATH, "w") as func1_file:
+def postprocess_functions(path1: str, path2: str):
+    with open(path1, "w") as func1_file:
         func1_file.write(
             """def test_function(a: int, b: int) -> int:
     return a + b
             """
         )
 
-    with open(FUNC2_PATH, "w") as func2_file:
+    with open(path2, "w") as func2_file:
         func2_file.write(
             """def test_subfunction(a: int, b: int) -> int:
     return a * b
             """
         )
+
+
+def test_mg_load_reload_submodule_root_utils():
+    """Tests whether mg.load reloads content of some submodule code."""
+    cursor = connect().cursor()
+    # First do a simple experiment
+    test_module_res = execute_and_fetch_all(cursor, "CALL new_test_module.test(10, 2) YIELD * RETURN *;")
+    try:
+        assert test_module_res[0][0] == 12  # + operator
+        assert test_module_res[0][1] == 20  # * operator
+        # Now modify content of test function
+        preprocess_functions(FUNC3_PATH, FUNC4_PATH)
+        # Test that it doesn't work without calling reload
+        test_module_res = execute_and_fetch_all(cursor, "CALL new_test_module.test(10, 2) YIELD * RETURN *;")
+        assert test_module_res[0][0] == 12  # + operator
+        assert test_module_res[0][1] == 20  # * operator
+        # Reload module
+        execute_and_fetch_all(cursor, "CALL mg.load('new_test_module');")
+        test_module_res = execute_and_fetch_all(cursor, "CALL new_test_module.test(10, 2) YIELD * RETURN *;")
+        assert test_module_res[0][0] == 8  # - operator
+        assert test_module_res[0][1] == 5  # / operator
+    finally:
+        # Revert to the original state for the consistency
+        postprocess_functions(FUNC3_PATH, FUNC4_PATH)
+    execute_and_fetch_all(cursor, "CALL mg.load('new_test_module');")
+
+
+def test_mg_load_all_reload_submodule_root_utils():
+    """Tests whether mg.load_all reloads content of some submodule code"""
+    cursor = connect().cursor()
+    # First do a simple experiment
+    test_module_res = execute_and_fetch_all(cursor, "CALL new_test_module.test(10, 2) YIELD * RETURN *;")
+    try:
+        assert test_module_res[0][0] == 12  # + operator
+        assert test_module_res[0][1] == 20  # * operator
+        # Now modify content of test function
+        preprocess_functions(FUNC3_PATH, FUNC4_PATH)
+        # Test that it doesn't work without calling reload
+        test_module_res = execute_and_fetch_all(cursor, "CALL new_test_module.test(10, 2) YIELD * RETURN *;")
+        assert test_module_res[0][0] == 12  # + operator
+        assert test_module_res[0][1] == 20  # * operator
+        # Reload module
+        execute_and_fetch_all(cursor, "CALL mg.load_all();")
+        test_module_res = execute_and_fetch_all(cursor, "CALL new_test_module.test(10, 2) YIELD * RETURN *;")
+        assert test_module_res[0][0] == 8  # - operator
+        assert test_module_res[0][1] == 5  # / operator
+    finally:
+        # Revert to the original state for the consistency
+        postprocess_functions(FUNC3_PATH, FUNC4_PATH)
+    execute_and_fetch_all(cursor, "CALL mg.load_all();")
 
 
 def test_mg_load_reload_submodule():
@@ -70,7 +135,7 @@ def test_mg_load_reload_submodule():
         assert test_module_res[0][0] == 12  # + operator
         assert test_module_res[0][1] == 20  # * operator
         # Now modify content of test function
-        preprocess_functions()
+        preprocess_functions(FUNC1_PATH, FUNC2_PATH)
         # Test that it doesn't work without calling reload
         test_module_res = execute_and_fetch_all(cursor, "CALL test_module.test(10, 2) YIELD * RETURN *;")
         assert test_module_res[0][0] == 12  # + operator
@@ -82,7 +147,7 @@ def test_mg_load_reload_submodule():
         assert test_module_res[0][1] == 5  # / operator
     finally:
         # Revert to the original state for the consistency
-        postprocess_functions()
+        postprocess_functions(FUNC1_PATH, FUNC2_PATH)
     execute_and_fetch_all(cursor, "CALL mg.load('test_module');")
 
 
@@ -95,7 +160,7 @@ def test_mg_load_all_reload_submodule():
         assert test_module_res[0][0] == 12  # + operator
         assert test_module_res[0][1] == 20  # * operator
         # Now modify content of test function
-        preprocess_functions()
+        preprocess_functions(FUNC1_PATH, FUNC2_PATH)
         # Test that it doesn't work without calling reload
         test_module_res = execute_and_fetch_all(cursor, "CALL test_module.test(10, 2) YIELD * RETURN *;")
         assert test_module_res[0][0] == 12  # + operator
@@ -107,7 +172,7 @@ def test_mg_load_all_reload_submodule():
         assert test_module_res[0][1] == 5  # / operator
     finally:
         # Revert to the original state for the consistency
-        postprocess_functions()
+        postprocess_functions(FUNC1_PATH, FUNC2_PATH)
     execute_and_fetch_all(cursor, "CALL mg.load_all();")
 
 
