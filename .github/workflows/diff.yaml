@@ -4,7 +4,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
   pull-requests: write
 
 on:
@@ -300,6 +300,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           # Enable alert commit comment
           comment-on-alert: true
+          comment-always: true
           alert-threshold: "150%"
 
       - name: Run e2e tests
