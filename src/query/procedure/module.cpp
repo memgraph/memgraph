@@ -1026,22 +1026,20 @@ bool PythonModule::Close() {
 
   ProcessFileDependencies(file_path_, file_path_.stem().c_str(), func_code, sys_mod_ref);
 
-  std::filesystem::path submodules;
+  std::vector<std::filesystem::path> submodules;
 
   for (auto const &dir_entry : std::filesystem::recursive_directory_iterator(file_path_.parent_path())) {
     std::string dir_entry_stem = dir_entry.path().stem().string();
     if (dir_entry.is_regular_file() || dir_entry_stem == "__pycache__") continue;
-    if (dir_entry_stem.find(stem) != std::string_view::npos &&
-        (submodules.empty() || submodules.stem().string().size() > dir_entry_stem.length())) {
-      submodules = dir_entry.path();
+    if (dir_entry_stem.find(stem) != std::string_view::npos) {
+      submodules.emplace_back(dir_entry.path());
     }
   }
 
-  if (std::filesystem::exists(submodules)) {
-    if (!std::filesystem::remove_all(submodules / "__pycache__")) {
-      spdlog::trace("Submodules cache couldn't be cleared!");
-    } else {
-      for (auto const &rec_dir_entry : std::filesystem::recursive_directory_iterator(submodules)) {
+  for (const auto &submodule : submodules) {
+    if (std::filesystem::exists(submodule)) {
+      std::filesystem::remove_all(submodule / "__pycache__");
+      for (auto const &rec_dir_entry : std::filesystem::recursive_directory_iterator(submodule)) {
         std::string rec_dir_entry_stem = rec_dir_entry.path().stem().string();
         if (rec_dir_entry.is_directory() && rec_dir_entry_stem != "__pycache__") {
           std::filesystem::remove_all(rec_dir_entry.path() / "__pycache__");
@@ -1088,7 +1086,7 @@ void ProcessFileDependencies(std::filesystem::path file_path_, const char *modul
       if (iterator != nullptr) {
         while ((module = PyIter_Next(iterator))) {
           const char *module_name = PyUnicode_AsUTF8(module);
-          auto module_name_str = std::string_view(module_name);
+          auto module_name_str = std::string(module_name);
           PyObject *sys_iterator = PyObject_GetIter(PyDict_Keys(sys_mod_ref));
           if (sys_iterator == nullptr) {
             spdlog::warn("Cannot get reference to the sys.modules.keys()");
@@ -1097,7 +1095,7 @@ void ProcessFileDependencies(std::filesystem::path file_path_, const char *modul
           PyObject *sys_mod_key = nullptr;
           while ((sys_mod_key = PyIter_Next(sys_iterator))) {
             const char *sys_mod_key_name = PyUnicode_AsUTF8(sys_mod_key);
-            auto sys_mod_key_name_str = std::string_view(sys_mod_key_name);
+            auto sys_mod_key_name_str = std::string(sys_mod_key_name);
             if (sys_mod_key_name_str.rfind(module_name_str, 0) == 0 && sys_mod_key_name_str.compare(module_path) != 0) {
               PyDict_DelItemString(sys_mod_ref, sys_mod_key_name);  // don't test output
             }
