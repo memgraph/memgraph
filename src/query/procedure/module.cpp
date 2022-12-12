@@ -1028,19 +1028,18 @@ bool PythonModule::Close() {
 
   std::vector<std::filesystem::path> submodules;
 
-  for (auto const &dir_entry : std::filesystem::recursive_directory_iterator(file_path_.parent_path())) {
-    bool prefix_of_existing_submodule = false;
+  for (auto it = std::filesystem::recursive_directory_iterator(file_path_.parent_path());
+       it != std::filesystem::recursive_directory_iterator(); ++it) {
     for (auto const &submodule_path : submodules) {
-      if (dir_entry.path().string().starts_with(submodule_path.string())) {
-        prefix_of_existing_submodule = true;
+      if (it->path().string().starts_with(submodule_path.string())) {
+        it.disable_recursion_pending();
         break;
       }
     }
-    if (prefix_of_existing_submodule) continue;
-    std::string dir_entry_stem = dir_entry.path().stem().string();
-    if (dir_entry.is_regular_file() || dir_entry_stem == "__pycache__") continue;
+    std::string dir_entry_stem = it->path().stem().string();
+    if (it->is_regular_file() || dir_entry_stem == "__pycache__") continue;
     if (dir_entry_stem.find(stem) != std::string_view::npos) {
-      submodules.emplace_back(dir_entry.path());
+      submodules.emplace_back(it->path());
     }
   }
 
