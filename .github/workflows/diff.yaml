@@ -301,7 +301,7 @@ jobs:
           # Enable alert commit comment
           comment-on-alert: true
           comment-always: true
-          alert-threshold: "150%"
+          alert-threshold: "110%"
 
       - name: Run e2e tests
         run: |
