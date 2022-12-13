@@ -30,7 +30,6 @@ namespace memgraph::storage::v3 {
 struct Indices;
 
 class LabelIndex {
- private:
   struct Entry {
     Vertex *vertex;
     uint64_t timestamp;
@@ -41,17 +40,9 @@ class LabelIndex {
     bool operator==(const Entry &rhs) const { return vertex == rhs.vertex && timestamp == rhs.timestamp; }
   };
 
-  struct LabelStorage {
-    LabelId label;
-    utils::SkipList<Entry> vertices;
-
-    bool operator<(const LabelStorage &rhs) const { return label < rhs.label; }
-    bool operator<(LabelId rhs) const { return label < rhs; }
-    bool operator==(const LabelStorage &rhs) const { return label == rhs.label; }
-    bool operator==(LabelId rhs) const { return label == rhs; }
-  };
-
  public:
+  using LabelIndexContainer = std::set<Entry>;
+
   LabelIndex(Indices *indices, Config::Items config, const VertexValidator &vertex_validator)
       : indices_(indices), config_(config), vertex_validator_{&vertex_validator} {}
 
@@ -72,12 +63,12 @@ class LabelIndex {
 
   class Iterable {
    public:
-    Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, View view, Transaction *transaction,
-             Indices *indices, Config::Items config, const VertexValidator &vertex_validator);
+    Iterable(LabelIndexContainer &index_accessor, LabelId label, View view, Transaction *transaction, Indices *indices,
+             Config::Items config, const VertexValidator &vertex_validator);
 
     class Iterator {
      public:
-      Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator);
+      Iterator(Iterable *self, LabelIndexContainer::iterator index_iterator);
 
       VertexAccessor operator*() const { return current_vertex_accessor_; }
 
@@ -90,16 +81,16 @@ class LabelIndex {
       void AdvanceUntilValid();
 
       Iterable *self_;
-      utils::SkipList<Entry>::Iterator index_iterator_;
+      LabelIndexContainer::iterator index_iterator_;
       VertexAccessor current_vertex_accessor_;
       Vertex *current_vertex_;
     };
 
-    Iterator begin() { return {this, index_accessor_.begin()}; }
-    Iterator end() { return {this, index_accessor_.end()}; }
+    Iterator begin() { return {this, index_accessor_->begin()}; }
+    Iterator end() { return {this, index_accessor_->end()}; }
 
    private:
-    utils::SkipList<Entry>::Accessor index_accessor_;
+    LabelIndexContainer *index_accessor_;
     LabelId label_;
     View view_;
     Transaction *transaction_;
@@ -112,7 +103,7 @@ class LabelIndex {
   Iterable Vertices(LabelId label, View view, Transaction *transaction) {
     auto it = index_.find(label);
     MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist", label.AsUint());
-    return {it->second.access(), label, view, transaction, indices_, config_, *vertex_validator_};
+    return {it->second, label, view, transaction, indices_, config_, *vertex_validator_};
   }
 
   int64_t ApproximateVertexCount(LabelId label) {
@@ -124,7 +115,7 @@ class LabelIndex {
   void Clear() { index_.clear(); }
 
  private:
-  std::map<LabelId, utils::SkipList<Entry>> index_;
+  std::map<LabelId, LabelIndexContainer> index_;
   Indices *indices_;
   Config::Items config_;
   const VertexValidator *vertex_validator_;

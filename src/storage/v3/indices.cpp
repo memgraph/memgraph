@@ -271,8 +271,7 @@ bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label, Propert
 void LabelIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) {
   auto it = index_.find(label);
   if (it == index_.end()) return;
-  auto acc = it->second.access();
-  acc.insert(Entry{vertex, tx.start_timestamp.logical_id});
+  it->second.insert(Entry{vertex, tx.start_timestamp.logical_id});
 }
 
 bool LabelIndex::CreateIndex(LabelId label, VertexContainer &vertices) {
@@ -283,12 +282,11 @@ bool LabelIndex::CreateIndex(LabelId label, VertexContainer &vertices) {
     return false;
   }
   try {
-    auto acc = it->second.access();
-    for ([[maybe_unused]] auto &vertex : vertices) {
+    for (auto &vertex : vertices) {
       if (vertex.second.deleted || !VertexHasLabel(vertex, label)) {
         continue;
       }
-      acc.insert(Entry{&vertex, 0});
+      it->second.insert(Entry{&vertex, 0});
     }
   } catch (const utils::OutOfMemoryException &) {
     utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
@@ -309,7 +307,7 @@ std::vector<LabelId> LabelIndex::ListIndices() const {
 
 void LabelIndex::RemoveObsoleteEntries(const uint64_t clean_up_before_timestamp) {
   for (auto &label_storage : index_) {
-    auto vertices_acc = label_storage.second.access();
+    auto &vertices_acc = label_storage.second;
     for (auto it = vertices_acc.begin(); it != vertices_acc.end();) {
       auto next_it = it;
       ++next_it;
@@ -321,7 +319,7 @@ void LabelIndex::RemoveObsoleteEntries(const uint64_t clean_up_before_timestamp)
 
       if ((next_it != vertices_acc.end() && it->vertex == next_it->vertex) ||
           !AnyVersionHasLabel(*it->vertex, label_storage.first, clean_up_before_timestamp)) {
-        vertices_acc.remove(*it);
+        vertices_acc.erase(*it);
       }
 
       it = next_it;
@@ -329,7 +327,7 @@ void LabelIndex::RemoveObsoleteEntries(const uint64_t clean_up_before_timestamp)
   }
 }
 
-LabelIndex::Iterable::Iterator::Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator)
+LabelIndex::Iterable::Iterator::Iterator(Iterable *self, LabelIndexContainer::iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
       current_vertex_accessor_(nullptr, nullptr, nullptr, self_->config_, *self_->vertex_validator_),
@@ -344,7 +342,7 @@ LabelIndex::Iterable::Iterator &LabelIndex::Iterable::Iterator::operator++() {
 }
 
 void LabelIndex::Iterable::Iterator::AdvanceUntilValid() {
-  for (; index_iterator_ != self_->index_accessor_.end(); ++index_iterator_) {
+  for (; index_iterator_ != self_->index_accessor_->end(); ++index_iterator_) {
     if (index_iterator_->vertex == current_vertex_) {
       continue;
     }
@@ -357,10 +355,9 @@ void LabelIndex::Iterable::Iterator::AdvanceUntilValid() {
   }
 }
 
-LabelIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, View view,
-                               Transaction *transaction, Indices *indices, Config::Items config,
-                               const VertexValidator &vertex_validator)
-    : index_accessor_(std::move(index_accessor)),
+LabelIndex::Iterable::Iterable(LabelIndexContainer &index_accessor, LabelId label, View view, Transaction *transaction,
+                               Indices *indices, Config::Items config, const VertexValidator &vertex_validator)
+    : index_accessor_(&index_accessor),
       label_(label),
       view_(view),
       transaction_(transaction),
@@ -422,7 +419,7 @@ bool LabelPropertyIndex::CreateIndex(LabelId label, PropertyId property, VertexC
     return false;
   }
   try {
-    for ([[maybe_unused]] auto &vertex : vertices) {
+    for (auto &vertex : vertices) {
       if (vertex.second.deleted || !VertexHasLabel(vertex, label)) {
         continue;
       }
