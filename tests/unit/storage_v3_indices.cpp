@@ -652,13 +652,13 @@ TEST_F(IndexTest, LabelPropertyIndexCountEstimate) {
     }
   }
 
-  EXPECT_EQ(acc.VertexCount(label1, prop_val), 55);
+  EXPECT_EQ(acc.ApproximateVertexCount(label1, prop_val), 55);
   for (int i = 1; i <= 10; ++i) {
-    EXPECT_EQ(acc.VertexCount(label1, prop_val, PropertyValue(i)), i);
+    EXPECT_EQ(acc.ApproximateVertexCount(label1, prop_val, PropertyValue(i)), i);
   }
 
-  EXPECT_EQ(acc.VertexCount(label1, prop_val, memgraph::utils::MakeBoundInclusive(PropertyValue(2)),
-                            memgraph::utils::MakeBoundInclusive(PropertyValue(6))),
+  EXPECT_EQ(acc.ApproximateVertexCount(label1, prop_val, memgraph::utils::MakeBoundInclusive(PropertyValue(2)),
+                                       memgraph::utils::MakeBoundInclusive(PropertyValue(6))),
             2 + 3 + 4 + 5 + 6);
 }
 
