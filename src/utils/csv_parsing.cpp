@@ -13,6 +13,7 @@
 
 #include <string_view>
 
+#include "memory/memory_control.hpp"
 #include "utils/file.hpp"
 #include "utils/string.hpp"
 
@@ -40,7 +41,7 @@ std::optional<utils::pmr::string> Reader::GetNextLine(utils::MemoryResource *mem
     return std::nullopt;
   }
   ++line_count_;
-  return line;
+  return std::move(line);
 }
 
 Reader::ParsingResult Reader::ParseHeader() {
