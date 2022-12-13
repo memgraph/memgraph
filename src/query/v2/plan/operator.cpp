@@ -518,7 +518,6 @@ class DistributedScanAllAndFilterCursor : public Cursor {
     }
 
     auto valid_frames_consumer = own_multi_frames_->GetValidFramesConsumer();
-    auto valid_frames_it = valid_frames_consumer.begin();
 
     for (auto valid_frames_it = valid_frames_consumer.begin(); valid_frames_it != valid_frames_consumer.end();
          ++valid_frames_it) {
@@ -538,11 +537,6 @@ class DistributedScanAllAndFilterCursor : public Cursor {
       own_multi_frames_.emplace(MultiFrame(input_multi_frame.GetFirstFrame().elems().size(),
                                            kNumberOfFramesInMultiframe, input_multi_frame.GetMemoryResource()));
     }
-
-    auto &request_router = *context.request_router;
-    auto should_make_request = false;
-    auto should_pull = false;
-    auto should_generate = false;
 
     while (true) {
       if (MustAbort(context)) {
