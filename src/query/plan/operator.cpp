@@ -210,7 +210,6 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
   if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info.properties)) {
     for (const auto &[key, value_expression] : *node_info_properties) {
       PropsSetChecked(&new_node, key, value_expression->Accept(evaluator));
-      // auto &var = frame->at(context.symbol_table.at(value_expression->value_expression.expression1_.symbol_pos_));
     }
   } else {
     auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info.properties));
@@ -4483,7 +4482,6 @@ TypedValue CsvRowToTypedList(csv::Reader::Row &row) {
   auto typed_columns = utils::pmr::vector<TypedValue>(mem);
   typed_columns.reserve(row.size());
   for (auto &column : row) {
-    // spdlog::warn("size of columns {}", column.size() * sizeof(utils::pmr::string));
     typed_columns.emplace_back(std::move(column));
   }
   return TypedValue(std::move(typed_columns), mem);
@@ -4506,7 +4504,6 @@ class LoadCsvCursor : public Cursor {
   const UniqueCursorPtr input_cursor_;
   bool input_is_once_;
   std::optional<csv::Reader> reader_{};
-  int counter = 0;
 
  public:
   LoadCsvCursor(const LoadCsv *self, utils::MemoryResource *mem)
@@ -4536,22 +4533,16 @@ class LoadCsvCursor : public Cursor {
     // have to read at most cardinality(n) rows (but we can read less and stop
     // pulling MATCH).
     if (!input_is_once_ && !input_pulled) return false;
-    auto row2 = reader_->GetNextRow(context.evaluation_context.memory);
-    if (!row2) {
+    auto row = reader_->GetNextRow(context.evaluation_context.memory);
+    if (!row) {
       return false;
     }
-
-    // spdlog::warn("sizeof rows {}", sizeof(row));
     if (!reader_->HasHeader()) {
-      frame[self_->row_var_] = CsvRowToTypedList(*row2);
+      frame[self_->row_var_] = CsvRowToTypedList(*row);
     } else {
       frame[self_->row_var_] =
-          CsvRowToTypedMap(*row2, csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory));
+          CsvRowToTypedMap(*row, csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory));
     }
-    if (counter % 10000 == 0) {
-      spdlog::warn("Loaded rows {}", counter);
-    }
-    counter++;
     return true;
   }
 
