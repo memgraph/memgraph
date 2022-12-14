@@ -4484,7 +4484,7 @@ TypedValue CsvRowToTypedList(csv::Reader::Row &row) {
   for (auto &column : row) {
     typed_columns.emplace_back(std::move(column));
   }
-  return TypedValue(std::move(typed_columns), mem);
+  return {std::move(typed_columns), mem};
 }
 
 TypedValue CsvRowToTypedMap(csv::Reader::Row &row, csv::Reader::Header header) {
@@ -4494,7 +4494,7 @@ TypedValue CsvRowToTypedMap(csv::Reader::Row &row, csv::Reader::Header header) {
   for (auto i = 0; i < row.size(); ++i) {
     m.emplace(std::move(header[i]), std::move(row[i]));
   }
-  return TypedValue(std::move(m), mem);
+  return {std::move(m), mem};
 }
 
 }  // namespace
