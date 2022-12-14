@@ -2468,9 +2468,9 @@ class DistributedCreateExpandCursor : public Cursor {
 
   std::vector<msgs::NewExpand> ExpandCreationInfoToRequests(MultiFrame &multi_frame, ExecutionContext &context) const {
     std::vector<msgs::NewExpand> edge_requests;
-    auto reader = multi_frame.GetValidFramesModifier();
+    auto frames_modifier = multi_frame.GetValidFramesModifier();
 
-    for (auto &frame : reader) {
+    for (auto &frame : frames_modifier) {
       const auto &edge_info = self_.edge_info_;
       msgs::NewExpand request{.id = {context.edge_ids_alloc->AllocateId()}};
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, nullptr,
@@ -2489,35 +2489,22 @@ class DistributedCreateExpandCursor : public Cursor {
           request.properties.emplace_back(property_id, storage::v3::TypedValueToValue(value));
         }
       }
-      // src, dest
+
       TypedValue &v1_value = frame[self_.input_symbol_];
       const auto &v1 = v1_value.ValueVertex();
       const auto &v2 = OtherVertex(frame);
+      msgs::Edge edge{.src = request.src_vertex,
+                      .dst = request.dest_vertex,
+                      .properties = request.properties,
+                      .id = request.id,
+                      .type = request.type};
+      frame[self_.edge_info_.symbol] = TypedValue(accessors::EdgeAccessor(std::move(edge), context.request_router));
 
       // Set src and dest vertices
       // TODO(jbajic) Currently we are only handling scenario where vertices
       // are matched
-      const auto set_vertex = [](const auto &vertex, auto &vertex_id) {
-        vertex_id.first = vertex.PrimaryLabel();
-        vertex_id.second = vertex.GetVertex().id.second;
-      };
-
-      std::invoke([&]() {
-        switch (edge_info.direction) {
-          case EdgeAtom::Direction::IN: {
-            set_vertex(v2, request.src_vertex);
-            set_vertex(v1, request.dest_vertex);
-            break;
-          }
-          case EdgeAtom::Direction::OUT: {
-            set_vertex(v1, request.src_vertex);
-            set_vertex(v2, request.dest_vertex);
-            break;
-          }
-          case EdgeAtom::Direction::BOTH:
-            LOG_FATAL("Must indicate exact expansion direction here");
-        }
-      });
+      request.src_vertex = v1.Id();
+      request.dest_vertex = v2.Id();
 
       edge_requests.push_back(std::move(request));
     }

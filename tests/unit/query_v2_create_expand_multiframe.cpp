@@ -55,25 +55,35 @@ TEST(CreateExpandTest, Cursor) {
   plan::EdgeCreationInfo edge;
   edge.edge_type = msgs::EdgeTypeId::FromUint(1);
   edge.direction = EdgeAtom::Direction::IN;
+  edge.symbol = symbol_table.CreateSymbol("e", true);
   auto id_alloc = IdAllocator(0, 100);
 
   const auto &src = symbol_table.CreateSymbol("n", true);
   node.symbol = symbol_table.CreateSymbol("u", true);
 
   auto once_cur = plan::MakeUniqueCursorPtr<MockedCursor>(utils::NewDeleteResource());
-  EXPECT_CALL(BaseToMock(once_cur.get()), PullMultiple(_, _)).Times(1);
+  EXPECT_CALL(BaseToMock(*once_cur), PullMultiple(_, _)).Times(1);
 
   std::shared_ptr<plan::LogicalOperator> once_op = std::make_shared<MockedLogicalOperator>();
-  EXPECT_CALL(BaseToMock(once_op.get()), MakeCursor(_)).Times(1).WillOnce(Return(std::move(once_cur)));
+  EXPECT_CALL(BaseToMock(*once_op), MakeCursor(_)).Times(1).WillOnce(Return(std::move(once_cur)));
 
   auto create_expand = plan::CreateExpand(node, edge, once_op, src, true);
   auto cursor = create_expand.MakeCursor(utils::NewDeleteResource());
 
   MockedRequestRouter router;
-  EXPECT_CALL(router, CreateExpand(_)).Times(1).WillOnce(Return(std::vector<msgs::CreateExpandResponse>{}));
+  EXPECT_CALL(router, CreateExpand(_))
+      .Times(1)
+      .WillOnce(Return(std::vector<msgs::CreateExpandResponse>{msgs::CreateExpandResponse{}}));
   auto context = MakeContext(ast, symbol_table, &router, &id_alloc);
   auto multi_frame = CreateMultiFrame(context.symbol_table.max_position(), src, node.symbol, &router);
   cursor->PullMultiple(multi_frame, context);
+
+  auto frames = multi_frame.GetValidFramesReader();
+  for (auto &frame : frames) {
+    EXPECT_EQ(frame[edge.symbol].IsEdge(), true);
+    const auto &e = frame[edge.symbol].ValueEdge();
+    EXPECT_EQ(e.EdgeType(), edge.edge_type);
+  }
 }
 
 }  // namespace memgraph::query::v2

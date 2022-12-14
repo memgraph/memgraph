@@ -73,10 +73,10 @@ inline expr::ExecutionContext MakeContext(const expr::AstStorage &storage, const
   return context;
 }
 
-inline MockedLogicalOperator &BaseToMock(plan::LogicalOperator *op) {
-  return *static_cast<MockedLogicalOperator *>(op);
+inline MockedLogicalOperator &BaseToMock(plan::LogicalOperator &op) {
+  return dynamic_cast<MockedLogicalOperator &>(op);
 }
 
-inline MockedCursor &BaseToMock(plan::Cursor *cursor) { return *static_cast<MockedCursor *>(cursor); }
+inline MockedCursor &BaseToMock(plan::Cursor &cursor) { return dynamic_cast<MockedCursor &>(cursor); }
 
 }  // namespace memgraph::query::v2
