@@ -210,6 +210,7 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
   if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info.properties)) {
     for (const auto &[key, value_expression] : *node_info_properties) {
       PropsSetChecked(&new_node, key, value_expression->Accept(evaluator));
+      // auto &var = frame->at(context.symbol_table.at(value_expression->value_expression.expression1_.symbol_pos_));
     }
   } else {
     auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info.properties));
@@ -4477,24 +4478,25 @@ auto ToOptionalString(ExpressionEvaluator *evaluator, Expression *expression) ->
   return std::nullopt;
 };
 
-TypedValue CsvRowToTypedList(csv::Reader::Row row) {
+TypedValue CsvRowToTypedList(csv::Reader::Row &row) {
   auto *mem = row.get_allocator().GetMemoryResource();
   auto typed_columns = utils::pmr::vector<TypedValue>(mem);
   typed_columns.reserve(row.size());
   for (auto &column : row) {
+    // spdlog::warn("size of columns {}", column.size() * sizeof(utils::pmr::string));
     typed_columns.emplace_back(std::move(column));
   }
-  return TypedValue(typed_columns, mem);
+  return TypedValue(std::move(typed_columns), mem);
 }
 
-TypedValue CsvRowToTypedMap(csv::Reader::Row row, csv::Reader::Header header) {
+TypedValue CsvRowToTypedMap(csv::Reader::Row &row, csv::Reader::Header header) {
   // a valid row has the same number of elements as the header
   auto *mem = row.get_allocator().GetMemoryResource();
   utils::pmr::map<utils::pmr::string, TypedValue> m(mem);
   for (auto i = 0; i < row.size(); ++i) {
     m.emplace(std::move(header[i]), std::move(row[i]));
   }
-  return TypedValue(m, mem);
+  return TypedValue(std::move(m), mem);
 }
 
 }  // namespace
@@ -4504,6 +4506,7 @@ class LoadCsvCursor : public Cursor {
   const UniqueCursorPtr input_cursor_;
   bool input_is_once_;
   std::optional<csv::Reader> reader_{};
+  int counter = 0;
 
  public:
   LoadCsvCursor(const LoadCsv *self, utils::MemoryResource *mem)
@@ -4533,18 +4536,23 @@ class LoadCsvCursor : public Cursor {
     // have to read at most cardinality(n) rows (but we can read less and stop
     // pulling MATCH).
     if (!input_is_once_ && !input_pulled) return false;
-
-    if (auto row = reader_->GetNextRow(context.evaluation_context.memory)) {
-      if (!reader_->HasHeader()) {
-        frame[self_->row_var_] = CsvRowToTypedList(std::move(*row));
-      } else {
-        frame[self_->row_var_] = CsvRowToTypedMap(
-            std::move(*row), csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory));
-      }
-      return true;
+    auto row2 = reader_->GetNextRow(context.evaluation_context.memory);
+    if (!row2) {
+      return false;
     }
 
-    return false;
+    // spdlog::warn("sizeof rows {}", sizeof(row));
+    if (!reader_->HasHeader()) {
+      frame[self_->row_var_] = CsvRowToTypedList(*row2);
+    } else {
+      frame[self_->row_var_] =
+          CsvRowToTypedMap(*row2, csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory));
+    }
+    if (counter % 10000 == 0) {
+      spdlog::warn("Loaded rows {}", counter);
+    }
+    counter++;
+    return true;
   }
 
   void Reset() override { input_cursor_->Reset(); }

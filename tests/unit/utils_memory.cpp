@@ -254,7 +254,7 @@ TEST(PoolResource, BigBlockAllocations) {
   TestMemory test_mem;
   const size_t max_blocks_per_chunk = 3U;
   const size_t max_block_size = 64U;
-  memgraph::utils::PoolResource mem(max_blocks_per_chunk, max_block_size, &test_mem);
+  memgraph::utils::PoolResource mem(max_blocks_per_chunk, max_block_size, &test_mem, &test_mem);
   CheckAllocation(&mem, max_block_size + 1, 1U);
   // May allocate more than once per block due to bookkeeping.
   EXPECT_GE(test_mem.new_count_, 1U);
