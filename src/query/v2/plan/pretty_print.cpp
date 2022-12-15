@@ -89,7 +89,7 @@ bool PlanPrinter::PreVisit(query::v2::plan::ScanAllByLabelProperty &op) {
 bool PlanPrinter::PreVisit(query::v2::plan::ScanAllByPrimaryKey &op) {
   WithPrintLn([&](auto &out) {
     out << "* ScanAllByPrimaryKey"
-        << " (" << op.output_symbol_.name() << " :" << request_manager_->LabelToName(op.label_) << ")";
+        << " (" << op.output_symbol_.name() << " :" << request_router_->LabelToName(op.label_) << ")";
   });
   return true;
 }
@@ -490,7 +490,7 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByLabelProperty &op) {
 bool PlanToJsonVisitor::PreVisit(ScanAllByPrimaryKey &op) {
   json self;
   self["name"] = "ScanAllByPrimaryKey";
-  self["label"] = ToJson(op.label_, *request_manager_);
+  self["label"] = ToJson(op.label_, *request_router_);
   self["output_symbol"] = ToJson(op.output_symbol_);
 
   op.input_->Accept(*this);

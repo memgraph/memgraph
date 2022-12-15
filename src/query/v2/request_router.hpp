@@ -114,6 +114,10 @@ class RequestRouterInterface {
   virtual std::optional<storage::v3::LabelId> MaybeNameToLabel(const std::string &name) const = 0;
   virtual bool IsPrimaryLabel(storage::v3::LabelId label) const = 0;
   virtual bool IsPrimaryKey(storage::v3::LabelId primary_label, storage::v3::PropertyId property) const = 0;
+  // TODO - (gvolfing) Implement this function in the mocked class.
+  virtual std::vector<coordinator::SchemaProperty> GetSchemaForLabel(storage::v3::LabelId label) const {
+    return std::vector<coordinator::SchemaProperty>{};
+  };
 };
 
 // TODO(kostasrim)rename this class template
@@ -230,6 +234,10 @@ class RequestRouter : public RequestRouterInterface {
     return std::find_if(schema_it->second.begin(), schema_it->second.end(), [property](const auto &schema_prop) {
              return schema_prop.property_id == property;
            }) != schema_it->second.end();
+  }
+
+  std::vector<coordinator::SchemaProperty> GetSchemaForLabel(storage::v3::LabelId label) const override {
+    return shards_map_.schemas.at(label);
   }
 
   bool IsPrimaryLabel(storage::v3::LabelId label) const override { return shards_map_.label_spaces.contains(label); }
