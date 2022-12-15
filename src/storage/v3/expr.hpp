@@ -9,6 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#pragma once
+
 #include <vector>
 
 #include "db_accessor.hpp"
@@ -48,8 +50,7 @@ auto Eval(TExpression *expr, EvaluationContext &ctx, AstStorage &storage, Expres
 
 std::any ParseExpression(const std::string &expr, AstStorage &storage);
 
-TypedValue ComputeExpression(DbAccessor &dba, const std::optional<VertexAccessor> &v_acc,
-                             const std::optional<EdgeAccessor> &e_acc, const std::string &expression,
-                             std::string_view node_name, std::string_view edge_name);
+TypedValue ComputeExpression(DbAccessor &dba, const VertexAccessor &v_acc, const std::optional<EdgeAccessor> &e_acc,
+                             const std::string &expression, std::string_view node_name, std::string_view edge_name);
 
 }  // namespace memgraph::storage::v3

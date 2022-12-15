@@ -17,7 +17,7 @@
 
 #include "query/v2/bindings/typed_value.hpp"
 #include "query/v2/plan/preprocess.hpp"
-#include "query/v2/shard_request_manager.hpp"
+#include "query/v2/request_router.hpp"
 #include "storage/v3/conversions.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
@@ -31,11 +31,11 @@ namespace memgraph::query::v2::plan {
 template <class TDbAccessor>
 class VertexCountCache {
  public:
-  explicit VertexCountCache(TDbAccessor *shard_request_manager) : shard_request_manager_{shard_request_manager} {}
+  explicit VertexCountCache(TDbAccessor *request_router) : request_router_{request_router} {}
 
-  auto NameToLabel(const std::string &name) { return shard_request_manager_->NameToLabel(name); }
-  auto NameToProperty(const std::string &name) { return shard_request_manager_->NameToProperty(name); }
-  auto NameToEdgeType(const std::string &name) { return shard_request_manager_->NameToEdgeType(name); }
+  auto NameToLabel(const std::string &name) { return request_router_->NameToLabel(name); }
+  auto NameToProperty(const std::string &name) { return request_router_->NameToProperty(name); }
+  auto NameToEdgeType(const std::string &name) { return request_router_->NameToEdgeType(name); }
 
   int64_t VerticesCount() { return 1; }
 
@@ -54,14 +54,14 @@ class VertexCountCache {
     return 1;
   }
 
-  bool LabelIndexExists(storage::v3::LabelId label) { return shard_request_manager_->IsPrimaryLabel(label); }
+  bool LabelIndexExists(storage::v3::LabelId label) { return request_router_->IsPrimaryLabel(label); }
 
   bool LabelPropertyIndexExists(storage::v3::LabelId /*label*/, storage::v3::PropertyId /*property*/) { return false; }
 
   std::vector<std::pair<query::v2::Expression *, query::v2::plan::FilterInfo>> ExtractPrimaryKey(
       storage::v3::LabelId label, std::vector<query::v2::plan::FilterInfo> property_filters) {
     std::vector<std::pair<query::v2::Expression *, query::v2::plan::FilterInfo>> pk;
-    const auto schema = shard_request_manager_->GetSchemaForLabel(label);
+    const auto schema = request_router_->GetSchemaForLabel(label);
 
     std::vector<storage::v3::PropertyId> schema_properties;
     schema_properties.reserve(schema.size());
@@ -81,7 +81,7 @@ class VertexCountCache {
                : std::vector<std::pair<query::v2::Expression *, query::v2::plan::FilterInfo>>{};
   }
 
-  msgs::ShardRequestManagerInterface *shard_request_manager_;
+  RequestRouterInterface *request_router_;
 };
 
 template <class TDbAccessor>

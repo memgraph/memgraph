@@ -13,7 +13,7 @@
 
 #include "storage/v3/isolation_level.hpp"
 #include "storage/v3/property_value.hpp"
-#include "storage/v3/storage.hpp"
+#include "storage/v3/shard.hpp"
 
 namespace memgraph::storage::v3::tests {
 int64_t VerticesCount(Shard::Accessor &accessor) {

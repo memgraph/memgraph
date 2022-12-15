@@ -31,9 +31,10 @@ class LocalTransport {
       : local_transport_handle_(std::move(local_transport_handle)) {}
 
   template <Message RequestT, Message ResponseT>
-  ResponseFuture<ResponseT> Request(Address to_address, Address from_address, RequestT request, Duration timeout) {
-    return local_transport_handle_->template SubmitRequest<RequestT, ResponseT>(to_address, from_address,
-                                                                                std::move(request), timeout);
+  ResponseFuture<ResponseT> Request(Address to_address, Address from_address, RequestT request,
+                                    std::function<void()> fill_notifier, Duration timeout) {
+    return local_transport_handle_->template SubmitRequest<RequestT, ResponseT>(
+        to_address, from_address, std::move(request), timeout, fill_notifier);
   }
 
   template <Message... Ms>

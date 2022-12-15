@@ -76,14 +76,10 @@ class MockedShardRsm {
   using WriteRequests = msgs::WriteRequests;
   using WriteResponses = msgs::WriteResponses;
 
-  //  ExpandOneResponse Read(ExpandOneRequest rqst);
-  //  GetPropertiesResponse Read(GetPropertiesRequest rqst);
   msgs::ScanVerticesResponse ReadImpl(msgs::ScanVerticesRequest rqst) {
     msgs::ScanVerticesResponse ret;
     auto as_prop_val = storage::conversions::ConvertPropertyVector(rqst.start_id.second);
-    if (!IsKeyInRange(as_prop_val)) {
-      ret.success = false;
-    } else if (as_prop_val == ShardRsmKey{PropertyValue(0), PropertyValue(0)}) {
+    if (as_prop_val == ShardRsmKey{PropertyValue(0), PropertyValue(0)}) {
       msgs::Value val(int64_t(0));
       ret.next_start_id = std::make_optional<msgs::VertexId>();
       ret.next_start_id->second =
@@ -91,37 +87,46 @@ class MockedShardRsm {
       msgs::ScanResultRow result;
       result.props.push_back(std::make_pair(msgs::PropertyId::FromUint(0), val));
       ret.results.push_back(std::move(result));
-      ret.success = true;
     } else if (as_prop_val == ShardRsmKey{PropertyValue(1), PropertyValue(0)}) {
       msgs::ScanResultRow result;
       msgs::Value val(int64_t(1));
       result.props.push_back(std::make_pair(msgs::PropertyId::FromUint(0), val));
       ret.results.push_back(std::move(result));
-      ret.success = true;
     } else if (as_prop_val == ShardRsmKey{PropertyValue(12), PropertyValue(13)}) {
       msgs::ScanResultRow result;
       msgs::Value val(int64_t(444));
       result.props.push_back(std::make_pair(msgs::PropertyId::FromUint(0), val));
       ret.results.push_back(std::move(result));
-      ret.success = true;
-    } else {
-      ret.success = false;
     }
     return ret;
   }
 
   msgs::ExpandOneResponse ReadImpl(msgs::ExpandOneRequest rqst) { return {}; }
-  msgs::ExpandOneResponse ReadImpl(msgs::GetPropertiesRequest rqst) { return {}; }
+  msgs::GetPropertiesResponse ReadImpl(msgs::GetPropertiesRequest rqst) {
+    msgs::GetPropertiesResponse resp;
+    auto &vertices = rqst.vertex_ids;
+    for (auto &vertex : vertices) {
+      auto as_prop_val = storage::conversions::ConvertPropertyVector(vertex.second);
+      if (as_prop_val == ShardRsmKey{PropertyValue(0), PropertyValue(0)}) {
+        resp.result_row.push_back(msgs::GetPropertiesResultRow{.vertex = std::move(vertex)});
+      } else if (as_prop_val == ShardRsmKey{PropertyValue(1), PropertyValue(0)}) {
+        resp.result_row.push_back(msgs::GetPropertiesResultRow{.vertex = std::move(vertex)});
+      } else if (as_prop_val == ShardRsmKey{PropertyValue(13), PropertyValue(13)}) {
+        resp.result_row.push_back(msgs::GetPropertiesResultRow{.vertex = std::move(vertex)});
+      }
+    }
+    return resp;
+  }
 
   ReadResponses Read(ReadRequests read_requests) {
     return {std::visit([this]<typename T>(T &&request) { return ReadResponses{ReadImpl(std::forward<T>(request))}; },
                        std::move(read_requests))};
   }
 
-  msgs::CreateVerticesResponse ApplyImpl(msgs::CreateVerticesRequest rqst) { return {.success = true}; }
+  msgs::CreateVerticesResponse ApplyImpl(msgs::CreateVerticesRequest rqst) { return {}; }
   msgs::DeleteVerticesResponse ApplyImpl(msgs::DeleteVerticesRequest rqst) { return {}; }
   msgs::UpdateVerticesResponse ApplyImpl(msgs::UpdateVerticesRequest rqst) { return {}; }
-  msgs::CreateExpandResponse ApplyImpl(msgs::CreateExpandRequest rqst) { return {.success = true}; }
+  msgs::CreateExpandResponse ApplyImpl(msgs::CreateExpandRequest rqst) { return {}; }
   msgs::DeleteEdgesResponse ApplyImpl(msgs::DeleteEdgesRequest rqst) { return {}; }
   msgs::UpdateEdgesResponse ApplyImpl(msgs::UpdateEdgesRequest rqst) { return {}; }
   msgs::CommitResponse ApplyImpl(msgs::CommitRequest rqst) { return {}; }

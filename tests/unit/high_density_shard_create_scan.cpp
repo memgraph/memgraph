@@ -29,8 +29,8 @@
 #include "io/simulator/simulator_transport.hpp"
 #include "machine_manager/machine_config.hpp"
 #include "machine_manager/machine_manager.hpp"
+#include "query/v2/request_router.hpp"
 #include "query/v2/requests.hpp"
-#include "query/v2/shard_request_manager.hpp"
 #include "utils/variant_helpers.hpp"
 
 namespace memgraph::tests::simulation {
@@ -44,8 +44,8 @@ using coordinator::GetShardMapRequest;
 using coordinator::GetShardMapResponse;
 using coordinator::Hlc;
 using coordinator::HlcResponse;
-using coordinator::Shard;
 using coordinator::ShardMap;
+using coordinator::ShardMetadata;
 using io::Address;
 using io::Io;
 using io::local_transport::LocalSystem;
@@ -161,8 +161,8 @@ ShardMap TestShardMap(int shards, int replication_factor, int gap_between_shards
   return sm;
 }
 
-void ExecuteOp(msgs::ShardRequestManager<LocalTransport> &shard_request_manager,
-               std::set<CompoundKey> &correctness_model, CreateVertex create_vertex) {
+void ExecuteOp(query::v2::RequestRouter<LocalTransport> &request_router, std::set<CompoundKey> &correctness_model,
+               CreateVertex create_vertex) {
   const auto key1 = memgraph::storage::v3::PropertyValue(create_vertex.first);
   const auto key2 = memgraph::storage::v3::PropertyValue(create_vertex.second);
 
@@ -174,9 +174,7 @@ void ExecuteOp(msgs::ShardRequestManager<LocalTransport> &shard_request_manager,
     return;
   }
 
-  msgs::ExecutionState<msgs::CreateVerticesRequest> state;
-
-  auto label_id = shard_request_manager.NameToLabel("test_label");
+  auto label_id = request_router.NameToLabel("test_label");
 
   msgs::NewVertex nv{.primary_key = primary_key};
   nv.label_ids.push_back({label_id});
@@ -184,21 +182,20 @@ void ExecuteOp(msgs::ShardRequestManager<LocalTransport> &shard_request_manager,
   std::vector<msgs::NewVertex> new_vertices;
   new_vertices.push_back(std::move(nv));
 
-  auto result = shard_request_manager.Request(state, std::move(new_vertices));
+  auto result = request_router.CreateVertices(std::move(new_vertices));
 
   MG_ASSERT(result.size() == 1);
-  MG_ASSERT(result[0].success);
+  MG_ASSERT(!result[0].error.has_value());
 
   correctness_model.emplace(std::make_pair(create_vertex.first, create_vertex.second));
 }
 
-void ExecuteOp(msgs::ShardRequestManager<LocalTransport> &shard_request_manager,
-               std::set<CompoundKey> &correctness_model, ScanAll scan_all) {
-  msgs::ExecutionState<msgs::ScanVerticesRequest> request{.label = "test_label"};
+void ExecuteOp(query::v2::RequestRouter<LocalTransport> &request_router, std::set<CompoundKey> &correctness_model,
+               ScanAll scan_all) {
+  auto results = request_router.ScanVertices("test_label");
 
-  auto results = shard_request_manager.Request(request);
-
-  MG_ASSERT(results.size() == correctness_model.size());
+  spdlog::error("got {} results, model size is {}", results.size(), correctness_model.size());
+  EXPECT_EQ(results.size(), correctness_model.size());
 
   for (const auto &vertex_accessor : results) {
     const auto properties = vertex_accessor.Properties();
@@ -245,22 +242,22 @@ void RunWorkload(int shards, int replication_factor, int create_ops, int scan_op
   WaitForShardsToInitialize(coordinator_client);
   auto time_after_shard_stabilization = cli_io_2.Now();
 
-  msgs::ShardRequestManager<LocalTransport> shard_request_manager(std::move(coordinator_client), std::move(cli_io));
+  query::v2::RequestRouter<LocalTransport> request_router(std::move(coordinator_client), std::move(cli_io));
 
-  shard_request_manager.StartTransaction();
+  request_router.StartTransaction();
 
   auto correctness_model = std::set<CompoundKey>{};
 
   auto time_before_creates = cli_io_2.Now();
 
   for (int i = 0; i < create_ops; i++) {
-    ExecuteOp(shard_request_manager, correctness_model, CreateVertex{.first = i, .second = i});
+    ExecuteOp(request_router, correctness_model, CreateVertex{.first = i, .second = i});
   }
 
   auto time_after_creates = cli_io_2.Now();
 
   for (int i = 0; i < scan_ops; i++) {
-    ExecuteOp(shard_request_manager, correctness_model, ScanAll{});
+    ExecuteOp(request_router, correctness_model, ScanAll{});
   }
 
   auto time_after_scan = cli_io_2.Now();

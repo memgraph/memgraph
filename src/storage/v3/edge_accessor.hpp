@@ -48,27 +48,27 @@ class EdgeAccessor final {
   /// @return true if the object is visible from the current transaction
   bool IsVisible(View view) const;
 
-  const VertexId &FromVertex() const;
+  const VertexId &From() const;
 
-  const VertexId &ToVertex() const;
+  const VertexId &To() const;
 
   EdgeTypeId EdgeType() const { return edge_type_; }
 
   /// Set a property value and return the old value.
   /// @throw std::bad_alloc
-  Result<PropertyValue> SetProperty(PropertyId property, const PropertyValue &value);
+  ShardResult<PropertyValue> SetProperty(PropertyId property, const PropertyValue &value);
 
   /// Remove all properties and return old values for each removed property.
   /// @throw std::bad_alloc
-  Result<std::map<PropertyId, PropertyValue>> ClearProperties();
+  ShardResult<std::map<PropertyId, PropertyValue>> ClearProperties();
 
   /// @throw std::bad_alloc
-  Result<PropertyValue> GetProperty(PropertyId property, View view) const;
+  ShardResult<PropertyValue> GetProperty(PropertyId property, View view) const;
 
-  Result<PropertyValue> GetProperty(View view, PropertyId property) const;
+  ShardResult<PropertyValue> GetProperty(View view, PropertyId property) const;
 
   /// @throw std::bad_alloc
-  Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
+  ShardResult<std::map<PropertyId, PropertyValue>> Properties(View view) const;
 
   Gid Gid() const noexcept {
     if (config_.properties_on_edges) {
@@ -83,6 +83,9 @@ class EdgeAccessor final {
     return edge_ == other.edge_ && transaction_ == other.transaction_;
   }
   bool operator!=(const EdgeAccessor &other) const noexcept { return !(*this == other); }
+
+  // Dummy function
+  size_t CypherId() const;
 
  private:
   EdgeRef edge_;

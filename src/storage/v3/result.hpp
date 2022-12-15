@@ -11,24 +11,43 @@
 
 #pragma once
 
+#include <cstdint>
+#include <experimental/source_location>
+#include <string>
+#include <string_view>
 #include <type_traits>
 
+#include "common/errors.hpp"
 #include "utils/result.hpp"
 
 namespace memgraph::storage::v3 {
 
 static_assert(std::is_same_v<uint8_t, unsigned char>);
 
-enum class Error : uint8_t {
-  SERIALIZATION_ERROR,
-  NONEXISTENT_OBJECT,
-  DELETED_OBJECT,
-  VERTEX_HAS_EDGES,
-  PROPERTIES_DISABLED,
-  VERTEX_ALREADY_INSERTED
+struct ShardError {
+  ShardError(common::ErrorCode code, std::string message, const std::experimental::source_location location)
+      : code{code}, message{std::move(message)}, source{fmt::format("{}:{}", location.file_name(), location.line())} {}
+
+  ShardError(common::ErrorCode code, const std::experimental::source_location location)
+      : code{code}, source{fmt::format("{}:{}", location.file_name(), location.line())} {}
+
+  common::ErrorCode code;
+  std::string message;
+  std::string source;
+
+  inline friend bool operator==(const ShardError &lhs, const ShardError &rhs) { return lhs.code == rhs.code; }
+
+  inline friend bool operator==(const ShardError &lhs, const common::ErrorCode rhs) { return lhs.code == rhs; }
 };
 
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define SHARD_ERROR(error, ...)                                                                                        \
+  ({                                                                                                                   \
+    using ErrorCode = memgraph::common::ErrorCode;                                                                     \
+    memgraph::storage::v3::ShardError(error, GET_MESSAGE(__VA_ARGS__), std::experimental::source_location::current()); \
+  })
+
 template <class TValue>
-using Result = utils::BasicResult<Error, TValue>;
+using ShardResult = utils::BasicResult<ShardError, TValue>;
 
 }  // namespace memgraph::storage::v3

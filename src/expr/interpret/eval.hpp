@@ -24,6 +24,7 @@
 #include "expr/exceptions.hpp"
 #include "expr/interpret/frame.hpp"
 #include "expr/semantic/symbol_table.hpp"
+#include "functions/awesome_memgraph_functions.hpp"
 #include "utils/exceptions.hpp"
 
 namespace memgraph::expr {
@@ -35,8 +36,8 @@ template <typename TypedValue, typename EvaluationContext, typename DbAccessor, 
           typename PropertyValue, typename ConvFunctor, typename Error, typename Tag = StorageTag>
 class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
-  ExpressionEvaluator(Frame<TypedValue> *frame, const SymbolTable &symbol_table, const EvaluationContext &ctx,
-                      DbAccessor *dba, StorageView view)
+  ExpressionEvaluator(Frame *frame, const SymbolTable &symbol_table, const EvaluationContext &ctx, DbAccessor *dba,
+                      StorageView view)
       : frame_(frame), symbol_table_(&symbol_table), ctx_(&ctx), dba_(dba), view_(view) {}
 
   using ExpressionVisitor<TypedValue>::Visit;
@@ -99,6 +100,28 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
 #undef BINARY_OPERATOR_VISITOR
 #undef UNARY_OPERATOR_VISITOR
+
+  void HandleObjectAccessError(Error &shard_error, const std::string_view accessed_object) {
+    switch (shard_error) {
+      case Error::DELETED_OBJECT:
+        throw ExpressionRuntimeException("Trying to access {} on a deleted object.", accessed_object);
+      case Error::NONEXISTENT_OBJECT:
+        throw ExpressionRuntimeException("Trying to access {} from a node object doesn't exist.", accessed_object);
+      case Error::SERIALIZATION_ERROR:
+      case Error::VERTEX_HAS_EDGES:
+      case Error::PROPERTIES_DISABLED:
+      case Error::VERTEX_ALREADY_INSERTED:
+      case Error::OBJECT_NOT_FOUND:
+        throw ExpressionRuntimeException("Unexpected error when accessing {}.", accessed_object);
+      case Error::SCHEMA_NO_SCHEMA_DEFINED_FOR_LABEL:
+      case Error::SCHEMA_VERTEX_PROPERTY_WRONG_TYPE:
+      case Error::SCHEMA_VERTEX_UPDATE_PRIMARY_KEY:
+      case Error::SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL:
+      case Error::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY:
+      case Error::SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED:
+        throw ExpressionRuntimeException("Unexpected schema violation when accessing {}.", accessed_object);
+    }
+  }
 
   TypedValue Visit(AndOperator &op) override {
     auto value1 = op.expression1_->Accept(*this);
@@ -396,17 +419,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       has_label = vertex.HasLabel(StorageView::NEW, GetLabel(label));
     }
     if (has_label.HasError()) {
-      switch (has_label.GetError()) {
-        case Error::DELETED_OBJECT:
-          throw ExpressionRuntimeException("Trying to access labels on a deleted node.");
-        case Error::NONEXISTENT_OBJECT:
-          throw ExpressionRuntimeException("Trying to access labels from a node that doesn't exist.");
-        case Error::SERIALIZATION_ERROR:
-        case Error::VERTEX_HAS_EDGES:
-        case Error::PROPERTIES_DISABLED:
-        case Error::VERTEX_ALREADY_INSERTED:
-          throw ExpressionRuntimeException("Unexpected error when accessing labels.");
-      }
+      HandleObjectAccessError(has_label.GetError().code, "labels");
     }
     return *has_label;
   }
@@ -415,8 +428,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
             typename TReturnType = std::enable_if_t<std::is_same_v<TTag, QueryEngineTag>, bool>>
   TReturnType HasLabelImpl(const VertexAccessor &vertex, const LabelIx &label_ix, QueryEngineTag /*tag*/) {
     auto label = typename VertexAccessor::Label{LabelId::FromUint(label_ix.ix)};
-    auto has_label = vertex.HasLabel(label);
-    return !has_label;
+    return vertex.HasLabel(label);
   }
 
   TypedValue Visit(LabelsTest &labels_test) override {
@@ -479,7 +491,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(Function &function) override {
-    FunctionContext function_ctx{dba_, ctx_->memory, ctx_->timestamp, &ctx_->counters, view_};
+    functions::FunctionContext<DbAccessor> function_ctx{dba_, ctx_->memory, ctx_->timestamp, &ctx_->counters, view_};
     // Stack allocate evaluated arguments when there's a small number of them.
     if (function.arguments_.size() <= 8) {
       TypedValue arguments[8] = {TypedValue(ctx_->memory), TypedValue(ctx_->memory), TypedValue(ctx_->memory),
@@ -744,17 +756,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       maybe_prop = record_accessor.GetProperty(StorageView::NEW, ctx_->properties[prop.ix]);
     }
     if (maybe_prop.HasError()) {
-      switch (maybe_prop.GetError()) {
-        case Error::DELETED_OBJECT:
-          throw ExpressionRuntimeException("Trying to get a property from a deleted object.");
-        case Error::NONEXISTENT_OBJECT:
-          throw ExpressionRuntimeException("Trying to get a property from an object that doesn't exist.");
-        case Error::SERIALIZATION_ERROR:
-        case Error::VERTEX_HAS_EDGES:
-        case Error::PROPERTIES_DISABLED:
-        case Error::VERTEX_ALREADY_INSERTED:
-          throw ExpressionRuntimeException("Unexpected error when getting a property.");
-      }
+      HandleObjectAccessError(maybe_prop.GetError().code, "property");
     }
     return conv_(*maybe_prop, ctx_->memory);
   }
@@ -773,24 +775,14 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       maybe_prop = record_accessor.GetProperty(view_, dba_->NameToProperty(name));
     }
     if (maybe_prop.HasError()) {
-      switch (maybe_prop.GetError()) {
-        case Error::DELETED_OBJECT:
-          throw ExpressionRuntimeException("Trying to get a property from a deleted object.");
-        case Error::NONEXISTENT_OBJECT:
-          throw ExpressionRuntimeException("Trying to get a property from an object that doesn't exist.");
-        case Error::SERIALIZATION_ERROR:
-        case Error::VERTEX_HAS_EDGES:
-        case Error::PROPERTIES_DISABLED:
-        case Error::VERTEX_ALREADY_INSERTED:
-          throw ExpressionRuntimeException("Unexpected error when getting a property.");
-      }
+      HandleObjectAccessError(maybe_prop.GetError().code, "property");
     }
     return conv_(*maybe_prop, ctx_->memory);
   }
 
   LabelId GetLabel(LabelIx label) { return ctx_->labels[label.ix]; }
 
-  Frame<TypedValue> *frame_;
+  Frame *frame_;
   const SymbolTable *symbol_table_;
   const EvaluationContext *ctx_;
   DbAccessor *dba_;

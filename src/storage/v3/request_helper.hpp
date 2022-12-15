@@ -9,14 +9,30 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#pragma once
+
 #include <vector>
 
-#include "ast/ast.hpp"
+#include "query/v2/requests.hpp"
+#include "storage/v3/bindings/ast/ast.hpp"
+#include "storage/v3/bindings/pretty_print_ast_to_original_expression.hpp"
 #include "storage/v3/bindings/typed_value.hpp"
+#include "storage/v3/edge_accessor.hpp"
+#include "storage/v3/expr.hpp"
 #include "storage/v3/shard.hpp"
+#include "storage/v3/value_conversions.hpp"
 #include "storage/v3/vertex_accessor.hpp"
+#include "utils/template_utils.hpp"
 
 namespace memgraph::storage::v3 {
+using EdgeAccessors = std::vector<storage::v3::EdgeAccessor>;
+using EdgeUniquenessFunction = std::function<EdgeAccessors(EdgeAccessors &&, msgs::EdgeDirection)>;
+using EdgeFiller =
+    std::function<ShardResult<void>(const EdgeAccessor &edge, bool is_in_edge, msgs::ExpandOneResultRow &result_row)>;
+using msgs::Value;
+
+template <typename T>
+concept OrderableObject = utils::SameAsAnyOf<T, VertexAccessor, EdgeAccessor, std::pair<VertexAccessor, EdgeAccessor>>;
 
 inline bool TypedValueCompare(const TypedValue &a, const TypedValue &b) {
   // in ordering null comes after everything else
@@ -72,6 +88,17 @@ inline bool TypedValueCompare(const TypedValue &a, const TypedValue &b) {
   }
 }
 
+inline Ordering ConvertMsgsOrderByToOrdering(msgs::OrderingDirection ordering) {
+  switch (ordering) {
+    case memgraph::msgs::OrderingDirection::ASCENDING:
+      return memgraph::storage::v3::Ordering::ASC;
+    case memgraph::msgs::OrderingDirection::DESCENDING:
+      return memgraph::storage::v3::Ordering::DESC;
+    default:
+      LOG_FATAL("Unknown ordering direction");
+  }
+}
+
 class TypedValueVectorCompare final {
  public:
   explicit TypedValueVectorCompare(const std::vector<Ordering> &ordering) : ordering_(ordering) {}
@@ -99,18 +126,134 @@ class TypedValueVectorCompare final {
   std::vector<Ordering> ordering_;
 };
 
+template <OrderableObject TObjectAccessor>
 struct Element {
   std::vector<TypedValue> properties_order_by;
-  VertexAccessor vertex_acc;
+  TObjectAccessor object_acc;
 };
 
-std::vector<Element> OrderByElements(Shard::Accessor &acc, DbAccessor &dba, VerticesIterable &vertices_iterable,
-                                     std::vector<msgs::OrderBy> &order_bys);
+template <typename T>
+concept VerticesIt = utils::SameAsAnyOf<T, VerticesIterable, std::vector<VertexAccessor>>;
+
+template <VerticesIt TIterable>
+std::vector<Element<VertexAccessor>> OrderByVertices(DbAccessor &dba, TIterable &iterable,
+                                                     std::vector<msgs::OrderBy> &order_by_vertices) {
+  std::vector<Ordering> ordering;
+  ordering.reserve(order_by_vertices.size());
+  std::transform(order_by_vertices.begin(), order_by_vertices.end(), std::back_inserter(ordering),
+                 [](const auto &order_by) { return ConvertMsgsOrderByToOrdering(order_by.direction); });
+
+  std::vector<Element<VertexAccessor>> ordered;
+  for (auto it = iterable.begin(); it != iterable.end(); ++it) {
+    std::vector<TypedValue> properties_order_by;
+    properties_order_by.reserve(order_by_vertices.size());
+
+    std::transform(order_by_vertices.begin(), order_by_vertices.end(), std::back_inserter(properties_order_by),
+                   [&dba, &it](const auto &order_by) {
+                     return ComputeExpression(dba, *it, std::nullopt /*e_acc*/, order_by.expression.expression,
+                                              expr::identifier_node_symbol, expr::identifier_edge_symbol);
+                   });
+
+    ordered.push_back({std::move(properties_order_by), *it});
+  }
+
+  auto compare_typed_values = TypedValueVectorCompare(ordering);
+  std::sort(ordered.begin(), ordered.end(), [compare_typed_values](const auto &pair1, const auto &pair2) {
+    return compare_typed_values(pair1.properties_order_by, pair2.properties_order_by);
+  });
+  return ordered;
+}
+
+std::vector<Element<EdgeAccessor>> OrderByEdges(DbAccessor &dba, std::vector<EdgeAccessor> &iterable,
+                                                std::vector<msgs::OrderBy> &order_by_edges,
+                                                const VertexAccessor &vertex_acc);
+
+std::vector<Element<std::pair<VertexAccessor, EdgeAccessor>>> OrderByEdges(
+    DbAccessor &dba, std::vector<EdgeAccessor> &iterable, std::vector<msgs::OrderBy> &order_by_edges,
+    const std::vector<VertexAccessor> &vertex_acc);
 
 VerticesIterable::Iterator GetStartVertexIterator(VerticesIterable &vertex_iterable,
-                                                  const std::vector<PropertyValue> &start_ids, View view);
+                                                  const std::vector<PropertyValue> &primary_key, View view);
 
-std::vector<Element>::const_iterator GetStartOrderedElementsIterator(const std::vector<Element> &ordered_elements,
-                                                                     const std::vector<PropertyValue> &start_ids,
-                                                                     View view);
+std::vector<Element<VertexAccessor>>::const_iterator GetStartOrderedElementsIterator(
+    const std::vector<Element<VertexAccessor>> &ordered_elements, const std::vector<PropertyValue> &primary_key,
+    View view);
+
+std::array<std::vector<EdgeAccessor>, 2> GetEdgesFromVertex(const VertexAccessor &vertex_accessor,
+                                                            msgs::EdgeDirection direction);
+
+bool FilterOnVertex(DbAccessor &dba, const storage::v3::VertexAccessor &v_acc, const std::vector<std::string> &filters);
+
+bool FilterOnEdge(DbAccessor &dba, const storage::v3::VertexAccessor &v_acc, const EdgeAccessor &e_acc,
+                  const std::vector<std::string> &filters);
+
+std::vector<TypedValue> EvaluateVertexExpressions(DbAccessor &dba, const VertexAccessor &v_acc,
+                                                  const std::vector<std::string> &expressions,
+                                                  std::string_view node_name);
+
+std::vector<TypedValue> EvaluateEdgeExpressions(DbAccessor &dba, const VertexAccessor &v_acc, const EdgeAccessor &e_acc,
+                                                const std::vector<std::string> &expressions);
+
+template <typename T>
+concept PropertiesAccessor = utils::SameAsAnyOf<T, VertexAccessor, EdgeAccessor>;
+
+template <PropertiesAccessor TAccessor>
+ShardResult<std::map<PropertyId, Value>> CollectSpecificPropertiesFromAccessor(const TAccessor &acc,
+                                                                               const std::vector<PropertyId> &props,
+                                                                               View view) {
+  std::map<PropertyId, Value> ret;
+
+  for (const auto &prop : props) {
+    auto result = acc.GetProperty(prop, view);
+    if (result.HasError()) {
+      spdlog::debug("Encountered an Error while trying to get a vertex property.");
+      return result.GetError();
+    }
+    auto &value = result.GetValue();
+    ret.emplace(std::make_pair(prop, FromPropertyValueToValue(std::move(value))));
+  }
+
+  return ret;
+}
+
+ShardResult<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(const VertexAccessor &acc, View view,
+                                                                          const Schemas::Schema &schema);
+namespace impl {
+template <PropertiesAccessor TAccessor>
+ShardResult<std::map<PropertyId, Value>> CollectAllPropertiesImpl(const TAccessor &acc, View view) {
+  std::map<PropertyId, Value> ret;
+  auto props = acc.Properties(view);
+  if (props.HasError()) {
+    spdlog::debug("Encountered an error while trying to get vertex properties.");
+    return props.GetError();
+  }
+
+  auto &properties = props.GetValue();
+  std::transform(properties.begin(), properties.end(), std::inserter(ret, ret.begin()),
+                 [](std::pair<const PropertyId, PropertyValue> &pair) {
+                   return std::make_pair(pair.first, conversions::FromPropertyValueToValue(std::move(pair.second)));
+                 });
+  return ret;
+}
+}  // namespace impl
+
+template <PropertiesAccessor TAccessor>
+ShardResult<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(const TAccessor &acc, View view) {
+  return impl::CollectAllPropertiesImpl<TAccessor>(acc, view);
+}
+
+EdgeUniquenessFunction InitializeEdgeUniquenessFunction(bool only_unique_neighbor_rows);
+
+EdgeFiller InitializeEdgeFillerFunction(const msgs::ExpandOneRequest &req);
+
+ShardResult<msgs::ExpandOneResultRow> GetExpandOneResult(
+    Shard::Accessor &acc, msgs::VertexId src_vertex, const msgs::ExpandOneRequest &req,
+    const EdgeUniquenessFunction &maybe_filter_based_on_edge_uniqueness, const EdgeFiller &edge_filler,
+    const Schemas::Schema &schema);
+
+ShardResult<msgs::ExpandOneResultRow> GetExpandOneResult(
+    VertexAccessor v_acc, msgs::VertexId src_vertex, const msgs::ExpandOneRequest &req,
+    std::vector<EdgeAccessor> in_edge_accessors, std::vector<EdgeAccessor> out_edge_accessors,
+    const EdgeUniquenessFunction &maybe_filter_based_on_edge_uniqueness, const EdgeFiller &edge_filler,
+    const Schemas::Schema &schema);
 }  // namespace memgraph::storage::v3

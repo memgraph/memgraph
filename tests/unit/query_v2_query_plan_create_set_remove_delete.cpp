@@ -30,7 +30,7 @@
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/schemas.hpp"
-#include "storage/v3/storage.hpp"
+#include "storage/v3/shard.hpp"
 #include "storage/v3/vertex.hpp"
 #include "storage/v3/view.hpp"
 

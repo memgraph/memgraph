@@ -38,7 +38,6 @@
 #include "storage/v3/result.hpp"
 #include "storage/v3/schema_validator.hpp"
 #include "storage/v3/schemas.hpp"
-#include "storage/v3/shard_operation_result.hpp"
 #include "storage/v3/transaction.hpp"
 #include "storage/v3/vertex.hpp"
 #include "storage/v3/vertex_accessor.hpp"
@@ -207,7 +206,7 @@ class Shard final {
 
    public:
     /// @throw std::bad_alloc
-    ShardOperationResult<VertexAccessor> CreateVertexAndValidate(
+    ShardResult<VertexAccessor> CreateVertexAndValidate(
         const std::vector<LabelId> &labels, const std::vector<PropertyValue> &primary_properties,
         const std::vector<std::pair<PropertyId, PropertyValue>> &properties);
 
@@ -262,19 +261,19 @@ class Shard final {
 
     /// @return Accessor to the deleted vertex if a deletion took place, std::nullopt otherwise
     /// @throw std::bad_alloc
-    Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex);
+    ShardResult<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex);
 
     /// @return Accessor to the deleted vertex and deleted edges if a deletion took place, std::nullopt otherwise
     /// @throw std::bad_alloc
-    Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachDeleteVertex(
+    ShardResult<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachDeleteVertex(
         VertexAccessor *vertex);
 
     /// @throw std::bad_alloc
-    Result<EdgeAccessor> CreateEdge(VertexId from_vertex_id, VertexId to_vertex_id, EdgeTypeId edge_type, Gid gid);
+    ShardResult<EdgeAccessor> CreateEdge(VertexId from_vertex_id, VertexId to_vertex_id, EdgeTypeId edge_type, Gid gid);
 
     /// Accessor to the deleted edge if a deletion took place, std::nullopt otherwise
     /// @throw std::bad_alloc
-    Result<std::optional<EdgeAccessor>> DeleteEdge(VertexId from_vertex_id, VertexId to_vertex_id, Gid edge_id);
+    ShardResult<std::optional<EdgeAccessor>> DeleteEdge(VertexId from_vertex_id, VertexId to_vertex_id, Gid edge_id);
 
     LabelId NameToLabel(std::string_view name) const;
 

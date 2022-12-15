@@ -20,6 +20,8 @@
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
 
+#include "utils/logging.hpp"
+
 namespace memgraph::io {
 
 struct PartialAddress {
@@ -58,15 +60,36 @@ struct Address {
   uint16_t last_known_port;
 
   static Address TestAddress(uint16_t port) {
+    MG_ASSERT(port <= 255);
+
     return Address{
-        .unique_id = boost::uuids::uuid{boost::uuids::random_generator()()},
+        .unique_id = boost::uuids::uuid{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, static_cast<unsigned char>(port)},
         .last_known_port = port,
     };
   }
 
+  // NB: don't use this in test code because it is non-deterministic
   static Address UniqueLocalAddress() {
     return Address{
         .unique_id = boost::uuids::uuid{boost::uuids::random_generator()()},
+    };
+  }
+
+  /// `Coordinator`s have constant UUIDs because there is at most one per ip/port pair.
+  Address ForkLocalCoordinator() {
+    return Address{
+        .unique_id = boost::uuids::uuid{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+        .last_known_ip = last_known_ip,
+        .last_known_port = last_known_port,
+    };
+  }
+
+  /// `ShardManager`s have constant UUIDs because there is at most one per ip/port pair.
+  Address ForkLocalShardManager() {
+    return Address{
+        .unique_id = boost::uuids::uuid{2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+        .last_known_ip = last_known_ip,
+        .last_known_port = last_known_port,
     };
   }
 

@@ -41,13 +41,13 @@
 #include "query/v2/frontend/ast/ast.hpp"
 #include "query/v2/frontend/semantic/required_privileges.hpp"
 #include "query/v2/metadata.hpp"
+#include "query/v2/multiframe.hpp"
 #include "query/v2/plan/planner.hpp"
 #include "query/v2/plan/profile.hpp"
 #include "query/v2/plan/vertex_count_cache.hpp"
-#include "query/v2/shard_request_manager.hpp"
+#include "query/v2/request_router.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/shard.hpp"
-#include "storage/v3/storage.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
@@ -144,18 +144,18 @@ class ReplQueryHandler final : public query::v2::ReplicationQueryHandler {
 /// @throw QueryRuntimeException if an error ocurred.
 
 Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Parameters &parameters,
-                         msgs::ShardRequestManagerInterface *manager) {
+                         RequestRouterInterface *request_router) {
   // Empty frame for evaluation of password expression. This is OK since
   // password should be either null or string literal and it's evaluation
   // should not depend on frame.
-  expr::Frame<TypedValue> frame(0);
+  expr::Frame frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
   // the argument to Callback.
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parameters;
-  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, manager, storage::v3::View::OLD);
+  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, request_router, storage::v3::View::OLD);
 
   std::string username = auth_query->user_;
   std::string rolename = auth_query->role_;
@@ -313,16 +313,16 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
 }
 
 Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &parameters,
-                                InterpreterContext *interpreter_context, msgs::ShardRequestManagerInterface *manager,
+                                InterpreterContext *interpreter_context, RequestRouterInterface *request_router,
                                 std::vector<Notification> *notifications) {
-  expr::Frame<TypedValue> frame(0);
+  expr::Frame frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
   // the argument to Callback.
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parameters;
-  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, manager, storage::v3::View::OLD);
+  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, request_router, storage::v3::View::OLD);
 
   Callback callback;
   switch (repl_query->action_) {
@@ -449,8 +449,8 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
 }
 
 Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &parameters,
-                            msgs::ShardRequestManagerInterface *manager) {
-  expr::Frame<TypedValue> frame(0);
+                            RequestRouterInterface *request_router) {
+  expr::Frame frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
@@ -459,7 +459,7 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
       std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
           .count();
   evaluation_context.parameters = parameters;
-  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, manager, storage::v3::View::OLD);
+  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, request_router, storage::v3::View::OLD);
 
   Callback callback;
   switch (setting_query->action_) {
@@ -650,17 +650,21 @@ struct PullPlanVector {
 struct PullPlan {
   explicit PullPlan(std::shared_ptr<CachedPlan> plan, const Parameters &parameters, bool is_profile_query,
                     DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
-                    msgs::ShardRequestManagerInterface *shard_request_manager = nullptr,
+                    RequestRouterInterface *request_router = nullptr,
                     //                    TriggerContextCollector *trigger_context_collector = nullptr,
                     std::optional<size_t> memory_limit = {});
   std::optional<plan::ProfilingStatsWithTotalTime> Pull(AnyStream *stream, std::optional<int> n,
                                                         const std::vector<Symbol> &output_symbols,
                                                         std::map<std::string, TypedValue> *summary);
+  std::optional<plan::ProfilingStatsWithTotalTime> PullMultiple(AnyStream *stream, std::optional<int> n,
+                                                                const std::vector<Symbol> &output_symbols,
+                                                                std::map<std::string, TypedValue> *summary);
 
  private:
   std::shared_ptr<CachedPlan> plan_ = nullptr;
   plan::UniqueCursorPtr cursor_ = nullptr;
-  expr::Frame<TypedValue> frame_;
+  expr::FrameWithValidity frame_;
+  MultiFrame multi_frame_;
   ExecutionContext ctx_;
   std::optional<size_t> memory_limit_;
 
@@ -680,29 +684,137 @@ struct PullPlan {
 
 PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &parameters, const bool is_profile_query,
                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
-                   msgs::ShardRequestManagerInterface *shard_request_manager, const std::optional<size_t> memory_limit)
+                   RequestRouterInterface *request_router, const std::optional<size_t> memory_limit)
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory)),
       frame_(plan->symbol_table().max_position(), execution_memory),
+      multi_frame_(plan->symbol_table().max_position(), kNumberOfFramesInMultiframe, execution_memory),
       memory_limit_(memory_limit) {
   ctx_.db_accessor = dba;
   ctx_.symbol_table = plan->symbol_table();
   ctx_.evaluation_context.timestamp = QueryTimestamp();
   ctx_.evaluation_context.parameters = parameters;
-  ctx_.evaluation_context.properties = NamesToProperties(plan->ast_storage().properties_, shard_request_manager);
-  ctx_.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, shard_request_manager);
+  ctx_.evaluation_context.properties = NamesToProperties(plan->ast_storage().properties_, request_router);
+  ctx_.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, request_router);
   if (interpreter_context->config.execution_timeout_sec > 0) {
     ctx_.timer = utils::AsyncTimer{interpreter_context->config.execution_timeout_sec};
   }
   ctx_.is_shutting_down = &interpreter_context->is_shutting_down;
   ctx_.is_profile_query = is_profile_query;
-  ctx_.shard_request_manager = shard_request_manager;
+  ctx_.request_router = request_router;
   ctx_.edge_ids_alloc = &interpreter_context->edge_ids_alloc;
+}
+
+std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::PullMultiple(AnyStream *stream, std::optional<int> n,
+                                                                        const std::vector<Symbol> &output_symbols,
+                                                                        std::map<std::string, TypedValue> *summary) {
+  // Set up temporary memory for a single Pull. Initial memory comes from the
+  // stack. 256 KiB should fit on the stack and should be more than enough for a
+  // single `Pull`.
+  MG_ASSERT(!n.has_value(), "should pull all!");
+  static constexpr size_t stack_size = 256UL * 1024UL;
+  char stack_data[stack_size];
+  utils::ResourceWithOutOfMemoryException resource_with_exception;
+  utils::MonotonicBufferResource monotonic_memory(&stack_data[0], stack_size, &resource_with_exception);
+  // We can throw on every query because a simple queries for deleting will use only
+  // the stack allocated buffer.
+  // Also, we want to throw only when the query engine requests more memory and not the storage
+  // so we add the exception to the allocator.
+  // TODO (mferencevic): Tune the parameters accordingly.
+  utils::PoolResource pool_memory(128, 1024, &monotonic_memory);
+  std::optional<utils::LimitedMemoryResource> maybe_limited_resource;
+
+  if (memory_limit_) {
+    maybe_limited_resource.emplace(&pool_memory, *memory_limit_);
+    ctx_.evaluation_context.memory = &*maybe_limited_resource;
+  } else {
+    ctx_.evaluation_context.memory = &pool_memory;
+  }
+
+  // Returns true if a result was pulled.
+  const auto pull_result = [&]() -> bool {
+    cursor_->PullMultiple(multi_frame_, ctx_);
+    return multi_frame_.HasValidFrame();
+  };
+
+  const auto stream_values = [&output_symbols, &stream](const Frame &frame) {
+    // TODO: The streamed values should also probably use the above memory.
+    std::vector<TypedValue> values;
+    values.reserve(output_symbols.size());
+
+    for (const auto &symbol : output_symbols) {
+      values.emplace_back(frame[symbol]);
+    }
+
+    stream->Result(values);
+  };
+
+  // Get the execution time of all possible result pulls and streams.
+  utils::Timer timer;
+
+  int i = 0;
+  if (has_unsent_results_ && !output_symbols.empty()) {
+    // stream unsent results from previous pull
+
+    auto iterator_for_valid_frame_only = multi_frame_.GetValidFramesReader();
+    for (const auto &frame : iterator_for_valid_frame_only) {
+      stream_values(frame);
+      ++i;
+    }
+    multi_frame_.MakeAllFramesInvalid();
+  }
+
+  for (; !n || i < n;) {
+    if (!pull_result()) {
+      break;
+    }
+
+    if (!output_symbols.empty()) {
+      auto iterator_for_valid_frame_only = multi_frame_.GetValidFramesReader();
+      for (const auto &frame : iterator_for_valid_frame_only) {
+        stream_values(frame);
+        ++i;
+      }
+    }
+    multi_frame_.MakeAllFramesInvalid();
+  }
+
+  // If we finished because we streamed the requested n results,
+  // we try to pull the next result to see if there is more.
+  // If there is additional result, we leave the pulled result in the frame
+  // and set the flag to true.
+  has_unsent_results_ = i == n && pull_result();
+
+  execution_time_ += timer.Elapsed();
+
+  if (has_unsent_results_) {
+    return std::nullopt;
+  }
+  summary->insert_or_assign("plan_execution_time", execution_time_.count());
+  // We are finished with pulling all the data, therefore we can send any
+  // metadata about the results i.e. notifications and statistics
+  const bool is_any_counter_set =
+      std::any_of(ctx_.execution_stats.counters.begin(), ctx_.execution_stats.counters.end(),
+                  [](const auto &counter) { return counter > 0; });
+  if (is_any_counter_set) {
+    std::map<std::string, TypedValue> stats;
+    for (size_t i = 0; i < ctx_.execution_stats.counters.size(); ++i) {
+      stats.emplace(ExecutionStatsKeyToString(ExecutionStats::Key(i)), ctx_.execution_stats.counters[i]);
+    }
+    summary->insert_or_assign("stats", std::move(stats));
+  }
+  cursor_->Shutdown();
+  ctx_.profile_execution_time = execution_time_;
+  return GetStatsWithTotalTime(ctx_);
 }
 
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
                                                                 const std::vector<Symbol> &output_symbols,
                                                                 std::map<std::string, TypedValue> *summary) {
+  auto should_pull_multiple = false;  // TODO on the long term, we will only use PullMultiple
+  if (should_pull_multiple) {
+    return PullMultiple(stream, n, output_symbols, summary);
+  }
   // Set up temporary memory for a single Pull. Initial memory comes from the
   // stack. 256 KiB should fit on the stack and should be more than enough for a
   // single `Pull`.
@@ -800,8 +912,12 @@ InterpreterContext::InterpreterContext(storage::v3::Shard *db, const Interpreter
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
-  auto query_io = interpreter_context_->io.ForkLocal();
-  shard_request_manager_ = std::make_unique<msgs::ShardRequestManager<io::local_transport::LocalTransport>>(
+
+  // TODO(tyler) make this deterministic so that it can be tested.
+  auto random_uuid = boost::uuids::uuid{boost::uuids::random_generator()()};
+  auto query_io = interpreter_context_->io.ForkLocal(random_uuid);
+
+  request_router_ = std::make_unique<RequestRouter<io::local_transport::LocalTransport>>(
       coordinator::CoordinatorClient<io::local_transport::LocalTransport>(
           query_io, interpreter_context_->coordinator_address, std::vector{interpreter_context_->coordinator_address}),
       std::move(query_io));
@@ -878,17 +994,16 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
 PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
                                  InterpreterContext *interpreter_context, DbAccessor *dba,
                                  utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
-                                 msgs::ShardRequestManagerInterface *shard_request_manager) {
+                                 RequestRouterInterface *request_router) {
   //                                 TriggerContextCollector *trigger_context_collector = nullptr) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
 
-  expr::Frame<TypedValue> frame(0);
+  expr::Frame frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parsed_query.parameters;
-  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, shard_request_manager,
-                                storage::v3::View::OLD);
+  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, request_router, storage::v3::View::OLD);
   const auto memory_limit =
       expr::EvaluateMemoryLimit(&evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
   if (memory_limit) {
@@ -903,9 +1018,9 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
         "convert the parsed row values to the appropriate type. This can be done using the built-in "
         "conversion functions such as ToInteger, ToFloat, ToBoolean etc.");
   }
-  auto plan = CypherQueryToPlan(
-      parsed_query.stripped_query.hash(), std::move(parsed_query.ast_storage), cypher_query, parsed_query.parameters,
-      parsed_query.is_cacheable ? &interpreter_context->plan_cache : nullptr, shard_request_manager);
+  auto plan = CypherQueryToPlan(parsed_query.stripped_query.hash(), std::move(parsed_query.ast_storage), cypher_query,
+                                parsed_query.parameters,
+                                parsed_query.is_cacheable ? &interpreter_context->plan_cache : nullptr, request_router);
 
   summary->insert_or_assign("cost_estimate", plan->cost());
   auto rw_type_checker = plan::ReadWriteTypeChecker();
@@ -924,7 +1039,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
         utils::FindOr(parsed_query.stripped_query.named_expressions(), symbol.token_position(), symbol.name()).first);
   }
   auto pull_plan = std::make_shared<PullPlan>(plan, parsed_query.parameters, false, dba, interpreter_context,
-                                              execution_memory, shard_request_manager, memory_limit);
+                                              execution_memory, request_router, memory_limit);
   //                                              execution_memory, trigger_context_collector, memory_limit);
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
                        [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary](
@@ -938,8 +1053,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
 }
 
 PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
-                                  InterpreterContext *interpreter_context,
-                                  msgs::ShardRequestManagerInterface *shard_request_manager,
+                                  InterpreterContext *interpreter_context, RequestRouterInterface *request_router,
                                   utils::MemoryResource *execution_memory) {
   const std::string kExplainQueryStart = "explain ";
   MG_ASSERT(utils::StartsWith(utils::ToLowerCase(parsed_query.stripped_query.query()), kExplainQueryStart),
@@ -958,20 +1072,20 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in EXPLAIN");
 
-  auto cypher_query_plan = CypherQueryToPlan(
-      parsed_inner_query.stripped_query.hash(), std::move(parsed_inner_query.ast_storage), cypher_query,
-      parsed_inner_query.parameters, parsed_inner_query.is_cacheable ? &interpreter_context->plan_cache : nullptr,
-      shard_request_manager);
+  auto cypher_query_plan =
+      CypherQueryToPlan(parsed_inner_query.stripped_query.hash(), std::move(parsed_inner_query.ast_storage),
+                        cypher_query, parsed_inner_query.parameters,
+                        parsed_inner_query.is_cacheable ? &interpreter_context->plan_cache : nullptr, request_router);
 
   std::stringstream printed_plan;
-  plan::PrettyPrint(*shard_request_manager, &cypher_query_plan->plan(), &printed_plan);
+  plan::PrettyPrint(*request_router, &cypher_query_plan->plan(), &printed_plan);
 
   std::vector<std::vector<TypedValue>> printed_plan_rows;
   for (const auto &row : utils::Split(utils::RTrim(printed_plan.str()), "\n")) {
     printed_plan_rows.push_back(std::vector<TypedValue>{TypedValue(row)});
   }
 
-  summary->insert_or_assign("explain", plan::PlanToJson(*shard_request_manager, &cypher_query_plan->plan()).dump());
+  summary->insert_or_assign("explain", plan::PlanToJson(*request_router, &cypher_query_plan->plan()).dump());
 
   return PreparedQuery{{"QUERY PLAN"},
                        std::move(parsed_query.required_privileges),
@@ -988,7 +1102,7 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
 PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                   std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
                                   DbAccessor *dba, utils::MemoryResource *execution_memory,
-                                  msgs::ShardRequestManagerInterface *shard_request_manager = nullptr) {
+                                  RequestRouterInterface *request_router = nullptr) {
   const std::string kProfileQueryStart = "profile ";
 
   MG_ASSERT(utils::StartsWith(utils::ToLowerCase(parsed_query.stripped_query.query()), kProfileQueryStart),
@@ -1026,27 +1140,26 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in PROFILE");
-  expr::Frame<TypedValue> frame(0);
+  expr::Frame frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parsed_inner_query.parameters;
-  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, shard_request_manager,
-                                storage::v3::View::OLD);
+  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, request_router, storage::v3::View::OLD);
   const auto memory_limit =
       expr::EvaluateMemoryLimit(&evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
 
-  auto cypher_query_plan = CypherQueryToPlan(
-      parsed_inner_query.stripped_query.hash(), std::move(parsed_inner_query.ast_storage), cypher_query,
-      parsed_inner_query.parameters, parsed_inner_query.is_cacheable ? &interpreter_context->plan_cache : nullptr,
-      shard_request_manager);
+  auto cypher_query_plan =
+      CypherQueryToPlan(parsed_inner_query.stripped_query.hash(), std::move(parsed_inner_query.ast_storage),
+                        cypher_query, parsed_inner_query.parameters,
+                        parsed_inner_query.is_cacheable ? &interpreter_context->plan_cache : nullptr, request_router);
   auto rw_type_checker = plan::ReadWriteTypeChecker();
   rw_type_checker.InferRWType(const_cast<plan::LogicalOperator &>(cypher_query_plan->plan()));
 
   return PreparedQuery{{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME", "CUSTOM DATA"},
                        std::move(parsed_query.required_privileges),
                        [plan = std::move(cypher_query_plan), parameters = std::move(parsed_inner_query.parameters),
-                        summary, dba, interpreter_context, execution_memory, memory_limit, shard_request_manager,
+                        summary, dba, interpreter_context, execution_memory, memory_limit, request_router,
                         // We want to execute the query we are profiling lazily, so we delay
                         // the construction of the corresponding context.
                         stats_and_total_time = std::optional<plan::ProfilingStatsWithTotalTime>{},
@@ -1055,7 +1168,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                          // No output symbols are given so that nothing is streamed.
                          if (!stats_and_total_time) {
                            stats_and_total_time = PullPlan(plan, parameters, true, dba, interpreter_context,
-                                                           execution_memory, shard_request_manager, memory_limit)
+                                                           execution_memory, request_router, memory_limit)
                                                       .Pull(stream, {}, {}, summary);
                            pull_plan = std::make_shared<PullPlanVector>(ProfilingStatsToTable(*stats_and_total_time));
                          }
@@ -1182,14 +1295,14 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
 PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
                                DbAccessor *dba, utils::MemoryResource *execution_memory,
-                               msgs::ShardRequestManagerInterface *manager) {
+                               RequestRouterInterface *request_router) {
   if (in_explicit_transaction) {
     throw UserModificationInMulticommandTxException();
   }
 
   auto *auth_query = utils::Downcast<AuthQuery>(parsed_query.query);
 
-  auto callback = HandleAuthQuery(auth_query, interpreter_context->auth, parsed_query.parameters, manager);
+  auto callback = HandleAuthQuery(auth_query, interpreter_context->auth, parsed_query.parameters, request_router);
 
   SymbolTable symbol_table;
   std::vector<Symbol> output_symbols;
@@ -1218,14 +1331,14 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
 
 PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
                                       std::vector<Notification> *notifications, InterpreterContext *interpreter_context,
-                                      msgs::ShardRequestManagerInterface *manager) {
+                                      RequestRouterInterface *request_router) {
   if (in_explicit_transaction) {
     throw ReplicationModificationInMulticommandTxException();
   }
 
   auto *replication_query = utils::Downcast<ReplicationQuery>(parsed_query.query);
-  auto callback =
-      HandleReplicationQuery(replication_query, parsed_query.parameters, interpreter_context, manager, notifications);
+  auto callback = HandleReplicationQuery(replication_query, parsed_query.parameters, interpreter_context,
+                                         request_router, notifications);
 
   return PreparedQuery{callback.header, std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -1314,14 +1427,14 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
 }
 
 PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
-                                  msgs::ShardRequestManagerInterface *manager) {
+                                  RequestRouterInterface *request_router) {
   if (in_explicit_transaction) {
     throw SettingConfigInMulticommandTxException{};
   }
 
   auto *setting_query = utils::Downcast<SettingQuery>(parsed_query.query);
   MG_ASSERT(setting_query);
-  auto callback = HandleSettingQuery(setting_query, parsed_query.parameters, manager);
+  auto callback = HandleSettingQuery(setting_query, parsed_query.parameters, request_router);
 
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -1518,7 +1631,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     if (!in_explicit_transaction_ &&
         (utils::Downcast<CypherQuery>(parsed_query.query) || utils::Downcast<ExplainQuery>(parsed_query.query) ||
          utils::Downcast<ProfileQuery>(parsed_query.query))) {
-      shard_request_manager_->StartTransaction();
+      request_router_->StartTransaction();
     }
 
     utils::Timer planning_timer;
@@ -1527,14 +1640,14 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
       prepared_query = PrepareCypherQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
                                           &*execution_db_accessor_, &query_execution->execution_memory,
-                                          &query_execution->notifications, shard_request_manager_.get());
+                                          &query_execution->notifications, request_router_.get());
     } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
       prepared_query = PrepareExplainQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
-                                           &*shard_request_manager_, &query_execution->execution_memory_with_exception);
+                                           &*request_router_, &query_execution->execution_memory_with_exception);
     } else if (utils::Downcast<ProfileQuery>(parsed_query.query)) {
-      prepared_query = PrepareProfileQuery(
-          std::move(parsed_query), in_explicit_transaction_, &query_execution->summary, interpreter_context_,
-          &*execution_db_accessor_, &query_execution->execution_memory_with_exception, shard_request_manager_.get());
+      prepared_query = PrepareProfileQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
+                                           interpreter_context_, &*execution_db_accessor_,
+                                           &query_execution->execution_memory_with_exception, request_router_.get());
     } else if (utils::Downcast<DumpQuery>(parsed_query.query)) {
       prepared_query = PrepareDumpQuery(std::move(parsed_query), &query_execution->summary, &*execution_db_accessor_,
                                         &query_execution->execution_memory);
@@ -1542,9 +1655,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareIndexQuery(std::move(parsed_query), in_explicit_transaction_,
                                          &query_execution->notifications, interpreter_context_);
     } else if (utils::Downcast<AuthQuery>(parsed_query.query)) {
-      prepared_query = PrepareAuthQuery(
-          std::move(parsed_query), in_explicit_transaction_, &query_execution->summary, interpreter_context_,
-          &*execution_db_accessor_, &query_execution->execution_memory_with_exception, shard_request_manager_.get());
+      prepared_query = PrepareAuthQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
+                                        interpreter_context_, &*execution_db_accessor_,
+                                        &query_execution->execution_memory_with_exception, request_router_.get());
     } else if (utils::Downcast<InfoQuery>(parsed_query.query)) {
       prepared_query = PrepareInfoQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
                                         interpreter_context_, interpreter_context_->db,
@@ -1555,7 +1668,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<ReplicationQuery>(parsed_query.query)) {
       prepared_query =
           PrepareReplicationQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
-                                  interpreter_context_, shard_request_manager_.get());
+                                  interpreter_context_, request_router_.get());
     } else if (utils::Downcast<LockPathQuery>(parsed_query.query)) {
       prepared_query = PrepareLockPathQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
                                             &*execution_db_accessor_);
@@ -1572,8 +1685,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query =
           PrepareCreateSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
     } else if (utils::Downcast<SettingQuery>(parsed_query.query)) {
-      prepared_query =
-          PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_, shard_request_manager_.get());
+      prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_, request_router_.get());
     } else if (utils::Downcast<VersionQuery>(parsed_query.query)) {
       prepared_query = PrepareVersionQuery(std::move(parsed_query), in_explicit_transaction_);
     } else if (utils::Downcast<SchemaQuery>(parsed_query.query)) {
@@ -1614,7 +1726,7 @@ void Interpreter::Commit() {
   // For now, we will not check if there are some unfinished queries.
   // We should document clearly that all results should be pulled to complete
   // a query.
-  shard_request_manager_->Commit();
+  request_router_->Commit();
   if (!db_accessor_) return;
 
   const auto reset_necessary_members = [this]() {
