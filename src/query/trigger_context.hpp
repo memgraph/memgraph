@@ -65,6 +65,11 @@ struct DeletedObject {
   TAccessor object;
 };
 
+template <>
+inline bool DeletedObject<EdgeAccessor>::IsValid() const {
+  return object.StorePropertiesOnEdges() && object.IsVisible(storage::View::OLD);
+}
+
 template <ObjectAccessor TAccessor>
 struct SetObjectProperty {
   explicit SetObjectProperty(const TAccessor &object, storage::PropertyId key, TypedValue old_value,
