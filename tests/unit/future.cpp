@@ -28,13 +28,19 @@ void Wait(Future<std::string> future_1, Promise<std::string> promise_2) {
 
 TEST(Future, BasicLifecycle) {
   std::atomic_bool waiting = false;
+  std::atomic_bool filled = false;
 
-  std::function<bool()> notifier = [&] {
+  std::function<bool()> wait_notifier = [&] {
     waiting.store(true, std::memory_order_seq_cst);
     return false;
   };
 
-  auto [future_1, promise_1] = FuturePromisePairWithNotifier<std::string>(notifier);
+  std::function<bool()> fill_notifier = [&] {
+    filled.store(true, std::memory_order_seq_cst);
+    return false;
+  };
+
+  auto [future_1, promise_1] = FuturePromisePairWithNotifications<std::string>(wait_notifier, fill_notifier);
   auto [future_2, promise_2] = FuturePromisePair<std::string>();
 
   std::jthread t1(Wait, std::move(future_1), std::move(promise_2));
@@ -49,6 +55,8 @@ TEST(Future, BasicLifecycle) {
 
   t1.join();
   t2.join();
+
+  EXPECT_TRUE(filled.load(std::memory_order_acquire));
 
   std::string result_2 = std::move(future_2).Wait();
   EXPECT_TRUE(result_2 == "it worked");

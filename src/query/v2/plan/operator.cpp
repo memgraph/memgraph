@@ -264,6 +264,16 @@ bool Once::OnceCursor::Pull(Frame &, ExecutionContext &context) {
   return false;
 }
 
+void Once::OnceCursor::PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) {
+  SCOPED_PROFILE_OP("OnceMF");
+
+  if (!did_pull_) {
+    auto &first_frame = multi_frame.GetFirstFrame();
+    first_frame.MakeValid();
+    did_pull_ = true;
+  }
+}
+
 UniqueCursorPtr Once::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::OnceOperator);
 
@@ -747,6 +757,23 @@ bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
   }
   return false;
 }
+
+void Produce::ProduceCursor::PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) {
+  SCOPED_PROFILE_OP("ProduceMF");
+
+  input_cursor_->PullMultiple(multi_frame, context);
+
+  auto iterator_for_valid_frame_only = multi_frame.GetValidFramesModifier();
+  for (auto &frame : iterator_for_valid_frame_only) {
+    // Produce should always yield the latest results.
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.request_router,
+                                  storage::v3::View::NEW);
+
+    for (auto *named_expr : self_.named_expressions_) {
+      named_expr->Accept(evaluator);
+    }
+  }
+};
 
 void Produce::ProduceCursor::Shutdown() { input_cursor_->Shutdown(); }
 

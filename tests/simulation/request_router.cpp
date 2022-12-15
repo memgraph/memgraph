@@ -18,6 +18,8 @@
 #include <thread>
 #include <vector>
 
+#include <spdlog/cfg/env.h>
+
 #include "common.hpp"
 #include "common/types.hpp"
 #include "coordinator/coordinator_client.hpp"
@@ -44,8 +46,8 @@ using coordinator::CoordinatorClient;
 using coordinator::CoordinatorRsm;
 using coordinator::HlcRequest;
 using coordinator::HlcResponse;
-using coordinator::Shard;
 using coordinator::ShardMap;
+using coordinator::ShardMetadata;
 using coordinator::Shards;
 using coordinator::Status;
 using io::Address;
@@ -111,7 +113,7 @@ ShardMap CreateDummyShardmap(coordinator::Address a_io_1, coordinator::Address a
   AddressAndStatus aas1_2{.address = a_io_2, .status = Status::CONSENSUS_PARTICIPANT};
   AddressAndStatus aas1_3{.address = a_io_3, .status = Status::CONSENSUS_PARTICIPANT};
 
-  Shard shard1 = {aas1_1, aas1_2, aas1_3};
+  ShardMetadata shard1 = ShardMetadata{.peers = {aas1_1, aas1_2, aas1_3}, .version = 1};
 
   auto key1 = storage::v3::PropertyValue(0);
   auto key2 = storage::v3::PropertyValue(0);
@@ -123,7 +125,7 @@ ShardMap CreateDummyShardmap(coordinator::Address a_io_1, coordinator::Address a
   AddressAndStatus aas2_2{.address = b_io_2, .status = Status::CONSENSUS_PARTICIPANT};
   AddressAndStatus aas2_3{.address = b_io_3, .status = Status::CONSENSUS_PARTICIPANT};
 
-  Shard shard2 = {aas2_1, aas2_2, aas2_3};
+  ShardMetadata shard2 = ShardMetadata{.peers = {aas2_1, aas2_2, aas2_3}, .version = 1};
 
   auto key3 = storage::v3::PropertyValue(12);
   auto key4 = storage::v3::PropertyValue(13);
@@ -152,9 +154,7 @@ void RunStorageRaft(Raft<IoImpl, MockedShardRsm, WriteRequests, WriteResponses, 
 }
 
 void TestScanVertices(query::v2::RequestRouterInterface &request_router) {
-  msgs::ExecutionState<ScanVerticesRequest> state{.label = "test_label"};
-
-  auto result = request_router.Request(state);
+  auto result = request_router.ScanVertices("test_label");
   MG_ASSERT(result.size() == 2);
   {
     auto prop = result[0].GetProperty(msgs::PropertyId::FromUint(0));
@@ -162,18 +162,10 @@ void TestScanVertices(query::v2::RequestRouterInterface &request_router) {
     prop = result[1].GetProperty(msgs::PropertyId::FromUint(0));
     MG_ASSERT(prop.int_v == 444);
   }
-
-  result = request_router.Request(state);
-  {
-    MG_ASSERT(result.size() == 1);
-    auto prop = result[0].GetProperty(msgs::PropertyId::FromUint(0));
-    MG_ASSERT(prop.int_v == 1);
-  }
 }
 
 void TestCreateVertices(query::v2::RequestRouterInterface &request_router) {
   using PropVal = msgs::Value;
-  msgs::ExecutionState<CreateVerticesRequest> state;
   std::vector<msgs::NewVertex> new_vertices;
   auto label_id = request_router.NameToLabel("test_label");
   msgs::NewVertex a1{.primary_key = {PropVal(int64_t(1)), PropVal(int64_t(0))}};
@@ -183,13 +175,13 @@ void TestCreateVertices(query::v2::RequestRouterInterface &request_router) {
   new_vertices.push_back(std::move(a1));
   new_vertices.push_back(std::move(a2));
 
-  auto result = request_router.Request(state, std::move(new_vertices));
+  auto result = request_router.CreateVertices(std::move(new_vertices));
   MG_ASSERT(result.size() == 2);
 }
 
 void TestCreateExpand(query::v2::RequestRouterInterface &request_router) {
   using PropVal = msgs::Value;
-  msgs::ExecutionState<msgs::CreateExpandRequest> state;
+  msgs::CreateExpandRequest state;
   std::vector<msgs::NewExpand> new_expands;
 
   const auto edge_type_id = request_router.NameToEdgeType("edge_type");
@@ -203,22 +195,40 @@ void TestCreateExpand(query::v2::RequestRouterInterface &request_router) {
   new_expands.push_back(std::move(expand_1));
   new_expands.push_back(std::move(expand_2));
 
-  auto responses = request_router.Request(state, std::move(new_expands));
+  auto responses = request_router.CreateExpand(std::move(new_expands));
   MG_ASSERT(responses.size() == 2);
-  MG_ASSERT(responses[0].success);
-  MG_ASSERT(responses[1].success);
+  MG_ASSERT(!responses[0].error);
+  MG_ASSERT(!responses[1].error);
 }
 
 void TestExpandOne(query::v2::RequestRouterInterface &request_router) {
-  msgs::ExecutionState<msgs::ExpandOneRequest> state{};
+  msgs::ExpandOneRequest state{};
   msgs::ExpandOneRequest request;
   const auto edge_type_id = request_router.NameToEdgeType("edge_type");
   const auto label = msgs::Label{request_router.NameToLabel("test_label")};
   request.src_vertices.push_back(msgs::VertexId{label, {msgs::Value(int64_t(0)), msgs::Value(int64_t(0))}});
   request.edge_types.push_back(msgs::EdgeType{edge_type_id});
   request.direction = msgs::EdgeDirection::BOTH;
-  auto result_rows = request_router.Request(state, std::move(request));
+  auto result_rows = request_router.ExpandOne(std::move(request));
   MG_ASSERT(result_rows.size() == 2);
+}
+
+void TestGetProperties(query::v2::RequestRouterInterface &request_router) {
+  using PropVal = msgs::Value;
+
+  auto label_id = request_router.NameToLabel("test_label");
+  msgs::VertexId v0{{label_id}, {PropVal(int64_t(0)), PropVal(int64_t(0))}};
+  msgs::VertexId v1{{label_id}, {PropVal(int64_t(1)), PropVal(int64_t(0))}};
+  msgs::VertexId v2{{label_id}, {PropVal(int64_t(13)), PropVal(int64_t(13))}};
+
+  msgs::GetPropertiesRequest request;
+
+  request.vertex_ids.push_back({v0});
+  request.vertex_ids.push_back({v1});
+  request.vertex_ids.push_back({v2});
+
+  auto result = request_router.GetProperties(std::move(request));
+  MG_ASSERT(result.size() == 3);
 }
 
 template <typename RequestRouter>
@@ -338,11 +348,14 @@ void DoTest() {
   CoordinatorClient<SimulatorTransport> coordinator_client(cli_io, c_addrs[0], c_addrs);
 
   query::v2::RequestRouter<SimulatorTransport> request_router(std::move(coordinator_client), std::move(cli_io));
+  std::function<bool()> tick_simulator = simulator.GetSimulatorTickClosure();
+  request_router.InstallSimulatorTicker(tick_simulator);
 
   request_router.StartTransaction();
   TestScanVertices(request_router);
   TestCreateVertices(request_router);
   TestCreateExpand(request_router);
+  TestGetProperties(request_router);
 
   simulator.ShutDown();
 
@@ -359,4 +372,7 @@ void DoTest() {
 }
 }  // namespace memgraph::query::v2::tests
 
-int main() { memgraph::query::v2::tests::DoTest(); }
+int main() {
+  spdlog::cfg::load_env_levels();
+  memgraph::query::v2::tests::DoTest();
+}

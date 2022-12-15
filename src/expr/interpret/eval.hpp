@@ -36,8 +36,8 @@ template <typename TypedValue, typename EvaluationContext, typename DbAccessor, 
           typename PropertyValue, typename ConvFunctor, typename Error, typename Tag = StorageTag>
 class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
-  ExpressionEvaluator(Frame<TypedValue> *frame, const SymbolTable &symbol_table, const EvaluationContext &ctx,
-                      DbAccessor *dba, StorageView view)
+  ExpressionEvaluator(Frame *frame, const SymbolTable &symbol_table, const EvaluationContext &ctx, DbAccessor *dba,
+                      StorageView view)
       : frame_(frame), symbol_table_(&symbol_table), ctx_(&ctx), dba_(dba), view_(view) {}
 
   using ExpressionVisitor<TypedValue>::Visit;
@@ -782,7 +782,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   LabelId GetLabel(LabelIx label) { return ctx_->labels[label.ix]; }
 
-  Frame<TypedValue> *frame_;
+  Frame *frame_;
   const SymbolTable *symbol_table_;
   const EvaluationContext *ctx_;
   DbAccessor *dba_;

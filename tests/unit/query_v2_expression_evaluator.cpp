@@ -51,6 +51,8 @@ using memgraph::msgs::CreateVerticesResponse;
 using memgraph::msgs::ExpandOneRequest;
 using memgraph::msgs::ExpandOneResponse;
 using memgraph::msgs::ExpandOneResultRow;
+using memgraph::msgs::GetPropertiesRequest;
+using memgraph::msgs::GetPropertiesResultRow;
 using memgraph::msgs::NewExpand;
 using memgraph::msgs::NewVertex;
 using memgraph::msgs::ScanVerticesRequest;
@@ -84,13 +86,16 @@ class MockedRequestRouter : public RequestRouterInterface {
   void Commit() override {}
   std::vector<VertexAccessor> ScanVertices(std::optional<std::string> /* label */) override { return {}; }
 
-  std::vector<CreateVerticesResponse> CreateVertices(std::vector<memgraph::msgs::NewVertex> new_vertices) override {
+  std::vector<CreateVerticesResponse> CreateVertices(
+      std::vector<memgraph::msgs::NewVertex> /* new_vertices */) override {
     return {};
   }
 
-  std::vector<ExpandOneResultRow> ExpandOne(ExpandOneRequest request) override { return {}; }
+  std::vector<ExpandOneResultRow> ExpandOne(ExpandOneRequest /* request */) override { return {}; }
 
-  std::vector<CreateExpandResponse> CreateExpand(std::vector<NewExpand> new_edges) override { return {}; }
+  std::vector<CreateExpandResponse> CreateExpand(std::vector<NewExpand> /* new_edges */) override { return {}; }
+
+  std::vector<GetPropertiesResultRow> GetProperties(GetPropertiesRequest rqst) override { return {}; }
 
   const std::string &PropertyToName(memgraph::storage::v3::PropertyId id) const override {
     return properties_.IdToName(id.AsUint());
