@@ -655,7 +655,7 @@ class RequestRouterFactory {
   virtual TransportHandleVariant GetTransportHandle() { return transport_handle_; }
 
   virtual std::unique_ptr<RequestRouterInterface> CreateRequestRouter(
-      const coordinator::Address &coordinator_address) const noexcept = 0;
+      const coordinator::Address &coordinator_address) const = 0;
 };
 
 class LocalRequestRouterFactory : public RequestRouterFactory {
@@ -664,7 +664,7 @@ class LocalRequestRouterFactory : public RequestRouterFactory {
       : RequestRouterFactory(transport_handle) {}
 
   std::unique_ptr<RequestRouterInterface> CreateRequestRouter(
-      const coordinator::Address &coordinator_address) const noexcept override {
+      const coordinator::Address &coordinator_address) const override {
     using TransportType = io::local_transport::LocalTransport;
     auto actual_transport_handle = std::get<LocalTransportHandlePtr>(transport_handle_);
 
@@ -686,7 +686,7 @@ class LocalRequestRouterFactory : public RequestRouterFactory {
 };
 
 class SimulatedRequestRouterFactory : public RequestRouterFactory {
-  mutable io::simulator::Simulator *simulator_;
+  io::simulator::Simulator *simulator_;
   coordinator::Address address_;
 
  public:
@@ -694,7 +694,7 @@ class SimulatedRequestRouterFactory : public RequestRouterFactory {
       : RequestRouterFactory(simulator.GetSimulatorHandle()), simulator_(&simulator), address_(address) {}
 
   std::unique_ptr<RequestRouterInterface> CreateRequestRouter(
-      const coordinator::Address &coordinator_address) const noexcept override {
+      const coordinator::Address &coordinator_address) const override {
     using TransportType = io::simulator::SimulatorTransport;
     auto actual_transport_handle = std::get<SimulatorTransportHandlePtr>(transport_handle_);
 

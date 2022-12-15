@@ -173,7 +173,7 @@ struct PreparedQuery {
 struct InterpreterContext {
   explicit InterpreterContext(storage::v3::Shard *db, InterpreterConfig config,
                               const std::filesystem::path &data_directory,
-                              std::unique_ptr<RequestRouterFactory> &&request_router_factory,
+                              std::unique_ptr<RequestRouterFactory> request_router_factory,
                               coordinator::Address coordinator_addr);
 
   storage::v3::Shard *db;

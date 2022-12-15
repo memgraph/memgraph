@@ -793,7 +793,7 @@ using RWType = plan::ReadWriteTypeChecker::RWType;
 
 InterpreterContext::InterpreterContext(storage::v3::Shard *db, const InterpreterConfig config,
                                        const std::filesystem::path & /*data_directory*/,
-                                       std::unique_ptr<RequestRouterFactory> &&request_router_factory,
+                                       std::unique_ptr<RequestRouterFactory> request_router_factory,
                                        coordinator::Address coordinator_addr)
     : db(db),
       config(config),
@@ -807,10 +807,10 @@ Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_
       interpreter_context_->request_router_factory_->CreateRequestRouter(interpreter_context_->coordinator_address);
 
   // Get edge ids
-  const auto edge_ids_alloc_min_max_pair =
+  const auto [min, max] =
       request_router_->AllocateInitialEdgeIds(interpreter_context_->coordinator_address);
   if (edge_ids_alloc_min_max_pair) {
-    interpreter_context_->edge_ids_alloc = {edge_ids_alloc_min_max_pair->first, edge_ids_alloc_min_max_pair->second};
+    interpreter_context_->edge_ids_alloc = {min, max}
   }
 }
 

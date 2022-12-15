@@ -42,7 +42,6 @@ RC_GTEST_PROP(RandomClusterConfig, HappyPath, (ClusterConfig cluster_config, Non
       .scramble_messages = true,
       .rng_seed = rng_seed,
       .start_time = Time::min(),
-      // TODO(tyler) set abort_time to something more restrictive than Time::max()
       .abort_time = Time::max(),
   };
 

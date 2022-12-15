@@ -50,6 +50,6 @@ class Simulator {
 
   SimulatorStats Stats() { return simulator_handle_->Stats(); }
 
-  std::shared_ptr<SimulatorHandle> GetSimulatorHandle() { return simulator_handle_; }
+  std::shared_ptr<SimulatorHandle> GetSimulatorHandle() const { return simulator_handle_; }
 };
 };  // namespace memgraph::io::simulator

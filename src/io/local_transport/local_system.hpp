@@ -29,7 +29,7 @@ class LocalSystem {
     return Io{local_transport, address};
   }
 
-  std::shared_ptr<LocalTransportHandle> &GetTransportHandle() { return local_transport_handle_; }
+  std::shared_ptr<LocalTransportHandle> GetTransportHandle() const { return local_transport_handle_; }
 
   void ShutDown() { local_transport_handle_->ShutDown(); }
 };

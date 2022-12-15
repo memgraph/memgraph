@@ -9,8 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <machine_manager/machine_config.hpp>
-#include <machine_manager/machine_manager.hpp>
+#include "machine_manager/machine_config.hpp"
+#include "machine_manager/machine_manager.hpp"
 #include "io/simulator/simulator_handle.hpp"
 #include "query/v2/config.hpp"
 #include "query/v2/discard_value_stream.hpp"
@@ -18,7 +18,8 @@
 #include "query/v2/interpreter.hpp"
 #include "query/v2/request_router.hpp"
 
-#include <memory>
+#include <vector>
+#include <string>
 
 // TODO(gvolfing)
 // -How to set up the entire raft cluster with the QE. Also provide abrstraction for that.
@@ -30,9 +31,9 @@ class SimulatedInterpreter {
   using ResultStream = query::v2::DiscardValueResultStream;
 
  public:
-  explicit SimulatedInterpreter(std::unique_ptr<query::v2::InterpreterContext> &&interpreter_context)
+  explicit SimulatedInterpreter(std::unique_ptr<query::v2::InterpreterContext> interpreter_context)
       : interpreter_context_(std::move(interpreter_context)) {
-    interpreter_ = std::make_unique<memgraph::query::v2::Interpreter>(&(*interpreter_context_));
+    interpreter_ = std::make_unique<memgraph::query::v2::Interpreter>(interpreter_context_);
   }
 
   SimulatedInterpreter(const SimulatedInterpreter &) = delete;
@@ -79,7 +80,7 @@ SimulatedInterpreter SetUpInterpreter(Address coordinator_address, Simulator &si
       std::make_unique<memgraph::query::v2::SimulatedRequestRouterFactory>(simulator, coordinator_address);
 
   auto interpreter_context = std::make_unique<memgraph::query::v2::InterpreterContext>(
-      (memgraph::storage::v3::Shard *)(nullptr),
+      nullptr
       memgraph::query::v2::InterpreterConfig{.query = {.allow_load_csv = true},
                                              .execution_timeout_sec = 600,
                                              .replication_replica_check_frequency = std::chrono::seconds(1),
