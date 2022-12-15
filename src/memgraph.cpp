@@ -607,15 +607,15 @@ int main(int argc, char **argv) {
   // to minimize the impact of their failure on the main storage.
 
   memgraph::io::local_transport::LocalSystem ls;
-  auto unique_local_coord_addr_query = memgraph::coordinator::Address::UniqueLocalAddress();
-  auto io = ls.Register(unique_local_coord_addr_query);
+  auto unique_local_addr_query = memgraph::coordinator::Address::UniqueLocalAddress();
+  auto io = ls.Register(unique_local_addr_query);
 
   memgraph::machine_manager::MachineConfig config{
-      .coordinator_addresses = std::vector<memgraph::io::Address>{unique_local_coord_addr_query},
+      .coordinator_addresses = std::vector<memgraph::io::Address>{unique_local_addr_query},
       .is_storage = true,
       .is_coordinator = true,
-      .listen_ip = unique_local_coord_addr_query.last_known_ip,
-      .listen_port = unique_local_coord_addr_query.last_known_port,
+      .listen_ip = unique_local_addr_query.last_known_ip,
+      .listen_port = unique_local_addr_query.last_known_port,
   };
 
   memgraph::coordinator::ShardMap sm;

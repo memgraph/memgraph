@@ -687,11 +687,10 @@ class LocalRequestRouterFactory : public RequestRouterFactory {
 
 class SimulatedRequestRouterFactory : public RequestRouterFactory {
   io::simulator::Simulator *simulator_;
-  coordinator::Address address_;
 
  public:
-  explicit SimulatedRequestRouterFactory(io::simulator::Simulator &simulator, coordinator::Address address)
-      : RequestRouterFactory(simulator.GetSimulatorHandle()), simulator_(&simulator), address_(address) {}
+  explicit SimulatedRequestRouterFactory(io::simulator::Simulator &simulator)
+      : RequestRouterFactory(simulator.GetSimulatorHandle()), simulator_(&simulator) {}
 
   std::unique_ptr<RequestRouterInterface> CreateRequestRouter(
       const coordinator::Address &coordinator_address) const override {
