@@ -63,7 +63,7 @@ class LabelIndex {
 
   class Iterable {
    public:
-    Iterable(LabelIndexContainer &index_accessor, LabelId label, View view, Transaction *transaction, Indices *indices,
+    Iterable(LabelIndexContainer &index_container, LabelId label, View view, Transaction *transaction, Indices *indices,
              Config::Items config, const VertexValidator &vertex_validator);
 
     class Iterator {
@@ -86,11 +86,11 @@ class LabelIndex {
       Vertex *current_vertex_;
     };
 
-    Iterator begin() { return {this, index_accessor_->begin()}; }
-    Iterator end() { return {this, index_accessor_->end()}; }
+    Iterator begin() { return {this, index_container_->begin()}; }
+    Iterator end() { return {this, index_container_->end()}; }
 
    private:
-    LabelIndexContainer *index_accessor_;
+    LabelIndexContainer *index_container_;
     LabelId label_;
     View view_;
     Transaction *transaction_;
@@ -159,7 +159,7 @@ class LabelPropertyIndex {
 
   class Iterable {
    public:
-    Iterable(LabelPropertyIndexContainer &index_accessor, LabelId label, PropertyId property,
+    Iterable(LabelPropertyIndexContainer &index_container, LabelId label, PropertyId property,
              const std::optional<utils::Bound<PropertyValue>> &lower_bound,
              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Transaction *transaction,
              Indices *indices, Config::Items config, const VertexValidator &vertex_validator);
@@ -188,7 +188,7 @@ class LabelPropertyIndex {
     Iterator end();
 
    private:
-    LabelPropertyIndexContainer *index_accessor_;
+    LabelPropertyIndexContainer *index_container_;
     LabelId label_;
     PropertyId property_;
     std::optional<utils::Bound<PropertyValue>> lower_bound_;

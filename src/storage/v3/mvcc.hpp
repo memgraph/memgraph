@@ -12,6 +12,7 @@
 #pragma once
 
 #include <type_traits>
+
 #include "storage/v3/edge.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/transaction.hpp"
@@ -20,6 +21,10 @@
 #include "utils/concepts.hpp"
 
 namespace memgraph::storage::v3 {
+
+inline VertexData *GetDeltaHolder(Vertex *vertex) { return &vertex->second; }
+
+inline Edge *GetDeltaHolder(Edge *edge) { return edge; }
 
 /// This function iterates through the undo buffers from an object (starting
 /// from the supplied delta) and determines what deltas should be applied to get
@@ -83,13 +88,7 @@ inline void ApplyDeltasForRead(Transaction *transaction, const Delta *delta, Vie
 template <typename TObj>
 requires utils::SameAsAnyOf<TObj, Edge, Vertex>
 inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
-  auto *delta_holder = std::invoke([object]() -> auto * {
-    if constexpr (std::is_same_v<TObj, Vertex>) {
-      return &object->second;
-    } else {
-      return object;
-    }
-  });
+  auto *delta_holder = GetDeltaHolder(object);
   if (delta_holder->delta == nullptr) return true;
 
   const auto &delta_commit_info = *delta_holder->delta->commit_info;
@@ -121,13 +120,7 @@ requires utils::SameAsAnyOf<TObj, Edge, Vertex>
 inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&...args) {
   auto delta = &transaction->deltas.emplace_back(std::forward<Args>(args)..., transaction->commit_info.get(),
                                                  transaction->command_id);
-  auto *delta_holder = std::invoke([object]() -> auto * {
-    if constexpr (std::is_same_v<TObj, Vertex>) {
-      return &object->second;
-    } else {
-      return object;
-    }
-  });
+  auto *delta_holder = GetDeltaHolder(object);
 
   // The operations are written in such order so that both `next` and `prev`
   // chains are valid at all times. The chains must be valid at all times

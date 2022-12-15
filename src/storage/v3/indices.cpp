@@ -12,8 +12,6 @@
 #include "indices.hpp"
 
 #include <algorithm>
-#include <cstddef>
-#include <cstdint>
 #include <functional>
 #include <limits>
 
@@ -342,7 +340,7 @@ LabelIndex::Iterable::Iterator &LabelIndex::Iterable::Iterator::operator++() {
 }
 
 void LabelIndex::Iterable::Iterator::AdvanceUntilValid() {
-  for (; index_iterator_ != self_->index_accessor_->end(); ++index_iterator_) {
+  for (; index_iterator_ != self_->index_container_->end(); ++index_iterator_) {
     if (index_iterator_->vertex == current_vertex_) {
       continue;
     }
@@ -355,9 +353,9 @@ void LabelIndex::Iterable::Iterator::AdvanceUntilValid() {
   }
 }
 
-LabelIndex::Iterable::Iterable(LabelIndexContainer &index_accessor, LabelId label, View view, Transaction *transaction,
+LabelIndex::Iterable::Iterable(LabelIndexContainer &index_container, LabelId label, View view, Transaction *transaction,
                                Indices *indices, Config::Items config, const VertexValidator &vertex_validator)
-    : index_accessor_(&index_accessor),
+    : index_container_(&index_container),
       label_(label),
       view_(view),
       transaction_(transaction),
@@ -482,7 +480,7 @@ LabelPropertyIndex::Iterable::Iterator &LabelPropertyIndex::Iterable::Iterator::
 }
 
 void LabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
-  for (; index_iterator_ != self_->index_accessor_->end(); ++index_iterator_) {
+  for (; index_iterator_ != self_->index_container_->end(); ++index_iterator_) {
     if (index_iterator_->vertex == current_vertex_) {
       continue;
     }
@@ -497,11 +495,11 @@ void LabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
     }
     if (self_->upper_bound_) {
       if (self_->upper_bound_->value() < index_iterator_->value) {
-        index_iterator_ = self_->index_accessor_->end();
+        index_iterator_ = self_->index_container_->end();
         break;
       }
       if (!self_->upper_bound_->IsInclusive() && index_iterator_->value == self_->upper_bound_->value()) {
-        index_iterator_ = self_->index_accessor_->end();
+        index_iterator_ = self_->index_container_->end();
         break;
       }
     }
@@ -528,12 +526,12 @@ const PropertyValue kSmallestMap = PropertyValue(std::map<std::string, PropertyV
 const PropertyValue kSmallestTemporalData =
     PropertyValue(TemporalData{static_cast<TemporalType>(0), std::numeric_limits<int64_t>::min()});
 
-LabelPropertyIndex::Iterable::Iterable(LabelPropertyIndexContainer &index_accessor, LabelId label, PropertyId property,
+LabelPropertyIndex::Iterable::Iterable(LabelPropertyIndexContainer &index_container, LabelId label, PropertyId property,
                                        const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                        const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
                                        Transaction *transaction, Indices *indices, Config::Items config,
                                        const VertexValidator &vertex_validator)
-    : index_accessor_(&index_accessor),
+    : index_container_(&index_container),
       label_(label),
       property_(property),
       lower_bound_(lower_bound),
@@ -641,29 +639,24 @@ LabelPropertyIndex::Iterable::Iterator LabelPropertyIndex::Iterable::begin() {
   // If the bounds are set and don't have comparable types we don't yield any
   // items from the index.
   if (!bounds_valid_) {
-    return {this, index_accessor_->end()};
+    return {this, index_container_->end()};
   }
-  auto index_iterator = index_accessor_->begin();
   if (lower_bound_) {
-    index_iterator = std::ranges::find_if(*index_accessor_, [lower_bound = lower_bound_->value()](const auto &pair) {
-      return pair.value >= lower_bound;
-    });
+    return {this, std::ranges::lower_bound(*index_container_, lower_bound_->value(), std::less{}, &Entry::value)};
   }
-  return {this, index_iterator};
+  return {this, index_container_->begin()};
 }
 
-LabelPropertyIndex::Iterable::Iterator LabelPropertyIndex::Iterable::end() { return {this, index_accessor_->end()}; }
+LabelPropertyIndex::Iterable::Iterator LabelPropertyIndex::Iterable::end() { return {this, index_container_->end()}; }
 
 int64_t LabelPropertyIndex::VertexCount(LabelId label, PropertyId property, const PropertyValue &value) const {
   auto it = index_.find({label, property});
   MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
-  if (!value.IsNull()) {
-    return static_cast<int64_t>(
-        std::ranges::count_if(it->second, [&value](const auto &elem) { return elem.value == value; }));
-  }
-  // TODO Do check this
+  MG_ASSERT(!value.IsNull(), "Null is not supported!");
+
+  auto start_it = std::ranges::lower_bound(it->second, value, std::less{}, &Entry::value);
   return static_cast<int64_t>(
-      std::ranges::count_if(it->second, [&value](const auto &elem) { return elem.value == value; }));
+      std::ranges::count_if(start_it, it->second.end(), [&value](const auto &elem) { return elem.value == value; }));
 }
 
 int64_t LabelPropertyIndex::VertexCount(LabelId label, PropertyId property,
@@ -675,11 +668,9 @@ int64_t LabelPropertyIndex::VertexCount(LabelId label, PropertyId property,
       [&index = it->second](const auto value, const auto def) {
         if (value) {
           if (value->IsInclusive()) {
-            return std::lower_bound(index.begin(), index.end(), value->value(),
-                                    [](const Entry &elem, const PropertyValue &val) { return elem.value < val; });
+            return std::ranges::lower_bound(index, value->value(), std::less{}, &Entry::value);
           }
-          return std::upper_bound(index.begin(), index.end(), value->value(),
-                                  [](const PropertyValue &val, const Entry &elem) { return val < elem.value; });
+          return std::ranges::upper_bound(index, value->value(), std::less{}, &Entry::value);
         }
         return def;
       },
@@ -688,11 +679,9 @@ int64_t LabelPropertyIndex::VertexCount(LabelId label, PropertyId property,
       [&index = it->second](const auto value, const auto def) {
         if (value) {
           if (value->IsInclusive()) {
-            return std::upper_bound(index.begin(), index.end(), value->value(),
-                                    [](const PropertyValue &val, const Entry &elem) { return val < elem.value; });
+            return std::ranges::upper_bound(index, value->value(), std::less{}, &Entry::value);
           }
-          return std::lower_bound(index.begin(), index.end(), value->value(),
-                                  [](const Entry &elem, const PropertyValue &val) { return elem.value < val; });
+          return std::ranges::lower_bound(index, value->value(), std::less{}, &Entry::value);
         }
         return def;
       },

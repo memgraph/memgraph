@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include "storage/v3/edge_ref.hpp"
 #include "storage/v3/id_types.hpp"
@@ -129,7 +130,7 @@ inline bool operator==(const PreviousPtr::Pointer &a, const PreviousPtr::Pointer
 inline bool operator!=(const PreviousPtr::Pointer &a, const PreviousPtr::Pointer &b) { return !(a == b); }
 
 struct Delta {
-  enum class Action {
+  enum class Action : uint8_t {
     // Used for both Vertex and Edge
     DELETE_OBJECT,
     RECREATE_OBJECT,

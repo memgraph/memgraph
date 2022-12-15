@@ -1017,7 +1017,7 @@ void Shard::CollectGarbage(const io::Time current_time) {
     RemoveObsoleteEntries(&indices_, clean_up_before_timestamp);
   }
 
-  for (const auto &vertex : deleted_vertices_) {
+  for (const auto *vertex : deleted_vertices_) {
     MG_ASSERT(vertices_.erase(*vertex), "Invalid database state!");
   }
   deleted_vertices_.clear();
