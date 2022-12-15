@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -200,9 +200,9 @@ class ValidFramesConsumer {
   explicit ValidFramesConsumer(MultiFrame &multiframe);
 
   ~ValidFramesConsumer() noexcept;
-  ValidFramesConsumer(const ValidFramesConsumer &other) = delete;
-  ValidFramesConsumer(ValidFramesConsumer &&other) noexcept = delete;
-  ValidFramesConsumer &operator=(const ValidFramesConsumer &other) = delete;
+  ValidFramesConsumer(const ValidFramesConsumer &other) = default;
+  ValidFramesConsumer(ValidFramesConsumer &&other) noexcept = default;
+  ValidFramesConsumer &operator=(const ValidFramesConsumer &other) = default;
   ValidFramesConsumer &operator=(ValidFramesConsumer &&other) noexcept = delete;
 
   struct Iterator {

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -86,11 +86,12 @@ class TestPlanner : public ::testing::Test {};
 
 using PlannerTypes = ::testing::Types<Planner>;
 
-void DeleteListContent(std::list<BaseOpChecker *> *list) {
-  for (BaseOpChecker *ptr : *list) {
-    delete ptr;
-  }
-}
+// void DeleteListContent(std::list<BaseOpChecker *> *list) {
+//   for (BaseOpChecker *ptr : *list) {
+//     delete ptr;
+//   }
+// }
+
 TYPED_TEST_CASE(TestPlanner, PlannerTypes);
 
 TYPED_TEST(TestPlanner, MatchFilterPropIsNotNull) {
@@ -171,8 +172,8 @@ TYPED_TEST(TestPlanner, MatchFilterPropIsNotNull) {
     dba.SetIndexCount(label, sec_prop_three.second, 1);
     memgraph::query::v2::AstStorage storage;
 
-    memgraph::query::v2::Expression *expected_primary_key;
-    expected_primary_key = PROPERTY_LOOKUP("n", prim_prop_one);
+    // memgraph::query::v2::Expression *expected_primary_key;
+    // expected_primary_key = PROPERTY_LOOKUP("n", prim_prop_one);
     auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", prim_label_name))),
                                      WHERE(EQ(PROPERTY_LOOKUP("n", prim_prop_one), LITERAL(1))), RETURN("n")));
     auto symbol_table = (memgraph::expr::MakeSymbolTable(query));
@@ -183,12 +184,6 @@ TYPED_TEST(TestPlanner, MatchFilterPropIsNotNull) {
 }
 
 /*
-
-
-
-
-
-
 TYPED_TEST(TestPlanner, MatchNodeReturn) {
   // Test MATCH (n) RETURN n
   AstStorage storage;
@@ -1705,5 +1700,4 @@ TYPED_TEST(TestPlanner, Foreach) {
   }
 }
 */
-
 }  // namespace

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -462,6 +462,162 @@ class DistributedScanAllAndFilterCursor : public Cursor {
   std::optional<std::vector<Expression *>> filter_expressions_;
 };
 
+class DistributedScanAllByPrimaryKeyCursor : public Cursor {
+ public:
+  explicit DistributedScanAllByPrimaryKeyCursor(
+      Symbol output_symbol, UniqueCursorPtr input_cursor, const char *op_name,
+      std::optional<storage::v3::LabelId> label,
+      std::optional<std::pair<storage::v3::PropertyId, Expression *>> property_expression_pair,
+      std::optional<std::vector<Expression *>> filter_expressions)
+      : output_symbol_(output_symbol),
+        input_cursor_(std::move(input_cursor)),
+        op_name_(op_name),
+        label_(label),
+        property_expression_pair_(property_expression_pair),
+        filter_expressions_(filter_expressions) {
+    ResetExecutionState();
+  }
+
+  enum class State : int8_t { INITIALIZING, COMPLETED };
+
+  using VertexAccessor = accessors::VertexAccessor;
+
+  bool MakeRequest(RequestRouterInterface &request_router, ExecutionContext &context) {
+    {
+      SCOPED_REQUEST_WAIT_PROFILE;
+      std::optional<std::string> request_label = std::nullopt;
+      if (label_.has_value()) {
+        request_label = request_router.LabelToName(*label_);
+      }
+      current_batch_ = request_router.ScanVertices(request_label);
+    }
+    current_vertex_it_ = current_batch_.begin();
+    request_state_ = State::COMPLETED;
+    return !current_batch_.empty();
+  }
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP(op_name_);
+
+    auto &request_router = *context.request_router;
+    while (true) {
+      if (MustAbort(context)) {
+        throw HintedAbortError();
+      }
+
+      if (request_state_ == State::INITIALIZING) {
+        if (!input_cursor_->Pull(frame, context)) {
+          return false;
+        }
+      }
+
+      if (current_vertex_it_ == current_batch_.end() &&
+          (request_state_ == State::COMPLETED || !MakeRequest(request_router, context))) {
+        ResetExecutionState();
+        continue;
+      }
+
+      frame[output_symbol_] = TypedValue(std::move(*current_vertex_it_));
+      ++current_vertex_it_;
+      return true;
+    }
+  }
+
+  void PrepareNextFrames(ExecutionContext &context) {
+    auto &request_router = *context.request_router;
+
+    input_cursor_->PullMultiple(*own_multi_frames_, context);
+    valid_frames_consumer_ = own_multi_frames_->GetValidFramesConsumer();
+    valid_frames_it_ = valid_frames_consumer_->begin();
+
+    MakeRequest(request_router, context);
+  }
+
+  inline bool HasNextFrame() {
+    return current_vertex_it_ != current_batch_.end() && valid_frames_it_ != valid_frames_consumer_->end();
+  }
+
+  FrameWithValidity GetNextFrame(ExecutionContext &context) {
+    MG_ASSERT(HasNextFrame());
+
+    auto frame = *valid_frames_it_;
+    frame[output_symbol_] = TypedValue(*current_vertex_it_);
+
+    ++current_vertex_it_;
+    if (current_vertex_it_ == current_batch_.end()) {
+      valid_frames_it_->MakeInvalid();
+      ++valid_frames_it_;
+
+      if (valid_frames_it_ == valid_frames_consumer_->end()) {
+        PrepareNextFrames(context);
+      } else {
+        current_vertex_it_ = current_batch_.begin();
+      }
+    };
+
+    return frame;
+  }
+
+  void PullMultiple(MultiFrame &input_multi_frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP(op_name_);
+
+    if (!own_multi_frames_.has_value()) {
+      // NOLINTNEXTLINE(bugprone-narrowing-conversions)
+      own_multi_frames_.emplace(MultiFrame(input_multi_frame.GetFirstFrame().elems().size(),
+                                           kNumberOfFramesInMultiframe, input_multi_frame.GetMemoryResource()));
+      PrepareNextFrames(context);
+    }
+
+    while (true) {
+      if (MustAbort(context)) {
+        throw HintedAbortError();
+      }
+
+      auto invalid_frames_populator = input_multi_frame.GetInvalidFramesPopulator();
+      auto invalid_frame_it = invalid_frames_populator.begin();
+      auto has_modified_at_least_one_frame = false;
+
+      while (invalid_frames_populator.end() != invalid_frame_it && HasNextFrame()) {
+        has_modified_at_least_one_frame = true;
+        *invalid_frame_it = GetNextFrame(context);
+        ++invalid_frame_it;
+      }
+
+      if (!has_modified_at_least_one_frame) {
+        return;
+      }
+    }
+  };
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void ResetExecutionState() {
+    current_batch_.clear();
+    current_vertex_it_ = current_batch_.end();
+    request_state_ = State::INITIALIZING;
+  }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    ResetExecutionState();
+  }
+
+ private:
+  const Symbol output_symbol_;
+  const UniqueCursorPtr input_cursor_;
+  const char *op_name_;
+  std::vector<VertexAccessor> current_batch_;
+  std::vector<VertexAccessor>::iterator current_vertex_it_;
+  State request_state_ = State::INITIALIZING;
+  std::optional<storage::v3::LabelId> label_;
+  std::optional<std::pair<storage::v3::PropertyId, Expression *>> property_expression_pair_;
+  std::optional<std::vector<Expression *>> filter_expressions_;
+  std::optional<MultiFrame> own_multi_frames_;
+  std::optional<ValidFramesConsumer> valid_frames_consumer_;
+  ValidFramesConsumer::Iterator valid_frames_it_;
+  std::queue<FrameWithValidity> frames_buffer_;
+};
+
 ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::v3::View view)
     : input_(input ? input : std::make_shared<Once>()), output_symbol_(output_symbol), view_(view) {}
 
@@ -567,8 +723,13 @@ ScanAllByPrimaryKey::ScanAllByPrimaryKey(const std::shared_ptr<LogicalOperator> 
 
 ACCEPT_WITH_INPUT(ScanAllByPrimaryKey)
 
-UniqueCursorPtr ScanAllByPrimaryKey::MakeCursor(utils::MemoryResource * /*mem*/) const {
-  // EventCounter::IncrementCounter(EventCounter::ScanAllByPrimaryKeyOperator);
+UniqueCursorPtr ScanAllByPrimaryKey::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::ScanAllByPrimaryKeyOperator);
+
+  return MakeUniqueCursorPtr<DistributedScanAllByPrimaryKeyCursor>(
+      mem, output_symbol_, input_->MakeCursor(mem), "ScanAll", std::nullopt /*label*/,
+      std::nullopt /*property_expression_pair*/, std::nullopt /*filter_expressions*/);
+
   throw QueryRuntimeException("ScanAllByPrimaryKey cursur is yet to be implemented.");
 }
 

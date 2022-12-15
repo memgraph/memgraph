@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -115,7 +115,7 @@ class RequestRouterInterface {
   virtual bool IsPrimaryLabel(storage::v3::LabelId label) const = 0;
   virtual bool IsPrimaryKey(storage::v3::LabelId primary_label, storage::v3::PropertyId property) const = 0;
   // TODO - (gvolfing) Implement this function in the mocked class.
-  virtual std::vector<coordinator::SchemaProperty> GetSchemaForLabel(storage::v3::LabelId label) const {
+  virtual std::vector<coordinator::SchemaProperty> GetSchemaForLabel(storage::v3::LabelId /*label*/) const {
     return std::vector<coordinator::SchemaProperty>{};
   };
 };
