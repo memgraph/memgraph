@@ -120,6 +120,10 @@ class MockedRequestRouter : public RequestRouterInterface {
 
   bool IsPrimaryKey(LabelId primary_label, PropertyId property) const override { return true; }
 
+  std::optional<std::pair<uint64_t, uint64_t>> AllocateInitialEdgeIds(io::Address coordinator_address) override {
+    return {};
+  }
+
  private:
   void SetUpNameIdMappers() {
     std::unordered_map<uint64_t, std::string> id_to_name;

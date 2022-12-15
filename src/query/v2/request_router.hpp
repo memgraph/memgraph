@@ -128,9 +128,7 @@ class RequestRouterInterface {
   virtual bool IsPrimaryLabel(storage::v3::LabelId label) const = 0;
   virtual bool IsPrimaryKey(storage::v3::LabelId primary_label, storage::v3::PropertyId property) const = 0;
 
-  virtual std::optional<std::pair<uint64_t, uint64_t>> AllocateInitialEdgeIds(io::Address coordinator_address) {
-    return {};
-  }
+  virtual std::optional<std::pair<uint64_t, uint64_t>> AllocateInitialEdgeIds(io::Address coordinator_address) = 0;
 };
 
 // TODO(kostasrim)rename this class template
