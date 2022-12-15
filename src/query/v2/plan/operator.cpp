@@ -520,7 +520,7 @@ class DistributedScanAllAndFilterCursor : public Cursor {
     has_next_frame_ = current_vertex_it_ != current_batch_.end() && valid_frames_it_ != valid_frames_consumer_->end();
   }
 
-  inline bool HasNextFrame() { return has_next_frame_; }
+  inline bool HasNextFrame() const { return has_next_frame_; }
 
   FrameWithValidity GetNextFrame(ExecutionContext &context) {
     MG_ASSERT(HasNextFrame());
