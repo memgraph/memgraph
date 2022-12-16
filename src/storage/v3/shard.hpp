@@ -185,6 +185,7 @@ struct SplitData {
   VertexContainer vertices;
   std::optional<EdgeContainer> edges;
   IndicesInfo indices_info;
+  std::list<Transaction> transactions;
 };
 
 /// Structure used to return information about the storage.
@@ -374,6 +375,15 @@ class Shard final {
   SplitData PerformSplit(const PrimaryKey &split_key);
 
  private:
+  void CollectDeltas(std::set<uint64_t> &collected_transactions_start_id, Delta *delta) const;
+
+  std::list<Transaction> CollectTransactions(const std::set<uint64_t> &collected_transactions_start_id) const;
+
+  VertexContainer CollectVertices(std::set<uint64_t> &collected_transactions_start_id, const PrimaryKey &split_key);
+
+  std::optional<EdgeContainer> CollectEdges(std::set<uint64_t> &collected_transactions_start_id,
+                                            const VertexContainer &split_vertices) const;
+
   Transaction &GetTransaction(coordinator::Hlc start_timestamp, IsolationLevel isolation_level);
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});

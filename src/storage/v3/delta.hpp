@@ -12,6 +12,9 @@
 #pragma once
 
 #include <memory>
+
+#include <boost/uuid/uuid.hpp>
+
 #include "storage/v3/edge_ref.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
@@ -129,6 +132,9 @@ inline bool operator==(const PreviousPtr::Pointer &a, const PreviousPtr::Pointer
 inline bool operator!=(const PreviousPtr::Pointer &a, const PreviousPtr::Pointer &b) { return !(a == b); }
 
 struct Delta {
+  // Needed for splits
+  boost::uuids::uuid uuid;
+
   enum class Action {
     // Used for both Vertex and Edge
     DELETE_OBJECT,
