@@ -40,8 +40,8 @@ using memgraph::coordinator::CoordinatorRsm;
 using memgraph::coordinator::HlcRequest;
 using memgraph::coordinator::HlcResponse;
 using memgraph::coordinator::PrimaryKey;
-using memgraph::coordinator::Shard;
 using memgraph::coordinator::ShardMap;
+using memgraph::coordinator::ShardMetadata;
 using memgraph::coordinator::Shards;
 using memgraph::coordinator::Status;
 using memgraph::io::Address;
@@ -109,7 +109,7 @@ ShardMap CreateDummyShardmap(Address a_io_1, Address a_io_2, Address a_io_3, Add
   AddressAndStatus aas1_2{.address = a_io_2, .status = Status::CONSENSUS_PARTICIPANT};
   AddressAndStatus aas1_3{.address = a_io_3, .status = Status::CONSENSUS_PARTICIPANT};
 
-  Shard shard1 = {aas1_1, aas1_2, aas1_3};
+  ShardMetadata shard1 = ShardMetadata{.peers = {aas1_1, aas1_2, aas1_3}, .version = 1};
 
   const auto key1 = PropertyValue(0);
   const auto key2 = PropertyValue(0);
@@ -121,7 +121,7 @@ ShardMap CreateDummyShardmap(Address a_io_1, Address a_io_2, Address a_io_3, Add
   AddressAndStatus aas2_2{.address = b_io_2, .status = Status::CONSENSUS_PARTICIPANT};
   AddressAndStatus aas2_3{.address = b_io_3, .status = Status::CONSENSUS_PARTICIPANT};
 
-  Shard shard2 = {aas2_1, aas2_2, aas2_3};
+  ShardMetadata shard2 = ShardMetadata{.peers = {aas2_1, aas2_2, aas2_3}, .version = 1};
 
   auto key3 = PropertyValue(12);
   auto key4 = PropertyValue(13);
@@ -131,10 +131,10 @@ ShardMap CreateDummyShardmap(Address a_io_1, Address a_io_2, Address a_io_3, Add
   return sm;
 }
 
-std::optional<ShardClient *> DetermineShardLocation(const Shard &target_shard, const std::vector<Address> &a_addrs,
-                                                    ShardClient &a_client, const std::vector<Address> &b_addrs,
-                                                    ShardClient &b_client) {
-  for (const auto &addr : target_shard) {
+std::optional<ShardClient *> DetermineShardLocation(const ShardMetadata &target_shard,
+                                                    const std::vector<Address> &a_addrs, ShardClient &a_client,
+                                                    const std::vector<Address> &b_addrs, ShardClient &b_client) {
+  for (const auto &addr : target_shard.peers) {
     if (addr.address == b_addrs[0]) {
       return &b_client;
     }
@@ -275,7 +275,7 @@ int main() {
 
     const PrimaryKey compound_key = {cm_key_1, cm_key_2};
 
-    // Look for Shard
+    // Look for ShardMetadata
     BasicResult<TimedOut, memgraph::coordinator::CoordinatorWriteResponses> read_res =
         coordinator_client.SendWriteRequest(req);
 
