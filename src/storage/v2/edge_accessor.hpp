@@ -78,8 +78,6 @@ class EdgeAccessor final {
 
   bool IsCycle() const { return from_vertex_ == to_vertex_; }
 
-  bool StorePropertiesOnEdges() const { return config_.properties_on_edges; }
-
   bool operator==(const EdgeAccessor &other) const noexcept {
     return edge_ == other.edge_ && transaction_ == other.transaction_;
   }

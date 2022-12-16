@@ -89,8 +89,6 @@ class EdgeAccessor final {
 
   storage::Gid Gid() const noexcept { return impl_.Gid(); }
 
-  bool StorePropertiesOnEdges() const { return impl_.StorePropertiesOnEdges(); }
-
   bool operator==(const EdgeAccessor &e) const noexcept { return impl_ == e.impl_; }
 
   bool operator!=(const EdgeAccessor &e) const noexcept { return !(*this == e); }

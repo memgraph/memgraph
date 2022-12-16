@@ -26,4 +26,4 @@ function(copy_triggers_e2e_python_files FILE_NAME)
 endfunction()
 
 copy_triggers_e2e_python_files(common.py)
-copy_triggers_e2e_python_files(on_delete_storage_properties_false.py)
+copy_triggers_e2e_python_files(triggers_properties_false.py)

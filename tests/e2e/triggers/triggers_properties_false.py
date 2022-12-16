@@ -16,7 +16,43 @@ from common import connect, execute_and_fetch_all
 
 
 @pytest.mark.parametrize("ba_commit", ["BEFORE COMMIT", "AFTER COMMIT"])
-def test_create_on_delete_before_commit(ba_commit):
+def test_create_on_create(ba_commit):
+    """
+    Args:
+        ba_commit (str): BEFORE OR AFTER commit
+    """
+    cursor = connect().cursor()
+    QUERY_TRIGGER_CREATE = f"""
+        CREATE TRIGGER DeleteTriggerEdgesCount
+        ON --> CREATE
+        {ba_commit}
+        EXECUTE
+        CREATE (n:CreatedEdge {{count: size(createdEdges)}})
+    """
+    create_trigger_res = execute_and_fetch_all(cursor, QUERY_TRIGGER_CREATE)
+    print(create_trigger_res)
+    execute_and_fetch_all(cursor, "CREATE (n:Node {id: 1})")
+    execute_and_fetch_all(cursor, "CREATE (n:Node {id: 2})")
+    res = execute_and_fetch_all(cursor, "MATCH (n:Node) RETURN n")
+    assert len(res) == 2
+    res2 = execute_and_fetch_all(cursor, "MATCH (n:CreatedEdge) RETURN n")
+    assert len(res2) == 0
+    QUERY_CREATE_EDGE = """
+        MATCH (n:Node {id: 1}), (m:Node {id: 2})
+        CREATE (n)-[r:TYPE]->(m);
+    """
+    execute_and_fetch_all(cursor, QUERY_CREATE_EDGE)
+    # See if trigger was triggered
+    nodes = execute_and_fetch_all(cursor, "MATCH (n:Node) RETURN n")
+    assert len(nodes) == 2
+    created_edges = execute_and_fetch_all(cursor, "MATCH (n:CreatedEdge) RETURN n")
+    assert len(created_edges) == 1
+    execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+    execute_and_fetch_all(cursor, "DROP TRIGGER DeleteTriggerEdgesCount")
+
+
+@pytest.mark.parametrize("ba_commit", ["BEFORE COMMIT", "AFTER COMMIT"])
+def test_create_on_delete(ba_commit):
     """
     Args:
         ba_commit (str): BEFORE OR AFTER commit
@@ -31,7 +67,6 @@ def test_create_on_delete_before_commit(ba_commit):
     """
     create_trigger_res = execute_and_fetch_all(cursor, QUERY_TRIGGER_CREATE)
     print(create_trigger_res)
-
     execute_and_fetch_all(cursor, "CREATE (n:Node {id: 1})")
     execute_and_fetch_all(cursor, "CREATE (n:Node {id: 2})")
     execute_and_fetch_all(cursor, "CREATE (n:Node {id: 3})")
@@ -45,11 +80,6 @@ def test_create_on_delete_before_commit(ba_commit):
         CREATE (n)-[r:TYPE]->(m);
     """
     execute_and_fetch_all(cursor, QUERY_CREATE_EDGE)
-    # QUERY_RETURN_EDGE = """
-    #     MATCH ()-[r:TYPE]->()
-    #     RETURN r;
-    # """
-    # print(execute_and_fetch_all(cursor, QUERY_RETURN_EDGE))
     QUERY_DELETE_EDGE = """
         MATCH ()-[r:TYPE]->()
         DELETE r;
@@ -57,7 +87,7 @@ def test_create_on_delete_before_commit(ba_commit):
     execute_and_fetch_all(cursor, QUERY_DELETE_EDGE)
     # See if trigger was triggered
     nodes = execute_and_fetch_all(cursor, "MATCH (n:Node) RETURN n")
-    assert len(res) == 4
+    assert len(nodes) == 4
     deleted_edges = execute_and_fetch_all(cursor, "MATCH (n:DeletedEdge) RETURN n")
     assert len(deleted_edges) == 1
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
