@@ -86,13 +86,14 @@ class MockedRequestRouter : public RequestRouterInterface {
   void Commit() override {}
   std::vector<VertexAccessor> ScanVertices(std::optional<std::string> /* label */) override { return {}; }
 
-  std::vector<CreateVerticesResponse> CreateVertices(std::vector<memgraph::msgs::NewVertex> new_vertices) override {
+  std::vector<CreateVerticesResponse> CreateVertices(
+      std::vector<memgraph::msgs::NewVertex> /* new_vertices */) override {
     return {};
   }
 
-  std::vector<ExpandOneResultRow> ExpandOne(ExpandOneRequest request) override { return {}; }
+  std::vector<ExpandOneResultRow> ExpandOne(ExpandOneRequest /* request */) override { return {}; }
 
-  std::vector<CreateExpandResponse> CreateExpand(std::vector<NewExpand> new_edges) override { return {}; }
+  std::vector<CreateExpandResponse> CreateExpand(std::vector<NewExpand> /* new_edges */) override { return {}; }
 
   std::vector<GetPropertiesResultRow> GetProperties(GetPropertiesRequest rqst) override { return {}; }
 

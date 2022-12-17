@@ -18,6 +18,8 @@
 #include <thread>
 #include <vector>
 
+#include <spdlog/cfg/env.h>
+
 #include "common.hpp"
 #include "common/types.hpp"
 #include "coordinator/coordinator_client.hpp"
@@ -44,8 +46,8 @@ using coordinator::CoordinatorClient;
 using coordinator::CoordinatorRsm;
 using coordinator::HlcRequest;
 using coordinator::HlcResponse;
-using coordinator::Shard;
 using coordinator::ShardMap;
+using coordinator::ShardMetadata;
 using coordinator::Shards;
 using coordinator::Status;
 using io::Address;
@@ -111,7 +113,7 @@ ShardMap CreateDummyShardmap(coordinator::Address a_io_1, coordinator::Address a
   AddressAndStatus aas1_2{.address = a_io_2, .status = Status::CONSENSUS_PARTICIPANT};
   AddressAndStatus aas1_3{.address = a_io_3, .status = Status::CONSENSUS_PARTICIPANT};
 
-  Shard shard1 = {aas1_1, aas1_2, aas1_3};
+  ShardMetadata shard1 = ShardMetadata{.peers = {aas1_1, aas1_2, aas1_3}, .version = 1};
 
   auto key1 = storage::v3::PropertyValue(0);
   auto key2 = storage::v3::PropertyValue(0);
@@ -123,7 +125,7 @@ ShardMap CreateDummyShardmap(coordinator::Address a_io_1, coordinator::Address a
   AddressAndStatus aas2_2{.address = b_io_2, .status = Status::CONSENSUS_PARTICIPANT};
   AddressAndStatus aas2_3{.address = b_io_3, .status = Status::CONSENSUS_PARTICIPANT};
 
-  Shard shard2 = {aas2_1, aas2_2, aas2_3};
+  ShardMetadata shard2 = ShardMetadata{.peers = {aas2_1, aas2_2, aas2_3}, .version = 1};
 
   auto key3 = storage::v3::PropertyValue(12);
   auto key4 = storage::v3::PropertyValue(13);
@@ -346,6 +348,8 @@ void DoTest() {
   CoordinatorClient<SimulatorTransport> coordinator_client(cli_io, c_addrs[0], c_addrs);
 
   query::v2::RequestRouter<SimulatorTransport> request_router(std::move(coordinator_client), std::move(cli_io));
+  std::function<bool()> tick_simulator = simulator.GetSimulatorTickClosure();
+  request_router.InstallSimulatorTicker(tick_simulator);
 
   request_router.StartTransaction();
   TestScanVertices(request_router);
@@ -368,4 +372,7 @@ void DoTest() {
 }
 }  // namespace memgraph::query::v2::tests
 
-int main() { memgraph::query::v2::tests::DoTest(); }
+int main() {
+  spdlog::cfg::load_env_levels();
+  memgraph::query::v2::tests::DoTest();
+}

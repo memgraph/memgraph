@@ -20,7 +20,6 @@
 
 namespace memgraph::expr {
 
-template <typename TypedValue>
 class Frame {
  public:
   /// Create a Frame of given size backed by a utils::NewDeleteResource()
@@ -40,6 +39,20 @@ class Frame {
 
  private:
   utils::pmr::vector<TypedValue> elems_;
+};
+
+class FrameWithValidity final : public Frame {
+ public:
+  explicit FrameWithValidity(int64_t size) : Frame(size), is_valid_(false) {}
+
+  FrameWithValidity(int64_t size, utils::MemoryResource *memory) : Frame(size, memory), is_valid_(false) {}
+
+  bool IsValid() const noexcept { return is_valid_; }
+  void MakeValid() noexcept { is_valid_ = true; }
+  void MakeInvalid() noexcept { is_valid_ = false; }
+
+ private:
+  bool is_valid_;
 };
 
 }  // namespace memgraph::expr

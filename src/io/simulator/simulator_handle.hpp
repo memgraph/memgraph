@@ -22,6 +22,8 @@
 #include <variant>
 #include <vector>
 
+#include <boost/core/demangle.hpp>
+
 #include "io/address.hpp"
 #include "io/errors.hpp"
 #include "io/message_conversion.hpp"
@@ -105,41 +107,48 @@ class SimulatorHandle {
 
   template <Message Request, Message Response>
   ResponseFuture<Response> SubmitRequest(Address to_address, Address from_address, Request &&request, Duration timeout,
-                                         std::function<bool()> &&maybe_tick_simulator) {
-    spdlog::trace("submitting request to {}", to_address.last_known_port);
+                                         std::function<bool()> &&maybe_tick_simulator,
+                                         std::function<void()> &&fill_notifier) {
     auto type_info = TypeInfoFor(request);
+    std::string demangled_name = boost::core::demangle(type_info.get().name());
+    spdlog::trace("simulator sending request {} to {}", demangled_name, to_address);
 
-    auto [future, promise] = memgraph::io::FuturePromisePairWithNotifier<ResponseResult<Response>>(
-        std::forward<std::function<bool()>>(maybe_tick_simulator));
+    auto [future, promise] = memgraph::io::FuturePromisePairWithNotifications<ResponseResult<Response>>(
+        // set notifier for when the Future::Wait is called
+        std::forward<std::function<bool()>>(maybe_tick_simulator),
+        // set notifier for when Promise::Fill is called
+        std::forward<std::function<void()>>(fill_notifier));
 
-    std::unique_lock<std::mutex> lock(mu_);
+    {
+      std::unique_lock<std::mutex> lock(mu_);
 
-    RequestId request_id = ++request_id_counter_;
+      RequestId request_id = ++request_id_counter_;
 
-    const Time deadline = cluster_wide_time_microseconds_ + timeout;
+      const Time deadline = cluster_wide_time_microseconds_ + timeout;
 
-    std::any message(request);
-    OpaqueMessage om{.to_address = to_address,
-                     .from_address = from_address,
-                     .request_id = request_id,
-                     .message = std::move(message),
-                     .type_info = type_info};
-    in_flight_.emplace_back(std::make_pair(to_address, std::move(om)));
+      std::any message(request);
+      OpaqueMessage om{.to_address = to_address,
+                       .from_address = from_address,
+                       .request_id = request_id,
+                       .message = std::move(message),
+                       .type_info = type_info};
+      in_flight_.emplace_back(std::make_pair(to_address, std::move(om)));
 
-    PromiseKey promise_key{.requester_address = from_address, .request_id = request_id};
-    OpaquePromise opaque_promise(std::move(promise).ToUnique());
-    DeadlineAndOpaquePromise dop{
-        .requested_at = cluster_wide_time_microseconds_,
-        .deadline = deadline,
-        .promise = std::move(opaque_promise),
-    };
+      PromiseKey promise_key{.requester_address = from_address, .request_id = request_id};
+      OpaquePromise opaque_promise(std::move(promise).ToUnique());
+      DeadlineAndOpaquePromise dop{
+          .requested_at = cluster_wide_time_microseconds_,
+          .deadline = deadline,
+          .promise = std::move(opaque_promise),
+      };
 
-    MG_ASSERT(!promises_.contains(promise_key));
+      MG_ASSERT(!promises_.contains(promise_key));
 
-    promises_.emplace(std::move(promise_key), std::move(dop));
+      promises_.emplace(std::move(promise_key), std::move(dop));
 
-    stats_.total_messages++;
-    stats_.total_requests++;
+      stats_.total_messages++;
+      stats_.total_requests++;
+    }  // lock dropped here
 
     cv_.notify_all();
 

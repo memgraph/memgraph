@@ -44,8 +44,8 @@ using coordinator::GetShardMapRequest;
 using coordinator::GetShardMapResponse;
 using coordinator::Hlc;
 using coordinator::HlcResponse;
-using coordinator::Shard;
 using coordinator::ShardMap;
+using coordinator::ShardMetadata;
 using io::Address;
 using io::Io;
 using io::local_transport::LocalSystem;
@@ -194,7 +194,8 @@ void ExecuteOp(query::v2::RequestRouter<LocalTransport> &request_router, std::se
                ScanAll scan_all) {
   auto results = request_router.ScanVertices("test_label");
 
-  MG_ASSERT(results.size() == correctness_model.size());
+  spdlog::error("got {} results, model size is {}", results.size(), correctness_model.size());
+  EXPECT_EQ(results.size(), correctness_model.size());
 
   for (const auto &vertex_accessor : results) {
     const auto properties = vertex_accessor.Properties();

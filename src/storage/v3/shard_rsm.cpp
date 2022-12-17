@@ -611,7 +611,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::GetPropertiesRequest &&req) {
     return limit;
   };
 
-  auto collect_response = [get_limit, &req](auto &elements, auto create_result_row) {
+  auto collect_response = [get_limit, &req](auto &elements, auto create_result_row) -> msgs::ReadResponses {
     msgs::GetPropertiesResponse response;
     const auto limit = get_limit(elements);
     for (size_t index = 0; index != limit; ++index) {
