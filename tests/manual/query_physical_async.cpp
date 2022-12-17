@@ -10,10 +10,10 @@
 // licenses/APL.txt.
 
 #include <gflags/gflags.h>
-#include <future>
 #include <variant>
 #include <vector>
 
+#include "io/future.hpp"
 #include "query/v2/physical/execution.hpp"
 #include "query/v2/physical/mock/context.hpp"
 #include "utils/logging.hpp"
@@ -25,9 +25,13 @@ Status Call(VarState &any_state) {
   return std::visit([](auto &state) { return Execute(state); }, any_state);
 }
 
-std::future<Execution> CallAsync(mock::ExecutionContext &ctx, VarState &&any_state) {
-  return std::visit([&ctx](auto &&state) { return ExecuteAsync(ctx, std::forward<decltype(state)>(state)); },
-                    std::move(any_state));
+memgraph::io::Future<Execution> CallAsync(mock::ExecutionContext &ctx, VarState &&any_state,
+                                          std::function<void()> &&notifier) {
+  return std::visit(
+      [&ctx, notifier = std::move(notifier)](auto &&state) {
+        return ExecuteAsync(ctx, std::move(notifier), std::forward<decltype(state)>(state));
+      },
+      std::move(any_state));
 }
 
 int main(int argc, char *argv[]) {
@@ -57,14 +61,14 @@ int main(int argc, char *argv[]) {
   mock::ExecutionContext ctx{.thread_pool = &thread_pool};
   for (auto &op : ops_async) {
     // TODO(gitbuda): This is not correct, the point it so illustrate the concept (op.state) is moved!
-    auto future = CallAsync(ctx, std::move(op.state));
-    future.wait();
-    auto execution = future.get();
+    auto notifier = []() { SPDLOG_INFO("op done"); };
+    auto future = CallAsync(ctx, std::move(op.state), notifier);
+    auto execution = std::move(future).Wait();
     SPDLOG_INFO("name: {} has_more: {}", op.name, execution.status.has_more);
     ;
     while (execution.status.has_more) {
-      auto future = CallAsync(ctx, std::move(execution.state));
-      execution = future.get();
+      auto future = CallAsync(ctx, std::move(execution.state), notifier);
+      execution = std::move(future).Wait();
       SPDLOG_INFO("name: {} has_more: {}", op.name, execution.status.has_more);
       ;
     }

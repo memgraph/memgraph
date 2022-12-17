@@ -11,9 +11,9 @@
 
 #pragma once
 
-#include <future>
 #include <variant>
 
+#include "io/future.hpp"
 #include "query/v2/physical/mock/context.hpp"
 #include "query/v2/physical/multiframe.hpp"
 #include "utils/logging.hpp"
@@ -75,16 +75,16 @@ inline Status Execute(Produce & /*unused*/) { return Status{.has_more = false}; 
 /// ASYNC EXECUTE WRAPPERS
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define DEFINE_EXECUTE_ASYNC(state_type)                                                                 \
-  /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                                                       \
-  inline std::future<Execution> ExecuteAsync(mock::ExecutionContext &ctx, state_type &&state) {          \
-    std::promise<Execution> promise;                                                                     \
-    auto future = promise.get_future();                                                                  \
-    auto shared_promise = std::make_shared<decltype(promise)>(std::move(promise));                       \
-    ctx.thread_pool->AddTask([state = std::move(state), promise = std::move(shared_promise)]() mutable { \
-      promise->set_value({.status = Execute(state), .state = std::move(state)});                         \
-    });                                                                                                  \
-    return future;                                                                                       \
+#define DEFINE_EXECUTE_ASYNC(state_type)                                                                            \
+  inline io::Future<Execution> ExecuteAsync(                                                                        \
+      mock::ExecutionContext &ctx, std::function<void()> notifier, /* NOLINTNEXTLINE(bugprone-macro-parentheses) */ \
+      state_type &&state) {                                                                                         \
+    auto [future, promise] = io::FuturePromisePairWithNotifications<Execution>(nullptr, std::move(notifier));       \
+    auto shared_promise = std::make_shared<decltype(promise)>(std::move(promise));                                  \
+    ctx.thread_pool->AddTask([state = std::move(state), promise = std::move(shared_promise)]() mutable {            \
+      promise->Fill({.status = Execute(state), .state = std::move(state)});                                         \
+    });                                                                                                             \
+    return std::move(future);                                                                                       \
   }
 
 DEFINE_EXECUTE_ASYNC(Once)

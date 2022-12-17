@@ -164,7 +164,7 @@ inline std::vector<std::shared_ptr<execution::Operator>> MakeAsyncPlan(const std
       prev_operator_ptr = std::make_shared<execution::Operator>(execution::Operator{
           .name = "Once", .children = {}, .data_pool = std::make_unique<TDataPool>(pool_size, mf_size)});
       execution::Once once_state{.op = prev_operator_ptr.get()};
-      prev_operator_ptr->state = std::move(once_state);
+      prev_operator_ptr->state = once_state;
       plan.push_back(prev_operator_ptr);
     } else if (op.type == OpType::ScanAll) {
       auto scan_all_ptr = std::make_shared<execution::Operator>(
@@ -189,6 +189,7 @@ inline std::vector<std::shared_ptr<execution::Operator>> MakeAsyncPlan(const std
     }
   }
   return plan;
+  /* NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks) */
 }
 
 }  // namespace memgraph::query::v2::physical::mock
