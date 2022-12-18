@@ -48,7 +48,7 @@ int main(int argc, char *argv[]) {
   mock::ExecutionContext ctx{.thread_pool = &thread_pool};
   for (auto &op : ops_async) {
     // TODO(gitbuda): This is not correct, the point it so illustrate the concept (op.state) is moved!
-    auto notifier = []() { SPDLOG_INFO("op done"); };
+    auto notifier = []() {};
     auto future = CallAsync(ctx, std::move(op.state), notifier);
     auto execution = std::move(future).Wait();
     SPDLOG_INFO("name: {} has_more: {}", op.name, execution.status.has_more);

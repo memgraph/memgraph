@@ -105,7 +105,7 @@ int main(int argc, char *argv[]) {
   // Multi Frame Multi Thread per Operator Execution
   auto async_plan = memgraph::query::v2::physical::mock::MakeAsyncPlan(ops, 10, 100);
   memgraph::query::v2::physical::execution::Executor executor;
-  executor.Execute(*async_plan);
+  executor.Execute(async_plan);
 
   return 0;
 }

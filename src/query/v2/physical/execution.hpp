@@ -99,11 +99,23 @@ inline Status Call(VarState &any_state) {
 
 inline io::Future<Execution> CallAsync(mock::ExecutionContext &ctx, VarState &&any_state,
                                        std::function<void()> &&notifier) {
-  return std::visit(
-      [&ctx, notifier = std::move(notifier)](auto &&state) {
-        return ExecuteAsync(ctx, std::move(notifier), std::forward<decltype(state)>(state));
-      },
-      std::move(any_state));
+  return std::visit([&ctx, notifier = std::move(notifier)](
+                        auto &&state) { return ExecuteAsync(ctx, notifier, std::forward<decltype(state)>(state)); },
+                    std::move(any_state));
+}
+
+inline std::vector<Operator *> SequentialExecutionOrder(std::shared_ptr<Operator> plan) {
+  // TODO(gitbuda): Implement proper topological order.
+  std::vector<Operator *> ops{plan.get()};
+  Operator *op = plan.get();
+  while (true) {
+    if (op->children.empty()) {
+      break;
+    }
+    op = op->children[0].get();
+    ops.push_back(op);
+  }
+  return ops;
 }
 
 /// The responsibility of an executor is to be aware of how much resources is
@@ -135,23 +147,19 @@ class Executor {
   /// has to ensure all dependencies are executed before.
   ///
  public:
-  void Execute(Operator &plan) {
-    // TODO(gitbuda): Determin the execution order -> topo sort.
-    std::vector<Operator *> ops{&plan};
-    Operator *op = &plan;
-    while (true) {
-      if (op->children.size() == 0) {
-        break;
-      }
-      op = op->children[0].get();
-      ops.push_back(op);
-    }
-    // TODO(gitbuda): Move outside 🤔
-    memgraph::utils::ThreadPool thread_pool{8};
-    mock::ExecutionContext ctx{.thread_pool = &thread_pool};
+  // TODO(gitbuda): Input to the Execute method should be some container
+  // because there might be additional preprocessed data structures (e.g.
+  // execution order).
+  //
+  void Execute(std::shared_ptr<Operator> plan) {
+    mock::ExecutionContext ctx{.thread_pool = &thread_pool_};
+
+    auto ops = SequentialExecutionOrder(plan);
     for (auto &op : ops) {
-      // TODO(gitbuda): This is not correct, the point it so illustrate the concept (op.state) is moved!
-      auto notifier = []() { SPDLOG_INFO("op done"); };
+      // TODO(gitbuda): This is not correct, the point it so illustrate the
+      // concept (op.state) is moved!
+      //
+      auto notifier = []() {};
       auto future = CallAsync(ctx, std::move(op->state), notifier);
       auto execution = std::move(future).Wait();
       SPDLOG_INFO("name: {} has_more: {}", op->name, execution.status.has_more);
@@ -162,6 +170,10 @@ class Executor {
       }
     }
   }
+
+ private:
+  // TODO(gitbuda): Add configurable size to the executor thread pool.
+  utils::ThreadPool thread_pool_{8};
 };
 
 }  // namespace memgraph::query::v2::physical::execution
