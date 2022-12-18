@@ -21,19 +21,6 @@
 using namespace memgraph::query::v2::physical;
 using namespace memgraph::query::v2::physical::execution;
 
-Status Call(VarState &any_state) {
-  return std::visit([](auto &state) { return Execute(state); }, any_state);
-}
-
-memgraph::io::Future<Execution> CallAsync(mock::ExecutionContext &ctx, VarState &&any_state,
-                                          std::function<void()> &&notifier) {
-  return std::visit(
-      [&ctx, notifier = std::move(notifier)](auto &&state) {
-        return ExecuteAsync(ctx, std::move(notifier), std::forward<decltype(state)>(state));
-      },
-      std::move(any_state));
-}
-
 int main(int argc, char *argv[]) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   spdlog::set_level(spdlog::level::info);

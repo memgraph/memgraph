@@ -152,38 +152,35 @@ inline TCursorPtr MakePullPlan(const std::vector<Op> &ops) {
 }
 
 // TODO(gitbuda): Here should be some https://en.wikipedia.org/wiki/Topological_sorting container.
-inline std::vector<std::shared_ptr<execution::Operator>> MakeAsyncPlan(const std::vector<Op> &ops, int pool_size,
-                                                                       int mf_size) {
-  std::vector<Op> reversed_ops(ops.rbegin(), ops.rend());
-  std::shared_ptr<execution::Operator> prev_operator_ptr = nullptr;
-  std::vector<std::shared_ptr<execution::Operator>> plan;
-  plan.reserve(reversed_ops.size());
+inline std::shared_ptr<execution::Operator> MakeAsyncPlan(const std::vector<Op> &ops, int pool_size, int mf_size) {
+  std::shared_ptr<execution::Operator> plan = nullptr;
+  auto current = plan;
   // TODO(gitbuda): This looks messy, implement factory functions.
-  for (const auto &op : reversed_ops) {
+  for (const auto &op : ops) {
     if (op.type == OpType::Once) {
-      prev_operator_ptr = std::make_shared<execution::Operator>(execution::Operator{
+      auto once_ptr = std::make_shared<execution::Operator>(execution::Operator{
           .name = "Once", .children = {}, .data_pool = std::make_unique<TDataPool>(pool_size, mf_size)});
-      execution::Once once_state{.op = prev_operator_ptr.get()};
-      prev_operator_ptr->state = once_state;
-      plan.push_back(prev_operator_ptr);
+      execution::Once once_state{.op = once_ptr.get()};
+      once_ptr->state = once_state;
+      current->children.push_back(once_ptr);
+      current = once_ptr;
+
     } else if (op.type == OpType::ScanAll) {
-      auto scan_all_ptr = std::make_shared<execution::Operator>(
-          execution::Operator{.name = "ScanAll",
-                              .children = {prev_operator_ptr},
-                              .data_pool = std::make_unique<TDataPool>(pool_size, mf_size)});
-      prev_operator_ptr = scan_all_ptr;
-      execution::ScanAll scan_all_state{.op = prev_operator_ptr.get()};
-      prev_operator_ptr->state = std::move(scan_all_state);
-      plan.push_back(prev_operator_ptr);
+      auto scan_all_ptr = std::make_shared<execution::Operator>(execution::Operator{
+          .name = "ScanAll", .children = {}, .data_pool = std::make_unique<TDataPool>(pool_size, mf_size)});
+      execution::ScanAll scan_all_state{.op = scan_all_ptr.get()};
+      scan_all_ptr->state = std::move(scan_all_state);
+      current->children.push_back(scan_all_ptr);
+      current = scan_all_ptr;
+
     } else if (op.type == OpType::Produce) {
-      auto produce_ptr = std::make_shared<execution::Operator>(
-          execution::Operator{.name = "Produce",
-                              .children = {prev_operator_ptr},
-                              .data_pool = std::make_unique<TDataPool>(pool_size, mf_size)});
-      prev_operator_ptr = produce_ptr;
-      execution::Produce produce_state{.op = prev_operator_ptr.get()};
-      prev_operator_ptr->state = std::move(produce_state);
-      plan.push_back(prev_operator_ptr);
+      auto produce_ptr = std::make_shared<execution::Operator>(execution::Operator{
+          .name = "Produce", .children = {}, .data_pool = std::make_unique<TDataPool>(pool_size, mf_size)});
+      execution::Produce produce_state{.op = produce_ptr.get()};
+      produce_ptr->state = std::move(produce_state);
+      plan = produce_ptr;
+      current = produce_ptr;
+
     } else {
       SPDLOG_ERROR("Unknown operator {}", op.type);
     }

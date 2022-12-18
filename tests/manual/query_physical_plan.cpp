@@ -19,6 +19,7 @@
 #include "interactive/db_accessor.hpp"
 #include "interactive/plan.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
+#include "query/v2/physical/execution.hpp"
 #include "query/v2/physical/mock/context.hpp"
 #include "query/v2/physical/mock/mock.hpp"
 #include "query/v2/physical/physical_ene.hpp"
@@ -80,7 +81,7 @@ int main(int argc, char *argv[]) {
       Op{.type = OpType::Once},
   };
 
-  // TODO(gitbuda): Single Frame Pull Execution
+  // Single Frame Pull Execution
   memgraph::query::v2::physical::mock::Frame frame;
   auto plan = memgraph::query::v2::physical::mock::MakePullPlan(ops);
   int64_t cnt{0};
@@ -103,10 +104,8 @@ int main(int argc, char *argv[]) {
 
   // Multi Frame Multi Thread per Operator Execution
   auto async_plan = memgraph::query::v2::physical::mock::MakeAsyncPlan(ops, 10, 100);
-  for (auto &op : async_plan) {
-    SPDLOG_INFO("op name: {}", op->name);
-    std::visit([](auto &state) { SPDLOG_INFO("op name via state: {}", state.op->name); }, op->state);
-  }
+  memgraph::query::v2::physical::execution::Executor executor;
+  executor.Execute(*async_plan);
 
   return 0;
 }

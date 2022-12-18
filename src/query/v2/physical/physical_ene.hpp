@@ -530,37 +530,4 @@ class PhysicalPlanGenerator final : public HierarchicalLogicalOperatorVisitor {
   }
 };
 
-/// The responsibility of an executor is to be aware of how much resources is
-/// available in the data/thread pools and initiate operator execution guided
-/// by the query semantics.
-///
-/// E.g. Call Execute on an operator if:
-///   1) There is data in the input data pool
-///   2) There is an available worker thread
-///
-/// In addition, an executor is responsible to take data out of the produce
-/// data pool and ship it to the data stream.
-///
-class Executor {
-  // ThreadPools
-  // PhysicalPlans
-
-  /// Each operator should have a method of the following signature
-  ///   future<status> Execute(context);
-  /// because the execution will end up in a thread pool.
-  ///
-  /// Each Execute method should essentially process one input batch.
-  ///
-  /// Parallelization can easily be achieved by multiple concurrent Execute
-  /// calls on a single operator.
-  ///
-  /// Aggregations are essentially single threaded operator which will exhaust
-  /// all available input, since Executor is responsible for the semantic, it
-  /// has to ensure all dependencies are executed before.
-  ///
-  void Execute(/*data_stream*/) {
-    // Iterate over streams, as soon as there is some result data push it to the stream.
-  }
-};
-
 }  // namespace memgraph::query::v2::physical
