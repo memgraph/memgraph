@@ -168,7 +168,7 @@ inline std::shared_ptr<execution::PlanOperator> MakeAsyncPlan(const std::vector<
     } else if (op.type == OpType::ScanAll) {
       auto scan_all_ptr = std::make_shared<execution::PlanOperator>(execution::PlanOperator{
           .name = "ScanAll", .children = {}, .data_pool = std::make_unique<TDataPool>(pool_size, mf_size)});
-      execution::ScanAll scan_all_state{.op = scan_all_ptr.get()};
+      execution::ScanAll scan_all_state{.op = scan_all_ptr.get(), .results = op.props[SCANALL_ELEMS_POS]};
       scan_all_ptr->state = std::move(scan_all_state);
       current->children.push_back(scan_all_ptr);
       current = scan_all_ptr;

@@ -78,8 +78,6 @@ int main(int argc, char *argv[]) {
       Op{.type = OpType::ScanAll, .props = {scan_all_elems}},
       Op{.type = OpType::ScanAll, .props = {scan_all_elems}},
       Op{.type = OpType::ScanAll, .props = {scan_all_elems}},
-      Op{.type = OpType::ScanAll, .props = {scan_all_elems}},
-      Op{.type = OpType::ScanAll, .props = {scan_all_elems}},
       Op{.type = OpType::Once},
   };
 

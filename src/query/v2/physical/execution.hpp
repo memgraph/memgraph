@@ -47,6 +47,7 @@ struct Once {
 struct ScanAll {
   PlanOperator *op;
   std::vector<PlanOperator *> children;
+  int results;
 };
 struct Produce {
   PlanOperator *op;
@@ -76,7 +77,13 @@ struct ExecutionOperator {
 
 inline Status Execute(Once & /*unused*/) { return Status{.has_more = false}; }
 
-inline Status Execute(ScanAll & /*unused*/) { return Status{.has_more = false}; }
+inline Status Execute(ScanAll &state) {
+  if (state.results == 0) {
+    return Status{.has_more = false};
+  }
+  state.results--;
+  return Status{.has_more = true};
+}
 
 inline Status Execute(Produce & /*unused*/) { return Status{.has_more = false}; }
 
