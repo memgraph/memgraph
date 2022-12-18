@@ -35,7 +35,7 @@ namespace memgraph::query::procedure {
 
 constexpr const char *func_code =
     "import ast\n\n"
-    "no_removals = ['collections', 'abc', 'sys']\n"
+    "no_removals = ['collections', 'abc', 'sys', 'torch', 'igraph']\n"
     "modules = set()\n\n"
     "def visit_Import(node):\n"
     "  for name in node.names:\n"
