@@ -16,6 +16,7 @@
 #include "io/future.hpp"
 #include "query/v2/physical/mock/context.hpp"
 #include "query/v2/physical/multiframe.hpp"
+#include "utils/cast.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::query::v2::physical::execution {
@@ -29,7 +30,7 @@ struct NonCopyable {
   ~NonCopyable() = default;
 };
 
-struct Operator;
+struct PlanOperator;
 
 struct Status {
   bool has_more;
@@ -38,30 +39,37 @@ struct Status {
 /// NOTE: In theory status and state could be coupled together, but since STATE
 /// is a variant it's easier to access STATUS via generic object.
 
+/// STATES
 struct Once {
-  Operator *op;
+  PlanOperator *op;
   bool has_more{true};
 };
 struct ScanAll {
-  Operator *op;
-  std::vector<Operator *> children;
+  PlanOperator *op;
+  std::vector<PlanOperator *> children;
 };
 struct Produce {
-  Operator *op;
-  std::vector<Operator *> children;
+  PlanOperator *op;
+  std::vector<PlanOperator *> children;
 };
 using VarState = std::variant<Once, ScanAll, Produce>;
+/// STATES
 
 struct Execution {
   Status status;
   VarState state;
 };
 
-struct Operator {
+struct PlanOperator {
   std::string name;
-  std::vector<std::shared_ptr<Operator>> children;
+  std::vector<std::shared_ptr<PlanOperator>> children;
   std::unique_ptr<multiframe::MPMCMultiframeFCFSPool> data_pool;
   VarState state;
+};
+// TODO(gitbuda): Figure out a better name for the operators.
+struct ExecutionOperator {
+  PlanOperator *op;
+  Execution execution;
 };
 
 /// SINGLE THREADED EXECUTE IMPLEMENTATIONS
@@ -82,7 +90,8 @@ inline Status Execute(Produce & /*unused*/) { return Status{.has_more = false}; 
     auto [future, promise] = io::FuturePromisePairWithNotifications<Execution>(nullptr, std::move(notifier));       \
     auto shared_promise = std::make_shared<decltype(promise)>(std::move(promise));                                  \
     ctx.thread_pool->AddTask([state = std::move(state), promise = std::move(shared_promise)]() mutable {            \
-      promise->Fill({.status = Execute(state), .state = std::move(state)});                                         \
+      auto status = Execute(state);                                                                                 \
+      promise->Fill({.status = status, .state = std::move(state)});                                                 \
     });                                                                                                             \
     return std::move(future);                                                                                       \
   }
@@ -104,16 +113,16 @@ inline io::Future<Execution> CallAsync(mock::ExecutionContext &ctx, VarState &&a
                     std::move(any_state));
 }
 
-inline std::vector<Operator *> SequentialExecutionOrder(std::shared_ptr<Operator> plan) {
+inline std::vector<ExecutionOperator> SequentialExecutionOrder(std::shared_ptr<PlanOperator> plan) {
   // TODO(gitbuda): Implement proper topological order.
-  std::vector<Operator *> ops{plan.get()};
-  Operator *op = plan.get();
+  std::vector<ExecutionOperator> ops{ExecutionOperator{.op = plan.get()}};
+  PlanOperator *op = plan.get();
   while (true) {
     if (op->children.empty()) {
       break;
     }
     op = op->children[0].get();
-    ops.push_back(op);
+    ops.push_back(ExecutionOperator{.op = op});
   }
   return ops;
 }
@@ -151,22 +160,25 @@ class Executor {
   // because there might be additional preprocessed data structures (e.g.
   // execution order).
   //
-  void Execute(std::shared_ptr<Operator> plan) {
+  void Execute(std::shared_ptr<PlanOperator> plan) {
     mock::ExecutionContext ctx{.thread_pool = &thread_pool_};
 
     auto ops = SequentialExecutionOrder(plan);
-    for (auto &op : ops) {
-      // TODO(gitbuda): This is not correct, the point it so illustrate the
-      // concept (op.state) is moved!
-      //
-      auto notifier = []() {};
-      auto future = CallAsync(ctx, std::move(op->state), notifier);
-      auto execution = std::move(future).Wait();
-      SPDLOG_INFO("name: {} has_more: {}", op->name, execution.status.has_more);
-      while (execution.status.has_more) {
-        auto future = CallAsync(ctx, std::move(execution.state), notifier);
-        execution = std::move(future).Wait();
-        SPDLOG_INFO("name: {} has_more: {}", op->name, execution.status.has_more);
+
+    bool any_has_more = true;
+    while (any_has_more) {
+      any_has_more = false;
+      for (int64_t i = utils::MemcpyCast<int64_t>(ops.size()) - 1; i >= 0; --i) {
+        auto *op = ops[i].op;
+        auto notifier = []() {};
+        auto future = CallAsync(ctx, std::move(op->state), std::move(notifier));
+        ops[i].execution = std::move(future).Wait();
+        op->state = std::move(ops.at(i).execution.state);
+        auto status = std::move(ops.at(i).execution.status);
+        if (status.has_more) {
+          any_has_more = true;
+        }
+        SPDLOG_INFO("name: {} has_more: {}", op->name, status.has_more);
       }
     }
   }

@@ -26,11 +26,11 @@ int main(int argc, char *argv[]) {
   spdlog::set_level(spdlog::level::info);
 
   /// SYNC
-  std::vector<Operator> ops;
-  ops.emplace_back(Operator{.name = "Produce", .state = Produce{}});
-  ops.emplace_back(Operator{.name = "ScanAll", .state = ScanAll{}});
-  ops.emplace_back(Operator{.name = "ScanAll", .state = ScanAll{}});
-  ops.emplace_back(Operator{.name = "Once", .state = Once{}});
+  std::vector<PlanOperator> ops;
+  ops.emplace_back(PlanOperator{.name = "Produce", .state = Produce{}});
+  ops.emplace_back(PlanOperator{.name = "ScanAll", .state = ScanAll{}});
+  ops.emplace_back(PlanOperator{.name = "ScanAll", .state = ScanAll{}});
+  ops.emplace_back(PlanOperator{.name = "Once", .state = Once{}});
   for (auto &op : ops) {
     auto status = Call(op.state);
     SPDLOG_INFO("name: {} has_more: {}", op.name, status.has_more);
@@ -41,9 +41,9 @@ int main(int argc, char *argv[]) {
   }
 
   /// ASYNC
-  std::vector<Operator> ops_async;
-  ops_async.emplace_back(Operator{.name = "Once", .state = Once{}});
-  ops_async.emplace_back(Operator{.name = "ScanAll", .state = ScanAll{}});
+  std::vector<PlanOperator> ops_async;
+  ops_async.emplace_back(PlanOperator{.name = "Once", .state = Once{}});
+  ops_async.emplace_back(PlanOperator{.name = "ScanAll", .state = ScanAll{}});
   memgraph::utils::ThreadPool thread_pool{8};
   mock::ExecutionContext ctx{.thread_pool = &thread_pool};
   for (auto &op : ops_async) {

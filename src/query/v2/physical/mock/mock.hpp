@@ -40,7 +40,7 @@ template <typename TDataFun>
 using TCursorScanAll = physical::ScanAllCursor<TDataFun>;
 using TCursorProduce = physical::ProduceCursor;
 
-using TExecutionOperator = physical::execution::Operator;
+using TExecutionOperator = physical::execution::PlanOperator;
 using TExecutionOnce = physical::execution::Once;
 using TExecutionScanAll = physical::execution::ScanAll;
 using TExecutionProduce = physical::execution::Produce;
@@ -152,13 +152,13 @@ inline TCursorPtr MakePullPlan(const std::vector<Op> &ops) {
 }
 
 // TODO(gitbuda): Here should be some https://en.wikipedia.org/wiki/Topological_sorting container.
-inline std::shared_ptr<execution::Operator> MakeAsyncPlan(const std::vector<Op> &ops, int pool_size, int mf_size) {
-  std::shared_ptr<execution::Operator> plan = nullptr;
+inline std::shared_ptr<execution::PlanOperator> MakeAsyncPlan(const std::vector<Op> &ops, int pool_size, int mf_size) {
+  std::shared_ptr<execution::PlanOperator> plan = nullptr;
   auto current = plan;
   // TODO(gitbuda): This looks messy, implement factory functions.
   for (const auto &op : ops) {
     if (op.type == OpType::Once) {
-      auto once_ptr = std::make_shared<execution::Operator>(execution::Operator{
+      auto once_ptr = std::make_shared<execution::PlanOperator>(execution::PlanOperator{
           .name = "Once", .children = {}, .data_pool = std::make_unique<TDataPool>(pool_size, mf_size)});
       execution::Once once_state{.op = once_ptr.get()};
       once_ptr->state = once_state;
@@ -166,7 +166,7 @@ inline std::shared_ptr<execution::Operator> MakeAsyncPlan(const std::vector<Op> 
       current = once_ptr;
 
     } else if (op.type == OpType::ScanAll) {
-      auto scan_all_ptr = std::make_shared<execution::Operator>(execution::Operator{
+      auto scan_all_ptr = std::make_shared<execution::PlanOperator>(execution::PlanOperator{
           .name = "ScanAll", .children = {}, .data_pool = std::make_unique<TDataPool>(pool_size, mf_size)});
       execution::ScanAll scan_all_state{.op = scan_all_ptr.get()};
       scan_all_ptr->state = std::move(scan_all_state);
@@ -174,7 +174,7 @@ inline std::shared_ptr<execution::Operator> MakeAsyncPlan(const std::vector<Op> 
       current = scan_all_ptr;
 
     } else if (op.type == OpType::Produce) {
-      auto produce_ptr = std::make_shared<execution::Operator>(execution::Operator{
+      auto produce_ptr = std::make_shared<execution::PlanOperator>(execution::PlanOperator{
           .name = "Produce", .children = {}, .data_pool = std::make_unique<TDataPool>(pool_size, mf_size)});
       execution::Produce produce_state{.op = produce_ptr.get()};
       produce_ptr->state = std::move(produce_state);
