@@ -71,7 +71,7 @@ int main(int argc, char *argv[]) {
   using OpType = memgraph::query::v2::physical::mock::OpType;
   std::vector<int> pool_sizes = {1, 2, 4, 8, 16};
   std::vector<int> mf_sizes = {1, 10, 100, 1000, 10000};
-  int scan_all_elems = 2;
+  int scan_all_elems = 3;
   std::vector<Op> ops{
       Op{.type = OpType::Produce},
       Op{.type = OpType::ScanAll, .props = {scan_all_elems}},

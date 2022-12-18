@@ -153,33 +153,33 @@ inline TCursorPtr MakePullPlan(const std::vector<Op> &ops) {
 
 // TODO(gitbuda): Here should be some https://en.wikipedia.org/wiki/Topological_sorting container.
 inline std::shared_ptr<execution::PlanOperator> MakeAsyncPlan(const std::vector<Op> &ops, int pool_size, int mf_size) {
+  std::vector<Op> reversed_ops(ops.rbegin(), ops.rend());
   std::shared_ptr<execution::PlanOperator> plan = nullptr;
   auto current = plan;
   // TODO(gitbuda): This looks messy, implement factory functions.
-  for (const auto &op : ops) {
+  for (const auto &op : reversed_ops) {
     if (op.type == OpType::Once) {
       auto once_ptr = std::make_shared<execution::PlanOperator>(execution::PlanOperator{
           .name = "Once", .children = {}, .data_pool = std::make_unique<TDataPool>(pool_size, mf_size)});
       execution::Once once_state{.op = once_ptr.get()};
       once_ptr->state = once_state;
-      current->children.push_back(once_ptr);
       current = once_ptr;
 
     } else if (op.type == OpType::ScanAll) {
       auto scan_all_ptr = std::make_shared<execution::PlanOperator>(execution::PlanOperator{
-          .name = "ScanAll", .children = {}, .data_pool = std::make_unique<TDataPool>(pool_size, mf_size)});
-      execution::ScanAll scan_all_state{.op = scan_all_ptr.get(), .results = op.props[SCANALL_ELEMS_POS]};
+          .name = "ScanAll", .children = {current}, .data_pool = std::make_unique<TDataPool>(pool_size, mf_size)});
+      execution::ScanAll scan_all_state{
+          .op = scan_all_ptr.get(), .children = {current.get()}, .results = op.props[SCANALL_ELEMS_POS]};
       scan_all_ptr->state = std::move(scan_all_state);
-      current->children.push_back(scan_all_ptr);
       current = scan_all_ptr;
 
     } else if (op.type == OpType::Produce) {
       auto produce_ptr = std::make_shared<execution::PlanOperator>(execution::PlanOperator{
-          .name = "Produce", .children = {}, .data_pool = std::make_unique<TDataPool>(pool_size, mf_size)});
-      execution::Produce produce_state{.op = produce_ptr.get()};
+          .name = "Produce", .children = {current}, .data_pool = std::make_unique<TDataPool>(pool_size, mf_size)});
+      execution::Produce produce_state{.op = produce_ptr.get(), .children = {current.get()}};
       produce_ptr->state = std::move(produce_state);
-      plan = produce_ptr;
       current = produce_ptr;
+      plan = produce_ptr;
 
     } else {
       SPDLOG_ERROR("Unknown operator {}", op.type);

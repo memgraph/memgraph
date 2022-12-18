@@ -85,7 +85,13 @@ inline Status Execute(ScanAll &state) {
   return Status{.has_more = true};
 }
 
-inline Status Execute(Produce & /*unused*/) { return Status{.has_more = false}; }
+inline Status Execute(Produce &state) {
+  auto &child_state = state.children[0]->state;
+  if (std::holds_alternative<ScanAll>(child_state) && std::get<ScanAll>(child_state).results > 0) {
+    return Status{.has_more = true};
+  }
+  return Status{.has_more = false};
+}
 
 /// ASYNC EXECUTE WRAPPERS
 
@@ -122,14 +128,15 @@ inline io::Future<Execution> CallAsync(mock::ExecutionContext &ctx, VarState &&a
 
 inline std::vector<ExecutionOperator> SequentialExecutionOrder(std::shared_ptr<PlanOperator> plan) {
   // TODO(gitbuda): Implement proper topological order.
-  std::vector<ExecutionOperator> ops{ExecutionOperator{.op = plan.get()}};
+  std::vector<ExecutionOperator> ops{
+      ExecutionOperator{.op = plan.get(), .execution = Execution{.status = Status{.has_more = true}}}};
   PlanOperator *op = plan.get();
   while (true) {
     if (op->children.empty()) {
       break;
     }
     op = op->children[0].get();
-    ops.push_back(ExecutionOperator{.op = op});
+    ops.push_back(ExecutionOperator{.op = op, .execution = Execution{.status = Status{.has_more = true}}});
   }
   return ops;
 }
@@ -176,6 +183,9 @@ class Executor {
     while (any_has_more) {
       any_has_more = false;
       for (int64_t i = utils::MemcpyCast<int64_t>(ops.size()) - 1; i >= 0; --i) {
+        if (!ops.at(i).execution.status.has_more) {
+          continue;
+        }
         auto *op = ops[i].op;
         auto notifier = []() {};
         auto future = CallAsync(ctx, std::move(op->state), std::move(notifier));
