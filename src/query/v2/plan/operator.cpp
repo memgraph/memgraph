@@ -516,11 +516,11 @@ class DistributedScanAllAndFilterCursor : public Cursor {
     valid_frames_it_ = valid_frames_consumer_->begin();
 
     MakeRequest(request_router, context);
-
-    has_next_frame_ = current_vertex_it_ != current_batch_.end() && valid_frames_it_ != valid_frames_consumer_->end();
   }
 
-  inline bool HasNextFrame() const { return has_next_frame_; }
+  inline bool HasNextFrame() {
+    return current_vertex_it_ != current_batch_.end() && valid_frames_it_ != valid_frames_consumer_->end();
+  }
 
   FrameWithValidity GetNextFrame(ExecutionContext &context) {
     MG_ASSERT(HasNextFrame());
@@ -600,7 +600,6 @@ class DistributedScanAllAndFilterCursor : public Cursor {
   std::optional<ValidFramesConsumer> valid_frames_consumer_;
   ValidFramesConsumer::Iterator valid_frames_it_;
   std::queue<FrameWithValidity> frames_buffer_;
-  bool has_next_frame_;
 };
 
 ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::v3::View view)
