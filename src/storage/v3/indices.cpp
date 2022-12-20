@@ -654,6 +654,7 @@ int64_t LabelPropertyIndex::VertexCount(LabelId label, PropertyId property, cons
   MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
   MG_ASSERT(!value.IsNull(), "Null is not supported!");
 
+  // TODO(jbajic) This can be improved by exiting early
   auto start_it = std::ranges::lower_bound(it->second, value, std::less{}, &Entry::value);
   return static_cast<int64_t>(
       std::ranges::count_if(start_it, it->second.end(), [&value](const auto &elem) { return elem.value == value; }));
