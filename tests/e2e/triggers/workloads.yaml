@@ -9,8 +9,8 @@ template_cluster: &template_cluster
 storage_properties_edges_false: &storage_properties_edges_false
   cluster:
     main:
-      args: ["--bolt-port", "7687", "--log-level=TRACE", "--also-log-to-stderr", "--storage-properties-on-edges=False"]
-      log_file: "py-query-modules-reloading-e2e.log"
+      args: ["--bolt-port", *bolt_port, "--log-level=TRACE", "--also-log-to-stderr", "--storage-properties-on-edges=False"]
+      log_file: "triggers-e2e.log"
       setup_queries: []
       validation_queries: []
 

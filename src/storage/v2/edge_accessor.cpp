@@ -21,16 +21,19 @@
 namespace memgraph::storage {
 
 bool EdgeAccessor::IsVisible(const View view) const {
-  bool visible = true;
+  bool exists = true;
+  bool deleted = true;
   // When edges don't have properties, their isolation level is still dictated by MVCC ->
   // iterate over the deltas of the from_vertex_ and see which deltas can be applied on edges.
   if (!config_.properties_on_edges) {
     Delta *delta = nullptr;
     {
       std::lock_guard<utils::SpinLock> guard(from_vertex_->lock);
-      visible = !from_vertex_->deleted;
+      deleted = from_vertex_->deleted;
       delta = from_vertex_->delta;
     }
+    // don't apply delta to some other edge
+    if (delta->vertex_edge.edge != edge_) return !deleted;
     ApplyDeltasForRead(transaction_, delta, view, [&](const Delta &delta) {
       switch (delta.action) {
         case Delta::Action::ADD_LABEL:
@@ -38,18 +41,20 @@ bool EdgeAccessor::IsVisible(const View view) const {
         case Delta::Action::SET_PROPERTY:
         case Delta::Action::REMOVE_IN_EDGE:
         case Delta::Action::ADD_IN_EDGE:
-        case Delta::Action::REMOVE_OUT_EDGE:  // relevant for the from_vertex_
-        case Delta::Action::RECREATE_OBJECT:
-        case Delta::Action::DELETE_OBJECT:
+        case Delta::Action::ADD_OUT_EDGE:  // relevant for the from_vertex_
           break;
-        case Delta::Action::ADD_OUT_EDGE:  // also relevant for the from_vertex_
-          visible = false;
+        case Delta::Action::RECREATE_OBJECT:
+        case Delta::Action::REMOVE_OUT_EDGE:  // also relevant for the from_vertex_
+          deleted = false;
+          break;
+        case Delta::Action::DELETE_OBJECT:
+          exists = false;
+          break;
       }
     });
-    return visible;
+    return exists && !deleted;
   }
-  bool deleted = true;
-  bool exists = true;
+
   Delta *delta = nullptr;
   {
     std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
