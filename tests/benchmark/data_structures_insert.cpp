@@ -24,7 +24,6 @@
 #include <gflags/gflags.h>
 
 #include "storage/v3/key_store.hpp"
-#include "storage/v3/lexicographically_ordered_vertex.hpp"
 #include "storage/v3/mvcc.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/transaction.hpp"
@@ -50,16 +49,14 @@ static void BM_BenchmarkInsertSkipList(::benchmark::State &state) {
 }
 
 static void BM_BenchmarkInsertStdMap(::benchmark::State &state) {
-  std::map<storage::v3::PrimaryKey, storage::v3::LexicographicallyOrderedVertex> std_map;
+  std::map<storage::v3::PrimaryKey, storage::v3::VertexData> std_map;
   coordinator::Hlc start_timestamp;
   storage::v3::Transaction transaction{start_timestamp, storage::v3::IsolationLevel::SNAPSHOT_ISOLATION};
   auto *delta = storage::v3::CreateDeleteObjectDelta(&transaction);
 
   for (auto _ : state) {
     for (auto i{0}; i < state.range(0); ++i) {
-      std_map.insert({storage::v3::PrimaryKey{storage::v3::PropertyValue{i}},
-                      storage::v3::LexicographicallyOrderedVertex{storage::v3::Vertex{
-                          delta, std::vector<storage::v3::PropertyValue>{storage::v3::PropertyValue{true}}}}});
+      std_map.insert({storage::v3::PrimaryKey{storage::v3::PropertyValue{i}}, storage::v3::VertexData{delta}});
     }
   }
 }

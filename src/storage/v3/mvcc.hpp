@@ -11,11 +11,20 @@
 
 #pragma once
 
+#include <type_traits>
+
+#include "storage/v3/edge.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/transaction.hpp"
+#include "storage/v3/vertex.hpp"
 #include "storage/v3/view.hpp"
+#include "utils/concepts.hpp"
 
 namespace memgraph::storage::v3 {
+
+inline VertexData *GetDeltaHolder(Vertex *vertex) { return &vertex->second; }
+
+inline Edge *GetDeltaHolder(Edge *edge) { return edge; }
 
 /// This function iterates through the undo buffers from an object (starting
 /// from the supplied delta) and determines what deltas should be applied to get
@@ -77,10 +86,12 @@ inline void ApplyDeltasForRead(Transaction *transaction, const Delta *delta, Vie
 /// transaction) and returns a `bool` value indicating whether the caller can
 /// proceed with a write operation.
 template <typename TObj>
+requires utils::SameAsAnyOf<TObj, Edge, Vertex>
 inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
-  if (object->delta == nullptr) return true;
+  auto *delta_holder = GetDeltaHolder(object);
+  if (delta_holder->delta == nullptr) return true;
 
-  const auto &delta_commit_info = *object->delta->commit_info;
+  const auto &delta_commit_info = *delta_holder->delta->commit_info;
   if (delta_commit_info.start_or_commit_timestamp == transaction->commit_info->start_or_commit_timestamp ||
       (delta_commit_info.is_locally_committed &&
        delta_commit_info.start_or_commit_timestamp < transaction->start_timestamp)) {
@@ -105,9 +116,11 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
 /// the delta into the object's delta list.
 /// @throw std::bad_alloc
 template <typename TObj, class... Args>
+requires utils::SameAsAnyOf<TObj, Edge, Vertex>
 inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&...args) {
   auto delta = &transaction->deltas.emplace_back(std::forward<Args>(args)..., transaction->commit_info.get(),
                                                  transaction->command_id);
+  auto *delta_holder = GetDeltaHolder(object);
 
   // The operations are written in such order so that both `next` and `prev`
   // chains are valid at all times. The chains must be valid at all times
@@ -118,21 +131,21 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&..
   // TODO(antaljanosbenjamin): clang-tidy detects (in my opinion a false positive) issue in
   // `Shard::Accessor::CreateEdge`.
   // NOLINTNEXTLINE(clang-analyzer-core.NullDereference)
-  delta->next = object->delta;
+  delta->next = delta_holder->delta;
   // 2. We need to set the previous delta of the new delta to the object.
   delta->prev.Set(object);
   // 3. We need to set the previous delta of the existing delta to the new
   // delta. After this point the garbage collector will be able to see the new
   // delta but won't modify it until we are done with all of our modifications.
-  if (object->delta) {
-    object->delta->prev.Set(delta);
+  if (delta_holder->delta) {
+    delta_holder->delta->prev.Set(delta);
   }
   // 4. Finally, we need to set the object's delta to the new delta. The garbage
   // collector and other transactions will acquire the object lock to read the
   // delta from the object. Because the lock is held during the whole time this
   // modification is being done, everybody else will wait until we are fully
   // done with our modification before they read the object's delta value.
-  object->delta = delta;
+  delta_holder->delta = delta;
 }
 
 }  // namespace memgraph::storage::v3
