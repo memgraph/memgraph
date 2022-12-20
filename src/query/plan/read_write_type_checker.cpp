@@ -101,7 +101,7 @@ void ReadWriteTypeChecker::UpdateType(RWType op_type) {
   // if op_type is NONE, type doesn't change.
   if (op_type == RWType::NONE) {
     return;
-  }  
+  }
 
   // Update type only if it's not the NONE type and the current operator's type
   // is different than the one that's currently inferred.
@@ -109,7 +109,7 @@ void ReadWriteTypeChecker::UpdateType(RWType op_type) {
     type = RWType::RW;
   }
 
-  if (type == RWType::NONE && op_type != RWType::NONE) {
+  if (type == RWType::NONE) {
     type = op_type;
   }
 }

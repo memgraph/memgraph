@@ -255,16 +255,24 @@ TEST_F(ReadWriteTypeCheckTest, Foreach) {
 }
 
 TEST_F(ReadWriteTypeCheckTest, CheckUpdateType) {
-  RWType scenarios[16][3] = {
-      {RWType::NONE, RWType::NONE, RWType::NONE}, {RWType::NONE, RWType::R, RWType::R},
-      {RWType::NONE, RWType::W, RWType::W},       {RWType::NONE, RWType::RW, RWType::RW},
-      {RWType::R, RWType::NONE, RWType::R},       {RWType::R, RWType::R, RWType::R},
-      {RWType::R, RWType::W, RWType::RW},         {RWType::R, RWType::RW, RWType::RW},
-      {RWType::W, RWType::NONE, RWType::W},       {RWType::W, RWType::R, RWType::RW},
-      {RWType::W, RWType::W, RWType::W},          {RWType::W, RWType::RW, RWType::RW},
-      {RWType::RW, RWType::NONE, RWType::RW},     {RWType::RW, RWType::R, RWType::RW},
-      {RWType::RW, RWType::W, RWType::RW},        {RWType::RW, RWType::RW, RWType::RW},
-  };
+  std::array<std::array<RWType, 3>, 16> scenarios = {{
+      {RWType::NONE, RWType::NONE, RWType::NONE},
+      {RWType::NONE, RWType::R, RWType::R},
+      {RWType::NONE, RWType::W, RWType::W},
+      {RWType::NONE, RWType::RW, RWType::RW},
+      {RWType::R, RWType::NONE, RWType::R},
+      {RWType::R, RWType::R, RWType::R},
+      {RWType::R, RWType::W, RWType::RW},
+      {RWType::R, RWType::RW, RWType::RW},
+      {RWType::W, RWType::NONE, RWType::W},
+      {RWType::W, RWType::R, RWType::RW},
+      {RWType::W, RWType::W, RWType::W},
+      {RWType::W, RWType::RW, RWType::RW},
+      {RWType::RW, RWType::NONE, RWType::RW},
+      {RWType::RW, RWType::R, RWType::RW},
+      {RWType::RW, RWType::W, RWType::RW},
+      {RWType::RW, RWType::RW, RWType::RW},
+  }};
 
   auto rw_type_checker = ReadWriteTypeChecker();
   for (auto scenario : scenarios) {
