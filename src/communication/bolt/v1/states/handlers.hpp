@@ -96,7 +96,9 @@ State HandleRun(TSession &session, const State state, const Value &query, const 
     vec.reserve(header.size());
     for (auto &i : header) vec.emplace_back(std::move(i));
     data.emplace("fields", std::move(vec));
-    data.emplace("qid", Value{*qid});
+    if (qid.has_value()) {
+      data.emplace("qid", Value{*qid});
+    }
 
     // Send the header.
     if (!session.encoder_.MessageSuccess(data)) {

@@ -164,14 +164,9 @@ QueryData Client::Execute(const std::string &query, const std::map<std::string, 
     ret.fields.emplace_back(std::move(field_item.ValueString()));
   }
 
-  if (header.find("qid") == header.end()) {
-    throw ServerMalformedDataException();
+  if (header.find("qid") != header.end()) {
+    ret.qid = header["qid"].ValueInt();
   }
-  if (header["qid"].type() != Value::Type::Int) {
-    throw ServerMalformedDataException();
-  }
-
-  ret.qid = header["qid"].ValueInt();
 
   return ret;
 }
