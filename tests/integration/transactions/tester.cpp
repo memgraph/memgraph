@@ -48,7 +48,7 @@ class BoltClient : public ::testing::Test {
   bool ExecuteAndCheckQid(const std::string &query, int qid, const std::string &message = "") {
     try {
       auto ret = client_.Execute(query, {});
-      if (ret.qid != qid) {
+      if (ret.metadata["qid"].ValueInt() != qid) {
         return false;
       }
     } catch (const ClientQueryException &e) {
@@ -478,7 +478,7 @@ TEST_F(BoltClient, MixedCaseAndWhitespace) {
 
 TEST_F(BoltClient, TestQid) {
   for (int i = 0; i < 3; ++i) {
-    EXPECT_TRUE(ExecuteAndCheckQid("match (n) return count(n)", 0));
+    EXPECT_TRUE(Execute("match (n) return count(n)"));
   }
   EXPECT_TRUE(Execute("begin"));
   for (int i = 0; i < 3; ++i) {

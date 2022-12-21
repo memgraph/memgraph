@@ -78,7 +78,6 @@ struct QueryData {
   std::vector<std::string> fields;
   std::vector<std::vector<Value>> records;
   std::map<std::string, Value> metadata;
-  std::int64_t qid;
 };
 
 /// Bolt client.
