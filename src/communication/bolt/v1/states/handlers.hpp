@@ -74,7 +74,7 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::ex
 namespace details {
 
 template <typename TSession>
-State HandleRun(TSession &session, const State state, const Value &query, const Value &params) {
+State HandleRun(TSession &session, const State state, const Value &query, const Value &params, const bool return_qid) {
   if (state != State::Idle) {
     // Client could potentially recover if we move to error state, but there is
     // no legitimate situation in which well working client would end up in this
@@ -96,7 +96,7 @@ State HandleRun(TSession &session, const State state, const Value &query, const 
     vec.reserve(header.size());
     for (auto &i : header) vec.emplace_back(std::move(i));
     data.emplace("fields", std::move(vec));
-    if (qid.has_value()) {
+    if (return_qid && qid.has_value()) {
       data.emplace("qid", Value{*qid});
     }
 
@@ -233,7 +233,7 @@ State HandleRunV1(TSession &session, const State state, const Marker marker) {
     return State::Close;
   }
 
-  return details::HandleRun(session, state, query, params);
+  return details::HandleRun(session, state, query, params, false);
 }
 
 template <typename TSession>
@@ -261,7 +261,7 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
     spdlog::trace("Couldn't read extra field!");
   }
 
-  return details::HandleRun(session, state, query, params);
+  return details::HandleRun(session, state, query, params, true);
 }
 
 template <typename TSession>
