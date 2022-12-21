@@ -24,3 +24,9 @@ add_subdirectory(mg_import_csv)
 
 # license_check test binaries
 add_subdirectory(license_info)
+
+#environment variable check binaries
+add_subdirectory(env_variable_check)
+
+#flag check binaries
+add_subdirectory(flag_check)

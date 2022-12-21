@@ -114,6 +114,7 @@ extern const Event UnionOperator;
 extern const Event CartesianOperator;
 extern const Event CallProcedureOperator;
 extern const Event ForeachOperator;
+extern const Event EmptyResultOperator;
 }  // namespace EventCounter
 
 namespace memgraph::query::plan {
@@ -3057,6 +3058,56 @@ bool EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Pull(Frame &frame, Execut
 void EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Reset() { input_cursor_->Reset(); }
+
+EmptyResult::EmptyResult(const std::shared_ptr<LogicalOperator> &input)
+    : input_(input ? input : std::make_shared<Once>()) {}
+
+ACCEPT_WITH_INPUT(EmptyResult)
+
+std::vector<Symbol> EmptyResult::OutputSymbols(const SymbolTable &) const {  // NOLINT(hicpp-named-parameter)
+  return {};
+}
+
+std::vector<Symbol> EmptyResult::ModifiedSymbols(const SymbolTable &) const {  // NOLINT(hicpp-named-parameter)
+  return {};
+}
+
+class EmptyResultCursor : public Cursor {
+ public:
+  EmptyResultCursor(const EmptyResult &self, utils::MemoryResource *mem)
+      : input_cursor_(self.input_->MakeCursor(mem)) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("EmptyResult");
+
+    if (!pulled_all_input_) {
+      while (input_cursor_->Pull(frame, context)) {
+        if (MustAbort(context)) {
+          throw HintedAbortError();
+        }
+      }
+      pulled_all_input_ = true;
+    }
+    return false;
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    pulled_all_input_ = false;
+  }
+
+ private:
+  const UniqueCursorPtr input_cursor_;
+  bool pulled_all_input_{false};
+};
+
+UniqueCursorPtr EmptyResult::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::EmptyResultOperator);
+
+  return MakeUniqueCursorPtr<EmptyResultCursor>(mem, *this, mem);
+}
 
 Accumulate::Accumulate(const std::shared_ptr<LogicalOperator> &input, const std::vector<Symbol> &symbols,
                        bool advance_command)

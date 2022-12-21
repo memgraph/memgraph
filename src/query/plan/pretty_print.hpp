@@ -80,6 +80,7 @@ class PlanPrinter : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(Optional &) override;
   bool PreVisit(Cartesian &) override;
 
+  bool PreVisit(EmptyResult &) override;
   bool PreVisit(Produce &) override;
   bool PreVisit(Accumulate &) override;
   bool PreVisit(Aggregate &) override;
@@ -195,6 +196,7 @@ class PlanToJsonVisitor : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanAllByLabelProperty &) override;
   bool PreVisit(ScanAllById &) override;
 
+  bool PreVisit(EmptyResult &) override;
   bool PreVisit(Produce &) override;
   bool PreVisit(Accumulate &) override;
   bool PreVisit(Aggregate &) override;

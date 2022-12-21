@@ -1,0 +1,6 @@
+copy_query_modules_reloading_procedures_e2e_python_files(test_module.py)
+copy_query_modules_reloading_procedures_e2e_python_files(new_test_module.py)
+
+add_subdirectory(mage)
+add_subdirectory(new_test_module_utils)
+
