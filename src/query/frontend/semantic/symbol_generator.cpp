@@ -334,7 +334,11 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
       }
       type = scope.visiting_edge->IsVariable() ? Symbol::Type::EDGE_LIST : Symbol::Type::EDGE;
     }
-    symbol = GetOrCreateSymbolLocalScope(ident.name_, ident.user_declared_, type);
+    if (scope.in_foreach) {
+      symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, type);
+    } else {
+      symbol = GetOrCreateSymbolLocalScope(ident.name_, ident.user_declared_, type);
+    }
   } else if (scope.in_pattern && !scope.in_pattern_atom_identifier && scope.in_match) {
     if (scope.in_edge_range && scope.visiting_edge->identifier_->name_ == ident.name_) {
       // Prevent variable path bounds to reference the identifier which is bound
