@@ -19,7 +19,7 @@ def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}
     return cursor.fetchall()
 
 
-def connect(**kwargs) -> mgclient.Connection:
+def connect(autocommit=True, **kwargs) -> mgclient.Connection:
     connection = mgclient.connect(host="localhost", port=7687, **kwargs)
-    connection.autocommit = True
+    connection.autocommit = autocommit
     return connection
