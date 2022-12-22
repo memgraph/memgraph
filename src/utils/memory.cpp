@@ -251,9 +251,10 @@ void Pool::Release() {
 
 }  // namespace impl
 
-PoolResource::PoolResource(size_t max_blocks_per_chunk, size_t max_block_size, MemoryResource *memory)
-    : pools_(memory),
-      unpooled_(memory),
+PoolResource::PoolResource(size_t max_blocks_per_chunk, size_t max_block_size, MemoryResource *memory_pools,
+                           MemoryResource *memory_unpooled)
+    : pools_(memory_pools),
+      unpooled_(memory_unpooled),
       max_blocks_per_chunk_(std::min(max_blocks_per_chunk, static_cast<size_t>(impl::Pool::MaxBlocksInChunk()))),
       max_block_size_(max_block_size) {
   MG_ASSERT(max_blocks_per_chunk_ > 0U, "Invalid number of blocks per chunk");
@@ -273,14 +274,14 @@ void *PoolResource::DoAllocate(size_t bytes, size_t alignment) {
   if (block_size % alignment != 0) throw BadAlloc("Requested bytes must be a multiple of alignment");
   if (block_size > max_block_size_) {
     // Allocate a big block.
-    BigBlock big_block{bytes, alignment, GetUpstreamResource()->Allocate(bytes, alignment)};
+    BigBlock big_block{bytes, alignment, GetUpstreamResourceBlocks()->Allocate(bytes, alignment)};
     // Insert the big block in the sorted position.
     auto it = std::lower_bound(unpooled_.begin(), unpooled_.end(), big_block,
                                [](const auto &a, const auto &b) { return a.data < b.data; });
     try {
       unpooled_.insert(it, big_block);
     } catch (...) {
-      GetUpstreamResource()->Deallocate(big_block.data, bytes, alignment);
+      GetUpstreamResourceBlocks()->Deallocate(big_block.data, bytes, alignment);
       throw;
     }
     return big_block.data;
@@ -318,7 +319,7 @@ void PoolResource::DoDeallocate(void *p, size_t bytes, size_t alignment) {
     MG_ASSERT(it != unpooled_.end(), "Failed deallocation");
     MG_ASSERT(it->data == p && it->bytes == bytes && it->alignment == alignment, "Failed deallocation");
     unpooled_.erase(it);
-    GetUpstreamResource()->Deallocate(p, bytes, alignment);
+    GetUpstreamResourceBlocks()->Deallocate(p, bytes, alignment);
     return;
   }
   // Deallocate a regular block, first check if last_dealloc_pool_ is suitable.
@@ -339,7 +340,7 @@ void PoolResource::Release() {
   for (auto &pool : pools_) pool.Release();
   pools_.clear();
   for (auto &big_block : unpooled_)
-    GetUpstreamResource()->Deallocate(big_block.data, big_block.bytes, big_block.alignment);
+    GetUpstreamResourceBlocks()->Deallocate(big_block.data, big_block.bytes, big_block.alignment);
   unpooled_.clear();
   last_alloc_pool_ = nullptr;
   last_dealloc_pool_ = nullptr;
