@@ -1283,7 +1283,7 @@ class Graph:
             raise InvalidContextError()
         self._graph.detach_delete_vertex(vertex._vertex)
 
-    def create_edge(self, from_vertex: Vertex, to_vertex: Vertex, edge_type: EdgeType) -> None:
+    def create_edge(self, from_vertex: Vertex, to_vertex: Vertex, edge_type: EdgeType) -> Edge:
         """
         Create an edge.
 
@@ -1292,13 +1292,16 @@ class Graph:
             to_vertex: `Vertex'  to where edge is directed.
             edge_type:  `EdgeType` defines the type of edge.
 
+        Returns:
+            Created `Edge`.
+
         Raises:
             ImmutableObjectError: If `graph` is immutable.
             UnableToAllocateError: If unable to allocate an edge.
             DeletedObjectError: If `from_vertex` or `to_vertex` has been deleted.
             SerializationError: If `from_vertex` or `to_vertex` has been modified by another transaction.
         Examples:
-            ```graph.create_edge(from_vertex, vertex, edge_type)```
+            ```edge = graph.create_edge(from_vertex, vertex, edge_type)```
         """
         if not self.is_valid():
             raise InvalidContextError()
