@@ -253,3 +253,31 @@ TEST_F(ReadWriteTypeCheckTest, Foreach) {
   std::shared_ptr<LogicalOperator> foreach = std::make_shared<plan::Foreach>(nullptr, nullptr, nullptr, x);
   CheckPlanType(foreach.get(), RWType::RW);
 }
+
+TEST_F(ReadWriteTypeCheckTest, CheckUpdateType) {
+  std::array<std::array<RWType, 3>, 16> scenarios = {{
+      {RWType::NONE, RWType::NONE, RWType::NONE},
+      {RWType::NONE, RWType::R, RWType::R},
+      {RWType::NONE, RWType::W, RWType::W},
+      {RWType::NONE, RWType::RW, RWType::RW},
+      {RWType::R, RWType::NONE, RWType::R},
+      {RWType::R, RWType::R, RWType::R},
+      {RWType::R, RWType::W, RWType::RW},
+      {RWType::R, RWType::RW, RWType::RW},
+      {RWType::W, RWType::NONE, RWType::W},
+      {RWType::W, RWType::R, RWType::RW},
+      {RWType::W, RWType::W, RWType::W},
+      {RWType::W, RWType::RW, RWType::RW},
+      {RWType::RW, RWType::NONE, RWType::RW},
+      {RWType::RW, RWType::R, RWType::RW},
+      {RWType::RW, RWType::W, RWType::RW},
+      {RWType::RW, RWType::RW, RWType::RW},
+  }};
+
+  auto rw_type_checker = ReadWriteTypeChecker();
+  for (auto scenario : scenarios) {
+    rw_type_checker.type = scenario[0];
+    rw_type_checker.UpdateType(scenario[1]);
+    EXPECT_EQ(scenario[2], rw_type_checker.type);
+  }
+}
