@@ -40,7 +40,7 @@ std::optional<utils::pmr::string> Reader::GetNextLine(utils::MemoryResource *mem
     return std::nullopt;
   }
   ++line_count_;
-  return line;
+  return std::move(line);
 }
 
 Reader::ParsingResult Reader::ParseHeader() {

@@ -4528,24 +4528,24 @@ auto ToOptionalString(ExpressionEvaluator *evaluator, Expression *expression) ->
   return std::nullopt;
 };
 
-TypedValue CsvRowToTypedList(csv::Reader::Row row) {
+TypedValue CsvRowToTypedList(csv::Reader::Row &row) {
   auto *mem = row.get_allocator().GetMemoryResource();
   auto typed_columns = utils::pmr::vector<TypedValue>(mem);
   typed_columns.reserve(row.size());
   for (auto &column : row) {
     typed_columns.emplace_back(std::move(column));
   }
-  return TypedValue(typed_columns, mem);
+  return {std::move(typed_columns), mem};
 }
 
-TypedValue CsvRowToTypedMap(csv::Reader::Row row, csv::Reader::Header header) {
+TypedValue CsvRowToTypedMap(csv::Reader::Row &row, csv::Reader::Header header) {
   // a valid row has the same number of elements as the header
   auto *mem = row.get_allocator().GetMemoryResource();
   utils::pmr::map<utils::pmr::string, TypedValue> m(mem);
   for (auto i = 0; i < row.size(); ++i) {
     m.emplace(std::move(header[i]), std::move(row[i]));
   }
-  return TypedValue(m, mem);
+  return {std::move(m), mem};
 }
 
 }  // namespace
@@ -4584,18 +4584,17 @@ class LoadCsvCursor : public Cursor {
     // have to read at most cardinality(n) rows (but we can read less and stop
     // pulling MATCH).
     if (!input_is_once_ && !input_pulled) return false;
-
-    if (auto row = reader_->GetNextRow(context.evaluation_context.memory)) {
-      if (!reader_->HasHeader()) {
-        frame[self_->row_var_] = CsvRowToTypedList(std::move(*row));
-      } else {
-        frame[self_->row_var_] = CsvRowToTypedMap(
-            std::move(*row), csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory));
-      }
-      return true;
+    auto row = reader_->GetNextRow(context.evaluation_context.memory);
+    if (!row) {
+      return false;
     }
-
-    return false;
+    if (!reader_->HasHeader()) {
+      frame[self_->row_var_] = CsvRowToTypedList(*row);
+    } else {
+      frame[self_->row_var_] =
+          CsvRowToTypedMap(*row, csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory));
+    }
+    return true;
   }
 
   void Reset() override { input_cursor_->Reset(); }
