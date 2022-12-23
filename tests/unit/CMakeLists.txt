@@ -334,9 +334,6 @@ target_link_libraries(${test_prefix}query_v2_physical_plan mg-query-v2 rapidchec
 add_unit_test(storage_v3_property_store.cpp)
 target_link_libraries(${test_prefix}storage_v3_property_store mg-storage-v3 fmt)
 
-add_unit_test(storage_v3_key_store.cpp)
-target_link_libraries(${test_prefix}storage_v3_key_store mg-storage-v3 rapidcheck rapidcheck_gtest)
-
 add_unit_test(storage_v3_indices.cpp)
 target_link_libraries(${test_prefix}storage_v3_indices mg-storage-v3)
 

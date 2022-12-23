@@ -11,17 +11,18 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include "storage/v3/edge_ref.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
+#include "storage/v3/vertex.hpp"
 #include "storage/v3/vertex_id.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::storage::v3 {
 
 // Forward declarations because we only store pointers here.
-struct Vertex;
 struct Edge;
 struct Delta;
 struct CommitInfo;
@@ -129,7 +130,7 @@ inline bool operator==(const PreviousPtr::Pointer &a, const PreviousPtr::Pointer
 inline bool operator!=(const PreviousPtr::Pointer &a, const PreviousPtr::Pointer &b) { return !(a == b); }
 
 struct Delta {
-  enum class Action {
+  enum class Action : uint8_t {
     // Used for both Vertex and Edge
     DELETE_OBJECT,
     RECREATE_OBJECT,
