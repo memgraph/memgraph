@@ -21,7 +21,7 @@ def test_create_on_create(ba_commit):
     Args:
         ba_commit (str): BEFORE OR AFTER commit
     """
-    cursor = connect().cursor()
+    cursor = next(connect()).cursor()
     QUERY_TRIGGER_CREATE = f"""
         CREATE TRIGGER CreateTriggerEdgesCount
         ON --> CREATE
@@ -56,7 +56,7 @@ def test_create_on_delete(ba_commit):
     Args:
         ba_commit (str): BEFORE OR AFTER commit
     """
-    cursor = connect().cursor()
+    cursor = next(connect()).cursor()
     QUERY_TRIGGER_CREATE = f"""
         CREATE TRIGGER DeleteTriggerEdgesCount
         ON --> DELETE
@@ -108,7 +108,7 @@ def test_create_on_delete_explicit_transaction(ba_commit):
     Args:
         ba_commit (str): BEFORE OR AFTER commit
     """
-    connection_with_autocommit = connect(autocommit=True)
+    connection_with_autocommit = next(connect(autocommit=True))
     cursor_autocommit = connection_with_autocommit.cursor()
     QUERY_TRIGGER_CREATE = f"""
         CREATE TRIGGER DeleteTriggerEdgesCountExplicit
@@ -120,7 +120,7 @@ def test_create_on_delete_explicit_transaction(ba_commit):
     # Setup queries
     execute_and_fetch_all(cursor_autocommit, QUERY_TRIGGER_CREATE)
     # Start explicit transaction on the execution of the first command
-    connection_without_autocommit = connect(autocommit=False)
+    connection_without_autocommit = next(connect(autocommit=False))
     cursor = connection_without_autocommit.cursor()
     execute_and_fetch_all(cursor, "CREATE (n:Node {id: 1})")
     execute_and_fetch_all(cursor, "CREATE (n:Node {id: 2})")
