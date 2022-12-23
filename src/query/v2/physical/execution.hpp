@@ -176,9 +176,11 @@ class Executor {
   //
   void Execute(std::shared_ptr<PlanOperator> plan) {
     mock::ExecutionContext ctx{.thread_pool = &thread_pool_};
-
     auto ops = SequentialExecutionOrder(plan);
 
+    // TODO(gitbuda): Use Notifier to Await all operators to finish.
+    std::vector<io::Future<Execution>> futures;
+    futures.reserve(ops.size());
     bool any_has_more = true;
     while (any_has_more) {
       any_has_more = false;
@@ -186,17 +188,23 @@ class Executor {
         if (!ops.at(i).execution.status.has_more) {
           continue;
         }
+        auto fi = futures.size();
+        auto notifier = [i, fi, &futures, &ops, &any_has_more]() {
+          auto *op = ops[i].op;
+          ops[i].execution = *(futures[fi].TryGet());
+          op->state = std::move(ops.at(i).execution.state);
+          auto status = std::move(ops.at(i).execution.status);
+          if (status.has_more) {
+            any_has_more = true;
+          }
+        };
         auto *op = ops[i].op;
-        auto notifier = []() {};
         auto future = CallAsync(ctx, std::move(op->state), std::move(notifier));
-        ops[i].execution = std::move(future).Wait();
-        op->state = std::move(ops.at(i).execution.state);
-        auto status = std::move(ops.at(i).execution.status);
-        if (status.has_more) {
-          any_has_more = true;
-        }
-        SPDLOG_INFO("name: {} has_more: {}", op->name, status.has_more);
+        futures.emplace_back(std::move(future));
       }
+      std::this_thread::sleep_for(std::chrono::microseconds(10000));
+      futures.clear();
+      futures.reserve(ops.size());
     }
   }
 
