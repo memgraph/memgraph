@@ -91,18 +91,25 @@ bool ReadWriteTypeChecker::PreVisit([[maybe_unused]] Foreach &op) {
 bool ReadWriteTypeChecker::Visit(Once &) { return false; }  // NOLINT(hicpp-named-parameter)
 
 void ReadWriteTypeChecker::UpdateType(RWType op_type) {
-  // Update type only if it's not the NONE type and the current operator's type
-  // is different than the one that's currently inferred.
-  if (type != RWType::NONE && type != op_type) {
-    type = RWType::RW;
-  }
   // Stop inference because RW is the most "dominant" type, i.e. it isn't
   // affected by the type of nodes in the plan appearing after the node for
   // which the type is set to RW.
   if (type == RWType::RW) {
     return;
   }
-  if (type == RWType::NONE && op_type != RWType::NONE) {
+
+  // if op_type is NONE, type doesn't change.
+  if (op_type == RWType::NONE) {
+    return;
+  }
+
+  // Update type only if it's not the NONE type and the current operator's type
+  // is different than the one that's currently inferred.
+  if (type != RWType::NONE && type != op_type) {
+    type = RWType::RW;
+  }
+
+  if (type == RWType::NONE) {
     type = op_type;
   }
 }
