@@ -31,7 +31,7 @@ struct NonCopyable {
   ~NonCopyable() = default;
 };
 
-struct PlanOperator;
+struct DataOperator;
 
 struct Status {
   bool has_more;
@@ -42,17 +42,17 @@ struct Status {
 
 /// STATES
 struct Once {
-  PlanOperator *op;
+  DataOperator *op;
   bool has_more{true};
 };
 struct ScanAll {
-  PlanOperator *op;
-  std::vector<PlanOperator *> children;
+  DataOperator *op;
+  std::vector<DataOperator *> children;
   int results;
 };
 struct Produce {
-  PlanOperator *op;
-  std::vector<PlanOperator *> children;
+  DataOperator *op;
+  std::vector<DataOperator *> children;
 };
 using VarState = std::variant<Once, ScanAll, Produce>;
 /// STATES
@@ -62,16 +62,25 @@ struct Execution {
   VarState state;
 };
 
-struct PlanOperator {
+struct DataOperator {
   std::string name;
-  std::vector<std::shared_ptr<PlanOperator>> children;
+  std::vector<std::shared_ptr<DataOperator>> children;
   std::unique_ptr<multiframe::MPMCMultiframeFCFSPool> data_pool;
+  // Should the state be accessible from other data operators? -> Probably NOT
+  // TODO(gitbuda): Remove the state from DataOperator
+  // NOTE: At the moment CallAsync depends on the state here.
+  // NOTE: State actually holds info about the operator type.
   VarState state;
 };
-// TODO(gitbuda): Figure out a better name for the operators.
-struct ExecutionOperator {
-  PlanOperator *op;
+
+struct WorkOperator {
+  DataOperator *data;
   Execution execution;
+};
+
+struct ExecutionPlan {
+  std::vector<WorkOperator> ops;
+  std::unordered_map<size_t, io::Future<Execution>> f_execs;
 };
 
 /// SINGLE THREADED EXECUTE IMPLEMENTATIONS
@@ -127,19 +136,19 @@ inline io::Future<Execution> CallAsync(mock::ExecutionContext &ctx, VarState &&a
       std::move(any_state));
 }
 
-inline std::vector<ExecutionOperator> SequentialExecutionOrder(std::shared_ptr<PlanOperator> plan) {
+inline ExecutionPlan SequentialExecutionPlan(std::shared_ptr<DataOperator> plan) {
   // TODO(gitbuda): Implement proper topological order.
-  std::vector<ExecutionOperator> ops{
-      ExecutionOperator{.op = plan.get(), .execution = Execution{.status = Status{.has_more = true}}}};
-  PlanOperator *op = plan.get();
+  std::vector<WorkOperator> ops{
+      WorkOperator{.data = plan.get(), .execution = Execution{.status = Status{.has_more = true}}}};
+  DataOperator *data = plan.get();
   while (true) {
-    if (op->children.empty()) {
+    if (data->children.empty()) {
       break;
     }
-    op = op->children[0].get();
-    ops.push_back(ExecutionOperator{.op = op, .execution = Execution{.status = Status{.has_more = true}}});
+    data = data->children[0].get();
+    ops.push_back(WorkOperator{.data = data, .execution = Execution{.status = Status{.has_more = true}}});
   }
-  return ops;
+  return ExecutionPlan{.ops = ops};
 }
 
 /// The responsibility of an executor is to be aware of how much resources is
@@ -175,56 +184,45 @@ class Executor {
   // because there might be additional preprocessed data structures (e.g.
   // execution order).
   //
-  void Execute(std::shared_ptr<PlanOperator> plan) {
+  void Execute(std::shared_ptr<DataOperator> deps) {
     mock::ExecutionContext ctx{.thread_pool = &thread_pool_};
-    auto ops = SequentialExecutionOrder(plan);
+    auto plan = SequentialExecutionPlan(deps);
 
-    // TODO(gitbuda): Use Notifier to Await all operators to finish.
-    std::vector<io::Future<Execution>> futures;
-    futures.reserve(ops.size());
     bool any_has_more = true;
     int no = 0;
-    std::unordered_map<size_t, int64_t> ops_map;
     while (any_has_more) {
       any_has_more = false;
       no = 0;
 
       // start async calls
-      for (int64_t i = utils::MemcpyCast<int64_t>(ops.size()) - 1; i >= 0; --i) {
-        if (!ops.at(i).execution.status.has_more) {
+      for (int64_t i = utils::MemcpyCast<int64_t>(plan.ops.size()) - 1; i >= 0; --i) {
+        auto &op = plan.ops.at(i);
+        if (!op.execution.status.has_more) {
           continue;
         }
-        io::ReadinessToken readiness_token{futures.size()};
+        io::ReadinessToken readiness_token{static_cast<size_t>(i)};
         std::function<void()> fill_notifier = [notifier = notifier_, readiness_token]() {
           notifier.Notify(readiness_token);
         };
-        auto *op = ops[i].op;
-        auto future = CallAsync(ctx, std::move(op->state), fill_notifier);
-        ops_map[no] = i;
-        futures.emplace_back(std::move(future));
+        auto future = CallAsync(ctx, std::move(op.data->state), fill_notifier);
+        plan.f_execs.insert_or_assign(i, std::move(future));
         ++no;
-        ;
       }
 
       // await async calls
       while (no > 0) {
         auto token = notifier_.Await();
-        auto op_i = ops_map[token.GetId()];
-        auto *op = ops.at(op_i).op;
-        ops[op_i].execution = *(futures.at(token.GetId()).TryGet());
-        op->state = std::move(ops.at(op_i).execution.state);
-        auto status = std::move(ops.at(op_i).execution.status);
-        SPDLOG_INFO("{} {}", op->name, status.has_more);
-        if (status.has_more) {
+        auto &op = plan.ops.at(token.GetId());
+        op.execution = std::move(*(plan.f_execs.at(token.GetId()).TryGet()));
+        if (op.execution.status.has_more) {
           any_has_more = true;
         }
+        // TODO(gitbuda): State should be at one place at most.
+        // NOTE: State has to be moved here because the next iteration expects the state.
+        op.data->state = std::move(op.execution.state);
+        SPDLOG_INFO("{} {}", op.data->name, op.execution.status.has_more);
         --no;
       }
-
-      // clean futures
-      futures.clear();
-      futures.reserve(ops.size());
-      ops_map.clear();
     }
   }
 
