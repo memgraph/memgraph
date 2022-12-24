@@ -14,6 +14,7 @@
 #include <variant>
 
 #include "io/future.hpp"
+#include "io/notifier.hpp"
 #include "query/v2/physical/mock/context.hpp"
 #include "query/v2/physical/multiframe.hpp"
 #include "utils/cast.hpp"
@@ -100,7 +101,7 @@ inline Status Execute(Produce &state) {
   inline io::Future<Execution> ExecuteAsync(                                                                        \
       mock::ExecutionContext &ctx, std::function<void()> notifier, /* NOLINTNEXTLINE(bugprone-macro-parentheses) */ \
       state_type &&state) {                                                                                         \
-    auto [future, promise] = io::FuturePromisePairWithNotifications<Execution>(nullptr, std::move(notifier));       \
+    auto [future, promise] = io::FuturePromisePairWithNotifications<Execution>(nullptr, notifier);                  \
     auto shared_promise = std::make_shared<decltype(promise)>(std::move(promise));                                  \
     ctx.thread_pool->AddTask([state = std::move(state), promise = std::move(shared_promise)]() mutable {            \
       auto status = Execute(state);                                                                                 \
@@ -120,10 +121,10 @@ inline Status Call(VarState &any_state) {
 }
 
 inline io::Future<Execution> CallAsync(mock::ExecutionContext &ctx, VarState &&any_state,
-                                       std::function<void()> &&notifier) {
-  return std::visit([&ctx, notifier = std::move(notifier)](
-                        auto &&state) { return ExecuteAsync(ctx, notifier, std::forward<decltype(state)>(state)); },
-                    std::move(any_state));
+                                       std::function<void()> notifier) {
+  return std::visit(
+      [&ctx, notifier](auto &&state) { return ExecuteAsync(ctx, notifier, std::forward<decltype(state)>(state)); },
+      std::move(any_state));
 }
 
 inline std::vector<ExecutionOperator> SequentialExecutionOrder(std::shared_ptr<PlanOperator> plan) {
@@ -182,35 +183,55 @@ class Executor {
     std::vector<io::Future<Execution>> futures;
     futures.reserve(ops.size());
     bool any_has_more = true;
+    int no = 0;
+    std::unordered_map<size_t, int64_t> ops_map;
     while (any_has_more) {
       any_has_more = false;
+      no = 0;
+
+      // start async calls
       for (int64_t i = utils::MemcpyCast<int64_t>(ops.size()) - 1; i >= 0; --i) {
         if (!ops.at(i).execution.status.has_more) {
           continue;
         }
-        auto fi = futures.size();
-        auto notifier = [i, fi, &futures, &ops, &any_has_more]() {
-          auto *op = ops[i].op;
-          ops[i].execution = *(futures[fi].TryGet());
-          op->state = std::move(ops.at(i).execution.state);
-          auto status = std::move(ops.at(i).execution.status);
-          if (status.has_more) {
-            any_has_more = true;
-          }
+        io::ReadinessToken readiness_token{futures.size()};
+        std::function<void()> fill_notifier = [notifier = notifier_, readiness_token]() {
+          notifier.Notify(readiness_token);
         };
         auto *op = ops[i].op;
-        auto future = CallAsync(ctx, std::move(op->state), std::move(notifier));
+        auto future = CallAsync(ctx, std::move(op->state), fill_notifier);
+        ops_map[no] = i;
         futures.emplace_back(std::move(future));
+        ++no;
+        ;
       }
-      std::this_thread::sleep_for(std::chrono::microseconds(10000));
+
+      // await async calls
+      while (no > 0) {
+        auto token = notifier_.Await();
+        auto op_i = ops_map[token.GetId()];
+        auto *op = ops.at(op_i).op;
+        ops[op_i].execution = *(futures.at(token.GetId()).TryGet());
+        op->state = std::move(ops.at(op_i).execution.state);
+        auto status = std::move(ops.at(op_i).execution.status);
+        SPDLOG_INFO("{} {}", op->name, status.has_more);
+        if (status.has_more) {
+          any_has_more = true;
+        }
+        --no;
+      }
+
+      // clean futures
       futures.clear();
       futures.reserve(ops.size());
+      ops_map.clear();
     }
   }
 
  private:
   // TODO(gitbuda): Add configurable size to the executor thread pool.
   utils::ThreadPool thread_pool_{8};
+  io::Notifier notifier_;
 };
 
 }  // namespace memgraph::query::v2::physical::execution
