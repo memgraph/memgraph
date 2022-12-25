@@ -122,6 +122,7 @@ class PhysicalOperator {
     }
     return std::nullopt;
   }
+
   void PassBackRead(const typename TDataPool::Token &token) { data_pool_->ReturnEmpty(token.id); }
 
   std::optional<typename TDataPool::Token> NextWrite(bool exp_backoff = false) {

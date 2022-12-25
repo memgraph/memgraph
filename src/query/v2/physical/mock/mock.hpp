@@ -164,7 +164,7 @@ inline std::shared_ptr<execution::DataOperator> MakeAsyncPlan(const std::vector<
       auto scan_all_ptr = std::make_shared<execution::DataOperator>(execution::DataOperator{
           .name = "ScanAll", .children = {current}, .data_pool = std::make_unique<TDataPool>(pool_size, mf_size)});
       execution::ScanAll scan_all_state{
-          .op = scan_all_ptr.get(), .children = {current.get()}, .results = op.props[SCANALL_ELEMS_POS]};
+          .op = scan_all_ptr.get(), .children = {current.get()}, .scan_all_elems = op.props[SCANALL_ELEMS_POS]};
       scan_all_ptr->state = std::move(scan_all_state);
       current = scan_all_ptr;
 
