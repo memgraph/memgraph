@@ -114,6 +114,9 @@ class MPMCMultiframeFCFSPool {
   using TFrame = mock::Frame;
   using TMultiframe = Multiframe<TFrame>;
 
+  // TODO(gitbuda): PoolState should be composable, because e.g. at the same
+  // time it's possible be in both HAS_MORE and HINT_WRITER_DONE states.
+  //
   enum class PoolState {
     EMPTY,
     HAS_MORE,

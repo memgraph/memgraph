@@ -29,7 +29,7 @@
 
 int main(int argc, char *argv[]) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  spdlog::set_level(spdlog::level::info);
+  spdlog::set_level(spdlog::level::debug);
 
   memgraph::storage::Storage db;
   auto storage_dba = db.Access();
@@ -71,9 +71,11 @@ int main(int argc, char *argv[]) {
   using OpType = memgraph::query::v2::physical::mock::OpType;
   std::vector<int> pool_sizes = {1, 2, 4, 8, 16};
   std::vector<int> mf_sizes = {1, 10, 100, 1000, 10000};
-  int scan_all_elems = 5;
+  int scan_all_elems = 10;
   std::vector<Op> ops{
       Op{.type = OpType::Produce},
+      // Op{.type = OpType::ScanAll, .props = {scan_all_elems}},
+      Op{.type = OpType::ScanAll, .props = {scan_all_elems}},
       Op{.type = OpType::ScanAll, .props = {scan_all_elems}},
       Op{.type = OpType::ScanAll, .props = {scan_all_elems}},
       Op{.type = OpType::ScanAll, .props = {scan_all_elems}},
@@ -81,16 +83,19 @@ int main(int argc, char *argv[]) {
       Op{.type = OpType::Once},
   };
 
-  // Single Frame Pull Execution
+  SPDLOG_INFO("---- Single Frame Pull Execution ----");
   memgraph::query::v2::physical::mock::Frame frame;
   auto plan = memgraph::query::v2::physical::mock::MakePullPlan(ops);
+  timer.Start();
   int64_t cnt{0};
   while (plan->Pull(frame, ctx)) {
     cnt++;
   }
-  std::cout << "pull done " << cnt << " cnt" << std::endl;
+  auto time = std::chrono::duration_cast<std::chrono::milliseconds>(timer.Elapsed()).count();
+  std::cout << "pull done " << cnt << " cnt "
+            << "in " << time << std::endl;
 
-  // Multi Frame Single Thread per Operator Execution
+  SPDLOG_INFO("---- Parallelized Execution Single Thread per Operator with constant loops ----");
   for (const auto &pool_size : pool_sizes) {
     for (const auto &mf_size : mf_sizes) {
       // TODO(gitbuda): MakePlan is allocating space for data pools -> measure the overhead.
@@ -102,10 +107,18 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  // Multi Frame Multi Thread per Operator Execution
-  auto async_plan = memgraph::query::v2::physical::mock::MakeAsyncPlan(ops, 10, 100);
-  memgraph::query::v2::physical::execution::Executor executor;
-  executor.Execute(async_plan);
+  SPDLOG_INFO("---- Parallelized Execution Single Thread per Operator with async await ----");
+  for (const auto &pool_size : pool_sizes) {
+    for (const auto &mf_size : mf_sizes) {
+      auto async_plan = memgraph::query::v2::physical::mock::MakeAsyncPlan(ops, pool_size, mf_size);
+      memgraph::query::v2::physical::execution::Executor executor;
+      timer.Start();
+      auto tuples_no = executor.Execute(async_plan);
+      MG_ASSERT(tuples_no == 100000, "Wrong number of results");
+      auto time = std::chrono::duration_cast<std::chrono::milliseconds>(timer.Elapsed()).count();
+      std::cout << pool_size << " " << mf_size << " " << time << std::endl;
+    }
+  }
 
   return 0;
 }

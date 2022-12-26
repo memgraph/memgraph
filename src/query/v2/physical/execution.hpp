@@ -41,7 +41,8 @@ struct Status {
 /// is a variant it's easier to access STATUS via generic object.
 
 struct Stats {
-  int64_t processed_frames{0};
+  uint64_t execute_calls{0};
+  uint64_t processed_frames{0};
 };
 
 /// STATES
@@ -49,15 +50,20 @@ struct Once {
   DataOperator *op;
   bool has_more{true};
 };
+
 struct ScanAll {
   DataOperator *op;
   std::vector<DataOperator *> children;
   int scan_all_elems;
+  std::vector<mock::Frame> data;
+  std::vector<mock::Frame>::iterator data_it{data.end()};
 };
+
 struct Produce {
   DataOperator *op;
   std::vector<DataOperator *> children;
 };
+
 using VarState = std::variant<Once, ScanAll, Produce>;
 /// STATES
 
@@ -81,83 +87,21 @@ struct DataOperator {
   std::optional<typename TDataPool::Token> current_token_;
   Stats stats;
 
-  // TODO(gitbuda): DataPool access code is duplicated -> move to a base class or to the data pool itself.
-
   ////// DATA POOL HANDLING
   /// Get/Push data from/to surrounding operators.
-  ///
-  /// 2 MAIN CONCERNS:
-  ///   * No more data  -> the writer hinted there is no more data
-  ///                      read first to check if there is more data and return
-  ///                      check for exhaustion because the reader will mark exhausted  when there is no more data +
-  ///                      writer hint is set
-  ///   * No more space -> the writer is too slow -> wait for a moment
-  ///
-  /// responsible for
-  /// if nullopt -> there is nothing more to read AT THE MOMENT -> repeat again as soon as possible
-  /// NOTE: Caller is responsible for checking if there is no more data at all by checking both token and exhaustion.
-  ///
-  /// TODO(gitbuda): Move the sleep on the caller side | add a flag to enable/disable sleep here?
-  std::optional<typename TDataPool::Token> NextRead(bool exp_backoff = false) const {
-    auto token = data_pool->GetFull();
-    if (token) {
-      return token;
-    }
-    // First try to read a multiframe because there might be some full frames
-    // even if the whole pool is marked as exhausted. In case we come to this
-    // point and the pool is exhausted there is no more data for sure.
-    if (data_pool->IsExhausted()) {
-      return std::nullopt;
-    }
-    if (exp_backoff) {
-      // TODO(gitbuda): Replace with exponential backoff or something similar.
-      // Sleep only once in this loop and return because if the whole plan is
-      // executed in a single thread, this will just block.
-      std::this_thread::sleep_for(std::chrono::microseconds(100));
-    }
-    return std::nullopt;
-  }
-
+  std::optional<typename TDataPool::Token> NextRead() const { return data_pool->GetFull(); }
   void PassBackRead(const typename TDataPool::Token &token) const { data_pool->ReturnEmpty(token.id); }
-
-  std::optional<typename TDataPool::Token> NextWrite(bool exp_backoff = false) const {
-    // In this case it's different compared to the NextRead because if
-    // somebody has marked the pool as exhausted furher writes shouldn't be
-    // possible.
-    // TODO(gitbuda): Consider an assert in the NextWrite implementation.
-    if (data_pool->IsExhausted()) {
-      return std::nullopt;
-    }
-    while (true) {
-      auto token = data_pool->GetEmpty();
-      if (token) {
-        return token;
-      }
-      if (exp_backoff) {
-        // TODO(gitbuda): Replace with exponential backoff or something similar.
-        // TODO(gitbuda): Sleeping is not that good of an option -> consider conditional variables.
-        std::this_thread::sleep_for(std::chrono::microseconds(10));
-      }
-    }
-  }
+  std::optional<typename TDataPool::Token> NextWrite() const { return data_pool->GetEmpty(); }
   void PassBackWrite(const typename TDataPool::Token &token) const { data_pool->ReturnFull(token.id); }
 
   template <typename TTuple>
-  void Emit(const TTuple &tuple) {
+  bool Emit(const TTuple &tuple) {
     if (!current_token_) {
-      // TODO(gitbuda): We have to wait here if there is no empty multiframe,
-      // NOTE: This wait here is tricky because if there is no more space, this
-      // thread will spin -> one less thread in the thread pool -> REFACTOR ->
-      // everything has to give the control back at some point. NOTE: An issue
-      // on the other side are active iterators, because that's context has to
-      // be restored.
-      //
       current_token_ = NextWrite();
       if (!current_token_) {
-        return;
+        return false;
       }
     }
-
     // It might be the case that previous Emit just put a frame at the last
     // available spot, but that's covered in the next if condition. In other
     // words, because of the logic above and below, the multiframe in the next
@@ -167,13 +111,12 @@ struct DataOperator {
     if (current_token_->multiframe->IsFull()) {
       CloseEmit();
     }
+    return true;
   }
 
   /// An additional function is required because sometimes, e.g., during
   /// for-range loop we don't know if there is more elements -> an easy solution
   /// is to expose an additional method.
-  ///
-  /// TODO(gitbuda): Rename CloseEmit to something better.
   void CloseEmit() {
     if (!current_token_) {
       return;
@@ -182,17 +125,7 @@ struct DataOperator {
     current_token_ = std::nullopt;
   }
 
-  /// TODO(gitbuda): Create Emit which is suitable to be used in the concurrent environment.
-  template <typename TTuple>
-  void EmitWhere(const typename TDataPool::Token &where, const TTuple &what) {}
-
   bool IsWriterDone() const { return data_pool->IsWriterDone(); }
-  /// TODO(gitbuda): Consider renaming this to MarkJobDone because the point is
-  /// just to hint there will be no more data but from the caller perspective
-  /// there is nothing more to do.
-  /// TODO(gitbuda): Consider blending CloseEmit and MarkJobDone into a single
-  /// RAII object.
-  ///
   void MarkWriterDone() const { data_pool->MarkWriterDone(); }
   bool IsExhausted() const { return data_pool->IsExhausted(); }
   void MarkExhausted() const { data_pool->MarkExhausted(); }
@@ -207,17 +140,18 @@ struct WorkOperator {
 struct ExecutionPlan {
   std::vector<WorkOperator> ops;
   std::unordered_map<size_t, io::Future<Execution>> f_execs;
+  uint64_t top_level_tuples{0};
 };
 
 /// SINGLE THREADED EXECUTE IMPLEMENTATIONS
 
 template <typename TFun>
-inline Status ProcessNext(DataOperator *input, DataOperator *output, TFun fun) {
+inline bool ProcessNext(DataOperator *input, TFun fun) {
   auto read_token = input->NextRead();
   if (read_token) {
     fun(*(read_token->multiframe));
     input->PassBackRead(*read_token);
-    return Status{.has_more = true};
+    return true;
   }
   if (!read_token && input->IsWriterDone()) {
     // Even if read token was null before we have to exhaust the pool
@@ -227,21 +161,21 @@ inline Status ProcessNext(DataOperator *input, DataOperator *output, TFun fun) {
     if (read_token) {
       fun(*(read_token->multiframe));
       input->PassBackRead(*read_token);
-      return Status{.has_more = true};
+      return true;
     }
-    input->MarkExhausted();
-    output->MarkWriterDone();
-    return Status{.has_more = false};
+    return false;
   }
-  return Status{.has_more = true};
+  return true;
 }
 
 inline Status Execute(Once &state) {
   MG_ASSERT(state.op->children.empty(), "{} should have 0 input/child", state.op->name);
   SPDLOG_TRACE("{} Execute()", state.op->name);
-  state.op->Emit(DataOperator::TDataPool::TFrame{});
+  auto is_emitted = state.op->Emit(DataOperator::TDataPool::TFrame{});
+  MG_ASSERT(is_emitted, "{} should always be able to emit", state.op->name);
   state.op->CloseEmit();
   state.op->MarkWriterDone();
+  state.op->stats.processed_frames = 1;
   return Status{.has_more = false};
 }
 
@@ -249,10 +183,11 @@ inline Status Execute(ScanAll &state) {
   MG_ASSERT(state.op->children.size() == 1, "{} should have exactly 1 input/child", state.op->name);
   SPDLOG_TRACE("{} Execute()", state.op->name);
   auto *input = state.op->children[0].get();
+  auto *output = state.op;
 
   // TODO(gitbuda): Add ExecutionContext and inject the data_fun probably via state.
-  auto data_fun = [&state](DataOperator::TDataPool::TMultiframe &multiframe) {
-    std::vector<DataOperator::TDataPool::TFrame> frames;
+  auto data_fun = [](ScanAll &state, DataOperator::TDataPool::TMultiframe &multiframe) {
+    std::vector<DataOperator::TDataPool::TFrame> frames{};
     for (int i = 0; i < state.scan_all_elems; ++i) {
       for (int j = 0; j < multiframe.Data().size(); ++j) {
         frames.push_back(DataOperator::TDataPool::TFrame{});
@@ -261,30 +196,76 @@ inline Status Execute(ScanAll &state) {
     return frames;
   };
 
-  auto scan_all_fun = [&state, &data_fun](DataOperator::TDataPool::TMultiframe &multiframe) {
-    int64_t cnt{0};
-    for (const auto &new_frame : data_fun(multiframe)) {
-      state.op->Emit(new_frame);
-      cnt++;
+  // Returns true if data is inialized.
+  auto init_data = [&data_fun](ScanAll &state, DataOperator *input) -> bool {
+    auto read_token = input->NextRead();
+    if (read_token) {
+      state.data = data_fun(state, *(read_token->multiframe));
+      input->PassBackRead(*read_token);
+      if (state.data.empty()) {
+        state.data_it = state.data.end();
+        return false;
+      }
+      state.data_it = state.data.begin();
+      return true;
     }
-    state.op->stats.processed_frames += cnt;
-    state.op->CloseEmit();
+    return false;
   };
 
-  return ProcessNext<decltype(scan_all_fun)>(input, state.op, std::move(scan_all_fun));
+  // Returns true if all data has been written OR if there was no data at all.
+  // Returns false if not all data has been written.
+  auto write_fun = [](ScanAll &state, DataOperator *output) -> bool {
+    if (state.data_it != state.data.end()) {
+      int64_t cnt = 0;
+      while (state.data_it != state.data.end()) {
+        auto written = output->Emit(*state.data_it);
+        if (!written) {
+          // There is no more space -> return.
+          output->stats.processed_frames += cnt;
+          return false;
+        }
+        state.data_it += 1;
+        cnt++;
+      }
+      output->stats.processed_frames += cnt;
+      output->CloseEmit();
+    }
+    return true;
+  };
+
+  // First write if there is any data from the previous run.
+  if (!write_fun(state, output)) {
+    // If not all data has been written return control because our buffer is
+    // full -> someone has to make it empty.
+    return Status{.has_more = true};
+  }
+
+  MG_ASSERT(state.data_it == state.data.end(), "data_it has to be end()");
+  bool more_data = init_data(state, input);
+  if (!more_data && input->IsWriterDone()) {
+    more_data = init_data(state, input);
+    if (more_data) {
+      write_fun(state, output);
+      return Status{.has_more = true};
+    }
+    output->MarkWriterDone();
+    return Status{.has_more = false};
+  }
+  write_fun(state, output);
+  return Status{.has_more = true};
 }
 
 inline Status Execute(Produce &state) {
   MG_ASSERT(state.op->children.size() == 1, "{} should have exactly 1 input/child", state.op->name);
   SPDLOG_TRACE("{} Execute()", state.op->name);
-  auto input = state.op->children[0].get();
+  auto *input = state.op->children[0].get();
 
   auto produce_fun = [&state](DataOperator::TDataPool::TMultiframe &multiframe) {
     auto size = multiframe.Data().size();
     state.op->stats.processed_frames += size;
   };
 
-  return ProcessNext<decltype(produce_fun)>(input, state.op, std::move(produce_fun));
+  return Status{.has_more = ProcessNext<decltype(produce_fun)>(input, std::move(produce_fun))};
 }
 
 /// ASYNC EXECUTE WRAPPERS
@@ -293,12 +274,12 @@ inline Status Execute(Produce &state) {
 #define DEFINE_EXECUTE_ASYNC(state_type)                                                                            \
   inline io::Future<Execution> ExecuteAsync(                                                                        \
       mock::ExecutionContext &ctx, std::function<void()> notifier, /* NOLINTNEXTLINE(bugprone-macro-parentheses) */ \
-      state_type &&state) {                                                                                         \
+      state_type &state) {                                                                                          \
     auto [future, promise] = io::FuturePromisePairWithNotifications<Execution>(nullptr, notifier);                  \
     auto shared_promise = std::make_shared<decltype(promise)>(std::move(promise));                                  \
-    ctx.thread_pool->AddTask([state = std::move(state), promise = std::move(shared_promise)]() mutable {            \
+    ctx.thread_pool->AddTask([&state, promise = std::move(shared_promise)]() mutable {                              \
       auto status = Execute(state);                                                                                 \
-      promise->Fill({.status = status, .state = std::move(state)});                                                 \
+      promise->Fill({.status = status});                                                                            \
     });                                                                                                             \
     return std::move(future);                                                                                       \
   }
@@ -313,11 +294,13 @@ inline Status Call(VarState &any_state) {
   return std::visit([](auto &state) { return Execute(state); }, any_state);
 }
 
-inline io::Future<Execution> CallAsync(mock::ExecutionContext &ctx, VarState &&any_state,
+// NOTE: State is passed as a reference. Moving state is trickly because:
+//   * io::Future is not yet implemented to fully support moves
+//   * it's easy to make a mistake and copy state for no reasone.
+//
+inline io::Future<Execution> CallAsync(mock::ExecutionContext &ctx, VarState &any_state,
                                        std::function<void()> notifier) {
-  return std::visit(
-      [&ctx, notifier](auto &&state) { return ExecuteAsync(ctx, notifier, std::forward<decltype(state)>(state)); },
-      std::move(any_state));
+  return std::visit([&ctx, notifier](auto &state) { return ExecuteAsync(ctx, notifier, state); }, any_state);
 }
 
 inline ExecutionPlan SequentialExecutionPlan(std::shared_ptr<DataOperator> plan) {
@@ -368,10 +351,13 @@ class Executor {
   // because there might be additional preprocessed data structures (e.g.
   // execution order).
   //
-  void Execute(std::shared_ptr<DataOperator> deps) {
+  // NOTE: Execution order could be determined based on both data_pool states
+  // and execution priority.
+  //
+  uint64_t Execute(std::shared_ptr<DataOperator> deps) {
     mock::ExecutionContext ctx{.thread_pool = &thread_pool_};
     auto plan = SequentialExecutionPlan(deps);
-
+    MG_ASSERT(!plan.ops.empty(), "Execution plan has to have at least 1 operator");
     bool any_has_more = true;
     int no = 0;
     while (any_has_more) {
@@ -384,11 +370,13 @@ class Executor {
         if (!op.execution.status.has_more) {
           continue;
         }
+        // TODO(gitbuda): It's possible to skip calls if PoolState == FULL.
         io::ReadinessToken readiness_token{static_cast<size_t>(i)};
         std::function<void()> fill_notifier = [notifier = notifier_, readiness_token]() {
           notifier.Notify(readiness_token);
         };
-        auto future = CallAsync(ctx, std::move(op.data->state), fill_notifier);
+        auto future = CallAsync(ctx, op.data->state, fill_notifier);
+        op.data->stats.execute_calls++;
         plan.f_execs.insert_or_assign(i, std::move(future));
         ++no;
       }
@@ -401,22 +389,24 @@ class Executor {
         if (op.execution.status.has_more) {
           any_has_more = true;
         }
-        // TODO(gitbuda): State should be at one place at most.
-        // NOTE: State has to be moved here because the next iteration expects the state.
-        op.data->state = std::move(op.execution.state);
-        SPDLOG_INFO("{} {}", op.data->name, op.execution.status.has_more);
+        SPDLOG_TRACE("EXECUTOR: {} has_more {}", op.data->name, op.execution.status.has_more);
         --no;
       }
     }
+    // TODO(gitbuda): Return some the whole plan or some stats.
+    return plan.ops.at(0).data->stats.processed_frames;
+  }
 
-    for (auto &op : plan.ops) {
-      SPDLOG_INFO("{} processed {}", op.data->name, op.data->stats.processed_frames);
+  static void PrintStats(const ExecutionPlan &plan) {
+    for (const auto &op : plan.ops) {
+      SPDLOG_DEBUG("EXECUTOR: {} processed {} during {} execution calls", op.data->name,
+                   op.data->stats.processed_frames, op.data->stats.execute_calls);
     }
   }
 
  private:
   // TODO(gitbuda): Add configurable size to the executor thread pool.
-  utils::ThreadPool thread_pool_{8};
+  utils::ThreadPool thread_pool_{16};
   io::Notifier notifier_;
 };
 

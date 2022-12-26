@@ -44,17 +44,16 @@ int main(int argc, char *argv[]) {
   std::vector<DataOperator> ops_async;
   ops_async.emplace_back(DataOperator{.name = "Once", .state = Once{}});
   ops_async.emplace_back(DataOperator{.name = "ScanAll", .state = ScanAll{}});
-  memgraph::utils::ThreadPool thread_pool{8};
+  memgraph::utils::ThreadPool thread_pool{16};
   mock::ExecutionContext ctx{.thread_pool = &thread_pool};
   for (auto &op : ops_async) {
-    // TODO(gitbuda): This is not correct, the point it so illustrate the concept (op.state) is moved!
     auto notifier = []() {};
-    auto future = CallAsync(ctx, std::move(op.state), notifier);
+    auto future = CallAsync(ctx, op.state, notifier);
     auto execution = std::move(future).Wait();
     SPDLOG_INFO("name: {} has_more: {}", op.name, execution.status.has_more);
     ;
     while (execution.status.has_more) {
-      auto future = CallAsync(ctx, std::move(execution.state), notifier);
+      auto future = CallAsync(ctx, op.state, notifier);
       execution = std::move(future).Wait();
       SPDLOG_INFO("name: {} has_more: {}", op.name, execution.status.has_more);
       ;

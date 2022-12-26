@@ -152,6 +152,7 @@ inline std::shared_ptr<execution::DataOperator> MakeAsyncPlan(const std::vector<
   std::shared_ptr<execution::DataOperator> plan = nullptr;
   auto current = plan;
   // TODO(gitbuda): This looks messy, implement factory functions.
+  int scan_all_name_cnt = 0;
   for (const auto &op : reversed_ops) {
     if (op.type == OpType::Once) {
       auto once_ptr = std::make_shared<execution::DataOperator>(execution::DataOperator{
@@ -161,8 +162,11 @@ inline std::shared_ptr<execution::DataOperator> MakeAsyncPlan(const std::vector<
       current = once_ptr;
 
     } else if (op.type == OpType::ScanAll) {
-      auto scan_all_ptr = std::make_shared<execution::DataOperator>(execution::DataOperator{
-          .name = "ScanAll", .children = {current}, .data_pool = std::make_unique<TDataPool>(pool_size, mf_size)});
+      scan_all_name_cnt++;
+      auto scan_all_ptr = std::make_shared<execution::DataOperator>(
+          execution::DataOperator{.name = fmt::format("ScanAll_{}", scan_all_name_cnt),
+                                  .children = {current},
+                                  .data_pool = std::make_unique<TDataPool>(pool_size, mf_size)});
       execution::ScanAll scan_all_state{
           .op = scan_all_ptr.get(), .children = {current.get()}, .scan_all_elems = op.props[SCANALL_ELEMS_POS]};
       scan_all_ptr->state = std::move(scan_all_state);
