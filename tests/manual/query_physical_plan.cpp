@@ -111,7 +111,7 @@ int main(int argc, char *argv[]) {
   for (const auto &pool_size : pool_sizes) {
     for (const auto &mf_size : mf_sizes) {
       auto async_plan = memgraph::query::v2::physical::mock::MakeAsyncPlan(ops, pool_size, mf_size);
-      memgraph::query::v2::physical::execution::Executor executor;
+      memgraph::query::v2::physical::execution::Executor executor(16);
       timer.Start();
       auto tuples_no = executor.Execute(async_plan);
       MG_ASSERT(tuples_no == 100000, "Wrong number of results");

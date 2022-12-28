@@ -347,6 +347,7 @@ class Executor {
   /// has to ensure all dependencies are executed before.
   ///
  public:
+  explicit Executor(size_t thread_pool_size) : thread_pool_(thread_pool_size) {}
   // TODO(gitbuda): Input to the Execute method should be some container
   // because there might be additional preprocessed data structures (e.g.
   // execution order).
@@ -372,9 +373,7 @@ class Executor {
         }
         // TODO(gitbuda): It's possible to skip calls if PoolState == FULL.
         io::ReadinessToken readiness_token{static_cast<size_t>(i)};
-        std::function<void()> fill_notifier = [notifier = notifier_, readiness_token]() {
-          notifier.Notify(readiness_token);
-        };
+        std::function<void()> fill_notifier = [readiness_token, this]() { notifier_.Notify(readiness_token); };
         auto future = CallAsync(ctx, op.data->state, fill_notifier);
         op.data->stats.execute_calls++;
         plan.f_execs.insert_or_assign(i, std::move(future));
@@ -405,8 +404,7 @@ class Executor {
   }
 
  private:
-  // TODO(gitbuda): Add configurable size to the executor thread pool.
-  utils::ThreadPool thread_pool_{16};
+  utils::ThreadPool thread_pool_;
   io::Notifier notifier_;
 };
 

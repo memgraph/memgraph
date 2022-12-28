@@ -19,6 +19,10 @@
 #include "query/v2/physical/physical_pull.hpp"
 
 static const std::size_t kThreadsNum = std::thread::hardware_concurrency();
+static const std::size_t kMaxPoolSize = 16;
+static const std::size_t kPoolSizeStep = 2;
+static const std::size_t kMaxBatchSize = 10000;
+static const std::size_t kBatchSizeStep = 10;
 
 using namespace memgraph::query::v2::physical;
 using namespace memgraph::query::v2::physical::mock;
@@ -43,12 +47,31 @@ class PhysicalFixture : public benchmark::Fixture {
         Op{.type = OpType::Once},
     };
     thread_pool_ = std::make_unique<memgraph::utils::ThreadPool>(kThreadsNum);
+    executor_ = std::make_unique<execution::Executor>(kThreadsNum);
   }
   void TearDown(const benchmark::State &) {}
 
   std::vector<Op> ops_;
   std::unique_ptr<memgraph::utils::ThreadPool> thread_pool_;
+  std::unique_ptr<execution::Executor> executor_;
 };
+
+BENCHMARK_DEFINE_F(PhysicalFixture, TestAsyncSingleThread)
+(benchmark::State &state) {
+  int pool_size = state.range(0);
+  int mf_size = state.range(1);
+  for (auto _ : state) {
+    auto plan = MakeAsyncPlan(ops_, pool_size, mf_size);
+    executor_->Execute(plan);
+  }
+}
+BENCHMARK_REGISTER_F(PhysicalFixture, TestAsyncSingleThread)
+    ->ArgsProduct({
+        benchmark::CreateRange(1, kMaxPoolSize, kPoolSizeStep),
+        benchmark::CreateRange(1, kMaxBatchSize, kBatchSizeStep),
+    })
+    ->Unit(benchmark::kMillisecond)
+    ->UseRealTime();
 
 BENCHMARK_DEFINE_F(PhysicalFixture, TestENESingleThread)
 (benchmark::State &state) {
@@ -62,8 +85,8 @@ BENCHMARK_DEFINE_F(PhysicalFixture, TestENESingleThread)
 }
 BENCHMARK_REGISTER_F(PhysicalFixture, TestENESingleThread)
     ->ArgsProduct({
-        benchmark::CreateRange(1, 16, 2),
-        benchmark::CreateRange(1, 10000, 10),
+        benchmark::CreateRange(1, kMaxPoolSize, kPoolSizeStep),
+        benchmark::CreateRange(1, kMaxBatchSize, kBatchSizeStep),
     })
     ->Unit(benchmark::kMillisecond)
     ->UseRealTime();
