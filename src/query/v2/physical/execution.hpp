@@ -129,6 +129,13 @@ struct DataOperator {
   void MarkWriterDone() const { data_pool->MarkWriterDone(); }
   bool IsExhausted() const { return data_pool->IsExhausted(); }
   void MarkExhausted() const { data_pool->MarkExhausted(); }
+  bool IsEmpty() const { return data_pool->IsEmpty(); }
+  bool HasInputData(int index = 0) {
+    if (children.empty()) {
+      return false;
+    }
+    return !children.at(index)->IsEmpty();
+  }
   ////// DATA POOL HANDLING
 };
 
@@ -348,6 +355,7 @@ class Executor {
   ///
  public:
   explicit Executor(size_t thread_pool_size) : thread_pool_(thread_pool_size) {}
+
   // TODO(gitbuda): Input to the Execute method should be some container
   // because there might be additional preprocessed data structures (e.g.
   // execution order).
@@ -361,6 +369,7 @@ class Executor {
     MG_ASSERT(!plan.ops.empty(), "Execution plan has to have at least 1 operator");
     bool any_has_more = true;
     int no = 0;
+    bool init_run = true;
     while (any_has_more) {
       any_has_more = false;
       no = 0;
@@ -371,7 +380,11 @@ class Executor {
         if (!op.execution.status.has_more) {
           continue;
         }
-        // TODO(gitbuda): It's possible to skip calls if PoolState == FULL.
+        // Skip execution if there is no input data except in the first
+        // iteration because the first iteration will initialize pipeline.
+        if (!init_run && !op.data->HasInputData()) {
+          continue;
+        }
         io::ReadinessToken readiness_token{static_cast<size_t>(i)};
         std::function<void()> fill_notifier = [readiness_token, this]() { notifier_.Notify(readiness_token); };
         auto future = CallAsync(ctx, op.data->state, fill_notifier);
@@ -379,6 +392,7 @@ class Executor {
         plan.f_execs.insert_or_assign(i, std::move(future));
         ++no;
       }
+      init_run = false;
 
       // await async calls
       while (no > 0) {

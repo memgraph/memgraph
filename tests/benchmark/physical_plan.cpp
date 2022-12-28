@@ -19,8 +19,10 @@
 #include "query/v2/physical/physical_pull.hpp"
 
 static const std::size_t kThreadsNum = std::thread::hardware_concurrency();
+static const std::size_t kStartPoolSize = 2;
 static const std::size_t kMaxPoolSize = 16;
 static const std::size_t kPoolSizeStep = 2;
+static const std::size_t kStartBatchSize = 100;
 static const std::size_t kMaxBatchSize = 10000;
 static const std::size_t kBatchSizeStep = 10;
 
@@ -67,8 +69,8 @@ BENCHMARK_DEFINE_F(PhysicalFixture, TestAsyncSingleThread)
 }
 BENCHMARK_REGISTER_F(PhysicalFixture, TestAsyncSingleThread)
     ->ArgsProduct({
-        benchmark::CreateRange(1, kMaxPoolSize, kPoolSizeStep),
-        benchmark::CreateRange(1, kMaxBatchSize, kBatchSizeStep),
+        benchmark::CreateRange(kStartPoolSize, kMaxPoolSize, kPoolSizeStep),
+        benchmark::CreateRange(kStartBatchSize, kMaxBatchSize, kBatchSizeStep),
     })
     ->Unit(benchmark::kMillisecond)
     ->UseRealTime();
@@ -85,8 +87,8 @@ BENCHMARK_DEFINE_F(PhysicalFixture, TestENESingleThread)
 }
 BENCHMARK_REGISTER_F(PhysicalFixture, TestENESingleThread)
     ->ArgsProduct({
-        benchmark::CreateRange(1, kMaxPoolSize, kPoolSizeStep),
-        benchmark::CreateRange(1, kMaxBatchSize, kBatchSizeStep),
+        benchmark::CreateRange(kStartPoolSize, kMaxPoolSize, kPoolSizeStep),
+        benchmark::CreateRange(kStartBatchSize, kMaxBatchSize, kBatchSizeStep),
     })
     ->Unit(benchmark::kMillisecond)
     ->UseRealTime();

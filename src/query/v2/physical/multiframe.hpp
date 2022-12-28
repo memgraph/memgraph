@@ -18,13 +18,12 @@
 #include <vector>
 
 #include "query/v2/physical/mock/frame.hpp"
+#include "utils/cast.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::query::v2::physical::multiframe {
 
-// TODO(gitbuda): Add Multiframe as a concept.
-
-// TODO(gitbuda): Move this Multiframe to the mocks.
+// TODO(gitbuda): Reset/Clear data bool state.
 
 /// Fixed in size during query execution.
 /// NOTE/TODO(gitbuda): Accessing Multiframe might be tricky because of multi-threading.
@@ -117,11 +116,13 @@ class MPMCMultiframeFCFSPool {
   // TODO(gitbuda): PoolState should be composable, because e.g. at the same
   // time it's possible be in both HAS_MORE and HINT_WRITER_DONE states.
   //
-  enum class PoolState {
-    EMPTY,
-    HAS_MORE,
-    HINT_WRITER_DONE,
-    EXHAUSTED,
+  enum class PoolState : uint32_t {
+    EMPTY = 1U << 0U,
+    HAS_MORE = 1U << 1U,
+    HAS_SPACE = 1U << 2U,
+    FULL = 1U << 3U,
+    HINT_WRITER_DONE = 1U << 4U,
+    EXHAUSTED = 1U << 5U,
   };
   struct Token {
     int id;
@@ -141,7 +142,8 @@ class MPMCMultiframeFCFSPool {
   //   1) Probably better outside the pool because then the pool is more generic.
   //   2) Since Emit and Next are decoupled there has to be some source of truth.
 
-  explicit MPMCMultiframeFCFSPool(int pool_size, size_t multiframe_size) : pool_state_(PoolState::EMPTY) {
+  explicit MPMCMultiframeFCFSPool(int pool_size, size_t multiframe_size)
+      : pool_state_(utils::UnderlyingCast(PoolState::EMPTY)) {
     for (int i = 0; i < pool_size; ++i) {
       frames_.emplace_back(Multiframe<TFrame>{multiframe_size});
     }
@@ -185,6 +187,8 @@ class MPMCMultiframeFCFSPool {
       order_check_ = min_full;
       return Token{.id = static_cast<int>(index), .multiframe = &frames_.at(index)};
     }
+
+    pool_state_ |= utils::UnderlyingCast(PoolState::EMPTY);
     return std::nullopt;
   }
 
@@ -202,6 +206,7 @@ class MPMCMultiframeFCFSPool {
     // in case we haven't found an empty frame the priority counter has to be
     // set on the previous value because it hasn't actually being used
     --priority_counter_;
+    pool_state_ |= utils::UnderlyingCast(PoolState::FULL);
     return std::nullopt;
   }
 
@@ -213,32 +218,39 @@ class MPMCMultiframeFCFSPool {
     // done inside GetEmpty method because we are delaying the cleanup as much
     // as possible. We might not even need to explicitly cleanup the frame
     // because the frame might not be reused at all.
+    pool_state_ |= utils::UnderlyingCast(PoolState::HAS_SPACE);
   }
 
   void ReturnFull(int id) {
     std::unique_lock lock{mutex};
     MG_ASSERT(priority_states_[id].state == MultiframeState::IN_USE, "should be in use");
     priority_states_[id].state = MultiframeState::FULL;
-    pool_state_ = PoolState::HAS_MORE;
+    pool_state_ &= ~utils::UnderlyingCast(PoolState::EMPTY);
+    pool_state_ |= utils::UnderlyingCast(PoolState::HAS_MORE);
   }
 
   void MarkWriterDone() {
     std::unique_lock lock{mutex};
-    pool_state_ = PoolState::HINT_WRITER_DONE;
+    pool_state_ |= utils::UnderlyingCast(PoolState::HINT_WRITER_DONE);
   }
   bool IsWriterDone() {
     std::unique_lock lock{mutex};
-    return pool_state_ == PoolState::HINT_WRITER_DONE;
+    return pool_state_ & utils::UnderlyingCast(PoolState::HINT_WRITER_DONE);
   }
 
   // NOTE: There is a difference between exhaustion of a Multiframe and the entire pool.
   void MarkExhausted() {
     std::unique_lock lock{mutex};
-    pool_state_ = PoolState::EXHAUSTED;
+    pool_state_ |= utils::UnderlyingCast(PoolState::EXHAUSTED);
   }
   bool IsExhausted() {
     std::unique_lock lock{mutex};
-    return pool_state_ == PoolState::EXHAUSTED;
+    return pool_state_ & utils::UnderlyingCast(PoolState::EXHAUSTED);
+  }
+
+  bool IsEmpty() {
+    std::unique_lock lock{mutex};
+    return pool_state_ & utils::UnderlyingCast(PoolState::EMPTY);
   }
 
  private:
@@ -256,7 +268,7 @@ class MPMCMultiframeFCFSPool {
   int64_t last_taken_priority_{-1};
   // TODO(gitbuda): An interesting metric would be to count calls which require taking the lock?
   std::mutex mutex;
-  PoolState pool_state_;
+  std::underlying_type<PoolState>::type pool_state_;
 };
 
 static_assert(MultiframePoolConcept<MPMCMultiframeFCFSPool>);

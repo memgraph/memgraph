@@ -74,7 +74,6 @@ int main(int argc, char *argv[]) {
   int scan_all_elems = 10;
   std::vector<Op> ops{
       Op{.type = OpType::Produce},
-      // Op{.type = OpType::ScanAll, .props = {scan_all_elems}},
       Op{.type = OpType::ScanAll, .props = {scan_all_elems}},
       Op{.type = OpType::ScanAll, .props = {scan_all_elems}},
       Op{.type = OpType::ScanAll, .props = {scan_all_elems}},
