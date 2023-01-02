@@ -224,6 +224,13 @@ def filter_benchmarks(generators, patterns):
                     ):
                         current[group].append((query_name, query_func))
             if len(current) > 0:
+                # Ignore benchgraph "basic" queries in standard CI/CD run
+                for pattern in patterns:
+                    res = pattern.count("*")
+                    key = "basic"
+                    if res >= 2 and key in current.keys():
+                        del current[key]
+
                 filtered.append((generator(variant, args.vendor_name), dict(current)))
     return filtered
 
