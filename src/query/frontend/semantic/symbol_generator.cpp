@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -335,6 +335,10 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
       type = scope.visiting_edge->IsVariable() ? Symbol::Type::EDGE_LIST : Symbol::Type::EDGE;
     }
     if (scope.in_foreach) {
+      // Since foreach looks at symbols in a global scope it should also check it
+      if ((scope.in_create_node || scope.in_create_edge) && HasSymbol(ident.name_)) {
+        throw RedeclareVariableError(ident.name_);
+      }
       symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, type);
     } else {
       symbol = GetOrCreateSymbolLocalScope(ident.name_, ident.user_declared_, type);
