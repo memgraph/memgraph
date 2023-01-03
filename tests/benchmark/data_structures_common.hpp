@@ -17,9 +17,9 @@
 
 #include "coordinator/hybrid_logical_clock.hpp"
 #include "storage/v3/key_store.hpp"
-#include "storage/v3/lexicographically_ordered_vertex.hpp"
 #include "storage/v3/mvcc.hpp"
 #include "storage/v3/transaction.hpp"
+#include "storage/v3/vertex.hpp"
 #include "utils/skip_list.hpp"
 
 namespace memgraph::benchmark {
@@ -40,9 +40,7 @@ inline void PrepareData(std::map<TKey, TValue> &std_map, const int64_t num_eleme
   storage::v3::Transaction transaction{start_timestamp, storage::v3::IsolationLevel::SNAPSHOT_ISOLATION};
   auto *delta = storage::v3::CreateDeleteObjectDelta(&transaction);
   for (auto i{0}; i < num_elements; ++i) {
-    std_map.insert({storage::v3::PrimaryKey{storage::v3::PropertyValue{i}},
-                    storage::v3::LexicographicallyOrderedVertex{storage::v3::Vertex{
-                        delta, std::vector<storage::v3::PropertyValue>{storage::v3::PropertyValue{true}}}}});
+    std_map.insert({storage::v3::PrimaryKey{storage::v3::PropertyValue{i}}, storage::v3::VertexData{delta}});
   }
 }
 

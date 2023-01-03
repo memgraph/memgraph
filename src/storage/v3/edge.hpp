@@ -21,7 +21,7 @@
 
 namespace memgraph::storage::v3 {
 
-struct Vertex;
+using EdgeContainer = std::map<Gid, Edge>;
 
 struct Edge {
   Edge(Gid gid, Delta *delta) : gid(gid), deleted(false), delta(delta) {
