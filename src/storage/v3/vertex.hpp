@@ -16,7 +16,6 @@
 #include <type_traits>
 #include <vector>
 
-#include "storage/v3/delta.hpp"
 #include "storage/v3/edge_ref.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/key_store.hpp"
@@ -28,17 +27,12 @@
 
 namespace memgraph::storage::v3 {
 
-struct Vertex {
+struct Delta;
+
+struct VertexData {
   using EdgeLink = std::tuple<EdgeTypeId, VertexId, EdgeRef>;
 
-  Vertex(Delta *delta, const std::vector<PropertyValue> &primary_properties) : keys{primary_properties}, delta{delta} {
-    MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
-              "Vertex must be created with an initial DELETE_OBJECT delta!");
-  }
-
-  friend bool operator==(const Vertex &vertex, const PrimaryKey &primary_key) { return vertex.keys == primary_key; }
-
-  KeyStore keys;
+  explicit VertexData(Delta *delta);
 
   std::vector<LabelId> labels;
   PropertyStore properties;
@@ -52,8 +46,11 @@ struct Vertex {
   Delta *delta;
 };
 
-static_assert(alignof(Vertex) >= 8, "The Vertex should be aligned to at least 8!");
+static_assert(alignof(VertexData) >= 8, "The Vertex should be aligned to at least 8!");
 
-inline bool VertexHasLabel(const Vertex &vertex, const LabelId label) { return utils::Contains(vertex.labels, label); }
+using VertexContainer = std::map<PrimaryKey, VertexData>;
+using Vertex = VertexContainer::value_type;
+
+bool VertexHasLabel(const Vertex &vertex, LabelId label);
 
 }  // namespace memgraph::storage::v3
