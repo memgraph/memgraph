@@ -9,8 +9,6 @@ set(storage_v3_src_files
     temporal.cpp
     edge_accessor.cpp
     indices.cpp
-    key_store.cpp
-    lexicographically_ordered_vertex.cpp
     property_store.cpp
     vertex_accessor.cpp
     schemas.cpp
@@ -19,6 +17,7 @@ set(storage_v3_src_files
     shard_rsm.cpp
     bindings/typed_value.cpp
     expr.cpp
+    vertex.cpp
     request_helper.cpp)
 
 # ######################
