@@ -25,7 +25,6 @@
 
 namespace memgraph::storage::v3 {
 
-struct Vertex;
 class VertexAccessor;
 struct Indices;
 

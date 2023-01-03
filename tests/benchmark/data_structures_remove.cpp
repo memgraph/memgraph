@@ -25,7 +25,6 @@
 
 #include "data_structures_common.hpp"
 #include "storage/v3/key_store.hpp"
-#include "storage/v3/lexicographically_ordered_vertex.hpp"
 #include "storage/v3/mvcc.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/transaction.hpp"
@@ -58,7 +57,7 @@ static void BM_BenchmarkRemoveSkipList(::benchmark::State &state) {
 }
 
 static void BM_BenchmarkRemoveStdMap(::benchmark::State &state) {
-  std::map<storage::v3::PrimaryKey, storage::v3::LexicographicallyOrderedVertex> std_map;
+  std::map<storage::v3::PrimaryKey, storage::v3::VertexData> std_map;
   PrepareData(std_map, state.range(0));
 
   // So we can also have elements that does don't exist
