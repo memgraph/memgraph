@@ -991,15 +991,15 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
           RWType::NONE};
 }
 
-PreparedQuery PrepareCypherQueryPhysical(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
-                                         RequestRouterInterface *request_router) {
+PreparedQuery PrepareCypherQueryPhysical(ParsedQuery parsed_query, InterpreterContext * /*unused*/,
+                                         RequestRouterInterface * /*unused*/) {
   spdlog::warn("Prepare called for: {}", parsed_query.query_string);
 
-  auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
-  auto cached_plan = CypherQueryToPlan(
-      parsed_query.stripped_query.hash(), std::move(parsed_query.ast_storage), cypher_query, parsed_query.parameters,
-      parsed_query.is_cacheable ? &interpreter_context->plan_cache : nullptr, request_router);
-  auto &logical_plan = cached_plan->plan();
+  // auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
+  // auto cached_plan = CypherQueryToPlan(
+  //     parsed_query.stripped_query.hash(), std::move(parsed_query.ast_storage), cypher_query, parsed_query.parameters,
+  //     parsed_query.is_cacheable ? &interpreter_context->plan_cache : nullptr, request_router);
+  // auto &logical_plan = cached_plan->plan();
   // TODO(gitbuda): Convert logical plna to physical plan.
 
   return {{},                                    // header
@@ -1658,10 +1658,11 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     PreparedQuery prepared_query;
 
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
-      prepared_query = PrepareCypherQueryPhysical(std::move(parsed_query), interpreter_context_, request_router_.get());
-      // prepared_query = PrepareCypherQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
-      //                                     &*execution_db_accessor_, &query_execution->execution_memory,
-      //                                     &query_execution->notifications, request_router_.get());
+      // prepared_query = PrepareCypherQueryPhysical(std::move(parsed_query), interpreter_context_,
+      // request_router_.get());
+      prepared_query = PrepareCypherQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
+                                          &*execution_db_accessor_, &query_execution->execution_memory,
+                                          &query_execution->notifications, request_router_.get());
     } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
       prepared_query = PrepareExplainQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
                                            &*request_router_, &query_execution->execution_memory_with_exception);

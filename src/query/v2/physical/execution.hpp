@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -46,9 +46,19 @@ struct Stats {
 };
 
 /// STATES
+struct CreateVertices {
+  DataOperator *op;
+  std::vector<DataOperator *> children;
+};
+
 struct Once {
   DataOperator *op;
   bool has_more{true};
+};
+
+struct Produce {
+  DataOperator *op;
+  std::vector<DataOperator *> children;
 };
 
 struct ScanAll {
@@ -59,16 +69,17 @@ struct ScanAll {
   std::vector<mock::Frame>::iterator data_it{data.end()};
 };
 
-struct Produce {
+struct Unwind {
   DataOperator *op;
   std::vector<DataOperator *> children;
 };
 
-using VarState = std::variant<Once, ScanAll, Produce>;
+using VarState = std::variant<CreateVertices, Once, Produce, ScanAll, Unwind>;
 /// STATES
 
 struct Execution {
   Status status;
+  // TODO(gitbuda): State is also part of the DataOperator -> redundant here.
   VarState state;
 };
 
@@ -150,6 +161,8 @@ struct ExecutionPlan {
   uint64_t top_level_tuples{0};
 };
 
+// TODO(gitbuda): Make an example how to achieve intra-operator parallelization.
+//
 /// SINGLE THREADED EXECUTE IMPLEMENTATIONS
 
 template <typename TFun>
@@ -175,6 +188,8 @@ inline bool ProcessNext(DataOperator *input, TFun fun) {
   return true;
 }
 
+inline Status Execute(CreateVertices & /*unused*/) { return Status{.has_more = false}; }
+
 inline Status Execute(Once &state) {
   MG_ASSERT(state.op->children.empty(), "{} should have 0 input/child", state.op->name);
   SPDLOG_TRACE("{} Execute()", state.op->name);
@@ -184,6 +199,19 @@ inline Status Execute(Once &state) {
   state.op->MarkWriterDone();
   state.op->stats.processed_frames = 1;
   return Status{.has_more = false};
+}
+
+inline Status Execute(Produce &state) {
+  MG_ASSERT(state.op->children.size() == 1, "{} should have exactly 1 input/child", state.op->name);
+  SPDLOG_TRACE("{} Execute()", state.op->name);
+  auto *input = state.op->children[0].get();
+
+  auto produce_fun = [&state](DataOperator::TDataPool::TMultiframe &multiframe) {
+    auto size = multiframe.Data().size();
+    state.op->stats.processed_frames += size;
+  };
+
+  return Status{.has_more = ProcessNext<decltype(produce_fun)>(input, std::move(produce_fun))};
 }
 
 inline Status Execute(ScanAll &state) {
@@ -262,18 +290,7 @@ inline Status Execute(ScanAll &state) {
   return Status{.has_more = true};
 }
 
-inline Status Execute(Produce &state) {
-  MG_ASSERT(state.op->children.size() == 1, "{} should have exactly 1 input/child", state.op->name);
-  SPDLOG_TRACE("{} Execute()", state.op->name);
-  auto *input = state.op->children[0].get();
-
-  auto produce_fun = [&state](DataOperator::TDataPool::TMultiframe &multiframe) {
-    auto size = multiframe.Data().size();
-    state.op->stats.processed_frames += size;
-  };
-
-  return Status{.has_more = ProcessNext<decltype(produce_fun)>(input, std::move(produce_fun))};
-}
+inline Status Execute(Unwind & /*unused*/) { return Status{.has_more = false}; }
 
 /// ASYNC EXECUTE WRAPPERS
 
@@ -291,9 +308,11 @@ inline Status Execute(Produce &state) {
     return std::move(future);                                                                                       \
   }
 
+DEFINE_EXECUTE_ASYNC(CreateVertices)
 DEFINE_EXECUTE_ASYNC(Once)
-DEFINE_EXECUTE_ASYNC(ScanAll)
 DEFINE_EXECUTE_ASYNC(Produce)
+DEFINE_EXECUTE_ASYNC(ScanAll)
+DEFINE_EXECUTE_ASYNC(Unwind)
 
 #undef DEFINE_EXECUTE_ASYNC
 
