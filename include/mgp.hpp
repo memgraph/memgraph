@@ -295,6 +295,8 @@ class Properties {
   /// @note Each key-value pair needs to be checked, ensuing O(n) time complexity.
   Value operator[](const std::string &key) const;
 
+  Value &operator[](const std::string &key);
+
   std::map<std::string, Value>::const_iterator begin() const;
   std::map<std::string, Value>::const_iterator end() const;
 
@@ -600,6 +602,8 @@ class Node {
 
   /// @brief Returns the value of the node’s `property_name` property.
   Value operator[](const std::string &property_name) const;
+
+  Value &operator[](const std::string &property_name);
 
   /// @brief Returns an iterable structure of the node’s inbound relationships.
   Relationships InRelationships() const;
@@ -1979,6 +1983,7 @@ inline size_t Properties::Size() const { return property_map_.size(); }
 inline bool Properties::Empty() const { return Size() == 0; }
 
 inline Value Properties::operator[](const std::string &key) const { return property_map_.at(key); }
+inline Value &Properties::operator[](const std::string &key) { return property_map_[key]; }
 
 inline std::map<std::string, Value>::const_iterator Properties::begin() const { return property_map_.begin(); }
 
@@ -2369,6 +2374,7 @@ inline bool Node::HasLabel(std::string_view label) const {
 inline class Properties Node::Properties() const { return mgp::Properties(mgp::vertex_iter_properties(ptr_, memory)); }
 
 inline Value Node::operator[](const std::string &property_name) const { return Properties()[property_name]; }
+inline Value &Node::operator[](const std::string &property_name) { return Properties()[property_name]; }
 
 inline Relationships Node::InRelationships() const {
   auto relationship_iterator = mgp::vertex_iter_in_edges(ptr_, memory);

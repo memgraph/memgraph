@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -418,4 +418,27 @@ TEST_F(CppApiTestFixture, TestDuration) {
   auto value_x = mgp::Value(duration_1);
   // Use Value move constructor
   auto value_y = mgp::Value(mgp::Duration("PT2M2.33S"));
+}
+
+TEST_F(CppApiTestFixture, TestNodeProperties) {
+  mgp_graph raw_graph = CreateGraph();
+  auto graph = mgp::Graph(&raw_graph);
+
+  auto node_1 = graph.CreateNode();
+
+  ASSERT_EQ(node_1.HasLabel("L1"), false);
+
+  node_1.AddLabel("L1");
+  ASSERT_EQ(node_1.HasLabel("L1"), true);
+
+  node_1.AddLabel("L2");
+  ASSERT_EQ(node_1.HasLabel("L1"), true);
+  ASSERT_EQ(node_1.HasLabel("L2"), true);
+
+  ASSERT_EQ(node_1.Properties().Size(), 0);
+
+  auto node1_prop = node_1.Properties();
+  node1_prop["b"] = mgp::Value(2.0);
+
+  node_1.AddProperty()
 }
