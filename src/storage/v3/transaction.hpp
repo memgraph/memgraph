@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,6 +31,16 @@ struct CommitInfo {
 };
 
 struct Transaction {
+  Transaction(coordinator::Hlc start_timestamp, CommitInfo commit_info, uint64_t command_id,
+              const std::list<Delta> &deltas, bool must_abort, bool is_aborted, IsolationLevel isolation_level)
+      : start_timestamp{start_timestamp},
+        commit_info{std::make_unique<CommitInfo>(commit_info)},
+        command_id(command_id),
+        deltas(CopyDeltas(deltas)),
+        must_abort(must_abort),
+        is_aborted(is_aborted),
+        isolation_level(isolation_level){};
+
   Transaction(coordinator::Hlc start_timestamp, IsolationLevel isolation_level)
       : start_timestamp(start_timestamp),
         commit_info(std::make_unique<CommitInfo>(CommitInfo{false, {start_timestamp}})),
@@ -53,6 +63,12 @@ struct Transaction {
   Transaction &operator=(Transaction &&other) = delete;
 
   ~Transaction() {}
+
+  std::list<Delta> CopyDeltas(const std::list<Delta> &deltas) const { return std::list<Delta>{}; }
+
+  Transaction Clone() const {
+    return {start_timestamp, *commit_info, command_id, deltas, must_abort, is_aborted, isolation_level};
+  }
 
   coordinator::Hlc start_timestamp;
   std::unique_ptr<CommitInfo> commit_info;

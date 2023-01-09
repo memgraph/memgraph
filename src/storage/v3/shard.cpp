@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,6 +19,7 @@
 #include <mutex>
 #include <optional>
 
+#include <bits/ranges_algo.h>
 #include <spdlog/spdlog.h>
 
 #include "io/network/endpoint.hpp"
@@ -1055,7 +1056,7 @@ std::optional<SplitInfo> Shard::ShouldSplit() const noexcept {
   return std::nullopt;
 }
 
-void CollectDeltas(std::set<uint64_t> &collected_transactions_start_id, Delta *delta) const {
+void Shard::ScanDeltas(std::set<uint64_t> &collected_transactions_start_id, Delta *delta) const {
   while (delta != nullptr) {
     collected_transactions_start_id.insert(delta->command_id);
     delta = delta->next;
@@ -1069,59 +1070,72 @@ VertexContainer Shard::CollectVertices(std::set<uint64_t> &collected_transaction
 
   for (; split_key_it != vertices_.end(); split_key_it++) {
     // Go through deltas and pick up transactions start_id
-    CollectDeltas(collected_transactions_start_id, split_key_it->second.delta);
+    ScanDeltas(collected_transactions_start_id, split_key_it->second.delta);
     splitted_data.insert(vertices_.extract(split_key_it->first));
   }
   return splitted_data;
 }
 
 std::optional<EdgeContainer> Shard::CollectEdges(std::set<uint64_t> &collected_transactions_start_id,
-                                                 const VertexContainer &split_vertices) const {
+                                                 const VertexContainer &split_vertices, const PrimaryKey &split_key) {
   if (!config_.items.properties_on_edges) {
     return std::nullopt;
   }
   EdgeContainer splitted_edges;
-  // TODO This copies edges without removing the unecessary ones!!
+  const auto split_edges_from_vertex = [&](const auto &edges_ref) {
+    // This is safe since if properties_on_edges is true, the this must be a
+    // ptr
+    for (const auto &edge_ref : edges_ref) {
+      auto *edge = std::get<2>(edge_ref).ptr;
+      const auto &other_vtx = std::get<1>(edge_ref);
+      ScanDeltas(collected_transactions_start_id, edge->delta);
+      // Check if src and dest edge are both on splitted shard
+      // so we know if we should remove orphan edge
+      if (other_vtx.primary_key >= split_key) {
+        // Remove edge from shard
+        splitted_edges.insert(edges_.extract(edge->gid));
+      } else {
+        splitted_edges.insert({edge->gid, Edge{edge->gid, edge->delta}});
+      }
+    }
+  };
+
   for (const auto &vertex : split_vertices) {
-    for (const auto &in_edge : vertex.second.in_edges) {
-      // This is safe since if properties_on_edges is true, the this must be a
-      // ptr
-      auto *edge = std::get<2>(in_edge).ptr;
-      CollectDeltas(collected_transactions_start_id, edge->delta);
-
-      splitted_edges.insert({edge->gid, Edge{edge->gid, edge->delta}});
-    }
-    for (const auto &in_edge : vertex.second.out_edges) {
-      auto *edge = std::get<2>(in_edge).ptr;
-      CollectDeltas(collected_transactions_start_id, edge->delta);
-
-      splitted_edges.insert({edge->gid, Edge{edge->gid, edge->delta}});
-    }
+    split_edges_from_vertex(vertex.second.in_edges);
+    split_edges_from_vertex(vertex.second.out_edges);
   }
   return splitted_edges;
 }
 
-std::list<Transaction> Shard::CollectTransactions(const std::set<uint64_t> &collected_transactions_start_id) const {
-  std::list<Transaction> transactions;
-  for (const auto commit_start : collected_transactions_start_id) {
-    transactions.push_back(*start_logical_id_to_transaction_[commit_start]);
-  }
+std::map<uint64_t, std::unique_ptr<Transaction>> Shard::CollectTransactions(
+    const std::set<uint64_t> &collected_transactions_start_id) {
+  std::map<uint64_t, std::unique_ptr<Transaction>> transactions;
+  // for (const auto commit_start : collected_transactions_start_id) {
+  //   transactions.insert(
+  //       {commit_start, std::make_unique<Transaction>(*start_logical_id_to_transaction_.at(commit_start))});
+  // }
   return transactions;
 }
 
 SplitData Shard::PerformSplit(const PrimaryKey &split_key) {
   SplitData data;
   std::set<uint64_t> collected_transactions_start_id;
-  // Split Vertices
   data.vertices = CollectVertices(collected_transactions_start_id, split_key);
-  // Resolve the deltas that were left on the shard, and are not referenced by
-  // neither of vertices
-  data.edges = CollectEdges(collected_transactions_start_id, data.vertices);
-  data.indices_info = {indices_.label_index.ListIndices(), indices_.label_property_index.ListIndices()};
-  // TODO Iterate over vertices and edges to replace their deltas with new ones tha are copied over
-  // use uuid
+  data.edges = CollectEdges(collected_transactions_start_id, data.vertices, split_key);
+  // TODO indices wont work since timestamp cannot be replicated
+  // data.indices_info = {indices_.label_index.ListIndices(), indices_.label_property_index.ListIndices()};
 
-  data.transactions = CollectTransactions(collected_transactions_start_id);
+  // data.transactions = CollectTransactions(collected_transactions_start_id);
+
+  // Update delta addresses with the new addresses
+  // for (auto &vertex : data.vertices) {
+  //   AdjustSplittedDataDeltas(vertex.second, data.transactions);
+  // }
+  // if (data.edges) {
+  //   for (auto &edge : data.edges) {
+  //     AdjustSplittedDataDeltas(edge, data.transactions);
+  //   }
+  // }
 
   return data;
 }

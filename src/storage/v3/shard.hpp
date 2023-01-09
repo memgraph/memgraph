@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -185,7 +185,7 @@ struct SplitData {
   VertexContainer vertices;
   std::optional<EdgeContainer> edges;
   IndicesInfo indices_info;
-  std::list<Transaction> transactions;
+  std::map<uint64_t, Transaction> transactions;
 };
 
 /// Structure used to return information about the storage.
@@ -375,14 +375,36 @@ class Shard final {
   SplitData PerformSplit(const PrimaryKey &split_key);
 
  private:
-  void CollectDeltas(std::set<uint64_t> &collected_transactions_start_id, Delta *delta) const;
+  template <typename TObj>
+  requires utils::SameAsAnyOf<TObj, Edge, VertexData>
+  void AdjustSplittedDataDeltas(TObj &delta_holder, const std::map<int64_t, Transaction> &transactions) {
+    auto *delta_chain = delta_holder.delta;
+    Delta *new_delta_chain{nullptr};
+    while (delta_chain != nullptr) {
+      auto &transaction = transactions.at(delta_chain->command_id);
+      // This is the address of corresponding delta
+      const auto transaction_delta_it = std::ranges::find_if(
+          transaction->deltas, [delta_uuid = delta_chain->uuid](const auto &elem) { return elem.uuid == delta_uuid; });
+      // Add this delta to the new chain
+      if (new_delta_chain == nullptr) {
+        new_delta_chain = &*transaction_delta_it;
+      } else {
+        new_delta_chain->next = &*transaction_delta_it;
+      }
+      delta_chain = delta_chain->next;
+    }
+    delta_holder.delta = new_delta_chain;
+  }
 
-  std::list<Transaction> CollectTransactions(const std::set<uint64_t> &collected_transactions_start_id) const;
+  void ScanDeltas(std::set<uint64_t> &collected_transactions_start_id, Delta *delta) const;
+
+  std::map<uint64_t, std::unique_ptr<Transaction>> CollectTransactions(
+      const std::set<uint64_t> &collected_transactions_start_id);
 
   VertexContainer CollectVertices(std::set<uint64_t> &collected_transactions_start_id, const PrimaryKey &split_key);
 
   std::optional<EdgeContainer> CollectEdges(std::set<uint64_t> &collected_transactions_start_id,
-                                            const VertexContainer &split_vertices) const;
+                                            const VertexContainer &split_vertices, const PrimaryKey &split_key);
 
   Transaction &GetTransaction(coordinator::Hlc start_timestamp, IsolationLevel isolation_level);
 
@@ -391,7 +413,7 @@ class Shard final {
   // Main object storage
   NameIdMapper name_id_mapper_;
   LabelId primary_label_;
-  // The shard's range is [min, max)
+  // The shard's range is [min, max>
   PrimaryKey min_primary_key_;
   std::optional<PrimaryKey> max_primary_key_;
   VertexContainer vertices_;
