@@ -223,13 +223,14 @@ def filter_benchmarks(generators, patterns):
                         patterns,
                     ):
                         current[group].append((query_name, query_func))
-            if len(current) > 0:
+            if len(current) == 0:
+              continue
                 # Ignore benchgraph "basic" queries in standard CI/CD run
                 for pattern in patterns:
                     res = pattern.count("*")
                     key = "basic"
                     if res >= 2 and key in current.keys():
-                        del current[key]
+                        current.pop(key)
 
                 filtered.append((generator(variant, args.vendor_name), dict(current)))
     return filtered
@@ -249,7 +250,7 @@ def warmup(client):
 
 def tail_latency(vendor, client, func):
     iteration = args.tail_latency
-    if iteration != 0 and iteration >= 10:
+    if iteration >= 10:
         vendor.start_benchmark("tail_latency")
         if args.warmup_run:
             warmup(client)
