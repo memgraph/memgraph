@@ -2331,7 +2331,7 @@ inline std::map<std::string, Value> Node::Properties() const {
     property_map_.emplace(std::string(property->name), value);
   }
   mgp::properties_iterator_destroy(properties_iterator);
-  return std::move(property_map_);
+  return property_map_;
 }
 
 inline void Node::SetProperty(std::string property, Value value) const {
@@ -2398,7 +2398,7 @@ inline std::map<std::string, Value> Relationship::Properties() const {
     property_map_.emplace(property->name, value);
   }
   mgp::properties_iterator_destroy(properties_iterator);
-  return std::move(property_map_);
+  return property_map_;
 }
 
 inline void Relationship::SetProperty(std::string property, Value value) const {

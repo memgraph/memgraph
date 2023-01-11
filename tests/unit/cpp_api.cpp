@@ -195,7 +195,7 @@ TEST_F(CppApiTestFixture, TestNode) {
   ASSERT_EQ(node_1.HasLabel("L1"), true);
   ASSERT_EQ(node_1.HasLabel("L2"), true);
 
-  ASSERT_EQ(node_1.Properties().Size(), 0);
+  ASSERT_EQ(node_1.Properties().size(), 0);
 
   auto node_2 = graph.GetNodeById(node_1.Id());
 
@@ -264,7 +264,7 @@ TEST_F(CppApiTestFixture, TestRelationship) {
   auto relationship = graph.CreateRelationship(node_1, node_2, "edge_type");
 
   ASSERT_EQ(relationship.Type(), "edge_type");
-  ASSERT_EQ(relationship.Properties().Size(), 0);
+  ASSERT_EQ(relationship.Properties().size(), 0);
   ASSERT_EQ(relationship.From().Id(), node_1.Id());
   ASSERT_EQ(relationship.To().Id(), node_2.Id());
 
@@ -421,24 +421,17 @@ TEST_F(CppApiTestFixture, TestDuration) {
 }
 
 TEST_F(CppApiTestFixture, TestNodeProperties) {
-  mgp_graph raw_graph = CreateGraph();
+  mgp_graph raw_graph = CreateGraph(memgraph::storage::View::NEW);
   auto graph = mgp::Graph(&raw_graph);
 
   auto node_1 = graph.CreateNode();
 
-  ASSERT_EQ(node_1.HasLabel("L1"), false);
+  ASSERT_EQ(node_1.Properties().size(), 0);
 
-  node_1.AddLabel("L1");
-  ASSERT_EQ(node_1.HasLabel("L1"), true);
+  std::map<std::string, mgp::Value> node1_prop = node_1.Properties();
+  node_1.SetProperty("b", mgp::Value(2.0));
 
-  node_1.AddLabel("L2");
-  ASSERT_EQ(node_1.HasLabel("L1"), true);
-  ASSERT_EQ(node_1.HasLabel("L2"), true);
-
-  ASSERT_EQ(node_1.Properties().Size(), 0);
-
-  auto node1_prop = node_1.Properties();
-  node1_prop["b"] = mgp::Value(2.0);
-
-  node_1.AddProperty()
+  ASSERT_EQ(node_1.Properties().size(), 1);
+  ASSERT_EQ(node_1.Properties()["b"].ValueDouble(), 2.0);
+  ASSERT_EQ(node_1.GetProperty("b").ValueDouble(), 2.0);
 }
