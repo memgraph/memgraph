@@ -1058,7 +1058,7 @@ std::optional<SplitInfo> Shard::ShouldSplit() const noexcept {
 
 void Shard::ScanDeltas(std::set<uint64_t> &collected_transactions_start_id, Delta *delta) const {
   while (delta != nullptr) {
-    collected_transactions_start_id.insert(delta->command_id);
+    collected_transactions_start_id.insert(delta->commit_info->start_or_commit_timestamp.logical_id);
     delta = delta->next;
   }
 }
@@ -1126,8 +1126,9 @@ void Shard::AlignClonedTransaction(Transaction &cloned_transaction, const Transa
     auto *cloned_delta = &*cloned_delta_it;
     while (delta != nullptr) {
       // Align delta
-      cloned_delta->next = &*std::ranges::find_if(cloned_transactions.at(delta->command_id).deltas,
-                                                  [delta](const auto &elem) { return elem.uuid == delta->uuid; });
+      cloned_delta->next = &*std::ranges::find_if(
+          cloned_transactions.at(delta->commit_info->start_or_commit_timestamp.logical_id).deltas,
+          [delta](const auto &elem) { return elem.uuid == delta->uuid; });
       // Align prev ptr
       auto ptr = delta->prev.Get();
       switch (ptr.type) {
@@ -1140,6 +1141,8 @@ void Shard::AlignClonedTransaction(Transaction &cloned_transaction, const Transa
           break;
         }
         case PreviousPtr::Type::VERTEX: {
+          // What if the vertex is already moved to garbage collection...
+          // Make test when you have deleted vertex
           auto *cloned_vertex = &*cloned_vertices.find(ptr.vertex->first);
           cloned_delta->prev.Set(cloned_vertex);
           break;
@@ -1176,7 +1179,7 @@ std::map<uint64_t, Transaction> Shard::CollectTransactions(const std::set<uint64
                                                            EdgeContainer &cloned_edges) {
   std::map<uint64_t, Transaction> transactions;
   for (const auto commit_start : collected_transactions_start_id) {
-    transactions.insert({commit_start, start_logical_id_to_transaction_[commit_start]->Clone()});
+    transactions.insert({commit_start, start_logical_id_to_transaction_.at(commit_start)->Clone()});
   }
   // It is necessary to clone all the transactions first so we have new addresses
   // for deltas, before doing alignment of deltas and prev_ptr
