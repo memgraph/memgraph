@@ -128,6 +128,10 @@ class MockedRequestRouter : public RequestRouterInterface {
 
   bool IsPrimaryKey(LabelId primary_label, PropertyId property) const override { return true; }
 
+  std::vector<coordinator::SchemaProperty> GetSchemaForLabel(storage::v3::LabelId /*label*/) const override {
+    return std::vector<coordinator::SchemaProperty>{};
+  };
+
  private:
   void SetUpNameIdMappers() {
     std::unordered_map<uint64_t, std::string> id_to_name;
