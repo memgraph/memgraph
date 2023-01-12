@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -133,7 +133,8 @@ inline bool operator!=(const PreviousPtr::Pointer &a, const PreviousPtr::Pointer
 
 struct Delta {
   // Needed for splits
-  boost::uuids::uuid uuid;
+  // TODO Replace this with int identifier
+  boost::uuids::uuid uuid{boost::uuids::uuid()};
 
   enum class Action {
     // Used for both Vertex and Edge

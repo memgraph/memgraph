@@ -1066,12 +1066,14 @@ void Shard::ScanDeltas(std::set<uint64_t> &collected_transactions_start_id, Delt
 VertexContainer Shard::CollectVertices(std::set<uint64_t> &collected_transactions_start_id,
                                        const PrimaryKey &split_key) {
   VertexContainer splitted_data;
-  auto split_key_it = vertices_.find(split_key);
 
-  for (; split_key_it != vertices_.end(); split_key_it++) {
+  auto split_key_it = vertices_.find(split_key);
+  while (split_key_it != vertices_.end()) {
     // Go through deltas and pick up transactions start_id
     ScanDeltas(collected_transactions_start_id, split_key_it->second.delta);
+    auto next_it = std::next(split_key_it);
     splitted_data.insert(vertices_.extract(split_key_it->first));
+    split_key_it = next_it;
   }
   return splitted_data;
 }
