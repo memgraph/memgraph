@@ -589,12 +589,8 @@ class DistributedScanAllByPrimaryKeyCursor : public Cursor {
     SCOPED_PROFILE_OP(op_name_);
 
     if (!own_multi_frames_.has_value()) {
-      // NOLINTBEGIN(cppcoreguidelines-narrowing-conversions)
-      // NOLINTBEGIN(bugprone-narrowing-conversions)
       own_multi_frames_.emplace(MultiFrame(input_multi_frame.GetFirstFrame().elems().size(),
                                            kNumberOfFramesInMultiframe, input_multi_frame.GetMemoryResource()));
-      // NOLINTEND(bugprone-narrowing-conversions)
-      // NOLINTEND(cppcoreguidelines-narrowing-conversions)
       PrepareNextFrames(context);
     }
 
