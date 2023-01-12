@@ -97,7 +97,8 @@ class RequestRouterInterface {
 
   virtual void StartTransaction() = 0;
   virtual void Commit() = 0;
-  virtual std::vector<VertexAccessor> ScanVertices(std::optional<std::string> label) = 0;
+  virtual std::vector<VertexAccessor> ScanVertices(std::optional<std::string> label,
+                                                   std::optional<std::vector<msgs::Value>> primary_key) = 0;
   virtual std::vector<msgs::CreateVerticesResponse> CreateVertices(std::vector<msgs::NewVertex> new_vertices) = 0;
   virtual std::vector<msgs::ExpandOneResultRow> ExpandOne(msgs::ExpandOneRequest request) = 0;
   virtual std::vector<msgs::CreateExpandResponse> CreateExpand(std::vector<msgs::NewExpand> new_edges) = 0;
@@ -243,9 +244,16 @@ class RequestRouter : public RequestRouterInterface {
   bool IsPrimaryLabel(storage::v3::LabelId label) const override { return shards_map_.label_spaces.contains(label); }
 
   // TODO(kostasrim) Simplify return result
-  std::vector<VertexAccessor> ScanVertices(std::optional<std::string> label) override {
+  std::vector<VertexAccessor> ScanVertices(std::optional<std::string> label,
+                                           std::optional<std::vector<msgs::Value>> primary_key) override {
     // create requests
-    std::vector<ShardRequestState<msgs::ScanVerticesRequest>> requests_to_be_sent = RequestsForScanVertices(label);
+    std::vector<ShardRequestState<msgs::ScanVerticesRequest>> requests_to_be_sent;
+    if (primary_key) {
+      requests_to_be_sent = RequestsForScanVertexByPrimaryKey(label, *primary_key);
+    } else {
+      requests_to_be_sent = RequestsForScanVertices(label);
+    }
+
     spdlog::trace("created {} ScanVertices requests", requests_to_be_sent.size());
 
     // begin all requests in parallel
@@ -507,6 +515,29 @@ class RequestRouter : public RequestRouterInterface {
       }
     }
 
+    return requests;
+  }
+
+  std::vector<ShardRequestState<msgs::ScanVerticesRequest>> RequestsForScanVertexByPrimaryKey(
+      const std::optional<std::string> &label, const std::vector<msgs::Value> &primary_key) {
+    const auto label_id = shards_map_.GetLabelId(*label);
+    MG_ASSERT(label_id);
+    MG_ASSERT(IsPrimaryLabel(*label_id));
+    std::vector<ShardRequestState<msgs::ScanVerticesRequest>> requests = {};
+
+    auto pk_containing_shard =
+        shards_map_.GetShardForKey(*label, storage::conversions::ConvertPropertyVector(primary_key));
+
+    msgs::ScanVerticesRequest request;
+    request.transaction_id = transaction_id_;
+    request.batch_limit = 1;
+    request.start_id.second = primary_key;
+
+    ShardRequestState<msgs::ScanVerticesRequest> shard_request_state{
+        .shard = pk_containing_shard,
+        .request = std::move(request),
+    };
+    requests.emplace_back(std::move(shard_request_state));
     return requests;
   }
 

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -182,7 +182,7 @@ void ExecuteOp(query::v2::RequestRouter<SimulatorTransport> &request_router, std
 
 void ExecuteOp(query::v2::RequestRouter<SimulatorTransport> &request_router, std::set<CompoundKey> &correctness_model,
                ScanAll scan_all) {
-  auto results = request_router.ScanVertices("test_label");
+  auto results = request_router.ScanVertices("test_label", std::nullopt);
 
   RC_ASSERT(results.size() == correctness_model.size());
 

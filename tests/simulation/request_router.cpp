@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -154,7 +154,7 @@ void RunStorageRaft(Raft<IoImpl, MockedShardRsm, WriteRequests, WriteResponses, 
 }
 
 void TestScanVertices(query::v2::RequestRouterInterface &request_router) {
-  auto result = request_router.ScanVertices("test_label");
+  auto result = request_router.ScanVertices("test_label", std::nullopt);
   MG_ASSERT(result.size() == 2);
   {
     auto prop = result[0].GetProperty(msgs::PropertyId::FromUint(0));

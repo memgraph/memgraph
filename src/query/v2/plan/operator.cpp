@@ -34,6 +34,7 @@
 #include "query/v2/bindings/eval.hpp"
 #include "query/v2/bindings/symbol_table.hpp"
 #include "query/v2/context.hpp"
+#include "query/v2/conversions.hpp"
 #include "query/v2/db_accessor.hpp"
 #include "query/v2/exceptions.hpp"
 #include "query/v2/frontend/ast/ast.hpp"
@@ -403,7 +404,7 @@ class DistributedScanAllAndFilterCursor : public Cursor {
       if (label_.has_value()) {
         request_label = request_router.LabelToName(*label_);
       }
-      current_batch = request_router.ScanVertices(request_label);
+      current_batch = request_router.ScanVertices(request_label, std::nullopt);
     }
     current_vertex_it = current_batch.begin();
     request_state_ = State::COMPLETED;
@@ -468,13 +469,14 @@ class DistributedScanAllByPrimaryKeyCursor : public Cursor {
       Symbol output_symbol, UniqueCursorPtr input_cursor, const char *op_name,
       std::optional<storage::v3::LabelId> label,
       std::optional<std::pair<storage::v3::PropertyId, Expression *>> property_expression_pair,
-      std::optional<std::vector<Expression *>> filter_expressions)
+      std::optional<std::vector<Expression *>> filter_expressions, std::optional<std::vector<Expression *>> primary_key)
       : output_symbol_(output_symbol),
         input_cursor_(std::move(input_cursor)),
         op_name_(op_name),
         label_(label),
         property_expression_pair_(property_expression_pair),
-        filter_expressions_(filter_expressions) {
+        filter_expressions_(filter_expressions),
+        primary_key_(primary_key) {
     ResetExecutionState();
   }
 
@@ -489,7 +491,32 @@ class DistributedScanAllByPrimaryKeyCursor : public Cursor {
       if (label_.has_value()) {
         request_label = request_router.LabelToName(*label_);
       }
-      current_batch_ = request_router.ScanVertices(request_label);
+      current_batch_ = request_router.ScanVertices(request_label, std::nullopt);
+    }
+    current_vertex_it_ = current_batch_.begin();
+    request_state_ = State::COMPLETED;
+    return !current_batch_.empty();
+  }
+
+  bool MakeRequestSingleFrame(Frame &frame, RequestRouterInterface &request_router, ExecutionContext &context) {
+    {
+      SCOPED_REQUEST_WAIT_PROFILE;
+      std::optional<std::string> request_label = std::nullopt;
+      if (label_.has_value()) {
+        request_label = request_router.LabelToName(*label_);
+      }
+
+      // Evaluate the expressions that hold the PrimaryKey.
+      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.request_router,
+                                    storage::v3::View::OLD);
+
+      std::vector<msgs::Value> pk;
+      MG_ASSERT(primary_key_);
+      for (auto primary_key : *primary_key_) {
+        pk.push_back(TypedValueToValue(primary_key->Accept(evaluator)));
+      }
+
+      current_batch_ = request_router.ScanVertices(request_label, pk);
     }
     current_vertex_it_ = current_batch_.begin();
     request_state_ = State::COMPLETED;
@@ -612,6 +639,7 @@ class DistributedScanAllByPrimaryKeyCursor : public Cursor {
   std::optional<storage::v3::LabelId> label_;
   std::optional<std::pair<storage::v3::PropertyId, Expression *>> property_expression_pair_;
   std::optional<std::vector<Expression *>> filter_expressions_;
+  std::optional<std::vector<Expression *>> primary_key_;
   std::optional<MultiFrame> own_multi_frames_;
   std::optional<ValidFramesConsumer> valid_frames_consumer_;
   ValidFramesConsumer::Iterator valid_frames_it_;
@@ -727,8 +755,8 @@ UniqueCursorPtr ScanAllByPrimaryKey::MakeCursor(utils::MemoryResource *mem) cons
   EventCounter::IncrementCounter(EventCounter::ScanAllByPrimaryKeyOperator);
 
   return MakeUniqueCursorPtr<DistributedScanAllByPrimaryKeyCursor>(
-      mem, output_symbol_, input_->MakeCursor(mem), "ScanAll", std::nullopt /*label*/,
-      std::nullopt /*property_expression_pair*/, std::nullopt /*filter_expressions*/);
+      mem, output_symbol_, input_->MakeCursor(mem), "ScanAll", label_, std::nullopt /*property_expression_pair*/,
+      std::nullopt /*filter_expressions*/, primary_key_);
 
   throw QueryRuntimeException("ScanAllByPrimaryKey cursur is yet to be implemented.");
 }
