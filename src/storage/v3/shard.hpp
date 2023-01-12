@@ -399,11 +399,14 @@ class Shard final {
   void ScanDeltas(std::set<uint64_t> &collected_transactions_start_id, Delta *delta) const;
 
   void AlignClonedTransaction(Transaction &cloned_transaction, const Transaction &transaction,
-                              std::map<uint64_t, Transaction> &cloned_transactions);
+                              std::map<uint64_t, Transaction> &cloned_transactions, VertexContainer &cloned_vertices,
+                              EdgeContainer &cloned_edges);
 
-  void AlignClonedTransactions(std::map<uint64_t, Transaction> &cloned_transactions);
+  void AlignClonedTransactions(std::map<uint64_t, Transaction> &cloned_transactions, VertexContainer &cloned_vertices,
+                               EdgeContainer &cloned_edges);
 
-  std::map<uint64_t, Transaction> CollectTransactions(const std::set<uint64_t> &collected_transactions_start_id);
+  std::map<uint64_t, Transaction> CollectTransactions(const std::set<uint64_t> &collected_transactions_start_id,
+                                                      VertexContainer &cloned_vertices, EdgeContainer &cloned_edges);
 
   VertexContainer CollectVertices(std::set<uint64_t> &collected_transactions_start_id, const PrimaryKey &split_key);
 
