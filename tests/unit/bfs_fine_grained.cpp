@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,7 @@
 #include <string>
 #include <unordered_map>
 
-#include <gtest/internal/gtest-param-util-generated.h>
+#include <gtest/internal/gtest-param-util.h>
 
 #include "auth/models.hpp"
 #include "license/license.hpp"
@@ -104,7 +104,7 @@ TEST_P(FineGrainedBfsTest, All) {
 }
 
 std::unique_ptr<VertexDb> FineGrainedBfsTest::db_{nullptr};
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     FineGrained, FineGrainedBfsTest,
     testing::Combine(testing::Values(3), testing::Values(-1),
                      testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN, EdgeAtom::Direction::BOTH),

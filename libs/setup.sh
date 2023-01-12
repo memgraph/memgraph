@@ -171,7 +171,7 @@ benchmark_tag="v1.6.0"
 repo_clone_try_double "${primary_urls[gbenchmark]}" "${secondary_urls[gbenchmark]}" "benchmark" "$benchmark_tag" true
 
 # google test
-googletest_tag="release-1.8.0"
+googletest_tag="release-1.12.1"
 repo_clone_try_double "${primary_urls[gtest]}" "${secondary_urls[gtest]}" "googletest" "$googletest_tag" true
 
 # libbcrypt
