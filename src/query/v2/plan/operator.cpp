@@ -512,7 +512,7 @@ class DistributedScanAllByPrimaryKeyCursor : public Cursor {
 
       std::vector<msgs::Value> pk;
       MG_ASSERT(primary_key_);
-      for (auto primary_key : *primary_key_) {
+      for (auto *primary_key : *primary_key_) {
         pk.push_back(TypedValueToValue(primary_key->Accept(evaluator)));
       }
 
@@ -589,7 +589,7 @@ class DistributedScanAllByPrimaryKeyCursor : public Cursor {
     SCOPED_PROFILE_OP(op_name_);
 
     if (!own_multi_frames_.has_value()) {
-      // NOLINTNEXTLINE(bugprone-narrowing-conversions)
+      // NOLINTNEXTLINE(cppcoreguidelines-narrowing-conversions)
       own_multi_frames_.emplace(MultiFrame(input_multi_frame.GetFirstFrame().elems().size(),
                                            kNumberOfFramesInMultiframe, input_multi_frame.GetMemoryResource()));
       PrepareNextFrames(context);
@@ -755,10 +755,8 @@ UniqueCursorPtr ScanAllByPrimaryKey::MakeCursor(utils::MemoryResource *mem) cons
   EventCounter::IncrementCounter(EventCounter::ScanAllByPrimaryKeyOperator);
 
   return MakeUniqueCursorPtr<DistributedScanAllByPrimaryKeyCursor>(
-      mem, output_symbol_, input_->MakeCursor(mem), "ScanAll", label_, std::nullopt /*property_expression_pair*/,
-      std::nullopt /*filter_expressions*/, primary_key_);
-
-  throw QueryRuntimeException("ScanAllByPrimaryKey cursur is yet to be implemented.");
+      mem, output_symbol_, input_->MakeCursor(mem), "ScanAllByPrimaryKey", label_,
+      std::nullopt /*property_expression_pair*/, std::nullopt /*filter_expressions*/, primary_key_);
 }
 
 Expand::Expand(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol, Symbol node_symbol,

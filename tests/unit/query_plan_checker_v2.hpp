@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -133,14 +133,11 @@ class OpChecker : public BaseOpChecker {
   virtual void ExpectOp(TOp &, const SymbolTable &) {}
 };
 
-// using ExpectScanAllByPrimaryKey = OpChecker<ScanAllByPrimaryKey>;
-
 using ExpectCreateNode = OpChecker<CreateNode>;
 using ExpectCreateExpand = OpChecker<CreateExpand>;
 using ExpectDelete = OpChecker<Delete>;
 using ExpectScanAll = OpChecker<ScanAll>;
 using ExpectScanAllByLabel = OpChecker<ScanAllByLabel>;
-// using ExpectScanAllById = OpChecker<ScanAllById>;
 using ExpectExpand = OpChecker<Expand>;
 using ExpectFilter = OpChecker<Filter>;
 using ExpectConstructNamedPath = OpChecker<ConstructNamedPath>;
@@ -156,120 +153,6 @@ using ExpectLimit = OpChecker<Limit>;
 using ExpectOrderBy = OpChecker<OrderBy>;
 using ExpectUnwind = OpChecker<Unwind>;
 using ExpectDistinct = OpChecker<Distinct>;
-
-// class ExpectForeach : public OpChecker<Foreach> {
-//  public:
-//   ExpectForeach(const std::list<BaseOpChecker *> &input, const std::list<BaseOpChecker *> &updates)
-//       : input_(input), updates_(updates) {}
-
-//   void ExpectOp(Foreach &foreach, const SymbolTable &symbol_table) override {
-//     PlanChecker check_input(input_, symbol_table);
-//     foreach
-//       .input_->Accept(check_input);
-//     PlanChecker check_updates(updates_, symbol_table);
-//     foreach
-//       .update_clauses_->Accept(check_updates);
-//   }
-
-//  private:
-//   std::list<BaseOpChecker *> input_;
-//   std::list<BaseOpChecker *> updates_;
-// };
-
-// class ExpectExpandVariable : public OpChecker<ExpandVariable> {
-//  public:
-//   void ExpectOp(ExpandVariable &op, const SymbolTable &) override {
-//     EXPECT_EQ(op.type_, memgraph::query::EdgeAtom::Type::DEPTH_FIRST);
-//   }
-// };
-
-// class ExpectExpandBfs : public OpChecker<ExpandVariable> {
-//  public:
-//   void ExpectOp(ExpandVariable &op, const SymbolTable &) override {
-//     EXPECT_EQ(op.type_, memgraph::query::EdgeAtom::Type::BREADTH_FIRST);
-//   }
-// };
-
-// class ExpectAccumulate : public OpChecker<Accumulate> {
-//  public:
-//   explicit ExpectAccumulate(const std::unordered_set<Symbol> &symbols) : symbols_(symbols) {}
-
-//   void ExpectOp(Accumulate &op, const SymbolTable &) override {
-//     std::unordered_set<Symbol> got_symbols(op.symbols_.begin(), op.symbols_.end());
-//     EXPECT_EQ(symbols_, got_symbols);
-//   }
-
-//  private:
-//   const std::unordered_set<Symbol> symbols_;
-// };
-
-// class ExpectAggregate : public OpChecker<Aggregate> {
-//  public:
-//   ExpectAggregate(const std::vector<memgraph::query::Aggregation *> &aggregations,
-//                   const std::unordered_set<memgraph::query::Expression *> &group_by)
-//       : aggregations_(aggregations), group_by_(group_by) {}
-
-//   void ExpectOp(Aggregate &op, const SymbolTable &symbol_table) override {
-//     auto aggr_it = aggregations_.begin();
-//     for (const auto &aggr_elem : op.aggregations_) {
-//       ASSERT_NE(aggr_it, aggregations_.end());
-//       auto aggr = *aggr_it++;
-//       // TODO: Proper expression equality
-//       EXPECT_EQ(typeid(aggr_elem.value).hash_code(), typeid(aggr->expression1_).hash_code());
-//       EXPECT_EQ(typeid(aggr_elem.key).hash_code(), typeid(aggr->expression2_).hash_code());
-//       EXPECT_EQ(aggr_elem.op, aggr->op_);
-//       EXPECT_EQ(aggr_elem.output_sym, symbol_table.at(*aggr));
-//     }
-//     EXPECT_EQ(aggr_it, aggregations_.end());
-//     // TODO: Proper group by expression equality
-//     std::unordered_set<size_t> got_group_by;
-//     for (auto *expr : op.group_by_) got_group_by.insert(typeid(*expr).hash_code());
-//     std::unordered_set<size_t> expected_group_by;
-//     for (auto *expr : group_by_) expected_group_by.insert(typeid(*expr).hash_code());
-//     EXPECT_EQ(got_group_by, expected_group_by);
-//   }
-
-//  private:
-//   std::vector<memgraph::query::Aggregation *> aggregations_;
-//   std::unordered_set<memgraph::query::Expression *> group_by_;
-// };
-
-// class ExpectMerge : public OpChecker<Merge> {
-//  public:
-//   ExpectMerge(const std::list<BaseOpChecker *> &on_match, const std::list<BaseOpChecker *> &on_create)
-//       : on_match_(on_match), on_create_(on_create) {}
-
-//   void ExpectOp(Merge &merge, const SymbolTable &symbol_table) override {
-//     PlanChecker check_match(on_match_, symbol_table);
-//     merge.merge_match_->Accept(check_match);
-//     PlanChecker check_create(on_create_, symbol_table);
-//     merge.merge_create_->Accept(check_create);
-//   }
-
-//  private:
-//   const std::list<BaseOpChecker *> &on_match_;
-//   const std::list<BaseOpChecker *> &on_create_;
-// };
-
-// class ExpectOptional : public OpChecker<Optional> {
-//  public:
-//   explicit ExpectOptional(const std::list<BaseOpChecker *> &optional) : optional_(optional) {}
-
-//   ExpectOptional(const std::vector<Symbol> &optional_symbols, const std::list<BaseOpChecker *> &optional)
-//       : optional_symbols_(optional_symbols), optional_(optional) {}
-
-//   void ExpectOp(Optional &optional, const SymbolTable &symbol_table) override {
-//     if (!optional_symbols_.empty()) {
-//       EXPECT_THAT(optional.optional_symbols_, testing::UnorderedElementsAreArray(optional_symbols_));
-//     }
-//     PlanChecker check_optional(optional_, symbol_table);
-//     optional.optional_->Accept(check_optional);
-//   }
-
-//  private:
-//   std::vector<Symbol> optional_symbols_;
-//   const std::list<BaseOpChecker *> &optional_;
-// };
 
 class ExpectScanAllByLabelPropertyValue : public OpChecker<ScanAllByLabelPropertyValue> {
  public:
@@ -290,53 +173,6 @@ class ExpectScanAllByLabelPropertyValue : public OpChecker<ScanAllByLabelPropert
   memgraph::storage::v3::PropertyId property_;
   memgraph::query::v2::Expression *expression_;
 };
-
-// class ExpectScanAllByLabelPropertyRange : public OpChecker<ScanAllByLabelPropertyRange> {
-//  public:
-//   ExpectScanAllByLabelPropertyRange(memgraph::storage::LabelId label, memgraph::storage::PropertyId property,
-//                                     std::optional<ScanAllByLabelPropertyRange::Bound> lower_bound,
-//                                     std::optional<ScanAllByLabelPropertyRange::Bound> upper_bound)
-//       : label_(label), property_(property), lower_bound_(lower_bound), upper_bound_(upper_bound) {}
-
-//   void ExpectOp(ScanAllByLabelPropertyRange &scan_all, const SymbolTable &) override {
-//     EXPECT_EQ(scan_all.label_, label_);
-//     EXPECT_EQ(scan_all.property_, property_);
-//     if (lower_bound_) {
-//       ASSERT_TRUE(scan_all.lower_bound_);
-//       // TODO: Proper expression equality
-//       EXPECT_EQ(typeid(scan_all.lower_bound_->value()).hash_code(), typeid(lower_bound_->value()).hash_code());
-//       EXPECT_EQ(scan_all.lower_bound_->type(), lower_bound_->type());
-//     }
-//     if (upper_bound_) {
-//       ASSERT_TRUE(scan_all.upper_bound_);
-//       // TODO: Proper expression equality
-//       EXPECT_EQ(typeid(scan_all.upper_bound_->value()).hash_code(), typeid(upper_bound_->value()).hash_code());
-//       EXPECT_EQ(scan_all.upper_bound_->type(), upper_bound_->type());
-//     }
-//   }
-
-//  private:
-//   memgraph::storage::LabelId label_;
-//   memgraph::storage::PropertyId property_;
-//   std::optional<ScanAllByLabelPropertyRange::Bound> lower_bound_;
-//   std::optional<ScanAllByLabelPropertyRange::Bound> upper_bound_;
-// };
-
-// class ExpectScanAllByLabelProperty : public OpChecker<ScanAllByLabelProperty> {
-//  public:
-//   ExpectScanAllByLabelProperty(memgraph::storage::LabelId label,
-//                                const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair)
-//       : label_(label), property_(prop_pair.second) {}
-
-//   void ExpectOp(ScanAllByLabelProperty &scan_all, const SymbolTable &) override {
-//     EXPECT_EQ(scan_all.label_, label_);
-//     EXPECT_EQ(scan_all.property_, property_);
-//   }
-
-//  private:
-//   memgraph::storage::LabelId label_;
-//   memgraph::storage::PropertyId property_;
-// };
 
 class ExpectScanAllByPrimaryKey : public OpChecker<v2::plan::ScanAllByPrimaryKey> {
  public:

@@ -868,7 +868,6 @@ given label and property.
   (:serialize (:slk))
   (:clone))
 
-
 (lcp:define-struct expand-common ()
   (
    ;; info on what's getting expanded

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -46,8 +46,6 @@
 #include "storage/v2/id_types.hpp"
 #include "utils/string.hpp"
 
-#include "query/v2/frontend/ast/ast.hpp"
-
 namespace memgraph::query {
 
 namespace test_common {
@@ -83,15 +81,12 @@ std::string ToString(NamedExpression *expr) {
 struct OrderBy {
   std::vector<SortItem> expressions;
 };
-
 struct Skip {
   Expression *expression = nullptr;
 };
-
 struct Limit {
   Expression *expression = nullptr;
 };
-
 struct OnMatch {
   std::vector<Clause *> set;
 };

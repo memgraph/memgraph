@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -344,10 +344,6 @@ class ExpectScanAllByPrimaryKey : public OpChecker<v2::plan::ScanAllByPrimaryKey
 
   void ExpectOp(v2::plan::ScanAllByPrimaryKey &scan_all, const SymbolTable &) override {
     EXPECT_EQ(scan_all.label_, label_);
-    // EXPECT_EQ(scan_all.property_, property_);
-
-    // TODO(gvolfing) maybe assert the size of the 2 vectors.
-    // TODO(gvolfing) maybe use some std alg if Expression lets us.
 
     bool primary_property_match = true;
     for (const auto &expected_prop : properties_) {
