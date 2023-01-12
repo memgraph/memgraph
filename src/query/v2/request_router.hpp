@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -299,7 +299,8 @@ class RequestRouter : public RequestRouterInterface {
     MG_ASSERT(!new_edges.empty());
 
     // create requests
-    std::vector<ShardRequestState<msgs::CreateExpandRequest>> requests_to_be_sent = RequestsForCreateExpand(new_edges);
+    std::vector<ShardRequestState<msgs::CreateExpandRequest>> requests_to_be_sent =
+        RequestsForCreateExpand(std::move(new_edges));
 
     // begin all requests in parallel
     RunningRequests<msgs::CreateExpandRequest> running_requests = {};
@@ -430,7 +431,7 @@ class RequestRouter : public RequestRouterInterface {
   }
 
   std::vector<ShardRequestState<msgs::CreateExpandRequest>> RequestsForCreateExpand(
-      const std::vector<msgs::NewExpand> &new_expands) {
+      std::vector<msgs::NewExpand> new_expands) {
     std::map<ShardMetadata, msgs::CreateExpandRequest> per_shard_request_table;
     auto ensure_shard_exists_in_table = [&per_shard_request_table,
                                          transaction_id = transaction_id_](const ShardMetadata &shard) {
