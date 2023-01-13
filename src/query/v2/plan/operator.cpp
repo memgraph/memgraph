@@ -508,7 +508,7 @@ class DistributedScanAllByPrimaryKeyCursor : public Cursor {
 
       // Evaluate the expressions that hold the PrimaryKey.
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.request_router,
-                                    storage::v3::View::OLD);
+                                    storage::v3::View::NEW);
 
       std::vector<msgs::Value> pk;
       MG_ASSERT(primary_key_);
@@ -539,7 +539,7 @@ class DistributedScanAllByPrimaryKeyCursor : public Cursor {
       }
 
       if (current_vertex_it_ == current_batch_.end() &&
-          (request_state_ == State::COMPLETED || !MakeRequest(request_router, context))) {
+          (request_state_ == State::COMPLETED || !MakeRequestSingleFrame(frame, request_router, context))) {
         ResetExecutionState();
         continue;
       }

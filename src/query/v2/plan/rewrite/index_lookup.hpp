@@ -600,7 +600,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         EraseLabelFilters(node_symbol, prim_label);
         std::vector<query::v2::Expression *> pk_expressions;
         std::transform(primary_key.begin(), primary_key.end(), std::back_inserter(pk_expressions),
-                       [](const auto &exp) { return exp.first; });
+                       [](const auto &exp) { return exp.second.property_filter->value_; });
         return std::make_unique<ScanAllByPrimaryKey>(input, node_symbol, GetLabel(prim_label), pk_expressions);
       }
     }
