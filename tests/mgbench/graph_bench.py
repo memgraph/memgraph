@@ -147,6 +147,8 @@ def run_full_benchmarks(vendor, binary, dataset_size, dataset_group, realistic, 
         "12",
         "--no-authorization",
         "pokec/" + dataset_size + "/" + dataset_group + "/*",
+        "--tail-latency",
+        "100",
     ]
 
     for config in configurations:
