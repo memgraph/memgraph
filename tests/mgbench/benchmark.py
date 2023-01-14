@@ -143,7 +143,7 @@ parser.add_argument(
     with the presence of 300 write queries from write type or 30%""",
 )
 
-parser.add_argument("--tail-latency", type=int, default=100, help="Number of queries for the tail latency statistics")
+parser.add_argument("--tail-latency", type=int, default=0, help="Number of queries for the tail latency statistics")
 
 parser.add_argument(
     "--performance-tracking",
@@ -224,8 +224,17 @@ def filter_benchmarks(generators, patterns):
                         patterns,
                     ):
                         current[group].append((query_name, query_func))
-            if len(current) > 0:
-                filtered.append((generator(variant, args.vendor_name), dict(current)))
+            if len(current) == 0:
+                continue
+
+            # Ignore benchgraph "basic" queries in standard CI/CD run
+            for pattern in patterns:
+                res = pattern.count("*")
+                key = "basic"
+                if res >= 2 and key in current.keys():
+                    current.pop(key)
+
+            filtered.append((generator(variant, args.vendor_name), dict(current)))
     return filtered
 
 
@@ -242,30 +251,34 @@ def warmup(client):
 
 
 def tail_latency(vendor, client, func):
-    vendor.start_benchmark("tail_latency")
-    if args.warmup_run:
-        warmup(client)
-    latency = []
     iteration = args.tail_latency
-    query_list = get_queries(func, iteration)
-    for i in range(0, iteration):
-        ret = client.execute(queries=[query_list[i]], num_workers=1)
-        latency.append(ret[0]["duration"])
-    latency.sort()
-    query_stats = {
-        "iterations": iteration,
-        "min": latency[0],
-        "max": latency[iteration - 1],
-        "mean": statistics.mean(latency),
-        "p99": latency[math.floor(iteration * 0.99) - 1],
-        "p95": latency[math.floor(iteration * 0.95) - 1],
-        "p90": latency[math.floor(iteration * 0.90) - 1],
-        "p75": latency[math.floor(iteration * 0.75) - 1],
-        "p50": latency[math.floor(iteration * 0.50) - 1],
-    }
-    print("Query statistics for tail latency: ")
-    print(query_stats)
-    vendor.stop("tail_latency")
+    if iteration >= 10:
+        vendor.start_benchmark("tail_latency")
+        if args.warmup_run:
+            warmup(client)
+        latency = []
+
+        query_list = get_queries(func, iteration)
+        for i in range(0, iteration):
+            ret = client.execute(queries=[query_list[i]], num_workers=1)
+            latency.append(ret[0]["duration"])
+        latency.sort()
+        query_stats = {
+            "iterations": iteration,
+            "min": latency[0],
+            "max": latency[iteration - 1],
+            "mean": statistics.mean(latency),
+            "p99": latency[math.floor(iteration * 0.99) - 1],
+            "p95": latency[math.floor(iteration * 0.95) - 1],
+            "p90": latency[math.floor(iteration * 0.90) - 1],
+            "p75": latency[math.floor(iteration * 0.75) - 1],
+            "p50": latency[math.floor(iteration * 0.50) - 1],
+        }
+        print("Query statistics for tail latency: ")
+        print(query_stats)
+        vendor.stop("tail_latency")
+    else:
+        query_stats = {}
     return query_stats
 
 
