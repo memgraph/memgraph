@@ -36,15 +36,13 @@ MultiFrame CreateMultiFrame(const size_t max_pos) {
 
 TEST(CreateNodeTest, CreateNodeCursor) {
   using testing::_;
+  using testing::ElementsAre;
   using testing::Return;
 
   AstStorage ast;
   SymbolTable symbol_table;
 
   plan::NodeCreationInfo node;
-  plan::EdgeCreationInfo edge;
-  edge.edge_type = msgs::EdgeTypeId::FromUint(1);
-  edge.direction = EdgeAtom::Direction::IN;
   auto id_alloc = IdAllocator(0, 100);
 
   node.symbol = symbol_table.CreateSymbol("n", true);
@@ -67,5 +65,19 @@ TEST(CreateNodeTest, CreateNodeCursor) {
   auto context = MakeContext(ast, symbol_table, &router, &id_alloc);
   auto multi_frame = CreateMultiFrame(context.symbol_table.max_position());
   cursor->PullMultiple(multi_frame, context);
+
+  auto frames = multi_frame.GetValidFramesReader();
+  auto number_of_valid_frames = 0;
+  for (auto &frame : frames) {
+    ++number_of_valid_frames;
+    EXPECT_EQ(frame[node.symbol].IsEdge(), true);
+    const auto &n = frame[node.symbol].ValueVertex();
+    EXPECT_THAT(n.Labels(), ElementsAre(msgs::Label{msgs::LabelId::FromUint(2)}));
+  }
+  EXPECT_EQ(number_of_valid_frames, 1);
+
+  auto invalid_frames = multi_frame.GetInvalidFramesPopulator();
+  auto number_of_invalid_frames = std::distance(invalid_frames.begin(), invalid_frames.end());
+  EXPECT_EQ(number_of_invalid_frames, 99);
 }
 }  // namespace memgraph::query::v2
