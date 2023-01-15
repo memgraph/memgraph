@@ -429,9 +429,9 @@ TEST_F(CppApiTestFixture, TestNodeProperties) {
   ASSERT_EQ(node_1.Properties().size(), 0);
 
   std::map<std::string, mgp::Value> node1_prop = node_1.Properties();
-  node_1.SetProperty("b", mgp::Value(2.0));
+  node_1.SetProperty("b", mgp::Value("b"));
 
   ASSERT_EQ(node_1.Properties().size(), 1);
-  ASSERT_EQ(node_1.Properties()["b"].ValueDouble(), 2.0);
-  ASSERT_EQ(node_1.GetProperty("b").ValueDouble(), 2.0);
+  ASSERT_EQ(node_1.Properties()["b"].ValueString(), "b");
+  ASSERT_EQ(node_1.GetProperty("b").ValueString(), "b");
 }

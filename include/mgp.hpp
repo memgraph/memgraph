@@ -564,7 +564,7 @@ class Node {
   /// @brief Returns an iterable & indexable structure of the node’s properties.
   std::map<std::string, Value> Properties() const;
 
-  void SetProperty(std::string property, Value value) const;
+  void SetProperty(std::string property, Value value);
 
   Value GetProperty(const std::string &property) const;
 
@@ -619,7 +619,7 @@ class Relationship {
   /// @brief Returns an std::map of the relationship’s properties.
   std::map<std::string, Value> Properties() const;
 
-  void SetProperty(std::string property, Value value) const;
+  void SetProperty(std::string property, Value value);
 
   Value GetProperty(const std::string &property) const;
 
@@ -2324,17 +2324,16 @@ inline void Node::AddLabel(const std::string_view label) {
 
 inline std::map<std::string, Value> Node::Properties() const {
   mgp_properties_iterator *properties_iterator = mgp::vertex_iter_properties(ptr_, memory);
-  std::map<std::string, Value> property_map_;
+  std::map<std::string, Value> property_map;
   for (auto *property = mgp::properties_iterator_get(properties_iterator); property;
        property = mgp::properties_iterator_next(properties_iterator)) {
-    auto value = Value(property->value);
-    property_map_.emplace(std::string(property->name), value);
+    property_map.emplace(std::string(property->name), Value(property->value));
   }
   mgp::properties_iterator_destroy(properties_iterator);
-  return property_map_;
+  return property_map;
 }
 
-inline void Node::SetProperty(std::string property, Value value) const {
+inline void Node::SetProperty(std::string property, Value value) {
   mgp::vertex_set_property(ptr_, property.data(), value.ptr());
 }
 
@@ -2391,22 +2390,22 @@ inline std::string_view Relationship::Type() const { return mgp::edge_get_type(p
 
 inline std::map<std::string, Value> Relationship::Properties() const {
   mgp_properties_iterator *properties_iterator = mgp::edge_iter_properties(ptr_, memory);
-  std::map<std::string, Value> property_map_;
+  std::map<std::string, Value> property_map;
   for (mgp_property *property = mgp::properties_iterator_get(properties_iterator); property;
        property = mgp::properties_iterator_next(properties_iterator)) {
-    Value value = Value(property->value);
-    property_map_.emplace(property->name, value);
+    property_map.emplace(property->name, Value(property->value));
   }
   mgp::properties_iterator_destroy(properties_iterator);
-  return property_map_;
+  return property_map;
 }
 
-inline void Relationship::SetProperty(std::string property, Value value) const {
+inline void Relationship::SetProperty(std::string property, Value value) {
   mgp::edge_set_property(ptr_, property.data(), value.ptr());
 }
 
 inline Value Relationship::GetProperty(const std::string &property) const {
-  return Value(mgp::edge_get_property(ptr_, property.data(), memory));
+  mgp_value *edge_prop = mgp::edge_get_property(ptr_, property.data(), memory);
+  return Value(&edge_prop);
 }
 
 inline Node Relationship::From() const { return Node(mgp::edge_get_from(ptr_)); }
