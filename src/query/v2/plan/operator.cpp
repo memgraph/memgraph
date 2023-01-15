@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -192,7 +192,7 @@ class DistributedCreateNodeCursor : public Cursor {
   void PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("CreateNodeMF");
     input_cursor_->PullMultiple(multi_frame, context);
-    auto &request_router = context.request_router;
+    auto *request_router = context.request_router;
     {
       SCOPED_REQUEST_WAIT_PROFILE;
       request_router->CreateVertices(NodeCreationInfoToRequests(context, multi_frame));
@@ -259,10 +259,10 @@ class DistributedCreateNodeCursor : public Cursor {
   }
 
   void PlaceNodesOnTheMultiFrame(MultiFrame &multi_frame, ExecutionContext &context) {
-    auto multi_frame_reader = multi_frame.GetValidFramesConsumer();
+    auto multi_frame_modifier = multi_frame.GetValidFramesModifier();
     size_t i = 0;
-    MG_ASSERT(std::distance(multi_frame_reader.begin(), multi_frame_reader.end()));
-    for (auto &frame : multi_frame_reader) {
+    MG_ASSERT(std::distance(multi_frame_modifier.begin(), multi_frame_modifier.end()));
+    for (auto &frame : multi_frame_modifier) {
       const auto primary_label = msgs::Label{.id = nodes_info_[0]->labels[0]};
       msgs::Vertex v{.id = std::make_pair(primary_label, primary_keys_[i])};
       frame[nodes_info_.front()->symbol] = TypedValue(
@@ -272,8 +272,8 @@ class DistributedCreateNodeCursor : public Cursor {
 
   std::vector<msgs::NewVertex> NodeCreationInfoToRequests(ExecutionContext &context, MultiFrame &multi_frame) {
     std::vector<msgs::NewVertex> requests;
-    auto multi_frame_reader = multi_frame.GetValidFramesConsumer();
-    for (auto &frame : multi_frame_reader) {
+    auto multi_frame_modifier = multi_frame.GetValidFramesModifier();
+    for (auto &frame : multi_frame_modifier) {
       msgs::PrimaryKey pk;
       for (const auto &node_info : nodes_info_) {
         msgs::NewVertex rqst;

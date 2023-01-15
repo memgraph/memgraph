@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include "gmock/gmock.h"
 #include "mock_helpers.hpp"
 
 #include "query/v2/bindings/frame.hpp"
@@ -26,17 +27,13 @@ namespace memgraph::query::v2 {
 MultiFrame CreateMultiFrame(const size_t max_pos) {
   static constexpr size_t frame_size = 100;
   MultiFrame multi_frame(max_pos, frame_size, utils::NewDeleteResource());
-  auto frames_populator = multi_frame.GetInvalidFramesPopulator();
-  for (auto &frame : frames_populator) {
-    frame.MakeValid();
-  }
 
   return multi_frame;
 }
 
 TEST(CreateNodeTest, CreateNodeCursor) {
   using testing::_;
-  using testing::ElementsAre;
+  using testing::IsEmpty;
   using testing::Return;
 
   AstStorage ast;
@@ -46,11 +43,12 @@ TEST(CreateNodeTest, CreateNodeCursor) {
   auto id_alloc = IdAllocator(0, 100);
 
   node.symbol = symbol_table.CreateSymbol("n", true);
-  node.labels.push_back(msgs::LabelId::FromUint(2));
+  const auto primary_label_id = msgs::LabelId::FromUint(2);
+  node.labels.push_back(primary_label_id);
   auto literal = PrimitiveLiteral();
   literal.value_ = TypedValue(static_cast<int64_t>(200));
   auto p = plan::PropertiesMapList{};
-  p.push_back(std::make_pair(msgs::PropertyId::FromUint(2), &literal));
+  p.push_back(std::make_pair(msgs::PropertyId::FromUint(3), &literal));
   node.properties.emplace<0>(std::move(p));
 
   auto once_op = std::make_shared<plan::Once>();
@@ -70,9 +68,11 @@ TEST(CreateNodeTest, CreateNodeCursor) {
   auto number_of_valid_frames = 0;
   for (auto &frame : frames) {
     ++number_of_valid_frames;
-    EXPECT_EQ(frame[node.symbol].IsEdge(), true);
+    EXPECT_EQ(frame[node.symbol].IsVertex(), true);
     const auto &n = frame[node.symbol].ValueVertex();
-    EXPECT_THAT(n.Labels(), ElementsAre(msgs::Label{msgs::LabelId::FromUint(2)}));
+    EXPECT_THAT(n.Labels(), IsEmpty());
+    EXPECT_EQ(n.PrimaryLabel(), primary_label_id);
+    // TODO(antaljanosbenjamin): Check primary key
   }
   EXPECT_EQ(number_of_valid_frames, 1);
 
