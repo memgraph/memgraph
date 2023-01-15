@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -88,14 +88,14 @@ TEST_P(SingleNodeBfsTest, All) {
 
 std::unique_ptr<SingleNodeDb> SingleNodeBfsTest::db_{nullptr};
 
-INSTANTIATE_TEST_CASE_P(DirectionAndExpansionDepth, SingleNodeBfsTest,
-                        testing::Combine(testing::Range(-1, kVertexCount), testing::Range(-1, kVertexCount),
-                                         testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN,
-                                                         EdgeAtom::Direction::BOTH),
-                                         testing::Values(std::vector<std::string>{}), testing::Bool(),
-                                         testing::Values(FilterLambdaType::NONE)));
+INSTANTIATE_TEST_SUITE_P(DirectionAndExpansionDepth, SingleNodeBfsTest,
+                         testing::Combine(testing::Range(-1, kVertexCount), testing::Range(-1, kVertexCount),
+                                          testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN,
+                                                          EdgeAtom::Direction::BOTH),
+                                          testing::Values(std::vector<std::string>{}), testing::Bool(),
+                                          testing::Values(FilterLambdaType::NONE)));
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     EdgeType, SingleNodeBfsTest,
     testing::Combine(testing::Values(-1), testing::Values(-1),
                      testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN, EdgeAtom::Direction::BOTH),
@@ -103,11 +103,11 @@ INSTANTIATE_TEST_CASE_P(
                                      std::vector<std::string>{"b"}, std::vector<std::string>{"a", "b"}),
                      testing::Bool(), testing::Values(FilterLambdaType::NONE)));
 
-INSTANTIATE_TEST_CASE_P(FilterLambda, SingleNodeBfsTest,
-                        testing::Combine(testing::Values(-1), testing::Values(-1),
-                                         testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN,
-                                                         EdgeAtom::Direction::BOTH),
-                                         testing::Values(std::vector<std::string>{}), testing::Bool(),
-                                         testing::Values(FilterLambdaType::NONE, FilterLambdaType::USE_FRAME,
-                                                         FilterLambdaType::USE_FRAME_NULL, FilterLambdaType::USE_CTX,
-                                                         FilterLambdaType::ERROR)));
+INSTANTIATE_TEST_SUITE_P(FilterLambda, SingleNodeBfsTest,
+                         testing::Combine(testing::Values(-1), testing::Values(-1),
+                                          testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN,
+                                                          EdgeAtom::Direction::BOTH),
+                                          testing::Values(std::vector<std::string>{}), testing::Bool(),
+                                          testing::Values(FilterLambdaType::NONE, FilterLambdaType::USE_FRAME,
+                                                          FilterLambdaType::USE_FRAME_NULL, FilterLambdaType::USE_CTX,
+                                                          FilterLambdaType::ERROR)));
