@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -55,11 +55,7 @@ TEST(CreateNodeTest, CreateNodeCursor) {
   p.push_back(std::make_pair(msgs::PropertyId::FromUint(2), &literal));
   node.properties.emplace<0>(std::move(p));
 
-  auto once_cur = plan::MakeUniqueCursorPtr<MockedCursor>(utils::NewDeleteResource());
-  EXPECT_CALL(BaseToMock(once_cur.get()), PullMultiple(_, _)).Times(1);
-
-  std::shared_ptr<plan::LogicalOperator> once_op = std::make_shared<MockedLogicalOperator>();
-  EXPECT_CALL(BaseToMock(once_op.get()), MakeCursor(_)).Times(1).WillOnce(Return(std::move(once_cur)));
+  auto once_op = std::make_shared<plan::Once>();
 
   auto create_expand = plan::CreateNode(once_op, node);
   auto cursor = create_expand.MakeCursor(utils::NewDeleteResource());
