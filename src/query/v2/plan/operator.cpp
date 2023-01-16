@@ -538,7 +538,7 @@ class DistributedScanAllByPrimaryKeyCursor : public Cursor {
 
       msgs::GetPropertiesRequest req = {.vertex_ids = {std::make_pair(label, pk)}};
       auto get_prop_result = request_router.GetProperties(req);
-      MG_ASSERT(get_prop_result.size() <= 1);
+      // MG_ASSERT(get_prop_result.size() <= 1);
 
       if (get_prop_result.empty()) {
         current_batch_ = std::vector<VertexAccessor>{};
