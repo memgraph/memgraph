@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -36,6 +36,7 @@ struct Value;
 struct Label {
   LabelId id;
   friend bool operator==(const Label &lhs, const Label &rhs) { return lhs.id == rhs.id; }
+  friend bool operator==(const Label &lhs, const LabelId &rhs) { return lhs.id == rhs; }
 };
 
 // TODO(kostasrim) update this with CompoundKey, same for the rest of the file.

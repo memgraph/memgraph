@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -63,7 +63,6 @@ TEST(CreateExpandTest, Cursor) {
   node.symbol = symbol_table.CreateSymbol("u", true);
 
   auto once_op = std::make_shared<plan::Once>();
-  auto once_cur = once_op->MakeCursor(utils::NewDeleteResource());
 
   auto create_expand = plan::CreateExpand(node, edge, once_op, src, true);
   auto cursor = create_expand.MakeCursor(utils::NewDeleteResource());

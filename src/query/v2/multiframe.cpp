@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -46,6 +46,10 @@ void MultiFrame::MakeAllFramesInvalid() noexcept {
 
 bool MultiFrame::HasValidFrame() const noexcept {
   return std::any_of(frames_.begin(), frames_.end(), [](auto &frame) { return frame.IsValid(); });
+}
+
+bool MultiFrame::HasInvalidFrame() const noexcept {
+  return std::any_of(frames_.rbegin(), frames_.rend(), [](auto &frame) { return !frame.IsValid(); });
 }
 
 // NOLINTNEXTLINE (bugprone-exception-escape)
