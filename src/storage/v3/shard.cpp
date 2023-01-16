@@ -1179,7 +1179,10 @@ std::map<uint64_t, Transaction> Shard::CollectTransactions(const std::set<uint64
                                                            EdgeContainer &cloned_edges) {
   std::map<uint64_t, Transaction> transactions;
   for (const auto commit_start : collected_transactions_start_id) {
-    transactions.insert({commit_start, start_logical_id_to_transaction_.at(commit_start)->Clone()});
+    // If it does not contain then the transaction has commited, and we ignore it
+    if (start_logical_id_to_transaction_.contains(commit_start)) {
+      transactions.insert({commit_start, start_logical_id_to_transaction_[commit_start]->Clone()});
+    }
   }
   // It is necessary to clone all the transactions first so we have new addresses
   // for deltas, before doing alignment of deltas and prev_ptr
