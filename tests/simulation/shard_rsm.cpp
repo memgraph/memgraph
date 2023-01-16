@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1305,7 +1305,7 @@ void TestGetProperties(ShardClient &client) {
     MG_ASSERT(!result.error);
     MG_ASSERT(result.result_row.size() == 2);
     for (const auto &elem : result.result_row) {
-      MG_ASSERT(elem.props.size() == 3);
+      MG_ASSERT(elem.props.size() == 4);
     }
   }
   {
