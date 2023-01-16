@@ -139,4 +139,33 @@ TEST_F(ShardSplitTest, TestBasicSplitAfterCommit) {
   EXPECT_EQ(splitted_data.transactions.size(), 0);
 }
 
+TEST_F(ShardSplitTest, TestBasicSplitAfterCommit2) {
+  {
+    auto acc = storage.Access(GetNextHlc());
+    EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(1)}, {}).HasError());
+    EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(2)}, {}).HasError());
+    EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(3)}, {}).HasError());
+    EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(4)}, {}).HasError());
+    EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(5)}, {}).HasError());
+    EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(6)}, {}).HasError());
+
+    acc.Commit(GetNextHlc());
+  }
+  auto acc = storage.Access(GetNextHlc());
+  EXPECT_FALSE(acc.CreateEdge(VertexId{primary_label, PrimaryKey{PropertyValue(1)}},
+                              VertexId{primary_label, PrimaryKey{PropertyValue(2)}}, edge_type_id, Gid::FromUint(0))
+                   .HasError());
+  EXPECT_FALSE(acc.CreateEdge(VertexId{primary_label, PrimaryKey{PropertyValue(1)}},
+                              VertexId{primary_label, PrimaryKey{PropertyValue(5)}}, edge_type_id, Gid::FromUint(1))
+                   .HasError());
+  EXPECT_FALSE(acc.CreateEdge(VertexId{primary_label, PrimaryKey{PropertyValue(4)}},
+                              VertexId{primary_label, PrimaryKey{PropertyValue(6)}}, edge_type_id, Gid::FromUint(2))
+                   .HasError());
+
+  auto splitted_data = storage.PerformSplit({PropertyValue(4)});
+  EXPECT_EQ(splitted_data.vertices.size(), 3);
+  EXPECT_EQ(splitted_data.edges->size(), 2);
+  EXPECT_EQ(splitted_data.transactions.size(), 1);
+}
+
 }  // namespace memgraph::storage::v3::tests

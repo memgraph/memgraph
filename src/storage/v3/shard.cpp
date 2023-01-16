@@ -1122,13 +1122,19 @@ void Shard::AlignClonedTransaction(Transaction &cloned_transaction, const Transa
     // auto *prev = &delta_it->prev;
     // auto *cloned_prev = &cloned_delta_it->prev;
 
-    auto *delta = &*delta_it;
+    const auto *delta = &*delta_it;
     auto *cloned_delta = &*cloned_delta_it;
     while (delta != nullptr) {
-      // Align delta
-      cloned_delta->next = &*std::ranges::find_if(
-          cloned_transactions.at(delta->commit_info->start_or_commit_timestamp.logical_id).deltas,
-          [delta](const auto &elem) { return elem.uuid == delta->uuid; });
+      // Align delta, while ignoring deltas whose transactions have commited,
+      // or aborted
+      if (cloned_transactions.contains(delta->commit_info->start_or_commit_timestamp.logical_id)) {
+        cloned_delta->next = &*std::ranges::find_if(
+            cloned_transactions.at(delta->commit_info->start_or_commit_timestamp.logical_id).deltas,
+            [delta](const auto &elem) { return elem.uuid == delta->uuid; });
+      } else {
+        delta = delta->next;
+        continue;
+      }
       // Align prev ptr
       auto ptr = delta->prev.Get();
       switch (ptr.type) {
