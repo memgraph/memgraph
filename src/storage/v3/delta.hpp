@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
 
 #include <boost/uuid/uuid.hpp>
@@ -136,7 +137,7 @@ struct Delta {
   // TODO Replace this with int identifier
   boost::uuids::uuid uuid{boost::uuids::uuid()};
 
-  enum class Action {
+  enum class Action : uint8_t {
     // Used for both Vertex and Edge
     DELETE_OBJECT,
     RECREATE_OBJECT,

@@ -239,30 +239,34 @@ class Shard final {
                               const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                               const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view);
 
-    /// Return number of all vertices in the database.
-    int64_t VertexCount() const { return static_cast<int64_t>(shard_->vertices_.size()); }
+    /// Return approximate number of all vertices in the database.
+    /// Note that this is always an over-estimate and never an under-estimate.
+    int64_t ApproximateVertexCount() const { return static_cast<int64_t>(shard_->vertices_.size()); }
 
     /// Return approximate number of vertices with the given label.
     /// Note that this is always an over-estimate and never an under-estimate.
     int64_t ApproximateVertexCount(LabelId label) const {
       return shard_->indices_.label_index.ApproximateVertexCount(label);
     }
-
-    /// Return number of vertices with the given label and property.
-    int64_t VertexCount(LabelId label, PropertyId property) const {
+    /// Return approximate number of vertices with the given label and property.
+    /// Note that this is always an over-estimate and never an under-estimate.
+    int64_t ApproximateVertexCount(LabelId label, PropertyId property) const {
       return shard_->indices_.label_property_index.VertexCount(label, property);
     }
 
-    /// Return number of vertices with the given label and the given
-    int64_t VertexCount(LabelId label, PropertyId property, const PropertyValue &value) const {
+    /// Return approximate number of vertices with the given label and the given
+    /// value for the given property.
+    /// Note that this is always an over-estimate and never an under-estimate.
+    int64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const {
       return shard_->indices_.label_property_index.VertexCount(label, property, value);
     }
 
-    /// Return number of vertices with the given label and value for
+    /// Return approximate number of vertices with the given label and value for
     /// the given property in the range defined by provided upper and lower
     /// bounds.
-    int64_t VertexCount(LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower,
-                        const std::optional<utils::Bound<PropertyValue>> &upper) const {
+    int64_t ApproximateVertexCount(LabelId label, PropertyId property,
+                                   const std::optional<utils::Bound<PropertyValue>> &lower,
+                                   const std::optional<utils::Bound<PropertyValue>> &upper) const {
       return shard_->indices_.label_property_index.VertexCount(label, property, lower, upper);
     }
 

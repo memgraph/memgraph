@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -327,36 +327,6 @@ inline bool operator<(const PropertyValue &first, const PropertyValue &second) {
       return first.ValueMap() < second.ValueMap();
     case PropertyValue::Type::TemporalData:
       return first.ValueTemporalData() < second.ValueTemporalData();
-  }
-}
-
-inline bool operator>=(const PropertyValue &first, const PropertyValue &second) {
-  if (!PropertyValue::AreComparableTypes(first.type(), second.type())) return first.type() >= second.type();
-  switch (first.type()) {
-    case PropertyValue::Type::Null:
-      return false;
-    case PropertyValue::Type::Bool:
-      return first.ValueBool() >= second.ValueBool();
-    case PropertyValue::Type::Int:
-      if (second.type() == PropertyValue::Type::Double) {
-        return static_cast<double>(first.ValueInt()) >= second.ValueDouble();
-      } else {
-        return first.ValueInt() >= second.ValueInt();
-      }
-    case PropertyValue::Type::Double:
-      if (second.type() == PropertyValue::Type::Double) {
-        return first.ValueDouble() >= second.ValueDouble();
-      } else {
-        return first.ValueDouble() >= static_cast<double>(second.ValueInt());
-      }
-    case PropertyValue::Type::String:
-      return first.ValueString() >= second.ValueString();
-    case PropertyValue::Type::List:
-      return first.ValueList() >= second.ValueList();
-    case PropertyValue::Type::Map:
-      return first.ValueMap() >= second.ValueMap();
-    case PropertyValue::Type::TemporalData:
-      return first.ValueTemporalData() >= second.ValueTemporalData();
   }
 }
 

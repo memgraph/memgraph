@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -283,7 +283,7 @@ std::vector<ShardToInitialize> ShardMap::AssignShards(Address storage_manager,
       // TODO(tyler) avoid these triple-nested loops by having the heartbeat include better info
       bool machine_contains_shard = false;
 
-      for (auto &aas : shard) {
+      for (auto &aas : shard.peers) {
         if (initialized.contains(aas.address.unique_id)) {
           machine_contains_shard = true;
           if (aas.status != Status::CONSENSUS_PARTICIPANT) {
@@ -311,7 +311,7 @@ std::vector<ShardToInitialize> ShardMap::AssignShards(Address storage_manager,
         }
       }
 
-      if (!machine_contains_shard && shard.size() < label_space.replication_factor) {
+      if (!machine_contains_shard && shard.peers.size() < label_space.replication_factor) {
         // increment version for each new uuid for deterministic creation
         IncrementShardMapVersion();
 
@@ -337,7 +337,7 @@ std::vector<ShardToInitialize> ShardMap::AssignShards(Address storage_manager,
             .status = Status::INITIALIZING,
         };
 
-        shard.emplace_back(aas);
+        shard.peers.emplace_back(aas);
       }
     }
   }
@@ -360,9 +360,9 @@ bool ShardMap::SplitShard(Hlc previous_shard_map_version, LabelId label_id, cons
   MG_ASSERT(!shards_in_map.contains(key));
   MG_ASSERT(label_spaces.contains(label_id));
 
-  // Finding the Shard that the new PrimaryKey should map to.
+  // Finding the ShardMetadata that the new PrimaryKey should map to.
   auto prev = std::prev(shards_in_map.upper_bound(key));
-  Shard duplicated_shard = prev->second;
+  ShardMetadata duplicated_shard = prev->second;
 
   // Apply the split
   shards_in_map[key] = duplicated_shard;
@@ -383,7 +383,7 @@ std::optional<LabelId> ShardMap::InitializeNewLabel(std::string label_name, std:
   labels.emplace(std::move(label_name), label_id);
 
   PrimaryKey initial_key = SchemaToMinKey(schema);
-  Shard empty_shard = {};
+  ShardMetadata empty_shard = {};
 
   Shards shards = {
       {initial_key, empty_shard},
@@ -479,7 +479,7 @@ Shards ShardMap::GetShardsForRange(const LabelName &label_name, const PrimaryKey
   return shards;
 }
 
-Shard ShardMap::GetShardForKey(const LabelName &label_name, const PrimaryKey &key) const {
+ShardMetadata ShardMap::GetShardForKey(const LabelName &label_name, const PrimaryKey &key) const {
   MG_ASSERT(labels.contains(label_name));
 
   LabelId label_id = labels.at(label_name);
@@ -492,7 +492,7 @@ Shard ShardMap::GetShardForKey(const LabelName &label_name, const PrimaryKey &ke
   return std::prev(label_space.shards.upper_bound(key))->second;
 }
 
-Shard ShardMap::GetShardForKey(const LabelId &label_id, const PrimaryKey &key) const {
+ShardMetadata ShardMap::GetShardForKey(const LabelId &label_id, const PrimaryKey &key) const {
   MG_ASSERT(label_spaces.contains(label_id));
 
   const auto &label_space = label_spaces.at(label_id);
@@ -556,12 +556,12 @@ EdgeTypeIdMap ShardMap::AllocateEdgeTypeIds(const std::vector<EdgeTypeName> &new
 bool ShardMap::ClusterInitialized() const {
   for (const auto &[label_id, label_space] : label_spaces) {
     for (const auto &[low_key, shard] : label_space.shards) {
-      if (shard.size() < label_space.replication_factor) {
+      if (shard.peers.size() < label_space.replication_factor) {
         spdlog::info("label_space below desired replication factor");
         return false;
       }
 
-      for (const auto &aas : shard) {
+      for (const auto &aas : shard.peers) {
         if (aas.status != Status::CONSENSUS_PARTICIPANT) {
           spdlog::info("shard member not yet a CONSENSUS_PARTICIPANT");
           return false;
