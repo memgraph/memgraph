@@ -271,6 +271,7 @@ class DistributedCreateNodeCursor : public Cursor {
       msgs::NewVertex rqst;
       MG_ASSERT(!node_info_.labels.empty(), "Cannot determine primary label");
       const auto primary_label = node_info_.labels[0];
+      MG_ASSERT(context.request_router->IsPrimaryLabel(primary_label), "First label has to be a primary label!");
       // TODO(jbajic) Fix properties not send,
       // suggestion: ignore distinction between properties and primary keys
       // since schema validation is done on storage side
