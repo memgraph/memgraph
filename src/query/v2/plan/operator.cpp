@@ -404,7 +404,7 @@ class DistributedScanAllAndFilterCursor : public Cursor {
       if (label_.has_value()) {
         request_label = request_router.LabelToName(*label_);
       }
-      current_batch = request_router.ScanVertices(request_label, std::nullopt);
+      current_batch = request_router.ScanVertices(request_label);
     }
     current_vertex_it = current_batch.begin();
     request_state_ = State::COMPLETED;
@@ -491,7 +491,7 @@ class DistributedScanAllByPrimaryKeyCursor : public Cursor {
       if (label_.has_value()) {
         request_label = request_router.LabelToName(*label_);
       }
-      current_batch_ = request_router.ScanVertices(request_label, std::nullopt);
+      current_batch_ = request_router.ScanVertices(request_label);
     }
     current_vertex_it_ = current_batch_.begin();
     request_state_ = State::COMPLETED;
@@ -516,29 +516,11 @@ class DistributedScanAllByPrimaryKeyCursor : public Cursor {
         pk.push_back(TypedValueToValue(primary_key->Accept(evaluator)));
       }
 
-      // Original
-      // current_batch_ = request_router.ScanVertices(request_label, pk);
-
-      auto asd_debug = request_router.ScanVertices(request_label, pk);
-
-      // VertexAccessor(Vertex v, std::vector<std::pair<PropertyId, Value>> props,
-      //                const RequestRouterInterface *request_router);
-
-      // VertexAccessor(Vertex v, std::map<PropertyId, Value> &&props, const RequestRouterInterface *request_router);
-      // VertexAccessor(Vertex v, const std::map<PropertyId, Value> &props, const RequestRouterInterface
-      // *request_router);
-
-      // struct Vertex {
-      //   VertexId id;
-      //   std::vector<Label> labels;
-      //   friend bool operator==(const Vertex &lhs, const Vertex &rhs) { return lhs.id == rhs.id; }
-      // };
-
       msgs::Label label = {.id = msgs::LabelId::FromUint(label_->AsUint())};
 
       msgs::GetPropertiesRequest req = {.vertex_ids = {std::make_pair(label, pk)}};
       auto get_prop_result = request_router.GetProperties(req);
-      // MG_ASSERT(get_prop_result.size() <= 1);
+      MG_ASSERT(get_prop_result.size() <= 1);
 
       if (get_prop_result.empty()) {
         current_batch_ = std::vector<VertexAccessor>{};

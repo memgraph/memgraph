@@ -182,7 +182,7 @@ void ExecuteOp(query::v2::RequestRouter<SimulatorTransport> &request_router, std
 
 void ExecuteOp(query::v2::RequestRouter<SimulatorTransport> &request_router, std::set<CompoundKey> &correctness_model,
                ScanAll scan_all) {
-  auto results = request_router.ScanVertices("test_label", std::nullopt);
+  auto results = request_router.ScanVertices("test_label");
 
   RC_ASSERT(results.size() == correctness_model.size());
 

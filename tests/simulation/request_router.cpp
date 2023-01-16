@@ -154,7 +154,7 @@ void RunStorageRaft(Raft<IoImpl, MockedShardRsm, WriteRequests, WriteResponses, 
 }
 
 void TestScanVertices(query::v2::RequestRouterInterface &request_router) {
-  auto result = request_router.ScanVertices("test_label", std::nullopt);
+  auto result = request_router.ScanVertices("test_label");
   MG_ASSERT(result.size() == 2);
   {
     auto prop = result[0].GetProperty(msgs::PropertyId::FromUint(0));

@@ -192,7 +192,7 @@ void ExecuteOp(query::v2::RequestRouter<LocalTransport> &request_router, std::se
 
 void ExecuteOp(query::v2::RequestRouter<LocalTransport> &request_router, std::set<CompoundKey> &correctness_model,
                ScanAll scan_all) {
-  auto results = request_router.ScanVertices("test_label", std::nullopt);
+  auto results = request_router.ScanVertices("test_label");
 
   spdlog::error("got {} results, model size is {}", results.size(), correctness_model.size());
   EXPECT_EQ(results.size(), correctness_model.size());

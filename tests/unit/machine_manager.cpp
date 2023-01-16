@@ -111,7 +111,7 @@ ShardMap TestShardMap() {
 
 template <typename RequestRouter>
 void TestScanAll(RequestRouter &request_router) {
-  auto result = request_router.ScanVertices(kLabelName, std::nullopt);
+  auto result = request_router.ScanVertices(kLabelName);
   EXPECT_EQ(result.size(), 2);
 }
 

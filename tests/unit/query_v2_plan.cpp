@@ -86,12 +86,6 @@ class TestPlanner : public ::testing::Test {};
 
 using PlannerTypes = ::testing::Types<Planner>;
 
-// void DeleteListContent(std::list<BaseOpChecker *> *list) {
-//   for (BaseOpChecker *ptr : *list) {
-//     delete ptr;
-//   }
-// }
-
 TYPED_TEST_CASE(TestPlanner, PlannerTypes);
 
 TYPED_TEST(TestPlanner, MatchFilterPropIsNotNull) {
