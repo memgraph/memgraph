@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -158,7 +158,8 @@ inline std::shared_ptr<execution::DataOperator> MakeAsyncPlan(const std::vector<
       auto once_ptr = std::make_shared<execution::DataOperator>(execution::DataOperator{
           .name = "Once", .children = {}, .data_pool = std::make_unique<TDataPool>(pool_size, mf_size)});
       execution::Once once_state{.op = once_ptr.get()};
-      once_ptr->state = once_state;
+      once_ptr->execution.state = once_state;
+      once_ptr->execution.status.has_more = true;
       current = once_ptr;
 
     } else if (op.type == OpType::ScanAll) {
@@ -169,14 +170,16 @@ inline std::shared_ptr<execution::DataOperator> MakeAsyncPlan(const std::vector<
                                   .data_pool = std::make_unique<TDataPool>(pool_size, mf_size)});
       execution::ScanAll scan_all_state{
           .op = scan_all_ptr.get(), .children = {current.get()}, .scan_all_elems = op.props[SCANALL_ELEMS_POS]};
-      scan_all_ptr->state = std::move(scan_all_state);
+      scan_all_ptr->execution.state = std::move(scan_all_state);
+      scan_all_ptr->execution.status.has_more = true;
       current = scan_all_ptr;
 
     } else if (op.type == OpType::Produce) {
       auto produce_ptr = std::make_shared<execution::DataOperator>(execution::DataOperator{
           .name = "Produce", .children = {current}, .data_pool = std::make_unique<TDataPool>(pool_size, mf_size)});
       execution::Produce produce_state{.op = produce_ptr.get(), .children = {current.get()}};
-      produce_ptr->state = std::move(produce_state);
+      produce_ptr->execution.state = std::move(produce_state);
+      produce_ptr->execution.status.has_more = true;
       current = produce_ptr;
       plan = produce_ptr;
 

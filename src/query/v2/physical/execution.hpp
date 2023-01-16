@@ -22,30 +22,29 @@
 
 namespace memgraph::query::v2::physical::execution {
 
-struct NonCopyable {
-  NonCopyable() = default;
-  NonCopyable(const NonCopyable &) = delete;
-  NonCopyable &operator=(const NonCopyable &) = delete;
-  NonCopyable(NonCopyable &&) noexcept = default;
-  NonCopyable &operator=(NonCopyable &&) noexcept = default;
-  ~NonCopyable() = default;
-};
-
 struct DataOperator;
 
+/// NOTE: In theory STATUS and STATE could be coupled together, but since STATE
+/// is a variant it's easier to access STATUS via generic object.
 struct Status {
   bool has_more;
   std::optional<std::string> error;
 };
-/// NOTE: In theory status and state could be coupled together, but since STATE
-/// is a variant it's easier to access STATUS via generic object.
 
+/// Stats is an object to store all statistics about the execution of a single
+/// operator. Each DataOperator owns a separated Stats object.
 struct Stats {
   uint64_t execute_calls{0};
   uint64_t processed_frames{0};
 };
 
-/// STATES
+/// Begin STATE objects
+/// An alternative name would be CURSOR objects
+/// Each State object holds:
+///   * a pointer to it's DataOperator
+///   * pointers to it's child DataOperators
+///   * the actual execution state
+///   * any additional info to manage the results
 struct CreateVertices {
   DataOperator *op;
   std::vector<DataOperator *> children;
@@ -75,26 +74,35 @@ struct Unwind {
 };
 
 using VarState = std::variant<CreateVertices, Once, Produce, ScanAll, Unwind>;
-/// STATES
+/// End STATE objects
 
+/// Keeps Status and a State close.
 struct Execution {
   Status status;
-  // TODO(gitbuda): State is also part of the DataOperator -> redundant here.
   VarState state;
 };
 
+/// A tree structure, owns:
+///   * children operators
+///   * data pool
+///   * stats how much data has been processed
+///   * single instance of the State object
+///   * an info what to do with the results
 struct DataOperator {
   using TDataPool = multiframe::MPMCMultiframeFCFSPool;
 
   std::string name;
   std::vector<std::shared_ptr<DataOperator>> children;
   std::unique_ptr<TDataPool> data_pool;
-  // Should the state be accessible from other data operators? -> Probably NOT
-  // TODO(gitbuda): Remove the state from DataOperator
-  // NOTE: At the moment CallAsync depends on the state here.
-  // NOTE: State actually holds info about the operator type.
-  // NOTE: The state here is also used in the sync execution.
-  VarState state;
+  // NOTES:
+  //   * State actually holds info about the operator type
+  //   * At the moment CallAsync depends on the state here
+  //   * The State here is also used in the sync execution
+  //
+  // To be 100% sure in the compile time what is this operator about -> could
+  // be used to execute a query in a single threaded way or even parallelized
+  // but without intra-operator parallelism because multiple are required.
+  Execution execution;
   std::optional<typename TDataPool::Token> current_token_;
   Stats stats;
 
@@ -151,13 +159,20 @@ struct DataOperator {
 };
 
 struct WorkOperator {
+  // Read/Write data from/to the underlying data operator. It's always only
+  // one.
   DataOperator *data;
-  Execution execution;
+  // TODO(gitbuda): WorkOperator::states not used (intra-operator parallelization).
+  // All State objects should be of the same type.
+  // If states.empty()     -> DataOperator holds the state
+  // If states.size() == 1 -> only inter operator parallelism possible
+  // If states.size() >= 2 -> inter and intra operator parallelism possible
+  std::vector<Execution> states;
 };
 
 struct ExecutionPlan {
   std::vector<WorkOperator> ops;
-  std::unordered_map<size_t, io::Future<Execution>> f_execs;
+  std::unordered_map<size_t, io::Future<Status>> f_execs;
   uint64_t top_level_tuples{0};
 };
 
@@ -296,50 +311,46 @@ inline Status Execute(Unwind & /*unused*/) { return Status{.has_more = false}; }
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define DEFINE_EXECUTE_ASYNC(state_type)                                                                            \
-  inline io::Future<Execution> ExecuteAsync(                                                                        \
+  inline io::Future<Status> ExecuteAsync(                                                                           \
       mock::ExecutionContext &ctx, std::function<void()> notifier, /* NOLINTNEXTLINE(bugprone-macro-parentheses) */ \
       state_type &state) {                                                                                          \
-    auto [future, promise] = io::FuturePromisePairWithNotifications<Execution>(nullptr, notifier);                  \
+    auto [future, promise] = io::FuturePromisePairWithNotifications<Status>(nullptr, notifier);                     \
     auto shared_promise = std::make_shared<decltype(promise)>(std::move(promise));                                  \
     ctx.thread_pool->AddTask([&state, promise = std::move(shared_promise)]() mutable {                              \
       auto status = Execute(state);                                                                                 \
-      promise->Fill({.status = status});                                                                            \
+      promise->Fill(status);                                                                                        \
     });                                                                                                             \
     return std::move(future);                                                                                       \
   }
-
 DEFINE_EXECUTE_ASYNC(CreateVertices)
 DEFINE_EXECUTE_ASYNC(Once)
 DEFINE_EXECUTE_ASYNC(Produce)
 DEFINE_EXECUTE_ASYNC(ScanAll)
 DEFINE_EXECUTE_ASYNC(Unwind)
-
 #undef DEFINE_EXECUTE_ASYNC
 
 inline Status Call(VarState &any_state) {
   return std::visit([](auto &state) { return Execute(state); }, any_state);
 }
 
-// NOTE: State is passed as a reference. Moving state is trickly because:
-//   * io::Future is not yet implemented to fully support moves
-//   * it's easy to make a mistake and copy state for no reasone.
-//
-inline io::Future<Execution> CallAsync(mock::ExecutionContext &ctx, VarState &any_state,
-                                       std::function<void()> notifier) {
+/// NOTE: State is passed as a reference. Moving state is tricky because:
+///   * io::Future is not yet implemented to fully support moves
+///   * it's easy to make a mistake and copy the state for no reason.
+///
+inline io::Future<Status> CallAsync(mock::ExecutionContext &ctx, VarState &any_state, std::function<void()> notifier) {
   return std::visit([&ctx, notifier](auto &state) { return ExecuteAsync(ctx, notifier, state); }, any_state);
 }
 
 inline ExecutionPlan SequentialExecutionPlan(std::shared_ptr<DataOperator> plan) {
   // TODO(gitbuda): Implement proper topological order.
-  std::vector<WorkOperator> ops{
-      WorkOperator{.data = plan.get(), .execution = Execution{.status = Status{.has_more = true}}}};
   DataOperator *data = plan.get();
+  std::vector<WorkOperator> ops{WorkOperator{.data = data}};
   while (true) {
     if (data->children.empty()) {
       break;
     }
     data = data->children[0].get();
-    ops.push_back(WorkOperator{.data = data, .execution = Execution{.status = Status{.has_more = true}}});
+    ops.push_back(WorkOperator{.data = data});
   }
   return ExecutionPlan{.ops = ops};
 }
@@ -396,7 +407,7 @@ class Executor {
       // start async calls
       for (int64_t i = utils::MemcpyCast<int64_t>(plan.ops.size()) - 1; i >= 0; --i) {
         auto &op = plan.ops.at(i);
-        if (!op.execution.status.has_more) {
+        if (!op.data->execution.status.has_more) {
           continue;
         }
         // Skip execution if there is no input data except in the first
@@ -406,7 +417,7 @@ class Executor {
         }
         io::ReadinessToken readiness_token{static_cast<size_t>(i)};
         std::function<void()> fill_notifier = [readiness_token, this]() { notifier_.Notify(readiness_token); };
-        auto future = CallAsync(ctx, op.data->state, fill_notifier);
+        auto future = CallAsync(ctx, op.data->execution.state, fill_notifier);
         op.data->stats.execute_calls++;
         plan.f_execs.insert_or_assign(i, std::move(future));
         ++no;
@@ -417,11 +428,11 @@ class Executor {
       while (no > 0) {
         auto token = notifier_.Await();
         auto &op = plan.ops.at(token.GetId());
-        op.execution = std::move(*(plan.f_execs.at(token.GetId()).TryGet()));
-        if (op.execution.status.has_more) {
+        op.data->execution.status = std::move(*(plan.f_execs.at(token.GetId()).TryGet()));
+        if (op.data->execution.status.has_more) {
           any_has_more = true;
         }
-        SPDLOG_TRACE("EXECUTOR: {} has_more {}", op.data->name, op.execution.status.has_more);
+        SPDLOG_TRACE("EXECUTOR: {} has_more {}", op.data->name, op.data->execution.status.has_more);
         --no;
       }
     }

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,35 +27,35 @@ int main(int argc, char *argv[]) {
 
   /// SYNC
   std::vector<DataOperator> ops;
-  ops.emplace_back(DataOperator{.name = "Produce", .state = Produce{}});
-  ops.emplace_back(DataOperator{.name = "ScanAll", .state = ScanAll{}});
-  ops.emplace_back(DataOperator{.name = "ScanAll", .state = ScanAll{}});
-  ops.emplace_back(DataOperator{.name = "Once", .state = Once{}});
+  ops.emplace_back(DataOperator{.name = "Produce", .execution = Execution{.state = Produce{}}});
+  ops.emplace_back(DataOperator{.name = "ScanAll", .execution = Execution{.state = ScanAll{}}});
+  ops.emplace_back(DataOperator{.name = "ScanAll", .execution = Execution{.state = ScanAll{}}});
+  ops.emplace_back(DataOperator{.name = "Once", .execution = Execution{.state = Once{}}});
   for (auto &op : ops) {
-    auto status = Call(op.state);
+    auto status = Call(op.execution.state);
     SPDLOG_INFO("name: {} has_more: {}", op.name, status.has_more);
     while (status.has_more) {
-      status = Call(op.state);
+      status = Call(op.execution.state);
       SPDLOG_INFO("name: {} has_more: {}", op.name, status.has_more);
     }
   }
 
   /// ASYNC
   std::vector<DataOperator> ops_async;
-  ops_async.emplace_back(DataOperator{.name = "Once", .state = Once{}});
-  ops_async.emplace_back(DataOperator{.name = "ScanAll", .state = ScanAll{}});
+  ops_async.emplace_back(DataOperator{.name = "Once", .execution = Execution{.state = Once{}}});
+  ops_async.emplace_back(DataOperator{.name = "ScanAll", .execution = Execution{.state = ScanAll{}}});
   memgraph::utils::ThreadPool thread_pool{16};
   mock::ExecutionContext ctx{.thread_pool = &thread_pool};
   for (auto &op : ops_async) {
     auto notifier = []() {};
-    auto future = CallAsync(ctx, op.state, notifier);
-    auto execution = std::move(future).Wait();
-    SPDLOG_INFO("name: {} has_more: {}", op.name, execution.status.has_more);
+    auto future = CallAsync(ctx, op.execution.state, notifier);
+    auto status = std::move(future).Wait();
+    SPDLOG_INFO("name: {} has_more: {}", op.name, status.has_more);
     ;
-    while (execution.status.has_more) {
-      auto future = CallAsync(ctx, op.state, notifier);
-      execution = std::move(future).Wait();
-      SPDLOG_INFO("name: {} has_more: {}", op.name, execution.status.has_more);
+    while (status.has_more) {
+      auto future = CallAsync(ctx, op.execution.state, notifier);
+      status = std::move(future).Wait();
+      SPDLOG_INFO("name: {} has_more: {}", op.name, status.has_more);
       ;
     }
   }
