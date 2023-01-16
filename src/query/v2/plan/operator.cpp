@@ -519,6 +519,8 @@ class DistributedScanAllByPrimaryKeyCursor : public Cursor {
       // Original
       // current_batch_ = request_router.ScanVertices(request_label, pk);
 
+      auto asd_debug = request_router.ScanVertices(request_label, pk);
+
       // VertexAccessor(Vertex v, std::vector<std::pair<PropertyId, Value>> props,
       //                const RequestRouterInterface *request_router);
 
@@ -536,21 +538,17 @@ class DistributedScanAllByPrimaryKeyCursor : public Cursor {
 
       msgs::GetPropertiesRequest req = {.vertex_ids = {std::make_pair(label, pk)}};
       auto get_prop_result = request_router.GetProperties(req);
-      MG_ASSERT(get_prop_result.size() == 1);
+      MG_ASSERT(get_prop_result.size() <= 1);
 
-      // std::vector<std::pair<PropertyId, Value>> props
-      std::map<msgs::PropertyId, msgs::Value> transformed_properties;
-      auto properties = get_prop_result[0].props;
-      std::transform(properties.begin(), properties.end(),
-                     std::inserter(transformed_properties, transformed_properties.end()), [](const auto &prop) {
-                       return std::make_pair(msgs::PropertyId::FromUint(prop.first.AsUint()), prop.second);
-                     });
+      if (get_prop_result.empty()) {
+        current_batch_ = std::vector<VertexAccessor>{};
+      } else {
+        auto properties = get_prop_result[0].props;
+        // TODO (gvolfing) figure out labels when relevant.
+        msgs::Vertex vertex = {.id = get_prop_result[0].vertex, .labels = {}};
 
-      msgs::Vertex vertex = {.id = get_prop_result[0].vertex, .labels = {label}};
-      // auto va = VertexAccessor(vertex, std::move(transformed_properties), &request_router);
-      auto va = VertexAccessor(vertex, properties, &request_router);
-
-      current_batch_ = {va};
+        current_batch_ = {VertexAccessor(vertex, properties, &request_router)};
+      }
     }
     current_vertex_it_ = current_batch_.begin();
     request_state_ = State::COMPLETED;

@@ -372,6 +372,8 @@ class RequestRouter : public RequestRouterInterface {
   }
 
   std::vector<msgs::GetPropertiesResultRow> GetProperties(msgs::GetPropertiesRequest requests) override {
+    // Add HLC to GetProperties request
+    requests.transaction_id = transaction_id_;
     // create requests
     std::vector<ShardRequestState<msgs::GetPropertiesRequest>> requests_to_be_sent =
         RequestsForGetProperties(std::move(requests));
