@@ -56,10 +56,9 @@ TEST(CreateNodeTest, CreateNodeCursor) {
   auto create_expand = plan::CreateNode(once_op, node);
   auto cursor = create_expand.MakeCursor(utils::NewDeleteResource());
   MockedRequestRouter router;
-  EXPECT_CALL(router, CreateVertices(testing::_))
-      .Times(1)
-      .WillOnce(::testing::Return(std::vector<msgs::CreateVerticesResponse>{}));
-  EXPECT_CALL(router, IsPrimaryKey(testing::_, testing::_)).WillRepeatedly(::testing::Return(true));
+  EXPECT_CALL(router, CreateVertices(_)).Times(1).WillOnce(Return(std::vector<msgs::CreateVerticesResponse>{}));
+  EXPECT_CALL(router, IsPrimaryLabel(_)).WillRepeatedly(Return(true));
+  EXPECT_CALL(router, IsPrimaryKey(_, _)).WillRepeatedly(Return(true));
   auto context = MakeContext(ast, symbol_table, &router, &id_alloc);
   auto multi_frame = CreateMultiFrame(context.symbol_table.max_position());
   cursor->PullMultiple(multi_frame, context);
