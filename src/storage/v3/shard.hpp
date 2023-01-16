@@ -37,6 +37,7 @@
 #include "storage/v3/result.hpp"
 #include "storage/v3/schema_validator.hpp"
 #include "storage/v3/schemas.hpp"
+#include "storage/v3/splitter.hpp"
 #include "storage/v3/transaction.hpp"
 #include "storage/v3/vertex.hpp"
 #include "storage/v3/vertex_accessor.hpp"
@@ -177,15 +178,6 @@ struct SchemasInfo {
 struct SplitInfo {
   uint64_t shard_version;
   PrimaryKey split_point;
-};
-
-// If edge properties-on-edges is false then we don't need to send edges but
-// only vertices, since they will contain those edges
-struct SplitData {
-  VertexContainer vertices;
-  std::optional<EdgeContainer> edges;
-  IndicesInfo indices_info;
-  std::map<uint64_t, Transaction> transactions;
 };
 
 /// Structure used to return information about the storage.
@@ -379,44 +371,6 @@ class Shard final {
   SplitData PerformSplit(const PrimaryKey &split_key);
 
  private:
-  template <typename TObj>
-  requires utils::SameAsAnyOf<TObj, Edge, VertexData>
-  void AdjustSplittedDataDeltas(TObj &delta_holder, const std::map<int64_t, Transaction> &transactions) {
-    auto *delta_chain = delta_holder.delta;
-    Delta *new_delta_chain{nullptr};
-    while (delta_chain != nullptr) {
-      auto &transaction = transactions.at(delta_chain->command_id);
-      // This is the address of corresponding delta
-      const auto transaction_delta_it = std::ranges::find_if(
-          transaction->deltas, [delta_uuid = delta_chain->uuid](const auto &elem) { return elem.uuid == delta_uuid; });
-      // Add this delta to the new chain
-      if (new_delta_chain == nullptr) {
-        new_delta_chain = &*transaction_delta_it;
-      } else {
-        new_delta_chain->next = &*transaction_delta_it;
-      }
-      delta_chain = delta_chain->next;
-    }
-    delta_holder.delta = new_delta_chain;
-  }
-
-  void ScanDeltas(std::set<uint64_t> &collected_transactions_start_id, Delta *delta) const;
-
-  void AlignClonedTransaction(Transaction &cloned_transaction, const Transaction &transaction,
-                              std::map<uint64_t, Transaction> &cloned_transactions, VertexContainer &cloned_vertices,
-                              EdgeContainer &cloned_edges);
-
-  void AlignClonedTransactions(std::map<uint64_t, Transaction> &cloned_transactions, VertexContainer &cloned_vertices,
-                               EdgeContainer &cloned_edges);
-
-  std::map<uint64_t, Transaction> CollectTransactions(const std::set<uint64_t> &collected_transactions_start_id,
-                                                      VertexContainer &cloned_vertices, EdgeContainer &cloned_edges);
-
-  VertexContainer CollectVertices(std::set<uint64_t> &collected_transactions_start_id, const PrimaryKey &split_key);
-
-  std::optional<EdgeContainer> CollectEdges(std::set<uint64_t> &collected_transactions_start_id,
-                                            const VertexContainer &split_vertices, const PrimaryKey &split_key);
-
   Transaction &GetTransaction(coordinator::Hlc start_timestamp, IsolationLevel isolation_level);
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
@@ -456,6 +410,7 @@ class Shard final {
   // Holds all of the (in progress, committed and aborted) transactions that are read or write to this shard, but
   // haven't been cleaned up yet
   std::map<uint64_t, std::unique_ptr<Transaction>> start_logical_id_to_transaction_{};
+  Splitter shard_splitter_;
   bool has_any_transaction_aborted_since_last_gc{false};
 };
 
