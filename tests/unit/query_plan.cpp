@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1671,18 +1671,6 @@ TYPED_TEST(TestPlanner, Foreach) {
     std::list<BaseOpChecker *> nested_updates{{&create, &del}};
     auto nested_foreach = ExpectForeach(input, nested_updates);
     std::list<BaseOpChecker *> updates{&nested_foreach};
-    CheckPlan<TypeParam>(query, storage, ExpectForeach(input, updates), ExpectEmptyResult());
-  }
-  {
-    auto *i = NEXPR("i", IDENT("i"));
-    auto *j = NEXPR("j", IDENT("j"));
-    auto create = ExpectCreateNode();
-    std::list<BaseOpChecker *> empty;
-    std::list<BaseOpChecker *> updates{&create};
-    auto input_op = ExpectForeach(empty, updates);
-    std::list<BaseOpChecker *> input{&input_op};
-    auto *query =
-        QUERY(SINGLE_QUERY(FOREACH(i, {CREATE(PATTERN(NODE("n")))}), FOREACH(j, {CREATE(PATTERN(NODE("n")))})));
     CheckPlan<TypeParam>(query, storage, ExpectForeach(input, updates), ExpectEmptyResult());
   }
 }

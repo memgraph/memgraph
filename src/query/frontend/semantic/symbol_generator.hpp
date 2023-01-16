@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -158,7 +158,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   // Identifiers which are injected from outside the query. Each identifier
   // is mapped by its name.
   std::unordered_map<std::string, Identifier *> predefined_identifiers_;
-  std::vector<Scope> scopes_;
+  Scope scope_;
   std::unordered_set<std::string> prev_return_names_;
   std::unordered_set<std::string> curr_return_names_;
 };
