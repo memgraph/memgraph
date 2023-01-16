@@ -516,7 +516,41 @@ class DistributedScanAllByPrimaryKeyCursor : public Cursor {
         pk.push_back(TypedValueToValue(primary_key->Accept(evaluator)));
       }
 
-      current_batch_ = request_router.ScanVertices(request_label, pk);
+      // Original
+      // current_batch_ = request_router.ScanVertices(request_label, pk);
+
+      // VertexAccessor(Vertex v, std::vector<std::pair<PropertyId, Value>> props,
+      //                const RequestRouterInterface *request_router);
+
+      // VertexAccessor(Vertex v, std::map<PropertyId, Value> &&props, const RequestRouterInterface *request_router);
+      // VertexAccessor(Vertex v, const std::map<PropertyId, Value> &props, const RequestRouterInterface
+      // *request_router);
+
+      // struct Vertex {
+      //   VertexId id;
+      //   std::vector<Label> labels;
+      //   friend bool operator==(const Vertex &lhs, const Vertex &rhs) { return lhs.id == rhs.id; }
+      // };
+
+      msgs::Label label = {.id = msgs::LabelId::FromUint(label_->AsUint())};
+
+      msgs::GetPropertiesRequest req = {.vertex_ids = {std::make_pair(label, pk)}};
+      auto get_prop_result = request_router.GetProperties(req);
+      MG_ASSERT(get_prop_result.size() == 1);
+
+      // std::vector<std::pair<PropertyId, Value>> props
+      std::map<msgs::PropertyId, msgs::Value> transformed_properties;
+      auto properties = get_prop_result[0].props;
+      std::transform(properties.begin(), properties.end(),
+                     std::inserter(transformed_properties, transformed_properties.end()), [](const auto &prop) {
+                       return std::make_pair(msgs::PropertyId::FromUint(prop.first.AsUint()), prop.second);
+                     });
+
+      msgs::Vertex vertex = {.id = get_prop_result[0].vertex, .labels = {label}};
+      // auto va = VertexAccessor(vertex, std::move(transformed_properties), &request_router);
+      auto va = VertexAccessor(vertex, properties, &request_router);
+
+      current_batch_ = {va};
     }
     current_vertex_it_ = current_batch_.begin();
     request_state_ = State::COMPLETED;

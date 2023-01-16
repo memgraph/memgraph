@@ -115,8 +115,7 @@ class RequestRouterInterface {
   virtual std::optional<storage::v3::LabelId> MaybeNameToLabel(const std::string &name) const = 0;
   virtual bool IsPrimaryLabel(storage::v3::LabelId label) const = 0;
   virtual bool IsPrimaryKey(storage::v3::LabelId primary_label, storage::v3::PropertyId property) const = 0;
-  // TODO - (gvolfing) Implement this function in the mocked class.
-  virtual std::vector<coordinator::SchemaProperty> GetSchemaForLabel(storage::v3::LabelId /*label*/) const = 0;
+  virtual std::vector<coordinator::SchemaProperty> GetSchemaForLabel(storage::v3::LabelId label) const = 0;
 };
 
 // TODO(kostasrim)rename this class template
