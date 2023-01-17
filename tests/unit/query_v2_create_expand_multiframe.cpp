@@ -23,7 +23,7 @@
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 
-namespace memgraph::query::v2 {
+namespace memgraph::query::v2::tests {
 
 MultiFrame CreateMultiFrame(const size_t max_pos, const Symbol &src, const Symbol &dst, MockedRequestRouter *router) {
   static constexpr size_t number_of_frames = 100;
@@ -90,4 +90,4 @@ TEST(CreateExpandTest, Cursor) {
   EXPECT_EQ(number_of_invalid_frames, 99);
 }
 
-}  // namespace memgraph::query::v2
+}  // namespace memgraph::query::v2::tests

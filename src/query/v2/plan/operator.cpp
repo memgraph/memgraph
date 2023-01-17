@@ -2563,8 +2563,20 @@ class DistributedCreateExpandCursor : public Cursor {
       // Set src and dest vertices
       // TODO(jbajic) Currently we are only handling scenario where vertices
       // are matched
-      request.src_vertex = v1.Id();
-      request.dest_vertex = v2.Id();
+      switch (edge_info.direction) {
+        case EdgeAtom::Direction::IN: {
+          request.src_vertex = v2.Id();
+          request.dest_vertex = v1.Id();
+          break;
+        }
+        case EdgeAtom::Direction::OUT: {
+          request.src_vertex = v1.Id();
+          request.dest_vertex = v2.Id();
+          break;
+        }
+        case EdgeAtom::Direction::BOTH:
+          LOG_FATAL("Must indicate exact expansion direction here");
+      }
 
       edge_requests.push_back(std::move(request));
     }
