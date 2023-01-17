@@ -255,9 +255,9 @@ class InvalidFramesPopulator {
   ~InvalidFramesPopulator() = default;
 
   InvalidFramesPopulator(const InvalidFramesPopulator &other) = delete;
-  InvalidFramesPopulator(InvalidFramesPopulator &&other) noexcept = delete;
+  InvalidFramesPopulator(InvalidFramesPopulator &&other) noexcept = default;
   InvalidFramesPopulator &operator=(const InvalidFramesPopulator &other) = delete;
-  InvalidFramesPopulator &operator=(InvalidFramesPopulator &&other) noexcept = delete;
+  InvalidFramesPopulator &operator=(InvalidFramesPopulator &&other) noexcept = default;
 
   struct Iterator {
     using iterator_category = std::forward_iterator_tag;
