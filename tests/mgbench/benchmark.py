@@ -77,10 +77,7 @@ parser.add_argument(
 parser.add_argument(
     "--num-workers-for-benchmark", type=int, default=1, help="number of workers used to execute the benchmark"
 )
-parser.add_argument("--single-threaded-runtime-sec", type=int, default=10, help="single threaded duration of each test")
-parser.add_argument("--no-load-query-counts", action="store_true", help="disable loading of cached query counts")
-parser.add_argument("--no-save-query-counts", action="store_true", help="disable storing of cached query counts")
-parser.add_argument("--export-results", default="", help="file path into which results should be exported")
+
 parser.add_argument(
     "--single-threaded-runtime-sec",
     type=int,
