@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -73,43 +73,44 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::ex
 
 namespace details {
 
-template <typename TSession>
-State HandleRun(TSession &session, const State state, const Value &query, const Value &params, const bool return_qid) {
-  if (state != State::Idle) {
-    // Client could potentially recover if we move to error state, but there is
-    // no legitimate situation in which well working client would end up in this
-    // situation.
-    spdlog::trace("Unexpected RUN command!");
-    return State::Close;
-  }
+// template <typename TSession>
+// State HandleRun(TSession &session, const State state, const Value &query, const Value &params, const bool return_qid)
+// {
+//   if (state != State::Idle) {
+//     // Client could potentially recover if we move to error state, but there is
+//     // no legitimate situation in which well working client would end up in this
+//     // situation.
+//     spdlog::trace("Unexpected RUN command!");
+//     return State::Close;
+//   }
 
-  DMG_ASSERT(!session.encoder_buffer_.HasData(), "There should be no data to write in this state");
+//   DMG_ASSERT(!session.encoder_buffer_.HasData(), "There should be no data to write in this state");
 
-  spdlog::debug("[Run] '{}'", query.ValueString());
+//   spdlog::debug("[Run] '{}'", query.ValueString());
 
-  try {
-    // Interpret can throw.
-    const auto [header, qid] = session.Interpret(query.ValueString(), params.ValueMap());
-    // Convert std::string to Value
-    std::vector<Value> vec;
-    std::map<std::string, Value> data;
-    vec.reserve(header.size());
-    for (auto &i : header) vec.emplace_back(std::move(i));
-    data.emplace("fields", std::move(vec));
-    if (return_qid && qid.has_value()) {
-      data.emplace("qid", Value{*qid});
-    }
+//   try {
+//     // Interpret can throw.
+//     const auto [header, qid] = session.Interpret(query.ValueString(), params.ValueMap());
+//     // Convert std::string to Value
+//     std::vector<Value> vec;
+//     std::map<std::string, Value> data;
+//     vec.reserve(header.size());
+//     for (auto &i : header) vec.emplace_back(std::move(i));
+//     data.emplace("fields", std::move(vec));
+//     if (return_qid && qid.has_value()) {
+//       data.emplace("qid", Value{*qid});
+//     }
 
-    // Send the header.
-    if (!session.encoder_.MessageSuccess(data)) {
-      spdlog::trace("Couldn't send query header!");
-      return State::Close;
-    }
-    return State::Result;
-  } catch (const std::exception &e) {
-    return HandleFailure(session, e);
-  }
-}
+//     // Send the header.
+//     if (!session.encoder_.MessageSuccess(data)) {
+//       spdlog::trace("Couldn't send query header!");
+//       return State::Close;
+//     }
+//     return State::Result;
+//   } catch (const std::exception &e) {
+//     return HandleFailure(session, e);
+//   }
+// }
 
 template <bool is_pull, typename TSession>
 State HandlePullDiscard(TSession &session, std::optional<int> n, std::optional<int> qid) {
@@ -233,7 +234,36 @@ State HandleRunV1(TSession &session, const State state, const Marker marker) {
     return State::Close;
   }
 
-  return details::HandleRun(session, state, query, params, false);
+  if (state != State::Idle) {
+    // Client could potentially recover if we move to error state, but there is
+    // no legitimate situation in which well working client would end up in this
+    // situation.
+    spdlog::trace("Unexpected RUN command!");
+    return State::Close;
+  }
+
+  DMG_ASSERT(!session.encoder_buffer_.HasData(), "There should be no data to write in this state");
+
+  spdlog::debug("[Run] '{}'", query.ValueString());
+
+  try {
+    // Interpret can throw.
+    const auto [header, qid] = session.Interpret(query.ValueString(), params.ValueMap());
+    // Convert std::string to Value
+    std::vector<Value> vec;
+    std::map<std::string, Value> data;
+    vec.reserve(header.size());
+    for (auto &i : header) vec.emplace_back(std::move(i));
+    data.emplace("fields", std::move(vec));
+    // Send the header.
+    if (!session.encoder_.MessageSuccess(data)) {
+      spdlog::trace("Couldn't send query header!");
+      return State::Close;
+    }
+    return State::Result;
+  } catch (const std::exception &e) {
+    return HandleFailure(session, e);
+  }
 }
 
 template <typename TSession>
@@ -261,7 +291,40 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
     spdlog::trace("Couldn't read extra field!");
   }
 
-  return details::HandleRun(session, state, query, params, true);
+  if (state != State::Idle) {
+    // Client could potentially recover if we move to error state, but there is
+    // no legitimate situation in which well working client would end up in this
+    // situation.
+    spdlog::trace("Unexpected RUN command!");
+    return State::Close;
+  }
+
+  DMG_ASSERT(!session.encoder_buffer_.HasData(), "There should be no data to write in this state");
+
+  spdlog::debug("[Run] '{}'", query.ValueString());
+
+  try {
+    // Interpret can throw.
+    const auto [header, qid] = session.Interpret(query.ValueString(), params.ValueMap());
+    // Convert std::string to Value
+    std::vector<Value> vec;
+    std::map<std::string, Value> data;
+    vec.reserve(header.size());
+    for (auto &i : header) vec.emplace_back(std::move(i));
+    data.emplace("fields", std::move(vec));
+    if (qid.has_value()) {
+      data.emplace("qid", Value{*qid});
+    }
+
+    // Send the header.
+    if (!session.encoder_.MessageSuccess(data)) {
+      spdlog::trace("Couldn't send query header!");
+      return State::Close;
+    }
+    return State::Result;
+  } catch (const std::exception &e) {
+    return HandleFailure(session, e);
+  }
 }
 
 template <typename TSession>
