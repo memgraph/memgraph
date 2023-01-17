@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,7 +18,7 @@
 #include "query/v2/plan/operator.hpp"
 #include "query/v2/request_router.hpp"
 
-namespace memgraph::query::v2 {
+namespace memgraph::query::v2::tests {
 class MockedRequestRouter : public RequestRouterInterface {
  public:
   MOCK_METHOD(std::vector<VertexAccessor>, ScanVertices, (std::optional<std::string> label));
@@ -79,4 +79,4 @@ inline MockedLogicalOperator &BaseToMock(plan::LogicalOperator &op) {
 
 inline MockedCursor &BaseToMock(plan::Cursor &cursor) { return dynamic_cast<MockedCursor &>(cursor); }
 
-}  // namespace memgraph::query::v2
+}  // namespace memgraph::query::v2::tests
