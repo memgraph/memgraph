@@ -13,6 +13,7 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+
 #include "query/v2/common.hpp"
 #include "query/v2/context.hpp"
 #include "query/v2/plan/operator.hpp"
