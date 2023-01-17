@@ -48,10 +48,6 @@ bool MultiFrame::HasValidFrame() const noexcept {
   return std::any_of(frames_.begin(), frames_.end(), [](auto &frame) { return frame.IsValid(); });
 }
 
-bool MultiFrame::HasInvalidFrame() const noexcept {
-  return std::any_of(frames_.rbegin(), frames_.rend(), [](auto &frame) { return !frame.IsValid(); });
-}
-
 // NOLINTNEXTLINE (bugprone-exception-escape)
 void MultiFrame::DefragmentValidFrames() noexcept {
   /*
