@@ -953,7 +953,9 @@ class Value {
   friend class Result;
 
   explicit Value(mgp_value *ptr);
-  explicit Value(mgp_value **ptr);
+
+  struct StealType {};
+  explicit Value(StealType /*steal*/, mgp_value *ptr);
 
   // Null constructor:
   explicit Value();
@@ -1542,6 +1544,8 @@ inline Type ToAPIType(mgp_value_type type) {
 /* #region Graph (Id, Graph, Nodes, GraphRelationships, Relationships, Properties & Labels) */
 
 // Id:
+
+inline constexpr Value::StealType steal{};
 
 inline Id Id::FromUint(uint64_t id) { return Id(util::MemcpyCast<int64_t>(id)); }
 
@@ -2339,7 +2343,7 @@ inline void Node::SetProperty(std::string property, Value value) {
 
 inline Value Node::GetProperty(const std::string &property) const {
   mgp_value *vertex_prop = mgp::vertex_get_property(ptr_, property.data(), memory);
-  return Value(&vertex_prop);
+  return Value(mgp::steal, vertex_prop);
 }
 
 inline bool Node::operator<(const Node &other) const { return Id() < other.Id(); }
@@ -2405,7 +2409,7 @@ inline void Relationship::SetProperty(std::string property, Value value) {
 
 inline Value Relationship::GetProperty(const std::string &property) const {
   mgp_value *edge_prop = mgp::edge_get_property(ptr_, property.data(), memory);
-  return Value(&edge_prop);
+  return Value(mgp::steal, edge_prop);
 }
 
 inline Node Relationship::From() const { return Node(mgp::edge_get_from(ptr_)); }
@@ -2881,7 +2885,7 @@ inline bool Duration::operator<(const Duration &other) const {
 /* #region Value */
 
 inline Value::Value(mgp_value *ptr) : ptr_(mgp::value_copy(ptr, memory)) {}
-inline Value::Value(mgp_value **ptr) : ptr_(*ptr) {}
+inline Value::Value(StealType /*steal*/, mgp_value *ptr) : ptr_{ptr} {};
 
 inline Value::Value() : ptr_(mgp::value_make_null(memory)) {}
 
