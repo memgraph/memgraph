@@ -33,6 +33,7 @@ class MultiFrame {
   MultiFrame(size_t size_of_frame, size_t number_of_frames, utils::MemoryResource *execution_memory);
   ~MultiFrame() = default;
 
+  // Assigning and moving the MultiFrame is not allowed if any accessor from the above ones are alive.
   MultiFrame(const MultiFrame &other);
   MultiFrame(MultiFrame &&other) noexcept;
   MultiFrame &operator=(const MultiFrame &other) = delete;
