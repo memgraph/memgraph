@@ -23,7 +23,7 @@
 #include "storage/v3/shard.hpp"
 #include "utils/memory.hpp"
 
-namespace memgraph::query::v2 {
+namespace memgraph::query::v2::tests {
 MultiFrame CreateMultiFrame(const size_t max_pos) {
   static constexpr size_t frame_size = 100;
   MultiFrame multi_frame(max_pos, frame_size, utils::NewDeleteResource());
@@ -79,4 +79,4 @@ TEST(CreateNodeTest, CreateNodeCursor) {
   auto number_of_invalid_frames = std::distance(invalid_frames.begin(), invalid_frames.end());
   EXPECT_EQ(number_of_invalid_frames, 99);
 }
-}  // namespace memgraph::query::v2
+}  // namespace memgraph::query::v2::tests
