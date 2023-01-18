@@ -2020,7 +2020,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         next_edges_.clear();
         traversal_stack_.clear();
 
-        pq_.push({TypedValue(), 0, *start_vertex, std::nullopt});
+        expand_from_vertex(*start_vertex, TypedValue(), 0);
         visited_cost_.emplace(*start_vertex, 0);
         frame[self_.common_.edge_symbol] = TypedValue::TVector(memory);
       }
@@ -2029,34 +2029,28 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       while (!pq_.empty()) {
         if (MustAbort(context)) throw HintedAbortError();
 
-        auto [current_weight, current_depth, current_vertex, maybe_directed_edge] = pq_.top();
+        auto [current_weight, current_depth, current_vertex, directed_edge] = pq_.top();
         pq_.pop();
 
-        if (maybe_directed_edge) {
-          auto &[current_edge, direction, weight] = *maybe_directed_edge;
-          if (expanded_.find(current_edge) != expanded_.end()) continue;
-          expanded_.emplace(current_edge);
-        }
+        auto &[current_edge, direction, weight] = directed_edge;
+        if (expanded_.find(current_edge) != expanded_.end()) continue;
+        expanded_.emplace(current_edge);
 
         // Expand only if what we've just expanded is less than max depth.
         if (current_depth < upper_bound_) {
           expand_from_vertex(current_vertex, current_weight, current_depth);
         }
 
-        // if current vertex is not starting vertex, maybe_directed_edge will not be nullopt
-        if (maybe_directed_edge) {
-          auto &[current_edge, direction, weight] = *maybe_directed_edge;
-          // Searching for a previous vertex in the expansion
-          auto prev_vertex = direction == EdgeAtom::Direction::IN ? current_edge.To() : current_edge.From();
+        // Searching for a previous vertex in the expansion
+        auto prev_vertex = direction == EdgeAtom::Direction::IN ? current_edge.To() : current_edge.From();
 
-          // Update the parent
-          if (next_edges_.find({prev_vertex, current_depth - 1}) == next_edges_.end()) {
-            utils::pmr::list<DirectedEdge> empty(memory);
-            next_edges_[{prev_vertex, current_depth - 1}] = std::move(empty);
-          }
-
-          next_edges_.at({prev_vertex, current_depth - 1}).emplace_back(*maybe_directed_edge);
+        // Update the parent
+        if (next_edges_.find({prev_vertex, current_depth - 1}) == next_edges_.end()) {
+          utils::pmr::list<DirectedEdge> empty(memory);
+          next_edges_[{prev_vertex, current_depth - 1}] = std::move(empty);
         }
+
+        next_edges_.at({prev_vertex, current_depth - 1}).emplace_back(directed_edge);
       }
 
       if (start_vertex && next_edges_.find({*start_vertex, 0}) != next_edges_.end()) {
@@ -2113,8 +2107,8 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
   // Priority queue comparator. Keep lowest weight on top of the queue.
   class PriorityQueueComparator {
    public:
-    bool operator()(const std::tuple<TypedValue, int64_t, VertexAccessor, std::optional<DirectedEdge>> &lhs,
-                    const std::tuple<TypedValue, int64_t, VertexAccessor, std::optional<DirectedEdge>> &rhs) {
+    bool operator()(const std::tuple<TypedValue, int64_t, VertexAccessor, DirectedEdge> &lhs,
+                    const std::tuple<TypedValue, int64_t, VertexAccessor, DirectedEdge> &rhs) {
       const auto &lhs_weight = std::get<0>(lhs);
       const auto &rhs_weight = std::get<0>(rhs);
       // Null defines minimum value for all types
@@ -2133,8 +2127,8 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
   // Priority queue - core element of the algorithm.
   // Stores: {weight, depth, next vertex, edge and direction}
-  std::priority_queue<std::tuple<TypedValue, int64_t, VertexAccessor, std::optional<DirectedEdge>>,
-                      utils::pmr::vector<std::tuple<TypedValue, int64_t, VertexAccessor, std::optional<DirectedEdge>>>,
+  std::priority_queue<std::tuple<TypedValue, int64_t, VertexAccessor, DirectedEdge>,
+                      utils::pmr::vector<std::tuple<TypedValue, int64_t, VertexAccessor, DirectedEdge>>,
                       PriorityQueueComparator>
       pq_;
 
