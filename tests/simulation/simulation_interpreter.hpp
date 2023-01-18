@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -41,6 +41,12 @@ class SimulatedInterpreter {
   SimulatedInterpreter(SimulatedInterpreter &&) = delete;
   SimulatedInterpreter &operator=(SimulatedInterpreter &&) = delete;
   ~SimulatedInterpreter() = default;
+
+  void InstallSimulatorTicker(Simulator &simulator) {
+    std::function<bool()> tick_simulator = simulator.GetSimulatorTickClosure();
+    auto *request_router = interpreter_->GetRequestRouter();
+    request_router->InstallSimulatorTicker(tick_simulator);
+  }
 
   std::vector<ResultStream> RunQueries(const std::vector<std::string> &queries) {
     std::vector<ResultStream> results;

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -314,6 +314,7 @@ std::pair<SimulatorStats, LatencyHistogramSummaries> RunClusterSimulationWithQue
   WaitForShardsToInitialize(coordinator_client);
 
   auto simulated_interpreter = io::simulator::SetUpInterpreter(coordinator_address, simulator);
+  simulated_interpreter.InstallSimulatorTicker(simulator);
 
   auto query_results = simulated_interpreter.RunQueries(queries);
 

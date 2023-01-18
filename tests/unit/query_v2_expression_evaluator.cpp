@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -128,6 +128,8 @@ class MockedRequestRouter : public RequestRouterInterface {
   std::optional<std::pair<uint64_t, uint64_t>> AllocateInitialEdgeIds(io::Address coordinator_address) override {
     return {};
   }
+
+  void InstallSimulatorTicker(std::function<bool()> tick_simulator) override {}
 
  private:
   void SetUpNameIdMappers() {

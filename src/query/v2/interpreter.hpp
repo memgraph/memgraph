@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -301,9 +301,9 @@ class Interpreter final {
 
  private:
   struct QueryExecution {
-    std::optional<PreparedQuery> prepared_query;
     utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
     utils::ResourceWithOutOfMemoryException execution_memory_with_exception{&execution_memory};
+    std::optional<PreparedQuery> prepared_query;
 
     std::map<std::string, TypedValue> summary;
     std::vector<Notification> notifications;
@@ -388,6 +388,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     // Wrap the (statically polymorphic) stream type into a common type which
     // the handler knows.
     AnyStream stream{result_stream, &query_execution->execution_memory};
+    auto asd = query_execution->prepared_query->query_handler;
     const auto maybe_res = query_execution->prepared_query->query_handler(&stream, n);
     // Stream is using execution memory of the query_execution which
     // can be deleted after its execution so the stream should be cleared
