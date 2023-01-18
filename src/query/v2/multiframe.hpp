@@ -30,7 +30,7 @@ class MultiFrame {
   friend class ValidFramesReader;
   friend class InvalidFramesPopulator;
 
-  MultiFrame(int64_t size_of_frame, size_t number_of_frames, utils::MemoryResource *execution_memory);
+  MultiFrame(size_t size_of_frame, size_t number_of_frames, utils::MemoryResource *execution_memory);
   ~MultiFrame() = default;
 
   MultiFrame(const MultiFrame &other);
@@ -168,7 +168,7 @@ class ValidFramesModifier {
     Iterator &operator++() {
       do {
         ptr_++;
-      } while (*this != iterator_wrapper_->end() && ptr_->IsValid());
+      } while (*this != iterator_wrapper_->end() && !ptr_->IsValid());
 
       return *this;
     }
