@@ -51,51 +51,6 @@ void Splitter::ScanDeltas(std::set<uint64_t> &collected_transactions_start_id, D
   }
 }
 
-std::map<LabelId, LabelIndex::LabelIndexContainer> Splitter::CollectLabelIndices(
-    const PrimaryKey &split_key,
-    std::map<LabelId, std::multimap<const Vertex *, LabelIndex::Entry *>> &vertex_entry_map) {
-  if (indices_.label_index.Empty()) {
-    return {};
-  }
-
-  // Space O(i * n/2 * 2), i number of indexes, n number of vertices
-  std::map<LabelId, LabelIndex::LabelIndexContainer> cloned_indices;
-  for (auto &[label, index] : indices_.label_index.GetIndex()) {
-    for (const auto &entry : index) {
-      if (entry.vertex->first > split_key) {
-        [[maybe_unused]] auto [it, inserted, node] = cloned_indices[label].insert(index.extract(entry));
-        vertex_entry_map[label].insert({entry.vertex, &node.value()});
-      }
-    }
-  }
-
-  return cloned_indices;
-}
-
-std::map<std::pair<LabelId, PropertyId>, LabelPropertyIndex::LabelPropertyIndexContainer>
-Splitter::CollectLabelPropertyIndices(
-    const PrimaryKey &split_key,
-    std::map<std::pair<LabelId, PropertyId>, std::multimap<const Vertex *, LabelPropertyIndex::Entry *>>
-        &vertex_entry_map) {
-  if (indices_.label_property_index.Empty()) {
-    return {};
-  }
-
-  std::map<std::pair<LabelId, PropertyId>, LabelPropertyIndex::LabelPropertyIndexContainer> cloned_indices;
-  for (auto &[label_prop_pair, index] : indices_.label_property_index.GetIndex()) {
-    cloned_indices[label_prop_pair] = LabelPropertyIndex::LabelPropertyIndexContainer{};
-    for (const auto &entry : index) {
-      if (entry.vertex->first > split_key) {
-        // We get this entry
-        [[maybe_unused]] const auto [it, inserted, node] = cloned_indices[label_prop_pair].insert(index.extract(entry));
-        vertex_entry_map[label_prop_pair].insert({entry.vertex, &node.value()});
-      }
-    }
-  }
-
-  return cloned_indices;
-}
-
 VertexContainer Splitter::CollectVertices(SplitData &data, std::set<uint64_t> &collected_transactions_start_id,
                                           const PrimaryKey &split_key) {
   // Collection of indices is here since it heavily depends on vertices
@@ -103,8 +58,10 @@ VertexContainer Splitter::CollectVertices(SplitData &data, std::set<uint64_t> &c
   std::map<LabelId, std::multimap<const Vertex *, LabelIndex::Entry *>> label_index_vertex_entry_map;
   std::map<std::pair<LabelId, PropertyId>, std::multimap<const Vertex *, LabelPropertyIndex::Entry *>>
       label_property_vertex_entry_map;
-  data.label_indices = CollectLabelIndices(split_key, label_index_vertex_entry_map);
-  data.label_property_indices = CollectLabelPropertyIndices(split_key, label_property_vertex_entry_map);
+  data.label_indices =
+      CollectIndexEntries<LabelIndex, LabelId>(indices_.label_index, split_key, label_index_vertex_entry_map);
+  data.label_property_indices = CollectIndexEntries<LabelPropertyIndex, std::pair<LabelId, PropertyId>>(
+      indices_.label_property_index, split_key, label_property_vertex_entry_map);
   const auto update_indices = [](auto &index_map, const auto *old_vertex_ptr, auto &splitted_vertex_it) {
     for (auto &[label, vertex_entry_mappings] : index_map) {
       auto [it, end] = vertex_entry_mappings.equal_range(old_vertex_ptr);

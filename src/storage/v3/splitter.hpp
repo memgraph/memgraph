@@ -20,6 +20,7 @@
 #include "storage/v3/indices.hpp"
 #include "storage/v3/transaction.hpp"
 #include "storage/v3/vertex.hpp"
+#include "utils/concepts.hpp"
 
 namespace memgraph::storage::v3 {
 
@@ -29,8 +30,8 @@ struct SplitData {
   VertexContainer vertices;
   std::optional<EdgeContainer> edges;
   std::map<uint64_t, Transaction> transactions;
-  std::map<LabelId, LabelIndex::LabelIndexContainer> label_indices;
-  std::map<std::pair<LabelId, PropertyId>, LabelPropertyIndex::LabelPropertyIndexContainer> label_property_indices;
+  std::map<LabelId, LabelIndex::IndexContainer> label_indices;
+  std::map<std::pair<LabelId, PropertyId>, LabelPropertyIndex::IndexContainer> label_property_indices;
 };
 
 class Splitter final {
@@ -57,14 +58,30 @@ class Splitter final {
   std::optional<EdgeContainer> CollectEdges(std::set<uint64_t> &collected_transactions_start_id,
                                             const VertexContainer &split_vertices, const PrimaryKey &split_key);
 
-  std::map<LabelId, LabelIndex::LabelIndexContainer> CollectLabelIndices(
-      const PrimaryKey &split_key,
-      std::map<LabelId, std::multimap<const Vertex *, LabelIndex::Entry *>> &vertex_entry_map);
+  template <typename IndexMap, typename IndexType>
+  requires utils::SameAsAnyOf<IndexMap, LabelPropertyIndex, LabelIndex>
+      std::map<IndexType, typename IndexMap::IndexContainer> CollectIndexEntries(
+          IndexMap &index, const PrimaryKey &split_key,
+          std::map<IndexType, std::multimap<const Vertex *, typename IndexMap::Entry *>> &vertex_entry_map) {
+    if (index.Empty()) {
+      return {};
+    }
 
-  std::map<std::pair<LabelId, PropertyId>, LabelPropertyIndex::LabelPropertyIndexContainer> CollectLabelPropertyIndices(
-      const PrimaryKey &split_key,
-      std::map<std::pair<LabelId, PropertyId>, std::multimap<const Vertex *, LabelPropertyIndex::Entry *>>
-          &vertex_entry_map);
+    std::map<IndexType, typename IndexMap::IndexContainer> cloned_indices;
+    for (auto &[label_prop_pair, index] : index.GetIndex()) {
+      cloned_indices[label_prop_pair] = typename IndexMap::IndexContainer{};
+      for (const auto &entry : index) {
+        if (entry.vertex->first > split_key) {
+          // We get this entry
+          [[maybe_unused]] const auto [it, inserted, node] =
+              cloned_indices[label_prop_pair].insert(index.extract(entry));
+          vertex_entry_map[label_prop_pair].insert({entry.vertex, &node.value()});
+        }
+      }
+    }
+
+    return cloned_indices;
+  }
 
   static void ScanDeltas(std::set<uint64_t> &collected_transactions_start_id, Delta *delta);
 

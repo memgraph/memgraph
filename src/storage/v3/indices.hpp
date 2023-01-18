@@ -41,13 +41,13 @@ class LabelIndex {
     bool operator==(const Entry &rhs) const { return vertex == rhs.vertex && timestamp == rhs.timestamp; }
   };
 
-  using LabelIndexContainer = std::set<Entry>;
+  using IndexContainer = std::set<Entry>;
 
   LabelIndex(Indices *indices, Config::Items config, const VertexValidator &vertex_validator)
       : indices_(indices), config_(config), vertex_validator_{&vertex_validator} {}
 
   LabelIndex(Indices *indices, Config::Items config, const VertexValidator &vertex_validator,
-             std::map<LabelId, LabelIndexContainer> &data)
+             std::map<LabelId, IndexContainer> &data)
       : index_{std::move(data)}, indices_(indices), config_(config), vertex_validator_{&vertex_validator} {}
 
   /// @throw std::bad_alloc
@@ -67,12 +67,12 @@ class LabelIndex {
 
   class Iterable {
    public:
-    Iterable(LabelIndexContainer &index_container, LabelId label, View view, Transaction *transaction, Indices *indices,
+    Iterable(IndexContainer &index_container, LabelId label, View view, Transaction *transaction, Indices *indices,
              Config::Items config, const VertexValidator &vertex_validator);
 
     class Iterator {
      public:
-      Iterator(Iterable *self, LabelIndexContainer::iterator index_iterator);
+      Iterator(Iterable *self, IndexContainer::iterator index_iterator);
 
       VertexAccessor operator*() const { return current_vertex_accessor_; }
 
@@ -85,7 +85,7 @@ class LabelIndex {
       void AdvanceUntilValid();
 
       Iterable *self_;
-      LabelIndexContainer::iterator index_iterator_;
+      IndexContainer::iterator index_iterator_;
       VertexAccessor current_vertex_accessor_;
       Vertex *current_vertex_;
     };
@@ -94,7 +94,7 @@ class LabelIndex {
     Iterator end() { return {this, index_container_->end()}; }
 
    private:
-    LabelIndexContainer *index_container_;
+    IndexContainer *index_container_;
     LabelId label_;
     View view_;
     Transaction *transaction_;
@@ -120,10 +120,10 @@ class LabelIndex {
 
   [[nodiscard]] bool Empty() const noexcept { return index_.empty(); }
 
-  std::map<LabelId, LabelIndexContainer> &GetIndex() { return index_; }
+  std::map<LabelId, IndexContainer> &GetIndex() { return index_; }
 
  private:
-  std::map<LabelId, LabelIndexContainer> index_;
+  std::map<LabelId, IndexContainer> index_;
   Indices *indices_;
   Config::Items config_;
   const VertexValidator *vertex_validator_;
@@ -143,7 +143,7 @@ class LabelPropertyIndex {
     bool operator==(const PropertyValue &rhs) const;
   };
 
-  using LabelPropertyIndexContainer = std::set<Entry>;
+  using IndexContainer = std::set<Entry>;
 
   LabelPropertyIndex(Indices *indices, Config::Items config, const VertexValidator &vertex_validator)
       : indices_(indices), config_(config), vertex_validator_{&vertex_validator} {}
@@ -167,14 +167,14 @@ class LabelPropertyIndex {
 
   class Iterable {
    public:
-    Iterable(LabelPropertyIndexContainer &index_container, LabelId label, PropertyId property,
+    Iterable(IndexContainer &index_container, LabelId label, PropertyId property,
              const std::optional<utils::Bound<PropertyValue>> &lower_bound,
              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Transaction *transaction,
              Indices *indices, Config::Items config, const VertexValidator &vertex_validator);
 
     class Iterator {
      public:
-      Iterator(Iterable *self, LabelPropertyIndexContainer::iterator index_iterator);
+      Iterator(Iterable *self, IndexContainer::iterator index_iterator);
 
       VertexAccessor operator*() const { return current_vertex_accessor_; }
 
@@ -187,7 +187,7 @@ class LabelPropertyIndex {
       void AdvanceUntilValid();
 
       Iterable *self_;
-      LabelPropertyIndexContainer::iterator index_iterator_;
+      IndexContainer::iterator index_iterator_;
       VertexAccessor current_vertex_accessor_;
       Vertex *current_vertex_;
     };
@@ -196,7 +196,7 @@ class LabelPropertyIndex {
     Iterator end();
 
    private:
-    LabelPropertyIndexContainer *index_container_;
+    IndexContainer *index_container_;
     LabelId label_;
     PropertyId property_;
     std::optional<utils::Bound<PropertyValue>> lower_bound_;
@@ -239,10 +239,10 @@ class LabelPropertyIndex {
 
   [[nodiscard]] bool Empty() const noexcept { return index_.empty(); }
 
-  std::map<std::pair<LabelId, PropertyId>, LabelPropertyIndexContainer> &GetIndex() { return index_; }
+  std::map<std::pair<LabelId, PropertyId>, IndexContainer> &GetIndex() { return index_; }
 
  private:
-  std::map<std::pair<LabelId, PropertyId>, LabelPropertyIndexContainer> index_;
+  std::map<std::pair<LabelId, PropertyId>, IndexContainer> index_;
   Indices *indices_;
   Config::Items config_;
   const VertexValidator *vertex_validator_;
