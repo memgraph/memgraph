@@ -12,6 +12,7 @@
 import typing
 
 import mgclient
+import pytest
 
 
 def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}) -> typing.List[tuple]:
@@ -19,7 +20,15 @@ def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}
     return cursor.fetchall()
 
 
-def connect(autocommit=True, **kwargs) -> mgclient.Connection:
+@pytest.fixture
+def connect(**kwargs) -> mgclient.Connection:
     connection = mgclient.connect(host="localhost", port=7687, **kwargs)
-    connection.autocommit = autocommit
+    connection.autocommit = True
+    triggers_list = execute_and_fetch_all(connection.cursor(), "SHOW TRIGGERS;")
+    for trigger in triggers_list:
+        execute_and_fetch_all(connection.cursor(), f"DROP TRIGGER {trigger[0]}")
+    execute_and_fetch_all(connection.cursor(), "MATCH (n) DETACH DELETE n")
     yield connection
+    for trigger in triggers_list:
+        execute_and_fetch_all(connection.cursor(), f"DROP TRIGGER {trigger[0]}")
+    execute_and_fetch_all(connection.cursor(), "MATCH (n) DETACH DELETE n")

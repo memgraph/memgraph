@@ -11,17 +11,18 @@
 
 import sys
 
+import mgclient
 import pytest
 from common import connect, execute_and_fetch_all
 
 
 @pytest.mark.parametrize("ba_commit", ["BEFORE COMMIT", "AFTER COMMIT"])
-def test_create_on_create(ba_commit):
+def test_create_on_create(ba_commit, connect):
     """
     Args:
         ba_commit (str): BEFORE OR AFTER commit
     """
-    cursor = next(connect()).cursor()
+    cursor = connect.cursor()
     QUERY_TRIGGER_CREATE = f"""
         CREATE TRIGGER CreateTriggerEdgesCount
         ON --> CREATE
@@ -46,17 +47,17 @@ def test_create_on_create(ba_commit):
     assert len(nodes) == 2
     created_edges = execute_and_fetch_all(cursor, "MATCH (n:CreatedEdge) RETURN n")
     assert len(created_edges) == 1
-    execute_and_fetch_all(cursor, "DROP TRIGGER CreateTriggerEdgesCount")
-    execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+    # execute_and_fetch_all(cursor, "DROP TRIGGER CreateTriggerEdgesCount")
+    # execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
 
 
 @pytest.mark.parametrize("ba_commit", ["AFTER COMMIT", "BEFORE COMMIT"])
-def test_create_on_delete(ba_commit):
+def test_create_on_delete(ba_commit, connect):
     """
     Args:
         ba_commit (str): BEFORE OR AFTER commit
     """
-    cursor = next(connect()).cursor()
+    cursor = connect.cursor()
     QUERY_TRIGGER_CREATE = f"""
         CREATE TRIGGER DeleteTriggerEdgesCount
         ON --> DELETE
@@ -98,8 +99,8 @@ def test_create_on_delete(ba_commit):
     # Check how many edges got deleted
     deleted_edges = execute_and_fetch_all(cursor, "MATCH (n:DeletedEdge) RETURN n")
     assert len(deleted_edges) == 1
-    execute_and_fetch_all(cursor, "DROP TRIGGER DeleteTriggerEdgesCount")
-    execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
+    # execute_and_fetch_all(cursor, "DROP TRIGGER DeleteTriggerEdgesCount")
+    # execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")``
 
 
 @pytest.mark.parametrize("ba_commit", ["BEFORE COMMIT", "AFTER COMMIT"])
@@ -108,7 +109,8 @@ def test_create_on_delete_explicit_transaction(ba_commit):
     Args:
         ba_commit (str): BEFORE OR AFTER commit
     """
-    connection_with_autocommit = next(connect(autocommit=True))
+    connection_with_autocommit = mgclient.connect(host="localhost", port=7687)
+    connection_with_autocommit.autocommit = True
     cursor_autocommit = connection_with_autocommit.cursor()
     QUERY_TRIGGER_CREATE = f"""
         CREATE TRIGGER DeleteTriggerEdgesCountExplicit
@@ -120,7 +122,8 @@ def test_create_on_delete_explicit_transaction(ba_commit):
     # Setup queries
     execute_and_fetch_all(cursor_autocommit, QUERY_TRIGGER_CREATE)
     # Start explicit transaction on the execution of the first command
-    connection_without_autocommit = next(connect(autocommit=False))
+    connection_without_autocommit = mgclient.connect(host="localhost", port=7687)
+    connection_without_autocommit.autocommit = False
     cursor = connection_without_autocommit.cursor()
     execute_and_fetch_all(cursor, "CREATE (n:Node {id: 1})")
     execute_and_fetch_all(cursor, "CREATE (n:Node {id: 2})")
