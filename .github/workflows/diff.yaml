@@ -205,7 +205,7 @@ jobs:
 
           # Run simulation tests.
           cd tests/mgbench
-          ./benchmark.py accesscontrol/small --num-workers-for-import 1 --test-system-arg  "split-file splitfiles/accesscontrol_small.shard_configuration bolt-num-workers 1"
+          ./benchmark.py accesscontrol/small --num-workers-for-import 1 --test-system-arg  "split-file splitfiles/accesscontrol_small.shard_configuration bolt-num-workers 1" --no-authorization
 
   release_build:
     name: "Release build"
@@ -261,7 +261,7 @@ jobs:
 
           # Run simulation tests.
           cd tests/mgbench
-          ./benchmark.py accesscontrol/small --num-workers-for-import 1 --test-system-arg  "split-file splitfiles/accesscontrol_small.shard_configuration bolt-num-workers 1"
+          ./benchmark.py accesscontrol/small --num-workers-for-import 1 --test-system-arg  "split-file splitfiles/accesscontrol_small.shard_configuration bolt-num-workers 1" --no-authorization
 
       - name: Run e2e tests
         run: |
