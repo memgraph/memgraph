@@ -30,6 +30,7 @@ namespace memgraph::storage::v3 {
 struct Indices;
 
 class LabelIndex {
+ public:
   struct Entry {
     Vertex *vertex;
     uint64_t timestamp;
@@ -40,11 +41,14 @@ class LabelIndex {
     bool operator==(const Entry &rhs) const { return vertex == rhs.vertex && timestamp == rhs.timestamp; }
   };
 
- public:
   using LabelIndexContainer = std::set<Entry>;
 
   LabelIndex(Indices *indices, Config::Items config, const VertexValidator &vertex_validator)
       : indices_(indices), config_(config), vertex_validator_{&vertex_validator} {}
+
+  LabelIndex(Indices *indices, Config::Items config, const VertexValidator &vertex_validator,
+             std::map<LabelId, LabelIndexContainer> &data)
+      : index_{std::move(data)}, indices_(indices), config_(config), vertex_validator_{&vertex_validator} {}
 
   /// @throw std::bad_alloc
   void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx);
@@ -114,6 +118,10 @@ class LabelIndex {
 
   void Clear() { index_.clear(); }
 
+  [[nodiscard]] bool Empty() const noexcept { return index_.empty(); }
+
+  std::map<LabelId, LabelIndexContainer> &GetIndex() { return index_; }
+
  private:
   std::map<LabelId, LabelIndexContainer> index_;
   Indices *indices_;
@@ -122,6 +130,7 @@ class LabelIndex {
 };
 
 class LabelPropertyIndex {
+ public:
   struct Entry {
     PropertyValue value;
     Vertex *vertex;
@@ -134,7 +143,6 @@ class LabelPropertyIndex {
     bool operator==(const PropertyValue &rhs) const;
   };
 
- public:
   using LabelPropertyIndexContainer = std::set<Entry>;
 
   LabelPropertyIndex(Indices *indices, Config::Items config, const VertexValidator &vertex_validator)
@@ -228,6 +236,10 @@ class LabelPropertyIndex {
                       const std::optional<utils::Bound<PropertyValue>> &upper) const;
 
   void Clear() { index_.clear(); }
+
+  [[nodiscard]] bool Empty() const noexcept { return index_.empty(); }
+
+  std::map<std::pair<LabelId, PropertyId>, LabelPropertyIndexContainer> &GetIndex() { return index_; }
 
  private:
   std::map<std::pair<LabelId, PropertyId>, LabelPropertyIndexContainer> index_;

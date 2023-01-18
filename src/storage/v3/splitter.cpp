@@ -13,28 +13,33 @@
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 
 #include "storage/v3/config.hpp"
+#include "storage/v3/indices.hpp"
 #include "storage/v3/key_store.hpp"
 #include "storage/v3/transaction.hpp"
+#include "storage/v3/vertex.hpp"
 
 namespace memgraph::storage::v3 {
 
 Splitter::Splitter(VertexContainer &vertices, EdgeContainer &edges,
-                   std::map<uint64_t, std::unique_ptr<Transaction>> &start_logical_id_to_transaction, Config &config)
+                   std::map<uint64_t, std::unique_ptr<Transaction>> &start_logical_id_to_transaction, Indices &indices,
+                   Config &config)
     : vertices_(vertices),
       edges_(edges),
       start_logical_id_to_transaction_(start_logical_id_to_transaction),
+      indices_(indices),
       config_(config) {}
 
 SplitData Splitter::SplitShard(const PrimaryKey &split_key) {
   SplitData data;
+
   std::set<uint64_t> collected_transactions_start_id;
-  data.vertices = CollectVertices(collected_transactions_start_id, split_key);
+  data.vertices = CollectVertices(data, collected_transactions_start_id, split_key);
   data.edges = CollectEdges(collected_transactions_start_id, data.vertices, split_key);
   data.transactions = CollectTransactions(collected_transactions_start_id, data.vertices, *data.edges);
-  // TODO Indices
 
   return data;
 }
@@ -46,16 +51,85 @@ void Splitter::ScanDeltas(std::set<uint64_t> &collected_transactions_start_id, D
   }
 }
 
-VertexContainer Splitter::CollectVertices(std::set<uint64_t> &collected_transactions_start_id,
-                                          const PrimaryKey &split_key) {
-  VertexContainer splitted_data;
+std::map<LabelId, LabelIndex::LabelIndexContainer> Splitter::CollectLabelIndices(
+    const PrimaryKey &split_key,
+    std::map<LabelId, std::multimap<const Vertex *, LabelIndex::Entry *>> &vertex_entry_map) {
+  if (indices_.label_index.Empty()) {
+    return {};
+  }
 
+  // Space O(i * n/2 * 2), i number of indexes, n number of vertices
+  std::map<LabelId, LabelIndex::LabelIndexContainer> cloned_indices;
+  for (auto &[label, index] : indices_.label_index.GetIndex()) {
+    for (const auto &entry : index) {
+      if (entry.vertex->first > split_key) {
+        [[maybe_unused]] auto [it, inserted, node] = cloned_indices[label].insert(index.extract(entry));
+        vertex_entry_map[label].insert({entry.vertex, &node.value()});
+      }
+    }
+  }
+
+  return cloned_indices;
+}
+
+std::map<std::pair<LabelId, PropertyId>, LabelPropertyIndex::LabelPropertyIndexContainer>
+Splitter::CollectLabelPropertyIndices(
+    const PrimaryKey &split_key,
+    std::map<std::pair<LabelId, PropertyId>, std::multimap<const Vertex *, LabelPropertyIndex::Entry *>>
+        &vertex_entry_map) {
+  if (indices_.label_property_index.Empty()) {
+    return {};
+  }
+
+  std::map<std::pair<LabelId, PropertyId>, LabelPropertyIndex::LabelPropertyIndexContainer> cloned_indices;
+  for (auto &[label_prop_pair, index] : indices_.label_property_index.GetIndex()) {
+    cloned_indices[label_prop_pair] = LabelPropertyIndex::LabelPropertyIndexContainer{};
+    for (const auto &entry : index) {
+      if (entry.vertex->first > split_key) {
+        // We get this entry
+        [[maybe_unused]] const auto [it, inserted, node] = cloned_indices[label_prop_pair].insert(index.extract(entry));
+        vertex_entry_map[label_prop_pair].insert({entry.vertex, &node.value()});
+      }
+    }
+  }
+
+  return cloned_indices;
+}
+
+VertexContainer Splitter::CollectVertices(SplitData &data, std::set<uint64_t> &collected_transactions_start_id,
+                                          const PrimaryKey &split_key) {
+  // Collection of indices is here since it heavily depends on vertices
+  // Old vertex pointer new entry pointer
+  std::map<LabelId, std::multimap<const Vertex *, LabelIndex::Entry *>> label_index_vertex_entry_map;
+  std::map<std::pair<LabelId, PropertyId>, std::multimap<const Vertex *, LabelPropertyIndex::Entry *>>
+      label_property_vertex_entry_map;
+  data.label_indices = CollectLabelIndices(split_key, label_index_vertex_entry_map);
+  data.label_property_indices = CollectLabelPropertyIndices(split_key, label_property_vertex_entry_map);
+  const auto update_indices = [](auto &index_map, const auto *old_vertex_ptr, auto &splitted_vertex_it) {
+    for (auto &[label, vertex_entry_mappings] : index_map) {
+      auto [it, end] = vertex_entry_mappings.equal_range(old_vertex_ptr);
+      while (it != end) {
+        it->second->vertex = &*splitted_vertex_it;
+        ++it;
+      }
+    }
+  };
+
+  VertexContainer splitted_data;
   auto split_key_it = vertices_.find(split_key);
   while (split_key_it != vertices_.end()) {
     // Go through deltas and pick up transactions start_id
     ScanDeltas(collected_transactions_start_id, split_key_it->second.delta);
+
+    const auto *old_vertex_ptr = &*split_key_it;
     auto next_it = std::next(split_key_it);
-    splitted_data.insert(vertices_.extract(split_key_it->first));
+
+    const auto &[splitted_vertex_it, inserted, node] = splitted_data.insert(vertices_.extract(split_key_it->first));
+
+    // Update indices
+    update_indices(label_index_vertex_entry_map, old_vertex_ptr, splitted_vertex_it);
+    update_indices(label_property_vertex_entry_map, old_vertex_ptr, splitted_vertex_it);
+
     split_key_it = next_it;
   }
   return splitted_data;
@@ -68,7 +142,7 @@ std::optional<EdgeContainer> Splitter::CollectEdges(std::set<uint64_t> &collecte
     return std::nullopt;
   }
   EdgeContainer splitted_edges;
-  const auto split_edges_from_vertex = [&](const auto &edges_ref) {
+  const auto split_vertex_edges = [&](const auto &edges_ref) {
     // This is safe since if properties_on_edges is true, the this must be a
     // ptr
     for (const auto &edge_ref : edges_ref) {
@@ -87,8 +161,8 @@ std::optional<EdgeContainer> Splitter::CollectEdges(std::set<uint64_t> &collecte
   };
 
   for (const auto &vertex : split_vertices) {
-    split_edges_from_vertex(vertex.second.in_edges);
-    split_edges_from_vertex(vertex.second.out_edges);
+    split_vertex_edges(vertex.second.in_edges);
+    split_vertex_edges(vertex.second.out_edges);
   }
   return splitted_edges;
 }
@@ -119,8 +193,6 @@ void Splitter::AlignClonedTransaction(Transaction &cloned_transaction, const Tra
   while (delta_it != transaction.deltas.end() && cloned_delta_it != cloned_transaction.deltas.end()) {
     MG_ASSERT(delta_it->uuid == cloned_delta_it->uuid, "The order of deltas is not correct");
     // Find appropriate prev and delta->next for cloned deltas
-    // auto *prev = &delta_it->prev;
-    // auto *cloned_prev = &cloned_delta_it->prev;
 
     const auto *delta = &*delta_it;
     auto *cloned_delta = &*cloned_delta_it;

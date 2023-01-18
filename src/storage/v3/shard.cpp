@@ -333,7 +333,7 @@ Shard::Shard(const LabelId primary_label, const PrimaryKey min_primary_key,
       indices_{config.items, vertex_validator_},
       isolation_level_{config.transaction.isolation_level},
       config_{config},
-      shard_splitter_(vertices_, edges_, start_logical_id_to_transaction_, config_) {
+      shard_splitter_(vertices_, edges_, start_logical_id_to_transaction_, indices_, config_) {
   CreateSchema(primary_label_, schema);
   StoreMapping(std::move(id_to_name));
 }

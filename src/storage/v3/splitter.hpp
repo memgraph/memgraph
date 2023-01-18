@@ -17,6 +17,7 @@
 #include "storage/v3/config.hpp"
 #include "storage/v3/delta.hpp"
 #include "storage/v3/edge.hpp"
+#include "storage/v3/indices.hpp"
 #include "storage/v3/transaction.hpp"
 #include "storage/v3/vertex.hpp"
 
@@ -28,12 +29,15 @@ struct SplitData {
   VertexContainer vertices;
   std::optional<EdgeContainer> edges;
   std::map<uint64_t, Transaction> transactions;
+  std::map<LabelId, LabelIndex::LabelIndexContainer> label_indices;
+  std::map<std::pair<LabelId, PropertyId>, LabelPropertyIndex::LabelPropertyIndexContainer> label_property_indices;
 };
 
 class Splitter final {
  public:
   Splitter(VertexContainer &vertices, EdgeContainer &edges,
-           std::map<uint64_t, std::unique_ptr<Transaction>> &start_logical_id_to_transaction, Config &config);
+           std::map<uint64_t, std::unique_ptr<Transaction>> &start_logical_id_to_transaction, Indices &indices,
+           Config &config);
 
   Splitter(const Splitter &) = delete;
   Splitter(Splitter &&) noexcept = delete;
@@ -44,26 +48,37 @@ class Splitter final {
   SplitData SplitShard(const PrimaryKey &split_key);
 
  private:
-  static void ScanDeltas(std::set<uint64_t> &collected_transactions_start_id, Delta *delta);
-
-  void AlignClonedTransaction(Transaction &cloned_transaction, const Transaction &transaction,
-                              std::map<uint64_t, Transaction> &cloned_transactions, VertexContainer &cloned_vertices,
-                              EdgeContainer &cloned_edges);
-
-  void AlignClonedTransactions(std::map<uint64_t, Transaction> &cloned_transactions, VertexContainer &cloned_vertices,
-                               EdgeContainer &cloned_edges);
-
   std::map<uint64_t, Transaction> CollectTransactions(const std::set<uint64_t> &collected_transactions_start_id,
                                                       VertexContainer &cloned_vertices, EdgeContainer &cloned_edges);
 
-  VertexContainer CollectVertices(std::set<uint64_t> &collected_transactions_start_id, const PrimaryKey &split_key);
+  VertexContainer CollectVertices(SplitData &data, std::set<uint64_t> &collected_transactions_start_id,
+                                  const PrimaryKey &split_key);
 
   std::optional<EdgeContainer> CollectEdges(std::set<uint64_t> &collected_transactions_start_id,
                                             const VertexContainer &split_vertices, const PrimaryKey &split_key);
 
+  std::map<LabelId, LabelIndex::LabelIndexContainer> CollectLabelIndices(
+      const PrimaryKey &split_key,
+      std::map<LabelId, std::multimap<const Vertex *, LabelIndex::Entry *>> &vertex_entry_map);
+
+  std::map<std::pair<LabelId, PropertyId>, LabelPropertyIndex::LabelPropertyIndexContainer> CollectLabelPropertyIndices(
+      const PrimaryKey &split_key,
+      std::map<std::pair<LabelId, PropertyId>, std::multimap<const Vertex *, LabelPropertyIndex::Entry *>>
+          &vertex_entry_map);
+
+  static void ScanDeltas(std::set<uint64_t> &collected_transactions_start_id, Delta *delta);
+
+  static void AlignClonedTransaction(Transaction &cloned_transaction, const Transaction &transaction,
+                                     std::map<uint64_t, Transaction> &cloned_transactions,
+                                     VertexContainer &cloned_vertices, EdgeContainer &cloned_edges);
+
+  void AlignClonedTransactions(std::map<uint64_t, Transaction> &cloned_transactions, VertexContainer &cloned_vertices,
+                               EdgeContainer &cloned_edges);
+
   VertexContainer &vertices_;
   EdgeContainer &edges_;
   std::map<uint64_t, std::unique_ptr<Transaction>> &start_logical_id_to_transaction_;
+  Indices &indices_;
   Config &config_;
 };
 
