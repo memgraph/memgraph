@@ -20,9 +20,8 @@ Feature: All Shortest Path
       And having executed:
           """
           CREATE (a {a:'0'})-[:r {w: 2}]->(b {a:'1'})-[:r {w: 3}]->(c {a:'2'}),
-            (n)-[:re {w: 2}]->(b),
+            (a)-[:re {w: 2}]->(b),
             (b)-[:re {w:3}]->(c),
-            (n)-[:r {w: 5}]->(c),
             ({a: '4'})<-[:r {w: 1}]-(a),
             ({a: '5'})<-[:r {w: 1}]-(a),
             (c)-[:r {w: 1}]->({a: '6'}),
@@ -34,7 +33,7 @@ Feature: All Shortest Path
           """
       Then the result should be:
           | c |
-          | 2 |
+          | 4 |
 
   Scenario: Test match allShortest filtered
       Given an empty graph
