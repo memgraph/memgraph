@@ -106,6 +106,8 @@ parser.add_argument(
 )
 parser.add_argument("--no-properties-on-edges", action="store_true", help="disable properties on edges")
 
+parser.add_argument("--bolt-port", default=7687, help="memgraph bolt port")
+
 parser.add_argument("--datasets-path", default="datasets", help="path to datasets to scan")
 parser.add_argument("--test-system-args", default="")
 
@@ -569,7 +571,7 @@ for dataset, queries in benchmarks:
             args.test_system_args,
         )
 
-    client = runners.Client(args.client_binary, args.temporary_directory)
+    client = runners.Client(args.client_binary, args.temporary_directory, args.bolt_port)
 
     ret = None
     usage = None

@@ -371,9 +371,12 @@ class Neo4j:
 
 
 class Client:
-    def __init__(self, client_binary, temporary_directory):
+    def __init__(self, client_binary, temporary_directory, bolt_port: int, username: str = "", password: str = ""):
         self._client_binary = client_binary
         self._directory = tempfile.TemporaryDirectory(dir=temporary_directory)
+        self._username = username
+        self._password = password
+        self._bolt_port = bolt_port
 
     def _get_args(self, **kwargs):
         return _convert_args_to_flags(self._client_binary, **kwargs)

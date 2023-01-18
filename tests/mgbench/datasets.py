@@ -24,6 +24,7 @@ class Dataset:
     # One of the available variants that should be used as the default variant.
     DEFAULT_VARIANT = "default"
     # List of query files that should be used to import the dataset.
+    DEFAULT_VENDOR = "memgraph"
     FILES = {
         "default": "/foo/bar",
     }
@@ -51,6 +52,8 @@ class Dataset:
             raise ValueError("The variant doesn't have a defined URL or " "file path!")
         if variant not in self.SIZES:
             raise ValueError("The variant doesn't have a defined dataset " "size!")
+        if vendor is None:
+            vendor = self.DEFAULT_VENDOR
         if vendor not in self.INDEX_FILES:
             raise ValueError("Vendor does not have INDEX for dataset!")
         self._variant = variant
@@ -480,6 +483,11 @@ class AccessControl(Dataset):
         "medium": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/accesscontrol/accesscontrol_medium.setup.cypher.gz",
         "large": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/accesscontrol/accesscontrol_large.setup.cypher.gz",
     }
+
+    INDEX_FILES = {
+        "memgraph": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/accesscontrol/accesscontrol_empty_only_index.setup.cypher.gz",
+    }
+
     SIZES = {
         "empty_only_index": {
             "vertices": 0,
@@ -528,7 +536,7 @@ class AccessControl(Dataset):
         random_value = random.randint(first_uuid, last_uuid)
         return random_value
 
-    def __init__(self, variant=None):
+    def __init__(self, variant=None, vendor=None):
         super().__init__(variant)
         self.next_value_idx = self.get_size()["vertices"] + 1
 
