@@ -681,30 +681,30 @@ for dataset, queries in benchmarks:
                 ret["database"] = usage
                 ret["query_statistics"] = query_statistics
 
-            # Output summary.
-            print()
-            print("Executed", ret["count"], "queries in", ret["duration"], "seconds.")
-            print("Queries have been retried", ret["retries"], "times.")
-            print("Database used {:.3f} seconds of CPU time.".format(usage["cpu"]))
-            print("Database peaked at {:.3f} MiB of memory.".format(usage["memory"] / 1024.0 / 1024.0))
-            print("{:<31} {:>20} {:>20} {:>20}".format("Metadata:", "min", "avg", "max"))
-            metadata = ret["metadata"]
-            for key in sorted(metadata.keys()):
-                print(
-                    "{name:>30}: {minimum:>20.06f} {average:>20.06f} "
-                    "{maximum:>20.06f}".format(name=key, **metadata[key])
-                )
-            log.success("Throughput: {:02f} QPS".format(ret["throughput"]))
+                # Output summary.
+                print()
+                print("Executed", ret["count"], "queries in", ret["duration"], "seconds.")
+                print("Queries have been retried", ret["retries"], "times.")
+                print("Database used {:.3f} seconds of CPU time.".format(usage["cpu"]))
+                print("Database peaked at {:.3f} MiB of memory.".format(usage["memory"] / 1024.0 / 1024.0))
+                print("{:<31} {:>20} {:>20} {:>20}".format("Metadata:", "min", "avg", "max"))
+                metadata = ret["metadata"]
+                for key in sorted(metadata.keys()):
+                    print(
+                        "{name:>30}: {minimum:>20.06f} {average:>20.06f} "
+                        "{maximum:>20.06f}".format(name=key, **metadata[key])
+                    )
+                log.success("Throughput: {:02f} QPS".format(ret["throughput"]))
 
-            # Save results.
-            results_key = [
-                dataset.NAME,
-                dataset.get_variant(),
-                group,
-                query,
-                WITHOUT_FINE_GRAINED_AUTHORIZATION,
-            ]
-            results.set_value(*results_key, value=ret)
+                # Save results.
+                results_key = [
+                    dataset.NAME,
+                    dataset.get_variant(),
+                    group,
+                    query,
+                    WITHOUT_FINE_GRAINED_AUTHORIZATION,
+                ]
+                results.set_value(*results_key, value=ret)
 
         ## If there is need for authorization testing.
         if args.no_authorization:
