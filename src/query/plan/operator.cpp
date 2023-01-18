@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -2032,13 +2032,14 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         auto [current_weight, current_depth, current_vertex, maybe_directed_edge] = pq_.top();
         pq_.pop();
 
+        if (maybe_directed_edge) {
+          auto &[current_edge, direction, weight] = *maybe_directed_edge;
+          if (expanded_.find(current_edge) != expanded_.end()) continue;
+          expanded_.emplace(current_edge);
+        }
+
         // Expand only if what we've just expanded is less than max depth.
         if (current_depth < upper_bound_) {
-          if (maybe_directed_edge) {
-            auto &[current_edge, direction, weight] = *maybe_directed_edge;
-            if (expanded_.find(current_edge) != expanded_.end()) continue;
-            expanded_.emplace(current_edge);
-          }
           expand_from_vertex(current_vertex, current_weight, current_depth);
         }
 
