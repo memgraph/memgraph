@@ -146,9 +146,10 @@ QueryData Client::Execute(const std::string &query, const std::map<std::string, 
     throw ServerMalformedDataException();
   }
 
+  auto &header = fields.ValueMap();
+
   QueryData ret{{}, std::move(records), std::move(metadata.ValueMap())};
 
-  auto &header = fields.ValueMap();
   if (header.find("fields") == header.end()) {
     throw ServerMalformedDataException();
   }
@@ -162,6 +163,10 @@ QueryData Client::Execute(const std::string &query, const std::map<std::string, 
       throw ServerMalformedDataException();
     }
     ret.fields.emplace_back(std::move(field_item.ValueString()));
+  }
+
+  if (header.contains("qid")) {
+    ret.metadata["qid"] = header["qid"];
   }
 
   return ret;
