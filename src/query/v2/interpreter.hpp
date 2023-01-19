@@ -388,7 +388,6 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     // Wrap the (statically polymorphic) stream type into a common type which
     // the handler knows.
     AnyStream stream{result_stream, &query_execution->execution_memory};
-    auto asd = query_execution->prepared_query->query_handler;
     const auto maybe_res = query_execution->prepared_query->query_handler(&stream, n);
     // Stream is using execution memory of the query_execution which
     // can be deleted after its execution so the stream should be cleared
