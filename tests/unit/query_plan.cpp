@@ -1729,6 +1729,9 @@ TYPED_TEST(TestPlanner, Foreach) {
     std::list<BaseOpChecker *> updates{&create};
     std::list<BaseOpChecker *> input;
     CheckPlan(planner.plan(), symbol_table, ExpectForeach(input, updates), ExpectEmptyResult());
+
+    DeleteListContent(&on_match);
+    DeleteListContent(&on_create);
   }
 }
 }  // namespace
