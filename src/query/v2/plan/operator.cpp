@@ -193,6 +193,9 @@ class DistributedCreateNodeCursor : public Cursor {
     SCOPED_PROFILE_OP("CreateNodeMF");
     input_cursor_->PullMultiple(multi_frame, context);
     auto *request_router = context.request_router;
+    if (!multi_frame.HasValidFrame()) {
+      return;
+    }
     {
       SCOPED_REQUEST_WAIT_PROFILE;
       request_router->CreateVertices(NodeCreationInfoToRequests(context, multi_frame));
@@ -2484,6 +2487,9 @@ class DistributedCreateExpandCursor : public Cursor {
   void PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("CreateExpandMF");
     input_cursor_->PullMultiple(multi_frame, context);
+    if (!multi_frame.HasValidFrame()) {
+      return;
+    }
     auto request_vertices = ExpandCreationInfoToRequests(multi_frame, context);
     {
       SCOPED_REQUEST_WAIT_PROFILE;
