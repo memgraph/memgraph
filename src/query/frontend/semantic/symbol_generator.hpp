@@ -158,7 +158,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   // Identifiers which are injected from outside the query. Each identifier
   // is mapped by its name.
   std::unordered_map<std::string, Identifier *> predefined_identifiers_;
-  Scope scope_;
+  std::vector<Scope> scopes_;
   std::unordered_set<std::string> prev_return_names_;
   std::unordered_set<std::string> curr_return_names_;
 };

@@ -33,7 +33,7 @@ Feature: Foreach
     Given an empty graph
     And having executed
       """
-      FOREACH( i IN [1, 2, 3] | CREATE (n {age : i})) FOREACH( i in [4, 5, 6] | CREATE (m {age : i}))
+      FOREACH( i IN [1, 2, 3] | CREATE (n {age : i})) FOREACH( i in [4, 5, 6] | CREATE (n {age : i}))
       """
     When executing query:
       """
