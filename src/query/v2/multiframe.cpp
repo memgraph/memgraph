@@ -45,11 +45,11 @@ void MultiFrame::MakeAllFramesInvalid() noexcept {
 }
 
 bool MultiFrame::HasValidFrame() const noexcept {
-  return std::any_of(frames_.begin(), frames_.end(), [](auto &frame) { return frame.IsValid(); });
+  return std::any_of(frames_.begin(), frames_.end(), [](const auto &frame) { return frame.IsValid(); });
 }
 
 bool MultiFrame::HasInvalidFrame() const noexcept {
-  return std::any_of(frames_.rbegin(), frames_.rend(), [](auto &frame) { return !frame.IsValid(); });
+  return std::any_of(frames_.rbegin(), frames_.rend(), [](const auto &frame) { return !frame.IsValid(); });
 }
 
 // NOLINTNEXTLINE (bugprone-exception-escape)
