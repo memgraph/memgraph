@@ -65,7 +65,6 @@ struct Transaction {
   ~Transaction() {}
 
   std::list<Delta> CopyDeltas(CommitInfo *commit_info) const {
-    // TODO This does not solve the next and prev deltas that also need to be set
     std::list<Delta> copied_deltas;
     for (const auto &delta : deltas) {
       switch (delta.action) {

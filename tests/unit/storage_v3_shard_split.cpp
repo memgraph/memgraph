@@ -72,6 +72,26 @@ void AssertEqVertexContainer(const VertexContainer &expected, const VertexContai
     auto *actual_delta = actual_it->second.delta;
     while (expected_delta != nullptr) {
       EXPECT_EQ(expected_delta->action, actual_delta->action);
+      switch (expected_delta->action) {
+        case Delta::Action::ADD_LABEL:
+        case Delta::Action::REMOVE_LABEL: {
+          EXPECT_EQ(expected_delta->label, actual_delta->label);
+          break;
+        }
+        case Delta::Action::SET_PROPERTY: {
+          EXPECT_EQ(expected_delta->property.key, actual_delta->property.key);
+          EXPECT_EQ(expected_delta->property.value, actual_delta->property.value);
+          break;
+        }
+        case Delta::Action::ADD_IN_EDGE:
+        case Delta::Action::ADD_OUT_EDGE:
+        case Delta::Action::REMOVE_IN_EDGE:
+        case Delta::Action::RECREATE_OBJECT:
+        case Delta::Action::DELETE_OBJECT:
+        case Delta::Action::REMOVE_OUT_EDGE: {
+          break;
+        }
+      }
       expected_delta = expected_delta->next;
       actual_delta = actual_delta->next;
     }
@@ -99,7 +119,9 @@ TEST_F(ShardSplitTest, TestBasicSplitWithVertices) {
   EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(2)}, {}).HasError());
   EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(3)}, {}).HasError());
   EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(4)}, {}).HasError());
-  EXPECT_FALSE(acc.CreateVertexAndValidate({secondary_label}, {PropertyValue(5)}, {}).HasError());
+  EXPECT_FALSE(
+      acc.CreateVertexAndValidate({secondary_label}, {PropertyValue(5)}, {{secondary_property, PropertyValue(121)}})
+          .HasError());
   EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(6)}, {}).HasError());
   auto current_hlc = GetNextHlc();
   acc.Commit(current_hlc);
@@ -116,11 +138,13 @@ TEST_F(ShardSplitTest, TestBasicSplitWithVertices) {
   Delta delta_delete2{Delta::DeleteObjectTag{}, &commit_info, 2};
   Delta delta_delete3{Delta::DeleteObjectTag{}, &commit_info, 3};
   Delta delta_add_label{Delta::RemoveLabelTag{}, secondary_label, &commit_info, 4};
+  Delta delta_add_property{Delta::SetPropertyTag{}, secondary_property, PropertyValue(), &commit_info, 4};
   VertexContainer expected_vertices;
   expected_vertices.emplace(PrimaryKey{PropertyValue{4}}, VertexData(&delta_delete1));
   auto [it, inserted] = expected_vertices.emplace(PrimaryKey{PropertyValue{5}}, VertexData(&delta_delete2));
   expected_vertices.emplace(PrimaryKey{PropertyValue{6}}, VertexData(&delta_delete3));
   it->second.labels.push_back(secondary_label);
+  AddDeltaToDeltaChain(&*it, &delta_add_property);
   AddDeltaToDeltaChain(&*it, &delta_add_label);
 
   AssertEqVertexContainer(expected_vertices, splitted_data.vertices);
