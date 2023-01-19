@@ -2681,9 +2681,14 @@ class DistributedExpandCursor : public Cursor {
       }
     };
 
+    msgs::GetPropertiesRequest request;
+    // to not fetch any properties of the edges
+    request.vertex_ids.push_back(get_dst_vertex(edge, direction));
+    auto result_rows = context.request_router->GetProperties(std::move(request));
+    MG_ASSERT(result_rows.size() == 1);
+    auto &result_row = result_rows.front();
     frame[self_.common_.node_symbol] =
-        accessors::VertexAccessor(msgs::Vertex{get_dst_vertex(edge, direction)},
-                                  std::vector<std::pair<msgs::PropertyId, msgs::Value>>{}, context.request_router);
+        accessors::VertexAccessor(msgs::Vertex{result_row.vertex}, result_row.props, context.request_router);
   }
 
   bool InitEdges(Frame &frame, ExecutionContext &context) {
