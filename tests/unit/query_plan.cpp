@@ -1709,5 +1709,26 @@ TYPED_TEST(TestPlanner, Foreach) {
         QUERY(SINGLE_QUERY(FOREACH(i, {CREATE(PATTERN(NODE("n")))}), FOREACH(j, {CREATE(PATTERN(NODE("n")))})));
     CheckPlan<TypeParam>(query, storage, ExpectForeach(input, updates), ExpectEmptyResult());
   }
+
+  {
+    // FOREACH with index
+    const auto label_name = "label";
+    const auto label = dba.Label(label_name);
+    dba.SetIndexCount(label, 0);
+
+    auto *n = NEXPR("n", IDENT("n"));
+    auto *query = QUERY(SINGLE_QUERY(FOREACH(n, {MERGE(PATTERN(NODE("v", label_name)))})));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+
+    std::list<BaseOpChecker *> on_match{new ExpectScanAllByLabel()};
+    std::list<BaseOpChecker *> on_create{new ExpectCreateNode()};
+
+    auto create = ExpectMerge(on_match, on_create);
+    std::list<BaseOpChecker *> updates{&create};
+    std::list<BaseOpChecker *> input;
+    CheckPlan(planner.plan(), symbol_table, ExpectForeach(input, updates), ExpectEmptyResult());
+  }
 }
 }  // namespace
