@@ -121,15 +121,6 @@ struct InitializeLabelResponse {
   std::optional<ShardMap> fresher_shard_map;
 };
 
-struct HeartbeatRequest {
-  Address from_storage_manager;
-  std::set<boost::uuids::uuid> initialized_rsms;
-};
-
-struct HeartbeatResponse {
-  std::vector<ShardToInitialize> shards_to_initialize;
-};
-
 using CoordinatorWriteRequests =
     std::variant<HlcRequest, AllocateEdgeIdBatchRequest, SplitShardRequest, RegisterStorageEngineRequest,
                  DeregisterStorageEngineRequest, InitializeLabelRequest, AllocatePropertyIdsRequest, HeartbeatRequest>;
