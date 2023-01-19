@@ -11,7 +11,7 @@
 
 #include <filesystem>
 
-#include <gmock/gmock-generated-matchers.h>
+#include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
 #include "utils/settings.hpp"
