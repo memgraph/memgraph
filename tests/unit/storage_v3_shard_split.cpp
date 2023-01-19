@@ -9,27 +9,41 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <gtest/gtest.h>
 #include <cstdint>
 
+#include <gmock/gmock-matchers.h>
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
+
 #include "query/v2/requests.hpp"
+#include "storage/v3/delta.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/key_store.hpp"
+#include "storage/v3/mvcc.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/shard.hpp"
+#include "storage/v3/vertex.hpp"
 #include "storage/v3/vertex_id.hpp"
+
+using testing::Pair;
+using testing::UnorderedElementsAre;
 
 namespace memgraph::storage::v3::tests {
 
 class ShardSplitTest : public testing::Test {
  protected:
-  void SetUp() override { storage.StoreMapping({{1, "label"}, {2, "property"}, {3, "edge_property"}}); }
+  void SetUp() override {
+    storage.StoreMapping(
+        {{1, "label"}, {2, "property"}, {3, "edge_property"}, {4, "secondary_label"}, {5, "secondary_prop"}});
+  }
 
   const PropertyId primary_property{PropertyId::FromUint(2)};
+  const PropertyId secondary_property{PropertyId::FromUint(5)};
   std::vector<storage::v3::SchemaProperty> schema_property_vector = {
       storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}};
   const std::vector<PropertyValue> min_pk{PropertyValue{0}};
   const LabelId primary_label{LabelId::FromUint(1)};
+  const LabelId secondary_label{LabelId::FromUint(4)};
   const EdgeTypeId edge_type_id{EdgeTypeId::FromUint(3)};
   Shard storage{primary_label, min_pk, std::nullopt /*max_primary_key*/, schema_property_vector};
 
@@ -42,21 +56,74 @@ class ShardSplitTest : public testing::Test {
   }
 };
 
+void AssertEqVertexContainer(const VertexContainer &expected, const VertexContainer &actual) {
+  ASSERT_EQ(expected.size(), actual.size());
+
+  auto expected_it = expected.begin();
+  auto actual_it = actual.begin();
+  while (expected_it != expected.end()) {
+    EXPECT_EQ(expected_it->first, actual_it->first);
+    EXPECT_EQ(expected_it->second.deleted, actual_it->second.deleted);
+    EXPECT_EQ(expected_it->second.in_edges, actual_it->second.in_edges);
+    EXPECT_EQ(expected_it->second.out_edges, actual_it->second.out_edges);
+    EXPECT_EQ(expected_it->second.labels, actual_it->second.labels);
+
+    auto *expected_delta = expected_it->second.delta;
+    auto *actual_delta = actual_it->second.delta;
+    while (expected_delta != nullptr) {
+      EXPECT_EQ(expected_delta->action, actual_delta->action);
+      expected_delta = expected_delta->next;
+      actual_delta = actual_delta->next;
+    }
+    EXPECT_EQ(expected_delta, nullptr);
+    EXPECT_EQ(actual_delta, nullptr);
+    ++expected_it;
+    ++actual_it;
+  }
+}
+
+void AddDeltaToDeltaChain(Vertex *object, Delta *new_delta) {
+  auto *delta_holder = GetDeltaHolder(object);
+
+  new_delta->next = delta_holder->delta;
+  new_delta->prev.Set(object);
+  if (delta_holder->delta) {
+    delta_holder->delta->prev.Set(new_delta);
+  }
+  delta_holder->delta = new_delta;
+}
+
 TEST_F(ShardSplitTest, TestBasicSplitWithVertices) {
   auto acc = storage.Access(GetNextHlc());
-  EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(1)}, {}).HasError());
+  EXPECT_FALSE(acc.CreateVertexAndValidate({secondary_label}, {PropertyValue(1)}, {}).HasError());
   EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(2)}, {}).HasError());
   EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(3)}, {}).HasError());
   EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(4)}, {}).HasError());
-  EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(5)}, {}).HasError());
+  EXPECT_FALSE(acc.CreateVertexAndValidate({secondary_label}, {PropertyValue(5)}, {}).HasError());
   EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(6)}, {}).HasError());
-  acc.Commit(GetNextHlc());
-  storage.CollectGarbage(GetNextHlc().coordinator_wall_clock);
+  auto current_hlc = GetNextHlc();
+  acc.Commit(current_hlc);
 
   auto splitted_data = storage.PerformSplit({PropertyValue(4)});
   EXPECT_EQ(splitted_data.vertices.size(), 3);
   EXPECT_EQ(splitted_data.edges->size(), 0);
-  EXPECT_EQ(splitted_data.transactions.size(), 0);
+  EXPECT_EQ(splitted_data.transactions.size(), 1);
+  EXPECT_EQ(splitted_data.label_indices.size(), 0);
+  EXPECT_EQ(splitted_data.label_property_indices.size(), 0);
+
+  CommitInfo commit_info{.start_or_commit_timestamp = current_hlc};
+  Delta delta_delete1{Delta::DeleteObjectTag{}, &commit_info, 1};
+  Delta delta_delete2{Delta::DeleteObjectTag{}, &commit_info, 2};
+  Delta delta_delete3{Delta::DeleteObjectTag{}, &commit_info, 3};
+  Delta delta_add_label{Delta::RemoveLabelTag{}, secondary_label, &commit_info, 4};
+  VertexContainer expected_vertices;
+  expected_vertices.emplace(PrimaryKey{PropertyValue{4}}, VertexData(&delta_delete1));
+  auto [it, inserted] = expected_vertices.emplace(PrimaryKey{PropertyValue{5}}, VertexData(&delta_delete2));
+  expected_vertices.emplace(PrimaryKey{PropertyValue{6}}, VertexData(&delta_delete3));
+  it->second.labels.push_back(secondary_label);
+  AddDeltaToDeltaChain(&*it, &delta_add_label);
+
+  AssertEqVertexContainer(expected_vertices, splitted_data.vertices);
 }
 
 TEST_F(ShardSplitTest, TestBasicSplitVerticesAndEdges) {
@@ -79,12 +146,13 @@ TEST_F(ShardSplitTest, TestBasicSplitVerticesAndEdges) {
                    .HasError());
 
   acc.Commit(GetNextHlc());
-  storage.CollectGarbage(GetNextHlc().coordinator_wall_clock);
 
   auto splitted_data = storage.PerformSplit({PropertyValue(4)});
   EXPECT_EQ(splitted_data.vertices.size(), 3);
   EXPECT_EQ(splitted_data.edges->size(), 2);
-  EXPECT_EQ(splitted_data.transactions.size(), 0);
+  EXPECT_EQ(splitted_data.transactions.size(), 1);
+  EXPECT_EQ(splitted_data.label_indices.size(), 0);
+  EXPECT_EQ(splitted_data.label_property_indices.size(), 0);
 }
 
 TEST_F(ShardSplitTest, TestBasicSplitBeforeCommit) {
@@ -110,36 +178,11 @@ TEST_F(ShardSplitTest, TestBasicSplitBeforeCommit) {
   EXPECT_EQ(splitted_data.vertices.size(), 3);
   EXPECT_EQ(splitted_data.edges->size(), 2);
   EXPECT_EQ(splitted_data.transactions.size(), 1);
+  EXPECT_EQ(splitted_data.label_indices.size(), 0);
+  EXPECT_EQ(splitted_data.label_property_indices.size(), 0);
 }
 
-TEST_F(ShardSplitTest, TestBasicSplitAfterCommit) {
-  auto acc = storage.Access(GetNextHlc());
-  EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(1)}, {}).HasError());
-  EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(2)}, {}).HasError());
-  EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(3)}, {}).HasError());
-  EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(4)}, {}).HasError());
-  EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(5)}, {}).HasError());
-  EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(6)}, {}).HasError());
-
-  EXPECT_FALSE(acc.CreateEdge(VertexId{primary_label, PrimaryKey{PropertyValue(1)}},
-                              VertexId{primary_label, PrimaryKey{PropertyValue(2)}}, edge_type_id, Gid::FromUint(0))
-                   .HasError());
-  EXPECT_FALSE(acc.CreateEdge(VertexId{primary_label, PrimaryKey{PropertyValue(1)}},
-                              VertexId{primary_label, PrimaryKey{PropertyValue(5)}}, edge_type_id, Gid::FromUint(1))
-                   .HasError());
-  EXPECT_FALSE(acc.CreateEdge(VertexId{primary_label, PrimaryKey{PropertyValue(4)}},
-                              VertexId{primary_label, PrimaryKey{PropertyValue(6)}}, edge_type_id, Gid::FromUint(2))
-                   .HasError());
-
-  acc.Commit(GetNextHlc());
-
-  auto splitted_data = storage.PerformSplit({PropertyValue(4)});
-  EXPECT_EQ(splitted_data.vertices.size(), 3);
-  EXPECT_EQ(splitted_data.edges->size(), 2);
-  EXPECT_EQ(splitted_data.transactions.size(), 0);
-}
-
-TEST_F(ShardSplitTest, TestBasicSplitAfterCommit2) {
+TEST_F(ShardSplitTest, TestBasicSplitWithCommitedAndOngoingTransactions) {
   {
     auto acc = storage.Access(GetNextHlc());
     EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(1)}, {}).HasError());
@@ -165,7 +208,9 @@ TEST_F(ShardSplitTest, TestBasicSplitAfterCommit2) {
   auto splitted_data = storage.PerformSplit({PropertyValue(4)});
   EXPECT_EQ(splitted_data.vertices.size(), 3);
   EXPECT_EQ(splitted_data.edges->size(), 2);
-  EXPECT_EQ(splitted_data.transactions.size(), 1);
+  EXPECT_EQ(splitted_data.transactions.size(), 2);
+  EXPECT_EQ(splitted_data.label_indices.size(), 0);
+  EXPECT_EQ(splitted_data.label_property_indices.size(), 0);
 }
 
 }  // namespace memgraph::storage::v3::tests
