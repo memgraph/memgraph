@@ -82,6 +82,7 @@ class MultiFrame {
   void MakeAllFramesInvalid() noexcept;
 
   bool HasValidFrame() const noexcept;
+  bool HasInvalidFrame() const noexcept;
 
   inline utils::MemoryResource *GetMemoryResource() { return frames_[0].GetMemoryResource(); }
 
