@@ -2922,7 +2922,7 @@ class DistributedExpandCursor : public Cursor {
                  output_frame_it != output_frames_populator.end() && current != end; ++output_frame_it) {
               auto &edge = *current;
               ++current;
-              auto &output_frame = *output_frame_it++;
+              auto &output_frame = *output_frame_it;
               output_frame = *own_frames_it_;
               output_frame[self_.common_.edge_symbol] = edge;
               PullDstVertex(output_frame, context, direction);
