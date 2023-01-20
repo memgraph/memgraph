@@ -539,12 +539,12 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::GetPropertiesRequest &&req) {
                            const VertexAccessor &v_acc,
                            const std::optional<EdgeAccessor> &e_acc) -> ShardResult<std::map<PropertyId, Value>> {
     if (!req.property_ids) {
-      const auto *schema = shard_->GetSchema(shard_->PrimaryLabel());
-      MG_ASSERT(schema);
-
       if (e_acc) {
         return CollectAllPropertiesFromAccessor(*e_acc, view);
       }
+      const auto *schema = shard_->GetSchema(shard_->PrimaryLabel());
+      MG_ASSERT(schema);
+
       return CollectAllPropertiesFromAccessor(v_acc, view, *schema);
     }
 

@@ -569,8 +569,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     const auto &modified_symbols = scan.ModifiedSymbols(*symbol_table_);
     std::unordered_set<Symbol> bound_symbols(modified_symbols.begin(), modified_symbols.end());
 
-    // Try to see if we can use label+property index. If not, try to use
-    // just the label index.
+    // Try to see if we can use label + primary-key or label + property index.
+    // If not, try to use just the label index.
     const auto labels = filters_.FilteredLabels(node_symbol);
     if (labels.empty()) {
       // Without labels, we cannot generate any indexed ScanAll.
@@ -583,19 +583,57 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     query::v2::LabelIx prim_label;
     std::vector<std::pair<query::v2::Expression *, query::v2::plan::FilterInfo>> primary_key;
 
+    auto extract_primary_key = [this](storage::v3::LabelId label,
+                                      std::vector<query::v2::plan::FilterInfo> property_filters)
+        -> std::vector<std::pair<query::v2::Expression *, query::v2::plan::FilterInfo>> {
+      std::vector<std::pair<query::v2::Expression *, query::v2::plan::FilterInfo>> pk_temp;
+      std::vector<std::pair<query::v2::Expression *, query::v2::plan::FilterInfo>> pk;
+      std::vector<memgraph::storage::v3::SchemaProperty> schema = db_->GetSchemaForLabel(label);
+
+      std::vector<storage::v3::PropertyId> schema_properties;
+      schema_properties.reserve(schema.size());
+
+      std::transform(schema.begin(), schema.end(), std::back_inserter(schema_properties),
+                     [](const auto &schema_elem) { return schema_elem.property_id; });
+
+      for (const auto &property_filter : property_filters) {
+        const auto &property_id = db_->NameToProperty(property_filter.property_filter->property_.name);
+        if (std::find(schema_properties.begin(), schema_properties.end(), property_id) != schema_properties.end()) {
+          pk_temp.emplace_back(std::make_pair(property_filter.expression, property_filter));
+        }
+      }
+
+      // Make sure pk is in the same order as schema_properties.
+      for (const auto &schema_prop : schema_properties) {
+        for (auto &pk_temp_prop : pk_temp) {
+          const auto &property_id = db_->NameToProperty(pk_temp_prop.second.property_filter->property_.name);
+          if (schema_prop == property_id) {
+            pk.push_back(pk_temp_prop);
+          }
+        }
+      }
+      MG_ASSERT(pk.size() == pk_temp.size(),
+                "The two vectors should represent the same primary key with a possibly different order of contained "
+                "elements.");
+
+      return pk.size() == schema_properties.size()
+                 ? pk
+                 : std::vector<std::pair<query::v2::Expression *, query::v2::plan::FilterInfo>>{};
+    };
+
     if (!property_filters.empty()) {
       for (const auto &label : labels) {
-        if (db_->LabelIndexExists(GetLabel(label))) {
+        if (db_->PrimaryLabelExists(GetLabel(label))) {
           prim_label = label;
-          primary_key = db_->ExtractPrimaryKey(GetLabel(prim_label), property_filters);
+          primary_key = extract_primary_key(GetLabel(prim_label), property_filters);
           break;
         }
       }
       if (!primary_key.empty()) {
         // Mark the expressions so they won't be used for an additional, unnecessary filter.
         for (const auto &primary_property : primary_key) {
-          filter_exprs_for_removal_.insert(pk.first);
-          filters_.EraseFilter(pk.second);
+          filter_exprs_for_removal_.insert(primary_property.first);
+          filters_.EraseFilter(primary_property.second);
         }
         EraseLabelFilters(node_symbol, prim_label);
         std::vector<query::v2::Expression *> pk_expressions;

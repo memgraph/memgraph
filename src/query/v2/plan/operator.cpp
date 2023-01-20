@@ -465,194 +465,86 @@ class DistributedScanAllAndFilterCursor : public Cursor {
 
 class DistributedScanAllByPrimaryKeyCursor : public Cursor {
  public:
-  explicit DistributedScanAllByPrimaryKeyCursor(
-      Symbol output_symbol, UniqueCursorPtr input_cursor, const char *op_name,
-      std::optional<storage::v3::LabelId> label,
-      std::optional<std::pair<storage::v3::PropertyId, Expression *>> property_expression_pair,
-      std::optional<std::vector<Expression *>> filter_expressions, std::optional<std::vector<Expression *>> primary_key)
+  explicit DistributedScanAllByPrimaryKeyCursor(Symbol output_symbol, UniqueCursorPtr input_cursor, const char *op_name,
+                                                storage::v3::LabelId label,
+                                                std::optional<std::vector<Expression *>> filter_expressions,
+                                                std::vector<Expression *> primary_key)
       : output_symbol_(output_symbol),
         input_cursor_(std::move(input_cursor)),
         op_name_(op_name),
         label_(label),
-        property_expression_pair_(property_expression_pair),
         filter_expressions_(filter_expressions),
-        primary_key_(primary_key) {
-    ResetExecutionState();
-  }
+        primary_key_(primary_key) {}
 
   enum class State : int8_t { INITIALIZING, COMPLETED };
 
   using VertexAccessor = accessors::VertexAccessor;
 
-  bool MakeRequest(RequestRouterInterface &request_router, ExecutionContext &context) {
-    {
-      SCOPED_REQUEST_WAIT_PROFILE;
-      std::optional<std::string> request_label;
-      if (label_.has_value()) {
-        request_label = request_router.LabelToName(*label_);
-      }
-      current_batch_ = request_router.ScanVertices(request_label);
+  std::optional<VertexAccessor> MakeRequestSingleFrame(Frame &frame, RequestRouterInterface &request_router,
+                                                       ExecutionContext &context) {
+    // Evaluate the expressions that hold the PrimaryKey.
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.request_router,
+                                  storage::v3::View::NEW);
+
+    std::vector<msgs::Value> pk;
+    for (auto *primary_property : primary_key_) {
+      pk.push_back(TypedValueToValue(primary_property->Accept(evaluator)));
     }
-    current_vertex_it_ = current_batch_.begin();
-    request_state_ = State::COMPLETED;
-    return !current_batch_.empty();
-  }
 
-  bool MakeRequestSingleFrame(Frame &frame, RequestRouterInterface &request_router, ExecutionContext &context) {
-    {
+    msgs::Label label = {.id = msgs::LabelId::FromUint(label_.AsUint())};
+
+    msgs::GetPropertiesRequest req = {.vertex_ids = {std::make_pair(label, pk)}};
+    auto get_prop_result = std::invoke([&context, &request_router, &req]() mutable {
       SCOPED_REQUEST_WAIT_PROFILE;
-      std::optional<std::string> request_label = std::nullopt;
-      if (label_.has_value()) {
-        request_label = request_router.LabelToName(*label_);
-      }
+      return request_router.GetProperties(req);
+    });
+    MG_ASSERT(get_prop_result.size() <= 1);
 
-      // Evaluate the expressions that hold the PrimaryKey.
-      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.request_router,
-                                    storage::v3::View::NEW);
-
-      std::vector<msgs::Value> pk;
-      MG_ASSERT(primary_key_);
-      for (auto *primary_property : *primary_key_) {
-        pk.push_back(TypedValueToValue(primary_key->Accept(evaluator)));
-      }
-
-      msgs::Label label = {.id = msgs::LabelId::FromUint(label_->AsUint())};
-
-      msgs::GetPropertiesRequest req = {.vertex_ids = {std::make_pair(label, pk)}};
-      auto get_prop_result = request_router.GetProperties(req);
-      MG_ASSERT(get_prop_result.size() <= 1);
-
-      if (get_prop_result.empty()) {
-        current_batch_ = std::vector<VertexAccessor>{};
-      } else {
-        auto properties = get_prop_result[0].props;
-        // TODO (gvolfing) figure out labels when relevant.
-        msgs::Vertex vertex = {.id = get_prop_result[0].vertex, .labels = {}};
-
-        current_batch_ = {VertexAccessor(vertex, properties, &request_router)};
-      }
+    if (get_prop_result.empty()) {
+      return std::nullopt;
     }
-    current_vertex_it_ = current_batch_.begin();
-    request_state_ = State::COMPLETED;
-    return !current_batch_.empty();
+    auto properties = get_prop_result[0].props;
+    // TODO (gvolfing) figure out labels when relevant.
+    msgs::Vertex vertex = {.id = get_prop_result[0].vertex, .labels = {}};
+
+    return VertexAccessor(vertex, properties, &request_router);
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP(op_name_);
 
+    if (MustAbort(context)) {
+      throw HintedAbortError();
+    }
+
+    if (!input_cursor_->Pull(frame, context)) {
+      return false;
+    }
+
     auto &request_router = *context.request_router;
-    while (true) {
-      if (MustAbort(context)) {
-        throw HintedAbortError();
-      }
-
-      if (request_state_ == State::INITIALIZING) {
-        if (!input_cursor_->Pull(frame, context)) {
-          return false;
-        }
-      }
-
-      if (current_vertex_it_ == current_batch_.end() &&
-          (request_state_ == State::COMPLETED || !MakeRequestSingleFrame(frame, request_router, context))) {
-        ResetExecutionState();
-        continue;
-      }
-
-      frame[output_symbol_] = TypedValue(std::move(*current_vertex_it_));
-      ++current_vertex_it_;
+    auto vertex = MakeRequestSingleFrame(frame, request_router, context);
+    if (vertex) {
+      frame[output_symbol_] = TypedValue(std::move(*vertex));
       return true;
     }
-  }
-
-  void PrepareNextFrames(ExecutionContext &context) {
-    auto &request_router = *context.request_router;
-
-    input_cursor_->PullMultiple(*own_multi_frames_, context);
-    valid_frames_consumer_ = own_multi_frames_->GetValidFramesConsumer();
-    valid_frames_it_ = valid_frames_consumer_->begin();
-
-    MakeRequest(request_router, context);
-  }
-
-  inline bool HasNextFrame() {
-    return current_vertex_it_ != current_batch_.end() && valid_frames_it_ != valid_frames_consumer_->end();
-  }
-
-  FrameWithValidity GetNextFrame(ExecutionContext &context) {
-    MG_ASSERT(HasNextFrame());
-
-    auto frame = *valid_frames_it_;
-    frame[output_symbol_] = TypedValue(*current_vertex_it_);
-
-    ++current_vertex_it_;
-    if (current_vertex_it_ == current_batch_.end()) {
-      valid_frames_it_->MakeInvalid();
-      ++valid_frames_it_;
-
-      if (valid_frames_it_ == valid_frames_consumer_->end()) {
-        PrepareNextFrames(context);
-      } else {
-        current_vertex_it_ = current_batch_.begin();
-      }
-    };
-
-    return frame;
+    return false;
   }
 
   void PullMultiple(MultiFrame &input_multi_frame, ExecutionContext &context) override {
-    SCOPED_PROFILE_OP(op_name_);
-
-    if (!own_multi_frames_.has_value()) {
-      own_multi_frames_.emplace(MultiFrame(input_multi_frame.GetFirstFrame().elems().size(),
-                                           kNumberOfFramesInMultiframe, input_multi_frame.GetMemoryResource()));
-      PrepareNextFrames(context);
-    }
-
-    while (true) {
-      if (MustAbort(context)) {
-        throw HintedAbortError();
-      }
-
-      auto invalid_frames_populator = input_multi_frame.GetInvalidFramesPopulator();
-      auto invalid_frame_it = invalid_frames_populator.begin();
-      auto has_modified_at_least_one_frame = false;
-
-      while (invalid_frames_populator.end() != invalid_frame_it && HasNextFrame()) {
-        has_modified_at_least_one_frame = true;
-        *invalid_frame_it = GetNextFrame(context);
-        ++invalid_frame_it;
-      }
-
-      if (!has_modified_at_least_one_frame) {
-        return;
-      }
-    }
+    throw utils::NotYetImplemented("Multiframe version of ScanAllByPrimaryKey is yet to be implemented.");
   };
 
+  void Reset() override { input_cursor_->Reset(); }
+
   void Shutdown() override { input_cursor_->Shutdown(); }
-
-  void ResetExecutionState() {
-    current_batch_.clear();
-    current_vertex_it_ = current_batch_.end();
-    request_state_ = State::INITIALIZING;
-  }
-
-  void Reset() override {
-    input_cursor_->Reset();
-    ResetExecutionState();
-  }
 
  private:
   const Symbol output_symbol_;
   const UniqueCursorPtr input_cursor_;
   const char *op_name_;
-  std::vector<VertexAccessor> current_batch_;
-  std::vector<VertexAccessor>::iterator current_vertex_it_;
-  State request_state_ = State::INITIALIZING;
-  std::optional<storage::v3::LabelId> label_;
-  std::optional<std::pair<storage::v3::PropertyId, Expression *>> property_expression_pair_;
+  storage::v3::LabelId label_;
   std::optional<std::vector<Expression *>> filter_expressions_;
-  std::optional<std::vector<Expression *>> primary_key_;
+  std::vector<Expression *> primary_key_;
   std::optional<MultiFrame> own_multi_frames_;
   std::optional<ValidFramesConsumer> valid_frames_consumer_;
   ValidFramesConsumer::Iterator valid_frames_it_;
@@ -767,9 +659,9 @@ ACCEPT_WITH_INPUT(ScanAllByPrimaryKey)
 UniqueCursorPtr ScanAllByPrimaryKey::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllByPrimaryKeyOperator);
 
-  return MakeUniqueCursorPtr<DistributedScanAllByPrimaryKeyCursor>(
-      mem, output_symbol_, input_->MakeCursor(mem), "ScanAllByPrimaryKey", label_,
-      std::nullopt /*property_expression_pair*/, std::nullopt /*filter_expressions*/, primary_key_);
+  return MakeUniqueCursorPtr<DistributedScanAllByPrimaryKeyCursor>(mem, output_symbol_, input_->MakeCursor(mem),
+                                                                   "ScanAllByPrimaryKey", label_,
+                                                                   std::nullopt /*filter_expressions*/, primary_key_);
 }
 
 Expand::Expand(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol, Symbol node_symbol,

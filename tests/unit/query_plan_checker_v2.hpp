@@ -17,6 +17,7 @@
 #include "query/v2/plan/operator.hpp"
 #include "query/v2/plan/planner.hpp"
 #include "query/v2/plan/preprocess.hpp"
+#include "utils/exceptions.hpp"
 
 namespace memgraph::query::v2::plan {
 
@@ -289,7 +290,7 @@ class FakeDistributedDbAccessor {
   }
 
   bool LabelIndexExists(memgraph::storage::v3::LabelId label) const {
-    return label_index_.find(label) != label_index_.end();
+    throw utils::NotYetImplemented("Label indicies are yet to be implemented.");
   }
 
   bool LabelPropertyIndexExists(memgraph::storage::v3::LabelId label,
@@ -301,6 +302,8 @@ class FakeDistributedDbAccessor {
     }
     return false;
   }
+
+  bool PrimaryLabelExists(storage::v3::LabelId label) { return label_index_.find(label) != label_index_.end(); }
 
   void SetIndexCount(memgraph::storage::v3::LabelId label, int64_t count) { label_index_[label] = count; }
 
@@ -382,13 +385,27 @@ class FakeDistributedDbAccessor {
     return memgraph::storage::v3::PropertyId::FromUint(0);
   }
 
+  std::vector<memgraph::storage::v3::SchemaProperty> GetSchemaForLabel(storage::v3::LabelId label) {
+    auto schema_properties = schemas_.at(label);
+    std::vector<memgraph::storage::v3::SchemaProperty> ret;
+    std::transform(schema_properties.begin(), schema_properties.end(), std::back_inserter(ret), [](const auto &prop) {
+      memgraph::storage::v3::SchemaProperty schema_prop = {
+          .property_id = prop,
+          // This should not be hardcoded, but for testing purposes it will suffice.
+          .type = memgraph::common::SchemaType::INT};
+
+      return schema_prop;
+    });
+    return ret;
+  }
+
   std::vector<std::pair<query::v2::Expression *, query::v2::plan::FilterInfo>> ExtractPrimaryKey(
       storage::v3::LabelId label, std::vector<query::v2::plan::FilterInfo> property_filters) {
     MG_ASSERT(schemas_.contains(label),
               "You did not specify the Schema for this label! Use FakeDistributedDbAccessor::CreateSchema(...).");
 
     std::vector<std::pair<query::v2::Expression *, query::v2::plan::FilterInfo>> pk;
-    const auto schema = GetSchemaForLabel(label);
+    const auto schema = GetSchemaPropertiesForLabel(label);
 
     std::vector<storage::v3::PropertyId> schema_properties;
     schema_properties.reserve(schema.size());
@@ -408,7 +425,7 @@ class FakeDistributedDbAccessor {
                : std::vector<std::pair<query::v2::Expression *, query::v2::plan::FilterInfo>>{};
   }
 
-  std::vector<memgraph::storage::v3::PropertyId> GetSchemaForLabel(storage::v3::LabelId label) {
+  std::vector<memgraph::storage::v3::PropertyId> GetSchemaPropertiesForLabel(storage::v3::LabelId label) {
     return schemas_.at(label);
   }
 

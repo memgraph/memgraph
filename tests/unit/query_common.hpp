@@ -486,7 +486,6 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
 #define EDGE(...) memgraph::query::test_common::GetEdge(storage, __VA_ARGS__)
 #define EDGE_VARIABLE(...) memgraph::query::test_common::GetEdgeVariable(storage, __VA_ARGS__)
 #define PATTERN(...) memgraph::query::test_common::GetPattern(storage, {__VA_ARGS__})
-#define PATTERN(...) memgraph::query::test_common::GetPattern(storage, {__VA_ARGS__})
 #define NAMED_PATTERN(name, ...) memgraph::query::test_common::GetPattern(storage, name, {__VA_ARGS__})
 #define OPTIONAL_MATCH(...) \
   memgraph::query::test_common::GetWithPatterns(storage.Create<memgraph::query::Match>(true), {__VA_ARGS__})

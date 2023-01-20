@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,6 +22,7 @@
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
 #include "utils/bound.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
 
 namespace memgraph::query::v2::plan {
@@ -54,31 +55,16 @@ class VertexCountCache {
     return 1;
   }
 
-  bool LabelIndexExists(storage::v3::LabelId label) { return request_router_->IsPrimaryLabel(label); }
+  bool LabelIndexExists(storage::v3::LabelId label) {
+    throw utils::NotYetImplemented("Label indicies are yet to be implemented.");
+  }
+
+  bool PrimaryLabelExists(storage::v3::LabelId label) { return request_router_->IsPrimaryLabel(label); }
 
   bool LabelPropertyIndexExists(storage::v3::LabelId /*label*/, storage::v3::PropertyId /*property*/) { return false; }
 
-  std::vector<std::pair<query::v2::Expression *, query::v2::plan::FilterInfo>> ExtractPrimaryKey(
-      storage::v3::LabelId label, std::vector<query::v2::plan::FilterInfo> property_filters) {
-    std::vector<std::pair<query::v2::Expression *, query::v2::plan::FilterInfo>> pk;
-    const auto schema = request_router_->GetSchemaForLabel(label);
-
-    std::vector<storage::v3::PropertyId> schema_properties;
-    schema_properties.reserve(schema.size());
-
-    std::transform(schema.begin(), schema.end(), std::back_inserter(schema_properties),
-                   [](const auto &schema_elem) { return schema_elem.property_id; });
-
-    for (const auto &property_filter : property_filters) {
-      const auto &property_id = NameToProperty(property_filter.property_filter->property_.name);
-      if (std::find(schema_properties.begin(), schema_properties.end(), property_id) != schema_properties.end()) {
-        pk.emplace_back(std::make_pair(property_filter.expression, property_filter));
-      }
-    }
-
-    return pk.size() == schema_properties.size()
-               ? pk
-               : std::vector<std::pair<query::v2::Expression *, query::v2::plan::FilterInfo>>{};
+  std::vector<memgraph::storage::v3::SchemaProperty> GetSchemaForLabel(storage::v3::LabelId label) {
+    return request_router_->GetSchemaForLabel(label);
   }
 
   RequestRouterInterface *request_router_;
