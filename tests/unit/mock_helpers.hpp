@@ -58,7 +58,7 @@ class MockedLogicalOperator : public plan::LogicalOperator {
 class MockedCursor : public plan::Cursor {
  public:
   MOCK_METHOD(bool, Pull, (Frame &, expr::ExecutionContext &));
-  MOCK_METHOD(void, PullMultiple, (MultiFrame &, expr::ExecutionContext &));
+  MOCK_METHOD(bool, PullMultiple, (MultiFrame &, expr::ExecutionContext &));
   MOCK_METHOD(void, Reset, ());
   MOCK_METHOD(void, Shutdown, ());
 };
