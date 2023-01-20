@@ -72,7 +72,21 @@ class Cursor {
   /// @throws QueryRuntimeException if something went wrong with execution
   virtual bool Pull(Frame &, ExecutionContext &) = 0;
 
-  virtual bool PullMultiple(MultiFrame &, ExecutionContext &) { LOG_FATAL("PullMultipleIsNotImplemented"); }
+  /// Run an iteration of a @c LogicalOperator with MultiFrame.
+  ///
+  /// Since operators may be chained, the iteration may pull results from
+  /// multiple operators.
+  ///
+  /// @param MultiFrame May be read from or written to while performing the
+  ///     iteration.
+  /// @param ExecutionContext Used to get the position of symbols in frame and
+  ///     other information.
+  /// @return True if the operator was able to populate at least one Frame on the MultiFrame,
+  ///     thus if an operator returns true, that means there is at least one valid Frame in the
+  ///     MultiFrame.
+  ///
+  /// @throws QueryRuntimeException if something went wrong with execution
+  virtual bool PullMultiple(MultiFrame &, ExecutionContext &) {MG_ASSERT(false, "PullMultipleIsNotImplemented"); return false; }
 
   /// Resets the Cursor to its initial state.
   virtual void Reset() = 0;
