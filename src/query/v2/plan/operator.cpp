@@ -2890,7 +2890,7 @@ class DistributedExpandCursor : public Cursor {
   }
 
   bool PullInputFrames(ExecutionContext &context) {
-    const auto pulled_any = !input_cursor_->PullMultiple(*own_multi_frame_, context);
+    const auto pulled_any = input_cursor_->PullMultiple(*own_multi_frame_, context);
     // These needs to be updated regardless of the result of the pull, otherwise the consumer and iterator might
     // get corrupted because of the operations done on our MultiFrame.
     own_frames_consumer_ = own_multi_frame_->GetValidFramesConsumer();
@@ -2949,7 +2949,7 @@ class DistributedExpandCursor : public Cursor {
           if (own_frames_it_ == own_frames_consumer_->end()) {
             state_ = State::PullInputAndEdges;
           } else {
-            InitEdges(*own_frames_it_, context);
+            InitEdgesMultiple(context);
             state_ = State::PopulateOutput;
           }
           break;
