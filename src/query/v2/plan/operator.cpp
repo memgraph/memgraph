@@ -455,8 +455,6 @@ class DistributedScanAllAndFilterCursor : public Cursor {
     ResetExecutionState();
   }
 
-  enum class State : int8_t { INITIALIZING, COMPLETED };
-
   using VertexAccessor = accessors::VertexAccessor;
 
   bool MakeRequest(ExecutionContext &context) {
@@ -493,61 +491,71 @@ class DistributedScanAllAndFilterCursor : public Cursor {
     }
   }
 
-  bool PullNextFrames(ExecutionContext &context) {
-    const auto pulled_any = input_cursor_->PullMultiple(*own_multi_frame_, context);
-    own_frames_consumer_ = own_multi_frame_->GetValidFramesConsumer();
-    own_frames_it_ = own_frames_consumer_->begin();
-    return pulled_any;
-  }
-
-  inline bool HasMoreResult() {
-    return current_vertex_it_ != current_batch_.end() && own_frames_it_ != own_frames_consumer_->end();
-  }
-
-  bool PopulateFrame(ExecutionContext &context, FrameWithValidity &frame) {
-    MG_ASSERT(HasMoreResult());
-
-    frame = *own_frames_it_;
-    frame[output_symbol_] = TypedValue(*current_vertex_it_);
-
-    ++current_vertex_it_;
-    if (current_vertex_it_ == current_batch_.end()) {
-      own_frames_it_->MakeInvalid();
-      ++own_frames_it_;
-
-      current_vertex_it_ = current_batch_.begin();
-
-      if (own_frames_it_ == own_frames_consumer_->end()) {
-        return PullNextFrames(context);
-      }
-    };
-    return true;
-  }
-
   bool PullMultiple(MultiFrame &output_multi_frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP(op_name_);
 
     if (!own_multi_frame_.has_value()) {
       own_multi_frame_.emplace(MultiFrame(output_multi_frame.GetFirstFrame().elems().size(),
                                           kNumberOfFramesInMultiframe, output_multi_frame.GetMemoryResource()));
-
-      MakeRequest(context);
-      PullNextFrames(context);
+      own_frames_consumer_.emplace(own_multi_frame_->GetValidFramesConsumer());
+      own_frames_it_ = own_frames_consumer_->begin();
     }
 
-    if (!HasMoreResult()) {
-      return false;
-    }
+    auto output_frames_populator = output_multi_frame.GetInvalidFramesPopulator();
+    auto populated_any = false;
 
-    bool populated_any = false;
-    for (auto &frame : output_multi_frame.GetInvalidFramesPopulator()) {
-      if (MustAbort(context)) {
-        throw HintedAbortError();
+    while (true) {
+      switch (state_) {
+        case State::PullInput: {
+          if (!input_cursor_->PullMultiple(*own_multi_frame_, context)) {
+            state_ = State::Exhausted;
+            return populated_any;
+          }
+          own_frames_consumer_.emplace(own_multi_frame_->GetValidFramesConsumer());
+          own_frames_it_ = own_frames_consumer_->begin();
+          state_ = State::FetchVertices;
+          break;
+        }
+        case State::FetchVertices: {
+          if (own_frames_it_ == own_frames_consumer_->end()) {
+            state_ = State::PullInput;
+            continue;
+          }
+          if (!filter_expressions_->empty() || property_expression_pair_.has_value() || current_batch_.empty()) {
+            MakeRequest(context);
+          } else {
+            // We can reuse the vertices as they don't depend on any value from the frames
+            current_vertex_it_ = current_batch_.begin();
+          }
+          state_ = State::PopulateOutput;
+          break;
+        }
+        case State::PopulateOutput: {
+          if (!output_multi_frame.HasInvalidFrame()) {
+            return populated_any;
+          }
+          if (current_vertex_it_ == current_batch_.end()) {
+            own_frames_it_->MakeInvalid();
+            ++own_frames_it_;
+            state_ = State::FetchVertices;
+            continue;
+          }
+
+          for (auto output_frame_it = output_frames_populator.begin();
+               output_frame_it != output_frames_populator.end() && current_vertex_it_ != current_batch_.end();
+               ++output_frame_it) {
+            auto &output_frame = *output_frame_it;
+            output_frame = *own_frames_it_;
+            output_frame[output_symbol_] = TypedValue(*current_vertex_it_);
+            current_vertex_it_++;
+            populated_any = true;
+          }
+          break;
+        }
+        case State::Exhausted: {
+          return populated_any;
+        }
       }
-      if (!PopulateFrame(context, frame)) {
-        break;
-      }
-      populated_any = true;
     }
     return populated_any;
   };
@@ -565,6 +573,9 @@ class DistributedScanAllAndFilterCursor : public Cursor {
   }
 
  private:
+  enum class State { PullInput, FetchVertices, PopulateOutput, Exhausted };
+
+  State state_{State::PullInput};
   const Symbol output_symbol_;
   const UniqueCursorPtr input_cursor_;
   const char *op_name_;
