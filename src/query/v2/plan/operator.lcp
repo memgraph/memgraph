@@ -1274,6 +1274,7 @@ Has a flag for using DETACH DELETE when deleting vertices.")
     public:
      DeleteCursor(const Delete &, utils::MemoryResource *);
      bool Pull(Frame &, ExecutionContext &) override;
+     bool PullMultiple(MultiFrame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
