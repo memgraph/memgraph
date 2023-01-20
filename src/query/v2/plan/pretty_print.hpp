@@ -194,7 +194,7 @@ class PlanToJsonVisitor : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanAllByLabelPropertyRange &) override;
   bool PreVisit(ScanAllByLabelPropertyValue &) override;
   bool PreVisit(ScanAllByLabelProperty &) override;
-  bool PreVisit(ScanAllByPrimaryKey & /*unused*/) override;
+  bool PreVisit(ScanAllByPrimaryKey &) override;
 
   bool PreVisit(Produce &) override;
   bool PreVisit(Accumulate &) override;

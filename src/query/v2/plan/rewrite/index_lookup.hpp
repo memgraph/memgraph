@@ -278,7 +278,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  bool PostVisit(ScanAllByPrimaryKey & /*unused*/) override {
+  bool PostVisit(ScanAllByPrimaryKey &) override {
     prev_ops_.pop_back();
     return true;
   }
@@ -593,7 +593,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       }
       if (!primary_key.empty()) {
         // Mark the expressions so they won't be used for an additional, unnecessary filter.
-        for (const auto &pk : primary_key) {
+        for (const auto &primary_property : primary_key) {
           filter_exprs_for_removal_.insert(pk.first);
           filters_.EraseFilter(pk.second);
         }

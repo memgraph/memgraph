@@ -487,7 +487,7 @@ class DistributedScanAllByPrimaryKeyCursor : public Cursor {
   bool MakeRequest(RequestRouterInterface &request_router, ExecutionContext &context) {
     {
       SCOPED_REQUEST_WAIT_PROFILE;
-      std::optional<std::string> request_label = std::nullopt;
+      std::optional<std::string> request_label;
       if (label_.has_value()) {
         request_label = request_router.LabelToName(*label_);
       }
@@ -512,7 +512,7 @@ class DistributedScanAllByPrimaryKeyCursor : public Cursor {
 
       std::vector<msgs::Value> pk;
       MG_ASSERT(primary_key_);
-      for (auto *primary_key : *primary_key_) {
+      for (auto *primary_property : *primary_key_) {
         pk.push_back(TypedValueToValue(primary_key->Accept(evaluator)));
       }
 
