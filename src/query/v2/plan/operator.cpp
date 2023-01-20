@@ -2841,14 +2841,19 @@ class DistributedExpandCursor : public Cursor {
   }
 
   void InitEdgesMultiple(ExecutionContext &context) {
-    TypedValue &vertex_value = (*own_frames_it_)[self_.input_symbol_];
+    // This function won't work if any vertex id is duplicated in the input, because:
+    //  1. vertex_id_to_result_row is not a multimap
+    //  2. if self_.common_.existing_node is true, then we erase edges that might be necessary for the input vertex on a
+    //     later frame
+    const auto &frame = (*own_frames_it_);
+    const auto &vertex_value = frame[self_.input_symbol_];
 
     if (vertex_value.IsNull()) {
       return;
     }
 
     ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
-    auto &vertex = vertex_value.ValueVertex();
+    const auto &vertex = vertex_value.ValueVertex();
 
     const auto convert_edges = [&vertex, &context](
                                    std::vector<msgs::ExpandOneResultRow::EdgeWithSpecificProperties> &&edge_messages,
