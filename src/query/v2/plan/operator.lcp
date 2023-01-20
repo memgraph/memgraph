@@ -72,7 +72,7 @@ class Cursor {
   /// @throws QueryRuntimeException if something went wrong with execution
   virtual bool Pull(Frame &, ExecutionContext &) = 0;
 
-  virtual void PullMultiple(MultiFrame &, ExecutionContext &) { LOG_FATAL("PullMultipleIsNotImplemented"); }
+  virtual bool PullMultiple(MultiFrame &, ExecutionContext &) { LOG_FATAL("PullMultipleIsNotImplemented"); }
 
   /// Resets the Cursor to its initial state.
   virtual void Reset() = 0;
@@ -335,7 +335,7 @@ and false on every following Pull.")
    class OnceCursor : public Cursor {
     public:
      OnceCursor() {}
-     void PullMultiple(MultiFrame &, ExecutionContext &) override;
+     bool PullMultiple(MultiFrame &, ExecutionContext &) override;
      bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
@@ -1211,7 +1211,7 @@ RETURN clause) the Produce's pull succeeds exactly once.")
     public:
      ProduceCursor(const Produce &, utils::MemoryResource *);
      bool Pull(Frame &, ExecutionContext &) override;
-     void PullMultiple(MultiFrame &, ExecutionContext &) override;
+     bool PullMultiple(MultiFrame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 

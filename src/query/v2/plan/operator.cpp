@@ -189,18 +189,19 @@ class DistributedCreateNodeCursor : public Cursor {
     return false;
   }
 
-  void PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) override {
+  bool PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("CreateNodeMF");
-    input_cursor_->PullMultiple(multi_frame, context);
+
     auto *request_router = context.request_router;
-    if (!multi_frame.HasValidFrame()) {
-      return;
+    if (!input_cursor_->PullMultiple(multi_frame, context)) {
+      return false;
     }
     {
       SCOPED_REQUEST_WAIT_PROFILE;
       request_router->CreateVertices(NodeCreationInfoToRequests(context, multi_frame));
     }
     PlaceNodesOnTheMultiFrame(multi_frame, context);
+    return false;
   }
 
   void Shutdown() override { input_cursor_->Shutdown(); }
@@ -324,14 +325,16 @@ bool Once::OnceCursor::Pull(Frame &, ExecutionContext &context) {
   return false;
 }
 
-void Once::OnceCursor::PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) {
+bool Once::OnceCursor::PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("OnceMF");
 
   if (!did_pull_) {
     auto &first_frame = multi_frame.GetFirstFrame();
     first_frame.MakeValid();
     did_pull_ = true;
+    return true;
   }
+  return false;
 }
 
 UniqueCursorPtr Once::MakeCursor(utils::MemoryResource *mem) const {
@@ -491,10 +494,10 @@ class DistributedScanAllAndFilterCursor : public Cursor {
   }
 
   bool PullNextFrames(ExecutionContext &context) {
-    input_cursor_->PullMultiple(*own_multi_frame_, context);
+    const auto pulled_any = input_cursor_->PullMultiple(*own_multi_frame_, context);
     own_frames_consumer_ = own_multi_frame_->GetValidFramesConsumer();
     own_frames_it_ = own_frames_consumer_->begin();
-    return own_multi_frame_->HasValidFrame();
+    return pulled_any;
   }
 
   inline bool HasMoreResult() {
@@ -521,7 +524,7 @@ class DistributedScanAllAndFilterCursor : public Cursor {
     return true;
   }
 
-  void PullMultiple(MultiFrame &output_multi_frame, ExecutionContext &context) override {
+  bool PullMultiple(MultiFrame &output_multi_frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP(op_name_);
 
     if (!own_multi_frame_.has_value()) {
@@ -533,17 +536,20 @@ class DistributedScanAllAndFilterCursor : public Cursor {
     }
 
     if (!HasMoreResult()) {
-      return;
+      return false;
     }
 
+    bool populated_any = false;
     for (auto &frame : output_multi_frame.GetInvalidFramesPopulator()) {
       if (MustAbort(context)) {
         throw HintedAbortError();
       }
       if (!PopulateFrame(context, frame)) {
-        return;
+        break;
       }
+      populated_any = true;
     }
+    return populated_any;
   };
 
   void Shutdown() override { input_cursor_->Shutdown(); }
@@ -859,19 +865,22 @@ bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
     // Produce should always yield the latest results.
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.request_router,
                                   storage::v3::View::NEW);
-    for (auto named_expr : self_.named_expressions_) named_expr->Accept(evaluator);
+    for (auto *named_expr : self_.named_expressions_) named_expr->Accept(evaluator);
 
     return true;
   }
   return false;
 }
 
-void Produce::ProduceCursor::PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) {
+bool Produce::ProduceCursor::PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("ProduceMF");
 
-  input_cursor_->PullMultiple(multi_frame, context);
+  if (!input_cursor_->PullMultiple(multi_frame, context)) {
+    return false;
+  }
 
   auto iterator_for_valid_frame_only = multi_frame.GetValidFramesModifier();
+
   for (auto &frame : iterator_for_valid_frame_only) {
     // Produce should always yield the latest results.
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.request_router,
@@ -881,7 +890,9 @@ void Produce::ProduceCursor::PullMultiple(MultiFrame &multi_frame, ExecutionCont
       named_expr->Accept(evaluator);
     }
   }
-};
+
+  return true;
+}
 
 void Produce::ProduceCursor::Shutdown() { input_cursor_->Shutdown(); }
 
@@ -2484,11 +2495,10 @@ class DistributedCreateExpandCursor : public Cursor {
     return true;
   }
 
-  void PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) override {
+  bool PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("CreateExpandMF");
-    input_cursor_->PullMultiple(multi_frame, context);
-    if (!multi_frame.HasValidFrame()) {
-      return;
+    if (!input_cursor_->PullMultiple(multi_frame, context)) {
+      return false;
     }
     auto request_vertices = ExpandCreationInfoToRequests(multi_frame, context);
     {
@@ -2501,6 +2511,7 @@ class DistributedCreateExpandCursor : public Cursor {
         }
       }
     }
+    return true;
   }
 
   void Shutdown() override { input_cursor_->Shutdown(); }
@@ -2847,12 +2858,12 @@ class DistributedExpandCursor : public Cursor {
   }
 
   bool PullInputFrames(ExecutionContext &context) {
-    input_cursor_->PullMultiple(*own_multi_frame_, context);
+    const auto pulled_any = !input_cursor_->PullMultiple(*own_multi_frame_, context);
     // These needs to be updated regardless of the result of the pull, otherwise the consumer and iterator might
     // get corrupted because of the operations done on our MultiFrame.
     own_frames_consumer_ = own_multi_frame_->GetValidFramesConsumer();
     own_frames_it_ = own_frames_consumer_->begin();
-    if (!own_multi_frame_->HasValidFrame()) {
+    if (!pulled_any) {
       return false;
     }
 
@@ -2883,20 +2894,21 @@ class DistributedExpandCursor : public Cursor {
     return true;
   }
 
-  void PullMultiple(MultiFrame &output_multi_frame, ExecutionContext &context) override {
+  bool PullMultiple(MultiFrame &output_multi_frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("DistributedExpandMF");
     MG_ASSERT(!self_.common_.existing_node);
     EnsureOwnMultiFrameIsGood(output_multi_frame);
     // A helper function for expanding a node from an edge.
 
     auto output_frames_populator = output_multi_frame.GetInvalidFramesPopulator();
+    auto populated_any = false;
 
     while (true) {
       switch (state_) {
         case State::PullInputAndEdges: {
           if (!PullInputFrames(context)) {
             state_ = State::Exhausted;
-            return;
+            return populated_any;
           }
           state_ = State::InitInOutEdgesIt;
           break;
@@ -2912,7 +2924,7 @@ class DistributedExpandCursor : public Cursor {
         }
         case State::PopulateOutput: {
           if (!output_multi_frame.HasInvalidFrame()) {
-            return;
+            return populated_any;
           }
           if (current_in_edge_it_ == current_in_edges_.end() && current_out_edge_it_ == current_out_edges_.end()) {
             own_frames_it_->MakeInvalid();
@@ -2920,7 +2932,7 @@ class DistributedExpandCursor : public Cursor {
             state_ = State::InitInOutEdgesIt;
             continue;
           }
-          auto populate_edges = [this, &context, &output_frames_populator](
+          auto populate_edges = [this, &context, &output_frames_populator, &populated_any](
                                     const EdgeAtom::Direction direction, std::vector<EdgeAccessor>::iterator &current,
                                     const std::vector<EdgeAccessor>::iterator &end) {
             for (auto output_frame_it = output_frames_populator.begin();
@@ -2931,6 +2943,7 @@ class DistributedExpandCursor : public Cursor {
               output_frame = *own_frames_it_;
               output_frame[self_.common_.edge_symbol] = edge;
               PullDstVertex(output_frame, context, direction);
+              populated_any = true;
             }
           };
           populate_edges(EdgeAtom::Direction::IN, current_in_edge_it_, current_in_edges_.end());
@@ -2938,10 +2951,11 @@ class DistributedExpandCursor : public Cursor {
           break;
         }
         case State::Exhausted: {
-          return;
+          return populated_any;
         }
       }
     }
+    return populated_any;
   }
 
   void EnsureOwnMultiFrameIsGood(MultiFrame &output_multi_frame) {
