@@ -1160,6 +1160,7 @@ a boolean value.")
     public:
      FilterCursor(const Filter &, utils::MemoryResource *);
      bool Pull(Frame &, ExecutionContext &) override;
+     bool PullMultiple(MultiFrame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 

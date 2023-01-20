@@ -830,6 +830,27 @@ bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   return false;
 }
 
+bool Filter::FilterCursor::PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) {
+  SCOPED_PROFILE_OP("Filter");
+  auto populated_any = false;
+
+  while (multi_frame.HasInvalidFrame()) {
+    if (!input_cursor_->PullMultiple(multi_frame, context)) {
+      return populated_any;
+    }
+    for (auto &frame : multi_frame.GetValidFramesConsumer()) {
+      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.request_router,
+                                    storage::v3::View::OLD);
+      if (!EvaluateFilter(evaluator, self_.expression_)) {
+        frame.MakeInvalid();
+      } else {
+        populated_any = true;
+      }
+    }
+  }
+  return populated_any;
+}
+
 void Filter::FilterCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void Filter::FilterCursor::Reset() { input_cursor_->Reset(); }
