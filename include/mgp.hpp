@@ -363,6 +363,7 @@ class Labels {
  private:
   mgp_vertex *node_ptr_;
 };
+
 /* #endregion */
 
 /* #region Types */
@@ -1572,8 +1573,6 @@ inline Type ToAPIType(mgp_value_type type) {
 
 /* #region Graph (Id, Graph, Nodes, GraphRelationships, Relationships, Properties & Labels) */
 
-/* #region 2 */
-
 // Id:
 
 inline Id Id::FromUint(uint64_t id) { return Id(util::MemcpyCast<int64_t>(id)); }
@@ -1764,8 +1763,6 @@ inline Nodes::Iterator Nodes::cbegin() const { return Iterator(nodes_iterator_);
 
 inline Nodes::Iterator Nodes::cend() const { return Iterator(nullptr); }
 
-/* #endregion */
-
 // GraphRelationships:
 
 inline GraphRelationships::GraphRelationships(mgp_graph *graph) : graph_(graph) {}
@@ -1893,8 +1890,6 @@ inline GraphRelationships::Iterator GraphRelationships::cbegin() const {
 }
 
 inline GraphRelationships::Iterator GraphRelationships::cend() const { return Iterator(nullptr); }
-
-/* #region 3 */
 
 // Relationships:
 
@@ -2059,8 +2054,6 @@ inline Labels::Iterator Labels::end() { return Iterator(this, Size()); }
 inline Labels::Iterator Labels::cbegin() { return Iterator(this, 0); }
 
 inline Labels::Iterator Labels::cend() { return Iterator(this, Size()); }
-
-/* #endregion */
 
 /* #endregion */
 
