@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -58,7 +58,7 @@ TEST_F(CppApiTestFixture, TestGraph) {
   ASSERT_EQ(graph.Order(), 2);
   ASSERT_EQ(graph.Size(), 0);
 
-  auto relationship = graph.CreateRelationship(node_1, node_2, "edge_type");
+  auto relationship_1 = graph.CreateRelationship(node_1, node_2, "edge_type");
 
   ASSERT_EQ(graph.Order(), 2);
   ASSERT_EQ(graph.Size(), 1);
@@ -66,7 +66,23 @@ TEST_F(CppApiTestFixture, TestGraph) {
   ASSERT_EQ(graph.ContainsNode(node_1), true);
   ASSERT_EQ(graph.ContainsNode(node_2), true);
 
-  ASSERT_EQ(graph.ContainsRelationship(relationship), true);
+  ASSERT_EQ(graph.ContainsRelationship(relationship_1), true);
+
+  auto node_3 = graph.CreateNode();
+  auto relationship_2 = graph.CreateRelationship(node_1, node_3, "edge_type");
+  auto relationship_3 = graph.CreateRelationship(node_2, node_3, "edge_type");
+
+  for (const auto &n : graph.Nodes()) {
+    ASSERT_EQ(graph.ContainsNode(n), true);
+  }
+
+  std::uint64_t n_rels = 0;
+  for (const auto &r : graph.Relationships()) {
+    ASSERT_EQ(graph.ContainsRelationship(r), true);
+    n_rels++;
+  }
+
+  ASSERT_EQ(n_rels, 3);
 }
 
 TEST_F(CppApiTestFixture, TestId) {
