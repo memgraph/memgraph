@@ -22,7 +22,7 @@ Build modern, graph-based applications on top of your streaming data in minutes.
 
 <p align="center">
   <a href="https://github.com/memgraph/memgraph">
-    <img src="https://img.shields.io/github/workflow/status/memgraph/memgraph/Release%20Ubuntu%2020.04/master" alt="build" title="build"/>
+     <img src="https://img.shields.io/github/actions/workflow/status/memgraph/memgraph/release_debian10.yaml?branch=master&label=build%20and%20test&logo=github"/>
   </a>
   <a href="https://memgraph.com/docs/" alt="Documentation">
     <img src="https://img.shields.io/badge/documentation-Memgraph-orange" />
@@ -142,6 +142,15 @@ can be found in the aforementioned docs.
 Memgraph Community is available under the [BSL
 license](./licenses/BSL.txt).</br> Memgraph Enterprise is available under the
 [MEL license](./licenses/MEL.txt).
+
+## 🙋 Community
+
+- :purple_heart: [**Discord**](https://discord.gg/memgraph)
+- :busts_in_silhouette: [**Discourse forum**](https://discourse.memgraph.com/)
+- :open_file_folder: [**Memgraph GitHub**](https://github.com/memgraph)
+- :bird: [**Twitter**](https://twitter.com/memgraphdb)
+- :movie_camera:
+  [**YouTube**](https://www.youtube.com/channel/UCZ3HOJvHGxtQ_JHxOselBYg)
 
 <p align="center">
   <a href="#">

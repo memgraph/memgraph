@@ -2,7 +2,14 @@ bolt_port: &bolt_port "7687"
 template_cluster: &template_cluster
   cluster:
     main:
-      args: ["--bolt-port", *bolt_port, "--log-level=TRACE"]
+      args: ["--bolt-port", *bolt_port, "--log-level=TRACE", "--storage-properties-on-edges=True"]
+      log_file: "triggers-e2e.log"
+      setup_queries: []
+      validation_queries: []
+storage_properties_edges_false: &storage_properties_edges_false
+  cluster:
+    main:
+      args: ["--bolt-port", *bolt_port, "--log-level=TRACE", "--also-log-to-stderr", "--storage-properties-on-edges=False"]
       log_file: "triggers-e2e.log"
       setup_queries: []
       validation_queries: []
@@ -18,7 +25,7 @@ workloads:
     args: ["--bolt-port", *bolt_port]
     proc: "tests/e2e/triggers/procedures/"
     <<: *template_cluster
-  - name: "ON DELETE Triggers"
+  - name: "ON DELETE Triggers Storage Properties On Edges True"
     binary: "tests/e2e/triggers/memgraph__e2e__triggers__on_delete"
     args: ["--bolt-port", *bolt_port]
     proc: "tests/e2e/triggers/procedures/"
@@ -27,5 +34,8 @@ workloads:
     binary: "tests/e2e/triggers/memgraph__e2e__triggers__privileges"
     args: ["--bolt-port", *bolt_port]
     <<: *template_cluster
-
-
+  - name: "ON DELETE Triggers Storage Properties On Edges False" # should be the same as the python file
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/triggers/procedures/"
+    args: ["triggers/triggers_properties_false.py"]
+    <<: *storage_properties_edges_false

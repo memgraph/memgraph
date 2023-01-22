@@ -26,6 +26,7 @@
 #include <string_view>
 #include <thread>
 
+#include <fmt/core.h>
 #include <fmt/format.h>
 #include <gflags/gflags.h>
 #include <spdlog/common.h>
@@ -98,6 +99,10 @@
 #include "audit/log.hpp"
 #endif
 
+constexpr const char *kMgUser = "MEMGRAPH_USER";
+constexpr const char *kMgPassword = "MEMGRAPH_PASSWORD";
+constexpr const char *kMgPassfile = "MEMGRAPH_PASSFILE";
+
 namespace {
 std::string GetAllowedEnumValuesString(const auto &mappings) {
   std::vector<std::string> allowed_values;
@@ -134,6 +139,10 @@ std::optional<Enum> StringToEnum(const auto &value, const auto &mappings) {
 }
 }  // namespace
 
+// Short help flag.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_HIDDEN_bool(h, false, "Print usage and exit.");
+
 // Bolt server flags.
 DEFINE_string(bolt_address, "0.0.0.0", "IP address on which the Bolt server should listen.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -163,6 +172,11 @@ DEFINE_string(bolt_key_file, "", "Key file which should be used for the Bolt ser
 DEFINE_string(bolt_server_name_for_init, "",
               "Server name which the database should send to the client in the "
               "Bolt INIT message.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(init_file, "",
+              "Path to cypherl file that is used for configuring users and database schema before server starts.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(init_data_file, "", "Path to cypherl file that is used for creating data after server starts.");
 
 // General purpose flags.
 // NOTE: The `data_directory` flag must be the same here and in
@@ -472,6 +486,33 @@ struct SessionData {
 DEFINE_string(auth_user_or_role_name_regex, memgraph::glue::kDefaultUserRoleRegex.data(),
               "Set to the regular expression that each user or role name must fulfill.");
 
+void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, std::string cypherl_file_path
+#ifdef MG_ENTERPRISE
+                         ,
+                         memgraph::audit::Log *audit_log
+#endif
+) {
+  memgraph::query::Interpreter interpreter(&ctx);
+  std::ifstream file(cypherl_file_path);
+  if (file.is_open()) {
+    std::string line;
+    while (std::getline(file, line)) {
+      if (!line.empty()) {
+        auto results = interpreter.Prepare(line, {}, {});
+        memgraph::query::DiscardValueResultStream stream;
+        interpreter.Pull(&stream, {}, results.qid);
+
+#ifdef MG_ENTERPRISE
+        if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+          audit_log->Record("", "", line, {});
+        }
+#endif
+      }
+    }
+    file.close();
+  }
+}
+
 class BoltSession final : public memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                                         memgraph::communication::v2::OutputStream> {
  public:
@@ -687,6 +728,11 @@ int main(int argc, char **argv) {
   LoadConfig("memgraph");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
+  if (FLAGS_h) {
+    gflags::ShowUsageWithFlags(argv[0]);
+    exit(1);
+  }
+
   InitializeLogger();
 
   // Unhandled exception handler init.
@@ -880,6 +926,29 @@ int main(int argc, char **argv) {
   interpreter_context.auth = &auth_handler;
   interpreter_context.auth_checker = &auth_checker;
 
+  if (!FLAGS_init_file.empty()) {
+    spdlog::info("Running init file.");
+#ifdef MG_ENTERPRISE
+    if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+      InitFromCypherlFile(interpreter_context, FLAGS_init_file, &audit_log);
+    }
+#else
+    InitFromCypherlFile(interpreter_context, FLAGS_init_file);
+#endif
+  }
+
+  auto *maybe_username = std::getenv(kMgUser);
+  auto *maybe_password = std::getenv(kMgPassword);
+  auto *maybe_pass_file = std::getenv(kMgPassfile);
+  if (maybe_username && maybe_password) {
+    auth_handler.CreateUser(maybe_username, maybe_password);
+  } else if (maybe_pass_file) {
+    const auto [username, password] = LoadUsernameAndPassword(maybe_pass_file);
+    if (!username.empty() && !password.empty()) {
+      auth_handler.CreateUser(username, password);
+    }
+  }
+
   {
     // Triggers can execute query procedures, so we need to reload the modules first and then
     // the triggers
@@ -956,6 +1025,17 @@ int main(int argc, char **argv) {
 
   MG_ASSERT(server.Start(), "Couldn't start the Bolt server!");
   websocket_server.Start();
+
+  if (!FLAGS_init_data_file.empty()) {
+    spdlog::info("Running init data file.");
+#ifdef MG_ENTERPRISE
+    if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+      InitFromCypherlFile(interpreter_context, FLAGS_init_data_file, &audit_log);
+    }
+#else
+    InitFromCypherlFile(interpreter_context, FLAGS_init_data_file);
+#endif
+  }
 
   server.AwaitShutdown();
   websocket_server.AwaitShutdown();

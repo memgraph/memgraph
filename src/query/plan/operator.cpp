@@ -41,6 +41,7 @@
 #include "query/procedure/cypher_types.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
+#include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/algorithm.hpp"
@@ -113,6 +114,7 @@ extern const Event UnionOperator;
 extern const Event CartesianOperator;
 extern const Event CallProcedureOperator;
 extern const Event ForeachOperator;
+extern const Event EmptyResultOperator;
 }  // namespace EventCounter
 
 namespace memgraph::query::plan {
@@ -3057,6 +3059,56 @@ void EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Shutdown() { input_cursor
 
 void EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Reset() { input_cursor_->Reset(); }
 
+EmptyResult::EmptyResult(const std::shared_ptr<LogicalOperator> &input)
+    : input_(input ? input : std::make_shared<Once>()) {}
+
+ACCEPT_WITH_INPUT(EmptyResult)
+
+std::vector<Symbol> EmptyResult::OutputSymbols(const SymbolTable &) const {  // NOLINT(hicpp-named-parameter)
+  return {};
+}
+
+std::vector<Symbol> EmptyResult::ModifiedSymbols(const SymbolTable &) const {  // NOLINT(hicpp-named-parameter)
+  return {};
+}
+
+class EmptyResultCursor : public Cursor {
+ public:
+  EmptyResultCursor(const EmptyResult &self, utils::MemoryResource *mem)
+      : input_cursor_(self.input_->MakeCursor(mem)) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("EmptyResult");
+
+    if (!pulled_all_input_) {
+      while (input_cursor_->Pull(frame, context)) {
+        if (MustAbort(context)) {
+          throw HintedAbortError();
+        }
+      }
+      pulled_all_input_ = true;
+    }
+    return false;
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    pulled_all_input_ = false;
+  }
+
+ private:
+  const UniqueCursorPtr input_cursor_;
+  bool pulled_all_input_{false};
+};
+
+UniqueCursorPtr EmptyResult::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::EmptyResultOperator);
+
+  return MakeUniqueCursorPtr<EmptyResultCursor>(mem, *this, mem);
+}
+
 Accumulate::Accumulate(const std::shared_ptr<LogicalOperator> &input, const std::vector<Symbol> &symbols,
                        bool advance_command)
     : input_(input), symbols_(symbols), advance_command_(advance_command) {}
@@ -3211,7 +3263,8 @@ class AggregateCursor : public Cursor {
   // aggregation map. The vectors in an AggregationValue contain one element for
   // each aggregation in this LogicalOp.
   struct AggregationValue {
-    explicit AggregationValue(utils::MemoryResource *mem) : counts_(mem), values_(mem), remember_(mem) {}
+    explicit AggregationValue(utils::MemoryResource *mem)
+        : counts_(mem), values_(mem), remember_(mem), unique_values_(mem) {}
 
     // how many input rows have been aggregated in respective values_ element so
     // far
@@ -3224,6 +3277,10 @@ class AggregateCursor : public Cursor {
     utils::pmr::vector<TypedValue> values_;
     // remember values.
     utils::pmr::vector<TypedValue> remember_;
+
+    using TSet = utils::pmr::unordered_set<TypedValue, TypedValue::Hash, TypedValue::BoolEqual>;
+
+    utils::pmr::vector<TSet> unique_values_;
   };
 
   const Aggregate &self_;
@@ -3299,6 +3356,7 @@ class AggregateCursor : public Cursor {
     for (const auto &agg_elem : self_.aggregations_) {
       auto *mem = agg_value->values_.get_allocator().GetMemoryResource();
       agg_value->values_.emplace_back(DefaultAggregationOpValue(agg_elem, mem));
+      agg_value->unique_values_.emplace_back(AggregationValue::TSet(mem));
     }
     agg_value->counts_.resize(self_.aggregations_.size(), 0);
 
@@ -3317,8 +3375,9 @@ class AggregateCursor : public Cursor {
 
     auto count_it = agg_value->counts_.begin();
     auto value_it = agg_value->values_.begin();
+    auto unique_values_it = agg_value->unique_values_.begin();
     auto agg_elem_it = self_.aggregations_.begin();
-    for (; count_it < agg_value->counts_.end(); count_it++, value_it++, agg_elem_it++) {
+    for (; count_it < agg_value->counts_.end(); count_it++, value_it++, unique_values_it++, agg_elem_it++) {
       // COUNT(*) is the only case where input expression is optional
       // handle it here
       auto input_expr_ptr = agg_elem_it->value;
@@ -3333,6 +3392,12 @@ class AggregateCursor : public Cursor {
       // Aggregations skip Null input values.
       if (input_value.IsNull()) continue;
       const auto &agg_op = agg_elem_it->op;
+      if (agg_elem_it->distinct) {
+        auto insert_result = unique_values_it->insert(input_value);
+        if (!insert_result.second) {
+          break;
+        }
+      }
       *count_it += 1;
       if (*count_it == 1) {
         // first value, nothing to aggregate. check type, set and continue.
@@ -4463,24 +4528,24 @@ auto ToOptionalString(ExpressionEvaluator *evaluator, Expression *expression) ->
   return std::nullopt;
 };
 
-TypedValue CsvRowToTypedList(csv::Reader::Row row) {
+TypedValue CsvRowToTypedList(csv::Reader::Row &row) {
   auto *mem = row.get_allocator().GetMemoryResource();
   auto typed_columns = utils::pmr::vector<TypedValue>(mem);
   typed_columns.reserve(row.size());
   for (auto &column : row) {
     typed_columns.emplace_back(std::move(column));
   }
-  return TypedValue(typed_columns, mem);
+  return {std::move(typed_columns), mem};
 }
 
-TypedValue CsvRowToTypedMap(csv::Reader::Row row, csv::Reader::Header header) {
+TypedValue CsvRowToTypedMap(csv::Reader::Row &row, csv::Reader::Header header) {
   // a valid row has the same number of elements as the header
   auto *mem = row.get_allocator().GetMemoryResource();
   utils::pmr::map<utils::pmr::string, TypedValue> m(mem);
   for (auto i = 0; i < row.size(); ++i) {
     m.emplace(std::move(header[i]), std::move(row[i]));
   }
-  return TypedValue(m, mem);
+  return {std::move(m), mem};
 }
 
 }  // namespace
@@ -4519,18 +4584,17 @@ class LoadCsvCursor : public Cursor {
     // have to read at most cardinality(n) rows (but we can read less and stop
     // pulling MATCH).
     if (!input_is_once_ && !input_pulled) return false;
-
-    if (auto row = reader_->GetNextRow(context.evaluation_context.memory)) {
-      if (!reader_->HasHeader()) {
-        frame[self_->row_var_] = CsvRowToTypedList(std::move(*row));
-      } else {
-        frame[self_->row_var_] = CsvRowToTypedMap(
-            std::move(*row), csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory));
-      }
-      return true;
+    auto row = reader_->GetNextRow(context.evaluation_context.memory);
+    if (!row) {
+      return false;
     }
-
-    return false;
+    if (!reader_->HasHeader()) {
+      frame[self_->row_var_] = CsvRowToTypedList(*row);
+    } else {
+      frame[self_->row_var_] =
+          CsvRowToTypedMap(*row, csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory));
+    }
+    return true;
   }
 
   void Reset() override { input_cursor_->Reset(); }

@@ -156,6 +156,7 @@ PRE_VISIT(RemoveProperty);
 PRE_VISIT(RemoveLabels);
 PRE_VISIT(EdgeUniquenessFilter);
 PRE_VISIT(Accumulate);
+PRE_VISIT(EmptyResult);
 
 bool PlanPrinter::PreVisit(query::plan::Aggregate &op) {
   WithPrintLn([&](auto &out) {
@@ -401,6 +402,8 @@ json ToJson(const Aggregate::Element &elem) {
   }
   json["op"] = utils::ToLowerCase(Aggregation::OpToString(elem.op));
   json["output_symbol"] = ToJson(elem.output_sym);
+  json["distinct"] = elem.distinct;
+
   return json;
 }
 ////////////////////////// END HELPER FUNCTIONS ////////////////////////////////
@@ -695,6 +698,17 @@ bool PlanToJsonVisitor::PreVisit(EdgeUniquenessFilter &op) {
   self["name"] = "EdgeUniquenessFilter";
   self["expand_symbol"] = ToJson(op.expand_symbol_);
   self["previous_symbols"] = ToJson(op.previous_symbols_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(EmptyResult &op) {
+  json self;
+  self["name"] = "EmptyResult";
 
   op.input_->Accept(*this);
   self["input"] = PopOutput();

@@ -66,6 +66,7 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(ExpandVariable);
   PRE_VISIT(Filter);
   PRE_VISIT(ConstructNamedPath);
+  PRE_VISIT(EmptyResult);
   PRE_VISIT(Produce);
   PRE_VISIT(SetProperty);
   PRE_VISIT(SetProperties);
@@ -90,7 +91,7 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   }
   PRE_VISIT(Unwind);
   PRE_VISIT(Distinct);
-  
+
   bool PreVisit(Foreach &op) override {
     CheckOp(op);
     return false;
@@ -143,6 +144,7 @@ using ExpectExpand = OpChecker<Expand>;
 using ExpectFilter = OpChecker<Filter>;
 using ExpectConstructNamedPath = OpChecker<ConstructNamedPath>;
 using ExpectProduce = OpChecker<Produce>;
+using ExpectEmptyResult = OpChecker<EmptyResult>;
 using ExpectSetProperty = OpChecker<SetProperty>;
 using ExpectSetProperties = OpChecker<SetProperties>;
 using ExpectSetLabels = OpChecker<SetLabels>;
@@ -216,6 +218,7 @@ class ExpectAggregate : public OpChecker<Aggregate> {
       EXPECT_EQ(typeid(aggr_elem.value).hash_code(), typeid(aggr->expression1_).hash_code());
       EXPECT_EQ(typeid(aggr_elem.key).hash_code(), typeid(aggr->expression2_).hash_code());
       EXPECT_EQ(aggr_elem.op, aggr->op_);
+      EXPECT_EQ(aggr_elem.distinct, aggr->distinct_);
       EXPECT_EQ(aggr_elem.output_sym, symbol_table.at(*aggr));
     }
     EXPECT_EQ(aggr_it, aggregations_.end());

@@ -37,6 +37,7 @@
   M(RemovePropertyOperator, "Number of times RemoveProperty operator was used.")                           \
   M(RemoveLabelsOperator, "Number of times RemoveLabels operator was used.")                               \
   M(EdgeUniquenessFilterOperator, "Number of times EdgeUniquenessFilter operator was used.")               \
+  M(EmptyResultOperator, "Number of times EmptyResult operator was used.")                                 \
   M(AccumulateOperator, "Number of times Accumulate operator was used.")                                   \
   M(AggregateOperator, "Number of times Aggregate operator was used.")                                     \
   M(SkipOperator, "Number of times Skip operator was used.")                                               \
