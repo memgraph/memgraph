@@ -25,9 +25,8 @@ import sys
 
 import datasets
 import helpers
-import runners
-
 import log
+import runners
 
 WITH_FINE_GRAINED_AUTHORIZATION = "with_fine_grained_authorization"
 WITHOUT_FINE_GRAINED_AUTHORIZATION = "without_fine_grained_authorization"
