@@ -574,3 +574,25 @@ class AccessControl(Dataset):
             {},
         )
         return query
+
+
+class TestDataset(Dataset):
+    NAME = "test"
+    VARIANTS = ["small"]
+    DEFAULT_VARIANT = "small"
+    # TODO(gitbuda): ~/Downloads/ doesn't work for some reason, fix! :)
+    # TODO(gitbuda): If ~ is wrong, client fails just with SIGABRT -> hard to figure out -> enable more details from client.
+    FILES = {
+        "small": "/home/buda/Downloads/mgbench/test_dataset_small.cypherl",
+    }
+    SIZES = {
+        "small": {"vertices": 10, "edges": 9},
+    }
+    # TODO(gitbuda): What's the purpose of the INDEX inside the Dataset?
+    # TODO(gitbuda): It's not possible to also inject local index file, it's much easier to add your local file compare to uploading it somewhere or running local HTTP server (easy with e.g. python, but...)
+    INDEX_FILES = {
+        "memgraph": "http://localhost:8080/test_dataset_index.cypherl",
+    }
+
+    def benchmark__basic__test(self):
+        return ("MATCH (n:Label {id: 0})-[*]->(m) RETURN n, m;", {})

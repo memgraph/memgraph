@@ -27,7 +27,7 @@ def get_binary_path(path, base=""):
 
 
 def download_file(url, path):
-    if "https://" in url:
+    if "http://" in url or "https://" in url:
         ret = subprocess.run(
             ["wget", "-nv", "--content-disposition", url], stderr=subprocess.PIPE, cwd=path, check=True
         )

@@ -115,6 +115,8 @@ class Memgraph:
             self._proc_mg = None
             raise Exception("The database process died prematurely!")
         wait_for_server(7687)
+        # TODO(gitbuda): Add better logging
+        print("Memgraph is running...")
         ret = self._proc_mg.poll()
         assert ret is None, "The database process died prematurely " "({})!".format(ret)
 
