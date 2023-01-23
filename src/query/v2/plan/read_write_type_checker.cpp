@@ -11,6 +11,7 @@
 
 #include "query/v2/plan/read_write_type_checker.hpp"
 
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define PRE_VISIT(TOp, RWType, continue_visiting)     \
   /*NOLINTNEXTLINE(bugprone-macro-parentheses)*/      \
   bool ReadWriteTypeChecker::PreVisit(TOp & /*op*/) { \
