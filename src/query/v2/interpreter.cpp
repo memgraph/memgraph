@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -734,7 +734,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::PullMultiple(AnyStrea
   // Returns true if a result was pulled.
   const auto pull_result = [&]() -> bool {
     cursor_->PullMultiple(multi_frame_, ctx_);
-    return multi_frame_.HasValidFrame();
+    return !multi_frame_.HasInvalidFrame();
   };
 
   const auto stream_values = [&output_symbols, &stream](const Frame &frame) {
