@@ -278,7 +278,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  bool PostVisit(ScanByPrimaryKey &) override {
+  bool PostVisit(ScanByPrimaryKey & /*unused*/) override {
     prev_ops_.pop_back();
     return true;
   }
