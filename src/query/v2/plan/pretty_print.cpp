@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -86,9 +86,9 @@ bool PlanPrinter::PreVisit(query::v2::plan::ScanAllByLabelProperty &op) {
   return true;
 }
 
-bool PlanPrinter::PreVisit(query::v2::plan::ScanAllByPrimaryKey &op) {
+bool PlanPrinter::PreVisit(query::v2::plan::ScanByPrimaryKey &op) {
   WithPrintLn([&](auto &out) {
-    out << "* ScanAllByPrimaryKey"
+    out << "* ScanByPrimaryKey"
         << " (" << op.output_symbol_.name() << " :" << request_router_->LabelToName(op.label_) << ")";
   });
   return true;
@@ -487,9 +487,9 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByLabelProperty &op) {
   return false;
 }
 
-bool PlanToJsonVisitor::PreVisit(ScanAllByPrimaryKey &op) {
+bool PlanToJsonVisitor::PreVisit(ScanByPrimaryKey &op) {
   json self;
-  self["name"] = "ScanAllByPrimaryKey";
+  self["name"] = "ScanByPrimaryKey";
   self["label"] = ToJson(op.label_, *request_router_);
   self["output_symbol"] = ToJson(op.output_symbol_);
 

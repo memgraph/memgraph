@@ -55,7 +55,7 @@ class VertexCountCache {
     return 1;
   }
 
-  bool LabelIndexExists(storage::v3::LabelId /*label*/) { return false; }
+  bool LabelIndexExists(storage::v3::LabelId label) { return PrimaryLabelExists(label); }
 
   bool PrimaryLabelExists(storage::v3::LabelId label) { return request_router_->IsPrimaryLabel(label); }
 

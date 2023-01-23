@@ -109,7 +109,7 @@ TYPED_TEST(TestPlanner, MatchFilterPropIsNotNull) {
                                      WHERE(EQ(PROPERTY_LOOKUP("n", prim_prop_one), LITERAL(1))), RETURN("n")));
     auto symbol_table = (memgraph::expr::MakeSymbolTable(query));
     auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByPrimaryKey(label, {expected_primary_key}), ExpectProduce());
+    CheckPlan(planner.plan(), symbol_table, ExpectScanByPrimaryKey(label, {expected_primary_key}), ExpectProduce());
   }
   // Exact primary key match, two elem as PK.
   {
@@ -141,7 +141,7 @@ TYPED_TEST(TestPlanner, MatchFilterPropIsNotNull) {
                                      RETURN("n")));
     auto symbol_table = (memgraph::expr::MakeSymbolTable(query));
     auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
-    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByPrimaryKey(label, {expected_primary_key}), ExpectProduce());
+    CheckPlan(planner.plan(), symbol_table, ExpectScanByPrimaryKey(label, {expected_primary_key}), ExpectProduce());
   }
   // One elem is missing from PK, default to ScanAllByLabelPropertyValue.
   {

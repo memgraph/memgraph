@@ -93,7 +93,7 @@ extern const Event ScanAllByLabelOperator;
 extern const Event ScanAllByLabelPropertyRangeOperator;
 extern const Event ScanAllByLabelPropertyValueOperator;
 extern const Event ScanAllByLabelPropertyOperator;
-extern const Event ScanAllByPrimaryKeyOperator;
+extern const Event ScanByPrimaryKeyOperator;
 extern const Event ExpandOperator;
 extern const Event ExpandVariableOperator;
 extern const Event ConstructNamedPathOperator;
@@ -519,12 +519,12 @@ class DistributedScanAllAndFilterCursor : public Cursor {
   std::optional<std::vector<Expression *>> filter_expressions_;
 };
 
-class DistributedScanAllByPrimaryKeyCursor : public Cursor {
+class DistributedScanByPrimaryKeyCursor : public Cursor {
  public:
-  explicit DistributedScanAllByPrimaryKeyCursor(Symbol output_symbol, UniqueCursorPtr input_cursor, const char *op_name,
-                                                storage::v3::LabelId label,
-                                                std::optional<std::vector<Expression *>> filter_expressions,
-                                                std::vector<Expression *> primary_key)
+  explicit DistributedScanByPrimaryKeyCursor(Symbol output_symbol, UniqueCursorPtr input_cursor, const char *op_name,
+                                             storage::v3::LabelId label,
+                                             std::optional<std::vector<Expression *>> filter_expressions,
+                                             std::vector<Expression *> primary_key)
       : output_symbol_(output_symbol),
         input_cursor_(std::move(input_cursor)),
         op_name_(op_name),
@@ -586,8 +586,8 @@ class DistributedScanAllByPrimaryKeyCursor : public Cursor {
     return false;
   }
 
-  void PullMultiple(MultiFrame &input_multi_frame, ExecutionContext &context) override {
-    throw utils::NotYetImplemented("Multiframe version of ScanAllByPrimaryKey is yet to be implemented.");
+  void PullMultiple(MultiFrame & /*input_multi_frame*/, ExecutionContext & /*context*/) override {
+    throw utils::NotYetImplemented("Multiframe version of ScanByPrimaryKey is yet to be implemented.");
   };
 
   void Reset() override { input_cursor_->Reset(); }
@@ -703,21 +703,21 @@ UniqueCursorPtr ScanAllByLabelProperty::MakeCursor(utils::MemoryResource *mem) c
   throw QueryRuntimeException("ScanAllByLabelProperty is not supported");
 }
 
-ScanAllByPrimaryKey::ScanAllByPrimaryKey(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
-                                         storage::v3::LabelId label, std::vector<query::v2::Expression *> primary_key,
-                                         storage::v3::View view)
+ScanByPrimaryKey::ScanByPrimaryKey(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
+                                   storage::v3::LabelId label, std::vector<query::v2::Expression *> primary_key,
+                                   storage::v3::View view)
     : ScanAll(input, output_symbol, view), label_(label), primary_key_(primary_key) {
   MG_ASSERT(primary_key.front());
 }
 
-ACCEPT_WITH_INPUT(ScanAllByPrimaryKey)
+ACCEPT_WITH_INPUT(ScanByPrimaryKey)
 
-UniqueCursorPtr ScanAllByPrimaryKey::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::ScanAllByPrimaryKeyOperator);
+UniqueCursorPtr ScanByPrimaryKey::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::ScanByPrimaryKeyOperator);
 
-  return MakeUniqueCursorPtr<DistributedScanAllByPrimaryKeyCursor>(mem, output_symbol_, input_->MakeCursor(mem),
-                                                                   "ScanAllByPrimaryKey", label_,
-                                                                   std::nullopt /*filter_expressions*/, primary_key_);
+  return MakeUniqueCursorPtr<DistributedScanByPrimaryKeyCursor>(mem, output_symbol_, input_->MakeCursor(mem),
+                                                                "ScanByPrimaryKey", label_,
+                                                                std::nullopt /*filter_expressions*/, primary_key_);
 }
 
 Expand::Expand(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol, Symbol node_symbol,

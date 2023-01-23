@@ -337,12 +337,12 @@ class ExpectScanAllByLabelProperty : public OpChecker<ScanAllByLabelProperty> {
   memgraph::storage::PropertyId property_;
 };
 
-class ExpectScanAllByPrimaryKey : public OpChecker<v2::plan::ScanAllByPrimaryKey> {
+class ExpectScanByPrimaryKey : public OpChecker<v2::plan::ScanByPrimaryKey> {
  public:
-  ExpectScanAllByPrimaryKey(memgraph::storage::v3::LabelId label, const std::vector<Expression *> &properties)
+  ExpectScanByPrimaryKey(memgraph::storage::v3::LabelId label, const std::vector<Expression *> &properties)
       : label_(label), properties_(properties) {}
 
-  void ExpectOp(v2::plan::ScanAllByPrimaryKey &scan_all, const SymbolTable &) override {
+  void ExpectOp(v2::plan::ScanByPrimaryKey &scan_all, const SymbolTable &) override {
     EXPECT_EQ(scan_all.label_, label_);
 
     bool primary_property_match = true;

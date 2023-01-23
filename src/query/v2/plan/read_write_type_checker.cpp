@@ -35,7 +35,7 @@ PRE_VISIT(ScanAllByLabel, RWType::R, true)
 PRE_VISIT(ScanAllByLabelPropertyRange, RWType::R, true)
 PRE_VISIT(ScanAllByLabelPropertyValue, RWType::R, true)
 PRE_VISIT(ScanAllByLabelProperty, RWType::R, true)
-PRE_VISIT(ScanAllByPrimaryKey, RWType::R, true)
+PRE_VISIT(ScanByPrimaryKey, RWType::R, true)
 
 PRE_VISIT(Expand, RWType::R, true)
 PRE_VISIT(ExpandVariable, RWType::R, true)

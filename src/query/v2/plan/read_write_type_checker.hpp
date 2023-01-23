@@ -59,7 +59,7 @@ class ReadWriteTypeChecker : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanAllByLabelPropertyValue &) override;
   bool PreVisit(ScanAllByLabelPropertyRange &) override;
   bool PreVisit(ScanAllByLabelProperty &) override;
-  bool PreVisit(ScanAllByPrimaryKey &) override;
+  bool PreVisit(ScanByPrimaryKey &) override;
 
   bool PreVisit(Expand &) override;
   bool PreVisit(ExpandVariable &) override;

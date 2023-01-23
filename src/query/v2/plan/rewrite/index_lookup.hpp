@@ -273,12 +273,12 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  bool PreVisit(ScanAllByPrimaryKey &op) override {
+  bool PreVisit(ScanByPrimaryKey &op) override {
     prev_ops_.push_back(&op);
     return true;
   }
 
-  bool PostVisit(ScanAllByPrimaryKey &) override {
+  bool PostVisit(ScanByPrimaryKey &) override {
     prev_ops_.pop_back();
     return true;
   }
@@ -639,7 +639,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         std::vector<query::v2::Expression *> pk_expressions;
         std::transform(primary_key.begin(), primary_key.end(), std::back_inserter(pk_expressions),
                        [](const auto &exp) { return exp.second.property_filter->value_; });
-        return std::make_unique<ScanAllByPrimaryKey>(input, node_symbol, GetLabel(prim_label), pk_expressions);
+        return std::make_unique<ScanByPrimaryKey>(input, node_symbol, GetLabel(prim_label), pk_expressions);
       }
     }
 
