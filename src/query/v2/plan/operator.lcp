@@ -845,7 +845,7 @@ given label and property.
   (:serialize (:slk))
   (:clone))
 
-(lcp:define-class scan-all-by-primary-key (scan-all)
+(lcp:define-class scan-by-primary-key (scan-all)
   ((label "::storage::v3::LabelId" :scope :public)
     (primary-key "std::vector<Expression*>" :scope :public)
     (expression "Expression *" :scope :public
