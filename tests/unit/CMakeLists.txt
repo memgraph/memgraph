@@ -410,3 +410,10 @@ target_link_libraries(${test_prefix}high_density_shard_create_scan mg-io mg-coor
 # Tests for awesome_memgraph_functions
 add_unit_test(query_v2_expression_evaluator.cpp)
 target_link_libraries(${test_prefix}query_v2_expression_evaluator mg-query-v2)
+
+# Tests for multiframes
+add_unit_test(query_v2_create_expand_multiframe.cpp)
+target_link_libraries(${test_prefix}query_v2_create_expand_multiframe mg-query-v2)
+
+add_unit_test(query_v2_create_node_multiframe.cpp)
+target_link_libraries(${test_prefix}query_v2_create_node_multiframe mg-query-v2)

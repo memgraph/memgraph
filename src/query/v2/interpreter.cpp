@@ -734,7 +734,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::PullMultiple(AnyStrea
   // Returns true if a result was pulled.
   const auto pull_result = [&]() -> bool {
     cursor_->PullMultiple(multi_frame_, ctx_);
-    return multi_frame_.HasValidFrame();
+    return !multi_frame_.HasInvalidFrame();
   };
 
   const auto stream_values = [&output_symbols, &stream](const Frame &frame) {

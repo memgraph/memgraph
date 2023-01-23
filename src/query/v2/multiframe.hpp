@@ -81,6 +81,7 @@ class MultiFrame {
   void MakeAllFramesInvalid() noexcept;
 
   bool HasValidFrame() const noexcept;
+  bool HasInvalidFrame() const noexcept;
 
   inline utils::MemoryResource *GetMemoryResource() { return frames_[0].GetMemoryResource(); }
 
@@ -168,7 +169,7 @@ class ValidFramesModifier {
     Iterator &operator++() {
       do {
         ptr_++;
-      } while (*this != iterator_wrapper_->end() && ptr_->IsValid());
+      } while (*this != iterator_wrapper_->end() && !ptr_->IsValid());
 
       return *this;
     }
