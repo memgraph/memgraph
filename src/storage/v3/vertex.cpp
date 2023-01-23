@@ -9,11 +9,22 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+#include "storage/v3/vertex.hpp"
 
-#include "storage/v3/lexicographically_ordered_vertex.hpp"
-#include "utils/skip_list.hpp"
+#include <limits>
+#include <tuple>
+#include <type_traits>
+#include <vector>
+
+#include "storage/v3/delta.hpp"
 
 namespace memgraph::storage::v3 {
-using VerticesSkipList = utils::SkipList<LexicographicallyOrderedVertex>;
+
+VertexData::VertexData(Delta *delta) : delta{delta} {
+  MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
+            "Vertex must be created with an initial DELETE_OBJECT delta!");
+}
+
+bool VertexHasLabel(const Vertex &vertex, const LabelId label) { return utils::Contains(vertex.second.labels, label); }
+
 }  // namespace memgraph::storage::v3

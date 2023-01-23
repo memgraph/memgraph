@@ -328,9 +328,6 @@ target_link_libraries(${test_prefix}query_v2_dummy_test mg-query-v2)
 add_unit_test(storage_v3_property_store.cpp)
 target_link_libraries(${test_prefix}storage_v3_property_store mg-storage-v3 fmt)
 
-add_unit_test(storage_v3_key_store.cpp)
-target_link_libraries(${test_prefix}storage_v3_key_store mg-storage-v3 rapidcheck rapidcheck_gtest)
-
 add_unit_test(storage_v3_indices.cpp)
 target_link_libraries(${test_prefix}storage_v3_indices mg-storage-v3)
 
@@ -410,3 +407,10 @@ target_link_libraries(${test_prefix}high_density_shard_create_scan mg-io mg-coor
 # Tests for awesome_memgraph_functions
 add_unit_test(query_v2_expression_evaluator.cpp)
 target_link_libraries(${test_prefix}query_v2_expression_evaluator mg-query-v2)
+
+# Tests for multiframes
+add_unit_test(query_v2_create_expand_multiframe.cpp)
+target_link_libraries(${test_prefix}query_v2_create_expand_multiframe mg-query-v2)
+
+add_unit_test(query_v2_create_node_multiframe.cpp)
+target_link_libraries(${test_prefix}query_v2_create_node_multiframe mg-query-v2)

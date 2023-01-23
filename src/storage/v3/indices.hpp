@@ -13,6 +13,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <set>
 #include <tuple>
 #include <utility>
 
@@ -20,7 +21,6 @@
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/transaction.hpp"
 #include "storage/v3/vertex_accessor.hpp"
-#include "storage/v3/vertices_skip_list.hpp"
 #include "utils/bound.hpp"
 #include "utils/logging.hpp"
 #include "utils/skip_list.hpp"
@@ -30,7 +30,6 @@ namespace memgraph::storage::v3 {
 struct Indices;
 
 class LabelIndex {
- private:
   struct Entry {
     Vertex *vertex;
     uint64_t timestamp;
@@ -41,17 +40,9 @@ class LabelIndex {
     bool operator==(const Entry &rhs) const { return vertex == rhs.vertex && timestamp == rhs.timestamp; }
   };
 
-  struct LabelStorage {
-    LabelId label;
-    utils::SkipList<Entry> vertices;
-
-    bool operator<(const LabelStorage &rhs) const { return label < rhs.label; }
-    bool operator<(LabelId rhs) const { return label < rhs; }
-    bool operator==(const LabelStorage &rhs) const { return label == rhs.label; }
-    bool operator==(LabelId rhs) const { return label == rhs; }
-  };
-
  public:
+  using LabelIndexContainer = std::set<Entry>;
+
   LabelIndex(Indices *indices, Config::Items config, const VertexValidator &vertex_validator)
       : indices_(indices), config_(config), vertex_validator_{&vertex_validator} {}
 
@@ -59,7 +50,7 @@ class LabelIndex {
   void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx);
 
   /// @throw std::bad_alloc
-  bool CreateIndex(LabelId label, VerticesSkipList::Accessor vertices);
+  bool CreateIndex(LabelId label, VertexContainer &vertices);
 
   /// Returns false if there was no index to drop
   bool DropIndex(LabelId label) { return index_.erase(label) > 0; }
@@ -72,12 +63,12 @@ class LabelIndex {
 
   class Iterable {
    public:
-    Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, View view, Transaction *transaction,
-             Indices *indices, Config::Items config, const VertexValidator &vertex_validator);
+    Iterable(LabelIndexContainer &index_container, LabelId label, View view, Transaction *transaction, Indices *indices,
+             Config::Items config, const VertexValidator &vertex_validator);
 
     class Iterator {
      public:
-      Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator);
+      Iterator(Iterable *self, LabelIndexContainer::iterator index_iterator);
 
       VertexAccessor operator*() const { return current_vertex_accessor_; }
 
@@ -90,16 +81,16 @@ class LabelIndex {
       void AdvanceUntilValid();
 
       Iterable *self_;
-      utils::SkipList<Entry>::Iterator index_iterator_;
+      LabelIndexContainer::iterator index_iterator_;
       VertexAccessor current_vertex_accessor_;
       Vertex *current_vertex_;
     };
 
-    Iterator begin() { return {this, index_accessor_.begin()}; }
-    Iterator end() { return {this, index_accessor_.end()}; }
+    Iterator begin() { return {this, index_container_->begin()}; }
+    Iterator end() { return {this, index_container_->end()}; }
 
    private:
-    utils::SkipList<Entry>::Accessor index_accessor_;
+    LabelIndexContainer *index_container_;
     LabelId label_;
     View view_;
     Transaction *transaction_;
@@ -112,7 +103,7 @@ class LabelIndex {
   Iterable Vertices(LabelId label, View view, Transaction *transaction) {
     auto it = index_.find(label);
     MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist", label.AsUint());
-    return {it->second.access(), label, view, transaction, indices_, config_, *vertex_validator_};
+    return {it->second, label, view, transaction, indices_, config_, *vertex_validator_};
   }
 
   int64_t ApproximateVertexCount(LabelId label) {
@@ -123,17 +114,14 @@ class LabelIndex {
 
   void Clear() { index_.clear(); }
 
-  void RunGC();
-
  private:
-  std::map<LabelId, utils::SkipList<Entry>> index_;
+  std::map<LabelId, LabelIndexContainer> index_;
   Indices *indices_;
   Config::Items config_;
   const VertexValidator *vertex_validator_;
 };
 
 class LabelPropertyIndex {
- private:
   struct Entry {
     PropertyValue value;
     Vertex *vertex;
@@ -147,6 +135,8 @@ class LabelPropertyIndex {
   };
 
  public:
+  using LabelPropertyIndexContainer = std::set<Entry>;
+
   LabelPropertyIndex(Indices *indices, Config::Items config, const VertexValidator &vertex_validator)
       : indices_(indices), config_(config), vertex_validator_{&vertex_validator} {}
 
@@ -157,7 +147,7 @@ class LabelPropertyIndex {
   void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, const Transaction &tx);
 
   /// @throw std::bad_alloc
-  bool CreateIndex(LabelId label, PropertyId property, VerticesSkipList::Accessor vertices);
+  bool CreateIndex(LabelId label, PropertyId property, VertexContainer &vertices);
 
   bool DropIndex(LabelId label, PropertyId property) { return index_.erase({label, property}) > 0; }
 
@@ -169,14 +159,14 @@ class LabelPropertyIndex {
 
   class Iterable {
    public:
-    Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, PropertyId property,
+    Iterable(LabelPropertyIndexContainer &index_container, LabelId label, PropertyId property,
              const std::optional<utils::Bound<PropertyValue>> &lower_bound,
              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Transaction *transaction,
              Indices *indices, Config::Items config, const VertexValidator &vertex_validator);
 
     class Iterator {
      public:
-      Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator);
+      Iterator(Iterable *self, LabelPropertyIndexContainer::iterator index_iterator);
 
       VertexAccessor operator*() const { return current_vertex_accessor_; }
 
@@ -189,7 +179,7 @@ class LabelPropertyIndex {
       void AdvanceUntilValid();
 
       Iterable *self_;
-      utils::SkipList<Entry>::Iterator index_iterator_;
+      LabelPropertyIndexContainer::iterator index_iterator_;
       VertexAccessor current_vertex_accessor_;
       Vertex *current_vertex_;
     };
@@ -198,7 +188,7 @@ class LabelPropertyIndex {
     Iterator end();
 
    private:
-    utils::SkipList<Entry>::Accessor index_accessor_;
+    LabelPropertyIndexContainer *index_container_;
     LabelId label_;
     PropertyId property_;
     std::optional<utils::Bound<PropertyValue>> lower_bound_;
@@ -217,11 +207,11 @@ class LabelPropertyIndex {
     auto it = index_.find({label, property});
     MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
               property.AsUint());
-    return {it->second.access(), label,    property, lower_bound,       upper_bound, view,
-            transaction,         indices_, config_,  *vertex_validator_};
+    return {it->second, label,       property, lower_bound, upper_bound,
+            view,       transaction, indices_, config_,     *vertex_validator_};
   }
 
-  int64_t ApproximateVertexCount(LabelId label, PropertyId property) const {
+  int64_t VertexCount(LabelId label, PropertyId property) const {
     auto it = index_.find({label, property});
     MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
               property.AsUint());
@@ -232,18 +222,15 @@ class LabelPropertyIndex {
   /// an estimated count of nodes which have their property's value set to
   /// `value`. If the `value` specified is `Null`, then an average number of
   /// equal elements is returned.
-  int64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const;
+  int64_t VertexCount(LabelId label, PropertyId property, const PropertyValue &value) const;
 
-  int64_t ApproximateVertexCount(LabelId label, PropertyId property,
-                                 const std::optional<utils::Bound<PropertyValue>> &lower,
-                                 const std::optional<utils::Bound<PropertyValue>> &upper) const;
+  int64_t VertexCount(LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower,
+                      const std::optional<utils::Bound<PropertyValue>> &upper) const;
 
   void Clear() { index_.clear(); }
 
-  void RunGC();
-
  private:
-  std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>> index_;
+  std::map<std::pair<LabelId, PropertyId>, LabelPropertyIndexContainer> index_;
   Indices *indices_;
   Config::Items config_;
   const VertexValidator *vertex_validator_;
