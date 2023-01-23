@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -66,9 +66,12 @@ struct MapItem;
 class Duration;
 class Value;
 
+struct StealType {};
+inline constexpr StealType steal{};
+
 inline mgp_memory *memory{nullptr};
 
-/* #region Graph (Id, Graph, Nodes, GraphRelationships, Relationships, Properties & Labels) */
+/* #region Graph (Id, Graph, Nodes, GraphRelationships, Relationships & Labels) */
 
 /// Wrapper for int64_t IDs to prevent dangerous implicit conversions.
 class Id {
@@ -279,40 +282,6 @@ class Relationships {
 
  private:
   mgp_edges_iterator *relationships_iterator_ = nullptr;
-};
-
-/// @brief View of node properties.
-class Properties {
- public:
-  explicit Properties(mgp_properties_iterator *properties_iterator);
-
-  /// @brief Returns the size of the properties map.
-  size_t Size() const;
-  /// @brief Returns whether the properties map is empty.
-  bool Empty() const;
-
-  /// @brief Returns the value associated with the given `key`. If there’s no such value, the behavior is undefined.
-  /// @note Each key-value pair needs to be checked, ensuing O(n) time complexity.
-  Value operator[](const std::string_view key) const;
-
-  std::map<std::string_view, Value>::const_iterator begin() const;
-  std::map<std::string_view, Value>::const_iterator end() const;
-
-  std::map<std::string_view, Value>::const_iterator cbegin() const;
-  std::map<std::string_view, Value>::const_iterator cend() const;
-
-  /// @brief Returns the key-value iterator for the given `key`. If there’s no such pair, returns the end of the
-  /// iterator.
-  /// @note Each key-value pair needs to be checked, ensuing O(n) time complexity.
-  std::map<std::string_view, Value>::const_iterator find(const std::string_view key) const;
-
-  /// @exception std::runtime_error Map contains value(s) of unknown type.
-  bool operator==(const Properties &other) const;
-  /// @exception std::runtime_error Map contains value(s) of unknown type.
-  bool operator!=(const Properties &other) const;
-
- private:
-  std::map<const std::string_view, Value> property_map_;
 };
 
 /// @brief View of node labels.
@@ -596,10 +565,11 @@ class Node {
   bool HasLabel(std::string_view label) const;
 
   /// @brief Returns an iterable & indexable structure of the node’s properties.
-  class Properties Properties() const;
+  std::map<std::string, Value> Properties() const;
 
-  /// @brief Returns the value of the node’s `property_name` property.
-  Value operator[](const std::string_view property_name) const;
+  void SetProperty(std::string property, Value value);
+
+  Value GetProperty(const std::string &property) const;
 
   /// @brief Returns an iterable structure of the node’s inbound relationships.
   Relationships InRelationships() const;
@@ -649,11 +619,12 @@ class Relationship {
   /// @brief Returns the relationship’s type.
   std::string_view Type() const;
 
-  /// @brief Returns an iterable & indexable structure of the relationship’s properties.
-  class Properties Properties() const;
+  /// @brief Returns an std::map of the relationship’s properties.
+  std::map<std::string, Value> Properties() const;
 
-  /// @brief Returns the value of the relationship’s `property_name` property.
-  Value operator[](const std::string_view property_name) const;
+  void SetProperty(std::string property, Value value);
+
+  Value GetProperty(const std::string &property) const;
 
   /// @brief Returns the relationship’s source node.
   Node From() const;
@@ -985,6 +956,8 @@ class Value {
   friend class Result;
 
   explicit Value(mgp_value *ptr);
+
+  explicit Value(StealType /*steal*/, mgp_value *ptr);
 
   // Null constructor:
   explicit Value();
@@ -1963,35 +1936,6 @@ inline Relationships::Iterator Relationships::cbegin() const { return Iterator(r
 
 inline Relationships::Iterator Relationships::cend() const { return Iterator(nullptr); }
 
-// Properties:
-
-inline Properties::Properties(mgp_properties_iterator *properties_iterator) {
-  for (auto property = mgp::properties_iterator_get(properties_iterator); property;
-       property = mgp::properties_iterator_next(properties_iterator)) {
-    auto value = Value(property->value);
-    property_map_.emplace(property->name, value);
-  }
-  mgp::properties_iterator_destroy(properties_iterator);
-}
-
-inline size_t Properties::Size() const { return property_map_.size(); }
-
-inline bool Properties::Empty() const { return Size() == 0; }
-
-inline Value Properties::operator[](const std::string_view key) const { return property_map_.at(key); }
-
-inline std::map<std::string_view, Value>::const_iterator Properties::begin() const { return property_map_.begin(); }
-
-inline std::map<std::string_view, Value>::const_iterator Properties::end() const { return property_map_.end(); }
-
-inline std::map<std::string_view, Value>::const_iterator Properties::cbegin() const { return property_map_.cbegin(); }
-
-inline std::map<std::string_view, Value>::const_iterator Properties::cend() const { return property_map_.cend(); }
-
-inline bool Properties::operator==(const Properties &other) const { return property_map_ == other.property_map_; }
-
-inline bool Properties::operator!=(const Properties &other) const { return !(*this == other); }
-
 // Labels:
 
 inline Labels::Labels(mgp_vertex *node_ptr) : node_ptr_(mgp::vertex_copy(node_ptr, memory)) {}
@@ -2306,10 +2250,6 @@ inline void Map::Insert(std::string_view key, Value &&value) {
   value.ptr_ = nullptr;
 }
 
-inline std::map<std::string_view, Value>::const_iterator Properties::find(const std::string_view key) const {
-  return property_map_.find(key);
-}
-
 inline bool Map::operator==(const Map &other) const { return util::MapsEqual(ptr_, other.ptr_); }
 
 inline bool Map::operator!=(const Map &other) const { return !(*this == other); }
@@ -2366,10 +2306,6 @@ inline bool Node::HasLabel(std::string_view label) const {
   return false;
 }
 
-inline class Properties Node::Properties() const { return mgp::Properties(mgp::vertex_iter_properties(ptr_, memory)); }
-
-inline Value Node::operator[](const std::string_view property_name) const { return Properties()[property_name]; }
-
 inline Relationships Node::InRelationships() const {
   auto relationship_iterator = mgp::vertex_iter_in_edges(ptr_, memory);
   if (relationship_iterator == nullptr) {
@@ -2388,6 +2324,26 @@ inline Relationships Node::OutRelationships() const {
 
 inline void Node::AddLabel(const std::string_view label) {
   mgp::vertex_add_label(this->ptr_, mgp_label{.name = label.data()});
+}
+
+inline std::map<std::string, Value> Node::Properties() const {
+  mgp_properties_iterator *properties_iterator = mgp::vertex_iter_properties(ptr_, memory);
+  std::map<std::string, Value> property_map;
+  for (auto *property = mgp::properties_iterator_get(properties_iterator); property;
+       property = mgp::properties_iterator_next(properties_iterator)) {
+    property_map.emplace(std::string(property->name), Value(property->value));
+  }
+  mgp::properties_iterator_destroy(properties_iterator);
+  return property_map;
+}
+
+inline void Node::SetProperty(std::string property, Value value) {
+  mgp::vertex_set_property(ptr_, property.data(), value.ptr());
+}
+
+inline Value Node::GetProperty(const std::string &property) const {
+  mgp_value *vertex_prop = mgp::vertex_get_property(ptr_, property.data(), memory);
+  return Value(steal, vertex_prop);
 }
 
 inline bool Node::operator<(const Node &other) const { return Id() < other.Id(); }
@@ -2436,12 +2392,24 @@ inline mgp::Id Relationship::Id() const { return Id::FromInt(mgp::edge_get_id(pt
 
 inline std::string_view Relationship::Type() const { return mgp::edge_get_type(ptr_).name; }
 
-inline class Properties Relationship::Properties() const {
-  return mgp::Properties(mgp::edge_iter_properties(ptr_, memory));
+inline std::map<std::string, Value> Relationship::Properties() const {
+  mgp_properties_iterator *properties_iterator = mgp::edge_iter_properties(ptr_, memory);
+  std::map<std::string, Value> property_map;
+  for (mgp_property *property = mgp::properties_iterator_get(properties_iterator); property;
+       property = mgp::properties_iterator_next(properties_iterator)) {
+    property_map.emplace(property->name, Value(property->value));
+  }
+  mgp::properties_iterator_destroy(properties_iterator);
+  return property_map;
 }
 
-inline Value Relationship::operator[](const std::string_view property_name) const {
-  return Properties()[property_name];
+inline void Relationship::SetProperty(std::string property, Value value) {
+  mgp::edge_set_property(ptr_, property.data(), value.ptr());
+}
+
+inline Value Relationship::GetProperty(const std::string &property) const {
+  mgp_value *edge_prop = mgp::edge_get_property(ptr_, property.data(), memory);
+  return Value(steal, edge_prop);
 }
 
 inline Node Relationship::From() const { return Node(mgp::edge_get_from(ptr_)); }
@@ -2917,6 +2885,7 @@ inline bool Duration::operator<(const Duration &other) const {
 /* #region Value */
 
 inline Value::Value(mgp_value *ptr) : ptr_(mgp::value_copy(ptr, memory)) {}
+inline Value::Value(StealType /*steal*/, mgp_value *ptr) : ptr_{ptr} {}
 
 inline Value::Value() : ptr_(mgp::value_make_null(memory)) {}
 
