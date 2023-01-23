@@ -8,6 +8,7 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
+#pragma once
 
 #include <map>
 #include <memory>
@@ -17,7 +18,10 @@
 #include "storage/v3/config.hpp"
 #include "storage/v3/delta.hpp"
 #include "storage/v3/edge.hpp"
+#include "storage/v3/id_types.hpp"
 #include "storage/v3/indices.hpp"
+#include "storage/v3/key_store.hpp"
+#include "storage/v3/schemas.hpp"
 #include "storage/v3/transaction.hpp"
 #include "storage/v3/vertex.hpp"
 #include "utils/concepts.hpp"
@@ -29,16 +33,16 @@ namespace memgraph::storage::v3 {
 struct SplitData {
   VertexContainer vertices;
   std::optional<EdgeContainer> edges;
-  std::map<uint64_t, Transaction> transactions;
+  std::map<uint64_t, std::unique_ptr<Transaction>> transactions;
   std::map<LabelId, LabelIndex::IndexContainer> label_indices;
   std::map<std::pair<LabelId, PropertyId>, LabelPropertyIndex::IndexContainer> label_property_indices;
 };
 
 class Splitter final {
  public:
-  Splitter(VertexContainer &vertices, EdgeContainer &edges,
+  Splitter(LabelId primary_label, VertexContainer &vertices, EdgeContainer &edges,
            std::map<uint64_t, std::unique_ptr<Transaction>> &start_logical_id_to_transaction, Indices &indices,
-           Config &config);
+           Config &config, const std::vector<SchemaProperty> &schema);
 
   Splitter(const Splitter &) = delete;
   Splitter(Splitter &&) noexcept = delete;
@@ -46,11 +50,12 @@ class Splitter final {
   Splitter operator=(Splitter &&) noexcept = delete;
   ~Splitter() = default;
 
-  SplitData SplitShard(const PrimaryKey &split_key);
+  std::unique_ptr<Shard> SplitShard(const PrimaryKey &split_key, const std::optional<PrimaryKey> &max_primary_key);
 
  private:
-  std::map<uint64_t, Transaction> CollectTransactions(const std::set<uint64_t> &collected_transactions_start_id,
-                                                      VertexContainer &cloned_vertices, EdgeContainer &cloned_edges);
+  std::map<uint64_t, std::unique_ptr<Transaction>> CollectTransactions(
+      const std::set<uint64_t> &collected_transactions_start_id, VertexContainer &cloned_vertices,
+      EdgeContainer &cloned_edges);
 
   VertexContainer CollectVertices(SplitData &data, std::set<uint64_t> &collected_transactions_start_id,
                                   const PrimaryKey &split_key);
@@ -85,18 +90,20 @@ class Splitter final {
 
   static void ScanDeltas(std::set<uint64_t> &collected_transactions_start_id, Delta *delta);
 
-  static void AlignClonedTransaction(Transaction &cloned_transaction, const Transaction &transaction,
-                                     std::map<uint64_t, Transaction> &cloned_transactions,
-                                     VertexContainer &cloned_vertices, EdgeContainer &cloned_edges);
+  static void AdjustClonedTransaction(Transaction &cloned_transaction, const Transaction &transaction,
+                                      std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions,
+                                      VertexContainer &cloned_vertices, EdgeContainer &cloned_edges);
 
-  void AlignClonedTransactions(std::map<uint64_t, Transaction> &cloned_transactions, VertexContainer &cloned_vertices,
-                               EdgeContainer &cloned_edges);
+  void AdjustClonedTransactions(std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions,
+                                VertexContainer &cloned_vertices, EdgeContainer &cloned_edges);
 
+  LabelId primary_label_;
   VertexContainer &vertices_;
   EdgeContainer &edges_;
   std::map<uint64_t, std::unique_ptr<Transaction>> &start_logical_id_to_transaction_;
   Indices &indices_;
   Config &config_;
+  std::vector<SchemaProperty> schema_;
 };
 
 }  // namespace memgraph::storage::v3

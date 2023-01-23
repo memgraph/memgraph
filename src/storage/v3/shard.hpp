@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <map>
+#include <memory>
 #include <numeric>
 #include <optional>
 #include <shared_mutex>
@@ -192,9 +193,19 @@ class Shard final {
  public:
   /// @throw std::system_error
   /// @throw std::bad_alloc
-  explicit Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<PrimaryKey> max_primary_key,
-                 std::vector<SchemaProperty> schema, Config config = Config(),
-                 std::unordered_map<uint64_t, std::string> id_to_name = {});
+  Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<PrimaryKey> max_primary_key,
+        std::vector<SchemaProperty> schema, Config config = Config(),
+        std::unordered_map<uint64_t, std::string> id_to_name = {});
+
+  Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<PrimaryKey> max_primary_key,
+        std::vector<SchemaProperty> schema, VertexContainer &&vertices, EdgeContainer &&edges,
+        std::map<uint64_t, std::unique_ptr<Transaction>> &&start_logical_id_to_transaction, Config config = Config(),
+        std::unordered_map<uint64_t, std::string> id_to_name = {});
+
+  Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<PrimaryKey> max_primary_key,
+        std::vector<SchemaProperty> schema, VertexContainer &&vertices,
+        std::map<uint64_t, std::unique_ptr<Transaction>> &&start_logical_id_to_transaction, Config config = Config(),
+        std::unordered_map<uint64_t, std::string> id_to_name = {});
 
   Shard(const Shard &) = delete;
   Shard(Shard &&) noexcept = delete;
@@ -368,7 +379,7 @@ class Shard final {
 
   std::optional<SplitInfo> ShouldSplit() const noexcept;
 
-  SplitData PerformSplit(const PrimaryKey &split_key);
+  std::unique_ptr<Shard> PerformSplit(const PrimaryKey &split_key);
 
  private:
   Transaction &GetTransaction(coordinator::Hlc start_timestamp, IsolationLevel isolation_level);

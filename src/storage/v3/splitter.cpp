@@ -17,23 +17,29 @@
 #include <set>
 
 #include "storage/v3/config.hpp"
+#include "storage/v3/id_types.hpp"
 #include "storage/v3/indices.hpp"
 #include "storage/v3/key_store.hpp"
+#include "storage/v3/schemas.hpp"
+#include "storage/v3/shard.hpp"
 #include "storage/v3/transaction.hpp"
 #include "storage/v3/vertex.hpp"
 
 namespace memgraph::storage::v3 {
 
-Splitter::Splitter(VertexContainer &vertices, EdgeContainer &edges,
+Splitter::Splitter(const LabelId primary_label, VertexContainer &vertices, EdgeContainer &edges,
                    std::map<uint64_t, std::unique_ptr<Transaction>> &start_logical_id_to_transaction, Indices &indices,
-                   Config &config)
-    : vertices_(vertices),
+                   Config &config, const std::vector<SchemaProperty> &schema)
+    : primary_label_(primary_label),
+      vertices_(vertices),
       edges_(edges),
       start_logical_id_to_transaction_(start_logical_id_to_transaction),
       indices_(indices),
-      config_(config) {}
+      config_(config),
+      schema_(schema) {}
 
-SplitData Splitter::SplitShard(const PrimaryKey &split_key) {
+std::unique_ptr<Shard> Splitter::SplitShard(const PrimaryKey &split_key,
+                                            const std::optional<PrimaryKey> &max_primary_key) {
   SplitData data;
 
   std::set<uint64_t> collected_transactions_;
@@ -41,7 +47,12 @@ SplitData Splitter::SplitShard(const PrimaryKey &split_key) {
   data.edges = CollectEdges(collected_transactions_, data.vertices, split_key);
   data.transactions = CollectTransactions(collected_transactions_, data.vertices, *data.edges);
 
-  return data;
+  if (data.edges) {
+    return std::make_unique<Shard>(primary_label_, split_key, max_primary_key, schema_, std::move(data.vertices),
+                                   std::move(*data.edges), std::move(data.transactions), config_);
+  }
+  return std::make_unique<Shard>(primary_label_, split_key, max_primary_key, schema_, std::move(data.vertices),
+                                 std::move(data.transactions), config_);
 }
 
 void Splitter::ScanDeltas(std::set<uint64_t> &collected_transactions_, Delta *delta) {
@@ -124,10 +135,9 @@ std::optional<EdgeContainer> Splitter::CollectEdges(std::set<uint64_t> &collecte
   return splitted_edges;
 }
 
-std::map<uint64_t, Transaction> Splitter::CollectTransactions(const std::set<uint64_t> &collected_transactions_,
-                                                              VertexContainer &cloned_vertices,
-                                                              EdgeContainer &cloned_edges) {
-  std::map<uint64_t, Transaction> transactions;
+std::map<uint64_t, std::unique_ptr<Transaction>> Splitter::CollectTransactions(
+    const std::set<uint64_t> &collected_transactions_, VertexContainer &cloned_vertices, EdgeContainer &cloned_edges) {
+  std::map<uint64_t, std::unique_ptr<Transaction>> transactions;
 
   for (const auto &[commit_start, transaction] : start_logical_id_to_transaction_) {
     // We need all transaction whose deltas need to be resolved for any of the
@@ -139,21 +149,21 @@ std::map<uint64_t, Transaction> Splitter::CollectTransactions(const std::set<uin
 
   // It is necessary to clone all the transactions first so we have new addresses
   // for deltas, before doing alignment of deltas and prev_ptr
-  AlignClonedTransactions(transactions, cloned_vertices, cloned_edges);
+  AdjustClonedTransactions(transactions, cloned_vertices, cloned_edges);
   return transactions;
 }
 
-void Splitter::AlignClonedTransactions(std::map<uint64_t, Transaction> &cloned_transactions,
-                                       VertexContainer &cloned_vertices, EdgeContainer &cloned_edges) {
+void Splitter::AdjustClonedTransactions(std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions,
+                                        VertexContainer &cloned_vertices, EdgeContainer &cloned_edges) {
   for (auto &[commit_start, cloned_transaction] : cloned_transactions) {
-    AlignClonedTransaction(cloned_transaction, *start_logical_id_to_transaction_[commit_start], cloned_transactions,
-                           cloned_vertices, cloned_edges);
+    AdjustClonedTransaction(*cloned_transaction, *start_logical_id_to_transaction_[commit_start], cloned_transactions,
+                            cloned_vertices, cloned_edges);
   }
 }
 
-void Splitter::AlignClonedTransaction(Transaction &cloned_transaction, const Transaction &transaction,
-                                      std::map<uint64_t, Transaction> &cloned_transactions,
-                                      VertexContainer &cloned_vertices, EdgeContainer &cloned_edges) {
+void Splitter::AdjustClonedTransaction(Transaction &cloned_transaction, const Transaction &transaction,
+                                       std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions,
+                                       VertexContainer &cloned_vertices, EdgeContainer &cloned_edges) {
   // Align next and prev in deltas
   // NOTE It is important that the order of delta lists is in same order
   auto delta_it = transaction.deltas.begin();
@@ -166,7 +176,7 @@ void Splitter::AlignClonedTransaction(Transaction &cloned_transaction, const Tra
       // or aborted
       if (cloned_transactions.contains(delta->commit_info->start_or_commit_timestamp.logical_id)) {
         auto *found_delta_it = &*std::ranges::find_if(
-            cloned_transactions.at(delta->commit_info->start_or_commit_timestamp.logical_id).deltas,
+            cloned_transactions.at(delta->commit_info->start_or_commit_timestamp.logical_id)->deltas,
             [delta](const auto &elem) { return elem.uuid == delta->uuid; });
         MG_ASSERT(found_delta_it, "Delta with given uuid must exist!");
         cloned_delta->next = &*found_delta_it;

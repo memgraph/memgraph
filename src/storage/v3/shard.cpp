@@ -333,7 +333,46 @@ Shard::Shard(const LabelId primary_label, const PrimaryKey min_primary_key,
       indices_{config.items, vertex_validator_},
       isolation_level_{config.transaction.isolation_level},
       config_{config},
-      shard_splitter_(vertices_, edges_, start_logical_id_to_transaction_, indices_, config_) {
+      shard_splitter_(primary_label, vertices_, edges_, start_logical_id_to_transaction_, indices_, config_, schema) {
+  CreateSchema(primary_label_, schema);
+  StoreMapping(std::move(id_to_name));
+}
+
+Shard::Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<PrimaryKey> max_primary_key,
+             std::vector<SchemaProperty> schema, VertexContainer &&vertices, EdgeContainer &&edges,
+             std::map<uint64_t, std::unique_ptr<Transaction>> &&start_logical_id_to_transaction, Config config,
+             std::unordered_map<uint64_t, std::string> id_to_name)
+    : primary_label_{primary_label},
+      min_primary_key_{min_primary_key},
+      max_primary_key_{max_primary_key},
+      vertices_(std::move(vertices)),
+      edges_(std::move(edges)),
+      schema_validator_{schemas_, name_id_mapper_},
+      vertex_validator_{schema_validator_, primary_label},
+      indices_{config.items, vertex_validator_},
+      isolation_level_{config.transaction.isolation_level},
+      config_{config},
+      start_logical_id_to_transaction_(std::move(start_logical_id_to_transaction)),
+      shard_splitter_(primary_label, vertices_, edges_, start_logical_id_to_transaction_, indices_, config_, schema) {
+  CreateSchema(primary_label_, schema);
+  StoreMapping(std::move(id_to_name));
+}
+
+Shard::Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<PrimaryKey> max_primary_key,
+             std::vector<SchemaProperty> schema, VertexContainer &&vertices,
+             std::map<uint64_t, std::unique_ptr<Transaction>> &&start_logical_id_to_transaction, Config config,
+             std::unordered_map<uint64_t, std::string> id_to_name)
+    : primary_label_{primary_label},
+      min_primary_key_{min_primary_key},
+      max_primary_key_{max_primary_key},
+      vertices_(std::move(vertices)),
+      schema_validator_{schemas_, name_id_mapper_},
+      vertex_validator_{schema_validator_, primary_label},
+      indices_{config.items, vertex_validator_},
+      isolation_level_{config.transaction.isolation_level},
+      config_{config},
+      start_logical_id_to_transaction_(std::move(start_logical_id_to_transaction)),
+      shard_splitter_(primary_label, vertices_, edges_, start_logical_id_to_transaction_, indices_, config_, schema) {
   CreateSchema(primary_label_, schema);
   StoreMapping(std::move(id_to_name));
 }
@@ -434,7 +473,7 @@ ShardResult<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>>
   }
 
   std::vector<EdgeAccessor> deleted_edges;
-  const VertexId vertex_id{shard_->primary_label_, *vertex->PrimaryKey(View::OLD)};  // TODO Replace
+  const VertexId vertex_id{shard_->primary_label_, *vertex->PrimaryKey(View::OLD)};
   for (const auto &item : in_edges) {
     auto [edge_type, from_vertex, edge] = item;
     EdgeAccessor e(edge, edge_type, from_vertex, vertex_id, transaction_, &shard_->indices_, config_);
@@ -1057,7 +1096,9 @@ std::optional<SplitInfo> Shard::ShouldSplit() const noexcept {
   return std::nullopt;
 }
 
-SplitData Shard::PerformSplit(const PrimaryKey &split_key) { return shard_splitter_.SplitShard(split_key); }
+std::unique_ptr<Shard> Shard::PerformSplit(const PrimaryKey &split_key) {
+  return shard_splitter_.SplitShard(split_key, max_primary_key_);
+}
 
 bool Shard::IsVertexBelongToShard(const VertexId &vertex_id) const {
   return vertex_id.primary_label == primary_label_ && vertex_id.primary_key >= min_primary_key_ &&
