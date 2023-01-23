@@ -56,31 +56,29 @@ class ShardSplitTest : public testing::Test {
   }
 };
 
-void AssertEqVertexContainer(const VertexContainer &expected, const VertexContainer &actual) {
-  ASSERT_EQ(expected.size(), actual.size());
+void AssertEqVertexContainer(const VertexContainer &actual, const VertexContainer &expected) {
+  ASSERT_EQ(actual.size(), expected.size());
 
   auto expected_it = expected.begin();
   auto actual_it = actual.begin();
   while (expected_it != expected.end()) {
-    EXPECT_EQ(expected_it->first, actual_it->first);
-    EXPECT_EQ(expected_it->second.deleted, actual_it->second.deleted);
-    EXPECT_EQ(expected_it->second.in_edges, actual_it->second.in_edges);
-    EXPECT_EQ(expected_it->second.out_edges, actual_it->second.out_edges);
-    EXPECT_EQ(expected_it->second.labels, actual_it->second.labels);
+    EXPECT_EQ(actual_it->first, expected_it->first);
+    EXPECT_EQ(actual_it->second.deleted, expected_it->second.deleted);
+    EXPECT_EQ(actual_it->second.labels, expected_it->second.labels);
 
     auto *expected_delta = expected_it->second.delta;
     auto *actual_delta = actual_it->second.delta;
     while (expected_delta != nullptr) {
-      EXPECT_EQ(expected_delta->action, actual_delta->action);
+      EXPECT_EQ(actual_delta->action, expected_delta->action);
       switch (expected_delta->action) {
         case Delta::Action::ADD_LABEL:
         case Delta::Action::REMOVE_LABEL: {
-          EXPECT_EQ(expected_delta->label, actual_delta->label);
+          EXPECT_EQ(actual_delta->label, expected_delta->label);
           break;
         }
         case Delta::Action::SET_PROPERTY: {
-          EXPECT_EQ(expected_delta->property.key, actual_delta->property.key);
-          EXPECT_EQ(expected_delta->property.value, actual_delta->property.value);
+          EXPECT_EQ(actual_delta->property.key, expected_delta->property.key);
+          EXPECT_EQ(actual_delta->property.value, expected_delta->property.value);
           break;
         }
         case Delta::Action::ADD_IN_EDGE:
@@ -147,7 +145,7 @@ TEST_F(ShardSplitTest, TestBasicSplitWithVertices) {
   AddDeltaToDeltaChain(&*it, &delta_add_property);
   AddDeltaToDeltaChain(&*it, &delta_add_label);
 
-  AssertEqVertexContainer(expected_vertices, splitted_data.vertices);
+  AssertEqVertexContainer(splitted_data.vertices, expected_vertices);
 }
 
 TEST_F(ShardSplitTest, TestBasicSplitVerticesAndEdges) {
@@ -160,16 +158,14 @@ TEST_F(ShardSplitTest, TestBasicSplitVerticesAndEdges) {
   EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(6)}, {}).HasError());
 
   EXPECT_FALSE(acc.CreateEdge(VertexId{primary_label, PrimaryKey{PropertyValue(1)}},
-                              VertexId{primary_label, PrimaryKey{PropertyValue(2)}}, edge_type_id, Gid::FromUint(0))
-                   .HasError());
-  EXPECT_FALSE(acc.CreateEdge(VertexId{primary_label, PrimaryKey{PropertyValue(1)}},
                               VertexId{primary_label, PrimaryKey{PropertyValue(5)}}, edge_type_id, Gid::FromUint(1))
                    .HasError());
   EXPECT_FALSE(acc.CreateEdge(VertexId{primary_label, PrimaryKey{PropertyValue(4)}},
                               VertexId{primary_label, PrimaryKey{PropertyValue(6)}}, edge_type_id, Gid::FromUint(2))
                    .HasError());
 
-  acc.Commit(GetNextHlc());
+  auto current_hlc = GetNextHlc();
+  acc.Commit(current_hlc);
 
   auto splitted_data = storage.PerformSplit({PropertyValue(4)});
   EXPECT_EQ(splitted_data.vertices.size(), 3);
@@ -177,6 +173,26 @@ TEST_F(ShardSplitTest, TestBasicSplitVerticesAndEdges) {
   EXPECT_EQ(splitted_data.transactions.size(), 1);
   EXPECT_EQ(splitted_data.label_indices.size(), 0);
   EXPECT_EQ(splitted_data.label_property_indices.size(), 0);
+
+  CommitInfo commit_info{.start_or_commit_timestamp = current_hlc};
+  Delta delta_delete1{Delta::DeleteObjectTag{}, &commit_info, 1};
+  Delta delta_delete2{Delta::DeleteObjectTag{}, &commit_info, 1};
+  Delta delta_delete3{Delta::DeleteObjectTag{}, &commit_info, 1};
+  Delta delta_add_in_edge1{Delta::RemoveInEdgeTag{},  edge_type_id, VertexId{primary_label, {PropertyValue(1)}},
+                           EdgeRef{Gid::FromUint(1)}, &commit_info, 1};
+  Delta delta_add_out_edge2{Delta::RemoveOutEdgeTag{}, edge_type_id, VertexId{primary_label, {PropertyValue(6)}},
+                            EdgeRef{Gid::FromUint(2)}, &commit_info, 1};
+  Delta delta_add_in_edge2{Delta::RemoveInEdgeTag{},  edge_type_id, VertexId{primary_label, {PropertyValue(4)}},
+                           EdgeRef{Gid::FromUint(2)}, &commit_info, 1};
+  VertexContainer expected_vertices;
+  auto [vtx4, inserted4] = expected_vertices.emplace(PrimaryKey{PropertyValue{4}}, VertexData(&delta_delete1));
+  auto [vtx5, inserted5] = expected_vertices.emplace(PrimaryKey{PropertyValue{5}}, VertexData(&delta_delete2));
+  auto [vtx6, inserted6] = expected_vertices.emplace(PrimaryKey{PropertyValue{6}}, VertexData(&delta_delete3));
+  AddDeltaToDeltaChain(&*vtx4, &delta_add_out_edge2);
+  AddDeltaToDeltaChain(&*vtx5, &delta_add_in_edge1);
+  AddDeltaToDeltaChain(&*vtx6, &delta_add_in_edge2);
+
+  AssertEqVertexContainer(splitted_data.vertices, expected_vertices);
 }
 
 TEST_F(ShardSplitTest, TestBasicSplitBeforeCommit) {

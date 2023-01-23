@@ -21,6 +21,7 @@
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/indices.hpp"
 #include "storage/v3/key_store.hpp"
+#include "storage/v3/name_id_mapper.hpp"
 #include "storage/v3/schemas.hpp"
 #include "storage/v3/transaction.hpp"
 #include "storage/v3/vertex.hpp"
@@ -31,6 +32,13 @@ namespace memgraph::storage::v3 {
 // If edge properties-on-edges is false then we don't need to send edges but
 // only vertices, since they will contain those edges
 struct SplitData {
+  LabelId primary_label;
+  PrimaryKey min_primary_key;
+  std::optional<PrimaryKey> max_primary_key;
+  std::vector<SchemaProperty> schema;
+  Config config;
+  std::unordered_map<uint64_t, std::string> id_to_name;
+
   VertexContainer vertices;
   std::optional<EdgeContainer> edges;
   std::map<uint64_t, std::unique_ptr<Transaction>> transactions;
@@ -42,7 +50,7 @@ class Splitter final {
  public:
   Splitter(LabelId primary_label, VertexContainer &vertices, EdgeContainer &edges,
            std::map<uint64_t, std::unique_ptr<Transaction>> &start_logical_id_to_transaction, Indices &indices,
-           Config &config, const std::vector<SchemaProperty> &schema);
+           const Config &config, const std::vector<SchemaProperty> &schema, const NameIdMapper &name_id_mapper_);
 
   Splitter(const Splitter &) = delete;
   Splitter(Splitter &&) noexcept = delete;
@@ -50,18 +58,18 @@ class Splitter final {
   Splitter operator=(Splitter &&) noexcept = delete;
   ~Splitter() = default;
 
-  std::unique_ptr<Shard> SplitShard(const PrimaryKey &split_key, const std::optional<PrimaryKey> &max_primary_key);
+  SplitData SplitShard(const PrimaryKey &split_key, const std::optional<PrimaryKey> &max_primary_key);
 
  private:
-  std::map<uint64_t, std::unique_ptr<Transaction>> CollectTransactions(
-      const std::set<uint64_t> &collected_transactions_start_id, VertexContainer &cloned_vertices,
-      EdgeContainer &cloned_edges);
-
   VertexContainer CollectVertices(SplitData &data, std::set<uint64_t> &collected_transactions_start_id,
                                   const PrimaryKey &split_key);
 
   std::optional<EdgeContainer> CollectEdges(std::set<uint64_t> &collected_transactions_start_id,
                                             const VertexContainer &split_vertices, const PrimaryKey &split_key);
+
+  std::map<uint64_t, std::unique_ptr<Transaction>> CollectTransactions(
+      const std::set<uint64_t> &collected_transactions_start_id, VertexContainer &cloned_vertices,
+      EdgeContainer &cloned_edges);
 
   template <typename IndexMap, typename IndexType>
   requires utils::SameAsAnyOf<IndexMap, LabelPropertyIndex, LabelIndex>
@@ -97,13 +105,14 @@ class Splitter final {
   void AdjustClonedTransactions(std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions,
                                 VertexContainer &cloned_vertices, EdgeContainer &cloned_edges);
 
-  LabelId primary_label_;
+  const LabelId primary_label_;
   VertexContainer &vertices_;
   EdgeContainer &edges_;
   std::map<uint64_t, std::unique_ptr<Transaction>> &start_logical_id_to_transaction_;
   Indices &indices_;
-  Config &config_;
-  std::vector<SchemaProperty> schema_;
+  const Config &config_;
+  const std::vector<SchemaProperty> schema_;
+  const NameIdMapper &name_id_mapper_;
 };
 
 }  // namespace memgraph::storage::v3

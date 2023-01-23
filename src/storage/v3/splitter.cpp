@@ -20,6 +20,7 @@
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/indices.hpp"
 #include "storage/v3/key_store.hpp"
+#include "storage/v3/name_id_mapper.hpp"
 #include "storage/v3/schemas.hpp"
 #include "storage/v3/shard.hpp"
 #include "storage/v3/transaction.hpp"
@@ -29,30 +30,37 @@ namespace memgraph::storage::v3 {
 
 Splitter::Splitter(const LabelId primary_label, VertexContainer &vertices, EdgeContainer &edges,
                    std::map<uint64_t, std::unique_ptr<Transaction>> &start_logical_id_to_transaction, Indices &indices,
-                   Config &config, const std::vector<SchemaProperty> &schema)
+                   const Config &config, const std::vector<SchemaProperty> &schema, const NameIdMapper &name_id_mapper)
     : primary_label_(primary_label),
       vertices_(vertices),
       edges_(edges),
       start_logical_id_to_transaction_(start_logical_id_to_transaction),
       indices_(indices),
       config_(config),
-      schema_(schema) {}
+      schema_(schema),
+      name_id_mapper_(name_id_mapper) {}
 
-std::unique_ptr<Shard> Splitter::SplitShard(const PrimaryKey &split_key,
-                                            const std::optional<PrimaryKey> &max_primary_key) {
-  SplitData data;
+SplitData Splitter::SplitShard(const PrimaryKey &split_key, const std::optional<PrimaryKey> &max_primary_key) {
+  SplitData data{.primary_label = primary_label_,
+                 .min_primary_key = split_key,
+                 .max_primary_key = max_primary_key,
+                 .schema = schema_,
+                 .config = config_,
+                 .id_to_name = name_id_mapper_.GetIdToNameMap()};
 
   std::set<uint64_t> collected_transactions_;
   data.vertices = CollectVertices(data, collected_transactions_, split_key);
   data.edges = CollectEdges(collected_transactions_, data.vertices, split_key);
   data.transactions = CollectTransactions(collected_transactions_, data.vertices, *data.edges);
 
-  if (data.edges) {
-    return std::make_unique<Shard>(primary_label_, split_key, max_primary_key, schema_, std::move(data.vertices),
-                                   std::move(*data.edges), std::move(data.transactions), config_);
-  }
-  return std::make_unique<Shard>(primary_label_, split_key, max_primary_key, schema_, std::move(data.vertices),
-                                 std::move(data.transactions), config_);
+  // if (data.edges) {
+  //   return std::make_unique<Shard>(primary_label_, split_key, max_primary_key, schema_, std::move(data.vertices),
+  //                                  std::move(*data.edges), std::move(data.transactions), config_,
+  //                                  name_id_mapper_.GetIdToNameMap());
+  // }
+  // return std::make_unique<Shard>(primary_label_, split_key, max_primary_key, schema_, std::move(data.vertices),
+  //                                std::move(data.transactions), config_, name_id_mapper_.GetIdToNameMap());
+  return data;
 }
 
 void Splitter::ScanDeltas(std::set<uint64_t> &collected_transactions_, Delta *delta) {

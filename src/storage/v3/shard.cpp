@@ -333,15 +333,16 @@ Shard::Shard(const LabelId primary_label, const PrimaryKey min_primary_key,
       indices_{config.items, vertex_validator_},
       isolation_level_{config.transaction.isolation_level},
       config_{config},
-      shard_splitter_(primary_label, vertices_, edges_, start_logical_id_to_transaction_, indices_, config_, schema) {
+      shard_splitter_(primary_label, vertices_, edges_, start_logical_id_to_transaction_, indices_, config_, schema,
+                      name_id_mapper_) {
   CreateSchema(primary_label_, schema);
   StoreMapping(std::move(id_to_name));
 }
 
 Shard::Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<PrimaryKey> max_primary_key,
              std::vector<SchemaProperty> schema, VertexContainer &&vertices, EdgeContainer &&edges,
-             std::map<uint64_t, std::unique_ptr<Transaction>> &&start_logical_id_to_transaction, Config config,
-             std::unordered_map<uint64_t, std::string> id_to_name)
+             std::map<uint64_t, std::unique_ptr<Transaction>> &&start_logical_id_to_transaction, const Config &config,
+             const std::unordered_map<uint64_t, std::string> &id_to_name)
     : primary_label_{primary_label},
       min_primary_key_{min_primary_key},
       max_primary_key_{max_primary_key},
@@ -353,15 +354,16 @@ Shard::Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<Pr
       isolation_level_{config.transaction.isolation_level},
       config_{config},
       start_logical_id_to_transaction_(std::move(start_logical_id_to_transaction)),
-      shard_splitter_(primary_label, vertices_, edges_, start_logical_id_to_transaction_, indices_, config_, schema) {
+      shard_splitter_(primary_label, vertices_, edges_, start_logical_id_to_transaction_, indices_, config_, schema,
+                      name_id_mapper_) {
   CreateSchema(primary_label_, schema);
-  StoreMapping(std::move(id_to_name));
+  StoreMapping(id_to_name);
 }
 
 Shard::Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<PrimaryKey> max_primary_key,
              std::vector<SchemaProperty> schema, VertexContainer &&vertices,
-             std::map<uint64_t, std::unique_ptr<Transaction>> &&start_logical_id_to_transaction, Config config,
-             std::unordered_map<uint64_t, std::string> id_to_name)
+             std::map<uint64_t, std::unique_ptr<Transaction>> &&start_logical_id_to_transaction, const Config &config,
+             const std::unordered_map<uint64_t, std::string> &id_to_name)
     : primary_label_{primary_label},
       min_primary_key_{min_primary_key},
       max_primary_key_{max_primary_key},
@@ -372,12 +374,24 @@ Shard::Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<Pr
       isolation_level_{config.transaction.isolation_level},
       config_{config},
       start_logical_id_to_transaction_(std::move(start_logical_id_to_transaction)),
-      shard_splitter_(primary_label, vertices_, edges_, start_logical_id_to_transaction_, indices_, config_, schema) {
+      shard_splitter_(primary_label, vertices_, edges_, start_logical_id_to_transaction_, indices_, config_, schema,
+                      name_id_mapper_) {
   CreateSchema(primary_label_, schema);
-  StoreMapping(std::move(id_to_name));
+  StoreMapping(id_to_name);
 }
 
 Shard::~Shard() {}
+
+std::unique_ptr<Shard> Shard::FromSplitData(SplitData &&split_data) {
+  if (split_data.config.items.properties_on_edges) [[likely]] {
+    return std::make_unique<Shard>(split_data.primary_label, split_data.min_primary_key, split_data.min_primary_key,
+                                   split_data.schema, std::move(split_data.vertices), std::move(*split_data.edges),
+                                   std::move(split_data.transactions), split_data.config, split_data.id_to_name);
+  }
+  return std::make_unique<Shard>(split_data.primary_label, split_data.min_primary_key, split_data.min_primary_key,
+                                 split_data.schema, std::move(split_data.vertices), std::move(split_data.transactions),
+                                 split_data.config, split_data.id_to_name);
+}
 
 Shard::Accessor::Accessor(Shard &shard, Transaction &transaction)
     : shard_(&shard), transaction_(&transaction), config_(shard_->config_.items) {}
@@ -1096,7 +1110,7 @@ std::optional<SplitInfo> Shard::ShouldSplit() const noexcept {
   return std::nullopt;
 }
 
-std::unique_ptr<Shard> Shard::PerformSplit(const PrimaryKey &split_key) {
+SplitData Shard::PerformSplit(const PrimaryKey &split_key) {
   return shard_splitter_.SplitShard(split_key, max_primary_key_);
 }
 
