@@ -55,9 +55,7 @@ class VertexCountCache {
     return 1;
   }
 
-  bool LabelIndexExists(storage::v3::LabelId label) {
-    throw utils::NotYetImplemented("Label indicies are yet to be implemented.");
-  }
+  bool LabelIndexExists(storage::v3::LabelId /*label*/) { return false; }
 
   bool PrimaryLabelExists(storage::v3::LabelId label) { return request_router_->IsPrimaryLabel(label); }
 
