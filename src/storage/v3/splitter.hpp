@@ -75,21 +75,30 @@ class Splitter final {
   requires utils::SameAsAnyOf<IndexMap, LabelPropertyIndex, LabelIndex>
       std::map<IndexType, typename IndexMap::IndexContainer> CollectIndexEntries(
           IndexMap &index, const PrimaryKey &split_key,
-          std::map<IndexType, std::multimap<const Vertex *, typename IndexMap::Entry *>> &vertex_entry_map) {
+          std::map<IndexType, std::multimap<const Vertex *, const typename IndexMap::IndexContainer::iterator>>
+              &vertex_entry_map) {
     if (index.Empty()) {
       return {};
     }
 
     std::map<IndexType, typename IndexMap::IndexContainer> cloned_indices;
-    for (auto &[label_prop_pair, index] : index.GetIndex()) {
-      cloned_indices[label_prop_pair] = typename IndexMap::IndexContainer{};
-      for (const auto &entry : index) {
-        if (entry.vertex->first > split_key) {
+    for (auto &[index_type_val, index] : index.GetIndex()) {
+      // cloned_indices[index_type_val] = typename IndexMap::IndexContainer{};
+
+      auto entry_it = index.begin();
+      while (entry_it != index.end()) {
+        // We need to save the next pointer since the current one will be
+        // invalidated after extract
+        auto next_entry_it = std::next(entry_it);
+        if (entry_it->vertex->first > split_key) {
           // We get this entry
-          [[maybe_unused]] const auto [it, inserted, node] =
-              cloned_indices[label_prop_pair].insert(index.extract(entry));
-          vertex_entry_map[label_prop_pair].insert({entry.vertex, &node.value()});
+          [[maybe_unused]] const auto &[inserted_entry_it, inserted, node] =
+              cloned_indices[index_type_val].insert(index.extract(entry_it));
+          MG_ASSERT(inserted, "Failed to extract index entry!");
+
+          vertex_entry_map[index_type_val].insert({inserted_entry_it->vertex, inserted_entry_it});
         }
+        entry_it = next_entry_it;
       }
     }
 

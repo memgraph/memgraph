@@ -25,6 +25,7 @@
 #include "storage/v3/shard.hpp"
 #include "storage/v3/transaction.hpp"
 #include "storage/v3/vertex.hpp"
+#include "utils/logging.hpp"
 
 namespace memgraph::storage::v3 {
 
@@ -53,13 +54,6 @@ SplitData Splitter::SplitShard(const PrimaryKey &split_key, const std::optional<
   data.edges = CollectEdges(collected_transactions_, data.vertices, split_key);
   data.transactions = CollectTransactions(collected_transactions_, data.vertices, *data.edges);
 
-  // if (data.edges) {
-  //   return std::make_unique<Shard>(primary_label_, split_key, max_primary_key, schema_, std::move(data.vertices),
-  //                                  std::move(*data.edges), std::move(data.transactions), config_,
-  //                                  name_id_mapper_.GetIdToNameMap());
-  // }
-  // return std::make_unique<Shard>(primary_label_, split_key, max_primary_key, schema_, std::move(data.vertices),
-  //                                std::move(data.transactions), config_, name_id_mapper_.GetIdToNameMap());
   return data;
 }
 
@@ -74,18 +68,26 @@ VertexContainer Splitter::CollectVertices(SplitData &data, std::set<uint64_t> &c
                                           const PrimaryKey &split_key) {
   // Collection of indices is here since it heavily depends on vertices
   // Old vertex pointer new entry pointer
-  std::map<LabelId, std::multimap<const Vertex *, LabelIndex::Entry *>> label_index_vertex_entry_map;
-  std::map<std::pair<LabelId, PropertyId>, std::multimap<const Vertex *, LabelPropertyIndex::Entry *>>
+
+  std::map<LabelId, std::multimap<const Vertex *, const LabelIndex::IndexContainer::iterator>>
+      label_index_vertex_entry_map;
+  std::map<std::pair<LabelId, PropertyId>,
+           std::multimap<const Vertex *, const LabelPropertyIndex::IndexContainer::iterator>>
       label_property_vertex_entry_map;
+
   data.label_indices =
       CollectIndexEntries<LabelIndex, LabelId>(indices_.label_index, split_key, label_index_vertex_entry_map);
   data.label_property_indices = CollectIndexEntries<LabelPropertyIndex, std::pair<LabelId, PropertyId>>(
       indices_.label_property_index, split_key, label_property_vertex_entry_map);
-  const auto update_indices = [](auto &index_map, const auto *old_vertex_ptr, auto &splitted_vertex_it) {
-    for (auto &[label, vertex_entry_mappings] : index_map) {
+  const auto update_indices = [](auto &entry_vertex_map, auto &updating_index, const auto *old_vertex_ptr,
+                                 auto &new_vertex_ptr) {
+    for ([[maybe_unused]] auto &[index_type, vertex_entry_mappings] : entry_vertex_map) {
       auto [it, end] = vertex_entry_mappings.equal_range(old_vertex_ptr);
       while (it != end) {
-        it->second->vertex = &*splitted_vertex_it;
+        auto entry_to_update = *it->second;
+        entry_to_update.vertex = &*new_vertex_ptr;
+        updating_index.at(index_type).erase(it->second);
+        updating_index.at(index_type).insert(std::move(entry_to_update));
         ++it;
       }
     }
@@ -101,10 +103,11 @@ VertexContainer Splitter::CollectVertices(SplitData &data, std::set<uint64_t> &c
     auto next_it = std::next(split_key_it);
 
     const auto &[splitted_vertex_it, inserted, node] = splitted_data.insert(vertices_.extract(split_key_it->first));
+    MG_ASSERT(inserted, "Failed to extract vertex!");
 
     // Update indices
-    update_indices(label_index_vertex_entry_map, old_vertex_ptr, splitted_vertex_it);
-    update_indices(label_property_vertex_entry_map, old_vertex_ptr, splitted_vertex_it);
+    update_indices(label_index_vertex_entry_map, data.label_indices, old_vertex_ptr, splitted_vertex_it);
+    // update_indices(label_property_vertex_entry_map, old_vertex_ptr, splitted_vertex_it);
 
     split_key_it = next_it;
   }

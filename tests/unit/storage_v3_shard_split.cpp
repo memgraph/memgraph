@@ -253,4 +253,50 @@ TEST_F(ShardSplitTest, TestBasicSplitWithCommitedAndOngoingTransactions) {
   EXPECT_EQ(splitted_data.label_property_indices.size(), 0);
 }
 
+TEST_F(ShardSplitTest, TestBasicSplitWithLabelIndex) {
+  auto acc = storage.Access(GetNextHlc());
+  EXPECT_FALSE(acc.CreateVertexAndValidate({secondary_label}, {PropertyValue(1)}, {}).HasError());
+  EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(2)}, {}).HasError());
+  EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(3)}, {}).HasError());
+  EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(4)}, {}).HasError());
+  EXPECT_FALSE(acc.CreateVertexAndValidate({secondary_label}, {PropertyValue(5)}, {}).HasError());
+  EXPECT_FALSE(acc.CreateVertexAndValidate({secondary_label}, {PropertyValue(6)}, {}).HasError());
+  acc.Commit(GetNextHlc());
+  storage.CreateIndex(secondary_label);
+
+  auto splitted_data = storage.PerformSplit({PropertyValue(4)});
+
+  EXPECT_EQ(splitted_data.vertices.size(), 3);
+  EXPECT_EQ(splitted_data.edges->size(), 0);
+  EXPECT_EQ(splitted_data.transactions.size(), 1);
+  EXPECT_EQ(splitted_data.label_indices.size(), 1);
+  EXPECT_EQ(splitted_data.label_property_indices.size(), 0);
+}
+
+TEST_F(ShardSplitTest, TestBasicSplitWithLabelPropertyIndex) {
+  auto acc = storage.Access(GetNextHlc());
+  EXPECT_FALSE(
+      acc.CreateVertexAndValidate({secondary_label}, {PropertyValue(1)}, {{secondary_property, PropertyValue(1)}})
+          .HasError());
+  EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(2)}, {}).HasError());
+  EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(3)}, {}).HasError());
+  EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(4)}, {}).HasError());
+  EXPECT_FALSE(
+      acc.CreateVertexAndValidate({secondary_label}, {PropertyValue(5)}, {{secondary_property, PropertyValue(21)}})
+          .HasError());
+  EXPECT_FALSE(
+      acc.CreateVertexAndValidate({secondary_label}, {PropertyValue(6)}, {{secondary_property, PropertyValue(22)}})
+          .HasError());
+  acc.Commit(GetNextHlc());
+  storage.CreateIndex(secondary_label, secondary_property);
+
+  auto splitted_data = storage.PerformSplit({PropertyValue(4)});
+
+  EXPECT_EQ(splitted_data.vertices.size(), 3);
+  EXPECT_EQ(splitted_data.edges->size(), 0);
+  EXPECT_EQ(splitted_data.transactions.size(), 1);
+  EXPECT_EQ(splitted_data.label_indices.size(), 0);
+  EXPECT_EQ(splitted_data.label_property_indices.size(), 1);
+}
+
 }  // namespace memgraph::storage::v3::tests
