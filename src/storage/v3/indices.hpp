@@ -30,7 +30,6 @@ namespace memgraph::storage::v3 {
 struct Indices;
 
 class LabelIndex {
- public:
   struct Entry {
     Vertex *vertex;
     uint64_t timestamp;
@@ -41,6 +40,7 @@ class LabelIndex {
     bool operator==(const Entry &rhs) const { return vertex == rhs.vertex && timestamp == rhs.timestamp; }
   };
 
+ public:
   using IndexContainer = std::set<Entry>;
 
   LabelIndex(Indices *indices, Config::Items config, const VertexValidator &vertex_validator)
@@ -130,7 +130,6 @@ class LabelIndex {
 };
 
 class LabelPropertyIndex {
- public:
   struct Entry {
     PropertyValue value;
     Vertex *vertex;
@@ -143,6 +142,7 @@ class LabelPropertyIndex {
     bool operator==(const PropertyValue &rhs) const;
   };
 
+ public:
   using IndexContainer = std::set<Entry>;
 
   LabelPropertyIndex(Indices *indices, Config::Items config, const VertexValidator &vertex_validator)

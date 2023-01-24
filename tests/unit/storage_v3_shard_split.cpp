@@ -299,4 +299,30 @@ TEST_F(ShardSplitTest, TestBasicSplitWithLabelPropertyIndex) {
   EXPECT_EQ(splitted_data.label_property_indices.size(), 1);
 }
 
+TEST_F(ShardSplitTest, TestBigSplit) {
+  int pk{0};
+  for (size_t i{0}; i < 100000; ++i) {
+    auto acc = storage.Access(GetNextHlc());
+    EXPECT_FALSE(
+        acc.CreateVertexAndValidate({secondary_label}, {PropertyValue(pk++)}, {{secondary_property, PropertyValue(pk)}})
+            .HasError());
+    EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(pk++)}, {}).HasError());
+
+    EXPECT_FALSE(acc.CreateEdge(VertexId{primary_label, PrimaryKey{PropertyValue(pk - 2)}},
+                                VertexId{primary_label, PrimaryKey{PropertyValue(pk - 1)}}, edge_type_id,
+                                Gid::FromUint(pk))
+                     .HasError());
+    acc.Commit(GetNextHlc());
+  }
+  storage.CreateIndex(secondary_label, secondary_property);
+
+  auto splitted_data = storage.PerformSplit({PropertyValue(pk / 2)});
+
+  EXPECT_EQ(splitted_data.vertices.size(), 100000);
+  EXPECT_EQ(splitted_data.edges->size(), 50000);
+  EXPECT_EQ(splitted_data.transactions.size(), 50000);
+  EXPECT_EQ(splitted_data.label_indices.size(), 0);
+  EXPECT_EQ(splitted_data.label_property_indices.size(), 1);
+}
+
 }  // namespace memgraph::storage::v3::tests
