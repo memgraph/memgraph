@@ -1305,7 +1305,7 @@ void TestGetProperties(ShardClient &client) {
     MG_ASSERT(!result.error);
     MG_ASSERT(result.result_row.size() == 2);
     for (const auto &elem : result.result_row) {
-      MG_ASSERT(elem.props.size() == 3);
+      MG_ASSERT(elem.props.size() == 4);
     }
   }
   {
@@ -1316,7 +1316,7 @@ void TestGetProperties(ShardClient &client) {
     MG_ASSERT(!result.result_row.empty());
     MG_ASSERT(result.result_row.size() == 3);
     for (const auto &elem : result.result_row) {
-      MG_ASSERT(elem.props.size() == 4);
+      MG_ASSERT(elem.props.size() == 3);
     }
   }
   {
