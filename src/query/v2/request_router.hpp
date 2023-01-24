@@ -753,11 +753,8 @@ class RequestRouterFactory {
 
   using TransportHandleVariant = std::variant<LocalTransportHandlePtr, SimulatorTransportHandlePtr>;
 
-  TransportHandleVariant transport_handle_;
-
  public:
-  explicit RequestRouterFactory(const TransportHandleVariant &transport_handle) : transport_handle_(transport_handle) {}
-
+  RequestRouterFactory() = default;
   RequestRouterFactory(const RequestRouterFactory &) = delete;
   RequestRouterFactory &operator=(const RequestRouterFactory &) = delete;
   RequestRouterFactory(RequestRouterFactory &&) = delete;
@@ -765,32 +762,22 @@ class RequestRouterFactory {
 
   virtual ~RequestRouterFactory() = default;
 
-  virtual TransportHandleVariant GetTransportHandle() { return transport_handle_; }
-
   virtual std::unique_ptr<RequestRouterInterface> CreateRequestRouter(
       const coordinator::Address &coordinator_address) const = 0;
 };
 
 class LocalRequestRouterFactory : public RequestRouterFactory {
+  io::Io<memgraph::io::local_transport::LocalTransport> &io_;
+
  public:
-  explicit LocalRequestRouterFactory(const TransportHandleVariant &transport_handle)
-      : RequestRouterFactory(transport_handle) {}
+  explicit LocalRequestRouterFactory(io::Io<memgraph::io::local_transport::LocalTransport> &io) : io_(io) {}
 
   std::unique_ptr<RequestRouterInterface> CreateRequestRouter(
       const coordinator::Address &coordinator_address) const override {
     using TransportType = io::local_transport::LocalTransport;
-    auto actual_transport_handle = std::get<LocalTransportHandlePtr>(transport_handle_);
 
-    boost::uuids::uuid random_uuid;
-    io::Address unique_local_addr_query;
-
-    random_uuid = boost::uuids::uuid{boost::uuids::random_generator()()};
-    unique_local_addr_query = memgraph::coordinator::Address::UniqueLocalAddress();
-
-    TransportType local_transport(actual_transport_handle);
-    auto local_transport_io = io::Io<TransportType>(local_transport, unique_local_addr_query);
-
-    auto query_io = local_transport_io.ForkLocal(random_uuid);
+    auto query_io = io_.ForkLocal(boost::uuids::uuid{boost::uuids::random_generator()()});
+    auto local_transport_io = io_.ForkLocal(boost::uuids::uuid{boost::uuids::random_generator()()});
 
     return std::make_unique<RequestRouter<TransportType>>(
         coordinator::CoordinatorClient<TransportType>(query_io, coordinator_address, {coordinator_address}),
@@ -802,13 +789,12 @@ class SimulatedRequestRouterFactory : public RequestRouterFactory {
   io::simulator::Simulator *simulator_;
 
  public:
-  explicit SimulatedRequestRouterFactory(io::simulator::Simulator &simulator)
-      : RequestRouterFactory(simulator.GetSimulatorHandle()), simulator_(&simulator) {}
+  explicit SimulatedRequestRouterFactory(io::simulator::Simulator &simulator) : simulator_(&simulator) {}
 
   std::unique_ptr<RequestRouterInterface> CreateRequestRouter(
       const coordinator::Address &coordinator_address) const override {
     using TransportType = io::simulator::SimulatorTransport;
-    auto actual_transport_handle = std::get<SimulatorTransportHandlePtr>(transport_handle_);
+    auto actual_transport_handle = simulator_->GetSimulatorHandle();
 
     boost::uuids::uuid random_uuid;
     io::Address unique_local_addr_query;

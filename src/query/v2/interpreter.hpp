@@ -191,6 +191,7 @@ struct InterpreterContext {
   IdAllocator edge_ids_alloc;
 
   coordinator::Address coordinator_address;
+  std::unique_ptr<RequestRouterFactory> request_router_factory_;
 
   storage::v3::LabelId NameToLabelId(std::string_view label_name) {
     return storage::v3::LabelId::FromUint(query_id_mapper_.NameToId(label_name));
@@ -203,8 +204,6 @@ struct InterpreterContext {
   storage::v3::EdgeTypeId NameToEdgeTypeId(std::string_view edge_type_name) {
     return storage::v3::EdgeTypeId::FromUint(query_id_mapper_.NameToId(edge_type_name));
   }
-
-  std::unique_ptr<RequestRouterFactory> request_router_factory_;
 
  private:
   // TODO Replace with local map of labels, properties and edge type ids

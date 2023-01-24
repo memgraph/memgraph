@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,8 +28,6 @@ class LocalSystem {
     LocalTransport local_transport(local_transport_handle_);
     return Io{local_transport, address};
   }
-
-  std::shared_ptr<LocalTransportHandle> GetTransportHandle() const { return local_transport_handle_; }
 
   void ShutDown() { local_transport_handle_->ShutDown(); }
 };
