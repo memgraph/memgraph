@@ -476,3 +476,27 @@ class Pokec(Dataset):
             "MATCH (n:User {id: $id})-[e]->(m) " "RETURN m LIMIT 1",
             {"id": self._get_random_vertex()},
         )
+
+
+class LDBC(Dataset):
+    NAME = "ldbc"
+    VARIANTS = ["small"]
+    DEFAULT_VARIANT = "small"
+    FILES = None
+
+    URLS = {
+        "small": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/small_ldbc_import.gz",
+    }
+    SIZES = {
+        "small": {"vertices": 1, "edges": 1},
+    }
+    INDEX = None
+    INDEX_FILES = {
+        "memgraph": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/memgraph.cypher",
+        "neo4j": "",
+    }
+
+    PROPERTIES_ON_EDGES = False
+
+    def benchmark__ldbc__sample_query(self):
+        return "MATCH (n:Post) RETURN n"
