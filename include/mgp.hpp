@@ -565,11 +565,13 @@ class Node {
   /// @brief Returns whether the node has the given `label`.
   bool HasLabel(std::string_view label) const;
 
-  /// @brief Returns an iterable & indexable structure of the node’s properties.
+  /// @brief Returns an std::map of the node’s properties.
   std::map<std::string, Value> Properties() const;
 
+  /// @brief Sets the chosen property to the given value.
   void SetProperty(std::string property, Value value);
 
+  /// @brief Retrieves the value of the chosen property.
   Value GetProperty(const std::string &property) const;
 
   /// @brief Returns an iterable structure of the node’s inbound relationships.
@@ -623,7 +625,10 @@ class Relationship {
   /// @brief Returns an std::map of the relationship’s properties.
   std::map<std::string, Value> Properties() const;
 
+  /// @brief Sets the chosen property to the given value.
   void SetProperty(std::string property, Value value);
+
+  /// @brief Retrieves the value of the chosen property.
   Value GetProperty(const std::string &property) const;
 
   /// @brief Returns the relationship’s source node.
