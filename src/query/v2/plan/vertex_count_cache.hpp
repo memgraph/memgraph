@@ -61,7 +61,7 @@ class VertexCountCache {
 
   bool LabelPropertyIndexExists(storage::v3::LabelId /*label*/, storage::v3::PropertyId /*property*/) { return false; }
 
-  std::vector<memgraph::storage::v3::SchemaProperty> GetSchemaForLabel(storage::v3::LabelId label) {
+  const std::vector<memgraph::storage::v3::SchemaProperty> &GetSchemaForLabel(storage::v3::LabelId label) {
     return request_router_->GetSchemaForLabel(label);
   }
 

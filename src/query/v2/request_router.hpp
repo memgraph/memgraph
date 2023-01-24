@@ -114,7 +114,7 @@ class RequestRouterInterface {
   virtual std::optional<storage::v3::LabelId> MaybeNameToLabel(const std::string &name) const = 0;
   virtual bool IsPrimaryLabel(storage::v3::LabelId label) const = 0;
   virtual bool IsPrimaryKey(storage::v3::LabelId primary_label, storage::v3::PropertyId property) const = 0;
-  virtual std::vector<coordinator::SchemaProperty> GetSchemaForLabel(storage::v3::LabelId label) const = 0;
+  virtual const std::vector<coordinator::SchemaProperty> &GetSchemaForLabel(storage::v3::LabelId label) const = 0;
 };
 
 // TODO(kostasrim)rename this class template
@@ -233,7 +233,7 @@ class RequestRouter : public RequestRouterInterface {
            }) != schema_it->second.end();
   }
 
-  std::vector<coordinator::SchemaProperty> GetSchemaForLabel(storage::v3::LabelId label) const override {
+  const std::vector<coordinator::SchemaProperty> &GetSchemaForLabel(storage::v3::LabelId label) const override {
     return shards_map_.schemas.at(label);
   }
 

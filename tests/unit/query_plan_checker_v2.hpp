@@ -381,7 +381,7 @@ class FakeDistributedDbAccessor {
       return find_in_secondary_properties->second;
     }
 
-    MG_ASSERT(false, "The property does not exist as a primary or a secondary property.");
+    LOG_FATAL("The property does not exist as a primary or a secondary property.");
     return memgraph::storage::v3::PropertyId::FromUint(0);
   }
 

@@ -573,15 +573,13 @@ class DistributedScanByPrimaryKeyCursor : public Cursor {
       throw HintedAbortError();
     }
 
-    if (!input_cursor_->Pull(frame, context)) {
-      return false;
-    }
-
-    auto &request_router = *context.request_router;
-    auto vertex = MakeRequestSingleFrame(frame, request_router, context);
-    if (vertex) {
-      frame[output_symbol_] = TypedValue(std::move(*vertex));
-      return true;
+    while (input_cursor_->Pull(frame, context)) {
+      auto &request_router = *context.request_router;
+      auto vertex = MakeRequestSingleFrame(frame, request_router, context);
+      if (vertex) {
+        frame[output_symbol_] = TypedValue(std::move(*vertex));
+        return true;
+      }
     }
     return false;
   }
@@ -601,10 +599,6 @@ class DistributedScanByPrimaryKeyCursor : public Cursor {
   storage::v3::LabelId label_;
   std::optional<std::vector<Expression *>> filter_expressions_;
   std::vector<Expression *> primary_key_;
-  std::optional<MultiFrame> own_multi_frames_;
-  std::optional<ValidFramesConsumer> valid_frames_consumer_;
-  ValidFramesConsumer::Iterator valid_frames_it_;
-  std::queue<FrameWithValidity> frames_buffer_;
 };
 
 ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::v3::View view)

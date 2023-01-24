@@ -125,8 +125,9 @@ class MockedRequestRouter : public RequestRouterInterface {
 
   bool IsPrimaryKey(LabelId primary_label, PropertyId property) const override { return true; }
 
-  std::vector<coordinator::SchemaProperty> GetSchemaForLabel(storage::v3::LabelId /*label*/) const override {
-    return std::vector<coordinator::SchemaProperty>{};
+  const std::vector<coordinator::SchemaProperty> &GetSchemaForLabel(storage::v3::LabelId /*label*/) const override {
+    static std::vector<coordinator::SchemaProperty> schema;
+    return schema;
   };
 
  private:
