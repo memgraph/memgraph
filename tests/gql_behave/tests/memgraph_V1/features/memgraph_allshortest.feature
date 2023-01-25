@@ -15,6 +15,26 @@ Feature: All Shortest Path
           | '1' |
           | '3' |
 
+  Scenario: Test match allShortest upper bound 2
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (a {a:'0'})-[:r {w: 2}]->(b {a:'1'})-[:r {w: 3}]->(c {a:'2'}),
+            (a)-[:re {w: 2}]->(b),
+            (b)-[:re {w:3}]->(c),
+            ({a: '4'})<-[:r {w: 1}]-(a),
+            ({a: '5'})<-[:r {w: 1}]-(a),
+            (c)-[:r {w: 1}]->({a: '6'}),
+            (c)-[:r {w: 1}]->({a: '7'})
+          """
+      When executing query:
+          """
+          MATCH path=(n {a:'0'})-[r *allShortest ..2 (e, n | 1 ) w]->(m {a:'2'}) RETURN COUNT(path) AS c
+          """
+      Then the result should be:
+          | c |
+          | 4 |
+
   Scenario: Test match allShortest filtered
       Given an empty graph
       And having executed:
