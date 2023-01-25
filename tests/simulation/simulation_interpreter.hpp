@@ -43,9 +43,7 @@ class SimulatedInterpreter {
   ~SimulatedInterpreter() = default;
 
   void InstallSimulatorTicker(Simulator &simulator) {
-    std::function<bool()> tick_simulator = simulator.GetSimulatorTickClosure();
-    auto *request_router = interpreter_->GetRequestRouter();
-    request_router->InstallSimulatorTicker(tick_simulator);
+    interpreter_->InstallSimulatorTicker(simulator.GetSimulatorTickClosure());
   }
 
   std::vector<ResultStream> RunQueries(const std::vector<std::string> &queries) {
@@ -65,14 +63,8 @@ class SimulatedInterpreter {
     std::map<std::string, memgraph::storage::v3::PropertyValue> params;
     const std::string *username = nullptr;
 
-    interpreter_->BeginTransaction();
-
-    auto *rr = interpreter_->GetRequestRouter();
-    rr->StartTransaction();
-
     interpreter_->Prepare(query, params, username);
     interpreter_->PullAll(&stream);
-    interpreter_->CommitTransaction();
 
     return stream;
   }

@@ -12,7 +12,6 @@
 #pragma once
 
 #include <algorithm>
-#include <boost/uuid/uuid.hpp>
 #include <chrono>
 #include <deque>
 #include <iostream>
@@ -28,6 +27,7 @@
 #include <variant>
 #include <vector>
 
+#include "boost/uuid/uuid.hpp"
 #include "coordinator/coordinator.hpp"
 #include "coordinator/coordinator_client.hpp"
 #include "coordinator/coordinator_rsm.hpp"
