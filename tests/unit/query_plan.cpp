@@ -663,7 +663,7 @@ TYPED_TEST(TestPlanner, MatchOptionalMatchWhereReturn) {
 }
 
 TYPED_TEST(TestPlanner, MatchOptionalMatchNodePropertyWithIndex) {
-  // Test MATCH (n) OPTIONAL MATCH (m) WHERE n.prop = m.prop RETURN n
+  // Test MATCH (n:Label) OPTIONAL MATCH (m:Label) WHERE n.prop = m.prop RETURN n
   AstStorage storage;
   FakeDbAccessor dba;
 
@@ -1712,6 +1712,7 @@ TYPED_TEST(TestPlanner, Foreach) {
 
   {
     // FOREACH with index
+    // FOREACH (n in [...] | MERGE (v:Label));
     const auto label_name = "label";
     const auto label = dba.Label(label_name);
     dba.SetIndexCount(label, 0);
