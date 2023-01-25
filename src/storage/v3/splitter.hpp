@@ -81,17 +81,16 @@ class Splitter final {
       return {};
     }
 
+    // Cloned index entries will contain new index entry iterators, but old
+    // vertices address which need to be adjusted after extracting vertices
     std::map<IndexType, typename IndexMap::IndexContainer> cloned_indices;
     for (auto &[index_type_val, index] : index.GetIndex()) {
-      // cloned_indices[index_type_val] = typename IndexMap::IndexContainer{};
-
       auto entry_it = index.begin();
       while (entry_it != index.end()) {
         // We need to save the next pointer since the current one will be
         // invalidated after extract
         auto next_entry_it = std::next(entry_it);
         if (entry_it->vertex->first > split_key) {
-          // We get this entry
           [[maybe_unused]] const auto &[inserted_entry_it, inserted, node] =
               cloned_indices[index_type_val].insert(index.extract(entry_it));
           MG_ASSERT(inserted, "Failed to extract index entry!");
