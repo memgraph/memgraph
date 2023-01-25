@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -378,6 +378,10 @@ inline mgp_value *vertex_get_property(mgp_vertex *v, const char *property_name, 
   return MgInvoke<mgp_value *>(mgp_vertex_get_property, v, property_name, memory);
 }
 
+inline void vertex_set_property(mgp_vertex *v, const char *property_name, mgp_value *property_value) {
+  MgInvokeVoid(mgp_vertex_set_property, v, property_name, property_value);
+}
+
 inline mgp_properties_iterator *vertex_iter_properties(mgp_vertex *v, mgp_memory *memory) {
   return MgInvoke<mgp_properties_iterator *>(mgp_vertex_iter_properties, v, memory);
 }
@@ -408,6 +412,10 @@ inline mgp_vertex *edge_get_to(mgp_edge *e) { return MgInvoke<mgp_vertex *>(mgp_
 
 inline mgp_value *edge_get_property(mgp_edge *e, const char *property_name, mgp_memory *memory) {
   return MgInvoke<mgp_value *>(mgp_edge_get_property, e, property_name, memory);
+}
+
+inline void edge_set_property(mgp_edge *e, const char *property_name, mgp_value *property_value) {
+  MgInvokeVoid(mgp_edge_set_property, e, property_name, property_value);
 }
 
 inline mgp_properties_iterator *edge_iter_properties(mgp_edge *e, mgp_memory *memory) {
