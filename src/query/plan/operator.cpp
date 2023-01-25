@@ -2029,11 +2029,11 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       while (!pq_.empty()) {
         if (MustAbort(context)) throw HintedAbortError();
 
-        auto [current_weight, current_depth, current_vertex, directed_edge] = pq_.top();
+        const auto &[current_weight, current_depth, current_vertex, directed_edge] = pq_.top();
         pq_.pop();
 
-        auto &[current_edge, direction, weight] = directed_edge;
-        if (expanded_.find(current_edge) != expanded_.end()) continue;
+        const auto &[current_edge, direction, weight] = directed_edge;
+        if (expanded_.contains(current_edge)) continue;
         expanded_.emplace(current_edge);
 
         // Expand only if what we've just expanded is less than max depth.
