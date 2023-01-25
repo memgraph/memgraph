@@ -120,7 +120,7 @@ class LabelIndex {
 
   [[nodiscard]] bool Empty() const noexcept { return index_.empty(); }
 
-  std::map<LabelId, IndexContainer> &GetIndex() { return index_; }
+  std::map<LabelId, IndexContainer> &GetIndex() noexcept { return index_; }
 
  private:
   std::map<LabelId, IndexContainer> index_;
@@ -239,7 +239,7 @@ class LabelPropertyIndex {
 
   [[nodiscard]] bool Empty() const noexcept { return index_.empty(); }
 
-  std::map<std::pair<LabelId, PropertyId>, IndexContainer> &GetIndex() { return index_; }
+  std::map<std::pair<LabelId, PropertyId>, IndexContainer> &GetIndex() noexcept { return index_; }
 
  private:
   std::map<std::pair<LabelId, PropertyId>, IndexContainer> index_;

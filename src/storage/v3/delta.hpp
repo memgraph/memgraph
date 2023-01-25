@@ -14,8 +14,6 @@
 #include <cstdint>
 #include <memory>
 
-#include <boost/uuid/uuid.hpp>
-
 #include "storage/v3/edge_ref.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
