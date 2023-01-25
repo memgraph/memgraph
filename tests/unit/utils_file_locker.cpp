@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -190,9 +190,9 @@ TEST_P(FileLockerParameterizedTest, RemovePath) {
   std::filesystem::current_path(save_path);
 }
 
-INSTANTIATE_TEST_CASE_P(FileLockerPathVariantTests, FileLockerParameterizedTest,
-                        ::testing::Values(std::make_tuple(false, false), std::make_tuple(false, true),
-                                          std::make_tuple(true, false), std::make_tuple(true, true)));
+INSTANTIATE_TEST_SUITE_P(FileLockerPathVariantTests, FileLockerParameterizedTest,
+                         ::testing::Values(std::make_tuple(false, false), std::make_tuple(false, true),
+                                           std::make_tuple(true, false), std::make_tuple(true, true)));
 
 TEST_F(FileLockerTest, MultipleLockers) {
   CreateFiles(3);

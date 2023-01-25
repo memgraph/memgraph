@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -30,7 +30,7 @@ class MultiFrame {
   friend class ValidFramesReader;
   friend class InvalidFramesPopulator;
 
-  MultiFrame(int64_t size_of_frame, size_t number_of_frames, utils::MemoryResource *execution_memory);
+  MultiFrame(size_t size_of_frame, size_t number_of_frames, utils::MemoryResource *execution_memory);
   ~MultiFrame() = default;
 
   MultiFrame(const MultiFrame &other);
@@ -81,6 +81,7 @@ class MultiFrame {
   void MakeAllFramesInvalid() noexcept;
 
   bool HasValidFrame() const noexcept;
+  bool HasInvalidFrame() const noexcept;
 
   inline utils::MemoryResource *GetMemoryResource() { return frames_[0].GetMemoryResource(); }
 
@@ -168,7 +169,7 @@ class ValidFramesModifier {
     Iterator &operator++() {
       do {
         ptr_++;
-      } while (*this != iterator_wrapper_->end() && ptr_->IsValid());
+      } while (*this != iterator_wrapper_->end() && !ptr_->IsValid());
 
       return *this;
     }

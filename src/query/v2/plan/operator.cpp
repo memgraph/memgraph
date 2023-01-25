@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -34,6 +34,7 @@
 #include "query/v2/bindings/eval.hpp"
 #include "query/v2/bindings/symbol_table.hpp"
 #include "query/v2/context.hpp"
+#include "query/v2/conversions.hpp"
 #include "query/v2/db_accessor.hpp"
 #include "query/v2/exceptions.hpp"
 #include "query/v2/frontend/ast/ast.hpp"
@@ -92,7 +93,7 @@ extern const Event ScanAllByLabelOperator;
 extern const Event ScanAllByLabelPropertyRangeOperator;
 extern const Event ScanAllByLabelPropertyValueOperator;
 extern const Event ScanAllByLabelPropertyOperator;
-extern const Event ScanAllByIdOperator;
+extern const Event ScanByPrimaryKeyOperator;
 extern const Event ExpandOperator;
 extern const Event ExpandVariableOperator;
 extern const Event ConstructNamedPathOperator;
@@ -170,9 +171,8 @@ uint64_t ComputeProfilingKey(const T *obj) {
 class DistributedCreateNodeCursor : public Cursor {
  public:
   using InputOperator = std::shared_ptr<memgraph::query::v2::plan::LogicalOperator>;
-  DistributedCreateNodeCursor(const InputOperator &op, utils::MemoryResource *mem,
-                              std::vector<const NodeCreationInfo *> nodes_info)
-      : input_cursor_(op->MakeCursor(mem)), nodes_info_(std::move(nodes_info)) {}
+  DistributedCreateNodeCursor(const InputOperator &op, utils::MemoryResource *mem, const NodeCreationInfo &node_info)
+      : input_cursor_(op->MakeCursor(mem)), node_info_(node_info) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("CreateNode");
@@ -189,33 +189,92 @@ class DistributedCreateNodeCursor : public Cursor {
     return false;
   }
 
+  void PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("CreateNodeMF");
+    input_cursor_->PullMultiple(multi_frame, context);
+    auto *request_router = context.request_router;
+    {
+      SCOPED_REQUEST_WAIT_PROFILE;
+      request_router->CreateVertices(NodeCreationInfoToRequests(context, multi_frame));
+    }
+    PlaceNodesOnTheMultiFrame(multi_frame, context);
+  }
+
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override {}
 
   void PlaceNodeOnTheFrame(Frame &frame, ExecutionContext &context) {
     // TODO(kostasrim) Make this work with batching
-    const auto primary_label = msgs::Label{.id = nodes_info_[0]->labels[0]};
+    const auto primary_label = msgs::Label{.id = node_info_.labels[0]};
     msgs::Vertex v{.id = std::make_pair(primary_label, primary_keys_[0])};
-    frame[nodes_info_.front()->symbol] =
+    frame[node_info_.symbol] =
         TypedValue(query::v2::accessors::VertexAccessor(std::move(v), src_vertex_props_[0], context.request_router));
   }
 
   std::vector<msgs::NewVertex> NodeCreationInfoToRequest(ExecutionContext &context, Frame &frame) {
     std::vector<msgs::NewVertex> requests;
-    // TODO(kostasrim) this assertion should be removed once we support multiple vertex creation
-    MG_ASSERT(nodes_info_.size() == 1);
     msgs::PrimaryKey pk;
-    for (const auto &node_info : nodes_info_) {
+    msgs::NewVertex rqst;
+    MG_ASSERT(!node_info_.labels.empty(), "Cannot determine primary label");
+    const auto primary_label = node_info_.labels[0];
+    // TODO(jbajic) Send also the properties that are not part of primary key
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, nullptr,
+                                  storage::v3::View::NEW);
+    if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info_.properties)) {
+      for (const auto &[key, value_expression] : *node_info_properties) {
+        TypedValue val = value_expression->Accept(evaluator);
+        if (context.request_router->IsPrimaryKey(primary_label, key)) {
+          rqst.primary_key.push_back(TypedValueToValue(val));
+          pk.push_back(TypedValueToValue(val));
+        }
+      }
+    } else {
+      auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info_.properties)).ValueMap();
+      for (const auto &[key, value] : property_map) {
+        auto key_str = std::string(key);
+        auto property_id = context.request_router->NameToProperty(key_str);
+        if (context.request_router->IsPrimaryKey(primary_label, property_id)) {
+          rqst.primary_key.push_back(TypedValueToValue(value));
+          pk.push_back(TypedValueToValue(value));
+        }
+      }
+    }
+
+    // TODO(kostasrim) Copy non primary labels as well
+    rqst.label_ids.push_back(msgs::Label{.id = primary_label});
+    src_vertex_props_.push_back(rqst.properties);
+    requests.push_back(std::move(rqst));
+
+    primary_keys_.push_back(std::move(pk));
+    return requests;
+  }
+
+  void PlaceNodesOnTheMultiFrame(MultiFrame &multi_frame, ExecutionContext &context) {
+    auto multi_frame_modifier = multi_frame.GetValidFramesModifier();
+    size_t i = 0;
+    MG_ASSERT(std::distance(multi_frame_modifier.begin(), multi_frame_modifier.end()));
+    for (auto &frame : multi_frame_modifier) {
+      const auto primary_label = msgs::Label{.id = node_info_.labels[0]};
+      msgs::Vertex v{.id = std::make_pair(primary_label, primary_keys_[i])};
+      frame[node_info_.symbol] = TypedValue(
+          query::v2::accessors::VertexAccessor(std::move(v), src_vertex_props_[i++], context.request_router));
+    }
+  }
+
+  std::vector<msgs::NewVertex> NodeCreationInfoToRequests(ExecutionContext &context, MultiFrame &multi_frame) {
+    std::vector<msgs::NewVertex> requests;
+    auto multi_frame_modifier = multi_frame.GetValidFramesModifier();
+    for (auto &frame : multi_frame_modifier) {
+      msgs::PrimaryKey pk;
       msgs::NewVertex rqst;
-      MG_ASSERT(!node_info->labels.empty(), "Cannot determine primary label");
-      const auto primary_label = node_info->labels[0];
-      // TODO(jbajic) Fix properties not send,
-      // suggestion: ignore distinction between properties and primary keys
-      // since schema validation is done on storage side
+      MG_ASSERT(!node_info_.labels.empty(), "Cannot determine primary label");
+      const auto primary_label = node_info_.labels[0];
+      MG_ASSERT(context.request_router->IsPrimaryLabel(primary_label), "First label has to be a primary label!");
+      // TODO(jbajic) Send also the properties that are not part of primary key
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, nullptr,
                                     storage::v3::View::NEW);
-      if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info->properties)) {
+      if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info_.properties)) {
         for (const auto &[key, value_expression] : *node_info_properties) {
           TypedValue val = value_expression->Accept(evaluator);
           if (context.request_router->IsPrimaryKey(primary_label, key)) {
@@ -224,7 +283,7 @@ class DistributedCreateNodeCursor : public Cursor {
           }
         }
       } else {
-        auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info->properties)).ValueMap();
+        auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info_.properties)).ValueMap();
         for (const auto &[key, value] : property_map) {
           auto key_str = std::string(key);
           auto property_id = context.request_router->NameToProperty(key_str);
@@ -235,21 +294,19 @@ class DistributedCreateNodeCursor : public Cursor {
         }
       }
 
-      if (node_info->labels.empty()) {
-        throw QueryRuntimeException("Primary label must be defined!");
-      }
       // TODO(kostasrim) Copy non primary labels as well
       rqst.label_ids.push_back(msgs::Label{.id = primary_label});
       src_vertex_props_.push_back(rqst.properties);
       requests.push_back(std::move(rqst));
+      primary_keys_.push_back(std::move(pk));
     }
-    primary_keys_.push_back(std::move(pk));
+
     return requests;
   }
 
  private:
   const UniqueCursorPtr input_cursor_;
-  std::vector<const NodeCreationInfo *> nodes_info_;
+  NodeCreationInfo node_info_;
   std::vector<std::vector<std::pair<storage::v3::PropertyId, msgs::Value>>> src_vertex_props_;
   std::vector<msgs::PrimaryKey> primary_keys_;
 };
@@ -294,7 +351,7 @@ ACCEPT_WITH_INPUT(CreateNode)
 UniqueCursorPtr CreateNode::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::CreateNodeOperator);
 
-  return MakeUniqueCursorPtr<DistributedCreateNodeCursor>(mem, input_, mem, std::vector{&this->node_info_});
+  return MakeUniqueCursorPtr<DistributedCreateNodeCursor>(mem, input_, mem, this->node_info_);
 }
 
 std::vector<Symbol> CreateNode::ModifiedSymbols(const SymbolTable &table) const {
@@ -462,6 +519,88 @@ class DistributedScanAllAndFilterCursor : public Cursor {
   std::optional<std::vector<Expression *>> filter_expressions_;
 };
 
+class DistributedScanByPrimaryKeyCursor : public Cursor {
+ public:
+  explicit DistributedScanByPrimaryKeyCursor(Symbol output_symbol, UniqueCursorPtr input_cursor, const char *op_name,
+                                             storage::v3::LabelId label,
+                                             std::optional<std::vector<Expression *>> filter_expressions,
+                                             std::vector<Expression *> primary_key)
+      : output_symbol_(output_symbol),
+        input_cursor_(std::move(input_cursor)),
+        op_name_(op_name),
+        label_(label),
+        filter_expressions_(filter_expressions),
+        primary_key_(primary_key) {}
+
+  enum class State : int8_t { INITIALIZING, COMPLETED };
+
+  using VertexAccessor = accessors::VertexAccessor;
+
+  std::optional<VertexAccessor> MakeRequestSingleFrame(Frame &frame, RequestRouterInterface &request_router,
+                                                       ExecutionContext &context) {
+    // Evaluate the expressions that hold the PrimaryKey.
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.request_router,
+                                  storage::v3::View::NEW);
+
+    std::vector<msgs::Value> pk;
+    for (auto *primary_property : primary_key_) {
+      pk.push_back(TypedValueToValue(primary_property->Accept(evaluator)));
+    }
+
+    msgs::Label label = {.id = msgs::LabelId::FromUint(label_.AsUint())};
+
+    msgs::GetPropertiesRequest req = {.vertex_ids = {std::make_pair(label, pk)}};
+    auto get_prop_result = std::invoke([&context, &request_router, &req]() mutable {
+      SCOPED_REQUEST_WAIT_PROFILE;
+      return request_router.GetProperties(req);
+    });
+    MG_ASSERT(get_prop_result.size() <= 1);
+
+    if (get_prop_result.empty()) {
+      return std::nullopt;
+    }
+    auto properties = get_prop_result[0].props;
+    // TODO (gvolfing) figure out labels when relevant.
+    msgs::Vertex vertex = {.id = get_prop_result[0].vertex, .labels = {}};
+
+    return VertexAccessor(vertex, properties, &request_router);
+  }
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP(op_name_);
+
+    if (MustAbort(context)) {
+      throw HintedAbortError();
+    }
+
+    while (input_cursor_->Pull(frame, context)) {
+      auto &request_router = *context.request_router;
+      auto vertex = MakeRequestSingleFrame(frame, request_router, context);
+      if (vertex) {
+        frame[output_symbol_] = TypedValue(std::move(*vertex));
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void PullMultiple(MultiFrame & /*input_multi_frame*/, ExecutionContext & /*context*/) override {
+    throw utils::NotYetImplemented("Multiframe version of ScanByPrimaryKey is yet to be implemented.");
+  };
+
+  void Reset() override { input_cursor_->Reset(); }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+ private:
+  const Symbol output_symbol_;
+  const UniqueCursorPtr input_cursor_;
+  const char *op_name_;
+  storage::v3::LabelId label_;
+  std::optional<std::vector<Expression *>> filter_expressions_;
+  std::vector<Expression *> primary_key_;
+};
+
 ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::v3::View view)
     : input_(input ? input : std::make_shared<Once>()), output_symbol_(output_symbol), view_(view) {}
 
@@ -558,22 +697,21 @@ UniqueCursorPtr ScanAllByLabelProperty::MakeCursor(utils::MemoryResource *mem) c
   throw QueryRuntimeException("ScanAllByLabelProperty is not supported");
 }
 
-ScanAllById::ScanAllById(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, Expression *expression,
-                         storage::v3::View view)
-    : ScanAll(input, output_symbol, view), expression_(expression) {
-  MG_ASSERT(expression);
+ScanByPrimaryKey::ScanByPrimaryKey(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
+                                   storage::v3::LabelId label, std::vector<query::v2::Expression *> primary_key,
+                                   storage::v3::View view)
+    : ScanAll(input, output_symbol, view), label_(label), primary_key_(primary_key) {
+  MG_ASSERT(primary_key.front());
 }
 
-ACCEPT_WITH_INPUT(ScanAllById)
+ACCEPT_WITH_INPUT(ScanByPrimaryKey)
 
-UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::ScanAllByIdOperator);
-  // TODO Reimplement when we have reliable conversion between hash value and pk
-  auto vertices = [](Frame & /*frame*/, ExecutionContext & /*context*/) -> std::optional<std::vector<VertexAccessor>> {
-    return std::nullopt;
-  };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
-                                                                std::move(vertices), "ScanAllById");
+UniqueCursorPtr ScanByPrimaryKey::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::ScanByPrimaryKeyOperator);
+
+  return MakeUniqueCursorPtr<DistributedScanByPrimaryKeyCursor>(mem, output_symbol_, input_->MakeCursor(mem),
+                                                                "ScanByPrimaryKey", label_,
+                                                                std::nullopt /*filter_expressions*/, primary_key_);
 }
 
 Expand::Expand(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol, Symbol node_symbol,
@@ -2376,6 +2514,22 @@ class DistributedCreateExpandCursor : public Cursor {
     return true;
   }
 
+  void PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("CreateExpandMF");
+    input_cursor_->PullMultiple(multi_frame, context);
+    auto request_vertices = ExpandCreationInfoToRequests(multi_frame, context);
+    {
+      SCOPED_REQUEST_WAIT_PROFILE;
+      auto &request_router = context.request_router;
+      auto results = request_router->CreateExpand(std::move(request_vertices));
+      for (const auto &result : results) {
+        if (result.error) {
+          throw std::runtime_error("CreateExpand Request failed");
+        }
+      }
+    }
+  }
+
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override {
@@ -2444,6 +2598,63 @@ class DistributedCreateExpandCursor : public Cursor {
             LOG_FATAL("Must indicate exact expansion direction here");
         }
       });
+
+      edge_requests.push_back(std::move(request));
+    }
+    return edge_requests;
+  }
+
+  std::vector<msgs::NewExpand> ExpandCreationInfoToRequests(MultiFrame &multi_frame, ExecutionContext &context) const {
+    std::vector<msgs::NewExpand> edge_requests;
+    auto frames_modifier = multi_frame.GetValidFramesModifier();
+
+    for (auto &frame : frames_modifier) {
+      const auto &edge_info = self_.edge_info_;
+      msgs::NewExpand request{.id = {context.edge_ids_alloc->AllocateId()}};
+      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, nullptr,
+                                    storage::v3::View::NEW);
+      request.type = {edge_info.edge_type};
+      if (const auto *edge_info_properties = std::get_if<PropertiesMapList>(&edge_info.properties)) {
+        for (const auto &[property, value_expression] : *edge_info_properties) {
+          TypedValue val = value_expression->Accept(evaluator);
+          request.properties.emplace_back(property, storage::v3::TypedValueToValue(val));
+        }
+      } else {
+        // handle parameter
+        auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(edge_info.properties)).ValueMap();
+        for (const auto &[property, value] : property_map) {
+          const auto property_id = context.request_router->NameToProperty(std::string(property));
+          request.properties.emplace_back(property_id, storage::v3::TypedValueToValue(value));
+        }
+      }
+
+      TypedValue &v1_value = frame[self_.input_symbol_];
+      const auto &v1 = v1_value.ValueVertex();
+      const auto &v2 = OtherVertex(frame);
+      msgs::Edge edge{.src = request.src_vertex,
+                      .dst = request.dest_vertex,
+                      .properties = request.properties,
+                      .id = request.id,
+                      .type = request.type};
+      frame[self_.edge_info_.symbol] = TypedValue(accessors::EdgeAccessor(std::move(edge), context.request_router));
+
+      // Set src and dest vertices
+      // TODO(jbajic) Currently we are only handling scenario where vertices
+      // are matched
+      switch (edge_info.direction) {
+        case EdgeAtom::Direction::IN: {
+          request.src_vertex = v2.Id();
+          request.dest_vertex = v1.Id();
+          break;
+        }
+        case EdgeAtom::Direction::OUT: {
+          request.src_vertex = v1.Id();
+          request.dest_vertex = v2.Id();
+          break;
+        }
+        case EdgeAtom::Direction::BOTH:
+          LOG_FATAL("Must indicate exact expansion direction here");
+      }
 
       edge_requests.push_back(std::move(request));
     }
