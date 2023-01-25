@@ -15,6 +15,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "coordinator/hybrid_logical_clock.hpp"
 #include "query/v2/requests.hpp"
 #include "storage/v3/delta.hpp"
 #include "storage/v3/id_types.hpp"
@@ -53,6 +54,17 @@ class ShardSplitTest : public testing::Test {
     ++last_hlc.logical_id;
     last_hlc.coordinator_wall_clock += std::chrono::seconds(1);
     return last_hlc;
+  }
+
+  void AssertSplittedShard(SplitData &&splitted_data, const int split_value) {
+    auto shard = Shard::FromSplitData(std::move(splitted_data));
+    auto acc = shard->Access(GetNextHlc());
+    for (int i{0}; i < split_value; ++i) {
+      EXPECT_FALSE(acc.FindVertex(PrimaryKey{{PropertyValue(i)}}, View::OLD).has_value());
+    }
+    for (int i{split_value}; i < split_value * 2; ++i) {
+      EXPECT_TRUE(acc.FindVertex(PrimaryKey{{PropertyValue(i)}}, View::OLD).has_value());
+    }
   }
 };
 
@@ -301,10 +313,10 @@ TEST_F(ShardSplitTest, TestBasicSplitWithLabelPropertyIndex) {
 
 TEST_F(ShardSplitTest, TestBigSplit) {
   int pk{0};
-  for (size_t i{0}; i < 100000; ++i) {
+  for (int64_t i{0}; i < 100000; ++i) {
     auto acc = storage.Access(GetNextHlc());
     EXPECT_FALSE(
-        acc.CreateVertexAndValidate({secondary_label}, {PropertyValue(pk++)}, {{secondary_property, PropertyValue(pk)}})
+        acc.CreateVertexAndValidate({secondary_label}, {PropertyValue(pk++)}, {{secondary_property, PropertyValue(i)}})
             .HasError());
     EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(pk++)}, {}).HasError());
 
@@ -316,13 +328,16 @@ TEST_F(ShardSplitTest, TestBigSplit) {
   }
   storage.CreateIndex(secondary_label, secondary_property);
 
-  auto splitted_data = storage.PerformSplit({PropertyValue(pk / 2)});
+  const auto split_value = pk / 2;
+  auto splitted_data = storage.PerformSplit({PropertyValue(split_value)});
 
   EXPECT_EQ(splitted_data.vertices.size(), 100000);
   EXPECT_EQ(splitted_data.edges->size(), 50000);
   EXPECT_EQ(splitted_data.transactions.size(), 50000);
   EXPECT_EQ(splitted_data.label_indices.size(), 0);
   EXPECT_EQ(splitted_data.label_property_indices.size(), 1);
+
+  AssertSplittedShard(std::move(splitted_data), split_value);
 }
 
 }  // namespace memgraph::storage::v3::tests
