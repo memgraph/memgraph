@@ -206,14 +206,14 @@ void Splitter::AdjustClonedTransaction(Transaction &cloned_transaction, const Tr
         }
         case PreviousPtr::Type::VERTEX: {
           // What if the vertex is already moved to garbage collection...
-          // TODO(jbajic) Maybe revisit when we apply Garbage collection with new
-          // transaction management system
+          // TODO(jbajic) Maybe revisit when we apply Garbage collection with
+          //  new transaction management system
           auto *cloned_vertex = &*cloned_vertices.find(ptr.vertex->first);
           cloned_delta->prev.Set(cloned_vertex);
           break;
         }
         case PreviousPtr::Type::EDGE: {
-          // TODO(jbajic) Case when there are no properties on edge is not handled
+          // We can never be here if we have properties on edge disabled
           auto *cloned_edge = &*cloned_edges.find(ptr.edge->gid);
           cloned_delta->prev.Set(&cloned_edge->second);
           break;

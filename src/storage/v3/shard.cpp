@@ -1101,9 +1101,7 @@ void Shard::StoreMapping(std::unordered_map<uint64_t, std::string> id_to_name) {
 
 std::optional<SplitInfo> Shard::ShouldSplit() const noexcept {
   if (vertices_.size() > config_.split.max_shard_vertex_size) {
-    // Why should we care if the selected vertex is deleted
     auto mid_elem = vertices_.begin();
-    // mid_elem->first
     std::ranges::advance(mid_elem, static_cast<VertexContainer::difference_type>(vertices_.size() / 2));
     return SplitInfo{shard_version_, mid_elem->first};
   }
@@ -1111,6 +1109,7 @@ std::optional<SplitInfo> Shard::ShouldSplit() const noexcept {
 }
 
 SplitData Shard::PerformSplit(const PrimaryKey &split_key) {
+  ++shard_version_;
   return shard_splitter_.SplitShard(split_key, max_primary_key_);
 }
 

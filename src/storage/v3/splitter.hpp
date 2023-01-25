@@ -106,9 +106,9 @@ class Splitter final {
 
   static void ScanDeltas(std::set<uint64_t> &collected_transactions_start_id, Delta *delta);
 
-  static void AdjustClonedTransaction(Transaction &cloned_transaction, const Transaction &transaction,
-                                      std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions,
-                                      VertexContainer &cloned_vertices, EdgeContainer &cloned_edges);
+  void AdjustClonedTransaction(Transaction &cloned_transaction, const Transaction &transaction,
+                               std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions,
+                               VertexContainer &cloned_vertices, EdgeContainer &cloned_edges);
 
   void AdjustClonedTransactions(std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions,
                                 VertexContainer &cloned_vertices, EdgeContainer &cloned_edges);
