@@ -2029,7 +2029,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       while (!pq_.empty()) {
         if (MustAbort(context)) throw HintedAbortError();
 
-        const auto &[current_weight, current_depth, current_vertex, directed_edge] = pq_.top();
+        const auto [current_weight, current_depth, current_vertex, directed_edge] = pq_.top();
         pq_.pop();
 
         const auto &[current_edge, direction, weight] = directed_edge;
