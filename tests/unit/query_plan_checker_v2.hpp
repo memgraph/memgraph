@@ -14,12 +14,12 @@
 
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
-#include "query/plan/operator.hpp"
-#include "query/plan/planner.hpp"
-#include "query/plan/preprocess.hpp"
 #include "query/v2/plan/operator.hpp"
+#include "query/v2/plan/planner.hpp"
+#include "query/v2/plan/preprocess.hpp"
+#include "utils/exceptions.hpp"
 
-namespace memgraph::query::plan {
+namespace memgraph::query::v2::plan {
 
 class BaseOpChecker {
  public:
@@ -62,7 +62,7 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(ScanAllByLabelPropertyValue);
   PRE_VISIT(ScanAllByLabelPropertyRange);
   PRE_VISIT(ScanAllByLabelProperty);
-  PRE_VISIT(ScanAllById);
+  PRE_VISIT(ScanByPrimaryKey);
   PRE_VISIT(Expand);
   PRE_VISIT(ExpandVariable);
   PRE_VISIT(Filter);
@@ -139,7 +139,6 @@ using ExpectCreateExpand = OpChecker<CreateExpand>;
 using ExpectDelete = OpChecker<Delete>;
 using ExpectScanAll = OpChecker<ScanAll>;
 using ExpectScanAllByLabel = OpChecker<ScanAllByLabel>;
-using ExpectScanAllById = OpChecker<ScanAllById>;
 using ExpectExpand = OpChecker<Expand>;
 using ExpectFilter = OpChecker<Filter>;
 using ExpectConstructNamedPath = OpChecker<ConstructNamedPath>;
@@ -156,125 +155,11 @@ using ExpectOrderBy = OpChecker<OrderBy>;
 using ExpectUnwind = OpChecker<Unwind>;
 using ExpectDistinct = OpChecker<Distinct>;
 
-class ExpectForeach : public OpChecker<Foreach> {
- public:
-  ExpectForeach(const std::list<BaseOpChecker *> &input, const std::list<BaseOpChecker *> &updates)
-      : input_(input), updates_(updates) {}
-
-  void ExpectOp(Foreach &foreach, const SymbolTable &symbol_table) override {
-    PlanChecker check_input(input_, symbol_table);
-    foreach
-      .input_->Accept(check_input);
-    PlanChecker check_updates(updates_, symbol_table);
-    foreach
-      .update_clauses_->Accept(check_updates);
-  }
-
- private:
-  std::list<BaseOpChecker *> input_;
-  std::list<BaseOpChecker *> updates_;
-};
-
-class ExpectExpandVariable : public OpChecker<ExpandVariable> {
- public:
-  void ExpectOp(ExpandVariable &op, const SymbolTable &) override {
-    EXPECT_EQ(op.type_, memgraph::query::EdgeAtom::Type::DEPTH_FIRST);
-  }
-};
-
-class ExpectExpandBfs : public OpChecker<ExpandVariable> {
- public:
-  void ExpectOp(ExpandVariable &op, const SymbolTable &) override {
-    EXPECT_EQ(op.type_, memgraph::query::EdgeAtom::Type::BREADTH_FIRST);
-  }
-};
-
-class ExpectAccumulate : public OpChecker<Accumulate> {
- public:
-  explicit ExpectAccumulate(const std::unordered_set<Symbol> &symbols) : symbols_(symbols) {}
-
-  void ExpectOp(Accumulate &op, const SymbolTable &) override {
-    std::unordered_set<Symbol> got_symbols(op.symbols_.begin(), op.symbols_.end());
-    EXPECT_EQ(symbols_, got_symbols);
-  }
-
- private:
-  const std::unordered_set<Symbol> symbols_;
-};
-
-class ExpectAggregate : public OpChecker<Aggregate> {
- public:
-  ExpectAggregate(const std::vector<memgraph::query::Aggregation *> &aggregations,
-                  const std::unordered_set<memgraph::query::Expression *> &group_by)
-      : aggregations_(aggregations), group_by_(group_by) {}
-
-  void ExpectOp(Aggregate &op, const SymbolTable &symbol_table) override {
-    auto aggr_it = aggregations_.begin();
-    for (const auto &aggr_elem : op.aggregations_) {
-      ASSERT_NE(aggr_it, aggregations_.end());
-      auto aggr = *aggr_it++;
-      // TODO: Proper expression equality
-      EXPECT_EQ(typeid(aggr_elem.value).hash_code(), typeid(aggr->expression1_).hash_code());
-      EXPECT_EQ(typeid(aggr_elem.key).hash_code(), typeid(aggr->expression2_).hash_code());
-      EXPECT_EQ(aggr_elem.op, aggr->op_);
-      EXPECT_EQ(aggr_elem.output_sym, symbol_table.at(*aggr));
-    }
-    EXPECT_EQ(aggr_it, aggregations_.end());
-    // TODO: Proper group by expression equality
-    std::unordered_set<size_t> got_group_by;
-    for (auto *expr : op.group_by_) got_group_by.insert(typeid(*expr).hash_code());
-    std::unordered_set<size_t> expected_group_by;
-    for (auto *expr : group_by_) expected_group_by.insert(typeid(*expr).hash_code());
-    EXPECT_EQ(got_group_by, expected_group_by);
-  }
-
- private:
-  std::vector<memgraph::query::Aggregation *> aggregations_;
-  std::unordered_set<memgraph::query::Expression *> group_by_;
-};
-
-class ExpectMerge : public OpChecker<Merge> {
- public:
-  ExpectMerge(const std::list<BaseOpChecker *> &on_match, const std::list<BaseOpChecker *> &on_create)
-      : on_match_(on_match), on_create_(on_create) {}
-
-  void ExpectOp(Merge &merge, const SymbolTable &symbol_table) override {
-    PlanChecker check_match(on_match_, symbol_table);
-    merge.merge_match_->Accept(check_match);
-    PlanChecker check_create(on_create_, symbol_table);
-    merge.merge_create_->Accept(check_create);
-  }
-
- private:
-  const std::list<BaseOpChecker *> &on_match_;
-  const std::list<BaseOpChecker *> &on_create_;
-};
-
-class ExpectOptional : public OpChecker<Optional> {
- public:
-  explicit ExpectOptional(const std::list<BaseOpChecker *> &optional) : optional_(optional) {}
-
-  ExpectOptional(const std::vector<Symbol> &optional_symbols, const std::list<BaseOpChecker *> &optional)
-      : optional_symbols_(optional_symbols), optional_(optional) {}
-
-  void ExpectOp(Optional &optional, const SymbolTable &symbol_table) override {
-    if (!optional_symbols_.empty()) {
-      EXPECT_THAT(optional.optional_symbols_, testing::UnorderedElementsAreArray(optional_symbols_));
-    }
-    PlanChecker check_optional(optional_, symbol_table);
-    optional.optional_->Accept(check_optional);
-  }
-
- private:
-  std::vector<Symbol> optional_symbols_;
-  const std::list<BaseOpChecker *> &optional_;
-};
-
 class ExpectScanAllByLabelPropertyValue : public OpChecker<ScanAllByLabelPropertyValue> {
  public:
-  ExpectScanAllByLabelPropertyValue(memgraph::storage::LabelId label,
-                                    const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair,
-                                    memgraph::query::Expression *expression)
+  ExpectScanAllByLabelPropertyValue(memgraph::storage::v3::LabelId label,
+                                    const std::pair<std::string, memgraph::storage::v3::PropertyId> &prop_pair,
+                                    memgraph::query::v2::Expression *expression)
       : label_(label), property_(prop_pair.second), expression_(expression) {}
 
   void ExpectOp(ScanAllByLabelPropertyValue &scan_all, const SymbolTable &) override {
@@ -285,56 +170,9 @@ class ExpectScanAllByLabelPropertyValue : public OpChecker<ScanAllByLabelPropert
   }
 
  private:
-  memgraph::storage::LabelId label_;
-  memgraph::storage::PropertyId property_;
-  memgraph::query::Expression *expression_;
-};
-
-class ExpectScanAllByLabelPropertyRange : public OpChecker<ScanAllByLabelPropertyRange> {
- public:
-  ExpectScanAllByLabelPropertyRange(memgraph::storage::LabelId label, memgraph::storage::PropertyId property,
-                                    std::optional<ScanAllByLabelPropertyRange::Bound> lower_bound,
-                                    std::optional<ScanAllByLabelPropertyRange::Bound> upper_bound)
-      : label_(label), property_(property), lower_bound_(lower_bound), upper_bound_(upper_bound) {}
-
-  void ExpectOp(ScanAllByLabelPropertyRange &scan_all, const SymbolTable &) override {
-    EXPECT_EQ(scan_all.label_, label_);
-    EXPECT_EQ(scan_all.property_, property_);
-    if (lower_bound_) {
-      ASSERT_TRUE(scan_all.lower_bound_);
-      // TODO: Proper expression equality
-      EXPECT_EQ(typeid(scan_all.lower_bound_->value()).hash_code(), typeid(lower_bound_->value()).hash_code());
-      EXPECT_EQ(scan_all.lower_bound_->type(), lower_bound_->type());
-    }
-    if (upper_bound_) {
-      ASSERT_TRUE(scan_all.upper_bound_);
-      // TODO: Proper expression equality
-      EXPECT_EQ(typeid(scan_all.upper_bound_->value()).hash_code(), typeid(upper_bound_->value()).hash_code());
-      EXPECT_EQ(scan_all.upper_bound_->type(), upper_bound_->type());
-    }
-  }
-
- private:
-  memgraph::storage::LabelId label_;
-  memgraph::storage::PropertyId property_;
-  std::optional<ScanAllByLabelPropertyRange::Bound> lower_bound_;
-  std::optional<ScanAllByLabelPropertyRange::Bound> upper_bound_;
-};
-
-class ExpectScanAllByLabelProperty : public OpChecker<ScanAllByLabelProperty> {
- public:
-  ExpectScanAllByLabelProperty(memgraph::storage::LabelId label,
-                               const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair)
-      : label_(label), property_(prop_pair.second) {}
-
-  void ExpectOp(ScanAllByLabelProperty &scan_all, const SymbolTable &) override {
-    EXPECT_EQ(scan_all.label_, label_);
-    EXPECT_EQ(scan_all.property_, property_);
-  }
-
- private:
-  memgraph::storage::LabelId label_;
-  memgraph::storage::PropertyId property_;
+  memgraph::storage::v3::LabelId label_;
+  memgraph::storage::v3::PropertyId property_;
+  memgraph::query::v2::Expression *expression_;
 };
 
 class ExpectScanByPrimaryKey : public OpChecker<v2::plan::ScanByPrimaryKey> {
@@ -434,15 +272,15 @@ TPlanner MakePlanner(TDbAccessor *dba, AstStorage &storage, SymbolTable &symbol_
   return TPlanner(single_query_parts, planning_context);
 }
 
-class FakeDbAccessor {
+class FakeDistributedDbAccessor {
  public:
-  int64_t VerticesCount(memgraph::storage::LabelId label) const {
+  int64_t VerticesCount(memgraph::storage::v3::LabelId label) const {
     auto found = label_index_.find(label);
     if (found != label_index_.end()) return found->second;
     return 0;
   }
 
-  int64_t VerticesCount(memgraph::storage::LabelId label, memgraph::storage::PropertyId property) const {
+  int64_t VerticesCount(memgraph::storage::v3::LabelId label, memgraph::storage::v3::PropertyId property) const {
     for (auto &index : label_property_index_) {
       if (std::get<0>(index) == label && std::get<1>(index) == property) {
         return std::get<2>(index);
@@ -451,11 +289,12 @@ class FakeDbAccessor {
     return 0;
   }
 
-  bool LabelIndexExists(memgraph::storage::LabelId label) const {
-    return label_index_.find(label) != label_index_.end();
+  bool LabelIndexExists(memgraph::storage::v3::LabelId label) const {
+    throw utils::NotYetImplemented("Label indicies are yet to be implemented.");
   }
 
-  bool LabelPropertyIndexExists(memgraph::storage::LabelId label, memgraph::storage::PropertyId property) const {
+  bool LabelPropertyIndexExists(memgraph::storage::v3::LabelId label,
+                                memgraph::storage::v3::PropertyId property) const {
     for (auto &index : label_property_index_) {
       if (std::get<0>(index) == label && std::get<1>(index) == property) {
         return true;
@@ -464,9 +303,11 @@ class FakeDbAccessor {
     return false;
   }
 
-  void SetIndexCount(memgraph::storage::LabelId label, int64_t count) { label_index_[label] = count; }
+  bool PrimaryLabelExists(storage::v3::LabelId label) { return label_index_.find(label) != label_index_.end(); }
 
-  void SetIndexCount(memgraph::storage::LabelId label, memgraph::storage::PropertyId property, int64_t count) {
+  void SetIndexCount(memgraph::storage::v3::LabelId label, int64_t count) { label_index_[label] = count; }
+
+  void SetIndexCount(memgraph::storage::v3::LabelId label, memgraph::storage::v3::PropertyId property, int64_t count) {
     for (auto &index : label_property_index_) {
       if (std::get<0>(index) == label && std::get<1>(index) == property) {
         std::get<2>(index) = count;
@@ -476,44 +317,136 @@ class FakeDbAccessor {
     label_property_index_.emplace_back(label, property, count);
   }
 
-  memgraph::storage::LabelId NameToLabel(const std::string &name) {
-    auto found = labels_.find(name);
-    if (found != labels_.end()) return found->second;
-    return labels_.emplace(name, memgraph::storage::LabelId::FromUint(labels_.size())).first->second;
+  memgraph::storage::v3::LabelId NameToLabel(const std::string &name) {
+    auto found = primary_labels_.find(name);
+    if (found != primary_labels_.end()) return found->second;
+    return primary_labels_.emplace(name, memgraph::storage::v3::LabelId::FromUint(primary_labels_.size()))
+        .first->second;
   }
 
-  memgraph::storage::LabelId Label(const std::string &name) { return NameToLabel(name); }
+  memgraph::storage::v3::LabelId Label(const std::string &name) { return NameToLabel(name); }
 
-  memgraph::storage::EdgeTypeId NameToEdgeType(const std::string &name) {
+  memgraph::storage::v3::EdgeTypeId NameToEdgeType(const std::string &name) {
     auto found = edge_types_.find(name);
     if (found != edge_types_.end()) return found->second;
-    return edge_types_.emplace(name, memgraph::storage::EdgeTypeId::FromUint(edge_types_.size())).first->second;
+    return edge_types_.emplace(name, memgraph::storage::v3::EdgeTypeId::FromUint(edge_types_.size())).first->second;
   }
 
-  memgraph::storage::PropertyId NameToProperty(const std::string &name) {
-    auto found = properties_.find(name);
-    if (found != properties_.end()) return found->second;
-    return properties_.emplace(name, memgraph::storage::PropertyId::FromUint(properties_.size())).first->second;
+  memgraph::storage::v3::PropertyId NameToPrimaryProperty(const std::string &name) {
+    auto found = primary_properties_.find(name);
+    if (found != primary_properties_.end()) return found->second;
+    return primary_properties_.emplace(name, memgraph::storage::v3::PropertyId::FromUint(primary_properties_.size()))
+        .first->second;
   }
 
-  memgraph::storage::PropertyId Property(const std::string &name) { return NameToProperty(name); }
+  memgraph::storage::v3::PropertyId NameToSecondaryProperty(const std::string &name) {
+    auto found = secondary_properties_.find(name);
+    if (found != secondary_properties_.end()) return found->second;
+    return secondary_properties_
+        .emplace(name, memgraph::storage::v3::PropertyId::FromUint(secondary_properties_.size()))
+        .first->second;
+  }
 
-  std::string PropertyToName(memgraph::storage::PropertyId property) const {
-    for (const auto &kv : properties_) {
+  memgraph::storage::v3::PropertyId PrimaryProperty(const std::string &name) { return NameToPrimaryProperty(name); }
+  memgraph::storage::v3::PropertyId SecondaryProperty(const std::string &name) { return NameToSecondaryProperty(name); }
+
+  std::string PrimaryPropertyToName(memgraph::storage::v3::PropertyId property) const {
+    for (const auto &kv : primary_properties_) {
       if (kv.second == property) return kv.first;
     }
-    LOG_FATAL("Unable to find property name");
+    LOG_FATAL("Unable to find primary property name");
   }
 
-  std::string PropertyName(memgraph::storage::PropertyId property) const { return PropertyToName(property); }
+  std::string SecondaryPropertyToName(memgraph::storage::v3::PropertyId property) const {
+    for (const auto &kv : secondary_properties_) {
+      if (kv.second == property) return kv.first;
+    }
+    LOG_FATAL("Unable to find secondary property name");
+  }
+
+  std::string PrimaryPropertyName(memgraph::storage::v3::PropertyId property) const {
+    return PrimaryPropertyToName(property);
+  }
+  std::string SecondaryPropertyName(memgraph::storage::v3::PropertyId property) const {
+    return SecondaryPropertyToName(property);
+  }
+
+  memgraph::storage::v3::PropertyId NameToProperty(const std::string &name) {
+    auto find_in_prim_properties = primary_properties_.find(name);
+    if (find_in_prim_properties != primary_properties_.end()) {
+      return find_in_prim_properties->second;
+    }
+    auto find_in_secondary_properties = secondary_properties_.find(name);
+    if (find_in_secondary_properties != secondary_properties_.end()) {
+      return find_in_secondary_properties->second;
+    }
+
+    LOG_FATAL("The property does not exist as a primary or a secondary property.");
+    return memgraph::storage::v3::PropertyId::FromUint(0);
+  }
+
+  std::vector<memgraph::storage::v3::SchemaProperty> GetSchemaForLabel(storage::v3::LabelId label) {
+    auto schema_properties = schemas_.at(label);
+    std::vector<memgraph::storage::v3::SchemaProperty> ret;
+    std::transform(schema_properties.begin(), schema_properties.end(), std::back_inserter(ret), [](const auto &prop) {
+      memgraph::storage::v3::SchemaProperty schema_prop = {
+          .property_id = prop,
+          // This should not be hardcoded, but for testing purposes it will suffice.
+          .type = memgraph::common::SchemaType::INT};
+
+      return schema_prop;
+    });
+    return ret;
+  }
+
+  std::vector<std::pair<query::v2::Expression *, query::v2::plan::FilterInfo>> ExtractPrimaryKey(
+      storage::v3::LabelId label, std::vector<query::v2::plan::FilterInfo> property_filters) {
+    MG_ASSERT(schemas_.contains(label),
+              "You did not specify the Schema for this label! Use FakeDistributedDbAccessor::CreateSchema(...).");
+
+    std::vector<std::pair<query::v2::Expression *, query::v2::plan::FilterInfo>> pk;
+    const auto schema = GetSchemaPropertiesForLabel(label);
+
+    std::vector<storage::v3::PropertyId> schema_properties;
+    schema_properties.reserve(schema.size());
+
+    std::transform(schema.begin(), schema.end(), std::back_inserter(schema_properties),
+                   [](const auto &schema_elem) { return schema_elem; });
+
+    for (const auto &property_filter : property_filters) {
+      const auto &property_id = NameToProperty(property_filter.property_filter->property_.name);
+      if (std::find(schema_properties.begin(), schema_properties.end(), property_id) != schema_properties.end()) {
+        pk.emplace_back(std::make_pair(property_filter.expression, property_filter));
+      }
+    }
+
+    return pk.size() == schema_properties.size()
+               ? pk
+               : std::vector<std::pair<query::v2::Expression *, query::v2::plan::FilterInfo>>{};
+  }
+
+  std::vector<memgraph::storage::v3::PropertyId> GetSchemaPropertiesForLabel(storage::v3::LabelId label) {
+    return schemas_.at(label);
+  }
+
+  void CreateSchema(const memgraph::storage::v3::LabelId primary_label,
+                    const std::vector<memgraph::storage::v3::PropertyId> &schemas_types) {
+    MG_ASSERT(!schemas_.contains(primary_label), "You already created the schema for this label!");
+    schemas_.emplace(primary_label, schemas_types);
+  }
 
  private:
-  std::unordered_map<std::string, memgraph::storage::LabelId> labels_;
-  std::unordered_map<std::string, memgraph::storage::EdgeTypeId> edge_types_;
-  std::unordered_map<std::string, memgraph::storage::PropertyId> properties_;
+  std::unordered_map<std::string, memgraph::storage::v3::LabelId> primary_labels_;
+  std::unordered_map<std::string, memgraph::storage::v3::LabelId> secondary_labels_;
+  std::unordered_map<std::string, memgraph::storage::v3::EdgeTypeId> edge_types_;
+  std::unordered_map<std::string, memgraph::storage::v3::PropertyId> primary_properties_;
+  std::unordered_map<std::string, memgraph::storage::v3::PropertyId> secondary_properties_;
 
-  std::unordered_map<memgraph::storage::LabelId, int64_t> label_index_;
-  std::vector<std::tuple<memgraph::storage::LabelId, memgraph::storage::PropertyId, int64_t>> label_property_index_;
+  std::unordered_map<memgraph::storage::v3::LabelId, int64_t> label_index_;
+  std::vector<std::tuple<memgraph::storage::v3::LabelId, memgraph::storage::v3::PropertyId, int64_t>>
+      label_property_index_;
+
+  std::unordered_map<memgraph::storage::v3::LabelId, std::vector<memgraph::storage::v3::PropertyId>> schemas_;
 };
 
-}  // namespace memgraph::query::plan
+}  // namespace memgraph::query::v2::plan

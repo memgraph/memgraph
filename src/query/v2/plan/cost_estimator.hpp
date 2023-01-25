@@ -149,8 +149,6 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  // TODO: Cost estimate ScanAllById?
-
 // For the given op first increments the cardinality and then cost.
 #define POST_VISIT_CARD_FIRST(NAME)     \
   bool PostVisit(NAME &) override {     \

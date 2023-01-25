@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,10 +11,12 @@
 
 #include "query/v2/plan/read_write_type_checker.hpp"
 
-#define PRE_VISIT(TOp, RWType, continue_visiting) \
-  bool ReadWriteTypeChecker::PreVisit(TOp &op) {  \
-    UpdateType(RWType);                           \
-    return continue_visiting;                     \
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define PRE_VISIT(TOp, RWType, continue_visiting)     \
+  /*NOLINTNEXTLINE(bugprone-macro-parentheses)*/      \
+  bool ReadWriteTypeChecker::PreVisit(TOp & /*op*/) { \
+    UpdateType(RWType);                               \
+    return continue_visiting;                         \
   }
 
 namespace memgraph::query::v2::plan {
@@ -35,7 +37,7 @@ PRE_VISIT(ScanAllByLabel, RWType::R, true)
 PRE_VISIT(ScanAllByLabelPropertyRange, RWType::R, true)
 PRE_VISIT(ScanAllByLabelPropertyValue, RWType::R, true)
 PRE_VISIT(ScanAllByLabelProperty, RWType::R, true)
-PRE_VISIT(ScanAllById, RWType::R, true)
+PRE_VISIT(ScanByPrimaryKey, RWType::R, true)
 
 PRE_VISIT(Expand, RWType::R, true)
 PRE_VISIT(ExpandVariable, RWType::R, true)

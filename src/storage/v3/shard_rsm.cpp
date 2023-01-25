@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -535,13 +535,17 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::GetPropertiesRequest &&req) {
     return result;
   };
 
-  auto collect_props = [&req](const VertexAccessor &v_acc,
-                              const std::optional<EdgeAccessor> &e_acc) -> ShardResult<std::map<PropertyId, Value>> {
+  auto collect_props = [this, &req](
+                           const VertexAccessor &v_acc,
+                           const std::optional<EdgeAccessor> &e_acc) -> ShardResult<std::map<PropertyId, Value>> {
     if (!req.property_ids) {
       if (e_acc) {
         return CollectAllPropertiesFromAccessor(*e_acc, view);
       }
-      return CollectAllPropertiesFromAccessor(v_acc, view);
+      const auto *schema = shard_->GetSchema(shard_->PrimaryLabel());
+      MG_ASSERT(schema);
+
+      return CollectAllPropertiesFromAccessor(v_acc, view, *schema);
     }
 
     if (e_acc) {
