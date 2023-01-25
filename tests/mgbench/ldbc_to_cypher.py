@@ -1,8 +1,6 @@
 import argparse
 import csv
-import subprocess
-import time
-import urllib.request
+from datetime import datetime
 from pathlib import Path
 
 # Full LDBC datasets available at: https://github.com/ldbc/data-sets-surf-repository
@@ -132,8 +130,15 @@ if __name__ == "__main__":
                     reader = csv.DictReader(input_f, delimiter="|")
                     for row in reader:
                         query = "CREATE (:{} {{id:{}, ".format(label, row.pop("id"))
-                        # TODO(antejavor): Fix types, everything is string at the moment.
-                        prop_string = ", ".join('{} : "{}"'.format(k, v) for k, v in row.items())
+                        # Format properties
+                        for k, v in row.items():
+                            if k == "creationDate":
+                                # Take time zone out
+                                row[k] = 'localDateTime("{}")'.format(v[0:-5])
+                            else:
+                                row[k] = '"{}"'.format(v)
+
+                        prop_string = ", ".join("{} : {}".format(k, v) for k, v in row.items())
                         query = query + prop_string + "});"
                         output_f.write(query + "\n")
                 print("Line")

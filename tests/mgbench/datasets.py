@@ -499,7 +499,7 @@ class LDBC(Dataset):
     PROPERTIES_ON_EDGES = False
 
     def benchmark__ldbc__sample_query(self):
-        return "MATCH(n:Tag) RETURN n;"
+        return "MATCH(n:Tag) RETURN COUNT(*);"
 
     def benchmark__ldbc__interactive_complex_query_1(self):
         return (
@@ -550,7 +550,7 @@ class LDBC(Dataset):
                 toInteger(friendId) ASC
             LIMIT 20
             """,
-            {"personId": "4398046511333", "firstName": "Jose"},
+            {"personId": 4398046511333, "firstName": "Jose"},
         )
 
     def benchmark__ldbc__interactive_complex_query_2(self):
@@ -570,7 +570,7 @@ class LDBC(Dataset):
                 toInteger(postOrCommentId) ASC
             LIMIT 20
             """,
-            {"personId": "10995116278009", "maxDate": "1287230400000"},
+            {"personId": 10995116278009, "maxDate": "1287230400000"},
         )
 
     def benchmark__ldbc__interactive_complex_query_3(self):
@@ -636,7 +636,7 @@ class LDBC(Dataset):
             LIMIT 10
             """,
             {
-                "personId": "4398046511333",
+                "personId": 4398046511333,
                 "startDate": "1275350400000",
                 "endDate": "1277856000000",
             },
@@ -702,5 +702,170 @@ class LDBC(Dataset):
                 tagName ASC
             LIMIT 10
             """,
-            {"personId": "4398046511333", "tagName": "Carl_Gustaf_Emil_Mannerheim"},
+            {"personId": 4398046511333, "tagName": "Carl_Gustaf_Emil_Mannerheim"},
+        )
+
+    def benchmark__ldbc__interactive_complex_query_7(self):
+        return (
+            """
+            MATCH (person:Person {id: $personId})<-[:HAS_CREATOR]-(message:Message)<-[like:LIKES]-(liker:Person)
+                WITH liker, message, like.creationDate AS likeTime, person
+                ORDER BY likeTime DESC, toInteger(message.id) ASC
+                WITH liker, head(collect({msg: message, likeTime: likeTime})) AS latestLike, person
+            RETURN
+                liker.id AS personId,
+                liker.firstName AS personFirstName,
+                liker.lastName AS personLastName,
+                latestLike.likeTime AS likeCreationDate,
+                latestLike.msg.id AS commentOrPostId,
+                coalesce(latestLike.msg.content, latestLike.msg.imageFile) AS commentOrPostContent,
+                toInteger(floor(toFloat(latestLike.likeTime - latestLike.msg.creationDate)/1000.0)/60.0) AS minutesLatency,
+                not((liker)-[:KNOWS]-(person)) AS isNew
+            ORDER BY
+                likeCreationDate DESC,
+                toInteger(personId) ASC
+            LIMIT 20
+            """,
+            {"personId": 4398046511268},
+        )
+
+    def benchmark__ldbc__interactive_complex_query_8(self):
+        return (
+            """
+            MATCH (start:Person {id: $personId})<-[:HAS_CREATOR]-(:Message)<-[:REPLY_OF]-(comment:Comment)-[:HAS_CREATOR]->(person:Person)
+            RETURN
+                person.id AS personId,
+                person.firstName AS personFirstName,
+                person.lastName AS personLastName,
+                comment.creationDate AS commentCreationDate,
+                comment.id AS commentId,
+                comment.content AS commentContent
+            ORDER BY
+                commentCreationDate DESC,
+                commentId ASC
+            LIMIT 20
+            """,
+            {"personId": 143},
+        )
+
+    def benchmark__ldbc__interactive_complex_query_9(self):
+        return (
+            """
+            MATCH (root:Person {id: $personId })-[:KNOWS*1..2]-(friend:Person)
+            WHERE NOT friend = root
+            WITH collect(distinct friend) as friends
+            UNWIND friends as friend
+                MATCH (friend)<-[:HAS_CREATOR]-(message:Message)
+                WHERE message.creationDate < $maxDate
+            RETURN
+                friend.id AS personId,
+                friend.firstName AS personFirstName,
+                friend.lastName AS personLastName,
+                message.id AS commentOrPostId,
+                coalesce(message.content,message.imageFile) AS commentOrPostContent,
+                message.creationDate AS commentOrPostCreationDate
+            ORDER BY
+                commentOrPostCreationDate DESC,
+                message.id ASC
+            LIMIT 20
+            """,
+            {"personId": 4398046511268, "maxDate": "1289908800000"},
+        )
+
+    def benchmark__ldbc__interactive_complex_query_10(self):
+        return (
+            """
+            MATCH (person:Person {id: $personId})-[:KNOWS*2..2]-(friend),
+                (friend)-[:IS_LOCATED_IN]->(city:City)
+            WHERE NOT friend=person AND
+                NOT (friend)-[:KNOWS]-(person)
+            WITH person, city, friend, datetime({epochMillis: friend.birthday}) as birthday
+            WHERE  (birthday.month=$month AND birthday.day>=21) OR
+                    (birthday.month=($month%12)+1 AND birthday.day<22)
+            WITH DISTINCT friend, city, person
+            OPTIONAL MATCH (friend)<-[:HAS_CREATOR]-(post:Post)
+            WITH friend, city, collect(post) AS posts, person
+            WITH friend,
+                city,
+                size(posts) AS postCount,
+                size([p IN posts WHERE (p)-[:HAS_TAG]->()<-[:HAS_INTEREST]-(person)]) AS commonPostCount
+            RETURN friend.id AS personId,
+                friend.firstName AS personFirstName,
+                friend.lastName AS personLastName,
+                commonPostCount - (postCount - commonPostCount) AS commonInterestScore,
+                friend.gender AS personGender,
+                city.name AS personCityName
+            ORDER BY commonInterestScore DESC, personId ASC
+            LIMIT 10
+            """,
+            {"personId": 4398046511333, "month": 5},
+        )
+
+    def benchmark__ldbc__interactive_complex_query_11(self):
+        return (
+            """
+            MATCH (person:Person {id: $personId })-[:KNOWS*1..2]-(friend:Person)
+            WHERE not(person=friend)
+            WITH DISTINCT friend
+            MATCH (friend)-[workAt:WORK_AT]->(company:Company)-[:IS_LOCATED_IN]->(:Country {name: $countryName })
+            WHERE workAt.workFrom < $workFromYear
+            RETURN
+                    friend.id AS personId,
+                    friend.firstName AS personFirstName,
+                    friend.lastName AS personLastName,
+                    company.name AS organizationName,
+                    workAt.workFrom AS organizationWorkFromYear
+            ORDER BY
+                    organizationWorkFromYear ASC,
+                    toInteger(personId) ASC,
+                    organizationName DESC
+            LIMIT 10
+            """,
+            {
+                "personId": 10995116277918,
+                "countryName": "Hungary",
+                "workFromYear": 2011,
+            },
+        )
+
+    def benchmark__ldbc__interactive_complex_query_12(self):
+        return (
+            """
+            MATCH (tag:Tag)-[:HAS_TYPE|IS_SUBCLASS_OF*0..]->(baseTagClass:TagClass)
+            WHERE tag.name = $tagClassName OR baseTagClass.name = $tagClassName
+            WITH collect(tag.id) as tags
+            MATCH (:Person {id: $personId })-[:KNOWS]-(friend:Person)<-[:HAS_CREATOR]-(comment:Comment)-[:REPLY_OF]->(:Post)-[:HAS_TAG]->(tag:Tag)
+            WHERE tag.id in tags
+            RETURN
+                friend.id AS personId,
+                friend.firstName AS personFirstName,
+                friend.lastName AS personLastName,
+                collect(DISTINCT tag.name) AS tagNames,
+                count(DISTINCT comment) AS replyCount
+            ORDER BY
+                replyCount DESC,
+                toInteger(personId) ASC
+            LIMIT 20
+            """,
+            {
+                "personId": 10995116277918,
+                "countryName": "Hungary",
+                "workFromYear": 2011,
+            },
+        )
+
+    def benchmark__ldbc__interactive_complex_query_13(self):
+        return (
+            """
+            MATCH
+                (person1:Person {id: $person1Id}),
+                (person2:Person {id: $person2Id}),
+                path = shortestPath((person1)-[:KNOWS*]-(person2))
+            RETURN
+                CASE path IS NULL
+                    WHEN true THEN -1
+                    ELSE length(path)
+                END AS shortestPathLength
+            """,
+            {"person1Id": 8796093022390, "person2Id": 8796093022357},
         )
