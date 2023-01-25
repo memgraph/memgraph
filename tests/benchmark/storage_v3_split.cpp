@@ -118,6 +118,37 @@ BENCHMARK_DEFINE_F(ShardSplitBenchmark, BigDataSplitWithGc)(::benchmark::State &
   }
 }
 
+BENCHMARK_DEFINE_F(ShardSplitBenchmark, BigDataSplitWithFewTransactions)(::benchmark::State &state) {
+  std::random_device r;
+  std::default_random_engine e1(r());
+  std::uniform_int_distribution<int> uniform_dist(0, state.range(0));
+
+  for (int64_t i{0}; i < state.range(0); ++i) {
+    auto acc = storage->Access(GetNextHlc());
+    MG_ASSERT(acc.CreateVertexAndValidate({secondary_label}, PrimaryKey{PropertyValue(i)},
+                                          {{secondary_property, PropertyValue(i)}})
+                  .HasValue(),
+              "Failed creating with pk {}", i);
+    if (i > 1) {
+      const auto vtx1 = uniform_dist(e1) % i;
+      const auto vtx2 = uniform_dist(e1) % i;
+
+      MG_ASSERT(acc.CreateEdge(VertexId{primary_label, {PropertyValue(vtx1)}},
+                               VertexId{primary_label, {PropertyValue(vtx2)}}, edge_type_id, Gid::FromUint(i))
+                    .HasValue(),
+                "Failed on {} and {}", vtx1, vtx2);
+    }
+    acc.Commit(GetNextHlc());
+    if (i == state.range(0) - state.range(1)) {
+      storage->CollectGarbage(GetNextHlc().coordinator_wall_clock);
+    }
+  }
+
+  for (auto _ : state) {
+    auto data = storage->PerformSplit(PrimaryKey{PropertyValue{state.range(0) / 2}}, 2);
+  }
+}
+
 BENCHMARK_REGISTER_F(ShardSplitBenchmark, BigDataSplit)
     ->RangeMultiplier(10)
     ->Range(100'000, 1'000'000)
@@ -126,6 +157,13 @@ BENCHMARK_REGISTER_F(ShardSplitBenchmark, BigDataSplit)
 BENCHMARK_REGISTER_F(ShardSplitBenchmark, BigDataSplitWithGc)
     ->RangeMultiplier(10)
     ->Range(100'000, 1'000'000)
+    ->Unit(::benchmark::kMillisecond);
+
+BENCHMARK_REGISTER_F(ShardSplitBenchmark, BigDataSplitWithFewTransactions)
+    ->Args({100'000, 1'000})
+    ->Args({100'000, 10'000})
+    ->Args({1'000'000, 1'000})
+    ->Args({1'000'000, 10'000})
     ->Unit(::benchmark::kMillisecond);
 
 }  // namespace memgraph::benchmark
