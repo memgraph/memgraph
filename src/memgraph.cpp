@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -640,6 +640,8 @@ int main(int argc, char **argv) {
   memgraph::machine_manager::MachineManager<memgraph::io::local_transport::LocalTransport> mm{io, config, coordinator};
   std::jthread mm_thread([&mm] { mm.Run(); });
 
+  auto rr_factory = std::make_unique<memgraph::query::v2::LocalRequestRouterFactory>(io);
+
   memgraph::query::v2::InterpreterContext interpreter_context{
       (memgraph::storage::v3::Shard *)(nullptr),
       {.query = {.allow_load_csv = FLAGS_allow_load_csv},
@@ -650,7 +652,7 @@ int main(int argc, char **argv) {
        .stream_transaction_conflict_retries = FLAGS_stream_transaction_conflict_retries,
        .stream_transaction_retry_interval = std::chrono::milliseconds(FLAGS_stream_transaction_retry_interval)},
       FLAGS_data_directory,
-      std::move(io),
+      std::move(rr_factory),
       mm.CoordinatorAddress()};
 
   SessionData session_data{&interpreter_context};

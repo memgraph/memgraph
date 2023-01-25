@@ -908,34 +908,24 @@ using RWType = plan::ReadWriteTypeChecker::RWType;
 
 InterpreterContext::InterpreterContext(storage::v3::Shard *db, const InterpreterConfig config,
                                        const std::filesystem::path & /*data_directory*/,
-                                       io::Io<io::local_transport::LocalTransport> io,
+                                       std::unique_ptr<RequestRouterFactory> request_router_factory,
                                        coordinator::Address coordinator_addr)
-    : db(db), config(config), io{std::move(io)}, coordinator_address{coordinator_addr} {}
+    : db(db),
+      config(config),
+      coordinator_address{coordinator_addr},
+      request_router_factory_{std::move(request_router_factory)} {}
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
 
-  // TODO(tyler) make this deterministic so that it can be tested.
-  auto random_uuid = boost::uuids::uuid{boost::uuids::random_generator()()};
-  auto query_io = interpreter_context_->io.ForkLocal(random_uuid);
+  request_router_ =
+      interpreter_context_->request_router_factory_->CreateRequestRouter(interpreter_context_->coordinator_address);
 
-  request_router_ = std::make_unique<RequestRouter<io::local_transport::LocalTransport>>(
-      coordinator::CoordinatorClient<io::local_transport::LocalTransport>(
-          query_io, interpreter_context_->coordinator_address, std::vector{interpreter_context_->coordinator_address}),
-      std::move(query_io));
   // Get edge ids
-  coordinator::CoordinatorWriteRequests requests{coordinator::AllocateEdgeIdBatchRequest{.batch_size = 1000000}};
-  io::rsm::WriteRequest<coordinator::CoordinatorWriteRequests> ww;
-  ww.operation = requests;
-  auto resp = interpreter_context_->io
-                  .Request<io::rsm::WriteRequest<coordinator::CoordinatorWriteRequests>,
-                           io::rsm::WriteResponse<coordinator::CoordinatorWriteResponses>>(
-                      interpreter_context_->coordinator_address, ww)
-                  .Wait();
-  if (resp.HasValue()) {
-    const auto alloc_edge_id_reps =
-        std::get<coordinator::AllocateEdgeIdBatchResponse>(resp.GetValue().message.write_return);
-    interpreter_context_->edge_ids_alloc = {alloc_edge_id_reps.low, alloc_edge_id_reps.high};
+  const auto edge_ids_alloc_min_max_pair =
+      request_router_->AllocateInitialEdgeIds(interpreter_context_->coordinator_address);
+  if (edge_ids_alloc_min_max_pair) {
+    interpreter_context_->edge_ids_alloc = {edge_ids_alloc_min_max_pair->first, edge_ids_alloc_min_max_pair->second};
   }
 }
 
