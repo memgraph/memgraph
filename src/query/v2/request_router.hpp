@@ -114,6 +114,7 @@ class RequestRouterInterface {
   virtual std::optional<storage::v3::LabelId> MaybeNameToLabel(const std::string &name) const = 0;
   virtual bool IsPrimaryLabel(storage::v3::LabelId label) const = 0;
   virtual bool IsPrimaryKey(storage::v3::LabelId primary_label, storage::v3::PropertyId property) const = 0;
+  virtual const std::vector<coordinator::SchemaProperty> &GetSchemaForLabel(storage::v3::LabelId label) const = 0;
 };
 
 // TODO(kostasrim)rename this class template
@@ -232,12 +233,17 @@ class RequestRouter : public RequestRouterInterface {
            }) != schema_it->second.end();
   }
 
+  const std::vector<coordinator::SchemaProperty> &GetSchemaForLabel(storage::v3::LabelId label) const override {
+    return shards_map_.schemas.at(label);
+  }
+
   bool IsPrimaryLabel(storage::v3::LabelId label) const override { return shards_map_.label_spaces.contains(label); }
 
   // TODO(kostasrim) Simplify return result
   std::vector<VertexAccessor> ScanVertices(std::optional<std::string> label) override {
     // create requests
-    std::vector<ShardRequestState<msgs::ScanVerticesRequest>> requests_to_be_sent = RequestsForScanVertices(label);
+    auto requests_to_be_sent = RequestsForScanVertices(label);
+
     spdlog::trace("created {} ScanVertices requests", requests_to_be_sent.size());
 
     // begin all requests in parallel
@@ -360,6 +366,7 @@ class RequestRouter : public RequestRouterInterface {
   }
 
   std::vector<msgs::GetPropertiesResultRow> GetProperties(msgs::GetPropertiesRequest requests) override {
+    requests.transaction_id = transaction_id_;
     // create requests
     std::vector<ShardRequestState<msgs::GetPropertiesRequest>> requests_to_be_sent =
         RequestsForGetProperties(std::move(requests));

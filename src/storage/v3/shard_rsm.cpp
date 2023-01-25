@@ -544,6 +544,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::GetPropertiesRequest &&req) {
       }
       const auto *schema = shard_->GetSchema(shard_->PrimaryLabel());
       MG_ASSERT(schema);
+
       return CollectAllPropertiesFromAccessor(v_acc, view, *schema);
     }
 
