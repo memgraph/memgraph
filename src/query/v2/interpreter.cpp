@@ -704,7 +704,6 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
   ctx_.request_router = request_router;
   ctx_.edge_ids_alloc = &interpreter_context->edge_ids_alloc;
 }
-
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::PullMultiple(AnyStream *stream, std::optional<int> n,
                                                                         const std::vector<Symbol> &output_symbols,
                                                                         std::map<std::string, TypedValue> *summary) {
@@ -734,7 +733,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::PullMultiple(AnyStrea
   // Returns true if a result was pulled.
   const auto pull_result = [&]() -> bool {
     cursor_->PullMultiple(multi_frame_, ctx_);
-    return !multi_frame_.HasInvalidFrame();
+    return multi_frame_.HasValidFrame();
   };
 
   const auto stream_values = [&output_symbols, &stream](const Frame &frame) {
@@ -755,13 +754,14 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::PullMultiple(AnyStrea
   int i = 0;
   if (has_unsent_results_ && !output_symbols.empty()) {
     // stream unsent results from previous pull
-
-    auto iterator_for_valid_frame_only = multi_frame_.GetValidFramesReader();
-    for (const auto &frame : iterator_for_valid_frame_only) {
+    for (auto &frame : multi_frame_.GetValidFramesConsumer()) {
       stream_values(frame);
+      frame.MakeInvalid();
       ++i;
+      if (i == n) {
+        break;
+      }
     }
-    multi_frame_.MakeAllFramesInvalid();
   }
 
   for (; !n || i < n;) {
@@ -770,13 +770,15 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::PullMultiple(AnyStrea
     }
 
     if (!output_symbols.empty()) {
-      auto iterator_for_valid_frame_only = multi_frame_.GetValidFramesReader();
-      for (const auto &frame : iterator_for_valid_frame_only) {
+      for (auto &frame : multi_frame_.GetValidFramesConsumer()) {
         stream_values(frame);
+        frame.MakeInvalid();
         ++i;
+        if (i == n) {
+          break;
+        }
       }
     }
-    multi_frame_.MakeAllFramesInvalid();
   }
 
   // If we finished because we streamed the requested n results,
