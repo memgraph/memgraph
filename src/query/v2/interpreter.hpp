@@ -16,8 +16,6 @@
 
 #include "coordinator/coordinator.hpp"
 #include "coordinator/coordinator_client.hpp"
-#include "io/local_transport/local_transport.hpp"
-#include "io/simulator/simulator_transport.hpp"
 #include "io/transport.hpp"
 #include "query/v2/auth_checker.hpp"
 #include "query/v2/bindings/cypher_main_visitor.hpp"

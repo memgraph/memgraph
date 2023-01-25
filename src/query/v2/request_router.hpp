@@ -27,7 +27,8 @@
 #include <variant>
 #include <vector>
 
-#include "boost/uuid/uuid.hpp"
+#include <boost/uuid/uuid.hpp>
+
 #include "coordinator/coordinator.hpp"
 #include "coordinator/coordinator_client.hpp"
 #include "coordinator/coordinator_rsm.hpp"
@@ -744,15 +745,6 @@ class RequestRouter : public RequestRouterInterface {
 };
 
 class RequestRouterFactory {
- protected:
-  using LocalTransport = io::Io<io::local_transport::LocalTransport>;
-  using SimulatorTransport = io::Io<io::simulator::SimulatorTransport>;
-
-  using LocalTransportHandlePtr = std::shared_ptr<io::local_transport::LocalTransportHandle>;
-  using SimulatorTransportHandlePtr = std::shared_ptr<io::simulator::SimulatorHandle>;
-
-  using TransportHandleVariant = std::variant<LocalTransportHandlePtr, SimulatorTransportHandlePtr>;
-
  public:
   RequestRouterFactory() = default;
   RequestRouterFactory(const RequestRouterFactory &) = delete;
@@ -767,10 +759,11 @@ class RequestRouterFactory {
 };
 
 class LocalRequestRouterFactory : public RequestRouterFactory {
-  io::Io<memgraph::io::local_transport::LocalTransport> &io_;
+  using LocalTransportIo = io::Io<io::local_transport::LocalTransport>;
+  LocalTransportIo &io_;
 
  public:
-  explicit LocalRequestRouterFactory(io::Io<memgraph::io::local_transport::LocalTransport> &io) : io_(io) {}
+  explicit LocalRequestRouterFactory(LocalTransportIo &io) : io_(io) {}
 
   std::unique_ptr<RequestRouterInterface> CreateRequestRouter(
       const coordinator::Address &coordinator_address) const override {
