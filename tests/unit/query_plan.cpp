@@ -662,6 +662,30 @@ TYPED_TEST(TestPlanner, MatchOptionalMatchWhereReturn) {
   DeleteListContent(&optional);
 }
 
+TYPED_TEST(TestPlanner, MatchOptionalMatchNodePropertyWithIndex) {
+  // Test MATCH (n:Label) OPTIONAL MATCH (m:Label) WHERE n.prop = m.prop RETURN n
+  AstStorage storage;
+  FakeDbAccessor dba;
+
+  const auto label_name = "label";
+  const auto label = dba.Label(label_name);
+  const auto property = PROPERTY_PAIR("prop");
+  dba.SetIndexCount(label, property.second, 0);
+
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n", label_name))), OPTIONAL_MATCH(PATTERN(NODE("m", label_name))),
+      WHERE(EQ(PROPERTY_LOOKUP("n", property.second), PROPERTY_LOOKUP("m", property.second))), RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+
+  auto m_prop = PROPERTY_LOOKUP("m", property);
+  std::list<BaseOpChecker *> optional{new ExpectScanAllByLabelPropertyValue(label, property, m_prop)};
+
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectOptional(optional), ExpectProduce());
+  DeleteListContent(&optional);
+}
+
 TYPED_TEST(TestPlanner, MatchUnwindReturn) {
   // Test MATCH (n) UNWIND [1,2,3] AS x RETURN n, x
   AstStorage storage;
@@ -1684,6 +1708,31 @@ TYPED_TEST(TestPlanner, Foreach) {
     auto *query =
         QUERY(SINGLE_QUERY(FOREACH(i, {CREATE(PATTERN(NODE("n")))}), FOREACH(j, {CREATE(PATTERN(NODE("n")))})));
     CheckPlan<TypeParam>(query, storage, ExpectForeach(input, updates), ExpectEmptyResult());
+  }
+
+  {
+    // FOREACH with index
+    // FOREACH (n in [...] | MERGE (v:Label));
+    const auto label_name = "label";
+    const auto label = dba.Label(label_name);
+    dba.SetIndexCount(label, 0);
+
+    auto *n = NEXPR("n", IDENT("n"));
+    auto *query = QUERY(SINGLE_QUERY(FOREACH(n, {MERGE(PATTERN(NODE("v", label_name)))})));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+
+    std::list<BaseOpChecker *> on_match{new ExpectScanAllByLabel()};
+    std::list<BaseOpChecker *> on_create{new ExpectCreateNode()};
+
+    auto create = ExpectMerge(on_match, on_create);
+    std::list<BaseOpChecker *> updates{&create};
+    std::list<BaseOpChecker *> input;
+    CheckPlan(planner.plan(), symbol_table, ExpectForeach(input, updates), ExpectEmptyResult());
+
+    DeleteListContent(&on_match);
+    DeleteListContent(&on_create);
   }
 }
 }  // namespace
