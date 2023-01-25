@@ -38,6 +38,7 @@
 #include "query/v2/db_accessor.hpp"
 #include "query/v2/exceptions.hpp"
 #include "query/v2/frontend/ast/ast.hpp"
+#include "query/v2/multiframe.hpp"
 #include "query/v2/path.hpp"
 #include "query/v2/plan/scoped_profile.hpp"
 #include "query/v2/request_router.hpp"
@@ -453,53 +454,101 @@ class DistributedScanAllAndFilterCursor : public Cursor {
 
   using VertexAccessor = accessors::VertexAccessor;
 
-  bool MakeRequest(RequestRouterInterface &request_router, ExecutionContext &context) {
+  bool MakeRequest(ExecutionContext &context) {
     {
       SCOPED_REQUEST_WAIT_PROFILE;
       std::optional<std::string> request_label = std::nullopt;
       if (label_.has_value()) {
-        request_label = request_router.LabelToName(*label_);
+        request_label = context.request_router->LabelToName(*label_);
       }
-      current_batch = request_router.ScanVertices(request_label);
+      current_batch_ = context.request_router->ScanVertices(request_label);
     }
-    current_vertex_it = current_batch.begin();
-    request_state_ = State::COMPLETED;
-    return !current_batch.empty();
+    current_vertex_it_ = current_batch_.begin();
+    return !current_batch_.empty();
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP(op_name_);
 
-    auto &request_router = *context.request_router;
     while (true) {
       if (MustAbort(context)) {
         throw HintedAbortError();
       }
 
-      if (request_state_ == State::INITIALIZING) {
-        if (!input_cursor_->Pull(frame, context)) {
+      if (current_vertex_it_ == current_batch_.end()) {
+        ResetExecutionState();
+        if (!input_cursor_->Pull(frame, context) || !MakeRequest(context)) {
           return false;
         }
       }
 
-      if (current_vertex_it == current_batch.end() &&
-          (request_state_ == State::COMPLETED || !MakeRequest(request_router, context))) {
-        ResetExecutionState();
-        continue;
-      }
-
-      frame[output_symbol_] = TypedValue(std::move(*current_vertex_it));
-      ++current_vertex_it;
+      frame[output_symbol_] = TypedValue(std::move(*current_vertex_it_));
+      ++current_vertex_it_;
       return true;
     }
   }
 
+  bool PullNextFrames(ExecutionContext &context) {
+    input_cursor_->PullMultiple(*own_multi_frame_, context);
+    own_frames_consumer_ = own_multi_frame_->GetValidFramesConsumer();
+    own_frames_it_ = own_frames_consumer_->begin();
+    return own_multi_frame_->HasValidFrame();
+  }
+
+  inline bool HasMoreResult() {
+    return current_vertex_it_ != current_batch_.end() && own_frames_it_ != own_frames_consumer_->end();
+  }
+
+  bool PopulateFrame(ExecutionContext &context, FrameWithValidity &frame) {
+    MG_ASSERT(HasMoreResult());
+
+    frame = *own_frames_it_;
+    frame[output_symbol_] = TypedValue(*current_vertex_it_);
+
+    ++current_vertex_it_;
+    if (current_vertex_it_ == current_batch_.end()) {
+      own_frames_it_->MakeInvalid();
+      ++own_frames_it_;
+
+      current_vertex_it_ = current_batch_.begin();
+
+      if (own_frames_it_ == own_frames_consumer_->end()) {
+        return PullNextFrames(context);
+      }
+    };
+    return true;
+  }
+
+  void PullMultiple(MultiFrame &input_multi_frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP(op_name_);
+
+    if (!own_multi_frame_.has_value()) {
+      own_multi_frame_.emplace(MultiFrame(input_multi_frame.GetFirstFrame().elems().size(), kNumberOfFramesInMultiframe,
+                                          input_multi_frame.GetMemoryResource()));
+
+      MakeRequest(context);
+      PullNextFrames(context);
+    }
+
+    if (!HasMoreResult()) {
+      return;
+    }
+
+    for (auto &frame : input_multi_frame.GetInvalidFramesPopulator()) {
+      if (MustAbort(context)) {
+        throw HintedAbortError();
+      }
+      if (!PopulateFrame(context, frame)) {
+        return;
+      }
+    }
+  };
+
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void ResetExecutionState() {
-    current_batch.clear();
-    current_vertex_it = current_batch.end();
-    request_state_ = State::INITIALIZING;
+    current_batch_.clear();
+    current_vertex_it_ = current_batch_.end();
   }
 
   void Reset() override {
@@ -511,12 +560,14 @@ class DistributedScanAllAndFilterCursor : public Cursor {
   const Symbol output_symbol_;
   const UniqueCursorPtr input_cursor_;
   const char *op_name_;
-  std::vector<VertexAccessor> current_batch;
-  std::vector<VertexAccessor>::iterator current_vertex_it;
-  State request_state_ = State::INITIALIZING;
+  std::vector<VertexAccessor> current_batch_;
+  std::vector<VertexAccessor>::iterator current_vertex_it_{current_batch_.begin()};
   std::optional<storage::v3::LabelId> label_;
   std::optional<std::pair<storage::v3::PropertyId, Expression *>> property_expression_pair_;
   std::optional<std::vector<Expression *>> filter_expressions_;
+  std::optional<MultiFrame> own_multi_frame_;
+  std::optional<ValidFramesConsumer> own_frames_consumer_;
+  ValidFramesConsumer::Iterator own_frames_it_;
 };
 
 class DistributedScanByPrimaryKeyCursor : public Cursor {
@@ -605,8 +656,6 @@ ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_sy
     : input_(input ? input : std::make_shared<Once>()), output_symbol_(output_symbol), view_(view) {}
 
 ACCEPT_WITH_INPUT(ScanAll)
-
-class DistributedScanAllCursor;
 
 UniqueCursorPtr ScanAll::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllOperator);
