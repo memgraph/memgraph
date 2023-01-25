@@ -482,7 +482,7 @@ class LDBC(Dataset):
     NAME = "ldbc"
     VARIANTS = ["small"]
     DEFAULT_VARIANT = "small"
-    FILES = None
+    FILES = {"small": "/home/maple/repos/test/memgraph/tests/mgbench/out/out.cypher"}
 
     URLS = {
         "small": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/small_ldbc_import.gz",
@@ -499,4 +499,208 @@ class LDBC(Dataset):
     PROPERTIES_ON_EDGES = False
 
     def benchmark__ldbc__sample_query(self):
-        return "MATCH (n:Post) RETURN n"
+        return "MATCH(n:Tag) RETURN n;"
+
+    def benchmark__ldbc__interactive_complex_query_1(self):
+        return (
+            """
+                MATCH (p:Person {id: $personId}), (friend:Person {firstName: $firstName})
+                WHERE NOT p=friend
+                WITH p, friend
+                MATCH path = shortestPath((p)-[:KNOWS*1..3]-(friend))
+                WITH min(length(path)) AS distance, friend
+            ORDER BY
+                distance ASC,
+                friend.lastName ASC,
+                toInteger(friend.id) ASC
+            LIMIT 20
+
+            MATCH (friend)-[:IS_LOCATED_IN]->(friendCity:City)
+            OPTIONAL MATCH (friend)-[studyAt:STUDY_AT]->(uni:University)-[:IS_LOCATED_IN]->(uniCity:City)
+            WITH friend, collect(
+                CASE uni.name
+                    WHEN null THEN null
+                    ELSE [uni.name, studyAt.classYear, uniCity.name]
+                END ) AS unis, friendCity, distance
+
+            OPTIONAL MATCH (friend)-[workAt:WORK_AT]->(company:Company)-[:IS_LOCATED_IN]->(companyCountry:Country)
+            WITH friend, collect(
+                CASE company.name
+                    WHEN null THEN null
+                    ELSE [company.name, workAt.workFrom, companyCountry.name]
+                END ) AS companies, unis, friendCity, distance
+
+            RETURN
+                friend.id AS friendId,
+                friend.lastName AS friendLastName,
+                distance AS distanceFromPerson,
+                friend.birthday AS friendBirthday,
+                friend.creationDate AS friendCreationDate,
+                friend.gender AS friendGender,
+                friend.browserUsed AS friendBrowserUsed,
+                friend.locationIP AS friendLocationIp,
+                friend.email AS friendEmails,
+                friend.speaks AS friendLanguages,
+                friendCity.name AS friendCityName,
+                unis AS friendUniversities,
+                companies AS friendCompanies
+            ORDER BY
+                distanceFromPerson ASC,
+                friendLastName ASC,
+                toInteger(friendId) ASC
+            LIMIT 20
+            """,
+            {"personId": "4398046511333", "firstName": "Jose"},
+        )
+
+    def benchmark__ldbc__interactive_complex_query_2(self):
+        return (
+            """
+            MATCH (:Person {id: $personId })-[:KNOWS]-(friend:Person)<-[:HAS_CREATOR]-(message:Message)
+            WHERE message.creationDate <= $maxDate
+            RETURN
+                friend.id AS personId,
+                friend.firstName AS personFirstName,
+                friend.lastName AS personLastName,
+                message.id AS postOrCommentId,
+                coalesce(message.content,message.imageFile) AS postOrCommentContent,
+                message.creationDate AS postOrCommentCreationDate
+            ORDER BY
+                postOrCommentCreationDate DESC,
+                toInteger(postOrCommentId) ASC
+            LIMIT 20
+            """,
+            {"personId": "10995116278009", "maxDate": "1287230400000"},
+        )
+
+    def benchmark__ldbc__interactive_complex_query_3(self):
+        return (
+            """
+            MATCH (countryX:Country {name: $countryXName }),
+                (countryY:Country {name: $countryYName }),
+                (person:Person {id: $personId })
+            WITH person, countryX, countryY
+            LIMIT 1
+            MATCH (city:City)-[:IS_PART_OF]->(country:Country)
+            WHERE country IN [countryX, countryY]
+            WITH person, countryX, countryY, collect(city) AS cities
+            MATCH (person)-[:KNOWS*1..2]-(friend)-[:IS_LOCATED_IN]->(city)
+            WHERE NOT person=friend AND NOT city IN cities
+            WITH DISTINCT friend, countryX, countryY
+            MATCH (friend)<-[:HAS_CREATOR]-(message),
+                (message)-[:IS_LOCATED_IN]->(country)
+            WHERE $endDate > message.creationDate >= $startDate AND
+                country IN [countryX, countryY]
+            WITH friend,
+                CASE WHEN country=countryX THEN 1 ELSE 0 END AS messageX,
+                CASE WHEN country=countryY THEN 1 ELSE 0 END AS messageY
+            WITH friend, sum(messageX) AS xCount, sum(messageY) AS yCount
+            WHERE xCount>0 AND yCount>0
+            RETURN friend.id AS friendId,
+                friend.firstName AS friendFirstName,
+                friend.lastName AS friendLastName,
+                xCount,
+                yCount,
+                xCount + yCount AS xyCount
+            ORDER BY xyCount DESC, friendId ASC
+            LIMIT 20
+            """,
+            {
+                "personId": 6597069766734,
+                "countryXName": "Angola",
+                "countryYName": "Colombia",
+                "startDate": 1275393600000,
+                "endDate": 1277812800000,
+            },
+        )
+
+    def benchmark__ldbc__interactive_complex_query_4(self):
+        return (
+            """
+            MATCH (person:Person {id: $personId })-[:KNOWS]-(friend:Person),
+                (friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag)
+            WITH DISTINCT tag, post
+            WITH tag,
+                CASE
+                WHEN $endDate > post.creationDate >= $startDate THEN 1
+                ELSE 0
+                END AS valid,
+                CASE
+                WHEN $startDate > post.creationDate THEN 1
+                ELSE 0
+                END AS inValid
+            WITH tag, sum(valid) AS postCount, sum(inValid) AS inValidPostCount
+            WHERE postCount>0 AND inValidPostCount=0
+            RETURN tag.name AS tagName, postCount
+            ORDER BY postCount DESC, tagName ASC
+            LIMIT 10
+            """,
+            {
+                "personId": "4398046511333",
+                "startDate": "1275350400000",
+                "endDate": "1277856000000",
+            },
+        )
+
+    def benchmark__ldbc__interactive_complex_query_5(self):
+        return (
+            """
+            MATCH (person:Person { id: $personId })-[:KNOWS*1..2]-(otherPerson)
+            WHERE
+                person <> otherPerson
+            WITH DISTINCT otherPerson
+            MATCH (otherPerson)<-[membership:HAS_MEMBER]-(forum)
+            WHERE
+                membership.creationDate > $minDate
+            WITH
+                forum,
+                collect(otherPerson) AS otherPersons
+            OPTIONAL MATCH (otherPerson2)<-[:HAS_CREATOR]-(post)<-[:CONTAINER_OF]-(forum)
+            WHERE
+                otherPerson2 IN otherPersons
+            WITH
+                forum,
+                count(post) AS postCount
+            RETURN
+                forum.title AS forumName,
+                postCount
+            ORDER BY
+                postCount DESC,
+                forum.id ASC
+            LIMIT 20
+            """,
+            {
+                "personId": "6597069766734",
+                "minDate": "1288612800000",
+            },
+        )
+
+    def benchmark__ldbc__interactive_complex_query_6(self):
+        return (
+            """
+            MATCH (knownTag:Tag { name: $tagName })
+            WITH knownTag.id as knownTagId
+
+            MATCH (person:Person { id: $personId })-[:KNOWS*1..2]-(friend)
+            WHERE NOT person=friend
+            WITH
+                knownTagId,
+                collect(distinct friend) as friends
+            UNWIND friends as f
+                MATCH (f)<-[:HAS_CREATOR]-(post:Post),
+                    (post)-[:HAS_TAG]->(t:Tag{id: knownTagId}),
+                    (post)-[:HAS_TAG]->(tag:Tag)
+                WHERE NOT t = tag
+                WITH
+                    tag.name as tagName,
+                    count(post) as postCount
+            RETURN
+                tagName,
+                postCount
+            ORDER BY
+                postCount DESC,
+                tagName ASC
+            LIMIT 10
+            """,
+            {"personId": "4398046511333", "tagName": "Carl_Gustaf_Emil_Mannerheim"},
+        )
