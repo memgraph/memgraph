@@ -1100,7 +1100,7 @@ void Shard::StoreMapping(std::unordered_map<uint64_t, std::string> id_to_name) {
 }
 
 std::optional<SplitInfo> Shard::ShouldSplit() const noexcept {
-  if (vertices_.size() > 10000000) {
+  if (vertices_.size() > config_.split.max_shard_vertex_size) {
     // Why should we care if the selected vertex is deleted
     auto mid_elem = vertices_.begin();
     // mid_elem->first

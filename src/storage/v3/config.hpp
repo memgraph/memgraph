@@ -30,6 +30,10 @@ struct Config {
     io::Duration reclamation_interval{};
   } gc;
 
+  struct Split {
+    uint64_t max_shard_vertex_size{500'000};
+  } split;
+
   struct Items {
     bool properties_on_edges{true};
   } items;
