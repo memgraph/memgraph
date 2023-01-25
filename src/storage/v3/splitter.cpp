@@ -213,7 +213,7 @@ void Splitter::AdjustClonedTransaction(Transaction &cloned_transaction, const Tr
           break;
         }
         case PreviousPtr::Type::EDGE: {
-          // TODO Case when there are no properties on edge is not handled
+          // TODO(jbajic) Case when there are no properties on edge is not handled
           auto *cloned_edge = &*cloned_edges.find(ptr.edge->gid);
           cloned_delta->prev.Set(&cloned_edge->second);
           break;
