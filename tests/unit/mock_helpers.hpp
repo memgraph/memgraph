@@ -44,6 +44,7 @@ class MockedRequestRouter : public RequestRouterInterface {
   MOCK_METHOD(bool, IsPrimaryKey, (storage::v3::LabelId, storage::v3::PropertyId), (const));
   MOCK_METHOD((std::optional<std::pair<uint64_t, uint64_t>>), AllocateInitialEdgeIds, (io::Address));
   MOCK_METHOD(void, InstallSimulatorTicker, (std::function<bool()>));
+  MOCK_METHOD(const std::vector<coordinator::SchemaProperty> &, GetSchemaForLabel, (storage::v3::LabelId), (const));
 };
 
 class MockedLogicalOperator : public plan::LogicalOperator {

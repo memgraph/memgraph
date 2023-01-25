@@ -130,6 +130,10 @@ class MockedRequestRouter : public RequestRouterInterface {
   }
 
   void InstallSimulatorTicker(std::function<bool()> tick_simulator) override {}
+  const std::vector<coordinator::SchemaProperty> &GetSchemaForLabel(storage::v3::LabelId /*label*/) const override {
+    static std::vector<coordinator::SchemaProperty> schema;
+    return schema;
+  };
 
  private:
   void SetUpNameIdMappers() {

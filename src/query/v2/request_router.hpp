@@ -121,6 +121,7 @@ class RequestRouterInterface {
 
   virtual std::optional<std::pair<uint64_t, uint64_t>> AllocateInitialEdgeIds(io::Address coordinator_address) = 0;
   virtual void InstallSimulatorTicker(std::function<bool()> tick_simulator) = 0;
+  virtual const std::vector<coordinator::SchemaProperty> &GetSchemaForLabel(storage::v3::LabelId label) const = 0;
 };
 
 // TODO(kostasrim)rename this class template
@@ -239,12 +240,17 @@ class RequestRouter : public RequestRouterInterface {
            }) != schema_it->second.end();
   }
 
+  const std::vector<coordinator::SchemaProperty> &GetSchemaForLabel(storage::v3::LabelId label) const override {
+    return shards_map_.schemas.at(label);
+  }
+
   bool IsPrimaryLabel(storage::v3::LabelId label) const override { return shards_map_.label_spaces.contains(label); }
 
   // TODO(kostasrim) Simplify return result
   std::vector<VertexAccessor> ScanVertices(std::optional<std::string> label) override {
     // create requests
-    std::vector<ShardRequestState<msgs::ScanVerticesRequest>> requests_to_be_sent = RequestsForScanVertices(label);
+    auto requests_to_be_sent = RequestsForScanVertices(label);
+
     spdlog::trace("created {} ScanVertices requests", requests_to_be_sent.size());
 
     // begin all requests in parallel
@@ -367,6 +373,7 @@ class RequestRouter : public RequestRouterInterface {
   }
 
   std::vector<msgs::GetPropertiesResultRow> GetProperties(msgs::GetPropertiesRequest requests) override {
+    requests.transaction_id = transaction_id_;
     // create requests
     std::vector<ShardRequestState<msgs::GetPropertiesRequest>> requests_to_be_sent =
         RequestsForGetProperties(std::move(requests));
