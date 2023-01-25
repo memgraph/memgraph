@@ -86,7 +86,7 @@ BENCHMARK_DEFINE_F(ShardSplitBenchmark, BigDataSplit)(::benchmark::State &state)
     acc.Commit(GetNextHlc());
   }
   for (auto _ : state) {
-    auto data = storage->PerformSplit(PrimaryKey{PropertyValue{state.range(0) / 2}});
+    auto data = storage->PerformSplit(PrimaryKey{PropertyValue{state.range(0) / 2}}, 2);
   }
 }
 
@@ -114,7 +114,7 @@ BENCHMARK_DEFINE_F(ShardSplitBenchmark, BigDataSplitWithGc)(::benchmark::State &
   }
   storage->CollectGarbage(GetNextHlc().coordinator_wall_clock);
   for (auto _ : state) {
-    auto data = storage->PerformSplit(PrimaryKey{PropertyValue{state.range(0) / 2}});
+    auto data = storage->PerformSplit(PrimaryKey{PropertyValue{state.range(0) / 2}}, 2);
   }
 }
 

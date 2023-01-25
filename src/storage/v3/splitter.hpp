@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 #pragma once
 
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <optional>
@@ -38,6 +39,7 @@ struct SplitData {
   std::vector<SchemaProperty> schema;
   Config config;
   std::unordered_map<uint64_t, std::string> id_to_name;
+  uint64_t shard_version;
 
   VertexContainer vertices;
   std::optional<EdgeContainer> edges;
@@ -58,7 +60,8 @@ class Splitter final {
   Splitter operator=(Splitter &&) noexcept = delete;
   ~Splitter() = default;
 
-  SplitData SplitShard(const PrimaryKey &split_key, const std::optional<PrimaryKey> &max_primary_key);
+  SplitData SplitShard(const PrimaryKey &split_key, const std::optional<PrimaryKey> &max_primary_key,
+                       uint64_t shard_version);
 
  private:
   VertexContainer CollectVertices(SplitData &data, std::set<uint64_t> &collected_transactions_start_id,

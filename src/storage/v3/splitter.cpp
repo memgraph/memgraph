@@ -11,6 +11,7 @@
 
 #include "storage/v3/splitter.hpp"
 
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <optional>
@@ -41,13 +42,15 @@ Splitter::Splitter(const LabelId primary_label, VertexContainer &vertices, EdgeC
       schema_(schema),
       name_id_mapper_(name_id_mapper) {}
 
-SplitData Splitter::SplitShard(const PrimaryKey &split_key, const std::optional<PrimaryKey> &max_primary_key) {
+SplitData Splitter::SplitShard(const PrimaryKey &split_key, const std::optional<PrimaryKey> &max_primary_key,
+                               const uint64_t shard_version) {
   SplitData data{.primary_label = primary_label_,
                  .min_primary_key = split_key,
                  .max_primary_key = max_primary_key,
                  .schema = schema_,
                  .config = config_,
-                 .id_to_name = name_id_mapper_.GetIdToNameMap()};
+                 .id_to_name = name_id_mapper_.GetIdToNameMap(),
+                 .shard_version = shard_version};
 
   std::set<uint64_t> collected_transactions_;
   data.vertices = CollectVertices(data, collected_transactions_, split_key);

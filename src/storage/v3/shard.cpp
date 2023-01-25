@@ -342,12 +342,13 @@ Shard::Shard(const LabelId primary_label, const PrimaryKey min_primary_key,
 Shard::Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<PrimaryKey> max_primary_key,
              std::vector<SchemaProperty> schema, VertexContainer &&vertices, EdgeContainer &&edges,
              std::map<uint64_t, std::unique_ptr<Transaction>> &&start_logical_id_to_transaction, const Config &config,
-             const std::unordered_map<uint64_t, std::string> &id_to_name)
+             const std::unordered_map<uint64_t, std::string> &id_to_name, const uint64_t shard_version)
     : primary_label_{primary_label},
       min_primary_key_{min_primary_key},
       max_primary_key_{max_primary_key},
       vertices_(std::move(vertices)),
       edges_(std::move(edges)),
+      shard_version_(shard_version),
       schema_validator_{schemas_, name_id_mapper_},
       vertex_validator_{schema_validator_, primary_label},
       indices_{config.items, vertex_validator_},
@@ -363,11 +364,12 @@ Shard::Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<Pr
 Shard::Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<PrimaryKey> max_primary_key,
              std::vector<SchemaProperty> schema, VertexContainer &&vertices,
              std::map<uint64_t, std::unique_ptr<Transaction>> &&start_logical_id_to_transaction, const Config &config,
-             const std::unordered_map<uint64_t, std::string> &id_to_name)
+             const std::unordered_map<uint64_t, std::string> &id_to_name, const uint64_t shard_version)
     : primary_label_{primary_label},
       min_primary_key_{min_primary_key},
       max_primary_key_{max_primary_key},
       vertices_(std::move(vertices)),
+      shard_version_(shard_version),
       schema_validator_{schemas_, name_id_mapper_},
       vertex_validator_{schema_validator_, primary_label},
       indices_{config.items, vertex_validator_},
@@ -386,11 +388,12 @@ std::unique_ptr<Shard> Shard::FromSplitData(SplitData &&split_data) {
   if (split_data.config.items.properties_on_edges) [[likely]] {
     return std::make_unique<Shard>(split_data.primary_label, split_data.min_primary_key, split_data.min_primary_key,
                                    split_data.schema, std::move(split_data.vertices), std::move(*split_data.edges),
-                                   std::move(split_data.transactions), split_data.config, split_data.id_to_name);
+                                   std::move(split_data.transactions), split_data.config, split_data.id_to_name,
+                                   split_data.shard_version);
   }
   return std::make_unique<Shard>(split_data.primary_label, split_data.min_primary_key, split_data.min_primary_key,
                                  split_data.schema, std::move(split_data.vertices), std::move(split_data.transactions),
-                                 split_data.config, split_data.id_to_name);
+                                 split_data.config, split_data.id_to_name, split_data.shard_version);
 }
 
 Shard::Accessor::Accessor(Shard &shard, Transaction &transaction)
@@ -1103,14 +1106,15 @@ std::optional<SplitInfo> Shard::ShouldSplit() const noexcept {
   if (vertices_.size() > config_.split.max_shard_vertex_size) {
     auto mid_elem = vertices_.begin();
     std::ranges::advance(mid_elem, static_cast<VertexContainer::difference_type>(vertices_.size() / 2));
-    return SplitInfo{shard_version_, mid_elem->first};
+    return SplitInfo{mid_elem->first, shard_version_};
   }
   return std::nullopt;
 }
 
-SplitData Shard::PerformSplit(const PrimaryKey &split_key) {
-  ++shard_version_;
-  return shard_splitter_.SplitShard(split_key, max_primary_key_);
+SplitData Shard::PerformSplit(const PrimaryKey &split_key, const uint64_t shard_version) {
+  shard_version_ = shard_version;
+  max_primary_key_ = split_key;
+  return shard_splitter_.SplitShard(split_key, max_primary_key_, shard_version);
 }
 
 bool Shard::IsVertexBelongToShard(const VertexId &vertex_id) const {

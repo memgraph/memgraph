@@ -177,8 +177,8 @@ struct SchemasInfo {
 };
 
 struct SplitInfo {
-  uint64_t shard_version;
   PrimaryKey split_point;
+  uint64_t shard_version;
 };
 
 /// Structure used to return information about the storage.
@@ -200,12 +200,12 @@ class Shard final {
   Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<PrimaryKey> max_primary_key,
         std::vector<SchemaProperty> schema, VertexContainer &&vertices, EdgeContainer &&edges,
         std::map<uint64_t, std::unique_ptr<Transaction>> &&start_logical_id_to_transaction, const Config &config,
-        const std::unordered_map<uint64_t, std::string> &id_to_name);
+        const std::unordered_map<uint64_t, std::string> &id_to_name, uint64_t shard_version);
 
   Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<PrimaryKey> max_primary_key,
         std::vector<SchemaProperty> schema, VertexContainer &&vertices,
         std::map<uint64_t, std::unique_ptr<Transaction>> &&start_logical_id_to_transaction, const Config &config,
-        const std::unordered_map<uint64_t, std::string> &id_to_name);
+        const std::unordered_map<uint64_t, std::string> &id_to_name, uint64_t shard_version);
 
   Shard(const Shard &) = delete;
   Shard(Shard &&) noexcept = delete;
@@ -381,7 +381,7 @@ class Shard final {
 
   std::optional<SplitInfo> ShouldSplit() const noexcept;
 
-  SplitData PerformSplit(const PrimaryKey &split_key);
+  SplitData PerformSplit(const PrimaryKey &split_key, uint64_t shard_version);
 
  private:
   Transaction &GetTransaction(coordinator::Hlc start_timestamp, IsolationLevel isolation_level);
