@@ -63,7 +63,9 @@ class ShardSplitTest : public testing::Test {
       EXPECT_FALSE(acc.FindVertex(PrimaryKey{{PropertyValue(i)}}, View::OLD).has_value());
     }
     for (int i{split_value}; i < split_value * 2; ++i) {
-      EXPECT_TRUE(acc.FindVertex(PrimaryKey{{PropertyValue(i)}}, View::OLD).has_value());
+      const auto vtx = acc.FindVertex(PrimaryKey{{PropertyValue(i)}}, View::OLD);
+      ASSERT_TRUE(vtx.has_value());
+      EXPECT_TRUE(vtx->InEdges(View::OLD)->size() == 1 || vtx->OutEdges(View::OLD)->size() == 1);
     }
   }
 };
