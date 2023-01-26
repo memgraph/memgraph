@@ -321,15 +321,19 @@ HeartbeatResponse ShardMap::AssignShards(Address storage_manager, std::set<boost
         } else if (same_machine && peer_metadata.status == Status::PENDING_SPLIT) {
           // we are expecting this shard to be split, so send it a split request
 
+          std::map<boost::uuids::uuid, boost::uuids::uuid> uuid_mapping{};
+
+          // need to iterate over all peers again to build the full uuid_mapping to
+          // send to this machine
+          for (const auto &peer_metadata2 : shard.peers) {
+            uuid_mapping.emplace(peer_metadata2.split_from, peer_metadata2.address.unique_id);
+          }
+
           ret.shards_to_split.push_back(ShardToSplit{
-              .shard_to_split_uuid = peer_metadata.split_from,
-              .new_right_side_uuid = peer_metadata.address.unique_id,
-              .split_requested_at = shard.version,
-              .label_id = label_id,
               .split_key = low_key,
-              .schema = schemas[label_id],
-              .config = Config{},
-              .id_to_names = IdToNames(),
+              .old_shard_version = shard.previous_version,
+              .new_shard_version = shard.version,
+              .uuid_mapping = uuid_mapping,
           });
         } else {
           MG_ASSERT(

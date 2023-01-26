@@ -31,6 +31,7 @@
 #include "storage/v3/shard.hpp"
 #include "storage/v3/shard_rsm.hpp"
 #include "storage/v3/shard_worker.hpp"
+#include "storage/v3/value_conversions.hpp"
 
 namespace memgraph::storage::v3 {
 
@@ -266,20 +267,55 @@ class ShardManager {
         continue;
       }
 
-      SendToWorkerByUuid(to_init.uuid, to_init);
+      size_t worker_index = UuidToWorkerIndex(to_init.uuid);
+
+      SendToWorkerByIndex(worker_index, to_init);
 
       rsm_worker_mapping_.emplace(to_init.uuid, worker_index);
     }
 
     for (const auto &to_split : hr.shards_to_split) {
-      if (rsm_worker_mapping_.contains(to_split.new_right_side_uuid)) {
-        // it's not a bug for the coordinator to send us UUIDs that we have
-        // already created, because there may have been lag that caused
-        // the coordinator not to hear back from us.
-        continue;
-      }
+      for (const auto &[source, destination] : to_split.uuid_mapping) {
+        if (rsm_worker_mapping_.contains(destination)) {
+          // it's not a bug for the coordinator to send us UUIDs that we have
+          // already created, because there may have been lag that caused
+          // the coordinator not to hear back from us.
+          break;
+        }
 
-      SendToWorkerByUuid(
+        if (rsm_worker_mapping_.contains(source)) {
+          // Create the proper layered request providing a Raft write
+          // request to the local shard rsm, under the guess that it is
+          // the current leader. Most of the time this will be an incorrect
+          // guess, but it will eventually succeed when the right ShardManager
+          // happens to send the message to the leader shard that is local.
+          // This is done to avoid blocking on an RsmClient or maintaining
+          // complex async request logic. It's fine to fire-and-forget because
+          // it is rare and will eventually succeed.
+          msgs::WriteRequests split_request_1 =
+              msgs::SplitRequest{.split_key = conversions::ConvertValueVector(to_split.split_key),
+                                 .old_shard_version = to_split.old_shard_version,
+                                 .new_shard_version = to_split.new_shard_version,
+                                 .uuid_mapping = to_split.uuid_mapping};
+
+          WriteRequest<msgs::WriteRequests> split_request_2;
+          split_request_2.operation = split_request_1;
+          ShardMessages split_request_3 = split_request_2;
+
+          const Address our_address = io_.GetAddress();
+          Address shard_address = our_address;
+          shard_address.unique_id = source;
+
+          shard_worker::RouteMessage shard_worker_message = {
+              .message = split_request_3,
+              .request_id = 0,
+              .to = shard_address,
+              .from = our_address,
+          };
+
+          SendToWorkerByUuid(source, shard_worker_message);
+        }
+      }
     }
   }
 };

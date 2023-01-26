@@ -161,6 +161,7 @@ class Io {
   }
 
   Address GetAddress() { return address_; }
+
   void SetAddress(Address address) { address_ = address; }
 
   Io<I> ForkLocal(boost::uuids::uuid uuid) {

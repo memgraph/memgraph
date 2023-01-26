@@ -86,7 +86,8 @@ using PrimaryKey = std::vector<PropertyValue>;
 
 struct ShardMetadata {
   std::vector<PeerMetadata> peers;
-  uint64_t version;
+  Hlc version;
+  Hlc previous_version;
 
   friend std::ostream &operator<<(std::ostream &in, const ShardMetadata &shard) {
     using utils::print_helpers::operator<<;
@@ -129,14 +130,10 @@ struct ShardToInitialize {
 };
 
 struct ShardToSplit {
-  boost::uuids::uuid shard_to_split_uuid;
-  boost::uuids::uuid new_right_side_uuid;
-  Hlc split_requested_at;
-  LabelId label_id;
   PrimaryKey split_key;
-  std::vector<SchemaProperty> schema;
-  Config config;
-  std::unordered_map<uint64_t, std::string> id_to_names;
+  Hlc old_shard_version;
+  Hlc new_shard_version;
+  std::map<boost::uuids::uuid, boost::uuids::uuid> uuid_mapping;
 };
 
 struct HeartbeatRequest {
