@@ -778,6 +778,8 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::PullMultiple(AnyStrea
           break;
         }
       }
+    } else {
+      multi_frame_.MakeAllFramesInvalid();
     }
   }
 
