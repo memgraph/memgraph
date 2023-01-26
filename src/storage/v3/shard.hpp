@@ -25,6 +25,7 @@
 #include "io/network/endpoint.hpp"
 #include "io/time.hpp"
 #include "kvstore/kvstore.hpp"
+#include "query/v2/requests.hpp"
 #include "storage/v3/config.hpp"
 #include "storage/v3/edge.hpp"
 #include "storage/v3/edge_accessor.hpp"
@@ -54,6 +55,8 @@
 #include "utils/uuid.hpp"
 
 namespace memgraph::storage::v3 {
+
+using coordinator::Hlc;
 
 // The storage is based on this paper:
 // https://db.in.tum.de/~muehlbau/papers/mvcc.pdf
@@ -176,11 +179,6 @@ struct SchemasInfo {
   Schemas::SchemasList schemas;
 };
 
-struct SplitInfo {
-  PrimaryKey split_point;
-  uint64_t shard_version;
-};
-
 /// Structure used to return information about the storage.
 struct StorageInfo {
   uint64_t vertex_count;
@@ -200,12 +198,12 @@ class Shard final {
   Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<PrimaryKey> max_primary_key,
         std::vector<SchemaProperty> schema, VertexContainer &&vertices, EdgeContainer &&edges,
         std::map<uint64_t, std::unique_ptr<Transaction>> &&start_logical_id_to_transaction, const Config &config,
-        const std::unordered_map<uint64_t, std::string> &id_to_name, uint64_t shard_version);
+        const std::unordered_map<uint64_t, std::string> &id_to_name, Hlc shard_version);
 
   Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<PrimaryKey> max_primary_key,
         std::vector<SchemaProperty> schema, VertexContainer &&vertices,
         std::map<uint64_t, std::unique_ptr<Transaction>> &&start_logical_id_to_transaction, const Config &config,
-        const std::unordered_map<uint64_t, std::string> &id_to_name, uint64_t shard_version);
+        const std::unordered_map<uint64_t, std::string> &id_to_name, Hlc shard_version);
 
   Shard(const Shard &) = delete;
   Shard(Shard &&) noexcept = delete;
@@ -379,9 +377,9 @@ class Shard final {
 
   void StoreMapping(std::unordered_map<uint64_t, std::string> id_to_name);
 
-  std::optional<SplitInfo> ShouldSplit() const noexcept;
+  std::optional<msgs::SuggestedSplitInfo> ShouldSplit() const noexcept;
 
-  SplitData PerformSplit(const PrimaryKey &split_key, uint64_t shard_version);
+  SplitData PerformSplit(const PrimaryKey &split_key, const Hlc old_shard_version, const Hlc new_shard_version);
 
  private:
   Transaction &GetTransaction(coordinator::Hlc start_timestamp, IsolationLevel isolation_level);
@@ -400,7 +398,7 @@ class Shard final {
   // list is used only when properties are enabled for edges. Because of that we
   // keep a separate count of edges that is always updated.
   uint64_t edge_count_{0};
-  uint64_t shard_version_{0};
+  Hlc shard_version_{};
 
   SchemaValidator schema_validator_;
   VertexValidator vertex_validator_;

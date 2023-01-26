@@ -43,7 +43,7 @@ Splitter::Splitter(const LabelId primary_label, VertexContainer &vertices, EdgeC
       name_id_mapper_(name_id_mapper) {}
 
 SplitData Splitter::SplitShard(const PrimaryKey &split_key, const std::optional<PrimaryKey> &max_primary_key,
-                               const uint64_t shard_version) {
+                               const Hlc shard_version) {
   SplitData data{.primary_label = primary_label_,
                  .min_primary_key = split_key,
                  .max_primary_key = max_primary_key,

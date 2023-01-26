@@ -22,6 +22,8 @@
 #include <variant>
 #include <vector>
 
+#include <boost/uuid/uuid.hpp>
+
 #include "coordinator/hybrid_logical_clock.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
@@ -571,22 +573,34 @@ struct CommitResponse {
   std::optional<ShardError> error;
 };
 
-struct SplitInfo {
+struct SuggestedSplitInfo {
   PrimaryKey split_key;
-  uint64_t shard_version;
+  Hlc shard_version;
 };
 
-struct PerformSplitDataInfo {
+struct SplitInfo {
   PrimaryKey split_key;
-  uint64_t shard_version;
+  boost::uuids::uuid right_side_uuid;
+  Hlc shard_version;
 };
+
+struct SplitRequest {
+  PrimaryKey split_key;
+  Hlc old_shard_version;
+  Hlc new_shard_version;
+  std::map<boost::uuids::uuid, boost::uuids::uuid> uuid_mapping;
+};
+
+struct SplitResponse {};
 
 using ReadRequests = std::variant<ExpandOneRequest, GetPropertiesRequest, ScanVerticesRequest>;
 using ReadResponses = std::variant<ExpandOneResponse, GetPropertiesResponse, ScanVerticesResponse>;
 
-using WriteRequests = std::variant<CreateVerticesRequest, DeleteVerticesRequest, UpdateVerticesRequest,
-                                   CreateExpandRequest, DeleteEdgesRequest, UpdateEdgesRequest, CommitRequest>;
-using WriteResponses = std::variant<CreateVerticesResponse, DeleteVerticesResponse, UpdateVerticesResponse,
-                                    CreateExpandResponse, DeleteEdgesResponse, UpdateEdgesResponse, CommitResponse>;
+using WriteRequests =
+    std::variant<CreateVerticesRequest, DeleteVerticesRequest, UpdateVerticesRequest, CreateExpandRequest,
+                 DeleteEdgesRequest, UpdateEdgesRequest, CommitRequest, SplitRequest>;
+using WriteResponses =
+    std::variant<CreateVerticesResponse, DeleteVerticesResponse, UpdateVerticesResponse, CreateExpandResponse,
+                 DeleteEdgesResponse, UpdateEdgesResponse, CommitResponse, SplitResponse>;
 
 }  // namespace memgraph::msgs

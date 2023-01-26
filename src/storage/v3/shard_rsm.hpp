@@ -38,22 +38,19 @@ class ShardRsm {
   msgs::WriteResponses ApplyWrite(msgs::DeleteEdgesRequest &&req);
   msgs::WriteResponses ApplyWrite(msgs::UpdateEdgesRequest &&req);
 
+  msgs::WriteResponses ApplyWrite(msgs::SplitRequest &&req);
+
   msgs::WriteResponses ApplyWrite(msgs::CommitRequest &&req);
 
  public:
   explicit ShardRsm(std::unique_ptr<Shard> &&shard) : shard_(std::move(shard)){};
 
-  std::optional<msgs::SplitInfo> ShouldSplit() const noexcept {
+  std::optional<msgs::SuggestedSplitInfo> ShouldSplit() const noexcept {
     auto split_info = shard_->ShouldSplit();
     if (split_info) {
-      return msgs::SplitInfo{conversions::ConvertValueVector(split_info->split_point), split_info->shard_version};
+      return split_info;
     }
     return std::nullopt;
-  }
-
-  std::unique_ptr<Shard> PerformSplit(msgs::PerformSplitDataInfo perform_split) const noexcept {
-    return Shard::FromSplitData(
-        shard_->PerformSplit(conversions::ConvertPropertyVector(perform_split.split_key), perform_split.shard_version));
   }
 
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)

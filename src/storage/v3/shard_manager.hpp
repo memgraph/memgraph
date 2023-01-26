@@ -263,14 +263,23 @@ class ShardManager {
         // it's not a bug for the coordinator to send us UUIDs that we have
         // already created, because there may have been lag that caused
         // the coordinator not to hear back from us.
-        return;
+        continue;
       }
 
-      size_t worker_index = UuidToWorkerIndex(to_init.uuid);
-
-      SendToWorkerByIndex(worker_index, to_init);
+      SendToWorkerByUuid(to_init.uuid, to_init);
 
       rsm_worker_mapping_.emplace(to_init.uuid, worker_index);
+    }
+
+    for (const auto &to_split : hr.shards_to_split) {
+      if (rsm_worker_mapping_.contains(to_split.new_right_side_uuid)) {
+        // it's not a bug for the coordinator to send us UUIDs that we have
+        // already created, because there may have been lag that caused
+        // the coordinator not to hear back from us.
+        continue;
+      }
+
+      SendToWorkerByUuid(
     }
   }
 };

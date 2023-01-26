@@ -315,6 +315,18 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateEdgesRequest &&req) {
   return msgs::UpdateEdgesResponse{std::move(shard_error)};
 }
 
+msgs::WriteResponses ShardRsm::ApplyWrite(msgs::SplitRequest &&perform_split) {
+  auto converted_primary_key = conversions::ConvertPropertyVector(perform_split.split_key);
+  auto new_shard_split_data = shard_->PerformSplit(std::move(converted_primary_key), perform_split.old_shard_version,
+                                                   perform_split.new_shard_version);
+
+  std::unique_ptr<Shard> new_shard = Shard::FromSplitData(std::move(new_shard_split_data));
+
+  // TODO(tyler) send the SplitCommand's uuid_mapping along with the new_shard to the local ShardManager to set up
+
+  return msgs::SplitResponse{};
+}
+
 msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
   auto acc = shard_->Access(req.transaction_id);
   std::optional<msgs::ShardError> shard_error;

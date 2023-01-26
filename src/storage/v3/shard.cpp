@@ -36,6 +36,7 @@
 #include "storage/v3/result.hpp"
 #include "storage/v3/schema_validator.hpp"
 #include "storage/v3/transaction.hpp"
+#include "storage/v3/value_conversions.hpp"
 #include "storage/v3/vertex.hpp"
 #include "storage/v3/vertex_accessor.hpp"
 #include "storage/v3/view.hpp"
@@ -342,7 +343,7 @@ Shard::Shard(const LabelId primary_label, const PrimaryKey min_primary_key,
 Shard::Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<PrimaryKey> max_primary_key,
              std::vector<SchemaProperty> schema, VertexContainer &&vertices, EdgeContainer &&edges,
              std::map<uint64_t, std::unique_ptr<Transaction>> &&start_logical_id_to_transaction, const Config &config,
-             const std::unordered_map<uint64_t, std::string> &id_to_name, const uint64_t shard_version)
+             const std::unordered_map<uint64_t, std::string> &id_to_name, const Hlc shard_version)
     : primary_label_{primary_label},
       min_primary_key_{min_primary_key},
       max_primary_key_{max_primary_key},
@@ -364,7 +365,7 @@ Shard::Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<Pr
 Shard::Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<PrimaryKey> max_primary_key,
              std::vector<SchemaProperty> schema, VertexContainer &&vertices,
              std::map<uint64_t, std::unique_ptr<Transaction>> &&start_logical_id_to_transaction, const Config &config,
-             const std::unordered_map<uint64_t, std::string> &id_to_name, const uint64_t shard_version)
+             const std::unordered_map<uint64_t, std::string> &id_to_name, const Hlc shard_version)
     : primary_label_{primary_label},
       min_primary_key_{min_primary_key},
       max_primary_key_{max_primary_key},
@@ -1102,19 +1103,23 @@ void Shard::StoreMapping(std::unordered_map<uint64_t, std::string> id_to_name) {
   name_id_mapper_.StoreMapping(std::move(id_to_name));
 }
 
-std::optional<SplitInfo> Shard::ShouldSplit() const noexcept {
+std::optional<msgs::SuggestedSplitInfo> Shard::ShouldSplit() const noexcept {
   if (vertices_.size() > config_.split.max_shard_vertex_size) {
     auto mid_elem = vertices_.begin();
     std::ranges::advance(mid_elem, static_cast<VertexContainer::difference_type>(vertices_.size() / 2));
-    return SplitInfo{mid_elem->first, shard_version_};
+    return msgs::SuggestedSplitInfo{
+        .split_key = conversions::ConvertValueVector(mid_elem->first),
+        .shard_version = shard_version_,
+    };
   }
   return std::nullopt;
 }
 
-SplitData Shard::PerformSplit(const PrimaryKey &split_key, const uint64_t shard_version) {
-  shard_version_ = shard_version;
+SplitData Shard::PerformSplit(const PrimaryKey &split_key, const Hlc old_shard_version, const Hlc new_shard_version) {
+  MG_ASSERT(shard_version_ == old_shard_version);
+  shard_version_ = new_shard_version;
   max_primary_key_ = split_key;
-  return shard_splitter_.SplitShard(split_key, max_primary_key_, shard_version);
+  return shard_splitter_.SplitShard(split_key, max_primary_key_, shard_version_);
 }
 
 bool Shard::IsVertexBelongToShard(const VertexId &vertex_id) const {
