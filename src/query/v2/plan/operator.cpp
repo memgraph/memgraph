@@ -655,10 +655,6 @@ class DistributedScanByPrimaryKeyCursor : public Cursor {
     return false;
   }
 
-  void PullMultiple(MultiFrame & /*input_multi_frame*/, ExecutionContext & /*context*/) override {
-    throw utils::NotYetImplemented("Multiframe version of ScanByPrimaryKey is yet to be implemented.");
-  };
-
   void Reset() override { input_cursor_->Reset(); }
 
   void Shutdown() override { input_cursor_->Shutdown(); }
