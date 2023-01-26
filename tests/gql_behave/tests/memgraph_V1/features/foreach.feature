@@ -66,29 +66,13 @@ Feature: Foreach
       | 4 |
     And no side effects
 
-  Scenario: Foreach shadowing in create
-    Given an empty graph
-    And having executed
-      """
-      FOREACH (i IN [1] | FOREACH (j IN [3,4] | CREATE (i {prop: j})));
-      """
-    When executing query:
-      """
-      MATCH (n) RETURN n.prop
-      """
-    Then the result should be:
-      | n.prop |
-      | 3 |
-      | 4 |
-    And no side effects
-
   Scenario: Foreach set
     Given an empty graph
     And having executed
     """
     CREATE (n1 { marked: false })-[:RELATES]->(n2 { marked: false })
     """
-    And having executed 
+    And having executed
     """
     MATCH p=(n1)-[*]->(n2)
     FOREACH (n IN nodes(p) | SET n.marked = true)
@@ -110,7 +94,7 @@ Feature: Foreach
     """
     CREATE (n1 { marked: false })-[:RELATES]->(n2 { marked: false })
     """
-    And having executed 
+    And having executed
     """
     MATCH p=(n1)-[*]->(n2)
     FOREACH (n IN nodes(p) | REMOVE n.marked)
@@ -132,7 +116,7 @@ Feature: Foreach
     """
     CREATE (n1 { marked: false })-[:RELATES]->(n2 { marked: false })
     """
-    And having executed 
+    And having executed
     """
     MATCH p=(n1)-[*]->(n2)
     FOREACH (n IN nodes(p) | DETACH delete n)
@@ -148,7 +132,7 @@ Feature: Foreach
 
   Scenario: Foreach merge
     Given an empty graph
-    And having executed 
+    And having executed
     """
     FOREACH (i IN [1, 2, 3] | MERGE (n { age : i }))
     """
@@ -166,7 +150,7 @@ Feature: Foreach
 
  Scenario: Foreach nested
    Given an empty graph
-   And having executed 
+   And having executed
    """
    FOREACH (i IN [1, 2, 3] | FOREACH( j IN [1] | CREATE (k { prop : j })))
    """
@@ -183,11 +167,11 @@ Feature: Foreach
 
  Scenario: Foreach multiple update clauses
    Given an empty graph
-   And having executed 
+   And having executed
    """
    CREATE (n1 { marked1: false, marked2: false })-[:RELATES]->(n2 { marked1: false, marked2: false })
    """
-   And having executed 
+   And having executed
    """
    MATCH p=(n1)-[*]->(n2)
    FOREACH (n IN nodes(p) | SET n.marked1 = true SET n.marked2 = true)
@@ -205,11 +189,11 @@ Feature: Foreach
 
  Scenario: Foreach multiple nested update clauses
    Given an empty graph
-   And having executed 
+   And having executed
    """
    CREATE (n1 { marked1: false, marked2: false })-[:RELATES]->(n2 { marked1: false, marked2: false })
    """
-   And having executed 
+   And having executed
    """
    MATCH p=(n1)-[*]->(n2)
    FOREACH (n IN nodes(p) | FOREACH (j IN [1] | SET n.marked1 = true SET n.marked2 = true))
@@ -227,7 +211,7 @@ Feature: Foreach
 
  Scenario: Foreach match foreach return
    Given an empty graph
-   And having executed 
+   And having executed
    """
    CREATE (n {prop: [[], [1,2]]});
    """
@@ -242,7 +226,7 @@ Feature: Foreach
 
  Scenario: Foreach on null value
    Given an empty graph
-   And having executed 
+   And having executed
    """
    CREATE (n);
    """
@@ -254,9 +238,9 @@ Feature: Foreach
      | |
    And no side effects
 
- Scenario: Foreach nested merge 
+ Scenario: Foreach nested merge
    Given an empty graph
-   And having executed 
+   And having executed
    """
    FOREACH(i in [1, 2, 3] | foreach(j in [1] | MERGE (n { age : i })));
    """

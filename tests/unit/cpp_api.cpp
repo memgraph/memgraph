@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -58,7 +58,7 @@ TEST_F(CppApiTestFixture, TestGraph) {
   ASSERT_EQ(graph.Order(), 2);
   ASSERT_EQ(graph.Size(), 0);
 
-  auto relationship = graph.CreateRelationship(node_1, node_2, "edge_type");
+  auto relationship_1 = graph.CreateRelationship(node_1, node_2, "edge_type");
 
   ASSERT_EQ(graph.Order(), 2);
   ASSERT_EQ(graph.Size(), 1);
@@ -66,7 +66,23 @@ TEST_F(CppApiTestFixture, TestGraph) {
   ASSERT_EQ(graph.ContainsNode(node_1), true);
   ASSERT_EQ(graph.ContainsNode(node_2), true);
 
-  ASSERT_EQ(graph.ContainsRelationship(relationship), true);
+  ASSERT_EQ(graph.ContainsRelationship(relationship_1), true);
+
+  auto node_3 = graph.CreateNode();
+  auto relationship_2 = graph.CreateRelationship(node_1, node_3, "edge_type");
+  auto relationship_3 = graph.CreateRelationship(node_2, node_3, "edge_type");
+
+  for (const auto &n : graph.Nodes()) {
+    ASSERT_EQ(graph.ContainsNode(n), true);
+  }
+
+  std::uint64_t n_rels = 0;
+  for (const auto &r : graph.Relationships()) {
+    ASSERT_EQ(graph.ContainsRelationship(r), true);
+    n_rels++;
+  }
+
+  ASSERT_EQ(n_rels, 3);
 }
 
 TEST_F(CppApiTestFixture, TestId) {
@@ -195,7 +211,7 @@ TEST_F(CppApiTestFixture, TestNode) {
   ASSERT_EQ(node_1.HasLabel("L1"), true);
   ASSERT_EQ(node_1.HasLabel("L2"), true);
 
-  ASSERT_EQ(node_1.Properties().Size(), 0);
+  ASSERT_EQ(node_1.Properties().size(), 0);
 
   auto node_2 = graph.GetNodeById(node_1.Id());
 
@@ -264,7 +280,7 @@ TEST_F(CppApiTestFixture, TestRelationship) {
   auto relationship = graph.CreateRelationship(node_1, node_2, "edge_type");
 
   ASSERT_EQ(relationship.Type(), "edge_type");
-  ASSERT_EQ(relationship.Properties().Size(), 0);
+  ASSERT_EQ(relationship.Properties().size(), 0);
   ASSERT_EQ(relationship.From().Id(), node_1.Id());
   ASSERT_EQ(relationship.To().Id(), node_2.Id());
 
@@ -418,4 +434,20 @@ TEST_F(CppApiTestFixture, TestDuration) {
   auto value_x = mgp::Value(duration_1);
   // Use Value move constructor
   auto value_y = mgp::Value(mgp::Duration("PT2M2.33S"));
+}
+
+TEST_F(CppApiTestFixture, TestNodeProperties) {
+  mgp_graph raw_graph = CreateGraph(memgraph::storage::View::NEW);
+  auto graph = mgp::Graph(&raw_graph);
+
+  auto node_1 = graph.CreateNode();
+
+  ASSERT_EQ(node_1.Properties().size(), 0);
+
+  std::map<std::string, mgp::Value> node1_prop = node_1.Properties();
+  node_1.SetProperty("b", mgp::Value("b"));
+
+  ASSERT_EQ(node_1.Properties().size(), 1);
+  ASSERT_EQ(node_1.Properties()["b"].ValueString(), "b");
+  ASSERT_EQ(node_1.GetProperty("b").ValueString(), "b");
 }
