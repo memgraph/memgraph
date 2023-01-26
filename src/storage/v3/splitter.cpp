@@ -181,16 +181,19 @@ void Splitter::AdjustClonedTransaction(Transaction &cloned_transaction, const Tr
   // NOTE It is important that the order of delta lists is in same order
   auto delta_it = transaction.deltas.begin();
   auto cloned_delta_it = cloned_transaction.deltas.begin();
-  while (delta_it != transaction.deltas.end() && cloned_delta_it != cloned_transaction.deltas.end()) {
+  while (delta_it != transaction.deltas.end()) {
     const auto *delta = &*delta_it;
     auto *cloned_delta = &*cloned_delta_it;
     while (delta != nullptr) {
       // Align deltas which belong to cloned transaction, skip others
       if (cloned_transactions.contains(delta->commit_info->start_or_commit_timestamp.logical_id)) {
-        auto *found_delta_it = &*std::ranges::find_if(
+        const auto end_it =
+            cloned_transactions.at(delta->commit_info->start_or_commit_timestamp.logical_id)->deltas.end();
+        auto found_delta_it = std::ranges::find_if(
             cloned_transactions.at(delta->commit_info->start_or_commit_timestamp.logical_id)->deltas,
             [delta](const auto &elem) { return elem.uuid == delta->uuid; });
-        MG_ASSERT(found_delta_it, "Delta with given uuid must exist!");
+        MG_ASSERT(found_delta_it != end_it, "Delta with given uuid must exist!");
+
         cloned_delta->next = &*found_delta_it;
       } else {
         delta = delta->next;
