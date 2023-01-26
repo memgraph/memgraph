@@ -127,7 +127,7 @@ class ScanAllByLabel;
 class ScanAllByLabelPropertyRange;
 class ScanAllByLabelPropertyValue;
 class ScanAllByLabelProperty;
-class ScanAllById;
+class ScanByPrimaryKey;
 class Expand;
 class ExpandVariable;
 class ConstructNamedPath;
@@ -158,7 +158,7 @@ class Foreach;
 using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel,
     ScanAllByLabelPropertyRange, ScanAllByLabelPropertyValue,
-    ScanAllByLabelProperty, ScanAllById,
+    ScanAllByLabelProperty, ScanByPrimaryKey,
     Expand, ExpandVariable, ConstructNamedPath, Filter, Produce, Delete,
     SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels,
     EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit, OrderBy, Merge,
@@ -859,19 +859,21 @@ given label and property.
   (:serialize (:slk))
   (:clone))
 
-
-
-(lcp:define-class scan-all-by-id (scan-all)
-  ((expression "Expression *" :scope :public
+(lcp:define-class scan-by-primary-key (scan-all)
+  ((label "::storage::v3::LabelId" :scope :public)
+    (primary-key "std::vector<Expression*>" :scope :public)
+    (expression "Expression *" :scope :public
                :slk-save #'slk-save-ast-pointer
                :slk-load (slk-load-ast-pointer "Expression")))
   (:documentation
-    "ScanAll producing a single node with ID equal to evaluated expression")
+    "ScanAll producing a single node with specified by the label and primary key")
   (:public
     #>cpp
-    ScanAllById() {}
-    ScanAllById(const std::shared_ptr<LogicalOperator> &input,
-                Symbol output_symbol, Expression *expression,
+    ScanByPrimaryKey() {}
+    ScanByPrimaryKey(const std::shared_ptr<LogicalOperator> &input,
+                Symbol output_symbol,
+                storage::v3::LabelId label,
+                std::vector<query::v2::Expression*> primary_key,
                 storage::v3::View view = storage::v3::View::OLD);
 
     bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;

@@ -34,6 +34,7 @@
 #include "query/v2/bindings/eval.hpp"
 #include "query/v2/bindings/symbol_table.hpp"
 #include "query/v2/context.hpp"
+#include "query/v2/conversions.hpp"
 #include "query/v2/db_accessor.hpp"
 #include "query/v2/exceptions.hpp"
 #include "query/v2/frontend/ast/ast.hpp"
@@ -93,7 +94,7 @@ extern const Event ScanAllByLabelOperator;
 extern const Event ScanAllByLabelPropertyRangeOperator;
 extern const Event ScanAllByLabelPropertyValueOperator;
 extern const Event ScanAllByLabelPropertyOperator;
-extern const Event ScanAllByIdOperator;
+extern const Event ScanByPrimaryKeyOperator;
 extern const Event ExpandOperator;
 extern const Event ExpandVariableOperator;
 extern const Event ConstructNamedPathOperator;
@@ -589,6 +590,88 @@ class DistributedScanAllAndFilterCursor : public Cursor {
   ValidFramesConsumer::Iterator own_frames_it_;
 };
 
+class DistributedScanByPrimaryKeyCursor : public Cursor {
+ public:
+  explicit DistributedScanByPrimaryKeyCursor(Symbol output_symbol, UniqueCursorPtr input_cursor, const char *op_name,
+                                             storage::v3::LabelId label,
+                                             std::optional<std::vector<Expression *>> filter_expressions,
+                                             std::vector<Expression *> primary_key)
+      : output_symbol_(output_symbol),
+        input_cursor_(std::move(input_cursor)),
+        op_name_(op_name),
+        label_(label),
+        filter_expressions_(filter_expressions),
+        primary_key_(primary_key) {}
+
+  enum class State : int8_t { INITIALIZING, COMPLETED };
+
+  using VertexAccessor = accessors::VertexAccessor;
+
+  std::optional<VertexAccessor> MakeRequestSingleFrame(Frame &frame, RequestRouterInterface &request_router,
+                                                       ExecutionContext &context) {
+    // Evaluate the expressions that hold the PrimaryKey.
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.request_router,
+                                  storage::v3::View::NEW);
+
+    std::vector<msgs::Value> pk;
+    for (auto *primary_property : primary_key_) {
+      pk.push_back(TypedValueToValue(primary_property->Accept(evaluator)));
+    }
+
+    msgs::Label label = {.id = msgs::LabelId::FromUint(label_.AsUint())};
+
+    msgs::GetPropertiesRequest req = {.vertex_ids = {std::make_pair(label, pk)}};
+    auto get_prop_result = std::invoke([&context, &request_router, &req]() mutable {
+      SCOPED_REQUEST_WAIT_PROFILE;
+      return request_router.GetProperties(req);
+    });
+    MG_ASSERT(get_prop_result.size() <= 1);
+
+    if (get_prop_result.empty()) {
+      return std::nullopt;
+    }
+    auto properties = get_prop_result[0].props;
+    // TODO (gvolfing) figure out labels when relevant.
+    msgs::Vertex vertex = {.id = get_prop_result[0].vertex, .labels = {}};
+
+    return VertexAccessor(vertex, properties, &request_router);
+  }
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP(op_name_);
+
+    if (MustAbort(context)) {
+      throw HintedAbortError();
+    }
+
+    while (input_cursor_->Pull(frame, context)) {
+      auto &request_router = *context.request_router;
+      auto vertex = MakeRequestSingleFrame(frame, request_router, context);
+      if (vertex) {
+        frame[output_symbol_] = TypedValue(std::move(*vertex));
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void PullMultiple(MultiFrame & /*input_multi_frame*/, ExecutionContext & /*context*/) override {
+    throw utils::NotYetImplemented("Multiframe version of ScanByPrimaryKey is yet to be implemented.");
+  };
+
+  void Reset() override { input_cursor_->Reset(); }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+ private:
+  const Symbol output_symbol_;
+  const UniqueCursorPtr input_cursor_;
+  const char *op_name_;
+  storage::v3::LabelId label_;
+  std::optional<std::vector<Expression *>> filter_expressions_;
+  std::vector<Expression *> primary_key_;
+};
+
 ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::v3::View view)
     : input_(input ? input : std::make_shared<Once>()), output_symbol_(output_symbol), view_(view) {}
 
@@ -683,22 +766,21 @@ UniqueCursorPtr ScanAllByLabelProperty::MakeCursor(utils::MemoryResource *mem) c
   throw QueryRuntimeException("ScanAllByLabelProperty is not supported");
 }
 
-ScanAllById::ScanAllById(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, Expression *expression,
-                         storage::v3::View view)
-    : ScanAll(input, output_symbol, view), expression_(expression) {
-  MG_ASSERT(expression);
+ScanByPrimaryKey::ScanByPrimaryKey(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
+                                   storage::v3::LabelId label, std::vector<query::v2::Expression *> primary_key,
+                                   storage::v3::View view)
+    : ScanAll(input, output_symbol, view), label_(label), primary_key_(primary_key) {
+  MG_ASSERT(primary_key.front());
 }
 
-ACCEPT_WITH_INPUT(ScanAllById)
+ACCEPT_WITH_INPUT(ScanByPrimaryKey)
 
-UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::ScanAllByIdOperator);
-  // TODO Reimplement when we have reliable conversion between hash value and pk
-  auto vertices = [](Frame & /*frame*/, ExecutionContext & /*context*/) -> std::optional<std::vector<VertexAccessor>> {
-    return std::nullopt;
-  };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
-                                                                std::move(vertices), "ScanAllById");
+UniqueCursorPtr ScanByPrimaryKey::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::ScanByPrimaryKeyOperator);
+
+  return MakeUniqueCursorPtr<DistributedScanByPrimaryKeyCursor>(mem, output_symbol_, input_->MakeCursor(mem),
+                                                                "ScanByPrimaryKey", label_,
+                                                                std::nullopt /*filter_expressions*/, primary_key_);
 }
 
 Expand::Expand(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol, Symbol node_symbol,
