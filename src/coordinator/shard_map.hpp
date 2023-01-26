@@ -47,38 +47,45 @@ using memgraph::storage::v3::SchemaProperty;
 enum class Status : uint8_t {
   CONSENSUS_PARTICIPANT,
   INITIALIZING,
+  PENDING_SPLIT,
   // TODO(tyler) this will possibly have more states,
   // depending on the reconfiguration protocol that we
   // implement.
 };
 
-struct AddressAndStatus {
+struct PeerMetadata {
   memgraph::io::Address address;
   Status status;
+  boost::uuids::uuid split_from;
 
-  friend bool operator<(const AddressAndStatus &lhs, const AddressAndStatus &rhs) { return lhs.address < rhs.address; }
+  friend bool operator<(const PeerMetadata &lhs, const PeerMetadata &rhs) { return lhs.address < rhs.address; }
 
-  friend std::ostream &operator<<(std::ostream &in, const AddressAndStatus &address_and_status) {
-    in << "AddressAndStatus { address: ";
-    in << address_and_status.address;
-    if (address_and_status.status == Status::CONSENSUS_PARTICIPANT) {
-      in << ", status: CONSENSUS_PARTICIPANT }";
+  friend std::ostream &operator<<(std::ostream &in, const PeerMetadata &peer_metadata) {
+    in << "PeerMetadata { address: ";
+    in << peer_metadata.address;
+
+    if (peer_metadata.status == Status::CONSENSUS_PARTICIPANT) {
+      in << ", status: CONSENSUS_PARTICIPANT";
+    } else if (peer_metadata.status == Status::INITIALIZING) {
+      in << ", status: INITIALIZING";
+    } else if (peer_metadata.status == Status::PENDING_SPLIT) {
+      in << ", status: PENDING_SPLIT";
     } else {
-      in << ", status: INITIALIZING }";
+      MG_ASSERT(false, "failed to update the operator<< implementation for Status");
     }
+
+    in << ", split_from: " << peer_metadata.split_from << " }";
 
     return in;
   }
 
-  friend bool operator==(const AddressAndStatus &lhs, const AddressAndStatus &rhs) {
-    return lhs.address == rhs.address;
-  }
+  friend bool operator==(const PeerMetadata &lhs, const PeerMetadata &rhs) { return lhs.address == rhs.address; }
 };
 
 using PrimaryKey = std::vector<PropertyValue>;
 
 struct ShardMetadata {
-  std::vector<AddressAndStatus> peers;
+  std::vector<PeerMetadata> peers;
   uint64_t version;
 
   friend std::ostream &operator<<(std::ostream &in, const ShardMetadata &shard) {
@@ -119,6 +126,27 @@ struct ShardToInitialize {
   std::vector<SchemaProperty> schema;
   Config config;
   std::unordered_map<uint64_t, std::string> id_to_names;
+};
+
+struct ShardToSplit {
+  boost::uuids::uuid shard_to_split_uuid;
+  boost::uuids::uuid new_right_side_uuid;
+  Hlc split_requested_at;
+  LabelId label_id;
+  PrimaryKey split_key;
+  std::vector<SchemaProperty> schema;
+  Config config;
+  std::unordered_map<uint64_t, std::string> id_to_names;
+};
+
+struct HeartbeatRequest {
+  Address from_storage_manager;
+  std::set<boost::uuids::uuid> initialized_rsms;
+};
+
+struct HeartbeatResponse {
+  std::vector<ShardToInitialize> shards_to_initialize;
+  std::vector<ShardToSplit> shards_to_split;
 };
 
 PrimaryKey SchemaToMinKey(const std::vector<SchemaProperty> &schema);
@@ -168,7 +196,7 @@ struct ShardMap {
   std::unordered_map<uint64_t, std::string> IdToNames();
 
   // Returns the shard UUIDs that have been assigned but not yet acknowledged for this storage manager
-  std::vector<ShardToInitialize> AssignShards(Address storage_manager, std::set<boost::uuids::uuid> initialized);
+  HeartbeatResponse AssignShards(Address storage_manager, std::set<boost::uuids::uuid> initialized);
 
   bool SplitShard(Hlc previous_shard_map_version, LabelId label_id, const PrimaryKey &key);
 

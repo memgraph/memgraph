@@ -18,12 +18,7 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(HeartbeatRequest &&heartbeat_r
 
   // add this storage engine to any under-replicated shards that it is not already a part of
 
-  auto initializing_rsms_for_shard_manager =
-      shard_map_.AssignShards(heartbeat_request.from_storage_manager, heartbeat_request.initialized_rsms);
-
-  return HeartbeatResponse{
-      .shards_to_initialize = initializing_rsms_for_shard_manager,
-  };
+  return shard_map_.AssignShards(heartbeat_request.from_storage_manager, heartbeat_request.initialized_rsms);
 }
 
 CoordinatorWriteResponses Coordinator::ApplyWrite(HlcRequest &&hlc_request) {
@@ -67,12 +62,8 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(AllocateEdgeIdBatchRequest &&a
 CoordinatorWriteResponses Coordinator::ApplyWrite(SplitShardRequest &&split_shard_request) {
   SplitShardResponse res{};
 
-  if (split_shard_request.previous_shard_map_version != shard_map_.shard_map_version) {
-    res.success = false;
-  } else {
-    res.success = shard_map_.SplitShard(split_shard_request.previous_shard_map_version, split_shard_request.label_id,
-                                        split_shard_request.split_key);
-  }
+  res.success = shard_map_.SplitShard(split_shard_request.previous_shard_map_version, split_shard_request.label_id,
+                                      split_shard_request.split_key);
 
   return res;
 }

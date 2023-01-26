@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <map>
 #include <optional>
 #include <unordered_map>
 #include <vector>
@@ -267,9 +268,8 @@ boost::uuids::uuid NewShardUuid(uint64_t shard_id) {
                             static_cast<unsigned char>(shard_id)};
 }
 
-std::vector<ShardToInitialize> ShardMap::AssignShards(Address storage_manager,
-                                                      std::set<boost::uuids::uuid> initialized) {
-  std::vector<ShardToInitialize> ret{};
+HeartbeatResponse ShardMap::AssignShards(Address storage_manager, std::set<boost::uuids::uuid> initialized) {
+  HeartbeatResponse ret{};
 
   bool mutated = false;
 
@@ -281,48 +281,74 @@ std::vector<ShardToInitialize> ShardMap::AssignShards(Address storage_manager,
         high_key = next_it->first;
       }
       // TODO(tyler) avoid these triple-nested loops by having the heartbeat include better info
-      bool machine_contains_shard = false;
+      bool shard_assigned_to_machine = false;
 
-      for (auto &aas : shard.peers) {
-        if (initialized.contains(aas.address.unique_id)) {
-          machine_contains_shard = true;
-          if (aas.status != Status::CONSENSUS_PARTICIPANT) {
+      for (auto &peer_metadata : shard.peers) {
+        const bool same_machine = peer_metadata.address.last_known_ip == storage_manager.last_known_ip &&
+                                  peer_metadata.address.last_known_port == storage_manager.last_known_port;
+
+        if (initialized.contains(peer_metadata.address.unique_id)) {
+          shard_assigned_to_machine = true;
+
+          if (!same_machine) {
+            // set the last known ip and port to the storage manager that has heartbeated it just now
             mutated = true;
-            spdlog::info("marking shard as full consensus participant: {}", aas.address.unique_id);
-            aas.status = Status::CONSENSUS_PARTICIPANT;
+            peer_metadata.address.last_known_ip = storage_manager.last_known_ip;
+            peer_metadata.address.last_known_port = storage_manager.last_known_port;
           }
-        } else {
-          const bool same_machine = aas.address.last_known_ip == storage_manager.last_known_ip &&
-                                    aas.address.last_known_port == storage_manager.last_known_port;
-          if (same_machine) {
-            machine_contains_shard = true;
-            spdlog::info("reminding shard manager that they should begin participating in shard");
 
-            ret.push_back(ShardToInitialize{
-                .uuid = aas.address.unique_id,
-                .label_id = label_id,
-                .min_key = low_key,
-                .max_key = high_key,
-                .schema = schemas[label_id],
-                .config = Config{},
-                .id_to_names = IdToNames(),
-            });
+          if (peer_metadata.status != Status::CONSENSUS_PARTICIPANT) {
+            mutated = true;
+            spdlog::info("marking shard as full consensus participant: {}", peer_metadata.address.unique_id);
+            peer_metadata.status = Status::CONSENSUS_PARTICIPANT;
           }
+        } else if (same_machine && peer_metadata.status == Status::INITIALIZING) {
+          // we are expecting this shard to be initialized (rather than split) on this machine,
+          // so send it an initialization request
+
+          shard_assigned_to_machine = true;
+          spdlog::info("reminding shard manager that they should begin participating in shard");
+
+          ret.shards_to_initialize.push_back(ShardToInitialize{
+              .uuid = peer_metadata.address.unique_id,
+              .label_id = label_id,
+              .min_key = low_key,
+              .max_key = high_key,
+              .schema = schemas[label_id],
+              .config = Config{},
+              .id_to_names = IdToNames(),
+          });
+        } else if (same_machine && peer_metadata.status == Status::PENDING_SPLIT) {
+          // we are expecting this shard to be split, so send it a split request
+
+          ret.shards_to_split.push_back(ShardToSplit{
+              .shard_to_split_uuid = peer_metadata.split_from,
+              .new_right_side_uuid = peer_metadata.address.unique_id,
+              .split_requested_at = shard.version,
+              .label_id = label_id,
+              .split_key = low_key,
+              .schema = schemas[label_id],
+              .config = Config{},
+              .id_to_names = IdToNames(),
+          });
+        } else {
+          MG_ASSERT(
+              !same_machine,
+              "failed to properly handle a new Status type in the heartbeat management and shard assignment code");
         }
       }
 
-      if (!machine_contains_shard && shard.peers.size() < label_space.replication_factor) {
-        // increment version for each new uuid for deterministic creation
-        IncrementShardMapVersion();
-
+      if (!shard_assigned_to_machine && shard.peers.size() < label_space.replication_factor) {
         Address address = storage_manager;
 
-        // TODO(tyler) use deterministic UUID so that coordinators don't diverge here
+        // NB: increment version for each new uuid for deterministic creation
+        IncrementShardMapVersion();
+
         address.unique_id = NewShardUuid(shard_map_version.logical_id);
 
         spdlog::info("assigning shard manager to shard");
 
-        ret.push_back(ShardToInitialize{
+        ret.shards_to_initialize.push_back(ShardToInitialize{
             .uuid = address.unique_id,
             .label_id = label_id,
             .min_key = low_key,
@@ -332,12 +358,12 @@ std::vector<ShardToInitialize> ShardMap::AssignShards(Address storage_manager,
             .id_to_names = IdToNames(),
         });
 
-        AddressAndStatus aas = {
+        PeerMetadata peer_metadata = {
             .address = address,
             .status = Status::INITIALIZING,
         };
 
-        shard.peers.emplace_back(aas);
+        shard.peers.emplace_back(peer_metadata);
       }
     }
   }
@@ -345,11 +371,12 @@ std::vector<ShardToInitialize> ShardMap::AssignShards(Address storage_manager,
   if (mutated) {
     IncrementShardMapVersion();
   }
+
   return ret;
 }
 
 bool ShardMap::SplitShard(Hlc previous_shard_map_version, LabelId label_id, const PrimaryKey &key) {
-  if (previous_shard_map_version != shard_map_version) {
+  if (previous_shard_map_version != shard_map_version || !label_spaces.contains(label_id)) {
     return false;
   }
 
@@ -358,11 +385,26 @@ bool ShardMap::SplitShard(Hlc previous_shard_map_version, LabelId label_id, cons
 
   MG_ASSERT(!shards_in_map.empty());
   MG_ASSERT(!shards_in_map.contains(key));
-  MG_ASSERT(label_spaces.contains(label_id));
 
   // Finding the ShardMetadata that the new PrimaryKey should map to.
-  auto prev = std::prev(shards_in_map.upper_bound(key));
-  ShardMetadata duplicated_shard = prev->second;
+  ShardMetadata duplicated_shard = GetShardForKey(label_id, key);
+
+  std::map<boost::uuids::uuid, boost::uuids::uuid> split_mapping = {};
+
+  for (auto &peer_metadata : duplicated_shard.peers) {
+    peer_metadata.status = Status::PENDING_SPLIT;
+    peer_metadata.split_from = peer_metadata.address.unique_id;
+
+    // NB: increment version for each new uuid for deterministic creation
+    IncrementShardMapVersion();
+
+    auto new_uuid = NewShardUuid(shard_map_version.logical_id);
+
+    // store new uuid for the right side of each shard
+    split_mapping.emplace(peer_metadata.address.unique_id, new_uuid);
+
+    peer_metadata.address.unique_id = new_uuid;
+  }
 
   // Apply the split
   shards_in_map[key] = duplicated_shard;
@@ -561,8 +603,8 @@ bool ShardMap::ClusterInitialized() const {
         return false;
       }
 
-      for (const auto &aas : shard.peers) {
-        if (aas.status != Status::CONSENSUS_PARTICIPANT) {
+      for (const auto &peer_metadata : shard.peers) {
+        if (peer_metadata.status != Status::CONSENSUS_PARTICIPANT) {
           spdlog::info("shard member not yet a CONSENSUS_PARTICIPANT");
           return false;
         }
