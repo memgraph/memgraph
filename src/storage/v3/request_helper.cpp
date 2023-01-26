@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -321,12 +321,15 @@ EdgeFiller InitializeEdgeFillerFunction(const msgs::ExpandOneRequest &req) {
         value_properties.insert(std::make_pair(prop_key, FromPropertyValueToValue(std::move(prop_val))));
       }
       using EdgeWithAllProperties = msgs::ExpandOneResultRow::EdgeWithAllProperties;
-      EdgeWithAllProperties edges{ToMsgsVertexId(edge.From()), msgs::EdgeType{edge.EdgeType()}, edge.Gid().AsUint(),
-                                  std::move(value_properties)};
+
       if (is_in_edge) {
-        result_row.in_edges_with_all_properties.push_back(std::move(edges));
+        result_row.in_edges_with_all_properties.push_back(
+            EdgeWithAllProperties{ToMsgsVertexId(edge.From()), msgs::EdgeType{edge.EdgeType()}, edge.Gid().AsUint(),
+                                  std::move(value_properties)});
       } else {
-        result_row.out_edges_with_all_properties.push_back(std::move(edges));
+        result_row.out_edges_with_all_properties.push_back(
+            EdgeWithAllProperties{ToMsgsVertexId(edge.To()), msgs::EdgeType{edge.EdgeType()}, edge.Gid().AsUint(),
+                                  std::move(value_properties)});
       }
       return {};
     };
@@ -346,12 +349,15 @@ EdgeFiller InitializeEdgeFillerFunction(const msgs::ExpandOneRequest &req) {
         value_properties.emplace_back(FromPropertyValueToValue(std::move(property_result.GetValue())));
       }
       using EdgeWithSpecificProperties = msgs::ExpandOneResultRow::EdgeWithSpecificProperties;
-      EdgeWithSpecificProperties edges{ToMsgsVertexId(edge.From()), msgs::EdgeType{edge.EdgeType()},
-                                       edge.Gid().AsUint(), std::move(value_properties)};
+
       if (is_in_edge) {
-        result_row.in_edges_with_specific_properties.push_back(std::move(edges));
+        result_row.in_edges_with_specific_properties.push_back(
+            EdgeWithSpecificProperties{ToMsgsVertexId(edge.From()), msgs::EdgeType{edge.EdgeType()},
+                                       edge.Gid().AsUint(), std::move(value_properties)});
       } else {
-        result_row.out_edges_with_specific_properties.push_back(std::move(edges));
+        result_row.out_edges_with_specific_properties.push_back(
+            EdgeWithSpecificProperties{ToMsgsVertexId(edge.To()), msgs::EdgeType{edge.EdgeType()}, edge.Gid().AsUint(),
+                                       std::move(value_properties)});
       }
       return {};
     };
