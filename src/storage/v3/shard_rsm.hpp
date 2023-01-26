@@ -12,6 +12,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <variant>
 
 #include <openssl/ec.h>
@@ -40,6 +41,8 @@ class ShardRsm {
 
  public:
   explicit ShardRsm(std::unique_ptr<Shard> &&shard) : shard_(std::move(shard)){};
+
+  std::optional<SplitInfo> ShouldSplit() const noexcept { return shard_->ShouldSplit(); }
 
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
   msgs::ReadResponses Read(msgs::ReadRequests requests) {

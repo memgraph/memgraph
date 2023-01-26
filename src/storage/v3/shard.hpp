@@ -174,6 +174,19 @@ struct SchemasInfo {
   Schemas::SchemasList schemas;
 };
 
+struct SplitInfo {
+  uint64_t shard_version;
+  PrimaryKey split_point;
+};
+
+// If edge properties-on-edges is false then we don't need to send edges but
+// only vertices, since they will contain those edges
+struct SplitData {
+  VertexContainer vertices;
+  std::optional<EdgeContainer> edges;
+  IndicesInfo indices_info;
+};
+
 /// Structure used to return information about the storage.
 struct StorageInfo {
   uint64_t vertex_count;
@@ -360,6 +373,10 @@ class Shard final {
 
   void StoreMapping(std::unordered_map<uint64_t, std::string> id_to_name);
 
+  std::optional<SplitInfo> ShouldSplit() const noexcept;
+
+  SplitData PerformSplit(const PrimaryKey &split_key);
+
  private:
   Transaction &GetTransaction(coordinator::Hlc start_timestamp, IsolationLevel isolation_level);
 
@@ -377,6 +394,7 @@ class Shard final {
   // list is used only when properties are enabled for edges. Because of that we
   // keep a separate count of edges that is always updated.
   uint64_t edge_count_{0};
+  uint64_t shard_version_{0};
 
   SchemaValidator schema_validator_;
   VertexValidator vertex_validator_;
@@ -395,38 +413,6 @@ class Shard final {
   // Edges that are logically deleted and wait to be removed from the main
   // storage.
   std::list<Gid> deleted_edges_;
-
-  // UUID used to distinguish snapshots and to link snapshots to WALs
-  std::string uuid_;
-  // Sequence number used to keep track of the chain of WALs.
-  uint64_t wal_seq_num_{0};
-
-  // UUID to distinguish different main instance runs for replication process
-  // on SAME storage.
-  // Multiple instances can have same storage UUID and be MAIN at the same time.
-  // We cannot compare commit timestamps of those instances if one of them
-  // becomes the replica of the other so we use epoch_id_ as additional
-  // discriminating property.
-  // Example of this:
-  // We have 2 instances of the same storage, S1 and S2.
-  // S1 and S2 are MAIN and accept their own commits and write them to the WAL.
-  // At the moment when S1 commited a transaction with timestamp 20, and S2
-  // a different transaction with timestamp 15, we change S2's role to REPLICA
-  // and register it on S1.
-  // Without using the epoch_id, we don't know that S1 and S2 have completely
-  // different transactions, we think that the S2 is behind only by 5 commits.
-  std::string epoch_id_;
-  // History of the previous epoch ids.
-  // Each value consists of the epoch id along the last commit belonging to that
-  // epoch.
-  std::deque<std::pair<std::string, uint64_t>> epoch_history_;
-
-  uint64_t wal_unsynced_transactions_{0};
-
-  utils::FileRetainer file_retainer_;
-
-  // Global locker that is used for clients file locking
-  utils::FileRetainer::FileLocker global_locker_;
 
   // Holds all of the (in progress, committed and aborted) transactions that are read or write to this shard, but
   // haven't been cleaned up yet
