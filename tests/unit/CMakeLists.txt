@@ -294,6 +294,9 @@ target_link_libraries(${test_prefix}storage_v3_expr mg-storage-v3 mg-expr)
 add_unit_test(storage_v3_schema.cpp)
 target_link_libraries(${test_prefix}storage_v3_schema mg-storage-v3)
 
+add_unit_test(storage_v3_shard_split.cpp)
+target_link_libraries(${test_prefix}storage_v3_shard_split mg-storage-v3  mg-query-v2)
+
 # Test mg-query-v2
 # These are commented out because of the new TypedValue in the query engine
 # add_unit_test(query_v2_interpreter.cpp ${CMAKE_SOURCE_DIR}/src/glue/v2/communication.cpp)

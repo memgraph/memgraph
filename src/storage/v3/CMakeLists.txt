@@ -18,6 +18,7 @@ set(storage_v3_src_files
     bindings/typed_value.cpp
     expr.cpp
     vertex.cpp
+    splitter.cpp
     request_helper.cpp)
 
 # ######################

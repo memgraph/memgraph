@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <map>
+#include <memory>
 #include <numeric>
 #include <optional>
 #include <shared_mutex>
@@ -37,6 +38,7 @@
 #include "storage/v3/result.hpp"
 #include "storage/v3/schema_validator.hpp"
 #include "storage/v3/schemas.hpp"
+#include "storage/v3/splitter.hpp"
 #include "storage/v3/transaction.hpp"
 #include "storage/v3/vertex.hpp"
 #include "storage/v3/vertex_accessor.hpp"
@@ -175,16 +177,8 @@ struct SchemasInfo {
 };
 
 struct SplitInfo {
-  uint64_t shard_version;
   PrimaryKey split_point;
-};
-
-// If edge properties-on-edges is false then we don't need to send edges but
-// only vertices, since they will contain those edges
-struct SplitData {
-  VertexContainer vertices;
-  std::optional<EdgeContainer> edges;
-  IndicesInfo indices_info;
+  uint64_t shard_version;
 };
 
 /// Structure used to return information about the storage.
@@ -199,15 +193,27 @@ class Shard final {
  public:
   /// @throw std::system_error
   /// @throw std::bad_alloc
-  explicit Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<PrimaryKey> max_primary_key,
-                 std::vector<SchemaProperty> schema, Config config = Config(),
-                 std::unordered_map<uint64_t, std::string> id_to_name = {});
+  Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<PrimaryKey> max_primary_key,
+        std::vector<SchemaProperty> schema, Config config = Config(),
+        std::unordered_map<uint64_t, std::string> id_to_name = {});
+
+  Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<PrimaryKey> max_primary_key,
+        std::vector<SchemaProperty> schema, VertexContainer &&vertices, EdgeContainer &&edges,
+        std::map<uint64_t, std::unique_ptr<Transaction>> &&start_logical_id_to_transaction, const Config &config,
+        const std::unordered_map<uint64_t, std::string> &id_to_name, uint64_t shard_version);
+
+  Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<PrimaryKey> max_primary_key,
+        std::vector<SchemaProperty> schema, VertexContainer &&vertices,
+        std::map<uint64_t, std::unique_ptr<Transaction>> &&start_logical_id_to_transaction, const Config &config,
+        const std::unordered_map<uint64_t, std::string> &id_to_name, uint64_t shard_version);
 
   Shard(const Shard &) = delete;
   Shard(Shard &&) noexcept = delete;
   Shard &operator=(const Shard &) = delete;
   Shard operator=(Shard &&) noexcept = delete;
   ~Shard();
+
+  static std::unique_ptr<Shard> FromSplitData(SplitData &&split_data);
 
   class Accessor final {
    private:
@@ -375,7 +381,7 @@ class Shard final {
 
   std::optional<SplitInfo> ShouldSplit() const noexcept;
 
-  SplitData PerformSplit(const PrimaryKey &split_key);
+  SplitData PerformSplit(const PrimaryKey &split_key, uint64_t shard_version);
 
  private:
   Transaction &GetTransaction(coordinator::Hlc start_timestamp, IsolationLevel isolation_level);
@@ -385,7 +391,7 @@ class Shard final {
   // Main object storage
   NameIdMapper name_id_mapper_;
   LabelId primary_label_;
-  // The shard's range is [min, max)
+  // The shard's range is [min, max>
   PrimaryKey min_primary_key_;
   std::optional<PrimaryKey> max_primary_key_;
   VertexContainer vertices_;
@@ -417,6 +423,7 @@ class Shard final {
   // Holds all of the (in progress, committed and aborted) transactions that are read or write to this shard, but
   // haven't been cleaned up yet
   std::map<uint64_t, std::unique_ptr<Transaction>> start_logical_id_to_transaction_{};
+  Splitter shard_splitter_;
   bool has_any_transaction_aborted_since_last_gc{false};
 };
 

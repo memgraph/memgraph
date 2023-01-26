@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,6 +18,7 @@
 #include <openssl/ec.h>
 #include "query/v2/requests.hpp"
 #include "storage/v3/shard.hpp"
+#include "storage/v3/value_conversions.hpp"
 #include "storage/v3/vertex_accessor.hpp"
 
 namespace memgraph::storage::v3 {
@@ -42,7 +43,18 @@ class ShardRsm {
  public:
   explicit ShardRsm(std::unique_ptr<Shard> &&shard) : shard_(std::move(shard)){};
 
-  std::optional<SplitInfo> ShouldSplit() const noexcept { return shard_->ShouldSplit(); }
+  std::optional<msgs::SplitInfo> ShouldSplit() const noexcept {
+    auto split_info = shard_->ShouldSplit();
+    if (split_info) {
+      return msgs::SplitInfo{conversions::ConvertValueVector(split_info->split_point), split_info->shard_version};
+    }
+    return std::nullopt;
+  }
+
+  std::unique_ptr<Shard> PerformSplit(msgs::PerformSplitDataInfo perform_split) const noexcept {
+    return Shard::FromSplitData(
+        shard_->PerformSplit(conversions::ConvertPropertyVector(perform_split.split_key), perform_split.shard_version));
+  }
 
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
   msgs::ReadResponses Read(msgs::ReadRequests requests) {

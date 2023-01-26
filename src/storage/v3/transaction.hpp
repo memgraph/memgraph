@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,6 +31,16 @@ struct CommitInfo {
 };
 
 struct Transaction {
+  Transaction(coordinator::Hlc start_timestamp, CommitInfo new_commit_info, std::list<Delta> deltas,
+              uint64_t command_id, bool must_abort, bool is_aborted, IsolationLevel isolation_level)
+      : start_timestamp{start_timestamp},
+        commit_info{std::make_unique<CommitInfo>(new_commit_info)},
+        command_id(command_id),
+        deltas(std::move(deltas)),
+        must_abort(must_abort),
+        is_aborted(is_aborted),
+        isolation_level(isolation_level){};
+
   Transaction(coordinator::Hlc start_timestamp, IsolationLevel isolation_level)
       : start_timestamp(start_timestamp),
         commit_info(std::make_unique<CommitInfo>(CommitInfo{false, {start_timestamp}})),
@@ -53,6 +63,53 @@ struct Transaction {
   Transaction &operator=(Transaction &&other) = delete;
 
   ~Transaction() {}
+
+  std::list<Delta> CopyDeltas(CommitInfo *commit_info) const {
+    std::list<Delta> copied_deltas;
+    for (const auto &delta : deltas) {
+      switch (delta.action) {
+        case Delta::Action::DELETE_OBJECT:
+          copied_deltas.emplace_back(Delta::DeleteObjectTag{}, commit_info, command_id);
+          break;
+        case Delta::Action::RECREATE_OBJECT:
+          copied_deltas.emplace_back(Delta::RecreateObjectTag{}, commit_info, command_id);
+          break;
+        case Delta::Action::ADD_LABEL:
+          copied_deltas.emplace_back(Delta::AddLabelTag{}, delta.label, commit_info, command_id);
+          break;
+        case Delta::Action::REMOVE_LABEL:
+          copied_deltas.emplace_back(Delta::RemoveLabelTag{}, delta.label, commit_info, command_id);
+          break;
+        case Delta::Action::ADD_IN_EDGE:
+          copied_deltas.emplace_back(Delta::AddInEdgeTag{}, delta.vertex_edge.edge_type, delta.vertex_edge.vertex_id,
+                                     delta.vertex_edge.edge, commit_info, command_id);
+          break;
+        case Delta::Action::ADD_OUT_EDGE:
+          copied_deltas.emplace_back(Delta::AddOutEdgeTag{}, delta.vertex_edge.edge_type, delta.vertex_edge.vertex_id,
+                                     delta.vertex_edge.edge, commit_info, command_id);
+          break;
+        case Delta::Action::REMOVE_IN_EDGE:
+          copied_deltas.emplace_back(Delta::RemoveInEdgeTag{}, delta.vertex_edge.edge_type, delta.vertex_edge.vertex_id,
+                                     delta.vertex_edge.edge, commit_info, command_id);
+          break;
+        case Delta::Action::REMOVE_OUT_EDGE:
+          copied_deltas.emplace_back(Delta::RemoveOutEdgeTag{}, delta.vertex_edge.edge_type,
+                                     delta.vertex_edge.vertex_id, delta.vertex_edge.edge, commit_info, command_id);
+          break;
+        case Delta::Action::SET_PROPERTY:
+          copied_deltas.emplace_back(Delta::SetPropertyTag{}, delta.property.key, delta.property.value, commit_info,
+                                     command_id);
+          break;
+      }
+    }
+    return copied_deltas;
+  }
+
+  // This does not solve the whole problem of copying deltas
+  std::unique_ptr<Transaction> Clone() const {
+    return std::make_unique<Transaction>(start_timestamp, *commit_info, CopyDeltas(commit_info.get()), command_id,
+                                         must_abort, is_aborted, isolation_level);
+  }
 
   coordinator::Hlc start_timestamp;
   std::unique_ptr<CommitInfo> commit_info;

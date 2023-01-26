@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,10 +19,13 @@
 #include <mutex>
 #include <optional>
 
+#include <bits/ranges_algo.h>
 #include <spdlog/spdlog.h>
 
 #include "io/network/endpoint.hpp"
 #include "io/time.hpp"
+#include "storage/v3/delta.hpp"
+#include "storage/v3/edge.hpp"
 #include "storage/v3/edge_accessor.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/indices.hpp"
@@ -329,12 +332,69 @@ Shard::Shard(const LabelId primary_label, const PrimaryKey min_primary_key,
       vertex_validator_{schema_validator_, primary_label},
       indices_{config.items, vertex_validator_},
       isolation_level_{config.transaction.isolation_level},
-      config_{config} {
+      config_{config},
+      shard_splitter_(primary_label, vertices_, edges_, start_logical_id_to_transaction_, indices_, config_, schema,
+                      name_id_mapper_) {
   CreateSchema(primary_label_, schema);
   StoreMapping(std::move(id_to_name));
 }
 
+Shard::Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<PrimaryKey> max_primary_key,
+             std::vector<SchemaProperty> schema, VertexContainer &&vertices, EdgeContainer &&edges,
+             std::map<uint64_t, std::unique_ptr<Transaction>> &&start_logical_id_to_transaction, const Config &config,
+             const std::unordered_map<uint64_t, std::string> &id_to_name, const uint64_t shard_version)
+    : primary_label_{primary_label},
+      min_primary_key_{min_primary_key},
+      max_primary_key_{max_primary_key},
+      vertices_(std::move(vertices)),
+      edges_(std::move(edges)),
+      shard_version_(shard_version),
+      schema_validator_{schemas_, name_id_mapper_},
+      vertex_validator_{schema_validator_, primary_label},
+      indices_{config.items, vertex_validator_},
+      isolation_level_{config.transaction.isolation_level},
+      config_{config},
+      start_logical_id_to_transaction_(std::move(start_logical_id_to_transaction)),
+      shard_splitter_(primary_label, vertices_, edges_, start_logical_id_to_transaction_, indices_, config_, schema,
+                      name_id_mapper_) {
+  CreateSchema(primary_label_, schema);
+  StoreMapping(id_to_name);
+}
+
+Shard::Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<PrimaryKey> max_primary_key,
+             std::vector<SchemaProperty> schema, VertexContainer &&vertices,
+             std::map<uint64_t, std::unique_ptr<Transaction>> &&start_logical_id_to_transaction, const Config &config,
+             const std::unordered_map<uint64_t, std::string> &id_to_name, const uint64_t shard_version)
+    : primary_label_{primary_label},
+      min_primary_key_{min_primary_key},
+      max_primary_key_{max_primary_key},
+      vertices_(std::move(vertices)),
+      shard_version_(shard_version),
+      schema_validator_{schemas_, name_id_mapper_},
+      vertex_validator_{schema_validator_, primary_label},
+      indices_{config.items, vertex_validator_},
+      isolation_level_{config.transaction.isolation_level},
+      config_{config},
+      start_logical_id_to_transaction_(std::move(start_logical_id_to_transaction)),
+      shard_splitter_(primary_label, vertices_, edges_, start_logical_id_to_transaction_, indices_, config_, schema,
+                      name_id_mapper_) {
+  CreateSchema(primary_label_, schema);
+  StoreMapping(id_to_name);
+}
+
 Shard::~Shard() {}
+
+std::unique_ptr<Shard> Shard::FromSplitData(SplitData &&split_data) {
+  if (split_data.config.items.properties_on_edges) [[likely]] {
+    return std::make_unique<Shard>(split_data.primary_label, split_data.min_primary_key, split_data.min_primary_key,
+                                   split_data.schema, std::move(split_data.vertices), std::move(*split_data.edges),
+                                   std::move(split_data.transactions), split_data.config, split_data.id_to_name,
+                                   split_data.shard_version);
+  }
+  return std::make_unique<Shard>(split_data.primary_label, split_data.min_primary_key, split_data.min_primary_key,
+                                 split_data.schema, std::move(split_data.vertices), std::move(split_data.transactions),
+                                 split_data.config, split_data.id_to_name, split_data.shard_version);
+}
 
 Shard::Accessor::Accessor(Shard &shard, Transaction &transaction)
     : shard_(&shard), transaction_(&transaction), config_(shard_->config_.items) {}
@@ -430,7 +490,7 @@ ShardResult<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>>
   }
 
   std::vector<EdgeAccessor> deleted_edges;
-  const VertexId vertex_id{shard_->primary_label_, *vertex->PrimaryKey(View::OLD)};  // TODO Replace
+  const VertexId vertex_id{shard_->primary_label_, *vertex->PrimaryKey(View::OLD)};
   for (const auto &item : in_edges) {
     auto [edge_type, from_vertex, edge] = item;
     EdgeAccessor e(edge, edge_type, from_vertex, vertex_id, transaction_, &shard_->indices_, config_);
@@ -1043,39 +1103,18 @@ void Shard::StoreMapping(std::unordered_map<uint64_t, std::string> id_to_name) {
 }
 
 std::optional<SplitInfo> Shard::ShouldSplit() const noexcept {
-  if (vertices_.size() > 10000000) {
-    // Why should we care if the selected vertex is deleted
+  if (vertices_.size() > config_.split.max_shard_vertex_size) {
     auto mid_elem = vertices_.begin();
-    // mid_elem->first
     std::ranges::advance(mid_elem, static_cast<VertexContainer::difference_type>(vertices_.size() / 2));
-    return SplitInfo{shard_version_, mid_elem->first};
+    return SplitInfo{mid_elem->first, shard_version_};
   }
   return std::nullopt;
 }
 
-SplitData Shard::PerformSplit(const PrimaryKey &split_key) {
-  SplitData data;
-  data.vertices = std::map(vertices_.find(split_key), vertices_.end());
-  data.indices_info = {indices_.label_index.ListIndices(), indices_.label_property_index.ListIndices()};
-
-  // Get all edges related with those vertices
-  if (config_.items.properties_on_edges) {
-    data.edges = std::invoke([&split_vertices = data.vertices]() {
-      // How to reserve?
-      EdgeContainer split_edges;
-      for (const auto &vertex : split_vertices) {
-        for (const auto &in_edge : vertex.second.in_edges) {
-          auto edge = std::get<2>(in_edge).ptr;
-          split_edges.insert(edge->gid, Edge{.gid = edge->gid, .delta = edge->delta, .properties = edge->properties});
-        }
-      }
-      return split_edges;
-    });
-  }
-  // TODO We also need to send ongoing transactions to the shard
-  // since they own deltas
-
-  return data;
+SplitData Shard::PerformSplit(const PrimaryKey &split_key, const uint64_t shard_version) {
+  shard_version_ = shard_version;
+  max_primary_key_ = split_key;
+  return shard_splitter_.SplitShard(split_key, max_primary_key_, shard_version);
 }
 
 bool Shard::IsVertexBelongToShard(const VertexId &vertex_id) const {

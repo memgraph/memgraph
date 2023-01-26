@@ -173,14 +173,6 @@ class ShardWorker {
         auto &rsm = rsm_map_.at(uuid);
         Time next_for_uuid = rsm.Cron();
 
-        // Check if shard should split
-        if (const auto split_info = rsm.ShouldSplit(); split_info) {
-          // Request split from coordinator
-          // split_point => middle pk
-          // shard_id => uuid
-          // shard_version =>
-        }
-
         cron_schedule_.pop();
         cron_schedule_.push(std::make_pair(next_for_uuid, uuid));
       } else {

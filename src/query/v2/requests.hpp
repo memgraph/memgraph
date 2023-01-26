@@ -12,6 +12,7 @@
 #pragma once
 
 #include <chrono>
+#include <cstdint>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -568,6 +569,16 @@ struct CommitRequest {
 
 struct CommitResponse {
   std::optional<ShardError> error;
+};
+
+struct SplitInfo {
+  PrimaryKey split_key;
+  uint64_t shard_version;
+};
+
+struct PerformSplitDataInfo {
+  PrimaryKey split_key;
+  uint64_t shard_version;
 };
 
 using ReadRequests = std::variant<ExpandOneRequest, GetPropertiesRequest, ScanVerticesRequest>;
