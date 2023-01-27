@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -299,7 +299,7 @@ std::shared_ptr<Base> gAstGeneratorTypes[] = {
     std::make_shared<CachedAstGenerator>(),
 };
 
-INSTANTIATE_TEST_CASE_P(AstGeneratorTypes, CypherMainVisitorTest, ::testing::ValuesIn(gAstGeneratorTypes));
+INSTANTIATE_TEST_SUITE_P(AstGeneratorTypes, CypherMainVisitorTest, ::testing::ValuesIn(gAstGeneratorTypes));
 
 // NOTE: The above used to use *Typed Tests* functionality of gtest library.
 // Unfortunately, the compilation time of this test increased to full 2 minutes!
@@ -313,7 +313,7 @@ INSTANTIATE_TEST_CASE_P(AstGeneratorTypes, CypherMainVisitorTest, ::testing::Val
 //                          ClonedAstGenerator, CachedAstGenerator>
 //     AstGeneratorTypes;
 //
-// TYPED_TEST_CASE(CypherMainVisitorTest, AstGeneratorTypes);
+// TYPED_TEST_SUITE(CypherMainVisitorTest, AstGeneratorTypes);
 
 TEST_P(CypherMainVisitorTest, SyntaxException) {
   auto &ast_generator = *GetParam();

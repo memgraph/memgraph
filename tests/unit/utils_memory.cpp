@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -393,7 +393,7 @@ class AllocatorTest : public ::testing::Test {};
 
 using ContainersWithAllocators = ::testing::Types<ContainerWithAllocatorLast, ContainerWithAllocatorFirst>;
 
-TYPED_TEST_CASE(AllocatorTest, ContainersWithAllocators);
+TYPED_TEST_SUITE(AllocatorTest, ContainersWithAllocators);
 
 TYPED_TEST(AllocatorTest, PropagatesToStdUsesAllocator) {
   std::vector<TypeParam, memgraph::utils::Allocator<TypeParam>> vec(memgraph::utils::NewDeleteResource());

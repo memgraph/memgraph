@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -704,7 +704,6 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
   ctx_.request_router = request_router;
   ctx_.edge_ids_alloc = &interpreter_context->edge_ids_alloc;
 }
-
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::PullMultiple(AnyStream *stream, std::optional<int> n,
                                                                         const std::vector<Symbol> &output_symbols,
                                                                         std::map<std::string, TypedValue> *summary) {
@@ -732,10 +731,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::PullMultiple(AnyStrea
   }
 
   // Returns true if a result was pulled.
-  const auto pull_result = [&]() -> bool {
-    cursor_->PullMultiple(multi_frame_, ctx_);
-    return multi_frame_.HasValidFrame();
-  };
+  const auto pull_result = [&]() -> bool { return cursor_->PullMultiple(multi_frame_, ctx_); };
 
   const auto stream_values = [&output_symbols, &stream](const Frame &frame) {
     // TODO: The streamed values should also probably use the above memory.
@@ -755,13 +751,14 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::PullMultiple(AnyStrea
   int i = 0;
   if (has_unsent_results_ && !output_symbols.empty()) {
     // stream unsent results from previous pull
-
-    auto iterator_for_valid_frame_only = multi_frame_.GetValidFramesReader();
-    for (const auto &frame : iterator_for_valid_frame_only) {
+    for (auto &frame : multi_frame_.GetValidFramesConsumer()) {
       stream_values(frame);
+      frame.MakeInvalid();
       ++i;
+      if (i == n) {
+        break;
+      }
     }
-    multi_frame_.MakeAllFramesInvalid();
   }
 
   for (; !n || i < n;) {
@@ -770,13 +767,17 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::PullMultiple(AnyStrea
     }
 
     if (!output_symbols.empty()) {
-      auto iterator_for_valid_frame_only = multi_frame_.GetValidFramesReader();
-      for (const auto &frame : iterator_for_valid_frame_only) {
+      for (auto &frame : multi_frame_.GetValidFramesConsumer()) {
         stream_values(frame);
+        frame.MakeInvalid();
         ++i;
+        if (i == n) {
+          break;
+        }
       }
+    } else {
+      multi_frame_.MakeAllFramesInvalid();
     }
-    multi_frame_.MakeAllFramesInvalid();
   }
 
   // If we finished because we streamed the requested n results,
@@ -906,34 +907,24 @@ using RWType = plan::ReadWriteTypeChecker::RWType;
 
 InterpreterContext::InterpreterContext(storage::v3::Shard *db, const InterpreterConfig config,
                                        const std::filesystem::path & /*data_directory*/,
-                                       io::Io<io::local_transport::LocalTransport> io,
+                                       std::unique_ptr<RequestRouterFactory> request_router_factory,
                                        coordinator::Address coordinator_addr)
-    : db(db), config(config), io{std::move(io)}, coordinator_address{coordinator_addr} {}
+    : db(db),
+      config(config),
+      coordinator_address{coordinator_addr},
+      request_router_factory_{std::move(request_router_factory)} {}
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
 
-  // TODO(tyler) make this deterministic so that it can be tested.
-  auto random_uuid = boost::uuids::uuid{boost::uuids::random_generator()()};
-  auto query_io = interpreter_context_->io.ForkLocal(random_uuid);
+  request_router_ =
+      interpreter_context_->request_router_factory_->CreateRequestRouter(interpreter_context_->coordinator_address);
 
-  request_router_ = std::make_unique<RequestRouter<io::local_transport::LocalTransport>>(
-      coordinator::CoordinatorClient<io::local_transport::LocalTransport>(
-          query_io, interpreter_context_->coordinator_address, std::vector{interpreter_context_->coordinator_address}),
-      std::move(query_io));
   // Get edge ids
-  coordinator::CoordinatorWriteRequests requests{coordinator::AllocateEdgeIdBatchRequest{.batch_size = 1000000}};
-  io::rsm::WriteRequest<coordinator::CoordinatorWriteRequests> ww;
-  ww.operation = requests;
-  auto resp = interpreter_context_->io
-                  .Request<io::rsm::WriteRequest<coordinator::CoordinatorWriteRequests>,
-                           io::rsm::WriteResponse<coordinator::CoordinatorWriteResponses>>(
-                      interpreter_context_->coordinator_address, ww)
-                  .Wait();
-  if (resp.HasValue()) {
-    const auto alloc_edge_id_reps =
-        std::get<coordinator::AllocateEdgeIdBatchResponse>(resp.GetValue().message.write_return);
-    interpreter_context_->edge_ids_alloc = {alloc_edge_id_reps.low, alloc_edge_id_reps.high};
+  const auto edge_ids_alloc_min_max_pair =
+      request_router_->AllocateInitialEdgeIds(interpreter_context_->coordinator_address);
+  if (edge_ids_alloc_min_max_pair) {
+    interpreter_context_->edge_ids_alloc = {edge_ids_alloc_min_max_pair->first, edge_ids_alloc_min_max_pair->second};
   }
 }
 

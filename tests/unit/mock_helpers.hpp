@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,12 +13,13 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+
 #include "query/v2/common.hpp"
 #include "query/v2/context.hpp"
 #include "query/v2/plan/operator.hpp"
 #include "query/v2/request_router.hpp"
 
-namespace memgraph::query::v2 {
+namespace memgraph::query::v2::tests {
 class MockedRequestRouter : public RequestRouterInterface {
  public:
   MOCK_METHOD(std::vector<VertexAccessor>, ScanVertices, (std::optional<std::string> label));
@@ -41,6 +42,9 @@ class MockedRequestRouter : public RequestRouterInterface {
   MOCK_METHOD(std::optional<storage::v3::LabelId>, MaybeNameToLabel, (const std::string &), (const));
   MOCK_METHOD(bool, IsPrimaryLabel, (storage::v3::LabelId), (const));
   MOCK_METHOD(bool, IsPrimaryKey, (storage::v3::LabelId, storage::v3::PropertyId), (const));
+  MOCK_METHOD((std::optional<std::pair<uint64_t, uint64_t>>), AllocateInitialEdgeIds, (io::Address));
+  MOCK_METHOD(void, InstallSimulatorTicker, (std::function<bool()>));
+  MOCK_METHOD(const std::vector<coordinator::SchemaProperty> &, GetSchemaForLabel, (storage::v3::LabelId), (const));
 };
 
 class MockedLogicalOperator : public plan::LogicalOperator {
@@ -57,7 +61,7 @@ class MockedLogicalOperator : public plan::LogicalOperator {
 class MockedCursor : public plan::Cursor {
  public:
   MOCK_METHOD(bool, Pull, (Frame &, expr::ExecutionContext &));
-  MOCK_METHOD(void, PullMultiple, (MultiFrame &, expr::ExecutionContext &));
+  MOCK_METHOD(bool, PullMultiple, (MultiFrame &, expr::ExecutionContext &));
   MOCK_METHOD(void, Reset, ());
   MOCK_METHOD(void, Shutdown, ());
 };
@@ -79,4 +83,4 @@ inline MockedLogicalOperator &BaseToMock(plan::LogicalOperator &op) {
 
 inline MockedCursor &BaseToMock(plan::Cursor &cursor) { return dynamic_cast<MockedCursor &>(cursor); }
 
-}  // namespace memgraph::query::v2
+}  // namespace memgraph::query::v2::tests

@@ -72,7 +72,21 @@ class Cursor {
   /// @throws QueryRuntimeException if something went wrong with execution
   virtual bool Pull(Frame &, ExecutionContext &) = 0;
 
-  virtual void PullMultiple(MultiFrame &, ExecutionContext &) { LOG_FATAL("PullMultipleIsNotImplemented"); }
+  /// Run an iteration of a @c LogicalOperator with MultiFrame.
+  ///
+  /// Since operators may be chained, the iteration may pull results from
+  /// multiple operators.
+  ///
+  /// @param MultiFrame May be read from or written to while performing the
+  ///     iteration.
+  /// @param ExecutionContext Used to get the position of symbols in frame and
+  ///     other information.
+  /// @return True if the operator was able to populate at least one Frame on the MultiFrame,
+  ///     thus if an operator returns true, that means there is at least one valid Frame in the
+  ///     MultiFrame.
+  ///
+  /// @throws QueryRuntimeException if something went wrong with execution
+  virtual bool PullMultiple(MultiFrame &, ExecutionContext &) {MG_ASSERT(false, "PullMultipleIsNotImplemented"); return false; }
 
   /// Resets the Cursor to its initial state.
   virtual void Reset() = 0;
@@ -113,7 +127,7 @@ class ScanAllByLabel;
 class ScanAllByLabelPropertyRange;
 class ScanAllByLabelPropertyValue;
 class ScanAllByLabelProperty;
-class ScanAllById;
+class ScanByPrimaryKey;
 class Expand;
 class ExpandVariable;
 class ConstructNamedPath;
@@ -144,7 +158,7 @@ class Foreach;
 using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel,
     ScanAllByLabelPropertyRange, ScanAllByLabelPropertyValue,
-    ScanAllByLabelProperty, ScanAllById,
+    ScanAllByLabelProperty, ScanByPrimaryKey,
     Expand, ExpandVariable, ConstructNamedPath, Filter, Produce, Delete,
     SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels,
     EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit, OrderBy, Merge,
@@ -335,7 +349,7 @@ and false on every following Pull.")
    class OnceCursor : public Cursor {
     public:
      OnceCursor() {}
-     void PullMultiple(MultiFrame &, ExecutionContext &) override;
+     bool PullMultiple(MultiFrame &, ExecutionContext &) override;
      bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
@@ -845,19 +859,21 @@ given label and property.
   (:serialize (:slk))
   (:clone))
 
-
-
-(lcp:define-class scan-all-by-id (scan-all)
-  ((expression "Expression *" :scope :public
+(lcp:define-class scan-by-primary-key (scan-all)
+  ((label "::storage::v3::LabelId" :scope :public)
+    (primary-key "std::vector<Expression*>" :scope :public)
+    (expression "Expression *" :scope :public
                :slk-save #'slk-save-ast-pointer
                :slk-load (slk-load-ast-pointer "Expression")))
   (:documentation
-    "ScanAll producing a single node with ID equal to evaluated expression")
+    "ScanAll producing a single node with specified by the label and primary key")
   (:public
     #>cpp
-    ScanAllById() {}
-    ScanAllById(const std::shared_ptr<LogicalOperator> &input,
-                Symbol output_symbol, Expression *expression,
+    ScanByPrimaryKey() {}
+    ScanByPrimaryKey(const std::shared_ptr<LogicalOperator> &input,
+                Symbol output_symbol,
+                storage::v3::LabelId label,
+                std::vector<query::v2::Expression*> primary_key,
                 storage::v3::View view = storage::v3::View::OLD);
 
     bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
@@ -1160,6 +1176,7 @@ a boolean value.")
     public:
      FilterCursor(const Filter &, utils::MemoryResource *);
      bool Pull(Frame &, ExecutionContext &) override;
+     bool PullMultiple(MultiFrame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -1211,7 +1228,7 @@ RETURN clause) the Produce's pull succeeds exactly once.")
     public:
      ProduceCursor(const Produce &, utils::MemoryResource *);
      bool Pull(Frame &, ExecutionContext &) override;
-     void PullMultiple(MultiFrame &, ExecutionContext &) override;
+     bool PullMultiple(MultiFrame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -1259,6 +1276,7 @@ Has a flag for using DETACH DELETE when deleting vertices.")
     public:
      DeleteCursor(const Delete &, utils::MemoryResource *);
      bool Pull(Frame &, ExecutionContext &) override;
+     bool PullMultiple(MultiFrame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 

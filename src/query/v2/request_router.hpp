@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,7 +24,10 @@
 #include <stdexcept>
 #include <thread>
 #include <unordered_map>
+#include <variant>
 #include <vector>
+
+#include <boost/uuid/uuid.hpp>
 
 #include "coordinator/coordinator.hpp"
 #include "coordinator/coordinator_client.hpp"
@@ -32,6 +35,7 @@
 #include "coordinator/shard_map.hpp"
 #include "io/address.hpp"
 #include "io/errors.hpp"
+#include "io/local_transport/local_transport.hpp"
 #include "io/notifier.hpp"
 #include "io/rsm/raft.hpp"
 #include "io/rsm/rsm_client.hpp"
@@ -114,6 +118,10 @@ class RequestRouterInterface {
   virtual std::optional<storage::v3::LabelId> MaybeNameToLabel(const std::string &name) const = 0;
   virtual bool IsPrimaryLabel(storage::v3::LabelId label) const = 0;
   virtual bool IsPrimaryKey(storage::v3::LabelId primary_label, storage::v3::PropertyId property) const = 0;
+
+  virtual std::optional<std::pair<uint64_t, uint64_t>> AllocateInitialEdgeIds(io::Address coordinator_address) = 0;
+  virtual void InstallSimulatorTicker(std::function<bool()> tick_simulator) = 0;
+  virtual const std::vector<coordinator::SchemaProperty> &GetSchemaForLabel(storage::v3::LabelId label) const = 0;
 };
 
 // TODO(kostasrim)rename this class template
@@ -138,7 +146,7 @@ class RequestRouter : public RequestRouterInterface {
 
   ~RequestRouter() override {}
 
-  void InstallSimulatorTicker(std::function<bool()> tick_simulator) {
+  void InstallSimulatorTicker(std::function<bool()> tick_simulator) override {
     notifier_.InstallSimulatorTicker(tick_simulator);
   }
 
@@ -232,12 +240,17 @@ class RequestRouter : public RequestRouterInterface {
            }) != schema_it->second.end();
   }
 
+  const std::vector<coordinator::SchemaProperty> &GetSchemaForLabel(storage::v3::LabelId label) const override {
+    return shards_map_.schemas.at(label);
+  }
+
   bool IsPrimaryLabel(storage::v3::LabelId label) const override { return shards_map_.label_spaces.contains(label); }
 
   // TODO(kostasrim) Simplify return result
   std::vector<VertexAccessor> ScanVertices(std::optional<std::string> label) override {
     // create requests
-    std::vector<ShardRequestState<msgs::ScanVerticesRequest>> requests_to_be_sent = RequestsForScanVertices(label);
+    auto requests_to_be_sent = RequestsForScanVertices(label);
+
     spdlog::trace("created {} ScanVertices requests", requests_to_be_sent.size());
 
     // begin all requests in parallel
@@ -299,7 +312,8 @@ class RequestRouter : public RequestRouterInterface {
     MG_ASSERT(!new_edges.empty());
 
     // create requests
-    std::vector<ShardRequestState<msgs::CreateExpandRequest>> requests_to_be_sent = RequestsForCreateExpand(new_edges);
+    std::vector<ShardRequestState<msgs::CreateExpandRequest>> requests_to_be_sent =
+        RequestsForCreateExpand(std::move(new_edges));
 
     // begin all requests in parallel
     RunningRequests<msgs::CreateExpandRequest> running_requests = {};
@@ -359,6 +373,7 @@ class RequestRouter : public RequestRouterInterface {
   }
 
   std::vector<msgs::GetPropertiesResultRow> GetProperties(msgs::GetPropertiesRequest requests) override {
+    requests.transaction_id = transaction_id_;
     // create requests
     std::vector<ShardRequestState<msgs::GetPropertiesRequest>> requests_to_be_sent =
         RequestsForGetProperties(std::move(requests));
@@ -430,7 +445,7 @@ class RequestRouter : public RequestRouterInterface {
   }
 
   std::vector<ShardRequestState<msgs::CreateExpandRequest>> RequestsForCreateExpand(
-      const std::vector<msgs::NewExpand> &new_expands) {
+      std::vector<msgs::NewExpand> new_expands) {
     std::map<ShardMetadata, msgs::CreateExpandRequest> per_shard_request_table;
     auto ensure_shard_exists_in_table = [&per_shard_request_table,
                                          transaction_id = transaction_id_](const ShardMetadata &shard) {
@@ -707,6 +722,23 @@ class RequestRouter : public RequestRouterInterface {
     edge_types_.StoreMapping(std::move(id_to_name));
   }
 
+  std::optional<std::pair<uint64_t, uint64_t>> AllocateInitialEdgeIds(io::Address coordinator_address) override {
+    coordinator::CoordinatorWriteRequests requests{coordinator::AllocateEdgeIdBatchRequest{.batch_size = 1000000}};
+
+    io::rsm::WriteRequest<coordinator::CoordinatorWriteRequests> ww;
+    ww.operation = requests;
+    auto resp =
+        io_.template Request<io::rsm::WriteRequest<coordinator::CoordinatorWriteRequests>,
+                             io::rsm::WriteResponse<coordinator::CoordinatorWriteResponses>>(coordinator_address, ww)
+            .Wait();
+    if (resp.HasValue()) {
+      const auto alloc_edge_id_reps =
+          std::get<coordinator::AllocateEdgeIdBatchResponse>(resp.GetValue().message.write_return);
+      return std::make_pair(alloc_edge_id_reps.low, alloc_edge_id_reps.high);
+    }
+    return {};
+  }
+
   ShardMap shards_map_;
   storage::v3::NameIdMapper properties_;
   storage::v3::NameIdMapper edge_types_;
@@ -718,4 +750,66 @@ class RequestRouter : public RequestRouterInterface {
   io::Notifier notifier_ = {};
   // TODO(kostasrim) Add batch prefetching
 };
+
+class RequestRouterFactory {
+ public:
+  RequestRouterFactory() = default;
+  RequestRouterFactory(const RequestRouterFactory &) = delete;
+  RequestRouterFactory &operator=(const RequestRouterFactory &) = delete;
+  RequestRouterFactory(RequestRouterFactory &&) = delete;
+  RequestRouterFactory &operator=(RequestRouterFactory &&) = delete;
+
+  virtual ~RequestRouterFactory() = default;
+
+  virtual std::unique_ptr<RequestRouterInterface> CreateRequestRouter(
+      const coordinator::Address &coordinator_address) const = 0;
+};
+
+class LocalRequestRouterFactory : public RequestRouterFactory {
+  using LocalTransportIo = io::Io<io::local_transport::LocalTransport>;
+  LocalTransportIo &io_;
+
+ public:
+  explicit LocalRequestRouterFactory(LocalTransportIo &io) : io_(io) {}
+
+  std::unique_ptr<RequestRouterInterface> CreateRequestRouter(
+      const coordinator::Address &coordinator_address) const override {
+    using TransportType = io::local_transport::LocalTransport;
+
+    auto query_io = io_.ForkLocal(boost::uuids::uuid{boost::uuids::random_generator()()});
+    auto local_transport_io = io_.ForkLocal(boost::uuids::uuid{boost::uuids::random_generator()()});
+
+    return std::make_unique<RequestRouter<TransportType>>(
+        coordinator::CoordinatorClient<TransportType>(query_io, coordinator_address, {coordinator_address}),
+        std::move(local_transport_io));
+  }
+};
+
+class SimulatedRequestRouterFactory : public RequestRouterFactory {
+  io::simulator::Simulator *simulator_;
+
+ public:
+  explicit SimulatedRequestRouterFactory(io::simulator::Simulator &simulator) : simulator_(&simulator) {}
+
+  std::unique_ptr<RequestRouterInterface> CreateRequestRouter(
+      const coordinator::Address &coordinator_address) const override {
+    using TransportType = io::simulator::SimulatorTransport;
+    auto actual_transport_handle = simulator_->GetSimulatorHandle();
+
+    boost::uuids::uuid random_uuid;
+    io::Address unique_local_addr_query;
+
+    // The simulated RR should not introduce stochastic behavior.
+    random_uuid = boost::uuids::uuid{3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    unique_local_addr_query = {.unique_id = boost::uuids::uuid{4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}};
+
+    auto io = simulator_->Register(unique_local_addr_query);
+    auto query_io = io.ForkLocal(random_uuid);
+
+    return std::make_unique<RequestRouter<TransportType>>(
+        coordinator::CoordinatorClient<TransportType>(query_io, coordinator_address, {coordinator_address}),
+        std::move(io));
+  }
+};
+
 }  // namespace memgraph::query::v2
