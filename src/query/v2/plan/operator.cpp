@@ -1566,7 +1566,7 @@ class AggregateCursor : public Cursor {
     for (; count_it < agg_value->counts_.end(); count_it++, value_it++, agg_elem_it++) {
       // COUNT(*) is the only case where input expression is optional
       // handle it here
-      auto input_expr_ptr = agg_elem_it->value;
+      auto *input_expr_ptr = agg_elem_it->value;
       if (!input_expr_ptr) {
         *count_it += 1;
         *value_it = *count_it;
@@ -1657,7 +1657,7 @@ class AggregateCursor : public Cursor {
 
   /** Checks if the given TypedValue is legal in MIN and MAX. If not
    * an appropriate exception is thrown. */
-  void EnsureOkForMinMax(const TypedValue &value) const {
+  static void EnsureOkForMinMax(const TypedValue &value) {
     switch (value.type()) {
       case TypedValue::Type::Bool:
       case TypedValue::Type::Int:
@@ -1673,7 +1673,7 @@ class AggregateCursor : public Cursor {
 
   /** Checks if the given TypedValue is legal in AVG and SUM. If not
    * an appropriate exception is thrown. */
-  void EnsureOkForAvgSum(const TypedValue &value) const {
+  static void EnsureOkForAvgSum(const TypedValue &value) {
     switch (value.type()) {
       case TypedValue::Type::Int:
       case TypedValue::Type::Double:
