@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,6 +17,7 @@
 
 #include <boost/functional/hash.hpp>
 #include <boost/uuid/uuid.hpp>
+#include <variant>
 
 #include "coordinator/coordinator.hpp"
 #include "coordinator/shard_map.hpp"
@@ -32,6 +33,7 @@
 #include "storage/v3/shard_rsm.hpp"
 #include "storage/v3/shard_worker.hpp"
 #include "storage/v3/value_conversions.hpp"
+#include "utils/variant_helpers.hpp"
 
 namespace memgraph::storage::v3 {
 
@@ -175,7 +177,15 @@ class ShardManager {
   /// Returns the Address for our underlying Io implementation
   Address GetAddress() { return io_.GetAddress(); }
 
-  void Receive(ShardManagerMessages &&smm, RequestId request_id, Address from) {}
+  void Receive(ShardManagerMessages &&smm, RequestId request_id, Address from) {
+    std::visit(utils::Overloaded{
+                   [this](msgs::SuggestedSplitInfo &&split_info) { pending_splits_.insert(std::move(split_info)); },
+                   [](storage::v3::SplitData &&split_data) {
+                     // TODO(jbajic) remove pending split for this completed split
+                     // TODO(jbajic) Add new shard to initialized but not confirmed rsm
+                   }},
+               std::move(smm));
+  }
 
   void Route(ShardMessages &&sm, RequestId request_id, Address to, Address from) {
     Address address = io_.GetAddress();
@@ -202,6 +212,7 @@ class ShardManager {
   std::vector<shard_worker::Queue> workers_;
   std::vector<std::jthread> worker_handles_;
   std::vector<size_t> worker_rsm_counts_;
+  std::set<msgs::SuggestedSplitInfo> pending_splits_;
   std::unordered_map<uuid, size_t, boost::hash<boost::uuids::uuid>> rsm_worker_mapping_;
   Time next_reconciliation_ = Time::min();
   Address coordinator_leader_;
@@ -243,6 +254,7 @@ class ShardManager {
     HeartbeatRequest req{
         .from_storage_manager = GetAddress(),
         .initialized_rsms = initialized_but_not_confirmed_rsm_,
+        .pending_splits = pending_splits_,
     };
 
     CoordinatorWriteRequests cwr = req;

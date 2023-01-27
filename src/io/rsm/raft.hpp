@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,13 +19,16 @@
 #include <map>
 #include <set>
 #include <thread>
+#include <type_traits>
 #include <vector>
 
 #include <boost/core/demangle.hpp>
 
 #include "io/message_conversion.hpp"
+#include "io/rsm/shard_rsm.hpp"
 #include "io/simulator/simulator.hpp"
 #include "io/transport.hpp"
+#include "query/v2/requests.hpp"
 #include "utils/concepts.hpp"
 
 namespace memgraph::io::rsm {
@@ -341,6 +344,9 @@ class Raft {
       Handle(std::move(request.message), request.request_id, request.from_address);
     }
   }
+
+  // template <std::enable_if_t<std::is_same_v<ReplicatedState, ShardRsm>, bool> = true>
+  msgs::SplitInfo ShouldSplit() { return replicated_state_.ShouldSplit(); }
 
  private:
   // Raft paper - 5.3

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -172,6 +172,12 @@ class ShardWorker {
       if (time <= now) {
         auto &rsm = rsm_map_.at(uuid);
         Time next_for_uuid = rsm.Cron();
+
+        // Check if shard should split
+        if (const auto split_info = rsm.ShouldSplit(); split_info) {
+          const auto shard_manager_addr = io_.GetAddress().ForkLocalShardManager();
+          io_.Send(shard_manager_addr, 0, *split_info);
+        }
 
         cron_schedule_.pop();
         cron_schedule_.push(std::make_pair(next_for_uuid, uuid));

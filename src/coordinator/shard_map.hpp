@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <limits>
 #include <map>
+#include <optional>
 #include <set>
 #include <vector>
 
@@ -23,6 +24,7 @@
 #include "common/types.hpp"
 #include "coordinator/hybrid_logical_clock.hpp"
 #include "io/address.hpp"
+#include "query/v2/requests.hpp"
 #include "storage/v3/config.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/name_id_mapper.hpp"
@@ -87,7 +89,7 @@ using PrimaryKey = std::vector<PropertyValue>;
 struct ShardMetadata {
   std::vector<PeerMetadata> peers;
   Hlc version;
-  Hlc previous_version;
+  std::optional<msgs::SuggestedSplitInfo> pending_split;
 
   friend std::ostream &operator<<(std::ostream &in, const ShardMetadata &shard) {
     using utils::print_helpers::operator<<;
@@ -139,6 +141,7 @@ struct ShardToSplit {
 struct HeartbeatRequest {
   Address from_storage_manager;
   std::set<boost::uuids::uuid> initialized_rsms;
+  std::set<msgs::SuggestedSplitInfo> pending_splits;
 };
 
 struct HeartbeatResponse {
@@ -188,17 +191,20 @@ struct ShardMap {
   // TODO(gabor) later we will want to update the wallclock time with
   // the given Io<impl>'s time as well
   Hlc IncrementShardMapVersion() noexcept;
-  Hlc GetHlc() const noexcept;
+  Hlc GetHlc() noexcept;
 
   std::unordered_map<uint64_t, std::string> IdToNames();
 
   // Returns the shard UUIDs that have been assigned but not yet acknowledged for this storage manager
-  HeartbeatResponse AssignShards(Address storage_manager, std::set<boost::uuids::uuid> initialized);
+  HeartbeatResponse AssignShards(Address storage_manager, std::set<boost::uuids::uuid> initialized,
+                                 std::set<msgs::SuggestedSplitInfo> pending_splits);
 
   bool SplitShard(Hlc previous_shard_map_version, LabelId label_id, const PrimaryKey &key);
 
   std::optional<LabelId> InitializeNewLabel(std::string label_name, std::vector<SchemaProperty> schema,
                                             size_t replication_factor, Hlc last_shard_map_version);
+
+  boost::uuids::uuid NewShardUuid();
 
   void AddServer(Address server_address);
 

@@ -574,6 +574,7 @@ struct CommitResponse {
 };
 
 struct SuggestedSplitInfo {
+  boost::uuids::uuid shard_to_split_uuid;
   PrimaryKey split_key;
   Hlc shard_version;
 };

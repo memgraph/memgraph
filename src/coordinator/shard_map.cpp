@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,16 +9,21 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <boost/uuid/uuid.hpp>
 #include <map>
 #include <optional>
 #include <unordered_map>
 #include <vector>
 
 #include "common/types.hpp"
+#include "coordinator/hybrid_logical_clock.hpp"
 #include "coordinator/shard_map.hpp"
+#include "query/v2/requests.hpp"
 #include "spdlog/spdlog.h"
+#include "storage/v3/config.hpp"
 #include "storage/v3/schemas.hpp"
 #include "storage/v3/temporal.hpp"
+#include "storage/v3/value_conversions.hpp"
 #include "utils/cast.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/string.hpp"
@@ -247,9 +252,8 @@ std::unordered_map<uint64_t, std::string> ShardMap::IdToNames() {
   return id_to_names;
 }
 
-Hlc ShardMap::GetHlc() const noexcept { return shard_map_version; }
-
-boost::uuids::uuid NewShardUuid(uint64_t shard_id) {
+boost::uuids::uuid ShardMap::NewShardUuid() {
+  auto shard_id = GetHlc().logical_id;
   return boost::uuids::uuid{0,
                             0,
                             0,
@@ -268,10 +272,18 @@ boost::uuids::uuid NewShardUuid(uint64_t shard_id) {
                             static_cast<unsigned char>(shard_id)};
 }
 
-HeartbeatResponse ShardMap::AssignShards(Address storage_manager, std::set<boost::uuids::uuid> initialized) {
+Hlc ShardMap::GetHlc() noexcept { return ++shard_map_version; }
+
+HeartbeatResponse ShardMap::AssignShards(Address storage_manager, std::set<boost::uuids::uuid> initialized,
+                                         std::set<msgs::SuggestedSplitInfo> pending_splits) {
   HeartbeatResponse ret{};
 
   bool mutated = false;
+  std::map<std::pair<boost::uuids::uuid, Hlc>, msgs::PrimaryKey> mapped_pending_splits;
+  for (const auto &pending_split : pending_splits) {
+    mapped_pending_splits.insert(
+        {{pending_split.shard_to_split_uuid, pending_split.shard_version}, pending_split.split_key});
+  }
 
   for (auto &[label_id, label_space] : label_spaces) {
     for (auto it = label_space.shards.begin(); it != label_space.shards.end(); it++) {
@@ -335,6 +347,38 @@ HeartbeatResponse ShardMap::AssignShards(Address storage_manager, std::set<boost
               .new_shard_version = shard.version,
               .uuid_mapping = uuid_mapping,
           });
+        } else if (const auto pending_split =
+                       mapped_pending_splits.find({peer_metadata.address.unique_id, shard.version});
+                   pending_split != mapped_pending_splits.end()) {
+          // Now we handle shard split
+          if (shard.pending_split) {
+            spdlog::info("Received split request while split is happening!");
+            continue;
+          }
+          shard.pending_split = msgs::SuggestedSplitInfo{.shard_to_split_uuid = pending_split->first.first,
+                                                         .shard_version = pending_split->first.second,
+                                                         .split_key = pending_split->second};
+
+          shard.version = GetHlc();
+          std::map<boost::uuids::uuid, boost::uuids::uuid> split_mapping = {};
+          ShardMetadata duplicated_shard{shard};
+          for (auto &peer_metadata3 : duplicated_shard.peers) {
+            peer_metadata3.status = Status::PENDING_SPLIT;
+            peer_metadata3.split_from = peer_metadata3.address.unique_id;
+
+            const auto new_uuid = NewShardUuid();
+
+            // store new uuid for the right side of each shard
+            split_mapping.emplace(peer_metadata3.address.unique_id, new_uuid);
+
+            peer_metadata3.address.unique_id = new_uuid;
+          }
+          if (high_key) {
+            MG_ASSERT(*high_key > pending_split->second, "Split point is beyond low key of the next shard");
+          }
+          label_space.shards.insert(
+              {storage::conversions::ConvertPropertyVector(pending_split->second), duplicated_shard});
+
         } else {
           MG_ASSERT(
               !same_machine,
@@ -345,10 +389,7 @@ HeartbeatResponse ShardMap::AssignShards(Address storage_manager, std::set<boost
       if (!shard_assigned_to_machine && shard.peers.size() < label_space.replication_factor) {
         Address address = storage_manager;
 
-        // NB: increment version for each new uuid for deterministic creation
-        IncrementShardMapVersion();
-
-        address.unique_id = NewShardUuid(shard_map_version.logical_id);
+        address.unique_id = NewShardUuid();
 
         spdlog::info("assigning shard manager to shard");
 
@@ -399,10 +440,7 @@ bool ShardMap::SplitShard(Hlc previous_shard_map_version, LabelId label_id, cons
     peer_metadata.status = Status::PENDING_SPLIT;
     peer_metadata.split_from = peer_metadata.address.unique_id;
 
-    // NB: increment version for each new uuid for deterministic creation
-    IncrementShardMapVersion();
-
-    auto new_uuid = NewShardUuid(shard_map_version.logical_id);
+    auto new_uuid = NewShardUuid();
 
     // store new uuid for the right side of each shard
     split_mapping.emplace(peer_metadata.address.unique_id, new_uuid);

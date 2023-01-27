@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -34,6 +34,8 @@ struct Hlc {
   bool operator==(const uint64_t other) const { return logical_id == other; }
   bool operator<(const uint64_t other) const { return logical_id < other; }
   bool operator>=(const uint64_t other) const { return logical_id >= other; }
+
+  Hlc operator++() { return {.logical_id = logical_id + 1, .coordinator_wall_clock = Time::min()}; }
 
   friend std::ostream &operator<<(std::ostream &in, const Hlc &hlc) {
     auto wall_clock = std::chrono::system_clock::to_time_t(hlc.coordinator_wall_clock);
