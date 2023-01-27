@@ -86,7 +86,7 @@ class TestPlanner : public ::testing::Test {};
 
 using PlannerTypes = ::testing::Types<Planner>;
 
-TYPED_TEST_CASE(TestPlanner, PlannerTypes);
+TYPED_TEST_SUITE(TestPlanner, PlannerTypes);
 
 TYPED_TEST(TestPlanner, MatchFilterPropIsNotNull) {
   const char *prim_label_name = "prim_label_one";
