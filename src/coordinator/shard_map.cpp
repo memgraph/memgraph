@@ -343,7 +343,7 @@ HeartbeatResponse ShardMap::AssignShards(Address storage_manager, std::set<boost
 
           ret.shards_to_split.push_back(ShardToSplit{
               .split_key = low_key,
-              .old_shard_version = shard.previous_version,
+              // .old_shard_version = shard.previous_version,
               .new_shard_version = shard.version,
               .uuid_mapping = uuid_mapping,
           });
@@ -356,8 +356,8 @@ HeartbeatResponse ShardMap::AssignShards(Address storage_manager, std::set<boost
             continue;
           }
           shard.pending_split = msgs::SuggestedSplitInfo{.shard_to_split_uuid = pending_split->first.first,
-                                                         .shard_version = pending_split->first.second,
-                                                         .split_key = pending_split->second};
+                                                         .split_key = pending_split->second,
+                                                         .shard_version = pending_split->first.second};
 
           shard.version = GetHlc();
           std::map<boost::uuids::uuid, boost::uuids::uuid> split_mapping = {};
@@ -373,11 +373,11 @@ HeartbeatResponse ShardMap::AssignShards(Address storage_manager, std::set<boost
 
             peer_metadata3.address.unique_id = new_uuid;
           }
+          const auto converted_pk = storage::conversions::ConvertPropertyVector(pending_split->second);
           if (high_key) {
-            MG_ASSERT(*high_key > pending_split->second, "Split point is beyond low key of the next shard");
+            MG_ASSERT(converted_pk < *high_key, "Split point is beyond low key of the next shard");
           }
-          label_space.shards.insert(
-              {storage::conversions::ConvertPropertyVector(pending_split->second), duplicated_shard});
+          label_space.shards.insert({converted_pk, duplicated_shard});
 
         } else {
           MG_ASSERT(
