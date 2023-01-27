@@ -990,6 +990,36 @@ cpp<#
   (:serialize (:slk))
   (:clone))
 
+(lcp:define-class exists (expression)
+  ((node_identifier "Identifier *" :initval "nullptr" :scope :public
+               :slk-save #'slk-save-ast-pointer
+               :slk-load (slk-load-ast-pointer "Identifier")
+               :documentation "Node identifier for which to check existence."))
+
+  (:public
+    #>cpp
+    Exists() = default;
+
+    DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        node_identifier_->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    Exists(Identifier *node_identifier) : node_identifier_(node_identifier) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
 (lcp:define-class all (expression)
   ((identifier "Identifier *" :initval "nullptr" :scope :public
                :slk-save #'slk-save-ast-pointer

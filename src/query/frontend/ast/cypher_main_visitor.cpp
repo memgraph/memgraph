@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -2160,6 +2160,10 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
     auto *list = std::any_cast<Expression *>(ctx->extractExpression()->idInColl()->expression()->accept(this));
     auto *expr = std::any_cast<Expression *>(ctx->extractExpression()->expression()->accept(this));
     return static_cast<Expression *>(storage_->Create<Extract>(ident, list, expr));
+  } else if (ctx->existsExpression()) {
+    auto *node_ident = storage_->Create<Identifier>(std::any_cast<std::string>(
+        ctx->existsExpression()->relationshipsPattern()->nodePattern()->variable()->accept(this)));
+    return static_cast<Expression *>(storage_->Create<Exists>(node_ident));
   }
   // TODO: Implement this. We don't support comprehensions, filtering... at
   // the moment.
