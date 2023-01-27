@@ -1320,7 +1320,7 @@ class AggregateCursor : public Cursor {
     auto remember_values_it = aggregation_it_->second.remember_.begin();
     for (const Symbol &remember_sym : self_.remember_) frame[remember_sym] = *remember_values_it++;
 
-    aggregation_it_++;
+    ++aggregation_it_;
     return true;
   }
 
