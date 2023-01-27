@@ -202,7 +202,7 @@ class DistributedCreateNodeCursor : public Cursor {
       request_router->CreateVertices(NodeCreationInfoToRequests(context, multi_frame));
     }
     PlaceNodesOnTheMultiFrame(multi_frame, context);
-    return false;
+    return true;
   }
 
   void Shutdown() override { input_cursor_->Shutdown(); }
