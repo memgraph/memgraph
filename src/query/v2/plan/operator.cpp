@@ -1500,28 +1500,6 @@ class AggregateCursor : public Cursor {
     for (const Symbol &remember_sym : self_.remember_) agg_value->remember_.push_back(frame[remember_sym]);
   }
 
-  /** Ensures the new AggregationValue has been initialized. This means
-   * that the value vectors are filled with an appropriate number of Nulls,
-   * counts are set to 0 and remember values are remembered.
-   */
-  void EnsureInitialized(FrameWithValidity &frame, AggregateCursor::AggregationValue *agg_value) const {
-    if (!agg_value->values_.empty()) {
-      frame.MakeInvalid();
-      return;
-    }
-
-    for (const auto &agg_elem : self_.aggregations_) {
-      auto *mem = agg_value->values_.get_allocator().GetMemoryResource();
-      agg_value->values_.emplace_back(DefaultAggregationOpValue(agg_elem, mem));
-    }
-    agg_value->counts_.resize(self_.aggregations_.size(), 0);
-
-    for (const Symbol &remember_sym : self_.remember_) {
-      agg_value->remember_.push_back(frame[remember_sym]);
-    }
-    frame.MakeInvalid();
-  }
-
   /** Updates the given AggregationValue with new data. Assumes that
    * the AggregationValue has been initialized */
   void Update(ExpressionEvaluator *evaluator, AggregateCursor::AggregationValue *agg_value) {
