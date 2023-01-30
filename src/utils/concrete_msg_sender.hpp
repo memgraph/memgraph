@@ -31,7 +31,7 @@ class Sender {
  public:
   explicit Sender(std::function<void(M)> sender) : sender_(sender) {}
 
-  void Send(M message) { sender_(message); }
+  void Send(M &&message) { sender_(std::move(message)); }
 };
 
 }  // namespace memgraph::utils

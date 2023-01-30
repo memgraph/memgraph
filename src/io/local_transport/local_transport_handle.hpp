@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,6 +22,7 @@
 #include "io/message_histogram_collector.hpp"
 #include "io/time.hpp"
 #include "io/transport.hpp"
+#include "utils/concrete_msg_sender.hpp"
 
 namespace memgraph::io::local_transport {
 
@@ -67,7 +68,7 @@ class LocalTransportHandle {
     return std::chrono::time_point_cast<std::chrono::microseconds>(nano_time);
   }
 
-  template <Message... Ms>
+  template <utils::Message... Ms>
   requires(sizeof...(Ms) > 0) RequestResult<Ms...> Receive(Address /* receiver_address */, Duration timeout) {
     std::unique_lock lock(mu_);
 
@@ -103,7 +104,7 @@ class LocalTransportHandle {
     return std::move(m_opt).value();
   }
 
-  template <Message M>
+  template <utils::Message M>
   void Send(Address to_address, Address from_address, RequestId request_id, M &&message) {
     auto type_info = TypeInfoFor(message);
 
@@ -138,7 +139,7 @@ class LocalTransportHandle {
     cv_.notify_all();
   }
 
-  template <Message RequestT, Message ResponseT>
+  template <utils::Message RequestT, utils::Message ResponseT>
   ResponseFuture<ResponseT> SubmitRequest(Address to_address, Address from_address, RequestT &&request,
                                           Duration timeout, std::function<void()> fill_notifier) {
     auto [future, promise] = memgraph::io::FuturePromisePairWithNotifications<ResponseResult<ResponseT>>(

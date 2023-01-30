@@ -57,7 +57,7 @@ struct RequestEnvelope {
   Address from_address;
 };
 
-template <utlis::Message... Ms>
+template <utils::Message... Ms>
 using RequestResult = BasicResult<TimedOut, RequestEnvelope<Ms...>>;
 
 template <typename I>

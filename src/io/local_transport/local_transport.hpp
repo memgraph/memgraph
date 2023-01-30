@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,6 +20,7 @@
 #include "io/local_transport/local_transport_handle.hpp"
 #include "io/time.hpp"
 #include "io/transport.hpp"
+#include "utils/concrete_msg_sender.hpp"
 
 namespace memgraph::io::local_transport {
 
@@ -30,19 +31,19 @@ class LocalTransport {
   explicit LocalTransport(std::shared_ptr<LocalTransportHandle> local_transport_handle)
       : local_transport_handle_(std::move(local_transport_handle)) {}
 
-  template <Message RequestT, Message ResponseT>
+  template <utils::Message RequestT, utils::Message ResponseT>
   ResponseFuture<ResponseT> Request(Address to_address, Address from_address, RequestT request,
                                     std::function<void()> fill_notifier, Duration timeout) {
     return local_transport_handle_->template SubmitRequest<RequestT, ResponseT>(
         to_address, from_address, std::move(request), timeout, fill_notifier);
   }
 
-  template <Message... Ms>
+  template <utils::Message... Ms>
   requires(sizeof...(Ms) > 0) RequestResult<Ms...> Receive(Address receiver_address, Duration timeout) {
     return local_transport_handle_->template Receive<Ms...>(receiver_address, timeout);
   }
 
-  template <Message M>
+  template <utils::Message M>
   void Send(Address to_address, Address from_address, RequestId request_id, M &&message) {
     return local_transport_handle_->template Send<M>(to_address, from_address, request_id, std::forward<M>(message));
   }

@@ -13,8 +13,8 @@
 
 #include <variant>
 
-#include <coordinator/coordinator.hpp>
-#include <io/rsm/raft.hpp>
+#include "coordinator/coordinator.hpp"
+#include "io/rsm/raft.hpp"
 #include "query/v2/requests.hpp"
 #include "utils/concepts.hpp"
 

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,6 +14,7 @@
 #include <boost/core/demangle.hpp>
 
 #include "io/transport.hpp"
+#include "utils/concrete_msg_sender.hpp"
 #include "utils/type_info_ref.hpp"
 
 namespace memgraph::io {
@@ -48,7 +49,7 @@ struct OpaqueMessage {
   /// Return is the full std::variant<Ts...> type that holds the
   /// full parameter pack without interfering with recursive
   /// narrowing expansion.
-  template <typename Return, Message Head, Message... Rest>
+  template <typename Return, utils::Message Head, utils::Message... Rest>
   std::optional<Return> Unpack(std::any &&a) {
     if (typeid(Head) == a.type()) {
       Head concrete = std::any_cast<Head>(std::move(a));
@@ -67,12 +68,12 @@ struct OpaqueMessage {
   /// parameter pack for the types that they want to compare
   /// with the any and potentially include in the returned
   /// variant.
-  template <Message... Ms>
+  template <utils::Message... Ms>
   requires(sizeof...(Ms) > 0) std::optional<std::variant<Ms...>> VariantFromAny(std::any &&a) {
     return Unpack<std::variant<Ms...>, Ms...>(std::move(a));
   }
 
-  template <Message... Ms>
+  template <utils::Message... Ms>
   requires(sizeof...(Ms) > 0) std::optional<RequestEnvelope<Ms...>> Take() && {
     std::optional<std::variant<Ms...>> m_opt = VariantFromAny<Ms...>(std::move(message));
 

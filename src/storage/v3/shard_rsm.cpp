@@ -61,6 +61,7 @@ using conversions::FromMap;
 using conversions::FromPropertyValueToValue;
 using conversions::ToMsgsVertexId;
 using conversions::ToPropertyValue;
+using io::messages::ShardManagerMessages;
 using msgs::SplitResponse;
 
 auto CreateErrorResponse(const ShardError &shard_error, const auto transaction_id, const std::string_view action) {
@@ -316,16 +317,14 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateEdgesRequest &&req) {
   return msgs::UpdateEdgesResponse{std::move(shard_error)};
 }
 
-msgs::WriteResponses ShardRsm::ApplyWrite(msgs::SplitRequest &&perform_split) {
-  auto converted_primary_key = conversions::ConvertPropertyVector(perform_split.split_key);
-  auto new_shard_split_data =
-      shard_->PerformSplit(converted_primary_key, perform_split.old_shard_version, perform_split.new_shard_version);
+msgs::WriteResponses ShardRsm::ApplyWrite(msgs::SplitRequest &&req) {
+  auto converted_primary_key = conversions::ConvertPropertyVector(req.split_key);
+  auto new_shard_split_data = shard_->PerformSplit(converted_primary_key, req.old_shard_version, req.new_shard_version);
 
   if (new_shard_split_data) {
-    msgs::InitializeSplitShard init_split_shard{.shard = Shard::FromSplitData(std::move(*new_shard_split_data)),
-                                                .uuid_mapping = perform_split.uuid_mapping};
-    io::messages::ShardManagerMessages msg_to_send = init_split_shard;
-    shard_manager_sender_.Send(msg_to_send);
+    ShardManagerMessages msg_to_send{msgs::InitializeSplitShard{
+        .shard = Shard::FromSplitData(std::move(*new_shard_split_data)), .uuid_mapping = req.uuid_mapping}};
+    shard_manager_sender_.Send(std::move(msg_to_send));
   }
 
   // TODO(tyler) send the SplitCommand's uuid_mapping along with the new_shard to the local ShardManager to set up

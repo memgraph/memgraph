@@ -45,8 +45,6 @@ class ShardRsm {
   msgs::WriteResponses ApplyWrite(msgs::CommitRequest &&req);
 
  public:
-  explicit ShardRsm(std::unique_ptr<Shard> &&shard) : shard_(std::move(shard)){};
-
   ShardRsm(std::unique_ptr<Shard> &&shard, utils::Sender<io::messages::ShardManagerMessages> &&shard_manager_sender)
       : shard_(std::move(shard)), shard_manager_sender_{std::move(shard_manager_sender)} {};
 
