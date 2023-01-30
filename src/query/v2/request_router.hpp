@@ -420,7 +420,7 @@ class RequestRouter : public RequestRouterInterface {
       const std::vector<msgs::NewVertex> &new_vertices) {
     std::map<ShardMetadata, msgs::CreateVerticesRequest> per_shard_request_table;
 
-    for (auto &new_vertex : new_vertices) {
+    for (const auto &new_vertex : new_vertices) {
       MG_ASSERT(!new_vertex.label_ids.empty(), "No label_ids provided for new vertex in RequestRouter::CreateVertices");
       auto shard = shards_map_.GetShardForKey(new_vertex.label_ids[0].id,
                                               storage::conversions::ConvertPropertyVector(new_vertex.primary_key));
@@ -463,7 +463,7 @@ class RequestRouter : public RequestRouterInterface {
 
       ensure_shard_exists_in_table(shard_src_vertex);
 
-      if (shard_src_vertex != shard_dest_vertex) {
+      if (shard_src_vertex.peers != shard_dest_vertex.peers) {
         ensure_shard_exists_in_table(shard_dest_vertex);
         per_shard_request_table[shard_dest_vertex].new_expands.push_back(new_expand);
       }

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,7 +18,8 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(HeartbeatRequest &&heartbeat_r
 
   // add this storage engine to any under-replicated shards that it is not already a part of
 
-  return shard_map_.AssignShards(heartbeat_request.from_storage_manager, heartbeat_request.initialized_rsms);
+  return shard_map_.AssignShards(heartbeat_request.from_storage_manager, heartbeat_request.initialized_rsms,
+                                 heartbeat_request.pending_splits);
 }
 
 CoordinatorWriteResponses Coordinator::ApplyWrite(HlcRequest &&hlc_request) {

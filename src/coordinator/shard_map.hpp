@@ -103,7 +103,9 @@ struct ShardMetadata {
     return in;
   }
 
-  friend bool operator==(const ShardMetadata &lhs, const ShardMetadata &rhs) = default;
+  friend bool operator==(const ShardMetadata &lhs, const ShardMetadata &rhs) {
+    return lhs.version == rhs.version && lhs.peers == rhs.peers;
+  };
 
   friend bool operator<(const ShardMetadata &lhs, const ShardMetadata &rhs) {
     if (lhs.peers != rhs.peers) {
