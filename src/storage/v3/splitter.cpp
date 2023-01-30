@@ -77,10 +77,9 @@ VertexContainer Splitter::CollectVertices(SplitData &data, std::set<uint64_t> &c
            std::multimap<const Vertex *, const LabelPropertyIndex::IndexContainer::iterator>>
       label_property_vertex_entry_map;
 
-  data.label_indices =
-      CollectIndexEntries<LabelIndex, LabelId>(indices_.label_index, split_key, label_index_vertex_entry_map);
-  data.label_property_indices = CollectIndexEntries<LabelPropertyIndex, std::pair<LabelId, PropertyId>>(
-      indices_.label_property_index, split_key, label_property_vertex_entry_map);
+  data.label_indices = indices_.label_index.SplitIndexEntries(split_key, label_index_vertex_entry_map);
+  data.label_property_indices =
+      indices_.label_property_index.SplitIndexEntries(split_key, label_property_vertex_entry_map);
   // This is needed to replace old vertex pointers in index entries with new ones
   const auto update_indices = [](auto &entry_vertex_map, auto &updating_index, const auto *old_vertex_ptr,
                                  auto &new_vertex_ptr) {
