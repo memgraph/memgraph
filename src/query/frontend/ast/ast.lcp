@@ -990,36 +990,6 @@ cpp<#
   (:serialize (:slk))
   (:clone))
 
-(lcp:define-class exists (expression)
-  ((node_identifier "Identifier *" :initval "nullptr" :scope :public
-               :slk-save #'slk-save-ast-pointer
-               :slk-load (slk-load-ast-pointer "Identifier")
-               :documentation "Node identifier for which to check existence."))
-
-  (:public
-    #>cpp
-    Exists() = default;
-
-    DEFVISITABLE(ExpressionVisitor<TypedValue>);
-    DEFVISITABLE(ExpressionVisitor<void>);
-    bool Accept(HierarchicalTreeVisitor &visitor) override {
-      if (visitor.PreVisit(*this)) {
-        node_identifier_->Accept(visitor);
-      }
-      return visitor.PostVisit(*this);
-    }
-    cpp<#)
-  (:protected
-    #>cpp
-    Exists(Identifier *node_identifier) : node_identifier_(node_identifier) {}
-    cpp<#)
-  (:private
-    #>cpp
-    friend class AstStorage;
-    cpp<#)
-  (:serialize (:slk))
-  (:clone))
-
 (lcp:define-class all (expression)
   ((identifier "Identifier *" :initval "nullptr" :scope :public
                :slk-save #'slk-save-ast-pointer
@@ -1484,6 +1454,45 @@ cpp<#
           type_(type),
           direction_(direction),
           edge_types_(edge_types) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class exists (expression)
+  ((node_identifier "Identifier *" :initval "nullptr" :scope :public
+               :slk-save #'slk-save-ast-pointer
+               :slk-load (slk-load-ast-pointer "Identifier")
+               :documentation "Node identifier for which to check existence.")
+    (relationship_info "EdgeAtom *" :initval "nullptr" :scope :public
+               :slk-save #'slk-save-ast-pointer
+               :slk-load (slk-load-ast-pointer "EdgeAtom")
+               :documentation "Relationship info on the exists pattern.")
+    (node_info "NodeAtom *" :initval "nullptr" :scope :public
+               :slk-save #'slk-save-ast-pointer
+               :slk-load (slk-load-ast-pointer "NodeAtom")
+               :documentation "Node info on the exists pattern."))
+
+  (:public
+    #>cpp
+    Exists() = default;
+
+    DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        node_identifier_->Accept(visitor) && relationship_info_->Accept(visitor) && node_info_->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    Exists(Identifier *node_identifier, EdgeAtom *relationship_info, NodeAtom *node_info)
+     : node_identifier_(node_identifier), relationship_info_(relationship_info), node_info_(node_info) {}
     cpp<#)
   (:private
     #>cpp

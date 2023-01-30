@@ -2161,10 +2161,9 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
     auto *expr = std::any_cast<Expression *>(ctx->extractExpression()->expression()->accept(this));
     return static_cast<Expression *>(storage_->Create<Extract>(ident, list, expr));
   } else if (ctx->existsExpression()) {
-    auto *node_ident = storage_->Create<Identifier>(std::any_cast<std::string>(
-        ctx->existsExpression()->relationshipsPattern()->nodePattern()->variable()->accept(this)));
-    return static_cast<Expression *>(storage_->Create<Exists>(node_ident));
+    return std::any_cast<Expression *>(ctx->existsExpression()->accept(this));
   }
+
   // TODO: Implement this. We don't support comprehensions, filtering... at
   // the moment.
   throw utils::NotYetImplemented("atom expression '{}'", ctx->getText());
@@ -2206,6 +2205,22 @@ antlrcpp::Any CypherMainVisitor::visitLiteral(MemgraphCypher::LiteralContext *ct
         std::any_cast<std::unordered_map<PropertyIx, Expression *>>(ctx->mapLiteral()->accept(this))));
   }
   return visitChildren(ctx);
+}
+
+antlrcpp::Any CypherMainVisitor::visitExistsExpression(MemgraphCypher::ExistsExpressionContext *ctx) {
+  auto size_of_chain = ctx->relationshipsPattern()->patternElementChain().size();
+
+  if (size_of_chain != 1) {
+    throw utils::NotYetImplemented("Multiple hops pattern chain on exists!");
+  }
+
+  auto *node_ident = storage_->Create<Identifier>(
+      std::any_cast<std::string>(ctx->relationshipsPattern()->nodePattern()->variable()->accept(this)));
+  auto *relationship_info = std::any_cast<EdgeAtom *>(
+      ctx->relationshipsPattern()->patternElementChain()[0]->relationshipPattern()->accept(this));
+  auto *to_node_info =
+      std::any_cast<NodeAtom *>(ctx->relationshipsPattern()->patternElementChain()[0]->nodePattern()->accept(this));
+  return static_cast<Expression *>(storage_->Create<Exists>(node_ident, relationship_info, to_node_info));
 }
 
 antlrcpp::Any CypherMainVisitor::visitParenthesizedExpression(MemgraphCypher::ParenthesizedExpressionContext *ctx) {
