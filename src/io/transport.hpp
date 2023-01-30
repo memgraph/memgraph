@@ -49,10 +49,10 @@ template <Message M>
 using ResponseResult = BasicResult<TimedOut, ResponseEnvelope<M>>;
 
 template <Message M>
-using ResponseFuture = memgraph::io::Future<ResponseResult<M>>;
+using ResponseFuture = Future<ResponseResult<M>>;
 
 template <Message M>
-using ResponsePromise = memgraph::io::Promise<ResponseResult<M>>;
+using ResponsePromise = Promise<ResponseResult<M>>;
 
 template <Message... Ms>
 struct RequestEnvelope {
@@ -64,6 +64,19 @@ struct RequestEnvelope {
 
 template <Message... Ms>
 using RequestResult = BasicResult<TimedOut, RequestEnvelope<Ms...>>;
+
+/// This is a concrete type that allows one message type to be
+/// sent to a single address. Initially intended to be used by the
+/// Shard to send messages to the local ShardManager.
+template <Message M>
+class Sender {
+  std::function<void(M)> sender_;
+
+ public:
+  Sender(std::function<void(M)> sender) : sender_(sender) {}
+
+  void Send(M message) { sender_(message); }
+};
 
 template <typename I>
 class Io {
@@ -173,5 +186,16 @@ class Io {
   }
 
   LatencyHistogramSummaries ResponseLatencies() { return implementation_.ResponseLatencies(); }
+
+  template <Message M>
+  Sender<M> GetSender(Address address) {
+    Io<I> io_copy = Io(implementation_, address_);
+
+    std::function<void(M)> sender = [address, io_copy](M message) mutable {
+      io_copy.template Send<M>(address, 0, message);
+    };
+
+    return Sender{sender};
+  }
 };
 };  // namespace memgraph::io
