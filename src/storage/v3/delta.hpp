@@ -20,6 +20,7 @@
 #include "storage/v3/vertex.hpp"
 #include "storage/v3/vertex_id.hpp"
 #include "utils/logging.hpp"
+#include "utils/synchronized.hpp"
 
 namespace memgraph::storage::v3 {
 
@@ -29,8 +30,8 @@ struct Delta;
 struct CommitInfo;
 
 inline uint64_t GetNextDeltaUUID() noexcept {
-  static uint64_t uuid{0};
-  return ++uuid;
+  static utils::Synchronized<uint64_t, utils::SpinLock> delta_id{0};
+  return delta_id.WithLock([](auto id) { return id++; });
 }
 
 // This class stores one of three pointers (`Delta`, `Vertex` and `Edge`)
