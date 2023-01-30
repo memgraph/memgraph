@@ -202,6 +202,13 @@ class ShardWorker {
     // TODO(tyler) get peers from Coordinator in HeartbeatResponse
     std::vector<Address> rsm_peers = {};
 
+    Address local_shard_manager_address = io_.GetAddress().ForkLocalShardManager();
+    io::Sender<io::messages::ShardManagerMessages> local_shard_manager_sender =
+        io_.template GetSender<io::messages::ShardManagerMessages>(local_shard_manager_address);
+
+    // TODO(tyler) pass this local_shard_manager_sender to the Shard so that it can communicate back to the local
+    // manager from split code
+
     std::unique_ptr<Shard> shard = std::make_unique<Shard>(to_init.label_id, to_init.min_key, to_init.max_key,
                                                            to_init.schema, to_init.config, to_init.id_to_names);
 
