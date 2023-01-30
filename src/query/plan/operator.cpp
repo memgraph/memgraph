@@ -4579,17 +4579,20 @@ class LoadCsvCursor : public Cursor {
     // have to read at most cardinality(n) rows (but we can read less and stop
     // pulling MATCH).
     if (!input_is_once_ && !input_pulled) return false;
-    auto row = reader_->GetNextRow(context.evaluation_context.memory);
-    if (!row) {
-      return false;
+
+    bool read_something = false;
+    // read and parse each row
+    while (auto row = reader_->GetNextRow(context.evaluation_context.memory)) {
+      if (!reader_->HasHeader()) {
+        frame[self_->row_var_] = CsvRowToTypedList(*row);
+      } else {
+        frame[self_->row_var_] =
+            CsvRowToTypedMap(*row, csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory));
+      }
+      read_something = true;
     }
-    if (!reader_->HasHeader()) {
-      frame[self_->row_var_] = CsvRowToTypedList(*row);
-    } else {
-      frame[self_->row_var_] =
-          CsvRowToTypedMap(*row, csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory));
-    }
-    return true;
+
+    return read_something;
   }
 
   void Reset() override { input_cursor_->Reset(); }
