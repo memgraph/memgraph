@@ -82,12 +82,12 @@ VertexContainer Splitter::CollectVertices(SplitData &data, std::set<uint64_t> &c
       indices_.label_property_index.SplitIndexEntries(split_key, label_property_vertex_entry_map);
   // This is needed to replace old vertex pointers in index entries with new ones
   const auto update_indices = [](auto &entry_vertex_map, auto &updating_index, const auto *old_vertex_ptr,
-                                 auto &new_vertex_ptr) {
+                                 auto &new_vertex_it) {
     for ([[maybe_unused]] auto &[index_type, vertex_entry_mappings] : entry_vertex_map) {
       auto [it, end] = vertex_entry_mappings.equal_range(old_vertex_ptr);
       while (it != end) {
         auto entry_to_update = *it->second;
-        entry_to_update.vertex = &*new_vertex_ptr;
+        entry_to_update.vertex = &*new_vertex_it;
         updating_index.at(index_type).erase(it->second);
         updating_index.at(index_type).insert(std::move(entry_to_update));
         ++it;
