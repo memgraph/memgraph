@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -435,6 +435,11 @@ bool SymbolGenerator::PreVisit(Reduce &reduce) {
 bool SymbolGenerator::PreVisit(Extract &extract) {
   extract.list_->Accept(*this);
   VisitWithIdentifiers(extract.expression_, {extract.identifier_});
+  return false;
+}
+
+bool SymbolGenerator::PreVisit(Exists &exists) {
+  exists.node_identifier_->Accept(*this);
   return false;
 }
 

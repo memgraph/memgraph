@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -72,6 +72,11 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   bool Visit(Identifier &ident) override {
     symbols_.insert(symbol_table_.at(ident));
     return true;
+  }
+
+  bool PreVisit(Exists &exists) override {
+    exists.node_identifier_->Accept(*this);
+    return false;
   }
 
   bool Visit(PrimitiveLiteral &) override { return true; }
