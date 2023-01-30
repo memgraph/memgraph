@@ -24,6 +24,7 @@
 #include "common/types.hpp"
 #include "coordinator/coordinator_client.hpp"
 #include "coordinator/coordinator_rsm.hpp"
+#include "coordinator/shard_map.hpp"
 #include "io/address.hpp"
 #include "io/errors.hpp"
 #include "io/rsm/raft.hpp"
@@ -39,7 +40,7 @@
 #include "utils/result.hpp"
 
 namespace memgraph::query::v2::tests {
-using coordinator::AddressAndStatus;
+using coordinator::PeerMetadata;
 using CompoundKey = coordinator::PrimaryKey;
 using coordinator::Coordinator;
 using coordinator::CoordinatorClient;
@@ -109,11 +110,11 @@ ShardMap CreateDummyShardmap(coordinator::Address a_io_1, coordinator::Address a
   shards_for_label.clear();
 
   // add first shard at [0, 0]
-  AddressAndStatus aas1_1{.address = a_io_1, .status = Status::CONSENSUS_PARTICIPANT};
-  AddressAndStatus aas1_2{.address = a_io_2, .status = Status::CONSENSUS_PARTICIPANT};
-  AddressAndStatus aas1_3{.address = a_io_3, .status = Status::CONSENSUS_PARTICIPANT};
+  PeerMetadata aas1_1{.address = a_io_1, .status = Status::CONSENSUS_PARTICIPANT};
+  PeerMetadata aas1_2{.address = a_io_2, .status = Status::CONSENSUS_PARTICIPANT};
+  PeerMetadata aas1_3{.address = a_io_3, .status = Status::CONSENSUS_PARTICIPANT};
 
-  ShardMetadata shard1 = ShardMetadata{.peers = {aas1_1, aas1_2, aas1_3}, .version = 1};
+  ShardMetadata shard1 = ShardMetadata{.peers = {aas1_1, aas1_2, aas1_3}, .version = {1}};
 
   auto key1 = storage::v3::PropertyValue(0);
   auto key2 = storage::v3::PropertyValue(0);
@@ -121,11 +122,11 @@ ShardMap CreateDummyShardmap(coordinator::Address a_io_1, coordinator::Address a
   shards_for_label[compound_key_1] = shard1;
 
   // add second shard at [12, 13]
-  AddressAndStatus aas2_1{.address = b_io_1, .status = Status::CONSENSUS_PARTICIPANT};
-  AddressAndStatus aas2_2{.address = b_io_2, .status = Status::CONSENSUS_PARTICIPANT};
-  AddressAndStatus aas2_3{.address = b_io_3, .status = Status::CONSENSUS_PARTICIPANT};
+  PeerMetadata aas2_1{.address = b_io_1, .status = Status::CONSENSUS_PARTICIPANT};
+  PeerMetadata aas2_2{.address = b_io_2, .status = Status::CONSENSUS_PARTICIPANT};
+  PeerMetadata aas2_3{.address = b_io_3, .status = Status::CONSENSUS_PARTICIPANT};
 
-  ShardMetadata shard2 = ShardMetadata{.peers = {aas2_1, aas2_2, aas2_3}, .version = 1};
+  ShardMetadata shard2 = ShardMetadata{.peers = {aas2_1, aas2_2, aas2_3}, .version = {1}};
 
   auto key3 = storage::v3::PropertyValue(12);
   auto key4 = storage::v3::PropertyValue(13);

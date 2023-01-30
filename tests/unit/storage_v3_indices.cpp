@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -44,7 +44,8 @@ class IndexTest : public testing::Test {
       storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}};
   const std::vector<PropertyValue> min_pk{PropertyValue{0}};
   const LabelId primary_label{LabelId::FromUint(1)};
-  Shard storage{primary_label, min_pk, std::nullopt /*max_primary_key*/, schema_property_vector};
+  coordinator::Hlc last_hlc{0, io::Time{}};
+  Shard storage{primary_label, min_pk, std::nullopt /*max_primary_key*/, schema_property_vector, last_hlc};
 
   const PropertyId prop_id{PropertyId::FromUint(5)};
   const PropertyId prop_val{PropertyId::FromUint(6)};
@@ -55,7 +56,6 @@ class IndexTest : public testing::Test {
   static constexpr io::Duration one_time_unit{1};
   int primary_key_id{0};
   int vertex_id{0};
-  coordinator::Hlc last_hlc{0, io::Time{}};
 
   LabelId NameToLabelId(std::string_view label_name) { return storage.NameToLabel(label_name); }
 

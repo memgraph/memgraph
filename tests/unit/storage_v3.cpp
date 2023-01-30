@@ -78,9 +78,9 @@ class StorageV3 : public ::testing::TestWithParam<bool> {
   const PropertyId primary_property{PropertyId::FromUint(2)};
   std::vector<storage::v3::SchemaProperty> schema_property_vector = {
       storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}};
-  Shard store{primary_label, min_pk, std::nullopt /*max_primary_key*/, schema_property_vector,
-              Config{.gc = {.reclamation_interval = reclamation_interval}}};
   coordinator::Hlc last_hlc{0, io::Time{}};
+  Shard store{primary_label,          min_pk,   std::nullopt /*max_primary_key*/,
+              schema_property_vector, last_hlc, Config{.gc = {.reclamation_interval = reclamation_interval}}};
 };
 INSTANTIATE_TEST_SUITE_P(WithGc, StorageV3, ::testing::Values(true));
 INSTANTIATE_TEST_SUITE_P(WithoutGc, StorageV3, ::testing::Values(false));
@@ -2650,7 +2650,7 @@ TEST_P(StorageV3, TestCreateVertexAndValidate) {
               (std::map<PropertyId, PropertyValue>{{prop1, PropertyValue(111)}}));
   }
   {
-    Shard store(primary_label, min_pk, std::nullopt /*max_primary_key*/, schema_property_vector);
+    Shard store(primary_label, min_pk, std::nullopt /*max_primary_key*/, schema_property_vector, last_hlc);
     auto acc = store.Access(GetNextHlc());
     auto vertex1 = acc.CreateVertexAndValidate({}, {PropertyValue{0}}, {});
     auto vertex2 = acc.CreateVertexAndValidate({}, {PropertyValue{0}}, {});

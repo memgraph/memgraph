@@ -37,7 +37,7 @@ class ShardSplitBenchmark : public ::benchmark::Fixture {
   using Gid = storage::v3::Gid;
 
   void SetUp(const ::benchmark::State &state) override {
-    storage.emplace(primary_label, min_pk, std::nullopt, schema_property_vector);
+    storage.emplace(primary_label, min_pk, std::nullopt, schema_property_vector, last_hlc);
     storage->StoreMapping(
         {{1, "label"}, {2, "property"}, {3, "edge_property"}, {4, "secondary_label"}, {5, "secondary_prop"}});
   }
@@ -86,7 +86,7 @@ BENCHMARK_DEFINE_F(ShardSplitBenchmark, BigDataSplit)(::benchmark::State &state)
     acc.Commit(GetNextHlc());
   }
   for (auto _ : state) {
-    auto data = storage->PerformSplit(PrimaryKey{PropertyValue{state.range(0) / 2}}, 2);
+    auto data = storage->PerformSplit(PrimaryKey{PropertyValue{state.range(0) / 2}}, last_hlc, GetNextHlc());
   }
 }
 
@@ -114,7 +114,7 @@ BENCHMARK_DEFINE_F(ShardSplitBenchmark, BigDataSplitWithGc)(::benchmark::State &
   }
   storage->CollectGarbage(GetNextHlc().coordinator_wall_clock);
   for (auto _ : state) {
-    auto data = storage->PerformSplit(PrimaryKey{PropertyValue{state.range(0) / 2}}, 2);
+    auto data = storage->PerformSplit(PrimaryKey{PropertyValue{state.range(0) / 2}}, last_hlc, GetNextHlc());
   }
 }
 
@@ -145,7 +145,7 @@ BENCHMARK_DEFINE_F(ShardSplitBenchmark, BigDataSplitWithFewTransactions)(::bench
   }
 
   for (auto _ : state) {
-    auto data = storage->PerformSplit(PrimaryKey{PropertyValue{state.range(0) / 2}}, 2);
+    auto data = storage->PerformSplit(PrimaryKey{PropertyValue{state.range(0) / 2}}, last_hlc, GetNextHlc());
   }
 }
 

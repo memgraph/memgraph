@@ -174,8 +174,8 @@ class Io {
   utils::Sender<M> GetSender(Address address) {
     Io<I> io_copy = Io(implementation_, address_);
 
-    std::function<void(M)> sender = [address, io_copy](M message) mutable {
-      io_copy.template Send<M>(address, 0, message);
+    std::function<void(M)> sender = [address, io_copy](M &&message) mutable {
+      io_copy.template Send<M>(address, 0, std::forward<M>(message));
     };
 
     return utils::Sender{sender};

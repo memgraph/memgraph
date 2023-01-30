@@ -54,10 +54,9 @@ class StorageEdgeTest : public ::testing::TestWithParam<bool> {
   const PropertyId primary_property{PropertyId::FromUint(2)};
   std::vector<storage::v3::SchemaProperty> schema_property_vector = {
       storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}};
-  Shard store{primary_label, min_pk, max_pk, schema_property_vector,
-              Config{.items = {.properties_on_edges = GetParam()}}};
-
   coordinator::Hlc last_hlc{0, io::Time{}};
+  Shard store{primary_label,          min_pk,   max_pk,
+              schema_property_vector, last_hlc, Config{.items = {.properties_on_edges = GetParam()}}};
 };
 
 INSTANTIATE_TEST_SUITE_P(EdgesWithProperties, StorageEdgeTest, ::testing::Values(true));

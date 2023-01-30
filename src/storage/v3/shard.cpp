@@ -324,11 +324,12 @@ bool VerticesIterable::Iterator::operator==(const Iterator &other) const {
 }
 
 Shard::Shard(const LabelId primary_label, const PrimaryKey min_primary_key,
-             const std::optional<PrimaryKey> max_primary_key, std::vector<SchemaProperty> schema, Config config,
-             std::unordered_map<uint64_t, std::string> id_to_name)
+             const std::optional<PrimaryKey> max_primary_key, std::vector<SchemaProperty> schema, Hlc shard_version,
+             Config config, std::unordered_map<uint64_t, std::string> id_to_name)
     : primary_label_{primary_label},
       min_primary_key_{min_primary_key},
       max_primary_key_{max_primary_key},
+      shard_version_{shard_version},
       schema_validator_{schemas_, name_id_mapper_},
       vertex_validator_{schema_validator_, primary_label},
       indices_{config.items, vertex_validator_},

@@ -46,9 +46,8 @@ class ShardSplitTest : public testing::Test {
   const LabelId primary_label{LabelId::FromUint(1)};
   const LabelId secondary_label{LabelId::FromUint(4)};
   const EdgeTypeId edge_type_id{EdgeTypeId::FromUint(3)};
-  Shard storage{primary_label, min_pk, std::nullopt /*max_primary_key*/, schema_property_vector};
-
   coordinator::Hlc last_hlc{0, io::Time{}};
+  Shard storage{primary_label, min_pk, std::nullopt /*max_primary_key*/, schema_property_vector, last_hlc};
 
   coordinator::Hlc GetNextHlc() {
     ++last_hlc.logical_id;

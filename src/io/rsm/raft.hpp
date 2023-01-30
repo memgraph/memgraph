@@ -345,8 +345,10 @@ class Raft {
     }
   }
 
-  // template <std::enable_if_t<std::is_same_v<ReplicatedState, ShardRsm>, bool> = true>
-  msgs::SplitInfo ShouldSplit() { return replicated_state_.ShouldSplit(); }
+  template <typename T = ReplicatedState, std::enable_if_t<std::is_same_v<T, ShardRsm>, bool> = true>
+  msgs::SplitInfo ShouldSplit() {
+    return replicated_state_.ShouldSplit();
+  }
 
  private:
   // Raft paper - 5.3

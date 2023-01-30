@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -57,9 +57,8 @@ class StorageV3Accessor : public ::testing::Test {
   const PropertyId primary_property{PropertyId::FromUint(2)};
   std::vector<storage::v3::SchemaProperty> schema_property_vector = {
       storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}};
-  Shard storage{primary_label, min_pk, std::nullopt /*max_primary_key*/, schema_property_vector};
-
   coordinator::Hlc last_hlc{0, io::Time{}};
+  Shard storage{primary_label, min_pk, std::nullopt /*max_primary_key*/, schema_property_vector, last_hlc};
 };
 
 TEST_F(StorageV3Accessor, TestPrimaryLabel) {

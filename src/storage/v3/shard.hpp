@@ -200,7 +200,7 @@ class Shard final {
   /// @throw std::system_error
   /// @throw std::bad_alloc
   Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<PrimaryKey> max_primary_key,
-        std::vector<SchemaProperty> schema, Config config = Config(),
+        std::vector<SchemaProperty> schema, Hlc shard_version, Config config = Config(),
         std::unordered_map<uint64_t, std::string> id_to_name = {});
 
   Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<PrimaryKey> max_primary_key,

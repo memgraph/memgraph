@@ -45,7 +45,6 @@ using coordinator::HeartbeatRequest;
 using coordinator::HeartbeatResponse;
 using io::Address;
 using io::Duration;
-using io::Message;
 using io::RequestId;
 using io::ResponseFuture;
 using io::Time;

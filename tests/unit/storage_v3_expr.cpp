@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -136,7 +136,8 @@ class ExpressionEvaluatorTest : public ::testing::Test {
 
   std::vector<storage::v3::SchemaProperty> schema_property_vector = {
       storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}};
-  Shard db{primary_label, min_pk, std::nullopt /*max_primary_key*/, schema_property_vector};
+  coordinator::Hlc last_hlc{0, io::Time{}};
+  Shard db{primary_label, min_pk, std::nullopt /*max_primary_key*/, schema_property_vector, last_hlc};
 
   Shard::Accessor storage_dba{db.Access(GetNextHlc())};
   DbAccessor dba{&storage_dba};
@@ -148,8 +149,6 @@ class ExpressionEvaluatorTest : public ::testing::Test {
 
   Frame frame{128};
   ExpressionEvaluator eval{&frame, symbol_table, ctx, &dba, View::OLD};
-
-  coordinator::Hlc last_hlc{0, io::Time{}};
 
   void SetUp() override { db.StoreMapping({{1, "label"}, {2, "property"}}); }
 

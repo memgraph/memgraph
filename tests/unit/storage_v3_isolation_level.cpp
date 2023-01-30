@@ -82,8 +82,9 @@ TEST_P(StorageIsolationLevelTest, Visibility) {
 
   for (auto override_isolation_level_index{0U}; override_isolation_level_index < isolation_levels.size();
        ++override_isolation_level_index) {
-    Shard store{primary_label, min_pk, max_pk, schema_property_vector,
-                Config{.transaction = {.isolation_level = default_isolation_level}}};
+    coordinator::Hlc last_hlc{0, io::Time{}};
+    Shard store{primary_label,          min_pk,   max_pk,
+                schema_property_vector, last_hlc, Config{.transaction = {.isolation_level = default_isolation_level}}};
     const auto override_isolation_level = isolation_levels[override_isolation_level_index];
     auto creator = store.Access(GetNextHlc());
     auto default_isolation_level_reader = store.Access(GetNextHlc());

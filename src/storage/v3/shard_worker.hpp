@@ -163,6 +163,38 @@ class ShardWorker {
     return true;
   }
 
+  void Process(InitializeSplitShardByUUID &&initialize_split_shard) {
+    if (rsm_map_.contains(initialize_split_shard.shard_uuid)) {
+      // it's not a bug for the coordinator to send us UUIDs that we have
+      // already created, because there may have been lag that caused
+      // the coordinator not to hear back from us.
+      return;
+    }
+
+    auto rsm_io = io_.ForkLocal(initialize_split_shard.shard_uuid);
+
+    // TODO(tyler) get peers from Coordinator in HeartbeatResponse
+    std::vector<Address> rsm_peers = {};
+
+    Address local_shard_manager_address = io_.GetAddress().ForkLocalShardManager();
+    utils::Sender<io::messages::ShardManagerMessages> local_shard_manager_sender =
+        io_.template GetSender<io::messages::ShardManagerMessages>(local_shard_manager_address);
+
+    // TODO(tyler) pass this local_shard_manager_sender to the Shard so that it can communicate back to the local
+    // manager from split code
+    ShardRsm rsm_state{std::move(initialize_split_shard.shard), std::move(local_shard_manager_sender)};
+
+    ShardRaft<IoImpl> rsm{std::move(rsm_io), rsm_peers, std::move(rsm_state)};
+
+    spdlog::info("SM created a new shard with UUID {}", initialize_split_shard.shard_uuid);
+
+    // perform an initial Cron call for the new RSM
+    Time next_cron = rsm.Cron();
+    cron_schedule_.push(std::make_pair(next_cron, initialize_split_shard.shard_uuid));
+
+    rsm_map_.emplace(initialize_split_shard.shard_uuid, std::move(rsm));
+  }
+
   Time Cron() {
     spdlog::info("running ShardWorker::Cron, address {}", io_.GetAddress().ToString());
     Time now = io_.Now();
@@ -224,38 +256,6 @@ class ShardWorker {
     cron_schedule_.push(std::make_pair(next_cron, to_init.uuid));
 
     rsm_map_.emplace(to_init.uuid, std::move(rsm));
-  }
-
-  void InitializeSplitShard(InitializeSplitShardByUUID &&initialize_split_shard) {
-    if (rsm_map_.contains(initialize_split_shard.shard_uuid)) {
-      // it's not a bug for the coordinator to send us UUIDs that we have
-      // already created, because there may have been lag that caused
-      // the coordinator not to hear back from us.
-      return;
-    }
-
-    auto rsm_io = io_.ForkLocal(initialize_split_shard.shard_uuid);
-
-    // TODO(tyler) get peers from Coordinator in HeartbeatResponse
-    std::vector<Address> rsm_peers = {};
-
-    Address local_shard_manager_address = io_.GetAddress().ForkLocalShardManager();
-    utils::Sender<io::messages::ShardManagerMessages> local_shard_manager_sender =
-        io_.template GetSender<io::messages::ShardManagerMessages>(local_shard_manager_address);
-
-    // TODO(tyler) pass this local_shard_manager_sender to the Shard so that it can communicate back to the local
-    // manager from split code
-    ShardRsm rsm_state{std::move(initialize_split_shard.shard), std::move(local_shard_manager_sender)};
-
-    ShardRaft<IoImpl> rsm{std::move(rsm_io), rsm_peers, std::move(rsm_state)};
-
-    spdlog::info("SM created a new shard with UUID {}", initialize_split_shard.shard_uuid);
-
-    // perform an initial Cron call for the new RSM
-    Time next_cron = rsm.Cron();
-    cron_schedule_.push(std::make_pair(next_cron, initialize_split_shard.shard_uuid));
-
-    rsm_map_.emplace(initialize_split_shard.shard_uuid, std::move(rsm));
   }
 
  public:

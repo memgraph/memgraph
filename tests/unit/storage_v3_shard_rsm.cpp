@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -58,15 +58,20 @@ class ShardRSMTest : public testing::Test {
     PropertyValue max_pk(static_cast<int64_t>(10000000));
     std::vector<PropertyValue> max_prim_key = {max_pk};
 
-    auto shard_ptr1 = std::make_unique<Shard>(primary_label, min_prim_key, max_prim_key, std::vector{schema_prop});
+    coordinator::Hlc shard_version{GetTransactionId()};
+    auto shard_ptr1 =
+        std::make_unique<Shard>(primary_label, min_prim_key, max_prim_key, std::vector{schema_prop}, shard_version);
     shard_ptr1->StoreMapping({{1, "primary_label"},
                               {2, "primary_label2"},
                               {3, "label"},
                               {4, "primary_prop1"},
                               {5, "primary_prop2"},
                               {6, "prop"}});
+    coordinator::Address local_shard_manager_address = coordinator::Address();
+    utils::Sender<io::messages::ShardManagerMessages> local_shard_manager_sender{[](const auto &elem) {}};
+
     shard_ptr1->CreateSchema(primary_label2, {{primary_property2, SchemaType::INT}});
-    shard_rsm = std::make_unique<ShardRsm>(std::move(shard_ptr1));
+    shard_rsm = std::make_unique<ShardRsm>(std::move(shard_ptr1), std::move(local_shard_manager_sender));
   }
 
   LabelId NameToLabel(const std::string &name) { return LabelId::FromUint(id_mapper_.NameToId(name)); }
