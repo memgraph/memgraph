@@ -41,6 +41,6 @@ using CoordinatorMessages =
 using ShardMessages = std::variant<ReadRequest<StorageReadRequest>, AppendRequest<StorageWriteRequest>, AppendResponse,
                                    WriteRequest<StorageWriteRequest>, VoteRequest, VoteResponse>;
 
-using ShardManagerMessages = std::variant<msgs::SuggestedSplitInfo>;
+using ShardManagerMessages = std::variant<msgs::SuggestedSplitInfo, msgs::InitializeSplitShard>;
 
 }  // namespace memgraph::io::messages

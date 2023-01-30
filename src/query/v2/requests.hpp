@@ -28,6 +28,7 @@
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/result.hpp"
+#include "storage/v3/shard.hpp"
 #include "utils/fnv.hpp"
 
 namespace memgraph::msgs {
@@ -591,6 +592,16 @@ struct SplitRequest {
   Hlc old_shard_version;
   Hlc new_shard_version;
   std::map<boost::uuids::uuid, boost::uuids::uuid> uuid_mapping;
+};
+
+struct InitializeSplitShard {
+  std::unique_ptr<storage::v3::Shard> shard;
+  std::map<boost::uuids::uuid, boost::uuids::uuid> uuid_mapping;
+};
+
+struct InitializeSplitShardByUUID {
+  std::unique_ptr<storage::v3::Shard> shard;
+  boost::uuids::uuid shard_uuid;
 };
 
 struct SplitResponse {};

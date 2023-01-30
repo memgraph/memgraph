@@ -16,6 +16,7 @@
 #include <variant>
 
 #include <openssl/ec.h>
+#include "io/messages.hpp"
 #include "query/v2/requests.hpp"
 #include "storage/v3/shard.hpp"
 #include "storage/v3/value_conversions.hpp"
@@ -25,6 +26,7 @@ namespace memgraph::storage::v3 {
 
 class ShardRsm {
   std::unique_ptr<Shard> shard_;
+  utils::Sender<io::messages::ShardManagerMessages> shard_manager_sender_;
 
   msgs::ReadResponses HandleRead(msgs::ExpandOneRequest &&req);
   msgs::ReadResponses HandleRead(msgs::GetPropertiesRequest &&req);
@@ -45,10 +47,15 @@ class ShardRsm {
  public:
   explicit ShardRsm(std::unique_ptr<Shard> &&shard) : shard_(std::move(shard)){};
 
+  ShardRsm(std::unique_ptr<Shard> &&shard, utils::Sender<io::messages::ShardManagerMessages> &&shard_manager_sender)
+      : shard_(std::move(shard)), shard_manager_sender_{std::move(shard_manager_sender)} {};
+
   std::optional<msgs::SuggestedSplitInfo> ShouldSplit() const noexcept {
     auto split_info = shard_->ShouldSplit();
     if (split_info) {
-      return split_info;
+      return msgs::SuggestedSplitInfo{split_info->shard_to_split_uuid,
+                                      conversions::ConvertValueVector(split_info->split_key),
+                                      split_info->shard_version};
     }
     return std::nullopt;
   }

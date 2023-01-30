@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,21 +22,16 @@
 #include "io/message_histogram_collector.hpp"
 #include "io/notifier.hpp"
 #include "io/time.hpp"
+#include "utils/concrete_msg_sender.hpp"
 #include "utils/result.hpp"
 
 namespace memgraph::io {
 
 using memgraph::utils::BasicResult;
 
-// TODO(tyler) ensure that Message continues to represent
-// reasonable constraints around message types over time,
-// as we adapt things to use Thrift-generated message types.
-template <typename T>
-concept Message = std::same_as<T, std::decay_t<T>>;
-
 using RequestId = uint64_t;
 
-template <Message M>
+template <utils::Message M>
 struct ResponseEnvelope {
   M message;
   RequestId request_id;
@@ -45,16 +40,16 @@ struct ResponseEnvelope {
   Duration response_latency;
 };
 
-template <Message M>
+template <utils::Message M>
 using ResponseResult = BasicResult<TimedOut, ResponseEnvelope<M>>;
 
-template <Message M>
+template <utils::Message M>
 using ResponseFuture = Future<ResponseResult<M>>;
 
-template <Message M>
+template <utils::Message M>
 using ResponsePromise = Promise<ResponseResult<M>>;
 
-template <Message... Ms>
+template <utils::Message... Ms>
 struct RequestEnvelope {
   std::variant<Ms...> message;
   RequestId request_id;
@@ -62,21 +57,8 @@ struct RequestEnvelope {
   Address from_address;
 };
 
-template <Message... Ms>
+template <utlis::Message... Ms>
 using RequestResult = BasicResult<TimedOut, RequestEnvelope<Ms...>>;
-
-/// This is a concrete type that allows one message type to be
-/// sent to a single address. Initially intended to be used by the
-/// Shard to send messages to the local ShardManager.
-template <Message M>
-class Sender {
-  std::function<void(M)> sender_;
-
- public:
-  Sender(std::function<void(M)> sender) : sender_(sender) {}
-
-  void Send(M message) { sender_(message); }
-};
 
 template <typename I>
 class Io {
@@ -95,7 +77,7 @@ class Io {
   Duration GetDefaultTimeout() { return default_timeout_; }
 
   /// Issue a request with an explicit timeout in microseconds provided. This tends to be used by clients.
-  template <Message RequestT, Message ResponseT>
+  template <utils::Message RequestT, utils::Message ResponseT>
   ResponseFuture<ResponseT> RequestWithTimeout(Address address, RequestT request, Duration timeout) {
     const Address from_address = address_;
     std::function<void()> fill_notifier = nullptr;
@@ -105,7 +87,7 @@ class Io {
 
   /// Issue a request that times out after the default timeout. This tends
   /// to be used by clients.
-  template <Message RequestT, Message ResponseT>
+  template <utils::Message RequestT, utils::Message ResponseT>
   ResponseFuture<ResponseT> Request(Address to_address, RequestT request) {
     const Duration timeout = default_timeout_;
     const Address from_address = address_;
@@ -115,7 +97,7 @@ class Io {
   }
 
   /// Issue a request that will notify a Notifier when it is filled or times out.
-  template <Message RequestT, Message ResponseT>
+  template <utils::Message RequestT, utils::Message ResponseT>
   ResponseFuture<ResponseT> RequestWithNotification(Address to_address, RequestT request, Notifier notifier,
                                                     ReadinessToken readiness_token) {
     const Duration timeout = default_timeout_;
@@ -126,7 +108,7 @@ class Io {
   }
 
   /// Issue a request that will notify a Notifier when it is filled or times out.
-  template <Message RequestT, Message ResponseT>
+  template <utils::Message RequestT, utils::Message ResponseT>
   ResponseFuture<ResponseT> RequestWithNotificationAndTimeout(Address to_address, RequestT request, Notifier notifier,
                                                               ReadinessToken readiness_token, Duration timeout) {
     const Address from_address = address_;
@@ -137,14 +119,14 @@ class Io {
 
   /// Wait for an explicit number of microseconds for a request of one of the
   /// provided types to arrive. This tends to be used by servers.
-  template <Message... Ms>
+  template <utils::Message... Ms>
   RequestResult<Ms...> ReceiveWithTimeout(Duration timeout) {
     return implementation_.template Receive<Ms...>(address_, timeout);
   }
 
   /// Wait the default number of microseconds for a request of one of the
   /// provided types to arrive. This tends to be used by servers.
-  template <Message... Ms>
+  template <utils::Message... Ms>
   requires(sizeof...(Ms) > 0) RequestResult<Ms...> Receive() {
     const Duration timeout = default_timeout_;
     return implementation_.template Receive<Ms...>(address_, timeout);
@@ -153,7 +135,7 @@ class Io {
   /// Send a message in a best-effort fashion. This is used for messaging where
   /// responses are not necessarily expected, and for servers to respond to requests.
   /// If you need reliable delivery, this must be built on-top. TCP is not enough for most use cases.
-  template <Message M>
+  template <utils::Message M>
   void Send(Address to_address, RequestId request_id, M message) {
     Address from_address = address_;
     return implementation_.template Send<M>(to_address, from_address, request_id, std::move(message));
@@ -188,15 +170,15 @@ class Io {
 
   LatencyHistogramSummaries ResponseLatencies() { return implementation_.ResponseLatencies(); }
 
-  template <Message M>
-  Sender<M> GetSender(Address address) {
+  template <utils::Message M>
+  utils::Sender<M> GetSender(Address address) {
     Io<I> io_copy = Io(implementation_, address_);
 
     std::function<void(M)> sender = [address, io_copy](M message) mutable {
       io_copy.template Send<M>(address, 0, message);
     };
 
-    return Sender{sender};
+    return utils::Sender{sender};
   }
 };
 };  // namespace memgraph::io

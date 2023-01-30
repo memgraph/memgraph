@@ -177,12 +177,25 @@ class ShardManager {
   /// Returns the Address for our underlying Io implementation
   Address GetAddress() { return io_.GetAddress(); }
 
+  void InitializeSplitShard(msgs::InitializeSplitShard &&init_split_shard) {
+    for (const auto &[from_uuid, to_uuid] : init_split_shard.uuid_mapping) {
+      if (rsm_worker_mapping_.contains(from_uuid)) {
+        // The new uuid
+        auto new_uuid = to_uuid;
+        msgs::InitializeSplitShardByUUID msg{.shard = std::move(init_split_shard.shard), .shard_uuid = new_uuid};
+        SendToWorkerByUuid(new_uuid, std::move(msg));
+        break;
+      }
+    }
+  }
+
   void Receive(ShardManagerMessages &&smm, RequestId request_id, Address from) {
     std::visit(utils::Overloaded{
                    [this](msgs::SuggestedSplitInfo &&split_info) { pending_splits_.insert(std::move(split_info)); },
-                   [](storage::v3::SplitData &&split_data) {
+                   [this](msgs::InitializeSplitShard &&init_split_shard) {
                      // TODO(jbajic) remove pending split for this completed split
                      // TODO(jbajic) Add new shard to initialized but not confirmed rsm
+                     InitializeSplitShard(std::move(init_split_shard));
                    }},
                std::move(smm));
   }

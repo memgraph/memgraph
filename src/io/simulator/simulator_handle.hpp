@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -32,6 +32,7 @@
 #include "io/simulator/simulator_stats.hpp"
 #include "io/time.hpp"
 #include "io/transport.hpp"
+#include "utils/concrete_msg_sender.hpp"
 
 namespace memgraph::io::simulator {
 
@@ -105,7 +106,7 @@ class SimulatorHandle {
 
   bool ShouldShutDown() const;
 
-  template <Message Request, Message Response>
+  template <utils::Message Request, utils::Message Response>
   ResponseFuture<Response> SubmitRequest(Address to_address, Address from_address, Request &&request, Duration timeout,
                                          std::function<bool()> &&maybe_tick_simulator,
                                          std::function<void()> &&fill_notifier) {
@@ -155,7 +156,7 @@ class SimulatorHandle {
     return std::move(future);
   }
 
-  template <Message... Ms>
+  template <utils::Message... Ms>
   requires(sizeof...(Ms) > 0) RequestResult<Ms...> Receive(const Address &receiver, Duration timeout) {
     std::unique_lock<std::mutex> lock(mu_);
 
@@ -193,7 +194,7 @@ class SimulatorHandle {
     return TimedOut{};
   }
 
-  template <Message M>
+  template <utils::Message M>
   void Send(Address to_address, Address from_address, RequestId request_id, M message) {
     spdlog::trace("sending message from {} to {}", from_address.last_known_port, to_address.last_known_port);
     auto type_info = TypeInfoFor(message);

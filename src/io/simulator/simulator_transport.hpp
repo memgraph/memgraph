@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,6 +18,7 @@
 #include "io/notifier.hpp"
 #include "io/simulator/simulator_handle.hpp"
 #include "io/time.hpp"
+#include "utils/concrete_msg_sender.hpp"
 
 namespace memgraph::io::simulator {
 
@@ -33,7 +34,7 @@ class SimulatorTransport {
   SimulatorTransport(std::shared_ptr<SimulatorHandle> simulator_handle, Address address, uint64_t seed)
       : simulator_handle_(simulator_handle), address_(address), rng_(std::mt19937{seed}) {}
 
-  template <Message RequestT, Message ResponseT>
+  template <utils::Message RequestT, utils::Message ResponseT>
   ResponseFuture<ResponseT> Request(Address to_address, Address from_address, RequestT request,
                                     std::function<void()> notification, Duration timeout) {
     std::function<bool()> tick_simulator = [handle_copy = simulator_handle_] {
@@ -44,12 +45,12 @@ class SimulatorTransport {
         to_address, from_address, std::move(request), timeout, std::move(tick_simulator), std::move(notification));
   }
 
-  template <Message... Ms>
+  template <utils::Message... Ms>
   requires(sizeof...(Ms) > 0) RequestResult<Ms...> Receive(Address receiver_address, Duration timeout) {
     return simulator_handle_->template Receive<Ms...>(receiver_address, timeout);
   }
 
-  template <Message M>
+  template <utils::Message M>
   void Send(Address to_address, Address from_address, uint64_t request_id, M message) {
     return simulator_handle_->template Send<M>(to_address, from_address, request_id, message);
   }

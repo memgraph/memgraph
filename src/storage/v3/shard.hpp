@@ -21,11 +21,12 @@
 #include <variant>
 #include <vector>
 
+#include <boost/uuid/uuid.hpp>
+
 #include "coordinator/hybrid_logical_clock.hpp"
 #include "io/network/endpoint.hpp"
 #include "io/time.hpp"
 #include "kvstore/kvstore.hpp"
-#include "query/v2/requests.hpp"
 #include "storage/v3/config.hpp"
 #include "storage/v3/edge.hpp"
 #include "storage/v3/edge_accessor.hpp"
@@ -45,6 +46,7 @@
 #include "storage/v3/vertex_accessor.hpp"
 #include "storage/v3/vertex_id.hpp"
 #include "storage/v3/view.hpp"
+#include "utils/concrete_msg_sender.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/on_scope_exit.hpp"
@@ -185,6 +187,12 @@ struct StorageInfo {
   uint64_t edge_count;
   double average_degree;
   uint64_t memory_usage;
+};
+
+struct SuggestedSplitInfo {
+  boost::uuids::uuid shard_to_split_uuid;
+  PrimaryKey split_key;
+  Hlc shard_version;
 };
 
 class Shard final {
@@ -377,9 +385,9 @@ class Shard final {
 
   void StoreMapping(std::unordered_map<uint64_t, std::string> id_to_name);
 
-  std::optional<msgs::SuggestedSplitInfo> ShouldSplit() const noexcept;
+  std::optional<SuggestedSplitInfo> ShouldSplit() const noexcept;
 
-  SplitData PerformSplit(const PrimaryKey &split_key, const Hlc old_shard_version, const Hlc new_shard_version);
+  std::optional<SplitData> PerformSplit(const PrimaryKey &split_key, Hlc old_shard_version, Hlc new_shard_version);
 
  private:
   Transaction &GetTransaction(coordinator::Hlc start_timestamp, IsolationLevel isolation_level);

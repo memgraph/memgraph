@@ -1103,20 +1103,26 @@ void Shard::StoreMapping(std::unordered_map<uint64_t, std::string> id_to_name) {
   name_id_mapper_.StoreMapping(std::move(id_to_name));
 }
 
-std::optional<msgs::SuggestedSplitInfo> Shard::ShouldSplit() const noexcept {
+std::optional<SuggestedSplitInfo> Shard::ShouldSplit() const noexcept {
   if (vertices_.size() > config_.split.max_shard_vertex_size) {
     auto mid_elem = vertices_.begin();
     std::ranges::advance(mid_elem, static_cast<VertexContainer::difference_type>(vertices_.size() / 2));
-    return msgs::SuggestedSplitInfo{
-        .split_key = conversions::ConvertValueVector(mid_elem->first),
+    return SuggestedSplitInfo{
+        .split_key = mid_elem->first,
         .shard_version = shard_version_,
     };
   }
   return std::nullopt;
 }
 
-SplitData Shard::PerformSplit(const PrimaryKey &split_key, const Hlc old_shard_version, const Hlc new_shard_version) {
-  MG_ASSERT(shard_version_ == old_shard_version);
+std::optional<SplitData> Shard::PerformSplit(const PrimaryKey &split_key, const Hlc old_shard_version,
+                                             const Hlc new_shard_version) {
+  MG_ASSERT(shard_version_ >= old_shard_version, "Shard versions do not match!");
+  if (old_shard_version < shard_version_) {
+    spdlog::warn("Curent shard version {} is bigger thasn given {}", shard_version_, old_shard_version);
+    return std::nullopt;
+  }
+
   shard_version_ = new_shard_version;
   max_primary_key_ = split_key;
   return shard_splitter_.SplitShard(split_key, max_primary_key_, shard_version_);
