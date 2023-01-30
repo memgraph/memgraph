@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,6 +27,7 @@
 #include <io/transport.hpp>
 #include <storage/v3/id_types.hpp>
 #include <storage/v3/schemas.hpp>
+#include "query/v2/requests.hpp"
 
 namespace memgraph::coordinator {
 
@@ -170,6 +171,10 @@ class Coordinator {
   /// split key, keeping the assigned peers identical for now,
   /// but letting them be gradually migrated over time.
   CoordinatorWriteResponses ApplyWrite(SplitShardRequest &&split_shard_request);
+
+  CoordinatorWriteResponses ApplyWrite(msgs::SuggestedSplitInfo &&split_shard_request);
+
+  CoordinatorWriteResponses ApplyWrite(msgs::InitializeSplitShard &&split_shard_request);
 
   /// This adds the provided storage engine to the standby storage engine pool,
   /// which can be used to rebalance storage over time.

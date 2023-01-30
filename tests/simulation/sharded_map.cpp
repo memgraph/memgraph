@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -33,12 +33,12 @@
 #include "utils/result.hpp"
 
 using memgraph::common::SchemaType;
-using memgraph::coordinator::AddressAndStatus;
 using memgraph::coordinator::Coordinator;
 using memgraph::coordinator::CoordinatorClient;
 using memgraph::coordinator::CoordinatorRsm;
 using memgraph::coordinator::HlcRequest;
 using memgraph::coordinator::HlcResponse;
+using memgraph::coordinator::PeerMetadata;
 using memgraph::coordinator::PrimaryKey;
 using memgraph::coordinator::ShardMap;
 using memgraph::coordinator::ShardMetadata;
@@ -105,9 +105,9 @@ ShardMap CreateDummyShardmap(Address a_io_1, Address a_io_2, Address a_io_3, Add
   shards_for_label.clear();
 
   // add first shard at [0, 0]
-  AddressAndStatus aas1_1{.address = a_io_1, .status = Status::CONSENSUS_PARTICIPANT};
-  AddressAndStatus aas1_2{.address = a_io_2, .status = Status::CONSENSUS_PARTICIPANT};
-  AddressAndStatus aas1_3{.address = a_io_3, .status = Status::CONSENSUS_PARTICIPANT};
+  PeerMetadata aas1_1{.address = a_io_1, .status = Status::CONSENSUS_PARTICIPANT};
+  PeerMetadata aas1_2{.address = a_io_2, .status = Status::CONSENSUS_PARTICIPANT};
+  PeerMetadata aas1_3{.address = a_io_3, .status = Status::CONSENSUS_PARTICIPANT};
 
   ShardMetadata shard1 = ShardMetadata{.peers = {aas1_1, aas1_2, aas1_3}, .version = 1};
 
@@ -117,9 +117,9 @@ ShardMap CreateDummyShardmap(Address a_io_1, Address a_io_2, Address a_io_3, Add
   shards_for_label.emplace(compound_key_1, shard1);
 
   // add second shard at [12, 13]
-  AddressAndStatus aas2_1{.address = b_io_1, .status = Status::CONSENSUS_PARTICIPANT};
-  AddressAndStatus aas2_2{.address = b_io_2, .status = Status::CONSENSUS_PARTICIPANT};
-  AddressAndStatus aas2_3{.address = b_io_3, .status = Status::CONSENSUS_PARTICIPANT};
+  PeerMetadata aas2_1{.address = b_io_1, .status = Status::CONSENSUS_PARTICIPANT};
+  PeerMetadata aas2_2{.address = b_io_2, .status = Status::CONSENSUS_PARTICIPANT};
+  PeerMetadata aas2_3{.address = b_io_3, .status = Status::CONSENSUS_PARTICIPANT};
 
   ShardMetadata shard2 = ShardMetadata{.peers = {aas2_1, aas2_2, aas2_3}, .version = 1};
 

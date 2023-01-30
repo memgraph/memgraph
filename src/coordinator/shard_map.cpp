@@ -275,7 +275,7 @@ boost::uuids::uuid ShardMap::NewShardUuid() {
 Hlc ShardMap::GetHlc() noexcept { return ++shard_map_version; }
 
 HeartbeatResponse ShardMap::AssignShards(Address storage_manager, std::set<boost::uuids::uuid> initialized,
-                                         std::set<msgs::SuggestedSplitInfo> pending_splits) {
+                                         std::vector<msgs::SuggestedSplitInfo> pending_splits) {
   HeartbeatResponse ret{};
 
   bool mutated = false;

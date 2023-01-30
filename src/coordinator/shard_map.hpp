@@ -143,7 +143,7 @@ struct ShardToSplit {
 struct HeartbeatRequest {
   Address from_storage_manager;
   std::set<boost::uuids::uuid> initialized_rsms;
-  std::set<msgs::SuggestedSplitInfo> pending_splits;
+  std::vector<msgs::SuggestedSplitInfo> pending_splits;
 };
 
 struct HeartbeatResponse {
@@ -199,7 +199,7 @@ struct ShardMap {
 
   // Returns the shard UUIDs that have been assigned but not yet acknowledged for this storage manager
   HeartbeatResponse AssignShards(Address storage_manager, std::set<boost::uuids::uuid> initialized,
-                                 std::set<msgs::SuggestedSplitInfo> pending_splits);
+                                 std::vector<msgs::SuggestedSplitInfo> pending_splits);
 
   bool SplitShard(Hlc previous_shard_map_version, LabelId label_id, const PrimaryKey &key);
 

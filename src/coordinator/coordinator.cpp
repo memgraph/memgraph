@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <coordinator/coordinator.hpp>
+#include "query/v2/requests.hpp"
 
 namespace memgraph::coordinator {
 
@@ -65,6 +66,22 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(SplitShardRequest &&split_shar
 
   res.success = shard_map_.SplitShard(split_shard_request.previous_shard_map_version, split_shard_request.label_id,
                                       split_shard_request.split_key);
+
+  return res;
+}
+
+// TODO(jbajic & Tyler)
+CoordinatorWriteResponses Coordinator::ApplyWrite(msgs::SuggestedSplitInfo &&split_shard_request) {
+  RegisterStorageEngineResponse res{};
+  // TODO
+
+  return res;
+}
+
+// TODO(jbajic & tyler)
+CoordinatorWriteResponses Coordinator::ApplyWrite(msgs::InitializeSplitShard &&split_shard_request) {
+  RegisterStorageEngineResponse res{};
+  // TODO
 
   return res;
 }

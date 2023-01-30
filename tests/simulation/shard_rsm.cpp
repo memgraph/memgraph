@@ -1496,9 +1496,13 @@ int TestMessages() {
 
   std::vector<SchemaProperty> schema_prop = {get_schema_property()};
 
-  auto shard_ptr1 = std::make_unique<Shard>(get_primary_label(), min_prim_key, max_prim_key, schema_prop);
-  auto shard_ptr2 = std::make_unique<Shard>(get_primary_label(), min_prim_key, max_prim_key, schema_prop);
-  auto shard_ptr3 = std::make_unique<Shard>(get_primary_label(), min_prim_key, max_prim_key, schema_prop);
+  const coordinator::Hlc shard_version{0};
+  auto shard_ptr1 =
+      std::make_unique<Shard>(get_primary_label(), min_prim_key, max_prim_key, schema_prop, shard_version);
+  auto shard_ptr2 =
+      std::make_unique<Shard>(get_primary_label(), min_prim_key, max_prim_key, schema_prop, shard_version);
+  auto shard_ptr3 =
+      std::make_unique<Shard>(get_primary_label(), min_prim_key, max_prim_key, schema_prop, shard_version);
 
   shard_ptr1->StoreMapping(
       {{1, "label"}, {2, "prop1"}, {3, "label1"}, {4, "prop2"}, {5, "prop3"}, {6, "prop4"}, {7, "e_prop"}});
@@ -1511,9 +1515,13 @@ int TestMessages() {
   std::vector<Address> address_for_2{shard_server_1_address, shard_server_3_address};
   std::vector<Address> address_for_3{shard_server_1_address, shard_server_2_address};
 
-  ConcreteShardRsm shard_server1(std::move(shard_server_io_1), address_for_1, ShardRsm(std::move(shard_ptr1)));
-  ConcreteShardRsm shard_server2(std::move(shard_server_io_2), address_for_2, ShardRsm(std::move(shard_ptr2)));
-  ConcreteShardRsm shard_server3(std::move(shard_server_io_3), address_for_3, ShardRsm(std::move(shard_ptr3)));
+  utils::Sender<io::messages::ShardManagerMessages> local_shard_manager_sender{[](const auto &elem) {}};
+  ConcreteShardRsm shard_server1(std::move(shard_server_io_1), address_for_1,
+                                 ShardRsm(std::move(shard_ptr1), local_shard_manager_sender));
+  ConcreteShardRsm shard_server2(std::move(shard_server_io_2), address_for_2,
+                                 ShardRsm(std::move(shard_ptr2), local_shard_manager_sender));
+  ConcreteShardRsm shard_server3(std::move(shard_server_io_3), address_for_3,
+                                 ShardRsm(std::move(shard_ptr3), local_shard_manager_sender));
 
   auto server_thread1 = std::jthread([&shard_server1]() { shard_server1.Run(); });
   simulator.IncrementServerCountAndWaitForQuiescentState(shard_server_1_address);

@@ -45,7 +45,7 @@ class ShardRsm {
   msgs::WriteResponses ApplyWrite(msgs::CommitRequest &&req);
 
  public:
-  ShardRsm(std::unique_ptr<Shard> &&shard, utils::Sender<io::messages::ShardManagerMessages> &&shard_manager_sender)
+  ShardRsm(std::unique_ptr<Shard> &&shard, utils::Sender<io::messages::ShardManagerMessages> shard_manager_sender)
       : shard_(std::move(shard)), shard_manager_sender_{std::move(shard_manager_sender)} {};
 
   std::optional<msgs::SuggestedSplitInfo> ShouldSplit() const noexcept {

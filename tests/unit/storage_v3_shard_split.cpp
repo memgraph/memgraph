@@ -137,7 +137,7 @@ TEST_F(ShardSplitTest, TestBasicSplitWithVertices) {
   auto current_hlc = GetNextHlc();
   acc.Commit(current_hlc);
 
-  auto splitted_data = storage.PerformSplit({PropertyValue(4)}, 2);
+  auto splitted_data = *storage.PerformSplit({PropertyValue(4)}, last_hlc, GetNextHlc());
   EXPECT_EQ(splitted_data.vertices.size(), 3);
   EXPECT_EQ(splitted_data.edges->size(), 0);
   EXPECT_EQ(splitted_data.transactions.size(), 1);
@@ -180,7 +180,7 @@ TEST_F(ShardSplitTest, TestBasicSplitVerticesAndEdges) {
   auto current_hlc = GetNextHlc();
   acc.Commit(current_hlc);
 
-  auto splitted_data = storage.PerformSplit({PropertyValue(4)}, 2);
+  auto splitted_data = *storage.PerformSplit({PropertyValue(4)}, last_hlc, GetNextHlc());
   EXPECT_EQ(splitted_data.vertices.size(), 3);
   EXPECT_EQ(splitted_data.edges->size(), 2);
   EXPECT_EQ(splitted_data.transactions.size(), 1);
@@ -227,7 +227,7 @@ TEST_F(ShardSplitTest, TestBasicSplitBeforeCommit) {
                               VertexId{primary_label, PrimaryKey{PropertyValue(6)}}, edge_type_id, Gid::FromUint(2))
                    .HasError());
 
-  auto splitted_data = storage.PerformSplit({PropertyValue(4)}, 2);
+  auto splitted_data = *storage.PerformSplit({PropertyValue(4)}, last_hlc, GetNextHlc());
   EXPECT_EQ(splitted_data.vertices.size(), 3);
   EXPECT_EQ(splitted_data.edges->size(), 2);
   EXPECT_EQ(splitted_data.transactions.size(), 1);
@@ -258,7 +258,7 @@ TEST_F(ShardSplitTest, TestBasicSplitWithCommitedAndOngoingTransactions) {
                               VertexId{primary_label, PrimaryKey{PropertyValue(6)}}, edge_type_id, Gid::FromUint(2))
                    .HasError());
 
-  auto splitted_data = storage.PerformSplit({PropertyValue(4)}, 2);
+  auto splitted_data = *storage.PerformSplit({PropertyValue(4)}, last_hlc, GetNextHlc());
   EXPECT_EQ(splitted_data.vertices.size(), 3);
   EXPECT_EQ(splitted_data.edges->size(), 2);
   EXPECT_EQ(splitted_data.transactions.size(), 2);
@@ -277,7 +277,7 @@ TEST_F(ShardSplitTest, TestBasicSplitWithLabelIndex) {
   acc.Commit(GetNextHlc());
   storage.CreateIndex(secondary_label);
 
-  auto splitted_data = storage.PerformSplit({PropertyValue(4)}, 2);
+  auto splitted_data = *storage.PerformSplit({PropertyValue(4)}, last_hlc, GetNextHlc());
 
   EXPECT_EQ(splitted_data.vertices.size(), 3);
   EXPECT_EQ(splitted_data.edges->size(), 0);
@@ -303,7 +303,7 @@ TEST_F(ShardSplitTest, TestBasicSplitWithLabelPropertyIndex) {
   acc.Commit(GetNextHlc());
   storage.CreateIndex(secondary_label, secondary_property);
 
-  auto splitted_data = storage.PerformSplit({PropertyValue(4)}, 2);
+  auto splitted_data = *storage.PerformSplit({PropertyValue(4)}, last_hlc, GetNextHlc());
 
   EXPECT_EQ(splitted_data.vertices.size(), 3);
   EXPECT_EQ(splitted_data.edges->size(), 0);
@@ -330,7 +330,7 @@ TEST_F(ShardSplitTest, TestBigSplit) {
   storage.CreateIndex(secondary_label, secondary_property);
 
   const auto split_value = pk / 2;
-  auto splitted_data = storage.PerformSplit({PropertyValue(split_value)}, 2);
+  auto splitted_data = *storage.PerformSplit({PropertyValue(split_value)}, last_hlc, GetNextHlc());
 
   EXPECT_EQ(splitted_data.vertices.size(), 100000);
   EXPECT_EQ(splitted_data.edges->size(), 50000);

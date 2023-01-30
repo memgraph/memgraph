@@ -12,12 +12,12 @@
 #pragma once
 
 #include <queue>
-#include <set>
 #include <unordered_map>
+#include <variant>
+#include <vector>
 
 #include <boost/functional/hash.hpp>
 #include <boost/uuid/uuid.hpp>
-#include <variant>
 
 #include "coordinator/coordinator.hpp"
 #include "coordinator/shard_map.hpp"
@@ -190,7 +190,7 @@ class ShardManager {
 
   void Receive(ShardManagerMessages &&smm, RequestId request_id, Address from) {
     std::visit(utils::Overloaded{
-                   [this](msgs::SuggestedSplitInfo &&split_info) { pending_splits_.insert(std::move(split_info)); },
+                   [this](msgs::SuggestedSplitInfo &&split_info) { pending_splits_.push_back(std::move(split_info)); },
                    [this](msgs::InitializeSplitShard &&init_split_shard) {
                      // TODO(jbajic) remove pending split for this completed split
                      // TODO(jbajic) Add new shard to initialized but not confirmed rsm
@@ -224,7 +224,7 @@ class ShardManager {
   std::vector<shard_worker::Queue> workers_;
   std::vector<std::jthread> worker_handles_;
   std::vector<size_t> worker_rsm_counts_;
-  std::set<msgs::SuggestedSplitInfo> pending_splits_;
+  std::vector<msgs::SuggestedSplitInfo> pending_splits_;
   std::unordered_map<uuid, size_t, boost::hash<boost::uuids::uuid>> rsm_worker_mapping_;
   Time next_reconciliation_ = Time::min();
   Address coordinator_leader_;
