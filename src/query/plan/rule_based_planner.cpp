@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -495,7 +495,7 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
   // Where may see new symbols so it comes after we generate Produce and in
   // general, comes after any OrderBy, Skip or Limit.
   if (body.where()) {
-    last_op = std::make_unique<Filter>(std::move(last_op), body.where()->expression_);
+    last_op = std::make_unique<Filter>(std::move(last_op), nullptr, body.where()->expression_);
   }
   return last_op;
 }
@@ -522,7 +522,7 @@ std::unique_ptr<LogicalOperator> GenFilters(std::unique_ptr<LogicalOperator> las
                                             AstStorage &storage) {
   auto *filter_expr = ExtractFilters(bound_symbols, filters, storage);
   if (filter_expr) {
-    last_op = std::make_unique<Filter>(std::move(last_op), filter_expr);
+    last_op = std::make_unique<Filter>(std::move(last_op), nullptr, filter_expr);
   }
   return last_op;
 }

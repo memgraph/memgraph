@@ -158,7 +158,7 @@ struct FilterInfo {
   /// applied for labels or a property. Non generic types contain extra
   /// information which can be used to produce indexed scans of graph
   /// elements.
-  enum class Type { Generic, Label, Property, Id };
+  enum class Type { Generic, Label, Property, Id, Complex };
 
   Type type;
   /// The original filter expression which must be satisfied.
