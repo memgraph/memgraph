@@ -562,15 +562,6 @@ for dataset, queries in benchmarks:
         )
 
     client = runners.Client(args.client_binary, args.temporary_directory, args.bolt_port)
-    # vendor.start_preparation("preparation")
-    # ret = client.execute(
-    #     queries=[
-    #         ("""LOAD CSV FROM "/home/maple/repos/test/memgraph/social_network-csv_basic-sf0.1/dynamic/comment_0_0.csv" WITH HEADER DELIMITER "|" AS row
-    #         CREATE (c:Comment {id: row.id, creation: row.creationDate, ip: row.locationIP, browser: row.browserUsed, content: row.content, lenght: row.length});""", {}),
-    #     ],
-    #     num_workers=1,
-    # )
-    # usage = vendor.stop("preparation")
 
     ret = None
     usage = None
@@ -640,7 +631,6 @@ for dataset, queries in benchmarks:
                     "{}/{}/{}/{}".format(group, query, funcname, WITHOUT_FINE_GRAINED_AUTHORIZATION),
                 )
                 func = getattr(dataset, funcname)
-
                 query_statistics = tail_latency(vendor, client, func)
 
                 # Query count for each vendor
