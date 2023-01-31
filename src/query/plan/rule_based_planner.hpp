@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -174,7 +174,11 @@ class RuleBasedPlanner {
       input_op = PlanMatching(match_ctx, std::move(input_op));
       for (const auto &matching : query_part.optional_matching) {
         MatchContext opt_ctx{matching, *context.symbol_table, context.bound_symbols};
-        auto match_op = PlanMatching(opt_ctx, nullptr);
+
+        std::vector<Symbol> bound_symbols(context_->bound_symbols.begin(), context_->bound_symbols.end());
+        auto once_with_symbols = std::make_unique<Once>(bound_symbols);
+
+        auto match_op = PlanMatching(opt_ctx, std::move(once_with_symbols));
         if (match_op) {
           input_op = std::make_unique<Optional>(std::move(input_op), std::move(match_op), opt_ctx.new_symbols);
         }
