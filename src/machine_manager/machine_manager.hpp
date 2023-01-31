@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -127,7 +127,8 @@ class MachineManager {
           std::variant<ReadRequest<CoordinatorReadRequests>, AppendRequest<CoordinatorWriteRequests>, AppendResponse,
                        WriteRequest<CoordinatorWriteRequests>, VoteRequest, VoteResponse,
                        WriteResponse<CoordinatorWriteResponses>, ReadRequest<StorageReadRequest>,
-                       AppendRequest<StorageWriteRequest>, WriteRequest<StorageWriteRequest>>;
+                       AppendRequest<StorageWriteRequest>, WriteRequest<StorageWriteRequest>, msgs::SuggestedSplitInfo,
+                       msgs::InitializeSplitShard>;
 
       spdlog::info("MM waiting on Receive on address {}", io_.GetAddress().ToString());
 
@@ -135,8 +136,8 @@ class MachineManager {
       auto request_result = io_.template ReceiveWithTimeout<
           ReadRequest<CoordinatorReadRequests>, AppendRequest<CoordinatorWriteRequests>, AppendResponse,
           WriteRequest<CoordinatorWriteRequests>, VoteRequest, VoteResponse, WriteResponse<CoordinatorWriteResponses>,
-          ReadRequest<StorageReadRequest>, AppendRequest<StorageWriteRequest>, WriteRequest<StorageWriteRequest>>(
-          receive_timeout);
+          ReadRequest<StorageReadRequest>, AppendRequest<StorageWriteRequest>, WriteRequest<StorageWriteRequest>,
+          msgs::SuggestedSplitInfo, msgs::InitializeSplitShard>(receive_timeout);
 
       if (request_result.HasError()) {
         // time to do Cron
@@ -175,7 +176,8 @@ class MachineManager {
       spdlog::info("smm: {}", shard_manager_.GetAddress().ToString());
       if (to_sm) {
         std::optional<ShardManagerMessages> conversion_attempt =
-            ConvertVariant<AllMessages, WriteResponse<CoordinatorWriteResponses>>(std::move(request_envelope.message));
+            ConvertVariant<AllMessages, msgs::SuggestedSplitInfo, msgs::InitializeSplitShard>(
+                std::move(request_envelope.message));
 
         MG_ASSERT(conversion_attempt.has_value(), "shard manager message conversion failed");
 

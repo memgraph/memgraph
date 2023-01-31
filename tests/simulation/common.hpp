@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -130,6 +130,7 @@ class MockedShardRsm {
   msgs::DeleteEdgesResponse ApplyImpl(msgs::DeleteEdgesRequest rqst) { return {}; }
   msgs::UpdateEdgesResponse ApplyImpl(msgs::UpdateEdgesRequest rqst) { return {}; }
   msgs::CommitResponse ApplyImpl(msgs::CommitRequest rqst) { return {}; }
+  msgs::CommitResponse ApplyImpl(msgs::SplitRequest rqst) { return {}; }
 
   WriteResponses Apply(WriteRequests write_requests) {
     return {std::visit([this]<typename T>(T &&request) { return WriteResponses{ApplyImpl(std::forward<T>(request))}; },
