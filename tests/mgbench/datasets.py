@@ -1344,3 +1344,50 @@ class LDBC_BI(Dataset):
             ),
             {"country1": "Chile", "country2": "Argentina"},
         )
+
+    def benchmark__bi__query_17(self):
+        return (
+            """
+            MATCH
+                (tag:Tag {name: $tag}),
+                (person1:Person)<-[:HAS_CREATOR]-(message1:Message)-[:REPLY_OF*0..]->(post1:Post)<-[:CONTAINER_OF]-(forum1:Forum),
+                (message1)-[:HAS_TAG]->(tag),
+                // Having two HAS_MEMBER edges in the same MATCH clause ensures that person2 and person3 are different
+                // as Cypher's edge-isomorphic matching does not allow for such a match in a single MATCH clause.
+                (forum1)<-[:HAS_MEMBER]->(person2:Person)<-[:HAS_CREATOR]-(comment:Comment)-[:HAS_TAG]->(tag),
+                (forum1)<-[:HAS_MEMBER]->(person3:Person)<-[:HAS_CREATOR]-(message2:Message),
+                (comment)-[:REPLY_OF]->(message2)-[:REPLY_OF*0..]->(post2:Post)<-[:CONTAINER_OF]-(forum2:Forum)
+                // The query allows message2 = post2. If this is the case, their HAS_TAG edges to tag overlap,
+                // and Cypher's edge-isomorphic matching does not allow for such a match in a single MATCH clause.
+                // To work around this, we add them in separate MATCH clauses.
+            MATCH (comment)-[:HAS_TAG]->(tag)
+            MATCH (message2)-[:HAS_TAG]->(tag)
+            WHERE forum1 <> forum2
+                AND message2.creationDate > message1.creationDate + duration({hours: $delta})
+                AND NOT (forum2)-[:HAS_MEMBER]->(person1)
+            RETURN person1.id, count(DISTINCT message2) AS messageCount
+            ORDER BY messageCount DESC, person1.id ASC
+            LIMIT 10
+            """.rstrip(
+                "\t\n"
+            ),
+            {
+                "tag": "Slavoj_Žižek",
+                "delta": 4,
+            },
+        )
+
+    def benchmark__bi__query_18(self):
+        return (
+            """
+            MATCH (tag:Tag {name: $tag})<-[:HAS_INTEREST]-(person1:Person)-[:KNOWS]-(mutualFriend:Person)-[:KNOWS]-(person2:Person)-[:HAS_INTEREST]->(tag)
+            WHERE person1 <> person2
+                AND NOT (person1)-[:KNOWS]-(person2)
+            RETURN person1.id AS person1Id, person2.id AS person2Id, count(DISTINCT mutualFriend) AS mutualFriendCount
+            ORDER BY mutualFriendCount DESC, person1Id ASC, person2Id ASC
+            LIMIT 20
+            """.rstrip(
+                "\t\n"
+            ),
+            {"tag": "Frank_Sinatra"},
+        )
