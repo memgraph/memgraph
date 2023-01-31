@@ -31,7 +31,7 @@ struct CommitInfo;
 
 inline uint64_t GetNextDeltaUUID() noexcept {
   static utils::Synchronized<uint64_t, utils::SpinLock> delta_id{0};
-  return delta_id.WithLock([](auto id) { return id++; });
+  return delta_id.WithLock([](auto &id) { return id++; });
 }
 
 // This class stores one of three pointers (`Delta`, `Vertex` and `Edge`)

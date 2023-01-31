@@ -122,9 +122,7 @@ class LabelIndex {
 
   void Clear() { index_.clear(); }
 
-  std::map<IndexType, IndexContainer> SplitIndexEntries(
-      const PrimaryKey &split_key,
-      std::map<IndexType, std::multimap<const Vertex *, const IndexContainer::iterator>> &vertex_entry_map) {
+  std::map<IndexType, IndexContainer> SplitIndexEntries(const PrimaryKey &split_key) {
     if (index_.empty()) {
       return {};
     }
@@ -144,7 +142,7 @@ class LabelIndex {
               cloned_indices_container.insert(index.extract(entry_it));
           MG_ASSERT(inserted, "Failed to extract index entry!");
 
-          vertex_entry_map[index_type_val].insert({inserted_entry_it->vertex, inserted_entry_it});
+          // vertex_entry_map[index_type_val].insert({inserted_entry_it->vertex, inserted_entry_it});
         }
         entry_it = next_entry_it;
       }
@@ -269,9 +267,7 @@ class LabelPropertyIndex {
 
   void Clear() { index_.clear(); }
 
-  std::map<IndexType, IndexContainer> SplitIndexEntries(
-      const PrimaryKey &split_key,
-      std::map<IndexType, std::multimap<const Vertex *, const IndexContainer::iterator>> &vertex_entry_map) {
+  std::map<IndexType, IndexContainer> SplitIndexEntries(const PrimaryKey &split_key) {
     if (index_.empty()) {
       return {};
     }
@@ -290,8 +286,7 @@ class LabelPropertyIndex {
           [[maybe_unused]] const auto &[inserted_entry_it, inserted, node] =
               cloned_index_container.insert(index.extract(entry_it));
           MG_ASSERT(inserted, "Failed to extract index entry!");
-
-          vertex_entry_map[index_type_val].insert({inserted_entry_it->vertex, inserted_entry_it});
+          // vertex_entry_map[index_type_val].insert({inserted_entry_it->vertex, inserted_entry_it});
         }
         entry_it = next_entry_it;
       }

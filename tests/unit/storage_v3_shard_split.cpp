@@ -147,11 +147,11 @@ TEST_F(ShardSplitTest, TestBasicSplitWithVertices) {
   EXPECT_EQ(splitted_data.label_property_indices.size(), 0);
 
   CommitInfo commit_info{.start_or_commit_timestamp = current_hlc};
-  Delta delta_delete1{Delta::DeleteObjectTag{}, &commit_info, 5, 1};
-  Delta delta_delete2{Delta::DeleteObjectTag{}, &commit_info, 6, 2};
-  Delta delta_remove_label{Delta::RemoveLabelTag{}, secondary_label, &commit_info, 8, 4};
-  Delta delta_set_property{Delta::SetPropertyTag{}, secondary_property, PropertyValue(), &commit_info, 7, 4};
-  Delta delta_delete3{Delta::DeleteObjectTag{}, &commit_info, 9, 3};
+  Delta delta_delete1{Delta::DeleteObjectTag{}, &commit_info, 4, 1};
+  Delta delta_delete2{Delta::DeleteObjectTag{}, &commit_info, 5, 2};
+  Delta delta_remove_label{Delta::RemoveLabelTag{}, secondary_label, &commit_info, 7, 4};
+  Delta delta_set_property{Delta::SetPropertyTag{}, secondary_property, PropertyValue(), &commit_info, 6, 4};
+  Delta delta_delete3{Delta::DeleteObjectTag{}, &commit_info, 8, 3};
 
   VertexContainer expected_vertices;
   expected_vertices.emplace(PrimaryKey{PropertyValue{4}}, VertexData(&delta_delete1));
@@ -191,29 +191,29 @@ TEST_F(ShardSplitTest, TestBasicSplitVerticesAndEdges) {
   EXPECT_EQ(splitted_data.label_property_indices.size(), 0);
 
   CommitInfo commit_info{.start_or_commit_timestamp = current_hlc};
-  Delta delta_delete1{Delta::DeleteObjectTag{}, &commit_info, 13, 1};
-  Delta delta_delete2{Delta::DeleteObjectTag{}, &commit_info, 14, 1};
-  Delta delta_delete3{Delta::DeleteObjectTag{}, &commit_info, 15, 1};
+  Delta delta_delete1{Delta::DeleteObjectTag{}, &commit_info, 12, 1};
+  Delta delta_delete2{Delta::DeleteObjectTag{}, &commit_info, 13, 1};
+  Delta delta_delete3{Delta::DeleteObjectTag{}, &commit_info, 14, 1};
   Delta delta_add_in_edge1{Delta::RemoveInEdgeTag{},
                            edge_type_id,
                            VertexId{primary_label, {PropertyValue(1)}},
                            EdgeRef{Gid::FromUint(1)},
                            &commit_info,
-                           18,
+                           17,
                            1};
   Delta delta_add_out_edge2{Delta::RemoveOutEdgeTag{},
                             edge_type_id,
                             VertexId{primary_label, {PropertyValue(6)}},
                             EdgeRef{Gid::FromUint(2)},
                             &commit_info,
-                            20,
+                            19,
                             1};
   Delta delta_add_in_edge2{Delta::RemoveInEdgeTag{},
                            edge_type_id,
                            VertexId{primary_label, {PropertyValue(4)}},
                            EdgeRef{Gid::FromUint(2)},
                            &commit_info,
-                           21,
+                           20,
                            1};
   VertexContainer expected_vertices;
   auto [vtx4, inserted4] = expected_vertices.emplace(PrimaryKey{PropertyValue{4}}, VertexData(&delta_delete1));
