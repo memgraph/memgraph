@@ -227,22 +227,27 @@ class DistributedCreateNodeCursor : public Cursor {
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, nullptr,
                                   storage::v3::View::NEW);
     if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info_.properties)) {
-      for (const auto &[key, value_expression] : *node_info_properties) {
+      for (const auto &[property, value_expression] : *node_info_properties) {
         TypedValue val = value_expression->Accept(evaluator);
-        if (context.request_router->IsPrimaryKey(primary_label, key)) {
-          rqst.primary_key.push_back(TypedValueToValue(val));
-          pk.push_back(TypedValueToValue(val));
+        auto msgs_value = TypedValueToValue(val);
+        if (context.request_router->IsPrimaryProperty(primary_label, property)) {
+          rqst.primary_key.push_back(msgs_value);
+          pk.push_back(std::move(msgs_value));
+        } else {
+          rqst.properties.emplace_back(property, std::move(msgs_value));
         }
       }
     } else {
       auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info_.properties)).ValueMap();
-      for (const auto &[key, value] : property_map) {
-        auto key_str = std::string(key);
-        auto property_id = context.request_router->NameToProperty(key_str);
-        if (context.request_router->IsPrimaryKey(primary_label, property_id)) {
-          rqst.primary_key.push_back(TypedValueToValue(value));
-          pk.push_back(TypedValueToValue(value));
-        }
+      for (const auto &[property, typed_value] : property_map) {
+        auto property_str = std::string(property);
+        auto property_id = context.request_router->NameToProperty(property_str);
+        auto msgs_value = TypedValueToValue(typed_value);
+        if (context.request_router->IsPrimaryProperty(primary_label, property_id)) {
+          rqst.primary_key.push_back(msgs_value);
+          pk.push_back(std::move(msgs_value));
+        } else
+          rqst.properties.emplace_back(property_id, std::move(msgs_value));
       }
     }
 
@@ -280,22 +285,27 @@ class DistributedCreateNodeCursor : public Cursor {
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, nullptr,
                                     storage::v3::View::NEW);
       if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info_.properties)) {
-        for (const auto &[key, value_expression] : *node_info_properties) {
+        for (const auto &[property, value_expression] : *node_info_properties) {
           TypedValue val = value_expression->Accept(evaluator);
-          if (context.request_router->IsPrimaryKey(primary_label, key)) {
-            rqst.primary_key.push_back(TypedValueToValue(val));
-            pk.push_back(TypedValueToValue(val));
+          auto msgs_value = TypedValueToValue(val);
+          if (context.request_router->IsPrimaryProperty(primary_label, property)) {
+            rqst.primary_key.push_back(msgs_value);
+            pk.push_back(std::move(msgs_value));
+          } else {
+            rqst.properties.emplace_back(property, std::move(msgs_value));
           }
         }
       } else {
         auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info_.properties)).ValueMap();
-        for (const auto &[key, value] : property_map) {
-          auto key_str = std::string(key);
-          auto property_id = context.request_router->NameToProperty(key_str);
-          if (context.request_router->IsPrimaryKey(primary_label, property_id)) {
-            rqst.primary_key.push_back(TypedValueToValue(value));
-            pk.push_back(TypedValueToValue(value));
-          }
+        for (const auto &[property, typed_value] : property_map) {
+          auto property_str = std::string(property);
+          auto property_id = context.request_router->NameToProperty(property_str);
+          auto msgs_value = TypedValueToValue(typed_value);
+          if (context.request_router->IsPrimaryProperty(primary_label, property_id)) {
+            rqst.primary_key.push_back(msgs_value);
+            pk.push_back(std::move(msgs_value));
+          } else
+            rqst.properties.emplace_back(property_id, std::move(msgs_value));
         }
       }
 
@@ -2820,7 +2830,7 @@ class DistributedCreateExpandCursor : public Cursor {
       const auto set_vertex = [&context](const auto &vertex, auto &vertex_id) {
         vertex_id.first = vertex.PrimaryLabel();
         for (const auto &[key, val] : vertex.Properties()) {
-          if (context.request_router->IsPrimaryKey(vertex_id.first.id, key)) {
+          if (context.request_router->IsPrimaryProperty(vertex_id.first.id, key)) {
             vertex_id.second.push_back(val);
           }
         }

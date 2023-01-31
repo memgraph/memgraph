@@ -117,7 +117,7 @@ class RequestRouterInterface {
   virtual std::optional<storage::v3::EdgeTypeId> MaybeNameToEdgeType(const std::string &name) const = 0;
   virtual std::optional<storage::v3::LabelId> MaybeNameToLabel(const std::string &name) const = 0;
   virtual bool IsPrimaryLabel(storage::v3::LabelId label) const = 0;
-  virtual bool IsPrimaryKey(storage::v3::LabelId primary_label, storage::v3::PropertyId property) const = 0;
+  virtual bool IsPrimaryProperty(storage::v3::LabelId primary_label, storage::v3::PropertyId property) const = 0;
 
   virtual std::optional<std::pair<uint64_t, uint64_t>> AllocateInitialEdgeIds(io::Address coordinator_address) = 0;
   virtual void InstallSimulatorTicker(std::function<bool()> tick_simulator) = 0;
@@ -231,7 +231,7 @@ class RequestRouter : public RequestRouterInterface {
     return edge_types_.IdToName(id.AsUint());
   }
 
-  bool IsPrimaryKey(storage::v3::LabelId primary_label, storage::v3::PropertyId property) const override {
+  bool IsPrimaryProperty(storage::v3::LabelId primary_label, storage::v3::PropertyId property) const override {
     const auto schema_it = shards_map_.schemas.find(primary_label);
     MG_ASSERT(schema_it != shards_map_.schemas.end(), "Invalid primary label id: {}", primary_label.AsUint());
 

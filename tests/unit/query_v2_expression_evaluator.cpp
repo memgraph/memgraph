@@ -123,7 +123,7 @@ class MockedRequestRouter : public RequestRouterInterface {
 
   bool IsPrimaryLabel(LabelId label) const override { return true; }
 
-  bool IsPrimaryKey(LabelId primary_label, PropertyId property) const override { return true; }
+  bool IsPrimaryProperty(LabelId primary_label, PropertyId property) const override { return true; }
 
   std::optional<std::pair<uint64_t, uint64_t>> AllocateInitialEdgeIds(io::Address coordinator_address) override {
     return {};
