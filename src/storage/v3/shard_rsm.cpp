@@ -322,8 +322,9 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::SplitRequest &&req) {
   auto new_shard_split_data = shard_->PerformSplit(converted_primary_key, req.old_shard_version, req.new_shard_version);
 
   if (new_shard_split_data) {
-    ShardManagerMessages msg_to_send{msgs::InitializeSplitShard{
-        .shard = Shard::FromSplitData(std::move(*new_shard_split_data)), .uuid_mapping = req.uuid_mapping}};
+    msgs::InitializeSplitShard msg{.shard = Shard::FromSplitData(std::move(*new_shard_split_data)),
+                                   .uuid_mapping = req.uuid_mapping};
+    ShardManagerMessages msg_to_send{std::move(msg)};
     shard_manager_sender_.Send(std::move(msg_to_send));
   }
 

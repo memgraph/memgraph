@@ -11,7 +11,9 @@
 
 #pragma once
 
+#include <concepts>
 #include <functional>
+#include <type_traits>
 
 namespace memgraph::utils {
 
@@ -19,19 +21,22 @@ namespace memgraph::utils {
 // reasonable constraints around message types over time,
 // as we adapt things to use Thrift-generated message types.
 template <typename T>
-concept Message = std::same_as<T, std::decay_t<T>>;
+concept Message = std::movable<T> || std::copyable<T>;
 
 /// This is a concrete type that allows one message type to be
 /// sent to a single address. Initially intended to be used by the
 /// Shard to send messages to the local ShardManager.
 template <Message M>
 class Sender {
-  std::function<void(M)> sender_;
-
  public:
+  Sender() = default;
+
   explicit Sender(std::function<void(M)> sender) : sender_(sender) {}
 
-  void Send(M &&message) { sender_(std::move(message)); }
+  void Send(M &&message) { sender_(std::forward<M>(message)); }
+
+ private:
+  std::function<void(M)> sender_;
 };
 
 }  // namespace memgraph::utils

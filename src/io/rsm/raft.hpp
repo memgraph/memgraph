@@ -33,6 +33,9 @@
 
 namespace memgraph::io::rsm {
 
+template <typename Type>
+concept HasShouldSplit = std::is_member_function_pointer<decltype(&Type::ShouldSplit)>::value;
+
 /// Timeout and replication tunables
 using namespace std::chrono_literals;
 static constexpr auto kMinimumElectionTimeout = 100ms;
@@ -345,20 +348,21 @@ class Raft {
     }
   }
 
-  template <typename T = ReplicatedState, std::enable_if_t<std::is_same_v<T, ShardRsm>, bool> = true>
-  msgs::SplitInfo ShouldSplit() {
+  template <typename = void>
+  requires HasShouldSplit<ReplicatedState> std::optional<msgs::SuggestedSplitInfo> ShouldSplit() {
     return replicated_state_.ShouldSplit();
   }
 
- private:
-  // Raft paper - 5.3
-  // When the entry has been safely replicated, the leader applies the
-  // entry to its state machine and returns the result of that
-  // execution to the client.
-  //
-  // "Safely replicated" is defined as being known to be present
-  // on at least a majority of all peers (inclusive of the Leader).
-  void BumpCommitIndexAndReplyToClients(Leader &leader) {
+ private :
+     // Raft paper - 5.3
+     // When the entry has been safely replicated, the leader applies the
+     // entry to its state machine and returns the result of that
+     // execution to the client.
+     //
+     // "Safely replicated" is defined as being known to be present
+     // on at least a majority of all peers (inclusive of the Leader).
+     void
+     BumpCommitIndexAndReplyToClients(Leader &leader) {
     auto confirmed_log_sizes = std::vector<LogSize>{};
 
     // We include our own log size in the calculation of the log
@@ -632,7 +636,7 @@ class Raft {
       MG_ASSERT(std::max(req.term, state_.term) == req.term);
     }
 
-    const VoteResponse res{
+    VoteResponse res{
         .term = std::max(req.term, state_.term),
         .committed_log_size = state_.committed_log_size,
         .vote_granted = new_leader,

@@ -164,12 +164,12 @@ class ShardWorker {
     return true;
   }
 
-  void Process(InitializeSplitShardByUUID &&initialize_split_shard) {
+  bool Process(InitializeSplitShardByUUID &&initialize_split_shard) {
     if (rsm_map_.contains(initialize_split_shard.shard_uuid)) {
       // it's not a bug for the coordinator to send us UUIDs that we have
       // already created, because there may have been lag that caused
       // the coordinator not to hear back from us.
-      return;
+      return true;
     }
 
     auto rsm_io = io_.ForkLocal(initialize_split_shard.shard_uuid);
@@ -194,6 +194,8 @@ class ShardWorker {
     cron_schedule_.push(std::make_pair(next_cron, initialize_split_shard.shard_uuid));
 
     rsm_map_.emplace(initialize_split_shard.shard_uuid, std::move(rsm));
+
+    return true;
   }
 
   Time Cron() {

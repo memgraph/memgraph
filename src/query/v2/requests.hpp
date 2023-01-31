@@ -595,12 +595,13 @@ struct SplitRequest {
 };
 
 struct InitializeSplitShard {
-  std::unique_ptr<storage::v3::Shard> shard;
+  // TODO(jbajic) Make it unique by solving that is not copyable int std::any
+  std::shared_ptr<storage::v3::Shard> shard;
   std::map<boost::uuids::uuid, boost::uuids::uuid> uuid_mapping;
 };
 
 struct InitializeSplitShardByUUID {
-  std::unique_ptr<storage::v3::Shard> shard;
+  std::shared_ptr<storage::v3::Shard> shard;
   boost::uuids::uuid shard_uuid;
 };
 
