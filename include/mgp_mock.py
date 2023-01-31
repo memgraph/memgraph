@@ -5,7 +5,6 @@ import typing
 from collections import namedtuple
 from functools import wraps
 
-
 import _mgp
 import networkx as nx
 
