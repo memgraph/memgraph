@@ -448,7 +448,7 @@ class ScanAllCursor : public Cursor {
 #ifdef MG_ENTERPRISE
   bool FindNextVertex(const ExecutionContext &context) {
     while (vertices_it_.value() != vertices_.value().end()) {
-      if (context.auth_checker->Has(*vertices_it_.value(), memgraph::storage::View::OLD,
+      if (context.auth_checker->Has(*vertices_it_.value(), memgraph::storage::View::NEW,
                                     memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
         return true;
       }

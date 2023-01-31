@@ -9,12 +9,11 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import pytest
 import sys
 
-from mgclient import DatabaseError
-
 import common
+import pytest
+from mgclient import DatabaseError
 
 
 def test_create_node_all_labels_granted():
@@ -511,6 +510,22 @@ def test_remove_label_when_label_denied():
 
     with pytest.raises(DatabaseError):
         common.execute_and_fetch_all(user_connection.cursor(), "MATCH (p:test_delete) REMOVE p:test_delete;")
+
+
+def test_merge_nodes_pass_when_having_create_delete():
+    admin_connection = common.connect(username="admin", password="test")
+    user_connection = common.connect(username="user", password="test")
+
+    common.reset_and_prepare(admin_connection.cursor())
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT CREATE_DELETE ON LABELS * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT CREATE_DELETE ON EDGE_TYPES * TO user;")
+
+    results = common.execute_and_fetch_all(
+        user_connection.cursor(),
+        "UNWIND [{id: '1', lat: 10, lng: 10}, {id: '2', lat: 10, lng: 10}, {id: '3', lat: 10, lng: 10}] AS row MERGE (o:Location {id: row.id}) RETURN o;",
+    )
+
+    assert len(results) == 3
 
 
 if __name__ == "__main__":
