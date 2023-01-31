@@ -10,10 +10,10 @@ NODES = [
     {"filename": "Organisation", "label": "Organisation"},
     {"filename": "TagClass", "label": "TagClass"},
     {"filename": "Tag", "label": "Tag"},
-    {"filename": "Comment", "label": "Comment:Message"},
+    {"filename": "Comment", "label": "Message:Comment"},
     {"filename": "Forum", "label": "Forum"},
     {"filename": "Person", "label": "Person"},
-    {"filename": "Post", "label": "Post:Message"},
+    {"filename": "Post", "label": "Message:Post"},
 ]
 
 EDGES = [
@@ -107,7 +107,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     args.output.mkdir(exist_ok=True)
-    out = "ldbc_interactive_sf10.cypher"
+    out = "ldbc_interactive_sf0.1.cypher"
     out_file = args.output / out
     if out_file.exists():
         out_file.unlink()
@@ -119,28 +119,37 @@ if __name__ == "__main__":
 
     for node_file in NODES:
         key = node_file["filename"].lower()
-        label = node_file["label"]
+        default_label = node_file["label"]
         query = None
         if key in input_files.keys():
             with input_files[key].open("r") as input_f, out_file.open("a") as output_f:
                 reader = csv.DictReader(input_f, delimiter="|")
+
                 for row in reader:
+                    if "type" in row.keys():
+                        label = default_label + ":" + row.pop("type").capitalize()
+                    else:
+                        label = default_label
+
                     query = "CREATE (:{} {{id:{}, ".format(label, row.pop("id"))
-                    # Format properties
+                    # Format properties to fit Memgraph
                     for k, v in row.items():
                         if k == "creationDate":
-                            # Take time zone out
                             row[k] = 'localDateTime("{}")'.format(v[0:-5])
+                        elif k == "birthday":
+                            row[k] = 'date("{}")'.format(v)
+                        elif k == "length":
+                            row[k] = "toInteger({})".format(v)
                         else:
                             row[k] = '"{}"'.format(v)
 
                     prop_string = ", ".join("{} : {}".format(k, v) for k, v in row.items())
                     query = query + prop_string + "});"
                     output_f.write(query + "\n")
-            print("Line")
             print("Converted file: " + input_files[key].name + " to " + out_file.name)
         else:
             print("Didn't process node file: " + key)
+            raise Exception("Didn't find the file that was needed!")
 
     for edge_file in EDGES:
         key = edge_file["filename"].lower()
@@ -179,7 +188,7 @@ if __name__ == "__main__":
 
                     query = query + edge_part + prop_string + "}]->(n2);"
                     output_f.write(query + "\n")
-            print("line")
             print("Converted file: " + input_files[key].name + " to " + out_file.name)
         else:
             print("Didn't process Edge file: " + key)
+            raise Exception("Didn't find the file that was needed!")
