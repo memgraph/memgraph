@@ -492,7 +492,7 @@ class LDBC_Interactive(Dataset):
     }
     SIZES = {
         "sf0.1": {"vertices": 327588, "edges": 1477965},
-        "sf1": {"vertices": 3172309, "edges": 14151360},
+        "sf1": {"vertices": 3181724, "edges": 17256038},
         "sf3": {"vertices": 1, "edges": 1},
         "sf10": {"vertices": 1, "edges": 1},
         "sf30": {"vertices": 1, "edges": 1},
@@ -1162,4 +1162,185 @@ class LDBC_BI(Dataset):
                 "startDate": "2011-07-20",
                 "endDate": "2011-07-25",
             },
+        )
+
+    def benchmark__bi__query_9(self):
+        return (
+            """
+            MATCH (person:Person)<-[:HAS_CREATOR]-(post:Post)<-[:REPLY_OF*0..]-(reply:Message)
+            WHERE  post.creationDate >= $startDate
+                AND  post.creationDate <= $endDate
+                AND reply.creationDate >= $startDate
+                AND reply.creationDate <= $endDate
+            RETURN
+                person.id,
+                person.firstName,
+                person.lastName,
+                count(DISTINCT post) AS threadCount,
+                count(DISTINCT reply) AS messageCount
+            ORDER BY
+                messageCount DESC,
+                person.id ASC
+            LIMIT 100
+            """.rstrip(
+                "\t\n"
+            ),
+            {
+                "startDate": "2011-10-01",
+                "endDate": "2011-10-15",
+            },
+        )
+
+    def benchmark__bi__query_11(self):
+        return (
+            """
+            MATCH (a:Person)-[:IS_LOCATED_IN]->(:City)-[:IS_PART_OF]->(country:Country {name: $country}),
+                (a)-[k1:KNOWS]-(b:Person)
+            WHERE a.id < b.id
+                AND $startDate <= k1.creationDate AND k1.creationDate <= $endDate
+            WITH DISTINCT country, a, b
+            MATCH (b)-[:IS_LOCATED_IN]->(:City)-[:IS_PART_OF]->(country)
+            WITH DISTINCT country, a, b
+            MATCH (b)-[k2:KNOWS]-(c:Person),
+                (c)-[:IS_LOCATED_IN]->(:City)-[:IS_PART_OF]->(country)
+            WHERE b.id < c.id
+                AND $startDate <= k2.creationDate AND k2.creationDate <= $endDate
+            WITH DISTINCT a, b, c
+            MATCH (c)-[k3:KNOWS]-(a)
+            WHERE $startDate <= k3.creationDate AND k3.creationDate <= $endDate
+            WITH DISTINCT a, b, c
+            RETURN count(*) AS count
+            """.rstrip(
+                "\t\n"
+            ),
+            {"startDate": "2012-09-29", "endDate": "2013-01-01"},
+        )
+
+    def benchmark__bi__query_12(self):
+        return (
+            """
+            MATCH (person:Person)
+            OPTIONAL MATCH (person)<-[:HAS_CREATOR]-(message:Message)-[:REPLY_OF*0..]->(post:Post)
+            WHERE message.content IS NOT NULL
+                AND message.length < $lengthThreshold
+                AND message.creationDate > $startDate
+                AND post.language IN $languages
+            WITH
+                person,
+                count(message) AS messageCount
+            RETURN
+                messageCount,
+                count(person) AS personCount
+            ORDER BY
+                personCount DESC,
+                messageCount DESC
+            """.rstrip(
+                "\t\n"
+            ),
+            {
+                "startDate": "2010-07-22",
+                "lengthThreshold": 20,
+                "languages": ["ar", "hu"],
+            },
+        )
+
+    def benchmark__bi__query_13(self):
+        return (
+            """
+            MATCH (country:Country {name: $country})<-[:IS_PART_OF]-(:City)<-[:IS_LOCATED_IN]-(zombie:Person)
+            WHERE zombie.creationDate < $endDate
+            WITH country, zombie
+            OPTIONAL MATCH (zombie)<-[:HAS_CREATOR]-(message:Message)
+            WHERE message.creationDate < $endDate
+            WITH
+                country,
+                zombie,
+                count(message) AS messageCount
+            WITH
+                country,
+                zombie,
+                12 * ($endDate.year  - zombie.creationDate.year )
+                    + ($endDate.month - zombie.creationDate.month)
+                    + 1 AS months,
+                messageCount
+            WHERE messageCount / months < 1
+            WITH
+                country,
+                collect(zombie) AS zombies
+            UNWIND zombies AS zombie
+            OPTIONAL MATCH
+                (zombie)<-[:HAS_CREATOR]-(message:Message)<-[:LIKES]-(likerZombie:Person)
+            WHERE likerZombie IN zombies
+            WITH
+                zombie,
+                count(likerZombie) AS zombieLikeCount
+            OPTIONAL MATCH
+                (zombie)<-[:HAS_CREATOR]-(message:Message)<-[:LIKES]-(likerPerson:Person)
+            WHERE likerPerson.creationDate < $endDate
+            WITH
+                zombie,
+                zombieLikeCount,
+                count(likerPerson) AS totalLikeCount
+            RETURN
+                zombie.id,
+                zombieLikeCount,
+                totalLikeCount,
+            CASE totalLikeCount
+            WHEN 0 THEN 0.0
+            ELSE zombieLikeCount / toFloat(totalLikeCount)
+            END AS zombieScore
+            ORDER BY
+                zombieScore DESC,
+                zombie.id ASC
+            LIMIT 100
+            """.rstrip(
+                "\t\n"
+            ),
+            {
+                "country": "France",
+                "endDate": "2013-01-01",
+            },
+        )
+
+    def benchmark__bi__query_14(self):
+        return (
+            """
+            MATCH
+                (country1:Country {name: $country1})<-[:IS_PART_OF]-(city1:City)<-[:IS_LOCATED_IN]-(person1:Person),
+                (country2:Country {name: $country2})<-[:IS_PART_OF]-(city2:City)<-[:IS_LOCATED_IN]-(person2:Person),
+                (person1)-[:KNOWS]-(person2)
+            WITH person1, person2, city1, 0 AS score
+            // case 1
+            OPTIONAL MATCH (person1)<-[:HAS_CREATOR]-(c:Comment)-[:REPLY_OF]->(:Message)-[:HAS_CREATOR]->(person2)
+            WITH DISTINCT person1, person2, city1, score + (CASE c WHEN null THEN 0 ELSE  4 END) AS score
+            // case 2
+            OPTIONAL MATCH (person1)<-[:HAS_CREATOR]-(m:Message)<-[:REPLY_OF]-(:Comment)-[:HAS_CREATOR]->(person2)
+            WITH DISTINCT person1, person2, city1, score + (CASE m WHEN null THEN 0 ELSE  1 END) AS score
+            // case 3
+            OPTIONAL MATCH (person1)-[:LIKES]->(m:Message)-[:HAS_CREATOR]->(person2)
+            WITH DISTINCT person1, person2, city1, score + (CASE m WHEN null THEN 0 ELSE 10 END) AS score
+            // case 4
+            OPTIONAL MATCH (person1)<-[:HAS_CREATOR]-(m:Message)<-[:LIKES]-(person2)
+            WITH DISTINCT person1, person2, city1, score + (CASE m WHEN null THEN 0 ELSE  1 END) AS score
+            // preorder
+            ORDER BY
+                city1.name ASC,
+                score DESC,
+                person1.id ASC,
+                person2.id ASC
+            WITH city1, collect({score: score, person1Id: person1.id, person2Id: person2.id})[0] AS top
+            RETURN
+                top.person1Id,
+                top.person2Id,
+                city1.name,
+                top.score
+            ORDER BY
+                top.score DESC,
+                top.person1Id ASC,
+                top.person2Id ASC
+            LIMIT 100
+            """.rstrip(
+                "\t\n"
+            ),
+            {"country1": "Chile", "country2": "Argentina"},
         )
