@@ -601,13 +601,12 @@ class RuleBasedPlanner {
 
   std::unique_ptr<LogicalOperator> ExtractComplexFilters(Filters &filters, const SymbolTable &symbol_table,
                                                          const std::unordered_set<Symbol> &bound_symbols) {
-    for (auto filters_it = filters.begin(); filters_it != filters.end();) {
-      if ((*filters_it).type != FilterInfo::Type::Complex) {
-        filters_it++;
+    for (auto &filter : filters) {
+      if (filter.type != FilterInfo::Type::Complex) {
         continue;
       }
 
-      if (auto *exists = utils::Downcast<Exists>(filters_it->expression)) {
+      if (auto *exists = utils::Downcast<Exists>(filter.expression)) {
         return MakeExistsFilter(*exists, symbol_table, bound_symbols);
       }
 

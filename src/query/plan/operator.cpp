@@ -2271,7 +2271,7 @@ std::vector<Symbol> Filter::ModifiedSymbols(const SymbolTable &table) const { re
 Filter::FilterCursor::FilterCursor(const Filter &self, utils::MemoryResource *mem)
     : self_(self),
       input_cursor_(self_.input_->MakeCursor(mem)),
-      complex_filter_cursor_(self_.complex_filter_->MakeCursor(mem)) {}
+      complex_filter_cursor_(self_.complex_filter_ ? self_.complex_filter_->MakeCursor(mem) : nullptr) {}
 
 bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Filter");
