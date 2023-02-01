@@ -298,7 +298,6 @@ HeartbeatResponse ShardMap::AssignShards(Address storage_manager, std::set<boost
       for (auto &peer_metadata : shard.peers) {
         const bool same_machine = peer_metadata.address.last_known_ip == storage_manager.last_known_ip &&
                                   peer_metadata.address.last_known_port == storage_manager.last_known_port;
-
         if (initialized.contains(peer_metadata.address.unique_id)) {
           shard_assigned_to_machine = true;
 
@@ -383,6 +382,24 @@ HeartbeatResponse ShardMap::AssignShards(Address storage_manager, std::set<boost
           MG_ASSERT(
               !same_machine,
               "failed to properly handle a new Status type in the heartbeat management and shard assignment code");
+        }
+      }
+
+      if (shard.pending_split.has_value()) {
+        // if the split shard has any peers that are CONSENSUS_PARTICIPANT, we can clear our
+        // pending split because even if a single peer has split, it means that the split has
+        // reached a majority of the replicas.
+        bool split_applied_anywhere = false;
+        const auto split_key = storage::conversions::ConvertPropertyVector(shard.pending_split->split_key);
+
+        for (const auto &split_peer : label_space.shards.at(split_key).peers) {
+          split_applied_anywhere |= split_peer.status == Status::CONSENSUS_PARTICIPANT;
+        }
+
+        if (split_applied_anywhere) {
+          spdlog::info("now that the shard in label space {} is done splitting, we can clear its pending_split data",
+                       label_id);
+          shard.pending_split.reset();
         }
       }
 
