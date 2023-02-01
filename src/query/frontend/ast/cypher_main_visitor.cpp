@@ -2220,7 +2220,10 @@ antlrcpp::Any CypherMainVisitor::visitExistsExpression(MemgraphCypher::ExistsExp
       ctx->relationshipsPattern()->patternElementChain()[0]->relationshipPattern()->accept(this));
   auto *to_node_info =
       std::any_cast<NodeAtom *>(ctx->relationshipsPattern()->patternElementChain()[0]->nodePattern()->accept(this));
-  return static_cast<Expression *>(storage_->Create<Exists>(node_ident, relationship_info, to_node_info));
+
+  auto *exists_limit = static_cast<Expression *>(storage_->Create<ExistsLimit>());
+
+  return static_cast<Expression *>(storage_->Create<Exists>(node_ident, relationship_info, to_node_info, exists_limit));
 }
 
 antlrcpp::Any CypherMainVisitor::visitParenthesizedExpression(MemgraphCypher::ParenthesizedExpressionContext *ctx) {
