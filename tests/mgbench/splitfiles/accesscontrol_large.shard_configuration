@@ -1,8 +1,12 @@
-4
+8
 uuid
 email
 name
 platformId
+permUuid
+permName
+fileUuid
+identityUuid
 2
 IS_FOR_IDENTITY
 IS_FOR_FILE
