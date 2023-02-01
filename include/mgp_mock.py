@@ -507,7 +507,7 @@ class Vertex:
 
 
 class _Path:
-    __slots__ = ("_vertices", "_edges", "_graph", "__create_key")
+    __slots__ = ("_vertices", "_edges", "_graph")
     __create_key = object()
 
     def __init__(self, create_key, vertex: Vertex, graph: nx.DiGraph) -> None:
