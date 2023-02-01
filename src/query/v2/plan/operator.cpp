@@ -1586,6 +1586,7 @@ class AggregateCursor : public Cursor {
         ExpressionEvaluator evaluator(&frame, context->symbol_table, context->evaluation_context,
                                       context->request_router, storage::v3::View::NEW);
         ProcessOne(frame, &evaluator);
+        frame.MakeInvalid();
       }
     }
 
