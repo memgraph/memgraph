@@ -565,9 +565,9 @@ class RuleBasedPlanner {
                                               const std::unordered_set<Symbol> &bound_symbols, Filters &filters,
                                               AstStorage &storage, const SymbolTable &symbol_table) {
     auto *filter_expr = impl::ExtractFilters(bound_symbols, filters, storage);
-    // auto *complex_filters = ExtractComplexFilters(filters, symbol_table, bound_symbols);
+    std::unique_ptr<LogicalOperator> complex_filter = ExtractComplexFilters(filters, symbol_table, bound_symbols);
     if (filter_expr) {
-      last_op = std::make_unique<Filter>(std::move(last_op), nullptr, filter_expr);
+      last_op = std::make_unique<Filter>(std::move(last_op), std::move(complex_filter), filter_expr);
     }
     return last_op;
   }
@@ -584,7 +584,8 @@ class RuleBasedPlanner {
       edge_types.push_back(GetEdgeType(type));
     }
 
-    std::unique_ptr<LogicalOperator> last_op = std::make_unique<Once>(bound_symbols);
+    std::vector<Symbol> once_symbols(bound_symbols.begin(), bound_symbols.end());
+    std::unique_ptr<LogicalOperator> last_op = std::make_unique<Once>(once_symbols);
 
     last_op = std::make_unique<Expand>(std::move(last_op), node1_symbol, node2_symbol, edge_symbol, direction,
                                        edge_types, false, storage::View::OLD);
@@ -594,14 +595,15 @@ class RuleBasedPlanner {
     return last_op;
   }
 
-  std::unique_ptr<LogicalOperator> ExtractComplexFilters(Filters &filters, const SymbolTable &symbol_table) {
+  std::unique_ptr<LogicalOperator> ExtractComplexFilters(Filters &filters, const SymbolTable &symbol_table,
+                                                         const std::unordered_set<Symbol> &bound_symbols) {
     for (auto filters_it = filters.begin(); filters_it != filters.end();) {
       if ((*filters_it).type != FilterInfo::Type::Complex) {
         continue;
       }
 
       if (auto *exists = utils::Downcast<Exists>(filters_it->expression)) {
-        return MakeExistsFilter(*exists, symbol_table);
+        return MakeExistsFilter(*exists, symbol_table, bound_symbols);
       }
 
       throw SemanticException("Complex filter does not exist!");
