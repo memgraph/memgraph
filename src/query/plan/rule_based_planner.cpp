@@ -517,43 +517,6 @@ Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols, Filt
   return filter_expr;
 }
 
-std::unique_ptr<LogicalOperator> MakeExistsFilter(Exists &exists) {
-  auto last_op = std::make_unique<Once>();
-  // last_op = std::make_unique<Expand>(last_op);
-
-  // ReturnBody body;
-  // last_op = std::make_unique<Limit>(last_op);
-
-  return last_op;
-}
-
-std::unique_ptr<LogicalOperator> ExtractComplexFilters(Filters &filters) {
-  for (auto filters_it = filters.begin(); filters_it != filters.end();) {
-    if ((*filters_it).type != FilterInfo::Type::Complex) {
-      continue;
-    }
-
-    if (auto *exists = utils::Downcast<Exists>(filters_it->expression)) {
-      return MakeExistsFilter(*exists);
-    }
-
-    throw SemanticException("Complex filter does not exist!");
-  }
-
-  return nullptr;
-}
-
-std::unique_ptr<LogicalOperator> GenFilters(std::unique_ptr<LogicalOperator> last_op,
-                                            const std::unordered_set<Symbol> &bound_symbols, Filters &filters,
-                                            AstStorage &storage) {
-  auto *filter_expr = ExtractFilters(bound_symbols, filters, storage);
-  // auto *complex_filters = ExtractComplexFilters(filters);
-  if (filter_expr) {
-    last_op = std::make_unique<Filter>(std::move(last_op), nullptr, filter_expr);
-  }
-  return last_op;
-}
-
 std::unique_ptr<LogicalOperator> GenNamedPaths(std::unique_ptr<LogicalOperator> last_op,
                                                std::unordered_set<Symbol> &bound_symbols,
                                                std::unordered_map<Symbol, std::vector<Symbol>> &named_paths) {

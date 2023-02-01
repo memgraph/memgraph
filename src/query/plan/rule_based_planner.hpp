@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -80,9 +80,6 @@ namespace impl {
 // `AndOperator` if symbols they use are bound.. All the joined filters are
 // removed from `Filters`.
 Expression *ExtractFilters(const std::unordered_set<Symbol> &, Filters &, AstStorage &);
-
-std::unique_ptr<LogicalOperator> GenFilters(std::unique_ptr<LogicalOperator>, const std::unordered_set<Symbol> &,
-                                            Filters &, AstStorage &);
 
 /// Utility function for iterating pattern atoms and accumulating a result.
 ///
@@ -394,16 +391,16 @@ class RuleBasedPlanner {
     // Try to generate any filters even before the 1st match operator. This
     // optimizes the optional match which filters only on symbols bound in
     // regular match.
-    auto last_op = impl::GenFilters(std::move(input_op), bound_symbols, filters, storage);
+    auto last_op = GenFilters(std::move(input_op), bound_symbols, filters, storage, symbol_table);
     for (const auto &expansion : matching.expansions) {
       const auto &node1_symbol = symbol_table.at(*expansion.node1->identifier_);
       if (bound_symbols.insert(node1_symbol).second) {
         // We have just bound this symbol, so generate ScanAll which fills it.
         last_op = std::make_unique<ScanAll>(std::move(last_op), node1_symbol, match_context.view);
         match_context.new_symbols.emplace_back(node1_symbol);
-        last_op = impl::GenFilters(std::move(last_op), bound_symbols, filters, storage);
+        last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
         last_op = impl::GenNamedPaths(std::move(last_op), bound_symbols, named_paths);
-        last_op = impl::GenFilters(std::move(last_op), bound_symbols, filters, storage);
+        last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
       }
       // We have an edge, so generate Expand.
       if (expansion.edge) {
@@ -502,9 +499,9 @@ class RuleBasedPlanner {
             last_op = std::make_unique<EdgeUniquenessFilter>(std::move(last_op), edge_symbol, other_symbols);
           }
         }
-        last_op = impl::GenFilters(std::move(last_op), bound_symbols, filters, storage);
+        last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
         last_op = impl::GenNamedPaths(std::move(last_op), bound_symbols, named_paths);
-        last_op = impl::GenFilters(std::move(last_op), bound_symbols, filters, storage);
+        last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
       }
     }
     MG_ASSERT(named_paths.empty(), "Expected to generate all named paths");
@@ -562,6 +559,58 @@ class RuleBasedPlanner {
     }
     return std::make_unique<plan::Foreach>(std::move(input_op), std::move(op), foreach->named_expression_->expression_,
                                            symbol);
+  }
+
+  std::unique_ptr<LogicalOperator> GenFilters(std::unique_ptr<LogicalOperator> last_op,
+                                              const std::unordered_set<Symbol> &bound_symbols, Filters &filters,
+                                              AstStorage &storage, const SymbolTable &symbol_table) {
+    auto *filter_expr = impl::ExtractFilters(bound_symbols, filters, storage);
+    // auto *complex_filters = ExtractComplexFilters(filters, symbol_table, bound_symbols);
+    if (filter_expr) {
+      last_op = std::make_unique<Filter>(std::move(last_op), nullptr, filter_expr);
+    }
+    return last_op;
+  }
+
+  std::unique_ptr<LogicalOperator> MakeExistsFilter(Exists &exists, const SymbolTable &symbol_table,
+                                                    const std::unordered_set<Symbol> &bound_symbols) {
+    auto node1_symbol = symbol_table.at(*exists.node_identifier_);
+    auto node2_symbol = symbol_table.at(*exists.node_info_->identifier_);
+    auto edge_symbol = symbol_table.at(*exists.relationship_info_->identifier_);
+    auto direction = exists.relationship_info_->direction_;
+    std::vector<storage::EdgeTypeId> edge_types;
+    edge_types.reserve(exists.relationship_info_->edge_types_.size());
+    for (const auto &type : exists.relationship_info_->edge_types_) {
+      edge_types.push_back(GetEdgeType(type));
+    }
+
+    std::unique_ptr<LogicalOperator> last_op = std::make_unique<Once>(bound_symbols);
+
+    last_op = std::make_unique<Expand>(std::move(last_op), node1_symbol, node2_symbol, edge_symbol, direction,
+                                       edge_types, false, storage::View::OLD);
+
+    // last_op = std::make_unique<Limit>(std::move(last_op));
+
+    // ReturnBody body;
+    // last_op = std::make_unique<Limit>(last_op);
+
+    return last_op;
+  }
+
+  std::unique_ptr<LogicalOperator> ExtractComplexFilters(Filters &filters, const SymbolTable &symbol_table) {
+    for (auto filters_it = filters.begin(); filters_it != filters.end();) {
+      if ((*filters_it).type != FilterInfo::Type::Complex) {
+        continue;
+      }
+
+      if (auto *exists = utils::Downcast<Exists>(filters_it->expression)) {
+        return MakeExistsFilter(*exists, symbol_table);
+      }
+
+      throw SemanticException("Complex filter does not exist!");
+    }
+
+    return nullptr;
   }
 };
 
