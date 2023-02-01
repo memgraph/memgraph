@@ -1163,6 +1163,7 @@ a boolean value.")
     private:
      const Filter &self_;
      const UniqueCursorPtr input_cursor_;
+     const UniqueCursorPtr complex_filter_cursor_;
    };
    cpp<#)
   (:serialize (:slk))

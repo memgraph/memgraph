@@ -2269,7 +2269,9 @@ UniqueCursorPtr Filter::MakeCursor(utils::MemoryResource *mem) const {
 std::vector<Symbol> Filter::ModifiedSymbols(const SymbolTable &table) const { return input_->ModifiedSymbols(table); }
 
 Filter::FilterCursor::FilterCursor(const Filter &self, utils::MemoryResource *mem)
-    : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
+    : self_(self),
+      input_cursor_(self_.input_->MakeCursor(mem)),
+      complex_filter_cursor_(self_.complex_filter_->MakeCursor(mem)) {}
 
 bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Filter");
@@ -2279,6 +2281,10 @@ bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::OLD);
   while (input_cursor_->Pull(frame, context)) {
+    if (complex_filter_cursor_) {
+      complex_filter_cursor_->Pull(frame, context);
+    }
+
     if (EvaluateFilter(evaluator, self_.expression_)) return true;
   }
   return false;
