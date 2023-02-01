@@ -1462,6 +1462,27 @@ cpp<#
   (:serialize (:slk))
   (:clone))
 
+(lcp:define-class exists-limit (expression)
+  ()
+
+  (:public
+    #>cpp
+    ExistsLimit() = default;
+
+    DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      visitor.PreVisit(*this);
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
 (lcp:define-class exists (expression)
   ((node_identifier "Identifier *" :initval "nullptr" :scope :public
                :slk-save #'slk-save-ast-pointer
@@ -1474,7 +1495,11 @@ cpp<#
     (node_info "NodeAtom *" :initval "nullptr" :scope :public
                :slk-save #'slk-save-ast-pointer
                :slk-load (slk-load-ast-pointer "NodeAtom")
-               :documentation "Node info on the exists pattern."))
+               :documentation "Node info on the exists pattern.")
+    (limit_expression "Expression *" :initval "nullptr" :scope :public
+               :slk-save #'slk-save-ast-pointer
+               :slk-load (slk-load-ast-pointer "Expression")
+               :documentation "Limit expression."))
 
   (:public
     #>cpp
@@ -1484,15 +1509,15 @@ cpp<#
     DEFVISITABLE(ExpressionVisitor<void>);
     bool Accept(HierarchicalTreeVisitor &visitor) override {
       if (visitor.PreVisit(*this)) {
-        node_identifier_->Accept(visitor) && relationship_info_->Accept(visitor) && node_info_->Accept(visitor);
+        node_identifier_->Accept(visitor) && relationship_info_->Accept(visitor) && node_info_->Accept(visitor) && limit_expression_->Accept(visitor);
       }
       return visitor.PostVisit(*this);
     }
     cpp<#)
   (:protected
     #>cpp
-    Exists(Identifier *node_identifier, EdgeAtom *relationship_info, NodeAtom *node_info)
-     : node_identifier_(node_identifier), relationship_info_(relationship_info), node_info_(node_info) {}
+    Exists(Identifier *node_identifier, EdgeAtom *relationship_info, NodeAtom *node_info, Expression *limit_expression)
+     : node_identifier_(node_identifier), relationship_info_(relationship_info), node_info_(node_info), limit_expression_(limit_expression) {}
     cpp<#)
   (:private
     #>cpp
