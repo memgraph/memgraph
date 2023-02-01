@@ -218,6 +218,7 @@ class DistributedCreateNodeCursor : public Cursor {
   }
 
   std::vector<msgs::NewVertex> NodeCreationInfoToRequest(ExecutionContext &context, Frame &frame) {
+    primary_keys_.clear();
     std::vector<msgs::NewVertex> requests;
     msgs::PrimaryKey pk;
     msgs::NewVertex rqst;
@@ -273,6 +274,7 @@ class DistributedCreateNodeCursor : public Cursor {
   }
 
   std::vector<msgs::NewVertex> NodeCreationInfoToRequests(ExecutionContext &context, MultiFrame &multi_frame) {
+    primary_keys_.clear();
     std::vector<msgs::NewVertex> requests;
     auto multi_frame_modifier = multi_frame.GetValidFramesModifier();
     for (auto &frame : multi_frame_modifier) {
