@@ -302,6 +302,11 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
   if (scope.in_skip || scope.in_limit) {
     throw SemanticException("Variables are not allowed in {}.", scope.in_skip ? "SKIP" : "LIMIT");
   }
+  if (scope.in_exists && (scope.visiting_edge || scope.in_node_atom)) {
+    if (HasSymbol(ident.name_) || ConsumePredefinedIdentifier(ident.name_)) {
+      throw SemanticException("Unbounded variables are not allowed in exists!");
+    }
+  }
   Symbol symbol;
   if (scope.in_pattern && !(scope.in_node_atom || scope.visiting_edge)) {
     // If we are in the pattern, and outside of a node or an edge, the
@@ -431,8 +436,23 @@ bool SymbolGenerator::PreVisit(Extract &extract) {
 }
 
 bool SymbolGenerator::PreVisit(Exists &exists) {
+  auto &scope = scopes_.back();
+  scope.in_exists = true;
+
   exists.node_identifier_->Accept(*this);
+
+  scope.in_pattern = true;
+  exists.relationship_info_->Accept(*this);
+  exists.node_info_->Accept(*this);
+
   return false;
+}
+
+bool SymbolGenerator::PostVisit(Exists &exists) {
+  auto &scope = scopes_.back();
+  scope.in_exists = false;
+  scope.in_pattern = false;
+  return true;
 }
 
 // Pattern and its subparts.
