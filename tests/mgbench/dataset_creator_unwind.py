@@ -107,7 +107,7 @@ def main():
         f.write("\n] AS props CREATE (:Identity {uuid: props.uuid, name: props.name});\n")
 
         f.write("UNWIND [")
-        wrote_anything = False
+        created = 0
         for outer_index in range(0, number_of_files):
             for inner_index in range(0, number_of_identities):
 
@@ -116,17 +116,27 @@ def main():
 
                 if random.random() <= percentage_of_permissions:
 
-                    if wrote_anything:
+                    if created > 0:
                         f.write(",")
 
                     f.write(
                         f'\n  {{permUuid: {uuid}, permName: "name_permission_{uuid}", fileUuid: {file_uuid}, identityUuid: {identity_uuid}}}'
                     )
-                    wrote_anything = True
+                    created += 1
                     uuid += 1
+
+                    if created == 5000:
+                        f.write(
+                            """\n] AS props
+MATCH (file:File {uuid:props.fileUuid}), (identity:Identity {uuid: props.identityUuid})
+CREATE (permission:Permission {uuid: props.permUuid, name: props.permName})
+CREATE (permission)-[: IS_FOR_FILE]->(file)
+CREATE (permission)-[: IS_FOR_IDENTITY]->(identity);
+UNWIND ["""
+                        )
+                        created = 0
         f.write(
-            """
-\n] AS props
+            """\n] AS props
 MATCH (file:File {uuid:props.fileUuid}), (identity:Identity {uuid: props.identityUuid})
 CREATE (permission:Permission {uuid: props.permUuid, name: props.permName})
 CREATE (permission)-[: IS_FOR_FILE]->(file)
