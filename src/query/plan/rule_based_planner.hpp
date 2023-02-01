@@ -171,7 +171,11 @@ class RuleBasedPlanner {
       input_op = PlanMatching(match_ctx, std::move(input_op));
       for (const auto &matching : query_part.optional_matching) {
         MatchContext opt_ctx{matching, *context.symbol_table, context.bound_symbols};
-        auto match_op = PlanMatching(opt_ctx, nullptr);
+
+        std::vector<Symbol> bound_symbols(context_->bound_symbols.begin(), context_->bound_symbols.end());
+        auto once_with_symbols = std::make_unique<Once>(bound_symbols);
+
+        auto match_op = PlanMatching(opt_ctx, std::move(once_with_symbols));
         if (match_op) {
           input_op = std::make_unique<Optional>(std::move(input_op), std::move(match_op), opt_ctx.new_symbols);
         }

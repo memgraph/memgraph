@@ -64,14 +64,6 @@ auto SymbolGenerator::CreateSymbol(const std::string &name, bool user_declared, 
   return symbol;
 }
 
-auto SymbolGenerator::GetOrCreateSymbolLocalScope(const std::string &name, bool user_declared, Symbol::Type type) {
-  auto &scope = scopes_.back();
-  if (auto maybe_symbol = FindSymbolInScope(name, scope, type); maybe_symbol) {
-    return *maybe_symbol;
-  }
-  return CreateSymbol(name, user_declared, type);
-}
-
 auto SymbolGenerator::GetOrCreateSymbol(const std::string &name, bool user_declared, Symbol::Type type) {
   // NOLINTNEXTLINE
   for (auto scope = scopes_.rbegin(); scope != scopes_.rend(); ++scope) {
@@ -206,7 +198,7 @@ bool SymbolGenerator::PreVisit(CallProcedure &call_proc) {
 
 bool SymbolGenerator::PostVisit(CallProcedure &call_proc) {
   for (auto *ident : call_proc.result_identifiers_) {
-    if (HasSymbolLocalScope(ident->name_)) {
+    if (HasSymbol(ident->name_)) {
       throw RedeclareVariableError(ident->name_);
     }
     ident->MapTo(CreateSymbol(ident->name_, true));
@@ -217,7 +209,7 @@ bool SymbolGenerator::PostVisit(CallProcedure &call_proc) {
 bool SymbolGenerator::PreVisit(LoadCsv &load_csv) { return false; }
 
 bool SymbolGenerator::PostVisit(LoadCsv &load_csv) {
-  if (HasSymbolLocalScope(load_csv.row_var_->name_)) {
+  if (HasSymbol(load_csv.row_var_->name_)) {
     throw RedeclareVariableError(load_csv.row_var_->name_);
   }
   load_csv.row_var_->MapTo(CreateSymbol(load_csv.row_var_->name_, true));
@@ -265,7 +257,7 @@ bool SymbolGenerator::PostVisit(Merge &) {
 
 bool SymbolGenerator::PostVisit(Unwind &unwind) {
   const auto &name = unwind.named_expression_->name_;
-  if (HasSymbolLocalScope(name)) {
+  if (HasSymbol(name)) {
     throw RedeclareVariableError(name);
   }
   unwind.named_expression_->MapTo(CreateSymbol(name, true));
@@ -282,7 +274,7 @@ bool SymbolGenerator::PostVisit(Match &) {
   // Check variables in property maps after visiting Match, so that they can
   // reference symbols out of bind order.
   for (auto &ident : scope.identifiers_in_match) {
-    if (!HasSymbolLocalScope(ident->name_) && !ConsumePredefinedIdentifier(ident->name_))
+    if (!HasSymbol(ident->name_) && !ConsumePredefinedIdentifier(ident->name_))
       throw UnboundVariableError(ident->name_);
     ident->MapTo(scope.symbols[ident->name_]);
   }
@@ -314,7 +306,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
   if (scope.in_pattern && !(scope.in_node_atom || scope.visiting_edge)) {
     // If we are in the pattern, and outside of a node or an edge, the
     // identifier is the pattern name.
-    symbol = GetOrCreateSymbolLocalScope(ident.name_, ident.user_declared_, Symbol::Type::PATH);
+    symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::PATH);
   } else if (scope.in_pattern && scope.in_pattern_atom_identifier) {
     //  Patterns used to create nodes and edges cannot redeclare already
     //  established bindings. Declaration only happens in single node
@@ -322,19 +314,19 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     //  `MATCH (n) CREATE (n)` should throw an error that `n` is already
     //  declared. While `MATCH (n) CREATE (n) -[:R]-> (n)` is allowed,
     //  since `n` now references the bound node instead of declaring it.
-    if ((scope.in_create_node || scope.in_create_edge) && HasSymbolLocalScope(ident.name_)) {
+    if ((scope.in_create_node || scope.in_create_edge) && HasSymbol(ident.name_)) {
       throw RedeclareVariableError(ident.name_);
     }
     auto type = Symbol::Type::VERTEX;
     if (scope.visiting_edge) {
       // Edge referencing is not allowed (like in Neo4j):
       // `MATCH (n) - [r] -> (n) - [r] -> (n) RETURN r` is not allowed.
-      if (HasSymbolLocalScope(ident.name_)) {
+      if (HasSymbol(ident.name_)) {
         throw RedeclareVariableError(ident.name_);
       }
       type = scope.visiting_edge->IsVariable() ? Symbol::Type::EDGE_LIST : Symbol::Type::EDGE;
     }
-    symbol = GetOrCreateSymbolLocalScope(ident.name_, ident.user_declared_, type);
+    symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, type);
   } else if (scope.in_pattern && !scope.in_pattern_atom_identifier && scope.in_match) {
     if (scope.in_edge_range && scope.visiting_edge->identifier_->name_ == ident.name_) {
       // Prevent variable path bounds to reference the identifier which is bound
@@ -466,7 +458,7 @@ bool SymbolGenerator::PreVisit(NodeAtom &node_atom) {
   auto &scope = scopes_.back();
   auto check_node_semantic = [&node_atom, &scope, this](const bool props_or_labels) {
     const auto &node_name = node_atom.identifier_->name_;
-    if ((scope.in_create || scope.in_merge) && props_or_labels && HasSymbolLocalScope(node_name)) {
+    if ((scope.in_create || scope.in_merge) && props_or_labels && HasSymbol(node_name)) {
       throw SemanticException("Cannot create node '" + node_name +
                               "' with labels or properties, because it is already declared.");
     }
@@ -560,11 +552,11 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
   edge_atom.identifier_->Accept(*this);
   scope.in_pattern_atom_identifier = false;
   if (edge_atom.total_weight_) {
-    if (HasSymbolLocalScope(edge_atom.total_weight_->name_)) {
+    if (HasSymbol(edge_atom.total_weight_->name_)) {
       throw RedeclareVariableError(edge_atom.total_weight_->name_);
     }
-    edge_atom.total_weight_->MapTo(GetOrCreateSymbolLocalScope(
-        edge_atom.total_weight_->name_, edge_atom.total_weight_->user_declared_, Symbol::Type::NUMBER));
+    edge_atom.total_weight_->MapTo(GetOrCreateSymbol(edge_atom.total_weight_->name_,
+                                                     edge_atom.total_weight_->user_declared_, Symbol::Type::NUMBER));
   }
   return false;
 }
@@ -605,10 +597,6 @@ void SymbolGenerator::VisitWithIdentifiers(Expression *expr, const std::vector<I
 
 bool SymbolGenerator::HasSymbol(const std::string &name) const {
   return std::ranges::any_of(scopes_, [&name](const auto &scope) { return scope.symbols.contains(name); });
-}
-
-bool SymbolGenerator::HasSymbolLocalScope(const std::string &name) const {
-  return scopes_.back().symbols.contains(name);
 }
 
 bool SymbolGenerator::ConsumePredefinedIdentifier(const std::string &name) {

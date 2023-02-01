@@ -135,7 +135,6 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   static std::optional<Symbol> FindSymbolInScope(const std::string &name, const Scope &scope, Symbol::Type type);
 
   bool HasSymbol(const std::string &name) const;
-  bool HasSymbolLocalScope(const std::string &name) const;
 
   // @return true if it added a predefined identifier with that name
   bool ConsumePredefinedIdentifier(const std::string &name);
@@ -148,7 +147,6 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   auto GetOrCreateSymbol(const std::string &name, bool user_declared, Symbol::Type type = Symbol::Type::ANY);
   // Returns the symbol by name. If the mapping already exists, checks if the
   // types match. Otherwise, returns a new symbol.
-  auto GetOrCreateSymbolLocalScope(const std::string &name, bool user_declared, Symbol::Type type = Symbol::Type::ANY);
 
   void VisitReturnBody(ReturnBody &body, Where *where = nullptr);
 

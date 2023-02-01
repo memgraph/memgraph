@@ -410,10 +410,11 @@ VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(Frame &frame, Exec
 template <class TVerticesFun>
 class ScanAllCursor : public Cursor {
  public:
-  explicit ScanAllCursor(Symbol output_symbol, UniqueCursorPtr input_cursor, TVerticesFun get_vertices,
-                         const char *op_name)
+  explicit ScanAllCursor(Symbol output_symbol, UniqueCursorPtr input_cursor, storage::View view,
+                         TVerticesFun get_vertices, const char *op_name)
       : output_symbol_(output_symbol),
         input_cursor_(std::move(input_cursor)),
+        view_(view),
         get_vertices_(std::move(get_vertices)),
         op_name_(op_name) {}
 
@@ -448,7 +449,7 @@ class ScanAllCursor : public Cursor {
 #ifdef MG_ENTERPRISE
   bool FindNextVertex(const ExecutionContext &context) {
     while (vertices_it_.value() != vertices_.value().end()) {
-      if (context.auth_checker->Has(*vertices_it_.value(), memgraph::storage::View::OLD,
+      if (context.auth_checker->Has(*vertices_it_.value(), view_,
                                     memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
         return true;
       }
@@ -469,6 +470,7 @@ class ScanAllCursor : public Cursor {
  private:
   const Symbol output_symbol_;
   const UniqueCursorPtr input_cursor_;
+  storage::View view_;
   TVerticesFun get_vertices_;
   std::optional<typename std::result_of<TVerticesFun(Frame &, ExecutionContext &)>::type::value_type> vertices_;
   std::optional<decltype(vertices_.value().begin())> vertices_it_;
@@ -487,7 +489,7 @@ UniqueCursorPtr ScanAll::MakeCursor(utils::MemoryResource *mem) const {
     auto *db = context.db_accessor;
     return std::make_optional(db->Vertices(view_));
   };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem), view_,
                                                                 std::move(vertices), "ScanAll");
 }
 
@@ -510,7 +512,7 @@ UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem) const {
     auto *db = context.db_accessor;
     return std::make_optional(db->Vertices(view_, label_));
   };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem), view_,
                                                                 std::move(vertices), "ScanAllByLabel");
 }
 
@@ -575,7 +577,7 @@ UniqueCursorPtr ScanAllByLabelPropertyRange::MakeCursor(utils::MemoryResource *m
     if (maybe_upper && maybe_upper->value().IsNull()) return std::nullopt;
     return std::make_optional(db->Vertices(view_, label_, property_, maybe_lower, maybe_upper));
   };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem), view_,
                                                                 std::move(vertices), "ScanAllByLabelPropertyRange");
 }
 
@@ -607,7 +609,7 @@ UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(utils::MemoryResource *m
     }
     return std::make_optional(db->Vertices(view_, label_, property_, storage::PropertyValue(value)));
   };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem), view_,
                                                                 std::move(vertices), "ScanAllByLabelPropertyValue");
 }
 
@@ -625,7 +627,7 @@ UniqueCursorPtr ScanAllByLabelProperty::MakeCursor(utils::MemoryResource *mem) c
     auto *db = context.db_accessor;
     return std::make_optional(db->Vertices(view_, label_, property_));
   };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem), view_,
                                                                 std::move(vertices), "ScanAllByLabelProperty");
 }
 
@@ -651,7 +653,7 @@ UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
     if (!maybe_vertex) return std::nullopt;
     return std::vector<VertexAccessor>{*maybe_vertex};
   };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem), view_,
                                                                 std::move(vertices), "ScanAllById");
 }
 
@@ -2020,7 +2022,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         next_edges_.clear();
         traversal_stack_.clear();
 
-        pq_.push({TypedValue(), 0, *start_vertex, std::nullopt});
+        expand_from_vertex(*start_vertex, TypedValue(), 0);
         visited_cost_.emplace(*start_vertex, 0);
         frame[self_.common_.edge_symbol] = TypedValue::TVector(memory);
       }
@@ -2029,33 +2031,28 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       while (!pq_.empty()) {
         if (MustAbort(context)) throw HintedAbortError();
 
-        auto [current_weight, current_depth, current_vertex, maybe_directed_edge] = pq_.top();
+        const auto [current_weight, current_depth, current_vertex, directed_edge] = pq_.top();
         pq_.pop();
+
+        const auto &[current_edge, direction, weight] = directed_edge;
+        if (expanded_.contains(current_edge)) continue;
+        expanded_.emplace(current_edge);
 
         // Expand only if what we've just expanded is less than max depth.
         if (current_depth < upper_bound_) {
-          if (maybe_directed_edge) {
-            auto &[current_edge, direction, weight] = *maybe_directed_edge;
-            if (expanded_.find(current_edge) != expanded_.end()) continue;
-            expanded_.emplace(current_edge);
-          }
           expand_from_vertex(current_vertex, current_weight, current_depth);
         }
 
-        // if current vertex is not starting vertex, maybe_directed_edge will not be nullopt
-        if (maybe_directed_edge) {
-          auto &[current_edge, direction, weight] = *maybe_directed_edge;
-          // Searching for a previous vertex in the expansion
-          auto prev_vertex = direction == EdgeAtom::Direction::IN ? current_edge.To() : current_edge.From();
+        // Searching for a previous vertex in the expansion
+        auto prev_vertex = direction == EdgeAtom::Direction::IN ? current_edge.To() : current_edge.From();
 
-          // Update the parent
-          if (next_edges_.find({prev_vertex, current_depth - 1}) == next_edges_.end()) {
-            utils::pmr::list<DirectedEdge> empty(memory);
-            next_edges_[{prev_vertex, current_depth - 1}] = std::move(empty);
-          }
-
-          next_edges_.at({prev_vertex, current_depth - 1}).emplace_back(*maybe_directed_edge);
+        // Update the parent
+        if (next_edges_.find({prev_vertex, current_depth - 1}) == next_edges_.end()) {
+          utils::pmr::list<DirectedEdge> empty(memory);
+          next_edges_[{prev_vertex, current_depth - 1}] = std::move(empty);
         }
+
+        next_edges_.at({prev_vertex, current_depth - 1}).emplace_back(directed_edge);
       }
 
       if (start_vertex && next_edges_.find({*start_vertex, 0}) != next_edges_.end()) {
@@ -2112,8 +2109,8 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
   // Priority queue comparator. Keep lowest weight on top of the queue.
   class PriorityQueueComparator {
    public:
-    bool operator()(const std::tuple<TypedValue, int64_t, VertexAccessor, std::optional<DirectedEdge>> &lhs,
-                    const std::tuple<TypedValue, int64_t, VertexAccessor, std::optional<DirectedEdge>> &rhs) {
+    bool operator()(const std::tuple<TypedValue, int64_t, VertexAccessor, DirectedEdge> &lhs,
+                    const std::tuple<TypedValue, int64_t, VertexAccessor, DirectedEdge> &rhs) {
       const auto &lhs_weight = std::get<0>(lhs);
       const auto &rhs_weight = std::get<0>(rhs);
       // Null defines minimum value for all types
@@ -2132,8 +2129,8 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
   // Priority queue - core element of the algorithm.
   // Stores: {weight, depth, next vertex, edge and direction}
-  std::priority_queue<std::tuple<TypedValue, int64_t, VertexAccessor, std::optional<DirectedEdge>>,
-                      utils::pmr::vector<std::tuple<TypedValue, int64_t, VertexAccessor, std::optional<DirectedEdge>>>,
+  std::priority_queue<std::tuple<TypedValue, int64_t, VertexAccessor, DirectedEdge>,
+                      utils::pmr::vector<std::tuple<TypedValue, int64_t, VertexAccessor, DirectedEdge>>,
                       PriorityQueueComparator>
       pq_;
 
