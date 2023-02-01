@@ -667,7 +667,8 @@ class DistributedScanByPrimaryKeyCursor : public Cursor {
       // TODO (gvolfing) figure out labels when relevant.
       msgs::Vertex vertex = {.id = result.vertex, .labels = {}};
 
-      id_to_accessor_mapping_.emplace(result.vertex, VertexAccessor(std::move(vertex), std::move(result.properties), &request_router));
+      id_to_accessor_mapping_.emplace(result.vertex,
+                                      VertexAccessor(std::move(vertex), std::move(result.props), &request_router));
     }
   }
 
