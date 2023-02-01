@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,6 +13,7 @@
 
 #include <memory>
 
+#include <chrono>
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices.hpp"
@@ -59,6 +60,9 @@ std::pair<bool, bool> IsVisible(Vertex *vertex, Transaction *transaction, View v
 }
 }  // namespace
 }  // namespace detail
+
+std::chrono::duration<double> total;
+std::chrono::duration<double> new_print;
 
 std::optional<VertexAccessor> VertexAccessor::Create(Vertex *vertex, Transaction *transaction, Indices *indices,
                                                      Constraints *constraints, Config::Items config, View view) {
@@ -208,6 +212,8 @@ Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
 }
 
 Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
+  auto start = std::chrono::steady_clock::now();
+
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
@@ -226,6 +232,15 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   vertex_->properties.SetProperty(property, value);
 
   UpdateOnSetProperty(indices_, property, value, vertex_, *transaction_);
+
+  auto end = std::chrono::steady_clock::now();
+  std::chrono::duration<double> dif = end - start;
+  total += dif;
+
+  if (total > new_print) {
+    std::cout << "Time difference = " << total.count() << "[s]" << std::endl;
+    new_print += static_cast<std::chrono::duration<double>>(2.0);
+  }
 
   return std::move(current_value);
 }

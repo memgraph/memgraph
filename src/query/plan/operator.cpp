@@ -155,6 +155,9 @@ uint64_t ComputeProfilingKey(const T *obj) {
 
 #define SCOPED_PROFILE_OP(name) ScopedProfile profile{ComputeProfilingKey(this), name, &context};
 
+std::chrono::duration<double> total;
+std::chrono::duration<double> new_print;
+
 bool Once::OnceCursor::Pull(Frame &, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Once");
 
@@ -208,6 +211,8 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
                                 storage::View::NEW);
   // TODO: PropsSetChecked allocates a PropertyValue, make it use context.memory
   // when we update PropertyValue with custom allocator.
+
+  auto start = std::chrono::steady_clock::now();
   if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info.properties)) {
     for (const auto &[key, value_expression] : *node_info_properties) {
       PropsSetChecked(&new_node, key, value_expression->Accept(evaluator));
@@ -218,6 +223,14 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
       auto property_id = dba.NameToProperty(key);
       PropsSetChecked(&new_node, property_id, value);
     }
+  }
+  auto end = std::chrono::steady_clock::now();
+  std::chrono::duration<double> dif = end - start;
+  total += dif;
+
+  if (total > new_print) {
+    std::cout << "Time difference props set checked = " << total.count() << "[s]" << std::endl;
+    new_print += static_cast<std::chrono::duration<double>>(10.0);
   }
 
   (*frame)[node_info.symbol] = new_node;
@@ -4580,19 +4593,17 @@ class LoadCsvCursor : public Cursor {
     // pulling MATCH).
     if (!input_is_once_ && !input_pulled) return false;
 
-    bool read_something = false;
-    // read and parse each row
-    while (auto row = reader_->GetNextRow(context.evaluation_context.memory)) {
-      if (!reader_->HasHeader()) {
-        frame[self_->row_var_] = CsvRowToTypedList(*row);
-      } else {
-        frame[self_->row_var_] =
-            CsvRowToTypedMap(*row, csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory));
-      }
-      read_something = true;
+    auto row = reader_->GetNextRow(context.evaluation_context.memory);
+    if (!row) {
+      return false;
     }
-
-    return read_something;
+    if (!reader_->HasHeader()) {
+      frame[self_->row_var_] = CsvRowToTypedList(*row);
+    } else {
+      frame[self_->row_var_] =
+          CsvRowToTypedMap(*row, csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory));
+    }
+    return true;
   }
 
   void Reset() override { input_cursor_->Reset(); }

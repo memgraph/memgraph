@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -30,6 +30,78 @@
 #include "utils/exceptions.hpp"
 
 namespace memgraph::query {
+
+static std::chrono::duration<double> total2;
+static std::chrono::duration<double> new_print2;
+
+class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue *> {
+ public:
+  ReferenceExpressionEvaluator(Frame *frame, const SymbolTable *symbol_table, const EvaluationContext *ctx,
+                               DbAccessor *dba, storage::View view)
+      : frame_(frame), symbol_table_(symbol_table), ctx_(ctx), dba_(dba), view_(view) {}
+
+  using ExpressionVisitor<TypedValue *>::Visit;
+
+  utils::MemoryResource *GetMemoryResource() const { return ctx_->memory; }
+
+#define UNSUCCESFUL_VISIT(expr_name) \
+  TypedValue *Visit(expr_name &expr) override { return nullptr; }
+
+  TypedValue *Visit(Identifier &ident) override { return &frame_->at(symbol_table_->at(ident)); }
+
+  UNSUCCESFUL_VISIT(NamedExpression);
+  UNSUCCESFUL_VISIT(OrOperator);
+  UNSUCCESFUL_VISIT(XorOperator);
+  UNSUCCESFUL_VISIT(AdditionOperator);
+  UNSUCCESFUL_VISIT(SubtractionOperator);
+  UNSUCCESFUL_VISIT(MultiplicationOperator);
+  UNSUCCESFUL_VISIT(DivisionOperator);
+  UNSUCCESFUL_VISIT(ModOperator);
+  UNSUCCESFUL_VISIT(NotEqualOperator);
+  UNSUCCESFUL_VISIT(EqualOperator);
+  UNSUCCESFUL_VISIT(LessOperator);
+  UNSUCCESFUL_VISIT(GreaterOperator);
+  UNSUCCESFUL_VISIT(LessEqualOperator);
+  UNSUCCESFUL_VISIT(GreaterEqualOperator);
+
+  UNSUCCESFUL_VISIT(NotOperator);
+  UNSUCCESFUL_VISIT(UnaryPlusOperator);
+  UNSUCCESFUL_VISIT(UnaryMinusOperator);
+
+  UNSUCCESFUL_VISIT(AndOperator);
+  UNSUCCESFUL_VISIT(IfOperator);
+  UNSUCCESFUL_VISIT(InListOperator);
+
+  UNSUCCESFUL_VISIT(SubscriptOperator);
+
+  UNSUCCESFUL_VISIT(ListSlicingOperator);
+  UNSUCCESFUL_VISIT(IsNullOperator);
+  UNSUCCESFUL_VISIT(PropertyLookup);
+  UNSUCCESFUL_VISIT(LabelsTest);
+
+  UNSUCCESFUL_VISIT(PrimitiveLiteral);
+  UNSUCCESFUL_VISIT(ListLiteral);
+  UNSUCCESFUL_VISIT(MapLiteral);
+  UNSUCCESFUL_VISIT(Aggregation);
+  UNSUCCESFUL_VISIT(Coalesce);
+  UNSUCCESFUL_VISIT(Function);
+  UNSUCCESFUL_VISIT(Reduce);
+  UNSUCCESFUL_VISIT(Extract);
+  UNSUCCESFUL_VISIT(All);
+  UNSUCCESFUL_VISIT(Single);
+  UNSUCCESFUL_VISIT(Any);
+  UNSUCCESFUL_VISIT(None);
+  UNSUCCESFUL_VISIT(ParameterLookup);
+  UNSUCCESFUL_VISIT(RegexMatch);
+
+ private:
+  Frame *frame_;
+  const SymbolTable *symbol_table_;
+  const EvaluationContext *ctx_;
+  DbAccessor *dba_;
+  // which switching approach should be used when evaluating
+  storage::View view_;
+};
 
 class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
@@ -159,49 +231,61 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(SubscriptOperator &list_indexing) override {
-    auto lhs = list_indexing.expression1_->Accept(*this);
+    auto start = std::chrono::steady_clock::now();
+
+    ReferenceExpressionEvaluator referenceExpressionEvaluator(frame_, symbol_table_, ctx_, dba_, view_);
+
+    auto *lhs = list_indexing.expression1_->Accept(referenceExpressionEvaluator);
     auto index = list_indexing.expression2_->Accept(*this);
-    if (!lhs.IsList() && !lhs.IsMap() && !lhs.IsVertex() && !lhs.IsEdge() && !lhs.IsNull())
+    if (!lhs->IsList() && !lhs->IsMap() && !lhs->IsVertex() && !lhs->IsEdge() && !lhs->IsNull())
       throw QueryRuntimeException(
           "Expected a list, a map, a node or an edge to index with '[]', got "
           "{}.",
-          lhs.type());
-    if (lhs.IsNull() || index.IsNull()) return TypedValue(ctx_->memory);
-    if (lhs.IsList()) {
+          lhs->type());
+    if (lhs->IsNull() || index.IsNull()) return TypedValue(ctx_->memory);
+    if (lhs->IsList()) {
       if (!index.IsInt()) throw QueryRuntimeException("Expected an integer as a list index, got {}.", index.type());
       auto index_int = index.ValueInt();
       // NOTE: Take non-const reference to list, so that we can move out the
       // indexed element as the result.
-      auto &list = lhs.ValueList();
+      const auto &list = lhs->ValueList();
       if (index_int < 0) {
         index_int += static_cast<int64_t>(list.size());
       }
       if (index_int >= static_cast<int64_t>(list.size()) || index_int < 0) return TypedValue(ctx_->memory);
       // NOTE: Explicit move is needed, so that we return the move constructed
       // value and preserve the correct MemoryResource.
-      return std::move(list[index_int]);
+      auto end = std::chrono::steady_clock::now();
+      std::chrono::duration<double> dif = end - start;
+      total2 += dif;
+
+      if (total2 > new_print2) {
+        std::cout << "Time difference visit = " << total2.count() << "[s]" << std::endl;
+        new_print2 += static_cast<std::chrono::duration<double>>(1.0);
+      }
+      return TypedValue(list[index_int]);
     }
 
-    if (lhs.IsMap()) {
+    if (lhs->IsMap()) {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a map index, got {}.", index.type());
       // NOTE: Take non-const reference to map, so that we can move out the
       // looked-up element as the result.
-      auto &map = lhs.ValueMap();
+      const auto &map = lhs->ValueMap();
       auto found = map.find(index.ValueString());
       if (found == map.end()) return TypedValue(ctx_->memory);
       // NOTE: Explicit move is needed, so that we return the move constructed
       // value and preserve the correct MemoryResource.
-      return std::move(found->second);
+      return TypedValue(found->second);
     }
 
-    if (lhs.IsVertex()) {
+    if (lhs->IsVertex()) {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
-      return TypedValue(GetProperty(lhs.ValueVertex(), index.ValueString()), ctx_->memory);
+      return TypedValue(GetProperty(lhs->ValueVertex(), index.ValueString()), ctx_->memory);
     }
 
-    if (lhs.IsEdge()) {
+    if (lhs->IsEdge()) {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
-      return TypedValue(GetProperty(lhs.ValueEdge(), index.ValueString()), ctx_->memory);
+      return TypedValue(GetProperty(lhs->ValueEdge(), index.ValueString()), ctx_->memory);
     }
 
     // lhs is Null

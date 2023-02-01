@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,6 +25,9 @@
 #include "utils/memory.hpp"
 
 namespace memgraph::query {
+
+std::chrono::duration<double> total;
+std::chrono::duration<double> new_print;
 
 TypedValue::TypedValue(const storage::PropertyValue &value)
     // TODO: MemoryResource in storage::PropertyValue
@@ -289,8 +292,18 @@ TypedValue::operator storage::PropertyValue() const {
       return storage::PropertyValue(int_v);
     case TypedValue::Type::Double:
       return storage::PropertyValue(double_v);
-    case TypedValue::Type::String:
-      return storage::PropertyValue(std::string(string_v));
+    case TypedValue::Type::String: {
+      auto start = std::chrono::steady_clock::now();
+      auto value = storage::PropertyValue(std::string(string_v));
+      auto end = std::chrono::steady_clock::now();
+      std::chrono::duration<double> dif = end - start;
+      total += dif;
+      if (total > new_print) {
+        std::cout << "Time typed value difference = " << total.count() << "[s]" << std::endl;
+        new_print += static_cast<std::chrono::duration<double>>(10.0);
+      }
+      return value;
+    }
     case TypedValue::Type::List:
       return storage::PropertyValue(std::vector<storage::PropertyValue>(list_v.begin(), list_v.end()));
     case TypedValue::Type::Map: {
