@@ -3,7 +3,7 @@ name: Release Ubuntu 20.04
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 1 * * *"
+    - cron: "0 22 * * *"
 
 jobs:
   community_build:
