@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -66,9 +66,12 @@ struct MapItem;
 class Duration;
 class Value;
 
+struct StealType {};
+inline constexpr StealType steal{};
+
 inline mgp_memory *memory{nullptr};
 
-/* #region Graph (Id, Graph, Nodes, GraphRelationships, Relationships, Properties & Labels) */
+/* #region Graph (Id, Graph, Nodes, GraphRelationships, Relationships & Labels) */
 
 /// Wrapper for int64_t IDs to prevent dangerous implicit conversions.
 class Id {
@@ -159,7 +162,7 @@ class Nodes {
 
     explicit Iterator(mgp_vertices_iterator *nodes_iterator);
 
-    Iterator(const Iterator &other);
+    Iterator(const Iterator &other) noexcept;
     Iterator &operator=(const Iterator &other) = delete;
 
     ~Iterator();
@@ -207,7 +210,7 @@ class GraphRelationships {
 
     explicit Iterator(mgp_vertices_iterator *nodes_iterator);
 
-    Iterator(const Iterator &other);
+    Iterator(const Iterator &other) noexcept;
     Iterator &operator=(const Iterator &other) = delete;
 
     ~Iterator();
@@ -253,7 +256,7 @@ class Relationships {
 
     explicit Iterator(mgp_edges_iterator *relationships_iterator);
 
-    Iterator(const Iterator &other);
+    Iterator(const Iterator &other) noexcept;
     Iterator &operator=(const Iterator &other) = delete;
 
     ~Iterator();
@@ -281,46 +284,12 @@ class Relationships {
   mgp_edges_iterator *relationships_iterator_ = nullptr;
 };
 
-/// @brief View of node properties.
-class Properties {
- public:
-  explicit Properties(mgp_properties_iterator *properties_iterator);
-
-  /// @brief Returns the size of the properties map.
-  size_t Size() const;
-  /// @brief Returns whether the properties map is empty.
-  bool Empty() const;
-
-  /// @brief Returns the value associated with the given `key`. If there’s no such value, the behavior is undefined.
-  /// @note Each key-value pair needs to be checked, ensuing O(n) time complexity.
-  Value operator[](const std::string_view key) const;
-
-  std::map<std::string_view, Value>::const_iterator begin() const;
-  std::map<std::string_view, Value>::const_iterator end() const;
-
-  std::map<std::string_view, Value>::const_iterator cbegin() const;
-  std::map<std::string_view, Value>::const_iterator cend() const;
-
-  /// @brief Returns the key-value iterator for the given `key`. If there’s no such pair, returns the end of the
-  /// iterator.
-  /// @note Each key-value pair needs to be checked, ensuing O(n) time complexity.
-  std::map<std::string_view, Value>::const_iterator find(const std::string_view key) const;
-
-  /// @exception std::runtime_error Map contains value(s) of unknown type.
-  bool operator==(const Properties &other) const;
-  /// @exception std::runtime_error Map contains value(s) of unknown type.
-  bool operator!=(const Properties &other) const;
-
- private:
-  std::map<const std::string_view, Value> property_map_;
-};
-
 /// @brief View of node labels.
 class Labels {
  public:
   explicit Labels(mgp_vertex *node_ptr);
 
-  Labels(const Labels &other);
+  Labels(const Labels &other) noexcept;
   Labels(Labels &&other) noexcept;
 
   Labels &operator=(const Labels &other) noexcept;
@@ -363,6 +332,7 @@ class Labels {
  private:
   mgp_vertex *node_ptr_;
 };
+
 /* #endregion */
 
 /* #region Types */
@@ -397,7 +367,7 @@ class List {
   /// @brief Creates a List from the given initializer_list.
   explicit List(const std::initializer_list<Value> list);
 
-  List(const List &other);
+  List(const List &other) noexcept;
   List(List &&other) noexcept;
 
   List &operator=(const List &other) noexcept;
@@ -489,7 +459,7 @@ class Map {
   /// @brief Creates a Map from the given initializer_list (map items correspond to initializer list pairs).
   Map(const std::initializer_list<std::pair<std::string_view, Value>> items);
 
-  Map(const Map &other);
+  Map(const Map &other) noexcept;
   Map(Map &&other) noexcept;
 
   Map &operator=(const Map &other) noexcept;
@@ -519,7 +489,7 @@ class Map {
 
     explicit Iterator(mgp_map_items_iterator *map_items_iterator);
 
-    Iterator(const Iterator &other);
+    Iterator(const Iterator &other) noexcept;
     Iterator &operator=(const Iterator &other) = delete;
 
     ~Iterator();
@@ -578,7 +548,7 @@ class Node {
   /// @brief Creates a Node from the copy of the given @ref mgp_vertex.
   explicit Node(const mgp_vertex *const_ptr);
 
-  Node(const Node &other);
+  Node(const Node &other) noexcept;
   Node(Node &&other) noexcept;
 
   Node &operator=(const Node &other) noexcept;
@@ -590,16 +560,19 @@ class Node {
   mgp::Id Id() const;
 
   /// @brief Returns an iterable & indexable structure of the node’s labels.
-  class Labels Labels() const;
+  mgp::Labels Labels() const;
 
   /// @brief Returns whether the node has the given `label`.
   bool HasLabel(std::string_view label) const;
 
-  /// @brief Returns an iterable & indexable structure of the node’s properties.
-  class Properties Properties() const;
+  /// @brief Returns an std::map of the node’s properties.
+  std::map<std::string, Value> Properties() const;
 
-  /// @brief Returns the value of the node’s `property_name` property.
-  Value operator[](const std::string_view property_name) const;
+  /// @brief Sets the chosen property to the given value.
+  void SetProperty(std::string property, Value value);
+
+  /// @brief Retrieves the value of the chosen property.
+  Value GetProperty(const std::string &property) const;
 
   /// @brief Returns an iterable structure of the node’s inbound relationships.
   Relationships InRelationships() const;
@@ -635,7 +608,7 @@ class Relationship {
   /// @brief Creates a Relationship from the copy of the given @ref mgp_edge.
   explicit Relationship(const mgp_edge *const_ptr);
 
-  Relationship(const Relationship &other);
+  Relationship(const Relationship &other) noexcept;
   Relationship(Relationship &&other) noexcept;
 
   Relationship &operator=(const Relationship &other) noexcept;
@@ -649,11 +622,14 @@ class Relationship {
   /// @brief Returns the relationship’s type.
   std::string_view Type() const;
 
-  /// @brief Returns an iterable & indexable structure of the relationship’s properties.
-  class Properties Properties() const;
+  /// @brief Returns an std::map of the relationship’s properties.
+  std::map<std::string, Value> Properties() const;
 
-  /// @brief Returns the value of the relationship’s `property_name` property.
-  Value operator[](const std::string_view property_name) const;
+  /// @brief Sets the chosen property to the given value.
+  void SetProperty(std::string property, Value value);
+
+  /// @brief Retrieves the value of the chosen property.
+  Value GetProperty(const std::string &property) const;
 
   /// @brief Returns the relationship’s source node.
   Node From() const;
@@ -688,7 +664,7 @@ class Path {
   /// @brief Creates a Path starting with the given `start_node`.
   explicit Path(const Node &start_node);
 
-  Path(const Path &other);
+  Path(const Path &other) noexcept;
   Path(Path &&other) noexcept;
 
   Path &operator=(const Path &other) noexcept;
@@ -744,7 +720,7 @@ class Date {
   /// @brief Creates a Date object with the given `year`, `month`, and `day` properties.
   Date(int year, int month, int day);
 
-  Date(const Date &other);
+  Date(const Date &other) noexcept;
   Date(Date &&other) noexcept;
 
   Date &operator=(const Date &other) noexcept;
@@ -799,7 +775,7 @@ class LocalTime {
   /// properties.
   LocalTime(int hour, int minute, int second, int millisecond, int microsecond);
 
-  LocalTime(const LocalTime &other);
+  LocalTime(const LocalTime &other) noexcept;
   LocalTime(LocalTime &&other) noexcept;
 
   LocalTime &operator=(const LocalTime &other) noexcept;
@@ -858,7 +834,7 @@ class LocalDateTime {
   /// `millisecond`, and `microsecond` properties.
   LocalDateTime(int year, int month, int day, int hour, int minute, int second, int millisecond, int microsecond);
 
-  LocalDateTime(const LocalDateTime &other);
+  LocalDateTime(const LocalDateTime &other) noexcept;
   LocalDateTime(LocalDateTime &&other) noexcept;
 
   LocalDateTime &operator=(const LocalDateTime &other) noexcept;
@@ -929,7 +905,7 @@ class Duration {
   /// `microsecond` properties.
   Duration(double day, double hour, double minute, double second, double millisecond, double microsecond);
 
-  Duration(const Duration &other);
+  Duration(const Duration &other) noexcept;
   Duration(Duration &&other) noexcept;
 
   Duration &operator=(const Duration &other) noexcept;
@@ -985,6 +961,8 @@ class Value {
   friend class Result;
 
   explicit Value(mgp_value *ptr);
+
+  explicit Value(StealType /*steal*/, mgp_value *ptr);
 
   // Null constructor:
   explicit Value();
@@ -1056,7 +1034,7 @@ class Value {
   /// @note The behavior of accessing `duration` after performing this operation is undefined.
   explicit Value(Duration &&duration);
 
-  Value(const Value &other);
+  Value(const Value &other) noexcept;
   Value(Value &&other) noexcept;
 
   Value &operator=(const Value &other) noexcept;
@@ -1704,7 +1682,7 @@ inline Nodes::Iterator::Iterator(mgp_vertices_iterator *nodes_iterator) : nodes_
   }
 }
 
-inline Nodes::Iterator::Iterator(const Iterator &other) : Iterator(other.nodes_iterator_) {}
+inline Nodes::Iterator::Iterator(const Iterator &other) noexcept : Iterator(other.nodes_iterator_) {}
 
 inline Nodes::Iterator::~Iterator() {
   if (nodes_iterator_ != nullptr) {
@@ -1795,7 +1773,7 @@ inline GraphRelationships::Iterator::Iterator(mgp_vertices_iterator *nodes_itera
   }
 }
 
-inline GraphRelationships::Iterator::Iterator(const Iterator &other) : Iterator(other.nodes_iterator_) {}
+inline GraphRelationships::Iterator::Iterator(const Iterator &other) noexcept : Iterator(other.nodes_iterator_) {}
 
 inline GraphRelationships::Iterator::~Iterator() {
   if (nodes_iterator_ != nullptr) {
@@ -1814,10 +1792,12 @@ inline GraphRelationships::Iterator &GraphRelationships::Iterator::operator++() 
   if (out_relationships_iterator_ != nullptr) {
     auto next = mgp::edges_iterator_next(out_relationships_iterator_);
 
-    if (next == nullptr) {
-      mgp::edges_iterator_destroy(out_relationships_iterator_);
-      out_relationships_iterator_ = nullptr;
+    if (next != nullptr) {
+      return *this;
     }
+
+    mgp::edges_iterator_destroy(out_relationships_iterator_);
+    out_relationships_iterator_ = nullptr;
   }
 
   // 2. Move onto the next nodes
@@ -1904,7 +1884,7 @@ inline Relationships::Iterator::Iterator(mgp_edges_iterator *relationships_itera
   }
 }
 
-inline Relationships::Iterator::Iterator(const Iterator &other) : Iterator(other.relationships_iterator_) {}
+inline Relationships::Iterator::Iterator(const Iterator &other) noexcept : Iterator(other.relationships_iterator_) {}
 
 inline Relationships::Iterator::~Iterator() {
   if (relationships_iterator_ != nullptr) {
@@ -1963,40 +1943,11 @@ inline Relationships::Iterator Relationships::cbegin() const { return Iterator(r
 
 inline Relationships::Iterator Relationships::cend() const { return Iterator(nullptr); }
 
-// Properties:
-
-inline Properties::Properties(mgp_properties_iterator *properties_iterator) {
-  for (auto property = mgp::properties_iterator_get(properties_iterator); property;
-       property = mgp::properties_iterator_next(properties_iterator)) {
-    auto value = Value(property->value);
-    property_map_.emplace(property->name, value);
-  }
-  mgp::properties_iterator_destroy(properties_iterator);
-}
-
-inline size_t Properties::Size() const { return property_map_.size(); }
-
-inline bool Properties::Empty() const { return Size() == 0; }
-
-inline Value Properties::operator[](const std::string_view key) const { return property_map_.at(key); }
-
-inline std::map<std::string_view, Value>::const_iterator Properties::begin() const { return property_map_.begin(); }
-
-inline std::map<std::string_view, Value>::const_iterator Properties::end() const { return property_map_.end(); }
-
-inline std::map<std::string_view, Value>::const_iterator Properties::cbegin() const { return property_map_.cbegin(); }
-
-inline std::map<std::string_view, Value>::const_iterator Properties::cend() const { return property_map_.cend(); }
-
-inline bool Properties::operator==(const Properties &other) const { return property_map_ == other.property_map_; }
-
-inline bool Properties::operator!=(const Properties &other) const { return !(*this == other); }
-
 // Labels:
 
 inline Labels::Labels(mgp_vertex *node_ptr) : node_ptr_(mgp::vertex_copy(node_ptr, memory)) {}
 
-inline Labels::Labels(const Labels &other) : Labels(other.node_ptr_) {}
+inline Labels::Labels(const Labels &other) noexcept : Labels(other.node_ptr_) {}
 
 inline Labels::Labels(Labels &&other) noexcept : node_ptr_(other.node_ptr_) { other.node_ptr_ = nullptr; }
 
@@ -2086,7 +2037,7 @@ inline List::List(const std::initializer_list<Value> values) : ptr_(mgp::list_ma
   }
 }
 
-inline List::List(const List &other) : List(other.ptr_) {}
+inline List::List(const List &other) noexcept : List(other.ptr_) {}
 
 inline List::List(List &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
 
@@ -2194,7 +2145,7 @@ inline Map::Map(const std::initializer_list<std::pair<std::string_view, Value>> 
   }
 }
 
-inline Map::Map(const Map &other) : Map(other.ptr_) {}
+inline Map::Map(const Map &other) noexcept : Map(other.ptr_) {}
 
 inline Map::Map(Map &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
 
@@ -2239,7 +2190,7 @@ inline Map::Iterator::Iterator(mgp_map_items_iterator *map_items_iterator) : map
   }
 }
 
-inline Map::Iterator::Iterator(const Iterator &other) : Iterator(other.map_items_iterator_) {}
+inline Map::Iterator::Iterator(const Iterator &other) noexcept : Iterator(other.map_items_iterator_) {}
 
 inline Map::Iterator::~Iterator() {
   if (map_items_iterator_ != nullptr) {
@@ -2306,10 +2257,6 @@ inline void Map::Insert(std::string_view key, Value &&value) {
   value.ptr_ = nullptr;
 }
 
-inline std::map<std::string_view, Value>::const_iterator Properties::find(const std::string_view key) const {
-  return property_map_.find(key);
-}
-
 inline bool Map::operator==(const Map &other) const { return util::MapsEqual(ptr_, other.ptr_); }
 
 inline bool Map::operator!=(const Map &other) const { return !(*this == other); }
@@ -2324,7 +2271,7 @@ inline Node::Node(mgp_vertex *ptr) : ptr_(mgp::vertex_copy(ptr, memory)) {}
 
 inline Node::Node(const mgp_vertex *const_ptr) : ptr_(mgp::vertex_copy(const_cast<mgp_vertex *>(const_ptr), memory)) {}
 
-inline Node::Node(const Node &other) : Node(other.ptr_) {}
+inline Node::Node(const Node &other) noexcept : Node(other.ptr_) {}
 
 inline Node::Node(Node &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
 
@@ -2355,7 +2302,7 @@ inline Node::~Node() {
 
 inline mgp::Id Node::Id() const { return Id::FromInt(mgp::vertex_get_id(ptr_).as_int); }
 
-inline class Labels Node::Labels() const { return mgp::Labels(ptr_); }
+inline mgp::Labels Node::Labels() const { return mgp::Labels(ptr_); }
 
 inline bool Node::HasLabel(std::string_view label) const {
   for (const auto node_label : Labels()) {
@@ -2365,10 +2312,6 @@ inline bool Node::HasLabel(std::string_view label) const {
   }
   return false;
 }
-
-inline class Properties Node::Properties() const { return mgp::Properties(mgp::vertex_iter_properties(ptr_, memory)); }
-
-inline Value Node::operator[](const std::string_view property_name) const { return Properties()[property_name]; }
 
 inline Relationships Node::InRelationships() const {
   auto relationship_iterator = mgp::vertex_iter_in_edges(ptr_, memory);
@@ -2390,6 +2333,26 @@ inline void Node::AddLabel(const std::string_view label) {
   mgp::vertex_add_label(this->ptr_, mgp_label{.name = label.data()});
 }
 
+inline std::map<std::string, Value> Node::Properties() const {
+  mgp_properties_iterator *properties_iterator = mgp::vertex_iter_properties(ptr_, memory);
+  std::map<std::string, Value> property_map;
+  for (auto *property = mgp::properties_iterator_get(properties_iterator); property;
+       property = mgp::properties_iterator_next(properties_iterator)) {
+    property_map.emplace(std::string(property->name), Value(property->value));
+  }
+  mgp::properties_iterator_destroy(properties_iterator);
+  return property_map;
+}
+
+inline void Node::SetProperty(std::string property, Value value) {
+  mgp::vertex_set_property(ptr_, property.data(), value.ptr());
+}
+
+inline Value Node::GetProperty(const std::string &property) const {
+  mgp_value *vertex_prop = mgp::vertex_get_property(ptr_, property.data(), memory);
+  return Value(steal, vertex_prop);
+}
+
 inline bool Node::operator<(const Node &other) const { return Id() < other.Id(); }
 
 inline bool Node::operator==(const Node &other) const { return util::NodesEqual(ptr_, other.ptr_); }
@@ -2403,7 +2366,7 @@ inline Relationship::Relationship(mgp_edge *ptr) : ptr_(mgp::edge_copy(ptr, memo
 inline Relationship::Relationship(const mgp_edge *const_ptr)
     : ptr_(mgp::edge_copy(const_cast<mgp_edge *>(const_ptr), memory)) {}
 
-inline Relationship::Relationship(const Relationship &other) : Relationship(other.ptr_) {}
+inline Relationship::Relationship(const Relationship &other) noexcept : Relationship(other.ptr_) {}
 
 inline Relationship::Relationship(Relationship &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
 
@@ -2436,12 +2399,24 @@ inline mgp::Id Relationship::Id() const { return Id::FromInt(mgp::edge_get_id(pt
 
 inline std::string_view Relationship::Type() const { return mgp::edge_get_type(ptr_).name; }
 
-inline class Properties Relationship::Properties() const {
-  return mgp::Properties(mgp::edge_iter_properties(ptr_, memory));
+inline std::map<std::string, Value> Relationship::Properties() const {
+  mgp_properties_iterator *properties_iterator = mgp::edge_iter_properties(ptr_, memory);
+  std::map<std::string, Value> property_map;
+  for (mgp_property *property = mgp::properties_iterator_get(properties_iterator); property;
+       property = mgp::properties_iterator_next(properties_iterator)) {
+    property_map.emplace(property->name, Value(property->value));
+  }
+  mgp::properties_iterator_destroy(properties_iterator);
+  return property_map;
 }
 
-inline Value Relationship::operator[](const std::string_view property_name) const {
-  return Properties()[property_name];
+inline void Relationship::SetProperty(std::string property, Value value) {
+  mgp::edge_set_property(ptr_, property.data(), value.ptr());
+}
+
+inline Value Relationship::GetProperty(const std::string &property) const {
+  mgp_value *edge_prop = mgp::edge_get_property(ptr_, property.data(), memory);
+  return Value(steal, edge_prop);
 }
 
 inline Node Relationship::From() const { return Node(mgp::edge_get_from(ptr_)); }
@@ -2464,7 +2439,7 @@ inline Path::Path(const mgp_path *const_ptr) : ptr_(mgp::path_copy(const_cast<mg
 
 inline Path::Path(const Node &start_node) : ptr_(mgp::path_make_with_start(start_node.ptr_, memory)) {}
 
-inline Path::Path(const Path &other) : Path(other.ptr_) {}
+inline Path::Path(const Path &other) noexcept : Path(other.ptr_) {}
 
 inline Path::Path(Path &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
 
@@ -2533,7 +2508,7 @@ inline Date::Date(int year, int month, int day) {
   ptr_ = mgp::date_from_parameters(&params, memory);
 }
 
-inline Date::Date(const Date &other) : Date(other.ptr_) {}
+inline Date::Date(const Date &other) noexcept : Date(other.ptr_) {}
 
 inline Date::Date(Date &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
 
@@ -2627,7 +2602,7 @@ inline LocalTime::LocalTime(int hour, int minute, int second, int millisecond, i
   ptr_ = mgp::local_time_from_parameters(&params, memory);
 }
 
-inline LocalTime::LocalTime(const LocalTime &other) : LocalTime(other.ptr_) {}
+inline LocalTime::LocalTime(const LocalTime &other) noexcept : LocalTime(other.ptr_) {}
 
 inline LocalTime::LocalTime(LocalTime &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; };
 
@@ -2732,7 +2707,7 @@ inline LocalDateTime::LocalDateTime(int year, int month, int day, int hour, int 
   ptr_ = mgp::local_date_time_from_parameters(&params, memory);
 }
 
-inline LocalDateTime::LocalDateTime(const LocalDateTime &other) : LocalDateTime(other.ptr_) {}
+inline LocalDateTime::LocalDateTime(const LocalDateTime &other) noexcept : LocalDateTime(other.ptr_) {}
 
 inline LocalDateTime::LocalDateTime(LocalDateTime &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; };
 
@@ -2845,7 +2820,7 @@ inline Duration::Duration(double day, double hour, double minute, double second,
   ptr_ = mgp::duration_from_parameters(&params, memory);
 }
 
-inline Duration::Duration(const Duration &other) : Duration(other.ptr_) {}
+inline Duration::Duration(const Duration &other) noexcept : Duration(other.ptr_) {}
 
 inline Duration::Duration(Duration &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; };
 
@@ -2917,6 +2892,7 @@ inline bool Duration::operator<(const Duration &other) const {
 /* #region Value */
 
 inline Value::Value(mgp_value *ptr) : ptr_(mgp::value_copy(ptr, memory)) {}
+inline Value::Value(StealType /*steal*/, mgp_value *ptr) : ptr_{ptr} {}
 
 inline Value::Value() : ptr_(mgp::value_make_null(memory)) {}
 
@@ -2997,7 +2973,7 @@ inline Value::Value(Duration &&duration) {
   duration.ptr_ = nullptr;
 }
 
-inline Value::Value(const Value &other) : Value(other.ptr_) {}
+inline Value::Value(const Value &other) noexcept : Value(other.ptr_) {}
 
 inline Value::Value(Value &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
 

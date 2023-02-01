@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -35,7 +35,7 @@ namespace memgraph::query::procedure {
 
 constexpr const char *func_code =
     "import ast\n\n"
-    "no_removals = ['collections', 'abc', 'sys']\n"
+    "no_removals = ['collections', 'abc', 'sys', 'torch', 'torch_geometric', 'igraph']\n"
     "modules = set()\n\n"
     "def visit_Import(node):\n"
     "  for name in node.names:\n"
