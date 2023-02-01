@@ -177,12 +177,22 @@ class ShardManager {
   Address GetAddress() { return io_.GetAddress(); }
 
   void InitializeSplitShard(msgs::InitializeSplitShard &&init_split_shard) {
-    for (const auto &[from_uuid, to_uuid] : init_split_shard.uuid_mapping) {
-      if (rsm_worker_mapping_.contains(from_uuid)) {
+    spdlog::warn("ShardManager received InitializeSplitShard message");
+    for (const auto &[from_uuid, new_uuid] : init_split_shard.uuid_mapping) {
+      bool has_destination = rsm_worker_mapping_.contains(new_uuid);
+      if (has_destination) {
+        spdlog::warn(
+            "ShardManager received InitializeSplitShard message containing a shard that we have already created: {}",
+            new_uuid);
+        break;
+      }
+      bool has_source = rsm_worker_mapping_.contains(from_uuid);
+      if (has_source) {
         // The new uuid
-        auto new_uuid = to_uuid;
         msgs::InitializeSplitShardByUUID msg{.shard = std::move(init_split_shard.shard), .shard_uuid = new_uuid};
         SendToWorkerByUuid(new_uuid, std::move(msg));
+        spdlog::warn("ShardManager initialized split shard with uuid: {}", new_uuid);
+        initialized_but_not_confirmed_rsm_.emplace(new_uuid);
         break;
       }
     }
