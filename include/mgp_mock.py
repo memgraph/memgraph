@@ -506,6 +506,105 @@ class Vertex:
         return hash(self.id)
 
 
+class _Path:
+    __slots__ = ("_vertices", "_edges", "_graph", "__create_key")
+    __create_key = object()
+
+    def __init__(self, create_key, vertex: Vertex, graph: nx.DiGraph) -> None:
+        assert create_key == _Path.__create_key, "_Path objects must be created using _Path.make_with_start"
+
+        if not isinstance(vertex, _Vertex):
+            raise TypeError(f"Expected '_Vertex', got '{type(vertex)}'")
+
+        if not isinstance(graph, nx.DiGraph):
+            raise TypeError(f"Expected 'networkx.classes.digraph.DiGraph', got '{type(graph)}'")
+
+        if not graph.has_node(vertex._vertex):
+            raise IndexError(f"Unable to find vertex with id {vertex._vertex}.")
+
+        self._vertices = [vertex._vertex]
+        self._edges = []
+        self._graph = graph
+
+    @classmethod
+    def make_with_start(cls, vertex: Vertex, graph) -> "_Path":
+        return _Path(cls.__create_key, vertex, graph)
+
+    def is_valid(self) -> bool:
+        return True
+
+    def expand(self, edge: _Edge):
+        if edge._edge[0] != self._vertices[-1]:
+            raise LogicErrorError("The current last vertex in the path is not part of the given edge")
+
+        self._vertices.append(edge._edge[1])
+        self._edges.append((edge._edge[0], edge.edge[1]))
+
+    def vertex_at(self, index: int) -> _Vertex:
+        return _Vertex(self._vertices[index], self._graph)
+
+    def edge_at(self, index: int) -> _Edge:
+        return _Edge(self._edges[index], self._graph)
+
+    def size(self) -> int:
+        return len(self._edges)
+
+
+class Path:
+    __slots__ = ("_path", "_vertices", "_edges")
+
+    def __init__(self, starting_vertex_or_path: typing.Union[_Path, Vertex]):
+        self._vertices = None
+        self._edges = None
+
+        if isinstance(starting_vertex_or_path, _Path):
+            self._path = starting_vertex_or_path
+        elif isinstance(starting_vertex_or_path, Vertex):
+            vertex = starting_vertex_or_path._vertex
+            if not vertex.is_valid():
+                raise InvalidContextError()
+            self._path = _Path.make_with_start(vertex)
+        else:
+            raise TypeError(f"Expected 'Vertex' or '_Path', got '{type(starting_vertex_or_path)}'")
+
+    def is_valid(self) -> bool:
+        return self._path.is_valid()
+
+    def expand(self, edge: Edge):
+        if not isinstance(edge, Edge):
+            raise TypeError(f"Expected 'Edge', got '{type(edge)}'")
+
+        if not self.is_valid() or not edge.is_valid():
+            raise InvalidContextError()
+
+        self._path.expand(edge._edge)
+
+        self._vertices = None
+        self._edges = None
+
+    @property
+    def vertices(self) -> typing.Tuple[Vertex, ...]:
+        if not self.is_valid():
+            raise InvalidContextError()
+
+        if self._vertices is None:
+            num_vertices = self._path.size() + 1
+            self._vertices = tuple(Vertex(self._path.vertex_at(i)) for i in range(num_vertices))
+
+        return self.vertices
+
+    @property
+    def edges(self) -> typing.Tuple[Edge, ...]:
+        if not self.is_valid():
+            raise InvalidContextError()
+
+        if self._edges is None:
+            num_edges = self._path.size()
+            self._edges = tuple(Edge(self._path.edge_at(i)) for i in range(num_edges))
+
+        return self.vertices
+
+
 class Vertices:
     __slots__ = ("_graph", "_len")
 
