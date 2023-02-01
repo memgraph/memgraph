@@ -607,7 +607,9 @@ class RuleBasedPlanner {
         continue;
       }
 
-      if (auto *exists = utils::Downcast<Exists>(filters_it->expression)) {
+      filter.expression->MapTo(symbol_table.CreateAnonymousSymbol());
+
+      if (auto *exists = utils::Downcast<Exists>(filter.expression)) {
         return MakeExistsFilter(*exists, symbol_table, bound_symbols);
       }
 
