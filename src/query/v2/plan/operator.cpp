@@ -2949,27 +2949,16 @@ class DistributedCreateExpandCursor : public Cursor {
       const auto &v1 = v1_value.ValueVertex();
       const auto &v2 = OtherVertex(frame);
 
-      // Set src and dest vertices
-      // TODO(jbajic) Currently we are only handling scenario where vertices
-      // are matched
-      const auto set_vertex = [&context](const auto &vertex, auto &vertex_id) {
-        vertex_id.first = vertex.PrimaryLabel();
-        for (const auto &[key, val] : vertex.Properties()) {
-          if (context.request_router->IsPrimaryProperty(vertex_id.first.id, key)) {
-            vertex_id.second.push_back(val);
-          }
-        }
-      };
       std::invoke([&]() {
         switch (edge_info.direction) {
           case EdgeAtom::Direction::IN: {
-            set_vertex(v2, request.src_vertex);
-            set_vertex(v1, request.dest_vertex);
+            request.src_vertex = v2.Id();
+            request.dest_vertex = v1.Id();
             break;
           }
           case EdgeAtom::Direction::OUT: {
-            set_vertex(v1, request.src_vertex);
-            set_vertex(v2, request.dest_vertex);
+            request.src_vertex = v1.Id();
+            request.dest_vertex = v2.Id();
             break;
           }
           case EdgeAtom::Direction::BOTH:
