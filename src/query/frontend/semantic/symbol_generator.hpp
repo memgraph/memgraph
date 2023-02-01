@@ -80,6 +80,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PreVisit(Reduce &) override;
   bool PreVisit(Extract &) override;
   bool PreVisit(Exists &) override;
+  bool PostVisit(Exists &) override;
 
   // Pattern and its subparts.
   bool PreVisit(Pattern &) override;
@@ -114,6 +115,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     bool in_where{false};
     bool in_match{false};
     bool in_foreach{false};
+    bool in_exists{false};
     // True when visiting a pattern atom (node or edge) identifier, which can be
     // reused or created in the pattern itself.
     bool in_pattern_atom_identifier{false};
