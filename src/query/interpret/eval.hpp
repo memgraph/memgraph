@@ -551,9 +551,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     throw QueryRuntimeException("Exists functionality not yet implemented!");
   }
 
-  TypedValue Visit(ExistsLimit &exists_limit) override {
-    throw QueryRuntimeException("Exists limit functionality not yet implemented!");
-  }
+  TypedValue Visit(ExistsLimit &exists_limit) override { return TypedValue(1, ctx_->memory); }
 
   TypedValue Visit(All &all) override {
     auto list_value = all.list_expression_->Accept(*this);

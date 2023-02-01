@@ -589,10 +589,7 @@ class RuleBasedPlanner {
     last_op = std::make_unique<Expand>(std::move(last_op), node1_symbol, node2_symbol, edge_symbol, direction,
                                        edge_types, false, storage::View::OLD);
 
-    // last_op = std::make_unique<Limit>(std::move(last_op));
-
-    // ReturnBody body;
-    // last_op = std::make_unique<Limit>(last_op);
+    last_op = std::make_unique<Limit>(std::move(last_op), exists.limit_expression_);
 
     return last_op;
   }
