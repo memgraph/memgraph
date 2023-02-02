@@ -154,6 +154,8 @@ void Splitter::AdjustClonedTransaction(Transaction &cloned_transaction, const Tr
   auto cloned_delta_it = cloned_transaction.deltas.begin();
 
   while (delta_it != transaction.deltas.end()) {
+    // Only start iterating through deltas that are head of delta chain
+    // => they have prev pointer to vertex/edge
     const auto *delta = &*delta_it;
     auto *cloned_delta = &*cloned_delta_it;
     while (delta->next != nullptr) {
@@ -170,8 +172,6 @@ void Splitter::AdjustClonedTransaction(Transaction &cloned_transaction, const Tr
         }
         case PreviousPtr::Type::DELTA: {
           // Same as for deltas except don't align next but prev
-          // auto cloned_transaction_it =
-          //     cloned_transactions.find(ptr.delta->commit_info->start_or_commit_timestamp.logical_id);
           auto cloned_transaction_it = std::ranges::find_if(cloned_transactions, [&ptr](const auto &elem) {
             return elem.second->start_timestamp == ptr.delta->commit_info->start_or_commit_timestamp ||
                    elem.second->commit_info->start_or_commit_timestamp ==
