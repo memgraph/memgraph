@@ -1499,7 +1499,9 @@ cpp<#
     (limit_expression "Expression *" :initval "nullptr" :scope :public
                :slk-save #'slk-save-ast-pointer
                :slk-load (slk-load-ast-pointer "Expression")
-               :documentation "Limit expression."))
+               :documentation "Limit expression.")
+   (symbol-pos :int32_t :initval -1 :scope :public
+               :documentation "Symbol table position of the symbol this Aggregation is mapped to."))
 
   (:public
     #>cpp
@@ -1512,6 +1514,10 @@ cpp<#
         node_identifier_->Accept(visitor) && relationship_info_->Accept(visitor) && node_info_->Accept(visitor) && limit_expression_->Accept(visitor);
       }
       return visitor.PostVisit(*this);
+    }
+    Exists *MapTo(const Symbol &symbol) {
+      symbol_pos_ = symbol.position();
+      return this;
     }
     cpp<#)
   (:protected

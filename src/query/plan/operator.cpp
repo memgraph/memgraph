@@ -115,6 +115,7 @@ extern const Event CartesianOperator;
 extern const Event CallProcedureOperator;
 extern const Event ForeachOperator;
 extern const Event EmptyResultOperator;
+extern const Event EvaluateComplexFilterOperator;
 }  // namespace EventCounter
 
 namespace memgraph::query::plan {
@@ -2293,6 +2294,35 @@ bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
 void Filter::FilterCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void Filter::FilterCursor::Reset() { input_cursor_->Reset(); }
+
+EvaluateComplexFilter::EvaluateComplexFilter(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol)
+    : input_(input), output_symbol_(output_symbol) {}
+
+ACCEPT_WITH_INPUT(EvaluateComplexFilter);
+
+UniqueCursorPtr EvaluateComplexFilter::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::EvaluateComplexFilterOperator);
+
+  return MakeUniqueCursorPtr<EvaluateComplexFilterCursor>(mem, *this, mem);
+}
+
+EvaluateComplexFilter::EvaluateComplexFilterCursor::EvaluateComplexFilterCursor(const EvaluateComplexFilter &self,
+                                                                                utils::MemoryResource *mem)
+    : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
+
+std::vector<Symbol> EvaluateComplexFilter::ModifiedSymbols(const SymbolTable &table) const {
+  return input_->ModifiedSymbols(table);
+}
+
+bool EvaluateComplexFilter::EvaluateComplexFilterCursor::Pull(Frame &frame, ExecutionContext &context) {
+  SCOPED_PROFILE_OP("Filter");
+
+  throw utils::NotYetImplemented("Complex filters not supported yet!");
+}
+
+void EvaluateComplexFilter::EvaluateComplexFilterCursor::Shutdown() { input_cursor_->Shutdown(); }
+
+void EvaluateComplexFilter::EvaluateComplexFilterCursor::Reset() { input_cursor_->Reset(); }
 
 Produce::Produce(const std::shared_ptr<LogicalOperator> &input, const std::vector<NamedExpression *> &named_expressions)
     : input_(input ? input : std::make_shared<Once>()), named_expressions_(named_expressions) {}

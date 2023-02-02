@@ -64,6 +64,11 @@ auto SymbolGenerator::CreateSymbol(const std::string &name, bool user_declared, 
   return symbol;
 }
 
+auto SymbolGenerator::CreateAnonymousSymbol(Symbol::Type type) {
+  auto symbol = symbol_table_->CreateAnonymousSymbol();
+  return symbol;
+}
+
 auto SymbolGenerator::GetOrCreateSymbol(const std::string &name, bool user_declared, Symbol::Type type) {
   // NOLINTNEXTLINE
   for (auto scope = scopes_.rbegin(); scope != scopes_.rend(); ++scope) {
@@ -438,6 +443,9 @@ bool SymbolGenerator::PreVisit(Extract &extract) {
 bool SymbolGenerator::PreVisit(Exists &exists) {
   auto &scope = scopes_.back();
   scope.in_exists = true;
+
+  const auto &symbol = CreateAnonymousSymbol();
+  exists.MapTo(symbol);
 
   exists.node_identifier_->Accept(*this);
 
