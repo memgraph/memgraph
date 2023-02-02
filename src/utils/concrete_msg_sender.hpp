@@ -21,7 +21,7 @@ namespace memgraph::utils {
 // reasonable constraints around message types over time,
 // as we adapt things to use Thrift-generated message types.
 template <typename T>
-concept Message = std::movable<T> || std::copyable<T>;
+concept Message = std::movable<T> && std::copyable<T>;
 
 /// This is a concrete type that allows one message type to be
 /// sent to a single address. Initially intended to be used by the
