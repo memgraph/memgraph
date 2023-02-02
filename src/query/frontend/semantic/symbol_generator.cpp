@@ -308,7 +308,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     throw SemanticException("Variables are not allowed in {}.", scope.in_skip ? "SKIP" : "LIMIT");
   }
   if (scope.in_exists && (scope.visiting_edge || scope.in_node_atom)) {
-    if (HasSymbol(ident.name_) || ConsumePredefinedIdentifier(ident.name_)) {
+    if (!HasSymbol(ident.name_) && !ConsumePredefinedIdentifier(ident.name_) && ident.user_declared_) {
       throw SemanticException("Unbounded variables are not allowed in exists!");
     }
   }
