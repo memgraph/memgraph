@@ -2315,7 +2315,7 @@ std::vector<Symbol> EvaluateComplexFilter::ModifiedSymbols(const SymbolTable &ta
 }
 
 bool EvaluateComplexFilter::EvaluateComplexFilterCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP("Filter");
+  SCOPED_PROFILE_OP("EvaluateComplexFilter");
 
   throw utils::NotYetImplemented("Complex filters not supported yet!");
 }
