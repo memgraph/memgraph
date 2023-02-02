@@ -761,7 +761,8 @@ class DistributedScanByPrimaryKeyCursor : public Cursor {
               output_frame[output_symbol_] = TypedValue(it->second);
               populated_any = true;
               ++output_frame_it;
-            }
+            }           
+            own_frames_it_->MakeInvalid();
           }
           break;
         }
