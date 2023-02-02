@@ -18,6 +18,7 @@
 #include <set>
 
 #include "storage/v3/config.hpp"
+#include "storage/v3/delta.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/indices.hpp"
 #include "storage/v3/key_store.hpp"
@@ -154,6 +155,13 @@ void Splitter::AdjustClonedTransaction(Transaction &cloned_transaction, const Tr
   auto cloned_delta_it = cloned_transaction.deltas.begin();
 
   while (delta_it != transaction.deltas.end()) {
+    // We can safely ignore deltas which are not head of delta chain
+    if (delta_it->prev.Get().type == PreviousPtr::Type::DELTA ||
+        delta_it->prev.Get().type == PreviousPtr::Type::NULLPTR) {
+      ++delta_it;
+      ++cloned_delta_it;
+      continue;
+    }
     // Only start iterating through deltas that are head of delta chain
     // => they have prev pointer to vertex/edge
     const auto *delta = &*delta_it;
