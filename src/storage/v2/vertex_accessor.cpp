@@ -212,7 +212,7 @@ Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
 }
 
 Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
-  auto start = std::chrono::steady_clock::now();
+  // auto start = std::chrono::steady_clock::now();
 
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
@@ -233,14 +233,14 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
 
   UpdateOnSetProperty(indices_, property, value, vertex_, *transaction_);
 
-  auto end = std::chrono::steady_clock::now();
-  std::chrono::duration<double> dif = end - start;
-  total += dif;
+  // auto end = std::chrono::steady_clock::now();
+  // std::chrono::duration<double> dif = end - start;
+  // total += dif;
 
-  if (total > new_print) {
-    std::cout << "Time difference = " << total.count() << "[s]" << std::endl;
-    new_print += static_cast<std::chrono::duration<double>>(2.0);
-  }
+  // if (total > new_print) {
+  //   std::cout << "Time difference = " << total.count() << "[s]" << std::endl;
+  //   new_print += static_cast<std::chrono::duration<double>>(2.0);
+  // }
 
   return std::move(current_value);
 }
