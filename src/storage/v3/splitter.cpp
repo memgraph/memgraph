@@ -152,24 +152,26 @@ void Splitter::AdjustClonedTransaction(Transaction &cloned_transaction, const Tr
   // NOTE It is important that the order of delta lists is in same order
   auto delta_it = transaction.deltas.begin();
   auto cloned_delta_it = cloned_transaction.deltas.begin();
+
   while (delta_it != transaction.deltas.end()) {
     const auto *delta = &*delta_it;
     auto *cloned_delta = &*cloned_delta_it;
-    while (delta != nullptr) {
-      // Align deltas which belong to cloned transaction, skip others
-      if (cloned_transactions.contains(delta->commit_info->start_or_commit_timestamp.logical_id)) {
-        const auto end_it =
-            cloned_transactions.at(delta->commit_info->start_or_commit_timestamp.logical_id)->deltas.end();
-        auto found_delta_it = std::ranges::find_if(
-            cloned_transactions.at(delta->commit_info->start_or_commit_timestamp.logical_id)->deltas,
-            [delta](const auto &elem) { return elem.uuid == delta->uuid; });
-        MG_ASSERT(found_delta_it != end_it, "Delta with given uuid must exist!");
+    while (delta->next != nullptr) {
+      // Align next ptr
+      // Get cloned_delta->next transaction, using delta->next original transaction
+      AdjustDeltaNext(*delta, *cloned_delta, cloned_transactions);
+      // auto cloned_transaction_it =
+      //     cloned_transactions.find(delta->next->commit_info->start_or_commit_timestamp.logical_id);
+      // MG_ASSERT(cloned_transaction_it != cloned_transactions.end(), "Cloned transaction not found");
+      // // Find cloned delta in delta list of cloned transaction
+      // auto found_cloned_delta_it = std::ranges::find_if(
+      //     cloned_transaction_it->second->deltas, [delta](const auto &elem) { return elem.uuid == delta->next->uuid;
+      //     });
+      // MG_ASSERT(found_cloned_delta_it != cloned_transaction_it->second->deltas.end(),
+      //           "Delta with given uuid must exist!");
 
-        cloned_delta->next = &*found_delta_it;
-      } else {
-        delta = delta->next;
-        continue;
-      }
+      // cloned_delta->next = &*found_cloned_delta_it;
+
       // Align prev ptr
       auto ptr = delta->prev.Get();
       switch (ptr.type) {
@@ -178,8 +180,18 @@ void Splitter::AdjustClonedTransaction(Transaction &cloned_transaction, const Tr
           break;
         }
         case PreviousPtr::Type::DELTA: {
-          cloned_delta->prev.Set(ptr.delta);
-          break;
+          auto cloned_transaction_it =
+              cloned_transactions.find(ptr.delta->commit_info->start_or_commit_timestamp.logical_id);
+          MG_ASSERT(cloned_transaction_it != cloned_transactions.end(), "Cloned transaction not found");
+          // Find cloned delta in delta list of cloned transaction
+          auto found_cloned_delta_it =
+              std::ranges::find_if(cloned_transaction_it->second->deltas,
+                                   [delta = ptr.delta](const auto &elem) { return elem.uuid == delta->next->uuid; });
+          MG_ASSERT(found_cloned_delta_it != cloned_transaction_it->second->deltas.end(),
+                    "Delta with given uuid must exist!");
+
+          // cloned_delta->next = &*found_cloned_delta_it;
+          ptr.delta.break;
         }
         case PreviousPtr::Type::VERTEX: {
           // What if the vertex is already moved to garbage collection...
@@ -206,6 +218,20 @@ void Splitter::AdjustClonedTransaction(Transaction &cloned_transaction, const Tr
   }
   MG_ASSERT(delta_it == transaction.deltas.end() && cloned_delta_it == cloned_transaction.deltas.end(),
             "Both iterators must be exhausted!");
+}
+
+void Splitter::AdjustDeltaNext(const Delta &original, Delta &cloned,
+                               std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions) {
+  // Get cloned_delta->next transaction, using delta->next original transaction
+  auto cloned_transaction_it =
+      cloned_transactions.find(original.next->commit_info->start_or_commit_timestamp.logical_id);
+  MG_ASSERT(cloned_transaction_it != cloned_transactions.end(), "Cloned transaction not found");
+  // Find cloned delta in delta list of cloned transaction
+  auto found_cloned_delta_it =
+      std::ranges::find_if(cloned_transaction_it->second->deltas,
+                           [&original](const auto &elem) { return elem.uuid == original.next->uuid; });
+  MG_ASSERT(found_cloned_delta_it != cloned_transaction_it->second->deltas.end(), "Delta with given uuid must exist!");
+  cloned.next = &*found_cloned_delta_it;
 }
 
 }  // namespace memgraph::storage::v3
