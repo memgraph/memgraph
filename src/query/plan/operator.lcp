@@ -1781,6 +1781,46 @@ operator's implementation does not expect this.")
   (:serialize (:slk))
   (:clone))
 
+(lcp:define-class evaluate-complex-filter (logical-operator)
+  ((input "std::shared_ptr<LogicalOperator>" :scope :public
+          :slk-save #'slk-save-operator-pointer
+          :slk-load #'slk-load-operator-pointer)
+   (output-symbol "Symbol" :scope :public))
+  (:documentation "Applies the complex filter by putting the value of the input cursor to the frame.")
+
+  (:public
+   #>cpp
+   EvaluateComplexFilter() {}
+
+   EvaluateComplexFilter(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol);
+   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
+   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+   bool HasSingleInput() const override { return true; }
+   std::shared_ptr<LogicalOperator> input() const override { return input_; }
+   void set_input(std::shared_ptr<LogicalOperator> input) override {
+     input_ = input;
+   }
+   cpp<#)
+  (:private
+   #>cpp
+   class EvaluateComplexFilterCursor : public Cursor {
+    public:
+     EvaluateComplexFilterCursor(const EvaluateComplexFilter &, utils::MemoryResource *);
+     bool Pull(Frame &, ExecutionContext &) override;
+     void Shutdown() override;
+     void Reset() override;
+
+    private:
+     const EvaluateComplexFilter &self_;
+     UniqueCursorPtr input_cursor_;
+   };
+   cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
 (lcp:define-class limit (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
           :slk-save #'slk-save-operator-pointer
