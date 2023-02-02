@@ -2317,7 +2317,13 @@ std::vector<Symbol> EvaluateComplexFilter::ModifiedSymbols(const SymbolTable &ta
 bool EvaluateComplexFilter::EvaluateComplexFilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("EvaluateComplexFilter");
 
-  throw utils::NotYetImplemented("Complex filters not supported yet!");
+  if (input_cursor_->Pull(frame, context)) {
+    frame[self_.output_symbol_] = TypedValue(true, context.evaluation_context.memory);
+  } else {
+    frame[self_.output_symbol_] = TypedValue(false, context.evaluation_context.memory);
+  }
+
+  return true;
 }
 
 void EvaluateComplexFilter::EvaluateComplexFilterCursor::Shutdown() { input_cursor_->Shutdown(); }
@@ -2360,6 +2366,7 @@ bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
     return true;
   }
   return false;
+  throw utils::NotYetImplemented("Complex filters not supported yet!");
 }
 
 void Produce::ProduceCursor::Shutdown() { input_cursor_->Shutdown(); }
