@@ -1795,7 +1795,6 @@ operator's implementation does not expect this.")
    EvaluateComplexFilter(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
-   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
    bool HasSingleInput() const override { return true; }
