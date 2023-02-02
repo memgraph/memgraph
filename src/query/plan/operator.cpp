@@ -2317,6 +2317,8 @@ std::vector<Symbol> EvaluateComplexFilter::ModifiedSymbols(const SymbolTable &ta
 bool EvaluateComplexFilter::EvaluateComplexFilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("EvaluateComplexFilter");
 
+  input_cursor_->Reset();
+
   if (input_cursor_->Pull(frame, context)) {
     frame[self_.output_symbol_] = TypedValue(true, context.evaluation_context.memory);
   } else {
