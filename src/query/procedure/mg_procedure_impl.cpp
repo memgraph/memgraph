@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1496,7 +1496,8 @@ mgp_error mgp_result_new_record(mgp_result *res, mgp_result_record **result) {
         MG_ASSERT(res->signature, "Expected to have a valid signature");
         res->rows.push_back(mgp_result_record{
             res->signature,
-            memgraph::utils::pmr::map<memgraph::utils::pmr::string, memgraph::query::TypedValue>(memory)});
+            memgraph::utils::pmr::vector<std::pair<memgraph::utils::pmr::string, memgraph::query::TypedValue>>(
+                memory)});
         return &res->rows.back();
       },
       result);
@@ -1516,7 +1517,7 @@ mgp_error mgp_result_record_insert(mgp_result_record *record, const char *field_
       throw std::logic_error{
           fmt::format("The type of value doesn't satisfies the type '{}'!", type->GetPresentableName())};
     }
-    record->values.emplace(field_name, ToTypedValue(*val, memory));
+    record->values.emplace_back(field_name, ToTypedValue(*val, memory));  // move semantics
   });
 }
 

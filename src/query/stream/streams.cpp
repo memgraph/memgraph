@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -57,8 +57,8 @@ auto GetStream(auto &map, const std::string &stream_name) {
 }
 
 std::pair<TypedValue /*query*/, TypedValue /*parameters*/> ExtractTransformationResult(
-    const utils::pmr::map<utils::pmr::string, TypedValue> &values, const std::string_view transformation_name,
-    const std::string_view stream_name) {
+    const utils::pmr::vector<std::pair<utils::pmr::string, TypedValue>> &values,
+    const std::string_view transformation_name, const std::string_view stream_name) {
   if (values.size() != kExpectedTransformationResultSize) {
     throw StreamsException(
         "Transformation '{}' in stream '{}' did not yield all fields (query, parameters) as required.",
@@ -66,7 +66,11 @@ std::pair<TypedValue /*query*/, TypedValue /*parameters*/> ExtractTransformation
   }
 
   auto get_value = [&](const utils::pmr::string &field_name) mutable -> const TypedValue & {
-    auto it = values.find(field_name);
+    auto it =
+        std::find_if(values.begin(), values.end(),
+                     [&field_name](const std::pair<memgraph::utils::pmr::string, memgraph::query::TypedValue> &elem) {
+                       return elem.first == field_name;
+                     });
     if (it == values.end()) {
       throw StreamsException{"Transformation '{}' in stream '{}' did not yield a record with '{}' field.",
                              transformation_name, stream_name, field_name};

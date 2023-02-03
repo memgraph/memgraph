@@ -594,7 +594,8 @@ struct mgp_result_record {
   /// Result record signature as defined for mgp_proc.
   const memgraph::utils::pmr::map<memgraph::utils::pmr::string,
                                   std::pair<const memgraph::query::procedure::CypherType *, bool>> *signature;
-  memgraph::utils::pmr::map<memgraph::utils::pmr::string, memgraph::query::TypedValue> values;
+  // memgraph::utils::pmr::map<memgraph::utils::pmr::string, memgraph::query::TypedValue> values;
+  memgraph::utils::pmr::vector<std::pair<memgraph::utils::pmr::string, memgraph::query::TypedValue>> values;
 };
 
 struct mgp_result {

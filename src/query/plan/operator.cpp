@@ -4459,7 +4459,12 @@ class CallProcedureCursor : public Cursor {
     }
     for (size_t i = 0; i < self_->result_fields_.size(); ++i) {
       std::string_view field_name(self_->result_fields_[i]);
-      auto result_it = values.find(field_name);
+      auto result_it =
+          std::find_if(values.begin(), values.end(),
+                       [&field_name](const std::pair<memgraph::utils::pmr::string, memgraph::query::TypedValue> &elem) {
+                         return elem.first == field_name;
+                       });
+      // auto result_it = values.find(field_name);
       if (result_it == values.end()) {
         throw QueryRuntimeException("Procedure '{}' did not yield a record with '{}' field.", self_->procedure_name_,
                                     field_name);
