@@ -578,8 +578,8 @@ class RuleBasedPlanner {
 
   std::unique_ptr<LogicalOperator> MakeExistsFilter(Exists &exists, const SymbolTable &symbol_table,
                                                     const std::unordered_set<Symbol> &bound_symbols) {
-    auto node1_symbol = symbol_table.at(*exists.node_identifier_);
-    auto node2_symbol = symbol_table.at(*exists.node_info_->identifier_);
+    auto node1_symbol = symbol_table.at(*exists.from_node_info_->identifier_);
+    auto node2_symbol = symbol_table.at(*exists.to_node_info_->identifier_);
     auto edge_symbol = symbol_table.at(*exists.relationship_info_->identifier_);
     auto direction = exists.relationship_info_->direction_;
     std::vector<storage::EdgeTypeId> edge_types;

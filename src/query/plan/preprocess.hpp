@@ -74,11 +74,6 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
     return true;
   }
 
-  bool PreVisit(Exists &exists) override {
-    exists.node_identifier_->Accept(*this);
-    return false;
-  }
-
   bool Visit(PrimitiveLiteral &) override { return true; }
   bool Visit(ParameterLookup &) override { return true; }
 
