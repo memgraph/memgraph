@@ -1484,19 +1484,19 @@ cpp<#
   (:clone))
 
 (lcp:define-class exists (expression)
-  ((node_identifier "Identifier *" :initval "nullptr" :scope :public
+  ((from-node-info "NodeAtom *" :initval "nullptr" :scope :public
                :slk-save #'slk-save-ast-pointer
-               :slk-load (slk-load-ast-pointer "Identifier")
-               :documentation "Node identifier for which to check existence.")
-    (relationship_info "EdgeAtom *" :initval "nullptr" :scope :public
+               :slk-load (slk-load-ast-pointer "NodeAtom")
+               :documentation "Source node info on the exists pattern.")
+    (relationship-info "EdgeAtom *" :initval "nullptr" :scope :public
                :slk-save #'slk-save-ast-pointer
                :slk-load (slk-load-ast-pointer "EdgeAtom")
                :documentation "Relationship info on the exists pattern.")
-    (node_info "NodeAtom *" :initval "nullptr" :scope :public
+    (to-node-info "NodeAtom *" :initval "nullptr" :scope :public
                :slk-save #'slk-save-ast-pointer
                :slk-load (slk-load-ast-pointer "NodeAtom")
-               :documentation "Node info on the exists pattern.")
-    (limit_expression "Expression *" :initval "nullptr" :scope :public
+               :documentation "Destination node info on the exists pattern.")
+    (limit-expression "Expression *" :initval "nullptr" :scope :public
                :slk-save #'slk-save-ast-pointer
                :slk-load (slk-load-ast-pointer "Expression")
                :documentation "Limit expression.")
@@ -1511,7 +1511,7 @@ cpp<#
     DEFVISITABLE(ExpressionVisitor<void>);
     bool Accept(HierarchicalTreeVisitor &visitor) override {
       if (visitor.PreVisit(*this)) {
-        node_identifier_->Accept(visitor) && relationship_info_->Accept(visitor) && node_info_->Accept(visitor) && limit_expression_->Accept(visitor);
+        from_node_info_->Accept(visitor) && relationship_info_->Accept(visitor) && to_node_info_->Accept(visitor) && limit_expression_->Accept(visitor);
       }
       return visitor.PostVisit(*this);
     }
@@ -1522,8 +1522,8 @@ cpp<#
     cpp<#)
   (:protected
     #>cpp
-    Exists(Identifier *node_identifier, EdgeAtom *relationship_info, NodeAtom *node_info, Expression *limit_expression)
-     : node_identifier_(node_identifier), relationship_info_(relationship_info), node_info_(node_info), limit_expression_(limit_expression) {}
+    Exists(NodeAtom *from_node_info, EdgeAtom *relationship_info, NodeAtom *to_node_info, Expression *limit_expression)
+     : from_node_info_(from_node_info), relationship_info_(relationship_info), to_node_info_(to_node_info), limit_expression_(limit_expression) {}
     cpp<#)
   (:private
     #>cpp

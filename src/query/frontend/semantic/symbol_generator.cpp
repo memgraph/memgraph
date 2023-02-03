@@ -443,15 +443,14 @@ bool SymbolGenerator::PreVisit(Extract &extract) {
 bool SymbolGenerator::PreVisit(Exists &exists) {
   auto &scope = scopes_.back();
   scope.in_exists = true;
+  scope.in_pattern = true;
 
   const auto &symbol = CreateAnonymousSymbol();
   exists.MapTo(symbol);
 
-  exists.node_identifier_->Accept(*this);
-
-  scope.in_pattern = true;
+  exists.to_node_info_->Accept(*this);
   exists.relationship_info_->Accept(*this);
-  exists.node_info_->Accept(*this);
+  exists.from_node_info_->Accept(*this);
 
   return false;
 }
