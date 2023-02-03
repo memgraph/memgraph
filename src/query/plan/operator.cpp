@@ -117,6 +117,8 @@ extern const Event ForeachOperator;
 extern const Event EmptyResultOperator;
 }  // namespace EventCounter
 
+using namespace memgraph::query::procedure;
+
 namespace memgraph::query::plan {
 
 namespace {
@@ -4447,6 +4449,7 @@ class CallProcedureCursor : public Cursor {
     }
 
     const auto &values = result_row_it_->values;
+    const auto &translator_table = result_row_it_->translator_table;
     // Check that the row has all fields as required by the result signature.
     // C API guarantees that it's impossible to set fields which are not part of
     // the result record, but it does not gurantee that some may be missing. See

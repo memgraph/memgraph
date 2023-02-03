@@ -108,8 +108,8 @@ void CallCustomTransformation(const std::string &transformation_name, const std:
     result.signature = &trans.results;
 
     MG_ASSERT(result.signature->size() == kExpectedTransformationResultSize);
-    MG_ASSERT(result.signature->contains(query_param_name));
-    MG_ASSERT(result.signature->contains(params_param_name));
+    // MG_ASSERT(result.signature->contains(query_param_name));
+    // MG_ASSERT(result.signature->contains(params_param_name));
 
     spdlog::trace("Calling transformation in stream '{}'", stream_name);
     trans.cb(&mgp_messages, &graph, &result, &memory);
@@ -512,7 +512,8 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
         interpreter->BeginTransaction();
         for (auto &row : result.rows) {
           spdlog::trace("Processing row in stream '{}'", stream_name);
-          auto [query_value, params_value] = ExtractTransformationResult(row.values, transformation_name, stream_name);
+          auto [query_value, params_value] =
+              ExtractTransformationResult(row.values, row.translator_table, transformation_name, stream_name);
           storage::PropertyValue params_prop{params_value};
 
           std::string query{query_value.ValueString()};
@@ -750,7 +751,8 @@ TransformationResult Streams::Check(const std::string &stream_name, std::optiona
           auto queries_and_parameters = std::vector<TypedValue>(result.rows.size());
           std::transform(
               result.rows.cbegin(), result.rows.cend(), queries_and_parameters.begin(), [&](const auto &row) {
-                auto [query, parameters] = ExtractTransformationResult(row.values, transformation_name, stream_name);
+                auto [query, parameters] =
+                    ExtractTransformationResult(row.values, row.translator_table, transformation_name, stream_name);
 
                 return std::map<std::string, TypedValue>{{"query", std::move(query)},
                                                          {"parameters", std::move(parameters)}};

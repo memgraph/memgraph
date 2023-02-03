@@ -20,6 +20,7 @@
 #include <regex>
 #include <stdexcept>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
 
 #include "license/license.hpp"
