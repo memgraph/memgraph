@@ -44,10 +44,8 @@ namespace memgraph::query::stream {
 namespace {
 inline constexpr auto kExpectedTransformationResultSize = 2;
 inline constexpr auto kCheckStreamResultSize = 2;
-// const utils::pmr::string query_param_name{"query", utils::NewDeleteResource()};
-// const utils::pmr::string params_param_name{"parameters", utils::NewDeleteResource()};
-const std::string query_param_name = "query";
-const std::string params_param_name = "parameters";
+const utils::pmr::string query_param_name{"query", utils::NewDeleteResource()};
+const utils::pmr::string params_param_name{"parameters", utils::NewDeleteResource()};
 
 const std::map<std::string, storage::PropertyValue> empty_parameters{};
 
@@ -59,8 +57,9 @@ auto GetStream(auto &map, const std::string &stream_name) {
 }
 
 std::pair<TypedValue /*query*/, TypedValue /*parameters*/> ExtractTransformationResult(
-    const utils::pmr::map<int, TypedValue> &values, const std::unordered_map<std::string, int> &translator_table,
-    const std::string_view transformation_name, const std::string_view stream_name) {
+    const utils::pmr::unordered_map<int, TypedValue> &values,
+    const std::unordered_map<std::string, int> &translator_table, const std::string_view transformation_name,
+    const std::string_view stream_name) {
   if (values.size() != kExpectedTransformationResultSize) {
     throw StreamsException(
         "Transformation '{}' in stream '{}' did not yield all fields (query, parameters) as required.",

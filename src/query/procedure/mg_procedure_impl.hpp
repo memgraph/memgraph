@@ -607,11 +607,12 @@ struct mgp_result {
                                       std::pair<const memgraph::query::procedure::CypherType *, bool>> *signature,
       memgraph::utils::MemoryResource *mem)
       : signature(signature), rows(mem) {
-    // int counter = 0;
-    // std::for_each(signature->begin(), signature->end(), [&counter, this](std::pair<memgraph::utils::pmr::string,
-    // std::pair<const memgraph::query::procedure::CypherType *, bool>> element) {
-    // translator_table.insert(std::make_pair(std::string(element.first), counter++));
-    // });
+    int counter = 0;
+    std::for_each(
+        signature->begin(), signature->end(),
+        [&counter,
+         this](std::pair<memgraph::utils::pmr::string, std::pair<const memgraph::query::procedure::CypherType *, bool>>
+                   element) { translator_table.insert(std::make_pair(std::string(element.first), counter++)); });
   }
 
   /// Result record signature as defined for mgp_proc.

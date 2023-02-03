@@ -1518,8 +1518,13 @@ mgp_error mgp_result_record_insert(mgp_result_record *record, const char *field_
           fmt::format("The type of value doesn't satisfies the type '{}'!", type->GetPresentableName())};
     }
     // track the status
-    auto result_it = record->translator_table.find(std::string(field_name));
-    record->values.emplace(result_it->second, ToTypedValue(*val, memory));
+    std::string str = std::string(field_name);
+    auto result_it = record->translator_table.find(str);
+    if (result_it == record->translator_table.end()) {
+      spdlog::info("Nothing found...");
+    }
+    spdlog::info("Element numero due: {}", result_it->second);
+    record->values.emplace(((int)result_it->second), ToTypedValue(*val, memory));
   });
 }
 
