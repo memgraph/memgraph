@@ -20,6 +20,7 @@
 #include <regex>
 #include <stdexcept>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
 
 #include "license/license.hpp"
@@ -1495,7 +1496,8 @@ mgp_error mgp_result_new_record(mgp_result *res, mgp_result_record **result) {
         auto *memory = res->rows.get_allocator().GetMemoryResource();
         MG_ASSERT(res->signature, "Expected to have a valid signature");
         res->rows.push_back(mgp_result_record{
-            res->signature, memgraph::utils::pmr::unordered_map<std::string, memgraph::query::TypedValue>(memory)});
+            res->signature, memgraph::utils::pmr::unordered_map<int, memgraph::query::TypedValue>(memory),
+            res->translator_table});
         return &res->rows.back();
       },
       result);
@@ -1515,7 +1517,9 @@ mgp_error mgp_result_record_insert(mgp_result_record *record, const char *field_
       throw std::logic_error{
           fmt::format("The type of value doesn't satisfies the type '{}'!", type->GetPresentableName())};
     }
-    record->values.emplace(field_name, ToTypedValue(*val, memory));
+    // track the status
+    auto result_it = record->translator_table.find(std::string(field_name));
+    record->values.emplace(result_it->second, ToTypedValue(*val, memory));
   });
 }
 
