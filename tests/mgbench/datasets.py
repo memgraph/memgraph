@@ -508,9 +508,8 @@ class LDBC_Interactive(Dataset):
     def benchmark__interactive__sample_query(self):
         return ("MATCH(n:Tag) RETURN COUNT(*);", {})
 
-    # TODO(antejavor): Check this query shortest path correctness
     def benchmark__interactive__complex_query_1(self):
-        return (
+        memgraph = (
             """
         MATCH (p:Person {id: $personId}), (friend:Person {firstName: $firstName})
         WHERE NOT p=friend
@@ -561,6 +560,62 @@ class LDBC_Interactive(Dataset):
             ),
             {"personId": 4398046511333, "firstName": "Jose"},
         )
+        neo4j = (
+            """
+            MATCH (p:Person {id: $personId}), (friend:Person {firstName: $firstName})
+                WHERE NOT p=friend
+                WITH p, friend
+                MATCH path = shortestPath((p)-[:KNOWS*1..3]-(friend))
+                WITH min(length(path)) AS distance, friend
+            ORDER BY
+                distance ASC,
+                friend.lastName ASC,
+                toInteger(friend.id) ASC
+            LIMIT 20
+
+            MATCH (friend)-[:IS_LOCATED_IN]->(friendCity:City)
+            OPTIONAL MATCH (friend)-[studyAt:STUDY_AT]->(uni:University)-[:IS_LOCATED_IN]->(uniCity:City)
+            WITH friend, collect(
+                CASE uni.name
+                    WHEN null THEN null
+                    ELSE [uni.name, studyAt.classYear, uniCity.name]
+                END ) AS unis, friendCity, distance
+
+            OPTIONAL MATCH (friend)-[workAt:WORK_AT]->(company:Company)-[:IS_LOCATED_IN]->(companyCountry:Country)
+            WITH friend, collect(
+                CASE company.name
+                    WHEN null THEN null
+                    ELSE [company.name, workAt.workFrom, companyCountry.name]
+                END ) AS companies, unis, friendCity, distance
+
+            RETURN
+                friend.id AS friendId,
+                friend.lastName AS friendLastName,
+                distance AS distanceFromPerson,
+                friend.birthday AS friendBirthday,
+                friend.creationDate AS friendCreationDate,
+                friend.gender AS friendGender,
+                friend.browserUsed AS friendBrowserUsed,
+                friend.locationIP AS friendLocationIp,
+                friend.email AS friendEmails,
+                friend.speaks AS friendLanguages,
+                friendCity.name AS friendCityName,
+                unis AS friendUniversities,
+                companies AS friendCompanies
+            ORDER BY
+                distanceFromPerson ASC,
+                friendLastName ASC,
+                toInteger(friendId) ASC
+            LIMIT 20
+            """.rstrip(
+                "\t\n"
+            ),
+            {"personId": 4398046511333, "firstName": "Jose"},
+        )
+        if self.vendor == "memgraph":
+            return memgraph
+        else:
+            return neo4j
 
     def benchmark__interactive__complex_query_2(self):
         return (
@@ -723,9 +778,8 @@ class LDBC_Interactive(Dataset):
             {"personId": 4398046511333, "tagName": "Carl_Gustaf_Emil_Mannerheim"},
         )
 
-    # TODO(antejavor): Check this query atomic expression correctness
     def benchmark__interactive__complex_query_7(self):
-        return (
+        memgraph = (
             """
             MATCH (person:Person {id: $personId})<-[:HAS_CREATOR]-(message:Message)<-[like:LIKES]-(liker:Person)
                 WITH liker, message, like.creationDate AS likeTime, person
@@ -748,6 +802,34 @@ class LDBC_Interactive(Dataset):
             ),
             {"personId": 4398046511268},
         )
+        neo4j = (
+            """
+            MATCH (person:Person {id: $personId})<-[:HAS_CREATOR]-(message:Message)<-[like:LIKES]-(liker:Person)
+                WITH liker, message, like.creationDate AS likeTime, person
+                ORDER BY likeTime DESC, toInteger(message.id) ASC
+                WITH liker, head(collect({msg: message, likeTime: likeTime})) AS latestLike, person
+            RETURN
+                liker.id AS personId,
+                liker.firstName AS personFirstName,
+                liker.lastName AS personLastName,
+                latestLike.likeTime AS likeCreationDate,
+                latestLike.msg.id AS commentOrPostId,
+                coalesce(latestLike.msg.content, latestLike.msg.imageFile) AS commentOrPostContent,
+                toInteger(floor(toFloat(latestLike.likeTime - latestLike.msg.creationDate)/1000.0)/60.0) AS minutesLatency,
+                not((liker)-[:KNOWS]-(person)) AS isNew
+            ORDER BY
+                likeCreationDate DESC
+                toInteger(personId) ASC
+            LIMIT 20
+            """.rstrip(
+                "\t\n"
+            ),
+            {"personId": 4398046511268},
+        )
+        if self.vendor == "memgraph":
+            return memgraph
+        else:
+            return neo4j
 
     def benchmark__interactive__complex_query_8(self):
         return (
@@ -796,35 +878,71 @@ class LDBC_Interactive(Dataset):
             {"personId": 4398046511268, "maxDate": "2011-06-29T12:00:00+00:00"},
         )
 
-    # TODO(antejavor): Check this query atomic expression correctness
-    # def benchmark__interactive__complex_query_10(self):
-    #     return (
-    #         """
-    #         MATCH (person:Person {id: $personId})-[:KNOWS*2..2]-(friend),
-    #             (friend)-[:IS_LOCATED_IN]->(city:City)
-    #         WHERE NOT friend=person AND
-    #             NOT (friend)-[:KNOWS]-(person)
-    #         WITH person, city, friend, datetime({epochMillis: friend.birthday}) as birthday
-    #         WHERE  (birthday.month=$month AND birthday.day>=21) OR
-    #                 (birthday.month=($month%12)+1 AND birthday.day<22)
-    #         WITH DISTINCT friend, city, person
-    #         OPTIONAL MATCH (friend)<-[:HAS_CREATOR]-(post:Post)
-    #         WITH friend, city, collect(post) AS posts, person
-    #         WITH friend,
-    #             city,
-    #             size(posts) AS postCount,
-    #             size([p IN posts WHERE (p)-[:HAS_TAG]->()<-[:HAS_INTEREST]-(person)]) AS commonPostCount
-    #         RETURN friend.id AS personId,
-    #             friend.firstName AS personFirstName,
-    #             friend.lastName AS personLastName,
-    #             commonPostCount - (postCount - commonPostCount) AS commonInterestScore,
-    #             friend.gender AS personGender,
-    #             city.name AS personCityName
-    #         ORDER BY commonInterestScore DESC, personId ASC
-    #         LIMIT 10
-    #         """.rstrip("\t\n"),
-    #         {"personId": 4398046511333, "month": 5},
-    #     )
+    def benchmark__interactive__complex_query_10(self):
+        memgraph = (
+            """
+            MATCH (person:Person {id: $personId})-[:KNOWS*2..2]-(friend),
+                (friend)-[:IS_LOCATED_IN]->(city:City)
+            WHERE NOT friend=person AND
+                NOT (friend)-[:KNOWS]-(person)
+            WITH person, city, friend, datetime({epochMillis: friend.birthday}) as birthday
+            WHERE  (birthday.month=$month AND birthday.day>=21) OR
+                    (birthday.month=($month%12)+1 AND birthday.day<22)
+            WITH DISTINCT friend, city, person
+            OPTIONAL MATCH (friend)<-[:HAS_CREATOR]-(post:Post)
+            WITH friend, city, collect(post) AS posts, person
+            WITH friend,
+                city,
+                size(posts) AS postCount,
+                size([p IN posts WHERE (p)-[:HAS_TAG]->()<-[:HAS_INTEREST]-(person)]) AS commonPostCount
+            RETURN friend.id AS personId,
+                friend.firstName AS personFirstName,
+                friend.lastName AS personLastName,
+                commonPostCount - (postCount - commonPostCount) AS commonInterestScore,
+                friend.gender AS personGender,
+                city.name AS personCityName
+            ORDER BY commonInterestScore DESC, personId ASC
+            LIMIT 10
+            """.rstrip(
+                "\t\n"
+            ),
+            {"personId": 4398046511333, "month": 5},
+        )
+
+        neo4j = (
+            """
+            MATCH (person:Person {id: $personId})-[:KNOWS*2..2]-(friend),
+                (friend)-[:IS_LOCATED_IN]->(city:City)
+            WHERE NOT friend=person AND
+                NOT (friend)-[:KNOWS]-(person)
+            WITH person, city, friend, datetime({epochMillis: friend.birthday}) as birthday
+            WHERE  (birthday.month=$month AND birthday.day>=21) OR
+                    (birthday.month=($month%12)+1 AND birthday.day<22)
+            WITH DISTINCT friend, city, person
+            OPTIONAL MATCH (friend)<-[:HAS_CREATOR]-(post:Post)
+            WITH friend, city, collect(post) AS posts, person
+            WITH friend,
+                city,
+                size(posts) AS postCount,
+                size([p IN posts WHERE (p)-[:HAS_TAG]->()<-[:HAS_INTEREST]-(person)]) AS commonPostCount
+            RETURN friend.id AS personId,
+                friend.firstName AS personFirstName,
+                friend.lastName AS personLastName,
+                commonPostCount - (postCount - commonPostCount) AS commonInterestScore,
+                friend.gender AS personGender,
+                city.name AS personCityName
+            ORDER BY commonInterestScore DESC, personId ASC
+            LIMIT 10
+            """.rstrip(
+                "\t\n"
+            ),
+            {"personId": 4398046511333, "month": 5},
+        )
+
+        if self.vendor == "memgraph":
+            return memgraph
+        else:
+            return neo4j
 
     def benchmark__interactive__complex_query_11(self):
         return (
@@ -882,9 +1000,8 @@ class LDBC_Interactive(Dataset):
             },
         )
 
-    # TODO(antejavor): Check this query shortest path correctness
     def benchmark__interactive__complex_query_13(self):
-        return (
+        memgraph = (
             """
             MATCH
                 (person1:Person {id: $person1Id}),
@@ -900,6 +1017,106 @@ class LDBC_Interactive(Dataset):
             ),
             {"person1Id": 8796093022390, "person2Id": 8796093022357},
         )
+
+        neo4j = (
+            """
+            MATCH
+                (person1:Person {id: $person1Id}),
+                (person2:Person {id: $person2Id}),
+                path = shortestPath((person1)-[:KNOWS*]-(person2))
+            RETURN
+                CASE path IS NULL
+                    WHEN true THEN -1
+                    ELSE length(path)
+                END AS shortestPathLength
+            """.rstrip(
+                "\t\n"
+            ),
+            {"person1Id": 8796093022390, "person2Id": 8796093022357},
+        )
+
+        if self.vendor == "memgraph":
+            return memgraph
+        else:
+            return neo4j
+
+    def benchmark__interactive__complex_query_14(self):
+        memgraph = (
+            """
+            MATCH path = allShortestPaths((person1:Person { id: $person1Id })-[:KNOWS*0..]-(person2:Person { id: $person2Id }))
+            WITH collect(path) as paths
+            UNWIND paths as path
+            WITH path, relationships(path) as rels_in_path
+            WITH
+                [n in nodes(path) | n.id ] as personIdsInPath,
+                [r in rels_in_path |
+                    reduce(w=0.0, v in [
+                        (a:Person)<-[:HAS_CREATOR]-(:Comment)-[:REPLY_OF]->(:Post)-[:HAS_CREATOR]->(b:Person)
+                        WHERE
+                            (a.id = startNode(r).id and b.id=endNode(r).id) OR (a.id=endNode(r).id and b.id=startNode(r).id)
+                        | 1.0] | w+v)
+                ] as weight1,
+                [r in rels_in_path |
+                    reduce(w=0.0,v in [
+                    (a:Person)<-[:HAS_CREATOR]-(:Comment)-[:REPLY_OF]->(:Comment)-[:HAS_CREATOR]->(b:Person)
+                    WHERE
+                            (a.id = startNode(r).id and b.id=endNode(r).id) OR (a.id=endNode(r).id and b.id=startNode(r).id)
+                    | 0.5] | w+v)
+                ] as weight2
+            WITH
+                personIdsInPath,
+                reduce(w=0.0,v in weight1| w+v) as w1,
+                reduce(w=0.0,v in weight2| w+v) as w2
+            RETURN
+                personIdsInPath,
+                (w1+w2) as pathWeight
+            ORDER BY pathWeight desc
+            """.rstrip(
+                "\t\n"
+            ),
+            {"person1Id": 8796093022390, "person2Id": 8796093022357},
+        )
+
+        neo4j = (
+            """
+            MATCH path = allShortestPaths((person1:Person { id: $person1Id })-[:KNOWS*0..]-(person2:Person { id: $person2Id }))
+            WITH collect(path) as paths
+            UNWIND paths as path
+            WITH path, relationships(path) as rels_in_path
+            WITH
+                [n in nodes(path) | n.id ] as personIdsInPath,
+                [r in rels_in_path |
+                    reduce(w=0.0, v in [
+                        (a:Person)<-[:HAS_CREATOR]-(:Comment)-[:REPLY_OF]->(:Post)-[:HAS_CREATOR]->(b:Person)
+                        WHERE
+                            (a.id = startNode(r).id and b.id=endNode(r).id) OR (a.id=endNode(r).id and b.id=startNode(r).id)
+                        | 1.0] | w+v)
+                ] as weight1,
+                [r in rels_in_path |
+                    reduce(w=0.0,v in [
+                    (a:Person)<-[:HAS_CREATOR]-(:Comment)-[:REPLY_OF]->(:Comment)-[:HAS_CREATOR]->(b:Person)
+                    WHERE
+                            (a.id = startNode(r).id and b.id=endNode(r).id) OR (a.id=endNode(r).id and b.id=startNode(r).id)
+                    | 0.5] | w+v)
+                ] as weight2
+            WITH
+                personIdsInPath,
+                reduce(w=0.0,v in weight1| w+v) as w1,
+                reduce(w=0.0,v in weight2| w+v) as w2
+            RETURN
+                personIdsInPath,
+                (w1+w2) as pathWeight
+            ORDER BY pathWeight desc
+            """.rstrip(
+                "\t\n"
+            ),
+            {"person1Id": 8796093022390, "person2Id": 8796093022357},
+        )
+
+        if self.vendor == "memgraph":
+            return memgraph
+        else:
+            return neo4j
 
 
 class LDBC_BI(Dataset):
