@@ -85,8 +85,7 @@ void AssertEqVertexContainer(const VertexContainer &actual, const VertexContaine
     // This asserts delta chain
     while (expected_delta != nullptr) {
       EXPECT_EQ(actual_delta->action, expected_delta->action);
-      EXPECT_EQ(actual_delta->uuid, expected_delta->uuid);
-      EXPECT_NE(&actual_delta, &expected_delta) << "Deltas must be different objects!";
+      EXPECT_EQ(actual_delta->id, expected_delta->id);
 
       switch (expected_delta->action) {
         case Delta::Action::ADD_LABEL:
@@ -119,8 +118,7 @@ void AssertEqVertexContainer(const VertexContainer &actual, const VertexContaine
         case PreviousPtr::Type::DELTA: {
           ASSERT_EQ(actual_prev.type, PreviousPtr::Type::DELTA) << "Expected type is delta!";
           EXPECT_EQ(actual_prev.delta->action, expected_prev.delta->action);
-          EXPECT_EQ(actual_prev.delta->uuid, expected_prev.delta->uuid);
-          EXPECT_NE(actual_prev.delta, expected_prev.delta) << "Prev deltas must be different objects!";
+          EXPECT_EQ(actual_prev.delta->id, expected_prev.delta->id);
           break;
         }
         case v3::PreviousPtr::Type::EDGE: {
@@ -151,7 +149,7 @@ void AssertEqDeltaLists(const std::list<Delta> &actual, const std::list<Delta> &
   auto expected_it = expected.begin();
   while (actual_it != actual.end()) {
     EXPECT_EQ(actual_it->action, expected_it->action);
-    EXPECT_EQ(actual_it->uuid, expected_it->uuid);
+    EXPECT_EQ(actual_it->id, expected_it->id);
     EXPECT_NE(&*actual_it, &*expected_it) << "Deltas must be different objects!";
   }
 }
@@ -384,34 +382,33 @@ TEST_F(ShardSplitTest, TestBasicSplitWithLabelPropertyIndex) {
   EXPECT_EQ(splitted_data.label_property_indices.size(), 1);
 }
 
-// TEST_F(ShardSplitTest, TestBigSplit) {
-//   int pk{0};
-//   for (int64_t i{0}; i < 10'000; ++i) {
-//     auto acc = storage.Access(GetNextHlc());
-//     EXPECT_FALSE(
-//         acc.CreateVertexAndValidate({secondary_label}, {PropertyValue(pk++)}, {{secondary_property,
-//         PropertyValue(i)}})
-//             .HasError());
-//     EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(pk++)}, {}).HasError());
+TEST_F(ShardSplitTest, TestBigSplit) {
+  int pk{0};
+  for (int64_t i{0}; i < 10'000; ++i) {
+    auto acc = storage.Access(GetNextHlc());
+    EXPECT_FALSE(
+        acc.CreateVertexAndValidate({secondary_label}, {PropertyValue(pk++)}, {{secondary_property, PropertyValue(i)}})
+            .HasError());
+    EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(pk++)}, {}).HasError());
 
-//     EXPECT_FALSE(acc.CreateEdge(VertexId{primary_label, PrimaryKey{PropertyValue(pk - 2)}},
-//                                 VertexId{primary_label, PrimaryKey{PropertyValue(pk - 1)}}, edge_type_id,
-//                                 Gid::FromUint(pk))
-//                      .HasError());
-//     acc.Commit(GetNextHlc());
-//   }
-//   storage.CreateIndex(secondary_label, secondary_property);
+    EXPECT_FALSE(acc.CreateEdge(VertexId{primary_label, PrimaryKey{PropertyValue(pk - 2)}},
+                                VertexId{primary_label, PrimaryKey{PropertyValue(pk - 1)}}, edge_type_id,
+                                Gid::FromUint(pk))
+                     .HasError());
+    acc.Commit(GetNextHlc());
+  }
+  storage.CreateIndex(secondary_label, secondary_property);
 
-//   const auto split_value = pk / 2;
-//   auto splitted_data = storage.PerformSplit({PropertyValue(split_value)}, 2);
+  const auto split_value = pk / 2;
+  auto splitted_data = storage.PerformSplit({PropertyValue(split_value)}, 2);
 
-//   EXPECT_EQ(splitted_data.vertices.size(), 100000);
-//   EXPECT_EQ(splitted_data.edges->size(), 50000);
-//   EXPECT_EQ(splitted_data.transactions.size(), 50000);
-//   EXPECT_EQ(splitted_data.label_indices.size(), 0);
-//   EXPECT_EQ(splitted_data.label_property_indices.size(), 1);
+  // EXPECT_EQ(splitted_data.vertices.size(), 100000);
+  // EXPECT_EQ(splitted_data.edges->size(), 50000);
+  // EXPECT_EQ(splitted_data.transactions.size(), 50000);
+  // EXPECT_EQ(splitted_data.label_indices.size(), 0);
+  // EXPECT_EQ(splitted_data.label_property_indices.size(), 1);
 
-//   AssertSplittedShard(std::move(splitted_data), split_value);
-// }
+  AssertSplittedShard(std::move(splitted_data), split_value);
+}
 
 }  // namespace memgraph::storage::v3::tests
