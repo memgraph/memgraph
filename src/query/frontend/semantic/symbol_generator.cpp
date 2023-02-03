@@ -308,8 +308,12 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     throw SemanticException("Variables are not allowed in {}.", scope.in_skip ? "SKIP" : "LIMIT");
   }
   if (scope.in_exists && (scope.visiting_edge || scope.in_node_atom)) {
-    if (!HasSymbol(ident.name_) && !ConsumePredefinedIdentifier(ident.name_) && ident.user_declared_) {
+    auto has_symbol = HasSymbol(ident.name_);
+    if (!has_symbol && !ConsumePredefinedIdentifier(ident.name_) && ident.user_declared_) {
       throw SemanticException("Unbounded variables are not allowed in exists!");
+    }
+    if (scope.in_exists_source_node && !ident.user_declared_) {
+      throw SemanticException("Source node of the exists pattern must be bounded with a symbol!");
     }
   }
   Symbol symbol;
@@ -448,9 +452,12 @@ bool SymbolGenerator::PreVisit(Exists &exists) {
   const auto &symbol = CreateAnonymousSymbol();
   exists.MapTo(symbol);
 
-  exists.to_node_info_->Accept(*this);
-  exists.relationship_info_->Accept(*this);
+  scope.in_exists_source_node = true;
   exists.from_node_info_->Accept(*this);
+  scope.in_exists_source_node = false;
+
+  exists.relationship_info_->Accept(*this);
+  exists.to_node_info_->Accept(*this);
 
   return false;
 }
