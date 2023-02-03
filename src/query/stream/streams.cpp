@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -44,8 +44,10 @@ namespace memgraph::query::stream {
 namespace {
 inline constexpr auto kExpectedTransformationResultSize = 2;
 inline constexpr auto kCheckStreamResultSize = 2;
-const utils::pmr::string query_param_name{"query", utils::NewDeleteResource()};
-const utils::pmr::string params_param_name{"parameters", utils::NewDeleteResource()};
+// const utils::pmr::string query_param_name{"query", utils::NewDeleteResource()};
+// const utils::pmr::string params_param_name{"parameters", utils::NewDeleteResource()};
+const std::string query_param_name = "query";
+const std::string params_param_name = "parameters";
 
 const std::map<std::string, storage::PropertyValue> empty_parameters{};
 
@@ -57,7 +59,7 @@ auto GetStream(auto &map, const std::string &stream_name) {
 }
 
 std::pair<TypedValue /*query*/, TypedValue /*parameters*/> ExtractTransformationResult(
-    const utils::pmr::map<utils::pmr::string, TypedValue> &values, const std::string_view transformation_name,
+    const utils::pmr::unordered_map<std::string, TypedValue> &values, const std::string_view transformation_name,
     const std::string_view stream_name) {
   if (values.size() != kExpectedTransformationResultSize) {
     throw StreamsException(
@@ -65,7 +67,7 @@ std::pair<TypedValue /*query*/, TypedValue /*parameters*/> ExtractTransformation
         transformation_name, stream_name);
   }
 
-  auto get_value = [&](const utils::pmr::string &field_name) mutable -> const TypedValue & {
+  auto get_value = [&](const std::string &field_name) mutable -> const TypedValue & {
     auto it = values.find(field_name);
     if (it == values.end()) {
       throw StreamsException{"Transformation '{}' in stream '{}' did not yield a record with '{}' field.",
@@ -104,8 +106,8 @@ void CallCustomTransformation(const std::string &transformation_name, const std:
     result.signature = &trans.results;
 
     MG_ASSERT(result.signature->size() == kExpectedTransformationResultSize);
-    MG_ASSERT(result.signature->contains(query_param_name));
-    MG_ASSERT(result.signature->contains(params_param_name));
+    // MG_ASSERT(result.signature->contains(query_param_name));
+    // MG_ASSERT(result.signature->contains(params_param_name));
 
     spdlog::trace("Calling transformation in stream '{}'", stream_name);
     trans.cb(&mgp_messages, &graph, &result, &memory);

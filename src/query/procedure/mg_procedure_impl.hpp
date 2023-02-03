@@ -30,6 +30,7 @@
 #include "utils/memory.hpp"
 #include "utils/pmr/map.hpp"
 #include "utils/pmr/string.hpp"
+#include "utils/pmr/unordered_map.hpp"
 #include "utils/pmr/vector.hpp"
 #include "utils/temporal.hpp"
 #include "utils/variant_helpers.hpp"
@@ -594,7 +595,7 @@ struct mgp_result_record {
   /// Result record signature as defined for mgp_proc.
   const memgraph::utils::pmr::map<memgraph::utils::pmr::string,
                                   std::pair<const memgraph::query::procedure::CypherType *, bool>> *signature;
-  memgraph::utils::pmr::map<memgraph::utils::pmr::string, memgraph::query::TypedValue> values;
+  memgraph::utils::pmr::unordered_map<std::string, memgraph::query::TypedValue> values;
 };
 
 struct mgp_result {

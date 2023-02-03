@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1495,8 +1495,7 @@ mgp_error mgp_result_new_record(mgp_result *res, mgp_result_record **result) {
         auto *memory = res->rows.get_allocator().GetMemoryResource();
         MG_ASSERT(res->signature, "Expected to have a valid signature");
         res->rows.push_back(mgp_result_record{
-            res->signature,
-            memgraph::utils::pmr::map<memgraph::utils::pmr::string, memgraph::query::TypedValue>(memory)});
+            res->signature, memgraph::utils::pmr::unordered_map<std::string, memgraph::query::TypedValue>(memory)});
         return &res->rows.back();
       },
       result);
