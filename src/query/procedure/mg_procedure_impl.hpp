@@ -594,7 +594,10 @@ struct mgp_result_record {
   /// Result record signature as defined for mgp_proc.
   const memgraph::utils::pmr::map<memgraph::utils::pmr::string,
                                   std::pair<const memgraph::query::procedure::CypherType *, bool>> *signature;
-  memgraph::utils::pmr::map<memgraph::utils::pmr::string, memgraph::query::TypedValue> values;
+  // memgraph::utils::pmr::map<memgraph::utils::pmr::string, memgraph::query::TypedValue> values;
+  memgraph::utils::pmr::map<int, memgraph::query::TypedValue> values;
+
+  const std::unordered_map<std::string, int> &translator_table;
 };
 
 struct mgp_result {
@@ -602,13 +605,20 @@ struct mgp_result {
       const memgraph::utils::pmr::map<memgraph::utils::pmr::string,
                                       std::pair<const memgraph::query::procedure::CypherType *, bool>> *signature,
       memgraph::utils::MemoryResource *mem)
-      : signature(signature), rows(mem) {}
+      : signature(signature), rows(mem) {
+    // int counter = 0;
+    // std::for_each(signature->begin(), signature->end(), [&counter, this](std::pair<memgraph::utils::pmr::string,
+    // std::pair<const memgraph::query::procedure::CypherType *, bool>> element) {
+    // translator_table.insert(std::make_pair(std::string(element.first), counter++));
+    // });
+  }
 
   /// Result record signature as defined for mgp_proc.
   const memgraph::utils::pmr::map<memgraph::utils::pmr::string,
                                   std::pair<const memgraph::query::procedure::CypherType *, bool>> *signature;
   memgraph::utils::pmr::vector<mgp_result_record> rows;
   std::optional<memgraph::utils::pmr::string> error_msg;
+  std::unordered_map<std::string, int> translator_table;
 };
 
 struct mgp_func_result {

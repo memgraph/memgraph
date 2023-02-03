@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -57,8 +57,8 @@ auto GetStream(auto &map, const std::string &stream_name) {
 }
 
 std::pair<TypedValue /*query*/, TypedValue /*parameters*/> ExtractTransformationResult(
-    const utils::pmr::map<utils::pmr::string, TypedValue> &values, const std::string_view transformation_name,
-    const std::string_view stream_name) {
+    const utils::pmr::map<int, TypedValue> &values, const std::unordered_map<std::string, int> &translator_table,
+    const std::string_view transformation_name, const std::string_view stream_name) {
   if (values.size() != kExpectedTransformationResultSize) {
     throw StreamsException(
         "Transformation '{}' in stream '{}' did not yield all fields (query, parameters) as required.",
@@ -66,7 +66,7 @@ std::pair<TypedValue /*query*/, TypedValue /*parameters*/> ExtractTransformation
   }
 
   auto get_value = [&](const utils::pmr::string &field_name) mutable -> const TypedValue & {
-    auto it = values.find(field_name);
+    auto it = values.find(translator_table.find(std::string(field_name))->second);
     if (it == values.end()) {
       throw StreamsException{"Transformation '{}' in stream '{}' did not yield a record with '{}' field.",
                              transformation_name, stream_name, field_name};
@@ -508,7 +508,8 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
         interpreter->BeginTransaction();
         for (auto &row : result.rows) {
           spdlog::trace("Processing row in stream '{}'", stream_name);
-          auto [query_value, params_value] = ExtractTransformationResult(row.values, transformation_name, stream_name);
+          auto [query_value, params_value] =
+              ExtractTransformationResult(row.values, row.translator_table, transformation_name, stream_name);
           storage::PropertyValue params_prop{params_value};
 
           std::string query{query_value.ValueString()};
@@ -746,7 +747,8 @@ TransformationResult Streams::Check(const std::string &stream_name, std::optiona
           auto queries_and_parameters = std::vector<TypedValue>(result.rows.size());
           std::transform(
               result.rows.cbegin(), result.rows.cend(), queries_and_parameters.begin(), [&](const auto &row) {
-                auto [query, parameters] = ExtractTransformationResult(row.values, transformation_name, stream_name);
+                auto [query, parameters] =
+                    ExtractTransformationResult(row.values, row.translator_table, transformation_name, stream_name);
 
                 return std::map<std::string, TypedValue>{{"query", std::move(query)},
                                                          {"parameters", std::move(parameters)}};
