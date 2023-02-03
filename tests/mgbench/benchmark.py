@@ -108,7 +108,12 @@ parser.add_argument("--no-properties-on-edges", action="store_true", help="disab
 
 parser.add_argument("--bolt-port", default=7687, help="memgraph bolt port")
 
-parser.add_argument("--datasets-path", default="datasets", help="path to datasets to scan")
+parser.add_argument(
+    "--datasets-path",
+    default="datasets",
+    help="path to a single Python file where additional datasets are located"
+    "NOTE: give the file unique name compared to the core module names",
+)
 parser.add_argument("--test-system-args", default="")
 
 parser.add_argument(
