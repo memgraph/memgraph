@@ -446,26 +446,22 @@ bool SymbolGenerator::PreVisit(Extract &extract) {
 
 bool SymbolGenerator::PreVisit(Exists &exists) {
   auto &scope = scopes_.back();
+
+  if (exists.pattern_->atoms_.size() != 3) {
+    throw SemanticException("Exists functionality only supports triplet patterns!");
+  }
+
   scope.in_exists = true;
-  scope.in_pattern = true;
 
   const auto &symbol = CreateAnonymousSymbol();
   exists.MapTo(symbol);
 
-  scope.in_exists_source_node = true;
-  exists.from_node_info_->Accept(*this);
-  scope.in_exists_source_node = false;
-
-  exists.relationship_info_->Accept(*this);
-  exists.to_node_info_->Accept(*this);
-
-  return false;
+  return true;
 }
 
-bool SymbolGenerator::PostVisit(Exists &exists) {
+bool SymbolGenerator::PostVisit(Exists &) {
   auto &scope = scopes_.back();
   scope.in_exists = false;
-  scope.in_pattern = false;
   return true;
 }
 
@@ -477,6 +473,20 @@ bool SymbolGenerator::PreVisit(Pattern &pattern) {
   if ((scope.in_create || scope.in_merge) && pattern.atoms_.size() == 1U) {
     MG_ASSERT(utils::IsSubtype(*pattern.atoms_[0], NodeAtom::kType), "Expected a single NodeAtom in Pattern");
     scope.in_create_node = true;
+  } else if (scope.in_exists) {
+    // Currently we're not dealing with variable start planner so this feels a bit hacky
+    // TODO: Configure variable start planner to work with exists() in order to delete this part
+    for (auto i = 0; i < pattern.atoms_.size(); i++) {
+      if (i == 0) {
+        scope.in_exists_source_node = true;
+        pattern.atoms_[i]->Accept(*this);
+        scope.in_exists_source_node = false;
+      } else {
+        pattern.atoms_[i]->Accept(*this);
+      }
+    }
+
+    return false;
   }
   return true;
 }
