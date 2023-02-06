@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -41,6 +41,8 @@ class PropertyStore {
   /// Checks whether the property `property` exists in the store. The time
   /// complexity of this function is O(n).
   bool HasProperty(PropertyId property) const;
+
+  PropertyValue GetEmptyProperty() const;
 
   /// Checks whether the property `property` is equal to the specified value
   /// `value`. This function doesn't perform any memory allocations while

@@ -213,10 +213,14 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
   // when we update PropertyValue with custom allocator.
 
   // auto start = std::chrono::steady_clock::now();
+
+  std::map<storage::PropertyId, storage::PropertyValue> properties;
   if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info.properties)) {
     for (const auto &[key, value_expression] : *node_info_properties) {
-      PropsSetChecked(&new_node, key, value_expression->Accept(evaluator));
+      properties.emplace(key, value_expression->Accept(evaluator));
+      // PropsSetChecked(&new_node, key, );
     }
+    new_node.SetProperties(properties);
   } else {
     auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info.properties));
     for (const auto &[key, value] : property_map.ValueMap()) {
