@@ -1,4 +1,4 @@
-# Copyright 2021 Memgraph Ltd.
+# Copyright 2023 Memgraph Ltd.
 #
 # Use of this software is governed by the Business Source License
 # included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -42,9 +42,21 @@ def unpack_and_move_file(input_path, output_path):
     os.rename(input_path, output_path)
 
 
-def unpack(input_path: Path):
+def unpack_gz(input_path: Path):
     if input_path.suffix == ".gz":
         subprocess.run(["gzip", "-d", input_path], capture_output=True, check=True)
+
+
+def unpack_tar_zst(input_path: Path):
+    if input_path.suffix == ".zst":
+        subprocess.run(
+            ["tar", "--use-compress-program=unzstd", "-xvf", input_path],
+            cwd=input_path.parent,
+            capture_output=True,
+            check=True,
+        )
+        input_path = input_path.with_suffix("").with_suffix("")
+    return input_path
 
 
 def ensure_directory(path):

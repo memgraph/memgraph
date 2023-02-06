@@ -1,126 +1,184 @@
+import sys
+
+sys.path.append("../mgbench")
 import argparse
 import csv
-import os
 from collections import defaultdict
 from pathlib import Path
 
 import helpers
 
-# Full LDBC datasets available at: https://github.com/ldbc/data-sets-surf-repository
+# Most recent list of LDBC datasets available at: https://github.com/ldbc/data-sets-surf-repository
+INTERACTIVE_LINK = {
+    "sf0.1": "https://repository.surfsara.nl/datasets/cwi/snb/files/social_network-csv_basic/social_network-csv_basic-sf0.1.tar.zst",
+    "sf0.3": "https://repository.surfsara.nl/datasets/cwi/snb/files/social_network-csv_basic/social_network-csv_basic-sf0.3.tar.zst",
+    "sf1": "https://repository.surfsara.nl/datasets/cwi/snb/files/social_network-csv_basic/social_network-csv_basic-sf1.tar.zst",
+    "sf3": "https://repository.surfsara.nl/datasets/cwi/snb/files/social_network-csv_basic/social_network-csv_basic-sf3.tar.zst",
+    "sf10": "https://repository.surfsara.nl/datasets/cwi/snb/files/social_network-csv_basic/social_network-csv_basic-sf10.tar.zst",
+}
 
-NODES_INTERACTIVE = [
-    {"filename": "Place", "label": "Place"},
-    {"filename": "Organisation", "label": "Organisation"},
-    {"filename": "TagClass", "label": "TagClass"},
-    {"filename": "Tag", "label": "Tag"},
-    {"filename": "Comment", "label": "Message:Comment"},
-    {"filename": "Forum", "label": "Forum"},
-    {"filename": "Person", "label": "Person"},
-    {"filename": "Post", "label": "Message:Post"},
-]
 
-EDGES_INTERACTIVE = [
-    {
-        "filename": "Place_isPartOf_Place",
-        "source_label": "Place",
-        "type": "IS_PART_OF",
-        "target_label": "Place",
-    },
-    {
-        "filename": "TagClass_isSubclassOf_TagClass",
-        "source_label": "TagClass",
-        "type": "IS_SUBCLASS_OF",
-        "target_label": "TagClass",
-    },
-    {
-        "filename": "Organisation_isLocatedIn_Place",
-        "source_label": "Organisation",
-        "type": "IS_LOCATED_IN",
-        "target_label": "Place",
-    },
-    {"filename": "Tag_hasType_TagClass", "source_label": "Tag", "type": "HAS_TYPE", "target_label": "TagClass"},
-    {
-        "filename": "Comment_hasCreator_Person",
-        "source_label": "Comment",
-        "type": "HAS_CREATOR",
-        "target_label": "Person",
-    },
-    {
-        "filename": "Comment_isLocatedIn_Place",
-        "source_label": "Comment",
-        "type": "IS_LOCATED_IN",
-        "target_label": "Place",
-    },
-    {"filename": "Comment_replyOf_Comment", "source_label": "Comment", "type": "REPLY_OF", "target_label": "Comment"},
-    {"filename": "Comment_replyOf_Post", "source_label": "Comment", "type": "REPLY_OF", "target_label": "Post"},
-    {"filename": "Forum_containerOf_Post", "source_label": "Forum", "type": "CONTAINER_OF", "target_label": "Post"},
-    {"filename": "Forum_hasMember_Person", "source_label": "Forum", "type": "HAS_MEMBER", "target_label": "Person"},
-    {
-        "filename": "Forum_hasModerator_Person",
-        "source_label": "Forum",
-        "type": "HAS_MODERATOR",
-        "target_label": "Person",
-    },
-    {"filename": "Forum_hasTag_Tag", "source_label": "Forum", "type": "HAS_TAG", "target_label": "Tag"},
-    {"filename": "Person_hasInterest_Tag", "source_label": "Person", "type": "HAS_INTEREST", "target_label": "Tag"},
-    {
-        "filename": "Person_isLocatedIn_Place",
-        "source_label": "Person",
-        "type": "IS_LOCATED_IN",
-        "target_label": "Place",
-    },
-    {"filename": "Person_knows_Person", "source_label": "Person", "type": "KNOWS", "target_label": "Person"},
-    {"filename": "Person_likes_Comment", "source_label": "Person", "type": "LIKES", "target_label": "Comment"},
-    {"filename": "Person_likes_Post", "source_label": "Person", "type": "LIKES", "target_label": "Post"},
-    {"filename": "Post_hasCreator_Person", "source_label": "Post", "type": "HAS_CREATOR", "target_label": "Person"},
-    {"filename": "Comment_hasTag_Tag", "source_label": "Comment", "type": "HAS_TAG", "target_label": "Tag"},
-    {"filename": "Post_hasTag_Tag", "source_label": "Post", "type": "HAS_TAG", "target_label": "Tag"},
-    {
-        "filename": "Post_isLocatedIn_Place",
-        "source_label": "Post",
-        "type": "IS_LOCATED_IN",
-        "target_label": "Place",
-    },
-    {
-        "filename": "Person_studyAt_Organisation",
-        "source_label": "Person",
-        "type": "STUDY_AT",
-        "target_label": "Organisation",
-    },
-    {
-        "filename": "Person_workAt_Organisation",
-        "source_label": "Person",
-        "type": "WORK_AT",
-        "target_label": "Organisation",
-    },
-]
+BI_LINK = {
+    "sf1": "https://pub-383410a98aef4cb686f0c7601eddd25f.r2.dev/bi-pre-audit/bi-sf1-composite-projected-fk.tar.zst",
+    "sf3": "https://pub-383410a98aef4cb686f0c7601eddd25f.r2.dev/bi-pre-audit/bi-sf3-composite-projected-fk.tar.zst",
+    "sf10": "https://pub-383410a98aef4cb686f0c7601eddd25f.r2.dev/bi-pre-audit/bi-sf10-composite-projected-fk.tar.zst",
+}
+
 
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(
         prog="LDBC CSV to CYPHERL converter",
-        description="""Converts all LDBC CSV files to CYPHERL transactions, each CSV file maps to proper CYPHERL transaction file.
-                                    Each CSV is read without header because of header naming scheme. CSV files need to be uncompressed from tar.zst format""",
+        description="""Converts all LDBC CSV files to CYPHERL transactions, for faster Memgraph load""",
     )
-    # parser.add_argument("--size", help="sf1, sf3, sf10, sf30")
-
-    parser.add_argument("--ldbc", type=Path, required=True, help="Path to parent CSV directory.")
     parser.add_argument(
-        "--output", type=Path, required=True, help="Path to output directory, will be created if does not exist."
+        "--size",
+        required=True,
+        choices=["0.1", "0.3", "1", "3", "10"],
+        help="Interactive: (0.1 , 0.3, 1, 3, 10) BI: (1, 3, 10)",
     )
-    parser.add_argument("--type", required=True, help="interactive or bi")
+    parser.add_argument("--type", required=True, choices=["interactive", "bi"], help="interactive or bi")
 
     args = parser.parse_args()
-    args.output.mkdir(exist_ok=True)
+    output_directory = Path().absolute() / "generated"
+    output_directory.mkdir(exist_ok=True)
 
     if args.type == "interactive":
-        out = "ldbc_interactive_sf10.cypher"
-        out_file = args.output / out
-        if out_file.exists():
-            out_file.unlink()
+
+        file_size = "sf{}".format(args.size)
+        out_file = "ldbc_interactive_{}.cypher".format(file_size)
+        output = output_directory / out_file
+        if output.exists():
+            output.unlink()
+
+        files_present = None
+        for file in output_directory.glob("**/*.tar.zst"):
+            if "basic-" + file_size in file.name:
+                files_present = file.with_suffix("").with_suffix("")
+                break
+
+        if not files_present:
+            try:
+                downloaded_file = helpers.download_file(INTERACTIVE_LINK[file_size], output_directory.absolute())
+                file_present = helpers.unpack_tar_zst(Path(downloaded_file))
+            except:
+                print("Issue with downloading and unpacking the file, check if links are working properly.")
+                raise
+
+        NODES_INTERACTIVE = [
+            {"filename": "Place", "label": "Place"},
+            {"filename": "Organisation", "label": "Organisation"},
+            {"filename": "TagClass", "label": "TagClass"},
+            {"filename": "Tag", "label": "Tag"},
+            {"filename": "Comment", "label": "Message:Comment"},
+            {"filename": "Forum", "label": "Forum"},
+            {"filename": "Person", "label": "Person"},
+            {"filename": "Post", "label": "Message:Post"},
+        ]
+
+        EDGES_INTERACTIVE = [
+            {
+                "filename": "Place_isPartOf_Place",
+                "source_label": "Place",
+                "type": "IS_PART_OF",
+                "target_label": "Place",
+            },
+            {
+                "filename": "TagClass_isSubclassOf_TagClass",
+                "source_label": "TagClass",
+                "type": "IS_SUBCLASS_OF",
+                "target_label": "TagClass",
+            },
+            {
+                "filename": "Organisation_isLocatedIn_Place",
+                "source_label": "Organisation",
+                "type": "IS_LOCATED_IN",
+                "target_label": "Place",
+            },
+            {"filename": "Tag_hasType_TagClass", "source_label": "Tag", "type": "HAS_TYPE", "target_label": "TagClass"},
+            {
+                "filename": "Comment_hasCreator_Person",
+                "source_label": "Comment",
+                "type": "HAS_CREATOR",
+                "target_label": "Person",
+            },
+            {
+                "filename": "Comment_isLocatedIn_Place",
+                "source_label": "Comment",
+                "type": "IS_LOCATED_IN",
+                "target_label": "Place",
+            },
+            {
+                "filename": "Comment_replyOf_Comment",
+                "source_label": "Comment",
+                "type": "REPLY_OF",
+                "target_label": "Comment",
+            },
+            {"filename": "Comment_replyOf_Post", "source_label": "Comment", "type": "REPLY_OF", "target_label": "Post"},
+            {
+                "filename": "Forum_containerOf_Post",
+                "source_label": "Forum",
+                "type": "CONTAINER_OF",
+                "target_label": "Post",
+            },
+            {
+                "filename": "Forum_hasMember_Person",
+                "source_label": "Forum",
+                "type": "HAS_MEMBER",
+                "target_label": "Person",
+            },
+            {
+                "filename": "Forum_hasModerator_Person",
+                "source_label": "Forum",
+                "type": "HAS_MODERATOR",
+                "target_label": "Person",
+            },
+            {"filename": "Forum_hasTag_Tag", "source_label": "Forum", "type": "HAS_TAG", "target_label": "Tag"},
+            {
+                "filename": "Person_hasInterest_Tag",
+                "source_label": "Person",
+                "type": "HAS_INTEREST",
+                "target_label": "Tag",
+            },
+            {
+                "filename": "Person_isLocatedIn_Place",
+                "source_label": "Person",
+                "type": "IS_LOCATED_IN",
+                "target_label": "Place",
+            },
+            {"filename": "Person_knows_Person", "source_label": "Person", "type": "KNOWS", "target_label": "Person"},
+            {"filename": "Person_likes_Comment", "source_label": "Person", "type": "LIKES", "target_label": "Comment"},
+            {"filename": "Person_likes_Post", "source_label": "Person", "type": "LIKES", "target_label": "Post"},
+            {
+                "filename": "Post_hasCreator_Person",
+                "source_label": "Post",
+                "type": "HAS_CREATOR",
+                "target_label": "Person",
+            },
+            {"filename": "Comment_hasTag_Tag", "source_label": "Comment", "type": "HAS_TAG", "target_label": "Tag"},
+            {"filename": "Post_hasTag_Tag", "source_label": "Post", "type": "HAS_TAG", "target_label": "Tag"},
+            {
+                "filename": "Post_isLocatedIn_Place",
+                "source_label": "Post",
+                "type": "IS_LOCATED_IN",
+                "target_label": "Place",
+            },
+            {
+                "filename": "Person_studyAt_Organisation",
+                "source_label": "Person",
+                "type": "STUDY_AT",
+                "target_label": "Organisation",
+            },
+            {
+                "filename": "Person_workAt_Organisation",
+                "source_label": "Person",
+                "type": "WORK_AT",
+                "target_label": "Organisation",
+            },
+        ]
 
         input_files = {}
-        for file in args.ldbc.glob("**/*.csv"):
+        for file in files_present.glob("**/*.csv"):
             name = file.name.replace("_0_0.csv", "").lower()
             input_files[name] = file
 
@@ -129,7 +187,7 @@ if __name__ == "__main__":
             default_label = node_file["label"]
             query = None
             if key in input_files.keys():
-                with input_files[key].open("r") as input_f, out_file.open("a") as output_f:
+                with input_files[key].open("r") as input_f, output.open("a") as output_f:
                     reader = csv.DictReader(input_f, delimiter="|")
 
                     for row in reader:
@@ -153,7 +211,7 @@ if __name__ == "__main__":
                         prop_string = ", ".join("{} : {}".format(k, v) for k, v in row.items())
                         query = query + prop_string + "});"
                         output_f.write(query + "\n")
-                print("Converted file: " + input_files[key].name + " to " + out_file.name)
+                print("Converted file: " + input_files[key].name + " to " + output.name)
             else:
                 print("Didn't process node file: " + key)
                 raise Exception("Didn't find the file that was needed!")
@@ -165,7 +223,7 @@ if __name__ == "__main__":
             target_label = edge_file["target_label"]
             if key in input_files.keys():
                 query = None
-                with input_files[key].open("r") as input_f, out_file.open("a") as output_f:
+                with input_files[key].open("r") as input_f, output.open("a") as output_f:
                     sufixl = ".id"
                     sufixr = ".id"
                     # Handle identical label/key in CSV header
@@ -194,7 +252,7 @@ if __name__ == "__main__":
 
                         query = query + edge_part + prop_string + "}]->(n2);"
                         output_f.write(query + "\n")
-                print("Converted file: " + input_files[key].name + " to " + out_file.name)
+                print("Converted file: " + input_files[key].name + " to " + output.name)
             else:
                 print("Didn't process Edge file: " + key)
                 raise Exception("Didn't find the file that was needed!")

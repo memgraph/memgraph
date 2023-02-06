@@ -651,8 +651,7 @@ class LDBC_BI(datasets.Dataset):
     FILES = {}
 
     URLS = {
-        "sf0.1": "",
-        "sf1": "",
+        "sf1": {"vertices": 2997352, "edges": 17196776},
         "sf3": "",
         "sf10": "",
     }
