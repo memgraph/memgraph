@@ -1570,12 +1570,19 @@ edge lists).")
      EdgeUniquenessFilterCursor(const EdgeUniquenessFilter &,
                                 utils::MemoryResource *);
      bool Pull(Frame &, ExecutionContext &) override;
+     bool PullMultiple(MultiFrame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
     private:
      const EdgeUniquenessFilter &self_;
      const UniqueCursorPtr input_cursor_;
+     enum class State { PullInput, PopulateOutput, Exhausted };
+
+     State state_{State::PullInput};
+     std::optional<MultiFrame> own_multi_frame_;
+     std::optional<ValidFramesConsumer> own_frames_consumer_;
+     ValidFramesConsumer::Iterator own_frames_it_;
    };
    cpp<#)
   (:serialize (:slk))
