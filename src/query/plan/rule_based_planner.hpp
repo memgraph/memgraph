@@ -406,6 +406,7 @@ class RuleBasedPlanner {
         last_op = impl::GenNamedPaths(std::move(last_op), bound_symbols, named_paths);
         last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
       }
+
       // We have an edge, so generate Expand.
       if (expansion.edge) {
         auto *edge = expansion.edge;
@@ -578,13 +579,16 @@ class RuleBasedPlanner {
 
   std::unique_ptr<LogicalOperator> MakeExistsFilter(Exists &exists, const SymbolTable &symbol_table,
                                                     const std::unordered_set<Symbol> &bound_symbols) {
-    auto node1_symbol = symbol_table.at(*exists.from_node_info_->identifier_);
-    auto node2_symbol = symbol_table.at(*exists.to_node_info_->identifier_);
-    auto edge_symbol = symbol_table.at(*exists.relationship_info_->identifier_);
-    auto direction = exists.relationship_info_->direction_;
+    auto *from_node = static_cast<NodeAtom *>(exists.pattern_->atoms_[0]);
+    auto *relationship = static_cast<EdgeAtom *>(exists.pattern_->atoms_[1]);
+    auto *to_node = static_cast<NodeAtom *>(exists.pattern_->atoms_[2]);
+    auto node1_symbol = symbol_table.at(*from_node->identifier_);
+    auto node2_symbol = symbol_table.at(*to_node->identifier_);
+    auto edge_symbol = symbol_table.at(*relationship->identifier_);
+    auto direction = relationship->direction_;
     std::vector<storage::EdgeTypeId> edge_types;
-    edge_types.reserve(exists.relationship_info_->edge_types_.size());
-    for (const auto &type : exists.relationship_info_->edge_types_) {
+    edge_types.reserve(relationship->edge_types_.size());
+    for (const auto &type : relationship->edge_types_) {
       edge_types.push_back(GetEdgeType(type));
     }
 

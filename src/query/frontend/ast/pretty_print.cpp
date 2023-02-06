@@ -266,7 +266,7 @@ void ExpressionPrettyPrinter::Visit(Extract &op) {
   PrintOperator(out_, "Extract", op.identifier_, op.list_, op.expression_);
 }
 
-void ExpressionPrettyPrinter::Visit(Exists &op) { PrintOperator(out_, "Exists", op.from_node_info_); }
+void ExpressionPrettyPrinter::Visit(Exists &op) { PrintOperator(out_, "Exists", op.pattern_); }
 void ExpressionPrettyPrinter::Visit(ExistsLimit &op) { PrintOperator(out_, "ExistsLimit", 1); }
 
 void ExpressionPrettyPrinter::Visit(All &op) {

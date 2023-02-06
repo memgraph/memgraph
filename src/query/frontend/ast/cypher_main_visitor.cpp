@@ -2208,22 +2208,19 @@ antlrcpp::Any CypherMainVisitor::visitLiteral(MemgraphCypher::LiteralContext *ct
 }
 
 antlrcpp::Any CypherMainVisitor::visitExistsExpression(MemgraphCypher::ExistsExpressionContext *ctx) {
-  auto size_of_chain = ctx->relationshipsPattern()->patternElementChain().size();
+  auto *exists = storage_->Create<Exists>();
+  exists->pattern_ = std::any_cast<Pattern *>(ctx->patternPart()->accept(this));
+  exists->limit_expression_ = static_cast<Expression *>(storage_->Create<ExistsLimit>());
 
-  if (size_of_chain != 1) {
-    throw utils::NotYetImplemented("Multiple hops of pattern chain on exists are currently not supported!");
+  if (exists->pattern_->identifier_) {
+    throw SyntaxException("No pattern identifiers can be present in exists!");
   }
 
-  auto *from_node_info = std::any_cast<NodeAtom *>(ctx->relationshipsPattern()->nodePattern()->accept(this));
-  auto *relationship_info = std::any_cast<EdgeAtom *>(
-      ctx->relationshipsPattern()->patternElementChain()[0]->relationshipPattern()->accept(this));
-  auto *to_node_info =
-      std::any_cast<NodeAtom *>(ctx->relationshipsPattern()->patternElementChain()[0]->nodePattern()->accept(this));
+  if (exists->pattern_->atoms_.size() != 3) {
+    throw SyntaxException("Multi-hop pattern not yet supported in exists functionality!");
+  }
 
-  auto *exists_limit = static_cast<Expression *>(storage_->Create<ExistsLimit>());
-
-  return static_cast<Expression *>(
-      storage_->Create<Exists>(from_node_info, relationship_info, to_node_info, exists_limit));
+  return static_cast<Expression *>(exists);
 }
 
 antlrcpp::Any CypherMainVisitor::visitParenthesizedExpression(MemgraphCypher::ParenthesizedExpressionContext *ctx) {
