@@ -904,7 +904,6 @@ ScanByPrimaryKey::ScanByPrimaryKey(const std::shared_ptr<LogicalOperator> &input
                                    storage::v3::LabelId label, std::vector<query::v2::Expression *> primary_key,
                                    storage::v3::View view)
     : ScanAll(input, output_symbol, view), label_(label), primary_key_(primary_key) {
-  // TODO(antaljanosbenjamin): MATCH (p:Permission) WHERE p.uuid <999 RETURN p;
   MG_ASSERT(primary_key.front());
 }
 
