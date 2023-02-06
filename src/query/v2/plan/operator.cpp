@@ -3105,6 +3105,9 @@ class DistributedExpandCursor : public Cursor {
       auto &vertex = vertex_value.ValueVertex();
       msgs::ExpandOneRequest request;
       request.direction = DirectionToMsgsDirection(self_.common_.direction);
+      std::transform(self_.common_.edge_types.begin(), self_.common_.edge_types.end(),
+                     std::back_inserter(request.edge_types),
+                     [](const storage::v3::EdgeTypeId edge_type_id) { return msgs::EdgeType{edge_type_id}; });
       // to not fetch any properties of the edges
       request.edge_properties.emplace();
       request.src_vertices.push_back(vertex.Id());
@@ -3245,6 +3248,9 @@ class DistributedExpandCursor : public Cursor {
 
     msgs::ExpandOneRequest request;
     request.direction = DirectionToMsgsDirection(self_.common_.direction);
+    std::transform(self_.common_.edge_types.begin(), self_.common_.edge_types.end(),
+                   std::back_inserter(request.edge_types),
+                   [](const storage::v3::EdgeTypeId edge_type_id) { return msgs::EdgeType{edge_type_id}; });
     // to not fetch any properties of the edges
     request.edge_properties.emplace();
     for (const auto &frame : own_multi_frame_->GetValidFramesReader()) {
