@@ -2,14 +2,15 @@ import datetime
 import inspect
 import sys
 import typing
+
 from collections import namedtuple
 from functools import wraps
 
-import _mgp
 import networkx as nx
+import kafka
+import pulsar
 
-# TODO add ValueConversionError checks throughout
-# TODO add Path
+import _mgp_mock
 
 
 class InvalidContextError(Exception):
@@ -20,7 +21,7 @@ class InvalidContextError(Exception):
     pass
 
 
-class UnknownError(_mgp.UnknownError):
+class UnknownError(Exception):
     """
     Signals unspecified failure.
     """
@@ -28,23 +29,15 @@ class UnknownError(_mgp.UnknownError):
     pass
 
 
-class UnableToAllocateError(_mgp.UnableToAllocateError):
+class InsufficientBufferError(Exception):
     """
-    Signals failed memory allocation.
-    """
-
-    pass
-
-
-class InsufficientBufferError(_mgp.InsufficientBufferError):
-    """
-    Signals that some buffer is not big enough.
+    Signals that a buffer is not big enough.
     """
 
     pass
 
 
-class OutOfRangeError(_mgp.OutOfRangeError):
+class OutOfRangeError(Exception):
     """
     Signals that an index-like parameter has a value that is outside its
     possible values.
@@ -53,7 +46,7 @@ class OutOfRangeError(_mgp.OutOfRangeError):
     pass
 
 
-class LogicErrorError(_mgp.LogicErrorError):
+class LogicErrorError(Exception):
     """
     Signals faulty logic within the program such as violating logical
     preconditions or class invariants and may be preventable.
@@ -62,7 +55,7 @@ class LogicErrorError(_mgp.LogicErrorError):
     pass
 
 
-class DeletedObjectError(_mgp.DeletedObjectError):
+class DeletedObjectError(Exception):
     """
     Signals accessing an already deleted object.
     """
@@ -70,7 +63,7 @@ class DeletedObjectError(_mgp.DeletedObjectError):
     pass
 
 
-class InvalidArgumentError(_mgp.InvalidArgumentError):
+class InvalidArgumentError(Exception):
     """
     Signals that some of the arguments have invalid values.
     """
@@ -78,7 +71,7 @@ class InvalidArgumentError(_mgp.InvalidArgumentError):
     pass
 
 
-class KeyAlreadyExistsError(_mgp.KeyAlreadyExistsError):
+class KeyAlreadyExistsError(Exception):
     """
     Signals that a key already exists in a container-like object.
     """
@@ -86,7 +79,7 @@ class KeyAlreadyExistsError(_mgp.KeyAlreadyExistsError):
     pass
 
 
-class ImmutableObjectError(_mgp.ImmutableObjectError):
+class ImmutableObjectError(Exception):
     """
     Signals modification of an immutable object.
     """
@@ -94,27 +87,9 @@ class ImmutableObjectError(_mgp.ImmutableObjectError):
     pass
 
 
-class ValueConversionError(_mgp.ValueConversionError):
+class ValueConversionError(Exception):
     """
-    Signals that the conversion failed between python and cypher values.
-    """
-
-    pass
-
-
-class SerializationError(_mgp.SerializationError):
-    """
-    Signals serialization error caused by concurrent modifications from
-    different transactions.
-    """
-
-    pass
-
-
-class AuthorizationError(_mgp.AuthorizationError):
-    """
-    Signals that the user doesn't have sufficient permissions to perform
-    procedure call.
+    Signals that conversion between python and cypher values failed.
     """
 
     pass
@@ -133,8 +108,10 @@ class Label:
     def __eq__(self, other) -> bool:
         if isinstance(other, Label):
             return self._name == other.name
+
         if isinstance(other, str):
             return self._name == other
+
         return NotImplemented
 
 
@@ -145,20 +122,26 @@ Property = namedtuple("Property", ("name", "value"))
 
 
 class Properties:
-    __slots__ = (
-        "_vertex_or_edge",
-        "_len",
-    )
+    __slots__ = ("_vertex_or_edge", "_len")
 
     def __init__(self, vertex_or_edge):
-        if not isinstance(vertex_or_edge, (_Vertex, _Edge)):
-            raise TypeError("Expected _Vertex or _Edge, got {}".format(type(vertex_or_edge)))
+        if not isinstance(vertex_or_edge, (_mgp_mock.Vertex, _mgp_mock.Edge)):
+            raise TypeError(f"Expected _mgp_mock.Vertex or _mgp_mock.Edge, got {type(vertex_or_edge)}")
+
         self._len = None
         self._vertex_or_edge = vertex_or_edge
+
+    def __deepcopy__(self, memo):
+        # This is the same as the shallow copy, as the underlying C API should
+        # not support deepcopy. Besides, it doesn't make much sense to actually
+        # copy _mgp_mock.Edge and _mgp_mock.Vertex types as they are actually references
+        # to graph elements and not proper values.
+        return Properties(self._vertex_or_edge)
 
     def get(self, property_name: str, default=None) -> object:
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
+
         try:
             return self[property_name]
         except KeyError:
@@ -166,7 +149,7 @@ class Properties:
 
     def set(self, property_name: str, value: object) -> None:
         if nx.is_frozen(self._vertex_or_edge.graph):
-            raise ImmutableObjectError("Graph is immutable")
+            raise ImmutableObjectError("Cannot modify immutable object.")
 
         self[property_name] = value
 
@@ -175,9 +158,9 @@ class Properties:
             raise InvalidContextError()
 
         vertex_or_edge_props = (
-            self._vertex_or_edge.graph.nodes[self._vertex_or_edge.vertex]
-            if isinstance(self._vertex_or_edge, _Vertex)
-            else self._vertex_or_edge.graph.edges[self._vertex_or_edge._edge[0], self._vertex_or_edge._edge[1]]
+            self._vertex_or_edge.graph.nodes[self._vertex_or_edge.id]
+            if isinstance(self._vertex_or_edge, _mgp_mock.Vertex)
+            else self._vertex_or_edge.graph.edges[self._vertex_or_edge.edge]
         )
 
         for key, value in vertex_or_edge_props.items():
@@ -185,9 +168,6 @@ class Properties:
                 continue
 
             yield Property(key, value)
-
-            if not self._vertex_or_edge.is_valid():
-                raise InvalidContextError()
 
     def keys(self) -> typing.Iterable[str]:
         if not self._vertex_or_edge.is_valid():
@@ -224,9 +204,9 @@ class Properties:
             raise InvalidContextError()
 
         vertex_or_edge_props = (
-            self._vertex_or_edge.graph.nodes[self._vertex_or_edge.vertex]
-            if isinstance(self._vertex_or_edge, _Vertex)
-            else self._vertex_or_edge.graph.edges[self._vertex_or_edge._edge[0], self._vertex_or_edge._edge[1]]
+            self._vertex_or_edge.graph.nodes[self._vertex_or_edge.id]
+            if isinstance(self._vertex_or_edge, _mgp_mock.Vertex)
+            else self._vertex_or_edge.graph.edges[self._vertex_or_edge.edge]
         )
 
         return vertex_or_edge_props[property_name]
@@ -236,16 +216,15 @@ class Properties:
             raise InvalidContextError()
 
         if nx.is_frozen(self._vertex_or_edge.graph):
-            raise ImmutableObjectError("Graph is immutable")
+            raise ImmutableObjectError("Cannot modify immutable object.")
 
-        if isinstance(self._vertex_or_edge, _Vertex):
-            _id = self._vertex_or_edge.vertex
-            self._vertex_or_edge.graph.nodes[_id][property_name] = value
+        if isinstance(self._vertex_or_edge, _mgp_mock.Vertex):
+            vertex_id = self._vertex_or_edge.id
+            self._vertex_or_edge.graph.nodes[vertex_id][property_name] = value
             return
 
-        edge = self._vertex_or_edge._edge
-        from_id, to_id = edge
-        self._vertex_or_edge.graph.edges[from_id, to_id][property_name] = value
+        edge_ids = self._vertex_or_edge.edge
+        self._vertex_or_edge.graph.edges[edge_ids][property_name] = value
 
     def __contains__(self, property_name: str) -> bool:
         if not self._vertex_or_edge.is_valid():
@@ -271,8 +250,10 @@ class EdgeType:
     def __eq__(self, other) -> bool:
         if isinstance(other, EdgeType):
             return self.name == other.name
+
         if isinstance(other, str):
             return self.name == other
+
         return NotImplemented
 
 
@@ -282,44 +263,21 @@ else:
     EdgeId = int
 
 
-class _Edge:
-    __slots__ = ("_edge", "_graph")
-
-    def __init__(self, edge, graph):
-        if not isinstance(edge, typing.Tuple):
-            raise TypeError(f"Expected 'Tuple', got '{type(edge)}'")
-        if not isinstance(graph, nx.DiGraph):
-            raise TypeError(f"Expected 'networkx.classes.digraph.DiGraph', got '{type(graph)}'")
-        self._edge = edge
-        self._graph = graph
-
-    @property
-    def edge(self) -> typing.Tuple[int, int]:
-        return self._edge
-
-    @property
-    def graph(self) -> nx.DiGraph:
-        return self._graph
-
-    def is_valid(self) -> bool:
-        return self._graph.has_edge(*self._edge)
-
-    def get_id(self) -> EdgeId:
-        # edges = [edge for edge in self._graph.edges]
-        # return edges.index(self._edge)
-        return int(str(self._edge[0]) + str(self._edge[1]))
-
-    def get_type_name(self) -> EdgeType:
-        return self._graph.get_edge_data(*self._edge)["type"]
-
-
 class Edge:
     __slots__ = ("_edge",)
 
     def __init__(self, edge):
-        if not isinstance(edge, _Edge):
-            raise TypeError(f"Expected '_Edge', got '{type(edge)}'")
+        if not isinstance(edge, _mgp_mock.Edge):
+            raise TypeError(f"Expected '_mgp_mock.Edge', got '{type(edge)}'")
+
         self._edge = edge
+
+    def __deepcopy__(self, memo):
+        # This is the same as the shallow copy, because we want to share the
+        # underlying C struct. Besides, it doesn't make much sense to actually
+        # copy _mgp_mock.Edge as that is actually a reference to a graph element
+        # and not a proper value.
+        return Edge(self._edge)
 
     def is_valid(self) -> bool:
         return self._edge.is_valid()
@@ -327,26 +285,28 @@ class Edge:
     def underlying_graph_is_mutable(self) -> bool:
         if not self.is_valid():
             raise InvalidContextError()
-        return nx.is_frozen(self._edge.graph)
+
+        return not nx.is_frozen(self._edge.graph)
 
     @property
     def id(self) -> EdgeId:
         if not self.is_valid():
             raise InvalidContextError()
-        return self._edge.get_id()
+
+        return self._edge.id
 
     @property
     def type(self) -> EdgeType:
         if not self.is_valid():
             raise InvalidContextError()
-        return self._edge.get_type_name()
+        return EdgeType(self._edge.get_type_name())
 
     @property
     def from_vertex(self) -> "Vertex":
         if not self.is_valid():
             raise InvalidContextError()
 
-        vertex = _Vertex(self._edge.edge[0], self._edge.graph)
+        vertex = _mgp_mock.Vertex(self._edge.start_id, self._edge.graph)
         return Vertex(vertex)
 
     @property
@@ -354,7 +314,7 @@ class Edge:
         if not self.is_valid():
             raise InvalidContextError()
 
-        vertex = _Vertex(self._edge.edge[1], self._edge.graph)
+        vertex = _mgp_mock.Vertex(self._edge.end_id, self._edge.graph)
         return Vertex(vertex)
 
     @property
@@ -367,9 +327,11 @@ class Edge:
     def __eq__(self, other) -> bool:
         if not self.is_valid():
             raise InvalidContextError()
+
         if not isinstance(other, Edge):
             return NotImplemented
-        return self.id == self.id
+
+        return self.id == other.id
 
     def __hash__(self) -> int:
         return hash(self.id)
@@ -381,63 +343,21 @@ else:
     VertexId = int
 
 
-class _Vertex:
-    __slots__ = ("_vertex", "_graph")
-
-    def __init__(self, vertex, graph):
-        if not isinstance(vertex, int):
-            raise TypeError(f"Expected 'int', got '{type(vertex)}'")
-        if not isinstance(graph, nx.DiGraph):
-            raise TypeError(f"Expected 'networkx.classes.digraph.DiGraph', got '{type(graph)}'")
-        if not graph.has_node(vertex):
-            raise IndexError(f"Unable to find vertex with id {vertex}.")
-        self._vertex = vertex
-        self._graph = graph
-
-    @property
-    def vertex(self) -> int:
-        return self._vertex
-
-    @property
-    def graph(self) -> nx.DiGraph:
-        return self._graph
-
-    @property
-    def labels(self) -> typing.List[int]:
-        return self._graph.nodes[self._vertex]["label"].split(":")
-
-    def is_valid(self) -> bool:
-        return self._graph.has_node(self._vertex)
-
-    # TODO remove
-    # def get_id(self) -> VertexId:
-    #     return self._vertex
-
-    def add_label(self, label: str) -> None:
-        if nx.is_frozen(self._graph):
-            raise ImmutableObjectError("Graph is immutable")
-
-        self._graph.nodes[self._vertex]["label"] += f":{label}"
-
-    def remove_label(self, label: str) -> None:
-        if nx.is_frozen(self._graph):
-            raise ImmutableObjectError("Graph is immutable")
-
-        labels = self._graph.nodes[self._vertex]["label"]
-        if labels.endswith(f":{label}"):
-            labels += "\n"
-            self._graph.nodes[self._vertex]["label"] = labels.replace(f":{label}\n", "")
-        else:
-            self._graph.nodes[self._vertex]["label"] = labels.replace(f":{label}:", ":")
-
-
 class Vertex:
     __slots__ = ("_vertex",)
 
     def __init__(self, vertex):
-        if not isinstance(vertex, _Vertex):
-            raise TypeError(f"Expected '_Vertex', got '{type(vertex)}'")
+        if not isinstance(vertex, _mgp_mock.Vertex):
+            raise TypeError(f"Expected '_mgp_mock.Vertex', got '{type(vertex)}'")
+
         self._vertex = vertex
+
+    def __deepcopy__(self, memo):
+        # This is the same as the shallow copy, because we want to share the
+        # underlying C struct. Besides, it doesn't make much sense to actually
+        # copy _mgp_mock.Vertex as that is actually a reference to a graph element
+        # and not a proper value.
+        return Vertex(self._vertex)
 
     def is_valid(self) -> bool:
         return self._vertex.is_valid()
@@ -445,23 +365,27 @@ class Vertex:
     def underlying_graph_is_mutable(self) -> bool:
         if not self.is_valid():
             raise InvalidContextError()
-        return nx.is_frozen(self._vertex.graph)
+
+        return not nx.is_frozen(self._vertex.graph)
 
     @property
     def id(self) -> VertexId:
         if not self.is_valid():
             raise InvalidContextError()
-        return self._vertex.vertex
+
+        return self._vertex.id
 
     @property
     def labels(self) -> typing.Tuple[Label]:
         if not self.is_valid():
             raise InvalidContextError()
-        return tuple(Label(l) for l in self._vertex.labels)
+
+        return tuple(Label(label) for label in self._vertex.labels)
 
     def add_label(self, label: str) -> None:
         if not self.is_valid():
             raise InvalidContextError()
+
         return self._vertex.add_label(label)
 
     def remove_label(self, label: str) -> None:
@@ -480,92 +404,76 @@ class Vertex:
     def in_edges(self) -> typing.Iterable[Edge]:
         if not self.is_valid():
             raise InvalidContextError()
-        for edge in self._vertex.graph.in_edges(self.id):
-            yield Edge(_Edge(edge, self._vertex.graph))
-            if not self.is_valid():
-                raise InvalidContextError()
+
+        for edge in self._vertex.graph.in_edges(self.id, keys=True):
+            yield Edge(_mgp_mock.Edge(edge, self._vertex.graph))
 
     @property
     def out_edges(self) -> typing.Iterable[Edge]:
         if not self.is_valid():
             raise InvalidContextError()
-        for edge in self._vertex.graph.out_edges(self.id):
-            edge_ = _Edge(edge, self._vertex.graph)
-            yield Edge(edge_)
-            if not self.is_valid():
-                raise InvalidContextError()
+
+        for edge in self._vertex.graph.out_edges(self.id, keys=True):
+            yield Edge(_mgp_mock.Edge(edge, self._vertex.graph))
 
     def __eq__(self, other) -> bool:
         if not self.is_valid():
             raise InvalidContextError()
+
         if not isinstance(other, Vertex):
             return NotImplemented
-        return self.id == self.id
+
+        return self.id == other.id
 
     def __hash__(self) -> int:
         return hash(self.id)
 
 
-class _Path:
-    __slots__ = ("_vertices", "_edges", "_graph")
-    __create_key = object()
-
-    def __init__(self, create_key, vertex: Vertex, graph: nx.DiGraph) -> None:
-        assert create_key == _Path.__create_key, "_Path objects must be created using _Path.make_with_start"
-
-        if not isinstance(vertex, _Vertex):
-            raise TypeError(f"Expected '_Vertex', got '{type(vertex)}'")
-
-        if not isinstance(graph, nx.DiGraph):
-            raise TypeError(f"Expected 'networkx.classes.digraph.DiGraph', got '{type(graph)}'")
-
-        if not graph.has_node(vertex._vertex):
-            raise IndexError(f"Unable to find vertex with id {vertex._vertex}.")
-
-        self._vertices = [vertex._vertex]
-        self._edges = []
-        self._graph = graph
-
-    @classmethod
-    def make_with_start(cls, vertex: Vertex, graph) -> "_Path":
-        return _Path(cls.__create_key, vertex, graph)
-
-    def is_valid(self) -> bool:
-        return True
-
-    def expand(self, edge: _Edge):
-        if edge._edge[0] != self._vertices[-1]:
-            raise LogicErrorError("The current last vertex in the path is not part of the given edge")
-
-        self._vertices.append(edge._edge[1])
-        self._edges.append((edge._edge[0], edge.edge[1]))
-
-    def vertex_at(self, index: int) -> _Vertex:
-        return _Vertex(self._vertices[index], self._graph)
-
-    def edge_at(self, index: int) -> _Edge:
-        return _Edge(self._edges[index], self._graph)
-
-    def size(self) -> int:
-        return len(self._edges)
-
-
 class Path:
     __slots__ = ("_path", "_vertices", "_edges")
 
-    def __init__(self, starting_vertex_or_path: typing.Union[_Path, Vertex]):
-        self._vertices = None
-        self._edges = None
-
-        if isinstance(starting_vertex_or_path, _Path):
+    def __init__(self, starting_vertex_or_path: typing.Union[_mgp_mock.Path, Vertex]):
+        if isinstance(starting_vertex_or_path, _mgp_mock.Path):
             self._path = starting_vertex_or_path
+
         elif isinstance(starting_vertex_or_path, Vertex):
+            # for consistency with the Python API, the `_vertex` attribute isn’t a “public” property
             vertex = starting_vertex_or_path._vertex
             if not vertex.is_valid():
                 raise InvalidContextError()
-            self._path = _Path.make_with_start(vertex)
+
+            self._path = _mgp_mock.Path.make_with_start(vertex, vertex.graph)
+
         else:
-            raise TypeError(f"Expected 'Vertex' or '_Path', got '{type(starting_vertex_or_path)}'")
+            raise TypeError(f"Expected 'Vertex' or '_mgp_mock.Path', got '{type(starting_vertex_or_path)}'")
+
+        self._vertices = None
+        self._edges = None
+
+    def __copy__(self):
+        if not self.is_valid():
+            raise InvalidContextError()
+
+        assert len(self.vertices) >= 1
+
+        path = Path(self.vertices[0])
+        for e in self.edges:
+            path.expand(e)
+
+        return path
+
+    def __deepcopy__(self, memo):
+        try:
+            return Path(memo[id(self._path)])
+        except KeyError:
+            pass
+        # This is the same as the shallow copy, as the underlying C API should
+        # not support deepcopy. Besides, it doesn't make much sense to actually
+        # copy _mgp_mock.Edge and _mgp_mock.Vertex types as they are actually references
+        # to graph elements and not proper values.
+        path = self.__copy__()
+        memo[id(self._path)] = path._path
+        return path
 
     def is_valid(self) -> bool:
         return self._path.is_valid()
@@ -577,6 +485,7 @@ class Path:
         if not self.is_valid() or not edge.is_valid():
             raise InvalidContextError()
 
+        # for consistency with the Python API, the `_edge` attribute isn’t a “public” property
         self._path.expand(edge._edge)
 
         self._vertices = None
@@ -591,7 +500,7 @@ class Path:
             num_vertices = self._path.size() + 1
             self._vertices = tuple(Vertex(self._path.vertex_at(i)) for i in range(num_vertices))
 
-        return self.vertices
+        return self._vertices
 
     @property
     def edges(self) -> typing.Tuple[Edge, ...]:
@@ -602,17 +511,24 @@ class Path:
             num_edges = self._path.size()
             self._edges = tuple(Edge(self._path.edge_at(i)) for i in range(num_edges))
 
-        return self.vertices
+        return self._edges
 
 
 class Vertices:
     __slots__ = ("_graph", "_len")
 
     def __init__(self, graph):
-        if not isinstance(graph, nx.DiGraph):
-            raise TypeError(f"Expected 'networkx.classes.digraph.DiGraph', got '{type(graph)}'")
+        if not isinstance(graph, nx.MultiDiGraph):
+            raise TypeError(f"Expected 'networkx.classes.multidigraph.MultiDiGraph', got '{type(graph)}'")
+
         self._graph = graph
         self._len = None
+
+    def __deepcopy__(self, memo):
+        # This is the same as the shallow copy, because we want to share the
+        # underlying C struct. Besides, it doesn't make much sense to actually
+        # copy _mgp_mock.Graph as that always references the whole graph state.
+        return Vertices(self._graph)
 
     def is_valid(self) -> bool:
         return True
@@ -622,10 +538,7 @@ class Vertices:
             raise InvalidContextError()
 
         for id in self._graph.nodes:
-            vertex = _Vertex(id, self._graph)
-            yield Vertex(vertex)
-            if not self.is_valid():
-                raise InvalidContextError()
+            yield Vertex(_mgp_mock.Vertex(id, self._graph))
 
     def __contains__(self, vertex):
         return self._graph.has_node(vertex)
@@ -633,6 +546,7 @@ class Vertices:
     def __len__(self):
         if not self._len:
             self._len = sum(1 for _ in self)
+
         return self._len
 
 
@@ -647,9 +561,16 @@ class Graph:
     __slots__ = ("_graph",)
 
     def __init__(self, graph):
-        if not isinstance(graph, nx.DiGraph):
-            raise TypeError(f"Expected 'networkx.classes.digraph.DiGraph', got '{type(graph)}'")
-        self._graph = graph
+        if not isinstance(graph, nx.MultiDiGraph):
+            raise TypeError(f"Expected 'networkx.classes.multidigraph.MultiDiGraph', got '{type(graph)}'")
+
+        self._graph = _mgp_mock.Graph(graph)
+
+    def __deepcopy__(self, memo):
+        # This is the same as the shallow copy, because we want to share the
+        # underlying C struct. Besides, it doesn't make much sense to actually
+        # copy _mgp_mock.Graph as that always references the whole graph state.
+        return Graph(self._graph)
 
     def is_valid(self) -> bool:
         return True
@@ -657,76 +578,75 @@ class Graph:
     def get_vertex_by_id(self, vertex_id: VertexId) -> Vertex:
         if not self.is_valid():
             raise InvalidContextError()
-        vertex = _Vertex(vertex_id, self._graph)
-        return Vertex(vertex)
+
+        return Vertex(_mgp_mock.Vertex(vertex_id, self._graph.nx))
 
     @property
     def vertices(self) -> Vertices:
         if not self.is_valid():
             raise InvalidContextError()
-        return Vertices(self._graph)
+
+        return Vertices(self._graph.nx)
 
     def is_mutable(self) -> bool:
         if not self.is_valid():
             raise InvalidContextError()
-        return not nx.is_frozen(self._graph)
+
+        return not nx.is_frozen(self._graph.nx)
 
     def create_vertex(self) -> Vertex:
         if not self.is_valid():
             raise InvalidContextError()
 
-        if nx.is_frozen(self._graph):
-            raise ImmutableObjectError("Graph is immutable")
+        if nx.is_frozen(self._graph.nx):
+            raise ImmutableObjectError("Cannot modify immutable object.")
 
-        new_id = max(node for node in self._graph.nodes) + 1
-        self._graph.add_node(new_id)
+        new_id = max(node for node in self._graph.nx.nodes) + 1
+        self._graph.nx.add_node(new_id)
 
-        vertex = _Vertex(new_id, self._graph)
-        return Vertex(vertex)
+        return Vertex(_mgp_mock.Vertex(new_id, self._graph.nx))
 
     def delete_vertex(self, vertex: Vertex) -> None:
         if not self.is_valid():
             raise InvalidContextError()
 
-        if nx.is_frozen(self._graph):
-            raise ImmutableObjectError("Graph is immutable")
+        if nx.is_frozen(self._graph.nx):
+            raise ImmutableObjectError("Cannot modify immutable object.")
 
-        if not nx.is_isolate(self._graph, vertex.id):
-            raise LogicErrorError("Node is connected")
+        if not nx.is_isolate(self._graph.nx, vertex.id):
+            raise LogicErrorError("Logic error.")
 
         # TODO find out whether users can ever send this method a nonexistent vertex
-        self._graph.remove_node(vertex.id)
+        self._graph.nx.remove_node(vertex.id)
 
     def detach_delete_vertex(self, vertex: Vertex) -> None:
         if not self.is_valid():
             raise InvalidContextError()
 
-        if nx.is_frozen(self._graph):
-            raise ImmutableObjectError("Graph is immutable")
+        if nx.is_frozen(self._graph.nx):
+            raise ImmutableObjectError("Cannot modify immutable object.")
 
         # TODO find out whether users can ever send this method a nonexistent vertex
-        self._graph.remove_node(vertex.id)
+        self._graph.nx.remove_node(vertex.id)
 
     def create_edge(self, from_vertex: Vertex, to_vertex: Vertex, edge_type: EdgeType) -> Edge:
         if not self.is_valid():
             raise InvalidContextError()
 
-        if nx.is_frozen(self._graph):
-            raise ImmutableObjectError("Graph is immutable")
+        if nx.is_frozen(self._graph.nx):
+            raise ImmutableObjectError("Cannot modify immutable object.")
 
-        # TODO find out whether users can ever send this method nonexistent vertices
-        self._graph.add_edge(from_vertex.id, to_vertex.id, type=edge_type.name)
-        edge = _Edge((from_vertex.id, to_vertex.id), self._graph)
-        return Edge(edge)
+        new_edge = self._graph.create_edge(from_vertex.id, to_vertex.id, edge_type.name)
+        return Edge(new_edge)
 
     def delete_edge(self, edge: Edge) -> None:
         if not self.is_valid():
             raise InvalidContextError()
 
-        if nx.is_frozen(self._graph):
-            raise ImmutableObjectError("Graph is immutable")
+        if nx.is_frozen(self._graph.nx):
+            raise ImmutableObjectError("Cannot modify immutable object.")
 
-        self._graph.remove_edge(edge.from_vertex.id, edge.to_vertex.id)
+        self._graph.nx.remove_edge(edge.from_vertex.id, edge.to_vertex.id, edge.id)
 
 
 class AbortError(Exception):
@@ -739,8 +659,9 @@ class ProcCtx:
     __slots__ = ("_graph",)
 
     def __init__(self, graph):
-        if not isinstance(graph, nx.DiGraph):
-            raise TypeError(f"Expected 'networkx.classes.digraph.DiGraph', got '{type(graph)}'")
+        if not isinstance(graph, nx.MultiDiGraph):
+            raise TypeError(f"Expected 'networkx.classes.multidigraph.MultiDiGraph', got '{type(graph)}'")
+
         self._graph = Graph(graph)
 
     def is_valid(self) -> bool:
@@ -750,11 +671,14 @@ class ProcCtx:
     def graph(self) -> Graph:
         if not self.is_valid():
             raise InvalidContextError()
+
         return self._graph
 
     def must_abort(self) -> bool:
         if not self.is_valid():
             raise InvalidContextError()
+
+        # for consistency with the Python API, the `_graph` attribute isn’t a “public” property
         return self._graph._graph.must_abort()
 
     def check_must_abort(self):
@@ -783,130 +707,12 @@ List = typing.List
 Nullable = typing.Optional
 
 
-class UnsupportedTypingError(Exception):
-    """Signals that a typing annotation is not a supported _mgp.CypherType."""
-
-    def __init__(self, type_):
-        super().__init__("Unsupported typing annotation '{}'".format(type_))
-
-
-def _typing_to_cypher_type(type_):
-    """Convert typing annotation to a _mgp.CypherType instance."""
-    simple_types = {
-        typing.Any: _mgp.type_nullable(_mgp.type_any()),
-        object: _mgp.type_nullable(_mgp.type_any()),
-        list: _mgp.type_list(_mgp.type_nullable(_mgp.type_any())),
-        Any: _mgp.type_any(),
-        bool: _mgp.type_bool(),
-        str: _mgp.type_string(),
-        int: _mgp.type_int(),
-        float: _mgp.type_float(),
-        Number: _mgp.type_number(),
-        Map: _mgp.type_map(),
-        Vertex: _mgp.type_node(),
-        Edge: _mgp.type_relationship(),
-        Date: _mgp.type_date(),
-        LocalTime: _mgp.type_local_time(),
-        LocalDateTime: _mgp.type_local_date_time(),
-        Duration: _mgp.type_duration(),
-    }
-    try:
-        return simple_types[type_]
-    except KeyError:
-        pass
-    if sys.version_info >= (3, 8):
-        complex_type = typing.get_origin(type_)
-        type_args = typing.get_args(type_)
-        if complex_type == typing.Union:
-            # If we have a Union with NoneType inside, it means we are building
-            # a nullable type.
-            # isinstance doesn't work here because subscripted generics cannot
-            # be used with class and instance checks. type comparison should be
-            # fine because subclasses are not used.
-            if type(None) in type_args:
-                types = tuple(t for t in type_args if t is not type(None))  # noqa E721
-                if len(types) == 1:
-                    (type_arg,) = types
-                else:
-                    # We cannot do typing.Union[*types], so do the equivalent
-                    # with __getitem__ which does not even need arg unpacking.
-                    type_arg = typing.Union.__getitem__(types)
-                return _mgp.type_nullable(_typing_to_cypher_type(type_arg))
-        elif complex_type == list:
-            (type_arg,) = type_args
-            return _mgp.type_list(_typing_to_cypher_type(type_arg))
-        raise UnsupportedTypingError(type_)
-    else:
-        # We cannot get to type args in any reliable way prior to 3.8, but we
-        # still want to support typing.Optional and typing.List, so just parse
-        # their string representations. Hopefully, that is always pretty
-        # printed the same way. `typing.List[type]` is printed as such, while
-        # `typing.Optional[type]` is printed as 'typing.Union[type, NoneType]'
-        def parse_type_args(type_as_str):
-            return tuple(
-                map(
-                    str.strip,
-                    type_as_str[type_as_str.index("[") + 1 : -1].split(","),
-                )
-            )
-
-        def fully_qualified_name(cls):
-            if cls.__module__ is None or cls.__module__ == "builtins":
-                return cls.__name__
-            return cls.__module__ + "." + cls.__name__
-
-        def get_simple_type(type_as_str):
-            for simple_type, cypher_type in simple_types.items():
-                if type_as_str == str(simple_type):
-                    return cypher_type
-                # Fallback to comparing to __name__ if it exits. This handles
-                # the cases like when we have 'object' which is
-                # `object.__name__`, but `str(object)` is "<class 'object'>"
-                try:
-                    if type_as_str == fully_qualified_name(simple_type):
-                        return cypher_type
-                except AttributeError:
-                    pass
-
-        def parse_typing(type_as_str):
-            if type_as_str.startswith("typing.Union"):
-                type_args_as_str = parse_type_args(type_as_str)
-                none_type_as_str = type(None).__name__
-                if none_type_as_str in type_args_as_str:
-                    types = tuple(t for t in type_args_as_str if t != none_type_as_str)
-                    if len(types) == 1:
-                        (type_arg_as_str,) = types
-                    else:
-                        type_arg_as_str = "typing.Union[" + ", ".join(types) + "]"
-                    simple_type = get_simple_type(type_arg_as_str)
-                    if simple_type is not None:
-                        return _mgp.type_nullable(simple_type)
-                    return _mgp.type_nullable(parse_typing(type_arg_as_str))
-            elif type_as_str.startswith("typing.List"):
-                type_arg_as_str = parse_type_args(type_as_str)
-
-                if len(type_arg_as_str) > 1:
-                    # Nested object could be a type consisting of a list of types (e.g. mgp.Map)
-                    # so we need to join the parts.
-                    type_arg_as_str = ", ".join(type_arg_as_str)
-                else:
-                    type_arg_as_str = type_arg_as_str[0]
-
-                simple_type = get_simple_type(type_arg_as_str)
-                if simple_type is not None:
-                    return _mgp.type_list(simple_type)
-                return _mgp.type_list(parse_typing(type_arg_as_str))
-            raise UnsupportedTypingError(type_)
-
-        return parse_typing(str(type_))
-
-
 # Procedure registration
 
 
 def raise_if_does_not_meet_requirements(func: typing.Callable[..., Record]):
     if not callable(func):
-        raise TypeError("Expected a callable object, got an instance of '{}'".format(type(func)))
+        raise TypeError(f"Expected a callable object, got an instance of '{type(func)}'")
     if inspect.iscoroutinefunction(func):
         raise TypeError("Callable must not be 'async def' function")
     if sys.version_info >= (3, 6):
@@ -918,34 +724,28 @@ def raise_if_does_not_meet_requirements(func: typing.Callable[..., Record]):
 
 def _register_proc(func: typing.Callable[..., Record], is_write: bool):
     raise_if_does_not_meet_requirements(func)
+
     sig = inspect.signature(func)
+
     params = tuple(sig.parameters.values())
-    print(params)
     if params and params[0].annotation is ProcCtx:
-        if len(params) == 1:
 
-            @wraps(func)
-            def wrapper(ctx):
-                graph = nx.freeze(ctx.graph._graph) if not is_write else ctx.graph._graph
-                return func(ProcCtx(graph))
-
-        else:
-
-            @wraps(func)
-            def wrapper(graph, args):
-                graph = nx.freeze(graph._graph) if not is_write else graph._graph
-                return func(ProcCtx(graph), *args)
+        @wraps(func)
+        def wrapper(ctx, *args):
+            graph = nx.freeze(ctx.graph._graph.nx) if not is_write else ctx.graph._graph.nx
+            return func(ProcCtx(graph), *args)
 
     else:
 
         @wraps(func)
-        def wrapper(graph, args):
+        def wrapper(*args):
             return func(*args)
 
     if sig.return_annotation is not sig.empty:
         record = sig.return_annotation
+
         if not isinstance(record, Record):
-            raise TypeError("Expected '{}' to return 'mgp.Record', got '{}'".format(func.__name__, type(record)))
+            raise TypeError(f"Expected '{func.__name__}' to return 'mgp.Record', got '{type(record)}'")
 
     return wrapper
 
@@ -958,36 +758,223 @@ def write_proc(func: typing.Callable[..., Record]):
     return _register_proc(func, True)
 
 
+class InvalidMessageError(Exception):
+    """
+    Signals using a message instance outside of the registered transformation.
+    """
+
+    pass
+
+
+SOURCE_TYPE_KAFKA = "SOURCE_TYPE_KAFKA"
+SOURCE_TYPE_PULSAR = "SOURCE_TYPE_PULSAR"
+
+
+class Message:
+
+    __slots__ = ("_message",)
+
+    def __init__(self, message):
+        if not isinstance(message, (kafka.consumer.fetcher.ConsumerRecord, pulsar.Message)):
+            raise TypeError(
+                f"Expected 'kafka.consumer.fetcher.ConsumerRecord' or 'pulsar.Message', got '{type(message)}'"
+            )
+
+        self._message = message
+
+    def __deepcopy__(self, memo):
+        # This is the same as the shallow copy, because we want to share the
+        # underlying C struct. Besides, it doesn't make much sense to actually
+        # copy _mgp_mock.Messages as that always references all the messages.
+        return Message(self._message)
+
+    def is_valid(self) -> bool:
+        return True
+
+    def source_type(self) -> str:
+        if not self.is_valid():
+            raise InvalidMessageError()
+
+        return (
+            SOURCE_TYPE_KAFKA
+            if isinstance(self._message, kafka.consumer.fetcher.ConsumerRecord)
+            else SOURCE_TYPE_PULSAR
+        )
+
+    def payload(self) -> bytes:
+        if not self.is_valid():
+            raise InvalidMessageError()
+
+        return (
+            self._message.value
+            if isinstance(self._message, kafka.consumer.fetcher.ConsumerRecord)
+            else self._message.data()
+        )
+
+    def topic_name(self) -> str:
+        if not self.is_valid():
+            raise InvalidMessageError()
+
+        return (
+            self._message.topic
+            if isinstance(self._message, kafka.consumer.fetcher.ConsumerRecord)
+            else self._message.topic_name()
+        )
+
+    def key(self) -> bytes:
+        if not self.is_valid():
+            raise InvalidMessageError()
+
+        if not isinstance(self._message, kafka.consumer.fetcher.ConsumerRecord):
+            raise InvalidArgumentError("Invalid argument.")
+
+        return self._message.key
+
+    def timestamp(self) -> int:
+        if not self.is_valid():
+            raise InvalidMessageError()
+
+        if not isinstance(self._message, kafka.consumer.fetcher.ConsumerRecord):
+            raise InvalidArgumentError("Invalid argument.")
+
+        return self._message.timestamp
+
+    def offset(self) -> int:
+        if not self.is_valid():
+            raise InvalidMessageError()
+
+        if not isinstance(self._message, kafka.consumer.fetcher.ConsumerRecord):
+            raise InvalidArgumentError("Invalid argument.")
+
+        return self._message.offset
+
+
+class InvalidMessagesError(Exception):
+    """Signals using a messages instance outside of the registered transformation."""
+
+    pass
+
+
+class Messages:
+    __slots__ = ("_messages",)
+
+    def __init__(self, messages):
+        if not isinstance(messages, typing.List):
+            raise TypeError("Expected 'Dict', got '{}'".format(type(messages)))
+        self._messages = messages
+
+    def __deepcopy__(self, memo):
+        # This is the same as the shallow copy, because we want to share the
+        # underlying C struct. Besides, it doesn't make much sense to actually
+        # copy _mgp_mock.Messages as that always references all the messages.
+        return Messages(self._messages)
+
+    def is_valid(self) -> bool:
+        return True
+
+    def message_at(self, id: int) -> Message:
+        if not self.is_valid():
+            raise InvalidMessagesError()
+
+        return Message(self._messages[id])
+
+    def total_messages(self) -> int:
+        if not self.is_valid():
+            raise InvalidMessagesError()
+
+        return len(self._messages)
+
+
+class TransCtx:
+    __slots__ = "_graph"
+
+    def __init__(self, graph):
+        if not isinstance(graph, nx.MultiDiGraph):
+            raise TypeError(f"Expected 'networkx.classes.multidigraph.MultiDiGraph', got '{type(graph)}'")
+
+        self._graph = Graph(graph)
+
+    def is_valid(self) -> bool:
+        return True
+
+    @property
+    def graph(self) -> Graph:
+        if not self.is_valid():
+            raise InvalidContextError()
+
+        return self._graph
+
+
+def transformation(func: typing.Callable[..., Record]):
+    raise_if_does_not_meet_requirements(func)
+
+    sig = inspect.signature(func)
+
+    params = tuple(sig.parameters.values())
+    if not params or not params[0].annotation is Messages:
+        if not len(params) == 2 or not params[1].annotation is Messages:
+            raise NotImplementedError("Valid signatures for transformations are (TransCtx, Messages) or (Messages)")
+
+    if params[0].annotation is TransCtx:
+
+        @wraps(func)
+        def wrapper(ctx, messages):
+            return func(ctx, messages)
+
+    else:
+
+        @wraps(func)
+        def wrapper(_, messages):
+            return func(messages)
+
+    return wrapper
+
+
+class FuncCtx:
+    __slots__ = "_graph"
+
+    def __init__(self, graph):
+        if not isinstance(graph, nx.MultiDiGraph):
+            raise TypeError(f"Expected 'networkx.classes.multidigraph.MultiDiGraph', got '{type(graph)}'")
+
+        self._graph = Graph(graph)
+
+    def is_valid(self) -> bool:
+        return True
+
+
+def function(func: typing.Callable):
+    raise_if_does_not_meet_requirements(func)
+
+    sig = inspect.signature(func)
+
+    params = tuple(sig.parameters.values())
+    if params and params[0].annotation is FuncCtx:
+
+        @wraps(func)
+        def wrapper(ctx, *args):
+            graph = nx.freeze(ctx.graph._graph.nx)
+            return func(FuncCtx(graph), *args)
+
+    else:
+
+        @wraps(func)
+        def wrapper(*args):
+            return func(*args)
+
+    return wrapper
+
+
 def _wrap_exceptions():
     def wrap_function(func):
         @wraps(func)
         def wrapped_func(*args, **kwargs):
             try:
                 return func(*args, **kwargs)
-            except _mgp.UnknownError as e:
-                raise UnknownError(e)
-            except _mgp.UnableToAllocateError as e:
-                raise UnableToAllocateError(e)
-            except _mgp.InsufficientBufferError as e:
-                raise InsufficientBufferError(e)
-            except _mgp.OutOfRangeError as e:
-                raise OutOfRangeError(e)
-            except _mgp.LogicErrorError as e:
+            except _mgp_mock.LogicErrorError as e:
                 raise LogicErrorError(e)
-            except _mgp.DeletedObjectError as e:
-                raise DeletedObjectError(e)
-            except _mgp.InvalidArgumentError as e:
-                raise InvalidArgumentError(e)
-            except _mgp.KeyAlreadyExistsError as e:
-                raise KeyAlreadyExistsError(e)
-            except _mgp.ImmutableObjectError as e:
+            except _mgp_mock.ImmutableObjectError as e:
                 raise ImmutableObjectError(e)
-            except _mgp.ValueConversionError as e:
-                raise ValueConversionError(e)
-            except _mgp.SerializationError as e:
-                raise SerializationError(e)
-            except _mgp.AuthorizationError as e:
-                raise AuthorizationError(e)
 
         return wrapped_func
 
