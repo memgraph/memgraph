@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,7 +26,10 @@
 #include "communication/bolt/client.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "communication/init.hpp"
+#include "spdlog/formatter.h"
+#include "spdlog/spdlog.h"
 #include "utils/exceptions.hpp"
+#include "utils/logging.hpp"
 #include "utils/string.hpp"
 #include "utils/timer.hpp"
 
@@ -48,6 +51,7 @@ DEFINE_bool(queries_json, false,
 
 DEFINE_string(input, "", "Input file. By default stdin is used.");
 DEFINE_string(output, "", "Output file. By default stdout is used.");
+DEFINE_bool(validation, false, "Set to true to run client in validation mode");
 
 std::pair<std::map<std::string, memgraph::communication::bolt::Value>, uint64_t> ExecuteNTimesTillSuccess(
     memgraph::communication::bolt::Client *client, const std::string &query,
@@ -55,6 +59,13 @@ std::pair<std::map<std::string, memgraph::communication::bolt::Value>, uint64_t>
   for (uint64_t i = 0; i < max_attempts; ++i) {
     try {
       auto ret = client->Execute(query, params);
+
+      if (FLAGS_validation) {
+        spdlog::info("Running validation:");
+        for (int i = 0; i < ret.records.size(); i++) {
+          spdlog::info(ret.records[i]);
+        }
+      }
       return {std::move(ret.metadata), i};
     } catch (const memgraph::utils::BasicException &e) {
       if (i == max_attempts - 1) {
@@ -231,6 +242,18 @@ void Execute(
 
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
+
+  spdlog::info("Running a bolt client with following settings:");
+  spdlog::info("Adress: {} ", FLAGS_address);
+  spdlog::info("Port: {} ", FLAGS_port);
+  spdlog::info("Username: {} ", FLAGS_port);
+  spdlog::info("Password: {} ", FLAGS_port);
+  spdlog::info("Usessl: {} ", FLAGS_use_ssl);
+  spdlog::info("Num of worker: {}", FLAGS_num_workers);
+  spdlog::info("Max retries: {}", FLAGS_max_retries);
+  spdlog::info("Input: {}", FLAGS_input);
+  spdlog::info("Output: {}", FLAGS_output);
+  spdlog::info("Validation: {}", FLAGS_validation);
 
   memgraph::communication::SSLInit sslInit;
 
