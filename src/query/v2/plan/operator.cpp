@@ -761,7 +761,7 @@ class DistributedScanByPrimaryKeyCursor : public Cursor {
               output_frame[output_symbol_] = TypedValue(it->second);
               populated_any = true;
               ++output_frame_it;
-            }           
+            }
             own_frames_it_->MakeInvalid();
           }
           break;
@@ -1350,19 +1350,6 @@ bool IsExpansionOk(Frame &frame, const Symbol &expand_symbol, const std::vector<
 
 bool EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("EdgeUniquenessFilter");
-  // // TODO (gvolfing) Make the simple Pull method use the function instead of the lambda as well.
-  // auto expansion_ok = [&]() {
-  //   const auto &expand_value = frame[self_.expand_symbol_];
-  //   for (const auto &previous_symbol : self_.previous_symbols_) {
-  //     const auto &previous_value = frame[previous_symbol];
-  //     // This shouldn't raise a TypedValueException, because the planner
-  //     // makes sure these are all of the expected type. In case they are not
-  //     // an error should be raised long before this code is executed.
-  //     if (ContainsSameEdge(previous_value, expand_value)) return false;
-  //   }
-  //   return true;
-  // };
-
   while (input_cursor_->Pull(frame, context))
     if (IsExpansionOk(frame, self_.expand_symbol_, self_.previous_symbols_)) return true;
   return false;
@@ -1422,28 +1409,6 @@ bool EdgeUniquenessFilter::EdgeUniquenessFilterCursor::PullMultiple(MultiFrame &
             own_frames_it_->MakeInvalid();
           }
           ++output_frame_it;
-
-          /////////////////////////////////////////////////
-          /*
-          ExpressionEvaluator evaluator(&*own_frames_it_, context.symbol_table, context.evaluation_context,
-                                        context.request_router, storage::v3::View::NEW);
-
-          std::vector<msgs::Value> pk;
-          for (auto *primary_property : primary_key_) {
-            pk.push_back(TypedValueToValue(primary_property->Accept(evaluator)));
-          }
-
-          const msgs::Label label = {.id = msgs::LabelId::FromUint(label_.AsUint())};
-          auto vertex_id = std::make_pair(label, std::move(pk));
-
-          if (const auto it = id_to_accessor_mapping_.find(vertex_id); it != id_to_accessor_mapping_.end()) {
-            output_frame = *own_frames_it_;
-            output_frame[output_symbol_] = TypedValue(it->second);
-            populated_any = true;
-            ++output_frame_it;
-          }
-          own_frames_it_->MakeInvalid();
-          */
         }
         break;
       }
