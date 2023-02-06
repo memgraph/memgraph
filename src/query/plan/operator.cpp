@@ -2255,9 +2255,9 @@ std::vector<Symbol> ConstructNamedPath::ModifiedSymbols(const SymbolTable &table
   return symbols;
 }
 
-Filter::Filter(const std::shared_ptr<LogicalOperator> &input, const std::shared_ptr<LogicalOperator> &complex_filter,
-               Expression *expression)
-    : input_(input ? input : std::make_shared<Once>()), complex_filter_(complex_filter), expression_(expression) {}
+Filter::Filter(const std::shared_ptr<LogicalOperator> &input,
+               const std::vector<std::shared_ptr<LogicalOperator>> &complex_filters, Expression *expression)
+    : input_(input ? input : std::make_shared<Once>()), complex_filters_(complex_filters), expression_(expression) {}
 
 ACCEPT_WITH_INPUT(Filter)
 
@@ -2269,10 +2269,22 @@ UniqueCursorPtr Filter::MakeCursor(utils::MemoryResource *mem) const {
 
 std::vector<Symbol> Filter::ModifiedSymbols(const SymbolTable &table) const { return input_->ModifiedSymbols(table); }
 
+static std::vector<UniqueCursorPtr> MakeCursorVector(std::vector<std::shared_ptr<LogicalOperator>> ops,
+                                                     utils::MemoryResource *mem) {
+  std::vector<UniqueCursorPtr> cursors;
+
+  if (!ops.empty()) {
+    for (const auto &filter : ops) {
+      cursors.emplace_back(filter->MakeCursor(mem));
+    }
+  }
+  return cursors;
+}
+
 Filter::FilterCursor::FilterCursor(const Filter &self, utils::MemoryResource *mem)
     : self_(self),
       input_cursor_(self_.input_->MakeCursor(mem)),
-      complex_filter_cursor_(self_.complex_filter_ ? self_.complex_filter_->MakeCursor(mem) : nullptr) {}
+      complex_filter_cursors_(MakeCursorVector(self_.complex_filters_, mem)) {}
 
 bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Filter");
@@ -2282,8 +2294,10 @@ bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::OLD);
   while (input_cursor_->Pull(frame, context)) {
-    if (complex_filter_cursor_) {
-      complex_filter_cursor_->Pull(frame, context);
+    if (!complex_filter_cursors_.empty()) {
+      for (const auto &pattern_cursor : complex_filter_cursors_) {
+        pattern_cursor->Pull(frame, context);
+      }
     }
 
     if (EvaluateFilter(evaluator, self_.expression_)) return true;

@@ -504,7 +504,8 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
   // Where may see new symbols so it comes after we generate Produce and in
   // general, comes after any OrderBy, Skip or Limit.
   if (body.where()) {
-    last_op = std::make_unique<Filter>(std::move(last_op), nullptr, body.where()->expression_);
+    std::vector<std::shared_ptr<LogicalOperator>> empty_pattern_filters;
+    last_op = std::make_unique<Filter>(std::move(last_op), std::move(empty_pattern_filters), body.where()->expression_);
   }
   return last_op;
 }

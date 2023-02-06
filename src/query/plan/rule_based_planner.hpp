@@ -680,11 +680,10 @@ class RuleBasedPlanner {
   std::unique_ptr<LogicalOperator> GenFilters(std::unique_ptr<LogicalOperator> last_op,
                                               const std::unordered_set<Symbol> &bound_symbols, Filters &filters,
                                               AstStorage &storage, const SymbolTable &symbol_table) {
-    std::unique_ptr<LogicalOperator> complex_filter =
-        ExtractComplexFilters(filters, symbol_table, storage, bound_symbols);
+    auto complex_filters = ExtractComplexFilters(filters, symbol_table, storage, bound_symbols);
     auto *filter_expr = impl::ExtractFilters(bound_symbols, filters, storage);
     if (filter_expr) {
-      last_op = std::make_unique<Filter>(std::move(last_op), std::move(complex_filter), filter_expr);
+      last_op = std::make_unique<Filter>(std::move(last_op), std::move(complex_filters), filter_expr);
     }
     return last_op;
   }
@@ -707,22 +706,25 @@ class RuleBasedPlanner {
     return last_op;
   }
 
-  std::unique_ptr<LogicalOperator> ExtractComplexFilters(Filters &filters, const SymbolTable &symbol_table,
-                                                         AstStorage &storage,
-                                                         const std::unordered_set<Symbol> &bound_symbols) {
+  std::vector<std::shared_ptr<LogicalOperator>> ExtractComplexFilters(Filters &filters, const SymbolTable &symbol_table,
+                                                                      AstStorage &storage,
+                                                                      const std::unordered_set<Symbol> &bound_symbols) {
+    std::vector<std::shared_ptr<LogicalOperator>> operators;
+
     for (auto &filter : filters) {
       if (filter.type != FilterInfo::Type::Complex) {
         continue;
       }
 
       if (auto *exists = utils::Downcast<Exists>(filter.expression)) {
-        return MakeExistsFilter(*exists, symbol_table, storage, bound_symbols, filter);
+        operators.emplace_back(MakeExistsFilter(*exists, symbol_table, storage, bound_symbols, filter));
+        continue;
       }
 
       throw SemanticException("Complex filter does not exist!");
     }
 
-    return nullptr;
+    return operators;
   }
 };
 

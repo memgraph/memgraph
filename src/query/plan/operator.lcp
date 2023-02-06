@@ -1123,12 +1123,12 @@ pulled.")
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
           :slk-save #'slk-save-operator-pointer
           :slk-load #'slk-load-operator-pointer)
-   (complex_filter "std::shared_ptr<LogicalOperator>" :scope :public
-          :slk-save #'slk-save-operator-pointer
-          :slk-load #'slk-load-operator-pointer)
+   (complex_filters "std::vector<std::shared_ptr<LogicalOperator>>" :scope :public
+          :slk-save #'slk-save-ast-vector
+          :slk-load (slk-load-ast-vector "std::shared_ptr<LogicalOperator>"))
    (expression "Expression *" :scope :public
                :slk-save #'slk-save-ast-pointer
-               :slk-load (slk-load-ast-pointer "Expression")))
+               :slk-load (slk-load-ast-pointer "std::shared_ptr<LogicalOperator>")))
   (:documentation
    "Filter whose Pull returns true only when the given expression
 evaluates into true.
@@ -1140,7 +1140,7 @@ a boolean value.")
    Filter() {}
 
    Filter(const std::shared_ptr<LogicalOperator> &input_,
-          const std::shared_ptr<LogicalOperator> &complex_filter_,
+          const std::vector<std::shared_ptr<LogicalOperator>> &complex_filters_,
           Expression *expression_);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
@@ -1164,7 +1164,7 @@ a boolean value.")
     private:
      const Filter &self_;
      const UniqueCursorPtr input_cursor_;
-     const UniqueCursorPtr complex_filter_cursor_;
+     const std::vector<UniqueCursorPtr> complex_filter_cursors_;
    };
    cpp<#)
   (:serialize (:slk))
