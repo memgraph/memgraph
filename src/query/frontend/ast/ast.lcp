@@ -1462,70 +1462,6 @@ cpp<#
   (:serialize (:slk))
   (:clone))
 
-(lcp:define-class exists-limit (expression)
-  ()
-
-  (:public
-    #>cpp
-    ExistsLimit() = default;
-
-    DEFVISITABLE(ExpressionVisitor<TypedValue>);
-    DEFVISITABLE(ExpressionVisitor<void>);
-    bool Accept(HierarchicalTreeVisitor &visitor) override {
-      visitor.PreVisit(*this);
-      return visitor.PostVisit(*this);
-    }
-    cpp<#)
-  (:private
-    #>cpp
-    friend class AstStorage;
-    cpp<#)
-  (:serialize (:slk))
-  (:clone))
-
-(lcp:define-class exists (expression)
-  ((from-node-info "NodeAtom *" :initval "nullptr" :scope :public
-               :slk-save #'slk-save-ast-pointer
-               :slk-load (slk-load-ast-pointer "NodeAtom")
-               :documentation "Source node info on the exists pattern.")
-    (relationship-info "EdgeAtom *" :initval "nullptr" :scope :public
-               :slk-save #'slk-save-ast-pointer
-               :slk-load (slk-load-ast-pointer "EdgeAtom")
-               :documentation "Relationship info on the exists pattern.")
-    (to-node-info "NodeAtom *" :initval "nullptr" :scope :public
-               :slk-save #'slk-save-ast-pointer
-               :slk-load (slk-load-ast-pointer "NodeAtom")
-               :documentation "Destination node info on the exists pattern.")
-    (limit-expression "Expression *" :initval "nullptr" :scope :public
-               :slk-save #'slk-save-ast-pointer
-               :slk-load (slk-load-ast-pointer "Expression")
-               :documentation "Limit expression."))
-
-  (:public
-    #>cpp
-    Exists() = default;
-
-    DEFVISITABLE(ExpressionVisitor<TypedValue>);
-    DEFVISITABLE(ExpressionVisitor<void>);
-    bool Accept(HierarchicalTreeVisitor &visitor) override {
-      if (visitor.PreVisit(*this)) {
-        from_node_info_->Accept(visitor) && relationship_info_->Accept(visitor) && to_node_info_->Accept(visitor) && limit_expression_->Accept(visitor);
-      }
-      return visitor.PostVisit(*this);
-    }
-    cpp<#)
-  (:protected
-    #>cpp
-    Exists(NodeAtom *from_node_info, EdgeAtom *relationship_info, NodeAtom *to_node_info, Expression *limit_expression)
-     : from_node_info_(from_node_info), relationship_info_(relationship_info), to_node_info_(to_node_info), limit_expression_(limit_expression) {}
-    cpp<#)
-  (:private
-    #>cpp
-    friend class AstStorage;
-    cpp<#)
-  (:serialize (:slk))
-  (:clone))
-
 (lcp:define-class pattern (tree "::utils::Visitable<HierarchicalTreeVisitor>")
   ((identifier "Identifier *" :initval "nullptr" :scope :public
                :slk-save #'slk-save-ast-pointer
@@ -2746,6 +2682,67 @@ cpp<#
   (:public
     #>cpp
     DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class exists-limit (expression)
+  ()
+
+  (:public
+    #>cpp
+    ExistsLimit() = default;
+
+    DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      visitor.PreVisit(*this);
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class exists (expression)
+  ((pattern "Pattern *" :initval "nullptr" :scope :public
+             :slk-save #'slk-save-ast-pointer
+             :slk-load (slk-load-ast-pointer "Pattern"))
+   (limit-expression "Expression *" :initval "nullptr" :scope :public
+               :slk-save #'slk-save-ast-pointer
+               :slk-load (slk-load-ast-pointer "Expression")
+               :documentation "Limit expression.")
+   (symbol-pos :int32_t :initval -1 :scope :public
+               :documentation "Symbol table position of the symbol this Aggregation is mapped to."))
+
+  (:public
+    #>cpp
+    Exists() = default;
+
+    DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        pattern_->Accept(visitor) && limit_expression_->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
+    Exists *MapTo(const Symbol &symbol) {
+      symbol_pos_ = symbol.position();
+      return this;
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    Exists(Pattern * pattern, Expression *limit_expression)
+     : pattern_(pattern), limit_expression_(limit_expression) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
     cpp<#)
   (:serialize (:slk))
   (:clone))
