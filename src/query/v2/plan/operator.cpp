@@ -1399,7 +1399,7 @@ bool EdgeUniquenessFilter::EdgeUniquenessFilterCursor::PullMultiple(MultiFrame &
 
         for (auto output_frame_it = output_frames_populator.begin();
              output_frame_it != output_frames_populator.end() && own_frames_it_ != own_frames_consumer_->end();
-             ++own_frames_it_) {
+             ++own_frames_it_, ++output_frame_it) {
           auto &output_frame = *output_frame_it;
 
           if (IsExpansionOk(*own_frames_it_, self_.expand_symbol_, self_.previous_symbols_)) {
@@ -1408,7 +1408,6 @@ bool EdgeUniquenessFilter::EdgeUniquenessFilterCursor::PullMultiple(MultiFrame &
           } else {
             own_frames_it_->MakeInvalid();
           }
-          ++output_frame_it;
         }
         break;
       }
