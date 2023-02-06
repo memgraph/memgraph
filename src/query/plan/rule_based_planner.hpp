@@ -545,6 +545,117 @@ class RuleBasedPlanner {
     return std::make_unique<plan::Merge>(std::move(input_op), std::move(on_match), std::move(on_create));
   }
 
+  std::unique_ptr<LogicalOperator> GenExpand(std::unique_ptr<LogicalOperator> last_op, Expansion &expansion,
+                                             const SymbolTable &symbol_table, std::unordered_set<Symbol> &bound_symbols,
+                                             Matching &matching, AstStorage &storage, std::vector<Symbol> &new_symbols,
+                                             storage::View view) {
+    // If the expand symbols were already bound, then we need to indicate
+    // that they exist. The Expand will then check whether the pattern holds
+    // instead of writing the expansion to symbols.
+    const auto &node1_symbol = symbol_table.at(*expansion.node1->identifier_);
+    bound_symbols.insert(node1_symbol);
+
+    const auto &node_symbol = symbol_table.at(*expansion.node2->identifier_);
+    auto *edge = expansion.edge;
+    auto filters = matching.filters;
+    auto named_paths = matching.named_paths;
+
+    auto existing_node = utils::Contains(bound_symbols, node_symbol);
+    const auto &edge_symbol = symbol_table.at(*edge->identifier_);
+    MG_ASSERT(!utils::Contains(bound_symbols, edge_symbol), "Existing edges are not supported");
+    std::vector<storage::EdgeTypeId> edge_types;
+    edge_types.reserve(edge->edge_types_.size());
+    for (const auto &type : edge->edge_types_) {
+      edge_types.push_back(GetEdgeType(type));
+    }
+    if (edge->IsVariable()) {
+      std::optional<ExpansionLambda> weight_lambda;
+      std::optional<Symbol> total_weight;
+
+      if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH || edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS) {
+        weight_lambda.emplace(ExpansionLambda{symbol_table.at(*edge->weight_lambda_.inner_edge),
+                                              symbol_table.at(*edge->weight_lambda_.inner_node),
+                                              edge->weight_lambda_.expression});
+
+        total_weight.emplace(symbol_table.at(*edge->total_weight_));
+      }
+
+      ExpansionLambda filter_lambda;
+      filter_lambda.inner_edge_symbol = symbol_table.at(*edge->filter_lambda_.inner_edge);
+      filter_lambda.inner_node_symbol = symbol_table.at(*edge->filter_lambda_.inner_node);
+      {
+        // Bind the inner edge and node symbols so they're available for
+        // inline filtering in ExpandVariable.
+        bool inner_edge_bound = bound_symbols.insert(filter_lambda.inner_edge_symbol).second;
+        bool inner_node_bound = bound_symbols.insert(filter_lambda.inner_node_symbol).second;
+        MG_ASSERT(inner_edge_bound && inner_node_bound, "An inner edge and node can't be bound from before");
+      }
+      // Join regular filters with lambda filter expression, so that they
+      // are done inline together. Semantic analysis should guarantee that
+      // lambda filtering uses bound symbols.
+      filter_lambda.expression = impl::BoolJoin<AndOperator>(
+          storage, impl::ExtractFilters(bound_symbols, filters, storage), edge->filter_lambda_.expression);
+      // At this point it's possible we have leftover filters for inline
+      // filtering (they use the inner symbols. If they were not collected,
+      // we have to remove them manually because no other filter-extraction
+      // will ever bind them again.
+      filters.erase(
+          std::remove_if(filters.begin(), filters.end(),
+                         [e = filter_lambda.inner_edge_symbol, n = filter_lambda.inner_node_symbol](FilterInfo &fi) {
+                           return utils::Contains(fi.used_symbols, e) || utils::Contains(fi.used_symbols, n);
+                         }),
+          filters.end());
+      // Unbind the temporarily bound inner symbols for filtering.
+      bound_symbols.erase(filter_lambda.inner_edge_symbol);
+      bound_symbols.erase(filter_lambda.inner_node_symbol);
+
+      if (total_weight) {
+        bound_symbols.insert(*total_weight);
+      }
+
+      // TODO: Pass weight lambda.
+      MG_ASSERT(view == storage::View::OLD, "ExpandVariable should only be planned with storage::View::OLD");
+      last_op = std::make_unique<ExpandVariable>(std::move(last_op), node1_symbol, node_symbol, edge_symbol,
+                                                 edge->type_, expansion.direction, edge_types, expansion.is_flipped,
+                                                 edge->lower_bound_, edge->upper_bound_, existing_node, filter_lambda,
+                                                 weight_lambda, total_weight);
+    } else {
+      last_op = std::make_unique<Expand>(std::move(last_op), node1_symbol, node_symbol, edge_symbol,
+                                         expansion.direction, edge_types, existing_node, view);
+    }
+
+    // Bind the expanded edge and node.
+    bound_symbols.insert(edge_symbol);
+    new_symbols.emplace_back(edge_symbol);
+    if (bound_symbols.insert(node_symbol).second) {
+      new_symbols.emplace_back(node_symbol);
+    }
+
+    // Ensure Cyphermorphism (different edge symbols always map to
+    // different edges).
+    for (const auto &edge_symbols : matching.edge_symbols) {
+      if (edge_symbols.find(edge_symbol) == edge_symbols.end()) {
+        continue;
+      }
+      std::vector<Symbol> other_symbols;
+      for (const auto &symbol : edge_symbols) {
+        if (symbol == edge_symbol || bound_symbols.find(symbol) == bound_symbols.end()) {
+          continue;
+        }
+        other_symbols.push_back(symbol);
+      }
+      if (!other_symbols.empty()) {
+        last_op = std::make_unique<EdgeUniquenessFilter>(std::move(last_op), edge_symbol, other_symbols);
+      }
+    }
+
+    last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
+    last_op = impl::GenNamedPaths(std::move(last_op), bound_symbols, named_paths);
+    last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
+
+    return last_op;
+  }
+
   std::unique_ptr<LogicalOperator> HandleForeachClause(query::Foreach *foreach,
                                                        std::unique_ptr<LogicalOperator> input_op,
                                                        const SymbolTable &symbol_table,
@@ -569,7 +680,8 @@ class RuleBasedPlanner {
   std::unique_ptr<LogicalOperator> GenFilters(std::unique_ptr<LogicalOperator> last_op,
                                               const std::unordered_set<Symbol> &bound_symbols, Filters &filters,
                                               AstStorage &storage, const SymbolTable &symbol_table) {
-    std::unique_ptr<LogicalOperator> complex_filter = ExtractComplexFilters(filters, symbol_table, bound_symbols);
+    std::unique_ptr<LogicalOperator> complex_filter =
+        ExtractComplexFilters(filters, symbol_table, storage, bound_symbols);
     auto *filter_expr = impl::ExtractFilters(bound_symbols, filters, storage);
     if (filter_expr) {
       last_op = std::make_unique<Filter>(std::move(last_op), std::move(complex_filter), filter_expr);
@@ -578,34 +690,25 @@ class RuleBasedPlanner {
   }
 
   std::unique_ptr<LogicalOperator> MakeExistsFilter(Exists &exists, const SymbolTable &symbol_table,
-                                                    const std::unordered_set<Symbol> &bound_symbols) {
-    auto *from_node = static_cast<NodeAtom *>(exists.pattern_->atoms_[0]);
-    auto *relationship = static_cast<EdgeAtom *>(exists.pattern_->atoms_[1]);
-    auto *to_node = static_cast<NodeAtom *>(exists.pattern_->atoms_[2]);
-    auto node1_symbol = symbol_table.at(*from_node->identifier_);
-    auto node2_symbol = symbol_table.at(*to_node->identifier_);
-    auto edge_symbol = symbol_table.at(*relationship->identifier_);
-    auto direction = relationship->direction_;
-    std::vector<storage::EdgeTypeId> edge_types;
-    edge_types.reserve(relationship->edge_types_.size());
-    for (const auto &type : relationship->edge_types_) {
-      edge_types.push_back(GetEdgeType(type));
-    }
-
+                                                    AstStorage &storage,
+                                                    const std::unordered_set<Symbol> &bound_symbols,
+                                                    FilterInfo filter) {
     std::vector<Symbol> once_symbols(bound_symbols.begin(), bound_symbols.end());
     std::unique_ptr<LogicalOperator> last_op = std::make_unique<Once>(once_symbols);
+    std::vector<Symbol> new_symbols;
+    std::unordered_set<Symbol> expand_symbols(bound_symbols.begin(), bound_symbols.end());
 
-    last_op = std::make_unique<Expand>(std::move(last_op), node1_symbol, node2_symbol, edge_symbol, direction,
-                                       edge_types, false, storage::View::OLD);
+    last_op = GenExpand(std::move(last_op), filter.matching->expansions[0], symbol_table, expand_symbols,
+                        *filter.matching, storage, new_symbols, storage::View::OLD);
 
     last_op = std::make_unique<Limit>(std::move(last_op), exists.limit_expression_);
-
     last_op = std::make_unique<EvaluateComplexFilter>(std::move(last_op), symbol_table.at(exists));
 
     return last_op;
   }
 
   std::unique_ptr<LogicalOperator> ExtractComplexFilters(Filters &filters, const SymbolTable &symbol_table,
+                                                         AstStorage &storage,
                                                          const std::unordered_set<Symbol> &bound_symbols) {
     for (auto &filter : filters) {
       if (filter.type != FilterInfo::Type::Complex) {
@@ -613,7 +716,7 @@ class RuleBasedPlanner {
       }
 
       if (auto *exists = utils::Downcast<Exists>(filter.expression)) {
-        return MakeExistsFilter(*exists, symbol_table, bound_symbols);
+        return MakeExistsFilter(*exists, symbol_table, storage, bound_symbols, filter);
       }
 
       throw SemanticException("Complex filter does not exist!");

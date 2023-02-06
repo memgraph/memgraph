@@ -74,6 +74,15 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
     return true;
   }
 
+  bool PreVisit(Exists &exists) override {
+    // We do not visit pattern identifier since we're in exists filter pattern
+    for (auto &atom : exists.pattern_->atoms_) {
+      atom->Accept(*this);
+    }
+
+    return false;
+  }
+
   bool Visit(PrimitiveLiteral &) override { return true; }
   bool Visit(ParameterLookup &) override { return true; }
 
@@ -147,8 +156,14 @@ class IdFilter {
   bool is_symbol_in_value_{false};
 };
 
+struct Matching;
+
 /// Stores additional information for a filter expression.
 struct FilterInfo {
+  /// A FilterInfo can be a generic filter expression or a specific filtering
+  /// applied for labels or a property. Non generic types contain extra
+  /// information which can be used to produce indexed scans of graph
+  /// elements.
   /// A FilterInfo can be a generic filter expression or a specific filtering
   /// applied for labels or a property. Non generic types contain extra
   /// information which can be used to produce indexed scans of graph
@@ -166,6 +181,8 @@ struct FilterInfo {
   std::optional<PropertyFilter> property_filter;
   /// Information for Type::Id filtering.
   std::optional<IdFilter> id_filter;
+
+  std::shared_ptr<Matching> matching;
 };
 
 /// Stores information on filters used inside the @c Matching of a @c QueryPart.

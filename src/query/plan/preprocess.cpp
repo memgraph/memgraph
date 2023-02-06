@@ -89,8 +89,9 @@ std::vector<Expansion> NormalizePatterns(const SymbolTable &symbol_table, const 
 // as well as edge symbols which determine Cyphermorphism. Collecting filters
 // will lift them out of a pattern and generate new expressions (just like they
 // were in a Where clause).
-void AddMatching(const std::vector<Pattern *> &patterns, Where *where, SymbolTable &symbol_table, AstStorage &storage,
-                 Matching &matching) {
+Matching AddMatching(const std::vector<Pattern *> &patterns, Where *where, SymbolTable &symbol_table,
+                     AstStorage &storage) {
+  Matching matching;
   auto expansions = NormalizePatterns(symbol_table, patterns);
   std::unordered_set<Symbol> edge_symbols;
   for (const auto &expansion : expansions) {
@@ -129,9 +130,27 @@ void AddMatching(const std::vector<Pattern *> &patterns, Where *where, SymbolTab
   if (where) {
     matching.filters.CollectWhereFilter(*where, symbol_table);
   }
+
+  return matching;
 }
-void AddMatching(const Match &match, SymbolTable &symbol_table, AstStorage &storage, Matching &matching) {
-  return AddMatching(match.patterns_, match.where_, symbol_table, storage, matching);
+Matching AddMatching(const Match &match, SymbolTable &symbol_table, AstStorage &storage) {
+  auto matching = AddMatching(match.patterns_, match.where_, symbol_table, storage);
+
+  for (auto &filter : matching.filters) {
+    if (filter.type != FilterInfo::Type::Complex) {
+      continue;
+    }
+
+    if (auto *exists = utils::Downcast<Exists>(filter.expression)) {
+      std::vector<Pattern *> patterns;
+      patterns.emplace_back(exists->pattern_);
+
+      auto filter_matching = AddMatching(patterns, nullptr, symbol_table, storage);
+      filter.matching = std::make_shared<Matching>(filter_matching);
+    }
+  }
+
+  return matching;
 }
 
 auto SplitExpressionOnAnd(Expression *expression) {
@@ -534,8 +553,8 @@ static void ParseForeach(query::Foreach &foreach, SingleQueryPart &query_part, A
                          SymbolTable &symbol_table) {
   for (auto *clause : foreach.clauses_) {
     if (auto *merge = utils::Downcast<query::Merge>(clause)) {
-      query_part.merge_matching.emplace_back(Matching{});
-      AddMatching({merge->pattern_}, nullptr, symbol_table, storage, query_part.merge_matching.back());
+      auto matching = AddMatching({merge->pattern_}, nullptr, symbol_table, storage);
+      query_part.merge_matching.emplace_back(std::move(matching));
     } else if (auto *nested = utils::Downcast<query::Foreach>(clause)) {
       ParseForeach(*nested, query_part, storage, symbol_table);
     }
@@ -551,17 +570,17 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
   for (auto &clause : single_query->clauses_) {
     if (auto *match = utils::Downcast<Match>(clause)) {
       if (match->optional_) {
-        query_part->optional_matching.emplace_back(Matching{});
-        AddMatching(*match, symbol_table, storage, query_part->optional_matching.back());
+        auto matching = AddMatching(*match, symbol_table, storage);
+        query_part->optional_matching.emplace_back(std::move(matching));
       } else {
         DMG_ASSERT(query_part->optional_matching.empty(), "Match clause cannot follow optional match.");
-        AddMatching(*match, symbol_table, storage, query_part->matching);
+        query_part->matching = AddMatching(*match, symbol_table, storage);
       }
     } else {
       query_part->remaining_clauses.push_back(clause);
       if (auto *merge = utils::Downcast<query::Merge>(clause)) {
-        query_part->merge_matching.emplace_back(Matching{});
-        AddMatching({merge->pattern_}, nullptr, symbol_table, storage, query_part->merge_matching.back());
+        auto matching = AddMatching({merge->pattern_}, nullptr, symbol_table, storage);
+        query_part->merge_matching.emplace_back(std::move(matching));
       } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
         ParseForeach(*foreach, *query_part, storage, symbol_table);
       } else if (utils::IsSubtype(*clause, With::kType) || utils::IsSubtype(*clause, query::Unwind::kType) ||
