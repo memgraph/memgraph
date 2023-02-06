@@ -144,13 +144,14 @@ void AssertEqVertexContainer(const VertexContainer &actual, const VertexContaine
 }
 
 void AssertEqDeltaLists(const std::list<Delta> &actual, const std::list<Delta> &expected) {
-  ASSERT_EQ(actual.size(), expected.size());
+  EXPECT_EQ(actual.size(), expected.size());
   auto actual_it = actual.begin();
   auto expected_it = expected.begin();
   while (actual_it != actual.end()) {
-    EXPECT_EQ(actual_it->action, expected_it->action);
     EXPECT_EQ(actual_it->id, expected_it->id);
-    EXPECT_NE(&*actual_it, &*expected_it) << "Deltas must be different objects!";
+    EXPECT_EQ(actual_it->action, expected_it->action);
+    ++actual_it;
+    ++expected_it;
   }
 }
 
@@ -210,10 +211,10 @@ TEST_F(ShardSplitTest, TestBasicSplitWithVertices) {
   std::list<Delta> expected_deltas;
   expected_deltas.emplace_back(Delta::DeleteObjectTag{}, &commit_info, 4, 1);
   expected_deltas.emplace_back(Delta::DeleteObjectTag{}, &commit_info, 5, 2);
-  expected_deltas.emplace_back(Delta::RemoveLabelTag{}, secondary_label, &commit_info, 7, 4);
   expected_deltas.emplace_back(Delta::SetPropertyTag{}, secondary_property, PropertyValue(), &commit_info, 6, 4);
+  expected_deltas.emplace_back(Delta::RemoveLabelTag{}, secondary_label, &commit_info, 7, 4);
   expected_deltas.emplace_back(Delta::DeleteObjectTag{}, &commit_info, 8, 3);
-  // AssertEqDeltaLists(splitted_data.transactions.begin()->second->deltas, expected_deltas);
+  AssertEqDeltaLists(splitted_data.transactions.begin()->second->deltas, expected_deltas);
 }
 
 TEST_F(ShardSplitTest, TestBasicSplitVerticesAndEdges) {
@@ -402,11 +403,11 @@ TEST_F(ShardSplitTest, TestBigSplit) {
   const auto split_value = pk / 2;
   auto splitted_data = storage.PerformSplit({PropertyValue(split_value)}, 2);
 
-  // EXPECT_EQ(splitted_data.vertices.size(), 100000);
-  // EXPECT_EQ(splitted_data.edges->size(), 50000);
-  // EXPECT_EQ(splitted_data.transactions.size(), 50000);
-  // EXPECT_EQ(splitted_data.label_indices.size(), 0);
-  // EXPECT_EQ(splitted_data.label_property_indices.size(), 1);
+  EXPECT_EQ(splitted_data.vertices.size(), 10000);
+  EXPECT_EQ(splitted_data.edges->size(), 5000);
+  EXPECT_EQ(splitted_data.transactions.size(), 5000);
+  EXPECT_EQ(splitted_data.label_indices.size(), 0);
+  EXPECT_EQ(splitted_data.label_property_indices.size(), 1);
 
   AssertSplittedShard(std::move(splitted_data), split_value);
 }

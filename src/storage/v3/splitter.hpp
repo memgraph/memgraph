@@ -88,6 +88,10 @@ class Splitter final {
   static void AdjustDeltaNext(const Delta &original, Delta &cloned,
                               std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions);
 
+  static void AdjustDeltaPrevPtr(const Delta &original, Delta &cloned,
+                                 std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions,
+                                 VertexContainer &cloned_vertices, EdgeContainer &cloned_edges);
+
   const LabelId primary_label_;
   VertexContainer &vertices_;
   EdgeContainer &edges_;

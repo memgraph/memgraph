@@ -140,37 +140,50 @@ std::map<uint64_t, std::unique_ptr<Transaction>> Splitter::CollectTransactions(
   return transactions;
 }
 
-void PruneDeltas(std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions, const PrimaryKey &split_key) {
-  // Remove delta chains wh
-  auto cloned_transaction_it = cloned_transactions.begin();
-  while (cloned_transaction_it != cloned_transactions.end()) {
-    auto cloned_delta_it = cloned_transaction_it->second->deltas.begin();
+void PruneDeltas(Transaction &cloned_transaction, std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions,
+                 const PrimaryKey &split_key) {
+  // Remove delta chains that don't point to objects on splitted shard
+  auto cloned_delta_it = cloned_transaction.deltas.begin();
 
-    if (const auto prev = cloned_delta_it->prev.Get();
-        prev.type == PreviousPtr::Type::VERTEX && prev.vertex->first < split_key) {
-      // We can remove this delta chain
-      auto *current_next_delta = cloned_delta_it->next;
-      cloned_transaction_it->second->deltas.remove_if(
-          [cloned_delta_it](const auto &delta) { return delta.id == cloned_delta_it->id; });
+  while (cloned_delta_it != cloned_transaction.deltas.end()) {
+    const auto prev = cloned_delta_it->prev.Get();
+    switch (prev.type) {
+      case PreviousPtr::Type::DELTA:
+      case PreviousPtr::Type::NULLPTR:
+        ++cloned_delta_it;
+        break;
+      case PreviousPtr::Type::VERTEX: {
+        if (prev.vertex->first < split_key) {
+          // We can remove this delta chain
+          auto *current_next_delta = cloned_delta_it->next;
+          cloned_delta_it = cloned_transaction.deltas.erase(cloned_delta_it);
 
-      while (current_next_delta != nullptr) {
-        auto *next_delta = current_next_delta->next;
-        // Find next delta transaction delta list
-        auto current_transaction_it = std::ranges::find_if(
-            cloned_transactions, [&start_or_commit_timestamp = cloned_delta_it->commit_info->start_or_commit_timestamp](
-                                     const auto &transaction) {
-              return transaction.second->start_timestamp == start_or_commit_timestamp ||
-                     transaction.second->commit_info->start_or_commit_timestamp == start_or_commit_timestamp;
-            });
-        // Remove it
-        current_transaction_it->second->deltas.remove_if(
-            [current_next_delta](const auto &delta) { return delta.id == current_next_delta->id; });
+          while (current_next_delta != nullptr) {
+            auto *next_delta = current_next_delta->next;
+            // Find next delta transaction delta list
+            auto current_transaction_it = std::ranges::find_if(
+                cloned_transactions,
+                [&start_or_commit_timestamp =
+                     current_next_delta->commit_info->start_or_commit_timestamp](const auto &transaction) {
+                  return transaction.second->start_timestamp == start_or_commit_timestamp ||
+                         transaction.second->commit_info->start_or_commit_timestamp == start_or_commit_timestamp;
+                });
+            MG_ASSERT(current_transaction_it != cloned_transactions.end(), "Error when pruning deltas!");
+            // Remove it
+            current_transaction_it->second->deltas.remove_if(
+                [&current_next_delta = *current_next_delta](const auto &delta) { return delta == current_next_delta; });
 
-        current_next_delta = next_delta;
+            current_next_delta = next_delta;
+          }
+        } else {
+          ++cloned_delta_it;
+        }
+        break;
       }
+      case PreviousPtr::Type::EDGE:
+        ++cloned_delta_it;
+        break;
     }
-
-    // while(cloned_delta_it != )
   }
 }
 
@@ -178,10 +191,12 @@ void Splitter::AdjustClonedTransactions(std::map<uint64_t, std::unique_ptr<Trans
                                         VertexContainer &cloned_vertices, EdgeContainer &cloned_edges,
                                         const PrimaryKey &split_key) {
   // Prune deltas whose delta chain points to vertex/edge that should not belong on that shard
-  PruneDeltas(cloned_transactions, split_key);
   for (auto &[commit_start, cloned_transaction] : cloned_transactions) {
     AdjustClonedTransaction(*cloned_transaction, *start_logical_id_to_transaction_[commit_start], cloned_transactions,
                             cloned_vertices, cloned_edges, split_key);
+  }
+  for (auto &[commit_start, cloned_transaction] : cloned_transactions) {
+    PruneDeltas(*cloned_transaction, cloned_transactions, split_key);
   }
 }
 
@@ -196,16 +211,14 @@ bool DoesPrevPtrPointsToSplittedData(const PreviousPtr::Pointer &prev_ptr, const
 void Splitter::AdjustClonedTransaction(Transaction &cloned_transaction, const Transaction &transaction,
                                        std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions,
                                        VertexContainer &cloned_vertices, EdgeContainer &cloned_edges,
-                                       const PrimaryKey &split_key) {
-  // Align next and prev in deltas
+                                       const PrimaryKey & /*split_key*/) {
   auto delta_it = transaction.deltas.begin();
   auto cloned_delta_it = cloned_transaction.deltas.begin();
 
   while (delta_it != transaction.deltas.end()) {
     // We can safely ignore deltas which are not head of delta chain
     // Dont' adjust delta chain that points to irrelevant data vertices/edges
-    if (const auto delta_prev = delta_it->prev.Get();
-        !IsDeltaHeadOfChain(delta_prev.type) && !DoesPrevPtrPointsToSplittedData(delta_prev, split_key)) {
+    if (const auto delta_prev = delta_it->prev.Get(); !IsDeltaHeadOfChain(delta_prev.type)) {
       ++delta_it;
       ++cloned_delta_it;
       continue;
@@ -215,50 +228,16 @@ void Splitter::AdjustClonedTransaction(Transaction &cloned_transaction, const Tr
     auto *cloned_delta = &*cloned_delta_it;
     while (delta->next != nullptr) {
       // Align next ptr
-      // Get cloned_delta->next transaction, using delta->next original transaction
       AdjustDeltaNext(*delta, *cloned_delta, cloned_transactions);
 
       // Align prev ptr
-      auto ptr = delta->prev.Get();
-      switch (ptr.type) {
-        case PreviousPtr::Type::NULLPTR: {
-          // noop
-          break;
-        }
-        case PreviousPtr::Type::DELTA: {
-          // Same as for deltas except don't align next but prev
-          auto cloned_transaction_it = std::ranges::find_if(cloned_transactions, [&ptr](const auto &elem) {
-            return elem.second->start_timestamp == ptr.delta->commit_info->start_or_commit_timestamp ||
-                   elem.second->commit_info->start_or_commit_timestamp ==
-                       ptr.delta->commit_info->start_or_commit_timestamp;
-          });
-          MG_ASSERT(cloned_transaction_it != cloned_transactions.end(), "Cloned transaction not found");
-          // Find cloned delta in delta list of cloned transaction
-          auto found_cloned_delta_it =
-              std::ranges::find_if(cloned_transaction_it->second->deltas,
-                                   [delta = ptr.delta](const auto &elem) { return elem.id == delta->id; });
-          MG_ASSERT(found_cloned_delta_it != cloned_transaction_it->second->deltas.end(),
-                    "Delta with given id must exist!");
-
-          cloned_delta->prev.Set(&*found_cloned_delta_it);
-          break;
-        }
-        case PreviousPtr::Type::VERTEX: {
-          auto *cloned_vertex = &*cloned_vertices.find(ptr.vertex->first);
-          cloned_delta->prev.Set(cloned_vertex);
-          break;
-        }
-        case PreviousPtr::Type::EDGE: {
-          // We can never be here if we have properties on edge disabled
-          auto *cloned_edge = &*cloned_edges.find(ptr.edge->gid);
-          cloned_delta->prev.Set(&cloned_edge->second);
-          break;
-        }
-      };
+      AdjustDeltaPrevPtr(*delta, *cloned_delta, cloned_transactions, cloned_vertices, cloned_edges);
 
       cloned_delta = cloned_delta->next;
       delta = delta->next;
     }
+    // Align prev ptr
+    AdjustDeltaPrevPtr(*delta, *cloned_delta, cloned_transactions, cloned_vertices, cloned_edges);
 
     ++delta_it;
     ++cloned_delta_it;
@@ -281,6 +260,46 @@ void Splitter::AdjustDeltaNext(const Delta &original, Delta &cloned,
       cloned_transaction_it->second->deltas, [&original](const auto &elem) { return elem.id == original.next->id; });
   MG_ASSERT(found_cloned_delta_it != cloned_transaction_it->second->deltas.end(), "Delta with given uuid must exist!");
   cloned.next = &*found_cloned_delta_it;
+}
+
+void Splitter::AdjustDeltaPrevPtr(const Delta &original, Delta &cloned,
+                                  std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions,
+                                  VertexContainer & /*cloned_vertices*/, EdgeContainer &cloned_edges) {
+  auto ptr = original.prev.Get();
+  switch (ptr.type) {
+    case PreviousPtr::Type::NULLPTR: {
+      // noop
+      break;
+    }
+    case PreviousPtr::Type::DELTA: {
+      // Same as for deltas except don't align next but prev
+      auto cloned_transaction_it = std::ranges::find_if(cloned_transactions, [&ptr](const auto &elem) {
+        return elem.second->start_timestamp == ptr.delta->commit_info->start_or_commit_timestamp ||
+               elem.second->commit_info->start_or_commit_timestamp == ptr.delta->commit_info->start_or_commit_timestamp;
+      });
+      MG_ASSERT(cloned_transaction_it != cloned_transactions.end(), "Cloned transaction not found");
+      // Find cloned delta in delta list of cloned transaction
+      auto found_cloned_delta_it =
+          std::ranges::find_if(cloned_transaction_it->second->deltas,
+                               [delta = ptr.delta](const auto &elem) { return elem.id == delta->id; });
+      MG_ASSERT(found_cloned_delta_it != cloned_transaction_it->second->deltas.end(),
+                "Delta with given id must exist!");
+
+      cloned.prev.Set(&*found_cloned_delta_it);
+      break;
+    }
+    case PreviousPtr::Type::VERTEX: {
+      // The vertex was extracted and it is safe to reuse address
+      cloned.prev.Set(ptr.vertex);
+      break;
+    }
+    case PreviousPtr::Type::EDGE: {
+      // We can never be here if we have properties on edge disabled
+      auto *cloned_edge = &*cloned_edges.find(ptr.edge->gid);
+      cloned.prev.Set(&cloned_edge->second);
+      break;
+    }
+  };
 }
 
 }  // namespace memgraph::storage::v3

@@ -241,6 +241,8 @@ struct Delta {
     }
   }
 
+  friend bool operator==(const Delta &lhs, const Delta &rhs) noexcept { return lhs.id == rhs.id; }
+
   Action action;
   uint64_t id;
   // TODO: optimize with in-place copy
