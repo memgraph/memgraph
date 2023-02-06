@@ -40,30 +40,10 @@ if __name__ == "__main__":
     parser.add_argument("--type", required=True, choices=["interactive", "bi"], help="interactive or bi")
 
     args = parser.parse_args()
-    output_directory = Path().absolute() / "generated"
+    output_directory = Path().absolute() / ".cache" / "LDBC_generated"
     output_directory.mkdir(exist_ok=True)
 
     if args.type == "interactive":
-
-        file_size = "sf{}".format(args.size)
-        out_file = "ldbc_interactive_{}.cypher".format(file_size)
-        output = output_directory / out_file
-        if output.exists():
-            output.unlink()
-
-        files_present = None
-        for file in output_directory.glob("**/*.tar.zst"):
-            if "basic-" + file_size in file.name:
-                files_present = file.with_suffix("").with_suffix("")
-                break
-
-        if not files_present:
-            try:
-                downloaded_file = helpers.download_file(INTERACTIVE_LINK[file_size], output_directory.absolute())
-                file_present = helpers.unpack_tar_zst(Path(downloaded_file))
-            except:
-                print("Issue with downloading and unpacking the file, check if links are working properly.")
-                raise
 
         NODES_INTERACTIVE = [
             {"filename": "Place", "label": "Place"},
@@ -177,6 +157,28 @@ if __name__ == "__main__":
             },
         ]
 
+        file_size = "sf{}".format(args.size)
+        out_file = "ldbc_interactive_{}.cypher".format(file_size)
+        output = output_directory / out_file
+        if output.exists():
+            output.unlink()
+
+        files_present = None
+        for file in output_directory.glob("**/*.tar.zst"):
+            if "basic-" + file_size in file.name:
+                files_present = file.with_suffix("").with_suffix("")
+                break
+
+        if not files_present:
+            try:
+                print("Downloading the file... " + INTERACTIVE_LINK[file_size])
+                downloaded_file = helpers.download_file(INTERACTIVE_LINK[file_size], output_directory.absolute())
+                print("Unpacking the file..." + downloaded_file)
+                files_present = helpers.unpack_tar_zst(Path(downloaded_file))
+            except:
+                print("Issue with downloading and unpacking the file, check if links are working properly.")
+                raise
+
         input_files = {}
         for file in files_present.glob("**/*.csv"):
             name = file.name.replace("_0_0.csv", "").lower()
@@ -244,6 +246,8 @@ if __name__ == "__main__":
                             if "date" in k.lower():
                                 # Take time zone out
                                 row[k] = 'localDateTime("{}")'.format(v[0:-5])
+                            elif "workfrom" in k.lower() or "classyear" in k.lower():
+                                row[k] = 'toInteger("{}")'.format(v)
                             else:
                                 row[k] = '"{}"'.format(v)
 
@@ -376,17 +380,34 @@ if __name__ == "__main__":
             },
         ]
 
-        out = "test.cypher"
-        out_file = args.output / out
-        if out_file.exists():
-            out_file.unlink()
+        file_size = "sf{}".format(args.size)
+        out_file = "ldbc_bi_{}.cypher".format(file_size)
+        output = output_directory / out_file
+        if output.exists():
+            output.unlink()
 
-        for file in args.ldbc.glob("**/*.csv.gz"):
+        files_present = None
+        for file in output_directory.glob("**/*.tar.zst"):
+            if "bi-" + file_size in file.name:
+                files_present = file.with_suffix("").with_suffix("")
+                break
+
+        if not files_present:
+            try:
+                print("Downloading the file... " + BI_LINK[file_size])
+                downloaded_file = helpers.download_file(BI_LINK[file_size], output_directory.absolute())
+                print("Unpacking the file..." + downloaded_file)
+                files_present = helpers.unpack_tar_zst(Path(downloaded_file))
+            except:
+                print("Issue with downloading and unpacking the file, check if links are working properly.")
+                raise
+
+        for file in files_present.glob("**/*.csv.gz"):
             if "initial_snapshot" in file.parts:
-                helpers.unpack(file)
+                helpers.unpack_gz(file)
 
         input_files = defaultdict(list)
-        for file in args.ldbc.glob("**/*.csv"):
+        for file in files_present.glob("**/*.csv"):
             key = file.parents[0].name
             input_files[file.parents[0].name].append(file)
 
@@ -396,7 +417,7 @@ if __name__ == "__main__":
             query = None
             if key in input_files.keys():
                 for part_file in input_files[key]:
-                    with part_file.open("r") as input_f, out_file.open("a") as output_f:
+                    with part_file.open("r") as input_f, output.open("a") as output_f:
                         reader = csv.DictReader(input_f, delimiter="|")
 
                         for row in reader:
@@ -420,7 +441,7 @@ if __name__ == "__main__":
                             prop_string = ", ".join("{} : {}".format(k, v) for k, v in row.items())
                             query = query + prop_string + "});"
                             output_f.write(query + "\n")
-                    print("Key: " + key + " Converted file: " + part_file.name + " to " + out_file.name)
+                    print("Key: " + key + " Converted file: " + part_file.name + " to " + output.name)
             else:
                 print("Didn't process node file: " + key)
 
@@ -432,7 +453,7 @@ if __name__ == "__main__":
             if key in input_files.keys():
                 for part_file in input_files[key]:
                     query = None
-                    with part_file.open("r") as input_f, out_file.open("a") as output_f:
+                    with part_file.open("r") as input_f, output.open("a") as output_f:
                         sufixl = "Id"
                         sufixr = "Id"
                         # Handle identical label/key in CSV header
@@ -465,6 +486,8 @@ if __name__ == "__main__":
                                 if "date" in k.lower():
                                     # Take time zone out
                                     row[k] = 'localDateTime("{}")'.format(v[0:-6])
+                                elif k == "classYear" or k == "workFrom":
+                                    row[k] = 'toInteger("{}")'.format(v)
                                 else:
                                     row[k] = '"{}"'.format(v)
 
@@ -473,8 +496,7 @@ if __name__ == "__main__":
 
                             query = query + edge_part + prop_string + "}]->(n2);"
                             output_f.write(query + "\n")
-                        print("Line")
-                    print("Key: " + key + " Converted file: " + part_file.name + " to " + out_file.name)
+                    print("Key: " + key + " Converted file: " + part_file.name + " to " + output.name)
             else:
                 print("Didn't process Edge file: " + key)
                 raise Exception("Didn't find the file that was needed!")

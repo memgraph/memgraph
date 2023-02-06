@@ -23,7 +23,7 @@ class LDBC_Interactive(datasets.Dataset):
     INDEX = None
 
     INDEX_FILES = {
-        "memgraph": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/memgraph.cypher",
+        "memgraph": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/interactive/indices_memgraph.cypher",
         "neo4j": "",
     }
 
