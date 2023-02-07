@@ -172,7 +172,6 @@ class SimulatorHandle {
         bool can_receive = contains_items && can_rx.back().deliverable_at <= cluster_wide_time_microseconds_;
 
         if (can_receive) {
-          spdlog::warn("can receive");
           OpaqueMessage message = std::move(can_rx.back());
           can_rx.pop_back();
 
