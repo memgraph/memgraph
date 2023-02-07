@@ -2210,6 +2210,7 @@ antlrcpp::Any CypherMainVisitor::visitLiteral(MemgraphCypher::LiteralContext *ct
 antlrcpp::Any CypherMainVisitor::visitExistsExpression(MemgraphCypher::ExistsExpressionContext *ctx) {
   auto *exists = storage_->Create<Exists>();
   exists->pattern_ = std::any_cast<Pattern *>(ctx->patternPart()->accept(this));
+  exists->limit_expression_ = static_cast<Expression *>(storage_->Create<ExistsLimit>());
 
   if (exists->pattern_->identifier_) {
     throw SyntaxException("No pattern identifiers can be present in exists!");
