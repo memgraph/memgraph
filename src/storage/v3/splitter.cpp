@@ -227,19 +227,32 @@ void Splitter::AdjustClonedTransaction(Transaction &cloned_transaction, const Tr
 
     const auto *delta = &*delta_it;
     auto *cloned_delta = &*cloned_delta_it;
-    AdjustEdgeRef(*cloned_delta, cloned_edges);
+    Delta *cloned_delta_prev_ptr = cloned_delta;
     while (delta->next != nullptr) {
+      AdjustEdgeRef(*cloned_delta, cloned_edges);
+
       // Align next ptr
       AdjustDeltaNext(*delta, *cloned_delta, cloned_transactions);
 
       // Align prev ptr
-      AdjustDeltaPrevPtr(*delta, *cloned_delta, cloned_transactions, cloned_vertices, cloned_edges);
+      if (cloned_delta_prev_ptr != nullptr) {
+        AdjustDeltaPrevPtr(*delta, *cloned_delta_prev_ptr, cloned_transactions, cloned_vertices, cloned_edges);
+      }
 
-      cloned_delta = cloned_delta->next;
+      // TODO Next delta might not belong to the cloned transaction and thats
+      // why we skip this delta of the delta chain
+      if (cloned_delta->next != nullptr) {
+        cloned_delta = cloned_delta->next;
+        cloned_delta_prev_ptr = cloned_delta;
+      } else {
+        cloned_delta_prev_ptr = nullptr;
+      }
       delta = delta->next;
     }
     // Align prev ptr
-    AdjustDeltaPrevPtr(*delta, *cloned_delta, cloned_transactions, cloned_vertices, cloned_edges);
+    if (cloned_delta_prev_ptr != nullptr) {
+      AdjustDeltaPrevPtr(*delta, *cloned_delta_prev_ptr, cloned_transactions, cloned_vertices, cloned_edges);
+    }
 
     ++delta_it;
     ++cloned_delta_it;
@@ -285,8 +298,9 @@ void Splitter::AdjustDeltaNext(const Delta &original, Delta &cloned,
     return elem.second->start_timestamp == original.next->commit_info->start_or_commit_timestamp ||
            elem.second->commit_info->start_or_commit_timestamp == original.next->commit_info->start_or_commit_timestamp;
   });
-
-  MG_ASSERT(cloned_transaction_it != cloned_transactions.end(), "Cloned transaction not found");
+  // TODO(jbajic) What if next in delta chain does not belong to cloned transaction?
+  // MG_ASSERT(cloned_transaction_it != cloned_transactions.end(), "Cloned transaction not found");
+  if (cloned_transaction_it == cloned_transactions.end()) return;
   // Find cloned delta in delta list of cloned transaction
   auto found_cloned_delta_it = std::ranges::find_if(
       cloned_transaction_it->second->deltas, [&original](const auto &elem) { return elem.id == original.next->id; });
