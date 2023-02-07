@@ -3,7 +3,7 @@ import datasets
 
 class LDBC_Interactive(datasets.Dataset):
     NAME = "ldbc_interactive"
-    VARIANTS = ["sf1"]
+    VARIANTS = ["sf0.1", "sf1", "sf3", "sf10"]
     DEFAULT_VARIANT = "sf1"
     FILES = {}
 
@@ -18,7 +18,6 @@ class LDBC_Interactive(datasets.Dataset):
         "sf1": {"vertices": 3181724, "edges": 17256038},
         "sf3": {"vertices": 1, "edges": 1},
         "sf10": {"vertices": 1, "edges": 1},
-        "sf30": {"vertices": 1, "edges": 1},
     }
     INDEX = None
 
@@ -646,14 +645,27 @@ class LDBC_Interactive(datasets.Dataset):
 
 class LDBC_BI(datasets.Dataset):
     NAME = "ldbc_bi"
-    VARIANTS = ["sf1"]
+    VARIANTS = ["sf1", "sf3", "sf10"]
     DEFAULT_VARIANT = "sf1"
     FILES = {}
 
     URLS = {
+        "sf1": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/bi/ldbc_bi_sf1.cypher.gz",
+        "sf3": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/bi/ldbc_bi_sf3.cypher.gz",
+        "sf10": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/bi/ldbc_bi_sf10.cypher.gz",
+    }
+
+    SIZES = {
         "sf1": {"vertices": 2997352, "edges": 17196776},
-        "sf3": "",
-        "sf10": "",
+        "sf3": {"vertices": 1, "edges": 1},
+        "sf10": {"vertices": 1, "edges": 1},
+    }
+
+    INDEX = None
+
+    INDEX_FILES = {
+        "memgraph": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/bi/indices_memgraph.cypher",
+        "neo4j": "",
     }
 
     def __init__(self, variant=None, vendor=None):
