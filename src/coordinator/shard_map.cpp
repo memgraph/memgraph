@@ -331,7 +331,10 @@ HeartbeatResponse ShardMap::AssignShards(Address storage_manager, std::set<boost
               .min_key = low_key,
               .max_key = high_key,
               .schema = schemas[label_id],
-              .config = Config{},
+              .config = Config{.split =
+                                   Config::Split{
+                                       .max_shard_vertex_size = label_space.split_threshold,
+                                   }},
               .id_to_names = IdToNames(),
           });
         } else if (same_machine && peer_metadata.status == Status::PENDING_SPLIT) {
@@ -421,7 +424,10 @@ HeartbeatResponse ShardMap::AssignShards(Address storage_manager, std::set<boost
             .min_key = low_key,
             .max_key = high_key,
             .schema = schemas[label_id],
-            .config = Config{},
+            .config = Config{.split =
+                                 Config::Split{
+                                     .max_shard_vertex_size = label_space.split_threshold,
+                                 }},
             .id_to_names = IdToNames(),
         });
 
