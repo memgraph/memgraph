@@ -2711,9 +2711,6 @@ cpp<#
   ((pattern "Pattern *" :initval "nullptr" :scope :public
              :slk-save #'slk-save-ast-pointer
              :slk-load (slk-load-ast-pointer "Pattern"))
-   (limit-expression "Expression *" :initval "nullptr" :scope :public
-               :slk-save #'slk-save-ast-pointer
-               :slk-load (slk-load-ast-pointer "Expression")
                :documentation "Limit expression.")
    (symbol-pos :int32_t :initval -1 :scope :public
                :documentation "Symbol table position of the symbol this Aggregation is mapped to."))
@@ -2726,7 +2723,7 @@ cpp<#
     DEFVISITABLE(ExpressionVisitor<void>);
     bool Accept(HierarchicalTreeVisitor &visitor) override {
       if (visitor.PreVisit(*this)) {
-        pattern_->Accept(visitor) && limit_expression_->Accept(visitor);
+        pattern_->Accept(visitor);
       }
       return visitor.PostVisit(*this);
     }
