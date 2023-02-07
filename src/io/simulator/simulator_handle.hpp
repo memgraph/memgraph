@@ -185,7 +185,8 @@ class SimulatorHandle {
         } else if (contains_items) {
           auto count = can_rx.back().deliverable_at.time_since_epoch().count();
           auto now_count = cluster_wide_time_microseconds_.time_since_epoch().count();
-          spdlog::warn("can't receive item in the buffer. deliverable_at: {}, now: {}", count, now_count);
+          spdlog::trace("can't receive message yet due to artificial latency. deliverable_at: {}, now: {}", count,
+                        now_count);
         }
       }
 
