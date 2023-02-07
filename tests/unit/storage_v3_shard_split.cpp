@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <cstdint>
+#include <memory>
 
 #include <gmock/gmock-matchers.h>
 #include <gmock/gmock.h>
@@ -56,13 +57,12 @@ class ShardSplitTest : public testing::Test {
     return last_hlc;
   }
 
-  void AssertSplittedShard(SplitData &&splitted_data, const int split_value) {
-    auto shard = Shard::FromSplitData(std::move(splitted_data));
-    auto acc = shard->Access(GetNextHlc());
-    for (int i{0}; i < split_value; ++i) {
+  void AssertShardState(auto &shard, const int split_min, const int split_max) {
+    auto acc = shard.Access(GetNextHlc());
+    for (int i{0}; i < split_min; ++i) {
       EXPECT_FALSE(acc.FindVertex(PrimaryKey{{PropertyValue(i)}}, View::OLD).has_value());
     }
-    for (int i{split_value}; i < split_value * 2; ++i) {
+    for (int i{split_min}; i < split_max; ++i) {
       const auto vtx = acc.FindVertex(PrimaryKey{{PropertyValue(i)}}, View::OLD);
       ASSERT_TRUE(vtx.has_value());
       EXPECT_TRUE(vtx->InEdges(View::OLD)->size() == 1 || vtx->OutEdges(View::OLD)->size() == 1);
@@ -322,7 +322,7 @@ TEST_F(ShardSplitTest, TestBasicSplitWithCommitedAndOngoingTransactions) {
   EXPECT_FALSE(acc.CreateEdge(VertexId{primary_label, PrimaryKey{PropertyValue(1)}},
                               VertexId{primary_label, PrimaryKey{PropertyValue(2)}}, edge_type_id, Gid::FromUint(0))
                    .HasError());
-  EXPECT_FALSE(acc.CreateEdge(VertexId{primary_label, PrimaryKey{PropertyValue(1)}},
+  EXPECT_FALSE(acc.CreateEdge(VertexId{primary_label, PrimaryKey{PropertyValue(3)}},
                               VertexId{primary_label, PrimaryKey{PropertyValue(5)}}, edge_type_id, Gid::FromUint(1))
                    .HasError());
   EXPECT_FALSE(acc.CreateEdge(VertexId{primary_label, PrimaryKey{PropertyValue(4)}},
@@ -383,6 +383,91 @@ TEST_F(ShardSplitTest, TestBasicSplitWithLabelPropertyIndex) {
   EXPECT_EQ(splitted_data.label_property_indices.size(), 1);
 }
 
+TEST_F(ShardSplitTest, TestSplittingShardsWithGcDestroyOriginalShard) {
+  const auto split_value{4};
+  PrimaryKey splitted_value{{PropertyValue(4)}};
+  std::unique_ptr<Shard> splitted_shard;
+
+  {
+    Shard storage2{primary_label, min_pk, std::nullopt /*max_primary_key*/, schema_property_vector};
+    auto acc = storage2.Access(GetNextHlc());
+    EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(1)}, {}).HasError());
+    EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(2)}, {}).HasError());
+    EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(3)}, {}).HasError());
+    EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(4)}, {}).HasError());
+    EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(5)}, {}).HasError());
+    EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(6)}, {}).HasError());
+
+    EXPECT_FALSE(acc.CreateEdge(VertexId{primary_label, PrimaryKey{PropertyValue(1)}},
+                                VertexId{primary_label, PrimaryKey{PropertyValue(2)}}, edge_type_id, Gid::FromUint(0))
+                     .HasError());
+    EXPECT_FALSE(acc.CreateEdge(VertexId{primary_label, PrimaryKey{PropertyValue(3)}},
+                                VertexId{primary_label, PrimaryKey{PropertyValue(5)}}, edge_type_id, Gid::FromUint(1))
+                     .HasError());
+    EXPECT_FALSE(acc.CreateEdge(VertexId{primary_label, PrimaryKey{PropertyValue(4)}},
+                                VertexId{primary_label, PrimaryKey{PropertyValue(6)}}, edge_type_id, Gid::FromUint(2))
+                     .HasError());
+    acc.Commit(GetNextHlc());
+
+    auto splitted_data = storage2.PerformSplit({PropertyValue(split_value)}, 2);
+    EXPECT_EQ(splitted_data.vertices.size(), 3);
+    EXPECT_EQ(splitted_data.edges->size(), 2);
+    EXPECT_EQ(splitted_data.transactions.size(), 1);
+    EXPECT_EQ(splitted_data.label_indices.size(), 0);
+    EXPECT_EQ(splitted_data.label_property_indices.size(), 0);
+
+    // Create a new shard
+    splitted_shard = Shard::FromSplitData(std::move(splitted_data));
+    // Call gc on old shard
+    storage2.CollectGarbage(GetNextHlc().coordinator_wall_clock);
+    // Destroy original
+  }
+
+  splitted_shard->CollectGarbage(GetNextHlc().coordinator_wall_clock);
+  AssertShardState(*splitted_shard, 4, 6);
+}
+
+TEST_F(ShardSplitTest, TestSplittingShardsWithGcDestroySplittedShard) {
+  PrimaryKey splitted_value{{PropertyValue(4)}};
+
+  auto acc = storage.Access(GetNextHlc());
+  EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(1)}, {}).HasError());
+  EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(2)}, {}).HasError());
+  EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(3)}, {}).HasError());
+  EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(4)}, {}).HasError());
+  EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(5)}, {}).HasError());
+  EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(6)}, {}).HasError());
+
+  EXPECT_FALSE(acc.CreateEdge(VertexId{primary_label, PrimaryKey{PropertyValue(1)}},
+                              VertexId{primary_label, PrimaryKey{PropertyValue(2)}}, edge_type_id, Gid::FromUint(0))
+                   .HasError());
+  EXPECT_FALSE(acc.CreateEdge(VertexId{primary_label, PrimaryKey{PropertyValue(3)}},
+                              VertexId{primary_label, PrimaryKey{PropertyValue(5)}}, edge_type_id, Gid::FromUint(1))
+                   .HasError());
+  EXPECT_FALSE(acc.CreateEdge(VertexId{primary_label, PrimaryKey{PropertyValue(4)}},
+                              VertexId{primary_label, PrimaryKey{PropertyValue(6)}}, edge_type_id, Gid::FromUint(2))
+                   .HasError());
+  acc.Commit(GetNextHlc());
+
+  auto splitted_data = storage.PerformSplit({PropertyValue(4)}, 2);
+  EXPECT_EQ(splitted_data.vertices.size(), 3);
+  EXPECT_EQ(splitted_data.edges->size(), 2);
+  EXPECT_EQ(splitted_data.transactions.size(), 1);
+  EXPECT_EQ(splitted_data.label_indices.size(), 0);
+  EXPECT_EQ(splitted_data.label_property_indices.size(), 0);
+
+  {
+    // Create a new shard
+    auto splitted_shard = Shard::FromSplitData(std::move(splitted_data));
+    // Call gc on new shard
+    splitted_shard->CollectGarbage(GetNextHlc().coordinator_wall_clock);
+    // Destroy splitted shard
+  }
+
+  storage.CollectGarbage(GetNextHlc().coordinator_wall_clock);
+  AssertShardState(storage, 1, 3);
+}
+
 TEST_F(ShardSplitTest, TestBigSplit) {
   int pk{0};
   for (int64_t i{0}; i < 10'000; ++i) {
@@ -409,7 +494,8 @@ TEST_F(ShardSplitTest, TestBigSplit) {
   EXPECT_EQ(splitted_data.label_indices.size(), 0);
   EXPECT_EQ(splitted_data.label_property_indices.size(), 1);
 
-  AssertSplittedShard(std::move(splitted_data), split_value);
+  auto shard = Shard::FromSplitData(std::move(splitted_data));
+  AssertShardState(*shard, split_value, split_value * 2);
 }
 
 }  // namespace memgraph::storage::v3::tests
