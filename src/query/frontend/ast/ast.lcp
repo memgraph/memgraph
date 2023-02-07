@@ -2711,7 +2711,6 @@ cpp<#
   ((pattern "Pattern *" :initval "nullptr" :scope :public
              :slk-save #'slk-save-ast-pointer
              :slk-load (slk-load-ast-pointer "Pattern"))
-               :documentation "Limit expression.")
    (symbol-pos :int32_t :initval -1 :scope :public
                :documentation "Symbol table position of the symbol this Aggregation is mapped to."))
 
