@@ -2733,8 +2733,7 @@ cpp<#
     cpp<#)
   (:protected
     #>cpp
-    Exists(Pattern * pattern, Expression *limit_expression)
-     : pattern_(pattern), limit_expression_(limit_expression) {}
+    Exists(Pattern * pattern) : pattern_(pattern) {}
     cpp<#)
   (:private
     #>cpp
