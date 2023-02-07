@@ -61,7 +61,6 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
   void Visit(Coalesce &op) override;
   void Visit(Extract &op) override;
   void Visit(Exists &op) override;
-  void Visit(ExistsLimit &op) override;
   void Visit(All &op) override;
   void Visit(Single &op) override;
   void Visit(Any &op) override;
@@ -267,7 +266,6 @@ void ExpressionPrettyPrinter::Visit(Extract &op) {
 }
 
 void ExpressionPrettyPrinter::Visit(Exists &op) { PrintOperator(out_, "Exists", op.pattern_); }
-void ExpressionPrettyPrinter::Visit(ExistsLimit &op) { PrintOperator(out_, "ExistsLimit", 1); }
 
 void ExpressionPrettyPrinter::Visit(All &op) {
   PrintOperator(out_, "All", op.identifier_, op.list_expression_, op.where_->expression_);
