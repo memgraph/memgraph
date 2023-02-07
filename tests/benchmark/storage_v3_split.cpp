@@ -123,13 +123,18 @@ BENCHMARK_DEFINE_F(ShardSplitBenchmark, BigDataSplitWithFewTransactions)(::bench
   std::default_random_engine e1(r());
   std::uniform_int_distribution<int> uniform_dist(0, state.range(0));
 
-  for (int64_t i{0}; i < state.range(0); ++i) {
+  const auto max_transactions_needed = std::max(state.range(0), state.range(1));
+  for (int64_t vertex_counter{state.range(0)}, edge_counter{state.range(1)}, i{0};
+       vertex_counter > 0 || edge_counter > 0; --vertex_counter, --edge_counter, ++i) {
     auto acc = storage->Access(GetNextHlc());
-    MG_ASSERT(acc.CreateVertexAndValidate({secondary_label}, PrimaryKey{PropertyValue(i)},
-                                          {{secondary_property, PropertyValue(i)}})
-                  .HasValue(),
-              "Failed creating with pk {}", i);
-    if (i > 1) {
+    if (vertex_counter > 0) {
+      MG_ASSERT(acc.CreateVertexAndValidate({secondary_label}, PrimaryKey{PropertyValue(i)},
+                                            {{secondary_property, PropertyValue(i)}})
+                    .HasValue(),
+                "Failed creating with pk {}", i);
+      ++i;
+    }
+    if (edge_counter > 0 && i > 1) {
       const auto vtx1 = uniform_dist(e1) % i;
       const auto vtx2 = uniform_dist(e1) % i;
 
@@ -138,32 +143,46 @@ BENCHMARK_DEFINE_F(ShardSplitBenchmark, BigDataSplitWithFewTransactions)(::bench
                     .HasValue(),
                 "Failed on {} and {}", vtx1, vtx2);
     }
+
     acc.Commit(GetNextHlc());
-    if (i == state.range(0) - state.range(1)) {
+    if (i >= max_transactions_needed - state.range(2)) {
       storage->CollectGarbage(GetNextHlc().coordinator_wall_clock);
     }
   }
 
   for (auto _ : state) {
+    // Don't create shard since shard deallocation can take some time as well
     auto data = storage->PerformSplit(PrimaryKey{PropertyValue{state.range(0) / 2}}, 2);
   }
 }
 
+// Range:
+// Number of vertices
+// This run is pessimistic, number of vertices corresponds with number if transactions
 BENCHMARK_REGISTER_F(ShardSplitBenchmark, BigDataSplit)
     ->RangeMultiplier(10)
     ->Range(100'000, 1'000'000)
     ->Unit(::benchmark::kMillisecond);
 
+// Range:
+// Number of vertices
+// This run is optimistic, in this run there are no transactions
 BENCHMARK_REGISTER_F(ShardSplitBenchmark, BigDataSplitWithGc)
     ->RangeMultiplier(10)
     ->Range(100'000, 1'000'000)
     ->Unit(::benchmark::kMillisecond);
 
+// Args:
+// Number of vertices
+// Number of edges
+// Number of transaction
 BENCHMARK_REGISTER_F(ShardSplitBenchmark, BigDataSplitWithFewTransactions)
-    ->Args({100'000, 1'000})
-    ->Args({100'000, 10'000})
-    ->Args({1'000'000, 1'000})
-    ->Args({1'000'000, 10'000})
+    ->Args({100'000, 100'000, 1'000})
+    ->Args({100'000, 100'000, 10'000})
+    ->Args({1'000'000, 100'000, 1'000})
+    ->Args({1'000'000, 100'000, 10'000})
+    ->Args({100'000, 1'000'000, 1'000})
+    ->Args({1'000'000, 1'00'000, 10'000})
     ->Unit(::benchmark::kMillisecond);
 
 }  // namespace memgraph::benchmark
