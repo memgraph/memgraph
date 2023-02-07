@@ -312,9 +312,6 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     if (!has_symbol && !ConsumePredefinedIdentifier(ident.name_) && ident.user_declared_) {
       throw SemanticException("Unbounded variables are not allowed in exists!");
     }
-    if (scope.in_exists_source_node && !ident.user_declared_) {
-      throw SemanticException("Source node of the exists pattern must be bounded with a symbol!");
-    }
   }
   Symbol symbol;
   if (scope.in_pattern && !(scope.in_node_atom || scope.visiting_edge)) {
@@ -473,21 +470,8 @@ bool SymbolGenerator::PreVisit(Pattern &pattern) {
   if ((scope.in_create || scope.in_merge) && pattern.atoms_.size() == 1U) {
     MG_ASSERT(utils::IsSubtype(*pattern.atoms_[0], NodeAtom::kType), "Expected a single NodeAtom in Pattern");
     scope.in_create_node = true;
-  } else if (scope.in_exists) {
-    // Currently we're not dealing with variable start planner so this feels a bit hacky
-    // TODO: Configure variable start planner to work with exists() in order to delete this part
-    for (auto i = 0; i < pattern.atoms_.size(); i++) {
-      if (i == 0) {
-        scope.in_exists_source_node = true;
-        pattern.atoms_[i]->Accept(*this);
-        scope.in_exists_source_node = false;
-      } else {
-        pattern.atoms_[i]->Accept(*this);
-      }
-    }
-
-    return false;
   }
+
   return true;
 }
 

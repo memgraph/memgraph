@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -209,11 +209,25 @@ CartesianProduct<VaryMatchingStart> VaryMultiMatchingStarts(const std::vector<Ma
   return MakeCartesianProduct(std::move(variants));
 }
 
+CartesianProduct<VaryMatchingStart> VaryFilterMatchingStarts(const Matching &matching,
+                                                             const SymbolTable &symbol_table) {
+  const auto pattern_filters = matching.filters.PatternFilters();
+  std::vector<VaryMatchingStart> variants;
+  variants.reserve(pattern_filters.size());
+
+  for (const auto &filter : pattern_filters) {
+    variants.emplace_back(VaryMatchingStart(*filter.matching, symbol_table));
+  }
+
+  return MakeCartesianProduct(std::move(variants));
+}
+
 VaryQueryPartMatching::VaryQueryPartMatching(SingleQueryPart query_part, const SymbolTable &symbol_table)
     : query_part_(std::move(query_part)),
       matchings_(VaryMatchingStart(query_part_.matching, symbol_table)),
       optional_matchings_(VaryMultiMatchingStarts(query_part_.optional_matching, symbol_table)),
-      merge_matchings_(VaryMultiMatchingStarts(query_part_.merge_matching, symbol_table)) {}
+      merge_matchings_(VaryMultiMatchingStarts(query_part_.merge_matching, symbol_table)),
+      filter_matchings_(VaryFilterMatchingStarts(query_part_.matching, symbol_table)) {}
 
 VaryQueryPartMatching::iterator::iterator(const SingleQueryPart &query_part,
                                           VaryMatchingStart::iterator matchings_begin,
@@ -221,7 +235,9 @@ VaryQueryPartMatching::iterator::iterator(const SingleQueryPart &query_part,
                                           CartesianProduct<VaryMatchingStart>::iterator optional_begin,
                                           CartesianProduct<VaryMatchingStart>::iterator optional_end,
                                           CartesianProduct<VaryMatchingStart>::iterator merge_begin,
-                                          CartesianProduct<VaryMatchingStart>::iterator merge_end)
+                                          CartesianProduct<VaryMatchingStart>::iterator merge_end,
+                                          CartesianProduct<VaryMatchingStart>::iterator filter_begin,
+                                          CartesianProduct<VaryMatchingStart>::iterator filter_end)
     : current_query_part_(query_part),
       matchings_it_(matchings_begin),
       matchings_end_(matchings_end),
@@ -230,7 +246,10 @@ VaryQueryPartMatching::iterator::iterator(const SingleQueryPart &query_part,
       optional_end_(optional_end),
       merge_it_(merge_begin),
       merge_begin_(merge_begin),
-      merge_end_(merge_end) {
+      merge_end_(merge_end),
+      filter_it_(filter_begin),
+      filter_begin_(filter_begin),
+      filter_end_(filter_end) {
   if (matchings_it_ != matchings_end_) {
     // Fill the query part with the first variation of matchings
     SetCurrentQueryPart();
@@ -248,20 +267,38 @@ VaryQueryPartMatching::iterator &VaryQueryPartMatching::iterator::operator++() {
   //    * (m2), (o1), (g1)
   //    * (m2), (o2), (g1)
   // Create variations by changing the merge part first.
-  if (merge_it_ != merge_end_) ++merge_it_;
-  // If all merge variations are done, start them from beginning and move to the
-  // next optional matching variation.
-  if (merge_it_ == merge_end_) {
+  if (filter_it_ != filter_end_) ++filter_it_;
+
+  if (filter_it_ == filter_end_) {
+    filter_it_ = filter_begin_;
+    if (merge_it_ != merge_end_) ++merge_it_;
+  }
+
+  if (merge_it_ == merge_end_ && filter_it_ == filter_begin_) {
     merge_it_ = merge_begin_;
     if (optional_it_ != optional_end_) ++optional_it_;
   }
-  // If all optional matching variations are done (after exhausting merge
-  // variations), start them from beginning and move to the next regular
-  // matching variation.
-  if (optional_it_ == optional_end_ && merge_it_ == merge_begin_) {
+
+  if (optional_it_ == optional_end_ && merge_it_ == merge_begin_ && filter_it_ == filter_begin_) {
     optional_it_ = optional_begin_;
     if (matchings_it_ != matchings_end_) ++matchings_it_;
   }
+
+  // if (merge_it_ != merge_end_) ++merge_it_;
+  // // If all merge variations are done, start them from beginning and move to the
+  // // next optional matching variation.
+  // if (merge_it_ == merge_end_) {
+  //   merge_it_ = merge_begin_;
+  //   if (optional_it_ != optional_end_) ++optional_it_;
+  // }
+  // // If all optional matching variations are done (after exhausting merge
+  // // variations), start them from beginning and move to the next regular
+  // // matching variation.
+  // if (optional_it_ == optional_end_ && merge_it_ == merge_begin_) {
+  //   optional_it_ = optional_begin_;
+  //   if (matchings_it_ != matchings_end_) ++matchings_it_;
+  // }
+
   // We have reached the end, so return;
   if (matchings_it_ == matchings_end_) return *this;
   // Fill the query part with the new variation of matchings.
@@ -283,6 +320,20 @@ void VaryQueryPartMatching::iterator::SetCurrentQueryPart() {
   if (merge_it_ != merge_end_) {
     current_query_part_.merge_matching = *merge_it_;
   }
+  DMG_ASSERT(filter_it_ != filter_end_ || filter_begin_ == filter_end_,
+             "Either there are no filter matchings or we can always generate"
+             "a variation");
+
+  auto filter_matchings = *filter_it_;
+  auto i = 0;
+  for (auto &filter : current_query_part_.matching.filters) {
+    if (filter.type != FilterInfo::Type::Complex) {
+      continue;
+    }
+
+    filter.matching = std::make_shared<Matching>(filter_matchings[i]);
+    i++;
+  }
 }
 
 bool VaryQueryPartMatching::iterator::operator==(const iterator &other) const {
@@ -291,7 +342,8 @@ bool VaryQueryPartMatching::iterator::operator==(const iterator &other) const {
     // iterators can be at any position.
     return true;
   }
-  return matchings_it_ == other.matchings_it_ && optional_it_ == other.optional_it_ && merge_it_ == other.merge_it_;
+  return matchings_it_ == other.matchings_it_ && optional_it_ == other.optional_it_ && merge_it_ == other.merge_it_ &&
+         filter_it_ == other.filter_it_;
 }
 
 }  // namespace memgraph::query::plan::impl
