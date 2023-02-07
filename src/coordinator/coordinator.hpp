@@ -113,6 +113,7 @@ struct InitializeLabelRequest {
   std::string label_name;
   std::vector<SchemaProperty> schema;
   size_t replication_factor;
+  uint64_t split_threshold;
   Hlc last_shard_map_version;
 };
 

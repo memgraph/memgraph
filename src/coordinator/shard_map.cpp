@@ -74,6 +74,9 @@ PrimaryKey SchemaToMinKey(const std::vector<SchemaProperty> &schema) {
 }
 
 ShardMap ShardMap::Parse(std::istream &input_stream) {
+  const uint64_t default_replication_factor = 1;
+  const uint64_t default_split_threshold = 1'000'000;
+
   ShardMap shard_map;
   const auto read_size = [&input_stream] {
     size_t size{0};
@@ -165,8 +168,10 @@ ShardMap ShardMap::Parse(std::istream &input_stream) {
       schema.push_back(storage::v3::SchemaProperty{pp_mapping.at(pp_names[property_index]), pp_types[property_index]});
     }
     const auto hlc = shard_map.GetHlc();
-    MG_ASSERT(shard_map.InitializeNewLabel(primary_label, schema, 1, hlc).has_value(),
-              "Cannot initialize new label: {}", primary_label);
+    MG_ASSERT(
+        shard_map.InitializeNewLabel(primary_label, schema, default_replication_factor, default_split_threshold, hlc)
+            .has_value(),
+        "Cannot initialize new label: {}", primary_label);
 
     const auto number_of_split_points = read_size();
     spdlog::debug("Reading {} split points", number_of_split_points);
@@ -474,7 +479,8 @@ bool ShardMap::SplitShard(Hlc previous_shard_map_version, LabelId label_id, cons
 }
 
 std::optional<LabelId> ShardMap::InitializeNewLabel(std::string label_name, std::vector<SchemaProperty> schema,
-                                                    size_t replication_factor, Hlc last_shard_map_version) {
+                                                    size_t replication_factor, uint64_t split_threshold,
+                                                    Hlc last_shard_map_version) {
   if (shard_map_version != last_shard_map_version || labels.contains(label_name)) {
     return std::nullopt;
   }
@@ -494,7 +500,9 @@ std::optional<LabelId> ShardMap::InitializeNewLabel(std::string label_name, std:
       .schema = schema,
       .shards = shards,
       .replication_factor = replication_factor,
+      .split_threshold = split_threshold,
   };
+
   schemas[label_id] = std::move(schema);
 
   label_spaces.emplace(label_id, label_space);

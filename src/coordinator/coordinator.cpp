@@ -111,7 +111,7 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(InitializeLabelRequest &&initi
 
   std::optional<LabelId> new_label_id = shard_map_.InitializeNewLabel(
       initialize_label_request.label_name, initialize_label_request.schema, initialize_label_request.replication_factor,
-      initialize_label_request.last_shard_map_version);
+      initialize_label_request.split_threshold, initialize_label_request.last_shard_map_version);
 
   if (new_label_id) {
     res.new_label_id = new_label_id.value();

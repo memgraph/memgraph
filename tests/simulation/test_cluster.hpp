@@ -117,7 +117,7 @@ void WaitForShardsToInitialize(CoordinatorClient<SimulatorTransport> &coordinato
   }
 }
 
-ShardMap TestShardMap(int n_splits, int replication_factor) {
+ShardMap TestShardMap(int n_splits, int replication_factor, int split_threshold) {
   ShardMap sm{};
 
   const std::string label_name = std::string("test_label");
@@ -136,7 +136,8 @@ ShardMap TestShardMap(int n_splits, int replication_factor) {
       SchemaProperty{.property_id = property_id_2, .type = type_2},
   };
 
-  std::optional<LabelId> label_id = sm.InitializeNewLabel(label_name, schema, replication_factor, sm.shard_map_version);
+  std::optional<LabelId> label_id =
+      sm.InitializeNewLabel(label_name, schema, replication_factor, split_threshold, sm.shard_map_version);
   RC_ASSERT(label_id.has_value());
 
   // split the shard at N split points
@@ -236,7 +237,8 @@ std::pair<SimulatorStats, LatencyHistogramSummaries> RunClusterSimulation(const 
       machine_1_addr,
   };
 
-  ShardMap initialization_sm = TestShardMap(cluster_config.shards - 1, cluster_config.replication_factor);
+  ShardMap initialization_sm =
+      TestShardMap(cluster_config.shards - 1, cluster_config.replication_factor, cluster_config.split_threshold);
 
   auto mm_1 = MkMm(simulator, coordinator_addresses, machine_1_addr, initialization_sm);
   Address coordinator_address = mm_1.CoordinatorAddress();
@@ -304,7 +306,8 @@ std::pair<SimulatorStats, LatencyHistogramSummaries> RunClusterSimulationWithQue
       machine_1_addr,
   };
 
-  ShardMap initialization_sm = TestShardMap(cluster_config.shards - 1, cluster_config.replication_factor);
+  ShardMap initialization_sm =
+      TestShardMap(cluster_config.shards - 1, cluster_config.replication_factor, cluster_config.split_threshold);
 
   auto mm_1 = MkMm(simulator, coordinator_addresses, machine_1_addr, initialization_sm);
   Address coordinator_address = mm_1.CoordinatorAddress();

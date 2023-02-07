@@ -25,4 +25,7 @@ static constexpr auto kMaximumServers = kMinimumServers + 1;
 static constexpr auto kMinimumReplicationFactor = 1;
 static constexpr auto kMaximumReplicationFactor = kMinimumReplicationFactor + 1;
 
+static constexpr auto kMinimumSplitThreshold = 3;
+static constexpr auto kMaximumSplitThreshold = 7;
+
 }  // namespace memgraph::tests::simulation

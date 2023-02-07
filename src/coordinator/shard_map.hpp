@@ -158,6 +158,7 @@ struct LabelSpace {
   // Maps between the smallest primary key stored in the shard and the shard
   std::map<PrimaryKey, ShardMetadata> shards;
   size_t replication_factor;
+  uint64_t split_threshold;
 
   friend std::ostream &operator<<(std::ostream &in, const LabelSpace &label_space) {
     using utils::print_helpers::operator<<;
@@ -204,7 +205,8 @@ struct ShardMap {
   bool SplitShard(Hlc previous_shard_map_version, LabelId label_id, const PrimaryKey &key);
 
   std::optional<LabelId> InitializeNewLabel(std::string label_name, std::vector<SchemaProperty> schema,
-                                            size_t replication_factor, Hlc last_shard_map_version);
+                                            size_t replication_factor, uint64_t split_threshold,
+                                            Hlc last_shard_map_version);
 
   boost::uuids::uuid NewShardUuid();
 
