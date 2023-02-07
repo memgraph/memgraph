@@ -84,75 +84,6 @@ std::vector<Expansion> NormalizePatterns(const SymbolTable &symbol_table, const 
   return expansions;
 }
 
-// Fills the given Matching, by converting the Match patterns to normalized
-// representation as Expansions. Filters used in the Match are also collected,
-// as well as edge symbols which determine Cyphermorphism. Collecting filters
-// will lift them out of a pattern and generate new expressions (just like they
-// were in a Where clause).
-Matching AddMatching(const std::vector<Pattern *> &patterns, Where *where, SymbolTable &symbol_table,
-                     AstStorage &storage) {
-  Matching matching;
-  auto expansions = NormalizePatterns(symbol_table, patterns);
-  std::unordered_set<Symbol> edge_symbols;
-  for (const auto &expansion : expansions) {
-    // Matching may already have some expansions, so offset our index.
-    const size_t expansion_ix = matching.expansions.size();
-    // Map node1 symbol to expansion
-    const auto &node1_sym = symbol_table.at(*expansion.node1->identifier_);
-    matching.node_symbol_to_expansions[node1_sym].insert(expansion_ix);
-    // Add node1 to all symbols.
-    matching.expansion_symbols.insert(node1_sym);
-    if (expansion.edge) {
-      const auto &edge_sym = symbol_table.at(*expansion.edge->identifier_);
-      // Fill edge symbols for Cyphermorphism.
-      edge_symbols.insert(edge_sym);
-      // Map node2 symbol to expansion
-      const auto &node2_sym = symbol_table.at(*expansion.node2->identifier_);
-      matching.node_symbol_to_expansions[node2_sym].insert(expansion_ix);
-      // Add edge and node2 to all symbols
-      matching.expansion_symbols.insert(edge_sym);
-      matching.expansion_symbols.insert(node2_sym);
-    }
-    matching.expansions.push_back(expansion);
-  }
-  if (!edge_symbols.empty()) {
-    matching.edge_symbols.emplace_back(edge_symbols);
-  }
-  for (auto *pattern : patterns) {
-    matching.filters.CollectPatternFilters(*pattern, symbol_table, storage);
-    if (pattern->identifier_->user_declared_) {
-      std::vector<Symbol> path_elements;
-      for (auto *pattern_atom : pattern->atoms_)
-        path_elements.emplace_back(symbol_table.at(*pattern_atom->identifier_));
-      matching.named_paths.emplace(symbol_table.at(*pattern->identifier_), std::move(path_elements));
-    }
-  }
-  if (where) {
-    matching.filters.CollectWhereFilter(*where, symbol_table);
-  }
-
-  return matching;
-}
-Matching AddMatching(const Match &match, SymbolTable &symbol_table, AstStorage &storage) {
-  auto matching = AddMatching(match.patterns_, match.where_, symbol_table, storage);
-
-  for (auto &filter : matching.filters) {
-    if (filter.type != FilterInfo::Type::Complex) {
-      continue;
-    }
-
-    if (auto *exists = utils::Downcast<Exists>(filter.expression)) {
-      std::vector<Pattern *> patterns;
-      patterns.emplace_back(exists->pattern_);
-
-      auto filter_matching = AddMatching(patterns, nullptr, symbol_table, storage);
-      filter.matching = std::make_shared<Matching>(filter_matching);
-    }
-  }
-
-  return matching;
-}
-
 auto SplitExpressionOnAnd(Expression *expression) {
   // TODO: Think about converting all filtering expression into CNF to improve
   // the granularity of filters which can be stand alone.
@@ -547,6 +478,75 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
   // indexing by range. Note, that the generated Ast uses AND for chained
   // relation operators. Therefore, `expr1 < n.prop < expr2` will be represented
   // as `expr1 < n.prop AND n.prop < expr2`.
+}
+
+// Fills the given Matching, by converting the Match patterns to normalized
+// representation as Expansions. Filters used in the Match are also collected,
+// as well as edge symbols which determine Cyphermorphism. Collecting filters
+// will lift them out of a pattern and generate new expressions (just like they
+// were in a Where clause).
+Matching AddMatching(const std::vector<Pattern *> &patterns, Where *where, SymbolTable &symbol_table,
+                     AstStorage &storage) {
+  Matching matching;
+  auto expansions = NormalizePatterns(symbol_table, patterns);
+  std::unordered_set<Symbol> edge_symbols;
+  for (const auto &expansion : expansions) {
+    // Matching may already have some expansions, so offset our index.
+    const size_t expansion_ix = matching.expansions.size();
+    // Map node1 symbol to expansion
+    const auto &node1_sym = symbol_table.at(*expansion.node1->identifier_);
+    matching.node_symbol_to_expansions[node1_sym].insert(expansion_ix);
+    // Add node1 to all symbols.
+    matching.expansion_symbols.insert(node1_sym);
+    if (expansion.edge) {
+      const auto &edge_sym = symbol_table.at(*expansion.edge->identifier_);
+      // Fill edge symbols for Cyphermorphism.
+      edge_symbols.insert(edge_sym);
+      // Map node2 symbol to expansion
+      const auto &node2_sym = symbol_table.at(*expansion.node2->identifier_);
+      matching.node_symbol_to_expansions[node2_sym].insert(expansion_ix);
+      // Add edge and node2 to all symbols
+      matching.expansion_symbols.insert(edge_sym);
+      matching.expansion_symbols.insert(node2_sym);
+    }
+    matching.expansions.push_back(expansion);
+  }
+  if (!edge_symbols.empty()) {
+    matching.edge_symbols.emplace_back(edge_symbols);
+  }
+  for (auto *pattern : patterns) {
+    matching.filters.CollectPatternFilters(*pattern, symbol_table, storage);
+    if (pattern->identifier_->user_declared_) {
+      std::vector<Symbol> path_elements;
+      for (auto *pattern_atom : pattern->atoms_)
+        path_elements.emplace_back(symbol_table.at(*pattern_atom->identifier_));
+      matching.named_paths.emplace(symbol_table.at(*pattern->identifier_), std::move(path_elements));
+    }
+  }
+  if (where) {
+    matching.filters.CollectWhereFilter(*where, symbol_table);
+  }
+
+  return matching;
+}
+Matching AddMatching(const Match &match, SymbolTable &symbol_table, AstStorage &storage) {
+  auto matching = AddMatching(match.patterns_, match.where_, symbol_table, storage);
+
+  for (auto &filter : matching.filters) {
+    PatternFilterVisitor visitor(symbol_table, storage);
+
+    filter.expression->Accept(visitor);
+  }
+
+  return matching;
+}
+
+void PatternFilterVisitor::Visit(Exists &op) {
+  std::vector<Pattern *> patterns;
+  patterns.emplace_back(op.pattern_);
+
+  auto filter_matching = AddMatching(patterns, nullptr, this->symbol_table_, this->storage_);
+  this->matchings_.emplace_back(filter_matching);
 }
 
 static void ParseForeach(query::Foreach &foreach, SingleQueryPart &query_part, AstStorage &storage,
