@@ -190,11 +190,12 @@ void PruneDeltas(Transaction &cloned_transaction, std::map<uint64_t, std::unique
 void Splitter::AdjustClonedTransactions(std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions,
                                         VertexContainer &cloned_vertices, EdgeContainer &cloned_edges,
                                         const PrimaryKey &split_key) {
-  // Prune deltas whose delta chain points to vertex/edge that should not belong on that shard
   for (auto &[commit_start, cloned_transaction] : cloned_transactions) {
     AdjustClonedTransaction(*cloned_transaction, *start_logical_id_to_transaction_[commit_start], cloned_transactions,
                             cloned_vertices, cloned_edges, split_key);
   }
+  // Prune deltas whose delta chain points to vertex/edge that should not belong on that shard
+  // Prune must be after ajdust, since next, and prev are not set and we cannot follow the chain
   for (auto &[commit_start, cloned_transaction] : cloned_transactions) {
     PruneDeltas(*cloned_transaction, cloned_transactions, split_key);
   }
@@ -226,6 +227,7 @@ void Splitter::AdjustClonedTransaction(Transaction &cloned_transaction, const Tr
 
     const auto *delta = &*delta_it;
     auto *cloned_delta = &*cloned_delta_it;
+    AdjustEdgeRef(*cloned_delta, cloned_edges);
     while (delta->next != nullptr) {
       // Align next ptr
       AdjustDeltaNext(*delta, *cloned_delta, cloned_transactions);
@@ -244,6 +246,36 @@ void Splitter::AdjustClonedTransaction(Transaction &cloned_transaction, const Tr
   }
   MG_ASSERT(delta_it == transaction.deltas.end() && cloned_delta_it == cloned_transaction.deltas.end(),
             "Both iterators must be exhausted!");
+}
+
+void Splitter::AdjustEdgeRef(Delta &cloned_delta, EdgeContainer &cloned_edges) const {
+  switch (cloned_delta.action) {
+    case Delta::Action::ADD_IN_EDGE:
+    case Delta::Action::ADD_OUT_EDGE:
+    case Delta::Action::REMOVE_IN_EDGE:
+    case Delta::Action::REMOVE_OUT_EDGE: {
+      // Find edge
+      if (config_.items.properties_on_edges) {
+        // Only case when not finding is when the edge is not on splitted shard
+        // TODO Do this after prune an move condition into assert
+        if (const auto cloned_edge_it =
+                std::ranges::find_if(cloned_edges, [edge_ptr = cloned_delta.vertex_edge.edge.ptr](
+                                                       const auto &elem) { return elem.second.gid == edge_ptr->gid; });
+            cloned_edge_it != cloned_edges.end()) {
+          cloned_delta.vertex_edge.edge = EdgeRef{&cloned_edge_it->second};
+        }
+      }
+      break;
+    }
+    case Delta::Action::DELETE_OBJECT:
+    case Delta::Action::RECREATE_OBJECT:
+    case Delta::Action::SET_PROPERTY:
+    case Delta::Action::ADD_LABEL:
+    case Delta::Action::REMOVE_LABEL: {
+      // noop
+      break;
+    }
+  }
 }
 
 void Splitter::AdjustDeltaNext(const Delta &original, Delta &cloned,
