@@ -869,6 +869,26 @@ SpecificPropertyAndBufferInfo FindSpecificPropertyAndBufferInfo(Reader *reader, 
   return {property_begin, property_end, property_end - property_begin, all_begin, all_end, all_end - all_begin};
 }
 
+// Function used to move to the position where the property should be in the data
+// buffer.
+// The `property_size` will be `0`
+// and `property_begin` will be equal to `property_end`. Positions and size of
+// all properties is always calculated (even if the specific property isn't
+// found).
+//
+// @sa FindSpecificProperty
+SpecificPropertyAndBufferInfo SkipReaderAndGetBufferInfo(Reader *reader, uint64_t size) {
+  uint64_t property_begin = reader->GetPosition();
+  uint64_t property_end = reader->GetPosition();
+  uint64_t all_begin = reader->GetPosition();
+  uint64_t all_end = reader->GetPosition();
+  reader->SkipBytes(size);
+  property_begin = reader->GetPosition();
+  property_end = reader->GetPosition();
+  all_end = reader->GetPosition();
+  return {property_begin, property_end, property_end - property_begin, all_begin, all_end, all_end - all_begin};
+}
+
 // All data buffers will be allocated to a power of 8 size.
 uint64_t ToPowerOf8(uint64_t size) {
   uint64_t mod = size % 8;
@@ -1144,6 +1164,57 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
   }
 
   return !existed;
+}
+
+// use this function only when inserting new properties
+bool PropertyStore::SetProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+  uint64_t size;
+  uint8_t *data;
+  std::tie(size, data) = GetSizeData(buffer_);
+  MG_ASSERT(size == 0, "Invalid database state!");
+
+  uint64_t property_size = 0;
+  {
+    Writer writer;
+    for (const auto &[property, value] : properties) {
+      EncodeProperty(&writer, property, value);
+      property_size = writer.Written();
+    }
+  }
+
+  auto property_size_to_power_of_8 = ToPowerOf8(property_size);
+  if (property_size <= sizeof(buffer_) - 1) {
+    // Use the local buffer.
+    buffer_[0] = kUseLocalBuffer;
+    size = sizeof(buffer_) - 1;
+    data = &buffer_[1];
+  } else {
+    // Allocate a new external buffer.
+    auto alloc_data = new uint8_t[property_size_to_power_of_8];
+    auto alloc_size = property_size_to_power_of_8;
+
+    SetSizeData(buffer_, alloc_size, alloc_data);
+
+    size = alloc_size;
+    data = alloc_data;
+  }
+
+  // Encode the property into the data buffer.
+  Writer writer(data, size);
+
+  for (const auto &[property, value] : properties) {
+    MG_ASSERT(EncodeProperty(&writer, property, value), "Invalid database state!");
+    property_size = writer.Written();
+  }
+
+  auto metadata = writer.WriteMetadata();
+  if (metadata) {
+    // If there is any space left in the buffer we add a tombstone to
+    // indicate that there are no more properties to be decoded.
+    metadata->Set({Type::EMPTY});
+  }
+
+  return true;
 }
 
 bool PropertyStore::ClearProperties() {

@@ -258,10 +258,12 @@ Result<std::vector<storage::PropertyValue>> VertexAccessor::SetBatchProperties(
   if (vertex_->deleted) return Error::DELETED_OBJECT;
 
   std::vector<storage::PropertyValue> new_values;
+
+  vertex_->properties.SetProperties(properties);
+
   for (const auto &[property, value] : properties) {
     auto current_value = vertex_->properties.GetEmptyProperty();
     CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, current_value);
-    vertex_->properties.SetProperty(property, value);
     UpdateOnSetProperty(indices_, property, value, vertex_, *transaction_);
     new_values.emplace_back(current_value);
   }
