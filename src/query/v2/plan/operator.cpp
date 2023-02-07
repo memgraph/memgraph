@@ -1358,61 +1358,17 @@ bool EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Pull(Frame &frame, Execut
 bool EdgeUniquenessFilter::EdgeUniquenessFilterCursor::PullMultiple(MultiFrame &output_multi_frame,
                                                                     ExecutionContext &context) {
   SCOPED_PROFILE_OP("EdgeUniquenessFilterMF");
-
-  if (!own_multi_frame_.has_value()) {
-    own_multi_frame_.emplace(MultiFrame(output_multi_frame.GetFirstFrame().elems().size(), kNumberOfFramesInMultiframe,
-                                        output_multi_frame.GetMemoryResource()));
-    own_frames_consumer_.emplace(own_multi_frame_->GetValidFramesConsumer());
-    own_frames_it_ = own_frames_consumer_->begin();
-  }
-  MG_ASSERT(output_multi_frame.GetFirstFrame().elems().size() == own_multi_frame_->GetFirstFrame().elems().size());
-
-  auto output_frames_populator = output_multi_frame.GetInvalidFramesPopulator();
   auto populated_any = false;
 
-  while (true) {
-    switch (state_) {
-      case State::PullInput: {
-        if (!input_cursor_->PullMultiple(*own_multi_frame_, context)) {
-          state_ = State::Exhausted;
-          return populated_any;
-        }
-        own_frames_consumer_.emplace(own_multi_frame_->GetValidFramesConsumer());
-        own_frames_it_ = own_frames_consumer_->begin();
-
-        if (own_frames_it_ == own_frames_consumer_->end()) {
-          continue;
-        }
-
-        state_ = State::PopulateOutput;
-        break;
-      }
-      case State::PopulateOutput: {
-        if (!output_multi_frame.HasInvalidFrame()) {
-          return populated_any;
-        }
-
-        if (own_frames_it_ == own_frames_consumer_->end()) {
-          state_ = State::PullInput;
-          continue;
-        }
-
-        for (auto output_frame_it = output_frames_populator.begin();
-             output_frame_it != output_frames_populator.end() && own_frames_it_ != own_frames_consumer_->end();
-             ++own_frames_it_, ++output_frame_it) {
-          auto &output_frame = *output_frame_it;
-
-          if (IsExpansionOk(*own_frames_it_, self_.expand_symbol_, self_.previous_symbols_)) {
-            output_frame = *own_frames_it_;
-            populated_any = true;
-          } else {
-            own_frames_it_->MakeInvalid();
-          }
-        }
-        break;
-      }
-      case State::Exhausted: {
-        return populated_any;
+  while (output_multi_frame.HasInvalidFrame()) {
+    if (!input_cursor_->PullMultiple(output_multi_frame, context)) {
+      return populated_any;
+    }
+    for (auto &frame : output_multi_frame.GetValidFramesConsumer()) {
+      if (IsExpansionOk(frame, self_.expand_symbol_, self_.previous_symbols_)) {
+        populated_any = true;
+      } else {
+        frame.MakeInvalid();
       }
     }
   }

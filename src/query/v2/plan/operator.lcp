@@ -1577,12 +1577,6 @@ edge lists).")
     private:
      const EdgeUniquenessFilter &self_;
      const UniqueCursorPtr input_cursor_;
-     enum class State { PullInput, PopulateOutput, Exhausted };
-
-     State state_{State::PullInput};
-     std::optional<MultiFrame> own_multi_frame_;
-     std::optional<ValidFramesConsumer> own_frames_consumer_;
-     ValidFramesConsumer::Iterator own_frames_it_;
    };
    cpp<#)
   (:serialize (:slk))
