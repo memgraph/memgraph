@@ -1105,6 +1105,8 @@ void Shard::StoreMapping(std::unordered_map<uint64_t, std::string> id_to_name) {
 std::optional<SplitInfo> Shard::ShouldSplit() const noexcept {
   if (vertices_.size() > config_.split.max_shard_vertex_size) {
     auto mid_elem = vertices_.begin();
+    // TODO(tyler) the first time we calculate the split point, we should store it so that we don't have to
+    // iterate over half of the entire index each time Cron is run until the split succeeds.
     std::ranges::advance(mid_elem, static_cast<VertexContainer::difference_type>(vertices_.size() / 2));
     return SplitInfo{mid_elem->first, shard_version_};
   }
