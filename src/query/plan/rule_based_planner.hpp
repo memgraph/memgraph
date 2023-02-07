@@ -569,7 +569,8 @@ class RuleBasedPlanner {
   std::unique_ptr<LogicalOperator> GenFilters(std::unique_ptr<LogicalOperator> last_op,
                                               const std::unordered_set<Symbol> &bound_symbols, Filters &filters,
                                               AstStorage &storage, const SymbolTable &symbol_table) {
-    std::unique_ptr<LogicalOperator> complex_filter = ExtractComplexFilters(filters, symbol_table, bound_symbols);
+    std::unique_ptr<LogicalOperator> complex_filter =
+        ExtractComplexFilters(filters, storage, symbol_table, bound_symbols);
     auto *filter_expr = impl::ExtractFilters(bound_symbols, filters, storage);
     if (filter_expr) {
       last_op = std::make_unique<Filter>(std::move(last_op), std::move(complex_filter), filter_expr);
@@ -577,7 +578,8 @@ class RuleBasedPlanner {
     return last_op;
   }
 
-  std::unique_ptr<LogicalOperator> MakeExistsFilter(Exists &exists, const SymbolTable &symbol_table,
+  std::unique_ptr<LogicalOperator> MakeExistsFilter(Exists &exists, AstStorage &storage,
+                                                    const SymbolTable &symbol_table,
                                                     const std::unordered_set<Symbol> &bound_symbols) {
     auto *from_node = static_cast<NodeAtom *>(exists.pattern_->atoms_[0]);
     auto *relationship = static_cast<EdgeAtom *>(exists.pattern_->atoms_[1]);
@@ -598,14 +600,15 @@ class RuleBasedPlanner {
     last_op = std::make_unique<Expand>(std::move(last_op), node1_symbol, node2_symbol, edge_symbol, direction,
                                        edge_types, false, storage::View::OLD);
 
-    last_op = std::make_unique<Limit>(std::move(last_op), exists.limit_expression_);
+    last_op = std::make_unique<Limit>(std::move(last_op), storage.Create<ExistsLimit>());
 
     last_op = std::make_unique<EvaluateComplexFilter>(std::move(last_op), symbol_table.at(exists));
 
     return last_op;
   }
 
-  std::unique_ptr<LogicalOperator> ExtractComplexFilters(Filters &filters, const SymbolTable &symbol_table,
+  std::unique_ptr<LogicalOperator> ExtractComplexFilters(Filters &filters, AstStorage &storage,
+                                                         const SymbolTable &symbol_table,
                                                          const std::unordered_set<Symbol> &bound_symbols) {
     for (auto &filter : filters) {
       if (filter.type != FilterInfo::Type::Complex) {
@@ -613,7 +616,7 @@ class RuleBasedPlanner {
       }
 
       if (auto *exists = utils::Downcast<Exists>(filter.expression)) {
-        return MakeExistsFilter(*exists, symbol_table, bound_symbols);
+        return MakeExistsFilter(*exists, storage, symbol_table, bound_symbols);
       }
 
       throw SemanticException("Complex filter does not exist!");
