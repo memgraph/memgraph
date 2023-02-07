@@ -55,6 +55,7 @@ def main():
     parser.add_argument("--number_of_files", type=int, default=10)
     parser.add_argument("--percentage_of_permissions", type=float, default=1.0)
     parser.add_argument("--filename", default="dataset.cypher")
+    parser.add_argument("--expand_filename", default="expand_output.txt")
 
     args = parser.parse_args()
 
@@ -62,6 +63,7 @@ def main():
     number_of_files = args.number_of_files
     percentage_of_permissions = args.percentage_of_permissions
     filename = args.filename
+    expand_filename = args.expand_filename
 
     assert number_of_identities >= 0
     assert number_of_files >= 0
@@ -106,33 +108,48 @@ def main():
             uuid += 1
         f.write("] AS props CREATE (:Identity {uuid: props.uuid, name: props.name});\n")
 
-        f.write("UNWIND [")
-        created = 0
-        for outer_index in range(0, number_of_files):
-            for inner_index in range(0, number_of_identities):
+        with open(expand_filename, "w") as ef:
 
-                file_uuid = outer_index + 1
-                identity_uuid = number_of_files + inner_index + 1
+            f.write("UNWIND [")
+            ef.write("UNWIND [")
 
-                if random.random() <= percentage_of_permissions:
+            created = 0
+            for outer_index in range(0, number_of_files):
+                for inner_index in range(0, number_of_identities):
 
-                    if created > 0:
-                        f.write(",")
+                    file_uuid = outer_index + 1
+                    identity_uuid = number_of_files + inner_index + 1
 
-                    f.write(
-                        f' {{permUuid: {uuid}, permName: "name_permission_{uuid}", fileUuid: {file_uuid}, identityUuid: {identity_uuid}}}'
-                    )
-                    created += 1
-                    uuid += 1
+                    if random.random() <= percentage_of_permissions:
 
-                    if created == 5000:
-                        f.write(
-                            "] AS props MATCH (file:File {uuid:props.fileUuid}), (identity:Identity {uuid: props.identityUuid}) CREATE (permission:Permission {uuid: props.permUuid, name: props.permName}) CREATE (permission)-[: IS_FOR_FILE]->(file) CREATE (permission)-[: IS_FOR_IDENTITY]->(identity);\nUNWIND ["
+                        if created > 0:
+                            ef.write(",")
+                            f.write(",")
+
+                        ef.write(
+                            f' {{permUuid: {uuid}, permName: "name_permission_{uuid}", fileUuid: {file_uuid}, identityUuid: {identity_uuid}}}'
                         )
-                        created = 0
-        f.write(
-            "] AS props MATCH (file:File {uuid:props.fileUuid}), (identity:Identity {uuid: props.identityUuid}) CREATE (permission:Permission {uuid: props.permUuid, name: props.permName}) CREATE (permission)-[: IS_FOR_FILE]->(file) CREATE (permission)-[: IS_FOR_IDENTITY]->(identity);"
-        )
+
+                        f.write(
+                            f' {{permUuid: {uuid}, permName: "name_permission_{uuid}", fileUuid: {file_uuid}, identityUuid: {identity_uuid}}}'
+                        )
+                        created += 1
+                        uuid += 1
+
+                        if created == 5000:
+                            ef.write(
+                                "] AS props MATCH (permission:Permission {uuid: props.permUuid, name: props.permName})-[: IS_FOR_FILE]->(file:File {uuid:props.fileUuid}), (permission:Permission {uuid: props.permUuid, name: props.permName})-[: IS_FOR_IDENTITY]->(identity:Identity {uuid: props.identityUuid}) RETURN permission, file, identity;\nUNWIND ["
+                            )
+                            f.write(
+                                "] AS props MATCH (file:File {uuid:props.fileUuid}), (identity:Identity {uuid: props.identityUuid}) CREATE (permission:Permission {uuid: props.permUuid, name: props.permName}) CREATE (permission)-[: IS_FOR_FILE]->(file) CREATE (permission)-[: IS_FOR_IDENTITY]->(identity);\nUNWIND ["
+                            )
+                            created = 0
+            ef.write(
+                "] AS props MATCH (permission:Permission {uuid: props.permUuid, name: props.permName})-[: IS_FOR_FILE]->(file:File {uuid:props.fileUuid}), (permission:Permission {uuid: props.permUuid, name: props.permName})-[: IS_FOR_IDENTITY]->(identity:Identity {uuid: props.identityUuid}) RETURN permission, file, identity;"
+            )
+            f.write(
+                "] AS props MATCH (file:File {uuid:props.fileUuid}), (identity:Identity {uuid: props.identityUuid}) CREATE (permission:Permission {uuid: props.permUuid, name: props.permName}) CREATE (permission)-[: IS_FOR_FILE]->(file) CREATE (permission)-[: IS_FOR_IDENTITY]->(identity);"
+            )
 
 
 if __name__ == "__main__":
