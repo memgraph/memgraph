@@ -91,6 +91,31 @@ You can find the binaries and Docker images on the [Download
 Hub](https://memgraph.com/download) and the installation instructions in the
 [official documentation](https://memgraph.com/docs/memgraph/installation).
 
+
+## :cloud: Memgraph Cloud
+
+Check out [Memgraph Cloud](https://memgraph.com/docs/memgraph-cloud) - a cloud service fully managed on AWS and available in 26 geographic regions around the world. Memgraph Cloud allows you to create projects with Enterprise instances of MemgraphDB from your browser.
+
+<p align="left">
+  <a href="https://memgraph.com/docs/memgraph-cloud">
+    <img width="450px" alt="Memgraph Cloud" src="https://public-assets.memgraph.com/memgraph-gifs%2Fcloud.gif">
+  </a>
+</p>
+
+## :link: Connect to Memgraph
+
+[Connect to the database](https://memgraph.com/docs/memgraph/connect-to-memgraph) using Memgraph Lab, mgconsole, various drivers (Python, C/C++ and others) and WebSocket. 
+
+### :microscope: Memgraph Lab
+
+Visualize graphs and play with queries to understand your data. [Memgraph Lab](https://memgraph.com/docs/memgraph-lab) is a user interface that helps you explore and manipulate the data stored in Memgraph. Visualize graphs, execute ad hoc queries, and optimize their performance.
+
+<p align="left">
+  <a href="https://memgraph.com/docs/memgraph-lab">
+    <img width="450px" alt="Memgraph Cloud" src="https://public-assets.memgraph.com/memgraph-gifs%2Flab.gif">
+  </a>
+</p>
+
 ## :zap: Features
 
 - Run Python, Rust, and C/C++ code natively, check out the
@@ -146,14 +171,14 @@ license](./licenses/BSL.txt).</br> Memgraph Enterprise is available under the
 ## 🙋 Community
 
 - :purple_heart: [**Discord**](https://discord.gg/memgraph)
+- :ocean: [**Stack Overflow**](https://stackoverflow.com/questions/tagged/memgraphdb)
 - :busts_in_silhouette: [**Discourse forum**](https://discourse.memgraph.com/)
-- :open_file_folder: [**Memgraph GitHub**](https://github.com/memgraph)
 - :bird: [**Twitter**](https://twitter.com/memgraphdb)
 - :movie_camera:
   [**YouTube**](https://www.youtube.com/channel/UCZ3HOJvHGxtQ_JHxOselBYg)
 
 <p align="center">
   <a href="#">
-    <img src="https://img.shields.io/badge/⬆️back_to_top_⬆️-white" alt="Back to top" title="Back to top"/>
+    <img src="https://img.shields.io/badge/⬆️ back_to_top_⬆️-white" alt="Back to top" title="Back to top"/>
   </a>
 </p>
