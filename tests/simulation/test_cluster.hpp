@@ -36,6 +36,7 @@
 #include "utils/print_helpers.hpp"
 #include "utils/variant_helpers.hpp"
 
+#include "generated_operations.hpp"
 #include "simulation_interpreter.hpp"
 
 namespace memgraph::tests::simulation {
@@ -194,6 +195,11 @@ void ExecuteOp(query::v2::RequestRouter<SimulatorTransport> &request_router, std
     const CompoundKey model_key = std::make_pair(primary_key[0].int_v, primary_key[1].int_v);
     RC_ASSERT(correctness_model.contains(model_key));
   }
+}
+
+void ExecuteOp(query::v2::RequestRouter<SimulatorTransport> &request_router, std::set<CompoundKey> &correctness_model,
+               AssertShardsSplit assert_shards_split) {
+  // TODO(tyler) implement
 }
 
 /// This struct exists as a way of detaching

@@ -35,13 +35,20 @@ struct CreateVertex {
 };
 
 struct ScanAll {
-  friend std::ostream &operator<<(std::ostream &in, const ScanAll &get) {
+  friend std::ostream &operator<<(std::ostream &in, const ScanAll & /* unused */) {
     in << "ScanAll {}";
     return in;
   }
 };
 
-using OpVariant = std::variant<CreateVertex, ScanAll>;
+struct AssertShardsSplit {
+  friend std::ostream &operator<<(std::ostream &in, const AssertShardsSplit & /* unused */) {
+    in << "AssertShardsSplit {}";
+    return in;
+  }
+};
+
+using OpVariant = std::variant<CreateVertex, ScanAll, AssertShardsSplit>;
 
 struct Op {
   OpVariant inner;
@@ -91,15 +98,23 @@ struct Arbitrary<ScanAll> {
   static Gen<ScanAll> arbitrary() { return gen::just(ScanAll{}); }
 };
 
+template <>
+struct Arbitrary<AssertShardsSplit> {
+  static Gen<AssertShardsSplit> arbitrary() { return gen::just(AssertShardsSplit{}); }
+};
+
 OpVariant opHoist(ScanAll op) { return op; }
 OpVariant opHoist(CreateVertex op) { return op; }
+OpVariant opHoist(AssertShardsSplit op) { return op; }
 
 template <>
 struct ::rc::Arbitrary<Op> {
   static Gen<Op> arbitrary() {
     return gen::build<Op>(gen::set(
-        &Op::inner, gen::oneOf(gen::map(gen::arbitrary<CreateVertex>(), [](CreateVertex op) { return opHoist(op); }),
-                               gen::map(gen::arbitrary<ScanAll>(), [](ScanAll op) { return opHoist(op); }))));
+        &Op::inner,
+        gen::oneOf(gen::map(gen::arbitrary<CreateVertex>(), [](CreateVertex op) { return opHoist(op); }),
+                   gen::map(gen::arbitrary<ScanAll>(), [](ScanAll op) { return opHoist(op); }),
+                   gen::map(gen::arbitrary<AssertShardsSplit>(), [](AssertShardsSplit op) { return opHoist(op); }))));
   }
 };
 
