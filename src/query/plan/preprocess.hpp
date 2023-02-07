@@ -27,7 +27,7 @@ namespace memgraph::query::plan {
 /// Collects symbols from identifiers found in visited AST nodes.
 class UsedSymbolsCollector : public HierarchicalTreeVisitor {
  public:
-  explicit UsedSymbolsCollector(const SymbolTable &symbol_table) : symbol_table_(symbol_table) {}
+  explicit UsedSymbolsCollector(const SymbolTable &symbol_table) : symbol_table_(symbol_table), scopes_(1, Scope()) {}
 
   using HierarchicalTreeVisitor::PostVisit;
   using HierarchicalTreeVisitor::PreVisit;
@@ -70,11 +70,17 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   }
 
   bool Visit(Identifier &ident) override {
-    symbols_.insert(symbol_table_.at(ident));
+    auto scope = scopes_.back();
+
+    if (!scope.in_exists || ident.user_declared_) {
+      symbols_.insert(symbol_table_.at(ident));
+    }
+
     return true;
   }
 
   bool PreVisit(Exists &exists) override {
+    scopes_.back().in_exists = true;
     // We do not visit pattern identifier since we're in exists filter pattern
     for (auto &atom : exists.pattern_->atoms_) {
       atom->Accept(*this);
@@ -83,11 +89,22 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
     return false;
   }
 
+  bool PostVisit(Exists &) override {
+    scopes_.back().in_exists = false;
+    return true;
+  }
+
   bool Visit(PrimitiveLiteral &) override { return true; }
   bool Visit(ParameterLookup &) override { return true; }
 
   std::unordered_set<Symbol> symbols_;
   const SymbolTable &symbol_table_;
+
+ private:
+  struct Scope {
+    bool in_exists{false};
+  };
+  std::vector<Scope> scopes_;
 };
 
 /// Normalized representation of a pattern that needs to be matched.
