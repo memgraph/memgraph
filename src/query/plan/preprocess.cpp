@@ -536,6 +536,10 @@ Matching AddMatching(const Match &match, SymbolTable &symbol_table, AstStorage &
     PatternFilterVisitor visitor(symbol_table, storage);
 
     filter.expression->Accept(visitor);
+
+    for (auto &matching : visitor.getMatchings()) {
+      filter.matchings.emplace_back(std::make_shared<Matching>(matching));
+    }
   }
 
   return matching;
@@ -546,6 +550,8 @@ void PatternFilterVisitor::Visit(Exists &op) {
   patterns.emplace_back(op.pattern_);
 
   auto filter_matching = AddMatching(patterns, nullptr, this->symbol_table_, this->storage_);
+  filter_matching.type = PatternFilterType::EXISTS;
+
   this->matchings_.emplace_back(filter_matching);
 }
 
