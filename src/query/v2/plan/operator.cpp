@@ -1345,26 +1345,46 @@ bool ContainsSameEdge(const TypedValue &a, const TypedValue &b) {
 
   return a.ValueEdge() == b.ValueEdge();
 }
+
+bool IsExpansionOk(Frame &frame, const Symbol &expand_symbol, const std::vector<Symbol> &previous_symbols) {
+  const auto &expand_value = frame[expand_symbol];
+  for (const auto &previous_symbol : previous_symbols) {
+    const auto &previous_value = frame[previous_symbol];
+    // This shouldn't raise a TypedValueException, because the planner
+    // makes sure these are all of the expected type. In case they are not
+    // an error should be raised long before this code is executed.
+    if (ContainsSameEdge(previous_value, expand_value)) return false;
+  }
+  return true;
+}
+
 }  // namespace
 
 bool EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("EdgeUniquenessFilter");
-
-  auto expansion_ok = [&]() {
-    const auto &expand_value = frame[self_.expand_symbol_];
-    for (const auto &previous_symbol : self_.previous_symbols_) {
-      const auto &previous_value = frame[previous_symbol];
-      // This shouldn't raise a TypedValueException, because the planner
-      // makes sure these are all of the expected type. In case they are not
-      // an error should be raised long before this code is executed.
-      if (ContainsSameEdge(previous_value, expand_value)) return false;
-    }
-    return true;
-  };
-
   while (input_cursor_->Pull(frame, context))
-    if (expansion_ok()) return true;
+    if (IsExpansionOk(frame, self_.expand_symbol_, self_.previous_symbols_)) return true;
   return false;
+}
+
+bool EdgeUniquenessFilter::EdgeUniquenessFilterCursor::PullMultiple(MultiFrame &output_multi_frame,
+                                                                    ExecutionContext &context) {
+  SCOPED_PROFILE_OP("EdgeUniquenessFilterMF");
+  auto populated_any = false;
+
+  while (output_multi_frame.HasInvalidFrame()) {
+    if (!input_cursor_->PullMultiple(output_multi_frame, context)) {
+      return populated_any;
+    }
+    for (auto &frame : output_multi_frame.GetValidFramesConsumer()) {
+      if (IsExpansionOk(frame, self_.expand_symbol_, self_.previous_symbols_)) {
+        populated_any = true;
+      } else {
+        frame.MakeInvalid();
+      }
+    }
+  }
+  return populated_any;
 }
 
 void EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Shutdown() { input_cursor_->Shutdown(); }
