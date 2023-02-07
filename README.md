@@ -56,6 +56,17 @@ to ensure that you’re getting the [best possible
 performance](http://memgraph.com/benchgraph) consistently and without surprises.
 It’s also ACID-compliant and highly available.
 
+## :zap: Features
+
+- Run Python, Rust, and C/C++ code natively, check out the
+  [MAGE](https://github.com/memgraph/mage) graph algorithm library
+- Native support for machine learning
+- Streaming support
+- Replication
+- Authentication and authorization
+- ACID compliance
+
+
 ## :video_game: Memgraph Playground
 
 You don't need to install anything to try out Memgraph. Check out 
@@ -94,7 +105,7 @@ Hub](https://memgraph.com/download) and the installation instructions in the
 
 ## :cloud: Memgraph Cloud
 
-Check out [Memgraph Cloud](https://memgraph.com/docs/memgraph-cloud) - a cloud service fully managed on AWS and available in 26 geographic regions around the world. Memgraph Cloud allows you to create projects with Enterprise instances of MemgraphDB from your browser.
+Check out [Memgraph Cloud](https://memgraph.com/docs/memgraph-cloud) - a cloud service fully managed on AWS and available in 6 geographic regions around the world. Memgraph Cloud allows you to create projects with Enterprise instances of MemgraphDB from your browser.
 
 <p align="left">
   <a href="https://memgraph.com/docs/memgraph-cloud">
@@ -116,15 +127,9 @@ Visualize graphs and play with queries to understand your data. [Memgraph Lab](h
   </a>
 </p>
 
-## :zap: Features
+## :file_folder: Import data
 
-- Run Python, Rust, and C/C++ code natively, check out the
-  [MAGE](https://github.com/memgraph/mage) graph algorithm library
-- Native support for machine learning
-- Streaming support
-- Replication
-- Authentication and authorization
-- ACID compliance
+[Import data](https://memgraph.com/docs/memgraph/import-data) into Memgraph using Kafka, RedPanda or Pulsar streams, CSV and JSON files, or Cypher commands.
 
 ## :bookmark_tabs: Documentation
 
@@ -168,7 +173,7 @@ Memgraph Community is available under the [BSL
 license](./licenses/BSL.txt).</br> Memgraph Enterprise is available under the
 [MEL license](./licenses/MEL.txt).
 
-## 🙋 Community
+## :busts_in_silhouette: Community
 
 - :purple_heart: [**Discord**](https://discord.gg/memgraph)
 - :ocean: [**Stack Overflow**](https://stackoverflow.com/questions/tagged/memgraphdb)
