@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -586,6 +586,7 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
 #define COALESCE(...) storage.Create<memgraph::query::Coalesce>(std::vector<memgraph::query::Expression *>{__VA_ARGS__})
 #define EXTRACT(variable, list, expr) \
   storage.Create<memgraph::query::Extract>(storage.Create<memgraph::query::Identifier>(variable), list, expr)
+#define EXISTS(pattern) storage.Create<memgraph::query::Exists>(pattern)
 #define AUTH_QUERY(action, user, role, user_or_role, password, privileges, labels, edgeTypes)                  \
   storage.Create<memgraph::query::AuthQuery>((action), (user), (role), (user_or_role), password, (privileges), \
                                              (labels), (edgeTypes))

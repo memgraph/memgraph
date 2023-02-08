@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -4305,5 +4305,40 @@ TEST_P(CypherMainVisitorTest, Foreach) {
     ASSERT_TRUE(clauses.size() == 2);
     ASSERT_TRUE(dynamic_cast<SetProperty *>(clauses.front()));
     ASSERT_TRUE(dynamic_cast<RemoveProperty *>(*++clauses.begin()));
+  }
+}
+
+TEST_P(CypherMainVisitorTest, ExistsThrow) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) WHERE exists(p=(n)-[]->()) RETURN n;", ast_generator,
+                                               "No pattern identifiers can be present in exists!");
+  TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) WHERE exists((n)-[]->()-[]->()) RETURN n;", ast_generator,
+                                               "Exists function supports only triplet patterns!");
+  TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) WHERE exists((n)) RETURN n;", ast_generator,
+                                               "Exists function supports only triplet patterns!");
+}
+
+TEST_P(CypherMainVisitorTest, Exists) {
+  auto &ast_generator = *GetParam();
+  {
+    const auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) WHERE exists((n)-[]->()) RETURN n;"));
+    const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+
+    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+
+    ASSERT_TRUE(exists);
+
+    const auto pattern = exists->pattern_;
+    ASSERT_TRUE(pattern->atoms_.size() == 3);
+
+    const auto *node1 = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
+    const auto *edge = dynamic_cast<EdgeAtom *>(pattern->atoms_[1]);
+    const auto *node2 = dynamic_cast<NodeAtom *>(pattern->atoms_[2]);
+
+    ASSERT_TRUE(node1);
+    ASSERT_TRUE(edge);
+    ASSERT_TRUE(node2);
   }
 }
