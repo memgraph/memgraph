@@ -447,10 +447,6 @@ bool SymbolGenerator::PreVisit(Extract &extract) {
 bool SymbolGenerator::PreVisit(Exists &exists) {
   auto &scope = scopes_.back();
 
-  if (exists.pattern_->atoms_.size() != 3) {
-    throw SemanticException("Exists functionality only supports triplet patterns!");
-  }
-
   scope.in_exists = true;
 
   const auto &symbol = CreateAnonymousSymbol();

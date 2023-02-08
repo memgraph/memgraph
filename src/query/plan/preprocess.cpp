@@ -520,7 +520,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
   } else if (auto *exists = utils::Downcast<Exists>(expr)) {
-    all_filters_.emplace_back(make_filter(FilterInfo::Type::Complex));
+    all_filters_.emplace_back(make_filter(FilterInfo::Type::Pattern));
   } else {
     all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
   }

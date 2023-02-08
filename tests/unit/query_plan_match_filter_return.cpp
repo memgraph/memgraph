@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -292,7 +292,7 @@ TEST(QueryPlan, NodeFilterLabelsAndProperties) {
   // node filtering
   auto *filter_expr = AND(storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_),
                           EQ(PROPERTY_LOOKUP(n.node_->identifier_, property), LITERAL(42)));
-  auto node_filter = std::make_shared<Filter>(n.op_, filter_expr);
+  auto node_filter = std::make_shared<Filter>(n.op_, nullptr, filter_expr);
 
   // make a named expression and a produce
   auto output = NEXPR("x", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
@@ -344,7 +344,7 @@ TEST(QueryPlan, NodeFilterMultipleLabels) {
 
   // node filtering
   auto *filter_expr = storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_);
-  auto node_filter = std::make_shared<Filter>(n.op_, filter_expr);
+  auto node_filter = std::make_shared<Filter>(n.op_, nullptr, filter_expr);
 
   // make a named expression and a produce
   auto output = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
@@ -679,7 +679,7 @@ class QueryPlanExpandVariable : public testing::Test {
                                             bool is_reverse = false) {
     auto n_from = MakeScanAll(storage, symbol_table, node_from, input_op);
     auto filter_op = std::make_shared<Filter>(
-        n_from.op_,
+        n_from.op_, nullptr,
         storage.Create<memgraph::query::LabelsTest>(
             n_from.node_->identifier_, std::vector<LabelIx>{storage.GetLabelIx(dba.LabelToName(labels[layer]))}));
 
@@ -1355,7 +1355,7 @@ TEST_F(QueryPlanExpandVariable, ExpandToSameSymbol) {
     auto n_from = ScanAllTuple{node, logical_op, symbol};
 
     auto filter_op = std::make_shared<Filter>(
-        n_from.op_,
+        n_from.op_, nullptr,
         storage.Create<memgraph::query::LabelsTest>(
             n_from.node_->identifier_, std::vector<LabelIx>{storage.GetLabelIx(dba.LabelToName(labels[layer]))}));
 
@@ -1546,7 +1546,7 @@ TEST_F(QueryPlanExpandVariable, FineGrainedExpandToSameSymbol) {
     auto n_from = ScanAllTuple{node, logical_op, symbol};
 
     auto filter_op = std::make_shared<Filter>(
-        n_from.op_,
+        n_from.op_, nullptr,
         storage.Create<memgraph::query::LabelsTest>(
             n_from.node_->identifier_, std::vector<LabelIx>{storage.GetLabelIx(dba.LabelToName(labels[layer]))}));
 
@@ -1813,7 +1813,8 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
     auto n = MakeScanAll(storage, symbol_table, "n", existing_node_input ? existing_node_input->op_ : nullptr);
     auto last_op = n.op_;
     if (node_id) {
-      last_op = std::make_shared<Filter>(last_op, EQ(PROPERTY_LOOKUP(n.node_->identifier_, prop), LITERAL(*node_id)));
+      last_op = std::make_shared<Filter>(last_op, nullptr,
+                                         EQ(PROPERTY_LOOKUP(n.node_->identifier_, prop), LITERAL(*node_id)));
     }
 
     auto ident_e = IDENT("e");
@@ -1968,7 +1969,7 @@ TEST_F(QueryPlanExpandWeightedShortestPath, ExistingNode) {
     auto n0 = MakeScanAll(storage, symbol_table, "n0");
     if (preceeding_node_id) {
       auto filter = std::make_shared<Filter>(
-          n0.op_, EQ(PROPERTY_LOOKUP(n0.node_->identifier_, prop), LITERAL(*preceeding_node_id)));
+          n0.op_, nullptr, EQ(PROPERTY_LOOKUP(n0.node_->identifier_, prop), LITERAL(*preceeding_node_id)));
       // inject the filter op into the ScanAllTuple. that way the filter
       // op can be passed into the ExpandWShortest function without too
       // much refactor
@@ -2243,7 +2244,8 @@ class QueryPlanExpandAllShortestPaths : public testing::Test {
     auto n = MakeScanAll(storage, symbol_table, "n", existing_node_input ? existing_node_input->op_ : nullptr);
     auto last_op = n.op_;
     if (node_id) {
-      last_op = std::make_shared<Filter>(last_op, EQ(PROPERTY_LOOKUP(n.node_->identifier_, prop), LITERAL(*node_id)));
+      last_op = std::make_shared<Filter>(last_op, nullptr,
+                                         EQ(PROPERTY_LOOKUP(n.node_->identifier_, prop), LITERAL(*node_id)));
     }
 
     auto ident_e = IDENT("e");
@@ -2739,7 +2741,7 @@ TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
   n.node_->labels_.emplace_back(storage.GetLabelIx(label_missing));
 
   auto *filter_expr = storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_);
-  auto node_filter = std::make_shared<Filter>(n.op_, filter_expr);
+  auto node_filter = std::make_shared<Filter>(n.op_, nullptr, filter_expr);
   auto optional = std::make_shared<plan::Optional>(nullptr, node_filter, std::vector<Symbol>{n.sym_});
   // WITH n
   auto n_ne = NEXPR("n", IDENT("n")->MapTo(n.sym_));
@@ -2868,7 +2870,7 @@ TEST(QueryPlan, EdgeFilter) {
     r_m.edge_->edge_types_.push_back(storage.GetEdgeTypeIx(dba.EdgeTypeToName(edge_type)));
     std::get<0>(r_m.edge_->properties_)[storage.GetPropertyIx(prop.first)] = LITERAL(42);
     auto *filter_expr = EQ(PROPERTY_LOOKUP(r_m.edge_->identifier_, prop), LITERAL(42));
-    auto edge_filter = std::make_shared<Filter>(r_m.op_, filter_expr);
+    auto edge_filter = std::make_shared<Filter>(r_m.op_, nullptr, filter_expr);
 
     // make a named expression and a produce
     auto output =
@@ -2936,7 +2938,7 @@ TEST(QueryPlan, Filter) {
 
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto e = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), property);
-  auto f = std::make_shared<Filter>(n.op_, e);
+  auto f = std::make_shared<Filter>(n.op_, nullptr, e);
 
   auto output = NEXPR("x", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
   auto produce = MakeProduce(f, output);
@@ -3441,7 +3443,7 @@ TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
     memgraph::query::DbAccessor dba(&storage_dba);
     auto scan_all = MakeScanAll(storage, symbol_table, "n");
     auto e = PROPERTY_LOOKUP(IDENT("n")->MapTo(scan_all.sym_), std::make_pair("prop", prop));
-    auto filter = std::make_shared<Filter>(scan_all.op_, EQ(e, LITERAL(prop_value)));
+    auto filter = std::make_shared<Filter>(scan_all.op_, nullptr, EQ(e, LITERAL(prop_value)));
     auto output =
         NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(filter, output);

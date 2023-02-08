@@ -34,15 +34,6 @@ bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, cons
   return true;
 }
 
-bool HasAnyBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, const FilterInfo &filter) {
-  for (const auto &symbol : filter.used_symbols) {
-    if (bound_symbols.find(symbol) != bound_symbols.end()) {
-      return true;
-    }
-  }
-  return false;
-}
-
 // Ast tree visitor which collects the context for a return body.
 // The return body of WITH and RETURN clauses consists of:
 //
@@ -516,10 +507,9 @@ namespace impl {
 Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols, Filters &filters, AstStorage &storage) {
   Expression *filter_expr = nullptr;
   for (auto filters_it = filters.begin(); filters_it != filters.end();) {
-    // Complex filters generate their own operator tree and therefore they do not need all symbols to be bounded
-    // However, be careful when adding new complex filters to new operator trees
-    if (HasBoundFilterSymbols(bound_symbols, *filters_it) ||
-        (filters_it->type == FilterInfo::Type::Complex && HasAnyBoundFilterSymbols(bound_symbols, *filters_it))) {
+    // Pattern filters generate their own operator tree and therefore they do not need all symbols to be bounded
+    // However, be careful when adding new pattern filters to new operator trees
+    if (HasBoundFilterSymbols(bound_symbols, *filters_it)) {
       filter_expr = impl::BoolJoin<AndOperator>(storage, filter_expr, filters_it->expression);
       filters_it = filters.erase(filters_it);
     } else {

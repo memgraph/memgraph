@@ -115,7 +115,7 @@ extern const Event CartesianOperator;
 extern const Event CallProcedureOperator;
 extern const Event ForeachOperator;
 extern const Event EmptyResultOperator;
-extern const Event EvaluateComplexFilterOperator;
+extern const Event EvaluatePatternFilterOperator;
 }  // namespace EventCounter
 
 namespace memgraph::query::plan {
@@ -2255,9 +2255,9 @@ std::vector<Symbol> ConstructNamedPath::ModifiedSymbols(const SymbolTable &table
   return symbols;
 }
 
-Filter::Filter(const std::shared_ptr<LogicalOperator> &input, const std::shared_ptr<LogicalOperator> &complex_filter,
+Filter::Filter(const std::shared_ptr<LogicalOperator> &input, const std::shared_ptr<LogicalOperator> &pattern_filter,
                Expression *expression)
-    : input_(input ? input : std::make_shared<Once>()), complex_filter_(complex_filter), expression_(expression) {}
+    : input_(input ? input : std::make_shared<Once>()), pattern_filter_(pattern_filter), expression_(expression) {}
 
 ACCEPT_WITH_INPUT(Filter)
 
@@ -2272,7 +2272,7 @@ std::vector<Symbol> Filter::ModifiedSymbols(const SymbolTable &table) const { re
 Filter::FilterCursor::FilterCursor(const Filter &self, utils::MemoryResource *mem)
     : self_(self),
       input_cursor_(self_.input_->MakeCursor(mem)),
-      complex_filter_cursor_(self_.complex_filter_ ? self_.complex_filter_->MakeCursor(mem) : nullptr) {}
+      pattern_filter_cursor_(self_.pattern_filter_ ? self_.pattern_filter_->MakeCursor(mem) : nullptr) {}
 
 bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Filter");
@@ -2282,8 +2282,8 @@ bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::OLD);
   while (input_cursor_->Pull(frame, context)) {
-    if (complex_filter_cursor_) {
-      complex_filter_cursor_->Pull(frame, context);
+    if (pattern_filter_cursor_) {
+      pattern_filter_cursor_->Pull(frame, context);
     }
 
     if (EvaluateFilter(evaluator, self_.expression_)) return true;
@@ -2295,27 +2295,27 @@ void Filter::FilterCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void Filter::FilterCursor::Reset() { input_cursor_->Reset(); }
 
-EvaluateComplexFilter::EvaluateComplexFilter(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol)
+EvaluatePatternFilter::EvaluatePatternFilter(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol)
     : input_(input), output_symbol_(output_symbol) {}
 
-ACCEPT_WITH_INPUT(EvaluateComplexFilter);
+ACCEPT_WITH_INPUT(EvaluatePatternFilter);
 
-UniqueCursorPtr EvaluateComplexFilter::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::EvaluateComplexFilterOperator);
+UniqueCursorPtr EvaluatePatternFilter::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::EvaluatePatternFilterOperator);
 
-  return MakeUniqueCursorPtr<EvaluateComplexFilterCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<EvaluatePatternFilterCursor>(mem, *this, mem);
 }
 
-EvaluateComplexFilter::EvaluateComplexFilterCursor::EvaluateComplexFilterCursor(const EvaluateComplexFilter &self,
+EvaluatePatternFilter::EvaluatePatternFilterCursor::EvaluatePatternFilterCursor(const EvaluatePatternFilter &self,
                                                                                 utils::MemoryResource *mem)
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
 
-std::vector<Symbol> EvaluateComplexFilter::ModifiedSymbols(const SymbolTable &table) const {
+std::vector<Symbol> EvaluatePatternFilter::ModifiedSymbols(const SymbolTable &table) const {
   return input_->ModifiedSymbols(table);
 }
 
-bool EvaluateComplexFilter::EvaluateComplexFilterCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP("EvaluateComplexFilter");
+bool EvaluatePatternFilter::EvaluatePatternFilterCursor::Pull(Frame &frame, ExecutionContext &context) {
+  SCOPED_PROFILE_OP("EvaluatePatternFilter");
 
   input_cursor_->Reset();
 
@@ -2328,9 +2328,9 @@ bool EvaluateComplexFilter::EvaluateComplexFilterCursor::Pull(Frame &frame, Exec
   return true;
 }
 
-void EvaluateComplexFilter::EvaluateComplexFilterCursor::Shutdown() { input_cursor_->Shutdown(); }
+void EvaluatePatternFilter::EvaluatePatternFilterCursor::Shutdown() { input_cursor_->Shutdown(); }
 
-void EvaluateComplexFilter::EvaluateComplexFilterCursor::Reset() { input_cursor_->Reset(); }
+void EvaluatePatternFilter::EvaluatePatternFilterCursor::Reset() { input_cursor_->Reset(); }
 
 Produce::Produce(const std::shared_ptr<LogicalOperator> &input, const std::vector<NamedExpression *> &named_expressions)
     : input_(input ? input : std::make_shared<Once>()), named_expressions_(named_expressions) {}

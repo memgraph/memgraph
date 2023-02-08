@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -378,7 +378,8 @@ TEST_F(PrintToJsonTest, ConstructNamedPath) {
 
 TEST_F(PrintToJsonTest, Filter) {
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, GetSymbol("node1"));
-  last_op = std::make_shared<Filter>(last_op, EQ(PROPERTY_LOOKUP("node1", dba.NameToProperty("prop")), LITERAL(5)));
+  last_op =
+      std::make_shared<Filter>(last_op, nullptr, EQ(PROPERTY_LOOKUP("node1", dba.NameToProperty("prop")), LITERAL(5)));
 
   Check(last_op.get(), R"sep(
           {
