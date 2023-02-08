@@ -2216,7 +2216,7 @@ antlrcpp::Any CypherMainVisitor::visitExistsExpression(MemgraphCypher::ExistsExp
   }
 
   if (exists->pattern_->atoms_.size() != 3) {
-    throw SyntaxException("Multi-hop pattern not yet supported in exists functionality!");
+    throw SyntaxException("Exists function supports only triplet patterns!");
   }
 
   return static_cast<Expression *>(exists);
