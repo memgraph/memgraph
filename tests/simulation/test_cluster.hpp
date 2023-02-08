@@ -155,8 +155,8 @@ ShardMap TestShardMap(int n_splits, int replication_factor, int split_threshold)
   return sm;
 }
 
-void ExecuteOp(query::v2::RequestRouter<SimulatorTransport> &request_router, std::set<CompoundKey> &correctness_model,
-               CreateVertex create_vertex) {
+void ExecuteOp(const ClusterConfig &cluster_config, query::v2::RequestRouter<SimulatorTransport> &request_router,
+               std::set<CompoundKey> &correctness_model, CreateVertex create_vertex) {
   const auto key1 = memgraph::storage::v3::PropertyValue(create_vertex.first);
   const auto key2 = memgraph::storage::v3::PropertyValue(create_vertex.second);
 
@@ -184,8 +184,8 @@ void ExecuteOp(query::v2::RequestRouter<SimulatorTransport> &request_router, std
   correctness_model.emplace(std::make_pair(create_vertex.first, create_vertex.second));
 }
 
-void ExecuteOp(query::v2::RequestRouter<SimulatorTransport> &request_router, std::set<CompoundKey> &correctness_model,
-               ScanAll scan_all) {
+void ExecuteOp(const ClusterConfig &cluster_config, query::v2::RequestRouter<SimulatorTransport> &request_router,
+               std::set<CompoundKey> &correctness_model, ScanAll scan_all) {
   auto results = request_router.ScanVertices("test_label");
 
   RC_ASSERT(results.size() == correctness_model.size());
@@ -198,9 +198,10 @@ void ExecuteOp(query::v2::RequestRouter<SimulatorTransport> &request_router, std
   }
 }
 
-void ExecuteOp(query::v2::RequestRouter<SimulatorTransport> &request_router, std::set<CompoundKey> &correctness_model,
-               AssertShardsSplit assert_shards_split) {
+void ExecuteOp(const ClusterConfig &cluster_config, query::v2::RequestRouter<SimulatorTransport> &request_router,
+               std::set<CompoundKey> &correctness_model, AssertShardsSplit assert_shards_split) {
   // TODO(tyler) implement
+  MG_ASSERT(false);
 }
 
 /// This struct exists as a way of detaching
@@ -262,7 +263,7 @@ std::pair<SimulatorStats, LatencyHistogramSummaries> RunClusterSimulation(const 
   auto correctness_model = std::set<CompoundKey>{};
 
   for (const Op &op : ops) {
-    std::visit([&](auto &o) { ExecuteOp(request_router, correctness_model, o); }, op.inner);
+    std::visit([&](auto &o) { ExecuteOp(cluster_config, request_router, correctness_model, o); }, op.inner);
   }
 
   // We have now completed our workload without failing any assertions, so we can
