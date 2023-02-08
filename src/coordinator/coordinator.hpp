@@ -168,10 +168,6 @@ class Coordinator {
 
   CoordinatorWriteResponses ApplyWrite(AllocateEdgeIdBatchRequest &&ahr);
 
-  CoordinatorWriteResponses ApplyWrite(msgs::SuggestedSplitInfo &&split_shard_request);
-
-  CoordinatorWriteResponses ApplyWrite(msgs::InitializeSplitShard &&split_shard_request);
-
   /// This adds the provided storage engine to the standby storage engine pool,
   /// which can be used to rebalance storage over time.
   static CoordinatorWriteResponses ApplyWrite(RegisterStorageEngineRequest && /* register_storage_engine_request */);

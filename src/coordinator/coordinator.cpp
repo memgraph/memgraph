@@ -58,22 +58,6 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(AllocateEdgeIdBatchRequest &&a
   return res;
 }
 
-// TODO(jbajic & Tyler)
-CoordinatorWriteResponses Coordinator::ApplyWrite(msgs::SuggestedSplitInfo &&split_shard_request) {
-  RegisterStorageEngineResponse res{};
-  // TODO
-
-  return res;
-}
-
-// TODO(jbajic & tyler)
-CoordinatorWriteResponses Coordinator::ApplyWrite(msgs::InitializeSplitShard &&split_shard_request) {
-  RegisterStorageEngineResponse res{};
-  // TODO
-
-  return res;
-}
-
 /// This adds the provided storage engine to the standby storage engine pool,
 /// which can be used to rebalance storage over time.
 CoordinatorWriteResponses Coordinator::ApplyWrite(
