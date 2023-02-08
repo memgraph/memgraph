@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -117,7 +117,8 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
   // current code always follows the logical pattern of "create a delta" and
   // "modify in-place". Additionally, the created delta will make other
   // transactions get a SERIALIZATION_ERROR.
-  CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, current_value);
+
+  // CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, current_value);
   edge_.ptr->properties.SetProperty(property, value);
 
   return std::move(current_value);

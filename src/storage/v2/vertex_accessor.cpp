@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -84,7 +84,7 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
 
   if (std::find(vertex_->labels.begin(), vertex_->labels.end(), label) != vertex_->labels.end()) return false;
 
-  CreateAndLinkDelta(transaction_, vertex_, Delta::RemoveLabelTag(), label);
+  // CreateAndLinkDelta(transaction_, vertex_, Delta::RemoveLabelTag(), label);
 
   vertex_->labels.push_back(label);
 
@@ -222,7 +222,8 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   // current code always follows the logical pattern of "create a delta" and
   // "modify in-place". Additionally, the created delta will make other
   // transactions get a SERIALIZATION_ERROR.
-  CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, current_value);
+
+  // CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, current_value);
   vertex_->properties.SetProperty(property, value);
 
   UpdateOnSetProperty(indices_, property, value, vertex_, *transaction_);
