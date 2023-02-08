@@ -69,36 +69,37 @@ struct Transaction {
     for (const auto &delta : deltas) {
       switch (delta.action) {
         case Delta::Action::DELETE_OBJECT:
-          copied_deltas.emplace_back(Delta::DeleteObjectTag{}, commit_info, command_id);
+          copied_deltas.emplace_back(Delta::DeleteObjectTag{}, commit_info, delta.id, command_id);
           break;
         case Delta::Action::RECREATE_OBJECT:
-          copied_deltas.emplace_back(Delta::RecreateObjectTag{}, commit_info, command_id);
+          copied_deltas.emplace_back(Delta::RecreateObjectTag{}, commit_info, delta.id, command_id);
           break;
         case Delta::Action::ADD_LABEL:
-          copied_deltas.emplace_back(Delta::AddLabelTag{}, delta.label, commit_info, command_id);
+          copied_deltas.emplace_back(Delta::AddLabelTag{}, delta.label, commit_info, delta.id, command_id);
           break;
         case Delta::Action::REMOVE_LABEL:
-          copied_deltas.emplace_back(Delta::RemoveLabelTag{}, delta.label, commit_info, command_id);
+          copied_deltas.emplace_back(Delta::RemoveLabelTag{}, delta.label, commit_info, delta.id, command_id);
           break;
         case Delta::Action::ADD_IN_EDGE:
           copied_deltas.emplace_back(Delta::AddInEdgeTag{}, delta.vertex_edge.edge_type, delta.vertex_edge.vertex_id,
-                                     delta.vertex_edge.edge, commit_info, command_id);
+                                     delta.vertex_edge.edge, commit_info, delta.id, command_id);
           break;
         case Delta::Action::ADD_OUT_EDGE:
           copied_deltas.emplace_back(Delta::AddOutEdgeTag{}, delta.vertex_edge.edge_type, delta.vertex_edge.vertex_id,
-                                     delta.vertex_edge.edge, commit_info, command_id);
+                                     delta.vertex_edge.edge, commit_info, delta.id, command_id);
           break;
         case Delta::Action::REMOVE_IN_EDGE:
           copied_deltas.emplace_back(Delta::RemoveInEdgeTag{}, delta.vertex_edge.edge_type, delta.vertex_edge.vertex_id,
-                                     delta.vertex_edge.edge, commit_info, command_id);
+                                     delta.vertex_edge.edge, commit_info, delta.id, command_id);
           break;
         case Delta::Action::REMOVE_OUT_EDGE:
           copied_deltas.emplace_back(Delta::RemoveOutEdgeTag{}, delta.vertex_edge.edge_type,
-                                     delta.vertex_edge.vertex_id, delta.vertex_edge.edge, commit_info, command_id);
+                                     delta.vertex_edge.vertex_id, delta.vertex_edge.edge, commit_info, delta.id,
+                                     command_id);
           break;
         case Delta::Action::SET_PROPERTY:
           copied_deltas.emplace_back(Delta::SetPropertyTag{}, delta.property.key, delta.property.value, commit_info,
-                                     command_id);
+                                     delta.id, command_id);
           break;
       }
     }

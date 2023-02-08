@@ -18,6 +18,8 @@
 #include <utility>
 
 #include "storage/v3/config.hpp"
+#include "storage/v3/id_types.hpp"
+#include "storage/v3/key_store.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/transaction.hpp"
 #include "storage/v3/vertex_accessor.hpp"
@@ -39,6 +41,8 @@ class LabelIndex {
     }
     bool operator==(const Entry &rhs) const { return vertex == rhs.vertex && timestamp == rhs.timestamp; }
   };
+
+  using IndexType = LabelId;
 
  public:
   using IndexContainer = std::set<Entry>;
@@ -118,9 +122,32 @@ class LabelIndex {
 
   void Clear() { index_.clear(); }
 
-  [[nodiscard]] bool Empty() const noexcept { return index_.empty(); }
+  std::map<IndexType, IndexContainer> SplitIndexEntries(const PrimaryKey &split_key) {
+    if (index_.empty()) {
+      return {};
+    }
 
-  std::map<LabelId, IndexContainer> &GetIndex() noexcept { return index_; }
+    // Cloned index entries will contain new index entry iterators, but old
+    // vertices address which need to be adjusted after extracting vertices
+    std::map<IndexType, IndexContainer> cloned_indices;
+    for (auto &[index_type_val, index] : index_) {
+      auto entry_it = index.begin();
+      auto &cloned_indices_container = cloned_indices[index_type_val];
+      while (entry_it != index.end()) {
+        // We need to save the next pointer since the current one will be
+        // invalidated after extract
+        auto next_entry_it = std::next(entry_it);
+        if (entry_it->vertex->first > split_key) {
+          [[maybe_unused]] const auto &[inserted_entry_it, inserted, node] =
+              cloned_indices_container.insert(index.extract(entry_it));
+          MG_ASSERT(inserted, "Failed to extract index entry!");
+        }
+        entry_it = next_entry_it;
+      }
+    }
+
+    return cloned_indices;
+  }
 
  private:
   std::map<LabelId, IndexContainer> index_;
@@ -141,6 +168,7 @@ class LabelPropertyIndex {
     bool operator<(const PropertyValue &rhs) const;
     bool operator==(const PropertyValue &rhs) const;
   };
+  using IndexType = std::pair<LabelId, PropertyId>;
 
  public:
   using IndexContainer = std::set<Entry>;
@@ -237,9 +265,32 @@ class LabelPropertyIndex {
 
   void Clear() { index_.clear(); }
 
-  [[nodiscard]] bool Empty() const noexcept { return index_.empty(); }
+  std::map<IndexType, IndexContainer> SplitIndexEntries(const PrimaryKey &split_key) {
+    if (index_.empty()) {
+      return {};
+    }
 
-  std::map<std::pair<LabelId, PropertyId>, IndexContainer> &GetIndex() noexcept { return index_; }
+    // Cloned index entries will contain new index entry iterators, but old
+    // vertices address which need to be adjusted after extracting vertices
+    std::map<IndexType, IndexContainer> cloned_indices;
+    for (auto &[index_type_val, index] : index_) {
+      auto entry_it = index.begin();
+      auto &cloned_index_container = cloned_indices[index_type_val];
+      while (entry_it != index.end()) {
+        // We need to save the next pointer since the current one will be
+        // invalidated after extract
+        auto next_entry_it = std::next(entry_it);
+        if (entry_it->vertex->first > split_key) {
+          [[maybe_unused]] const auto &[inserted_entry_it, inserted, node] =
+              cloned_index_container.insert(index.extract(entry_it));
+          MG_ASSERT(inserted, "Failed to extract index entry!");
+        }
+        entry_it = next_entry_it;
+      }
+    }
+
+    return cloned_indices;
+  }
 
  private:
   std::map<std::pair<LabelId, PropertyId>, IndexContainer> index_;

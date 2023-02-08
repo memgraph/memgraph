@@ -73,49 +73,27 @@ class Splitter final {
 
   std::map<uint64_t, std::unique_ptr<Transaction>> CollectTransactions(
       const std::set<uint64_t> &collected_transactions_start_id, VertexContainer &cloned_vertices,
-      EdgeContainer &cloned_edges);
-
-  template <typename IndexMap, typename IndexType>
-  requires utils::SameAsAnyOf<IndexMap, LabelPropertyIndex, LabelIndex>
-      std::map<IndexType, typename IndexMap::IndexContainer> CollectIndexEntries(
-          IndexMap &index, const PrimaryKey &split_key,
-          std::map<IndexType, std::multimap<const Vertex *, const typename IndexMap::IndexContainer::iterator>>
-              &vertex_entry_map) {
-    if (index.Empty()) {
-      return {};
-    }
-
-    // Cloned index entries will contain new index entry iterators, but old
-    // vertices address which need to be adjusted after extracting vertices
-    std::map<IndexType, typename IndexMap::IndexContainer> cloned_indices;
-    for (auto &[index_type_val, index] : index.GetIndex()) {
-      auto entry_it = index.begin();
-      while (entry_it != index.end()) {
-        // We need to save the next pointer since the current one will be
-        // invalidated after extract
-        auto next_entry_it = std::next(entry_it);
-        if (entry_it->vertex->first > split_key) {
-          [[maybe_unused]] const auto &[inserted_entry_it, inserted, node] =
-              cloned_indices[index_type_val].insert(index.extract(entry_it));
-          MG_ASSERT(inserted, "Failed to extract index entry!");
-
-          vertex_entry_map[index_type_val].insert({inserted_entry_it->vertex, inserted_entry_it});
-        }
-        entry_it = next_entry_it;
-      }
-    }
-
-    return cloned_indices;
-  }
+      EdgeContainer &cloned_edges, const PrimaryKey &split_key);
 
   static void ScanDeltas(std::set<uint64_t> &collected_transactions_start_id, Delta *delta);
 
   void AdjustClonedTransaction(Transaction &cloned_transaction, const Transaction &transaction,
                                std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions,
-                               VertexContainer &cloned_vertices, EdgeContainer &cloned_edges);
+                               VertexContainer &cloned_vertices, EdgeContainer &cloned_edges,
+                               const PrimaryKey &split_key);
 
   void AdjustClonedTransactions(std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions,
-                                VertexContainer &cloned_vertices, EdgeContainer &cloned_edges);
+                                VertexContainer &cloned_vertices, EdgeContainer &cloned_edges,
+                                const PrimaryKey &split_key);
+
+  void AdjustEdgeRef(Delta &cloned_delta, EdgeContainer &cloned_edges) const;
+
+  static void AdjustDeltaNext(const Delta &original, Delta &cloned,
+                              std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions);
+
+  static void AdjustDeltaPrevPtr(const Delta &original, Delta &cloned,
+                                 std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions,
+                                 VertexContainer &cloned_vertices, EdgeContainer &cloned_edges);
 
   const LabelId primary_label_;
   VertexContainer &vertices_;

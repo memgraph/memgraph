@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -108,7 +108,7 @@ inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
 /// a `DELETE_OBJECT` delta).
 /// @throw std::bad_alloc
 inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
-  return &transaction->deltas.emplace_back(Delta::DeleteObjectTag(), transaction->commit_info.get(),
+  return &transaction->deltas.emplace_back(Delta::DeleteObjectTag(), transaction->commit_info.get(), GetNextDeltaId(),
                                            transaction->command_id);
 }
 
@@ -119,7 +119,7 @@ template <typename TObj, class... Args>
 requires utils::SameAsAnyOf<TObj, Edge, Vertex>
 inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&...args) {
   auto delta = &transaction->deltas.emplace_back(std::forward<Args>(args)..., transaction->commit_info.get(),
-                                                 transaction->command_id);
+                                                 GetNextDeltaId(), transaction->command_id);
   auto *delta_holder = GetDeltaHolder(object);
 
   // The operations are written in such order so that both `next` and `prev`
