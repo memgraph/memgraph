@@ -257,8 +257,7 @@ std::unordered_map<uint64_t, std::string> ShardMap::IdToNames() {
   return id_to_names;
 }
 
-boost::uuids::uuid ShardMap::NewShardUuid() {
-  auto shard_id = GetHlc().logical_id;
+boost::uuids::uuid Uint64ToUuid(uint64_t u) {
   return boost::uuids::uuid{0,
                             0,
                             0,
@@ -267,14 +266,19 @@ boost::uuids::uuid ShardMap::NewShardUuid() {
                             0,
                             0,
                             0,
-                            static_cast<unsigned char>(shard_id >> 56U),
-                            static_cast<unsigned char>(shard_id >> 48U),
-                            static_cast<unsigned char>(shard_id >> 40U),
-                            static_cast<unsigned char>(shard_id >> 32U),
-                            static_cast<unsigned char>(shard_id >> 24U),
-                            static_cast<unsigned char>(shard_id >> 16U),
-                            static_cast<unsigned char>(shard_id >> 8U),
-                            static_cast<unsigned char>(shard_id)};
+                            static_cast<unsigned char>(u >> 56U),
+                            static_cast<unsigned char>(u >> 48U),
+                            static_cast<unsigned char>(u >> 40U),
+                            static_cast<unsigned char>(u >> 32U),
+                            static_cast<unsigned char>(u >> 24U),
+                            static_cast<unsigned char>(u >> 16U),
+                            static_cast<unsigned char>(u >> 8U),
+                            static_cast<unsigned char>(u)};
+}
+
+boost::uuids::uuid ShardMap::NewShardUuid() {
+  uint64_t shard_id = GetHlc().logical_id;
+  return Uint64ToUuid(shard_id);
 }
 
 Hlc ShardMap::GetHlc() noexcept { return ++shard_map_version; }
@@ -286,6 +290,8 @@ HeartbeatResponse ShardMap::AssignShards(Address storage_manager, std::set<boost
   bool mutated = false;
   std::map<std::pair<boost::uuids::uuid, Hlc>, msgs::PrimaryKey> mapped_pending_splits;
   for (const auto &pending_split : pending_splits) {
+    MG_ASSERT(pending_split.shard_to_split_uuid != Uint64ToUuid(0),
+              "a shard split for an impossible UUID is being requested");
     spdlog::info("Coordinator adding pending split for shard version: {}, uuid: {} to attempt to initiate",
                  pending_split.shard_version, pending_split.shard_to_split_uuid);
     mapped_pending_splits.insert(

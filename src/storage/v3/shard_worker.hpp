@@ -157,6 +157,7 @@ class ShardWorker {
   }
 
   bool Process(RouteMessage &&route_message) {
+    spdlog::info("ShardWorker routing message to rsm {}", route_message.to.unique_id);
     auto &rsm = rsm_map_.at(route_message.to.unique_id);
 
     rsm.Handle(std::move(route_message.message), route_message.request_id, route_message.from);
@@ -210,7 +211,8 @@ class ShardWorker {
         Time next_for_uuid = rsm.Cron();
 
         // Check if shard should split
-        if (const auto split_info = rsm.ShouldSplit(); split_info) {
+        if (auto split_info = rsm.ShouldSplit(); split_info) {
+          split_info->shard_to_split_uuid = uuid;
           const auto shard_manager_addr = io_.GetAddress().ForkLocalShardManager();
           io_.Send(shard_manager_addr, 0, *split_info);
         }
