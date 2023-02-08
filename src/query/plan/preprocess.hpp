@@ -127,7 +127,7 @@ struct Expansion {
 
 struct Matching;
 
-enum class PatternFilterType { NONE, EXISTS };
+enum class PatternFilterType { MATCH, EXISTS };
 
 class PatternFilterVisitor : public ExpressionVisitor<void> {
  public:
@@ -185,7 +185,7 @@ class PatternFilterVisitor : public ExpressionVisitor<void> {
   void Visit(Coalesce &op) override{};
   void Visit(Extract &op) override{};
   void Visit(Exists &op) override;
-  void Visit(ExistsLimit &op) override{};
+  void Visit(IntegerLiteral &op) override{};
   void Visit(All &op) override{};
   void Visit(Single &op) override{};
   void Visit(Any &op) override{};
@@ -278,7 +278,7 @@ struct FilterInfo {
   /// Information for Type::Id filtering.
   std::optional<IdFilter> id_filter;
 
-  std::vector<std::shared_ptr<Matching>> matchings;
+  std::vector<Matching> matchings;
 };
 
 /// Stores information on filters used inside the @c Matching of a @c QueryPart.
@@ -399,7 +399,8 @@ struct Matching {
   /// All node and edge symbols across all expansions (from all matches).
   std::unordered_set<Symbol> expansion_symbols{};
 
-  PatternFilterType type = PatternFilterType::NONE;
+  PatternFilterType type = PatternFilterType::MATCH;
+  std::optional<Symbol> symbol;
 };
 
 /// @brief Represents a read (+ write) part of a query. Parts are split on

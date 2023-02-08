@@ -545,10 +545,10 @@ class RuleBasedPlanner {
     return std::make_unique<plan::Merge>(std::move(input_op), std::move(on_match), std::move(on_create));
   }
 
-  std::unique_ptr<LogicalOperator> GenExpand(std::unique_ptr<LogicalOperator> last_op, Expansion &expansion,
+  std::unique_ptr<LogicalOperator> GenExpand(std::unique_ptr<LogicalOperator> last_op, const Expansion &expansion,
                                              const SymbolTable &symbol_table, std::unordered_set<Symbol> &bound_symbols,
-                                             Matching &matching, AstStorage &storage, std::vector<Symbol> &new_symbols,
-                                             storage::View view) {
+                                             const Matching &matching, AstStorage &storage,
+                                             std::vector<Symbol> &new_symbols, storage::View view) {
     // If the expand symbols were already bound, then we need to indicate
     // that they exist. The Expand will then check whether the pattern holds
     // instead of writing the expansion to symbols.
@@ -688,21 +688,20 @@ class RuleBasedPlanner {
     return last_op;
   }
 
-  std::unique_ptr<LogicalOperator> MakeExistsFilter(Exists &exists, const SymbolTable &symbol_table,
+  std::unique_ptr<LogicalOperator> MakeExistsFilter(const Matching &matching, const SymbolTable &symbol_table,
                                                     AstStorage &storage,
-                                                    const std::unordered_set<Symbol> &bound_symbols,
-                                                    FilterInfo filter) {
+                                                    const std::unordered_set<Symbol> &bound_symbols) {
     std::vector<Symbol> once_symbols(bound_symbols.begin(), bound_symbols.end());
     std::unique_ptr<LogicalOperator> last_op = std::make_unique<Once>(once_symbols);
     std::vector<Symbol> new_symbols;
     std::unordered_set<Symbol> expand_symbols(bound_symbols.begin(), bound_symbols.end());
 
-    last_op = GenExpand(std::move(last_op), filter.matching->expansions[0], symbol_table, expand_symbols,
-                        *filter.matching, storage, new_symbols, storage::View::OLD);
+    last_op = GenExpand(std::move(last_op), matching.expansions[0], symbol_table, expand_symbols, matching, storage,
+                        new_symbols, storage::View::OLD);
 
     last_op = std::make_unique<Limit>(std::move(last_op), storage.Create<IntegerLiteral>(1));
 
-    last_op = std::make_unique<EvaluateComplexFilter>(std::move(last_op), symbol_table.at(exists));
+    last_op = std::make_unique<EvaluateComplexFilter>(std::move(last_op), matching.symbol.value());
 
     return last_op;
   }
@@ -712,17 +711,15 @@ class RuleBasedPlanner {
                                                                       const std::unordered_set<Symbol> &bound_symbols) {
     std::vector<std::shared_ptr<LogicalOperator>> operators;
 
-    for (auto &filter : filters) {
-      if (filter.type != FilterInfo::Type::Complex) {
-        continue;
-      }
+    for (const auto &filter : filters) {
+      for (const auto &matching : filter.matchings) {
+        if (matching.type == PatternFilterType::EXISTS) {
+          operators.emplace_back(MakeExistsFilter(matching, symbol_table, storage, bound_symbols));
+          continue;
+        }
 
-      if (auto *exists = utils::Downcast<Exists>(filter.expression)) {
-        operators.emplace_back(MakeExistsFilter(*exists, symbol_table, storage, bound_symbols, filter));
-        continue;
+        throw SemanticException("Invalid pattern filter!");
       }
-
-      throw SemanticException("Complex filter does not exist!");
     }
 
     return operators;
