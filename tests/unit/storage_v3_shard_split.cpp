@@ -388,7 +388,7 @@ TEST_F(ShardSplitTest, TestSplittingShardsWithGcDestroyOriginalShard) {
   std::unique_ptr<Shard> splitted_shard;
 
   {
-    Shard storage2{primary_label, min_pk, std::nullopt /*max_primary_key*/, schema_property_vector};
+    Shard storage2{primary_label, min_pk, std::nullopt /*max_primary_key*/, schema_property_vector, GetNextHlc()};
     auto acc = storage2.Access(GetNextHlc());
     EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(1)}, {}).HasError());
     EXPECT_FALSE(acc.CreateVertexAndValidate({}, {PropertyValue(2)}, {}).HasError());
@@ -408,15 +408,15 @@ TEST_F(ShardSplitTest, TestSplittingShardsWithGcDestroyOriginalShard) {
                      .HasError());
     acc.Commit(GetNextHlc());
 
-    auto splitted_data = storage2.PerformSplit({PropertyValue(split_value)}, 2);
-    EXPECT_EQ(splitted_data.vertices.size(), 3);
-    EXPECT_EQ(splitted_data.edges->size(), 2);
-    EXPECT_EQ(splitted_data.transactions.size(), 1);
-    EXPECT_EQ(splitted_data.label_indices.size(), 0);
-    EXPECT_EQ(splitted_data.label_property_indices.size(), 0);
+    auto splitted_data = storage2.PerformSplit({PropertyValue(split_value)}, last_hlc, GetNextHlc());
+    EXPECT_EQ(splitted_data->vertices.size(), 3);
+    EXPECT_EQ(splitted_data->edges->size(), 2);
+    EXPECT_EQ(splitted_data->transactions.size(), 1);
+    EXPECT_EQ(splitted_data->label_indices.size(), 0);
+    EXPECT_EQ(splitted_data->label_property_indices.size(), 0);
 
     // Create a new shard
-    splitted_shard = Shard::FromSplitData(std::move(splitted_data));
+    splitted_shard = Shard::FromSplitData(std::move(*splitted_data));
     // Call gc on old shard
     storage2.CollectGarbage(GetNextHlc().coordinator_wall_clock);
     // Destroy original
@@ -448,16 +448,16 @@ TEST_F(ShardSplitTest, TestSplittingShardsWithGcDestroySplittedShard) {
                    .HasError());
   acc.Commit(GetNextHlc());
 
-  auto splitted_data = storage.PerformSplit({PropertyValue(4)}, 2);
-  EXPECT_EQ(splitted_data.vertices.size(), 3);
-  EXPECT_EQ(splitted_data.edges->size(), 2);
-  EXPECT_EQ(splitted_data.transactions.size(), 1);
-  EXPECT_EQ(splitted_data.label_indices.size(), 0);
-  EXPECT_EQ(splitted_data.label_property_indices.size(), 0);
+  auto splitted_data = storage.PerformSplit({PropertyValue(4)}, last_hlc, GetNextHlc());
+  EXPECT_EQ(splitted_data->vertices.size(), 3);
+  EXPECT_EQ(splitted_data->edges->size(), 2);
+  EXPECT_EQ(splitted_data->transactions.size(), 1);
+  EXPECT_EQ(splitted_data->label_indices.size(), 0);
+  EXPECT_EQ(splitted_data->label_property_indices.size(), 0);
 
   {
     // Create a new shard
-    auto splitted_shard = Shard::FromSplitData(std::move(splitted_data));
+    auto splitted_shard = Shard::FromSplitData(std::move(*splitted_data));
     // Call gc on new shard
     splitted_shard->CollectGarbage(GetNextHlc().coordinator_wall_clock);
     // Destroy splitted shard

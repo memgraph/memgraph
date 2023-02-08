@@ -1120,7 +1120,6 @@ std::optional<SuggestedSplitInfo> Shard::ShouldSplit() const noexcept {
 
 std::optional<SplitData> Shard::PerformSplit(const PrimaryKey &split_key, const Hlc old_shard_version,
                                              const Hlc new_shard_version) {
-  MG_ASSERT(shard_version_ >= old_shard_version, "Shard versions do not match!");
   if (old_shard_version < shard_version_) {
     spdlog::warn("Curent shard version {} is bigger thasn given {}", shard_version_, old_shard_version);
     return std::nullopt;
