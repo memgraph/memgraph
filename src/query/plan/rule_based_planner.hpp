@@ -700,7 +700,8 @@ class RuleBasedPlanner {
     last_op = GenExpand(std::move(last_op), filter.matching->expansions[0], symbol_table, expand_symbols,
                         *filter.matching, storage, new_symbols, storage::View::OLD);
 
-    last_op = std::make_unique<Limit>(std::move(last_op), exists.limit_expression_);
+    last_op = std::make_unique<Limit>(std::move(last_op), storage.Create<IntegerLiteral>());
+
     last_op = std::make_unique<EvaluateComplexFilter>(std::move(last_op), symbol_table.at(exists));
 
     return last_op;
