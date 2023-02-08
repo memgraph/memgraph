@@ -234,6 +234,9 @@ struct ShardMap {
   /// the CONSENSUS_PARTICIPANT state. Note that this does not necessarily mean that
   /// there is also an active leader for each shard.
   bool ClusterInitialized() const;
+
+  /// Returns the current count of all shards that are fully initialized.
+  size_t InitializedShards() const;
 };
 
 }  // namespace memgraph::coordinator

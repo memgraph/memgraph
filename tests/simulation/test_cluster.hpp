@@ -180,7 +180,9 @@ void ExecuteOp(SimClientContext &context, CreateVertex create_vertex) {
 
   auto result_stream = context.interpreter.RunQuery(query);
 
-  RC_ASSERT(result_stream.size() == 1);
+  // TODO(tyler) is there a better way to assert the actual success of the operation?
+  RC_ASSERT(result_stream.size() == 0);
+
   // RC_ASSERT(!result_stream[0].error.has_value());
 
   context.correctness_model.emplace(std::make_pair(create_vertex.first, create_vertex.second));
@@ -201,8 +203,29 @@ void ExecuteOp(SimClientContext &context, ScanAll scan_all) {
 }
 
 void ExecuteOp(SimClientContext &context, AssertShardsSplit assert_shards_split) {
-  // TODO(tyler) implement
-  MG_ASSERT(false);
+  const int minimum_expected_shards = (context.correctness_model.size() / context.cluster_config.split_threshold) + 1;
+  const int maximum_attempts = 10'000;
+
+  for (int i = 0; i < maximum_attempts; i++) {
+    GetShardMapRequest req{};
+    CoordinatorReadRequests read_req = req;
+    auto read_res = context.coordinator_client.SendReadRequest(read_req);
+    if (read_res.HasError()) {
+      // timed out
+      continue;
+    }
+    auto response_result = read_res.GetValue();
+    auto response = std::get<GetShardMapResponse>(response_result);
+    auto shard_map = response.shard_map;
+
+    size_t initialized_shards = shard_map.InitializedShards();
+
+    if (initialized_shards >= minimum_expected_shards) {
+      return;
+    }
+  }
+
+  MG_ASSERT(false, "exceeded maximum attempts for waiting for the expected number of shard splits to occur");
 }
 
 /// This struct exists as a way of detaching

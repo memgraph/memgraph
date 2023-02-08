@@ -688,4 +688,26 @@ bool ShardMap::ClusterInitialized() const {
   return true;
 }
 
+size_t ShardMap::InitializedShards() const {
+  size_t count = 0;
+
+  for (const auto &[label_id, label_space] : label_spaces) {
+    for (const auto &[low_key, shard] : label_space.shards) {
+      if (shard.peers.size() < label_space.replication_factor) {
+        continue;
+      }
+
+      for (const auto &peer_metadata : shard.peers) {
+        if (peer_metadata.status != Status::CONSENSUS_PARTICIPANT) {
+          continue;
+        }
+      }
+
+      count += 1;
+    }
+  }
+
+  return count;
+}
+
 }  // namespace memgraph::coordinator
