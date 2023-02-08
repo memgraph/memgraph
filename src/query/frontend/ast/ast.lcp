@@ -2686,12 +2686,13 @@ cpp<#
   (:serialize (:slk))
   (:clone))
 
-(lcp:define-class exists-limit (expression)
-  ()
+(lcp:define-class integer-literal (expression)
+  ((literal :int32_t :initval -1 :scope :public
+    :documentation "Constant value to return from this expression"))
 
   (:public
     #>cpp
-    ExistsLimit() = default;
+    IntegerLiteral() = default;
 
     DEFVISITABLE(ExpressionVisitor<TypedValue>);
     DEFVISITABLE(ExpressionVisitor<void>);
@@ -2699,6 +2700,10 @@ cpp<#
       visitor.PreVisit(*this);
       return visitor.PostVisit(*this);
     }
+    cpp<#)
+  (:protected
+    #>cpp
+    IntegerLiteral(int32_t literal) : literal_(literal) {}
     cpp<#)
   (:private
     #>cpp
