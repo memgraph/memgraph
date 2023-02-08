@@ -332,7 +332,10 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(PropertyLookup &property_lookup) override {
-    auto expression_result = property_lookup.expression_->Accept(*this);
+    ReferenceExpressionEvaluator referenceExpressionEvaluator(frame_, symbol_table_, ctx_, dba_, view_);
+
+    auto *expression_result = property_lookup.expression_->Accept(referenceExpressionEvaluator);
+    // auto expression_result = property_lookup.expression_->Accept(*this);
     auto maybe_date = [this](const auto &date, const auto &prop_name) -> std::optional<TypedValue> {
       if (prop_name == "year") {
         return TypedValue(date.year, ctx_->memory);
@@ -406,42 +409,42 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
       return std::nullopt;
     };
-    switch (expression_result.type()) {
+    switch (expression_result->type()) {
       case TypedValue::Type::Null:
         return TypedValue(ctx_->memory);
       case TypedValue::Type::Vertex:
-        return TypedValue(GetProperty(expression_result.ValueVertex(), property_lookup.property_), ctx_->memory);
+        return TypedValue(GetProperty(expression_result->ValueVertex(), property_lookup.property_), ctx_->memory);
       case TypedValue::Type::Edge:
-        return TypedValue(GetProperty(expression_result.ValueEdge(), property_lookup.property_), ctx_->memory);
+        return TypedValue(GetProperty(expression_result->ValueEdge(), property_lookup.property_), ctx_->memory);
       case TypedValue::Type::Map: {
         // NOTE: Take non-const reference to map, so that we can move out the
         // looked-up element as the result.
-        auto &map = expression_result.ValueMap();
+        auto &map = expression_result->ValueMap();
         auto found = map.find(property_lookup.property_.name.c_str());
         if (found == map.end()) return TypedValue(ctx_->memory);
         // NOTE: Explicit move is needed, so that we return the move constructed
         // value and preserve the correct MemoryResource.
-        return std::move(found->second);
+        return TypedValue(found->second, ctx_->memory);
       }
       case TypedValue::Type::Duration: {
         const auto &prop_name = property_lookup.property_.name;
-        const auto &dur = expression_result.ValueDuration();
+        const auto &dur = expression_result->ValueDuration();
         if (auto dur_field = maybe_duration(dur, prop_name); dur_field) {
-          return std::move(*dur_field);
+          return TypedValue(*dur_field, ctx_->memory);
         }
         throw QueryRuntimeException("Invalid property name {} for Duration", prop_name);
       }
       case TypedValue::Type::Date: {
         const auto &prop_name = property_lookup.property_.name;
-        const auto &date = expression_result.ValueDate();
+        const auto &date = expression_result->ValueDate();
         if (auto date_field = maybe_date(date, prop_name); date_field) {
-          return std::move(*date_field);
+          return TypedValue(*date_field, ctx_->memory);
         }
         throw QueryRuntimeException("Invalid property name {} for Date", prop_name);
       }
       case TypedValue::Type::LocalTime: {
         const auto &prop_name = property_lookup.property_.name;
-        const auto &lt = expression_result.ValueLocalTime();
+        const auto &lt = expression_result->ValueLocalTime();
         if (auto lt_field = maybe_local_time(lt, prop_name); lt_field) {
           return std::move(*lt_field);
         }
@@ -449,20 +452,20 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
       case TypedValue::Type::LocalDateTime: {
         const auto &prop_name = property_lookup.property_.name;
-        const auto &ldt = expression_result.ValueLocalDateTime();
+        const auto &ldt = expression_result->ValueLocalDateTime();
         if (auto date_field = maybe_date(ldt.date, prop_name); date_field) {
           return std::move(*date_field);
         }
         if (auto lt_field = maybe_local_time(ldt.local_time, prop_name); lt_field) {
-          return std::move(*lt_field);
+          return TypedValue(*lt_field, ctx_->memory);
         }
         throw QueryRuntimeException("Invalid property name {} for LocalDateTime", prop_name);
       }
       case TypedValue::Type::Graph: {
         const auto &prop_name = property_lookup.property_.name;
-        const auto &graph = expression_result.ValueGraph();
+        const auto &graph = expression_result->ValueGraph();
         if (auto graph_field = maybe_graph(graph, prop_name); graph_field) {
-          return std::move(*graph_field);
+          return TypedValue(*graph_field, ctx_->memory);
         }
         throw QueryRuntimeException("Invalid property name {} for Graph", prop_name);
       }
