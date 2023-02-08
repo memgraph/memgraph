@@ -131,7 +131,7 @@ def main():
                         )
                         created = 0
         f.write(
-            "] AS props MATCH (file:File {uuid:props.fileUuid}), (identity:Identity {uuid: props.identityUuid}) CREATE (permission:Permission {uuid: props.permUuid, name: props.permName}) CREATE (permission)-[: IS_FOR_FILE]->(file) CREATE (permission)-[: IS_FOR_IDENTITY]->(identity);"
+            "] AS props MATCH (file:File {uuid:props.fileUuid}), (identity:Identity {uuid: props.identityUuid}) CREATE (permission:Permission {uuid: props.permUuid, name: props.permName}) CREATE (permission)-[: IS_FOR_FILE]->(file) CREATE (permission)-[: IS_FOR_IDENTITY]->(identity);\n"
         )
 
 
