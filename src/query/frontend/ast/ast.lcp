@@ -2686,27 +2686,6 @@ cpp<#
   (:serialize (:slk))
   (:clone))
 
-(lcp:define-class exists-limit (expression)
-  ()
-
-  (:public
-    #>cpp
-    ExistsLimit() = default;
-
-    DEFVISITABLE(ExpressionVisitor<TypedValue>);
-    DEFVISITABLE(ExpressionVisitor<void>);
-    bool Accept(HierarchicalTreeVisitor &visitor) override {
-      visitor.PreVisit(*this);
-      return visitor.PostVisit(*this);
-    }
-    cpp<#)
-  (:private
-    #>cpp
-    friend class AstStorage;
-    cpp<#)
-  (:serialize (:slk))
-  (:clone))
-
 (lcp:define-class exists (expression)
   ((pattern "Pattern *" :initval "nullptr" :scope :public
              :slk-save #'slk-save-ast-pointer
