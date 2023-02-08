@@ -353,7 +353,7 @@ class AccessControl(Dataset):
 
     def benchmark__create__vertex(self):
         self.next_value_idx += 1
-        query = (f"CREATE (:File {{uuid: {self.next_value_idx}}});", {})
+        query = ("CREATE (:File {uuid: $uuid})", {"uuid": self.next_value_idx})
         return query
 
     def benchmark__create__edges(self):
