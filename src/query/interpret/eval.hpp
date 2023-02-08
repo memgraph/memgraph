@@ -549,7 +549,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   TypedValue Visit(Exists &exists) override { return TypedValue(frame_->at(symbol_table_->at(exists)), ctx_->memory); }
 
-  TypedValue Visit(ExistsLimit &exists_limit) override { return TypedValue(1, ctx_->memory); }
+  TypedValue Visit(IntegerLiteral &integer_literal) override {
+    return TypedValue(integer_literal.literal_, ctx_->memory);
+  }
 
   TypedValue Visit(All &all) override {
     auto list_value = all.list_expression_->Accept(*this);
