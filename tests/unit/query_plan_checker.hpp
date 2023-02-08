@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -79,6 +79,7 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(Skip);
   PRE_VISIT(Limit);
   PRE_VISIT(OrderBy);
+  PRE_VISIT(EvaluatePatternFilter);
   bool PreVisit(Merge &op) override {
     CheckOp(op);
     op.input()->Accept(*this);
@@ -141,7 +142,6 @@ using ExpectScanAll = OpChecker<ScanAll>;
 using ExpectScanAllByLabel = OpChecker<ScanAllByLabel>;
 using ExpectScanAllById = OpChecker<ScanAllById>;
 using ExpectExpand = OpChecker<Expand>;
-using ExpectFilter = OpChecker<Filter>;
 using ExpectConstructNamedPath = OpChecker<ConstructNamedPath>;
 using ExpectProduce = OpChecker<Produce>;
 using ExpectEmptyResult = OpChecker<EmptyResult>;
@@ -156,6 +156,22 @@ using ExpectLimit = OpChecker<Limit>;
 using ExpectOrderBy = OpChecker<OrderBy>;
 using ExpectUnwind = OpChecker<Unwind>;
 using ExpectDistinct = OpChecker<Distinct>;
+using ExpectEvaluatePatternFilter = OpChecker<EvaluatePatternFilter>;
+
+class ExpectFilter : public OpChecker<Filter> {
+ public:
+  ExpectFilter(const std::list<BaseOpChecker *> &pattern_filter = {}) : pattern_filter_(pattern_filter) {}
+
+  void ExpectOp(Filter &filter, const SymbolTable &symbol_table) override {
+    PlanChecker check_updates(pattern_filter_, symbol_table);
+
+    if (filter.pattern_filter_) {
+      filter.pattern_filter_->Accept(check_updates);
+    }
+  }
+
+  std::list<BaseOpChecker *> pattern_filter_;
+};
 
 class ExpectForeach : public OpChecker<Foreach> {
  public:

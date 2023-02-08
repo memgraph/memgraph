@@ -2255,9 +2255,9 @@ std::vector<Symbol> ConstructNamedPath::ModifiedSymbols(const SymbolTable &table
   return symbols;
 }
 
-Filter::Filter(const std::shared_ptr<LogicalOperator> &input, const std::shared_ptr<LogicalOperator> &complex_filter,
+Filter::Filter(const std::shared_ptr<LogicalOperator> &input, const std::shared_ptr<LogicalOperator> &pattern_filter,
                Expression *expression)
-    : input_(input ? input : std::make_shared<Once>()), complex_filter_(complex_filter), expression_(expression) {}
+    : input_(input ? input : std::make_shared<Once>()), pattern_filter_(pattern_filter), expression_(expression) {}
 
 ACCEPT_WITH_INPUT(Filter)
 

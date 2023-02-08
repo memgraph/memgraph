@@ -569,11 +569,11 @@ class RuleBasedPlanner {
   std::unique_ptr<LogicalOperator> GenFilters(std::unique_ptr<LogicalOperator> last_op,
                                               const std::unordered_set<Symbol> &bound_symbols, Filters &filters,
                                               AstStorage &storage, const SymbolTable &symbol_table) {
-    std::unique_ptr<LogicalOperator> complex_filter =
-        ExtractComplexFilters(filters, storage, symbol_table, bound_symbols);
+    std::unique_ptr<LogicalOperator> pattern_filter =
+        ExtractPatternFilters(filters, storage, symbol_table, bound_symbols);
     auto *filter_expr = impl::ExtractFilters(bound_symbols, filters, storage);
     if (filter_expr) {
-      last_op = std::make_unique<Filter>(std::move(last_op), std::move(complex_filter), filter_expr);
+      last_op = std::make_unique<Filter>(std::move(last_op), std::move(pattern_filter), filter_expr);
     }
     return last_op;
   }
@@ -607,7 +607,7 @@ class RuleBasedPlanner {
     return last_op;
   }
 
-  std::unique_ptr<LogicalOperator> ExtractComplexFilters(Filters &filters, AstStorage &storage,
+  std::unique_ptr<LogicalOperator> ExtractPatternFilters(Filters &filters, AstStorage &storage,
                                                          const SymbolTable &symbol_table,
                                                          const std::unordered_set<Symbol> &bound_symbols) {
     for (auto &filter : filters) {
@@ -619,7 +619,7 @@ class RuleBasedPlanner {
         return MakeExistsFilter(*exists, storage, symbol_table, bound_symbols);
       }
 
-      throw SemanticException("Complex filter does not exist!");
+      throw SemanticException("Pattern filter does not exist!");
     }
 
     return nullptr;
