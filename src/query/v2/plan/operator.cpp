@@ -1341,7 +1341,7 @@ bool IsExpansionOk(Frame &frame, const Symbol &expand_symbol, const std::vector<
   return std::ranges::all_of(previous_symbols,
                              [&frame, &expand_value = frame[expand_symbol]](const auto &previous_symbol) {
                                const auto &previous_value = frame[previous_symbol];
-                               return ContainsSameEdge(previous_value, expand_value);
+                               return !ContainsSameEdge(previous_value, expand_value);
                              });
 }
 
