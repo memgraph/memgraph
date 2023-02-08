@@ -1570,6 +1570,7 @@ edge lists).")
      EdgeUniquenessFilterCursor(const EdgeUniquenessFilter &,
                                 utils::MemoryResource *);
      bool Pull(Frame &, ExecutionContext &) override;
+     bool PullMultiple(MultiFrame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
