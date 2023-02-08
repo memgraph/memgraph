@@ -611,7 +611,7 @@ class RuleBasedPlanner {
                                                          const SymbolTable &symbol_table,
                                                          const std::unordered_set<Symbol> &bound_symbols) {
     for (auto &filter : filters) {
-      if (filter.type != FilterInfo::Type::Complex) {
+      if (filter.type != FilterInfo::Type::Pattern) {
         continue;
       }
 
