@@ -231,8 +231,6 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(SubscriptOperator &list_indexing) override {
-    // auto start = std::chrono::steady_clock::now();
-
     ReferenceExpressionEvaluator referenceExpressionEvaluator(frame_, symbol_table_, ctx_, dba_, view_);
 
     auto *lhs = list_indexing.expression1_->Accept(referenceExpressionEvaluator);
@@ -255,14 +253,6 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       if (index_int >= static_cast<int64_t>(list.size()) || index_int < 0) return TypedValue(ctx_->memory);
       // NOTE: Explicit move is needed, so that we return the move constructed
       // value and preserve the correct MemoryResource.
-      // auto end = std::chrono::steady_clock::now();
-      // std::chrono::duration<double> dif = end - start;
-      // total2 += dif;
-
-      // if (total2 > new_print2) {
-      //   std::cout << "Time difference visit = " << total2.count() << "[s]" << std::endl;
-      //   new_print2 += static_cast<std::chrono::duration<double>>(1.0);
-      // }
       return TypedValue(list[index_int]);
     }
 

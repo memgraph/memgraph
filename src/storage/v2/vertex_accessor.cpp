@@ -245,8 +245,8 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   return std::move(current_value);
 }
 
-Result<std::vector<storage::PropertyValue>> VertexAccessor::SetBatchProperties(
-    std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+Result<std::vector<storage::PropertyValue>> VertexAccessor::SetProperties(
+    std::vector<std::pair<storage::PropertyId, storage::PropertyValue>> &properties) {
   // Be careful when calling this function
   // It will set properties in batch, without checking if property already exists
 

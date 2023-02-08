@@ -212,12 +212,10 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
   // TODO: PropsSetChecked allocates a PropertyValue, make it use context.memory
   // when we update PropertyValue with custom allocator.
 
-  // auto start = std::chrono::steady_clock::now();
-
-  std::map<storage::PropertyId, storage::PropertyValue> properties;
+  std::vector<std::pair<storage::PropertyId, storage::PropertyValue>> properties;
   if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info.properties)) {
     for (const auto &[key, value_expression] : *node_info_properties) {
-      properties.emplace(key, value_expression->Accept(evaluator));
+      properties.emplace_back(key, value_expression->Accept(evaluator));
       // PropsSetChecked(&new_node, key, );
     }
     new_node.SetProperties(properties);
@@ -228,14 +226,6 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
       PropsSetChecked(&new_node, property_id, value);
     }
   }
-  // auto end = std::chrono::steady_clock::now();
-  // std::chrono::duration<double> dif = end - start;
-  // total += dif;
-
-  // if (total > new_print) {
-  //   std::cout << "Time difference props set checked = " << total.count() << "[s]" << std::endl;
-  //   new_print += static_cast<std::chrono::duration<double>>(10.0);
-  // }
 
   (*frame)[node_info.symbol] = new_node;
   return (*frame)[node_info.symbol].ValueVertex();

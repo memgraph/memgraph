@@ -1167,7 +1167,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
 }
 
 // use this function only when inserting new properties
-bool PropertyStore::SetProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+bool PropertyStore::SetProperties(std::vector<std::pair<storage::PropertyId, storage::PropertyValue>> &properties) {
   uint64_t size;
   uint8_t *data;
   std::tie(size, data) = GetSizeData(buffer_);
