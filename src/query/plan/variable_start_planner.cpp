@@ -211,12 +211,21 @@ CartesianProduct<VaryMatchingStart> VaryMultiMatchingStarts(const std::vector<Ma
 
 CartesianProduct<VaryMatchingStart> VaryFilterMatchingStarts(const Matching &matching,
                                                              const SymbolTable &symbol_table) {
-  const auto pattern_filters = matching.filters.PatternFilters();
   std::vector<VaryMatchingStart> variants;
-  variants.reserve(pattern_filters.size());
 
-  for (const auto &filter : pattern_filters) {
-    variants.emplace_back(VaryMatchingStart(*filter.matching, symbol_table));
+  auto i = 0;
+  for (const auto &filter : matching.filters) {
+    for (const auto &filter_matching : filter.matchings) {
+      i += 1;
+    }
+  }
+
+  variants.reserve(i);
+
+  for (const auto &filter : matching.filters) {
+    for (const auto &filter_matching : filter.matchings) {
+      variants.emplace_back(VaryMatchingStart(filter_matching, symbol_table));
+    }
   }
 
   return MakeCartesianProduct(std::move(variants));
@@ -325,14 +334,19 @@ void VaryQueryPartMatching::iterator::SetCurrentQueryPart() {
              "a variation");
 
   auto filter_matchings = *filter_it_;
-  auto i = 0;
+  auto iterator_cnt = 0;
   for (auto &filter : current_query_part_.matching.filters) {
-    if (filter.type != FilterInfo::Type::Complex) {
-      continue;
+    auto matchings_size = filter.matchings.size();
+
+    std::vector<Matching> new_matchings;
+    new_matchings.reserve(matchings_size);
+
+    for (auto i = 0; i < matchings_size; i++) {
+      new_matchings.emplace_back(filter_matchings[iterator_cnt]);
+      iterator_cnt++;
     }
 
-    filter.matching = std::make_shared<Matching>(filter_matchings[i]);
-    i++;
+    filter.matchings = std::move(new_matchings);
   }
 }
 
