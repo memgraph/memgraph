@@ -52,7 +52,7 @@ target_link_libraries(memgraph ${mg_single_node_v2_libs})
 # NOTE: `include/mg_procedure.syms` describes a pattern match for symbols which
 # should be dynamically exported, so that `dlopen` can correctly link the
 # symbols in custom procedure module libraries.
-target_link_libraries(memgraph "-Wl,--dynamic-list=${CMAKE_SOURCE_DIR}/include/mg_procedure.syms")
+target_link_libraries(memgraph "-Wl,--dynamic-list=${CMAKE_SOURCE_DIR}/include/mg_procedure.syms" "-lprofiler")
 set_target_properties(memgraph PROPERTIES
 
         # Set the executable output name to include version information.
