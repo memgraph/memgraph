@@ -386,12 +386,12 @@ Shard::~Shard() {}
 
 std::unique_ptr<Shard> Shard::FromSplitData(SplitData &&split_data) {
   if (split_data.config.items.properties_on_edges) [[likely]] {
-    return std::make_unique<Shard>(split_data.primary_label, split_data.min_primary_key, split_data.min_primary_key,
+    return std::make_unique<Shard>(split_data.primary_label, split_data.min_primary_key, split_data.max_primary_key,
                                    split_data.schema, std::move(split_data.vertices), std::move(*split_data.edges),
                                    std::move(split_data.transactions), split_data.config, split_data.id_to_name,
                                    split_data.shard_version);
   }
-  return std::make_unique<Shard>(split_data.primary_label, split_data.min_primary_key, split_data.min_primary_key,
+  return std::make_unique<Shard>(split_data.primary_label, split_data.min_primary_key, split_data.max_primary_key,
                                  split_data.schema, std::move(split_data.vertices), std::move(split_data.transactions),
                                  split_data.config, split_data.id_to_name, split_data.shard_version);
 }
@@ -1115,8 +1115,9 @@ std::optional<SplitInfo> Shard::ShouldSplit() const noexcept {
 
 SplitData Shard::PerformSplit(const PrimaryKey &split_key, const uint64_t shard_version) {
   shard_version_ = shard_version;
+  const auto old_max_key = max_primary_key_;
   max_primary_key_ = split_key;
-  return shard_splitter_.SplitShard(split_key, max_primary_key_, shard_version);
+  return shard_splitter_.SplitShard(split_key, old_max_key, shard_version);
 }
 
 bool Shard::IsVertexBelongToShard(const VertexId &vertex_id) const {

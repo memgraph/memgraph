@@ -64,11 +64,12 @@ class ShardSplitBenchmark : public ::benchmark::Fixture {
 };
 
 BENCHMARK_DEFINE_F(ShardSplitBenchmark, BigDataSplit)(::benchmark::State &state) {
+  const auto number_of_vertices{state.range(0)};
   std::random_device r;
   std::default_random_engine e1(r());
-  std::uniform_int_distribution<int> uniform_dist(0, state.range(0));
+  std::uniform_int_distribution<int> uniform_dist(0, number_of_vertices);
 
-  for (int64_t i{0}; i < state.range(0); ++i) {
+  for (int64_t i{0}; i < number_of_vertices; ++i) {
     auto acc = storage->Access(GetNextHlc());
     MG_ASSERT(acc.CreateVertexAndValidate({secondary_label}, PrimaryKey{PropertyValue(i)},
                                           {{secondary_property, PropertyValue(i)}})
@@ -86,16 +87,17 @@ BENCHMARK_DEFINE_F(ShardSplitBenchmark, BigDataSplit)(::benchmark::State &state)
     acc.Commit(GetNextHlc());
   }
   for (auto _ : state) {
-    auto data = storage->PerformSplit(PrimaryKey{PropertyValue{state.range(0) / 2}}, 2);
+    auto data = storage->PerformSplit(PrimaryKey{PropertyValue{number_of_vertices / 2}}, 2);
   }
 }
 
 BENCHMARK_DEFINE_F(ShardSplitBenchmark, BigDataSplitWithGc)(::benchmark::State &state) {
+  const auto number_of_vertices{state.range(0)};
   std::random_device r;
   std::default_random_engine e1(r());
-  std::uniform_int_distribution<int> uniform_dist(0, state.range(0));
+  std::uniform_int_distribution<int> uniform_dist(0, number_of_vertices);
 
-  for (int64_t i{0}; i < state.range(0); ++i) {
+  for (int64_t i{0}; i < number_of_vertices; ++i) {
     auto acc = storage->Access(GetNextHlc());
     MG_ASSERT(acc.CreateVertexAndValidate({secondary_label}, PrimaryKey{PropertyValue(i)},
                                           {{secondary_property, PropertyValue(i)}})
@@ -114,17 +116,20 @@ BENCHMARK_DEFINE_F(ShardSplitBenchmark, BigDataSplitWithGc)(::benchmark::State &
   }
   storage->CollectGarbage(GetNextHlc().coordinator_wall_clock);
   for (auto _ : state) {
-    auto data = storage->PerformSplit(PrimaryKey{PropertyValue{state.range(0) / 2}}, 2);
+    auto data = storage->PerformSplit(PrimaryKey{PropertyValue{number_of_vertices / 2}}, 2);
   }
 }
 
 BENCHMARK_DEFINE_F(ShardSplitBenchmark, BigDataSplitWithFewTransactions)(::benchmark::State &state) {
+  const auto number_of_vertices = state.range(0);
+  const auto number_of_edges = state.range(1);
+  const auto number_of_transactions = state.range(2);
   std::random_device r;
   std::default_random_engine e1(r());
-  std::uniform_int_distribution<int> uniform_dist(0, state.range(0));
+  std::uniform_int_distribution<int> uniform_dist(0, number_of_vertices);
 
-  const auto max_transactions_needed = std::max(state.range(0), state.range(1));
-  for (int64_t vertex_counter{state.range(0)}, edge_counter{state.range(1)}, i{0};
+  const auto max_transactions_needed = std::max(number_of_vertices, number_of_edges);
+  for (int64_t vertex_counter{number_of_vertices}, edge_counter{number_of_edges}, i{0};
        vertex_counter > 0 || edge_counter > 0; --vertex_counter, --edge_counter, ++i) {
     auto acc = storage->Access(GetNextHlc());
     if (vertex_counter > 0) {
@@ -132,11 +137,10 @@ BENCHMARK_DEFINE_F(ShardSplitBenchmark, BigDataSplitWithFewTransactions)(::bench
                                             {{secondary_property, PropertyValue(i)}})
                     .HasValue(),
                 "Failed creating with pk {}", i);
-      ++i;
     }
     if (edge_counter > 0 && i > 1) {
-      const auto vtx1 = uniform_dist(e1) % i;
-      const auto vtx2 = uniform_dist(e1) % i;
+      const auto vtx1 = uniform_dist(e1) % std::min(i, number_of_vertices);
+      const auto vtx2 = uniform_dist(e1) % std::min(i, number_of_vertices);
 
       MG_ASSERT(acc.CreateEdge(VertexId{primary_label, {PropertyValue(vtx1)}},
                                VertexId{primary_label, {PropertyValue(vtx2)}}, edge_type_id, Gid::FromUint(i))
@@ -145,14 +149,14 @@ BENCHMARK_DEFINE_F(ShardSplitBenchmark, BigDataSplitWithFewTransactions)(::bench
     }
 
     acc.Commit(GetNextHlc());
-    if (i >= max_transactions_needed - state.range(2)) {
+    if (i == max_transactions_needed - number_of_transactions) {
       storage->CollectGarbage(GetNextHlc().coordinator_wall_clock);
     }
   }
 
   for (auto _ : state) {
     // Don't create shard since shard deallocation can take some time as well
-    auto data = storage->PerformSplit(PrimaryKey{PropertyValue{state.range(0) / 2}}, 2);
+    auto data = storage->PerformSplit(PrimaryKey{PropertyValue{number_of_vertices / 2}}, 2);
   }
 }
 
@@ -161,7 +165,7 @@ BENCHMARK_DEFINE_F(ShardSplitBenchmark, BigDataSplitWithFewTransactions)(::bench
 // This run is pessimistic, number of vertices corresponds with number if transactions
 BENCHMARK_REGISTER_F(ShardSplitBenchmark, BigDataSplit)
     ->RangeMultiplier(10)
-    ->Range(100'000, 1'000'000)
+    ->Range(100'000, 100'000)
     ->Unit(::benchmark::kMillisecond);
 
 // Range:
