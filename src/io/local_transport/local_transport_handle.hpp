@@ -31,7 +31,7 @@ class LocalTransportHandle {
   mutable std::condition_variable cv_;
   bool should_shut_down_ = false;
   MessageHistogramCollector histograms_;
-  RequestId request_id_counter_ = 0;
+  RequestId request_id_counter_ = 1;
 
   // the responses to requests that are being waited on
   std::map<PromiseKey, DeadlineAndOpaquePromise> promises_;
@@ -156,7 +156,7 @@ class LocalTransportHandle {
     const auto now = Now();
     const Time deadline = now + timeout;
 
-    RequestId request_id = 0;
+    RequestId request_id;
     {
       std::unique_lock<std::mutex> lock(mu_);
 

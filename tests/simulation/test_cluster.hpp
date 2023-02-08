@@ -208,6 +208,8 @@ void ExecuteOp(SimClientContext &context, AssertShardsSplit assert_shards_split)
     initialized_shards = shard_map.InitializedShards();
 
     if (initialized_shards >= minimum_expected_shards) {
+      MG_ASSERT(initialized_shards < 3, "just kidding, this is great, we now have {} initialized shards",
+                initialized_shards);
       return;
     }
   }

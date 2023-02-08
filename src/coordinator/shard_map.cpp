@@ -172,31 +172,6 @@ ShardMap ShardMap::Parse(std::istream &input_stream) {
         shard_map.InitializeNewLabel(primary_label, schema, default_replication_factor, default_split_threshold, hlc)
             .has_value(),
         "Cannot initialize new label: {}", primary_label);
-
-    const auto number_of_split_points = read_size();
-    spdlog::debug("Reading {} split points", number_of_split_points);
-
-    [[maybe_unused]] const auto remainder_from_last_line = read_line();
-    for (auto split_point_index = 0; split_point_index < number_of_split_points; ++split_point_index) {
-      const auto line = read_line();
-      spdlog::debug("Read split point '{}'", line);
-      MG_ASSERT(line.front() == '[', "Invalid split file format!");
-      MG_ASSERT(line.back() == ']', "Invalid split file format!");
-      std::string_view line_view{line};
-      line_view.remove_prefix(1);
-      line_view.remove_suffix(1);
-      static constexpr std::string_view kDelimiter{","};
-      auto pk_values_as_text = utils::Split(line_view, kDelimiter);
-      std::vector<PropertyValue> pk;
-      pk.reserve(number_of_primary_properties);
-      MG_ASSERT(pk_values_as_text.size() == number_of_primary_properties,
-                "Split point contains invalid number of values '{}'", line);
-
-      for (auto property_index = 0; property_index < number_of_primary_properties; ++property_index) {
-        pk.push_back(parse_property_value(std::move(pk_values_as_text[property_index]), schema[property_index].type));
-      }
-      shard_map.SplitShard(shard_map.GetHlc(), shard_map.labels.at(primary_label), pk);
-    }
   }
 
   return shard_map;
@@ -362,6 +337,7 @@ HeartbeatResponse ShardMap::AssignShards(Address storage_manager, std::set<boost
             uuid_mapping.emplace(peer_metadata2.split_from, peer_metadata2.address.unique_id);
           }
 
+          MG_ASSERT(false, "adding a shard to split :)");
           ret.shards_to_split.push_back(ShardToSplit{
               .split_key = low_key,
               // .old_shard_version = shard.previous_version,
@@ -382,6 +358,7 @@ HeartbeatResponse ShardMap::AssignShards(Address storage_manager, std::set<boost
             spdlog::info("Coordinator received split request while split is happening!");
             continue;
           }
+          MG_ASSERT(false, "beginning split from coordinator perspective :)");
           spdlog::info("Coordinator beginning new split process after receiving a pending split");
           shard.pending_split = msgs::SuggestedSplitInfo{.shard_to_split_uuid = pending_split->first.first,
                                                          .split_key = pending_split->second,
@@ -466,42 +443,6 @@ HeartbeatResponse ShardMap::AssignShards(Address storage_manager, std::set<boost
   }
 
   return ret;
-}
-
-bool ShardMap::SplitShard(Hlc previous_shard_map_version, LabelId label_id, const PrimaryKey &key) {
-  if (previous_shard_map_version != shard_map_version || !label_spaces.contains(label_id)) {
-    return false;
-  }
-
-  auto &label_space = label_spaces.at(label_id);
-  auto &shards_in_map = label_space.shards;
-
-  MG_ASSERT(!shards_in_map.empty());
-  MG_ASSERT(!shards_in_map.contains(key));
-
-  // Finding the ShardMetadata that the new PrimaryKey should map to.
-  ShardMetadata duplicated_shard = GetShardForKey(label_id, key);
-
-  std::map<boost::uuids::uuid, boost::uuids::uuid> split_mapping = {};
-
-  for (auto &peer_metadata : duplicated_shard.peers) {
-    peer_metadata.status = Status::PENDING_SPLIT;
-    peer_metadata.split_from = peer_metadata.address.unique_id;
-
-    auto new_uuid = NewShardUuid();
-
-    // store new uuid for the right side of each shard
-    split_mapping.emplace(peer_metadata.address.unique_id, new_uuid);
-
-    peer_metadata.address.unique_id = new_uuid;
-  }
-
-  // Apply the split
-  shards_in_map[key] = duplicated_shard;
-
-  IncrementShardMapVersion();
-
-  return true;
 }
 
 std::optional<LabelId> ShardMap::InitializeNewLabel(std::string label_name, std::vector<SchemaProperty> schema,

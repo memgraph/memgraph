@@ -59,7 +59,7 @@ class SimulatorHandle {
   std::uniform_int_distribution<int> drop_distrib_{0, 99};
   SimulatorConfig config_;
   MessageHistogramCollector histograms_;
-  RequestId request_id_counter_{0};
+  RequestId request_id_counter_{1};
 
   bool TimeoutPromisesPastDeadline() {
     bool timed_anything_out = false;

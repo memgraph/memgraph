@@ -414,13 +414,17 @@ class Raft {
         const PendingClientRequest client_request = std::move(leader.pending_client_requests.at(apply_index));
         leader.pending_client_requests.erase(apply_index);
 
-        const WriteResponse<WriteResponseValue> resp{
-            .success = true,
-            .write_return = std::move(write_return),
-            .raft_index = apply_index,
-        };
+        if (apply_index == 0) {
+          Log("not replying to Raft request with explicit request ID of 0");
+        } else {
+          const WriteResponse<WriteResponseValue> resp{
+              .success = true,
+              .write_return = std::move(write_return),
+              .raft_index = apply_index,
+          };
 
-        io_.Send(client_request.address, client_request.request_id, std::move(resp));
+          io_.Send(client_request.address, client_request.request_id, std::move(resp));
+        }
       }
     }
 

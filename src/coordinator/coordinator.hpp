@@ -124,11 +124,11 @@ struct InitializeLabelResponse {
 };
 
 using CoordinatorWriteRequests =
-    std::variant<HlcRequest, AllocateEdgeIdBatchRequest, SplitShardRequest, RegisterStorageEngineRequest,
-                 DeregisterStorageEngineRequest, InitializeLabelRequest, AllocatePropertyIdsRequest, HeartbeatRequest>;
-using CoordinatorWriteResponses = std::variant<HlcResponse, AllocateEdgeIdBatchResponse, SplitShardResponse,
-                                               RegisterStorageEngineResponse, DeregisterStorageEngineResponse,
-                                               InitializeLabelResponse, AllocatePropertyIdsResponse, HeartbeatResponse>;
+    std::variant<HlcRequest, AllocateEdgeIdBatchRequest, RegisterStorageEngineRequest, DeregisterStorageEngineRequest,
+                 InitializeLabelRequest, AllocatePropertyIdsRequest, HeartbeatRequest>;
+using CoordinatorWriteResponses = std::variant<HlcResponse, AllocateEdgeIdBatchResponse, RegisterStorageEngineResponse,
+                                               DeregisterStorageEngineResponse, InitializeLabelResponse,
+                                               AllocatePropertyIdsResponse, HeartbeatResponse>;
 
 using CoordinatorReadRequests = std::variant<GetShardMapRequest>;
 using CoordinatorReadResponses = std::variant<GetShardMapResponse>;
@@ -167,11 +167,6 @@ class Coordinator {
   CoordinatorWriteResponses ApplyWrite(HlcRequest &&hlc_request);
 
   CoordinatorWriteResponses ApplyWrite(AllocateEdgeIdBatchRequest &&ahr);
-
-  /// This splits the shard immediately beneath the provided
-  /// split key, keeping the assigned peers identical for now,
-  /// but letting them be gradually migrated over time.
-  CoordinatorWriteResponses ApplyWrite(SplitShardRequest &&split_shard_request);
 
   CoordinatorWriteResponses ApplyWrite(msgs::SuggestedSplitInfo &&split_shard_request);
 

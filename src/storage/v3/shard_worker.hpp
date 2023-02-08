@@ -17,6 +17,7 @@
 #include <queue>
 #include <variant>
 
+#include <boost/core/demangle.hpp>
 #include <boost/uuid/uuid.hpp>
 
 #include "coordinator/coordinator.hpp"
@@ -157,15 +158,26 @@ class ShardWorker {
   }
 
   bool Process(RouteMessage &&route_message) {
-    spdlog::info("ShardWorker routing message to rsm {}", route_message.to.unique_id);
-    auto &rsm = rsm_map_.at(route_message.to.unique_id);
+    if (rsm_map_.contains(route_message.to.unique_id)) {
+      spdlog::info("ShardWorker routing message to rsm {}", route_message.to.unique_id);
+      auto &rsm = rsm_map_.at(route_message.to.unique_id);
 
-    rsm.Handle(std::move(route_message.message), route_message.request_id, route_message.from);
+      rsm.Handle(std::move(route_message.message), route_message.request_id, route_message.from);
+    } else {
+      auto type_info = std::visit([&](const auto &msg) { return io::TypeInfoFor(msg); }, route_message.message);
+
+      std::string demangled_name = boost::core::demangle(type_info.get().name());
+      spdlog::warn(
+          "ShardWorker received {} message for rsm {} which does not exist on our system (possibly due to a split not "
+          "having been applied locally yet)",
+          demangled_name, route_message.to.unique_id);
+    }
 
     return true;
   }
 
   bool Process(InitializeSplitShardByUUID &&initialize_split_shard) {
+    MG_ASSERT(false, "trying to initialize new split shard :)");
     if (rsm_map_.contains(initialize_split_shard.shard_uuid)) {
       // it's not a bug for the coordinator to send us UUIDs that we have
       // already created, because there may have been lag that caused

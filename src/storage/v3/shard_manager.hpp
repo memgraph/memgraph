@@ -178,6 +178,7 @@ class ShardManager {
 
   void InitializeSplitShard(msgs::InitializeSplitShard &&init_split_shard) {
     spdlog::warn("ShardManager received InitializeSplitShard message");
+    MG_ASSERT(false, "ShardManager::InitializeSplitShard called :)");
     for (const auto &[from_uuid, new_uuid] : init_split_shard.uuid_mapping) {
       bool has_destination = rsm_worker_mapping_.contains(new_uuid);
       if (has_destination) {
@@ -318,10 +319,12 @@ class ShardManager {
           // it's not a bug for the coordinator to send us UUIDs that we have
           // already created, because there may have been lag that caused
           // the coordinator not to hear back from us.
-          break;
+          // TODO(tyler) make this idempotent before it hits raft
+          // break;
         }
 
         if (rsm_worker_mapping_.contains(source)) {
+          MG_ASSERT(false, "sending split request from SM to shard rsm :)");
           // Create the proper layered request providing a Raft write
           // request to the local shard rsm, under the guess that it is
           // the current leader. Most of the time this will be an incorrect
@@ -352,6 +355,8 @@ class ShardManager {
           };
 
           SendToWorkerByUuid(source, shard_worker_message);
+        } else {
+          MG_ASSERT(false, "bad split source: {}", source);
         }
       }
     }

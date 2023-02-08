@@ -203,8 +203,6 @@ struct ShardMap {
   HeartbeatResponse AssignShards(Address storage_manager, std::set<boost::uuids::uuid> initialized,
                                  std::set<msgs::SuggestedSplitInfo> pending_splits);
 
-  bool SplitShard(Hlc previous_shard_map_version, LabelId label_id, const PrimaryKey &key);
-
   std::optional<LabelId> InitializeNewLabel(std::string label_name, std::vector<SchemaProperty> schema,
                                             size_t replication_factor, uint64_t split_threshold,
                                             Hlc last_shard_map_version);

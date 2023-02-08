@@ -58,18 +58,6 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(AllocateEdgeIdBatchRequest &&a
   return res;
 }
 
-/// This splits the shard immediately beneath the provided
-/// split key, keeping the assigned peers identical for now,
-/// but letting them be gradually migrated over time.
-CoordinatorWriteResponses Coordinator::ApplyWrite(SplitShardRequest &&split_shard_request) {
-  SplitShardResponse res{};
-
-  res.success = shard_map_.SplitShard(split_shard_request.previous_shard_map_version, split_shard_request.label_id,
-                                      split_shard_request.split_key);
-
-  return res;
-}
-
 // TODO(jbajic & Tyler)
 CoordinatorWriteResponses Coordinator::ApplyWrite(msgs::SuggestedSplitInfo &&split_shard_request) {
   RegisterStorageEngineResponse res{};
