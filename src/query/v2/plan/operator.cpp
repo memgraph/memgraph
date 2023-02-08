@@ -1335,15 +1335,12 @@ bool ContainsSameEdge(const TypedValue &a, const TypedValue &b) {
 }
 
 bool IsExpansionOk(Frame &frame, const Symbol &expand_symbol, const std::vector<Symbol> &previous_symbols) {
-  const auto &expand_value = frame[expand_symbol];
-  for (const auto &previous_symbol : previous_symbols) {
-    const auto &previous_value = frame[previous_symbol];
     // This shouldn't raise a TypedValueException, because the planner
     // makes sure these are all of the expected type. In case they are not
     // an error should be raised long before this code is executed.
-    if (ContainsSameEdge(previous_value, expand_value)) return false;
-  }
-  return true;
+   return std::ranges::all_of(previous_symbols, [&expand_value = frame[expand_symbol]](const auto& previous_symbol) {
+     return ContainsSameEdge(previous_value, expand_value);
+   });
 }
 
 }  // namespace
