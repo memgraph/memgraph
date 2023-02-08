@@ -27,9 +27,18 @@
 
 namespace memgraph::io::simulator {
 
-class SimulatedInterpreter {
-  using ResultStream = query::v2::DiscardValueResultStream;
+class FlatStream {
+  std::vector<query::v2::TypedValue> all_results_;
 
+ public:
+  void Result(const std::vector<query::v2::TypedValue> &new_values) {
+    all_results_.insert(all_results_.end(), new_values.begin(), new_values.end());
+  }
+
+  std::vector<query::v2::TypedValue> &&TakeResults() { return std::move(all_results_); }
+};
+
+class SimulatedInterpreter {
  public:
   explicit SimulatedInterpreter(std::unique_ptr<query::v2::InterpreterContext> interpreter_context)
       : interpreter_context_(std::move(interpreter_context)) {
@@ -46,19 +55,8 @@ class SimulatedInterpreter {
     interpreter_->InstallSimulatorTicker(simulator.GetSimulatorTickClosure());
   }
 
-  std::vector<ResultStream> RunQueries(const std::vector<std::string> &queries) {
-    std::vector<ResultStream> results;
-    results.reserve(queries.size());
-
-    for (const auto &query : queries) {
-      results.emplace_back(RunQuery(query));
-    }
-    return results;
-  }
-
- private:
-  ResultStream RunQuery(const std::string &query) {
-    ResultStream stream;
+  std::vector<query::v2::TypedValue> RunQuery(const std::string &query) {
+    FlatStream stream;
 
     std::map<std::string, memgraph::storage::v3::PropertyValue> params;
     const std::string *username = nullptr;
@@ -66,9 +64,10 @@ class SimulatedInterpreter {
     interpreter_->Prepare(query, params, username);
     interpreter_->PullAll(&stream);
 
-    return stream;
+    return stream.TakeResults();
   }
 
+ private:
   std::unique_ptr<query::v2::InterpreterContext> interpreter_context_;
   std::unique_ptr<query::v2::Interpreter> interpreter_;
 };
