@@ -280,12 +280,14 @@ boost::uuids::uuid ShardMap::NewShardUuid() {
 Hlc ShardMap::GetHlc() noexcept { return ++shard_map_version; }
 
 HeartbeatResponse ShardMap::AssignShards(Address storage_manager, std::set<boost::uuids::uuid> initialized,
-                                         std::vector<msgs::SuggestedSplitInfo> pending_splits) {
+                                         std::set<msgs::SuggestedSplitInfo> pending_splits) {
   HeartbeatResponse ret{};
 
   bool mutated = false;
   std::map<std::pair<boost::uuids::uuid, Hlc>, msgs::PrimaryKey> mapped_pending_splits;
   for (const auto &pending_split : pending_splits) {
+    spdlog::info("Coordinator adding pending split for shard version: {}, uuid: {} to attempt to initiate",
+                 pending_split.shard_version, pending_split.shard_to_split_uuid);
     mapped_pending_splits.insert(
         {{pending_split.shard_to_split_uuid, pending_split.shard_version}, pending_split.split_key});
   }
@@ -303,7 +305,9 @@ HeartbeatResponse ShardMap::AssignShards(Address storage_manager, std::set<boost
       for (auto &peer_metadata : shard.peers) {
         const bool same_machine = peer_metadata.address.last_known_ip == storage_manager.last_known_ip &&
                                   peer_metadata.address.last_known_port == storage_manager.last_known_port;
+        spdlog::info("Coordinator split debug - shard version: {}", shard.version);
         if (initialized.contains(peer_metadata.address.unique_id)) {
+          spdlog::info("1");
           shard_assigned_to_machine = true;
 
           if (!same_machine) {
@@ -319,6 +323,7 @@ HeartbeatResponse ShardMap::AssignShards(Address storage_manager, std::set<boost
             peer_metadata.status = Status::CONSENSUS_PARTICIPANT;
           }
         } else if (same_machine && peer_metadata.status == Status::INITIALIZING) {
+          spdlog::info("2");
           // we are expecting this shard to be initialized (rather than split) on this machine,
           // so send it an initialization request
 
@@ -326,6 +331,7 @@ HeartbeatResponse ShardMap::AssignShards(Address storage_manager, std::set<boost
           spdlog::info("reminding shard manager that they should begin participating in shard");
 
           ret.shards_to_initialize.push_back(ShardToInitialize{
+              .new_shard_version = shard.version,
               .uuid = peer_metadata.address.unique_id,
               .label_id = label_id,
               .min_key = low_key,
@@ -339,6 +345,8 @@ HeartbeatResponse ShardMap::AssignShards(Address storage_manager, std::set<boost
           });
         } else if (same_machine && peer_metadata.status == Status::PENDING_SPLIT) {
           // we are expecting this shard to be split, so send it a split request
+          spdlog::info(
+              "Coordinator expecting heartbeating peer to split, so it will reply with a ShardToSplit message");
 
           std::map<boost::uuids::uuid, boost::uuids::uuid> uuid_mapping{};
 
@@ -354,14 +362,21 @@ HeartbeatResponse ShardMap::AssignShards(Address storage_manager, std::set<boost
               .new_shard_version = shard.version,
               .uuid_mapping = uuid_mapping,
           });
-        } else if (const auto pending_split =
-                       mapped_pending_splits.find({peer_metadata.address.unique_id, shard.version});
-                   pending_split != mapped_pending_splits.end()) {
+        } else {
+          spdlog::info("5");
+          MG_ASSERT(
+              !same_machine,
+              "failed to properly handle a new Status type in the heartbeat management and shard assignment code");
+        }
+
+        if (const auto pending_split = mapped_pending_splits.find({peer_metadata.address.unique_id, shard.version});
+            pending_split != mapped_pending_splits.end()) {
           // Now we handle shard split
           if (shard.pending_split) {
-            spdlog::info("Received split request while split is happening!");
+            spdlog::info("Coordinator received split request while split is happening!");
             continue;
           }
+          spdlog::info("Coordinator beginning new split process after receiving a pending split");
           shard.pending_split = msgs::SuggestedSplitInfo{.shard_to_split_uuid = pending_split->first.first,
                                                          .split_key = pending_split->second,
                                                          .shard_version = pending_split->first.second};
@@ -385,11 +400,9 @@ HeartbeatResponse ShardMap::AssignShards(Address storage_manager, std::set<boost
             MG_ASSERT(converted_pk < *high_key, "Split point is beyond low key of the next shard");
           }
           label_space.shards.insert({converted_pk, duplicated_shard});
-
         } else {
-          MG_ASSERT(
-              !same_machine,
-              "failed to properly handle a new Status type in the heartbeat management and shard assignment code");
+          spdlog::info("Coordinator not attempting to split this shard: there is no pending split for {}:{}",
+                       peer_metadata.address.unique_id, shard.version);
         }
       }
 
@@ -419,6 +432,7 @@ HeartbeatResponse ShardMap::AssignShards(Address storage_manager, std::set<boost
         spdlog::info("assigning shard manager to shard");
 
         ret.shards_to_initialize.push_back(ShardToInitialize{
+            .new_shard_version = shard.version,
             .uuid = address.unique_id,
             .label_id = label_id,
             .min_key = low_key,

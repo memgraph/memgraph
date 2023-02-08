@@ -1105,7 +1105,8 @@ void Shard::StoreMapping(std::unordered_map<uint64_t, std::string> id_to_name) {
 }
 
 std::optional<SuggestedSplitInfo> Shard::ShouldSplit() const noexcept {
-  if (vertices_.size() > config_.split.max_shard_vertex_size) {
+  if (vertices_.size() >= config_.split.max_shard_vertex_size) {
+    spdlog::info("ShouldSplit is attempting to begin the split process");
     auto mid_elem = vertices_.begin();
     // TODO(tyler) the first time we calculate the split point, we should store it so that we don't have to
     // iterate over half of the entire index each time Cron is run until the split succeeds.
@@ -1115,6 +1116,9 @@ std::optional<SuggestedSplitInfo> Shard::ShouldSplit() const noexcept {
         .shard_version = shard_version_,
     };
   }
+
+  spdlog::trace("not splitting because we have {} vertices, lower than split threshold of {}", vertices_.size(),
+                config_.split.max_shard_vertex_size);
   return std::nullopt;
 }
 

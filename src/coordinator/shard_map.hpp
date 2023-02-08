@@ -124,6 +124,7 @@ using PropertyMap = std::map<PropertyName, PropertyId>;
 using EdgeTypeIdMap = std::map<EdgeTypeName, EdgeTypeId>;
 
 struct ShardToInitialize {
+  Hlc new_shard_version;
   boost::uuids::uuid uuid;
   LabelId label_id;
   PrimaryKey min_key;
@@ -143,7 +144,7 @@ struct ShardToSplit {
 struct HeartbeatRequest {
   Address from_storage_manager;
   std::set<boost::uuids::uuid> initialized_rsms;
-  std::vector<msgs::SuggestedSplitInfo> pending_splits;
+  std::set<msgs::SuggestedSplitInfo> pending_splits;
 };
 
 struct HeartbeatResponse {
@@ -200,7 +201,7 @@ struct ShardMap {
 
   // Returns the shard UUIDs that have been assigned but not yet acknowledged for this storage manager
   HeartbeatResponse AssignShards(Address storage_manager, std::set<boost::uuids::uuid> initialized,
-                                 std::vector<msgs::SuggestedSplitInfo> pending_splits);
+                                 std::set<msgs::SuggestedSplitInfo> pending_splits);
 
   bool SplitShard(Hlc previous_shard_map_version, LabelId label_id, const PrimaryKey &key);
 

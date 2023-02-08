@@ -88,8 +88,8 @@ using namespace memgraph::tests::simulation;
 template <>
 struct Arbitrary<CreateVertex> {
   static Gen<CreateVertex> arbitrary() {
-    return gen::build<CreateVertex>(gen::set(&CreateVertex::first, gen::inRange(0, kMaximumShards + 1)),
-                                    gen::set(&CreateVertex::second, gen::inRange(0, kMaximumShards + 1)));
+    return gen::build<CreateVertex>(gen::set(&CreateVertex::first, gen::inRange(0, kMaximumKey)),
+                                    gen::set(&CreateVertex::second, gen::inRange(0, kMaximumKey)));
   }
 };
 

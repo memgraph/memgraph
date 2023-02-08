@@ -146,20 +146,6 @@ ShardMap TestShardMap(const ClusterConfig &cluster_config) {
                                                           cluster_config.split_threshold, sm.shard_map_version);
   RC_ASSERT(label_id.has_value());
 
-  // TODO(tyler) remove pre-splits?
-  // split the shard at N split points
-  const int n_splits = cluster_config.shards - 1;
-  for (int64_t i = 1; i < n_splits; ++i) {
-    const auto key1 = memgraph::storage::v3::PropertyValue(i);
-    const auto key2 = memgraph::storage::v3::PropertyValue(0);
-
-    const auto split_point = {key1, key2};
-
-    const bool split_success = sm.SplitShard(sm.shard_map_version, label_id.value(), split_point);
-
-    RC_ASSERT(split_success);
-  }
-
   return sm;
 }
 
@@ -205,6 +191,7 @@ void ExecuteOp(SimClientContext &context, ScanAll scan_all) {
 void ExecuteOp(SimClientContext &context, AssertShardsSplit assert_shards_split) {
   const int minimum_expected_shards = (context.correctness_model.size() / context.cluster_config.split_threshold) + 1;
   const int maximum_attempts = 10'000;
+  size_t initialized_shards;
 
   for (int i = 0; i < maximum_attempts; i++) {
     GetShardMapRequest req{};
@@ -218,13 +205,14 @@ void ExecuteOp(SimClientContext &context, AssertShardsSplit assert_shards_split)
     auto response = std::get<GetShardMapResponse>(response_result);
     auto shard_map = response.shard_map;
 
-    size_t initialized_shards = shard_map.InitializedShards();
+    initialized_shards = shard_map.InitializedShards();
 
     if (initialized_shards >= minimum_expected_shards) {
       return;
     }
   }
 
+  spdlog::error("expected {} shards, but we only have {}", minimum_expected_shards, initialized_shards);
   MG_ASSERT(false, "exceeded maximum attempts for waiting for the expected number of shard splits to occur");
 }
 

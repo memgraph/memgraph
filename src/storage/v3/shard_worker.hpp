@@ -245,11 +245,9 @@ class ShardWorker {
     // TODO(tyler) pass this local_shard_manager_sender to the Shard so that it can communicate back to the local
     // manager from split code
 
-    // TODO(jbajic) which hlc do we pass here to define shard version
-    const coordinator::Hlc initial_shard_version{0};
     std::unique_ptr<Shard> shard =
         std::make_unique<Shard>(to_init.label_id, to_init.min_key, to_init.max_key, to_init.schema,
-                                initial_shard_version, to_init.config, to_init.id_to_names);
+                                to_init.new_shard_version, to_init.config, to_init.id_to_names);
 
     ShardRsm rsm_state{std::move(shard), std::move(local_shard_manager_sender)};
 

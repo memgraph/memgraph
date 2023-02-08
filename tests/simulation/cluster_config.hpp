@@ -20,12 +20,11 @@ namespace memgraph::tests::simulation {
 struct ClusterConfig {
   int servers;
   int replication_factor;
-  int shards;
   int split_threshold;
 
   friend std::ostream &operator<<(std::ostream &in, const ClusterConfig &cluster) {
     in << "ClusterConfig { servers: " << cluster.servers << ", replication_factor: " << cluster.replication_factor
-       << ", shards: " << cluster.shards << " }";
+       << " }";
     return in;
   }
 };
@@ -45,7 +44,6 @@ struct Arbitrary<ClusterConfig> {
         gen::set(&ClusterConfig::servers, gen::inRange(kMinimumServers, kMaximumServers)),
         gen::set(&ClusterConfig::replication_factor,
                  gen::inRange(kMinimumReplicationFactor, kMaximumReplicationFactor)),
-        gen::set(&ClusterConfig::shards, gen::inRange(kMinimumShards, kMaximumShards)),
         gen::set(&ClusterConfig::split_threshold, gen::inRange(kMinimumSplitThreshold, kMaximumSplitThreshold)));
   }
 };

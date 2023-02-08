@@ -579,6 +579,21 @@ struct SuggestedSplitInfo {
   boost::uuids::uuid shard_to_split_uuid;
   PrimaryKey split_key;
   Hlc shard_version;
+
+  friend bool operator<(const SuggestedSplitInfo &lhs, const SuggestedSplitInfo &rhs) {
+    if (lhs.shard_to_split_uuid != rhs.shard_to_split_uuid) {
+      return lhs.shard_to_split_uuid < rhs.shard_to_split_uuid;
+    }
+
+    /*
+    TODO(tyler) fix this
+    if (lhs.split_key != rhs.split_key) {
+      return lhs.split_key < rhs.split_key;
+    }
+    */
+
+    return lhs.shard_version < rhs.shard_version;
+  }
 };
 
 struct SplitInfo {
