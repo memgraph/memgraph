@@ -177,7 +177,6 @@ class ShardWorker {
   }
 
   bool Process(InitializeSplitShardByUUID &&initialize_split_shard) {
-    MG_ASSERT(false, "trying to initialize new split shard :)");
     if (rsm_map_.contains(initialize_split_shard.shard_uuid)) {
       // it's not a bug for the coordinator to send us UUIDs that we have
       // already created, because there may have been lag that caused

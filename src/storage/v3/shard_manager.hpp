@@ -178,7 +178,6 @@ class ShardManager {
 
   void InitializeSplitShard(msgs::InitializeSplitShard &&init_split_shard) {
     spdlog::warn("ShardManager received InitializeSplitShard message");
-    MG_ASSERT(false, "ShardManager::InitializeSplitShard called :)");
     for (const auto &[from_uuid, new_uuid] : init_split_shard.uuid_mapping) {
       bool has_source = rsm_worker_mapping_.contains(from_uuid);
       if (has_source) {

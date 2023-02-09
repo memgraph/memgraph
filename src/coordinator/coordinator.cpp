@@ -94,9 +94,6 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(HeartbeatRequest &&heartbeat_r
       auto split_shard_id = rsm_split_from_.at(initialized_rsm);
       splitting_shards_.erase(split_shard_id);
       rsm_split_from_.erase(initialized_rsm);
-      MG_ASSERT(false,
-                "TODO(tyler) remove this. but until it works once, this is removing rsm from split from before "
-                "actually used");
     }
 
     size_t initialized_count = 0;
