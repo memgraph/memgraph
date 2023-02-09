@@ -509,7 +509,7 @@ class DistributedScanAllAndFilterCursor : public Cursor {
 
     if (!own_multi_frame_.has_value()) {
       own_multi_frame_.emplace(MultiFrame(output_multi_frame.GetFirstFrame().elems().size(),
-                                          kNumberOfFramesInMultiframe, output_multi_frame.GetMemoryResource()));
+                                          FLAGS_default_multi_frame_size, output_multi_frame.GetMemoryResource()));
       own_frames_consumer_.emplace(own_multi_frame_->GetValidFramesConsumer());
       own_frames_it_ = own_frames_consumer_->begin();
     }
@@ -705,7 +705,7 @@ class DistributedScanByPrimaryKeyCursor : public Cursor {
   void EnsureOwnMultiFrameIsGood(MultiFrame &output_multi_frame) {
     if (!own_multi_frame_.has_value()) {
       own_multi_frame_.emplace(MultiFrame(output_multi_frame.GetFirstFrame().elems().size(),
-                                          kNumberOfFramesInMultiframe, output_multi_frame.GetMemoryResource()));
+                                          FLAGS_default_multi_frame_size, output_multi_frame.GetMemoryResource()));
       own_frames_consumer_.emplace(own_multi_frame_->GetValidFramesConsumer());
       own_frames_it_ = own_frames_consumer_->begin();
     }
@@ -2213,7 +2213,7 @@ class UnwindCursor : public Cursor {
 
     if (!own_multi_frame_.has_value()) {
       own_multi_frame_.emplace(MultiFrame(output_multi_frame.GetFirstFrame().elems().size(),
-                                          kNumberOfFramesInMultiframe, output_multi_frame.GetMemoryResource()));
+                                          FLAGS_default_multi_frame_size, output_multi_frame.GetMemoryResource()));
       own_frames_consumer_.emplace(own_multi_frame_->GetValidFramesConsumer());
       own_frames_it_ = own_frames_consumer_->begin();
     }
@@ -3382,7 +3382,7 @@ class DistributedExpandCursor : public Cursor {
   void EnsureOwnMultiFrameIsGood(MultiFrame &output_multi_frame) {
     if (!own_multi_frame_.has_value()) {
       own_multi_frame_.emplace(MultiFrame(output_multi_frame.GetFirstFrame().elems().size(),
-                                          kNumberOfFramesInMultiframe, output_multi_frame.GetMemoryResource()));
+                                          FLAGS_default_multi_frame_size, output_multi_frame.GetMemoryResource()));
       own_frames_consumer_.emplace(own_multi_frame_->GetValidFramesConsumer());
       own_frames_it_ = own_frames_consumer_->begin();
     }

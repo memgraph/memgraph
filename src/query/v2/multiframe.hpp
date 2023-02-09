@@ -13,10 +13,13 @@
 
 #include <iterator>
 
+#include <gflags/gflags.h>
+
 #include "query/v2/bindings/frame.hpp"
 
+DECLARE_uint64(default_multi_frame_size);
+
 namespace memgraph::query::v2 {
-constexpr uint64_t kNumberOfFramesInMultiframe = 1000;  // TODO have it configurable
 
 class ValidFramesConsumer;
 class ValidFramesModifier;
