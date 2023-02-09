@@ -35,7 +35,7 @@ struct Hlc final {
   bool operator<(const uint64_t other) const noexcept { return logical_id < other; }
   bool operator>=(const uint64_t other) const noexcept { return logical_id >= other; }
 
-  Hlc operator++() { return {.logical_id = logical_id + 1, .coordinator_wall_clock = Time::min()}; }
+  Hlc operator++() { return {.logical_id = ++logical_id, .coordinator_wall_clock = Time::min()}; }
 
   friend std::ostream &operator<<(std::ostream &in, const Hlc &hlc) {
     auto wall_clock = std::chrono::system_clock::to_time_t(hlc.coordinator_wall_clock);
