@@ -16,6 +16,7 @@
 #include <fstream>
 #include <limits>
 #include <map>
+#include <ostream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -256,6 +257,16 @@ void Execute(
   (*stream) << summary.dump() << std::endl;
 }
 
+nlohmann::json BoltRecordsToJSONStrings(std::vector<std::vector<memgraph::communication::bolt::Value>> &results) {
+  nlohmann::json res = nlohmann::json::object();
+  std::ostringstream oss;
+  for (int i = 0; i < results.size(); i++) {
+    oss << results[i];
+    res[std::to_string(i)] = oss.str();
+  }
+  return res;
+}
+
 // Validation mode works on single thread with 1 query.
 void Execute_validation(
     const std::vector<std::pair<std::string, std::map<std::string, memgraph::communication::bolt::Value>>> &queries,
@@ -308,7 +319,7 @@ void Execute_validation(
   summary["count"] = 1;
   summary["duration"] = final_duration;
   summary["metadata"] = final_metadata.Export();
-  summary["results"] = final_results;
+  summary["results"] = BoltRecordsToJSONStrings(final_results);
   summary["num_workers"] = FLAGS_num_workers;
 
   (*stream) << summary.dump() << std::endl;
