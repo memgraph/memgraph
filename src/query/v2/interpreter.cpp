@@ -22,6 +22,7 @@
 #include <memory>
 #include <optional>
 
+#include "common/types.hpp"
 #include "coordinator/coordinator_client.hpp"
 #include "expr/ast/ast_visitor.hpp"
 #include "io/local_transport/local_system.hpp"
@@ -589,7 +590,8 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, InterpreterContext *interp
         throw SyntaxException("One or more types have to be defined in schema definition.");
       }
       callback.fn = [interpreter_context, primary_label = schema_query->label_,
-                     schema_type_map = std::move(schema_type_map)]() {
+                     schema_type_map = std::move(schema_type_map),
+                     config_map = std::move(schema_query->schema_config_map_)]() {
         auto *db = interpreter_context->db;
         const auto label = interpreter_context->NameToLabelId(primary_label.name);
         std::vector<storage::v3::SchemaProperty> schemas_types;
@@ -598,8 +600,30 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, InterpreterContext *interp
           auto property_id = interpreter_context->NameToPropertyId(schema_type.first.name);
           schemas_types.push_back({property_id, schema_type.second});
         }
-        if (!db->CreateSchema(label, schemas_types)) {
-          throw QueryException(fmt::format("Schema on label :{} already exists!", primary_label.name));
+        auto schema_config = std::invoke([&config_map]() -> std::optional<storage::v3::Schema::SchemaConfiguration> {
+          if (!config_map.empty()) {
+            return std::nullopt;
+          }
+          storage::v3::Schema::SchemaConfiguration config;
+          if (const auto replication_factor_it = config_map.find(common::SchemaConfigParams::REPLICATION_FACTOR);
+              replication_factor_it != config_map.end()) {
+            config.replication_factor = replication_factor_it->second;
+          }
+          if (const auto split_threshold_it = config_map.find(common::SchemaConfigParams::SPLIT_THRESHOLD);
+              split_threshold_it != config_map.end()) {
+            config.split_threshold = split_threshold_it->second;
+          }
+          return config;
+        });
+        // TODO FIx this late
+        if (schema_config) {
+          if (!db->CreateSchema(label, schemas_types, *schema_config)) {
+            throw QueryException(fmt::format("Schema on label :{} already exists!", primary_label.name));
+          }
+        } else {
+          if (!db->CreateSchema(label, schemas_types)) {
+            throw QueryException(fmt::format("Schema on label :{} already exists!", primary_label.name));
+          }
         }
         return std::vector<std::vector<TypedValue>>{};
       };

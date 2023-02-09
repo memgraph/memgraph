@@ -2958,19 +2958,20 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
     MG_ASSERT(ctx->literal().size() == 2);
     const auto key_value =
         SchemaConfigKeyToEnum(utils::ToLowerCase(std::any_cast<std::string>(ctx->literal(0)->accept(this))));
-    return std::pair<common::SchemaConfigParams, Expression *>{
-        key_value, std::any_cast<Expression *>(ctx->literal(1)->accept(this))};
+    // TODO(jbajic) Introduce variable values here
+    const auto value = std::any_cast<int64_t>(ctx->literal(1)->accept(this));
+    return std::pair<common::SchemaConfigParams, int64_t>{key_value, value};
   }
 
   /**
    * @return Schema*
    */
   antlrcpp::Any visitSchemaConfiguration(MemgraphCypher::SchemaConfigurationContext *ctx) override {
-    std::unordered_map<common::SchemaConfigParams, Expression *> map;
+    std::unordered_map<common::SchemaConfigParams, int64_t> map;
     for (auto *key_value_pair : ctx->schemaConfigKeyValuePair()) {
       // If the queries are cached, then only the stripped query is parsed, so the actual keys cannot be determined
       // here. That means duplicates cannot be checked.
-      map.insert(std::any_cast<std::pair<common::SchemaConfigParams, Expression *>>(key_value_pair->accept(this)));
+      map.insert(std::any_cast<std::pair<common::SchemaConfigParams, int64_t>>(key_value_pair->accept(this)));
     }
     return map;
   }
@@ -3016,7 +3017,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
     schema_query->schema_type_map_ =
         std::any_cast<std::vector<std::pair<PropertyIx, common::SchemaType>>>(ctx->schemaPropertyMap()->accept(this));
     auto ladida = ctx->schemaConfiguration()->accept(this);
-    schema_query->schema_config_map_ = std::any_cast<std::unordered_map<common::SchemaConfigParams, Expression *>>(
+    schema_query->schema_config_map_ = std::any_cast<std::unordered_map<common::SchemaConfigParams, int64_t>>(
         ctx->schemaConfiguration()->accept(this));
     query_ = schema_query;
     return schema_query;

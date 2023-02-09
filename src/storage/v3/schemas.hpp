@@ -44,16 +44,13 @@ struct SchemaProperty {
   }
 };
 
-class Schema {
+struct Schema {
+  LabelId label;
+  std::vector<SchemaProperty> properties;
   struct SchemaConfiguration {
     uint64_t replication_factor;
     uint64_t split_threshold;
-  };
-
- public:
-  LabelId label;
-  std::vector<SchemaProperty> properties;
-  SchemaConfiguration config;
+  } config;
 
   friend bool operator==(const Schema &lhs, const Schema &rhs) noexcept {
     return lhs.label == rhs.label && lhs.properties == rhs.properties;
@@ -80,7 +77,8 @@ class Schemas {
 
   // Returns true if it was successfully created or false if the schema
   // already exists
-  [[nodiscard]] bool CreateSchema(LabelId primary_label, const std::vector<SchemaProperty> &schemas_types);
+  [[nodiscard]] bool CreateSchema(LabelId primary_label, const std::vector<SchemaProperty> &schemas_types,
+                                  Schema::SchemaConfiguration config = {});
 
   // Returns true if it was successfully dropped or false if the schema
   // does not exist

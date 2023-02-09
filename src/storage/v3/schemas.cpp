@@ -39,11 +39,12 @@ const Schema *Schemas::GetSchema(const LabelId primary_label) const {
   return nullptr;
 }
 
-bool Schemas::CreateSchema(const LabelId primary_label, const std::vector<SchemaProperty> &schemas_types) {
+bool Schemas::CreateSchema(const LabelId primary_label, const std::vector<SchemaProperty> &schemas_types,
+                           Schema::SchemaConfiguration config) {
   if (schemas_.contains(primary_label)) {
     return false;
   }
-  schemas_.insert({primary_label, Schema{.label = primary_label, .properties = schemas_types}});
+  schemas_.insert({primary_label, Schema{.label = primary_label, .properties = schemas_types, .config = config}});
   return true;
 }
 

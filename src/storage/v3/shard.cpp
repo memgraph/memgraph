@@ -35,6 +35,7 @@
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/result.hpp"
 #include "storage/v3/schema_validator.hpp"
+#include "storage/v3/schemas.hpp"
 #include "storage/v3/transaction.hpp"
 #include "storage/v3/vertex.hpp"
 #include "storage/v3/vertex_accessor.hpp"
@@ -934,8 +935,9 @@ SchemasInfo Shard::ListAllSchemas() const { return {schemas_.ListSchemas()}; }
 
 const Schema *Shard::GetSchema(const LabelId primary_label) const { return schemas_.GetSchema(primary_label); }
 
-bool Shard::CreateSchema(const LabelId primary_label, const std::vector<SchemaProperty> &schemas_types) {
-  return schemas_.CreateSchema(primary_label, schemas_types);
+bool Shard::CreateSchema(const LabelId primary_label, const std::vector<SchemaProperty> &schemas_types,
+                         Schema::SchemaConfiguration config) {
+  return schemas_.CreateSchema(primary_label, schemas_types, config);
 }
 
 bool Shard::DropSchema(const LabelId primary_label) { return schemas_.DropSchema(primary_label); }

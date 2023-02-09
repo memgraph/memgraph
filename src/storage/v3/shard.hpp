@@ -366,7 +366,8 @@ class Shard final {
 
   const Schema *GetSchema(LabelId primary_label) const;
 
-  bool CreateSchema(LabelId primary_label, const std::vector<SchemaProperty> &schemas_types);
+  bool CreateSchema(LabelId primary_label, const std::vector<SchemaProperty> &schemas_types,
+                    Schema::SchemaConfiguration = {});
 
   bool DropSchema(LabelId primary_label);
 
