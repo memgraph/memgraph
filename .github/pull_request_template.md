@@ -9,3 +9,7 @@
 - [ ] Check, and update documentation if necessary
 - [ ] Update [changelog](https://docs.memgraph.com/memgraph/changelog)
 - [ ] Provide the full content or a guide for the final git message
+
+
+To keep docs changelog up to date, one more thing to do:
+- [ ] Write a release note here.
