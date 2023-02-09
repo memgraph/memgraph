@@ -323,7 +323,6 @@ class ShardManager {
         }
 
         if (rsm_worker_mapping_.contains(source)) {
-          MG_ASSERT(false, "sending split request from SM to shard rsm :)");
           // Create the proper layered request providing a Raft write
           // request to the local shard rsm, under the guess that it is
           // the current leader. Most of the time this will be an incorrect

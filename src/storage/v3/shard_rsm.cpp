@@ -318,8 +318,6 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateEdgesRequest &&req) {
 }
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::SplitRequest &&req) {
-  MG_ASSERT(false, "ShardRsm::ApplyWrite 0");
-
   auto converted_primary_key = conversions::ConvertPropertyVector(req.split_key);
   auto new_shard_split_data = shard_->PerformSplit(converted_primary_key, req.old_shard_version, req.new_shard_version);
 
