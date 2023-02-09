@@ -342,7 +342,8 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     }
     symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, type);
   } else if (scope.in_pattern && !scope.in_pattern_atom_identifier && scope.in_match) {
-    if (scope.in_edge_range && scope.visiting_edge->identifier_->name_ == ident.name_) {
+    if (scope.in_edge_range && scope.visiting_edge && scope.visiting_edge->identifier_ &&
+        scope.visiting_edge->identifier_->name_ == ident.name_) {
       // Prevent variable path bounds to reference the identifier which is bound
       // by the variable path itself.
       throw UnboundVariableError(ident.name_);
