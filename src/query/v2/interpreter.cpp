@@ -64,6 +64,8 @@
 #include "utils/tsc.hpp"
 #include "utils/variant_helpers.hpp"
 
+DEFINE_bool(use_multi_frame, false, "Whether to use MultiFrame or not");
+
 namespace EventCounter {
 extern Event ReadQuery;
 extern Event WriteQuery;
@@ -812,8 +814,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::PullMultiple(AnyStrea
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
                                                                 const std::vector<Symbol> &output_symbols,
                                                                 std::map<std::string, TypedValue> *summary) {
-  auto should_pull_multiple = false;  // TODO on the long term, we will only use PullMultiple
-  if (should_pull_multiple) {
+  if (FLAGS_use_multi_frame) {
     return PullMultiple(stream, n, output_symbols, summary);
   }
   // Set up temporary memory for a single Pull. Initial memory comes from the
