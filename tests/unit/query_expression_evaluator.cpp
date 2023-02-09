@@ -307,9 +307,7 @@ TEST_F(ExpressionEvaluatorTest, ListIndexing) {
   {
     // Legal indexing.
     auto *op = storage.Create<SubscriptOperator>(list_literal, storage.Create<PrimitiveLiteral>(2));
-    std::cout << "here we go" << std::endl;
     auto value = Eval(op);
-    std::cout << "here we go 2" << std::endl;
     EXPECT_EQ(value.ValueInt(), 3);
   }
   {
