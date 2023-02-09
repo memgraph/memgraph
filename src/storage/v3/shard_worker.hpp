@@ -191,8 +191,8 @@ class ShardWorker {
     std::vector<Address> rsm_peers = {};
 
     Address local_shard_manager_address = io_.GetAddress().ForkLocalShardManager();
-    utils::Sender<io::messages::ShardManagerMessages> local_shard_manager_sender =
-        io_.template GetSender<io::messages::ShardManagerMessages>(local_shard_manager_address);
+    utils::Sender<msgs::InitializeSplitShard> local_shard_manager_sender =
+        io_.template GetSender<msgs::InitializeSplitShard>(local_shard_manager_address);
 
     // TODO(tyler) pass this local_shard_manager_sender to the Shard so that it can communicate back to the local
     // manager from split code
@@ -253,8 +253,8 @@ class ShardWorker {
     std::vector<Address> rsm_peers = {};
 
     Address local_shard_manager_address = io_.GetAddress().ForkLocalShardManager();
-    utils::Sender<io::messages::ShardManagerMessages> local_shard_manager_sender =
-        io_.template GetSender<io::messages::ShardManagerMessages>(local_shard_manager_address);
+    utils::Sender<msgs::InitializeSplitShard> local_shard_manager_sender =
+        io_.template GetSender<msgs::InitializeSplitShard>(local_shard_manager_address);
 
     // TODO(tyler) pass this local_shard_manager_sender to the Shard so that it can communicate back to the local
     // manager from split code
