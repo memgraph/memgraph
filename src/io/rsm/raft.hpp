@@ -414,7 +414,7 @@ class Raft {
         const PendingClientRequest client_request = std::move(leader.pending_client_requests.at(apply_index));
         leader.pending_client_requests.erase(apply_index);
 
-        if (apply_index == 0) {
+        if (client_request.request_id == 0) {
           Log("not replying to Raft request with explicit request ID of 0");
         } else {
           const WriteResponse<WriteResponseValue> resp{

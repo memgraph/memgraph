@@ -276,7 +276,6 @@ std::pair<SimulatorStats, LatencyHistogramSummaries> RunClusterSimulation(const 
       .correctness_model = correctness_model,
   };
 
-  MG_ASSERT(false, "got here");
   WaitForShardsToInitialize(context.coordinator_client);
 
   for (const Op &op : ops) {
