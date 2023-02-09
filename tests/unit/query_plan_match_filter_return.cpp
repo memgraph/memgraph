@@ -3457,3 +3457,75 @@ TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
   count_with_index(prop_value2, vertex_count - vertex_prop_count);
   count_with_scan_all(prop_value2, vertex_count - vertex_prop_count);
 }
+
+class ExistsFixture : public testing::Test {
+ protected:
+  memgraph::storage::Storage db;
+  memgraph::storage::Storage::Accessor storage_dba{db.Access()};
+  memgraph::query::DbAccessor dba{&storage_dba};
+  AstStorage storage;
+  SymbolTable symbol_table;
+
+  memgraph::query::VertexAccessor v1{dba.InsertVertex()};
+  memgraph::query::VertexAccessor v2{dba.InsertVertex()};
+  memgraph::storage::EdgeTypeId edge_type{db.NameToEdgeType("Edge")};
+  memgraph::query::EdgeAccessor r1{*dba.InsertEdge(&v1, &v2, edge_type)};
+
+  memgraph::query::VertexAccessor v3{dba.InsertVertex()};
+  memgraph::query::VertexAccessor v4{dba.InsertVertex()};
+  memgraph::storage::EdgeTypeId edge_type_unknown{db.NameToEdgeType("Other")};
+  memgraph::query::EdgeAccessor r2{*dba.InsertEdge(&v3, &v4, edge_type_unknown)};
+
+  void SetUp() override {
+    ASSERT_TRUE(v1.AddLabel(dba.NameToLabel("l1")).HasValue());
+    ASSERT_TRUE(v2.AddLabel(dba.NameToLabel("l2")).HasValue());
+    ASSERT_TRUE(v3.AddLabel(dba.NameToLabel("l3")).HasValue());
+    ASSERT_TRUE(v4.AddLabel(dba.NameToLabel("l4")).HasValue());
+    memgraph::license::global_license_checker.EnableTesting();
+
+    dba.AdvanceCommand();
+  }
+
+  int TestExists(std::string match_label, EdgeAtom::Direction direction,
+                 std::vector<memgraph::storage::EdgeTypeId> edge_types) {
+    std::vector<std::string> edge_type_names;
+    for (const auto &type : edge_types) {
+      edge_type_names.emplace_back(db.EdgeTypeToName(type));
+    }
+
+    auto scan_all = MakeScanAll(storage, symbol_table, "n");
+    scan_all.node_->labels_.emplace_back(storage.GetLabelIx(match_label));
+
+    auto *exists_expression =
+        EXISTS(PATTERN(NODE("n"), EDGE("edge", direction, edge_type_names, false), NODE("n2", std::nullopt, false)));
+    exists_expression->MapTo(symbol_table.CreateAnonymousSymbol());
+    auto *total_expression =
+        AND(storage.Create<LabelsTest>(scan_all.node_->identifier_, scan_all.node_->labels_), exists_expression);
+
+    auto expand = MakeExpand(storage, symbol_table, nullptr, scan_all.sym_, "r", direction, edge_types, "m", false,
+                             memgraph::storage::View::OLD);
+    auto limit = std::make_shared<Limit>(expand.op_, storage.Create<IntegerLiteral>(1));
+    auto evaluate_pattern = std::make_shared<EvaluatePatternFilter>(limit, symbol_table.at(*exists_expression));
+
+    auto filter = std::make_shared<Filter>(scan_all.op_, evaluate_pattern, total_expression);
+    auto output =
+        NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+
+    auto produce = MakeProduce(filter, output);
+    auto context = MakeContext(storage, symbol_table, &dba);
+    return PullAll(*produce, &context);
+  }
+};
+
+TEST_F(ExistsFixture, BasicExists) {
+  std::vector<memgraph::storage::EdgeTypeId> known_edge_types;
+  known_edge_types.emplace_back(edge_type);
+  std::vector<memgraph::storage::EdgeTypeId> unknown_edge_types;
+  unknown_edge_types.emplace_back(edge_type_unknown);
+
+  EXPECT_EQ(1, TestExists("l1", EdgeAtom::Direction::OUT, {}));
+  EXPECT_EQ(1, TestExists("l1", EdgeAtom::Direction::BOTH, {}));
+  EXPECT_EQ(0, TestExists("l1", EdgeAtom::Direction::IN, {}));
+  EXPECT_EQ(1, TestExists("l1", EdgeAtom::Direction::OUT, known_edge_types));
+  EXPECT_EQ(0, TestExists("l1", EdgeAtom::Direction::OUT, unknown_edge_types));
+}

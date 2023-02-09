@@ -2368,7 +2368,6 @@ bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
     return true;
   }
   return false;
-  throw utils::NotYetImplemented("Complex filters not supported yet!");
 }
 
 void Produce::ProduceCursor::Shutdown() { input_cursor_->Shutdown(); }
