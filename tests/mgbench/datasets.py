@@ -379,6 +379,24 @@ class AccessControl(Dataset):
         return query
 
     def benchmark__match__match_all_vertices_with_edges(self):
-        self.next_value_idx += 1
         query = ("MATCH (permission:Permission)-[e:IS_FOR_FILE]->(file:File) RETURN *", {})
+        return query
+
+    def benchmark__match__match_users_with_permission_for_files(self):
+        file_uuid_1 = self._get_random_uuid("File")
+        file_uuid_2 = self._get_random_uuid("File")
+        min_file_uuid = min(file_uuid_1, file_uuid_2)
+        max_file_uuid = max(file_uuid_1, file_uuid_2)
+        query = (
+            "MATCH (f:File)<-[ff:IS_FOR_FILE]-(p:Permission)-[fi:IS_FOR_IDENTITY]->(i:Identity) WHERE f.uuid >= $min_file_uuid  AND f.uuid <= $max_file_uuid RETURN *",
+            {"min_file_uuid": min_file_uuid, "max_file_uuid": max_file_uuid},
+        )
+        return query
+
+    def benchmark__match__match_users_with_permission_for_specific_file(self):
+        file_uuid = self._get_random_uuid("File")
+        query = (
+            "MATCH (f:File {uuid: $file_uuid})<-[ff:IS_FOR_FILE]-(p:Permission)-[fi:IS_FOR_IDENTITY]->(i:Identity) RETURN *",
+            {"file_uuid": file_uuid},
+        )
         return query
