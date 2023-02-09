@@ -449,6 +449,7 @@ std::optional<LabelId> ShardMap::InitializeNewLabel(std::string label_name, std:
                                                     size_t replication_factor, uint64_t split_threshold,
                                                     Hlc last_shard_map_version) {
   if (shard_map_version != last_shard_map_version || labels.contains(label_name)) {
+    MG_ASSERT(false, "failed to InitializeNewLabel");
     return std::nullopt;
   }
 

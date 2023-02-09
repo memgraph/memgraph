@@ -51,9 +51,12 @@ class ShardRsm {
   std::optional<msgs::SuggestedSplitInfo> ShouldSplit() const noexcept {
     auto split_info = shard_->ShouldSplit();
     if (split_info) {
-      return msgs::SuggestedSplitInfo{split_info->shard_to_split_uuid,
-                                      conversions::ConvertValueVector(split_info->split_key),
-                                      split_info->shard_version};
+      return msgs::SuggestedSplitInfo{
+          .shard_to_split_uuid = split_info->shard_to_split_uuid,
+          .label_id = split_info->label_id,
+          .splitting_shard_low_key = conversions::ConvertValueVector(split_info->splitting_shard_low_key),
+          .split_key = conversions::ConvertValueVector(split_info->split_key),
+          .shard_version = split_info->shard_version};
     }
     return std::nullopt;
   }

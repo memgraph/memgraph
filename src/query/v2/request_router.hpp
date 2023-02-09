@@ -800,15 +800,19 @@ class SimulatedRequestRouterFactory : public RequestRouterFactory {
     io::Address unique_local_addr_query;
 
     // The simulated RR should not introduce stochastic behavior.
-    random_uuid = boost::uuids::uuid{3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-    unique_local_addr_query = {.unique_id = boost::uuids::uuid{4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}};
+    random_uuid = boost::uuids::uuid{3, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    unique_local_addr_query = {.unique_id = boost::uuids::uuid{4, 4, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}};
 
     auto io = simulator_->Register(unique_local_addr_query);
     auto query_io = io.ForkLocal(random_uuid);
 
-    return std::make_unique<RequestRouter<TransportType>>(
+    auto ret = std::make_unique<RequestRouter<TransportType>>(
         coordinator::CoordinatorClient<TransportType>(query_io, coordinator_address, {coordinator_address}),
         std::move(io));
+
+    ret->InstallSimulatorTicker(simulator_->GetSimulatorTickClosure());
+
+    return ret;
   }
 };
 

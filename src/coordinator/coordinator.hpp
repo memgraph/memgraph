@@ -20,14 +20,14 @@
 
 #include <boost/uuid/uuid.hpp>
 
-#include <coordinator/hybrid_logical_clock.hpp>
-#include <coordinator/shard_map.hpp>
-#include <io/simulator/simulator.hpp>
-#include <io/time.hpp>
-#include <io/transport.hpp>
-#include <storage/v3/id_types.hpp>
-#include <storage/v3/schemas.hpp>
+#include "coordinator/hybrid_logical_clock.hpp"
+#include "coordinator/shard_map.hpp"
+#include "io/simulator/simulator.hpp"
+#include "io/time.hpp"
+#include "io/transport.hpp"
 #include "query/v2/requests.hpp"
+#include "storage/v3/id_types.hpp"
+#include "storage/v3/schemas.hpp"
 
 namespace memgraph::coordinator {
 
@@ -37,6 +37,8 @@ using memgraph::storage::v3::PropertyId;
 using memgraph::storage::v3::SchemaProperty;
 using SimT = memgraph::io::simulator::SimulatorTransport;
 using PrimaryKey = std::vector<PropertyValue>;
+
+using ShardId = std::pair<LabelId, PrimaryKey>;
 
 struct HlcRequest {
   Hlc last_shard_map_version;
@@ -135,7 +137,17 @@ using CoordinatorReadResponses = std::variant<GetShardMapResponse>;
 
 class Coordinator {
  public:
-  explicit Coordinator(ShardMap sm) : shard_map_{std::move(sm)} {}
+  explicit Coordinator(ShardMap sm) : shard_map_{std::move(sm)} {
+    // Populate underreplicated_shards_
+    for (const auto &[label_id, label_space] : shard_map_.label_spaces) {
+      for (const auto &[low_key, shard] : label_space.shards) {
+        if (shard.peers.size() < label_space.replication_factor) {
+          ShardId shard_id = std::make_pair(label_id, low_key);
+          underreplicated_shards_.insert(shard_id);
+        }
+      }
+    }
+  }
 
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static
   CoordinatorReadResponses Read(CoordinatorReadRequests requests) {
@@ -152,6 +164,11 @@ class Coordinator {
  private:
   ShardMap shard_map_;
   uint64_t highest_allocated_timestamp_{0};
+
+  std::set<ShardId> underreplicated_shards_;
+  std::map<boost::uuids::uuid, ShardId> rsm_split_from_;
+  std::set<ShardId> splitting_shards_;
+  std::map<Address, std::set<ShardId>> assigned_shards_;
 
   /// Query engines need to periodically request batches of unique edge IDs.
   uint64_t highest_allocated_edge_id_{0};

@@ -9,18 +9,167 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <coordinator/coordinator.hpp>
+#include "coordinator/coordinator.hpp"
 #include "query/v2/requests.hpp"
+#include "storage/v3/value_conversions.hpp"
 
 namespace memgraph::coordinator {
 
+// 1. try to begin any suggested splits
+// 2. mark all initialized RSMs as INITIALIZED in the ShardMap
+// 3. assign any valid underreplicated shards to the Heartbeat sender
+// 4. send any split requests that the Heartbeat sender should be applying
 CoordinatorWriteResponses Coordinator::ApplyWrite(HeartbeatRequest &&heartbeat_request) {
   spdlog::info("Coordinator handling HeartbeatRequest");
 
-  // add this storage engine to any under-replicated shards that it is not already a part of
+  HeartbeatResponse ret{};
 
-  return shard_map_.AssignShards(heartbeat_request.from_storage_manager, heartbeat_request.initialized_rsms,
-                                 heartbeat_request.pending_splits);
+  // 1. try to begin any suggested splits
+  for (const auto &suggested_split_info : heartbeat_request.suggested_splits) {
+    const LabelId label_id = suggested_split_info.label_id;
+    auto &label_space = shard_map_.label_spaces.at(label_id);
+
+    const PrimaryKey splitting_shard_low_key =
+        storage::conversions::ConvertPropertyVector(suggested_split_info.splitting_shard_low_key);
+    const PrimaryKey split_key = storage::conversions::ConvertPropertyVector(suggested_split_info.split_key);
+
+    auto &shard = label_space.shards.at(splitting_shard_low_key);
+    const ShardId splitting_shard_id = std::make_pair(label_id, splitting_shard_low_key);
+
+    if (shard.pending_split.has_value() || shard.version == suggested_split_info.shard_version) {
+      continue;
+    }
+
+    // begin the split process for this shard
+    MG_ASSERT(false, "beginning split from coordinator perspective :)");
+    spdlog::info("Coordinator beginning new split process after receiving a pending split");
+
+    // bump current shard version and store pending split info
+    shard.version = shard_map_.GetHlc();
+    shard.pending_split = suggested_split_info;
+    splitting_shards_.insert(splitting_shard_id);
+
+    // copy this shard and store it in the ShardMap
+    ShardMetadata duplicated_shard{shard};
+    std::map<boost::uuids::uuid, boost::uuids::uuid> split_mapping = {};
+    for (auto &peer_metadata : duplicated_shard.peers) {
+      peer_metadata.status = Status::PENDING_SPLIT;
+      peer_metadata.split_from = peer_metadata.address.unique_id;
+
+      const auto new_uuid = shard_map_.NewShardUuid();
+
+      // store new uuid for the right side of each shard
+      rsm_split_from_.insert({new_uuid, splitting_shard_id});
+      split_mapping.emplace(peer_metadata.address.unique_id, new_uuid);
+
+      peer_metadata.address.unique_id = new_uuid;
+    }
+
+    // TODO(tyler) fix this good assertion
+    // if (high_key) {
+    //   MG_ASSERT(converted_pk < *high_key, "Split point is beyond low key of the next shard");
+    // }
+    label_space.shards.insert({split_key, duplicated_shard});
+
+    splitting_shards_.emplace(splitting_shard_id);
+
+    // we will send the heartbeater its split request in stage 4 below
+  }
+
+  // 2. mark all initialized RSMs as INITIALIZED in the ShardMap
+  for (const auto &[initialized_rsm, shard_id] : heartbeat_request.initialized_rsms) {
+    auto [label_id, low_key] = shard_id;
+    auto &label_space = shard_map_.label_spaces.at(label_id);
+    auto &shard = label_space.shards.at(low_key);
+
+    // if even a single shard has been initialized after a split, its raft log has
+    // reached consensus and we can allow more splits again and remove the pending
+    // split state.
+    if (rsm_split_from_.contains(initialized_rsm)) {
+      auto split_shard_id = rsm_split_from_.at(initialized_rsm);
+      splitting_shards_.erase(split_shard_id);
+      rsm_split_from_.erase(initialized_rsm);
+    }
+
+    size_t initialized_count = 0;
+    for (auto &peer : shard.peers) {
+      if (peer.address.unique_id == initialized_rsm) {
+        peer.status = Status::CONSENSUS_PARTICIPANT;
+      }
+
+      if (peer.status == Status::CONSENSUS_PARTICIPANT) {
+        initialized_count++;
+      }
+    }
+
+    if (initialized_count >= label_space.replication_factor) {
+      underreplicated_shards_.erase(shard_id);
+    }
+  }
+
+  // 3. assign any valid underreplicated shards to the Heartbeat sender
+  for (auto &underreplicated_shard_id : underreplicated_shards_) {
+    auto [label_id, low_key] = underreplicated_shard_id;
+    auto &label_space = shard_map_.label_spaces.at(label_id);
+    auto &shard = label_space.shards.at(low_key);
+
+    // make sure we're not already a member
+    for (const auto &peer : shard.peers) {
+      if (peer.address.last_known_ip == heartbeat_request.from_storage_manager.last_known_ip &&
+          peer.address.last_known_port == heartbeat_request.from_storage_manager.last_known_port) {
+        // we are already a member of this shard. continue to next underreplicated shard to consider
+        continue;
+      }
+    }
+
+    // we are not already a member, so we can be assigned to this shard
+    Address address = heartbeat_request.from_storage_manager;
+    address.unique_id = shard_map_.NewShardUuid();
+
+    std::optional<PrimaryKey> high_key;
+    auto next = std::next(label_space.shards.find(low_key));
+    if (next != label_space.shards.end()) {
+      high_key = next->first;
+    }
+
+    spdlog::info("assigning shard manager to shard");
+
+    ret.shards_to_initialize.push_back(ShardToInitialize{
+        .new_shard_version = shard.version,
+        .uuid = address.unique_id,
+        .label_id = label_id,
+        .min_key = low_key,
+        .max_key = high_key,
+        .schema = shard_map_.schemas[label_id],
+        .config = Config{.split =
+                             Config::Split{
+                                 .max_shard_vertex_size = label_space.split_threshold,
+                             }},
+        .id_to_names = shard_map_.IdToNames(),
+    });
+
+    PeerMetadata peer_metadata = {
+        .address = address,
+        .status = Status::INITIALIZING,
+    };
+
+    shard.peers.emplace_back(peer_metadata);
+  }
+
+  // 4. send any split requests that the Heartbeat sender should be applying
+  for (const auto &suggested_split : heartbeat_request.suggested_splits) {
+    MG_ASSERT(false, "coordinator splitting :)");
+  }
+
+  // for each underreplicated shard
+  //   assign this machine if it's not already assigned
+
+  // for each pending split that this shard contains
+  //   send a split request in the heartbeat response
+  // return shard_map_.AssignShards(heartbeat_request.from_storage_manager, heartbeat_request.initialized_rsms,
+  // heartbeat_request.suggested_splits);
+
+  return ret;
 }
 
 CoordinatorWriteResponses Coordinator::ApplyWrite(HlcRequest &&hlc_request) {
@@ -34,6 +183,7 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(HlcRequest &&hlc_request) {
       .logical_id = ++highest_allocated_timestamp_,
       // TODO(tyler) probably pass some more context to the Coordinator here
       // so that we can use our wall clock and enforce monotonicity.
+      // Check it to ensure it's +/- 1 day of the coordinator's io_.Now()
       // .coordinator_wall_clock = io_.Now(),
   };
 
@@ -89,6 +239,10 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(InitializeLabelRequest &&initi
     res.new_label_id = new_label_id.value();
     res.fresher_shard_map = std::nullopt;
     res.success = true;
+
+    auto min_key = SchemaToMinKey(initialize_label_request.schema);
+    auto shard_id = std::make_pair(new_label_id.value(), min_key);
+    underreplicated_shards_.insert(shard_id);
   } else {
     res.fresher_shard_map = shard_map_;
     res.success = false;

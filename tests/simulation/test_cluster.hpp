@@ -190,7 +190,8 @@ void ExecuteOp(SimClientContext &context, ScanAll scan_all) {
 
 void ExecuteOp(SimClientContext &context, AssertShardsSplit assert_shards_split) {
   const int minimum_expected_shards = (context.correctness_model.size() / context.cluster_config.split_threshold) + 1;
-  const int maximum_attempts = 10'000;
+  // TODO(tyler) make this a higher number of retries
+  const int maximum_attempts = 100;
   size_t initialized_shards;
 
   for (int i = 0; i < maximum_attempts; i++) {
@@ -275,8 +276,7 @@ std::pair<SimulatorStats, LatencyHistogramSummaries> RunClusterSimulation(const 
       .correctness_model = correctness_model,
   };
 
-  context.interpreter.InstallSimulatorTicker(simulator);
-
+  MG_ASSERT(false, "got here");
   WaitForShardsToInitialize(context.coordinator_client);
 
   for (const Op &op : ops) {

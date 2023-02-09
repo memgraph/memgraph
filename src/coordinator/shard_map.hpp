@@ -85,11 +85,23 @@ struct PeerMetadata {
 };
 
 using PrimaryKey = std::vector<PropertyValue>;
+using ShardId = std::pair<LabelId, PrimaryKey>;
 
 struct ShardMetadata {
   std::vector<PeerMetadata> peers;
   Hlc version;
   std::optional<msgs::SuggestedSplitInfo> pending_split;
+
+  bool Underreplicated(size_t replication_factor) { return peers.size() < replication_factor; }
+
+  bool ContainsPeer(io::PartialAddress machine) {
+    for (const auto &peer : peers) {
+      if (peer.address.last_known_ip == machine.ip && peer.address.last_known_port == machine.port) {
+        return true;
+      }
+    }
+    return false;
+  }
 
   friend std::ostream &operator<<(std::ostream &in, const ShardMetadata &shard) {
     using utils::print_helpers::operator<<;
@@ -143,13 +155,14 @@ struct ShardToSplit {
 
 struct HeartbeatRequest {
   Address from_storage_manager;
-  std::set<boost::uuids::uuid> initialized_rsms;
-  std::set<msgs::SuggestedSplitInfo> pending_splits;
+  std::map<boost::uuids::uuid, ShardId> initialized_rsms;
+  std::set<msgs::SuggestedSplitInfo> suggested_splits;
 };
 
 struct HeartbeatResponse {
   std::vector<ShardToInitialize> shards_to_initialize;
   std::vector<ShardToSplit> shards_to_split;
+  std::vector<boost::uuids::uuid> acknowledged_initialized_rsms;
 };
 
 PrimaryKey SchemaToMinKey(const std::vector<SchemaProperty> &schema);

@@ -295,6 +295,7 @@ class Interpreter final {
   void Abort();
 
   const RequestRouterInterface *GetRequestRouter() const { return request_router_.get(); }
+
   void InstallSimulatorTicker(std::function<bool()> &&tick_simulator) {
     request_router_->InstallSimulatorTicker(tick_simulator);
   }

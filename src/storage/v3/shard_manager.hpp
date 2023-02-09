@@ -180,20 +180,16 @@ class ShardManager {
     spdlog::warn("ShardManager received InitializeSplitShard message");
     MG_ASSERT(false, "ShardManager::InitializeSplitShard called :)");
     for (const auto &[from_uuid, new_uuid] : init_split_shard.uuid_mapping) {
-      bool has_destination = rsm_worker_mapping_.contains(new_uuid);
-      if (has_destination) {
-        spdlog::warn(
-            "ShardManager received InitializeSplitShard message containing a shard that we have already created: {}",
-            new_uuid);
-        break;
-      }
       bool has_source = rsm_worker_mapping_.contains(from_uuid);
       if (has_source) {
-        // The new uuid
+        coordinator::ShardId new_shard_id =
+            std::make_pair(init_split_shard.shard->PrimaryLabel(), init_split_shard.shard->LowKey());
+
         msgs::InitializeSplitShardByUUID msg{.shard = std::move(init_split_shard.shard), .shard_uuid = new_uuid};
         SendToWorkerByUuid(new_uuid, std::move(msg));
         spdlog::warn("ShardManager initialized split shard with uuid: {}", new_uuid);
-        initialized_but_not_confirmed_rsm_.emplace(new_uuid);
+
+        initialized_but_not_confirmed_rsm_.emplace(new_uuid, new_shard_id);
         break;
       }
     }
@@ -244,10 +240,7 @@ class ShardManager {
   Time next_reconciliation_ = Time::min();
   Address coordinator_leader_;
   std::optional<ResponseFuture<WriteResponse<CoordinatorWriteResponses>>> heartbeat_res_;
-
-  // TODO(tyler) over time remove items from initialized_but_not_confirmed_rsm_
-  // after the Coordinator is clearly aware of them
-  std::set<boost::uuids::uuid> initialized_but_not_confirmed_rsm_;
+  std::map<boost::uuids::uuid, coordinator::ShardId> initialized_but_not_confirmed_rsm_;
 
   void Reconciliation() {
     if (heartbeat_res_.has_value()) {
@@ -281,7 +274,7 @@ class ShardManager {
     HeartbeatRequest req{
         .from_storage_manager = GetAddress(),
         .initialized_rsms = initialized_but_not_confirmed_rsm_,
-        .pending_splits = pending_splits_,
+        .suggested_splits = std::move(pending_splits_),
     };
 
     CoordinatorWriteRequests cwr = req;
@@ -296,14 +289,19 @@ class ShardManager {
   }
 
   void EnsureShardsInitialized(HeartbeatResponse hr) {
+    for (const auto &acknowledged_rsm : hr.acknowledged_initialized_rsms) {
+      MG_ASSERT(false, "coordinator properly acking initialized rsms :)");
+      initialized_but_not_confirmed_rsm_.erase(acknowledged_rsm);
+    }
+
     for (const auto &to_init : hr.shards_to_initialize) {
-      initialized_but_not_confirmed_rsm_.emplace(to_init.uuid);
+      coordinator::ShardId new_shard_id = std::make_pair(to_init.label_id, to_init.min_key);
+      initialized_but_not_confirmed_rsm_.emplace(to_init.uuid, new_shard_id);
 
       if (rsm_worker_mapping_.contains(to_init.uuid)) {
-        // it's not a bug for the coordinator to send us UUIDs that we have
-        // already created, because there may have been lag that caused
-        // the coordinator not to hear back from us.
-        continue;
+        spdlog::info(
+            "ShardManager forwarding shard intialization request to worker despite a mapping already existing. This "
+            "can happen due to benign race conditions.");
       }
 
       size_t worker_index = UuidToWorkerIndex(to_init.uuid);

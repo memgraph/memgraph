@@ -51,10 +51,6 @@ class SimulatedInterpreter {
   SimulatedInterpreter &operator=(SimulatedInterpreter &&) = delete;
   ~SimulatedInterpreter() = default;
 
-  void InstallSimulatorTicker(Simulator &simulator) {
-    interpreter_->InstallSimulatorTicker(simulator.GetSimulatorTickClosure());
-  }
-
   std::vector<query::v2::TypedValue> RunQuery(const std::string &query) {
     FlatStream stream;
 

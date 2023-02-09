@@ -189,8 +189,10 @@ struct StorageInfo {
   uint64_t memory_usage;
 };
 
-struct SuggestedSplitInfo {
+struct ShardSuggestedSplitInfo {
   boost::uuids::uuid shard_to_split_uuid;
+  LabelId label_id;
+  PrimaryKey splitting_shard_low_key;
   PrimaryKey split_key;
   Hlc shard_version;
 };
@@ -354,6 +356,8 @@ class Shard final {
 
   LabelId PrimaryLabel() const;
 
+  PrimaryKey LowKey() const { return min_primary_key_; }
+
   [[nodiscard]] bool IsVertexBelongToShard(const VertexId &vertex_id) const;
 
   /// @throw std::bad_alloc
@@ -385,7 +389,7 @@ class Shard final {
 
   void StoreMapping(std::unordered_map<uint64_t, std::string> id_to_name);
 
-  std::optional<SuggestedSplitInfo> ShouldSplit() const noexcept;
+  std::optional<ShardSuggestedSplitInfo> ShouldSplit() const noexcept;
 
   std::optional<SplitData> PerformSplit(const PrimaryKey &split_key, Hlc old_shard_version, Hlc new_shard_version);
 
