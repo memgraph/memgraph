@@ -547,7 +547,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return TypedValue(result, ctx_->memory);
   }
 
-  TypedValue Visit(Exists &exists) override {
+  TypedValue Visit(Exists & /*exists*/) override {
     throw QueryRuntimeException("Exists functionality not yet implemented!");
   }
 

@@ -64,7 +64,7 @@ auto SymbolGenerator::CreateSymbol(const std::string &name, bool user_declared, 
   return symbol;
 }
 
-auto SymbolGenerator::CreateAnonymousSymbol(Symbol::Type type) {
+auto SymbolGenerator::CreateAnonymousSymbol(Symbol::Type /*type*/) {
   auto symbol = symbol_table_->CreateAnonymousSymbol();
   return symbol;
 }
@@ -455,7 +455,7 @@ bool SymbolGenerator::PreVisit(Exists &exists) {
   return true;
 }
 
-bool SymbolGenerator::PostVisit(Exists &) {
+bool SymbolGenerator::PostVisit(Exists & /*exists*/) {
   auto &scope = scopes_.back();
   scope.in_exists = false;
   return true;
