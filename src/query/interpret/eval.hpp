@@ -33,9 +33,8 @@ namespace memgraph::query {
 
 class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue *> {
  public:
-  ReferenceExpressionEvaluator(Frame *frame, const SymbolTable *symbol_table, const EvaluationContext *ctx,
-                               DbAccessor *dba, storage::View view)
-      : frame_(frame), symbol_table_(symbol_table), ctx_(ctx), dba_(dba), view_(view) {}
+  ReferenceExpressionEvaluator(Frame *frame, const SymbolTable *symbol_table, const EvaluationContext *ctx)
+      : frame_(frame), symbol_table_(symbol_table), ctx_(ctx) {}
 
   using ExpressionVisitor<TypedValue *>::Visit;
 
@@ -95,9 +94,6 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue *> {
   Frame *frame_;
   const SymbolTable *symbol_table_;
   const EvaluationContext *ctx_;
-  DbAccessor *dba_;
-  // which switching approach should be used when evaluating
-  storage::View view_;
 };
 
 class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
@@ -228,52 +224,54 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(SubscriptOperator &list_indexing) override {
-    ReferenceExpressionEvaluator referenceExpressionEvaluator(frame_, symbol_table_, ctx_, dba_, view_);
+    ReferenceExpressionEvaluator referenceExpressionEvaluator(frame_, symbol_table_, ctx_);
 
-    auto *lhs = list_indexing.expression1_->Accept(referenceExpressionEvaluator);
+    TypedValue *lhs_p = nullptr;
+    lhs_p = list_indexing.expression1_->Accept(referenceExpressionEvaluator);
+    TypedValue lhs;
+    bool referenced = lhs_p != nullptr;
+    if (!lhs_p) {
+      lhs = list_indexing.expression1_->Accept(*this);
+      lhs_p = &lhs;
+    }
     auto index = list_indexing.expression2_->Accept(*this);
-    if (!lhs->IsList() && !lhs->IsMap() && !lhs->IsVertex() && !lhs->IsEdge() && !lhs->IsNull())
+    if (!lhs_p->IsList() && !lhs_p->IsMap() && !lhs_p->IsVertex() && !lhs_p->IsEdge() && !lhs_p->IsNull())
       throw QueryRuntimeException(
           "Expected a list, a map, a node or an edge to index with '[]', got "
           "{}.",
-          lhs->type());
-    if (lhs->IsNull() || index.IsNull()) return TypedValue(ctx_->memory);
-    if (lhs->IsList()) {
+          lhs_p->type());
+    if (lhs_p->IsNull() || index.IsNull()) return TypedValue(ctx_->memory);
+    if (lhs_p->IsList()) {
       if (!index.IsInt()) throw QueryRuntimeException("Expected an integer as a list index, got {}.", index.type());
       auto index_int = index.ValueInt();
-      // NOTE: Take non-const reference to list, so that we can move out the
-      // indexed element as the result.
-      const auto &list = lhs->ValueList();
+      auto &list = lhs_p->ValueList();
       if (index_int < 0) {
         index_int += static_cast<int64_t>(list.size());
       }
       if (index_int >= static_cast<int64_t>(list.size()) || index_int < 0) return TypedValue(ctx_->memory);
-      // NOTE: Explicit move is needed, so that we return the move constructed
-      // value and preserve the correct MemoryResource.
-      return TypedValue(list[index_int]);
+      return referenced ? TypedValue(list[index_int], ctx_->memory)
+                        : TypedValue(std::move(list[index_int]), ctx_->memory);
     }
 
-    if (lhs->IsMap()) {
+    if (lhs_p->IsMap()) {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a map index, got {}.", index.type());
       // NOTE: Take non-const reference to map, so that we can move out the
       // looked-up element as the result.
-      const auto &map = lhs->ValueMap();
+      auto &map = lhs_p->ValueMap();
       auto found = map.find(index.ValueString());
       if (found == map.end()) return TypedValue(ctx_->memory);
-      // NOTE: Explicit move is needed, so that we return the move constructed
-      // value and preserve the correct MemoryResource.
-      return TypedValue(found->second);
+      return referenced ? TypedValue(found->second, ctx_->memory) : TypedValue(std::move(found->second), ctx_->memory);
     }
 
-    if (lhs->IsVertex()) {
+    if (lhs_p->IsVertex()) {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
-      return TypedValue(GetProperty(lhs->ValueVertex(), index.ValueString()), ctx_->memory);
+      return {GetProperty(lhs_p->ValueVertex(), index.ValueString()), ctx_->memory};
     }
 
-    if (lhs->IsEdge()) {
+    if (lhs_p->IsEdge()) {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
-      return TypedValue(GetProperty(lhs->ValueEdge(), index.ValueString()), ctx_->memory);
-    }
+      return {GetProperty(lhs_p->ValueEdge(), index.ValueString()), ctx_->memory};
+    };
 
     // lhs is Null
     return TypedValue(ctx_->memory);
@@ -329,10 +327,17 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(PropertyLookup &property_lookup) override {
-    ReferenceExpressionEvaluator referenceExpressionEvaluator(frame_, symbol_table_, ctx_, dba_, view_);
+    ReferenceExpressionEvaluator referenceExpressionEvaluator(frame_, symbol_table_, ctx_);
 
-    auto *expression_result = property_lookup.expression_->Accept(referenceExpressionEvaluator);
-    // auto expression_result = property_lookup.expression_->Accept(*this);
+    TypedValue *expression_result = nullptr;
+    expression_result = property_lookup.expression_->Accept(referenceExpressionEvaluator);
+
+    TypedValue expression_result_;
+
+    if (!expression_result) {
+      expression_result_ = property_lookup.expression_->Accept(*this);
+      expression_result = &expression_result_;
+    }
     auto maybe_date = [this](const auto &date, const auto &prop_name) -> std::optional<TypedValue> {
       if (prop_name == "year") {
         return TypedValue(date.year, ctx_->memory);
@@ -414,13 +419,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       case TypedValue::Type::Edge:
         return TypedValue(GetProperty(expression_result->ValueEdge(), property_lookup.property_), ctx_->memory);
       case TypedValue::Type::Map: {
-        // NOTE: Take non-const reference to map, so that we can move out the
-        // looked-up element as the result.
         auto &map = expression_result->ValueMap();
         auto found = map.find(property_lookup.property_.name.c_str());
         if (found == map.end()) return TypedValue(ctx_->memory);
-        // NOTE: Explicit move is needed, so that we return the move constructed
-        // value and preserve the correct MemoryResource.
         return TypedValue(found->second, ctx_->memory);
       }
       case TypedValue::Type::Duration: {
