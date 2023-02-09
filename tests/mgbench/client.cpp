@@ -336,6 +336,7 @@ int main(int argc, char **argv) {
   spdlog::info("Usessl: {} ", FLAGS_use_ssl);
   spdlog::info("Num of worker: {}", FLAGS_num_workers);
   spdlog::info("Max retries: {}", FLAGS_max_retries);
+  spdlog::info("Query JSON: {}", FLAGS_queries_json);
   spdlog::info("Input: {}", FLAGS_input);
   spdlog::info("Output: {}", FLAGS_output);
   spdlog::info("Validation: {}", FLAGS_validation);
