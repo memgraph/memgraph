@@ -36,7 +36,7 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(HeartbeatRequest &&heartbeat_r
     const PrimaryKey split_key = storage::conversions::ConvertPropertyVector(suggested_split_info.split_key);
 
     auto &shard = label_space.shards.at(splitting_shard_low_key);
-    const ShardId splitting_shard_id = std::make_pair(label_id, splitting_shard_low_key);
+    const ShardId splitting_shard_id = std::make_pair(label_id, split_key);
 
     if (shard.pending_split.has_value() || shard.version != suggested_split_info.shard_version) {
       spdlog::info("skipping split, already splitting: {}, shard.version: {}, suggested shard_version: {}",
@@ -61,6 +61,8 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(HeartbeatRequest &&heartbeat_r
       peer_metadata.split_from = peer_metadata.address.unique_id;
 
       const auto new_uuid = shard_map_.NewShardUuid();
+
+      spdlog::info("Coordinator allocating new rsm uuid: {}", new_uuid);
 
       // store new uuid for the right side of each shard
       rsm_split_from_.insert({new_uuid, splitting_shard_id});
@@ -92,12 +94,15 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(HeartbeatRequest &&heartbeat_r
       auto split_shard_id = rsm_split_from_.at(initialized_rsm);
       splitting_shards_.erase(split_shard_id);
       rsm_split_from_.erase(initialized_rsm);
-      MG_ASSERT(false, "removing rsm from split from before actually used");
+      MG_ASSERT(false,
+                "TODO(tyler) remove this. but until it works once, this is removing rsm from split from before "
+                "actually used");
     }
 
     size_t initialized_count = 0;
     for (auto &peer : shard.peers) {
       if (peer.address.unique_id == initialized_rsm) {
+        spdlog::info("Coordinator marking rsm {} as initialized", initialized_rsm);
         peer.status = Status::CONSENSUS_PARTICIPANT;
       }
 
@@ -174,7 +179,8 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(HeartbeatRequest &&heartbeat_r
       if (peer.status != Status::PENDING_SPLIT ||
           peer.address.last_known_ip != heartbeat_request.from_storage_manager.last_known_ip ||
           peer.address.last_known_port != heartbeat_request.from_storage_manager.last_known_port) {
-        spdlog::info("3");
+        spdlog::info("not splitting peer: status is PENDING_SPLIT: {}, peer address: {} storage manager address: {}",
+                     peer.status == Status::PENDING_SPLIT, peer.address, heartbeat_request.from_storage_manager);
         // not splitting or not us
         continue;
       }
@@ -189,7 +195,6 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(HeartbeatRequest &&heartbeat_r
         uuid_mapping.emplace(peer_metadata2.split_from, peer_metadata2.address.unique_id);
       }
 
-      MG_ASSERT(false, "adding a shard to split :)");
       ret.shards_to_split.push_back(ShardToSplit{
           .split_key = low_key,
           // .old_shard_version = shard.previous_version,
