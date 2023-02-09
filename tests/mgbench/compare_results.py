@@ -123,26 +123,35 @@ def generate_remarkup(fields, data):
         ret += "  <tr>\n"
         ret += "    <th>Testcode</th>\n"
         ret += (
-            "\n".join(map(lambda x: "    <th>{}</th>".format(x["name"].replace("_", " ").capitalize()), fields)) + "\n"
+            "\n".join(
+                map(
+                    lambda x: "    <th>{}</th>".format(x["name"].replace("_", " ").capitalize()),
+                    fields,
+                )
+            )
+            + "\n"
         )
         ret += "  </tr>\n"
         for testcode in sorted(data.keys()):
             ret += "  <tr>\n"
             ret += "    <td>{}</td>\n".format(testcode)
             for field in fields:
-                result = data[testcode][field["name"]]
-                value = result["value"] * field["scaling"]
-                if "diff" in result:
-                    diff = result["diff"]
-                    arrow = "arrow-up" if diff >= 0 else "arrow-down"
-                    if not (field["positive_diff_better"] ^ (diff >= 0)):
-                        color = "green"
+                result = data[testcode].get(field["name"])
+                if result != None:
+                    value = result["value"] * field["scaling"]
+                    if "diff" in result:
+                        diff = result["diff"]
+                        arrow = "arrow-up" if diff >= 0 else "arrow-down"
+                        if not (field["positive_diff_better"] ^ (diff >= 0)):
+                            color = "green"
+                        else:
+                            color = "red"
+                        sign = "{{icon {} color={}}}".format(arrow, color)
+                        ret += '    <td bgcolor="{}">{:.3f}{} ({:+.2%})</td>\n'.format(
+                            color, value, field["unit"], diff
+                        )
                     else:
-                        color = "red"
-                    sign = "{{icon {} color={}}}".format(arrow, color)
-                    ret += "    <td>{:.3f}{} //({:+.2%})// {}</td>\n".format(value, field["unit"], diff, sign)
-                else:
-                    ret += "    <td>{:.3f}{} //(new)// " "{{icon plus color=blue}}</td>\n".format(value, field["unit"])
+                        ret += '<td bgcolor="blue">{:.3f}{} //(new)// </td>\n'.format(value, field["unit"])
             ret += "  </tr>\n"
         ret += "</table>\n"
     else:
