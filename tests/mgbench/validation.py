@@ -1,6 +1,7 @@
 import argparse
 
 import runners
+from helpers import generate_workload, list_possible_workloads
 
 if __name__ == "__main__":
 
@@ -33,6 +34,11 @@ if __name__ == "__main__":
         7687,
         False,
     )
+
+    av = generate_workload("ldbc")
+
+    if True:
+        list_possible_workloads()
 
     client = runners.Client("/home/maple/repos/test/memgraph/build/tests/mgbench/client", "/tmp", 7687)
     vendor.start_benchmark("validation")

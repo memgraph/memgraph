@@ -1,7 +1,7 @@
-import datasets
+from datasets import Dataset
 
 
-class LDBC_Interactive(datasets.Dataset):
+class LDBC_Interactive(Dataset):
     NAME = "ldbc_interactive"
     VARIANTS = ["sf0.1", "sf1", "sf3", "sf10"]
     DEFAULT_VARIANT = "sf1"
@@ -643,7 +643,7 @@ class LDBC_Interactive(datasets.Dataset):
             return neo4j
 
 
-class LDBC_BI(datasets.Dataset):
+class LDBC_BI(Dataset):
     NAME = "ldbc_bi"
     VARIANTS = ["sf1", "sf3", "sf10"]
     DEFAULT_VARIANT = "sf1"

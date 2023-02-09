@@ -9,11 +9,17 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import collections
 import copy
+import inspect
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
+
+import datasets
+from workload import ldbc
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 
@@ -64,6 +70,48 @@ def ensure_directory(path):
         os.makedirs(path)
     if not os.path.isdir(path):
         raise Exception("The path '{}' should be a directory!".format(path))
+
+
+def generate_workload(name: str):
+    generators = {}
+    # (TODO) fix hardcoded ldbc
+    test = dir(ldbc)
+
+    for key in dir(ldbc):
+        if key.startswith("_"):
+            continue
+        dataset = getattr(ldbc, key)
+        if not inspect.isclass(dataset) or dataset == datasets.Dataset or not issubclass(dataset, datasets.Dataset):
+            continue
+        queries = collections.defaultdict(list)
+        for funcname in dir(dataset):
+            if not funcname.startswith("benchmark__"):
+                continue
+            group, query = funcname.split("__")[1:]
+            queries[group].append((query, funcname))
+        generators[dataset.NAME] = (dataset, dict(queries))
+        # (TODO) Fix properties on edges.
+        if dataset.PROPERTIES_ON_EDGES and False:
+            raise Exception(
+                'The "{}" dataset requires properties on edges, ' "but you have disabled them!".format(dataset.NAME)
+            )
+    return generators
+
+
+def list_possible_workloads():
+    generators = generate_workload("ldbc")
+    for name in sorted(generators.keys()):
+        print("Dataset:", name)
+        dataset, queries = generators[name]
+        print(
+            "    Variants:",
+            ", ".join(dataset.VARIANTS),
+            "(default: " + dataset.DEFAULT_VARIANT + ")",
+        )
+        for group in sorted(queries.keys()):
+            print("    Group:", group)
+            for query_name, query_func in queries[group]:
+                print("        Query:", query_name)
 
 
 class Directory:
