@@ -578,7 +578,25 @@ class RuleBasedPlanner {
     return last_op;
   }
 
-  std::unique_ptr<LogicalOperator> MakeExistsFilter(Exists &exists, AstStorage &storage,
+  std::unique_ptr<LogicalOperator> ExtractPatternFilters(const Filters &filters, AstStorage &storage,
+                                                         const SymbolTable &symbol_table,
+                                                         const std::unordered_set<Symbol> &bound_symbols) {
+    for (const auto &filter : filters) {
+      if (filter.type != FilterInfo::Type::Pattern) {
+        continue;
+      }
+
+      if (const auto *exists = utils::Downcast<Exists>(filter.expression)) {
+        return MakeExistsFilter(*exists, storage, symbol_table, bound_symbols);
+      }
+
+      throw SemanticException("Pattern filter does not exist!");
+    }
+
+    return nullptr;
+  }
+
+  std::unique_ptr<LogicalOperator> MakeExistsFilter(const Exists &exists, AstStorage &storage,
                                                     const SymbolTable &symbol_table,
                                                     const std::unordered_set<Symbol> &bound_symbols) {
     auto *from_node = static_cast<NodeAtom *>(exists.pattern_->atoms_[0]);
@@ -588,6 +606,7 @@ class RuleBasedPlanner {
     auto node2_symbol = symbol_table.at(*to_node->identifier_);
     auto edge_symbol = symbol_table.at(*relationship->identifier_);
     auto direction = relationship->direction_;
+
     std::vector<storage::EdgeTypeId> edge_types;
     edge_types.reserve(relationship->edge_types_.size());
     for (const auto &type : relationship->edge_types_) {
@@ -605,24 +624,6 @@ class RuleBasedPlanner {
     last_op = std::make_unique<EvaluatePatternFilter>(std::move(last_op), symbol_table.at(exists));
 
     return last_op;
-  }
-
-  std::unique_ptr<LogicalOperator> ExtractPatternFilters(Filters &filters, AstStorage &storage,
-                                                         const SymbolTable &symbol_table,
-                                                         const std::unordered_set<Symbol> &bound_symbols) {
-    for (auto &filter : filters) {
-      if (filter.type != FilterInfo::Type::Pattern) {
-        continue;
-      }
-
-      if (auto *exists = utils::Downcast<Exists>(filter.expression)) {
-        return MakeExistsFilter(*exists, storage, symbol_table, bound_symbols);
-      }
-
-      throw SemanticException("Pattern filter does not exist!");
-    }
-
-    return nullptr;
   }
 };
 
