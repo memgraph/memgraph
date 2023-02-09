@@ -61,3 +61,6 @@ target_link_libraries(${test_prefix}ssl_client mg-communication)
 
 add_manual_test(ssl_server.cpp)
 target_link_libraries(${test_prefix}ssl_server mg-communication)
+
+add_manual_test(query_performance.cpp)
+target_link_libraries(${test_prefix}query_performance mg-communication mg-utils mg-io mg-io-simulator mg-coordinator mg-query-v2 mg-storage-v3)
