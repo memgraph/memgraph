@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -396,8 +396,8 @@ PropertyValue VertexAccessor::GetPropertyValue(PropertyId property, View view) c
     return value;
   }
   // Find PropertyId index in keystore
-  for (size_t property_index{0}; property_index < schema->second.size(); ++property_index) {
-    if (schema->second[property_index].property_id == property) {
+  for (size_t property_index{0}; property_index < schema->properties.size(); ++property_index) {
+    if (schema->properties[property_index].property_id == property) {
       return vertex_->first[property_index];
     }
   }

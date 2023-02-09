@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,16 +25,16 @@ bool operator==(const SchemaProperty &lhs, const SchemaProperty &rhs) {
 }
 
 Schemas::SchemasList Schemas::ListSchemas() const {
-  Schemas::SchemasList ret;
+  SchemasList ret;
   ret.reserve(schemas_.size());
   std::transform(schemas_.begin(), schemas_.end(), std::back_inserter(ret),
-                 [](const auto &schema_property_type) { return schema_property_type; });
+                 [](const auto &schema_property_type) { return schema_property_type.second; });
   return ret;
 }
 
-const Schemas::Schema *Schemas::GetSchema(const LabelId primary_label) const {
+const Schema *Schemas::GetSchema(const LabelId primary_label) const {
   if (auto schema_map = schemas_.find(primary_label); schema_map != schemas_.end()) {
-    return &*schema_map;
+    return &schema_map->second;
   }
   return nullptr;
 }
@@ -43,7 +43,7 @@ bool Schemas::CreateSchema(const LabelId primary_label, const std::vector<Schema
   if (schemas_.contains(primary_label)) {
     return false;
   }
-  schemas_.emplace(primary_label, schemas_types);
+  schemas_.insert({primary_label, Schema{.label = primary_label, .properties = schemas_types}});
   return true;
 }
 
@@ -51,9 +51,9 @@ bool Schemas::DropSchema(const LabelId primary_label) { return schemas_.erase(pr
 
 bool Schemas::IsPropertyKey(const LabelId primary_label, const PropertyId property_id) const {
   if (const auto schema = schemas_.find(primary_label); schema != schemas_.end()) {
-    return std::ranges::find_if(schema->second, [property_id](const auto &elem) {
+    return std::ranges::find_if(schema->second.properties, [property_id](const auto &elem) {
              return elem.property_id == property_id;
-           }) != schema->second.end();
+           }) != schema->second.properties.end();
   }
   throw utils::BasicException("Schema not found!");
 }

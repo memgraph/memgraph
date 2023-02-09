@@ -364,7 +364,7 @@ class Shard final {
 
   SchemasInfo ListAllSchemas() const;
 
-  const Schemas::Schema *GetSchema(LabelId primary_label) const;
+  const Schema *GetSchema(LabelId primary_label) const;
 
   bool CreateSchema(LabelId primary_label, const std::vector<SchemaProperty> &schemas_types);
 

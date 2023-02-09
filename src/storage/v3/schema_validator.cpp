@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -44,20 +44,20 @@ ShardResult<void> SchemaValidator::ValidateVertexCreate(LabelId primary_label, c
   }
 
   // Quick size check
-  if (schema->second.size() != primary_properties.size()) {
+  if (schema->properties.size() != primary_properties.size()) {
     return SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED,
                        "Not all primary properties have been specified for :{} vertex",
                        name_id_mapper_->IdToName(primary_label.AsInt()));
   }
   // Check only properties defined by schema
-  for (size_t i{0}; i < schema->second.size(); ++i) {
+  for (size_t i{0}; i < schema->properties.size(); ++i) {
     // Check schema property type
     if (auto property_schema_type = PropertyTypeToSchemaType(primary_properties[i]);
-        property_schema_type && *property_schema_type != schema->second[i].type) {
+        property_schema_type && *property_schema_type != schema->properties[i].type) {
       return SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_PROPERTY_WRONG_TYPE,
                          "Property {} is of wrong type, expected {}, actual {}",
-                         name_id_mapper_->IdToName(schema->second[i].property_id.AsInt()),
-                         SchemaTypeToString(schema->second[i].type), SchemaTypeToString(*property_schema_type));
+                         name_id_mapper_->IdToName(schema->properties[i].property_id.AsInt()),
+                         SchemaTypeToString(schema->properties[i].type), SchemaTypeToString(*property_schema_type));
     }
   }
 
@@ -72,9 +72,9 @@ ShardResult<void> SchemaValidator::ValidatePropertyUpdate(const LabelId primary_
 
   // Verify that updating property is not part of schema
   if (const auto schema_property = std::ranges::find_if(
-          schema->second,
+          schema->properties,
           [property_id](const auto &schema_property) { return property_id == schema_property.property_id; });
-      schema_property != schema->second.end()) {
+      schema_property != schema->properties.end()) {
     return SHARD_ERROR(ErrorCode::SCHEMA_VERTEX_UPDATE_PRIMARY_KEY,
                        "Cannot update primary property {} of schema on label :{}",
                        name_id_mapper_->IdToName(schema_property->property_id.AsInt()),
@@ -92,7 +92,7 @@ ShardResult<void> SchemaValidator::ValidateLabelUpdate(const LabelId label) cons
   return {};
 }
 
-const Schemas::Schema *SchemaValidator::GetSchema(LabelId label) const { return schemas_->GetSchema(label); }
+const Schema *SchemaValidator::GetSchema(LabelId label) const { return schemas_->GetSchema(label); }
 
 VertexValidator::VertexValidator(const SchemaValidator &schema_validator, const LabelId primary_label)
     : schema_validator{&schema_validator}, primary_label_{primary_label} {}

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -33,6 +33,7 @@
 
 #include <boost/preprocessor/cat.hpp>
 
+#include "common/types.hpp"
 #include "expr/ast.hpp"
 #include "expr/ast/ast_visitor.hpp"
 #include "expr/exceptions.hpp"
@@ -2941,6 +2942,39 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
     return schema_property_map;
   }
 
+  inline memgraph::common::SchemaConfigParams SchemaConfigKeyToEnum(std::string_view val) {
+    if (val == "replication_factor") {
+      return memgraph::common::SchemaConfigParams::REPLICATION_FACTOR;
+    } else if (val == "split_threshold") {
+      return memgraph::common::SchemaConfigParams::SPLIT_THRESHOLD;
+    }
+    throw memgraph::expr::SemanticException("Schema configuration parameter not recognized!");
+  }
+
+  /**
+   * @return Schema*
+   */
+  antlrcpp::Any visitSchemaConfigKeyValuePair(MemgraphCypher::SchemaConfigKeyValuePairContext *ctx) override {
+    MG_ASSERT(ctx->literal().size() == 2);
+    const auto key_value =
+        SchemaConfigKeyToEnum(utils::ToLowerCase(std::any_cast<std::string>(ctx->literal(0)->accept(this))));
+    return std::pair<common::SchemaConfigParams, Expression *>{
+        key_value, std::any_cast<Expression *>(ctx->literal(1)->accept(this))};
+  }
+
+  /**
+   * @return Schema*
+   */
+  antlrcpp::Any visitSchemaConfiguration(MemgraphCypher::SchemaConfigurationContext *ctx) override {
+    std::unordered_map<common::SchemaConfigParams, Expression *> map;
+    for (auto *key_value_pair : ctx->schemaConfigKeyValuePair()) {
+      // If the queries are cached, then only the stripped query is parsed, so the actual keys cannot be determined
+      // here. That means duplicates cannot be checked.
+      map.insert(std::any_cast<std::pair<common::SchemaConfigParams, Expression *>>(key_value_pair->accept(this)));
+    }
+    return map;
+  }
+
   /**
    * @return Schema*
    */
@@ -2981,6 +3015,9 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
     schema_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
     schema_query->schema_type_map_ =
         std::any_cast<std::vector<std::pair<PropertyIx, common::SchemaType>>>(ctx->schemaPropertyMap()->accept(this));
+    auto ladida = ctx->schemaConfiguration()->accept(this);
+    schema_query->schema_config_map_ = std::any_cast<std::unordered_map<common::SchemaConfigParams, Expression *>>(
+        ctx->schemaConfiguration()->accept(this));
     query_ = schema_query;
     return schema_query;
   }

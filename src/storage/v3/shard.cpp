@@ -403,8 +403,6 @@ ShardResult<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
     const std::vector<LabelId> &labels, const PrimaryKey &primary_properties,
     const std::vector<std::pair<PropertyId, PropertyValue>> &properties) {
   OOMExceptionEnabler oom_exception;
-  const auto schema = shard_->GetSchema(shard_->primary_label_)->second;
-
   auto maybe_schema_violation =
       GetSchemaValidator().ValidateVertexCreate(shard_->primary_label_, labels, primary_properties);
   if (maybe_schema_violation.HasError()) {
@@ -907,8 +905,8 @@ bool Shard::CreateIndex(LabelId label, const std::optional<uint64_t> /*desired_c
 bool Shard::CreateIndex(LabelId label, PropertyId property,
                         const std::optional<uint64_t> /*desired_commit_timestamp*/) {
   // TODO(jbajic) response should be different when index conflicts with schema
-  if (label == primary_label_ && schemas_.GetSchema(primary_label_)->second.size() == 1 &&
-      schemas_.GetSchema(primary_label_)->second[0].property_id == property) {
+  if (label == primary_label_ && schemas_.GetSchema(primary_label_)->properties.size() == 1 &&
+      schemas_.GetSchema(primary_label_)->properties[0].property_id == property) {
     // Index already exists on primary key
     return false;
   }
@@ -934,7 +932,7 @@ const SchemaValidator &Shard::Accessor::GetSchemaValidator() const { return shar
 
 SchemasInfo Shard::ListAllSchemas() const { return {schemas_.ListSchemas()}; }
 
-const Schemas::Schema *Shard::GetSchema(const LabelId primary_label) const { return schemas_.GetSchema(primary_label); }
+const Schema *Shard::GetSchema(const LabelId primary_label) const { return schemas_.GetSchema(primary_label); }
 
 bool Shard::CreateSchema(const LabelId primary_label, const std::vector<SchemaProperty> &schemas_types) {
   return schemas_.CreateSchema(primary_label, schemas_types);

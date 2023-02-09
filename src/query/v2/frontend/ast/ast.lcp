@@ -147,6 +147,14 @@ cpp<#
     }
     cpp<#)
 
+(defun clone-map (source dest)
+    #>cpp
+    ${dest}.reserve(${source}.size());
+    for (const auto &[config_key, config_val]: ${source}) {
+      ${dest}.emplace(config_key, config_val->Clone(storage));
+    }
+    cpp<#)
+
 ;; The following index structs serve as a decoupling point of AST from
 ;; concrete database types. All the names are collected in AstStorage, and can
 ;; be indexed through these instances. This means that we can create a vector
@@ -2698,10 +2706,17 @@ cpp<#
                    #>cpp
                    ${dest} = storage->GetLabelIx(${source}.name);
                    cpp<#))
+
     (schema_type_map "std::vector<std::pair<PropertyIx, common::SchemaType>>"
       :slk-save #'slk-save-property-map
       :slk-load #'slk-load-property-map
       :clone #'clone-schema-property-vector
+      :scope :public)
+
+   (schema_config_map "std::unordered_map<common::SchemaConfigParams, Expression *>"
+      :slk-save #'slk-save-property-map
+      :slk-load #'slk-load-property-map
+      :clone #'clone-map
       :scope :public))
 
   (:public

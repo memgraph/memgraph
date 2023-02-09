@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <unordered_map>
@@ -43,12 +44,27 @@ struct SchemaProperty {
   }
 };
 
+class Schema {
+  struct SchemaConfiguration {
+    uint64_t replication_factor;
+    uint64_t split_threshold;
+  };
+
+ public:
+  LabelId label;
+  std::vector<SchemaProperty> properties;
+  SchemaConfiguration config;
+
+  friend bool operator==(const Schema &lhs, const Schema &rhs) noexcept {
+    return lhs.label == rhs.label && lhs.properties == rhs.properties;
+  }
+};
+
 /// Structure that represents a collection of schemas
 /// Schema can be mapped under only one label => primary label
 class Schemas {
  public:
-  using SchemasMap = std::unordered_map<LabelId, std::vector<SchemaProperty>>;
-  using Schema = SchemasMap::value_type;
+  using SchemasMap = std::unordered_map<LabelId, Schema>;
   using SchemasList = std::vector<Schema>;
 
   Schemas() = default;

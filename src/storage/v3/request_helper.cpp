@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -44,7 +44,7 @@ struct VertexIdCmpr {
 };
 
 std::optional<std::map<PropertyId, Value>> PrimaryKeysFromAccessor(const VertexAccessor &acc, View view,
-                                                                   const Schemas::Schema &schema) {
+                                                                   const Schema &schema) {
   std::map<PropertyId, Value> ret;
   auto props = acc.Properties(view);
   auto maybe_pk = acc.PrimaryKey(view);
@@ -53,9 +53,9 @@ std::optional<std::map<PropertyId, Value>> PrimaryKeysFromAccessor(const VertexA
     return std::nullopt;
   }
   auto &pk = maybe_pk.GetValue();
-  MG_ASSERT(schema.second.size() == pk.size(), "PrimaryKey size does not match schema!");
-  for (size_t i{0}; i < schema.second.size(); ++i) {
-    ret.emplace(schema.second[i].property_id, FromPropertyValueToValue(std::move(pk[i])));
+  MG_ASSERT(schema.properties.size() == pk.size(), "PrimaryKey size does not match schema!");
+  for (size_t i{0}; i < schema.properties.size(); ++i) {
+    ret.emplace(schema.properties[i].property_id, FromPropertyValueToValue(std::move(pk[i])));
   }
 
   return ret;
@@ -82,8 +82,7 @@ ShardResult<std::vector<msgs::Label>> FillUpSourceVertexSecondaryLabels(const st
 
 ShardResult<std::map<PropertyId, Value>> FillUpSourceVertexProperties(const std::optional<VertexAccessor> &v_acc,
                                                                       const msgs::ExpandOneRequest &req,
-                                                                      storage::v3::View view,
-                                                                      const Schemas::Schema &schema) {
+                                                                      storage::v3::View view, const Schema &schema) {
   std::map<PropertyId, Value> src_vertex_properties;
 
   if (!req.src_vertex_properties) {
@@ -236,7 +235,7 @@ std::vector<TypedValue> EvaluateEdgeExpressions(DbAccessor &dba, const VertexAcc
 }
 
 ShardResult<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(const VertexAccessor &acc, View view,
-                                                                          const Schemas::Schema &schema) {
+                                                                          const Schema &schema) {
   auto ret = impl::CollectAllPropertiesImpl<VertexAccessor>(acc, view);
   if (ret.HasError()) {
     return ret.GetError();
@@ -380,7 +379,7 @@ bool FilterOnEdge(DbAccessor &dba, const storage::v3::VertexAccessor &v_acc, con
 ShardResult<msgs::ExpandOneResultRow> GetExpandOneResult(
     Shard::Accessor &acc, msgs::VertexId src_vertex, const msgs::ExpandOneRequest &req,
     const EdgeUniquenessFunction &maybe_filter_based_on_edge_uniqueness, const EdgeFiller &edge_filler,
-    const Schemas::Schema &schema) {
+    const Schema &schema) {
   /// Fill up source vertex
   const auto primary_key = ConvertPropertyVector(src_vertex.second);
   auto v_acc = acc.FindVertex(primary_key, View::NEW);
@@ -423,7 +422,7 @@ ShardResult<msgs::ExpandOneResultRow> GetExpandOneResult(
     VertexAccessor v_acc, msgs::VertexId src_vertex, const msgs::ExpandOneRequest &req,
     std::vector<EdgeAccessor> in_edge_accessors, std::vector<EdgeAccessor> out_edge_accessors,
     const EdgeUniquenessFunction &maybe_filter_based_on_edge_uniqueness, const EdgeFiller &edge_filler,
-    const Schemas::Schema &schema) {
+    const Schema &schema) {
   /// Fill up source vertex
   msgs::Vertex source_vertex = {.id = src_vertex};
   auto maybe_secondary_labels = FillUpSourceVertexSecondaryLabels(v_acc, req);

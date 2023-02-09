@@ -542,7 +542,7 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, InterpreterContext *interp
         std::vector<std::vector<TypedValue>> results;
         results.reserve(schemas_info.schemas.size());
 
-        for (const auto &[label_id, schema_types] : schemas_info.schemas) {
+        for ([[maybe_unused]] const auto &[label_id, schema_types, config] : schemas_info.schemas) {
           std::vector<TypedValue> schema_info_row;
           schema_info_row.reserve(3);
 
@@ -570,7 +570,7 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, InterpreterContext *interp
         const auto *schema = db->GetSchema(label);
         std::vector<std::vector<TypedValue>> results;
         if (schema) {
-          for (const auto &schema_property : schema->second) {
+          for (const auto &schema_property : schema->properties) {
             std::vector<TypedValue> schema_info_row;
             schema_info_row.reserve(2);
             schema_info_row.emplace_back(db->PropertyToName(schema_property.property_id));

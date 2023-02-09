@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -60,18 +60,22 @@ TEST_F(SchemaTest, TestSchemaCreate) {
     EXPECT_TRUE(schemas.CreateSchema(label2, {schema_prop_string, schema_prop_int}));
     const auto current_schemas = schemas.ListSchemas();
     EXPECT_EQ(current_schemas.size(), 2);
-    EXPECT_THAT(current_schemas,
-                UnorderedElementsAre(Pair(label1, std::vector<SchemaProperty>{schema_prop_string}),
-                                     Pair(label2, std::vector<SchemaProperty>{schema_prop_string, schema_prop_int})));
+    EXPECT_THAT(
+        current_schemas,
+        UnorderedElementsAre(
+            Schema{.label = label1, .properties = std::vector<SchemaProperty>{schema_prop_string}},
+            Schema{.label = label2, .properties = std::vector<SchemaProperty>{schema_prop_string, schema_prop_int}}));
   }
   {
     // Assert after unsuccessful creation, number oif schemas remains the same
     EXPECT_FALSE(schemas.CreateSchema(label2, {schema_prop_int}));
     const auto current_schemas = schemas.ListSchemas();
     EXPECT_EQ(current_schemas.size(), 2);
-    EXPECT_THAT(current_schemas,
-                UnorderedElementsAre(Pair(label1, std::vector<SchemaProperty>{schema_prop_string}),
-                                     Pair(label2, std::vector<SchemaProperty>{schema_prop_string, schema_prop_int})));
+    EXPECT_THAT(
+        current_schemas,
+        UnorderedElementsAre(
+            Schema{.label = label1, .properties = std::vector<SchemaProperty>{schema_prop_string}},
+            Schema{.label = label2, .properties = std::vector<SchemaProperty>{schema_prop_string, schema_prop_int}}));
   }
 }
 
@@ -89,27 +93,29 @@ TEST_F(SchemaTest, TestSchemaList) {
   {
     const auto current_schemas = schemas.ListSchemas();
     EXPECT_EQ(current_schemas.size(), 2);
-    EXPECT_THAT(current_schemas,
-                UnorderedElementsAre(
-                    Pair(label1, std::vector<SchemaProperty>{schema_prop_string}),
-                    Pair(label2, std::vector<SchemaProperty>{{NameToProperty("prop1"), SchemaType::STRING},
+    EXPECT_THAT(
+        current_schemas,
+        UnorderedElementsAre(
+            Schema{.label = label1, .properties = std::vector<SchemaProperty>{schema_prop_string}},
+            Schema{.label = label2,
+                   .properties = std::vector<SchemaProperty>{{NameToProperty("prop}"), SchemaType::STRING},
                                                              {NameToProperty("prop2"), SchemaType::INT},
                                                              {NameToProperty("prop3"), SchemaType::BOOL},
                                                              {NameToProperty("prop4"), SchemaType::DATE},
                                                              {NameToProperty("prop5"), SchemaType::LOCALDATETIME},
                                                              {NameToProperty("prop6"), SchemaType::DURATION},
-                                                             {NameToProperty("prop7"), SchemaType::LOCALTIME}})));
+                                                             {NameToProperty("prop7"), SchemaType::LOCALTIME}}}));
   }
   {
     const auto *const schema1 = schemas.GetSchema(label1);
     ASSERT_NE(schema1, nullptr);
-    EXPECT_EQ(*schema1, (Schemas::Schema{label1, std::vector<SchemaProperty>{schema_prop_string}}));
+    EXPECT_EQ(*schema1, (Schema{.label = label1, .properties = std::vector<SchemaProperty>{schema_prop_string}}));
   }
   {
     const auto *const schema2 = schemas.GetSchema(label2);
     ASSERT_NE(schema2, nullptr);
-    EXPECT_EQ(schema2->first, label2);
-    EXPECT_EQ(schema2->second.size(), 7);
+    EXPECT_EQ(schema2->label, label2);
+    EXPECT_EQ(schema2->properties.size(), 7);
   }
 }
 
@@ -132,7 +138,8 @@ TEST_F(SchemaTest, TestSchemaDrop) {
     const auto current_schemas = schemas.ListSchemas();
     EXPECT_EQ(current_schemas.size(), 1);
     EXPECT_THAT(current_schemas,
-                UnorderedElementsAre(Pair(label2, std::vector<SchemaProperty>{schema_prop_string, schema_prop_int})));
+                UnorderedElementsAre(Schema{
+                    .label = label2, .properties = std::vector<SchemaProperty>{schema_prop_string, schema_prop_int}}));
   }
 
   {
@@ -141,7 +148,8 @@ TEST_F(SchemaTest, TestSchemaDrop) {
     const auto current_schemas = schemas.ListSchemas();
     EXPECT_EQ(current_schemas.size(), 1);
     EXPECT_THAT(current_schemas,
-                UnorderedElementsAre(Pair(label2, std::vector<SchemaProperty>{schema_prop_string, schema_prop_int})));
+                UnorderedElementsAre(Schema{
+                    .label = label2, .properties = std::vector<SchemaProperty>{schema_prop_string, schema_prop_int}}));
   }
 
   EXPECT_TRUE(schemas.DropSchema(label2));

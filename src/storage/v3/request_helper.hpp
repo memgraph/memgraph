@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -217,7 +217,7 @@ ShardResult<std::map<PropertyId, Value>> CollectSpecificPropertiesFromAccessor(c
 }
 
 ShardResult<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(const VertexAccessor &acc, View view,
-                                                                          const Schemas::Schema &schema);
+                                                                          const Schema &schema);
 namespace impl {
 template <PropertiesAccessor TAccessor>
 ShardResult<std::map<PropertyId, Value>> CollectAllPropertiesImpl(const TAccessor &acc, View view) {
@@ -249,11 +249,11 @@ EdgeFiller InitializeEdgeFillerFunction(const msgs::ExpandOneRequest &req);
 ShardResult<msgs::ExpandOneResultRow> GetExpandOneResult(
     Shard::Accessor &acc, msgs::VertexId src_vertex, const msgs::ExpandOneRequest &req,
     const EdgeUniquenessFunction &maybe_filter_based_on_edge_uniqueness, const EdgeFiller &edge_filler,
-    const Schemas::Schema &schema);
+    const Schema &schema);
 
 ShardResult<msgs::ExpandOneResultRow> GetExpandOneResult(
     VertexAccessor v_acc, msgs::VertexId src_vertex, const msgs::ExpandOneRequest &req,
     std::vector<EdgeAccessor> in_edge_accessors, std::vector<EdgeAccessor> out_edge_accessors,
     const EdgeUniquenessFunction &maybe_filter_based_on_edge_uniqueness, const EdgeFiller &edge_filler,
-    const Schemas::Schema &schema);
+    const Schema &schema);
 }  // namespace memgraph::storage::v3
