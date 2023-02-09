@@ -44,6 +44,7 @@ add_subdirectory(module_file_manager)
 add_subdirectory(monitoring_server)
 add_subdirectory(lba_procedures)
 add_subdirectory(python_query_modules_reloading)
+add_subdirectory(mock_api)
 
 copy_e2e_python_files(pytest_runner pytest_runner.sh "")
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/memgraph-selfsigned.crt DESTINATION ${CMAKE_CURRENT_BINARY_DIR})

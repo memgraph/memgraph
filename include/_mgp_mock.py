@@ -135,10 +135,9 @@ class Path:
         return Path(cls.__create_key, vertex._id, graph)
 
     def is_valid(self) -> bool:
-        return True
-        # return all(self._graph.has_node(v) for v in self._vertices) and all(
-        #     self._graph.has_edge(*e) for e in self._edges
-        # )
+        return all(self._graph.has_node(v) for v in self._vertices) and all(
+            self._graph.has_edge(*e) for e in self._edges
+        )
 
     def expand(self, edge: Edge):
         if edge.start_id != self._vertices[-1]:

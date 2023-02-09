@@ -2,15 +2,13 @@ import datetime
 import inspect
 import sys
 import typing
-
 from collections import namedtuple
 from functools import wraps
 
-import networkx as nx
-import kafka
-import pulsar
-
 import _mgp_mock
+import kafka
+import networkx as nx
+import pulsar
 
 
 class InvalidContextError(Exception):
@@ -541,7 +539,7 @@ class Vertices:
             yield Vertex(_mgp_mock.Vertex(id, self._graph))
 
     def __contains__(self, vertex):
-        return self._graph.has_node(vertex)
+        return self._graph.has_node(vertex.id)
 
     def __len__(self):
         if not self._len:
