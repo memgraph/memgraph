@@ -31,11 +31,11 @@ class Dataset:
     }
     # URLs of remote dataset files that should be used to import the datset.
     URL_CYPHER = None
-    URL_CSV = {}
+    URL_CSV = None
 
     # Index files
     LOCAL_INDEX_FILE = None
-    URL_INDEX_FILES = {"default": ""}
+    URL_INDEX_FILES = {"default": "/foo/bar"}
 
     # Number of vertices/edges for each variant.
     SIZES = {
@@ -62,19 +62,37 @@ class Dataset:
             raise ValueError("The variant doesn't have a defined dataset " "size!")
         if vendor not in self.INDEX_FILES:
             raise ValueError("Vendor does not have INDEX for dataset!")
+
         self._variant = variant
         self._vendor = vendor
-        if self.FILES is not None:
-            self._file = self.FILES.get(variant, None)
+
+        if self.LOCAL_CYPHER_FILES is not None:
+            self._file = self.LOCAL_CYPHER_FILES.get(variant, None)
         else:
             self._file = None
-        if self.URLS is not None:
-            self._url = self.URLS.get(variant, None)
+
+        if self.LOCAL_CSV_FILES is not None:
+            self._url = self.LOCAL_CSV_FILES.get(variant, None)
         else:
             self._url = None
 
-        if self.INDEX_FILES is not None:
-            self._index = self.INDEX_FILES.get(vendor, None)
+        if self.URL_CYPHER is not None:
+            self._file = self.URL_CYPHER.get(variant, None)
+        else:
+            self._file = None
+
+        if self.URL_CSV is not None:
+            self._url = self.URL_CSV.get(variant, None)
+        else:
+            self._url = None
+
+        if self.LOCAL_INDEX_FILE is not None:
+            self._index = self.LOCAL_INDEX_FILE.get(vendor, None)
+        else:
+            self._index = None
+
+        if self.URL_INDEX_FILES is not None:
+            self._index = self.URL_INDEX_FILES.get(vendor, None)
         else:
             self._index = None
 
