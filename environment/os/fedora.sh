@@ -5,7 +5,7 @@ set -Eeuo pipefail
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
-check_operating_system "fedora-37"
+check_operating_system "fedora-36"
 check_architecture "x86_64"
 
 TOOLCHAIN_BUILD_DEPS=(
@@ -26,6 +26,7 @@ TOOLCHAIN_BUILD_DEPS=(
     diffutils
     libipt libipt-devel # intel
     patch
+    perl # for openssl
 )
 
 TOOLCHAIN_RUN_DEPS=(
@@ -36,7 +37,6 @@ TOOLCHAIN_RUN_DEPS=(
     readline # for cmake and llvm
     libffi libxml2 # for llvm
     openssl-devel
-    perl # for openssl
 )
 
 MEMGRAPH_BUILD_DEPS=(
