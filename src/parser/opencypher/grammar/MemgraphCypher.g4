@@ -398,6 +398,6 @@ schemaConfigKeyValuePair : literal '=' literal ;
 
 schemaConfiguration : ( schemaConfigKeyValuePair ( ',' schemaConfigKeyValuePair )* )? ;
 
-createSchema : CREATE SCHEMA ON ':' labelName schemaPropertyMap CONFIG schemaConfiguration ;
+createSchema : CREATE SCHEMA ON ':' labelName schemaPropertyMap ( CONFIG schemaConfiguration ) ? ;
 
 dropSchema : DROP SCHEMA ON ':' labelName ;

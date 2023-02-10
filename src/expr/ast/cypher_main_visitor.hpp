@@ -3016,10 +3016,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
     schema_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
     schema_query->schema_type_map_ =
         std::any_cast<std::vector<std::pair<PropertyIx, common::SchemaType>>>(ctx->schemaPropertyMap()->accept(this));
-    auto ladida = ctx->schemaConfiguration()->accept(this);
-    schema_query->schema_config_map_ = std::any_cast<std::unordered_map<common::SchemaConfigParams, int64_t>>(
-        ctx->schemaConfiguration()->accept(this));
-    query_ = schema_query;
+    if (ctx->schemaConfiguration()) {
+      schema_query->schema_config_map_ = std::any_cast<std::unordered_map<common::SchemaConfigParams, int64_t>>(
+          ctx->schemaConfiguration()->accept(this));
+      query_ = schema_query;
+    }
     return schema_query;
   }
 
