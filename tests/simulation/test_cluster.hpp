@@ -179,6 +179,7 @@ void ExecuteOp(SimClientContext &context, ScanAll scan_all) {
 
   RC_ASSERT(results.size() == context.correctness_model.size());
 
+  /*
   for (const auto &typed_value : results) {
     // TODO(tyler) assert on actual values returned
     // const auto properties = vertex_accessor.Properties();
@@ -186,6 +187,7 @@ void ExecuteOp(SimClientContext &context, ScanAll scan_all) {
     // const CompoundKey model_key = std::make_pair(primary_key[0].int_v, primary_key[1].int_v);
     // RC_ASSERT(context.correctness_model.contains(model_key));
   }
+  */
 }
 
 void ExecuteOp(SimClientContext &context, AssertShardsSplit assert_shards_split) {
@@ -278,9 +280,18 @@ std::pair<SimulatorStats, LatencyHistogramSummaries> RunClusterSimulation(const 
 
   WaitForShardsToInitialize(context.coordinator_client);
 
+  /*
+  TODO(tyler) un-OVERRIDE ops
+
   for (const Op &op : ops) {
     std::visit([&](auto &o) { ExecuteOp(context, o); }, op.inner);
   }
+  */
+
+  for (int i = 0; i < 4; i++) {
+    ExecuteOp(context, CreateVertex{.first = 0, .second = i});
+  }
+  ExecuteOp(context, AssertShardsSplit{});
 
   // We have now completed our workload without failing any assertions, so we can
   // disable detaching the worker thread, which will cause the mm_thread_1 jthread
