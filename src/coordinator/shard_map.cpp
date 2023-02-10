@@ -659,13 +659,16 @@ size_t ShardMap::InitializedShards() const {
         continue;
       }
 
+      bool all_initialized = true;
       for (const auto &peer_metadata : shard.peers) {
         if (peer_metadata.status != Status::CONSENSUS_PARTICIPANT) {
-          continue;
+          all_initialized = false;
         }
       }
 
-      count += 1;
+      if (all_initialized) {
+        count += 1;
+      }
     }
   }
 

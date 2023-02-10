@@ -292,6 +292,7 @@ std::pair<SimulatorStats, LatencyHistogramSummaries> RunClusterSimulation(const 
     ExecuteOp(context, CreateVertex{.first = 0, .second = i});
   }
   ExecuteOp(context, AssertShardsSplit{});
+  ExecuteOp(context, ScanAll{});
 
   // We have now completed our workload without failing any assertions, so we can
   // disable detaching the worker thread, which will cause the mm_thread_1 jthread
