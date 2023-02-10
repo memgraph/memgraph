@@ -47,12 +47,23 @@ if __name__ == "__main__":
     vendor.start_benchmark("validation")
     ret_mem = client_memgraph.execute(
         queries=[("MATCH (n1)-[M]-(n2) RETURN n1, M , n2;", {})], num_workers=1, validation=True
-    )
+    )[0]
     vendor.stop("validation")
 
     ret_neo = client_neo4j.execute(
         queries=[("MATCH (n1)-[M]-(n2) RETURN n1, M , n2;", {})], num_workers=1, validation=True
-    )
+    )[0]
+
+    # (TODO) Fix comparisons.
+    for key, value in ret_mem["results"].items():
+        if value != ret_neo["results"][key]:
+            print("Different")
+            print(value)
+            print(ret_neo["results"][key])
+        else:
+            print("Identical")
+            print(value)
+            print(ret_neo["results"][key])
 
     print(ret_mem)
     print("___")
