@@ -19,8 +19,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-import datasets
 from workload import ldbc
+
+import tests.mgbench.workload.dataset as dataset
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 
@@ -82,7 +83,7 @@ def generate_workload(name: str):
         if key.startswith("_"):
             continue
         dataset = getattr(ldbc, key)
-        if not inspect.isclass(dataset) or dataset == datasets.Dataset or not issubclass(dataset, datasets.Dataset):
+        if not inspect.isclass(dataset) or dataset == dataset.Dataset or not issubclass(dataset, dataset.Dataset):
             continue
         queries = collections.defaultdict(list)
         for funcname in dir(dataset):

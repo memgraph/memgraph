@@ -23,10 +23,11 @@ import random
 import statistics
 import sys
 
-import datasets
 import helpers
 import log
 import runners
+
+import tests.mgbench.workload.dataset as dataset
 
 WITH_FINE_GRAINED_AUTHORIZATION = "with_fine_grained_authorization"
 WITHOUT_FINE_GRAINED_AUTHORIZATION = "without_fine_grained_authorization"
@@ -482,11 +483,11 @@ def get_query_cache_count(vendor, client, func, config_key):
 
 # Detect available datasets.
 generators = {}
-for key in dir(datasets):
+for key in dir(dataset):
     if key.startswith("_"):
         continue
-    dataset = getattr(datasets, key)
-    if not inspect.isclass(dataset) or dataset == datasets.Dataset or not issubclass(dataset, datasets.Dataset):
+    dataset = getattr(dataset, key)
+    if not inspect.isclass(dataset) or dataset == dataset.Dataset or not issubclass(dataset, dataset.Dataset):
         continue
     queries = collections.defaultdict(list)
     for funcname in dir(dataset):

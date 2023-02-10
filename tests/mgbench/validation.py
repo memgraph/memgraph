@@ -56,14 +56,15 @@ if __name__ == "__main__":
 
     # (TODO) Fix comparisons.
     for key, value in ret_mem["results"].items():
-        if value != ret_neo["results"][key]:
-            print("Different")
-            print(value)
-            print(ret_neo["results"][key])
-        else:
-            print("Identical")
-            print(value)
-            print(ret_neo["results"][key])
+        for key, value in ret_neo["results"]:
+            if value != ret_neo["results"][key]:
+                print("Different")
+                print(value)
+                print(ret_neo["results"][key])
+            else:
+                print("Identical")
+                print(value)
+                print(ret_neo["results"][key])
 
     print(ret_mem)
     print("___")

@@ -1,12 +1,10 @@
-import sys
-
-sys.path.append("../mgbench")
 import argparse
 import csv
+import sys
 from collections import defaultdict
 from pathlib import Path
 
-import helpers
+from .. import helpers
 
 # Most recent list of LDBC datasets available at: https://github.com/ldbc/data-sets-surf-repository
 INTERACTIVE_LINK = {

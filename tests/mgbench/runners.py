@@ -17,6 +17,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from abc import ABC, abstractclassmethod
 from pathlib import Path
 
 
@@ -62,7 +63,13 @@ def _get_current_usage(pid):
     return rss / 1024
 
 
-class Memgraph:
+class Runners(ABC):
+    @abstractclassmethod
+    def _get_args(self, **kwargs):
+        pass
+
+
+class Memgraph(Runners):
     def __init__(self, memgraph_binary, temporary_dir, properties_on_edges, bolt_port, performance_tracking):
         self._memgraph_binary = memgraph_binary
         self._directory = tempfile.TemporaryDirectory(dir=temporary_dir)
@@ -162,7 +169,7 @@ class Memgraph:
         return usage
 
 
-class Neo4j:
+class Neo4j(Runners):
     def __init__(self, neo4j_path, temporary_dir, bolt_port, performance_tracking):
         self._neo4j_path = Path(neo4j_path)
         self._neo4j_binary = Path(neo4j_path) / "bin" / "neo4j"
