@@ -35,13 +35,32 @@ if __name__ == "__main__":
         False,
     )
 
-    av = generate_workload("ldbc")
+    generators = generate_workload("ldbc")
+    list_possible_workloads()
 
-    if True:
-        list_possible_workloads()
+    benchmarks = filter_benchmarks(generators, args.benchmarks)
 
-    client = runners.Client("/home/maple/repos/test/memgraph/build/tests/mgbench/client", "/tmp", 7687)
+    client_memgraph = runners.Client("/home/maple/repos/test/memgraph/build/tests/mgbench/client", "/tmp", 7687)
+
+    client_neo4j = runners.Client("//home/maple/repos/test/memgraph/build/tests/mgbench/client", "/tmp", 7688)
+
     vendor.start_benchmark("validation")
-    ret = client.execute(queries=[("MATCH (n1)-[M]-(n2) RETURN n1, M , n2;", {})], num_workers=1, validation=True)
+    ret_mem = client_memgraph.execute(
+        queries=[("MATCH (n1)-[M]-(n2) RETURN n1, M , n2;", {})], num_workers=1, validation=True
+    )
     vendor.stop("validation")
-    print(ret)
+
+    ret_neo = client_neo4j.execute(
+        queries=[("MATCH (n1)-[M]-(n2) RETURN n1, M , n2;", {})], num_workers=1, validation=True
+    )
+
+    print(ret_mem)
+    print("___")
+    print(ret_neo)
+
+    for dataset, queries in benchmarks:
+        print(dataset)
+        for group in queries.keys():
+            print(queries)
+            for query in queries[group]:
+                print(query)
