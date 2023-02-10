@@ -213,6 +213,13 @@ void ExecuteOp(SimClientContext &context, AssertShardsSplit assert_shards_split)
     if (initialized_shards >= minimum_expected_shards) {
       MG_ASSERT(initialized_shards < 3, "just kidding, this is great, we now have {} initialized shards",
                 initialized_shards);
+      auto shard_for_0 =
+          shard_map.GetShardForKey("test_label", {storage::v3::PropertyValue(0), storage::v3::PropertyValue(0)});
+      auto shard_for_6 =
+          shard_map.GetShardForKey("test_label", {storage::v3::PropertyValue(0), storage::v3::PropertyValue(6)});
+
+      spdlog::info("first shard: {}", shard_for_0);
+      spdlog::info("last shard: {}", shard_for_6);
       return;
     }
   }
