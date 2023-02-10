@@ -21,18 +21,27 @@ class Dataset:
     VARIANTS = ["default"]
     # One of the available variants that should be used as the default variant.
     DEFAULT_VARIANT = "default"
-    # List of query files that should be used to import the dataset.
-    FILES = {
+
+    # List of local files that should be used to import the dataset.
+    LOCAL_CYPHER_FILES = {
         "default": "/foo/bar",
     }
-    INDEX = None
-    INDEX_FILES = {"default": ""}
-    # List of query file URLs that should be used to import the dataset.
-    URLS = None
+    LOCAL_CSV_FILES = {
+        "defualt": "/foo/bar",
+    }
+    # URLs of remote dataset files that should be used to import the datset.
+    URL_CYPHER = None
+    URL_CSV = {}
+
+    # Index files
+    LOCAL_INDEX_FILE = None
+    URL_INDEX_FILES = {"default": ""}
+
     # Number of vertices/edges for each variant.
     SIZES = {
         "default": {"vertices": 0, "edges": 0},
     }
+
     # Indicates whether the dataset has properties on edges.
     PROPERTIES_ON_EDGES = False
 
@@ -45,8 +54,10 @@ class Dataset:
             variant = self.DEFAULT_VARIANT
         if variant not in self.VARIANTS:
             raise ValueError("Invalid test variant!")
-        if (self.FILES and variant not in self.FILES) and (self.URLS and variant not in self.URLS):
-            raise ValueError("The variant doesn't have a defined URL or " "file path!")
+        if (self.LOCAL_CYPHER_FILES and variant not in self.LOCAL_CSV_FILES) and (
+            self.URLS and variant not in self.URLS
+        ):
+            raise ValueError("The variant doesn't have a defined URL or local file path!")
         if variant not in self.SIZES:
             raise ValueError("The variant doesn't have a defined dataset " "size!")
         if vendor not in self.INDEX_FILES:

@@ -1,4 +1,4 @@
-from datasets import Dataset
+from tests.mgbench.workload.dataset import Dataset
 
 
 class LDBC_Interactive(Dataset):
