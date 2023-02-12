@@ -22,6 +22,7 @@
 #include <vector>
 
 #include <gflags/gflags.h>
+#include <math.h>
 #include <json/json.hpp>
 
 #include "communication/bolt/client.hpp"
@@ -186,6 +187,24 @@ class Metadata final {
   std::map<std::string, Record> storage_;
 };
 
+nlohmann::json LatencyStatistics(std::vector<std::vector<double>> &worker_query_latency) {
+  nlohmann::json object = nlohmann::json::object();
+  std::vector<double> query_latency;
+  for (int i = 0; i < FLAGS_num_workers; i++) {
+    for (auto &e : worker_query_latency[i]) {
+      query_latency.push_back(e);
+    }
+  }
+
+  if (query_latency.size() > 10) {
+  } else {
+    spdlog::info("To small sample to calculate latency values!");
+    return object["latency_statistics"] = "Small sample";
+  }
+
+  return
+}
+
 void Execute(
     const std::vector<std::pair<std::string, std::map<std::string, memgraph::communication::bolt::Value>>> &queries,
     std::ostream *stream) {
@@ -195,6 +214,7 @@ void Execute(
   std::vector<uint64_t> worker_retries(FLAGS_num_workers, 0);
   std::vector<Metadata> worker_metadata(FLAGS_num_workers, Metadata());
   std::vector<double> worker_duration(FLAGS_num_workers, 0.0);
+  std::vector<std::vector<double>> worker_query_durations(FLAGS_num_workers);
 
   // Start workers and execute queries.
   auto size = queries.size();
@@ -215,16 +235,20 @@ void Execute(
       auto &retries = worker_retries[worker];
       auto &metadata = worker_metadata[worker];
       auto &duration = worker_duration[worker];
-      memgraph::utils::Timer timer;
+      auto &query_duration = worker_query_durations[worker];
+
+      memgraph::utils::Timer worker_timer;
       while (true) {
         auto pos = position.fetch_add(1, std::memory_order_acq_rel);
         if (pos >= size) break;
         const auto &query = queries[pos];
+        memgraph::utils::Timer query_timer;
         auto ret = ExecuteNTimesTillSuccess(&client, query.first, query.second, FLAGS_max_retries);
+        query_duration.push_back(query_timer.Elapsed().count());
         retries += ret.second;
         metadata.Append(ret.first);
       }
-      duration = timer.Elapsed().count();
+      duration = worker_timer.Elapsed().count();
       client.Close();
     }));
   }
@@ -246,6 +270,7 @@ void Execute(
     final_retries += worker_retries[i];
     final_duration += worker_duration[i];
   }
+
   final_duration /= FLAGS_num_workers;
   nlohmann::json summary = nlohmann::json::object();
   summary["count"] = queries.size();
