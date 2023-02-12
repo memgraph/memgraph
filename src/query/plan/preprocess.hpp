@@ -89,7 +89,7 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
     return false;
   }
 
-  bool PostVisit(Exists &) override {
+  bool PostVisit(Exists & /*exists*/) override {
     scopes_.back().in_exists = false;
     return true;
   }
