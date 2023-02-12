@@ -23,6 +23,7 @@ namespace mgp {
 
 namespace {
 inline void MgExceptionHandle(mgp_error result_code) {
+  // TODO(gitbuda): Double check not all codes are covered...
   switch (result_code) {
     case mgp_error::MGP_ERROR_UNKNOWN_ERROR:
       throw mg_exception::UnknownException();
