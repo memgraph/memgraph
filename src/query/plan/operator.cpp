@@ -2314,7 +2314,7 @@ std::vector<Symbol> EvaluatePatternFilter::ModifiedSymbols(const SymbolTable &ta
   return input_->ModifiedSymbols(table);
 }
 
-bool EvaluatePatternFilter::EvaluatePatternFilterCursor::Pull(Frame & /*frame*/, ExecutionContext &context) {
+bool EvaluatePatternFilter::EvaluatePatternFilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("EvaluatePatternFilter");
 
   input_cursor_->Reset();
