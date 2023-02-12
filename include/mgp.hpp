@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "_mgp.hpp"
+#include "mg_exceptions.hpp"
 #include "mg_procedure.h"
 
 namespace mgp {
@@ -48,11 +49,6 @@ class NotFoundException : public std::exception {
 
  private:
   std::string message_;
-};
-
-class NotEnoughMemoryException : public std::exception {
- public:
-  const char *what() const throw() { return "Not enough memory!"; }
 };
 
 // Forward declarations
@@ -2316,7 +2312,7 @@ inline bool Node::HasLabel(std::string_view label) const {
 inline Relationships Node::InRelationships() const {
   auto relationship_iterator = mgp::vertex_iter_in_edges(ptr_, memory);
   if (relationship_iterator == nullptr) {
-    throw NotEnoughMemoryException();
+    throw mg_exception::NotEnoughMemoryException();
   }
   return Relationships(relationship_iterator);
 }
@@ -2324,7 +2320,7 @@ inline Relationships Node::InRelationships() const {
 inline Relationships Node::OutRelationships() const {
   auto relationship_iterator = mgp::vertex_iter_out_edges(ptr_, memory);
   if (relationship_iterator == nullptr) {
-    throw NotEnoughMemoryException();
+    throw mg_exception::NotEnoughMemoryException();
   }
   return Relationships(relationship_iterator);
 }
@@ -3238,7 +3234,7 @@ inline RecordFactory::RecordFactory(mgp_result *result) : result_(result) {}
 inline const Record RecordFactory::NewRecord() const {
   auto record = mgp::result_new_record(result_);
   if (record == nullptr) {
-    throw NotEnoughMemoryException();
+    throw mg_exception::NotEnoughMemoryException();
   }
   return Record(record);
 }
