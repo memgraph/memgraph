@@ -16,6 +16,7 @@
 #include <fstream>
 #include <limits>
 #include <map>
+#include <numeric>
 #include <ostream>
 #include <string>
 #include <thread>
@@ -188,21 +189,31 @@ class Metadata final {
 };
 
 nlohmann::json LatencyStatistics(std::vector<std::vector<double>> &worker_query_latency) {
-  nlohmann::json object = nlohmann::json::object();
+  nlohmann::json statistics = nlohmann::json::object();
   std::vector<double> query_latency;
   for (int i = 0; i < FLAGS_num_workers; i++) {
     for (auto &e : worker_query_latency[i]) {
       query_latency.push_back(e);
     }
   }
+  auto iterations = query_latency.size();
+  if (iterations > 10) {
+    std::sort(query_latency.begin(), query_latency.end());
+    statistics["iterations"] = iterations;
+    statistics["min"] = query_latency.front();
+    statistics["max"] = query_latency.back();
+    statistics["mean"] = std::accumulate(query_latency.begin(), query_latency.end(), 0.0) / iterations;
+    statistics["p99"] = query_latency[floor(iterations * 0.99)];
+    statistics["p95"] = query_latency[floor(iterations * 0.95)];
+    statistics["p90"] = query_latency[floor(iterations * 0.90)];
+    statistics["p75"] = query_latency[floor(iterations * 0.75)];
+    statistics["p50"] = query_latency[floor(iterations * 0.50)];
 
-  if (query_latency.size() > 10) {
   } else {
-    spdlog::info("To small sample to calculate latency values!");
-    return object["latency_statistics"] = "Small sample";
+    spdlog::info("To few iterations to calculate latency values!");
+    statistics["iterations"] = query_latency.size();
   }
-
-  return
+  return statistics;
 }
 
 void Execute(
@@ -279,6 +290,7 @@ void Execute(
   summary["retries"] = final_retries;
   summary["metadata"] = final_metadata.Export();
   summary["num_workers"] = FLAGS_num_workers;
+  summary["latency_stats"] = LatencyStatistics(worker_query_durations);
   (*stream) << summary.dump() << std::endl;
 }
 
