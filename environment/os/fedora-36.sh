@@ -66,11 +66,10 @@ check() {
     local missing=""
     # On Fedora yum/dnf and python10 use newer glibc which is not compatible
     # with ours, so we need to momentarely disable env
-    local toolchain_activate=$VENV
-    if [[ ! -z $toolchain_activate ]]; then
+    local toolchain_activate=${VENV:-""}
+    if [ "$toolchain_activate" != "" ]; then
         deactivate
     fi
-    then
     for pkg in $1; do
         if ! dnf list installed "$pkg" >/dev/null 2>/dev/null; then
             missing="$pkg $missing"
@@ -80,7 +79,7 @@ check() {
         echo "MISSING PACKAGES: $missing"
         exit 1
     fi
-    if [[ ! -z $toolchain_activate ]]; then
+    if [ "$toolchain_activate" != "" ]; then
         source "$toolchain_activate/activate"
     fi
 }
