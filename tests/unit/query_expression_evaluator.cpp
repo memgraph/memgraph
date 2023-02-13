@@ -429,7 +429,7 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 
 TEST_F(ExpressionEvaluatorTest, TypedValueListIndexing) {
   auto list_vector = memgraph::utils::pmr::vector<TypedValue>(ctx.memory);
-  list_vector.emplace_back(TypedValue("string1"));
+  list_vector.emplace_back("string1");
   list_vector.emplace_back(TypedValue("string2"));
 
   auto *identifier = storage.Create<Identifier>("n");
