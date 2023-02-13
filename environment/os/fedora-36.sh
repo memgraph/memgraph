@@ -64,6 +64,13 @@ list() {
 
 check() {
     local missing=""
+    # On Fedora yum/dnf and python10 use newer glibc which is not compatible
+    # with ours
+    local toolchain_activate=$VENV
+    if [[ ! -z $toolchain_activate ]]; then
+        deactivate
+    fi
+    then
     for pkg in $1; do
         if ! dnf list installed "$pkg" >/dev/null 2>/dev/null; then
             missing="$pkg $missing"
@@ -72,6 +79,9 @@ check() {
     if [ "$missing" != "" ]; then
         echo "MISSING PACKAGES: $missing"
         exit 1
+    fi
+    if [[ ! -z $toolchain_activate ]]; then
+        activate
     fi
 }
 
