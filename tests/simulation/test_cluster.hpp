@@ -295,10 +295,15 @@ std::pair<SimulatorStats, LatencyHistogramSummaries> RunClusterSimulation(const 
   }
   */
 
-  for (int i = 0; i < 4; i++) {
-    ExecuteOp(context, CreateVertex{.first = 0, .second = i});
+  int stride = 4;
+  int shards = 2;
+  for (int i = 0; i < shards; i++) {
+    for (int j = 0; j < stride; j++) {
+      int key = (i * stride) + j;
+      ExecuteOp(context, CreateVertex{.first = 0, .second = key});
+    }
+    ExecuteOp(context, AssertShardsSplit{});
   }
-  ExecuteOp(context, AssertShardsSplit{});
   ExecuteOp(context, ScanAll{});
 
   // We have now completed our workload without failing any assertions, so we can

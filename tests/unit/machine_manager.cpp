@@ -82,29 +82,13 @@ ShardMap TestShardMap() {
   };
 
   const size_t replication_factor = 1;
+  const size_t split_threshold = 4;
 
-  const auto label_id = sm.InitializeNewLabel(kLabelName, schema, replication_factor, sm.shard_map_version);
+  const auto label_id =
+      sm.InitializeNewLabel(kLabelName, schema, replication_factor, split_threshold, sm.shard_map_version);
   EXPECT_TRUE(label_id.has_value());
 
   sm.AllocateEdgeTypeIds(std::vector<std::string>{"edge_type"});
-  // split the shard at N split points
-  // NB: this is the logic that should be provided by the "split file"
-  // TODO(tyler) split points should account for signedness
-  const size_t n_splits = 16;
-  const auto split_interval = std::numeric_limits<int64_t>::max() / n_splits;
-
-  for (int64_t i = 0; i < n_splits; ++i) {
-    const int64_t value = i * split_interval;
-
-    const auto key1 = memgraph::storage::v3::PropertyValue(value);
-    const auto key2 = memgraph::storage::v3::PropertyValue(0);
-
-    const CompoundKey split_point = {key1, key2};
-
-    const auto split_success = sm.SplitShard(sm.shard_map_version, label_id.value(), split_point);
-
-    EXPECT_TRUE(split_success);
-  }
 
   return sm;
 }

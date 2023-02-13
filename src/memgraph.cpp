@@ -622,13 +622,16 @@ int main(int argc, char **argv) {
   if (FLAGS_split_file.empty()) {
     const std::string property{"property"};
     const std::string label{"label"};
+    // TODO(tyler) make this more easily configurable in the short-term
+    const auto split_threshold = 4;
+
     auto prop_map = sm.AllocatePropertyIds(std::vector<std::string>{property});
     auto edge_type_map = sm.AllocateEdgeTypeIds(std::vector<std::string>{"TO"});
     std::vector<memgraph::storage::v3::SchemaProperty> schema{
         {prop_map.at(property), memgraph::common::SchemaType::INT}};
-    sm.InitializeNewLabel(label, schema, 1, sm.shard_map_version);
-    sm.SplitShard(sm.GetHlc(), *sm.GetLabelId(label),
-                  std::vector<memgraph::storage::v3::PropertyValue>{memgraph::storage::v3::PropertyValue{2}});
+
+    // TODO(tyler) remove pre-initialization completely along with split files
+    sm.InitializeNewLabel(label, schema, 1, split_threshold, sm.shard_map_version);
   } else {
     std::ifstream input{FLAGS_split_file, std::ios::in};
     MG_ASSERT(input.is_open(), "Cannot open split file to read: {}", FLAGS_split_file);

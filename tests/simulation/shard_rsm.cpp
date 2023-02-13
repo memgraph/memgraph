@@ -1515,7 +1515,7 @@ int TestMessages() {
   std::vector<Address> address_for_2{shard_server_1_address, shard_server_3_address};
   std::vector<Address> address_for_3{shard_server_1_address, shard_server_2_address};
 
-  utils::Sender<io::messages::ShardManagerMessages> local_shard_manager_sender{[](const auto &elem) {}};
+  utils::Sender<msgs::InitializeSplitShard> local_shard_manager_sender{[](const auto &elem) {}};
   ConcreteShardRsm shard_server1(std::move(shard_server_io_1), address_for_1,
                                  ShardRsm(std::move(shard_ptr1), local_shard_manager_sender));
   ConcreteShardRsm shard_server2(std::move(shard_server_io_2), address_for_2,

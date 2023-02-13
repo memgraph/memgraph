@@ -188,7 +188,8 @@ ShardMap CreateDummyShardmap() {
       SchemaProperty{.property_id = property_id_7, .type = type_1},
   };
 
-  auto label_success = sm.InitializeNewLabel(label_name, schema, 1, sm.shard_map_version);
+  const auto split_threshold = 4;
+  auto label_success = sm.InitializeNewLabel(label_name, schema, 1, split_threshold, sm.shard_map_version);
   MG_ASSERT(label_success);
 
   const LabelId label_id = sm.labels.at(label_name);

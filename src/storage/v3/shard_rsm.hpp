@@ -13,7 +13,6 @@
 
 #include <memory>
 #include <optional>
-#include <variant>
 
 #include <openssl/ec.h>
 #include "io/messages.hpp"

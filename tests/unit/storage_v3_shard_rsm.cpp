@@ -18,7 +18,6 @@
 #include <memory>
 #include <optional>
 #include <string>
-#include <variant>
 #include <vector>
 
 #include "common/types.hpp"
@@ -68,7 +67,7 @@ class ShardRSMTest : public testing::Test {
                               {5, "primary_prop2"},
                               {6, "prop"}});
     coordinator::Address local_shard_manager_address = coordinator::Address();
-    utils::Sender<io::messages::ShardManagerMessages> local_shard_manager_sender{[](const auto &elem) {}};
+    utils::Sender<msgs::InitializeSplitShard> local_shard_manager_sender{[](const auto &elem) {}};
 
     shard_ptr1->CreateSchema(primary_label2, {{primary_property2, SchemaType::INT}});
     shard_rsm = std::make_unique<ShardRsm>(std::move(shard_ptr1), std::move(local_shard_manager_sender));

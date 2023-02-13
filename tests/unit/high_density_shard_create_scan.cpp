@@ -124,7 +124,7 @@ void WaitForShardsToInitialize(CoordinatorClient<LocalTransport> &coordinator_cl
   }
 }
 
-ShardMap TestShardMap(int shards, int replication_factor, int gap_between_shards) {
+ShardMap TestShardMap(int shards, int replication_factor, int split_threshold) {
   ShardMap sm{};
 
   const auto label_name = std::string("test_label");
@@ -143,20 +143,9 @@ ShardMap TestShardMap(int shards, int replication_factor, int gap_between_shards
       SchemaProperty{.property_id = property_id_2, .type = type_2},
   };
 
-  std::optional<LabelId> label_id = sm.InitializeNewLabel(label_name, schema, replication_factor, sm.shard_map_version);
+  std::optional<LabelId> label_id =
+      sm.InitializeNewLabel(label_name, schema, replication_factor, split_threshold, sm.shard_map_version);
   MG_ASSERT(label_id.has_value());
-
-  // split the shard at N split points
-  for (int64_t i = 1; i < shards; ++i) {
-    const auto key1 = memgraph::storage::v3::PropertyValue(i * gap_between_shards);
-    const auto key2 = memgraph::storage::v3::PropertyValue(0);
-
-    const auto split_point = {key1, key2};
-
-    const bool split_success = sm.SplitShard(sm.shard_map_version, label_id.value(), split_point);
-
-    MG_ASSERT(split_success);
-  }
 
   return sm;
 }
@@ -205,15 +194,15 @@ void ExecuteOp(query::v2::RequestRouter<LocalTransport> &request_router, std::se
   }
 }
 
-void RunWorkload(int shards, int replication_factor, int create_ops, int scan_ops, int shard_worker_threads,
-                 int gap_between_shards) {
+void RunWorkload(int shards, int replication_factor, int split_threshold, int create_ops, int scan_ops,
+                 int shard_worker_threads, int gap_between_shards) {
   spdlog::info("======================== NEW TEST ========================");
   spdlog::info("shards:               ", shards);
   spdlog::info("replication factor:   ", replication_factor);
   spdlog::info("create ops:           ", create_ops);
   spdlog::info("scan all ops:         ", scan_ops);
   spdlog::info("shard worker threads: ", shard_worker_threads);
-  spdlog::info("gap between shards:   ", gap_between_shards);
+  spdlog::info("split threshold:      ", split_threshold);
 
   LocalSystem local_system;
 
@@ -228,7 +217,7 @@ void RunWorkload(int shards, int replication_factor, int create_ops, int scan_op
   };
 
   auto time_before_shard_map_creation = cli_io_2.Now();
-  ShardMap initialization_sm = TestShardMap(shards, replication_factor, gap_between_shards);
+  ShardMap initialization_sm = TestShardMap(shards, replication_factor, split_threshold);
   auto time_after_shard_map_creation = cli_io_2.Now();
 
   auto mm_1 = MkMm(local_system, coordinator_addresses, machine_1_addr, initialization_sm, shard_worker_threads);
@@ -281,19 +270,20 @@ void RunWorkload(int shards, int replication_factor, int create_ops, int scan_op
 }
 
 TEST(MachineManager, ManyShards) {
-  auto shards_attempts = {1, 64};
-  auto shard_worker_thread_attempts = {1, 32};
-  auto replication_factor = 1;
-  auto create_ops = 128;
-  auto scan_ops = 1;
+  const auto shards_attempts = {1, 64};
+  const auto shard_worker_thread_attempts = {1, 32};
+  const auto replication_factor = 1;
+  const auto create_ops = 128;
+  const auto scan_ops = 1;
+  const auto shards = 1;
+  const auto split_threshold = create_ops / shards;
 
   std::cout << "splits threads scan_all_microseconds\n";
 
   for (const auto shards : shards_attempts) {
-    auto gap_between_shards = create_ops / shards;
-
     for (const auto shard_worker_threads : shard_worker_thread_attempts) {
-      RunWorkload(shards, replication_factor, create_ops, scan_ops, shard_worker_threads, gap_between_shards);
+      RunWorkload(shards, replication_factor, split_threshold, create_ops, scan_ops, shard_worker_threads,
+                  split_threshold);
     }
   }
 }

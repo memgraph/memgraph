@@ -212,10 +212,6 @@ struct ShardMap {
 
   std::unordered_map<uint64_t, std::string> IdToNames();
 
-  // Returns the shard UUIDs that have been assigned but not yet acknowledged for this storage manager
-  HeartbeatResponse AssignShards(Address storage_manager, std::set<boost::uuids::uuid> initialized,
-                                 std::set<msgs::SuggestedSplitInfo> pending_splits);
-
   std::optional<LabelId> InitializeNewLabel(std::string label_name, std::vector<SchemaProperty> schema,
                                             size_t replication_factor, uint64_t split_threshold,
                                             Hlc last_shard_map_version);
