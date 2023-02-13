@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,7 +18,7 @@
 
 #include "query/v2/plan/rule_based_planner.hpp"
 
-DECLARE_uint64(query_max_plans);
+DECLARE_uint64(query_v2_max_plans);
 
 namespace memgraph::query::v2::plan {
 
@@ -310,7 +310,7 @@ class VariableStartPlanner {
     for (const auto &query_part : query_parts) {
       alternative_query_parts.emplace_back(impl::VaryQueryPartMatching(query_part, symbol_table));
     }
-    return iter::slice(MakeCartesianProduct(std::move(alternative_query_parts)), 0UL, FLAGS_query_max_plans);
+    return iter::slice(MakeCartesianProduct(std::move(alternative_query_parts)), 0UL, FLAGS_query_v2_max_plans);
   }
 
  public:

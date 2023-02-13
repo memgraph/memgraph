@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,9 +14,9 @@
 #include "query/v2/request_router.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_HIDDEN_bool(query_cost_planner, true, "Use the cost-estimating query planner.");
+DEFINE_HIDDEN_bool(query_v2_cost_planner, true, "Use the cost-estimating query planner.");
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_int32(query_plan_cache_ttl, 60, "Time to live for cached query plans, in seconds.",
+DEFINE_VALIDATED_int32(query_v2_plan_cache_ttl, 60, "Time to live for cached query plans, in seconds.",
                        FLAG_IN_RANGE(0, std::numeric_limits<int32_t>::max()));
 
 namespace memgraph::query::v2 {
@@ -123,7 +123,7 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery
   auto vertex_counts = plan::MakeVertexCountCache(request_router);
   auto symbol_table = expr::MakeSymbolTable(query, predefined_identifiers);
   auto planning_context = plan::MakePlanningContext(&ast_storage, &symbol_table, query, &vertex_counts);
-  auto [root, cost] = plan::MakeLogicalPlan(&planning_context, parameters, FLAGS_query_cost_planner);
+  auto [root, cost] = plan::MakeLogicalPlan(&planning_context, parameters, FLAGS_query_v2_cost_planner);
   return std::make_unique<SingleNodeLogicalPlan>(std::move(root), cost, std::move(ast_storage),
                                                  std::move(symbol_table));
 }
