@@ -65,7 +65,7 @@ list() {
 check() {
     local missing=""
     # On Fedora yum/dnf and python10 use newer glibc which is not compatible
-    # with ours
+    # with ours, so we need to momentarely disable env
     local toolchain_activate=$VENV
     if [[ ! -z $toolchain_activate ]]; then
         deactivate
@@ -81,7 +81,7 @@ check() {
         exit 1
     fi
     if [[ ! -z $toolchain_activate ]]; then
-        activate
+        source "$toolchain_activate/activate"
     fi
 }
 
