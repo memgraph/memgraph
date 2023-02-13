@@ -1,4 +1,6 @@
-from tests.mgbench.workload.dataset import Dataset
+import random
+
+from .dataset import Dataset
 
 
 class Pokec(Dataset):

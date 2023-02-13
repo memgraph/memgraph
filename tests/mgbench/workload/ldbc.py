@@ -5,7 +5,6 @@ class LDBC_Interactive(Dataset):
     NAME = "ldbc_interactive"
     VARIANTS = ["sf0.1", "sf1", "sf3", "sf10"]
     DEFAULT_VARIANT = "sf1"
-    FILES = {}
 
     URL_CYPHER = {
         "sf0.1": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/interactive/ldbc_interactive_sf0.1.cypher.gz",
@@ -16,7 +15,6 @@ class LDBC_Interactive(Dataset):
 
     URL_CSV = {
         "sf0.1": "https://repository.surfsara.nl/datasets/cwi/snb/files/social_network-csv_basic/social_network-csv_basic-sf0.1.tar.zst",
-        "sf0.3": "https://repository.surfsara.nl/datasets/cwi/snb/files/social_network-csv_basic/social_network-csv_basic-sf0.3.tar.zst",
         "sf1": "https://repository.surfsara.nl/datasets/cwi/snb/files/social_network-csv_basic/social_network-csv_basic-sf1.tar.zst",
         "sf3": "https://repository.surfsara.nl/datasets/cwi/snb/files/social_network-csv_basic/social_network-csv_basic-sf3.tar.zst",
         "sf10": "https://repository.surfsara.nl/datasets/cwi/snb/files/social_network-csv_basic/social_network-csv_basic-sf10.tar.zst",
@@ -28,9 +26,10 @@ class LDBC_Interactive(Dataset):
         "sf3": {"vertices": 1, "edges": 1},
         "sf10": {"vertices": 1, "edges": 1},
     }
-    INDEX = None
 
-    INDEX_FILES = {
+    LOCAL_INDEX_FILES = None
+
+    URL_INDEX_FILES = {
         "memgraph": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/interactive/indices_memgraph.cypher",
         "neo4j": "",
     }
@@ -656,9 +655,8 @@ class LDBC_BI(Dataset):
     NAME = "ldbc_bi"
     VARIANTS = ["sf1", "sf3", "sf10"]
     DEFAULT_VARIANT = "sf1"
-    FILES = {}
 
-    URLS = {
+    URL_CYPHER = {
         "sf1": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/bi/ldbc_bi_sf1.cypher.gz",
         "sf3": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/bi/ldbc_bi_sf3.cypher.gz",
         "sf10": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/bi/ldbc_bi_sf10.cypher.gz",
@@ -670,9 +668,9 @@ class LDBC_BI(Dataset):
         "sf10": {"vertices": 1, "edges": 1},
     }
 
-    INDEX = None
+    LOCAL_INDEX_FILES = None
 
-    INDEX_FILES = {
+    URL_INDEX_FILES = {
         "memgraph": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/bi/indices_memgraph.cypher",
         "neo4j": "",
     }

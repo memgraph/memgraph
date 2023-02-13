@@ -22,11 +22,13 @@ import multiprocessing
 import random
 import statistics
 import sys
+from abc import ABC
 
 import helpers
 import importer
 import log
 import runners
+import workload
 from workload import dataset
 
 WITH_FINE_GRAINED_AUTHORIZATION = "with_fine_grained_authorization"
@@ -483,23 +485,24 @@ def get_query_cache_count(vendor, client, func, config_key):
 
 # Detect available datasets.
 generators = {}
-for key in dir(dataset):
-    if key.startswith("_"):
-        continue
-    dataset = getattr(dataset, key)
-    if not inspect.isclass(dataset) or dataset == dataset.Dataset or not issubclass(dataset, dataset.Dataset):
-        continue
-    queries = collections.defaultdict(list)
-    for funcname in dir(dataset):
-        if not funcname.startswith("benchmark__"):
-            continue
-        group, query = funcname.split("__")[1:]
-        queries[group].append((query, funcname))
-    generators[dataset.NAME] = (dataset, dict(queries))
-    if dataset.PROPERTIES_ON_EDGES and args.no_properties_on_edges:
-        raise Exception(
-            'The "{}" dataset requires properties on edges, ' "but you have disabled them!".format(dataset.NAME)
-        )
+workloads = map(workload.__dict__.get, workload.__all__)
+for module in workloads:
+    if module != None:
+        for key in dir(module):
+            dataset_class = getattr(module, key)
+            if not inspect.isclass(dataset_class) or not issubclass(dataset_class, dataset.Dataset):
+                continue
+            queries = collections.defaultdict(list)
+            for funcname in dir(dataset_class):
+                if not funcname.startswith("benchmark__"):
+                    continue
+                group, query = funcname.split("__")[1:]
+                queries[group].append((query, funcname))
+            generators[dataset_class.NAME] = (dataset_class, dict(queries))
+            if dataset_class.PROPERTIES_ON_EDGES and args.no_properties_on_edges:
+                raise Exception(
+                    'The "{}" dataset requires properties on edges, ' "but you have disabled them!".format(dataset.NAME)
+                )
 
 # List datasets if there is no specified dataset.
 if len(args.benchmarks) == 0:

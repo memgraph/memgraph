@@ -25,19 +25,15 @@ class Dataset(ABC):
     DEFAULT_VARIANT = "default"
 
     # List of local files that should be used to import the dataset.
-    LOCAL_CYPHER_FILES = {
-        "default": "/foo/bar",
-    }
-    LOCAL_CSV_FILES = {
-        "defualt": "/foo/bar",
-    }
+    LOCAL_CYPHER_FILES = None
+    LOCAL_CSV_FILES = None
     # URLs of remote dataset files that should be used to import the datset.
     URL_CYPHER = None
     URL_CSV = None
 
     # Index files
     LOCAL_INDEX_FILE = None
-    URL_INDEX_FILES = {"default": "/foo/bar"}
+    URL_INDEX_FILES = None
 
     # Number of vertices/edges for each variant.
     SIZES = {
@@ -57,12 +53,12 @@ class Dataset(ABC):
         if variant not in self.VARIANTS:
             raise ValueError("Invalid test variant!")
         if (self.LOCAL_CYPHER_FILES and variant not in self.LOCAL_CSV_FILES) and (
-            self.URLS and variant not in self.URLS
+            self.URL_CYPHER and variant not in self.URL_CSV
         ):
             raise ValueError("The variant doesn't have a defined URL or local file path!")
         if variant not in self.SIZES:
             raise ValueError("The variant doesn't have a defined dataset " "size!")
-        if vendor not in self.LOCAL_INDEX_FILES or vendor not in self.URL_INDEX_FILES:
+        if vendor not in self.LOCAL_INDEX_FILES and vendor not in self.URL_INDEX_FILES:
             raise ValueError("Vendor does not have INDEX for dataset!")
 
         self._variant = variant

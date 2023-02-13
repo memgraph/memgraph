@@ -19,7 +19,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import workload.dataset
 from workload import ldbc
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
