@@ -9,12 +9,14 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+from abc import ABC
+
 import helpers
 
 
 # Base dataset class used as a template to create each individual dataset. All
 # common logic is handled here.
-class Dataset:
+class Dataset(ABC):
     # Name of the dataset.
     NAME = "Base dataset"
     # List of all variants of the dataset that exist.
@@ -60,31 +62,31 @@ class Dataset:
             raise ValueError("The variant doesn't have a defined URL or local file path!")
         if variant not in self.SIZES:
             raise ValueError("The variant doesn't have a defined dataset " "size!")
-        if vendor not in self.INDEX_FILES:
+        if vendor not in self.LOCAL_INDEX_FILES or vendor not in self.URL_INDEX_FILES:
             raise ValueError("Vendor does not have INDEX for dataset!")
 
         self._variant = variant
         self._vendor = vendor
 
         if self.LOCAL_CYPHER_FILES is not None:
-            self._file = self.LOCAL_CYPHER_FILES.get(variant, None)
+            self._file_cypher = self.LOCAL_CYPHER_FILES.get(variant, None)
         else:
-            self._file = None
+            self._file_cypher = None
 
         if self.LOCAL_CSV_FILES is not None:
-            self._url = self.LOCAL_CSV_FILES.get(variant, None)
+            self._url_file_csv = self.LOCAL_CSV_FILES.get(variant, None)
         else:
-            self._url = None
+            self._url_file_csv = None
 
         if self.URL_CYPHER is not None:
-            self._file = self.URL_CYPHER.get(variant, None)
+            self._url_file_cypher = self.URL_CYPHER.get(variant, None)
         else:
-            self._file = None
+            self._url_file_cypher = None
 
         if self.URL_CSV is not None:
-            self._url = self.URL_CSV.get(variant, None)
+            self._url_file_csv = self.URL_CSV.get(variant, None)
         else:
-            self._url = None
+            self._url_file_csv = None
 
         if self.LOCAL_INDEX_FILE is not None:
             self._index = self.LOCAL_INDEX_FILE.get(vendor, None)
@@ -98,7 +100,7 @@ class Dataset:
 
         self._size = self.SIZES[variant]
         if "vertices" not in self._size or "edges" not in self._size:
-            raise ValueError("The size defined for this variant doesn't " "have the number of vertices and/or edges!")
+            raise ValueError("The size defined for this variant doesn't have the number of vertices and/or edges!")
         self._num_vertices = self._size["vertices"]
         self._num_edges = self._size["edges"]
 
@@ -133,7 +135,7 @@ class Dataset:
         """Get index file, defined by vendor"""
         return self._index
 
-    def get_file(self):
+    def get_file_cypherl(self):
         """
         Returns path to the file that contains dataset creation queries.
         """

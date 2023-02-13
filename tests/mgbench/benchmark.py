@@ -24,10 +24,10 @@ import statistics
 import sys
 
 import helpers
+import importer
 import log
 import runners
-
-import tests.mgbench.workload.dataset as dataset
+from workload import dataset
 
 WITH_FINE_GRAINED_AUTHORIZATION = "with_fine_grained_authorization"
 WITHOUT_FINE_GRAINED_AUTHORIZATION = "without_fine_grained_authorization"
@@ -563,6 +563,8 @@ for dataset, queries in benchmarks:
         )
 
     client = runners.Client(args.client_binary, args.temporary_directory, args.bolt_port)
+
+    importer = importer.Importer(dataset=dataset, runners=client, size="sf0.1")
 
     ret = None
     usage = None

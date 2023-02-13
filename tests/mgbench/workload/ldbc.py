@@ -1,4 +1,4 @@
-from tests.mgbench.workload.dataset import Dataset
+from .dataset import Dataset
 
 
 class LDBC_Interactive(Dataset):
@@ -7,12 +7,21 @@ class LDBC_Interactive(Dataset):
     DEFAULT_VARIANT = "sf1"
     FILES = {}
 
-    URLS = {
+    URL_CYPHER = {
         "sf0.1": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/interactive/ldbc_interactive_sf0.1.cypher.gz",
         "sf1": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/interactive/ldbc_interactive_sf1.cypher.gz",
         "sf3": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/interactive/ldbc_interactive_sf3.cypher.gz",
         "sf10": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/interactive/ldbc_interactive_sf10.cypher.gz",
     }
+
+    URL_CSV = {
+        "sf0.1": "https://repository.surfsara.nl/datasets/cwi/snb/files/social_network-csv_basic/social_network-csv_basic-sf0.1.tar.zst",
+        "sf0.3": "https://repository.surfsara.nl/datasets/cwi/snb/files/social_network-csv_basic/social_network-csv_basic-sf0.3.tar.zst",
+        "sf1": "https://repository.surfsara.nl/datasets/cwi/snb/files/social_network-csv_basic/social_network-csv_basic-sf1.tar.zst",
+        "sf3": "https://repository.surfsara.nl/datasets/cwi/snb/files/social_network-csv_basic/social_network-csv_basic-sf3.tar.zst",
+        "sf10": "https://repository.surfsara.nl/datasets/cwi/snb/files/social_network-csv_basic/social_network-csv_basic-sf10.tar.zst",
+    }
+
     SIZES = {
         "sf0.1": {"vertices": 327588, "edges": 1477965},
         "sf1": {"vertices": 3181724, "edges": 17256038},
