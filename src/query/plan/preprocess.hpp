@@ -89,7 +89,7 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
     return false;
   }
 
-  bool PostVisit(Exists &) override {
+  bool PostVisit(Exists & /*exists*/) override {
     scopes_.back().in_exists = false;
     return true;
   }
@@ -260,11 +260,7 @@ struct FilterInfo {
   /// applied for labels or a property. Non generic types contain extra
   /// information which can be used to produce indexed scans of graph
   /// elements.
-  /// A FilterInfo can be a generic filter expression or a specific filtering
-  /// applied for labels or a property. Non generic types contain extra
-  /// information which can be used to produce indexed scans of graph
-  /// elements.
-  enum class Type { Generic, Label, Property, Id, Complex };
+  enum class Type { Generic, Label, Property, Id, Pattern };
 
   Type type;
   /// The original filter expression which must be satisfied.

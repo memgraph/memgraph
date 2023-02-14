@@ -64,7 +64,7 @@ auto SymbolGenerator::CreateSymbol(const std::string &name, bool user_declared, 
   return symbol;
 }
 
-auto SymbolGenerator::CreateAnonymousSymbol(Symbol::Type type) {
+auto SymbolGenerator::CreateAnonymousSymbol(Symbol::Type /*type*/) {
   auto symbol = symbol_table_->CreateAnonymousSymbol();
   return symbol;
 }
@@ -307,6 +307,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
   if (scope.in_skip || scope.in_limit) {
     throw SemanticException("Variables are not allowed in {}.", scope.in_skip ? "SKIP" : "LIMIT");
   }
+
   if (scope.in_exists && (scope.visiting_edge || scope.in_node_atom)) {
     auto has_symbol = HasSymbol(ident.name_);
     if (!has_symbol && !ConsumePredefinedIdentifier(ident.name_) && ident.user_declared_) {
@@ -316,6 +317,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
       throw SemanticException("Source node of the exists pattern must be bounded with a symbol!");
     }
   }
+
   Symbol symbol;
   if (scope.in_pattern && !(scope.in_node_atom || scope.visiting_edge)) {
     // If we are in the pattern, and outside of a node or an edge, the
@@ -342,7 +344,8 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     }
     symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, type);
   } else if (scope.in_pattern && !scope.in_pattern_atom_identifier && scope.in_match) {
-    if (scope.in_edge_range && scope.visiting_edge->identifier_->name_ == ident.name_) {
+    if (scope.in_edge_range && scope.visiting_edge && scope.visiting_edge->identifier_ &&
+        scope.visiting_edge->identifier_->name_ == ident.name_) {
       // Prevent variable path bounds to reference the identifier which is bound
       // by the variable path itself.
       throw UnboundVariableError(ident.name_);
@@ -447,10 +450,6 @@ bool SymbolGenerator::PreVisit(Extract &extract) {
 bool SymbolGenerator::PreVisit(Exists &exists) {
   auto &scope = scopes_.back();
 
-  if (exists.pattern_->atoms_.size() != 3) {
-    throw SemanticException("Exists functionality only supports triplet patterns!");
-  }
-
   scope.in_exists = true;
 
   const auto &symbol = CreateAnonymousSymbol();
@@ -459,9 +458,10 @@ bool SymbolGenerator::PreVisit(Exists &exists) {
   return true;
 }
 
-bool SymbolGenerator::PostVisit(Exists &) {
+bool SymbolGenerator::PostVisit(Exists & /*exists*/) {
   auto &scope = scopes_.back();
   scope.in_exists = false;
+
   return true;
 }
 
@@ -476,6 +476,7 @@ bool SymbolGenerator::PreVisit(Pattern &pattern) {
   } else if (scope.in_exists) {
     // Currently we're not dealing with variable start planner so this feels a bit hacky
     // TODO: Configure variable start planner to work with exists() in order to delete this part
+    // Edit: Addressed in T1238 and will be deleted
     for (auto i = 0; i < pattern.atoms_.size(); i++) {
       if (i == 0) {
         scope.in_exists_source_node = true;

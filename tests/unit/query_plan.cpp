@@ -1735,4 +1735,25 @@ TYPED_TEST(TestPlanner, Foreach) {
     DeleteListContent(&on_create);
   }
 }
+
+TYPED_TEST(TestPlanner, Exists) {
+  AstStorage storage;
+  FakeDbAccessor dba;
+  {
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("n"))),
+        WHERE(EXISTS(PATTERN(NODE("n"), EDGE("edge", memgraph::query::EdgeAtom::Direction::BOTH, {}, false),
+                             NODE("node", std::nullopt, false)))),
+        RETURN("n")));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+    std::list<BaseOpChecker *> pattern_filter{new ExpectExpand(), new ExpectLimit(), new ExpectEvaluatePatternFilter()};
+
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(),
+              ExpectFilter(std::vector<std::list<BaseOpChecker *>>{pattern_filter}), ExpectProduce());
+
+    DeleteListContent(&pattern_filter);
+  }
+}
 }  // namespace

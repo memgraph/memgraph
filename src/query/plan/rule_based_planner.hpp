@@ -409,8 +409,8 @@ class RuleBasedPlanner {
 
       // We have an edge, so generate Expand.
       if (expansion.edge) {
-        last_op = GenExpand(std::move(last_op), expansion, symbol_table, bound_symbols, matching, storage,
-                            match_context.new_symbols, match_context.view);
+        last_op = GenExpand(std::move(last_op), expansion, symbol_table, bound_symbols, matching, storage, filters,
+                            named_paths, match_context.new_symbols, match_context.view);
       }
     }
     MG_ASSERT(named_paths.empty(), "Expected to generate all named paths");
@@ -451,7 +451,8 @@ class RuleBasedPlanner {
 
   std::unique_ptr<LogicalOperator> GenExpand(std::unique_ptr<LogicalOperator> last_op, const Expansion &expansion,
                                              const SymbolTable &symbol_table, std::unordered_set<Symbol> &bound_symbols,
-                                             const Matching &matching, AstStorage &storage,
+                                             const Matching &matching, AstStorage &storage, Filters &filters,
+                                             std::unordered_map<Symbol, std::vector<Symbol>> &named_paths,
                                              std::vector<Symbol> &new_symbols, storage::View view) {
     // If the expand symbols were already bound, then we need to indicate
     // that they exist. The Expand will then check whether the pattern holds
@@ -461,8 +462,6 @@ class RuleBasedPlanner {
 
     const auto &node_symbol = symbol_table.at(*expansion.node2->identifier_);
     auto *edge = expansion.edge;
-    auto filters = matching.filters;
-    auto named_paths = matching.named_paths;
 
     auto existing_node = utils::Contains(bound_symbols, node_symbol);
     const auto &edge_symbol = symbol_table.at(*edge->identifier_);
@@ -584,33 +583,36 @@ class RuleBasedPlanner {
   std::unique_ptr<LogicalOperator> GenFilters(std::unique_ptr<LogicalOperator> last_op,
                                               const std::unordered_set<Symbol> &bound_symbols, Filters &filters,
                                               AstStorage &storage, const SymbolTable &symbol_table) {
-    auto complex_filters = ExtractComplexFilters(filters, symbol_table, storage, bound_symbols);
+    auto pattern_filters = ExtractPatternFilters(filters, symbol_table, storage, bound_symbols);
     auto *filter_expr = impl::ExtractFilters(bound_symbols, filters, storage);
     if (filter_expr) {
-      last_op = std::make_unique<Filter>(std::move(last_op), std::move(complex_filters), filter_expr);
+      last_op = std::make_unique<Filter>(std::move(last_op), std::move(pattern_filters), filter_expr);
     }
     return last_op;
   }
 
   std::unique_ptr<LogicalOperator> MakeExistsFilter(const Matching &matching, const SymbolTable &symbol_table,
                                                     AstStorage &storage,
-                                                    const std::unordered_set<Symbol> &bound_symbols) {
+                                                    const std::unordered_set<Symbol> &bound_symbols, Filters &filters) {
     std::vector<Symbol> once_symbols(bound_symbols.begin(), bound_symbols.end());
     std::unique_ptr<LogicalOperator> last_op = std::make_unique<Once>(once_symbols);
+
     std::vector<Symbol> new_symbols;
     std::unordered_set<Symbol> expand_symbols(bound_symbols.begin(), bound_symbols.end());
 
+    std::unordered_map<Symbol, std::vector<Symbol>> named_paths;
+
     last_op = GenExpand(std::move(last_op), matching.expansions[0], symbol_table, expand_symbols, matching, storage,
-                        new_symbols, storage::View::OLD);
+                        filters, named_paths, new_symbols, storage::View::OLD);
 
     last_op = std::make_unique<Limit>(std::move(last_op), storage.Create<IntegerLiteral>(1));
 
-    last_op = std::make_unique<EvaluateComplexFilter>(std::move(last_op), matching.symbol.value());
+    last_op = std::make_unique<EvaluatePatternFilter>(std::move(last_op), matching.symbol.value());
 
     return last_op;
   }
 
-  std::vector<std::shared_ptr<LogicalOperator>> ExtractComplexFilters(Filters &filters, const SymbolTable &symbol_table,
+  std::vector<std::shared_ptr<LogicalOperator>> ExtractPatternFilters(Filters &filters, const SymbolTable &symbol_table,
                                                                       AstStorage &storage,
                                                                       const std::unordered_set<Symbol> &bound_symbols) {
     std::vector<std::shared_ptr<LogicalOperator>> operators;
@@ -618,7 +620,7 @@ class RuleBasedPlanner {
     for (const auto &filter : filters) {
       for (const auto &matching : filter.matchings) {
         if (matching.type == PatternFilterType::EXISTS) {
-          operators.emplace_back(MakeExistsFilter(matching, symbol_table, storage, bound_symbols));
+          operators.emplace_back(MakeExistsFilter(matching, symbol_table, storage, bound_symbols, filters));
           continue;
         }
 
