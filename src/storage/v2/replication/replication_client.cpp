@@ -109,8 +109,10 @@ void Storage::ReplicationClient::InitializeClient() {
   }
   if (branching_point) {
     spdlog::error(
-        "Replica {} cannot be used with this instance. Please start a clean "
-        "instance of Memgraph server on the specified endpoint.",
+        "You cannot register Replica {} to this Main because at one point "
+        "Replica {} acted as the Main instance. Both the Main and Replica {} "
+        "now hold unique data. Please resolve data conflicts and start the "
+        "replication on a clean instance.",
         name_);
     return;
   }
