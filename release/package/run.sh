@@ -23,7 +23,7 @@ make_package () {
     echo "Building Memgraph for $os on $build_container..."
 
     package_command=""
-    if [[ "$os" =~ ^"centos".* ]]; then
+    if [[ "$os" =~ ^"centos".* ]] || [[ "$os" =~ ^"fedora".* ]]; then
         docker exec "$build_container" bash -c "yum -y update"
         package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint memgraph*.rpm "
     fi
