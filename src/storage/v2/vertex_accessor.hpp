@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -67,6 +67,9 @@ class VertexAccessor final {
   /// Set a property value and return the old value.
   /// @throw std::bad_alloc
   Result<PropertyValue> SetProperty(PropertyId property, const PropertyValue &value);
+
+  Result<std::vector<storage::PropertyValue>> SetProperties(
+      std::map<storage::PropertyId, storage::PropertyValue> &properties);
 
   /// Remove all properties and return the values of the removed properties.
   /// @throw std::bad_alloc

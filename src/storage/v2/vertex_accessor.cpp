@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -228,6 +228,32 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   UpdateOnSetProperty(indices_, property, value, vertex_, *transaction_);
 
   return std::move(current_value);
+}
+
+Result<std::vector<storage::PropertyValue>> VertexAccessor::SetProperties(
+    std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+  // Be careful when calling this function
+  // It will set properties in batch, without checking if property already exists
+
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+
+  if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
+
+  if (vertex_->deleted) return Error::DELETED_OBJECT;
+
+  std::vector<storage::PropertyValue> new_values;
+
+  vertex_->properties.SetProperties(properties);
+
+  for (const auto &[property, value] : properties) {
+    auto current_value = vertex_->properties.GetEmptyProperty();
+    CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, current_value);
+    UpdateOnSetProperty(indices_, property, value, vertex_, *transaction_);
+    new_values.emplace_back(current_value);
+  }
+
+  return new_values;
 }
 
 Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
