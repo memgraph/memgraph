@@ -367,6 +367,9 @@ class Neo4j(Runners):
                 f.write(memory_usage.stdout)
                 f.close()
 
+    def _get_args(self, **kwargs):
+        pass
+
 
 class Client:
     def __init__(

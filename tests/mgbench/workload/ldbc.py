@@ -12,7 +12,6 @@ class LDBC_Interactive(Dataset):
         "sf3": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/interactive/ldbc_interactive_sf3.cypher.gz",
         "sf10": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/interactive/ldbc_interactive_sf10.cypher.gz",
     }
-
     URL_CSV = {
         "sf0.1": "https://repository.surfsara.nl/datasets/cwi/snb/files/social_network-csv_basic/social_network-csv_basic-sf0.1.tar.zst",
         "sf1": "https://repository.surfsara.nl/datasets/cwi/snb/files/social_network-csv_basic/social_network-csv_basic-sf1.tar.zst",
@@ -27,11 +26,9 @@ class LDBC_Interactive(Dataset):
         "sf10": {"vertices": 1, "edges": 1},
     }
 
-    LOCAL_INDEX_FILES = None
-
     URL_INDEX_FILES = {
         "memgraph": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/interactive/indices_memgraph.cypher",
-        "neo4j": "",
+        "neo4j": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/interactive/indices_memgraph.cypher",
     }
 
     def __init__(self, variant=None, vendor=None):

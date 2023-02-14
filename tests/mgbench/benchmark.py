@@ -567,7 +567,12 @@ for dataset, queries in benchmarks:
 
     client = runners.Client(args.client_binary, args.temporary_directory, args.bolt_port)
 
-    importer = importer.Importer(dataset=dataset, runners=client, size="sf0.1")
+    import_status = importer.Importer(dataset=dataset, vendor=vendor, size="sf0.1")
+
+    if import_status == False:
+        print("Need alternative import")
+    else:
+        print("Fast import executed")
 
     ret = None
     usage = None

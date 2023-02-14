@@ -4,7 +4,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-from .. import helpers
+import helpers
 
 # Most recent list of LDBC datasets available at: https://github.com/ldbc/data-sets-surf-repository
 INTERACTIVE_LINK = {
