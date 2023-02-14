@@ -1255,7 +1255,7 @@ popd
 # create toolchain archive
 if [ ! -f $NAME-binaries-$DISTRO.tar.gz ]; then
     DISTRO_FULL_NAME=${DISTRO}
-    if [[ "${DISTRO}" == centos* ]]; then
+    if [[ "${DISTRO}" == centos* ]] || [[ "${DISTRO}" == fedora* ]]; then
         if [[ "$for_arm" = "true" ]]; then
             DISTRO_FULL_NAME="$DISTRO_FULL_NAME-aarch64"
         else
