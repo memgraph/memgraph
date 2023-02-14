@@ -66,4 +66,5 @@ add_manual_test(ssl_server.cpp)
 target_link_libraries(${test_prefix}ssl_server mg-communication)
 
 add_manual_test(query_performance.cpp)
+target_sources(${test_prefix}query_performance PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/query_performance_run.cpp)
 target_link_libraries(${test_prefix}query_performance mg-communication mg-utils mg-io mg-io-simulator mg-coordinator mg-query-v2 mg-storage-v3 mg-query mg-storage-v2)

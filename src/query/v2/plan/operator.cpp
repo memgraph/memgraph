@@ -3087,25 +3087,18 @@ class DistributedExpandCursor : public Cursor {
     MG_ASSERT(direction != EdgeAtom::Direction::BOTH);
     const auto &edge = frame[self_.common_.edge_symbol].ValueEdge();
     static constexpr auto get_dst_vertex = [](const EdgeAccessor &edge,
-                                              const EdgeAtom::Direction direction) -> msgs::VertexId {
+                                              const EdgeAtom::Direction direction) -> accessors::VertexAccessor {
       switch (direction) {
         case EdgeAtom::Direction::IN:
-          return edge.From().Id();
+          return edge.From();
         case EdgeAtom::Direction::OUT:
-          return edge.To().Id();
+          return edge.To();
         case EdgeAtom::Direction::BOTH:
           throw std::runtime_error("EdgeDirection Both not implemented");
       }
     };
 
-    msgs::GetPropertiesRequest request;
-    // to not fetch any properties of the edges
-    request.vertex_ids.push_back(get_dst_vertex(edge, direction));
-    auto result_rows = context.request_router->GetProperties(std::move(request));
-    MG_ASSERT(result_rows.size() == 1);
-    auto &result_row = result_rows.front();
-    frame[self_.common_.node_symbol] =
-        accessors::VertexAccessor(msgs::Vertex{result_row.vertex}, result_row.props, context.request_router);
+    frame[self_.common_.node_symbol] = get_dst_vertex(edge, direction);
   }
 
   bool InitEdges(Frame &frame, ExecutionContext &context) {
