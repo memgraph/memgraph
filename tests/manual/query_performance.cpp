@@ -90,6 +90,7 @@ void RunBenchmarkQueries(TInterpreterContext &interpreter_context, const std::ve
 }
 
 void RunV2() {
+  spdlog::critical("Running V2");
   const auto run_start = std::chrono::high_resolution_clock::now();
 
   std::vector<std::string> init_queries{};
@@ -146,17 +147,18 @@ void RunV2() {
   const auto init_start = std::chrono::high_resolution_clock::now();
   RunInitQueries(interpreter_context, init_queries);
   const auto benchmark_start = std::chrono::high_resolution_clock::now();
-  spdlog::critical("Read: {}ms", std::chrono::duration_cast<std::chrono::milliseconds>(init_start - run_start).count());
   RunBenchmarkQueries(interpreter_context, benchmark_queries);
   const auto benchmark_end = std::chrono::high_resolution_clock::now();
 
+  spdlog::critical("Read: {}ms", std::chrono::duration_cast<std::chrono::milliseconds>(init_start - run_start).count());
   spdlog::critical("Init: {}ms",
                    std::chrono::duration_cast<std::chrono::milliseconds>(benchmark_start - init_start).count());
   spdlog::critical("Benchmark: {}ms",
                    std::chrono::duration_cast<std::chrono::milliseconds>(benchmark_end - benchmark_start).count());
 }
 
-io::LatencyHistogramSummaries RunV3() {
+void RunV3() {
+  spdlog::critical("Running V3");
   const auto run_start = std::chrono::high_resolution_clock::now();
   std::ifstream sm_file{FLAGS_split_file, std::ios::in};
   MG_ASSERT(sm_file.good(), "Cannot open split file to read: {}", FLAGS_split_file);
@@ -231,11 +233,11 @@ io::LatencyHistogramSummaries RunV3() {
   spdlog::critical("Benchmark: {}ms",
                    std::chrono::duration_cast<std::chrono::milliseconds>(benchmark_end - benchmark_start).count());
   ls.ShutDown();
-  return io.ResponseLatencies();
 }
 }  // namespace memgraph::tests::manual
 
 int main(int argc, char **argv) {
+  spdlog::set_level(spdlog::level::warn);
   spdlog::cfg::load_env_levels();
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   if (FLAGS_use_v3) {
