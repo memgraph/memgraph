@@ -40,55 +40,55 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue *> {
 
   utils::MemoryResource *GetMemoryResource() const { return ctx_->memory; }
 
-#define UNSUCCESFUL_VISIT(expr_name) \
+#define UNSUCCESSFUL_VISIT(expr_name) \
   TypedValue *Visit(expr_name &expr) override { return nullptr; }
 
   TypedValue *Visit(Identifier &ident) override { return &frame_->at(symbol_table_->at(ident)); }
 
-  UNSUCCESFUL_VISIT(NamedExpression);
-  UNSUCCESFUL_VISIT(OrOperator);
-  UNSUCCESFUL_VISIT(XorOperator);
-  UNSUCCESFUL_VISIT(AdditionOperator);
-  UNSUCCESFUL_VISIT(SubtractionOperator);
-  UNSUCCESFUL_VISIT(MultiplicationOperator);
-  UNSUCCESFUL_VISIT(DivisionOperator);
-  UNSUCCESFUL_VISIT(ModOperator);
-  UNSUCCESFUL_VISIT(NotEqualOperator);
-  UNSUCCESFUL_VISIT(EqualOperator);
-  UNSUCCESFUL_VISIT(LessOperator);
-  UNSUCCESFUL_VISIT(GreaterOperator);
-  UNSUCCESFUL_VISIT(LessEqualOperator);
-  UNSUCCESFUL_VISIT(GreaterEqualOperator);
+  UNSUCCESSFUL_VISIT(NamedExpression);
+  UNSUCCESSFUL_VISIT(OrOperator);
+  UNSUCCESSFUL_VISIT(XorOperator);
+  UNSUCCESSFUL_VISIT(AdditionOperator);
+  UNSUCCESSFUL_VISIT(SubtractionOperator);
+  UNSUCCESSFUL_VISIT(MultiplicationOperator);
+  UNSUCCESSFUL_VISIT(DivisionOperator);
+  UNSUCCESSFUL_VISIT(ModOperator);
+  UNSUCCESSFUL_VISIT(NotEqualOperator);
+  UNSUCCESSFUL_VISIT(EqualOperator);
+  UNSUCCESSFUL_VISIT(LessOperator);
+  UNSUCCESSFUL_VISIT(GreaterOperator);
+  UNSUCCESSFUL_VISIT(LessEqualOperator);
+  UNSUCCESSFUL_VISIT(GreaterEqualOperator);
 
-  UNSUCCESFUL_VISIT(NotOperator);
-  UNSUCCESFUL_VISIT(UnaryPlusOperator);
-  UNSUCCESFUL_VISIT(UnaryMinusOperator);
+  UNSUCCESSFUL_VISIT(NotOperator);
+  UNSUCCESSFUL_VISIT(UnaryPlusOperator);
+  UNSUCCESSFUL_VISIT(UnaryMinusOperator);
 
-  UNSUCCESFUL_VISIT(AndOperator);
-  UNSUCCESFUL_VISIT(IfOperator);
-  UNSUCCESFUL_VISIT(InListOperator);
+  UNSUCCESSFUL_VISIT(AndOperator);
+  UNSUCCESSFUL_VISIT(IfOperator);
+  UNSUCCESSFUL_VISIT(InListOperator);
 
-  UNSUCCESFUL_VISIT(SubscriptOperator);
+  UNSUCCESSFUL_VISIT(SubscriptOperator);
 
-  UNSUCCESFUL_VISIT(ListSlicingOperator);
-  UNSUCCESFUL_VISIT(IsNullOperator);
-  UNSUCCESFUL_VISIT(PropertyLookup);
-  UNSUCCESFUL_VISIT(LabelsTest);
+  UNSUCCESSFUL_VISIT(ListSlicingOperator);
+  UNSUCCESSFUL_VISIT(IsNullOperator);
+  UNSUCCESSFUL_VISIT(PropertyLookup);
+  UNSUCCESSFUL_VISIT(LabelsTest);
 
-  UNSUCCESFUL_VISIT(PrimitiveLiteral);
-  UNSUCCESFUL_VISIT(ListLiteral);
-  UNSUCCESFUL_VISIT(MapLiteral);
-  UNSUCCESFUL_VISIT(Aggregation);
-  UNSUCCESFUL_VISIT(Coalesce);
-  UNSUCCESFUL_VISIT(Function);
-  UNSUCCESFUL_VISIT(Reduce);
-  UNSUCCESFUL_VISIT(Extract);
-  UNSUCCESFUL_VISIT(All);
-  UNSUCCESFUL_VISIT(Single);
-  UNSUCCESFUL_VISIT(Any);
-  UNSUCCESFUL_VISIT(None);
-  UNSUCCESFUL_VISIT(ParameterLookup);
-  UNSUCCESFUL_VISIT(RegexMatch);
+  UNSUCCESSFUL_VISIT(PrimitiveLiteral);
+  UNSUCCESSFUL_VISIT(ListLiteral);
+  UNSUCCESSFUL_VISIT(MapLiteral);
+  UNSUCCESSFUL_VISIT(Aggregation);
+  UNSUCCESSFUL_VISIT(Coalesce);
+  UNSUCCESSFUL_VISIT(Function);
+  UNSUCCESSFUL_VISIT(Reduce);
+  UNSUCCESSFUL_VISIT(Extract);
+  UNSUCCESSFUL_VISIT(All);
+  UNSUCCESSFUL_VISIT(Single);
+  UNSUCCESSFUL_VISIT(Any);
+  UNSUCCESSFUL_VISIT(None);
+  UNSUCCESSFUL_VISIT(ParameterLookup);
+  UNSUCCESSFUL_VISIT(RegexMatch);
 
  private:
   Frame *frame_;
