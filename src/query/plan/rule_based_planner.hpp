@@ -585,6 +585,7 @@ class RuleBasedPlanner {
                                               AstStorage &storage, const SymbolTable &symbol_table) {
     auto pattern_filters = ExtractPatternFilters(filters, symbol_table, storage, bound_symbols);
     auto *filter_expr = impl::ExtractFilters(bound_symbols, filters, storage);
+
     if (filter_expr) {
       last_op = std::make_unique<Filter>(std::move(last_op), std::move(pattern_filters), filter_expr);
     }
@@ -593,12 +594,14 @@ class RuleBasedPlanner {
 
   std::unique_ptr<LogicalOperator> MakeExistsFilter(const Matching &matching, const SymbolTable &symbol_table,
                                                     AstStorage &storage,
-                                                    const std::unordered_set<Symbol> &bound_symbols, Filters &filters) {
+                                                    const std::unordered_set<Symbol> &bound_symbols) {
     std::vector<Symbol> once_symbols(bound_symbols.begin(), bound_symbols.end());
     std::unique_ptr<LogicalOperator> last_op = std::make_unique<Once>(once_symbols);
 
     std::vector<Symbol> new_symbols;
     std::unordered_set<Symbol> expand_symbols(bound_symbols.begin(), bound_symbols.end());
+
+    auto filters = matching.filters;
 
     std::unordered_map<Symbol, std::vector<Symbol>> named_paths;
 
@@ -620,7 +623,7 @@ class RuleBasedPlanner {
     for (const auto &filter : filters) {
       for (const auto &matching : filter.matchings) {
         if (matching.type == PatternFilterType::EXISTS) {
-          operators.emplace_back(MakeExistsFilter(matching, symbol_table, storage, bound_symbols, filters));
+          operators.emplace_back(MakeExistsFilter(matching, symbol_table, storage, bound_symbols));
           continue;
         }
 
