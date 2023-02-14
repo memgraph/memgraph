@@ -679,7 +679,7 @@ export PS1="($NAME) \$PS1"
 export LD_LIBRARY_PATH=$PREFIX/lib:$PREFIX/lib64
 export CXXFLAGS=-isystem\ $PREFIX/include\ \$CXXFLAGS
 export CFLAGS=-isystem\ $PREFIX/include\ \$CFLAGS
-export VENV=$DIR
+export VENV=$PREFIX
 
 # disable root
 function su () {
