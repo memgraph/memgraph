@@ -27,8 +27,10 @@ class Pokec(Dataset):
 
     PROPERTIES_ON_EDGES = False
 
-    # Helpers used to generate the queries
+    def __init__(self, variant=None, vendor=None):
+        super().__init__(variant, vendor)
 
+    # Helpers used to generate the queries
     def _get_random_vertex(self):
         # All vertices in the Pokec dataset have an ID in the range
         # [1, _num_vertices].

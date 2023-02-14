@@ -10,6 +10,7 @@
 # licenses/APL.txt.
 
 from abc import ABC
+from pathlib import Path
 
 import helpers
 
@@ -58,7 +59,10 @@ class Dataset(ABC):
             raise ValueError("The variant doesn't have a defined URL or local file path!")
         if variant not in self.SIZES:
             raise ValueError("The variant doesn't have a defined dataset " "size!")
-        if vendor not in self.LOCAL_INDEX_FILES and vendor not in self.URL_INDEX_FILES:
+
+        if (self.LOCAL_INDEX_FILE and vendor not in self.LOCAL_INDEX_FILES) and (
+            self.URL_INDEX_FIELS and vendor not in self.URL_INDEX_FILES
+        ):
             raise ValueError("Vendor does not have INDEX for dataset!")
 
         self._variant = variant
@@ -70,9 +74,9 @@ class Dataset(ABC):
             self._file_cypher = None
 
         if self.LOCAL_CSV_FILES is not None:
-            self._url_file_csv = self.LOCAL_CSV_FILES.get(variant, None)
+            self._file_csv = self.LOCAL_CSV_FILES.get(variant, None)
         else:
-            self._url_file_csv = None
+            self._file_csv = None
 
         if self.URL_CYPHER is not None:
             self._url_file_cypher = self.URL_CYPHER.get(variant, None)
@@ -101,25 +105,29 @@ class Dataset(ABC):
         self._num_edges = self._size["edges"]
 
     def prepare(self, directory):
-        if self._file is not None:
-            print("Using dataset file:", self._file)
-        else:
-            # TODO: add support for JSON datasets
+        if self._file_cypher is not None:
+            print("Using dataset file:", self._file_cypher)
+        elif self._url_file_cypher is not None:
             cached_input, exists = directory.get_file("dataset.cypher")
             if not exists:
-                print("Downloading dataset file:", self._url)
-                downloaded_file = helpers.download_file(self._url, directory.get_path())
+                print("Downloading dataset file:", self._url_file_cypher)
+                downloaded_file = helpers.download_file(self._url_file_cypher, directory.get_path())
                 print("Unpacking and caching file:", downloaded_file)
-                helpers.unpack_and_move_file(downloaded_file, cached_input)
+                helpers.unpack_gz_and_move_file(downloaded_file, cached_input)
             print("Using cached dataset file:", cached_input)
-            self._file = cached_input
+            self._file_cypher = cached_input
+            # (TODO) Fix handling a single or multiple CSV file
+        elif self._file_csv is not None:
+            print("Using dataset file:", self._file_csv)
+        elif self._url_file_csv is not None:
+            pass
 
         cached_index, exists = directory.get_file(self._vendor + ".cypher")
         if not exists:
             print("Downloading index file:", self._index)
             downloaded_file = helpers.download_file(self._index, directory.get_path())
             print("Unpacking and caching file:", downloaded_file)
-            helpers.unpack_and_move_file(downloaded_file, cached_index)
+            helpers.unpack_gz_and_move_file(downloaded_file, cached_index)
         print("Using cached index file:", cached_index)
         self._index = cached_index
 
@@ -135,7 +143,7 @@ class Dataset(ABC):
         """
         Returns path to the file that contains dataset creation queries.
         """
-        return self._file
+        return self._file_cypher
 
     def get_size(self):
         """Returns number of vertices/edges for the current variant."""

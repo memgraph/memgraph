@@ -35,7 +35,7 @@ class LDBC_Interactive(Dataset):
     }
 
     def __init__(self, variant=None, vendor=None):
-        super().__init__(variant, vendor=None)
+        super().__init__(variant, vendor)
 
     def benchmark__interactive__sample_query(self):
         return ("MATCH(n:Tag) RETURN COUNT(*);", {})
@@ -676,7 +676,7 @@ class LDBC_BI(Dataset):
     }
 
     def __init__(self, variant=None, vendor=None):
-        super().__init__(variant, vendor=None)
+        super().__init__(variant, vendor)
 
     def benchmark__bi__query_1(self):
         return (

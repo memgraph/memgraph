@@ -41,7 +41,7 @@ def download_file(url, path):
     return os.path.join(path, name)
 
 
-def unpack_and_move_file(input_path, output_path):
+def unpack_gz_and_move_file(input_path, output_path):
     if input_path.endswith(".gz"):
         subprocess.run(["gunzip", input_path], stdout=subprocess.DEVNULL, check=True)
         input_path = input_path[:-3]
@@ -63,6 +63,18 @@ def unpack_tar_zst(input_path: Path):
         )
         input_path = input_path.with_suffix("").with_suffix("")
     return input_path
+
+
+def unpack_tar_zst_and_move(input_path: Path, output_path: Path):
+    if input_path.suffix == ".zst":
+        subprocess.run(
+            ["tar", "--use-compress-program=unzstd", "-xvf", input_path],
+            cwd=input_path.parent,
+            capture_output=True,
+            check=True,
+        )
+        input_path = input_path.with_suffix("").with_suffix("")
+    return input_path.rename(output_path)
 
 
 def ensure_directory(path):
