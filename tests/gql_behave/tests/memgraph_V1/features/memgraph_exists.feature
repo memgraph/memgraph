@@ -14,6 +14,21 @@ Feature: WHERE exists
           | n.prop |
           | 1      |
 
+  Scenario: Test exists with empty edge and node specifiers return 2 entries
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:One {prop:1})-[:TYPE]->(:Two), (:One {prop: 3})-[:TYPE]->(:Two)
+          """
+      When executing query:
+          """
+          MATCH (n:One) WHERE exists((n)-[]-()) RETURN n.prop;
+          """
+      Then the result should be:
+          | n.prop |
+          | 1      |
+          | 3      |
+
   Scenario: Test exists with edge specifier
       Given an empty graph
       And having executed:
