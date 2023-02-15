@@ -211,20 +211,19 @@ CartesianProduct<VaryMatchingStart> VaryMultiMatchingStarts(const std::vector<Ma
 
 CartesianProduct<VaryMatchingStart> VaryFilterMatchingStarts(const Matching &matching,
                                                              const SymbolTable &symbol_table) {
-  std::vector<VaryMatchingStart> variants;
-
   auto i = 0;
   for (const auto &filter : matching.filters) {
-    for (const auto &filter_matchings : filter.matchings) {
+    for ([[maybe_unused]] const auto &filter_matchings : filter.matchings) {
       i += 1;
     }
   }
 
+  std::vector<VaryMatchingStart> variants;
   variants.reserve(i);
 
   for (const auto &filter : matching.filters) {
     for (const auto &filter_matching : filter.matchings) {
-      variants.emplace_back(VaryMatchingStart(filter_matching, symbol_table));
+      variants.emplace_back(filter_matching, symbol_table);
     }
   }
 
@@ -327,8 +326,7 @@ void VaryQueryPartMatching::iterator::SetCurrentQueryPart() {
     new_matchings.reserve(matchings_size);
 
     for (auto i = 0; i < matchings_size; i++) {
-      auto filter_matching = static_cast<FilterMatching &>(filter_matchings[iterator_cnt]);
-      new_matchings.push_back(std::move(filter_matching));
+      new_matchings.push_back(static_cast<FilterMatching &>(filter_matchings[iterator_cnt]));
       iterator_cnt++;
     }
 
