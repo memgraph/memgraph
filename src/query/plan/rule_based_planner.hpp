@@ -619,7 +619,7 @@ class RuleBasedPlanner {
     last_op = std::make_unique<Expand>(std::move(last_op), node1_symbol, node2_symbol, edge_symbol, direction,
                                        edge_types, false, storage::View::OLD);
 
-    last_op = std::make_unique<Limit>(std::move(last_op), storage.Create<IntegerLiteral>());
+    last_op = std::make_unique<Limit>(std::move(last_op), storage.Create<PrimitiveLiteral>(1));
 
     last_op = std::make_unique<EvaluatePatternFilter>(std::move(last_op), symbol_table.at(exists));
 

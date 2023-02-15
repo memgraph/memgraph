@@ -551,10 +551,6 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     throw QueryRuntimeException("Exists functionality not yet implemented!");
   }
 
-  TypedValue Visit(IntegerLiteral &integer_literal) override {
-    return TypedValue(integer_literal.literal_, ctx_->memory);
-  }
-
   TypedValue Visit(All &all) override {
     auto list_value = all.list_expression_->Accept(*this);
     if (list_value.IsNull()) {
