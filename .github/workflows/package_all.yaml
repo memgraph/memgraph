@@ -178,7 +178,7 @@ jobs:
           path: build/output/debian-11-arm/memgraph*.deb
 
   fedora-36:
-    runs-on: [self-hosted, DockerMgBuild]
+    runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
       - name: "Set up repository"
