@@ -1147,8 +1147,8 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
 }
 
 bool PropertyStore::SetProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
-  uint64_t size;
-  uint8_t *data;
+  uint64_t size = 0;
+  uint8_t *data = nullptr;
   std::tie(size, data) = GetSizeData(buffer_);
   if (size != 0) {
     return false;
@@ -1185,7 +1185,7 @@ bool PropertyStore::SetProperties(std::map<storage::PropertyId, storage::Propert
 
   for (const auto &[property, value] : properties) {
     MG_ASSERT(EncodeProperty(&writer, property, value), "Invalid database state!");
-    property_size = writer.Written();
+    writer.Written();
   }
 
   auto metadata = writer.WriteMetadata();

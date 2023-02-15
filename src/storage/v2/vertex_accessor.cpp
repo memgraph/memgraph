@@ -240,8 +240,7 @@ Result<bool> VertexAccessor::SetProperties(std::map<storage::PropertyId, storage
 
   if (!vertex_->properties.SetProperties(properties)) return false;
   for (const auto &[property, value] : properties) {
-    CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property,
-                       vertex_->properties.GetEmptyProperty());
+    CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, PropertyValue());
     UpdateOnSetProperty(indices_, property, value, vertex_, *transaction_);
   }
 
