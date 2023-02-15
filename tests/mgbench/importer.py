@@ -3,7 +3,7 @@ import subprocess
 from pathlib import Path
 
 import helpers
-from runners import Memgraph, Neo4j, Runners
+from runners import Client, Memgraph, Neo4j, Runners
 from workload.dataset import Dataset
 
 # Removed speaks/email from person header
@@ -43,10 +43,11 @@ HEADERS_INTERACTIVE = {
 
 
 class Importer:
-    def __init__(self, dataset: Dataset, vendor: Runners):
+    def __init__(self, dataset: Dataset, vendor: Runners, client: Client):
         self._dataset = dataset
         self._vendor = vendor
         self._size = dataset.get_variant()
+        self._client = client
 
     def try_optimal_import(self) -> bool:
         if self._dataset.NAME == "ldbc_interactive" and isinstance(self._vendor, Neo4j):
@@ -133,6 +134,12 @@ class Importer:
                 ],
                 check=True,
             )
+
+            self._vendor.start_preparation("Index preparation")
+            print("Executing database index setup")
+            self._client.execute(file_path=self._dataset.get_index(), num_workers=1)
+            self._vendor.stop("Stop index preparation")
+
             return True
 
         elif self._dataset.NAME == "ldbc_interactive" and isinstance(self._vendor, Memgraph):

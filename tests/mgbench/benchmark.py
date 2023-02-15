@@ -567,7 +567,7 @@ for dataset, queries in benchmarks:
 
     client = runners.Client(args.client_binary, args.temporary_directory, args.bolt_port)
 
-    importer = importer.Importer(dataset=dataset, vendor=vendor)
+    importer = importer.Importer(dataset=dataset, vendor=vendor, client=client)
 
     status = importer.try_optimal_import()
 

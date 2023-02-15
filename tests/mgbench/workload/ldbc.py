@@ -28,7 +28,7 @@ class LDBC_Interactive(Dataset):
 
     URL_INDEX_FILES = {
         "memgraph": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/interactive/indices_memgraph.cypher",
-        "neo4j": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/interactive/indices_memgraph.cypher",
+        "neo4j": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/interactive/neo4j_index.cypher",
     }
 
     def __init__(self, variant=None, vendor=None):
