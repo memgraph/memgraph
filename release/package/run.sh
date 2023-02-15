@@ -25,7 +25,7 @@ make_package () {
     package_command=""
     if [[ "$os" =~ ^"centos".* ]] || [[ "$os" =~ ^"fedora".* ]]; then
         docker exec "$build_container" bash -c "yum -y update"
-        package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint memgraph*.rpm "
+        package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc' memgraph*.rpm "
     fi
     if [[ "$os" =~ ^"debian".* ]]; then
         docker exec "$build_container" bash -c "apt update"
