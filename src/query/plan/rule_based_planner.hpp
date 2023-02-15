@@ -608,7 +608,7 @@ class RuleBasedPlanner {
     last_op = GenExpand(std::move(last_op), matching.expansions[0], symbol_table, expand_symbols, matching, storage,
                         filters, named_paths, new_symbols, storage::View::OLD);
 
-    last_op = std::make_unique<Limit>(std::move(last_op), storage.Create<IntegerLiteral>(1));
+    last_op = std::make_unique<Limit>(std::move(last_op), storage.Create<PrimitiveLiteral>(1));
 
     last_op = std::make_unique<EvaluatePatternFilter>(std::move(last_op), matching.symbol.value());
 

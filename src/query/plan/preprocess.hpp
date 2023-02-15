@@ -185,7 +185,6 @@ class PatternFilterVisitor : public ExpressionVisitor<void> {
   void Visit(Coalesce &op) override{};
   void Visit(Extract &op) override{};
   void Visit(Exists &op) override;
-  void Visit(IntegerLiteral &op) override{};
   void Visit(All &op) override{};
   void Visit(Single &op) override{};
   void Visit(Any &op) override{};
