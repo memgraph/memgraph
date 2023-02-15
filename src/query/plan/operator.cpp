@@ -2272,12 +2272,14 @@ std::vector<Symbol> Filter::ModifiedSymbols(const SymbolTable &table) const { re
 static std::vector<UniqueCursorPtr> MakeCursorVector(const std::vector<std::shared_ptr<LogicalOperator>> &ops,
                                                      utils::MemoryResource *mem) {
   std::vector<UniqueCursorPtr> cursors;
+  cursors.reserve(ops.size());
 
   if (!ops.empty()) {
     for (const auto &op : ops) {
-      cursors.emplace_back(op->MakeCursor(mem));
+      cursors.push_back(op->MakeCursor(mem));
     }
   }
+
   return cursors;
 }
 

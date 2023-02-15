@@ -125,9 +125,9 @@ struct Expansion {
   NodeAtom *node2 = nullptr;
 };
 
-struct Matching;
+struct FilterMatching;
 
-enum class PatternFilterType { MATCH, EXISTS };
+enum class PatternFilterType { EXISTS };
 
 class PatternFilterVisitor : public ExpressionVisitor<void> {
  public:
@@ -196,13 +196,13 @@ class PatternFilterVisitor : public ExpressionVisitor<void> {
   void Visit(NamedExpression &op) override{};
   void Visit(RegexMatch &op) override{};
 
-  std::vector<Matching> getMatchings() { return matchings_; }
+  std::vector<FilterMatching> getMatchings() { return matchings_; }
 
   SymbolTable &symbol_table_;
   AstStorage &storage_;
 
  private:
-  std::vector<Matching> matchings_;
+  std::vector<FilterMatching> matchings_;
 };
 
 /// Stores the symbols and expression used to filter a property.
@@ -273,7 +273,7 @@ struct FilterInfo {
   /// Information for Type::Id filtering.
   std::optional<IdFilter> id_filter;
 
-  std::vector<Matching> matchings;
+  std::vector<FilterMatching> matchings;
 };
 
 /// Stores information on filters used inside the @c Matching of a @c QueryPart.
@@ -393,8 +393,10 @@ struct Matching {
   std::unordered_map<Symbol, std::vector<Symbol>> named_paths{};
   /// All node and edge symbols across all expansions (from all matches).
   std::unordered_set<Symbol> expansion_symbols{};
+};
 
-  PatternFilterType type = PatternFilterType::MATCH;
+struct FilterMatching : Matching {
+  PatternFilterType type;
   std::optional<Symbol> symbol;
 };
 

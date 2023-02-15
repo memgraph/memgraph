@@ -592,7 +592,7 @@ class RuleBasedPlanner {
     return last_op;
   }
 
-  std::unique_ptr<LogicalOperator> MakeExistsFilter(const Matching &matching, const SymbolTable &symbol_table,
+  std::unique_ptr<LogicalOperator> MakeExistsFilter(const FilterMatching &matching, const SymbolTable &symbol_table,
                                                     AstStorage &storage,
                                                     const std::unordered_set<Symbol> &bound_symbols) {
     std::vector<Symbol> once_symbols(bound_symbols.begin(), bound_symbols.end());
@@ -623,7 +623,7 @@ class RuleBasedPlanner {
     for (const auto &filter : filters) {
       for (const auto &matching : filter.matchings) {
         if (matching.type == PatternFilterType::EXISTS) {
-          operators.emplace_back(MakeExistsFilter(matching, symbol_table, storage, bound_symbols));
+          operators.push_back(MakeExistsFilter(matching, symbol_table, storage, bound_symbols));
           continue;
         }
 

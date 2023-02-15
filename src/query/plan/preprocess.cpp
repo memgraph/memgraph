@@ -540,14 +540,15 @@ void AddMatching(const Match &match, SymbolTable &symbol_table, AstStorage &stor
 
 void PatternFilterVisitor::Visit(Exists &op) {
   std::vector<Pattern *> patterns;
-  patterns.emplace_back(op.pattern_);
-  Matching filter_matching;
+  patterns.push_back(op.pattern_);
 
+  FilterMatching filter_matching;
   AddMatching(patterns, nullptr, this->symbol_table_, this->storage_, filter_matching);
+
   filter_matching.type = PatternFilterType::EXISTS;
   filter_matching.symbol = std::make_optional<Symbol>(this->symbol_table_.at(op));
 
-  this->matchings_.emplace_back(filter_matching);
+  this->matchings_.push_back(std::move(filter_matching));
 }
 
 static void ParseForeach(query::Foreach &foreach, SingleQueryPart &query_part, AstStorage &storage,

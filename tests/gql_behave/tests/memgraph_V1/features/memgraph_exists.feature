@@ -226,3 +226,17 @@ Feature: WHERE exists
           MATCH (n:One) WHERE exists((n)-[:TYPE2]->()) AND exists((n)-[]->(:Three)) RETURN n.prop;
           """
       Then the result should be empty
+
+  Scenario: Test NOT exists
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:One {prop:1})-[:TYPE {prop: 1}]->(:Two {prop: 2})
+          """
+      When executing query:
+          """
+          MATCH (n:One) WHERE NOT exists((n)-[:TYPE2]->()) RETURN n.prop;
+          """
+      Then the result should be:
+          | n.prop |
+          | 1      |
