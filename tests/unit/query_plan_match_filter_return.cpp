@@ -3468,6 +3468,8 @@ class ExistsFixture : public testing::Test {
   AstStorage storage;
   SymbolTable symbol_table;
 
+  std::pair<std::string, memgraph::storage::PropertyId> prop = PROPERTY_PAIR("property");
+
   memgraph::query::VertexAccessor v1{dba.InsertVertex()};
   memgraph::query::VertexAccessor v2{dba.InsertVertex()};
   memgraph::storage::EdgeTypeId edge_type{db.NameToEdgeType("Edge")};
@@ -3483,34 +3485,86 @@ class ExistsFixture : public testing::Test {
     ASSERT_TRUE(v2.AddLabel(dba.NameToLabel("l2")).HasValue());
     ASSERT_TRUE(v3.AddLabel(dba.NameToLabel("l3")).HasValue());
     ASSERT_TRUE(v4.AddLabel(dba.NameToLabel("l4")).HasValue());
+
+    ASSERT_TRUE(v1.SetProperty(prop.second, memgraph::storage::PropertyValue(1)).HasValue());
+    ASSERT_TRUE(v2.SetProperty(prop.second, memgraph::storage::PropertyValue(2)).HasValue());
+    ASSERT_TRUE(v3.SetProperty(prop.second, memgraph::storage::PropertyValue(3)).HasValue());
+    ASSERT_TRUE(v4.SetProperty(prop.second, memgraph::storage::PropertyValue(4)).HasValue());
+
+    ASSERT_TRUE(r1.SetProperty(prop.second, memgraph::storage::PropertyValue(1)).HasValue());
     memgraph::license::global_license_checker.EnableTesting();
 
     dba.AdvanceCommand();
   }
 
   int TestExists(std::string match_label, EdgeAtom::Direction direction,
-                 std::vector<memgraph::storage::EdgeTypeId> edge_types) {
+                 std::vector<memgraph::storage::EdgeTypeId> edge_types,
+                 std::optional<std::string> destination_label = std::nullopt,
+                 std::optional<int64_t> destination_prop = std::nullopt,
+                 std::optional<int64_t> edge_prop = std::nullopt) {
     std::vector<std::string> edge_type_names;
     for (const auto &type : edge_types) {
       edge_type_names.emplace_back(db.EdgeTypeToName(type));
     }
 
+    auto *source_node = NODE("n");
+    auto source_sym = symbol_table.CreateSymbol("n", true);
+    source_node->identifier_->MapTo(source_sym);
+
+    auto *expansion_edge = EDGE("edge", direction, edge_type_names, false);
+    auto edge_sym = symbol_table.CreateSymbol("edge", false);
+    expansion_edge->identifier_->MapTo(edge_sym);
+
+    auto *destination_node = NODE("n2", destination_label, false);
+    auto dest_sym = symbol_table.CreateSymbol("n2", false);
+    destination_node->identifier_->MapTo(dest_sym);
+
+    auto *exists_expression = EXISTS(PATTERN(source_node, expansion_edge, destination_node));
+    exists_expression->MapTo(symbol_table.CreateAnonymousSymbol());
+
     auto scan_all = MakeScanAll(storage, symbol_table, "n");
     scan_all.node_->labels_.emplace_back(storage.GetLabelIx(match_label));
 
-    auto *exists_expression =
-        EXISTS(PATTERN(NODE("n"), EDGE("edge", direction, edge_type_names, false), NODE("n2", std::nullopt, false)));
-    exists_expression->MapTo(symbol_table.CreateAnonymousSymbol());
+    std::shared_ptr<LogicalOperator> last_op = std::make_shared<Expand>(
+        nullptr, scan_all.sym_, dest_sym, edge_sym, direction, edge_types, false, memgraph::storage::View::OLD);
+
+    if (destination_label.has_value() || destination_prop.has_value() || edge_prop.has_value()) {
+      Expression *filter_expr = nullptr;
+
+      if (destination_label.has_value()) {
+        auto labelIx = storage.GetLabelIx(destination_label.value());
+        destination_node->labels_.emplace_back(labelIx);
+
+        auto label_expr = static_cast<Expression *>(
+            storage.Create<LabelsTest>(destination_node->identifier_, std::vector<memgraph::query::LabelIx>{labelIx}));
+
+        filter_expr = filter_expr ? AND(filter_expr, label_expr) : label_expr;
+      }
+
+      if (destination_prop.has_value()) {
+        auto prop_expr = static_cast<Expression *>(
+            EQ(PROPERTY_LOOKUP(destination_node->identifier_, prop), LITERAL(destination_prop.value())));
+        filter_expr = filter_expr ? AND(filter_expr, prop_expr) : prop_expr;
+      }
+
+      if (edge_prop.has_value()) {
+        auto prop_expr = static_cast<Expression *>(
+            EQ(PROPERTY_LOOKUP(expansion_edge->identifier_, prop), LITERAL(edge_prop.value())));
+        filter_expr = filter_expr ? AND(filter_expr, prop_expr) : prop_expr;
+      }
+
+      last_op =
+          std::make_shared<Filter>(std::move(last_op), std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
+    }
+
+    last_op = std::make_shared<Limit>(std::move(last_op), storage.Create<PrimitiveLiteral>(1));
+    last_op = std::make_shared<EvaluatePatternFilter>(std::move(last_op), symbol_table.at(*exists_expression));
+
     auto *total_expression =
         AND(storage.Create<LabelsTest>(scan_all.node_->identifier_, scan_all.node_->labels_), exists_expression);
 
-    auto expand = MakeExpand(storage, symbol_table, nullptr, scan_all.sym_, "r", direction, edge_types, "m", false,
-                             memgraph::storage::View::OLD);
-    auto limit = std::make_shared<Limit>(expand.op_, storage.Create<PrimitiveLiteral>(1));
-    auto evaluate_pattern = std::make_shared<EvaluatePatternFilter>(limit, symbol_table.at(*exists_expression));
-
-    auto filter = std::make_shared<Filter>(
-        scan_all.op_, std::vector<std::shared_ptr<LogicalOperator>>{evaluate_pattern}, total_expression);
+    auto filter = std::make_shared<Filter>(scan_all.op_, std::vector<std::shared_ptr<LogicalOperator>>{last_op},
+                                           total_expression);
     auto output =
         NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
 
@@ -3531,4 +3585,18 @@ TEST_F(ExistsFixture, BasicExists) {
   EXPECT_EQ(0, TestExists("l1", EdgeAtom::Direction::IN, {}));
   EXPECT_EQ(1, TestExists("l1", EdgeAtom::Direction::OUT, known_edge_types));
   EXPECT_EQ(0, TestExists("l1", EdgeAtom::Direction::OUT, unknown_edge_types));
+}
+
+TEST_F(ExistsFixture, ExistsWithFiltering) {
+  EXPECT_EQ(1, TestExists("l1", EdgeAtom::Direction::BOTH, {}, "l2"));
+  EXPECT_EQ(0, TestExists("l1", EdgeAtom::Direction::BOTH, {}, "l3"));
+
+  EXPECT_EQ(1, TestExists("l1", EdgeAtom::Direction::BOTH, {}, "l2", 2));
+  EXPECT_EQ(0, TestExists("l1", EdgeAtom::Direction::BOTH, {}, "l2", 1));
+
+  EXPECT_EQ(1, TestExists("l1", EdgeAtom::Direction::BOTH, {}, "l2", std::nullopt, 1));
+  EXPECT_EQ(0, TestExists("l1", EdgeAtom::Direction::BOTH, {}, "l2", std::nullopt, 2));
+
+  EXPECT_EQ(1, TestExists("l1", EdgeAtom::Direction::BOTH, {}, "l2", 2, 1));
+  EXPECT_EQ(0, TestExists("l1", EdgeAtom::Direction::BOTH, {}, "l2", 1, 1));
 }
