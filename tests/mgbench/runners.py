@@ -297,6 +297,20 @@ class Neo4j(Runners):
                 check=True,
             )
 
+    def clean_db(self):
+        print("Cleaning the database")
+        if self._neo4j_pid.exists():
+            raise Exception("Cannot clean DB because it is running.")
+        else:
+            out = subprocess.run(
+                args="rm -Rf data/databases/* data/transactions/*",
+                cwd=self._neo4j_path,
+                capture_output=True,
+                shell=True,
+            )
+            print(out.stderr.decode("utf-8"))
+            print(out.stdout.decode("utf-8"))
+
     def load_db_from_dump(self, path):
         print("Loading the neo4j database from dump...")
         if self._neo4j_pid.exists():

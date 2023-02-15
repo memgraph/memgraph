@@ -27,10 +27,17 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    vendor = runners.Memgraph(
+    memgraph = runners.Memgraph(
         "/home/maple/repos/test/memgraph/build/memgraph",
         "/tmp",
         False,
+        7687,
+        False,
+    )
+
+    neo4j = runners.Neo4j(
+        "/home/maple/repos/neo4j-community-5.4.0",
+        "/tmp",
         7687,
         False,
     )

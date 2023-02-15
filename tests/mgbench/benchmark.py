@@ -567,9 +567,11 @@ for dataset, queries in benchmarks:
 
     client = runners.Client(args.client_binary, args.temporary_directory, args.bolt_port)
 
-    import_status = importer.Importer(dataset=dataset, vendor=vendor, size="sf0.1")
+    importer = importer.Importer(dataset=dataset, vendor=vendor)
 
-    if import_status == False:
+    status = importer.try_optimal_import()
+
+    if status == False:
         print("Need alternative import")
     else:
         print("Fast import executed")

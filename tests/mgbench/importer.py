@@ -43,18 +43,23 @@ HEADERS_INTERACTIVE = {
 
 
 class Importer:
-    def __init__(self, dataset: Dataset, vendor: Runners, size: str) -> bool:
-        if dataset.NAME == "ldbc_interactive" and isinstance(vendor, Neo4j):
+    def __init__(self, dataset: Dataset, vendor: Runners):
+        self._dataset = dataset
+        self._vendor = vendor
+        self._size = dataset.get_variant()
+
+    def try_optimal_import(self) -> bool:
+        if self._dataset.NAME == "ldbc_interactive" and isinstance(self._vendor, Neo4j):
             print("Runnning Neo4j import")
-            dump_dir = Path() / ".cache" / "datasets" / dataset.NAME / size / "dump"
+            dump_dir = Path() / ".cache" / "datasets" / self._dataset.NAME / self._size / "dump"
             dump_dir.mkdir(exist_ok=True)
-            dir_name = dataset.URL_CSV[size].split("/")[-1:][0].removesuffix(".tar.zst")
+            dir_name = self._dataset.URL_CSV[self._size].split("/")[-1:][0].removesuffix(".tar.zst")
             if (dump_dir / dir_name).exists():
                 print("Files downloaded")
                 dump_dir = dump_dir / dir_name
             else:
                 print("Downloading files")
-                downloaded_file = helpers.download_file(dataset.URL_CSV[size], dump_dir.absolute())
+                downloaded_file = helpers.download_file(self._dataset.URL_CSV[self._size], dump_dir.absolute())
                 print("Unpacking the file..." + downloaded_file)
                 dump_dir = helpers.unpack_tar_zst(Path(downloaded_file))
 
@@ -83,10 +88,10 @@ class Importer:
                             else:
                                 writer.writerow(line)
                 output_files[key] = output.as_posix()
-
+            self._vendor.clean_db()
             subprocess.run(
                 args=[
-                    vendor._neo4j_admin,
+                    self._vendor._neo4j_admin,
                     "database",
                     "import",
                     "full",
@@ -124,15 +129,13 @@ class Importer:
                     "--relationships=WORK_AT=" + output_files["dynamic/person_workAt_organisation"],
                     "--delimiter",
                     "|",
-                    "final",
+                    "neo4j",
                 ],
                 check=True,
             )
-
             return True
 
-        elif dataset.NAME == "ldbc_interactive" and isinstance(vendor, Memgraph):
-            print("Running Memgraph import")
+        elif self._dataset.NAME == "ldbc_interactive" and isinstance(self._vendor, Memgraph):
             return False
 
         else:
