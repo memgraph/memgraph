@@ -89,7 +89,7 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
     return false;
   }
 
-  bool PostVisit(Exists &) override {
+  bool PostVisit(Exists & /*exists*/) override {
     scopes_.back().in_exists = false;
     return true;
   }
@@ -125,10 +125,11 @@ struct Expansion {
   NodeAtom *node2 = nullptr;
 };
 
-struct Matching;
+struct FilterMatching;
 
-enum class PatternFilterType { MATCH, EXISTS };
+enum class PatternFilterType { EXISTS };
 
+/// Collects matchings from filters that include patterns
 class PatternFilterVisitor : public ExpressionVisitor<void> {
  public:
   explicit PatternFilterVisitor(SymbolTable &symbol_table, AstStorage &storage)
@@ -185,7 +186,6 @@ class PatternFilterVisitor : public ExpressionVisitor<void> {
   void Visit(Coalesce &op) override{};
   void Visit(Extract &op) override{};
   void Visit(Exists &op) override;
-  void Visit(IntegerLiteral &op) override{};
   void Visit(All &op) override{};
   void Visit(Single &op) override{};
   void Visit(Any &op) override{};
@@ -197,13 +197,14 @@ class PatternFilterVisitor : public ExpressionVisitor<void> {
   void Visit(NamedExpression &op) override{};
   void Visit(RegexMatch &op) override{};
 
-  std::vector<Matching> getMatchings() { return matchings_; }
+  std::vector<FilterMatching> getMatchings() { return matchings_; }
 
   SymbolTable &symbol_table_;
   AstStorage &storage_;
 
  private:
-  std::vector<Matching> matchings_;
+  /// Collection of matchings in the filter expression being analyzed.
+  std::vector<FilterMatching> matchings_;
 };
 
 /// Stores the symbols and expression used to filter a property.
@@ -260,11 +261,7 @@ struct FilterInfo {
   /// applied for labels or a property. Non generic types contain extra
   /// information which can be used to produce indexed scans of graph
   /// elements.
-  /// A FilterInfo can be a generic filter expression or a specific filtering
-  /// applied for labels or a property. Non generic types contain extra
-  /// information which can be used to produce indexed scans of graph
-  /// elements.
-  enum class Type { Generic, Label, Property, Id, Complex };
+  enum class Type { Generic, Label, Property, Id, Pattern };
 
   Type type;
   /// The original filter expression which must be satisfied.
@@ -277,8 +274,8 @@ struct FilterInfo {
   std::optional<PropertyFilter> property_filter;
   /// Information for Type::Id filtering.
   std::optional<IdFilter> id_filter;
-
-  std::vector<Matching> matchings;
+  /// Matchings for filters that include patterns
+  std::vector<FilterMatching> matchings;
 };
 
 /// Stores information on filters used inside the @c Matching of a @c QueryPart.
@@ -409,8 +406,12 @@ struct Matching {
   std::unordered_map<Symbol, std::vector<Symbol>> named_paths{};
   /// All node and edge symbols across all expansions (from all matches).
   std::unordered_set<Symbol> expansion_symbols{};
+};
 
-  PatternFilterType type = PatternFilterType::MATCH;
+struct FilterMatching : Matching {
+  /// Type of pattern filter
+  PatternFilterType type;
+  /// Symbol for the filter expression
   std::optional<Symbol> symbol;
 };
 

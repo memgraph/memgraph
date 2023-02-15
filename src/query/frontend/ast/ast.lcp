@@ -2686,32 +2686,6 @@ cpp<#
   (:serialize (:slk))
   (:clone))
 
-(lcp:define-class integer-literal (expression)
-  ((literal :int32_t :initval -1 :scope :public
-    :documentation "Constant value to return from this expression"))
-
-  (:public
-    #>cpp
-    IntegerLiteral() = default;
-
-    DEFVISITABLE(ExpressionVisitor<TypedValue>);
-    DEFVISITABLE(ExpressionVisitor<void>);
-    bool Accept(HierarchicalTreeVisitor &visitor) override {
-      visitor.PreVisit(*this);
-      return visitor.PostVisit(*this);
-    }
-    cpp<#)
-  (:protected
-    #>cpp
-    IntegerLiteral(int32_t literal) : literal_(literal) {}
-    cpp<#)
-  (:private
-    #>cpp
-    friend class AstStorage;
-    cpp<#)
-  (:serialize (:slk))
-  (:clone))
-
 (lcp:define-class exists (expression)
   ((pattern "Pattern *" :initval "nullptr" :scope :public
              :slk-save #'slk-save-ast-pointer

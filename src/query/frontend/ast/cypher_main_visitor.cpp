@@ -2212,11 +2212,11 @@ antlrcpp::Any CypherMainVisitor::visitExistsExpression(MemgraphCypher::ExistsExp
   exists->pattern_ = std::any_cast<Pattern *>(ctx->patternPart()->accept(this));
 
   if (exists->pattern_->identifier_) {
-    throw SyntaxException("No pattern identifiers can be present in exists!");
+    throw SyntaxException("Identifiers are not supported in exists(...).");
   }
 
   if (exists->pattern_->atoms_.size() != 3) {
-    throw SyntaxException("Multi-hop pattern not yet supported in exists functionality!");
+    throw SyntaxException("exists(...) supports only node-edge-node patterns.");
   }
 
   return static_cast<Expression *>(exists);

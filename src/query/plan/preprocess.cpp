@@ -470,7 +470,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
   } else if (auto *exists = utils::Downcast<Exists>(expr)) {
-    all_filters_.emplace_back(make_filter(FilterInfo::Type::Complex));
+    all_filters_.emplace_back(make_filter(FilterInfo::Type::Pattern));
   } else {
     all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
   }
@@ -485,9 +485,8 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
 // as well as edge symbols which determine Cyphermorphism. Collecting filters
 // will lift them out of a pattern and generate new expressions (just like they
 // were in a Where clause).
-Matching AddMatching(const std::vector<Pattern *> &patterns, Where *where, SymbolTable &symbol_table,
-                     AstStorage &storage) {
-  Matching matching;
+void AddMatching(const std::vector<Pattern *> &patterns, Where *where, SymbolTable &symbol_table, AstStorage &storage,
+                 Matching &matching) {
   auto expansions = NormalizePatterns(symbol_table, patterns);
   std::unordered_set<Symbol> edge_symbols;
   for (const auto &expansion : expansions) {
@@ -526,39 +525,39 @@ Matching AddMatching(const std::vector<Pattern *> &patterns, Where *where, Symbo
   if (where) {
     matching.filters.CollectWhereFilter(*where, symbol_table);
   }
-
-  return matching;
 }
-Matching AddMatching(const Match &match, SymbolTable &symbol_table, AstStorage &storage) {
-  auto matching = AddMatching(match.patterns_, match.where_, symbol_table, storage);
 
+void AddMatching(const Match &match, SymbolTable &symbol_table, AstStorage &storage, Matching &matching) {
+  AddMatching(match.patterns_, match.where_, symbol_table, storage, matching);
+
+  // If there are any pattern filters, we add those as well
   for (auto &filter : matching.filters) {
     PatternFilterVisitor visitor(symbol_table, storage);
 
     filter.expression->Accept(visitor);
     filter.matchings = visitor.getMatchings();
   }
-
-  return matching;
 }
 
 void PatternFilterVisitor::Visit(Exists &op) {
   std::vector<Pattern *> patterns;
-  patterns.emplace_back(op.pattern_);
+  patterns.push_back(op.pattern_);
 
-  auto filter_matching = AddMatching(patterns, nullptr, this->symbol_table_, this->storage_);
+  FilterMatching filter_matching;
+  AddMatching(patterns, nullptr, this->symbol_table_, this->storage_, filter_matching);
+
   filter_matching.type = PatternFilterType::EXISTS;
   filter_matching.symbol = std::make_optional<Symbol>(this->symbol_table_.at(op));
 
-  this->matchings_.emplace_back(filter_matching);
+  this->matchings_.push_back(std::move(filter_matching));
 }
 
 static void ParseForeach(query::Foreach &foreach, SingleQueryPart &query_part, AstStorage &storage,
                          SymbolTable &symbol_table) {
   for (auto *clause : foreach.clauses_) {
     if (auto *merge = utils::Downcast<query::Merge>(clause)) {
-      auto matching = AddMatching({merge->pattern_}, nullptr, symbol_table, storage);
-      query_part.merge_matching.emplace_back(std::move(matching));
+      query_part.merge_matching.emplace_back(Matching{});
+      AddMatching({merge->pattern_}, nullptr, symbol_table, storage, query_part.merge_matching.back());
     } else if (auto *nested = utils::Downcast<query::Foreach>(clause)) {
       ParseForeach(*nested, query_part, storage, symbol_table);
     }
@@ -574,17 +573,17 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
   for (auto &clause : single_query->clauses_) {
     if (auto *match = utils::Downcast<Match>(clause)) {
       if (match->optional_) {
-        auto matching = AddMatching(*match, symbol_table, storage);
-        query_part->optional_matching.emplace_back(std::move(matching));
+        query_part->optional_matching.emplace_back(Matching{});
+        AddMatching(*match, symbol_table, storage, query_part->optional_matching.back());
       } else {
         DMG_ASSERT(query_part->optional_matching.empty(), "Match clause cannot follow optional match.");
-        query_part->matching = AddMatching(*match, symbol_table, storage);
+        AddMatching(*match, symbol_table, storage, query_part->matching);
       }
     } else {
       query_part->remaining_clauses.push_back(clause);
       if (auto *merge = utils::Downcast<query::Merge>(clause)) {
-        auto matching = AddMatching({merge->pattern_}, nullptr, symbol_table, storage);
-        query_part->merge_matching.emplace_back(std::move(matching));
+        query_part->merge_matching.emplace_back(Matching{});
+        AddMatching({merge->pattern_}, nullptr, symbol_table, storage, query_part->merge_matching.back());
       } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
         ParseForeach(*foreach, *query_part, storage, symbol_table);
       } else if (utils::IsSubtype(*clause, With::kType) || utils::IsSubtype(*clause, query::Unwind::kType) ||
