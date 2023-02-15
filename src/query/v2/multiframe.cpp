@@ -17,6 +17,7 @@
 #include "query/v2/bindings/frame.hpp"
 #include "utils/pmr/vector.hpp"
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(default_multi_frame_size, 100, "Default size of MultiFrame");
 
 namespace memgraph::query::v2 {
