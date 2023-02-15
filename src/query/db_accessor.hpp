@@ -125,8 +125,7 @@ class VertexAccessor final {
     return impl_.SetProperty(key, value);
   }
 
-  storage::Result<std::vector<storage::PropertyValue>> SetProperties(
-      std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+  storage::Result<bool> SetProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
     return impl_.SetProperties(properties);
   }
 

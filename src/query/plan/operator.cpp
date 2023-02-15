@@ -25,6 +25,7 @@
 
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
+#include "query/common.hpp"
 #include "spdlog/spdlog.h"
 
 #include "license/license.hpp"
@@ -213,7 +214,7 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
     for (const auto &[key, value_expression] : *node_info_properties) {
       properties.emplace(key, value_expression->Accept(evaluator));
     }
-    new_node.SetProperties(properties);
+    MultiPropsSetChecked(&new_node, properties);
   } else {
     auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info.properties));
     for (const auto &[key, value] : property_map.ValueMap()) {

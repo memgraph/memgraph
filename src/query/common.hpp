@@ -117,12 +117,11 @@ concept AccessorWithSetProperties = requires(T accessor,
 ///
 /// @throw QueryRuntimeException if value cannot be set as a property value
 template <AccessorWithSetProperty T>
-storage::PropertyValue MultiPropsSetChecked(T *record,
-                                            std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+bool MultiPropsSetChecked(T *record, std::map<storage::PropertyId, storage::PropertyValue> &properties) {
   try {
-    auto maybe_old_value = record->SetProperties(properties);
-    if (maybe_old_value.HasError()) {
-      switch (maybe_old_value.GetError()) {
+    auto maybe_values = record->SetProperties(properties);
+    if (maybe_values.HasError()) {
+      switch (maybe_values.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:
           throw TransactionSerializationException();
         case storage::Error::DELETED_OBJECT:
@@ -134,7 +133,7 @@ storage::PropertyValue MultiPropsSetChecked(T *record,
           throw QueryRuntimeException("Unexpected error when setting a property.");
       }
     }
-    return std::move(*maybe_old_value);
+    return std::move(*maybe_values);
   } catch (const TypedValueException &) {
     throw QueryRuntimeException("Cannot set properties.");
   }

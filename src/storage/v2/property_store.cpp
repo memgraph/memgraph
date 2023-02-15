@@ -1146,12 +1146,13 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
   return !existed;
 }
 
-// use this function only when inserting new properties
 bool PropertyStore::SetProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
   uint64_t size;
   uint8_t *data;
   std::tie(size, data) = GetSizeData(buffer_);
-  MG_ASSERT(size == 0, "Invalid database state!");
+  if (size != 0) {
+    return false;
+  }
 
   uint64_t property_size = 0;
   {

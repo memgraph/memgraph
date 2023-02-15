@@ -230,11 +230,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   return std::move(current_value);
 }
 
-Result<std::vector<storage::PropertyValue>> VertexAccessor::SetProperties(
-    std::map<storage::PropertyId, storage::PropertyValue> &properties) {
-  // Be careful when calling this function
-  // It will set properties in batch, without checking if property already exists
-
+Result<bool> VertexAccessor::SetProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
@@ -242,18 +238,14 @@ Result<std::vector<storage::PropertyValue>> VertexAccessor::SetProperties(
 
   if (vertex_->deleted) return Error::DELETED_OBJECT;
 
-  std::vector<storage::PropertyValue> new_values;
-
-  vertex_->properties.SetProperties(properties);
-
+  if (!vertex_->properties.SetProperties(properties)) return false;
   for (const auto &[property, value] : properties) {
-    auto current_value = vertex_->properties.GetEmptyProperty();
-    CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, current_value);
+    CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property,
+                       vertex_->properties.GetEmptyProperty());
     UpdateOnSetProperty(indices_, property, value, vertex_, *transaction_);
-    new_values.emplace_back(current_value);
   }
 
-  return new_values;
+  return true;
 }
 
 Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
