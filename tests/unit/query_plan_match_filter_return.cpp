@@ -3572,6 +3572,76 @@ class ExistsFixture : public testing::Test {
     auto context = MakeContext(storage, symbol_table, &dba);
     return PullAll(*produce, &context);
   }
+
+  int TestDoubleExists(std::string match_label, EdgeAtom::Direction direction,
+                       std::vector<memgraph::storage::EdgeTypeId> first_edge_type,
+                       std::vector<memgraph::storage::EdgeTypeId> second_edge_type, bool or_flag = false) {
+    std::vector<std::string> first_edge_type_names;
+    for (const auto &type : first_edge_type) {
+      first_edge_type_names.emplace_back(db.EdgeTypeToName(type));
+    }
+
+    std::vector<std::string> second_edge_type_names;
+    for (const auto &type : second_edge_type) {
+      second_edge_type_names.emplace_back(db.EdgeTypeToName(type));
+    }
+
+    auto *source_node = NODE("n");
+    auto source_sym = symbol_table.CreateSymbol("n", true);
+    source_node->identifier_->MapTo(source_sym);
+
+    auto *expansion_edge = EDGE("edge", direction, first_edge_type_names, false);
+    auto edge_sym = symbol_table.CreateSymbol("edge", false);
+    expansion_edge->identifier_->MapTo(edge_sym);
+
+    auto *destination_node = NODE("n2", std::nullopt, false);
+    auto dest_sym = symbol_table.CreateSymbol("n2", false);
+    destination_node->identifier_->MapTo(dest_sym);
+
+    auto *exists_expression = EXISTS(PATTERN(source_node, expansion_edge, destination_node));
+    exists_expression->MapTo(symbol_table.CreateAnonymousSymbol());
+
+    auto *expansion_edge2 = EDGE("edge2", direction, second_edge_type_names, false);
+    auto edge_sym2 = symbol_table.CreateSymbol("edge2", false);
+    expansion_edge2->identifier_->MapTo(edge_sym2);
+
+    auto *destination_node2 = NODE("n22", std::nullopt, false);
+    auto dest_sym2 = symbol_table.CreateSymbol("n22", false);
+    destination_node2->identifier_->MapTo(dest_sym2);
+
+    auto *exists_expression2 = EXISTS(PATTERN(source_node, expansion_edge2, destination_node2));
+    exists_expression2->MapTo(symbol_table.CreateAnonymousSymbol());
+
+    auto scan_all = MakeScanAll(storage, symbol_table, "n");
+    scan_all.node_->labels_.emplace_back(storage.GetLabelIx(match_label));
+
+    std::shared_ptr<LogicalOperator> last_op = std::make_shared<Expand>(
+        nullptr, scan_all.sym_, dest_sym, edge_sym, direction, first_edge_type, false, memgraph::storage::View::OLD);
+    last_op = std::make_shared<Limit>(std::move(last_op), storage.Create<PrimitiveLiteral>(1));
+    last_op = std::make_shared<EvaluatePatternFilter>(std::move(last_op), symbol_table.at(*exists_expression));
+
+    std::shared_ptr<LogicalOperator> last_op2 = std::make_shared<Expand>(
+        nullptr, scan_all.sym_, dest_sym2, edge_sym2, direction, second_edge_type, false, memgraph::storage::View::OLD);
+    last_op2 = std::make_shared<Limit>(std::move(last_op2), storage.Create<PrimitiveLiteral>(1));
+    last_op2 = std::make_shared<EvaluatePatternFilter>(std::move(last_op2), symbol_table.at(*exists_expression2));
+
+    Expression *total_expression = storage.Create<LabelsTest>(scan_all.node_->identifier_, scan_all.node_->labels_);
+
+    if (or_flag) {
+      total_expression = AND(total_expression, OR(exists_expression, exists_expression2));
+    } else {
+      total_expression = AND(total_expression, AND(exists_expression, exists_expression2));
+    }
+
+    auto filter = std::make_shared<Filter>(
+        scan_all.op_, std::vector<std::shared_ptr<LogicalOperator>>{last_op, last_op2}, total_expression);
+    auto output =
+        NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+
+    auto produce = MakeProduce(filter, output);
+    auto context = MakeContext(storage, symbol_table, &dba);
+    return PullAll(*produce, &context);
+  }
 };
 
 TEST_F(ExistsFixture, BasicExists) {
@@ -3599,4 +3669,9 @@ TEST_F(ExistsFixture, ExistsWithFiltering) {
 
   EXPECT_EQ(1, TestExists("l1", EdgeAtom::Direction::BOTH, {}, "l2", 2, 1));
   EXPECT_EQ(0, TestExists("l1", EdgeAtom::Direction::BOTH, {}, "l2", 1, 1));
+}
+
+TEST_F(ExistsFixture, DoubleFilters) {
+  EXPECT_EQ(1, TestDoubleExists("l1", EdgeAtom::Direction::BOTH, {}, {}, true));
+  EXPECT_EQ(1, TestDoubleExists("l1", EdgeAtom::Direction::BOTH, {}, {}, false));
 }
