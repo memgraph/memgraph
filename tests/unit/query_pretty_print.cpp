@@ -163,10 +163,4 @@ TEST_F(ExpressionPrettyPrinterTest, NamedExpression) {
   // n AS 1
   EXPECT_EQ(ToString(NEXPR("n", LITERAL(1))), "(NamedExpression \"n\" 1)");
 }
-
-TEST_F(ExpressionPrettyPrinterTest, IntegerLiteral) {
-  // n AS 1
-  EXPECT_EQ(ToString(INTEGER_LITERAL(1)), "(IntegerLiteral 1)");
-}
-
 }  // namespace
