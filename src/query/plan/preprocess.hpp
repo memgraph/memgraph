@@ -342,17 +342,6 @@ class Filters final {
     return filters;
   }
 
-  /// Return a vector of FilterInfo for ID equality filtering.
-  auto PatternFilters() const {
-    std::vector<FilterInfo> filters;
-    for (const auto &filter : all_filters_) {
-      if (filter.type == FilterInfo::Type::Complex) {
-        filters.push_back(filter);
-      }
-    }
-    return filters;
-  }
-
   /// Collects filtering information from a pattern.
   ///
   /// Goes through all the atoms in a pattern and generates filter expressions

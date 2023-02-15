@@ -215,7 +215,7 @@ CartesianProduct<VaryMatchingStart> VaryFilterMatchingStarts(const Matching &mat
 
   auto i = 0;
   for (const auto &filter : matching.filters) {
-    for (const auto &filter_matching : filter.matchings) {
+    for (const auto &filter_matchings : filter.matchings) {
       i += 1;
     }
   }
@@ -293,21 +293,6 @@ VaryQueryPartMatching::iterator &VaryQueryPartMatching::iterator::operator++() {
     if (matchings_it_ != matchings_end_) ++matchings_it_;
   }
 
-  // if (merge_it_ != merge_end_) ++merge_it_;
-  // // If all merge variations are done, start them from beginning and move to the
-  // // next optional matching variation.
-  // if (merge_it_ == merge_end_) {
-  //   merge_it_ = merge_begin_;
-  //   if (optional_it_ != optional_end_) ++optional_it_;
-  // }
-  // // If all optional matching variations are done (after exhausting merge
-  // // variations), start them from beginning and move to the next regular
-  // // matching variation.
-  // if (optional_it_ == optional_end_ && merge_it_ == merge_begin_) {
-  //   optional_it_ = optional_begin_;
-  //   if (matchings_it_ != matchings_end_) ++matchings_it_;
-  // }
-
   // We have reached the end, so return;
   if (matchings_it_ == matchings_end_) return *this;
   // Fill the query part with the new variation of matchings.
@@ -338,11 +323,12 @@ void VaryQueryPartMatching::iterator::SetCurrentQueryPart() {
   for (auto &filter : current_query_part_.matching.filters) {
     auto matchings_size = filter.matchings.size();
 
-    std::vector<Matching> new_matchings;
+    std::vector<FilterMatching> new_matchings;
     new_matchings.reserve(matchings_size);
 
     for (auto i = 0; i < matchings_size; i++) {
-      new_matchings.emplace_back(filter_matchings[iterator_cnt]);
+      auto filter_matching = static_cast<FilterMatching &>(filter_matchings[iterator_cnt]);
+      new_matchings.push_back(std::move(filter_matching));
       iterator_cnt++;
     }
 
