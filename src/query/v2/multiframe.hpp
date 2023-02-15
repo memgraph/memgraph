@@ -17,6 +17,7 @@
 
 #include "query/v2/bindings/frame.hpp"
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_uint64(default_multi_frame_size);
 
 namespace memgraph::query::v2 {
