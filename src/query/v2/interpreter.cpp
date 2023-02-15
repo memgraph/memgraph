@@ -64,6 +64,7 @@
 #include "utils/tsc.hpp"
 #include "utils/variant_helpers.hpp"
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(use_multi_frame, false, "Whether to use MultiFrame or not");
 
 namespace EventCounter {
