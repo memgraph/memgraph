@@ -30,6 +30,7 @@
 #include "query/v2/plan/preprocess.hpp"
 #include "storage/v3/id_types.hpp"
 
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_int64(query_v2_vertex_count_to_expand_existing);
 
 namespace memgraph::query::v2::plan {

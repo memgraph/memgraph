@@ -18,6 +18,7 @@
 
 #include "query/v2/plan/rule_based_planner.hpp"
 
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_uint64(query_v2_max_plans);
 
 namespace memgraph::query::v2::plan {

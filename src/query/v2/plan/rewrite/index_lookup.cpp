@@ -13,6 +13,7 @@
 
 #include "utils/flag_validation.hpp"
 
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_HIDDEN_int64(query_v2_vertex_count_to_expand_existing, 10,
                               "Maximum count of indexed vertices which provoke "
                               "indexed lookup and then expand to existing, instead of "
