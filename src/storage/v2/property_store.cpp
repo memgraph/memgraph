@@ -1053,7 +1053,8 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
         in_local_buffer = true;
       } else {
         // Allocate a new external buffer.
-        auto alloc_data = new uint8_t[property_size_to_power_of_8];
+        auto alloc_data =
+            new uint8_t[property_size_to_power_of_8];  // todo fix this also, add auto *, why did this work?
         auto alloc_size = property_size_to_power_of_8;
 
         SetSizeData(buffer_, alloc_size, alloc_data);
@@ -1169,7 +1170,7 @@ bool PropertyStore::SetProperties(std::map<storage::PropertyId, storage::Propert
     data = &buffer_[1];
   } else {
     // Allocate a new external buffer.
-    auto alloc_data = new uint8_t[property_size_to_power_of_8];
+    auto *alloc_data = new uint8_t[property_size_to_power_of_8];
     auto alloc_size = property_size_to_power_of_8;
 
     SetSizeData(buffer_, alloc_size, alloc_data);

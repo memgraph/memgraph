@@ -214,14 +214,13 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
     for (const auto &[key, value_expression] : *node_info_properties) {
       properties.emplace(key, value_expression->Accept(evaluator));
     }
-    MultiPropsSetChecked(&new_node, properties);
   } else {
     auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info.properties));
     for (const auto &[key, value] : property_map.ValueMap()) {
-      auto property_id = dba.NameToProperty(key);
-      PropsSetChecked(&new_node, property_id, value);
+      properties.emplace(dba.NameToProperty(key), value);
     }
   }
+  MultiPropsSetChecked(&new_node, properties);
 
   (*frame)[node_info.symbol] = new_node;
   return (*frame)[node_info.symbol].ValueVertex();
@@ -302,17 +301,18 @@ EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, Vert
   auto maybe_edge = dba->InsertEdge(from, to, edge_info.edge_type);
   if (maybe_edge.HasValue()) {
     auto &edge = *maybe_edge;
-    if (const auto *properties = std::get_if<PropertiesMapList>(&edge_info.properties)) {
-      for (const auto &[key, value_expression] : *properties) {
-        PropsSetChecked(&edge, key, value_expression->Accept(*evaluator));
+    std::map<storage::PropertyId, storage::PropertyValue> properties;
+    if (const auto *edge_info_properties = std::get_if<PropertiesMapList>(&edge_info.properties)) {
+      for (const auto &[key, value_expression] : *edge_info_properties) {
+        properties.emplace(key, value_expression->Accept(*evaluator));
       }
     } else {
       auto property_map = evaluator->Visit(*std::get<ParameterLookup *>(edge_info.properties));
       for (const auto &[key, value] : property_map.ValueMap()) {
-        auto property_id = dba->NameToProperty(key);
-        PropsSetChecked(&edge, property_id, value);
+        properties.emplace(dba->NameToProperty(key), value);
       }
     }
+    MultiPropsSetChecked(&edge, properties);
 
     (*frame)[edge_info.symbol] = edge;
   } else {

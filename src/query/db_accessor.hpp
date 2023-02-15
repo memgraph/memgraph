@@ -71,6 +71,10 @@ class EdgeAccessor final {
     return impl_.SetProperty(key, value);
   }
 
+  storage::Result<bool> SetProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+    return impl_.SetProperties(properties);
+  }
+
   storage::Result<storage::PropertyValue> RemoveProperty(storage::PropertyId key) {
     return SetProperty(key, storage::PropertyValue());
   }
