@@ -68,6 +68,7 @@
 DEFINE_bool(use_multi_frame, false, "Whether to use MultiFrame or not");
 
 namespace EventCounter {
+
 extern Event ReadQuery;
 extern Event WriteQuery;
 extern Event ReadWriteQuery;
@@ -77,6 +78,7 @@ extern const Event LabelPropertyIndexCreated;
 
 extern const Event StreamsCreated;
 extern const Event TriggersCreated;
+
 }  // namespace EventCounter
 
 namespace memgraph::query::v2 {
