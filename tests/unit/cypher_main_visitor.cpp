@@ -4312,11 +4312,11 @@ TEST_P(CypherMainVisitorTest, ExistsThrow) {
   auto &ast_generator = *GetParam();
 
   TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) WHERE exists(p=(n)-[]->()) RETURN n;", ast_generator,
-                                               "No pattern identifiers can be present in exists!");
+                                               "Identifiers are not supported in exists(...).");
   TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) WHERE exists((n)-[]->()-[]->()) RETURN n;", ast_generator,
-                                               "Exists function supports only triplet patterns!");
+                                               "exists(...) supports only node-edge-node patterns.");
   TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) WHERE exists((n)) RETURN n;", ast_generator,
-                                               "Exists function supports only triplet patterns!");
+                                               "exists(...) supports only node-edge-node patterns.");
 }
 
 TEST_P(CypherMainVisitorTest, Exists) {
