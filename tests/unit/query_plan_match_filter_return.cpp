@@ -3504,7 +3504,7 @@ class ExistsFixture : public testing::Test {
 
     auto expand = MakeExpand(storage, symbol_table, nullptr, scan_all.sym_, "r", direction, edge_types, "m", false,
                              memgraph::storage::View::OLD);
-    auto limit = std::make_shared<Limit>(expand.op_, storage.Create<IntegerLiteral>(1));
+    auto limit = std::make_shared<Limit>(expand.op_, storage.Create<PrimitiveLiteral>(1));
     auto evaluate_pattern = std::make_shared<EvaluatePatternFilter>(limit, symbol_table.at(*exists_expression));
 
     auto filter = std::make_shared<Filter>(scan_all.op_, evaluate_pattern, total_expression);
