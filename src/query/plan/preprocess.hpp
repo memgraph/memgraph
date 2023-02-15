@@ -129,6 +129,7 @@ struct FilterMatching;
 
 enum class PatternFilterType { EXISTS };
 
+/// Collects matchings from filters that include patterns
 class PatternFilterVisitor : public ExpressionVisitor<void> {
  public:
   explicit PatternFilterVisitor(SymbolTable &symbol_table, AstStorage &storage)
@@ -202,6 +203,7 @@ class PatternFilterVisitor : public ExpressionVisitor<void> {
   AstStorage &storage_;
 
  private:
+  /// Collection of matchings in the filter expression being analyzed.
   std::vector<FilterMatching> matchings_;
 };
 
@@ -272,7 +274,7 @@ struct FilterInfo {
   std::optional<PropertyFilter> property_filter;
   /// Information for Type::Id filtering.
   std::optional<IdFilter> id_filter;
-
+  /// Matchings for filters that include patterns
   std::vector<FilterMatching> matchings;
 };
 
@@ -396,7 +398,9 @@ struct Matching {
 };
 
 struct FilterMatching : Matching {
+  /// Type of pattern filter
   PatternFilterType type;
+  /// Symbol for the filter expression
   std::optional<Symbol> symbol;
 };
 

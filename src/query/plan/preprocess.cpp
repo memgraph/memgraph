@@ -530,6 +530,7 @@ void AddMatching(const std::vector<Pattern *> &patterns, Where *where, SymbolTab
 void AddMatching(const Match &match, SymbolTable &symbol_table, AstStorage &storage, Matching &matching) {
   AddMatching(match.patterns_, match.where_, symbol_table, storage, matching);
 
+  // If there are any pattern filters, we add those as well
   for (auto &filter : matching.filters) {
     PatternFilterVisitor visitor(symbol_table, storage);
 
