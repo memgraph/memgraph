@@ -971,8 +971,6 @@ PropertyValue PropertyStore::GetProperty(PropertyId property) const {
   return value;
 }
 
-PropertyValue PropertyStore::GetEmptyProperty() const { return {}; }
-
 bool PropertyStore::HasProperty(PropertyId property) const {
   uint64_t size;
   const uint8_t *data;

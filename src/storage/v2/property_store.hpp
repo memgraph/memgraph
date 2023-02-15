@@ -38,8 +38,6 @@ class PropertyStore {
   /// @throw std::bad_alloc
   PropertyValue GetProperty(PropertyId property) const;
 
-  PropertyValue GetEmptyProperty() const;
-
   /// Checks whether the property `property` exists in the store. The time
   /// complexity of this function is O(n).
   bool HasProperty(PropertyId property) const;
