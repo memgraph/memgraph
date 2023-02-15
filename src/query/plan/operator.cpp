@@ -2269,13 +2269,13 @@ UniqueCursorPtr Filter::MakeCursor(utils::MemoryResource *mem) const {
 
 std::vector<Symbol> Filter::ModifiedSymbols(const SymbolTable &table) const { return input_->ModifiedSymbols(table); }
 
-static std::vector<UniqueCursorPtr> MakeCursorVector(std::vector<std::shared_ptr<LogicalOperator>> ops,
+static std::vector<UniqueCursorPtr> MakeCursorVector(const std::vector<std::shared_ptr<LogicalOperator>> &ops,
                                                      utils::MemoryResource *mem) {
   std::vector<UniqueCursorPtr> cursors;
 
   if (!ops.empty()) {
-    for (const auto &filter : ops) {
-      cursors.emplace_back(filter->MakeCursor(mem));
+    for (const auto &op : ops) {
+      cursors.emplace_back(op->MakeCursor(mem));
     }
   }
   return cursors;

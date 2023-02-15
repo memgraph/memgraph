@@ -1128,7 +1128,7 @@ pulled.")
           :slk-load (slk-load-ast-vector "std::shared_ptr<LogicalOperator>"))
    (expression "Expression *" :scope :public
                :slk-save #'slk-save-ast-pointer
-               :slk-load (slk-load-ast-pointer "std::shared_ptr<LogicalOperator>")))
+               :slk-load (slk-load-ast-pointer "Expression")))
   (:documentation
    "Filter whose Pull returns true only when the given expression
 evaluates into true.
