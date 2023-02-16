@@ -327,6 +327,9 @@ void VaryQueryPartMatching::iterator::SetCurrentQueryPart() {
 
     for (auto i = 0; i < matchings_size; i++) {
       new_matchings.push_back(static_cast<FilterMatching &>(filter_matchings[iterator_cnt]));
+      new_matchings[i].symbol = filter.matchings[i].symbol;
+      new_matchings[i].type = filter.matchings[i].type;
+
       iterator_cnt++;
     }
 

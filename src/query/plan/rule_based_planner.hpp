@@ -605,8 +605,21 @@ class RuleBasedPlanner {
 
     std::unordered_map<Symbol, std::vector<Symbol>> named_paths;
 
-    last_op = GenExpand(std::move(last_op), matching.expansions[0], symbol_table, expand_symbols, matching, storage,
-                        filters, named_paths, new_symbols, storage::View::OLD);
+    for (const auto &expansion : matching.expansions) {
+      const auto &node1_symbol = symbol_table.at(*expansion.node1->identifier_);
+      if (expand_symbols.insert(node1_symbol).second) {
+        // We have just bound this symbol, so generate ScanAll which fills it.
+        last_op = std::make_unique<ScanAll>(std::move(last_op), node1_symbol, storage::View::OLD);
+        new_symbols.emplace_back(node1_symbol);
+
+        last_op = GenFilters(std::move(last_op), expand_symbols, filters, storage, symbol_table);
+        last_op = impl::GenNamedPaths(std::move(last_op), expand_symbols, named_paths);
+        last_op = GenFilters(std::move(last_op), expand_symbols, filters, storage, symbol_table);
+      }
+
+      last_op = GenExpand(std::move(last_op), expansion, symbol_table, expand_symbols, matching, storage, filters,
+                          named_paths, new_symbols, storage::View::OLD);
+    }
 
     last_op = std::make_unique<Limit>(std::move(last_op), storage.Create<PrimitiveLiteral>(1));
 

@@ -2259,7 +2259,15 @@ Filter::Filter(const std::shared_ptr<LogicalOperator> &input,
                const std::vector<std::shared_ptr<LogicalOperator>> &pattern_filters, Expression *expression)
     : input_(input ? input : std::make_shared<Once>()), pattern_filters_(pattern_filters), expression_(expression) {}
 
-ACCEPT_WITH_INPUT(Filter)
+bool Filter::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    input_->Accept(visitor);
+    for (const auto &pattern_filter : pattern_filters_) {
+      pattern_filter->Accept(visitor);
+    }
+  }
+  return visitor.PostVisit(*this);
+}
 
 UniqueCursorPtr Filter::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::FilterOperator);
