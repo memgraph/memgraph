@@ -54,7 +54,10 @@ DEFINE_bool(queries_json, false,
 
 DEFINE_string(input, "", "Input file. By default stdin is used.");
 DEFINE_string(output, "", "Output file. By default stdout is used.");
-DEFINE_bool(validation, false, "Set to true to run client in validation mode");
+DEFINE_bool(validation, false,
+            "Set to true to run client in validation mode."
+            "Validation mode works for singe query and returns results for validation"
+            "with metadata");
 
 std::pair<std::map<std::string, memgraph::communication::bolt::Value>, uint64_t> ExecuteNTimesTillSuccess(
     memgraph::communication::bolt::Client *client, const std::string &query,
@@ -351,8 +354,8 @@ int main(int argc, char **argv) {
   spdlog::info("Running a bolt client with following settings:");
   spdlog::info("Adress: {} ", FLAGS_address);
   spdlog::info("Port: {} ", FLAGS_port);
-  spdlog::info("Username: {} ", FLAGS_port);
-  spdlog::info("Password: {} ", FLAGS_port);
+  spdlog::info("Username: {} ", FLAGS_username);
+  spdlog::info("Password: {} ", FLAGS_password);
   spdlog::info("Usessl: {} ", FLAGS_use_ssl);
   spdlog::info("Num of worker: {}", FLAGS_num_workers);
   spdlog::info("Max retries: {}", FLAGS_max_retries);
