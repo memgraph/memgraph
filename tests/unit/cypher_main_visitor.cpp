@@ -4313,10 +4313,6 @@ TEST_P(CypherMainVisitorTest, ExistsThrow) {
 
   TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) WHERE exists(p=(n)-[]->()) RETURN n;", ast_generator,
                                                "Identifiers are not supported in exists(...).");
-  TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) WHERE exists((n)-[]->()-[]->()) RETURN n;", ast_generator,
-                                               "exists(...) supports only node-edge-node patterns.");
-  TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) WHERE exists((n)) RETURN n;", ast_generator,
-                                               "exists(...) supports only node-edge-node patterns.");
 }
 
 TEST_P(CypherMainVisitorTest, Exists) {
