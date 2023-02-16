@@ -337,3 +337,17 @@ Feature: WHERE exists
           | 1      |
           | 2      |
           | 3      |
+
+  Scenario: Test BFS hop
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:One {prop:1})-[:TYPE {prop: 1}]->(:Two {prop: 2})-[:TYPE {prop:2}]->(:Three {prop: 3})
+          """
+      When executing query:
+          """
+          MATCH (n:One) WHERE exists((n)-[*bfs]->(:Three)) RETURN n.prop;
+          """
+      Then the result should be:
+          | n.prop |
+          | 1      |
