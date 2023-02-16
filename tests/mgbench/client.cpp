@@ -197,7 +197,8 @@ nlohmann::json LatencyStatistics(std::vector<std::vector<double>> &worker_query_
     }
   }
   auto iterations = query_latency.size();
-  if (iterations > 10) {
+  const int lower_bound = 10;
+  if (iterations > lower_bound) {
     std::sort(query_latency.begin(), query_latency.end());
     statistics["iterations"] = iterations;
     statistics["min"] = query_latency.front();
@@ -211,7 +212,7 @@ nlohmann::json LatencyStatistics(std::vector<std::vector<double>> &worker_query_
 
   } else {
     spdlog::info("To few iterations to calculate latency values!");
-    statistics["iterations"] = query_latency.size();
+    statistics["iterations"] = iterations;
   }
   return statistics;
 }
@@ -304,59 +305,41 @@ nlohmann::json BoltRecordsToJSONStrings(std::vector<std::vector<memgraph::commun
   return res;
 }
 
-// Validation mode works on single thread with 1 query.
-void Execute_validation(
+/// Validation mode works on single thread with 1 query.
+void ExecuteValidation(
     const std::vector<std::pair<std::string, std::map<std::string, memgraph::communication::bolt::Value>>> &queries,
     std::ostream *stream) {
   spdlog::info("Running validation mode, number of workers forced to 1");
   FLAGS_num_workers = 1;
 
-  std::thread thread;
-  Metadata worker_metadata = Metadata();
-  double worker_duration = 0.0;
-  std::vector<std::vector<memgraph::communication::bolt::Value>> worker_results;
+  Metadata metadata = Metadata();
+  double duration = 0.0;
+  std::vector<std::vector<memgraph::communication::bolt::Value>> results;
 
   auto size = queries.size();
 
-  thread = std::thread([&]() {
-    memgraph::io::network::Endpoint endpoint(FLAGS_address, FLAGS_port);
-    memgraph::communication::ClientContext context(FLAGS_use_ssl);
-    memgraph::communication::bolt::Client client(context);
-    client.Connect(endpoint, FLAGS_username, FLAGS_password);
+  memgraph::io::network::Endpoint endpoint(FLAGS_address, FLAGS_port);
+  memgraph::communication::ClientContext context(FLAGS_use_ssl);
+  memgraph::communication::bolt::Client client(context);
+  client.Connect(endpoint, FLAGS_username, FLAGS_password);
 
-    auto &results = worker_results;
-    auto &metadata = worker_metadata;
-    auto &duration = worker_duration;
-
-    memgraph::utils::Timer timer;
-    if (size == 1) {
-      const auto &query = queries[0];
-      auto ret = ExecuteValidationNTimesTillSuccess(&client, query.first, query.second, FLAGS_max_retries);
-      metadata.Append(ret.first);
-      results = ret.second;
-      duration = timer.Elapsed().count();
-      client.Close();
-    } else {
-      spdlog::info("Validation works with single query, pass just one query!");
-    }
-  });
-
-  thread.join();
-
-  // Create and output summary.
-  Metadata final_metadata;
-  double final_duration = 0.0;
-  std::vector<std::vector<memgraph::communication::bolt::Value>> final_results;
-
-  final_metadata = worker_metadata;
-  final_duration = worker_duration;
-  final_results = worker_results;
+  memgraph::utils::Timer timer;
+  if (size == 1) {
+    const auto &query = queries[0];
+    auto ret = ExecuteValidationNTimesTillSuccess(&client, query.first, query.second, FLAGS_max_retries);
+    metadata.Append(ret.first);
+    results = ret.second;
+    duration = timer.Elapsed().count();
+    client.Close();
+  } else {
+    spdlog::info("Validation works with single query, pass just one query!");
+  }
 
   nlohmann::json summary = nlohmann::json::object();
   summary["count"] = 1;
-  summary["duration"] = final_duration;
-  summary["metadata"] = final_metadata.Export();
-  summary["results"] = BoltRecordsToJSONStrings(final_results);
+  summary["duration"] = duration;
+  summary["metadata"] = metadata.Export();
+  summary["results"] = BoltRecordsToJSONStrings(results);
   summary["num_workers"] = FLAGS_num_workers;
 
   (*stream) << summary.dump() << std::endl;
@@ -441,7 +424,7 @@ int main(int argc, char **argv) {
   if (!FLAGS_validation) {
     Execute(queries, ostream);
   } else {
-    Execute_validation(queries, ostream);
+    ExecuteValidation(queries, ostream);
   }
 
   return 0;
