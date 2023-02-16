@@ -617,8 +617,10 @@ class RuleBasedPlanner {
         last_op = GenFilters(std::move(last_op), expand_symbols, filters, storage, symbol_table);
       }
 
-      last_op = GenExpand(std::move(last_op), expansion, symbol_table, expand_symbols, matching, storage, filters,
-                          named_paths, new_symbols, storage::View::OLD);
+      if (expansion.edge) {
+        last_op = GenExpand(std::move(last_op), expansion, symbol_table, expand_symbols, matching, storage, filters,
+                            named_paths, new_symbols, storage::View::OLD);
+      }
     }
 
     last_op = std::make_unique<Limit>(std::move(last_op), storage.Create<PrimitiveLiteral>(1));

@@ -4337,4 +4337,45 @@ TEST_P(CypherMainVisitorTest, Exists) {
     ASSERT_TRUE(edge);
     ASSERT_TRUE(node2);
   }
+
+  {
+    const auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) WHERE exists((n)-[]->()-[]->()) RETURN n;"));
+    const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+
+    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+
+    ASSERT_TRUE(exists);
+
+    const auto pattern = exists->pattern_;
+    ASSERT_TRUE(pattern->atoms_.size() == 5);
+
+    const auto *node1 = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
+    const auto *edge = dynamic_cast<EdgeAtom *>(pattern->atoms_[1]);
+    const auto *node2 = dynamic_cast<NodeAtom *>(pattern->atoms_[2]);
+    const auto *edge2 = dynamic_cast<EdgeAtom *>(pattern->atoms_[3]);
+    const auto *node3 = dynamic_cast<NodeAtom *>(pattern->atoms_[4]);
+
+    ASSERT_TRUE(node1);
+    ASSERT_TRUE(edge);
+    ASSERT_TRUE(node2);
+    ASSERT_TRUE(edge2);
+    ASSERT_TRUE(node3);
+  }
+
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) WHERE exists((n)) RETURN n;"));
+    const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+
+    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+
+    ASSERT_TRUE(exists);
+
+    const auto pattern = exists->pattern_;
+    ASSERT_TRUE(pattern->atoms_.size() == 1);
+
+    const auto *node = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
+
+    ASSERT_TRUE(node);
+  }
 }
