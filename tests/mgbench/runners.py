@@ -413,7 +413,6 @@ class Client:
                 for query in queries:
                     json.dump(query, f)
                     f.write("\n")
-
         args = self._get_args(
             input=file_path,
             num_workers=num_workers,
@@ -426,9 +425,13 @@ class Client:
         )
         ret = subprocess.run(args, capture_output=True)
 
+        ret = subprocess.run(args, capture_output=True, check=True)
         error = ret.stderr.decode("utf-8").strip().split("\n")
-        print(error)
+        if error and error[0] != "":
+            print("Reported errros from client")
+            print(error)
 
         data = ret.stdout.decode("utf-8").strip().split("\n")
+        print(data)
         data = [x for x in data if not x.startswith("[")]
         return list(map(json.loads, data))

@@ -5,7 +5,9 @@ import fnmatch
 import inspect
 import random
 import sys
+import time
 
+import helpers
 import importer
 import runners
 import workload
@@ -36,7 +38,7 @@ def match_patterns(dataset, variant, group, query, is_default_variant, patterns)
     return False
 
 
-def filter_benchmarks(generators, patterns):
+def filter_benchmarks(generators, patterns, vendor_name: str):
     patterns = copy.deepcopy(patterns)
     for i in range(len(patterns)):
         pattern = patterns[i].split("/")
@@ -71,7 +73,7 @@ def filter_benchmarks(generators, patterns):
                 if res >= 2 and key in current.keys():
                     current.pop(key)
 
-            filtered.append((generator(variant, args.vendor_name), dict(current)))
+            filtered.append((generator(variant, vendor_name), dict(current)))
     return filtered
 
 
@@ -95,6 +97,18 @@ if __name__ == "__main__":
         "variant is '' which selects the default dataset variant; "
         "the default group is '*' which selects all groups; the"
         "default query is '*' which selects all queries",
+    )
+
+    parser.add_argument(
+        "--client-binary",
+        default=helpers.get_binary_path("tests/mgbench/client"),
+        help="Client binary used for benchmarking",
+    )
+
+    parser.add_argument(
+        "--temporary-directory",
+        default="/tmp",
+        help="directory path where temporary data should " "be stored",
     )
 
     args = parser.parse_args()
@@ -152,97 +166,70 @@ if __name__ == "__main__":
         False,
     )
 
-    benchmarks = filter_benchmarks(generators, args.benchmarks)
+    client = runners.Client(args.client_binary, args.temporary_directory, 7687)
+    benchmarks = filter_benchmarks(generators, args.benchmarks, "neo4j")
 
-    output = {}
+    vendors = {"neo4j": neo4j}
+    cache = helpers.Cache()
 
-    for dataset, queries in benchmarks:
+    results = {}
+    for name, vendor in vendors.items():
+        for dataset, queries in benchmarks:
 
-        importer = importer.Importer(dataset=dataset, vendor=neo4j, client=neo4j)
+            dataset.prepare(cache.cache_directory("datasets", dataset.NAME, dataset.get_variant()))
+            importer = importer.Importer(dataset=dataset, vendor=vendor, client=client)
 
-        status = importer.try_optimal_import()
+            status = importer.try_optimal_import()
 
-        if status == False:
-            print("Need alternative import")
-        else:
-            print("Fast import executed")
-
-        for group in sorted(queries.keys()):
-            for query, funcname in queries[group]:
-                print("Running query:{}/{}/{}".format(group, query, funcname))
-                func = getattr(dataset, funcname)
-                count = 1
-                # Benchmark run.
-                print("Sample query:", get_queries(func, 1)[0][0])
-                print(
-                    "Executing benchmark with",
-                    count,
-                )
-                vendor.start_benchmark(dataset.NAME + dataset.get_variant() + "_" + workload.name + "_" + query)
-                if args.warmup_run:
-                    warmup(client)
-                ret = client.execute(
-                    queries=get_queries(func, count),
-                    num_workers=args.num_workers_for_benchmark,
-                )[0]
-                usage = vendor.stop(dataset.NAME + dataset.get_variant() + "_" + workload.name + "_" + query)
-                ret["database"] = usage
-                ret["query_statistics"] = query_statistics
-
-                # Output summary.
-                print()
-                print("Executed", ret["count"], "queries in", ret["duration"], "seconds.")
-                print("Queries have been retried", ret["retries"], "times.")
-                print("Database used {:.3f} seconds of CPU time.".format(usage["cpu"]))
-                print("Database peaked at {:.3f} MiB of memory.".format(usage["memory"] / 1024.0 / 1024.0))
-                print("{:<31} {:>20} {:>20} {:>20}".format("Metadata:", "min", "avg", "max"))
-                metadata = ret["metadata"]
-                for key in sorted(metadata.keys()):
-                    print(
-                        "{name:>30}: {minimum:>20.06f} {average:>20.06f} "
-                        "{maximum:>20.06f}".format(name=key, **metadata[key])
-                    )
-                log.success("Throughput: {:02f} QPS".format(ret["throughput"]))
-
-                # Save results.
-                results_key = [
-                    dataset.NAME,
-                    dataset.get_variant(),
-                    group,
-                    query,
-                    WITHOUT_FINE_GRAINED_AUTHORIZATION,
-                ]
-                results.set_value(*results_key, value=ret)
-
-    vendor.start_benchmark("validation")
-    ret_mem = client_memgraph.execute(
-        queries=[("MATCH (n1)-[M]-(n2) RETURN n1, M , n2;", {})], num_workers=1, validation=True
-    )[0]
-    vendor.stop("validation")
-
-    ret_neo = client_neo4j.execute(
-        queries=[("MATCH (n1)-[M]-(n2) RETURN n1, M , n2;", {})], num_workers=1, validation=True
-    )[0]
-
-    # (TODO) Fix comparisons.
-    for key, value in ret_mem["results"].items():
-        for key, value in ret_neo["results"]:
-            if value != ret_neo["results"][key]:
-                print("Different")
-                print(value)
-                print(ret_neo["results"][key])
+            if status == False:
+                print("Need alternative import")
             else:
-                print("Identical")
-                print(value)
-                print(ret_neo["results"][key])
+                print("Fast import executed")
 
-    print(ret_mem)
-    print("___")
-    print(ret_neo)
+            for group in sorted(queries.keys()):
+                for query, funcname in queries[group]:
+                    print("Running query:{}/{}/{}".format(group, query, funcname))
+                    func = getattr(dataset, funcname)
+                    sample = (get_queries(func, 1),)
+                    count = 1
+                    # Benchmark run.
+                    print("Sample query:", get_queries(func, 1)[0][0])
+                    vendor.start_benchmark("validation")
+                    try:
+                        ret = client.execute(queries=get_queries(func, count), num_workers=1, validation=True)[0]
+                        results[funcname] = ret["results"].items()
 
-    for dataset, queries in benchmarks:
-        print(dataset)
-        for group in queries.keys():
-            print(queries)
-            for query in queries[group]:
-                print(query)
+                    except Exception as e:
+                        print("Issue running the query" + funcname)
+                        print(e)
+                        results[funcname] = "Issue"
+                    finally:
+                        usage = vendor.stop("validation")
+                        print("Database used {:.3f} seconds of CPU time.".format(usage["cpu"]))
+                        print("Database peaked at {:.3f} MiB of memory.".format(usage["memory"] / 1024.0 / 1024.0))
+
+    for row in results.items():
+        print(row)
+
+        # # (TODO) Fix comparisons.
+        # for key, value in ret_mem["results"].items():
+        #     for key, value in ret_neo["results"]:
+        #         if value != ret_neo["results"][key]:
+        #             print("Different")
+        #             print(value)
+        #             print(ret_neo["results"][key])
+        #         else:
+        #             print("Identical")
+        #             print(value)
+        #             print(ret_neo["results"][key])
+
+        # print(ret_mem)
+        # print("___")
+        # print(ret_neo)
+
+        # for dataset, queries in benchmarks:
+        #     print(dataset)
+        #     for group in queries.keys():
+        #         print(queries)
+        #         for query in queries[group]:
+        #             print(query)

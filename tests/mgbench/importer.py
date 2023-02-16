@@ -16,23 +16,23 @@ HEADERS_INTERACTIVE = {
     "static/tag_hasType_tagclass": ":START_ID(Tag)|:END_ID(TagClass)",
     "static/organisation_isLocatedIn_place": ":START_ID(Organisation)|:END_ID(Place)",
     "static/place_isPartOf_place": ":START_ID(Place)|:END_ID(Place)",
-    "dynamic/comment": "id:ID(Comment)|creationDate:DATETIME|locationIP:STRING|browserUsed:STRING|content:STRING|length:INT",
-    "dynamic/forum": "id:ID(Forum)|title:STRING|creationDate:DATETIME",
-    "dynamic/person": "id:ID(Person)|firstName:STRING|lastName:STRING|gender:STRING|birthday:DATETIME|creationDate:DATETIME|locationIP:STRING|browserUsed:STRING",
-    "dynamic/post": "id:ID(Post)|imageFile:STRING|creationDate:DATETIME|locationIP:STRING|browserUsed:STRING|language:STRING|content:STRING|length:INT",
+    "dynamic/comment": "id:ID(Comment)|creationDate:LOCALDATETIME|locationIP:STRING|browserUsed:STRING|content:STRING|length:INT",
+    "dynamic/forum": "id:ID(Forum)|title:STRING|creationDate:LOCALDATETIME",
+    "dynamic/person": "id:ID(Person)|firstName:STRING|lastName:STRING|gender:STRING|birthday:LOCALDATETIME|creationDate:LOCALDATETIME|locationIP:STRING|browserUsed:STRING",
+    "dynamic/post": "id:ID(Post)|imageFile:STRING|creationDate:LOCALDATETIME|locationIP:STRING|browserUsed:STRING|language:STRING|content:STRING|length:INT",
     "dynamic/comment_hasCreator_person": ":START_ID(Comment)|:END_ID(Person)",
     "dynamic/comment_isLocatedIn_place": ":START_ID(Comment)|:END_ID(Place)",
     "dynamic/comment_replyOf_comment": ":START_ID(Comment)|:END_ID(Comment)",
     "dynamic/comment_replyOf_post": ":START_ID(Comment)|:END_ID(Post)",
     "dynamic/forum_containerOf_post": ":START_ID(Forum)|:END_ID(Post)",
-    "dynamic/forum_hasMember_person": ":START_ID(Forum)|:END_ID(Person)|joinDate:DATETIME",
+    "dynamic/forum_hasMember_person": ":START_ID(Forum)|:END_ID(Person)|joinDate:LOCALDATETIME",
     "dynamic/forum_hasModerator_person": ":START_ID(Forum)|:END_ID(Person)",
     "dynamic/forum_hasTag_tag": ":START_ID(Forum)|:END_ID(Tag)",
     "dynamic/person_hasInterest_tag": ":START_ID(Person)|:END_ID(Tag)",
     "dynamic/person_isLocatedIn_place": ":START_ID(Person)|:END_ID(Place)",
-    "dynamic/person_knows_person": ":START_ID(Person)|:END_ID(Person)|creationDate:DATETIME",
-    "dynamic/person_likes_comment": ":START_ID(Person)|:END_ID(Comment)|creationDate:DATETIME",
-    "dynamic/person_likes_post": ":START_ID(Person)|:END_ID(Post)|creationDate:DATETIME",
+    "dynamic/person_knows_person": ":START_ID(Person)|:END_ID(Person)|creationDate:LOCALDATETIME",
+    "dynamic/person_likes_comment": ":START_ID(Person)|:END_ID(Comment)|creationDate:LOCALDATETIME",
+    "dynamic/person_likes_post": ":START_ID(Person)|:END_ID(Post)|creationDate:LOCALDATETIME",
     "dynamic/person_studyAt_organisation": ":START_ID(Person)|:END_ID(Organisation)|classYear:INT",
     "dynamic/person_workAt_organisation": ":START_ID(Person)|:END_ID(Organisation)|workFrom:INT",
     "dynamic/post_hasCreator_person": ":START_ID(Post)|:END_ID(Person)",
@@ -76,18 +76,27 @@ class Importer:
                 if not output.exists():
                     with file.open("r") as input_f, output.open("a") as output_f:
                         reader = csv.reader(input_f, delimiter="|")
-                        next(reader)
+                        header = next(reader)
+
                         writer = csv.writer(output_f, delimiter="|")
                         if key in HEADERS_INTERACTIVE.keys():
                             updated_header = HEADERS_INTERACTIVE[key].split("|")
                             writer.writerow(updated_header)
                         for line in reader:
+                            if "creationDate" in header:
+                                pos = header.index("creationDate")
+                                line[pos] = line[pos][0:-5]
+                            elif "joinDate" in header:
+                                pos = header.index("joinDate")
+                                line[pos] = line[pos][0:-5]
+
                             if "organisation_0_0.csv" == file.name:
                                 writer.writerow([line[0], line[1].capitalize(), line[2], line[3]])
                             elif "place_0_0.csv" == file.name:
                                 writer.writerow([line[0], line[1], line[2], line[3].capitalize()])
                             else:
                                 writer.writerow(line)
+
                 output_files[key] = output.as_posix()
             self._vendor.clean_db()
             subprocess.run(
@@ -143,8 +152,35 @@ class Importer:
             return True
 
         elif self._dataset.NAME == "ldbc_interactive" and isinstance(self._vendor, Memgraph):
-            return False
 
+            self._vendor.start_preparation("import")
+            print("Executing database cleanup and index setup...")
+            ret = self._client.execute(file_path=self._dataset.get_index(), num_workers=12)
+            print("Importing dataset...")
+            ret = self._client.execute(file_path=self._dataset.get_file_cypherl(), num_workers=12)
+            usage = self._vendor.stop("import")
+            for row in ret:
+                print(
+                    "Executed",
+                    row["count"],
+                    "queries in",
+                    row["duration"],
+                    "seconds using",
+                    row["num_workers"],
+                    "workers with a total throughput of",
+                    row["throughput"],
+                    "queries/second.",
+                )
+                print()
+                print(
+                    "The database used",
+                    usage["cpu"],
+                    "seconds of CPU time and peaked at",
+                    usage["memory"] / 1024 / 1024,
+                    "MiB of RAM.",
+                )
+
+            return True
         else:
             return False
 
