@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,6 +28,7 @@
 #include <boost/system/detail/error_code.hpp>
 
 #include "communication/context.hpp"
+#include "communication/session_context.hpp"
 #include "communication/v2/pool.hpp"
 #include "communication/v2/session.hpp"
 #include "utils/spin_lock.hpp"
@@ -112,6 +113,11 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
 
     auto session = SessionHandler::Create(std::move(socket), data_, *server_context_, endpoint_, inactivity_timeout_,
                                           service_name_);
+
+    // this creates a problem
+    auto sess_ctx = BoltSessionContext(session);
+    // auto sess_ctx_ptr = std::make_unique<memgraph::communication::BoltSessionContext>(sess_ctx);
+    // data_->interpreter_context->session_contexts.access().insert(sess_ctx);
     session->Start();
     DoAccept();
   }

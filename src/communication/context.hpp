@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -102,6 +102,14 @@ class ServerContext final {
 
  private:
   std::optional<boost::asio::ssl::context> ctx_;
+};
+
+class SessionContext {
+ public:
+  // SessionContext() {}
+  virtual ~SessionContext() = default;
+  virtual uint64_t GetTransactionId() = 0;
+  virtual void Terminate() = 0;
 };
 
 }  // namespace memgraph::communication

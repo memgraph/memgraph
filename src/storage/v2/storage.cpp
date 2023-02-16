@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -844,6 +844,8 @@ LabelId Storage::Accessor::NameToLabel(const std::string_view name) { return sto
 PropertyId Storage::Accessor::NameToProperty(const std::string_view name) { return storage_->NameToProperty(name); }
 
 EdgeTypeId Storage::Accessor::NameToEdgeType(const std::string_view name) { return storage_->NameToEdgeType(name); }
+
+uint64_t Storage::Accessor::GetTransactionId() const { return transaction_.transaction_id; }
 
 void Storage::Accessor::AdvanceCommand() { ++transaction_.command_id; }
 

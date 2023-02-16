@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -36,6 +36,7 @@
 
 #include "auth/models.hpp"
 #include "communication/bolt/v1/constants.hpp"
+#include "communication/context.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
 #include "glue/auth_checker.hpp"
@@ -50,6 +51,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/interpreter.hpp"
 #include "query/plan/operator.hpp"
+#include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
 #include "query/procedure/py_module.hpp"
 #include "requests/requests.hpp"
@@ -67,6 +69,7 @@
 #include "utils/rw_lock.hpp"
 #include "utils/settings.hpp"
 #include "utils/signals.hpp"
+#include "utils/skip_list.hpp"
 #include "utils/string.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/sysinfo/memory.hpp"
@@ -531,6 +534,8 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
         run_id_(data->run_id) {
   }
 
+  uint64_t GetTransactionId() { return interpreter_.GetTransactionId(); }
+
   using memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                memgraph::communication::v2::OutputStream>::TEncoder;
 
@@ -671,7 +676,6 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
     // NOTE: Needed only for ToBoltValue conversions
     const memgraph::storage::Storage *db_;
   };
-
   // NOTE: Needed only for ToBoltValue conversions
   const memgraph::storage::Storage *db_;
   memgraph::query::Interpreter interpreter_;
@@ -684,6 +688,8 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
   // NOTE: run_id should be const but that complicates code a lot.
   std::optional<std::string> run_id_;
 };
+
+uint64_t memgraph::communication::BoltSessionContext::GetTransactionId() { return bolt_session->GetTransactionId(); }
 
 using ServerT = memgraph::communication::v2::Server<BoltSession, SessionData>;
 using memgraph::communication::ServerContext;

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,7 +12,9 @@
 #pragma once
 
 #include <gflags/gflags.h>
+#include <memory>
 
+#include "communication/context.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/context.hpp"
@@ -183,8 +185,6 @@ struct PreparedQuery {
  * Holds data shared between multiple `Interpreter` instances (which might be
  * running concurrently).
  *
- * Users should initialize the context but should not modify it after it has
- * been passed to an `Interpreter` instance.
  */
 struct InterpreterContext {
   explicit InterpreterContext(storage::Storage *db, InterpreterConfig config,
@@ -214,6 +214,10 @@ struct InterpreterContext {
   const InterpreterConfig config;
 
   query::stream::Streams streams;
+
+  utils::SkipList<std::unique_ptr<memgraph::communication::SessionContext>> session_contexts;
+  // utils::SkipList<memgraph::communication::SessionContext*> session_contexts;
+  // std::vector<memgraph::communication::SessionContext*> session_contexts;
 };
 
 /// Function that is used to tell all active interpreters that they should stop
@@ -297,6 +301,9 @@ class Interpreter final {
   void SetNextTransactionIsolationLevel(storage::IsolationLevel isolation_level);
   void SetSessionIsolationLevel(storage::IsolationLevel isolation_level);
 
+  uint64_t GetTransactionId() const;
+  bool IsTransactionActive();
+
   /**
    * Abort the current multicommand transaction.
    */
@@ -356,6 +363,7 @@ class Interpreter final {
   PreparedQuery PrepareTransactionQuery(std::string_view query_upper);
   void Commit();
   void AdvanceCommand();
+
   void AbortCommand(std::unique_ptr<QueryExecution> *query_execution);
   std::optional<storage::IsolationLevel> GetIsolationLevelOverride();
 
