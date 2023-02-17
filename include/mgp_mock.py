@@ -7,7 +7,6 @@ from functools import wraps
 
 import _mgp_mock
 import kafka
-import networkx as nx
 
 
 class InvalidContextError(Exception):
