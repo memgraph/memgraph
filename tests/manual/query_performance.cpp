@@ -9,6 +9,65 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+// This binary is meant to easily compare the performance of:
+//  - Memgraph v2
+//  - Memgraph v3
+//  - Memgraph v3 with MultiFrame
+// This binary measures three things which provides a high level and easily understandable metric about the performance
+// difference between the different versions:
+//  1. Read time: how much time does it take to read the files:
+//  2. Init time: how much time does it take to run the init queries, including the index creation. For details please
+//     check RunV2.
+//  3. Benchmark time: how much time does it take to run the benchmark queries.
+// To quickly compare performance of the different versions just change the query or queries in the benchmark queries
+// file you can see the different by running this executable. This way we don't have keep multiple binaries of Memgraph
+// v2 and Memgraph v3 with/without MultiFrame, start Memgraph and connect to it with mgconsole and other hassles. As
+// everything is run in this binary, it makes easier to generate perf reports/flamegraphs from the query execution of
+// different Memgraph versions compared to using the full blown version of Memgraph.
+//
+// A few important notes:
+//  - All the input files are mandated to have an empty line at the end of the file as the reading logic expect that.
+//  - tests/mgbench/dataset_creator_unwind.py is recommended to generate the dataset because it generates queries with
+//    UNWIND that makes the import faster in Memgraph v3, thus we can compare the performance on non trivial datasets
+//    also. To make it possible to use the generated dataset, you have to move the generated index queries into a
+//    separate file that can be supplied as index queries file for this binary when using Memgraph v2. The reason for
+//    this is Memgraph v3 cannot handle indices yet, thus it crashes.
+//  - Check the command line flags and their description defined in this file.
+//  - Also check out the --default-multi-frame-size command line flag if you want to play with that.
+//  - The log level is manually set to warning in the main function to avoid the overwhelming log messages from Memgraph
+//    v3. Apart from ease of use, the huge amount of looging can degrade the actual performance.
+//
+// Example usage with Memgraph v2:
+// ./query_performance
+//   --index-queries-file indices.cypher
+//   --init-queries-file dataset.cypher
+//   --benchmark-queries-file benchmark_queries.txt
+//   --use-v3=false
+//
+// Example usage with Memgraph v3 without MultiFrame:
+// ./query_performance
+//   --split-file split_file
+//   --init-queries-file dataset.cypher
+//   --benchmark-queries-file benchmark_queries.txt
+//   --use-v3=true
+//   --use-mutli-frame=false
+//
+// Example usage with Memgraph v3 with MultiFrame:
+// ./query_performance
+//   --split-file split_file
+//   --init-queries-file dataset.cypher
+//   --benchmark-queries-file benchmark_queries.txt
+//   --use-v3=true
+//   --use-mutli-frame=true
+//
+// The examples are using only the necessary flags, however specifying all of them is not a problem, so if you specify
+// --index-queries-file for Memgraph v3, then it will be safely ignored just as --split-file for Memgraph v2.
+//
+// To generate flamegraph you can use the following command:
+// flamegraph --cmd "record -F 997 --call-graph fp -g" --root -o flamegraph.svg -- ./query_performance <flags>
+// Using the default option (dwarf) for --call-graph when calling perf might result in too long runtine of flamegraph
+// because of address resolution. See https://github.com/flamegraph-rs/flamegraph/issues/74.
+
 #include <chrono>
 #include <istream>
 #include <thread>
@@ -33,15 +92,20 @@
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(index_queries_file, "",
-              "Path to the file which contains the queries to create indices. Used only for v2.");
+              "Path to the file which contains the queries to create indices. Used only for v2. Must contain an empty "
+              "line at the end of the file after the queries.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(split_file, "",
               "Path to the split file which contains the predefined labels, properties, edge types and shard-ranges. "
-              "Used only for v3.");
+              "Used only for v3. Must contain an empty line at the end of the file.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(init_queries_file, "", "Path to the file that is used to insert the initial dataset.");
+DEFINE_string(init_queries_file, "",
+              "Path to the file that is used to insert the initial dataset, one query per line. Must contain an empty "
+              "line at the end of the file after the queries.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(benchmark_queries_file, "", "Path to the file that contains the queries that we want to measure.");
+DEFINE_string(benchmark_queries_file, "",
+              "Path to the file that contains the queries that we want to compare, one query per line. Must contain an "
+              "empty line at the end of the file after the queries.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(use_v3, true, "If set to true, then Memgraph v3 will be used, otherwise Memgraph v2 will be used.");
 
