@@ -863,7 +863,7 @@ class Messages:
 
 
 class TransCtx:
-    __slots__ = "_graph"
+    __slots__ = ("_graph",)
 
     def __init__(self, graph):
         if not isinstance(graph, _mgp_mock.Graph):
@@ -919,7 +919,7 @@ def transformation(func: typing.Callable[..., Record]):
 
 
 class FuncCtx:
-    __slots__ = "_graph"
+    __slots__ = ("_graph",)
 
     def __init__(self, graph):
         if not isinstance(graph, _mgp_mock.Graph):
