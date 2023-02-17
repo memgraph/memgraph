@@ -61,6 +61,9 @@ class Graph:
     def is_immutable(self) -> bool:
         return nx.is_frozen(self.nx)
 
+    def make_immutable(self):
+        self.nx = nx.freeze(self.nx)
+
     def _new_edge_id(self):
         if self._highest_edge_id is None:
             self._highest_edge_id = max(edge[Graph.I_KEY] for edge in self.nx.edges(keys=True))
@@ -331,6 +334,7 @@ class Messages:
         return self._valid
 
     def invalidate(self):
+        print("run_invalidate")
         if self._messages is not None:
             for i in range(len(self._messages)):
                 self._messages[i].invalidate()

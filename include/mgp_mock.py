@@ -706,7 +706,7 @@ def _register_proc(func: typing.Callable[..., Record], is_write: bool):
         @wraps(func)
         def wrapper(ctx, *args):
             if not is_write:
-                ctx._graph._graph.nx = nx.freeze(ctx.graph._graph.nx)
+                ctx._graph._graph.make_immutable()
 
             result_record = func(ctx, *args)
 
@@ -941,7 +941,7 @@ def function(func: typing.Callable):
 
         @wraps(func)
         def wrapper(ctx, *args):
-            ctx._graph._graph.nx = nx.freeze(ctx.graph._graph.nx)
+            ctx._graph._graph.make_immutable()
 
             result = func(ctx, *args)
 
