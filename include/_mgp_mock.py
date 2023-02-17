@@ -287,10 +287,7 @@ class Path:
 
 
 class Message:
-    __slots__ = (
-        "_message",
-        "_valid",
-    )
+    __slots__ = ("_message", "_valid")
 
     def __init__(self, message) -> None:
         if not isinstance(message, (kafka.consumer.fetcher.ConsumerRecord, pulsar.Message)):
@@ -313,11 +310,7 @@ class Message:
 
 
 class Messages:
-    __slots__ = (
-        "_messages",
-        "_graph",
-        "_valid",
-    )
+    __slots__ = ("_messages", "_graph", "_valid")
 
     def __init__(self, messages: typing.List, graph: Graph) -> None:
         if not isinstance(messages, typing.List):
@@ -338,7 +331,6 @@ class Messages:
         return self._valid
 
     def invalidate(self):
-        print("run_invalidate")
         if self._messages is not None:
             for i in range(len(self._messages)):
                 self._messages[i].invalidate()
