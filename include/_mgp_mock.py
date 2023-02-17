@@ -207,12 +207,10 @@ class Edge:
     def edge(self) -> typing.Tuple[int, int, int]:
         return self._edge
 
-    # TODO maybe not necessary
     @property
     def start_id(self) -> int:
         return self._edge[Edge.I_START]
 
-    # TODO maybe not necessary
     @property
     def end_id(self) -> int:
         return self._edge[Edge.I_END]
