@@ -312,7 +312,7 @@ EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, Vert
         properties.emplace(dba->NameToProperty(key), value);
       }
     }
-    MultiPropsSetChecked(&edge, properties);
+    if (!properties.empty()) MultiPropsSetChecked(&edge, properties);
 
     (*frame)[edge_info.symbol] = edge;
   } else {
