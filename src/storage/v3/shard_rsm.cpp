@@ -427,6 +427,9 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
     resp.results = std::move(results);
   }
 
+  uint64_t low_key = shard_->LowKey()[0].ValueInt();
+  spdlog::warn("Shard with low key {}: shard returning {} results for ScanVertices", low_key, resp.results.size());
+
   return resp;
 }
 

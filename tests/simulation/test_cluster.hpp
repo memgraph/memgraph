@@ -191,7 +191,16 @@ void ExecuteOp(SimClientContext &context, ScanAll scan_all) {
 }
 
 void ExecuteOp(SimClientContext &context, AssertShardsSplit assert_shards_split) {
-  const int minimum_expected_shards = (context.correctness_model.size() / context.cluster_config.split_threshold) + 1;
+  // 1 -> 1
+  // 2 -> 1
+  // 3 -> 1
+  // 4 -> 2
+  // 5 -> 2
+  // 6 -> 2
+  // 7 -> 3
+  const int max_shard_size = context.cluster_config.split_threshold - 1;
+  const int min_shards = (std::max((size_t)1, context.correctness_model.size()) - 1) / max_shard_size;
+  const int minimum_expected_shards = min_shards + 1;
   // TODO(tyler) make this a higher number of retries
   const int maximum_attempts = 100;
   size_t initialized_shards;
@@ -211,7 +220,7 @@ void ExecuteOp(SimClientContext &context, AssertShardsSplit assert_shards_split)
     initialized_shards = shard_map.InitializedShards();
 
     if (initialized_shards >= minimum_expected_shards) {
-      MG_ASSERT(initialized_shards < 3, "just kidding, this is great, we now have {} initialized shards",
+      MG_ASSERT(initialized_shards < 4, "just kidding, this is great, we now have {} initialized shards",
                 initialized_shards);
       auto shard_for_0 =
           shard_map.GetShardForKey("test_label", {storage::v3::PropertyValue(0), storage::v3::PropertyValue(0)});
@@ -220,6 +229,11 @@ void ExecuteOp(SimClientContext &context, AssertShardsSplit assert_shards_split)
 
       spdlog::info("first shard: {}", shard_for_0);
       spdlog::info("last shard: {}", shard_for_6);
+      spdlog::warn(
+          "AssertShardsSplit returning after we see {} initialized shards ({} minimum expected with model size {} and "
+          "split threshold {})",
+          initialized_shards, minimum_expected_shards, context.correctness_model.size(),
+          context.cluster_config.split_threshold);
       return;
     }
   }
@@ -300,10 +314,16 @@ std::pair<SimulatorStats, LatencyHistogramSummaries> RunClusterSimulation(const 
   for (int i = 0; i < shards; i++) {
     for (int j = 0; j < stride; j++) {
       int key = (i * stride) + j;
+      spdlog::warn("~~~~~~~~~~~~~~~~~1");
       ExecuteOp(context, AssertShardsSplit{});
+      spdlog::warn("~~~~~~~~~~~~~~~~~2: about to create key {}", key);
       ExecuteOp(context, CreateVertex{.first = 0, .second = key});
+      spdlog::warn("~~~~~~~~~~~~~~~~~3 created {} successfully", key);
     }
   }
+  spdlog::warn("~~~~~~~~~~~~~~~~~4");
+  ExecuteOp(context, AssertShardsSplit{});
+  spdlog::warn("~~~~~~~~~~~~~~~~~5 performing MATCH(n) return n");
   ExecuteOp(context, ScanAll{});
 
   // We have now completed our workload without failing any assertions, so we can
@@ -311,6 +331,7 @@ std::pair<SimulatorStats, LatencyHistogramSummaries> RunClusterSimulation(const 
   // to be joined when this function returns.
   detach_on_error.detach = false;
 
+  spdlog::warn("~~~~~~~~~~~~~~~~~6");
   simulator.ShutDown();
 
   mm_thread_1.join();
