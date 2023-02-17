@@ -218,6 +218,7 @@ class DistributedCreateNodeCursor : public Cursor {
   }
 
   std::vector<msgs::NewVertex> NodeCreationInfoToRequest(ExecutionContext &context, Frame &frame) {
+    primary_keys_.clear();
     std::vector<msgs::NewVertex> requests;
     msgs::PrimaryKey pk;
     msgs::NewVertex rqst;
@@ -227,22 +228,27 @@ class DistributedCreateNodeCursor : public Cursor {
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, nullptr,
                                   storage::v3::View::NEW);
     if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info_.properties)) {
-      for (const auto &[key, value_expression] : *node_info_properties) {
+      for (const auto &[property, value_expression] : *node_info_properties) {
         TypedValue val = value_expression->Accept(evaluator);
-        if (context.request_router->IsPrimaryKey(primary_label, key)) {
-          rqst.primary_key.push_back(TypedValueToValue(val));
-          pk.push_back(TypedValueToValue(val));
+        auto msgs_value = TypedValueToValue(val);
+        if (context.request_router->IsPrimaryProperty(primary_label, property)) {
+          rqst.primary_key.push_back(msgs_value);
+          pk.push_back(std::move(msgs_value));
+        } else {
+          rqst.properties.emplace_back(property, std::move(msgs_value));
         }
       }
     } else {
       auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info_.properties)).ValueMap();
-      for (const auto &[key, value] : property_map) {
-        auto key_str = std::string(key);
-        auto property_id = context.request_router->NameToProperty(key_str);
-        if (context.request_router->IsPrimaryKey(primary_label, property_id)) {
-          rqst.primary_key.push_back(TypedValueToValue(value));
-          pk.push_back(TypedValueToValue(value));
-        }
+      for (const auto &[property, typed_value] : property_map) {
+        auto property_str = std::string(property);
+        auto property_id = context.request_router->NameToProperty(property_str);
+        auto msgs_value = TypedValueToValue(typed_value);
+        if (context.request_router->IsPrimaryProperty(primary_label, property_id)) {
+          rqst.primary_key.push_back(msgs_value);
+          pk.push_back(std::move(msgs_value));
+        } else
+          rqst.properties.emplace_back(property_id, std::move(msgs_value));
       }
     }
 
@@ -268,6 +274,7 @@ class DistributedCreateNodeCursor : public Cursor {
   }
 
   std::vector<msgs::NewVertex> NodeCreationInfoToRequests(ExecutionContext &context, MultiFrame &multi_frame) {
+    primary_keys_.clear();
     std::vector<msgs::NewVertex> requests;
     auto multi_frame_modifier = multi_frame.GetValidFramesModifier();
     for (auto &frame : multi_frame_modifier) {
@@ -280,22 +287,27 @@ class DistributedCreateNodeCursor : public Cursor {
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, nullptr,
                                     storage::v3::View::NEW);
       if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info_.properties)) {
-        for (const auto &[key, value_expression] : *node_info_properties) {
+        for (const auto &[property, value_expression] : *node_info_properties) {
           TypedValue val = value_expression->Accept(evaluator);
-          if (context.request_router->IsPrimaryKey(primary_label, key)) {
-            rqst.primary_key.push_back(TypedValueToValue(val));
-            pk.push_back(TypedValueToValue(val));
+          auto msgs_value = TypedValueToValue(val);
+          if (context.request_router->IsPrimaryProperty(primary_label, property)) {
+            rqst.primary_key.push_back(msgs_value);
+            pk.push_back(std::move(msgs_value));
+          } else {
+            rqst.properties.emplace_back(property, std::move(msgs_value));
           }
         }
       } else {
         auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info_.properties)).ValueMap();
-        for (const auto &[key, value] : property_map) {
-          auto key_str = std::string(key);
-          auto property_id = context.request_router->NameToProperty(key_str);
-          if (context.request_router->IsPrimaryKey(primary_label, property_id)) {
-            rqst.primary_key.push_back(TypedValueToValue(value));
-            pk.push_back(TypedValueToValue(value));
-          }
+        for (const auto &[property, typed_value] : property_map) {
+          auto property_str = std::string(property);
+          auto property_id = context.request_router->NameToProperty(property_str);
+          auto msgs_value = TypedValueToValue(typed_value);
+          if (context.request_router->IsPrimaryProperty(primary_label, property_id)) {
+            rqst.primary_key.push_back(msgs_value);
+            pk.push_back(std::move(msgs_value));
+          } else
+            rqst.properties.emplace_back(property_id, std::move(msgs_value));
         }
       }
 
@@ -497,7 +509,7 @@ class DistributedScanAllAndFilterCursor : public Cursor {
 
     if (!own_multi_frame_.has_value()) {
       own_multi_frame_.emplace(MultiFrame(output_multi_frame.GetFirstFrame().elems().size(),
-                                          kNumberOfFramesInMultiframe, output_multi_frame.GetMemoryResource()));
+                                          FLAGS_default_multi_frame_size, output_multi_frame.GetMemoryResource()));
       own_frames_consumer_.emplace(own_multi_frame_->GetValidFramesConsumer());
       own_frames_it_ = own_frames_consumer_->begin();
     }
@@ -693,7 +705,7 @@ class DistributedScanByPrimaryKeyCursor : public Cursor {
   void EnsureOwnMultiFrameIsGood(MultiFrame &output_multi_frame) {
     if (!own_multi_frame_.has_value()) {
       own_multi_frame_.emplace(MultiFrame(output_multi_frame.GetFirstFrame().elems().size(),
-                                          kNumberOfFramesInMultiframe, output_multi_frame.GetMemoryResource()));
+                                          FLAGS_default_multi_frame_size, output_multi_frame.GetMemoryResource()));
       own_frames_consumer_.emplace(own_multi_frame_->GetValidFramesConsumer());
       own_frames_it_ = own_frames_consumer_->begin();
     }
@@ -1594,6 +1606,7 @@ class AggregateCursor : public Cursor {
         ExpressionEvaluator evaluator(&frame, context->symbol_table, context->evaluation_context,
                                       context->request_router, storage::v3::View::NEW);
         ProcessOne(frame, &evaluator);
+        frame.MakeInvalid();
       }
     }
 
@@ -2200,7 +2213,7 @@ class UnwindCursor : public Cursor {
 
     if (!own_multi_frame_.has_value()) {
       own_multi_frame_.emplace(MultiFrame(output_multi_frame.GetFirstFrame().elems().size(),
-                                          kNumberOfFramesInMultiframe, output_multi_frame.GetMemoryResource()));
+                                          FLAGS_default_multi_frame_size, output_multi_frame.GetMemoryResource()));
       own_frames_consumer_.emplace(own_multi_frame_->GetValidFramesConsumer());
       own_frames_it_ = own_frames_consumer_->begin();
     }
@@ -2959,27 +2972,16 @@ class DistributedCreateExpandCursor : public Cursor {
       const auto &v1 = v1_value.ValueVertex();
       const auto &v2 = OtherVertex(frame);
 
-      // Set src and dest vertices
-      // TODO(jbajic) Currently we are only handling scenario where vertices
-      // are matched
-      const auto set_vertex = [&context](const auto &vertex, auto &vertex_id) {
-        vertex_id.first = vertex.PrimaryLabel();
-        for (const auto &[key, val] : vertex.Properties()) {
-          if (context.request_router->IsPrimaryKey(vertex_id.first.id, key)) {
-            vertex_id.second.push_back(val);
-          }
-        }
-      };
       std::invoke([&]() {
         switch (edge_info.direction) {
           case EdgeAtom::Direction::IN: {
-            set_vertex(v2, request.src_vertex);
-            set_vertex(v1, request.dest_vertex);
+            request.src_vertex = v2.Id();
+            request.dest_vertex = v1.Id();
             break;
           }
           case EdgeAtom::Direction::OUT: {
-            set_vertex(v1, request.src_vertex);
-            set_vertex(v2, request.dest_vertex);
+            request.src_vertex = v1.Id();
+            request.dest_vertex = v2.Id();
             break;
           }
           case EdgeAtom::Direction::BOTH:
@@ -3121,6 +3123,9 @@ class DistributedExpandCursor : public Cursor {
       auto &vertex = vertex_value.ValueVertex();
       msgs::ExpandOneRequest request;
       request.direction = DirectionToMsgsDirection(self_.common_.direction);
+      std::transform(self_.common_.edge_types.begin(), self_.common_.edge_types.end(),
+                     std::back_inserter(request.edge_types),
+                     [](const storage::v3::EdgeTypeId edge_type_id) { return msgs::EdgeType{edge_type_id}; });
       // to not fetch any properties of the edges
       request.edge_properties.emplace();
       request.src_vertices.push_back(vertex.Id());
@@ -3261,6 +3266,9 @@ class DistributedExpandCursor : public Cursor {
 
     msgs::ExpandOneRequest request;
     request.direction = DirectionToMsgsDirection(self_.common_.direction);
+    std::transform(self_.common_.edge_types.begin(), self_.common_.edge_types.end(),
+                   std::back_inserter(request.edge_types),
+                   [](const storage::v3::EdgeTypeId edge_type_id) { return msgs::EdgeType{edge_type_id}; });
     // to not fetch any properties of the edges
     request.edge_properties.emplace();
     for (const auto &frame : own_multi_frame_->GetValidFramesReader()) {
@@ -3374,7 +3382,7 @@ class DistributedExpandCursor : public Cursor {
   void EnsureOwnMultiFrameIsGood(MultiFrame &output_multi_frame) {
     if (!own_multi_frame_.has_value()) {
       own_multi_frame_.emplace(MultiFrame(output_multi_frame.GetFirstFrame().elems().size(),
-                                          kNumberOfFramesInMultiframe, output_multi_frame.GetMemoryResource()));
+                                          FLAGS_default_multi_frame_size, output_multi_frame.GetMemoryResource()));
       own_frames_consumer_.emplace(own_multi_frame_->GetValidFramesConsumer());
       own_frames_it_ = own_frames_consumer_->begin();
     }
