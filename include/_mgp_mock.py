@@ -4,6 +4,8 @@ import kafka
 import networkx as nx
 import pulsar
 
+NX_LABEL_ATTR = "labels"
+
 
 class ImmutableObjectError(Exception):
     pass
@@ -77,7 +79,7 @@ class Vertex:
 
     @property
     def labels(self) -> typing.List[int]:
-        return self.nx_graph.nodes[self._id]["label"].split(":")
+        return self.nx_graph.nodes[self._id][NX_LABEL_ATTR].split(":")
 
     def is_valid(self) -> bool:
         return self._graph.is_valid()
@@ -86,21 +88,21 @@ class Vertex:
         if nx.is_frozen(self.nx_graph):
             raise ImmutableObjectError("Cannot modify immutable object.")
 
-        self.nx_graph.nodes[self._id]["label"] += f":{label}"
+        self.nx_graph.nodes[self._id][NX_LABEL_ATTR] += f":{label}"
 
     def remove_label(self, label: str) -> None:
         if nx.is_frozen(self.nx_graph):
             raise ImmutableObjectError("Cannot modify immutable object.")
 
-        labels = self.nx_graph.nodes[self._id]["label"]
+        labels = self.nx_graph.nodes[self._id][NX_LABEL_ATTR]
         if labels.startswith(f"{label}:"):
             labels = "\n" + labels  # pseudo-string starter
-            self.nx_graph.nodes[self._id]["label"] = labels.replace(f"\n{label}:", "")
+            self.nx_graph.nodes[self._id][NX_LABEL_ATTR] = labels.replace(f"\n{label}:", "")
         elif labels.endswith(f":{label}"):
             labels += "\n"  # pseudo-string terminator
-            self.nx_graph.nodes[self._id]["label"] = labels.replace(f":{label}\n", "")
+            self.nx_graph.nodes[self._id][NX_LABEL_ATTR] = labels.replace(f":{label}\n", "")
         else:
-            self.nx_graph.nodes[self._id]["label"] = labels.replace(f":{label}:", ":")
+            self.nx_graph.nodes[self._id][NX_LABEL_ATTR] = labels.replace(f":{label}:", ":")
 
 
 class Edge:
