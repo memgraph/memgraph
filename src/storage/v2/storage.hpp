@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <shared_mutex>
@@ -323,6 +324,8 @@ class Storage final {
     void Abort();
 
     void FinalizeTransaction();
+
+    uint64_t GetTransactionId();
 
    private:
     /// @throw std::bad_alloc

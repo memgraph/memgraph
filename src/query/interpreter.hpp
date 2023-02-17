@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,7 @@
 #pragma once
 
 #include <gflags/gflags.h>
+#include <unordered_set>
 
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
@@ -37,6 +38,7 @@
 #include "utils/settings.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
+#include "utils/synchronized.hpp"
 #include "utils/thread_pool.hpp"
 #include "utils/timer.hpp"
 #include "utils/tsc.hpp"
@@ -179,12 +181,12 @@ struct PreparedQuery {
   plan::ReadWriteTypeChecker::RWType rw_type;
 };
 
+class Interpreter;
+
 /**
  * Holds data shared between multiple `Interpreter` instances (which might be
  * running concurrently).
  *
- * Users should initialize the context but should not modify it after it has
- * been passed to an `Interpreter` instance.
  */
 struct InterpreterContext {
   explicit InterpreterContext(storage::Storage *db, InterpreterConfig config,
@@ -214,6 +216,12 @@ struct InterpreterContext {
   const InterpreterConfig config;
 
   query::stream::Streams streams;
+  utils::Synchronized<std::unordered_set<Interpreter *>, utils::SpinLock> interpreters;
+
+  std::vector<std::tuple<std::optional<std::string>, uint64_t, std::vector<std::string>>> ShowTransactions();
+
+  // For a sake of test, this will be in some Handle method when finished
+  std::vector<bool> KillTransactions(const std::vector<int> &transaction_ids);
 };
 
 /// Function that is used to tell all active interpreters that they should stop
@@ -234,6 +242,9 @@ class Interpreter final {
     std::vector<query::AuthQuery::Privilege> privileges;
     std::optional<int> qid;
   };
+  // isAdmin_ is not needed but just for the sake of testing
+  bool isAdmin_ = false;
+  std::optional<std::string> username_;
 
   /**
    * Prepare a query for execution.
@@ -290,6 +301,8 @@ class Interpreter final {
 
   void BeginTransaction();
 
+  uint64_t GetTransactionId() const;
+
   void CommitTransaction();
 
   void RollbackTransaction();
@@ -297,16 +310,22 @@ class Interpreter final {
   void SetNextTransactionIsolationLevel(storage::IsolationLevel isolation_level);
   void SetSessionIsolationLevel(storage::IsolationLevel isolation_level);
 
+  std::vector<std::string> GetQueryStrings();
+
   /**
    * Abort the current multicommand transaction.
    */
   void Abort();
+
+  // this will be moved to the right place
 
  private:
   struct QueryExecution {
     std::optional<PreparedQuery> prepared_query;
     utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
     utils::ResourceWithOutOfMemoryException execution_memory_with_exception{&execution_memory};
+
+    std::string query;
 
     std::map<std::string, TypedValue> summary;
     std::vector<Notification> notifications;

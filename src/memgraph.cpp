@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -522,6 +522,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
       : memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                memgraph::communication::v2::OutputStream>(input_stream, output_stream),
         db_(data->db),
+        interpreter_context_(data->interpreter_context),
         interpreter_(data->interpreter_context),
         auth_(data->auth),
 #if MG_ENTERPRISE
@@ -529,6 +530,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 #endif
         endpoint_(endpoint),
         run_id_(data->run_id) {
+    data->interpreter_context->interpreters->insert(&interpreter_);
   }
 
   using memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
@@ -674,6 +676,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 
   // NOTE: Needed only for ToBoltValue conversions
   const memgraph::storage::Storage *db_;
+  memgraph::query::InterpreterContext *interpreter_context_;
   memgraph::query::Interpreter interpreter_;
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth_;
   std::optional<memgraph::auth::User> user_;

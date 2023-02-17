@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1143,6 +1143,8 @@ void Storage::Accessor::FinalizeTransaction() {
     commit_timestamp_.reset();
   }
 }
+
+uint64_t Storage::Accessor::GetTransactionId() { return transaction_.transaction_id; }
 
 const std::string &Storage::LabelToName(LabelId label) const { return name_id_mapper_.IdToName(label.AsUint()); }
 

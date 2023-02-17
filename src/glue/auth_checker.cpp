@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -84,6 +84,24 @@ bool AuthChecker::IsUserAuthorized(const std::optional<std::string> &username,
 
   return maybe_user.has_value() && IsUserAuthorized(*maybe_user, privileges);
 }
+
+/*
+Creates a user from the username and checks if it is the admin. If there are no users, everyone is the admin.
+*/
+bool AuthChecker::IsUserAdmin(const std::optional<std::string> &username) const {
+  std::optional<memgraph::auth::User> maybe_user;
+  {
+    auto locked_auth = auth_->ReadLock();
+    if (!locked_auth->HasUsers()) {
+      return true;
+    }
+    if (username.has_value()) {
+      maybe_user = locked_auth->GetUser(*username);
+    }
+  }
+  return maybe_user.has_value() && IsUserAdmin(*maybe_user);
+}
+
 #ifdef MG_ENTERPRISE
 std::unique_ptr<memgraph::query::FineGrainedAuthChecker> AuthChecker::GetFineGrainedAuthChecker(
     const std::string &username, const memgraph::query::DbAccessor *dba) const {
@@ -108,6 +126,26 @@ std::unique_ptr<memgraph::query::FineGrainedAuthChecker> AuthChecker::GetFineGra
 bool AuthChecker::IsUserAuthorized(const memgraph::auth::User &user,
                                    const std::vector<memgraph::query::AuthQuery::Privilege> &privileges) {
   const auto user_permissions = user.GetPermissions();
+  return std::all_of(privileges.begin(), privileges.end(), [&user_permissions](const auto privilege) {
+    return user_permissions.Has(memgraph::glue::PrivilegeToPermission(privilege)) ==
+           memgraph::auth::PermissionLevel::GRANT;
+  });
+}
+
+bool AuthChecker::IsUserAdmin(const memgraph::auth::User &user) {
+  const auto user_permissions = user.GetPermissions();
+  const std::vector<memgraph::query::AuthQuery::Privilege> privileges{
+      memgraph::query::AuthQuery::Privilege::CREATE,      memgraph::query::AuthQuery::Privilege::DELETE,
+      memgraph::query::AuthQuery::Privilege::MATCH,       memgraph::query::AuthQuery::Privilege::MERGE,
+      memgraph::query::AuthQuery::Privilege::SET,         memgraph::query::AuthQuery::Privilege::REMOVE,
+      memgraph::query::AuthQuery::Privilege::INDEX,       memgraph::query::AuthQuery::Privilege::STATS,
+      memgraph::query::AuthQuery::Privilege::AUTH,        memgraph::query::AuthQuery::Privilege::CONSTRAINT,
+      memgraph::query::AuthQuery::Privilege::DUMP,        memgraph::query::AuthQuery::Privilege::REPLICATION,
+      memgraph::query::AuthQuery::Privilege::DURABILITY,  memgraph::query::AuthQuery::Privilege::READ_FILE,
+      memgraph::query::AuthQuery::Privilege::FREE_MEMORY, memgraph::query::AuthQuery::Privilege::TRIGGER,
+      memgraph::query::AuthQuery::Privilege::CONFIG,      memgraph::query::AuthQuery::Privilege::STREAM,
+      memgraph::query::AuthQuery::Privilege::MODULE_READ, memgraph::query::AuthQuery::Privilege::MODULE_WRITE,
+      memgraph::query::AuthQuery::Privilege::WEBSOCKET};
   return std::all_of(privileges.begin(), privileges.end(), [&user_permissions](const auto privilege) {
     return user_permissions.Has(memgraph::glue::PrivilegeToPermission(privilege)) ==
            memgraph::auth::PermissionLevel::GRANT;
