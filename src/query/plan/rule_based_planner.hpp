@@ -396,23 +396,10 @@ class RuleBasedPlanner {
     // optimizes the optional match which filters only on symbols bound in
     // regular match.
     auto last_op = GenFilters(std::move(input_op), bound_symbols, filters, storage, symbol_table);
-    for (const auto &expansion : matching.expansions) {
-      const auto &node1_symbol = symbol_table.at(*expansion.node1->identifier_);
-      if (bound_symbols.insert(node1_symbol).second) {
-        // We have just bound this symbol, so generate ScanAll which fills it.
-        last_op = std::make_unique<ScanAll>(std::move(last_op), node1_symbol, match_context.view);
-        match_context.new_symbols.emplace_back(node1_symbol);
-        last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
-        last_op = impl::GenNamedPaths(std::move(last_op), bound_symbols, named_paths);
-        last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
-      }
 
-      // We have an edge, so generate Expand.
-      if (expansion.edge) {
-        last_op = GenExpand(std::move(last_op), expansion, symbol_table, bound_symbols, matching, storage, filters,
-                            named_paths, match_context.new_symbols, match_context.view);
-      }
-    }
+    last_op = HandleExpansion(std::move(last_op), matching, symbol_table, storage, bound_symbols,
+                              match_context.new_symbols, named_paths, filters, match_context.view);
+
     MG_ASSERT(named_paths.empty(), "Expected to generate all named paths");
     // We bound all named path symbols, so just add them to new_symbols.
     for (const auto &named_path : matching.named_paths) {
@@ -447,6 +434,33 @@ class RuleBasedPlanner {
       MG_ASSERT(on_match, "Expected SET in MERGE ... ON MATCH");
     }
     return std::make_unique<plan::Merge>(std::move(input_op), std::move(on_match), std::move(on_create));
+  }
+
+  std::unique_ptr<LogicalOperator> HandleExpansion(std::unique_ptr<LogicalOperator> last_op, const Matching &matching,
+                                                   const SymbolTable &symbol_table, AstStorage &storage,
+                                                   std::unordered_set<Symbol> &bound_symbols,
+                                                   std::vector<Symbol> &new_symbols,
+                                                   std::unordered_map<Symbol, std::vector<Symbol>> &named_paths,
+                                                   Filters &filters, storage::View view) {
+    for (const auto &expansion : matching.expansions) {
+      const auto &node1_symbol = symbol_table.at(*expansion.node1->identifier_);
+      if (bound_symbols.insert(node1_symbol).second) {
+        // We have just bound this symbol, so generate ScanAll which fills it.
+        last_op = std::make_unique<ScanAll>(std::move(last_op), node1_symbol, view);
+        new_symbols.emplace_back(node1_symbol);
+
+        last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
+        last_op = impl::GenNamedPaths(std::move(last_op), bound_symbols, named_paths);
+        last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
+      }
+
+      if (expansion.edge) {
+        last_op = GenExpand(std::move(last_op), expansion, symbol_table, bound_symbols, matching, storage, filters,
+                            named_paths, new_symbols, view);
+      }
+    }
+
+    return last_op;
   }
 
   std::unique_ptr<LogicalOperator> GenExpand(std::unique_ptr<LogicalOperator> last_op, const Expansion &expansion,
@@ -605,23 +619,8 @@ class RuleBasedPlanner {
 
     std::unordered_map<Symbol, std::vector<Symbol>> named_paths;
 
-    for (const auto &expansion : matching.expansions) {
-      const auto &node1_symbol = symbol_table.at(*expansion.node1->identifier_);
-      if (expand_symbols.insert(node1_symbol).second) {
-        // We have just bound this symbol, so generate ScanAll which fills it.
-        last_op = std::make_unique<ScanAll>(std::move(last_op), node1_symbol, storage::View::OLD);
-        new_symbols.emplace_back(node1_symbol);
-
-        last_op = GenFilters(std::move(last_op), expand_symbols, filters, storage, symbol_table);
-        last_op = impl::GenNamedPaths(std::move(last_op), expand_symbols, named_paths);
-        last_op = GenFilters(std::move(last_op), expand_symbols, filters, storage, symbol_table);
-      }
-
-      if (expansion.edge) {
-        last_op = GenExpand(std::move(last_op), expansion, symbol_table, expand_symbols, matching, storage, filters,
-                            named_paths, new_symbols, storage::View::OLD);
-      }
-    }
+    last_op = HandleExpansion(std::move(last_op), matching, symbol_table, storage, expand_symbols, new_symbols,
+                              named_paths, filters, storage::View::OLD);
 
     last_op = std::make_unique<Limit>(std::move(last_op), storage.Create<PrimitiveLiteral>(1));
 
