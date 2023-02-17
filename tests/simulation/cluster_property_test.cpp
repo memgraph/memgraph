@@ -38,7 +38,7 @@ RC_GTEST_PROP(RandomClusterConfig, HappyPath, (ClusterConfig cluster_config, Non
 
   SimulatorConfig sim_config{
       .drop_percent = 0,
-      .perform_timeouts = false,
+      .perform_timeouts = true,
       .scramble_messages = true,
       .rng_seed = rng_seed,
       .start_time = Time::min(),

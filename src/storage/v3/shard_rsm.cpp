@@ -71,6 +71,16 @@ auto CreateErrorResponse(const ShardError &shard_error, const auto transaction_i
 }
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
+  if (req.shard_map_version < shard_->Version()) {
+    spdlog::warn("ShardRsm Rejecting client request with stale ShardMap version, so that they retry");
+    return msgs::CreateVerticesResponse{
+        .error = msgs::ShardError{
+            .code = common::ErrorCode::STALE_SHARD_MAP,
+            .message = "Shard has a higher version than the requestor's ShardMap due to a Shard split or merge, so the "
+                       "requestor must refresh their ShardMap and try again",
+        }};
+  }
+
   auto acc = shard_->Access(req.transaction_id);
 
   std::optional<msgs::ShardError> shard_error;
@@ -334,6 +344,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::SplitRequest &&req) {
 
 msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
   if (req.shard_map_version < shard_->Version()) {
+    spdlog::warn("ShardRsm Rejecting client request with stale ShardMap version, so that they retry");
     return msgs::ScanVerticesResponse{
         .error = msgs::ShardError{
             .code = common::ErrorCode::STALE_SHARD_MAP,

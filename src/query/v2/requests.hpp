@@ -500,6 +500,7 @@ struct NewVertex {
 
 struct CreateVerticesRequest {
   Hlc transaction_id;
+  Hlc shard_map_version;
   std::vector<NewVertex> new_vertices;
 };
 

@@ -151,12 +151,13 @@ class RequestRouter : public RequestRouterInterface {
   }
 
   void StartTransaction() override {
-    coordinator::HlcRequest req{.last_shard_map_version = shards_map_.GetHlc()};
+    coordinator::HlcRequest req{.last_shard_map_version = shard_map_.GetHlc()};
     CoordinatorWriteRequests write_req = req;
     spdlog::trace("sending hlc request to start transaction");
     auto write_res = coord_cli_.SendWriteRequest(write_req);
     spdlog::trace("received hlc response to start transaction");
     if (write_res.HasError()) {
+      spdlog::warn("throwing because of hlc request failure 3");
       throw std::runtime_error("HLC request failed");
     }
     auto coordinator_write_response = write_res.GetValue();
@@ -166,32 +167,33 @@ class RequestRouter : public RequestRouterInterface {
     transaction_id_ = hlc_response.new_hlc;
 
     if (hlc_response.fresher_shard_map) {
-      shards_map_ = hlc_response.fresher_shard_map.value();
+      shard_map_ = hlc_response.fresher_shard_map.value();
       SetUpNameIdMappers();
     }
   }
 
   void Commit() override {
-    coordinator::HlcRequest req{.last_shard_map_version = shards_map_.GetHlc()};
+    coordinator::HlcRequest req{.last_shard_map_version = shard_map_.GetHlc()};
     CoordinatorWriteRequests write_req = req;
     spdlog::trace("sending hlc request before committing transaction");
     auto write_res = coord_cli_.SendWriteRequest(write_req);
     spdlog::trace("received hlc response before committing transaction");
     if (write_res.HasError()) {
+      spdlog::warn("throwing because of commit failure");
       throw std::runtime_error("HLC request for commit failed");
     }
     auto coordinator_write_response = write_res.GetValue();
     auto hlc_response = std::get<coordinator::HlcResponse>(coordinator_write_response);
 
     if (hlc_response.fresher_shard_map) {
-      shards_map_ = hlc_response.fresher_shard_map.value();
+      shard_map_ = hlc_response.fresher_shard_map.value();
       SetUpNameIdMappers();
     }
     auto commit_timestamp = hlc_response.new_hlc;
 
     msgs::CommitRequest commit_req{.transaction_id = transaction_id_, .commit_timestamp = commit_timestamp};
 
-    for (const auto &[label, space] : shards_map_.label_spaces) {
+    for (const auto &[label, space] : shard_map_.label_spaces) {
       for (const auto &[key, shard] : space.shards) {
         auto &storage_client = GetStorageClientForShard(shard);
         // TODO(kostasrim) Currently requests return the result directly. Adjust this when the API works MgFuture
@@ -200,11 +202,13 @@ class RequestRouter : public RequestRouterInterface {
         // RETRY on timeouts?
         // Sometimes this produces a timeout. Temporary solution is to use a while(true) as was done in shard_map test
         if (commit_response.HasError()) {
+          spdlog::warn("throwing because of commit failure 2");
           throw std::runtime_error("Commit request timed out");
         }
         msgs::WriteResponses write_response_variant = commit_response.GetValue();
         auto &response = std::get<msgs::CommitResponse>(write_response_variant);
         if (response.error) {
+          spdlog::warn("throwing because of commit failure 3");
           throw std::runtime_error("Commit request did not succeed");
         }
       }
@@ -212,15 +216,15 @@ class RequestRouter : public RequestRouterInterface {
   }
 
   storage::v3::EdgeTypeId NameToEdgeType(const std::string &name) const override {
-    return shards_map_.GetEdgeTypeId(name).value();
+    return shard_map_.GetEdgeTypeId(name).value();
   }
 
   storage::v3::PropertyId NameToProperty(const std::string &name) const override {
-    return shards_map_.GetPropertyId(name).value();
+    return shard_map_.GetPropertyId(name).value();
   }
 
   storage::v3::LabelId NameToLabel(const std::string &name) const override {
-    return shards_map_.GetLabelId(name).value();
+    return shard_map_.GetLabelId(name).value();
   }
 
   const std::string &PropertyToName(storage::v3::PropertyId id) const override {
@@ -232,8 +236,8 @@ class RequestRouter : public RequestRouterInterface {
   }
 
   bool IsPrimaryKey(storage::v3::LabelId primary_label, storage::v3::PropertyId property) const override {
-    const auto schema_it = shards_map_.schemas.find(primary_label);
-    MG_ASSERT(schema_it != shards_map_.schemas.end(), "Invalid primary label id: {}", primary_label.AsUint());
+    const auto schema_it = shard_map_.schemas.find(primary_label);
+    MG_ASSERT(schema_it != shard_map_.schemas.end(), "Invalid primary label id: {}", primary_label.AsUint());
 
     return std::find_if(schema_it->second.begin(), schema_it->second.end(), [property](const auto &schema_prop) {
              return schema_prop.property_id == property;
@@ -241,10 +245,10 @@ class RequestRouter : public RequestRouterInterface {
   }
 
   const std::vector<coordinator::SchemaProperty> &GetSchemaForLabel(storage::v3::LabelId label) const override {
-    return shards_map_.schemas.at(label);
+    return shard_map_.schemas.at(label);
   }
 
-  bool IsPrimaryLabel(storage::v3::LabelId label) const override { return shards_map_.label_spaces.contains(label); }
+  bool IsPrimaryLabel(storage::v3::LabelId label) const override { return shard_map_.label_spaces.contains(label); }
 
   // TODO(kostasrim) Simplify return result
   std::vector<VertexAccessor> ScanVertices(std::optional<std::string> label) override {
@@ -404,15 +408,15 @@ class RequestRouter : public RequestRouterInterface {
   }
 
   std::optional<storage::v3::PropertyId> MaybeNameToProperty(const std::string &name) const override {
-    return shards_map_.GetPropertyId(name);
+    return shard_map_.GetPropertyId(name);
   }
 
   std::optional<storage::v3::EdgeTypeId> MaybeNameToEdgeType(const std::string &name) const override {
-    return shards_map_.GetEdgeTypeId(name);
+    return shard_map_.GetEdgeTypeId(name);
   }
 
   std::optional<storage::v3::LabelId> MaybeNameToLabel(const std::string &name) const override {
-    return shards_map_.GetLabelId(name);
+    return shard_map_.GetLabelId(name);
   }
 
  private:
@@ -422,10 +426,11 @@ class RequestRouter : public RequestRouterInterface {
 
     for (const auto &new_vertex : new_vertices) {
       MG_ASSERT(!new_vertex.label_ids.empty(), "No label_ids provided for new vertex in RequestRouter::CreateVertices");
-      auto shard = shards_map_.GetShardForKey(new_vertex.label_ids[0].id,
-                                              storage::conversions::ConvertPropertyVector(new_vertex.primary_key));
+      auto shard = shard_map_.GetShardForKey(new_vertex.label_ids[0].id,
+                                             storage::conversions::ConvertPropertyVector(new_vertex.primary_key));
       if (!per_shard_request_table.contains(shard)) {
-        msgs::CreateVerticesRequest create_v_rqst{.transaction_id = transaction_id_};
+        msgs::CreateVerticesRequest create_v_rqst{.transaction_id = transaction_id_,
+                                                  .shard_map_version = shard_map_.shard_map_version};
         per_shard_request_table.insert(std::pair(shard, std::move(create_v_rqst)));
       }
       per_shard_request_table[shard].new_vertices.push_back(std::move(new_vertex));
@@ -456,9 +461,9 @@ class RequestRouter : public RequestRouterInterface {
     };
 
     for (auto &new_expand : new_expands) {
-      const auto shard_src_vertex = shards_map_.GetShardForKey(
+      const auto shard_src_vertex = shard_map_.GetShardForKey(
           new_expand.src_vertex.first.id, storage::conversions::ConvertPropertyVector(new_expand.src_vertex.second));
-      const auto shard_dest_vertex = shards_map_.GetShardForKey(
+      const auto shard_dest_vertex = shard_map_.GetShardForKey(
           new_expand.dest_vertex.first.id, storage::conversions::ConvertPropertyVector(new_expand.dest_vertex.second));
 
       ensure_shard_exists_in_table(shard_src_vertex);
@@ -487,12 +492,12 @@ class RequestRouter : public RequestRouterInterface {
       const std::optional<std::string> &label) {
     std::vector<coordinator::Shards> multi_shards;
     if (label) {
-      const auto label_id = shards_map_.GetLabelId(*label);
+      const auto label_id = shard_map_.GetLabelId(*label);
       MG_ASSERT(label_id);
       MG_ASSERT(IsPrimaryLabel(*label_id));
-      multi_shards = {shards_map_.GetShardsForLabel(*label)};
+      multi_shards = {shard_map_.GetShardsForLabel(*label)};
     } else {
-      multi_shards = shards_map_.GetAllShards();
+      multi_shards = shard_map_.GetAllShards();
     }
 
     std::vector<ShardRequestState<msgs::ScanVerticesRequest>> requests = {};
@@ -503,6 +508,7 @@ class RequestRouter : public RequestRouterInterface {
 
         msgs::ScanVerticesRequest request;
         request.transaction_id = transaction_id_;
+        request.shard_map_version = shard_map_.shard_map_version;
         request.start_id.second = storage::conversions::ConvertValueVector(key);
 
         ShardRequestState<msgs::ScanVerticesRequest> shard_request_state{
@@ -525,7 +531,7 @@ class RequestRouter : public RequestRouterInterface {
 
     for (auto &vertex : request.src_vertices) {
       auto shard =
-          shards_map_.GetShardForKey(vertex.first.id, storage::conversions::ConvertPropertyVector(vertex.second));
+          shard_map_.GetShardForKey(vertex.first.id, storage::conversions::ConvertPropertyVector(vertex.second));
       if (!per_shard_request_table.contains(shard)) {
         per_shard_request_table.insert(std::pair(shard, top_level_rqst_template));
       }
@@ -556,7 +562,7 @@ class RequestRouter : public RequestRouterInterface {
 
     for (auto &&vertex : request.vertex_ids) {
       auto shard =
-          shards_map_.GetShardForKey(vertex.first.id, storage::conversions::ConvertPropertyVector(vertex.second));
+          shard_map_.GetShardForKey(vertex.first.id, storage::conversions::ConvertPropertyVector(vertex.second));
       if (!per_shard_request_table.contains(shard)) {
         per_shard_request_table.insert(std::pair(shard, top_level_rqst_template));
       }
@@ -565,7 +571,7 @@ class RequestRouter : public RequestRouterInterface {
 
     for (auto &[vertex, maybe_edge] : request.vertices_and_edges) {
       auto shard =
-          shards_map_.GetShardForKey(vertex.first.id, storage::conversions::ConvertPropertyVector(vertex.second));
+          shard_map_.GetShardForKey(vertex.first.id, storage::conversions::ConvertPropertyVector(vertex.second));
       if (!per_shard_request_table.contains(shard)) {
         per_shard_request_table.insert(std::pair(shard, top_level_rqst_template));
       }
@@ -594,7 +600,7 @@ class RequestRouter : public RequestRouterInterface {
   }
 
   StorageClient &GetStorageClientForShard(const std::string &label, const CompoundKey &key) {
-    auto shard = shards_map_.GetShardForKey(label, key);
+    auto shard = shard_map_.GetShardForKey(label, key);
     return GetStorageClientForShard(std::move(shard));
   }
 
@@ -637,12 +643,14 @@ class RequestRouter : public RequestRouterInterface {
       }
 
       if (poll_result->HasError()) {
-        throw std::runtime_error("RequestRouter Read request timed out");
+        storage_client.SendAsyncReadRequest(request.request, notifier_, ready);
+        continue;
       }
 
       msgs::ReadResponses response_variant = poll_result->GetValue();
       auto response = std::get<ResponseT>(response_variant);
       if (response.error) {
+        spdlog::warn("throwing because of timeout 5");
         throw std::runtime_error("RequestRouter Read request did not succeed");
       }
 
@@ -683,12 +691,14 @@ class RequestRouter : public RequestRouterInterface {
       }
 
       if (poll_result->HasError()) {
-        throw std::runtime_error("RequestRouter Write request timed out");
+        storage_client.SendAsyncWriteRequest(request.request, notifier_, ready);
+        continue;
       }
 
       msgs::WriteResponses response_variant = poll_result->GetValue();
       auto response = std::get<ResponseT>(response_variant);
       if (response.error) {
+        spdlog::warn("throwing because of timeout 2");
         throw std::runtime_error("RequestRouter Write request did not succeed");
       }
 
@@ -711,17 +721,17 @@ class RequestRouter : public RequestRouterInterface {
 
   void SetUpNameIdMappers() {
     std::unordered_map<uint64_t, std::string> id_to_name;
-    for (const auto &[name, id] : shards_map_.labels) {
+    for (const auto &[name, id] : shard_map_.labels) {
       id_to_name.emplace(id.AsUint(), name);
     }
     labels_.StoreMapping(std::move(id_to_name));
     id_to_name.clear();
-    for (const auto &[name, id] : shards_map_.properties) {
+    for (const auto &[name, id] : shard_map_.properties) {
       id_to_name.emplace(id.AsUint(), name);
     }
     properties_.StoreMapping(std::move(id_to_name));
     id_to_name.clear();
-    for (const auto &[name, id] : shards_map_.edge_types) {
+    for (const auto &[name, id] : shard_map_.edge_types) {
       id_to_name.emplace(id.AsUint(), name);
     }
     edge_types_.StoreMapping(std::move(id_to_name));
@@ -744,7 +754,7 @@ class RequestRouter : public RequestRouterInterface {
     return {};
   }
 
-  ShardMap shards_map_;
+  ShardMap shard_map_;
   storage::v3::NameIdMapper properties_;
   storage::v3::NameIdMapper edge_types_;
   storage::v3::NameIdMapper labels_;

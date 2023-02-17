@@ -122,7 +122,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         throw ExpressionRuntimeException("Unexpected schema violation when accessing {}.", accessed_object);
       case Error::STALE_SHARD_MAP:
         throw ExpressionRuntimeException(
-            "Cluster performed a Shard split or merge that invalidated the transaction's metadata.");
+            "Cluster performed a Shard split or merge that invalidated the transaction's metadata. This should have "
+            "been handled in the RequestRouter.");
     }
   }
 
