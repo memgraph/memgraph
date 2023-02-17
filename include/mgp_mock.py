@@ -145,7 +145,7 @@ class Properties:
             return default
 
     def set(self, property_name: str, value: object) -> None:
-        if nx.is_frozen(self._vertex_or_edge.nx_graph):
+        if not self._vertex_or_edge.underlying_graph_is_mutable():
             raise ImmutableObjectError("Cannot modify immutable object.")
 
         self[property_name] = value
@@ -154,17 +154,10 @@ class Properties:
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
 
-        vertex_or_edge_props = (
-            self._vertex_or_edge.nx_graph.nodes[self._vertex_or_edge.id]
-            if isinstance(self._vertex_or_edge, _mgp_mock.Vertex)
-            else self._vertex_or_edge.nx_graph.edges[self._vertex_or_edge.edge]
-        )
+        vertex_or_edge_props = self._vertex_or_edge.properties
 
-        for key, value in vertex_or_edge_props.items():
-            if key in (_mgp_mock.NX_LABEL_ATTR, _mgp_mock.NX_TYPE_ATTR):
-                continue
-
-            yield Property(key, value)
+        for property in vertex_or_edge_props:
+            yield Property(*property)
 
     def keys(self) -> typing.Iterable[str]:
         if not self._vertex_or_edge.is_valid():
@@ -200,28 +193,16 @@ class Properties:
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
 
-        vertex_or_edge_props = (
-            self._vertex_or_edge.nx_graph.nodes[self._vertex_or_edge.id]
-            if isinstance(self._vertex_or_edge, _mgp_mock.Vertex)
-            else self._vertex_or_edge.nx_graph.edges[self._vertex_or_edge.edge]
-        )
-
-        return vertex_or_edge_props[property_name]
+        return self._vertex_or_edge.get_property(property_name)
 
     def __setitem__(self, property_name: str, value: object) -> None:
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
 
-        if nx.is_frozen(self._vertex_or_edge.nx_graph):
+        if not self._vertex_or_edge.underlying_graph_is_mutable():
             raise ImmutableObjectError("Cannot modify immutable object.")
 
-        if isinstance(self._vertex_or_edge, _mgp_mock.Vertex):
-            vertex_id = self._vertex_or_edge.id
-            self._vertex_or_edge.nx_graph.nodes[vertex_id][property_name] = value
-            return
-
-        edge_ids = self._vertex_or_edge.edge
-        self._vertex_or_edge.nx_graph.edges[edge_ids][property_name] = value
+        self._vertex_or_edge.set_property(property_name, value)
 
     def __contains__(self, property_name: str) -> bool:
         if not self._vertex_or_edge.is_valid():
@@ -283,7 +264,7 @@ class Edge:
         if not self.is_valid():
             raise InvalidContextError()
 
-        return not nx.is_frozen(self._edge.nx_graph)
+        return self._edge.underlying_graph_is_mutable()
 
     @property
     def id(self) -> EdgeId:
@@ -303,16 +284,14 @@ class Edge:
         if not self.is_valid():
             raise InvalidContextError()
 
-        vertex = _mgp_mock.Vertex(self._edge.start_id, self._edge.graph)
-        return Vertex(vertex)
+        return Vertex(self._edge.from_vertex())
 
     @property
     def to_vertex(self) -> "Vertex":
         if not self.is_valid():
             raise InvalidContextError()
 
-        vertex = _mgp_mock.Vertex(self._edge.end_id, self._edge.graph)
-        return Vertex(vertex)
+        return Vertex(self._edge.to_vertex())
 
     @property
     def properties(self) -> Properties:
@@ -363,7 +342,7 @@ class Vertex:
         if not self.is_valid():
             raise InvalidContextError()
 
-        return not nx.is_frozen(self._vertex.nx_graph)
+        return self._vertex.underlying_graph_is_mutable()
 
     @property
     def id(self) -> VertexId:
@@ -402,16 +381,16 @@ class Vertex:
         if not self.is_valid():
             raise InvalidContextError()
 
-        for edge in self._vertex.nx_graph.in_edges(self.id, keys=True):
-            yield Edge(_mgp_mock.Edge(edge, self._vertex.graph))
+        for edge in self._vertex.in_edges:
+            yield Edge(edge)
 
     @property
     def out_edges(self) -> typing.Iterable[Edge]:
         if not self.is_valid():
             raise InvalidContextError()
 
-        for edge in self._vertex.nx_graph.out_edges(self.id, keys=True):
-            yield Edge(_mgp_mock.Edge(edge, self._vertex.graph))
+        for edge in self._vertex.out_edges:
+            yield Edge(edge)
 
     def __eq__(self, other) -> bool:
         if not self.is_valid():
@@ -439,7 +418,7 @@ class Path:
             if not vertex.is_valid():
                 raise InvalidContextError()
 
-            self._path = _mgp_mock.Path.make_with_start(vertex, vertex.graph)
+            self._path = _mgp_mock.Path.make_with_start(vertex)
 
         else:
             raise TypeError(f"Expected 'Vertex' or '_mgp_mock.Path', got '{type(starting_vertex_or_path)}'")
@@ -534,11 +513,11 @@ class Vertices:
         if not self.is_valid():
             raise InvalidContextError()
 
-        for id in self._graph.nx.nodes:
-            yield Vertex(_mgp_mock.Vertex(id, self._graph))
+        for vertex in self._graph.vertices:
+            yield Vertex(vertex)
 
-    def __contains__(self, vertex):
-        return self._graph.nx.has_node(vertex.id)
+    def __contains__(self, vertex: Vertex):
+        return self._graph.has_node(vertex.id)
 
     def __len__(self):
         if not self._len:
@@ -576,7 +555,7 @@ class Graph:
         if not self.is_valid():
             raise InvalidContextError()
 
-        return Vertex(_mgp_mock.Vertex(vertex_id, self._graph))
+        return Vertex(self._graph.get_vertex_by_id(vertex_id))
 
     @property
     def vertices(self) -> Vertices:
@@ -589,48 +568,45 @@ class Graph:
         if not self.is_valid():
             raise InvalidContextError()
 
-        return not nx.is_frozen(self._graph.nx)
+        return not self._graph.is_immutable()
 
     def create_vertex(self) -> Vertex:
         if not self.is_valid():
             raise InvalidContextError()
 
-        if nx.is_frozen(self._graph.nx):
+        if self._graph.is_immutable():
             raise ImmutableObjectError("Cannot modify immutable object.")
 
-        new_id = max(node for node in self._graph.nx.nodes) + 1
-        self._graph.nx.add_node(new_id)
-
-        return Vertex(_mgp_mock.Vertex(new_id, self._graph))
+        return Vertex(self._graph.create_vertex())
 
     def delete_vertex(self, vertex: Vertex) -> None:
         if not self.is_valid():
             raise InvalidContextError()
 
-        if nx.is_frozen(self._graph.nx):
+        if self._graph.is_immutable():
             raise ImmutableObjectError("Cannot modify immutable object.")
 
-        if not nx.is_isolate(self._graph.nx, vertex.id):
+        if not self._graph.vertex_is_isolate(vertex.id):
             raise LogicErrorError("Logic error.")
 
         # TODO find out whether users can ever send this method a nonexistent vertex
-        self._graph.nx.remove_node(vertex.id)
+        self._graph.delete_vertex(vertex.id)
 
     def detach_delete_vertex(self, vertex: Vertex) -> None:
         if not self.is_valid():
             raise InvalidContextError()
 
-        if nx.is_frozen(self._graph.nx):
+        if self._graph.is_immutable():
             raise ImmutableObjectError("Cannot modify immutable object.")
 
         # TODO find out whether users can ever send this method a nonexistent vertex
-        self._graph.nx.remove_node(vertex.id)
+        self._graph.delete_vertex(vertex.id)
 
     def create_edge(self, from_vertex: Vertex, to_vertex: Vertex, edge_type: EdgeType) -> Edge:
         if not self.is_valid():
             raise InvalidContextError()
 
-        if nx.is_frozen(self._graph.nx):
+        if self._graph.is_immutable():
             raise ImmutableObjectError("Cannot modify immutable object.")
 
         new_edge = self._graph.create_edge(from_vertex.id, to_vertex.id, edge_type.name)
@@ -640,10 +616,10 @@ class Graph:
         if not self.is_valid():
             raise InvalidContextError()
 
-        if nx.is_frozen(self._graph.nx):
+        if self._graph.is_immutable():
             raise ImmutableObjectError("Cannot modify immutable object.")
 
-        self._graph.nx.remove_edge(edge.from_vertex.id, edge.to_vertex.id, edge.id)
+        self._graph.delete_edge(edge.from_vertex.id, edge.to_vertex.id, edge.id)
 
 
 class AbortError(Exception):
@@ -671,15 +647,16 @@ class ProcCtx:
 
         return self._graph
 
-    def must_abort(self) -> bool:
-        if not self.is_valid():
-            raise InvalidContextError()
+    # TODO try to implement
+    # def must_abort(self) -> bool:
+    #     if not self.is_valid():
+    #         raise InvalidContextError()
 
-        return self._graph._graph.nx.must_abort()
+    #     return self._graph._graph.nx.must_abort()
 
-    def check_must_abort(self):
-        if self.must_abort():
-            raise AbortError
+    # def check_must_abort(self):
+    #     if self.must_abort():
+    #         raise AbortError
 
 
 # Additional typing support

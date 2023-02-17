@@ -1,4 +1,5 @@
 import typing
+from collections import namedtuple
 
 import kafka
 import networkx as nx
@@ -17,7 +18,7 @@ class LogicErrorError(Exception):
 
 
 class Graph:
-    __slots__ = ("nx", "_highest_edge_id", "_valid")
+    __slots__ = ("nx", "_highest_vertex_id", "_highest_edge_id", "_valid")
 
     I_KEY = 2
 
@@ -26,14 +27,59 @@ class Graph:
             raise TypeError(f"Expected 'networkx.classes.multidigraph.MultiDiGraph', got '{type(graph)}'")
 
         self.nx = graph
+        self._highest_vertex_id = None
         self._highest_edge_id = None
         self._valid = True
+
+    @property
+    def vertex_ids(self):
+        return self.nx.nodes
+
+    def vertex_is_isolate(self, vertex_id: int) -> bool:
+        return nx.is_isolate(self.nx, vertex_id)
+
+    @property
+    def vertices(self):
+        return (Vertex(node_id, self) for node_id in self.nx.nodes)
+
+    def has_node(self, node_id):
+        return self.nx.has_node(node_id)
+
+    @property
+    def edges(self):
+        return self.nx.edges
+
+    def is_valid(self) -> bool:
+        return self._valid
+
+    def get_vertex_by_id(self, vertex_id: int) -> "Vertex":
+        return Vertex(vertex_id, self)
+
+    def invalidate(self):
+        self._valid = False
+
+    def is_immutable(self) -> bool:
+        return nx.is_frozen(self.nx)
 
     def _new_edge_id(self):
         if self._highest_edge_id is None:
             self._highest_edge_id = max(edge[Graph.I_KEY] for edge in self.nx.edges(keys=True))
 
         return self._highest_edge_id + 1
+
+    def _new_vertex_id(self):
+        if self._highest_vertex_id is None:
+            self._highest_vertex_id = max(vertex_id for vertex_id in self.nx.nodes) + 1
+
+        return self._highest_vertex_id + 1
+
+    def create_vertex(self) -> "Vertex":
+        vertex_id = self._new_vertex_id()
+
+        self.nx.add_node(vertex_id)
+        self._highest_vertex_id = vertex_id
+
+        return Vertex(vertex_id, self)
 
     def create_edge(self, from_id: int, to_id: int, edge_type: str) -> "Edge":
         edge_id = self._new_edge_id()
@@ -43,11 +89,11 @@ class Graph:
 
         return Edge((from_id, to_id, edge_id), self)
 
-    def is_valid(self) -> bool:
-        return self._valid
+    def delete_vertex(self, vertex_id: int):
+        self.nx.remove_node(vertex_id)
 
-    def invalidate(self):
-        self._valid = False
+    def delete_edge(self, from_vertex_id: int, to_vertex_id: int, edge_id: int):
+        self.nx.remove_edge(from_vertex_id, to_vertex_id, edge_id)
 
 
 class Vertex:
@@ -66,44 +112,65 @@ class Vertex:
         self._id = id
         self._graph = graph
 
+    def is_valid(self) -> bool:
+        return self._graph.is_valid()
+
+    @property
+    def underlying_graph(self) -> Graph:
+        return self._graph
+
+    def underlying_graph_is_mutable(self) -> bool:
+        return not nx.is_frozen(self._graph.nx)
+
+    @property
+    def labels(self) -> typing.List[int]:
+        return self._graph.nx.nodes[self._id][NX_LABEL_ATTR].split(":")
+
+    def add_label(self, label: str) -> None:
+        if nx.is_frozen(self._graph.nx):
+            raise ImmutableObjectError("Cannot modify immutable object.")
+
+        self._graph.nx.nodes[self._id][NX_LABEL_ATTR] += f":{label}"
+
+    def remove_label(self, label: str) -> None:
+        if nx.is_frozen(self._graph.nx):
+            raise ImmutableObjectError("Cannot modify immutable object.")
+
+        labels = self._graph.nx.nodes[self._id][NX_LABEL_ATTR]
+        if labels.startswith(f"{label}:"):
+            labels = "\n" + labels  # pseudo-string starter
+            self._graph.nx.nodes[self._id][NX_LABEL_ATTR] = labels.replace(f"\n{label}:", "")
+        elif labels.endswith(f":{label}"):
+            labels += "\n"  # pseudo-string terminator
+            self._graph.nx.nodes[self._id][NX_LABEL_ATTR] = labels.replace(f":{label}\n", "")
+        else:
+            self._graph.nx.nodes[self._id][NX_LABEL_ATTR] = labels.replace(f":{label}:", ":")
+
     @property
     def id(self) -> int:
         return self._id
 
     @property
-    def graph(self) -> Graph:
-        return self._graph
+    def properties(self):
+        return (
+            (key, value)
+            for key, value in self._graph.nx.nodes[self._id].items()
+            if key not in (NX_LABEL_ATTR, NX_TYPE_ATTR)
+        )
+
+    def get_property(self, property_name: str):
+        return self._graph.nx.nodes[self._id][property_name]
+
+    def set_property(self, property_name: str, value: object):
+        self._graph.nx.nodes[self._id][property_name] = value
 
     @property
-    def nx_graph(self) -> nx.MultiDiGraph:
-        return self._graph.nx
+    def in_edges(self) -> typing.Iterable["Edge"]:
+        return [Edge(edge, self._graph) for edge in self._graph.nx.in_edges(self._id, keys=True)]
 
     @property
-    def labels(self) -> typing.List[int]:
-        return self.nx_graph.nodes[self._id][NX_LABEL_ATTR].split(":")
-
-    def is_valid(self) -> bool:
-        return self._graph.is_valid()
-
-    def add_label(self, label: str) -> None:
-        if nx.is_frozen(self.nx_graph):
-            raise ImmutableObjectError("Cannot modify immutable object.")
-
-        self.nx_graph.nodes[self._id][NX_LABEL_ATTR] += f":{label}"
-
-    def remove_label(self, label: str) -> None:
-        if nx.is_frozen(self.nx_graph):
-            raise ImmutableObjectError("Cannot modify immutable object.")
-
-        labels = self.nx_graph.nodes[self._id][NX_LABEL_ATTR]
-        if labels.startswith(f"{label}:"):
-            labels = "\n" + labels  # pseudo-string starter
-            self.nx_graph.nodes[self._id][NX_LABEL_ATTR] = labels.replace(f"\n{label}:", "")
-        elif labels.endswith(f":{label}"):
-            labels += "\n"  # pseudo-string terminator
-            self.nx_graph.nodes[self._id][NX_LABEL_ATTR] = labels.replace(f":{label}\n", "")
-        else:
-            self.nx_graph.nodes[self._id][NX_LABEL_ATTR] = labels.replace(f":{label}:", ":")
+    def out_edges(self) -> typing.Iterable["Edge"]:
+        return [Edge(edge, self._graph) for edge in self._graph.nx.out_edges(self._id, keys=True)]
 
 
 class Edge:
@@ -126,6 +193,12 @@ class Edge:
         self._edge = edge
         self._graph = graph
 
+    def is_valid(self) -> bool:
+        return self._graph.is_valid()
+
+    def underlying_graph_is_mutable(self) -> bool:
+        return not nx.is_frozen(self._graph.nx)
+
     @property
     def id(self) -> int:
         return self._edge[Edge.I_KEY]
@@ -134,27 +207,38 @@ class Edge:
     def edge(self) -> typing.Tuple[int, int, int]:
         return self._edge
 
-    @property
-    def graph(self) -> Graph:
-        return self._graph
-
-    @property
-    def nx_graph(self) -> nx.MultiDiGraph:
-        return self._graph.nx
-
+    # TODO maybe not necessary
     @property
     def start_id(self) -> int:
         return self._edge[Edge.I_START]
 
+    # TODO maybe not necessary
     @property
     def end_id(self) -> int:
         return self._edge[Edge.I_END]
 
-    def is_valid(self) -> bool:
-        return self._graph.is_valid()
-
     def get_type_name(self):
-        return self.nx_graph.get_edge_data(*self._edge)[NX_TYPE_ATTR]
+        return self._graph.nx.get_edge_data(*self._edge)[NX_TYPE_ATTR]
+
+    def from_vertex(self) -> Vertex:
+        return Vertex(self.start_id, self._graph)
+
+    def to_vertex(self) -> Vertex:
+        return Vertex(self.end_id, self._graph)
+
+    @property
+    def properties(self):
+        return (
+            (key, value)
+            for key, value in self._graph.nx.edges[self._edge].items()
+            if key not in (NX_LABEL_ATTR, NX_TYPE_ATTR)
+        )
+
+    def get_property(self, property_name: str):
+        return self._graph.nx.edges[self._edge][property_name]
+
+    def set_property(self, property_name: str, value: object):
+        self._graph.nx.edges[self._edge][property_name] = value
 
 
 class Path:
@@ -169,24 +253,23 @@ class Path:
         self._graph = graph
 
     @classmethod
-    def make_with_start(cls, vertex: Vertex, graph: Graph) -> "Path":
+    def make_with_start(cls, vertex: Vertex) -> "Path":
         if not isinstance(vertex, Vertex):
             raise TypeError(f"Expected 'Vertex', got '{type(vertex)}'")
 
-        if not isinstance(graph, Graph):
-            raise TypeError(f"Expected '_mgp_mock.Graph', got '{type(graph)}'")
+        if not isinstance(vertex.underlying_graph, Graph):
+            raise TypeError(f"Expected '_mgp_mock.Graph', got '{type(vertex.underlying_graph)}'")
 
-        if not graph.nx.has_node(vertex._id):
+        if not vertex.underlying_graph.nx.has_node(vertex._id):
             raise IndexError(f"Unable to find vertex with ID {vertex._id}.")
 
-        return Path(cls.__create_key, vertex._id, graph)
-
-    @property
-    def nx_graph(self) -> nx.MultiDiGraph:
-        return self._graph.nx
+        return Path(cls.__create_key, vertex._id, vertex.underlying_graph)
 
     def is_valid(self) -> bool:
         return self._graph.is_valid()
+
+    def underlying_graph_is_mutable(self) -> bool:
+        return not nx.is_frozen(self._graph.nx)
 
     def expand(self, edge: Edge):
         if edge.start_id != self._vertices[-1]:

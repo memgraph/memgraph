@@ -142,7 +142,7 @@ def get_vertex(ctx, permanent_id: int) -> mgp.Vertex:
     return None
 
 
-def get_edge(ctx, permanent_id: int) -> mgp.Edge:
+def get_edge(ctx: mgp.ProcCtx, permanent_id: int) -> mgp.Edge:
     for vertex in ctx.graph.vertices:
         for edge in vertex.out_edges:
             if edge.properties["permanent_id"] == permanent_id:
@@ -151,7 +151,7 @@ def get_edge(ctx, permanent_id: int) -> mgp.Edge:
     return None
 
 
-def get_mock_edge(ctx, id: int) -> mgp_mock.Edge:
+def get_mock_edge(ctx: mgp_mock.ProcCtx, id: int) -> mgp_mock.Edge:
     for vertex in ctx.graph.vertices:
         for edge in vertex.out_edges:
             if edge.id == id:
