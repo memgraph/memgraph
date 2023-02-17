@@ -8,7 +8,6 @@ from functools import wraps
 import _mgp_mock
 import kafka
 import networkx as nx
-import pulsar
 
 
 class InvalidContextError(Exception):
@@ -146,7 +145,7 @@ class Properties:
             return default
 
     def set(self, property_name: str, value: object) -> None:
-        if nx.is_frozen(self._vertex_or_edge.graph):
+        if nx.is_frozen(self._vertex_or_edge.nx_graph):
             raise ImmutableObjectError("Cannot modify immutable object.")
 
         self[property_name] = value
@@ -156,9 +155,9 @@ class Properties:
             raise InvalidContextError()
 
         vertex_or_edge_props = (
-            self._vertex_or_edge.graph.nodes[self._vertex_or_edge.id]
+            self._vertex_or_edge.nx_graph.nodes[self._vertex_or_edge.id]
             if isinstance(self._vertex_or_edge, _mgp_mock.Vertex)
-            else self._vertex_or_edge.graph.edges[self._vertex_or_edge.edge]
+            else self._vertex_or_edge.nx_graph.edges[self._vertex_or_edge.edge]
         )
 
         for key, value in vertex_or_edge_props.items():
@@ -202,9 +201,9 @@ class Properties:
             raise InvalidContextError()
 
         vertex_or_edge_props = (
-            self._vertex_or_edge.graph.nodes[self._vertex_or_edge.id]
+            self._vertex_or_edge.nx_graph.nodes[self._vertex_or_edge.id]
             if isinstance(self._vertex_or_edge, _mgp_mock.Vertex)
-            else self._vertex_or_edge.graph.edges[self._vertex_or_edge.edge]
+            else self._vertex_or_edge.nx_graph.edges[self._vertex_or_edge.edge]
         )
 
         return vertex_or_edge_props[property_name]
@@ -213,16 +212,16 @@ class Properties:
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
 
-        if nx.is_frozen(self._vertex_or_edge.graph):
+        if nx.is_frozen(self._vertex_or_edge.nx_graph):
             raise ImmutableObjectError("Cannot modify immutable object.")
 
         if isinstance(self._vertex_or_edge, _mgp_mock.Vertex):
             vertex_id = self._vertex_or_edge.id
-            self._vertex_or_edge.graph.nodes[vertex_id][property_name] = value
+            self._vertex_or_edge.nx_graph.nodes[vertex_id][property_name] = value
             return
 
         edge_ids = self._vertex_or_edge.edge
-        self._vertex_or_edge.graph.edges[edge_ids][property_name] = value
+        self._vertex_or_edge.nx_graph.edges[edge_ids][property_name] = value
 
     def __contains__(self, property_name: str) -> bool:
         if not self._vertex_or_edge.is_valid():
@@ -284,7 +283,7 @@ class Edge:
         if not self.is_valid():
             raise InvalidContextError()
 
-        return not nx.is_frozen(self._edge.graph)
+        return not nx.is_frozen(self._edge.nx_graph)
 
     @property
     def id(self) -> EdgeId:
@@ -364,7 +363,7 @@ class Vertex:
         if not self.is_valid():
             raise InvalidContextError()
 
-        return not nx.is_frozen(self._vertex.graph)
+        return not nx.is_frozen(self._vertex.nx_graph)
 
     @property
     def id(self) -> VertexId:
@@ -403,7 +402,7 @@ class Vertex:
         if not self.is_valid():
             raise InvalidContextError()
 
-        for edge in self._vertex.graph.in_edges(self.id, keys=True):
+        for edge in self._vertex.nx_graph.in_edges(self.id, keys=True):
             yield Edge(_mgp_mock.Edge(edge, self._vertex.graph))
 
     @property
@@ -411,7 +410,7 @@ class Vertex:
         if not self.is_valid():
             raise InvalidContextError()
 
-        for edge in self._vertex.graph.out_edges(self.id, keys=True):
+        for edge in self._vertex.nx_graph.out_edges(self.id, keys=True):
             yield Edge(_mgp_mock.Edge(edge, self._vertex.graph))
 
     def __eq__(self, other) -> bool:
@@ -516,8 +515,8 @@ class Vertices:
     __slots__ = ("_graph", "_len")
 
     def __init__(self, graph):
-        if not isinstance(graph, nx.MultiDiGraph):
-            raise TypeError(f"Expected 'networkx.classes.multidigraph.MultiDiGraph', got '{type(graph)}'")
+        if not isinstance(graph, _mgp_mock.Graph):
+            raise TypeError(f"Expected '_mgp_mock.Graph', got '{type(graph)}'")
 
         self._graph = graph
         self._len = None
@@ -529,17 +528,17 @@ class Vertices:
         return Vertices(self._graph)
 
     def is_valid(self) -> bool:
-        return True
+        return self._graph.is_valid()
 
     def __iter__(self) -> typing.Iterable[Vertex]:
         if not self.is_valid():
             raise InvalidContextError()
 
-        for id in self._graph.nodes:
+        for id in self._graph.nx.nodes:
             yield Vertex(_mgp_mock.Vertex(id, self._graph))
 
     def __contains__(self, vertex):
-        return self._graph.has_node(vertex.id)
+        return self._graph.nx.has_node(vertex.id)
 
     def __len__(self):
         if not self._len:
@@ -559,10 +558,10 @@ class Graph:
     __slots__ = ("_graph",)
 
     def __init__(self, graph):
-        if not isinstance(graph, nx.MultiDiGraph):
-            raise TypeError(f"Expected 'networkx.classes.multidigraph.MultiDiGraph', got '{type(graph)}'")
+        if not isinstance(graph, _mgp_mock.Graph):
+            raise TypeError(f"Expected '_mgp_mock.Graph', got '{type(graph)}'")
 
-        self._graph = _mgp_mock.Graph(graph)
+        self._graph = graph
 
     def __deepcopy__(self, memo):
         # This is the same as the shallow copy, because we want to share the
@@ -571,20 +570,20 @@ class Graph:
         return Graph(self._graph)
 
     def is_valid(self) -> bool:
-        return True
+        return self._graph.is_valid()
 
     def get_vertex_by_id(self, vertex_id: VertexId) -> Vertex:
         if not self.is_valid():
             raise InvalidContextError()
 
-        return Vertex(_mgp_mock.Vertex(vertex_id, self._graph.nx))
+        return Vertex(_mgp_mock.Vertex(vertex_id, self._graph))
 
     @property
     def vertices(self) -> Vertices:
         if not self.is_valid():
             raise InvalidContextError()
 
-        return Vertices(self._graph.nx)
+        return Vertices(self._graph)
 
     def is_mutable(self) -> bool:
         if not self.is_valid():
@@ -602,7 +601,7 @@ class Graph:
         new_id = max(node for node in self._graph.nx.nodes) + 1
         self._graph.nx.add_node(new_id)
 
-        return Vertex(_mgp_mock.Vertex(new_id, self._graph.nx))
+        return Vertex(_mgp_mock.Vertex(new_id, self._graph))
 
     def delete_vertex(self, vertex: Vertex) -> None:
         if not self.is_valid():
@@ -657,13 +656,13 @@ class ProcCtx:
     __slots__ = ("_graph",)
 
     def __init__(self, graph):
-        if not isinstance(graph, nx.MultiDiGraph):
-            raise TypeError(f"Expected 'networkx.classes.multidigraph.MultiDiGraph', got '{type(graph)}'")
+        if not isinstance(graph, _mgp_mock.Graph):
+            raise TypeError(f"Expected '_mgp_mock.Graph', got '{type(graph)}'")
 
         self._graph = Graph(graph)
 
     def is_valid(self) -> bool:
-        return True
+        return self._graph.is_valid()
 
     @property
     def graph(self) -> Graph:
@@ -676,8 +675,7 @@ class ProcCtx:
         if not self.is_valid():
             raise InvalidContextError()
 
-        # for consistency with the Python API, the `_graph` attribute isn’t a “public” property
-        return self._graph._graph.must_abort()
+        return self._graph._graph.nx.must_abort()
 
     def check_must_abort(self):
         if self.must_abort():
@@ -730,8 +728,15 @@ def _register_proc(func: typing.Callable[..., Record], is_write: bool):
 
         @wraps(func)
         def wrapper(ctx, *args):
-            graph = nx.freeze(ctx.graph._graph.nx) if not is_write else ctx.graph._graph.nx
-            return func(ProcCtx(graph), *args)
+            if not is_write:
+                ctx._graph._graph.nx = nx.freeze(ctx.graph._graph.nx)
+
+            result_record = func(ctx, *args)
+
+            # Invalidate context after execution
+            ctx._graph._graph.invalidate()
+
+            return result_record
 
     else:
 
@@ -769,14 +774,11 @@ SOURCE_TYPE_PULSAR = "SOURCE_TYPE_PULSAR"
 
 
 class Message:
-
     __slots__ = ("_message",)
 
     def __init__(self, message):
-        if not isinstance(message, (kafka.consumer.fetcher.ConsumerRecord, pulsar.Message)):
-            raise TypeError(
-                f"Expected 'kafka.consumer.fetcher.ConsumerRecord' or 'pulsar.Message', got '{type(message)}'"
-            )
+        if not isinstance(message, _mgp_mock.Message):
+            raise TypeError(f"Expected '_mgp_mock.Message', got '{type(message)}'")
 
         self._message = message
 
@@ -787,7 +789,7 @@ class Message:
         return Message(self._message)
 
     def is_valid(self) -> bool:
-        return True
+        return self._message.is_valid()
 
     def source_type(self) -> str:
         if not self.is_valid():
@@ -795,7 +797,7 @@ class Message:
 
         return (
             SOURCE_TYPE_KAFKA
-            if isinstance(self._message, kafka.consumer.fetcher.ConsumerRecord)
+            if isinstance(self._message.message, kafka.consumer.fetcher.ConsumerRecord)
             else SOURCE_TYPE_PULSAR
         )
 
@@ -804,9 +806,9 @@ class Message:
             raise InvalidMessageError()
 
         return (
-            self._message.value
-            if isinstance(self._message, kafka.consumer.fetcher.ConsumerRecord)
-            else self._message.data()
+            self._message.message.value
+            if isinstance(self._message.message, kafka.consumer.fetcher.ConsumerRecord)
+            else self._message.message.data()
         )
 
     def topic_name(self) -> str:
@@ -814,37 +816,37 @@ class Message:
             raise InvalidMessageError()
 
         return (
-            self._message.topic
-            if isinstance(self._message, kafka.consumer.fetcher.ConsumerRecord)
-            else self._message.topic_name()
+            self._message.message.topic
+            if isinstance(self._message.message, kafka.consumer.fetcher.ConsumerRecord)
+            else self._message.message.topic_name()
         )
 
     def key(self) -> bytes:
         if not self.is_valid():
             raise InvalidMessageError()
 
-        if not isinstance(self._message, kafka.consumer.fetcher.ConsumerRecord):
+        if not isinstance(self._message.message, kafka.consumer.fetcher.ConsumerRecord):
             raise InvalidArgumentError("Invalid argument.")
 
-        return self._message.key
+        return self._message.message.key
 
     def timestamp(self) -> int:
         if not self.is_valid():
             raise InvalidMessageError()
 
-        if not isinstance(self._message, kafka.consumer.fetcher.ConsumerRecord):
+        if not isinstance(self._message.message, kafka.consumer.fetcher.ConsumerRecord):
             raise InvalidArgumentError("Invalid argument.")
 
-        return self._message.timestamp
+        return self._message.message.timestamp
 
     def offset(self) -> int:
         if not self.is_valid():
             raise InvalidMessageError()
 
-        if not isinstance(self._message, kafka.consumer.fetcher.ConsumerRecord):
+        if not isinstance(self._message.message, kafka.consumer.fetcher.ConsumerRecord):
             raise InvalidArgumentError("Invalid argument.")
 
-        return self._message.offset
+        return self._message.message.offset
 
 
 class InvalidMessagesError(Exception):
@@ -857,8 +859,8 @@ class Messages:
     __slots__ = ("_messages",)
 
     def __init__(self, messages):
-        if not isinstance(messages, typing.List):
-            raise TypeError("Expected 'Dict', got '{}'".format(type(messages)))
+        if not isinstance(messages, _mgp_mock.Messages):
+            raise TypeError("Expected '_mgp_mock.Messages', got '{}'".format(type(messages)))
         self._messages = messages
 
     def __deepcopy__(self, memo):
@@ -868,32 +870,32 @@ class Messages:
         return Messages(self._messages)
 
     def is_valid(self) -> bool:
-        return True
+        return self._messages.is_valid()
 
     def message_at(self, id: int) -> Message:
         if not self.is_valid():
             raise InvalidMessagesError()
 
-        return Message(self._messages[id])
+        return Message(self._messages.messages[id])
 
     def total_messages(self) -> int:
         if not self.is_valid():
             raise InvalidMessagesError()
 
-        return len(self._messages)
+        return len(self._messages.messages)
 
 
 class TransCtx:
     __slots__ = "_graph"
 
     def __init__(self, graph):
-        if not isinstance(graph, nx.MultiDiGraph):
-            raise TypeError(f"Expected 'networkx.classes.multidigraph.MultiDiGraph', got '{type(graph)}'")
+        if not isinstance(graph, _mgp_mock.Graph):
+            raise TypeError(f"Expected 'networkx.classes._mgp_mock.Graph', got '{type(graph)}'")
 
         self._graph = Graph(graph)
 
     def is_valid(self) -> bool:
-        return True
+        return self._graph.is_valid()
 
     @property
     def graph(self) -> Graph:
@@ -917,13 +919,24 @@ def transformation(func: typing.Callable[..., Record]):
 
         @wraps(func)
         def wrapper(ctx, messages):
-            return func(ctx, messages)
+            result_record = func(ctx, messages)
+
+            # Invalidate context and messages after execution
+            ctx._graph._graph.invalidate()
+            messages._messages.invalidate()
+
+            return result_record
 
     else:
 
         @wraps(func)
         def wrapper(_, messages):
-            return func(messages)
+            result_record = func(messages)
+
+            # Invalidate messages after execution
+            messages._messages.invalidate()
+
+            return result_record
 
     return wrapper
 
@@ -932,13 +945,13 @@ class FuncCtx:
     __slots__ = "_graph"
 
     def __init__(self, graph):
-        if not isinstance(graph, nx.MultiDiGraph):
-            raise TypeError(f"Expected 'networkx.classes.multidigraph.MultiDiGraph', got '{type(graph)}'")
+        if not isinstance(graph, _mgp_mock.Graph):
+            raise TypeError(f"Expected '_mgp_mock.Graph', got '{type(graph)}'")
 
         self._graph = Graph(graph)
 
     def is_valid(self) -> bool:
-        return True
+        return self._graph.is_valid()
 
 
 def function(func: typing.Callable):
@@ -951,8 +964,14 @@ def function(func: typing.Callable):
 
         @wraps(func)
         def wrapper(ctx, *args):
-            graph = nx.freeze(ctx.graph._graph.nx)
-            return func(FuncCtx(graph), *args)
+            ctx._graph._graph.nx = nx.freeze(ctx.graph._graph.nx)
+
+            result = func(ctx, *args)
+
+            # Invalidate context after execution
+            ctx._graph._graph.invalidate()
+
+            return result
 
     else:
 

@@ -1,5 +1,6 @@
 from itertools import groupby
 
+import _mgp_mock
 import mgp
 import mgp_mock
 import networkx as nx
@@ -130,7 +131,7 @@ def get_mock_proc_ctx(is_write: bool) -> mgp_mock.ProcCtx:
     if not is_write:
         example_graph = nx.freeze(example_graph)
 
-    return mgp_mock.ProcCtx(example_graph)
+    return mgp_mock.ProcCtx(_mgp_mock.Graph(example_graph))
 
 
 def get_vertex(ctx, permanent_id: int) -> mgp.Vertex:

@@ -1,3 +1,4 @@
+copy_mock_python_api_e2e_files(test_utils.py)
 copy_mock_python_api_e2e_files(edge_type.py)
 copy_mock_python_api_e2e_files(edge.py)
 copy_mock_python_api_e2e_files(graph.py)
@@ -8,4 +9,4 @@ copy_mock_python_api_e2e_files(record.py)
 copy_mock_python_api_e2e_files(vertex.py)
 copy_mock_python_api_e2e_files(vertices.py)
 
-add_subdirectory(test_utils)
+# add_subdirectory(test_utils)
