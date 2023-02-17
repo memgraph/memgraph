@@ -5,6 +5,7 @@ import networkx as nx
 import pulsar
 
 NX_LABEL_ATTR = "labels"
+NX_TYPE_ATTR = "type"
 
 
 class ImmutableObjectError(Exception):
@@ -153,7 +154,7 @@ class Edge:
         return self._graph.is_valid()
 
     def get_type_name(self):
-        return self.nx_graph.get_edge_data(*self._edge)["type"]
+        return self.nx_graph.get_edge_data(*self._edge)[NX_TYPE_ATTR]
 
 
 class Path:

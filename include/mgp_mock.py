@@ -161,7 +161,7 @@ class Properties:
         )
 
         for key, value in vertex_or_edge_props.items():
-            if key in ("label", "type"):
+            if key in (_mgp_mock.NX_LABEL_ATTR, _mgp_mock.NX_TYPE_ATTR):
                 continue
 
             yield Property(key, value)
