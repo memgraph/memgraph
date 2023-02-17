@@ -155,9 +155,16 @@ class Importer:
 
             self._vendor.start_preparation("import")
             print("Executing database cleanup and index setup...")
+            ret = self._client.execute(
+                queries=[
+                    ("MATCH (n) DETACH DELETE n;", {}),
+                ],
+                num_workers=1,
+            )
+
             ret = self._client.execute(file_path=self._dataset.get_index(), num_workers=12)
             print("Importing dataset...")
-            ret = self._client.execute(file_path=self._dataset.get_file_cypherl(), num_workers=12)
+            ret = self._client.execute(file_path=self._dataset.get_file_cypherl(), num_workers=12, max_retries=400)
             usage = self._vendor.stop("import")
             for row in ret:
                 print(

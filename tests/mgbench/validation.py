@@ -128,7 +128,7 @@ if __name__ == "__main__":
                     group, query = funcname.split("__")[1:]
                     queries[group].append((query, funcname))
                 generators[dataset_class.NAME] = (dataset_class, dict(queries))
-                if dataset_class.PROPERTIES_ON_EDGES and args.no_properties_on_edges:
+                if dataset_class.PROPERTIES_ON_EDGES and False:
                     raise Exception(
                         'The "{}" dataset requires properties on edges, '
                         "but you have disabled them!".format(dataset.NAME)
@@ -154,10 +154,51 @@ if __name__ == "__main__":
     memgraph = runners.Memgraph(
         "/home/maple/repos/test/memgraph/build/memgraph",
         "/tmp",
-        False,
+        True,
         7687,
         False,
     )
+
+    cache = helpers.Cache()
+    client = runners.Client(args.client_binary, args.temporary_directory, 7687)
+
+    benchmarks_memgraph = filter_benchmarks(generators, args.benchmarks, "memgraph")
+
+    results_memgraph = {}
+
+    for dataset, queries in benchmarks_memgraph:
+
+        dataset.prepare(cache.cache_directory("datasets", dataset.NAME, dataset.get_variant()))
+        impor = importer.Importer(dataset=dataset, vendor=memgraph, client=client)
+
+        status = impor.try_optimal_import()
+
+        if status == False:
+            print("Need alternative import")
+        else:
+            print("Fast import executed")
+
+        for group in sorted(queries.keys()):
+            for query, funcname in queries[group]:
+                print("Running query:{}/{}/{}".format(group, query, funcname))
+                func = getattr(dataset, funcname)
+                sample = (get_queries(func, 1),)
+                count = 1
+                # Benchmark run.
+                print("Sample query:", get_queries(func, 1)[0][0])
+                memgraph.start_benchmark("validation")
+                try:
+                    ret = client.execute(queries=get_queries(func, count), num_workers=1, validation=True)[0]
+                    results_memgraph[funcname] = ret["results"].items()
+
+                except Exception as e:
+                    print("Issue running the query" + funcname)
+                    print(e)
+                    results_memgraph[funcname] = (funcname, "Query not executed properly")
+                finally:
+                    usage = memgraph.stop("validation")
+                    print("Database used {:.3f} seconds of CPU time.".format(usage["cpu"]))
+                    print("Database peaked at {:.3f} MiB of memory.".format(usage["memory"] / 1024.0 / 1024.0))
 
     neo4j = runners.Neo4j(
         "/home/maple/repos/neo4j-community-5.4.0",
@@ -165,71 +206,63 @@ if __name__ == "__main__":
         7687,
         False,
     )
+    benchmarks_neo4j = filter_benchmarks(generators, args.benchmarks, "neo4j")
 
-    client = runners.Client(args.client_binary, args.temporary_directory, 7687)
-    benchmarks = filter_benchmarks(generators, args.benchmarks, "neo4j")
+    results_neo4j = {}
 
-    vendors = {"neo4j": neo4j}
-    cache = helpers.Cache()
+    for dataset, queries in benchmarks_neo4j:
 
-    results = {}
-    for name, vendor in vendors.items():
-        for dataset, queries in benchmarks:
+        dataset.prepare(cache.cache_directory("datasets", dataset.NAME, dataset.get_variant()))
+        impo = importer.Importer(dataset=dataset, vendor=neo4j, client=client)
 
-            dataset.prepare(cache.cache_directory("datasets", dataset.NAME, dataset.get_variant()))
-            importer = importer.Importer(dataset=dataset, vendor=vendor, client=client)
+        status = impo.try_optimal_import()
 
-            status = importer.try_optimal_import()
+        if status == False:
+            print("Need alternative import")
+        else:
+            print("Fast import executed")
 
-            if status == False:
-                print("Need alternative import")
-            else:
-                print("Fast import executed")
+        for group in sorted(queries.keys()):
+            for query, funcname in queries[group]:
+                print("Running query:{}/{}/{}".format(group, query, funcname))
+                func = getattr(dataset, funcname)
+                sample = (get_queries(func, 1),)
+                count = 1
+                # Benchmark run.
+                print("Sample query:", get_queries(func, 1)[0][0])
+                neo4j.start_benchmark("validation")
+                try:
+                    ret = client.execute(queries=get_queries(func, count), num_workers=1, validation=True)[0]
+                    results_neo4j[funcname] = ret["results"].items()
 
-            for group in sorted(queries.keys()):
-                for query, funcname in queries[group]:
-                    print("Running query:{}/{}/{}".format(group, query, funcname))
-                    func = getattr(dataset, funcname)
-                    sample = (get_queries(func, 1),)
-                    count = 1
-                    # Benchmark run.
-                    print("Sample query:", get_queries(func, 1)[0][0])
-                    vendor.start_benchmark("validation")
-                    try:
-                        ret = client.execute(queries=get_queries(func, count), num_workers=1, validation=True)[0]
-                        results[funcname] = ret["results"].items()
+                except Exception as e:
+                    print("Issue running the query" + funcname)
+                    print(e)
+                    results_neo4j[funcname] = (funcname, "Query not executed properly")
+                finally:
+                    usage = neo4j.stop("validation")
+                    print("Database used {:.3f} seconds of CPU time.".format(usage["cpu"]))
+                    print("Database peaked at {:.3f} MiB of memory.".format(usage["memory"] / 1024.0 / 1024.0))
 
-                    except Exception as e:
-                        print("Issue running the query" + funcname)
-                        print(e)
-                        results[funcname] = "Issue"
-                    finally:
-                        usage = vendor.stop("validation")
-                        print("Database used {:.3f} seconds of CPU time.".format(usage["cpu"]))
-                        print("Database peaked at {:.3f} MiB of memory.".format(usage["memory"] / 1024.0 / 1024.0))
+    validation = {}
+    for key in results_memgraph.keys():
+        memgraph_values = set()
+        for index, value in results_memgraph[key]:
+            memgraph_values.add(value)
+        neo4j_values = set()
+        for index, value in results_neo4j[key]:
+            neo4j_values.add(value)
 
-    for row in results.items():
-        print(row)
+        if memgraph_values == neo4j_values:
+            validation[key] = "Identical results"
+        else:
+            print(neo4j_values)
+            print(memgraph_values)
+            s1 = memgraph_values.intersection(neo4j_values)
+            s2 = neo4j_values.intersection(memgraph_values)
+            print(s1)
+            print(s2)
+            validation[key] = "Different results"
 
-        # # (TODO) Fix comparisons.
-        # for key, value in ret_mem["results"].items():
-        #     for key, value in ret_neo["results"]:
-        #         if value != ret_neo["results"][key]:
-        #             print("Different")
-        #             print(value)
-        #             print(ret_neo["results"][key])
-        #         else:
-        #             print("Identical")
-        #             print(value)
-        #             print(ret_neo["results"][key])
-
-        # print(ret_mem)
-        # print("___")
-        # print(ret_neo)
-
-        # for dataset, queries in benchmarks:
-        #     print(dataset)
-        #     for group in queries.keys():
-        #         print(queries)
-        #         for query in queries[group]:
-        #             print(query)
+    for key, value in validation.items():
+        print(key + " " + value)

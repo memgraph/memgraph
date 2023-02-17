@@ -1,3 +1,9 @@
+import inspect
+from pathlib import Path
+from textwrap import dedent
+
+import helpers
+
 from .dataset import Dataset
 
 
@@ -27,15 +33,58 @@ class LDBC_Interactive(Dataset):
     }
 
     URL_INDEX_FILES = {
-        "memgraph": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/interactive/indices_memgraph.cypher",
+        "memgraph": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/interactive/memgraph_index.cypher",
         "neo4j": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/interactive/neo4j_index.cypher",
     }
 
+    PROPERTIES_ON_EDGES = True
+
+    QUERY_PARAMETERS = {
+        "sf0.1": "https://repository.surfsara.nl/datasets/cwi/snb/files/substitution_parameters/substitution_parameters-sf0.1.tar.zst"
+    }
+
+    def _prepare_parameters_directory(self):
+        parameters = Path() / ".cache" / "datasets" / self.NAME / self._size / "parameters"
+        parameters.mkdir(exist_ok=True)
+        dir_name = self.QUERY_PARAMETERS[self._size].split("/")[-1:][0].removesuffix(".tar.zst")
+        if (parameters / dir_name).exists():
+            print("Files downloaded:")
+            parameters = parameters / dir_name
+        else:
+            print("Downloading files")
+            downloaded_file = helpers.download_file(self.QUERY_PARAMETERS[self._size], parameters.absolute())
+            print("Unpacking the file..." + downloaded_file)
+            parameters = helpers.unpack_tar_zst(Path(downloaded_file))
+        return parameters
+
+    def _get_query_parameters(self):
+        func_name = inspect.stack()[1].function
+        print(func_name)
+
+        input_files = {}
+        for file in self._parameters_dir.glob("interactive_*.txt"):
+            if file.name.split("_")[1] == func_name.split("_")[-1]:
+                pass
+
+            # parts = file.parts[-2:]
+            # key = parts[0] + "/" + parts[1][:-8]
+            # input_files[key] = file
+
     def __init__(self, variant=None, vendor=None):
         super().__init__(variant, vendor)
+        self._parameters_dir = self._prepare_parameters_directory()
 
     def benchmark__interactive__sample_query(self):
         return ("MATCH(n:Tag) RETURN COUNT(*);", {})
+
+    def benchmark__interactive__sample_query2(self):
+        return ("MATCH (n:Person {id: $personId}) RETURN n;", {"personId": 933})
+
+    def benchmark__interactive__sample_query3(self):
+        return ("MATCH(n:Tag) RETURN COUNT(*);", {})
+
+    def benchmark__interactive__sample_query4(self):
+        return ("MATCH (n:Person {id: $personId}) RETURN n;", {"personId": 933})
 
     def benchmark__interactive__complex_query_1(self):
         memgraph = (
@@ -84,10 +133,10 @@ class LDBC_Interactive(Dataset):
             friendLastName ASC,
             toInteger(friendId) ASC
         LIMIT 20
-        """.rstrip(
-                "\t\n"
+        """.replace(
+                "\n", ""
             ),
-            {"personId": 4398046511333, "firstName": "Jose"},
+            {"personId": 30786325579101, "firstName": "Ian"},
         )
         neo4j = (
             """
@@ -136,12 +185,12 @@ class LDBC_Interactive(Dataset):
                 friendLastName ASC,
                 toInteger(friendId) ASC
             LIMIT 20
-            """.rstrip(
-                "\t\n"
+            """.replace(
+                "\n", ""
             ),
-            {"personId": 4398046511333, "firstName": "Jose"},
+            {"personId": 30786325579101, "firstName": "Ian"},
         )
-        if self.vendor == "memgraph":
+        if self._vendor == "memgraph":
             return memgraph
         else:
             return neo4j
@@ -162,10 +211,10 @@ class LDBC_Interactive(Dataset):
                 postOrCommentCreationDate DESC,
                 toInteger(postOrCommentId) ASC
             LIMIT 20
-            """.rstrip(
-                "\t\n"
+            """.replace(
+                "\n", ""
             ),
-            {"personId": 10995116278009, "maxDate": "2011-06-29T12:00:00+00:00"},
+            {"personId": 19791209300143, "maxDate": "2011-06-29T12:00:00"},
         )
 
     def benchmark__interactive__complex_query_3(self):
@@ -199,15 +248,15 @@ class LDBC_Interactive(Dataset):
                 xCount + yCount AS xyCount
             ORDER BY xyCount DESC, friendId ASC
             LIMIT 20
-            """.rstrip(
-                "\t\n"
+            """.replace(
+                "\n", ""
             ),
             {
                 "personId": 6597069766734,
                 "countryXName": "Angola",
                 "countryYName": "Colombia",
-                "startDate": "2011-06-29T12:00:00+00:00",
-                "endDate": "2011-06-29T12:00:00+00:00",
+                "startDate": "2011-06-29T12:00:00",
+                "endDate": "2011-06-29T12:00:00",
             },
         )
 
@@ -235,8 +284,8 @@ class LDBC_Interactive(Dataset):
             """,
             {
                 "personId": 4398046511333,
-                "startDate": "2011-06-29T12:00:00+00:00",
-                "endDate": "2011-06-29T12:00:00+00:00",
+                "startDate": "2011-06-29T12:00:00",
+                "endDate": "2011-06-29T12:00:00",
             },
         )
 
@@ -266,12 +315,12 @@ class LDBC_Interactive(Dataset):
                 postCount DESC,
                 forum.id ASC
             LIMIT 20
-            """.rstrip(
-                "\t\n"
+            """.replace(
+                "\n", ""
             ),
             {
                 "personId": 6597069766734,
-                "minDate": "2011-06-29T12:00:00+00:00",
+                "minDate": "2011-06-29T12:00:00",
             },
         )
 
@@ -301,8 +350,8 @@ class LDBC_Interactive(Dataset):
                 postCount DESC,
                 tagName ASC
             LIMIT 10
-            """.rstrip(
-                "\t\n"
+            """.replace(
+                "\n", ""
             ),
             {"personId": 4398046511333, "tagName": "Carl_Gustaf_Emil_Mannerheim"},
         )
@@ -326,8 +375,8 @@ class LDBC_Interactive(Dataset):
                 likeCreationDate DESC,
                 toInteger(personId) ASC
             LIMIT 20
-            """.rstrip(
-                "\t\n"
+            """.replace(
+                "\n", ""
             ),
             {"personId": 4398046511268},
         )
@@ -350,12 +399,12 @@ class LDBC_Interactive(Dataset):
                 likeCreationDate DESC
                 toInteger(personId) ASC
             LIMIT 20
-            """.rstrip(
-                "\t\n"
+            """.replace(
+                "\n", ""
             ),
             {"personId": 4398046511268},
         )
-        if self.vendor == "memgraph":
+        if self._vendor == "memgraph":
             return memgraph
         else:
             return neo4j
@@ -375,8 +424,8 @@ class LDBC_Interactive(Dataset):
                 commentCreationDate DESC,
                 commentId ASC
             LIMIT 20
-            """.rstrip(
-                "\t\n"
+            """.replace(
+                "\n", ""
             ),
             {"personId": 143},
         )
@@ -401,10 +450,10 @@ class LDBC_Interactive(Dataset):
                 commentOrPostCreationDate DESC,
                 message.id ASC
             LIMIT 20
-            """.rstrip(
-                "\t\n"
+            """.replace(
+                "\n", ""
             ),
-            {"personId": 4398046511268, "maxDate": "2011-06-29T12:00:00+00:00"},
+            {"personId": 4398046511268, "maxDate": "2011-06-29T12:00:00"},
         )
 
     def benchmark__interactive__complex_query_10(self):
@@ -432,8 +481,8 @@ class LDBC_Interactive(Dataset):
                 city.name AS personCityName
             ORDER BY commonInterestScore DESC, personId ASC
             LIMIT 10
-            """.rstrip(
-                "\t\n"
+            """.replace(
+                "\n", ""
             ),
             {"personId": 4398046511333, "month": 5},
         )
@@ -462,13 +511,13 @@ class LDBC_Interactive(Dataset):
                 city.name AS personCityName
             ORDER BY commonInterestScore DESC, personId ASC
             LIMIT 10
-            """.rstrip(
-                "\t\n"
+            """.replace(
+                "\n", ""
             ),
             {"personId": 4398046511333, "month": 5},
         )
 
-        if self.vendor == "memgraph":
+        if self._vendor == "memgraph":
             return memgraph
         else:
             return neo4j
@@ -492,8 +541,8 @@ class LDBC_Interactive(Dataset):
                     toInteger(personId) ASC,
                     organizationName DESC
             LIMIT 10
-            """.rstrip(
-                "\t\n"
+            """.replace(
+                "\n", ""
             ),
             {
                 "personId": 10995116277918,
@@ -520,8 +569,8 @@ class LDBC_Interactive(Dataset):
                 replyCount DESC,
                 toInteger(personId) ASC
             LIMIT 20
-            """.rstrip(
-                "\t\n"
+            """.replace(
+                "\n", ""
             ),
             {
                 "personId": 10995116277918,
@@ -541,8 +590,8 @@ class LDBC_Interactive(Dataset):
                     WHEN true THEN -1
                     ELSE size(path)
                 END AS shortestPathLength
-            """.rstrip(
-                "\t\n"
+            """.replace(
+                "\n", ""
             ),
             {"person1Id": 8796093022390, "person2Id": 8796093022357},
         )
@@ -558,13 +607,13 @@ class LDBC_Interactive(Dataset):
                     WHEN true THEN -1
                     ELSE length(path)
                 END AS shortestPathLength
-            """.rstrip(
-                "\t\n"
+            """.replace(
+                "\n", ""
             ),
             {"person1Id": 8796093022390, "person2Id": 8796093022357},
         )
 
-        if self.vendor == "memgraph":
+        if self._vendor == "memgraph":
             return memgraph
         else:
             return neo4j
@@ -600,8 +649,8 @@ class LDBC_Interactive(Dataset):
                 personIdsInPath,
                 (w1+w2) as pathWeight
             ORDER BY pathWeight desc
-            """.rstrip(
-                "\t\n"
+            """.replace(
+                "\n", ""
             ),
             {"person1Id": 8796093022390, "person2Id": 8796093022357},
         )
@@ -636,13 +685,13 @@ class LDBC_Interactive(Dataset):
                 personIdsInPath,
                 (w1+w2) as pathWeight
             ORDER BY pathWeight desc
-            """.rstrip(
-                "\t\n"
+            """.replace(
+                "\n", ""
             ),
             {"person1Id": 8796093022390, "person2Id": 8796093022357},
         )
 
-        if self.vendor == "memgraph":
+        if self._vendor == "memgraph":
             return memgraph
         else:
             return neo4j
@@ -714,8 +763,8 @@ class LDBC_BI(Dataset):
                 year DESC,
                 isComment ASC,
                 lengthCategory ASC
-            """.rstrip(
-                "\t\n"
+            """.replace(
+                "\n", ""
             ),
             {"datetime": "2011-12-01T00:00:00.000"},
         )
@@ -744,8 +793,8 @@ class LDBC_BI(Dataset):
                 diff DESC,
                 tag.name ASC
             LIMIT 100
-            """.rstrip(
-                "\t\n"
+            """.replace(
+                "\n", ""
             ),
             {"date": "2012-06-01", "tagClass": "MusicalArtist"},
         )
@@ -767,8 +816,8 @@ class LDBC_BI(Dataset):
                 messageCount DESC,
                 forum.id ASC
             LIMIT 20
-            """.rstrip(
-                "\t\n"
+            """.replace(
+                "\n", ""
             ),
             {"tagClass": "MusicalArtist", "country": "Burma"},
         )
@@ -810,8 +859,8 @@ class LDBC_BI(Dataset):
                 messageCount DESC,
                 person.id ASC
             LIMIT 100
-            """.rstrip(
-                "\t\n"
+            """.replace(
+                "\n", ""
             ),
             {"datetime": "2010-01-29"},
         )
@@ -835,8 +884,8 @@ class LDBC_BI(Dataset):
                 score DESC,
                 person.id ASC
             LIMIT 100
-            """.rstrip(
-                "\t\n"
+            """.replace(
+                "\n", ""
             ),
             {"tag": "Abbas_I_of_Persia"},
         )
@@ -854,8 +903,8 @@ class LDBC_BI(Dataset):
                 authorityScore DESC,
                 person1.id ASC
             LIMIT 100
-            """.rstrip(
-                "\t\n"
+            """.replace(
+                "\n", ""
             ),
             {"tag": "Arnold_Schwarzenegger"},
         )
@@ -874,8 +923,8 @@ class LDBC_BI(Dataset):
                 count DESC,
                 relatedTag.name ASC
             LIMIT 100
-            """.rstrip(
-                "\t\n"
+            """.replace(
+                "\n", ""
             ),
             {"tag": "Enrique_Iglesias"},
         )
@@ -914,8 +963,8 @@ class LDBC_BI(Dataset):
                 score + friendsScore DESC,
                 person.id ASC
             LIMIT 100
-            """.rstrip(
-                "\t\n"
+            """.replace(
+                "\n", ""
             ),
             {
                 "tag": "Che_Guevara",
@@ -942,8 +991,8 @@ class LDBC_BI(Dataset):
                 messageCount DESC,
                 person.id ASC
             LIMIT 100
-            """.rstrip(
-                "\t\n"
+            """.replace(
+                "\n", ""
             ),
             {
                 "startDate": "2011-10-01",
@@ -970,8 +1019,8 @@ class LDBC_BI(Dataset):
             WHERE $startDate <= k3.creationDate AND k3.creationDate <= $endDate
             WITH DISTINCT a, b, c
             RETURN count(*) AS count
-            """.rstrip(
-                "\t\n"
+            """.replace(
+                "\n", ""
             ),
             {"startDate": "2012-09-29", "endDate": "2013-01-01"},
         )
@@ -994,8 +1043,8 @@ class LDBC_BI(Dataset):
             ORDER BY
                 personCount DESC,
                 messageCount DESC
-            """.rstrip(
-                "\t\n"
+            """.replace(
+                "\n", ""
             ),
             {
                 "startDate": "2010-07-22",
@@ -1053,8 +1102,8 @@ class LDBC_BI(Dataset):
                 zombieScore DESC,
                 zombie.id ASC
             LIMIT 100
-            """.rstrip(
-                "\t\n"
+            """.replace(
+                "\n", ""
             ),
             {
                 "country": "France",
@@ -1099,8 +1148,8 @@ class LDBC_BI(Dataset):
                 top.person1Id ASC,
                 top.person2Id ASC
             LIMIT 100
-            """.rstrip(
-                "\t\n"
+            """.replace(
+                "\n", ""
             ),
             {"country1": "Chile", "country2": "Argentina"},
         )
@@ -1128,8 +1177,8 @@ class LDBC_BI(Dataset):
             RETURN person1.id, count(DISTINCT message2) AS messageCount
             ORDER BY messageCount DESC, person1.id ASC
             LIMIT 10
-            """.rstrip(
-                "\t\n"
+            """.replace(
+                "\n", ""
             ),
             {
                 "tag": "Slavoj_Žižek",
@@ -1146,8 +1195,8 @@ class LDBC_BI(Dataset):
             RETURN person1.id AS person1Id, person2.id AS person2Id, count(DISTINCT mutualFriend) AS mutualFriendCount
             ORDER BY mutualFriendCount DESC, person1Id ASC, person2Id ASC
             LIMIT 20
-            """.rstrip(
-                "\t\n"
+            """.replace(
+                "\n", ""
             ),
             {"tag": "Frank_Sinatra"},
         )

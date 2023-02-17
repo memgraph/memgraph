@@ -423,7 +423,6 @@ class Client:
             port=self._bolt_port,
             validation=validation,
         )
-        ret = subprocess.run(args, capture_output=True)
 
         ret = subprocess.run(args, capture_output=True, check=True)
         error = ret.stderr.decode("utf-8").strip().split("\n")
