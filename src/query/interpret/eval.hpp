@@ -228,8 +228,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
     TypedValue *lhs_ptr = list_indexing.expression1_->Accept(referenceExpressionEvaluator);
     TypedValue lhs;
-    bool referenced = nullptr != lhs_ptr;
-    if (nullptr == lhs_ptr) {
+    const auto referenced = nullptr != lhs_ptr;
+    if (!referenced) {
       lhs = list_indexing.expression1_->Accept(*this);
       lhs_ptr = &lhs;
     }
