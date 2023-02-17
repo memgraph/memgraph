@@ -30,6 +30,8 @@ enum class ErrorCode : uint8_t {
   SCHEMA_VERTEX_UPDATE_PRIMARY_LABEL,
   SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY,
   SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED,
+  // Distributed race conditions
+  STALE_SHARD_MAP,
 
   OBJECT_NOT_FOUND,
 };
@@ -62,6 +64,8 @@ constexpr std::string_view ErrorCodeToString(const ErrorCode code) {
       return "SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED";
     case ErrorCode::OBJECT_NOT_FOUND:
       return "OBJECT_NOT_FOUND";
+    case ErrorCode::STALE_SHARD_MAP:
+      return "STALE_SHARD_MAP";
   }
 }
 

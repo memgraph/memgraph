@@ -120,6 +120,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       case Error::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY:
       case Error::SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED:
         throw ExpressionRuntimeException("Unexpected schema violation when accessing {}.", accessed_object);
+      case Error::STALE_SHARD_MAP:
+        throw ExpressionRuntimeException(
+            "Cluster performed a Shard split or merge that invalidated the transaction's metadata.");
     }
   }
 

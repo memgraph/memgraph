@@ -220,8 +220,6 @@ void ExecuteOp(SimClientContext &context, AssertShardsSplit assert_shards_split)
     initialized_shards = shard_map.InitializedShards();
 
     if (initialized_shards >= minimum_expected_shards) {
-      MG_ASSERT(initialized_shards < 4, "just kidding, this is great, we now have {} initialized shards",
-                initialized_shards);
       auto shard_for_0 =
           shard_map.GetShardForKey("test_label", {storage::v3::PropertyValue(0), storage::v3::PropertyValue(0)});
       auto shard_for_6 =
@@ -309,17 +307,12 @@ std::pair<SimulatorStats, LatencyHistogramSummaries> RunClusterSimulation(const 
   }
   */
 
-  int stride = 4;
-  int shards = 2;
-  for (int i = 0; i < shards; i++) {
-    for (int j = 0; j < stride; j++) {
-      int key = (i * stride) + j;
-      spdlog::warn("~~~~~~~~~~~~~~~~~1");
-      ExecuteOp(context, AssertShardsSplit{});
-      spdlog::warn("~~~~~~~~~~~~~~~~~2: about to create key {}", key);
-      ExecuteOp(context, CreateVertex{.first = 0, .second = key});
-      spdlog::warn("~~~~~~~~~~~~~~~~~3 created {} successfully", key);
-    }
+  for (int key = 0; key < 10; key++) {
+    spdlog::warn("~~~~~~~~~~~~~~~~~1");
+    ExecuteOp(context, AssertShardsSplit{});
+    spdlog::warn("~~~~~~~~~~~~~~~~~2: about to create key {}", key);
+    ExecuteOp(context, CreateVertex{.first = 0, .second = key});
+    spdlog::warn("~~~~~~~~~~~~~~~~~3 created {} successfully", key);
   }
   spdlog::warn("~~~~~~~~~~~~~~~~~4");
   ExecuteOp(context, AssertShardsSplit{});

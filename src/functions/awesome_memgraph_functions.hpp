@@ -457,6 +457,7 @@ TypedValueT Properties(const TypedValueT *args, int64_t nargs, const FunctionCon
           case common::ErrorCode::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY:
           case common::ErrorCode::SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED:
           case common::ErrorCode::OBJECT_NOT_FOUND:
+          case common::ErrorCode::STALE_SHARD_MAP:
             throw functions::FunctionRuntimeException("Unexpected error when getting properties.");
         }
       }
@@ -532,6 +533,7 @@ inline size_t UnwrapDegreeResult(storage::v3::ShardResult<size_t> maybe_degree) 
       case common::ErrorCode::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY:
       case common::ErrorCode::SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED:
       case common::ErrorCode::OBJECT_NOT_FOUND:
+      case common::ErrorCode::STALE_SHARD_MAP:
         throw functions::FunctionRuntimeException("Unexpected error when getting node degree.");
     }
   }
@@ -719,6 +721,7 @@ TypedValueT Labels(const TypedValueT *args, int64_t nargs, const FunctionContext
         case common::ErrorCode::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY:
         case common::ErrorCode::SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED:
         case common::ErrorCode::OBJECT_NOT_FOUND:
+        case common::ErrorCode::STALE_SHARD_MAP:
           throw functions::FunctionRuntimeException("Unexpected error when getting labels.");
       }
     }

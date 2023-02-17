@@ -17,7 +17,6 @@
 #include <optional>
 #include <unordered_set>
 #include <utility>
-#include <variant>
 
 #include "common/errors.hpp"
 #include "parser/opencypher/parser.hpp"
@@ -334,6 +333,14 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::SplitRequest &&req) {
 }
 
 msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
+  if (req.shard_map_version < shard_->Version()) {
+    return msgs::ScanVerticesResponse{
+        .error = msgs::ShardError{
+            .code = common::ErrorCode::STALE_SHARD_MAP,
+            .message = "Shard has a higher version than the requestor's ShardMap due to a Shard split or merge, so the "
+                       "requestor must refresh their ShardMap and try again",
+        }};
+  }
   auto acc = shard_->Access(req.transaction_id);
   std::optional<msgs::ShardError> shard_error;
 

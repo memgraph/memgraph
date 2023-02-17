@@ -344,6 +344,7 @@ enum class StorageView { OLD = 0, NEW = 1 };
 
 struct ScanVerticesRequest {
   Hlc transaction_id;
+  Hlc shard_map_version;
   // This should be optional
   VertexId start_id;
   //  The empty optional means return all of the properties, while an empty list means do not return any properties
