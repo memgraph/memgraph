@@ -618,9 +618,14 @@ class RequestRouter : public RequestRouterInterface {
     std::map<size_t, ResponseT> response_map;
 
     spdlog::trace("waiting on readiness for token");
+    size_t polls = 0;
     while (response_map.size() < running_requests.size()) {
+      spdlog::info("awaiting readiness token");
       auto ready = notifier_.Await();
       spdlog::trace("got readiness for token {}", ready.GetId());
+      spdlog::info("got readiness for token {}", ready.GetId());
+
+      MG_ASSERT(polls++ < 1000, "polls has reached 1000");
       auto &request = running_requests.at(ready.GetId());
       auto &storage_client = GetStorageClientForShard(request.shard);
 

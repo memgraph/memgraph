@@ -319,9 +319,12 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateEdgesRequest &&req) {
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::SplitRequest &&req) {
   auto converted_primary_key = conversions::ConvertPropertyVector(req.split_key);
-  auto new_shard_split_data = shard_->PerformSplit(converted_primary_key, req.old_shard_version, req.new_shard_version);
+  auto new_shard_split_data = shard_->PerformSplit(converted_primary_key, req.old_shard_version,
+                                                   req.new_lhs_shard_version, req.new_rhs_shard_version);
 
   if (new_shard_split_data) {
+    spdlog::warn("ShardRsm performed split at key {} from version {} to versions {} and {}", req.split_key.back().int_v,
+                 req.old_shard_version, req.new_lhs_shard_version, req.new_rhs_shard_version);
     msgs::InitializeSplitShard msg{.shard = Shard::FromSplitData(std::move(*new_shard_split_data)),
                                    .uuid_mapping = req.uuid_mapping};
     shard_manager_sender_.Send(std::move(msg));

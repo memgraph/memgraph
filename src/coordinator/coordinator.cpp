@@ -36,7 +36,7 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(HeartbeatRequest &&heartbeat_r
     const PrimaryKey split_key = storage::conversions::ConvertPropertyVector(suggested_split_info.split_key);
 
     auto &shard = label_space.shards.at(splitting_shard_low_key);
-    const ShardId splitting_shard_id = std::make_pair(label_id, split_key);
+    const ShardId splitting_shard_id = std::make_pair(label_id, splitting_shard_low_key);
 
     if (shard.pending_split.has_value() || shard.version != suggested_split_info.shard_version) {
       spdlog::info("skipping split, already splitting: {}, shard.version: {}, suggested shard_version: {}",
@@ -45,16 +45,24 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(HeartbeatRequest &&heartbeat_r
     }
 
     // begin the split process for this shard
-    spdlog::info("Coordinator beginning new split process after receiving a pending split");
+    const auto new_uuid_lhs = shard_map_.GetHlc();
+    const auto new_uuid_rhs = shard_map_.GetHlc();
+    spdlog::warn(
+        "Coordinator beginning new split process for shard {} after receiving a pending split. splitting into lhs: {} "
+        "and rhs: {}",
+        shard.version.logical_id, new_uuid_lhs.logical_id, new_uuid_rhs.logical_id);
 
     // bump current shard version and store pending split info
-    shard.version = shard_map_.GetHlc();
+    shard.version = new_uuid_lhs;
     shard.pending_split = suggested_split_info;
+    MG_ASSERT(!splitting_shards_.contains(splitting_shard_id));
     splitting_shards_.insert(splitting_shard_id);
     initiated_split = true;
 
     // copy this shard and store it in the ShardMap
     ShardMetadata duplicated_shard{shard};
+    duplicated_shard.version = new_uuid_rhs;
+    duplicated_shard.pending_split.reset();
     std::map<boost::uuids::uuid, boost::uuids::uuid> split_mapping = {};
     for (auto &peer_metadata : duplicated_shard.peers) {
       peer_metadata.status = Status::PENDING_SPLIT;
@@ -92,21 +100,42 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(HeartbeatRequest &&heartbeat_r
     // split state.
     if (rsm_split_from_.contains(initialized_rsm)) {
       auto split_shard_id = rsm_split_from_.at(initialized_rsm);
+
+      auto [split_label_id, split_low_key] = split_shard_id;
+      auto &split_shard = label_space.shards.at(split_low_key);
+
+      spdlog::warn("Coordinator clearing split for shard {}", split_shard.version);
+      MG_ASSERT(split_shard.pending_split.has_value());
+      MG_ASSERT(splitting_shards_.contains(split_shard_id));
+
+      split_shard.pending_split.reset();
       splitting_shards_.erase(split_shard_id);
       rsm_split_from_.erase(initialized_rsm);
     }
 
     size_t initialized_count = 0;
+    bool found = false;
     for (auto &peer : shard.peers) {
-      if (peer.address.unique_id == initialized_rsm) {
-        spdlog::info("Coordinator marking rsm {} as initialized", initialized_rsm);
+      if (peer.address.last_known_ip == heartbeat_request.from_storage_manager.last_known_ip &&
+          peer.address.last_known_port == heartbeat_request.from_storage_manager.last_known_port) {
+        // TODO(tyler) switch the conditional to match on rsm uuid and update the peer last_known_* address always
+        const int low_key_int = low_key[0].ValueInt();
+        MG_ASSERT(peer.address.unique_id == initialized_rsm,
+                  "expected Coordinator uuid {} to equal peer uuid {} for shard version {} with low key {}",
+                  peer.address.unique_id, initialized_rsm, shard.version, low_key_int);
+        spdlog::warn("Coordinator marking rsm {} for shard {} as initialized", initialized_rsm, shard.version);
         peer.status = Status::CONSENSUS_PARTICIPANT;
+        ret.acknowledged_initialized_rsms.push_back(initialized_rsm);
+        found = true;
       }
 
       if (peer.status == Status::CONSENSUS_PARTICIPANT) {
         initialized_count++;
       }
     }
+
+    MG_ASSERT(found, "did not find peer {} in shard version {}", heartbeat_request.from_storage_manager.unique_id,
+              shard.version);
 
     if (initialized_count >= label_space.replication_factor) {
       spdlog::info("clearing underreplicated shard with {} initialized peers", initialized_count);
@@ -168,34 +197,39 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(HeartbeatRequest &&heartbeat_r
   for (const auto &[label_id, low_key] : splitting_shards_) {
     // see if this machine is a PENDING_SPLIT peer for any of the splitting shards
     const auto &label_space = shard_map_.label_spaces.at(label_id);
-    const auto &shard = label_space.shards.at(low_key);
+    const auto &splitting_shard = label_space.shards.at(low_key);
+    MG_ASSERT(splitting_shard.pending_split.has_value());
+    const auto &suggested_split_info = splitting_shard.pending_split.value();
+    const auto split_key = storage::conversions::ConvertPropertyVector(suggested_split_info.split_key);
+    const auto &new_shard = label_space.shards.at(split_key);
 
     spdlog::info("1");
-    for (const auto &peer : shard.peers) {
+    for (const auto &peer : new_shard.peers) {
       spdlog::info("2");
       if (peer.status != Status::PENDING_SPLIT ||
           peer.address.last_known_ip != heartbeat_request.from_storage_manager.last_known_ip ||
           peer.address.last_known_port != heartbeat_request.from_storage_manager.last_known_port) {
-        spdlog::info("not splitting peer: status is PENDING_SPLIT: {}, peer address: {} storage manager address: {}",
+        spdlog::warn("not splitting peer: status is PENDING_SPLIT: {}, peer address: {} storage manager address: {}",
                      peer.status == Status::PENDING_SPLIT, peer.address, heartbeat_request.from_storage_manager);
         // not splitting or not us
         continue;
       }
 
-      spdlog::info("Coordinator expecting heartbeating peer to split, so it will reply with a ShardToSplit message");
+      spdlog::warn("Coordinator expecting heartbeating peer to split, so it will reply with a ShardToSplit message");
 
       std::map<boost::uuids::uuid, boost::uuids::uuid> uuid_mapping{};
 
       // need to iterate over all peers again to build the full uuid_mapping to
       // send to this machine
-      for (const auto &peer_metadata2 : shard.peers) {
+      for (const auto &peer_metadata2 : new_shard.peers) {
         uuid_mapping.emplace(peer_metadata2.split_from, peer_metadata2.address.unique_id);
       }
 
       ret.shards_to_split.push_back(ShardToSplit{
-          .split_key = low_key,
-          // .old_shard_version = shard.previous_version,
-          .new_shard_version = shard.version,
+          .split_key = split_key,
+          .old_shard_version = suggested_split_info.shard_version,
+          .new_lhs_shard_version = splitting_shard.version,
+          .new_rhs_shard_version = new_shard.version,
           .uuid_mapping = uuid_mapping,
       });
     }

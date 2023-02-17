@@ -447,15 +447,18 @@ bool ShardMap::ClusterInitialized() const {
 size_t ShardMap::InitializedShards() const {
   size_t count = 0;
 
+  // spdlog::warn("calculating initialized shards");
   for (const auto &[label_id, label_space] : label_spaces) {
     for (const auto &[low_key, shard] : label_space.shards) {
       if (shard.peers.size() < label_space.replication_factor) {
+        // spdlog::warn("not enough peers in shard {}", shard.version);
         continue;
       }
 
       bool all_initialized = true;
       for (const auto &peer_metadata : shard.peers) {
         if (peer_metadata.status != Status::CONSENSUS_PARTICIPANT) {
+          // spdlog::warn("peer not yet CONSENSUS_PARTICIPANT in shard {}", shard.version);
           all_initialized = false;
         }
       }

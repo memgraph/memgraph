@@ -607,7 +607,8 @@ struct SplitInfo {
 struct SplitRequest {
   PrimaryKey split_key;
   Hlc old_shard_version;
-  Hlc new_shard_version;
+  Hlc new_lhs_shard_version;
+  Hlc new_rhs_shard_version;
   std::map<boost::uuids::uuid, boost::uuids::uuid> uuid_mapping;
 };
 

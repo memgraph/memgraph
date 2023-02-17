@@ -181,12 +181,13 @@ class ShardManager {
     for (const auto &[from_uuid, new_uuid] : init_split_shard.uuid_mapping) {
       bool has_source = rsm_worker_mapping_.contains(from_uuid);
       if (has_source) {
-        coordinator::ShardId new_shard_id =
-            std::make_pair(init_split_shard.shard->PrimaryLabel(), init_split_shard.shard->LowKey());
+        const auto low_key = init_split_shard.shard->LowKey();
+        coordinator::ShardId new_shard_id = std::make_pair(init_split_shard.shard->PrimaryLabel(), low_key);
 
+        spdlog::warn("ShardManager initialized split shard {} with uuid {} and low key {}",
+                     init_split_shard.shard->Version().logical_id, new_uuid, low_key.back());
         msgs::InitializeSplitShardByUUID msg{.shard = std::move(init_split_shard.shard), .shard_uuid = new_uuid};
         SendToWorkerByUuid(new_uuid, std::move(msg));
-        spdlog::warn("ShardManager initialized split shard with uuid: {}", new_uuid);
 
         initialized_but_not_confirmed_rsm_.emplace(new_uuid, new_shard_id);
         break;
@@ -289,13 +290,12 @@ class ShardManager {
 
   void EnsureShardsInitialized(HeartbeatResponse hr) {
     for (const auto &acknowledged_rsm : hr.acknowledged_initialized_rsms) {
-      MG_ASSERT(false, "coordinator properly acking initialized rsms :)");
       initialized_but_not_confirmed_rsm_.erase(acknowledged_rsm);
     }
 
     for (const auto &to_init : hr.shards_to_initialize) {
       coordinator::ShardId new_shard_id = std::make_pair(to_init.label_id, to_init.min_key);
-      spdlog::info("ShardManager has been told to initialize shard {}", to_init.uuid);
+      spdlog::warn("ShardManager has been told to initialize shard {}", to_init.uuid);
       initialized_but_not_confirmed_rsm_.emplace(to_init.uuid, new_shard_id);
 
       if (rsm_worker_mapping_.contains(to_init.uuid)) {
@@ -333,7 +333,8 @@ class ShardManager {
           msgs::WriteRequests split_request_1 =
               msgs::SplitRequest{.split_key = conversions::ConvertValueVector(to_split.split_key),
                                  .old_shard_version = to_split.old_shard_version,
-                                 .new_shard_version = to_split.new_shard_version,
+                                 .new_lhs_shard_version = to_split.new_lhs_shard_version,
+                                 .new_rhs_shard_version = to_split.new_rhs_shard_version,
                                  .uuid_mapping = to_split.uuid_mapping};
 
           WriteRequest<msgs::WriteRequests> split_request_2;

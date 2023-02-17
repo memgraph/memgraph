@@ -337,6 +337,7 @@ Shard::Shard(const LabelId primary_label, const PrimaryKey min_primary_key,
       config_{config},
       shard_splitter_(primary_label, vertices_, edges_, start_logical_id_to_transaction_, indices_, config_, schema,
                       name_id_mapper_) {
+  spdlog::warn("Shard initialized shard with low key {} (path 1)", min_primary_key_.back());
   CreateSchema(primary_label_, schema);
   StoreMapping(std::move(id_to_name));
 }
@@ -359,6 +360,7 @@ Shard::Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<Pr
       start_logical_id_to_transaction_(std::move(start_logical_id_to_transaction)),
       shard_splitter_(primary_label, vertices_, edges_, start_logical_id_to_transaction_, indices_, config_, schema,
                       name_id_mapper_) {
+  spdlog::warn("Shard initialized shard with low key {} (path 2)", min_primary_key_.back());
   CreateSchema(primary_label_, schema);
   StoreMapping(id_to_name);
 }
@@ -380,6 +382,7 @@ Shard::Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<Pr
       start_logical_id_to_transaction_(std::move(start_logical_id_to_transaction)),
       shard_splitter_(primary_label, vertices_, edges_, start_logical_id_to_transaction_, indices_, config_, schema,
                       name_id_mapper_) {
+  spdlog::warn("Shard initialized shard with low key {} (path 3)", min_primary_key_.back());
   CreateSchema(primary_label_, schema);
   StoreMapping(id_to_name);
 }
@@ -393,6 +396,8 @@ std::unique_ptr<Shard> Shard::FromSplitData(SplitData &&split_data) {
                                    std::move(split_data.transactions), split_data.config, split_data.id_to_name,
                                    split_data.shard_version);
   }
+  const auto low_key_int = split_data.min_primary_key.back();
+  spdlog::warn("Shard initialized shard from split data with low key {}", low_key_int);
   return std::make_unique<Shard>(split_data.primary_label, split_data.min_primary_key, split_data.max_primary_key,
                                  split_data.schema, std::move(split_data.vertices), std::move(split_data.transactions),
                                  split_data.config, split_data.id_to_name, split_data.shard_version);
@@ -953,6 +958,8 @@ StorageInfo Shard::GetInfo() const {
   return {vertex_count, edge_count_, average_degree, utils::GetMemoryUsage()};
 }
 
+Hlc Shard::Version() const { return shard_version_; }
+
 VerticesIterable Shard::Accessor::Vertices(LabelId label, View view) {
   return VerticesIterable(shard_->indices_.label_index.Vertices(label, view, transaction_));
 }
@@ -1108,9 +1115,20 @@ std::optional<ShardSuggestedSplitInfo> Shard::ShouldSplit() const noexcept {
   if (vertices_.size() >= config_.split.max_shard_vertex_size) {
     spdlog::info("ShouldSplit is attempting to begin the split process");
     auto mid_elem = vertices_.begin();
+
     // TODO(tyler) the first time we calculate the split point, we should store it so that we don't have to
     // iterate over half of the entire index each time Cron is run until the split succeeds.
     std::ranges::advance(mid_elem, static_cast<VertexContainer::difference_type>(vertices_.size() / 2));
+
+    // TODO(tyler) remove this
+    std::string has_keys = "[";
+    for (const auto &[key, vertex] : vertices_) {
+      has_keys.append(fmt::format("{}, ", key.back()));
+    }
+    has_keys.append("]");
+    spdlog::warn("ShouldSplit returning split key {} after looking at {} for shard version {}", mid_elem->first.back(),
+                 has_keys, shard_version_.logical_id);
+
     return ShardSuggestedSplitInfo{
         .label_id = PrimaryLabel(),
         .splitting_shard_low_key = min_primary_key_,
@@ -1125,16 +1143,20 @@ std::optional<ShardSuggestedSplitInfo> Shard::ShouldSplit() const noexcept {
 }
 
 std::optional<SplitData> Shard::PerformSplit(const PrimaryKey &split_key, const Hlc old_shard_version,
-                                             const Hlc new_shard_version) {
-  if (old_shard_version < shard_version_) {
-    spdlog::warn("Curent shard version {} is bigger than given {}", shard_version_, old_shard_version);
+                                             const Hlc new_lhs_shard_version, const Hlc new_rhs_shard_version) {
+  if (old_shard_version != shard_version_) {
+    // TODO(tyler) investigate this - it is happening more than expected
+    spdlog::warn("Shard::PerformSplit - Curent shard version {} does not match given {}", shard_version_,
+                 old_shard_version);
     return std::nullopt;
   }
+  spdlog::warn("Shard::PerformSplit - splitting from shard version {} to versions {} and {}", old_shard_version,
+               new_lhs_shard_version, new_rhs_shard_version);
 
-  shard_version_ = new_shard_version;
+  shard_version_ = new_lhs_shard_version;
   const auto old_max_key = max_primary_key_;
   max_primary_key_ = split_key;
-  return shard_splitter_.SplitShard(split_key, old_max_key, shard_version_);
+  return shard_splitter_.SplitShard(split_key, old_max_key, new_rhs_shard_version);
 }
 
 bool Shard::IsVertexBelongToShard(const VertexId &vertex_id) const {

@@ -356,6 +356,8 @@ class Shard final {
 
   LabelId PrimaryLabel() const;
 
+  Hlc Version() const;
+
   PrimaryKey LowKey() const { return min_primary_key_; }
 
   [[nodiscard]] bool IsVertexBelongToShard(const VertexId &vertex_id) const;
@@ -391,7 +393,8 @@ class Shard final {
 
   std::optional<ShardSuggestedSplitInfo> ShouldSplit() const noexcept;
 
-  std::optional<SplitData> PerformSplit(const PrimaryKey &split_key, Hlc old_shard_version, Hlc new_shard_version);
+  std::optional<SplitData> PerformSplit(const PrimaryKey &split_key, Hlc old_shard_version,
+                                        const Hlc new_lhs_shard_version, const Hlc new_rhs_shard_version);
 
  private:
   Transaction &GetTransaction(coordinator::Hlc start_timestamp, IsolationLevel isolation_level);
