@@ -113,8 +113,8 @@ if [[ "$setup_libs" == "true" ]]; then
 fi
 
 # Fix for centos 7 during release
-if [ "${ARCHITECTURE}" = "centos-7" ]; then
-  python3 -m pip uninstall virtualenv
+if [ "${DISTRO}" = "centos-7" ] || [ "${DISTRO}" = "debian-11" ]; then
+  python3 -m pip uninstall -y virtualenv
   python3 -m pip install virtualenv
 fi
 
