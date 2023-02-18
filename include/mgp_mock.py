@@ -1748,7 +1748,7 @@ def transformation(func: typing.Callable[..., Record]):
     sig = inspect.signature(func)
 
     params = tuple(sig.parameters.values())
-    if not params or not params[0].annotation is Messages:
+    if not params or not isinstance(params[0].annotation, Messages):
         if not len(params) == 2 or not params[1].annotation is Messages:
             raise NotImplementedError("Valid signatures for transformations are (TransCtx, Messages) or (Messages)")
 
