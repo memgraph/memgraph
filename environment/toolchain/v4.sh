@@ -379,6 +379,34 @@ if [ ! -f $PREFIX/bin/gdb ]; then
                 --without-babeltrace \
                 --enable-tui \
                 --with-python=python3
+    elif [[ "${DISTRO}" == fedora* ]]; then
+        # Remove readline, gdb does not compile
+        env \
+            CC=gcc \
+            CXX=g++ \
+            CFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
+            CXXFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
+            CPPFLAGS="-Wdate-time -D_FORTIFY_SOURCE=2 -fPIC" \
+            LDFLAGS="-Wl,-z,relro" \
+            PYTHON="" \
+            ../configure \
+                --build=x86_64-linux-gnu \
+                --host=x86_64-linux-gnu \
+                --prefix=$PREFIX \
+                --disable-maintainer-mode \
+                --disable-dependency-tracking \
+                --disable-silent-rules \
+                --disable-gdbtk \
+                --disable-shared \
+                --without-guile \
+                --with-system-gdbinit=$PREFIX/etc/gdb/gdbinit \
+                --with-expat \
+                --with-system-zlib \
+                --with-lzma \
+                --with-babeltrace \
+                --with-intel-pt \
+                --enable-tui \
+                --with-python=python3
     else
         # https://buildd.debian.org/status/fetch.php?pkg=gdb&arch=amd64&ver=8.2.1-2&stamp=1550831554&raw=0
         env \
@@ -651,6 +679,7 @@ export PS1="($NAME) \$PS1"
 export LD_LIBRARY_PATH=$PREFIX/lib:$PREFIX/lib64
 export CXXFLAGS=-isystem\ $PREFIX/include\ \$CXXFLAGS
 export CFLAGS=-isystem\ $PREFIX/include\ \$CFLAGS
+export VENV=$PREFIX
 
 # disable root
 function su () {
@@ -702,7 +731,7 @@ PROXYGEN_SHA256=5360a8ccdfb2f5a6c7b3eed331ec7ab0e2c792d579c6fff499c85c516c11fe14
 SNAPPY_SHA256=75c1fbb3d618dd3a0483bff0e26d0a92b495bbe5059c8b4f1c962b478b6e06e7
 SNAPPY_VERSION=1.1.9
 XZ_VERSION=5.2.5 # for LZMA
-ZLIB_VERSION=1.2.12
+ZLIB_VERSION=1.2.13
 ZSTD_VERSION=1.5.0
 WANGLE_SHA256=1002e9c32b6f4837f6a760016e3b3e22f3509880ef3eaad191c80dc92655f23f
 
@@ -1226,7 +1255,7 @@ popd
 # create toolchain archive
 if [ ! -f $NAME-binaries-$DISTRO.tar.gz ]; then
     DISTRO_FULL_NAME=${DISTRO}
-    if [[ "${DISTRO}" == centos* ]]; then
+    if [[ "${DISTRO}" == centos* ]] || [[ "${DISTRO}" == fedora* ]]; then
         if [[ "$for_arm" = "true" ]]; then
             DISTRO_FULL_NAME="$DISTRO_FULL_NAME-aarch64"
         else
