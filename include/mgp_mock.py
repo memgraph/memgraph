@@ -223,9 +223,9 @@ class Properties:
         if self._vertex_or_edge.is_deleted():
             raise DeletedObjectError("Accessing deleted object.")
 
-        vertex_or_edge_props = self._vertex_or_edge.properties
+        vertex_or_edge_properties = self._vertex_or_edge.properties
 
-        for property in vertex_or_edge_props:
+        for property in vertex_or_edge_properties:
             yield Property(*property)
 
     def keys(self) -> typing.Iterable[str]:
@@ -1228,7 +1228,6 @@ class Graph:
         if not self._graph.vertex_is_isolate(vertex.id):
             raise LogicErrorError("Logic error.")
 
-        # TODO find out whether users can ever send this method a nonexistent vertex
         self._graph.delete_vertex(vertex.id)
 
     def detach_delete_vertex(self, vertex: Vertex) -> None:
@@ -1251,7 +1250,6 @@ class Graph:
         if self._graph.is_immutable():
             raise ImmutableObjectError("Cannot modify immutable object.")
 
-        # TODO find out whether users can ever send this method a nonexistent vertex
         self._graph.delete_vertex(vertex.id)
 
     def create_edge(self, from_vertex: Vertex, to_vertex: Vertex, edge_type: EdgeType) -> Edge:
