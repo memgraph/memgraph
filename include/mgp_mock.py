@@ -1,3 +1,21 @@
+# Copyright 2023 Memgraph Ltd.
+#
+# Use of this software is governed by the Business Source License
+# included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+# License, and you may not use this file except in compliance with the Business Source License.
+#
+# As of the Change Date specified in that file, in accordance with
+# the Business Source License, use of this software will be governed
+# by the Apache License, Version 2.0, included in the file
+# licenses/APL.txt.
+
+"""
+This module provides a mock Python API for easy development of custom openCypher procedures.
+The API's interface is fully consistent with the Python API in mgp.py. Because of that, you
+can develop procedures without setting Memgraph up for each run, and run them from Memgraph
+when they're implemented in full.
+"""
+
 import datetime
 import inspect
 import sys
@@ -92,6 +110,8 @@ class ValueConversionError(Exception):
 
 
 class Label:
+    """A label of a `Vertex`."""
+
     __slots__ = ("_name",)
 
     def __init__(self, name: str):
@@ -99,6 +119,15 @@ class Label:
 
     @property
     def name(self) -> str:
+        """
+        Get the name of the label.
+
+        Returns:
+            A string that represents the name of the label.
+
+        Example:
+            ```label.name```
+        """
         return self._name
 
     def __eq__(self, other) -> bool:
@@ -118,6 +147,8 @@ Property = namedtuple("Property", ("name", "value"))
 
 
 class Properties:
+    """A collection of properties of a `Vertex` or an `Edge`."""
+
     __slots__ = ("_vertex_or_edge", "_len")
 
     def __init__(self, vertex_or_edge):
@@ -128,13 +159,30 @@ class Properties:
         self._vertex_or_edge = vertex_or_edge
 
     def __deepcopy__(self, memo):
-        # This is the same as the shallow copy, as the underlying C API should
-        # not support deepcopy. Besides, it doesn't make much sense to actually
-        # copy _mgp_mock.Edge and _mgp_mock.Vertex types as they are actually references
-        # to graph elements and not proper values.
+        # In line with the Python API, this is the same as the shallow copy.
         return Properties(self._vertex_or_edge)
 
     def get(self, property_name: str, default=None) -> object:
+        """
+        Get the value of a property with the given name or return default value.
+
+        Args:
+            property_name: String that represents property name.
+            default: Default value return if there is no property.
+
+        Returns:
+            Any object value that property under `property_name` has or default value otherwise.
+
+        Raises:
+            InvalidContextError: If `edge` or `vertex` is out of context.
+            DeletedObjectError: If the `object` has been deleted.  # TODO add check
+
+        Examples:
+            ```
+            vertex.properties.get(property_name)
+            edge.properties.get(property_name)
+            ```
+        """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
 
@@ -144,12 +192,56 @@ class Properties:
             return default
 
     def set(self, property_name: str, value: object) -> None:
+        """
+        Set the value of the given property. If `value` is `None`, the property
+        is removed.
+
+        Args:
+            property_name: String that represents the property name.
+            value: Object that represents the value to be set.
+
+        Raises:
+            ImmutableObjectError: If the object is immutable.
+            DeletedObjectError: If the object has been deleted. # TODO add check
+            ValueConversionError: If `value` is vertex, edge or path. # TODO replace elsewhere, add check
+
+        Examples:
+            ```
+            vertex.properties.set(property_name, value)
+            edge.properties.set(property_name, value)
+            ```
+        """
         if not self._vertex_or_edge.underlying_graph_is_mutable():
             raise ImmutableObjectError("Cannot modify immutable object.")
 
         self[property_name] = value
 
     def items(self) -> typing.Iterable[Property]:
+        """
+        Iterate over the properties. Doesn’t return a dynamic view of the properties, but copies the
+        current properties.
+
+        Returns:
+            Iterable `Property` of names and values.
+
+        Raises:
+            InvalidContextError: If the edge or vertex is out of context.
+            DeletedObjectError: If the object has been deleted. # TODO how
+
+        Examples:
+            ```
+            items = vertex.properties.items()
+            for it in items:
+                name = it.name
+                value = it.value
+            ```
+            ```
+            items = edge.properties.items()
+            for it in items:
+                name = it.name
+                value = it.value
+            ```
+        """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
 
@@ -159,6 +251,23 @@ class Properties:
             yield Property(*property)
 
     def keys(self) -> typing.Iterable[str]:
+        """
+        Iterate over property names. Doesn’t return a dynamic view of the property names, but copies the
+        name of the current properties.
+
+        Returns:
+            `Iterable` of strings that represent the property names (keys).
+
+        Raises:
+            InvalidContextError: If edge or vertex is out of context.
+            DeletedObjectError: If the object has been deleted. # TODO how
+
+        Examples:
+            ```
+            graph.vertex.properties.keys()
+            graph.edge.properties.keys()
+            ```
+        """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
 
@@ -166,6 +275,23 @@ class Properties:
             yield item.name
 
     def values(self) -> typing.Iterable[object]:
+        """
+        Iterate over property values. Doesn’t return a dynamic view of the property values, but copies the
+        values of the current properties.
+
+        Returns:
+            `Iterable` of property values.
+
+        Raises:
+            InvalidContextError: If edge or vertex is out of context.
+            DeletedObjectError: If the object has been deleted. # TODO how
+
+        Examples:
+            ```
+            vertex.properties.values()
+            edge.properties.values()
+            ```
+        """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
 
@@ -173,6 +299,22 @@ class Properties:
             yield item.value
 
     def __len__(self) -> int:
+        """
+        Get the count of the vertex or edge’s properties.
+
+        Returns:
+            The count of the stored properties.
+
+        Raises:
+            InvalidContextError: If the edge or vertex is out of context.
+            DeletedObjectError: If the object has been deleted. # TODO how
+
+        Examples:
+            ```
+            len(vertex.properties)
+            len(edge.properties)
+            ```
+        """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
 
@@ -182,6 +324,22 @@ class Properties:
         return self._len
 
     def __iter__(self) -> typing.Iterable[str]:
+        """
+        Iterate over property names.
+
+        Returns:
+            `Iterable` of strings that represent property names.
+
+        Raises:
+            InvalidContextError: If edge or vertex is out of context.
+            DeletedObjectError: If the object has been deleted. # TODO how
+
+        Examples:
+            ```
+            iter(vertex.properties)
+            iter(edge.properties)
+            ```
+        """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
 
@@ -189,12 +347,50 @@ class Properties:
             yield item.name
 
     def __getitem__(self, property_name: str) -> object:
+        """
+        Get the value of the property with the given name, otherwise raise a KeyError.
+
+        Args:
+            property_name: String that represents the property name.
+
+        Returns:
+            Value of the named property.
+
+        Raises:
+            InvalidContextError: If edge or vertex is out of context.
+            DeletedObjectError: If the object has been deleted. # TODO how
+
+        Examples:
+            ```
+            vertex.properties[property_name]
+            edge.properties[property_name]
+            ```
+        """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
 
         return self._vertex_or_edge.get_property(property_name)
 
     def __setitem__(self, property_name: str, value: object) -> None:
+        """
+        Set the value of the given property. If `value` is `None`, the property
+        is removed.
+
+        Args:
+            property_name: String that represents the property name.
+            value: Object that represents the value to be set.
+
+        Raises:
+            ImmutableObjectError: If the object is immutable.
+            DeletedObjectError: If the object has been deleted. # TODO how
+            ValueConversionError: If `value` is vertex, edge or path. # TODO replace elsewhere, add check
+
+        Examples:
+            ```
+            vertex.properties[property_name] = value
+            edge.properties[property_name] = value
+            ```
+        """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
 
@@ -204,6 +400,27 @@ class Properties:
         self._vertex_or_edge.set_property(property_name, value)
 
     def __contains__(self, property_name: str) -> bool:
+        """
+        Check if there is a property with the given name.
+
+        Args:
+            property_name: String that represents the property name. # TODO replace elsewhere
+
+        Returns:
+            Boolean value that represents whether a property with the given name exists.
+
+        Raises:
+            InvalidContextError: If edge or vertex is out of context. # TODO replace elsewhere
+            DeletedObjectError: If the object has been deleted. # TODO how
+
+        Examples:
+            ```
+            if property_name in vertex.properties:
+            ```
+            ```
+            if property_name in edge.properties:
+            ```
+        """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
 
@@ -215,6 +432,8 @@ class Properties:
 
 
 class EdgeType:
+    """Type of an Edge."""
+
     __slots__ = ("_name",)
 
     def __init__(self, name):
@@ -222,6 +441,15 @@ class EdgeType:
 
     @property
     def name(self) -> str:
+        """
+        Get the name of an EdgeType.
+
+        Returns:
+            The string with the name of the EdgeType.
+
+        Example:
+            ```edge.type.name```
+        """
         return self._name
 
     def __eq__(self, other) -> bool:
@@ -241,6 +469,13 @@ else:
 
 
 class Edge:
+    """Represents a graph edge.
+
+    Access to an Edge is only valid during a single execution of a procedure in
+    a query. You should not globally store an instance of an Edge. Using an
+    invalid Edge instance will raise an InvalidContextError.
+    """
+
     __slots__ = ("_edge",)
 
     def __init__(self, edge):
@@ -250,16 +485,31 @@ class Edge:
         self._edge = edge
 
     def __deepcopy__(self, memo):
-        # This is the same as the shallow copy, because we want to share the
-        # underlying C struct. Besides, it doesn't make much sense to actually
-        # copy _mgp_mock.Edge as that is actually a reference to a graph element
-        # and not a proper value.
+        # In line with the Python API, this is the same as the shallow copy.
         return Edge(self._edge)
 
     def is_valid(self) -> bool:
+        """
+        Check if the `Edge` is in a valid context, i.e. if it may be used.
+
+        Returns:
+            A `bool` value that represents whether the edge is in a valid context.
+
+        Examples:
+            ```edge.is_valid()```
+        """
         return self._edge.is_valid()
 
     def underlying_graph_is_mutable(self) -> bool:
+        """
+        Check if the underlying `Graph` is mutable.
+
+        Returns:
+            A `bool` value that represents whether the graph is mutable.
+
+        Examples:
+            ```edge.underlying_graph_is_mutable()```
+        """
         if not self.is_valid():
             raise InvalidContextError()
 
@@ -267,6 +517,18 @@ class Edge:
 
     @property
     def id(self) -> EdgeId:
+        """
+        Get the ID of the edge.
+
+        Returns:
+            An `EdgeId` representing the edge’s ID.
+
+        Raises:
+            InvalidContextError: If edge is out of context.
+
+        Examples:
+            ```edge.id```
+        """
         if not self.is_valid():
             raise InvalidContextError()
 
@@ -274,12 +536,36 @@ class Edge:
 
     @property
     def type(self) -> EdgeType:
+        """
+        Get the type of the `Edge`.
+
+        Returns:
+            `EdgeType` representing the edge’s type.
+
+        Raises:
+            InvalidContextError: If edge is out of context.
+
+        Examples:
+            ```edge.type```
+        """
         if not self.is_valid():
             raise InvalidContextError()
         return EdgeType(self._edge.get_type_name())
 
     @property
     def from_vertex(self) -> "Vertex":
+        """
+        Get the source (tail) vertex of the edge.
+
+        Returns:
+            `Vertex` that is the edge’s source/tail.
+
+        Raises:
+            InvalidContextError: If edge is out of context.
+
+        Examples:
+            ```edge.from_vertex```
+        """
         if not self.is_valid():
             raise InvalidContextError()
 
@@ -287,6 +573,18 @@ class Edge:
 
     @property
     def to_vertex(self) -> "Vertex":
+        """
+        Get the destination (head) vertex of the edge.
+
+        Returns:
+            `Vertex` that is the edge’s destination/head.
+
+        Raises:
+            InvalidContextError: If edge is out of context.
+
+        Examples:
+            ```edge.to_vertex```
+        """
         if not self.is_valid():
             raise InvalidContextError()
 
@@ -294,6 +592,18 @@ class Edge:
 
     @property
     def properties(self) -> Properties:
+        """
+        Get the edge’s properties.
+
+        Returns:
+            `Properties` containing all properties of the edge.
+
+        Raises:
+            InvalidContextError: If edge is out of context.
+
+        Examples:
+            ```edge.properties```
+        """
         if not self.is_valid():
             raise InvalidContextError()
 
@@ -319,6 +629,13 @@ else:
 
 
 class Vertex:
+    """Represents a graph vertex.
+
+    Access to a Vertex is only valid during a single execution of a procedure
+    in a query. You should not globally store an instance of a Vertex. Using an
+    invalid Vertex instance will raise an InvalidContextError.
+    """
+
     __slots__ = ("_vertex",)
 
     def __init__(self, vertex):
@@ -328,16 +645,31 @@ class Vertex:
         self._vertex = vertex
 
     def __deepcopy__(self, memo):
-        # This is the same as the shallow copy, because we want to share the
-        # underlying C struct. Besides, it doesn't make much sense to actually
-        # copy _mgp_mock.Vertex as that is actually a reference to a graph element
-        # and not a proper value.
+        # In line with the Python API, this is the same as the shallow copy.
         return Vertex(self._vertex)
 
     def is_valid(self) -> bool:
+        """
+        Check if the vertex is in a valid context, i.e. if it may be used.
+
+        Returns:
+            A `bool` value that represents whether the vertex is in a valid context.
+
+        Examples:
+            ```vertex.is_valid()```
+        """
         return self._vertex.is_valid()
 
     def underlying_graph_is_mutable(self) -> bool:
+        """
+        Check if the underlying graph is mutable.
+
+        Returns:
+            A `bool` value that represents whether the graph is mutable.
+
+        Examples:
+            ```edge.underlying_graph_is_mutable()```
+        """
         if not self.is_valid():
             raise InvalidContextError()
 
@@ -345,6 +677,18 @@ class Vertex:
 
     @property
     def id(self) -> VertexId:
+        """
+        Get the ID of the vertex.
+
+        Returns:
+            A `VertexId` representing the vertex’s ID.
+
+        Raises:
+            InvalidContextError: If vertex is out of context.
+
+        Examples:
+            ```vertex.id```
+        """
         if not self.is_valid():
             raise InvalidContextError()
 
@@ -352,24 +696,79 @@ class Vertex:
 
     @property
     def labels(self) -> typing.Tuple[Label]:
+        """
+        Get the labels of the vertex.
+
+        Returns:
+            A tuple of `Label` instances representing individual labels.
+
+        Raises:
+            InvalidContextError: If vertex is out of context.
+            # TODO verify that Outofrange is impossible
+            DeletedObjectError: If `Vertex` has been deleted. # TODO how
+
+        Examples:
+            ```vertex.labels```
+        """
         if not self.is_valid():
             raise InvalidContextError()
 
         return tuple(Label(label) for label in self._vertex.labels)
 
     def add_label(self, label: str) -> None:
+        """
+        Add the given label to the vertex.
+
+        Args:
+            label: The label (`str`) to be added.
+
+        Raises:
+            InvalidContextError: If `Vertex` is out of context.
+            ImmutableObjectError: If `Vertex` is immutable. # TODO add
+            DeletedObjectError: If `Vertex` has been deleted. # TODO how
+
+        Examples:
+            ```vertex.add_label(label)```
+        """
         if not self.is_valid():
             raise InvalidContextError()
 
         return self._vertex.add_label(label)
 
     def remove_label(self, label: str) -> None:
+        """
+        Remove the given label from the vertex.
+
+        Args:
+            label: The label (`str`) to be removed.
+
+        Raises:
+            InvalidContextError: If `Vertex` is out of context.
+            ImmutableObjectError: If `Vertex` is immutable. # TODO add check
+            DeletedObjectError: If `Vertex` has been deleted. # TODO how
+
+        Examples:
+            ```vertex.remove_label(label)```
+        """
         if not self.is_valid():
             raise InvalidContextError()
+
         return self._vertex.remove_label(label)
 
     @property
     def properties(self) -> Properties:
+        """
+        Get the properties of the vertex.
+
+        Returns:
+            The `Properties` of the vertex.
+
+        Raises:
+            InvalidContextError: If `Vertex` is out of context.
+
+        Examples:
+            ```vertex.properties```
+        """
         if not self.is_valid():
             raise InvalidContextError()
 
@@ -377,6 +776,20 @@ class Vertex:
 
     @property
     def in_edges(self) -> typing.Iterable[Edge]:
+        """
+        Iterate over the inbound edges of the vertex.
+        Doesn’t return a dynamic view of the edges, but copies the current inbound edges.
+
+        Returns:
+            An `Iterable` of all `Edge` objects directed towards the vertex.
+
+        Raises:
+            InvalidContextError: If `Vertex` is out of context.
+            DeletedObjectError: If `Vertex` has been deleted. # TODO how
+
+        Examples:
+            ```for edge in vertex.in_edges:```
+        """
         if not self.is_valid():
             raise InvalidContextError()
 
@@ -385,6 +798,20 @@ class Vertex:
 
     @property
     def out_edges(self) -> typing.Iterable[Edge]:
+        """
+        Iterate over the outbound edges of the vertex.
+        Doesn’t return a dynamic view of the edges, but copies the current outbound edges.
+
+        Returns:
+            An `Iterable` of all `Edge` objects directed outwards from the vertex.
+
+        Raises:
+            InvalidContextError: If `Vertex` is out of context.
+            DeletedObjectError: If `Vertex` has been deleted. # TODO how
+
+        Examples:
+            ```for edge in vertex.in_edges:```
+        """
         if not self.is_valid():
             raise InvalidContextError()
 
@@ -405,9 +832,17 @@ class Vertex:
 
 
 class Path:
+    """Represents a path comprised of `Vertex` and `Edge` instances."""
+
     __slots__ = ("_path", "_vertices", "_edges")
 
     def __init__(self, starting_vertex_or_path: typing.Union[_mgp_mock.Path, Vertex]):
+        """Initialize with a starting `Vertex`.
+
+        Raises:
+            InvalidContextError: If the given vertex is invalid.
+        """
+        # Accepting _mgp.Path is just for internal usage.
         if isinstance(starting_vertex_or_path, _mgp_mock.Path):
             self._path = starting_vertex_or_path
 
@@ -438,22 +873,42 @@ class Path:
         return path
 
     def __deepcopy__(self, memo):
+        # In line with the Python API, this is the same as the shallow copy.
         try:
             return Path(memo[id(self._path)])
         except KeyError:
             pass
-        # This is the same as the shallow copy, as the underlying C API should
-        # not support deepcopy. Besides, it doesn't make much sense to actually
-        # copy _mgp_mock.Edge and _mgp_mock.Vertex types as they are actually references
-        # to graph elements and not proper values.
         path = self.__copy__()
         memo[id(self._path)] = path._path
         return path
 
     def is_valid(self) -> bool:
+        """
+        Check if the path is in a valid context, i.e. if it may be used.
+
+        Returns:
+            A `bool` value that represents whether the path is in a valid context.
+
+        Examples:
+            ```path.is_valid()```
+        """
         return self._path.is_valid()
 
     def expand(self, edge: Edge):
+        """
+        Append an edge continuing from the last vertex on the path.
+        The destination (head) of the given edge will become the last vertex in the path.
+
+        Args:
+            edge: The `Edge` to be added to the path.
+
+        Raises:
+            InvalidContextError: If using an invalid `Path` instance or if the given `Edge` is invalid.
+            LogicErrorError: If the current last vertex in the path is not part of the given edge. # TODO add check
+
+        Examples:
+            ```path.expand(edge)```
+        """
         if not isinstance(edge, Edge):
             raise TypeError(f"Expected 'Edge', got '{type(edge)}'")
 
@@ -468,6 +923,18 @@ class Path:
 
     @property
     def vertices(self) -> typing.Tuple[Vertex, ...]:
+        """
+        Get the path’s vertices.
+
+        Returns:
+            A `Tuple` of the path’s  vertices (`Vertex`) ordered from the start to the end of the path.
+
+        Raises:
+            InvalidContextError: If using an invalid Path instance.
+
+        Examples:
+            ```path.vertices```
+        """
         if not self.is_valid():
             raise InvalidContextError()
 
@@ -479,6 +946,18 @@ class Path:
 
     @property
     def edges(self) -> typing.Tuple[Edge, ...]:
+        """
+        Get the path’s edges. # TODO in a fixed order.
+
+        Returns:
+            A `Tuple` of the path’s edges (`Edges`) ordered from the start to the end of the path.
+
+        Raises:
+            InvalidContextError: If using an invalid Path instance.
+
+        Examples:
+            ```path.vertices```
+        """
         if not self.is_valid():
             raise InvalidContextError()
 
@@ -490,6 +969,8 @@ class Path:
 
 
 class Vertices:
+    """An iterable structure of the vertices in a graph."""
+
     __slots__ = ("_graph", "_len")
 
     def __init__(self, graph):
@@ -500,15 +981,39 @@ class Vertices:
         self._len = None
 
     def __deepcopy__(self, memo):
-        # This is the same as the shallow copy, because we want to share the
-        # underlying C struct. Besides, it doesn't make much sense to actually
-        # copy _mgp_mock.Graph as that always references the whole graph state.
+        # In line with the Python API, this is the same as the shallow copy.
         return Vertices(self._graph)
 
     def is_valid(self) -> bool:
+        """
+        Check if the `Vertices` object is in a valid context, i.e. if it may be used.
+
+        Returns:
+            A `bool` value that represents whether the object is in a valid context.
+
+        Examples:
+            ```vertices.is_valid()```
+        """
         return self._graph.is_valid()
 
     def __iter__(self) -> typing.Iterable[Vertex]:
+        """
+        Iterate over a graph’s vertices.
+
+        Returns:
+            An `Iterable` of `Vertex` objects.
+
+        Raises:
+            InvalidContextError: If context is invalid.
+
+        Examples:
+            ```
+            for vertex in graph.vertices:
+            ```
+            ```
+            iter(graph.vertices)
+            ```
+        """
         if not self.is_valid():
             raise InvalidContextError()
 
@@ -516,9 +1021,33 @@ class Vertices:
             yield Vertex(vertex)
 
     def __contains__(self, vertex: Vertex):
+        """
+        Check if the given vertex is one of the graph vertices.
+
+        Args:
+            vertex: The `Vertex` to be checked.
+
+        Returns:
+            A Boolean value that represents whether the given vertex is one of the graph vertices.
+
+        Examples:
+            ```if vertex in graph.vertices:```
+        """
         return self._graph.has_node(vertex.id)
 
     def __len__(self):
+        """
+        Get the count of the graph vertices.
+
+        Returns:
+            The count of vertices in the graph.
+
+        Raises:
+            InvalidContextError: If context is invalid. # TODO add check
+
+        Examples:
+            ```len(graph.vertices)```
+        """
         if not self._len:
             self._len = sum(1 for _ in self)
 
@@ -526,13 +1055,19 @@ class Vertices:
 
 
 class Record:
+    """Represents a record as returned by a query procedure.
+    Records are comprised of key (field name) - value pairs."""
+
     __slots__ = ("fields",)
 
     def __init__(self, **kwargs):
+        """Initialize with {name}={value} fields in kwargs."""
         self.fields = kwargs
 
 
 class Graph:
+    """The graph that stands in for Memgraph’s graph."""
+
     __slots__ = ("_graph",)
 
     def __init__(self, graph):
@@ -542,15 +1077,41 @@ class Graph:
         self._graph = graph
 
     def __deepcopy__(self, memo):
-        # This is the same as the shallow copy, because we want to share the
-        # underlying C struct. Besides, it doesn't make much sense to actually
-        # copy _mgp_mock.Graph as that always references the whole graph state.
+        # In line with the Python API, this is the same as the shallow copy.
         return Graph(self._graph)
 
     def is_valid(self) -> bool:
+        """
+        Check if the graph is in a valid context, i.e. if it may be used.
+
+        Returns:
+            A `bool` value that represents whether the graph is in a valid context.
+
+        Examples:
+            ```graph.is_valid()```
+        """
         return self._graph.is_valid()
 
     def get_vertex_by_id(self, vertex_id: VertexId) -> Vertex:
+        """
+        Return the graph vertex with the given vertex_id.
+        Access to a `Vertex` is only valid during a single execution of a
+        procedure in a query. You should not globally store the returned
+        vertex.
+
+        Args:
+            vertex_id: A Memgraph vertex ID (`Vertex ID`)
+
+        Returns:
+            The `Vertex` with the given ID.
+
+        Raises:
+            IndexError: If unable to find the given vertex_id. # TODO add check
+            InvalidContextError: If context is invalid.
+
+        Examples:
+            ```graph.get_vertex_by_id(vertex_id)```
+        """
         if not self.is_valid():
             raise InvalidContextError()
 
@@ -558,18 +1119,62 @@ class Graph:
 
     @property
     def vertices(self) -> Vertices:
+        """
+        Get all graph vertices.
+
+        Access to a `Vertex` is only valid during a single execution of a
+        query procedure. You should not globally store the returned `Vertex`
+        instances.
+
+        Returns:
+            `Vertices` in the graph.
+
+        Raises:
+            InvalidContextError: If context is invalid.
+
+        Examples:
+            Iteration over all graph vertices.
+
+            ```
+            graph = context.graph
+            for vertex in graph.vertices:
+            ```
+        """
         if not self.is_valid():
             raise InvalidContextError()
 
         return Vertices(self._graph)
 
     def is_mutable(self) -> bool:
+        """
+        Check if the graph is mutable, i.e. if it can be modified.
+
+        Returns:
+            A `bool` value that represents whether the graph is mutable.
+
+        Examples:
+            ```graph.is_mutable()```
+        """
         if not self.is_valid():
             raise InvalidContextError()
 
         return not self._graph.is_immutable()
 
     def create_vertex(self) -> Vertex:
+        """
+        Create an empty vertex.
+
+        Returns:
+            The created `Vertex`.
+
+        Raises:
+            ImmutableObjectError: If the graph is immutable.
+            # TODO InvalidContextError i u mgp.py
+
+        Examples:
+            Creating an empty vertex:
+            ```vertex = graph.create_vertex()```
+        """
         if not self.is_valid():
             raise InvalidContextError()
 
@@ -579,6 +1184,19 @@ class Graph:
         return Vertex(self._graph.create_vertex())
 
     def delete_vertex(self, vertex: Vertex) -> None:
+        """
+        Delete the given vertex if it’s isolated, i.e. if there are no edges connected to it.
+
+        Args:
+            vertex: The `Vertex` to be deleted.
+
+        Raises:
+            ImmutableObjectError: If the graph is immutable.
+            LogicErrorError: If the vertex is not isolated.
+
+        Examples:
+            ```graph.delete_vertex(vertex)```
+        """
         if not self.is_valid():
             raise InvalidContextError()
 
@@ -592,6 +1210,18 @@ class Graph:
         self._graph.delete_vertex(vertex.id)
 
     def detach_delete_vertex(self, vertex: Vertex) -> None:
+        """
+        Delete the given vertex together with all connected edges.
+
+        Args:
+            vertex: The `Vertex` to be deleted.
+
+        Raises:
+            ImmutableObjectError: If the graph is immutable.
+
+        Examples:
+            ```graph.detach_delete_vertex(vertex)```
+        """
         if not self.is_valid():
             raise InvalidContextError()
 
@@ -602,6 +1232,25 @@ class Graph:
         self._graph.delete_vertex(vertex.id)
 
     def create_edge(self, from_vertex: Vertex, to_vertex: Vertex, edge_type: EdgeType) -> Edge:
+        """
+        Create an empty edge.
+
+        Args:
+            from_vertex: The source (tail) `Vertex`.
+            to_vertex: The destination (head) `Vertex`.
+            edge_type: `EdgeType` specifying the new edge’s type.
+
+        Returns:
+            The created `Edge`.
+
+        Raises:
+            # TODO InvalidContextError i u mgp.py
+            ImmutableObjectError: If the graph is immutable.
+            DeletedObjectError: If `from_vertex` or `to_vertex` have been deleted. #TODO how
+
+        Examples:
+            ```edge = graph.create_edge(from_vertex, vertex, edge_type)```
+        """
         if not self.is_valid():
             raise InvalidContextError()
 
@@ -612,6 +1261,18 @@ class Graph:
         return Edge(new_edge)
 
     def delete_edge(self, edge: Edge) -> None:
+        """
+        Delete the given edge.
+
+        Args:
+            edge: The `Edge` to be deleted.
+
+        Raises:
+            ImmutableObjectError: If the graph is immutable.
+
+        Examples:
+            ```graph.delete_edge(edge)```
+        """
         if not self.is_valid():
             raise InvalidContextError()
 
@@ -628,6 +1289,12 @@ class AbortError(Exception):
 
 
 class ProcCtx:
+    """The context of the procedure being executed.
+
+    Access to a `ProcCtx` is only valid during a single execution of a query procedure.
+    You should not globally store a `ProcCtx` instance.
+    """
+
     __slots__ = ("_graph",)
 
     def __init__(self, graph):
@@ -637,10 +1304,31 @@ class ProcCtx:
         self._graph = Graph(graph)
 
     def is_valid(self) -> bool:
+        """
+        Check if the context is valid, i.e. if the contained structures may be used.
+
+        Returns:
+            A `bool` value that represents whether the context is valid.
+
+        Examples:
+            ```context.is_valid()```
+        """
         return self._graph.is_valid()
 
     @property
     def graph(self) -> Graph:
+        """
+        Access the graph.
+
+        Returns:
+            A `Graph` object representing the graph.
+
+        Raises:
+            InvalidContextError:  If context is invalid. # TODO
+
+        Examples:
+            ```context.graph```
+        """
         if not self.is_valid():
             raise InvalidContextError()
 
@@ -730,10 +1418,77 @@ def _register_proc(func: typing.Callable[..., Record], is_write: bool):
 
 
 def read_proc(func: typing.Callable[..., Record]):
+    """
+    Register a function as a Memgraph read-only procedure.
+
+    The `func` needs to be a callable and optionally take `ProcCtx` as its first argument.
+    Other parameters of `func` will be bound to the passed arguments.
+    The full signature of `func` needs to be annotated with types. The return type must
+    be `Record(field_name=type, ...)`, and the procedure must produce either a complete
+    Record or None. Multiple records can be produced by returning an iterable of them.
+    Registering generator functions is currently not supported.
+
+    Example:
+    ```
+    import mgp_mock
+
+    @mgp_mock.read_proc
+    def procedure(context: mgp_mock.ProcCtx,
+                  required_arg: mgp_mock.Nullable[mgp_mock.Any],
+                  optional_arg: mgp_mock.Nullable[mgp_mock.Any] = None
+                  ) -> mgp_mock.Record(result=str, args=list):
+        args = [required_arg, optional_arg]
+        # Multiple rows can be produced by returning an iterable of mgp_mock.Record:
+        return mgp_mock.Record(args=args, result="Hello World!")
+    ```
+
+    The above example procedure returns two fields: `args` and `result`.
+      * `args` is a copy of the arguments passed to the procedure.
+      * `result` is "Hello World!".
+
+    Any errors can be reported by raising an Exception.
+    """
     return _register_proc(func, False)
 
 
 def write_proc(func: typing.Callable[..., Record]):
+    """
+    Register a function as a Memgraph write procedure.
+
+    The `func` needs to be a callable and optionally take `ProcCtx` as its first argument.
+    Other parameters of `func` will be bound to the passed arguments.
+    The full signature of `func` needs to be annotated with types. The return type must
+    be `Record(field_name=type, ...)`, and the procedure must produce either a complete
+    Record or None. Multiple records can be produced by returning an iterable of them.
+    Registering generator functions is currently not supported.
+
+    Example:
+    ```
+    import mgp_mock
+
+    @mgp_mock.write_proc
+    def procedure(context: mgp_mock.ProcCtx,
+                  required_arg: str,
+                  optional_arg: mgp_mock.Nullable[str] = None
+                  ) -> mgp_mock.Record(result=mgp_mock.Vertex):
+        vertex = context.graph.create_vertex()
+        vertex_properties = vertex.properties
+        vertex_properties["required_arg"] = required_arg
+        if optional_arg is not None:
+            vertex_properties["optional_arg"] = optional_arg
+
+        return mgp.Record(result=vertex)
+    ```
+
+    The above example procedure returns a newly created vertex that has
+    up to 2 properties:
+      * `required_arg` is always present and its value is the first
+        argument of the procedure.
+      * `optional_arg` is present if the second argument of the procedure
+        is not `null`.
+
+    Any errors can be reported by raising an Exception.
+    """
     return _register_proc(func, True)
 
 
@@ -750,6 +1505,8 @@ SOURCE_TYPE_PULSAR = "SOURCE_TYPE_PULSAR"
 
 
 class Message:
+    """Represents a message from a stream."""
+
     __slots__ = ("_message",)
 
     def __init__(self, message):
@@ -759,15 +1516,30 @@ class Message:
         self._message = message
 
     def __deepcopy__(self, memo):
-        # This is the same as the shallow copy, because we want to share the
-        # underlying C struct. Besides, it doesn't make much sense to actually
-        # copy _mgp_mock.Messages as that always references all the messages.
+        # In line with the Python API, this is the same as the shallow copy.
         return Message(self._message)
 
     def is_valid(self) -> bool:
+        """
+        Check if the message is valid, i.e. if it may be used.
+
+        Returns:
+            A `bool` value that represents whether the message is in a valid context.
+
+        Examples:
+            ```message.is_valid()```
+        """
         return self._message.is_valid()
 
     def source_type(self) -> str:
+        """
+        Supported stream sources:
+          - Kafka
+          - Pulsar
+
+        Raises:
+            TODO InvalidMessageError also for mgp
+        """
         if not self.is_valid():
             raise InvalidMessageError()
 
@@ -778,6 +1550,14 @@ class Message:
         )
 
     def payload(self) -> bytes:
+        """
+        Supported stream sources:
+          - Kafka
+          - Pulsar
+
+        Raises:
+            TODO InvalidMessageError also for mgp
+        """
         if not self.is_valid():
             raise InvalidMessageError()
 
@@ -788,6 +1568,14 @@ class Message:
         )
 
     def topic_name(self) -> str:
+        """
+        Supported stream sources:
+          - Kafka
+          - Pulsar
+
+        Raises:
+            TODO InvalidMessageError also for mgp
+        """
         if not self.is_valid():
             raise InvalidMessageError()
 
@@ -798,6 +1586,14 @@ class Message:
         )
 
     def key(self) -> bytes:
+        """
+        Supported stream sources:
+          - Kafka
+
+        Raises:
+            TODO InvalidMessageError also for mgp
+            InvalidArgumentError: If the message is from an unsupported stream source.
+        """
         if not self.is_valid():
             raise InvalidMessageError()
 
@@ -807,6 +1603,14 @@ class Message:
         return self._message.message.key
 
     def timestamp(self) -> int:
+        """
+        Supported stream sources:
+          - Kafka
+
+        Raises:
+            TODO InvalidMessageError also for mgp
+            InvalidArgumentError: If the message is from an unsupported stream source.
+        """
         if not self.is_valid():
             raise InvalidMessageError()
 
@@ -816,6 +1620,14 @@ class Message:
         return self._message.message.timestamp
 
     def offset(self) -> int:
+        """
+        Supported stream sources:
+          - Kafka
+
+        Raises:
+            TODO InvalidMessageError also for mgp
+            InvalidArgumentError: If the message is from an unsupported stream source.
+        """
         if not self.is_valid():
             raise InvalidMessageError()
 
@@ -832,6 +1644,8 @@ class InvalidMessagesError(Exception):
 
 
 class Messages:
+    """Represents a list of messages from a stream."""
+
     __slots__ = ("_messages",)
 
     def __init__(self, messages):
@@ -840,21 +1654,40 @@ class Messages:
         self._messages = messages
 
     def __deepcopy__(self, memo):
-        # This is the same as the shallow copy, because we want to share the
-        # underlying C struct. Besides, it doesn't make much sense to actually
-        # copy _mgp_mock.Messages as that always references all the messages.
+        # In line with the Python API, this is the same as the shallow copy.
         return Messages(self._messages)
 
     def is_valid(self) -> bool:
+        """
+        Check if the `Messages` instance is valid, i.e. if it may be used.
+
+        Returns:
+            A `bool` value that represents whether the instance is in a valid context.
+
+        Examples:
+            ```messages.is_valid()```
+        """
         return self._messages.is_valid()
 
     def message_at(self, id: int) -> Message:
+        """
+        Returns the message at the given position.
+
+        Raises:
+            Raise: InvalidMessagesError if the messages are in an invalid context.
+        """
         if not self.is_valid():
             raise InvalidMessagesError()
 
         return Message(self._messages.messages[id])
 
     def total_messages(self) -> int:
+        """
+        Returns how many messages are stored.
+
+        Raises:
+            Raise: InvalidMessagesError if the messages are in an invalid context.
+        """
         if not self.is_valid():
             raise InvalidMessagesError()
 
@@ -862,19 +1695,46 @@ class Messages:
 
 
 class TransCtx:
+    """The context of the transformation being executed.
+
+    Access to a `TransCtx` is only valid during a single execution of a transformation.
+    You should not globally store a `TransCtx` instance.
+    """
+
     __slots__ = ("_graph",)
 
     def __init__(self, graph):
         if not isinstance(graph, _mgp_mock.Graph):
-            raise TypeError(f"Expected 'networkx.classes._mgp_mock.Graph', got '{type(graph)}'")
+            raise TypeError(f"Expected '_mgp_mock.Graph', got '{type(graph)}'")
 
         self._graph = Graph(graph)
 
     def is_valid(self) -> bool:
+        """
+        Check if the context is valid, i.e. if the contained structures may be used.
+
+        Returns:
+            A `bool` value that represents whether the context is valid.
+
+        Examples:
+            ```context.is_valid()```
+        """
         return self._graph.is_valid()
 
     @property
     def graph(self) -> Graph:
+        """
+        Access the graph.
+
+        Returns:
+            A `Graph` object representing the graph.
+
+        Raises:
+            InvalidContextError:  If context is invalid. # TODO
+
+        Examples:
+            ```context.graph```
+        """
         if not self.is_valid():
             raise InvalidContextError()
 
@@ -918,6 +1778,13 @@ def transformation(func: typing.Callable[..., Record]):
 
 
 class FuncCtx:
+    """The context of the function being executed.
+
+    Access to a `FuncCtx` is only valid during a single execution of a transformation.
+    You should not globally store a `FuncCtx` instance.
+    The graph object within `FuncCtx` is not mutable.
+    """
+
     __slots__ = ("_graph",)
 
     def __init__(self, graph):
@@ -927,10 +1794,52 @@ class FuncCtx:
         self._graph = Graph(graph)
 
     def is_valid(self) -> bool:
+        """
+        Check if the context is valid, i.e. if the contained structures may be used.
+
+        Returns:
+            A `bool` value that represents whether the context is valid.
+
+        Examples:
+            ```context.is_valid()```
+        """
         return self._graph.is_valid()
 
 
 def function(func: typing.Callable):
+    """
+    Register a function as a Memgraph function.
+
+    The `func` needs to be a callable and optionally take `ProcCtx` as its first argument.
+    Other parameters of `func` will be bound to the passed arguments.
+    Only the function arguments need to be annotated with types. The return type doesn’t
+    need to be specified, but it has to be within `mgp_mock.Any`.
+    Registering generator functions is currently not supported.
+
+    Example:
+    ```
+    import mgp_mock
+
+    @mgp_mock.function
+    def procedure(context: mgp_mock.FuncCtx,
+                  required_arg: str,
+                  optional_arg: mgp_mock.Nullable[str] = None
+                  ):
+        return_args = [required_arg]
+        if optional_arg is not None:
+            return_args.append(optional_arg)
+        # Return any result whose type is within mgp_mock.Any
+        return return_args
+    ```
+
+    The above example function returns a list of the passed parameters:
+      * `required_arg` is always present and its value is the first
+        argument of the procedure.
+      * `optional_arg` is present if the second argument of the procedure
+        is not `null`.
+
+    Any errors can be reported by raising an Exception.
+    """
     raise_if_does_not_meet_requirements(func)
 
     sig = inspect.signature(func)
