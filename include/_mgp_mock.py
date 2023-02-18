@@ -352,6 +352,13 @@ class Message:
     def invalidate(self):
         self._valid = False
 
+    def source_type(self) -> str:
+        return (
+            SOURCE_TYPE_KAFKA
+            if isinstance(self._message, kafka.consumer.fetcher.ConsumerRecord)
+            else SOURCE_TYPE_PULSAR
+        )
+
     def is_source_supported(self, supported: typing.Tuple) -> bool:
         if SOURCE_TYPE_KAFKA in supported and SOURCE_TYPE_PULSAR in supported:
             return isinstance(self._message, (kafka.consumer.fetcher.ConsumerRecord, pulsar.Message))

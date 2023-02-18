@@ -24,7 +24,6 @@ from collections import namedtuple
 from functools import wraps
 
 import _mgp_mock
-import kafka
 
 
 class InvalidContextError(Exception):
@@ -1566,11 +1565,7 @@ class Message:
         if not self.is_valid():
             raise InvalidMessageError()
 
-        return (
-            SOURCE_TYPE_KAFKA
-            if isinstance(self._message.message, kafka.consumer.fetcher.ConsumerRecord)
-            else SOURCE_TYPE_PULSAR
-        )
+        return self._message.source_type()
 
     def payload(self) -> bytes:
         """
