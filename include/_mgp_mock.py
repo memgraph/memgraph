@@ -10,6 +10,10 @@ NX_TYPE_ATTR = "type"
 SOURCE_TYPE_KAFKA = "SOURCE_TYPE_KAFKA"
 SOURCE_TYPE_PULSAR = "SOURCE_TYPE_PULSAR"
 
+"""
+This module provides helpers for the mock Python API, much like _mgp.py does for mgp.py.
+"""
+
 
 class InvalidArgumentError(Exception):
     """
@@ -32,6 +36,8 @@ class DeletedObjectError(Exception):
 
 
 class Graph:
+    """Wrapper around a NetworkX MultiDiGraph instance."""
+
     __slots__ = ("nx", "_highest_vertex_id", "_highest_edge_id", "_valid")
 
     I_KEY = 2
@@ -134,6 +140,8 @@ class Graph:
 
 
 class Vertex:
+    """Represents a graph vertex."""
+
     __slots__ = ("_id", "_graph")
 
     def __init__(self, id: int, graph: Graph) -> None:
@@ -214,6 +222,8 @@ class Vertex:
 
 
 class Edge:
+    """Represents a graph edge."""
+
     __slots__ = ("_edge", "_graph")
 
     I_START = 0
@@ -283,6 +293,8 @@ class Edge:
 
 
 class Path:
+    """Represents a path comprised of `Vertex` and `Edge` instances."""
+
     __slots__ = ("_vertices", "_edges", "_graph")
     __create_key = object()
 
@@ -330,6 +342,8 @@ class Path:
 
 
 class Message:
+    """Represents a streamed message."""
+
     __slots__ = ("_message", "_valid")
 
     def __init__(self, message) -> None:
@@ -408,6 +422,8 @@ class Message:
 
 
 class Messages:
+    """Represents a list of streamed messages."""
+
     __slots__ = ("_messages", "_graph", "_valid")
 
     def __init__(self, messages: typing.List, graph: Graph) -> None:
@@ -429,7 +445,6 @@ class Messages:
         return self._valid
 
     def invalidate(self):
-        print("run_invalidate")
         if self._messages is not None:
             for i in range(len(self._messages)):
                 self._messages[i].invalidate()
