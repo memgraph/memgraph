@@ -380,7 +380,7 @@ class Properties:
         if not self._vertex_or_edge.underlying_graph_is_mutable():
             raise ImmutableObjectError("Cannot modify immutable object.")
 
-        if not isinstance(value, (Vertex, Edge, Path)):
+        if isinstance(value, (Vertex, Edge, Path)):
             raise ValueConversionError("Value conversion failed")
 
         if self._vertex_or_edge.is_deleted():
