@@ -8,12 +8,27 @@ import pulsar
 NX_LABEL_ATTR = "labels"
 NX_TYPE_ATTR = "type"
 
+SOURCE_TYPE_KAFKA = "SOURCE_TYPE_KAFKA"
+SOURCE_TYPE_PULSAR = "SOURCE_TYPE_PULSAR"
+
+
+class InvalidArgumentError(Exception):
+    """
+    Signals that some of the arguments have invalid values.
+    """
+
+    pass
+
 
 class ImmutableObjectError(Exception):
     pass
 
 
 class LogicErrorError(Exception):
+    pass
+
+
+class DeletedObjectError(Exception):
     pass
 
 
@@ -64,17 +79,17 @@ class Graph:
     def make_immutable(self):
         self.nx = nx.freeze(self.nx)
 
-    def _new_edge_id(self):
-        if self._highest_edge_id is None:
-            self._highest_edge_id = max(edge[Graph.I_KEY] for edge in self.nx.edges(keys=True))
-
-        return self._highest_edge_id + 1
-
     def _new_vertex_id(self):
         if self._highest_vertex_id is None:
             self._highest_vertex_id = max(vertex_id for vertex_id in self.nx.nodes) + 1
 
         return self._highest_vertex_id + 1
+
+    def _new_edge_id(self):
+        if self._highest_edge_id is None:
+            self._highest_edge_id = max(edge[Graph.I_KEY] for edge in self.nx.edges(keys=True))
+
+        return self._highest_edge_id + 1
 
     def create_vertex(self) -> "Vertex":
         vertex_id = self._new_vertex_id()
@@ -84,8 +99,14 @@ class Graph:
 
         return Vertex(vertex_id, self)
 
-    def create_edge(self, from_id: int, to_id: int, edge_type: str) -> "Edge":
+    def create_edge(self, from_vertex: "Vertex", to_vertex: "Vertex", edge_type: str) -> "Edge":
+        if from_vertex.is_deleted() or to_vertex.is_deleted():
+            raise DeletedObjectError("Accessing deleted object.")
+
         edge_id = self._new_edge_id()
+
+        from_id = from_vertex.id
+        to_id = to_vertex.id
 
         self.nx.add_edge(from_id, to_id, key=edge_id, type=edge_type)
         self._highest_edge_id = edge_id
@@ -97,6 +118,20 @@ class Graph:
 
     def delete_edge(self, from_vertex_id: int, to_vertex_id: int, edge_id: int):
         self.nx.remove_edge(from_vertex_id, to_vertex_id, edge_id)
+
+    @property
+    def highest_vertex_id(self) -> int:
+        if self._highest_vertex_id is None:
+            self._highest_vertex_id = max(vertex_id for vertex_id in self.nx.nodes) + 1
+
+        return self._highest_vertex_id
+
+    @property
+    def highest_edge_id(self) -> int:
+        if self._highest_edge_id is None:
+            self._highest_edge_id = max(edge[Graph.I_KEY] for edge in self.nx.edges(keys=True))
+
+        return self._highest_edge_id + 1
 
 
 class Vertex:
@@ -117,6 +152,9 @@ class Vertex:
 
     def is_valid(self) -> bool:
         return self._graph.is_valid()
+
+    def is_deleted(self) -> bool:
+        return not self._graph.nx.has_node(self._id) and self._id <= self._graph.highest_vertex_id
 
     @property
     def underlying_graph(self) -> Graph:
@@ -198,6 +236,9 @@ class Edge:
 
     def is_valid(self) -> bool:
         return self._graph.is_valid()
+
+    def is_deleted(self) -> bool:
+        return not self._graph.nx.has_edge(*self._edge) and self._edge[self.I_KEY] <= self._graph.highest_edge_id
 
     def underlying_graph_is_mutable(self) -> bool:
         return not nx.is_frozen(self._graph.nx)
@@ -310,6 +351,54 @@ class Message:
 
     def invalidate(self):
         self._valid = False
+
+    def is_source_supported(self, supported: typing.Tuple) -> bool:
+        if SOURCE_TYPE_KAFKA in supported and SOURCE_TYPE_PULSAR in supported:
+            return isinstance(self._message, (kafka.consumer.fetcher.ConsumerRecord, pulsar.Message))
+        elif SOURCE_TYPE_KAFKA in supported:
+            return isinstance(self._message, kafka.consumer.fetcher.ConsumerRecord)
+        elif SOURCE_TYPE_PULSAR in supported:
+            return isinstance(self._message, kafka.consumer.pulsar.Message)
+        else:
+            return False
+
+    def payload(self) -> bytes:
+        if not self.is_source_supported(supported=(SOURCE_TYPE_KAFKA, SOURCE_TYPE_PULSAR)):
+            raise InvalidArgumentError("Invalid argument.")
+
+        return (
+            self._message.value
+            if isinstance(self._message, kafka.consumer.fetcher.ConsumerRecord)
+            else self._message.data()
+        )
+
+    def topic_name(self) -> str:
+        if not self.is_source_supported(supported=(SOURCE_TYPE_KAFKA, SOURCE_TYPE_PULSAR)):
+            raise InvalidArgumentError("Invalid argument.")
+
+        return (
+            self._message.topic
+            if isinstance(self._message, kafka.consumer.fetcher.ConsumerRecord)
+            else self._message.topic_name()
+        )
+
+    def key(self) -> bytes:
+        if not isinstance(self._message, kafka.consumer.fetcher.ConsumerRecord):
+            raise InvalidArgumentError("Invalid argument.")
+
+        return self._message.key
+
+    def timestamp(self) -> int:
+        if not isinstance(self._message, kafka.consumer.fetcher.ConsumerRecord):
+            raise InvalidArgumentError("Invalid argument.")
+
+        return self._message.timestamp
+
+    def offset(self) -> int:
+        if not isinstance(self._message, kafka.consumer.fetcher.ConsumerRecord):
+            raise InvalidArgumentError("Invalid argument.")
+
+        return self._message.offset
 
 
 class Messages:

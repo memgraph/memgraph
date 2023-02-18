@@ -43,23 +43,6 @@ class UnknownError(Exception):
     pass
 
 
-class InsufficientBufferError(Exception):
-    """
-    Signals that a buffer is not big enough.
-    """
-
-    pass
-
-
-class OutOfRangeError(Exception):
-    """
-    Signals that an index-like parameter has a value that is outside its
-    possible values.
-    """
-
-    pass
-
-
 class LogicErrorError(Exception):
     """
     Signals faulty logic within the program such as violating logical
@@ -69,6 +52,8 @@ class LogicErrorError(Exception):
     pass
 
 
+# DONE check how to trigger and if applicable elsewhere
+# DONE check if vertex/edge in graph; if not in graph & id <= highest, then deleted
 class DeletedObjectError(Exception):
     """
     Signals accessing an already deleted object.
@@ -80,14 +65,6 @@ class DeletedObjectError(Exception):
 class InvalidArgumentError(Exception):
     """
     Signals that some of the arguments have invalid values.
-    """
-
-    pass
-
-
-class KeyAlreadyExistsError(Exception):
-    """
-    Signals that a key already exists in a container-like object.
     """
 
     pass
@@ -110,7 +87,7 @@ class ValueConversionError(Exception):
 
 
 class Label:
-    """A label of a `Vertex`."""
+    """A vertex label."""
 
     __slots__ = ("_name",)
 
@@ -123,7 +100,7 @@ class Label:
         Get the name of the label.
 
         Returns:
-            A string that represents the name of the label.
+            A string with the name of the label.
 
         Example:
             ```label.name```
@@ -147,7 +124,7 @@ Property = namedtuple("Property", ("name", "value"))
 
 
 class Properties:
-    """A collection of properties of a `Vertex` or an `Edge`."""
+    """Collection of the properties of a vertex or an edge."""
 
     __slots__ = ("_vertex_or_edge", "_len")
 
@@ -164,18 +141,18 @@ class Properties:
 
     def get(self, property_name: str, default=None) -> object:
         """
-        Get the value of a property with the given name or return default value.
+        Get the value of the property with the given name, otherwise return the default value.
 
         Args:
-            property_name: String that represents property name.
-            default: Default value return if there is no property.
+            property_name: String with the property name.
+            default: The value to return if there is no `property_name` property.
 
         Returns:
-            Any object value that property under `property_name` has or default value otherwise.
+            The value associated with `property_name` or, if there’s no such property, the `default` argument.
 
         Raises:
-            InvalidContextError: If `edge` or `vertex` is out of context.
-            DeletedObjectError: If the `object` has been deleted.  # TODO add check
+            InvalidContextError: If the edge or vertex is out of context.
+            DeletedObjectError: If the edge has been deleted.
 
         Examples:
             ```
@@ -193,17 +170,16 @@ class Properties:
 
     def set(self, property_name: str, value: object) -> None:
         """
-        Set the value of the given property. If `value` is `None`, the property
-        is removed.
+        Set the value of the given property. If `value` is `None`, the property is removed.
 
         Args:
-            property_name: String that represents the property name.
-            value: Object that represents the value to be set.
+            property_name: String with the property name.
+            value: The new value of the `property_name` property.
 
         Raises:
             ImmutableObjectError: If the object is immutable.
-            DeletedObjectError: If the object has been deleted. # TODO add check
-            ValueConversionError: If `value` is vertex, edge or path. # TODO replace elsewhere, add check
+            DeletedObjectError: If the edge has been deleted.
+            ValueConversionError: If `value` is vertex, edge or path.
 
         Examples:
             ```
@@ -226,7 +202,7 @@ class Properties:
 
         Raises:
             InvalidContextError: If the edge or vertex is out of context.
-            DeletedObjectError: If the object has been deleted. # TODO how
+            DeletedObjectError: If the edge or vertex has been deleted.
 
         Examples:
             ```
@@ -245,6 +221,9 @@ class Properties:
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
 
+        if self._vertex_or_edge.is_deleted():
+            raise DeletedObjectError("Accessing deleted object.")
+
         vertex_or_edge_props = self._vertex_or_edge.properties
 
         for property in vertex_or_edge_props:
@@ -260,7 +239,7 @@ class Properties:
 
         Raises:
             InvalidContextError: If edge or vertex is out of context.
-            DeletedObjectError: If the object has been deleted. # TODO how
+            DeletedObjectError: If the edge or vertex has been deleted.
 
         Examples:
             ```
@@ -284,7 +263,7 @@ class Properties:
 
         Raises:
             InvalidContextError: If edge or vertex is out of context.
-            DeletedObjectError: If the object has been deleted. # TODO how
+            DeletedObjectError: If the edge or vertex has been deleted.
 
         Examples:
             ```
@@ -307,7 +286,7 @@ class Properties:
 
         Raises:
             InvalidContextError: If the edge or vertex is out of context.
-            DeletedObjectError: If the object has been deleted. # TODO how
+            DeletedObjectError: If the edge or vertex has been deleted.
 
         Examples:
             ```
@@ -332,7 +311,7 @@ class Properties:
 
         Raises:
             InvalidContextError: If edge or vertex is out of context.
-            DeletedObjectError: If the object has been deleted. # TODO how
+            DeletedObjectError: If the edge or vertex has been deleted.
 
         Examples:
             ```
@@ -351,14 +330,14 @@ class Properties:
         Get the value of the property with the given name, otherwise raise a KeyError.
 
         Args:
-            property_name: String that represents the property name.
+            property_name: String with the property name.
 
         Returns:
             Value of the named property.
 
         Raises:
             InvalidContextError: If edge or vertex is out of context.
-            DeletedObjectError: If the object has been deleted. # TODO how
+            DeletedObjectError: If the edge or vertex has been deleted.
 
         Examples:
             ```
@@ -369,6 +348,9 @@ class Properties:
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
 
+        if self._vertex_or_edge.is_deleted():
+            raise DeletedObjectError("Accessing deleted object.")
+
         return self._vertex_or_edge.get_property(property_name)
 
     def __setitem__(self, property_name: str, value: object) -> None:
@@ -377,13 +359,14 @@ class Properties:
         is removed.
 
         Args:
-            property_name: String that represents the property name.
+            property_name: String with the property name.
             value: Object that represents the value to be set.
 
         Raises:
+            InvalidContextError: If the edge or vertex is out of context.
             ImmutableObjectError: If the object is immutable.
-            DeletedObjectError: If the object has been deleted. # TODO how
-            ValueConversionError: If `value` is vertex, edge or path. # TODO replace elsewhere, add check
+            DeletedObjectError: If the edge or vertex has been deleted.
+            ValueConversionError: If `value` is vertex, edge or path.
 
         Examples:
             ```
@@ -397,6 +380,12 @@ class Properties:
         if not self._vertex_or_edge.underlying_graph_is_mutable():
             raise ImmutableObjectError("Cannot modify immutable object.")
 
+        if not isinstance(value, (Vertex, Edge, Path)):
+            raise ValueConversionError("Value conversion failed")
+
+        if self._vertex_or_edge.is_deleted():
+            raise DeletedObjectError("Accessing deleted object.")
+
         self._vertex_or_edge.set_property(property_name, value)
 
     def __contains__(self, property_name: str) -> bool:
@@ -404,14 +393,14 @@ class Properties:
         Check if there is a property with the given name.
 
         Args:
-            property_name: String that represents the property name. # TODO replace elsewhere
+            property_name: String with the property name.
 
         Returns:
             Boolean value that represents whether a property with the given name exists.
 
         Raises:
             InvalidContextError: If edge or vertex is out of context. # TODO replace elsewhere
-            DeletedObjectError: If the object has been deleted. # TODO how
+            DeletedObjectError: If the edge or vertex has been deleted.
 
         Examples:
             ```
@@ -507,6 +496,9 @@ class Edge:
         Returns:
             A `bool` value that represents whether the graph is mutable.
 
+        Raises:
+            InvalidContextError: If the context is not valid.
+
         Examples:
             ```edge.underlying_graph_is_mutable()```
         """
@@ -550,6 +542,7 @@ class Edge:
         """
         if not self.is_valid():
             raise InvalidContextError()
+
         return EdgeType(self._edge.get_type_name())
 
     @property
@@ -667,6 +660,9 @@ class Vertex:
         Returns:
             A `bool` value that represents whether the graph is mutable.
 
+        Raises:
+            InvalidContextError: If the context is not valid.
+
         Examples:
             ```edge.underlying_graph_is_mutable()```
         """
@@ -704,14 +700,16 @@ class Vertex:
 
         Raises:
             InvalidContextError: If vertex is out of context.
-            # TODO verify that Outofrange is impossible
-            DeletedObjectError: If `Vertex` has been deleted. # TODO how
+            DeletedObjectError: If `Vertex` has been deleted.
 
         Examples:
             ```vertex.labels```
         """
         if not self.is_valid():
             raise InvalidContextError()
+
+        if self._vertex.is_deleted():
+            raise DeletedObjectError("Accessing deleted object.")
 
         return tuple(Label(label) for label in self._vertex.labels)
 
@@ -724,14 +722,17 @@ class Vertex:
 
         Raises:
             InvalidContextError: If `Vertex` is out of context.
-            ImmutableObjectError: If `Vertex` is immutable. # TODO add
-            DeletedObjectError: If `Vertex` has been deleted. # TODO how
+            ImmutableObjectError: If `Vertex` is immutable.
+            DeletedObjectError: If `Vertex` has been deleted.
 
         Examples:
             ```vertex.add_label(label)```
         """
         if not self.is_valid():
             raise InvalidContextError()
+
+        if self._vertex.is_deleted():
+            raise DeletedObjectError("Accessing deleted object.")
 
         return self._vertex.add_label(label)
 
@@ -744,14 +745,17 @@ class Vertex:
 
         Raises:
             InvalidContextError: If `Vertex` is out of context.
-            ImmutableObjectError: If `Vertex` is immutable. # TODO add check
-            DeletedObjectError: If `Vertex` has been deleted. # TODO how
+            ImmutableObjectError: If `Vertex` is immutable.
+            DeletedObjectError: If `Vertex` has been deleted.
 
         Examples:
             ```vertex.remove_label(label)```
         """
         if not self.is_valid():
             raise InvalidContextError()
+
+        if self._vertex.is_deleted():
+            raise DeletedObjectError("Accessing deleted object.")
 
         return self._vertex.remove_label(label)
 
@@ -785,13 +789,16 @@ class Vertex:
 
         Raises:
             InvalidContextError: If `Vertex` is out of context.
-            DeletedObjectError: If `Vertex` has been deleted. # TODO how
+            DeletedObjectError: If `Vertex` has been deleted.
 
         Examples:
             ```for edge in vertex.in_edges:```
         """
         if not self.is_valid():
             raise InvalidContextError()
+
+        if self._vertex.is_deleted():
+            raise DeletedObjectError("Accessing deleted object.")
 
         for edge in self._vertex.in_edges:
             yield Edge(edge)
@@ -807,13 +814,16 @@ class Vertex:
 
         Raises:
             InvalidContextError: If `Vertex` is out of context.
-            DeletedObjectError: If `Vertex` has been deleted. # TODO how
+            DeletedObjectError: If `Vertex` has been deleted.
 
         Examples:
             ```for edge in vertex.in_edges:```
         """
         if not self.is_valid():
             raise InvalidContextError()
+
+        if self._vertex.is_deleted():
+            raise DeletedObjectError("Accessing deleted object.")
 
         for edge in self._vertex.out_edges:
             yield Edge(edge)
@@ -904,7 +914,7 @@ class Path:
 
         Raises:
             InvalidContextError: If using an invalid `Path` instance or if the given `Edge` is invalid.
-            LogicErrorError: If the current last vertex in the path is not part of the given edge. # TODO add check
+            LogicErrorError: If the current last vertex in the path is not part of the given edge.
 
         Examples:
             ```path.expand(edge)```
@@ -924,7 +934,7 @@ class Path:
     @property
     def vertices(self) -> typing.Tuple[Vertex, ...]:
         """
-        Get the path’s vertices.
+        Get the path’s vertices in a fixed order.
 
         Returns:
             A `Tuple` of the path’s  vertices (`Vertex`) ordered from the start to the end of the path.
@@ -947,7 +957,7 @@ class Path:
     @property
     def edges(self) -> typing.Tuple[Edge, ...]:
         """
-        Get the path’s edges. # TODO in a fixed order.
+        Get the path’s edges in a fixed order.
 
         Returns:
             A `Tuple` of the path’s edges (`Edges`) ordered from the start to the end of the path.
@@ -1030,9 +1040,15 @@ class Vertices:
         Returns:
             A Boolean value that represents whether the given vertex is one of the graph vertices.
 
+        Raises:
+            InvalidContextError: If the `Vertices` instance or the givern vertex is not in a valid context.
+
         Examples:
             ```if vertex in graph.vertices:```
         """
+        if not self.is_valid() or not vertex.is_valid():
+            raise InvalidContextError()
+
         return self._graph.has_node(vertex.id)
 
     def __len__(self):
@@ -1040,14 +1056,17 @@ class Vertices:
         Get the count of the graph vertices.
 
         Returns:
-            The count of vertices in the graph.
+            The count of the vertices in the graph.
 
         Raises:
-            InvalidContextError: If context is invalid. # TODO add check
+            InvalidContextError: If the `Vertices` instance is not in a valid context.
 
         Examples:
             ```len(graph.vertices)```
         """
+        if not self.is_valid():
+            raise InvalidContextError()
+
         if not self._len:
             self._len = sum(1 for _ in self)
 
@@ -1106,7 +1125,7 @@ class Graph:
             The `Vertex` with the given ID.
 
         Raises:
-            IndexError: If unable to find the given vertex_id. # TODO add check
+            IndexError: If unable to find the given vertex_id.
             InvalidContextError: If context is invalid.
 
         Examples:
@@ -1152,6 +1171,9 @@ class Graph:
         Returns:
             A `bool` value that represents whether the graph is mutable.
 
+        Raises:
+            InvalidContextError: If the graph is not in a valid context.
+
         Examples:
             ```graph.is_mutable()```
         """
@@ -1168,8 +1190,8 @@ class Graph:
             The created `Vertex`.
 
         Raises:
+            InvalidContextError: If the graph is not in a valid context.
             ImmutableObjectError: If the graph is immutable.
-            # TODO InvalidContextError i u mgp.py
 
         Examples:
             Creating an empty vertex:
@@ -1191,6 +1213,7 @@ class Graph:
             vertex: The `Vertex` to be deleted.
 
         Raises:
+            InvalidContextError: If the graph is not in a valid context.
             ImmutableObjectError: If the graph is immutable.
             LogicErrorError: If the vertex is not isolated.
 
@@ -1217,6 +1240,7 @@ class Graph:
             vertex: The `Vertex` to be deleted.
 
         Raises:
+            InvalidContextError: If the graph is not in a valid context.
             ImmutableObjectError: If the graph is immutable.
 
         Examples:
@@ -1244,20 +1268,21 @@ class Graph:
             The created `Edge`.
 
         Raises:
-            # TODO InvalidContextError i u mgp.py
+            InvalidContextError: If the graph is not in a valid context.
             ImmutableObjectError: If the graph is immutable.
-            DeletedObjectError: If `from_vertex` or `to_vertex` have been deleted. #TODO how
+            DeletedObjectError: If `from_vertex` or `to_vertex` have been deleted.
 
         Examples:
             ```edge = graph.create_edge(from_vertex, vertex, edge_type)```
         """
+
         if not self.is_valid():
             raise InvalidContextError()
 
         if self._graph.is_immutable():
             raise ImmutableObjectError("Cannot modify immutable object.")
 
-        new_edge = self._graph.create_edge(from_vertex.id, to_vertex.id, edge_type.name)
+        new_edge = self._graph.create_edge(from_vertex._vertex, to_vertex._vertex, edge_type.name)
         return Edge(new_edge)
 
     def delete_edge(self, edge: Edge) -> None:
@@ -1268,6 +1293,7 @@ class Graph:
             edge: The `Edge` to be deleted.
 
         Raises:
+            InvalidContextError: If the graph is not in a valid context.
             ImmutableObjectError: If the graph is immutable.
 
         Examples:
@@ -1324,7 +1350,7 @@ class ProcCtx:
             A `Graph` object representing the graph.
 
         Raises:
-            InvalidContextError:  If context is invalid. # TODO
+            InvalidContextError: If the procedure context is not valid.
 
         Examples:
             ```context.graph```
@@ -1500,8 +1526,8 @@ class InvalidMessageError(Exception):
     pass
 
 
-SOURCE_TYPE_KAFKA = "SOURCE_TYPE_KAFKA"
-SOURCE_TYPE_PULSAR = "SOURCE_TYPE_PULSAR"
+SOURCE_TYPE_KAFKA = _mgp_mock.SOURCE_TYPE_KAFKA
+SOURCE_TYPE_PULSAR = _mgp_mock.SOURCE_TYPE_PULSAR
 
 
 class Message:
@@ -1534,11 +1560,8 @@ class Message:
     def source_type(self) -> str:
         """
         Supported stream sources:
-          - Kafka
-          - Pulsar
-
-        Raises:
-            TODO InvalidMessageError also for mgp
+          * Kafka
+          * Pulsar
         """
         if not self.is_valid():
             raise InvalidMessageError()
@@ -1552,89 +1575,74 @@ class Message:
     def payload(self) -> bytes:
         """
         Supported stream sources:
-          - Kafka
-          - Pulsar
+          * Kafka
+          * Pulsar
 
         Raises:
-            TODO InvalidMessageError also for mgp
+            InvalidArgumentError: If the message is from an unsupported stream source.
+            InvalidMessageError: If the message is not in a valid context.
         """
         if not self.is_valid():
             raise InvalidMessageError()
 
-        return (
-            self._message.message.value
-            if isinstance(self._message.message, kafka.consumer.fetcher.ConsumerRecord)
-            else self._message.message.data()
-        )
+        return self._message.payload()
 
     def topic_name(self) -> str:
         """
         Supported stream sources:
-          - Kafka
-          - Pulsar
+          * Kafka
+          * Pulsar
 
         Raises:
-            TODO InvalidMessageError also for mgp
+            InvalidArgumentError: If the message is from an unsupported stream source.
+            InvalidMessageError: If the message is not in a valid context.
         """
         if not self.is_valid():
             raise InvalidMessageError()
 
-        return (
-            self._message.message.topic
-            if isinstance(self._message.message, kafka.consumer.fetcher.ConsumerRecord)
-            else self._message.message.topic_name()
-        )
+        return self._message.topic_name()
 
     def key(self) -> bytes:
         """
         Supported stream sources:
-          - Kafka
+          * Kafka
 
         Raises:
-            TODO InvalidMessageError also for mgp
             InvalidArgumentError: If the message is from an unsupported stream source.
+            InvalidMessageError: If the message is not in a valid context.
         """
         if not self.is_valid():
             raise InvalidMessageError()
 
-        if not isinstance(self._message.message, kafka.consumer.fetcher.ConsumerRecord):
-            raise InvalidArgumentError("Invalid argument.")
-
-        return self._message.message.key
+        return self._message.key()
 
     def timestamp(self) -> int:
         """
         Supported stream sources:
-          - Kafka
+          * Kafka
 
         Raises:
-            TODO InvalidMessageError also for mgp
             InvalidArgumentError: If the message is from an unsupported stream source.
+            InvalidMessageError: If the message is not in a valid context.
         """
         if not self.is_valid():
             raise InvalidMessageError()
 
-        if not isinstance(self._message.message, kafka.consumer.fetcher.ConsumerRecord):
-            raise InvalidArgumentError("Invalid argument.")
-
-        return self._message.message.timestamp
+        return self._message.timestamp()
 
     def offset(self) -> int:
         """
         Supported stream sources:
-          - Kafka
+          * Kafka
 
         Raises:
-            TODO InvalidMessageError also for mgp
+            InvalidMessageError: If the message is not in a valid context.
             InvalidArgumentError: If the message is from an unsupported stream source.
         """
         if not self.is_valid():
             raise InvalidMessageError()
 
-        if not isinstance(self._message.message, kafka.consumer.fetcher.ConsumerRecord):
-            raise InvalidArgumentError("Invalid argument.")
-
-        return self._message.message.offset
+        return self._message.offset()
 
 
 class InvalidMessagesError(Exception):
@@ -1674,7 +1682,7 @@ class Messages:
         Returns the message at the given position.
 
         Raises:
-            Raise: InvalidMessagesError if the messages are in an invalid context.
+            InvalidMessagesError: If the `Messages` instance is not in a valid context.
         """
         if not self.is_valid():
             raise InvalidMessagesError()
@@ -1683,10 +1691,10 @@ class Messages:
 
     def total_messages(self) -> int:
         """
-        Returns how many messages are stored.
+        Returns how many messages are stored in the `Messages` instance.
 
         Raises:
-            Raise: InvalidMessagesError if the messages are in an invalid context.
+            InvalidMessagesError: If the `Messages` instance is not in a valid context.
         """
         if not self.is_valid():
             raise InvalidMessagesError()
@@ -1730,7 +1738,7 @@ class TransCtx:
             A `Graph` object representing the graph.
 
         Raises:
-            InvalidContextError:  If context is invalid. # TODO
+            InvalidContextError: If the transformation context is not valid.
 
         Examples:
             ```context.graph```
