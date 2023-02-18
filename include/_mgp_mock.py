@@ -1,5 +1,4 @@
 import typing
-from collections import namedtuple
 
 import kafka
 import networkx as nx
