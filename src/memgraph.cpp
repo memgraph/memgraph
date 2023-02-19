@@ -530,7 +530,14 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 #endif
         endpoint_(endpoint),
         run_id_(data->run_id) {
+
+    // this should automaticaly require the lock on the interpreters_
     data->interpreter_context->interpreters->insert(&interpreter_);
+  }
+
+  ~BoltSession() override {
+    // this should automaticaly require the lock on the interpreters_
+    interpreter_context_->interpreters->erase(&interpreter_);
   }
 
   using memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,

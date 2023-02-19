@@ -2266,6 +2266,8 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
 
 uint64_t Interpreter::GetTransactionId() const { return db_accessor_->GetTransactionId(); }
 
+bool Interpreter::HasActiveTransaction() const { return db_accessor_->IsTransactionActive(); }
+
 void Interpreter::BeginTransaction() {
   const auto prepared_query = PrepareTransactionQuery("BEGIN");
   prepared_query.query_handler(nullptr, {});
@@ -2297,11 +2299,13 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   bool isAdmin = interpreter_context_->auth_checker->IsUserAdmin(user);
   isAdmin_ = isAdmin;
 
+  /*
   if (query_string == "SHOW TRANSACTIONS\n") {
     const auto &results = interpreter_context_->ShowTransactions();
   } else if (query_string == "KILL TRANSACTIONS\n") {
     interpreter_context_->KillTransactions(std::vector<int>{1, 2, 3});
   }
+  */
 
   query_executions_.emplace_back(std::make_unique<QueryExecution>());
   auto &query_execution = query_executions_.back();
@@ -2444,8 +2448,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 }
 
 /*
-TODO: move this to some Handle method
-Acquire lock in the loop so that interpreters that don't need to be killed wait for lock release
+TODO: move this to the handle method
+Acquires lock in the loop so that interpreters that don't need to be killed wait for lock release.
+TODO: Don't allow to kill the transaction that is executing kill.
 */
 std::vector<bool> InterpreterContext::KillTransactions(const std::vector<int> &transaction_ids) {
   std::vector<bool> kill_results;
@@ -2453,7 +2458,7 @@ std::vector<bool> InterpreterContext::KillTransactions(const std::vector<int> &t
     bool killed = false;
     interpreters.WithLock([&transaction_id, &killed](const auto &interpreters) {
       for (Interpreter *interpreter : interpreters) {
-        if (interpreter->GetTransactionId() == transaction_id) {
+        if (interpreter->HasActiveTransaction() && interpreter->GetTransactionId() == transaction_id) {
           interpreter->Abort();
           killed = true;
           break;
@@ -2465,18 +2470,24 @@ std::vector<bool> InterpreterContext::KillTransactions(const std::vector<int> &t
   return kill_results;
 }
 
+/*
+TODO: move this to the handle method
+I think that show transctions should enable listing its own transaction.
+*/
 std::vector<std::tuple<std::optional<std::string>, uint64_t, std::vector<std::string>>>
 InterpreterContext::ShowTransactions() {
   std::vector<std::tuple<std::optional<std::string>, uint64_t, std::vector<std::string>>> results;
   interpreters.WithLock([&results](const auto &interpreters) {
     for (Interpreter *interpreter : interpreters) {
-      results.emplace_back(interpreter->username_, interpreter->GetTransactionId(), interpreter->GetQueryStrings());
+      if (interpreter->HasActiveTransaction()) {
+        results.emplace_back(interpreter->username_, interpreter->GetTransactionId(), interpreter->GetQueriesSummary());
+      }
     }
   });
   return results;
 }
 
-std::vector<std::string> Interpreter::GetQueryStrings() {
+std::vector<std::string> Interpreter::GetQueriesSummary() {
   std::vector<std::string> queries;
   for (const auto &query_exec_ptr : query_executions_) {
     queries.push_back(query_exec_ptr->query);

@@ -303,6 +303,8 @@ class Interpreter final {
 
   uint64_t GetTransactionId() const;
 
+  bool HasActiveTransaction() const;
+
   void CommitTransaction();
 
   void RollbackTransaction();
@@ -310,7 +312,7 @@ class Interpreter final {
   void SetNextTransactionIsolationLevel(storage::IsolationLevel isolation_level);
   void SetSessionIsolationLevel(storage::IsolationLevel isolation_level);
 
-  std::vector<std::string> GetQueryStrings();
+  std::vector<std::string> GetQueriesSummary();
 
   /**
    * Abort the current multicommand transaction.

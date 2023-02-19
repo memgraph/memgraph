@@ -325,7 +325,9 @@ class Storage final {
 
     void FinalizeTransaction();
 
-    uint64_t GetTransactionId();
+    uint64_t GetTransactionId() const;
+
+    bool IsTransactionActive() const;
 
    private:
     /// @throw std::bad_alloc

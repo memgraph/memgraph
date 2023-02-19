@@ -1144,7 +1144,9 @@ void Storage::Accessor::FinalizeTransaction() {
   }
 }
 
-uint64_t Storage::Accessor::GetTransactionId() { return transaction_.transaction_id; }
+uint64_t Storage::Accessor::GetTransactionId() const { return transaction_.transaction_id; }
+
+bool Storage::Accessor::IsTransactionActive() const { return is_transaction_active_; }
 
 const std::string &Storage::LabelToName(LabelId label) const { return name_id_mapper_.IdToName(label.AsUint()); }
 
