@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -2496,13 +2496,13 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
 }
 }  // namespace
 
-void Interpreter::Commit() {
+Interpreter::TransactionCommitResponse Interpreter::Commit() {
   // It's possible that some queries did not finish because the user did
   // not pull all of the results from the query.
   // For now, we will not check if there are some unfinished queries.
   // We should document clearly that all results should be pulled to complete
   // a query.
-  if (!db_accessor_) return;
+  if (!db_accessor_) return Interpreter::TransactionCommitResponse{.success = true};
 
   std::optional<TriggerContext> trigger_context = std::nullopt;
   if (trigger_context_collector_) {
@@ -2590,8 +2590,15 @@ void Interpreter::Commit() {
 
   SPDLOG_DEBUG("Finished committing the transaction");
   if (!commit_confirmed_by_all_sync_repplicas) {
-    throw ReplicationException("At least one SYNC replica has not confirmed committing last transaction.");
+    std::vector<Notification> notifications;
+    notifications.reserve(1);
+    notifications.emplace_back(SeverityLevel::WARNING, NotificationCode::REPLICA_PORT_WARNING,
+                               "At least one SYNC replica has not confirmed committing last transaction.");
+
+    return TransactionCommitResponse{.success = true, .notifications = std::move(notifications)};
   }
+
+  return Interpreter::TransactionCommitResponse{.success = true};
 }
 
 void Interpreter::AdvanceCommand() {

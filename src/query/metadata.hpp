@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,9 +24,10 @@ namespace memgraph::query {
 enum class SeverityLevel : uint8_t { INFO, WARNING };
 
 enum class NotificationCode : uint8_t {
+  CHECK_STREAM,
+  COMMIT_TO_REPLICAS,
   CREATE_CONSTRAINT,
   CREATE_INDEX,
-  CHECK_STREAM,
   CREATE_STREAM,
   CREATE_TRIGGER,
   DROP_CONSTRAINT,

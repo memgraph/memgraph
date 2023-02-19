@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -326,6 +326,11 @@ class Interpreter final {
     }
   };
 
+  struct TransactionCommitResponse {
+    bool success;
+    std::vector<Notification> notifications;
+  };
+
   // Interpreter supports multiple prepared queries at the same time.
   // The client can reference a specific query for pull using an arbitrary qid
   // which is in our case the index of the query in the vector.
@@ -354,7 +359,7 @@ class Interpreter final {
   std::optional<storage::IsolationLevel> next_transaction_isolation_level;
 
   PreparedQuery PrepareTransactionQuery(std::string_view query_upper);
-  void Commit();
+  TransactionCommitResponse Commit();
   void AdvanceCommand();
   void AbortCommand(std::unique_ptr<QueryExecution> *query_execution);
   std::optional<storage::IsolationLevel> GetIsolationLevelOverride();
@@ -402,28 +407,34 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     if (maybe_res) {
       // Save its summary
       maybe_summary.emplace(std::move(query_execution->summary));
-      if (!query_execution->notifications.empty()) {
-        std::vector<TypedValue> notifications;
-        notifications.reserve(query_execution->notifications.size());
-        for (const auto &notification : query_execution->notifications) {
-          notifications.emplace_back(notification.ConvertToMap());
-        }
-        maybe_summary->insert_or_assign("notifications", std::move(notifications));
+      std::vector<TypedValue> notifications;
+
+      notifications.reserve(query_execution->notifications.size());
+      for (const auto &notification : query_execution->notifications) {
+        notifications.emplace_back(notification.ConvertToMap());
       }
+
       if (!in_explicit_transaction_) {
         switch (*maybe_res) {
-          case QueryHandlerResult::COMMIT:
-            Commit();
+          case QueryHandlerResult::COMMIT: {
+            auto commit_response = Commit();
+            for (const auto &notification : commit_response.notifications) {
+              notifications.emplace_back(notification.ConvertToMap());
+            }
+
             break;
-          case QueryHandlerResult::ABORT:
+          }
+          case QueryHandlerResult::ABORT: {
             Abort();
             break;
-          case QueryHandlerResult::NOTHING:
+          }
+          case QueryHandlerResult::NOTHING: {
             // The only cases in which we have nothing to do are those where
             // we're either in an explicit transaction or the query is such that
             // a transaction wasn't started on a call to `Prepare()`.
             MG_ASSERT(in_explicit_transaction_ || !db_accessor_);
             break;
+          }
         }
         // As the transaction is done we can clear all the executions
         // NOTE: we cannot clear query_execution inside the Abort and Commit
@@ -434,6 +445,10 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
         // We can only clear this execution as some of the queries
         // in the transaction can be in unfinished state
         query_execution.reset(nullptr);
+      }
+
+      if (!notifications.empty()) {
+        maybe_summary->insert_or_assign("notifications", std::move(notifications));
       }
     }
   } catch (const ExplicitTransactionUsageException &) {
