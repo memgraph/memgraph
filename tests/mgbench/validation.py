@@ -169,6 +169,7 @@ if __name__ == "__main__":
     for dataset, queries in benchmarks_memgraph:
 
         dataset.prepare(cache.cache_directory("datasets", dataset.NAME, dataset.get_variant()))
+
         impor = importer.Importer(dataset=dataset, vendor=memgraph, client=client)
 
         status = impor.try_optimal_import()
@@ -234,11 +235,10 @@ if __name__ == "__main__":
                 try:
                     ret = client.execute(queries=get_queries(func, count), num_workers=1, validation=True)[0]
                     results_neo4j[funcname] = ret["results"].items()
-
                 except Exception as e:
                     print("Issue running the query" + funcname)
                     print(e)
-                    results_neo4j[funcname] = (funcname, "Query not executed properly")
+                    results_neo4j[funcname] = {funcname, "Query not executed properly"}
                 finally:
                     usage = neo4j.stop("validation")
                     print("Database used {:.3f} seconds of CPU time.".format(usage["cpu"]))

@@ -1,4 +1,5 @@
 import inspect
+from datetime import datetime
 from pathlib import Path
 from textwrap import dedent
 
@@ -44,47 +45,55 @@ class LDBC_Interactive(Dataset):
     }
 
     def _prepare_parameters_directory(self):
-        parameters = Path() / ".cache" / "datasets" / self.NAME / self._size / "parameters"
+        parameters = Path() / ".cache" / "datasets" / self.NAME / self._variant / "parameters"
         parameters.mkdir(exist_ok=True)
-        dir_name = self.QUERY_PARAMETERS[self._size].split("/")[-1:][0].removesuffix(".tar.zst")
+        dir_name = self.QUERY_PARAMETERS[self._variant].split("/")[-1:][0].removesuffix(".tar.zst")
         if (parameters / dir_name).exists():
             print("Files downloaded:")
             parameters = parameters / dir_name
         else:
             print("Downloading files")
-            downloaded_file = helpers.download_file(self.QUERY_PARAMETERS[self._size], parameters.absolute())
+            downloaded_file = helpers.download_file(self.QUERY_PARAMETERS[self._variant], parameters.absolute())
             print("Unpacking the file..." + downloaded_file)
             parameters = helpers.unpack_tar_zst(Path(downloaded_file))
         return parameters
 
-    def _get_query_parameters(self):
+    def _get_query_parameters(self) -> dict:
         func_name = inspect.stack()[1].function
         print(func_name)
 
-        input_files = {}
+        parameters = {}
         for file in self._parameters_dir.glob("interactive_*.txt"):
             if file.name.split("_")[1] == func_name.split("_")[-1]:
-                pass
+                with file.open("r") as input:
+                    lines = input.readlines()
+                    header = lines[0].strip("\n").split("|")
+                    data = lines[1].strip("\n").split("|")
+                    for i in range(len(header)):
+                        if "Date" in header[i]:
+                            time = int(data[i]) / 1000
+                            converted = datetime.utcfromtimestamp(time).strftime("%Y-%m-%dT%H:%M:%S")
+                            parameters[header[i]] = converted
+                        else:
+                            parameters[header[i]] = data[i]
 
-            # parts = file.parts[-2:]
-            # key = parts[0] + "/" + parts[1][:-8]
-            # input_files[key] = file
+        return parameters
 
     def __init__(self, variant=None, vendor=None):
         super().__init__(variant, vendor)
         self._parameters_dir = self._prepare_parameters_directory()
 
-    def benchmark__interactive__sample_query(self):
-        return ("MATCH(n:Tag) RETURN COUNT(*);", {})
+    # def benchmark__interactive__sample_query(self):
+    #     return ("MATCH(n:Tag) RETURN COUNT(*);", {})
 
-    def benchmark__interactive__sample_query2(self):
-        return ("MATCH (n:Person {id: $personId}) RETURN n;", {"personId": 933})
+    # def benchmark__interactive__sample_query_1(self):
+    #     return ("MATCH (n:Person {id: $personId, firstname: $firstName}) RETURN n;", self._get_query_parameters())
 
-    def benchmark__interactive__sample_query3(self):
-        return ("MATCH(n:Tag) RETURN COUNT(*);", {})
+    # def benchmark__interactive__sample_query_2(self):
+    #     return ("MATCH(n:Tag) RETURN COUNT(*);", self._get_query_parameters())
 
-    def benchmark__interactive__sample_query4(self):
-        return ("MATCH (n:Person {id: $personId}) RETURN n;", {"personId": 933})
+    # def benchmark__interactive__sample_query4(self):
+    #     return ("MATCH (n:Person {id: $personId}) RETURN n;", {"personId": 933})
 
     def benchmark__interactive__complex_query_1(self):
         memgraph = (
@@ -92,7 +101,7 @@ class LDBC_Interactive(Dataset):
         MATCH (p:Person {id: $personId}), (friend:Person {firstName: $firstName})
         WHERE NOT p=friend
         WITH p, friend
-        MATCH path =((p)-[:KNOWS*1..3]-(friend))
+        MATCH path =((p)-[:KNOWS *BFS 1..3]-(friend))
         WITH min(size(path)) AS distance, friend
         ORDER BY
             distance ASC,
@@ -136,7 +145,7 @@ class LDBC_Interactive(Dataset):
         """.replace(
                 "\n", ""
             ),
-            {"personId": 30786325579101, "firstName": "Ian"},
+            self._get_query_parameters(),
         )
         neo4j = (
             """
@@ -188,7 +197,7 @@ class LDBC_Interactive(Dataset):
             """.replace(
                 "\n", ""
             ),
-            {"personId": 30786325579101, "firstName": "Ian"},
+            self._get_query_parameters(),
         )
         if self._vendor == "memgraph":
             return memgraph
@@ -199,7 +208,7 @@ class LDBC_Interactive(Dataset):
         return (
             """
             MATCH (:Person {id: $personId })-[:KNOWS]-(friend:Person)<-[:HAS_CREATOR]-(message:Message)
-            WHERE message.creationDate <= $maxDate
+            WHERE message.creationDate <= localDateTime($maxDate)
             RETURN
                 friend.id AS personId,
                 friend.firstName AS personFirstName,
@@ -214,7 +223,7 @@ class LDBC_Interactive(Dataset):
             """.replace(
                 "\n", ""
             ),
-            {"personId": 19791209300143, "maxDate": "2011-06-29T12:00:00"},
+            self._get_query_parameters(),
         )
 
     def benchmark__interactive__complex_query_3(self):
@@ -233,7 +242,7 @@ class LDBC_Interactive(Dataset):
             WITH DISTINCT friend, countryX, countryY
             MATCH (friend)<-[:HAS_CREATOR]-(message),
                 (message)-[:IS_LOCATED_IN]->(country)
-            WHERE $endDate > message.creationDate >= $startDate AND
+            WHERE localDateTime($startDate) + duration({day:$durationDays)}) > message.creationDate >= localDateTime($startDate) AND
                 country IN [countryX, countryY]
             WITH friend,
                 CASE WHEN country=countryX THEN 1 ELSE 0 END AS messageX,
@@ -251,13 +260,7 @@ class LDBC_Interactive(Dataset):
             """.replace(
                 "\n", ""
             ),
-            {
-                "personId": 6597069766734,
-                "countryXName": "Angola",
-                "countryYName": "Colombia",
-                "startDate": "2011-06-29T12:00:00",
-                "endDate": "2011-06-29T12:00:00",
-            },
+            self._get_query_parameters(),
         )
 
     def benchmark__interactive__complex_query_4(self):
@@ -268,7 +271,7 @@ class LDBC_Interactive(Dataset):
             WITH DISTINCT tag, post
             WITH tag,
                 CASE
-                    WHEN $endDate > post.creationDate >= $startDate THEN 1
+                    WHEN localDateTime($startDate) + duration({day:$durationDays}) > post.creationDate >= localDateTime($startDate) THEN 1
                     ELSE 0
                 END AS valid,
                 CASE
@@ -282,11 +285,7 @@ class LDBC_Interactive(Dataset):
             LIMIT 10
 
             """,
-            {
-                "personId": 4398046511333,
-                "startDate": "2011-06-29T12:00:00",
-                "endDate": "2011-06-29T12:00:00",
-            },
+            self._get_query_parameters(),
         )
 
     def benchmark__interactive__complex_query_5(self):
@@ -298,7 +297,7 @@ class LDBC_Interactive(Dataset):
             WITH DISTINCT friend
             MATCH (friend)<-[membership:HAS_MEMBER]-(forum)
             WHERE
-                membership.joinDate > $minDate
+                membership.joinDate > localDateTime($minDate)
             WITH
                 forum,
                 collect(friend) AS friends
@@ -318,10 +317,7 @@ class LDBC_Interactive(Dataset):
             """.replace(
                 "\n", ""
             ),
-            {
-                "personId": 6597069766734,
-                "minDate": "2011-06-29T12:00:00",
-            },
+            self._get_query_parameters(),
         )
 
     def benchmark__interactive__complex_query_6(self):
@@ -353,7 +349,7 @@ class LDBC_Interactive(Dataset):
             """.replace(
                 "\n", ""
             ),
-            {"personId": 4398046511333, "tagName": "Carl_Gustaf_Emil_Mannerheim"},
+            self._get_query_parameters(),
         )
 
     def benchmark__interactive__complex_query_7(self):
@@ -363,6 +359,9 @@ class LDBC_Interactive(Dataset):
                 WITH liker, message, like.creationDate AS likeTime, person
                 ORDER BY likeTime DESC, toInteger(message.id) ASC
                 WITH liker, head(collect({msg: message, likeTime: likeTime})) AS latestLike, person
+                OPTIONAL MATCH (liker)-[:KNOWS]->(person)
+                WITH liker, latestLike, person,
+                    CASE WHEN person=null THEN TRUE ELSE FALSE END AS isNew
             RETURN
                 liker.id AS personId,
                 liker.firstName AS personFirstName,
@@ -370,7 +369,7 @@ class LDBC_Interactive(Dataset):
                 latestLike.likeTime AS likeCreationDate,
                 latestLike.msg.id AS commentOrPostId,
                 coalesce(latestLike.msg.content, latestLike.msg.imageFile) AS commentOrPostContent,
-                toInteger(floor(toFloat(latestLike.likeTime - latestLike.msg.creationDate)/1000.0)/60.0) AS minutesLatency
+                (latestLike.likeTime - latestLike.msg.creationDate).minute AS minutesLatency
             ORDER BY
                 likeCreationDate DESC,
                 toInteger(personId) ASC
@@ -378,7 +377,7 @@ class LDBC_Interactive(Dataset):
             """.replace(
                 "\n", ""
             ),
-            {"personId": 4398046511268},
+            self._get_query_parameters(),
         )
         neo4j = (
             """
@@ -402,7 +401,7 @@ class LDBC_Interactive(Dataset):
             """.replace(
                 "\n", ""
             ),
-            {"personId": 4398046511268},
+            self._get_query_parameters(),
         )
         if self._vendor == "memgraph":
             return memgraph
@@ -427,7 +426,7 @@ class LDBC_Interactive(Dataset):
             """.replace(
                 "\n", ""
             ),
-            {"personId": 143},
+            self._get_query_parameters(),
         )
 
     def benchmark__interactive__complex_query_9(self):
@@ -453,7 +452,7 @@ class LDBC_Interactive(Dataset):
             """.replace(
                 "\n", ""
             ),
-            {"personId": 4398046511268, "maxDate": "2011-06-29T12:00:00"},
+            self._get_query_parameters(),
         )
 
     def benchmark__interactive__complex_query_10(self):
@@ -484,7 +483,7 @@ class LDBC_Interactive(Dataset):
             """.replace(
                 "\n", ""
             ),
-            {"personId": 4398046511333, "month": 5},
+            self._get_query_parameters(),
         )
 
         neo4j = (
@@ -514,7 +513,7 @@ class LDBC_Interactive(Dataset):
             """.replace(
                 "\n", ""
             ),
-            {"personId": 4398046511333, "month": 5},
+            self._get_query_parameters(),
         )
 
         if self._vendor == "memgraph":
@@ -544,11 +543,7 @@ class LDBC_Interactive(Dataset):
             """.replace(
                 "\n", ""
             ),
-            {
-                "personId": 10995116277918,
-                "countryName": "Hungary",
-                "workFromYear": 2011,
-            },
+            self._get_query_parameters(),
         )
 
     def benchmark__interactive__complex_query_12(self):
@@ -572,10 +567,7 @@ class LDBC_Interactive(Dataset):
             """.replace(
                 "\n", ""
             ),
-            {
-                "personId": 10995116277918,
-                "tagClassName": "Monarch",
-            },
+            self._get_query_parameters(),
         )
 
     def benchmark__interactive__complex_query_13(self):
@@ -610,7 +602,7 @@ class LDBC_Interactive(Dataset):
             """.replace(
                 "\n", ""
             ),
-            {"person1Id": 8796093022390, "person2Id": 8796093022357},
+            self._get_query_parameters(),
         )
 
         if self._vendor == "memgraph":
@@ -652,7 +644,7 @@ class LDBC_Interactive(Dataset):
             """.replace(
                 "\n", ""
             ),
-            {"person1Id": 8796093022390, "person2Id": 8796093022357},
+            self._get_query_parameters(),
         )
 
         neo4j = (
@@ -688,7 +680,7 @@ class LDBC_Interactive(Dataset):
             """.replace(
                 "\n", ""
             ),
-            {"person1Id": 8796093022390, "person2Id": 8796093022357},
+            self._get_query_parameters(),
         )
 
         if self._vendor == "memgraph":
