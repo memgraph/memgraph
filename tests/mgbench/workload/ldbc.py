@@ -437,7 +437,7 @@ class LDBC_Interactive(Dataset):
             WITH collect(distinct friend) as friends
             UNWIND friends as friend
                 MATCH (friend)<-[:HAS_CREATOR]-(message:Message)
-                WHERE message.creationDate < $maxDate
+                WHERE message.creationDate < localDateTime($maxDate)
             RETURN
                 friend.id AS personId,
                 friend.firstName AS personFirstName,
@@ -576,7 +576,7 @@ class LDBC_Interactive(Dataset):
             MATCH
                 (person1:Person {id: $person1Id}),
                 (person2:Person {id: $person2Id}),
-                path = (person1)-[:KNOWS*]-(person2)
+                path = (person1)-[:KNOWS *BFS]-(person2)
             RETURN
                 CASE path IS NULL
                     WHEN true THEN -1
