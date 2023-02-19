@@ -2661,6 +2661,25 @@ cpp<#
   (:serialize (:slk))
   (:clone))
 
+(lcp:define-class transaction-queue-query (query)
+  ((action "Action" :scope :public))
+
+  (:public
+    (lcp:define-enum action
+        (show-transactions terminate-transactions)
+      (:serialize))
+    #>cpp
+    TransactionQueueQuery() = default;
+
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
 (lcp:define-class version-query (query) ()
   (:public
     #>cpp

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1908,6 +1908,31 @@ PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explic
   // False positive report for the std::make_shared above
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
 }
+
+// PreparedQuery PrepareTransactionQueueQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
+//                                            DbAccessor *dba) {
+//   if (in_explicit_transaction) {
+//     // throw SettingConfigInMulticommandTxException{};
+//   }
+
+//   auto *transaction_queue_query = utils::Downcast<TransactionQueueQuery>(parsed_query.query);
+//   MG_ASSERT(transaction_queue_query);
+//   auto callback = HandleTransactionQueueQuery(transaction_queue_query, parsed_query.parameters, dba);
+
+//   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
+//                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
+//                            AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+//                          if (UNLIKELY(!pull_plan)) {
+//                            pull_plan = std::make_shared<PullPlanVector>(callback_fn());
+//                          }
+
+//                          if (pull_plan->Pull(stream, n)) {
+//                            return QueryHandlerResult::COMMIT;
+//                          }
+//                          return std::nullopt;
+//                        },
+//                        RWType::NONE};
+// }
 
 PreparedQuery PrepareVersionQuery(ParsedQuery parsed_query, const bool in_explicit_transaction) {
   if (in_explicit_transaction) {
