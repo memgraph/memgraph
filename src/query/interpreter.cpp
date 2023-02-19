@@ -2296,8 +2296,10 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   // show transactions.
   std::optional<std::string> user = StringPointerToOptional(username);
   username_ = user;
-  bool isAdmin = interpreter_context_->auth_checker->IsUserAdmin(user);
-  isAdmin_ = isAdmin;
+  if (interpreter_context_ != nullptr && interpreter_context_->auth_checker != nullptr) {
+    bool isAdmin = interpreter_context_->auth_checker->IsUserAdmin(user);
+    isAdmin_ = isAdmin;
+  }
 
   /*
   if (query_string == "SHOW TRANSACTIONS\n") {
