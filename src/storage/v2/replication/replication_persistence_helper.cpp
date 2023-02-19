@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,11 +20,12 @@ const std::string kSyncMode = "replica_sync_mode";
 const std::string kCheckFrequency = "replica_check_frequency";
 const std::string kSSLKeyFile = "replica_ssl_key_file";
 const std::string kSSLCertFile = "replica_ssl_cert_file";
+const std::string kReplicationRole = "replication_role";
 }  // namespace
 
 namespace memgraph::storage::replication {
 
-nlohmann::json ReplicaStatusToJSON(ReplicaStatus &&status) {
+nlohmann::json ReplicationStatusToJSON(ReplicationStatus &&status) {
   auto data = nlohmann::json::object();
 
   data[kReplicaName] = std::move(status.name);
@@ -42,11 +43,15 @@ nlohmann::json ReplicaStatusToJSON(ReplicaStatus &&status) {
     data[kSSLCertFile] = nullptr;
   }
 
+  if (status.role.has_value()) {
+    data[kReplicationRole] = *status.role;
+  }
+
   return data;
 }
 
-std::optional<ReplicaStatus> JSONToReplicaStatus(nlohmann::json &&data) {
-  ReplicaStatus replica_status;
+std::optional<ReplicationStatus> JSONToReplicationStatus(nlohmann::json &&data) {
+  ReplicationStatus replica_status;
 
   const auto get_failed_message = [](const std::string_view message, const std::string_view nested_message) {
     return fmt::format("Failed to deserialize replica's configuration: {} : {}", message, nested_message);
@@ -69,6 +74,13 @@ std::optional<ReplicaStatus> JSONToReplicaStatus(nlohmann::json &&data) {
       replica_status.ssl = replication::ReplicationClientConfig::SSL{};
       data.at(kSSLKeyFile).get_to(replica_status.ssl->key_file);
       data.at(kSSLCertFile).get_to(replica_status.ssl->cert_file);
+    }
+
+    if (data.find(kReplicationRole) != data.end()) {
+      replication::ReplicationRole role;
+      const auto replication_role = data.at(kReplicationRole).get_to(role);
+
+      replica_status.role = role;
     }
   } catch (const nlohmann::json::type_error &exception) {
     spdlog::error(get_failed_message("Invalid type conversion", exception.what()));
