@@ -199,11 +199,9 @@ class RequestRouter : public RequestRouterInterface {
         // TODO(kostasrim) Currently requests return the result directly. Adjust this when the API works MgFuture
         // instead.
         auto commit_response = storage_client.SendWriteRequest(commit_req);
-        // RETRY on timeouts?
-        // Sometimes this produces a timeout. Temporary solution is to use a while(true) as was done in shard_map test
-        if (commit_response.HasError()) {
-          spdlog::warn("throwing because of commit failure 2: {}", commit_response.GetError());
-          throw std::runtime_error("Commit request timed out");
+        while (commit_response.HasError()) {
+          spdlog::warn("RequestRouter retrying Commit request due to timeout");
+          commit_response = storage_client.SendWriteRequest(commit_req);
         }
         msgs::WriteResponses write_response_variant = commit_response.GetValue();
         auto &response = std::get<msgs::CommitResponse>(write_response_variant);
