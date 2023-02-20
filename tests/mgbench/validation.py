@@ -238,7 +238,7 @@ if __name__ == "__main__":
                 except Exception as e:
                     print("Issue running the query" + funcname)
                     print(e)
-                    results_neo4j[funcname] = "Query not executed properly"
+                    results_neo4j[funcname] = "Query not executed properly."
                 finally:
                     usage = neo4j.stop("validation")
                     print("Database used {:.3f} seconds of CPU time.".format(usage["cpu"]))
@@ -246,7 +246,9 @@ if __name__ == "__main__":
 
     validation = {}
     for key in results_memgraph.keys():
-        if type(results_memgraph[key]) is tuple:
+        if type(results_memgraph[key]) is str:
+            validation[key] = "Query not executed properly."
+        else:
             memgraph_values = set()
             for index, value in results_memgraph[key]:
                 memgraph_values.add(value)
@@ -263,10 +265,7 @@ if __name__ == "__main__":
                 s2 = neo4j_values.intersection(memgraph_values)
                 print(s1)
                 print(s2)
-                validation[key] = "Different results"
-        else:
-            validation[key] = "Query faild. "
-            print("Query didn't run properly")
+                validation[key] = "Different results, check manually."
 
     for key, value in validation.items():
         print(key + " " + value)

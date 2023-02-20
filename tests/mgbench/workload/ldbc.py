@@ -464,10 +464,10 @@ class LDBC_Interactive(Dataset):
                 latestLike.likeTime AS likeCreationDate,
                 latestLike.msg.id AS commentOrPostId,
                 coalesce(latestLike.msg.content, latestLike.msg.imageFile) AS commentOrPostContent,
-                toInteger(floor(toFloat(latestLike.likeTime - latestLike.msg.creationDate)/1000.0)/60.0) AS minutesLatency,
+                duration.between(latestLike.likeTime, latestLike.msg.creationDate).minutes AS minutesLatency,
                 not((liker)-[:KNOWS]-(person)) AS isNew
             ORDER BY
-                likeCreationDate DESC
+                likeCreationDate DESC,
                 toInteger(personId) ASC
             LIMIT 20
             """.replace(
@@ -657,7 +657,7 @@ class LDBC_Interactive(Dataset):
             """.replace(
                 "\n", ""
             ),
-            {"person1Id": 8796093022390, "person2Id": 8796093022357},
+            self._get_query_parameters(),
         )
 
         neo4j = (
