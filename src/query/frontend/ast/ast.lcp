@@ -2662,7 +2662,8 @@ cpp<#
   (:clone))
 
 (lcp:define-class transaction-queue-query (query)
-  ((action "Action" :scope :public))
+  ((action "Action" :scope :public)
+   (transaction_ids "std::vector<std::string>" :scope :public))
 
   (:public
     (lcp:define-enum action

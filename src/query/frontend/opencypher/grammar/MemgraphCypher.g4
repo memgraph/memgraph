@@ -206,7 +206,7 @@ transactionQueueQuery : showTransactions
 
 showTransactions : SHOW TRANSACTIONS ;
 
-terminateTransactions : TERMINATE TRANSACTIONS ;
+terminateTransactions : TERMINATE TRANSACTIONS transactionIds;
 
 loadCsv : LOAD CSV FROM csvFile ( WITH | NO ) HEADER
          ( IGNORE BAD ) ?
@@ -413,3 +413,7 @@ showSettings : SHOW DATABASE SETTINGS ;
 showConfigQuery : SHOW CONFIG ;
 
 versionQuery : SHOW VERSION ;
+
+transactionId : StringLiteral ;
+
+transactionIds : transactionId ( ',' transactionId )* ;

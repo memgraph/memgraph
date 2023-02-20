@@ -1915,7 +1915,8 @@ PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explic
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
 }
 
-Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query, uint64_t current_transaction_id,
+Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
+                                     const std::optional<std::string> &username, uint64_t current_transaction_id,
                                      const Parameters &parameters, InterpreterContext *interpreter_context,
                                      DbAccessor *db_accessor) {
   Frame frame(0);
@@ -1925,17 +1926,19 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query, u
   evaluation_context.parameters = parameters;
   ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::View::OLD);
 
+  bool isAdmin = interpreter_context->auth_checker->IsUserAdmin(username);
+
   Callback callback;
   switch (transaction_query->action_) {
     case TransactionQueueQuery::Action::SHOW_TRANSACTIONS: {
       callback.header = {"username", "transaction_id", "queries summary"};
-      callback.fn = [interpreter_context]() mutable {
+      callback.fn = [interpreter_context, username, isAdmin]() mutable {
         std::vector<std::vector<TypedValue>> results;
         results.reserve(interpreter_context->interpreters->size());
-        interpreter_context->interpreters.WithLock([&results](const auto &interpreters) {
+        interpreter_context->interpreters.WithLock([&results, username, isAdmin](const auto &interpreters) {
           spdlog::info("Number of interpreters in callback: {}", interpreters.size());
           for (Interpreter *interpreter : interpreters) {
-            if (interpreter->HasActiveTransaction()) {
+            if (interpreter->HasActiveTransaction() && (interpreter->username_ == username || isAdmin)) {
               auto queries_summaries_typed = std::vector<TypedValue>();
               auto queries_summaries = interpreter->GetQueriesSummary();
               std::for_each(queries_summaries.begin(), queries_summaries.end(),
@@ -1982,9 +1985,9 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query, u
   return callback;
 }
 
-PreparedQuery PrepareTransactionQueueQuery(ParsedQuery parsed_query, const uint64_t current_transaction_id,
-                                           const bool in_explicit_transaction, InterpreterContext *interpreter_context,
-                                           DbAccessor *dba) {
+PreparedQuery PrepareTransactionQueueQuery(ParsedQuery parsed_query, const std::optional<std::string> &username,
+                                           const uint64_t current_transaction_id, const bool in_explicit_transaction,
+                                           InterpreterContext *interpreter_context, DbAccessor *dba) {
   if (in_explicit_transaction) {
     // throw SettingConfigInMulticommandTxException{};
   }
@@ -1993,8 +1996,8 @@ PreparedQuery PrepareTransactionQueueQuery(ParsedQuery parsed_query, const uint6
 
   auto *transaction_queue_query = utils::Downcast<TransactionQueueQuery>(parsed_query.query);
   MG_ASSERT(transaction_queue_query);
-  auto callback = HandleTransactionQueueQuery(transaction_queue_query, current_transaction_id, parsed_query.parameters,
-                                              interpreter_context, dba);
+  auto callback = HandleTransactionQueueQuery(transaction_queue_query, username, current_transaction_id,
+                                              parsed_query.parameters, interpreter_context, dba);
 
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -2527,7 +2530,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<TransactionQueueQuery>(parsed_query.query)) {
       spdlog::info("Number of interpreters in else if: {}", interpreter_context_->interpreters->size());
       prepared_query =
-          PrepareTransactionQueueQuery(std::move(parsed_query), GetTransactionId(), in_explicit_transaction_,
+          PrepareTransactionQueueQuery(std::move(parsed_query), username_, GetTransactionId(), in_explicit_transaction_,
                                        interpreter_context_, &*execution_db_accessor_);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");

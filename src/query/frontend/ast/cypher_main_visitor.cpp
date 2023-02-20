@@ -11,8 +11,10 @@
 
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include <support/Any.h>
+#include <tree/ParseTreeVisitor.h>
 
 #include <algorithm>
+#include <any>
 #include <climits>
 #include <codecvt>
 #include <cstring>
@@ -31,6 +33,7 @@
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
+#include "query/frontend/opencypher/generated/MemgraphCypher.h"
 #include "query/frontend/parsing.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/procedure/module.hpp"
@@ -631,6 +634,15 @@ void GetTopicNames(auto &destination, MemgraphCypher::TopicNamesContext *topic_n
     destination = std::any_cast<Expression *>(topic_names_ctx->accept(&visitor));
   }
 }
+
+// std::vector<std::string> GetTransactionIds(MemgraphCypher::TransactionIdsContext *context) {
+//   std::vector<std::string> transaction_ids{};
+//   for (auto *transaction_id : context->transactionId()) {
+//     transaction_ids.push_back(transaction_id->accept(conte));
+//   }
+//   return transaction_ids;
+// }
+
 }  // namespace
 
 antlrcpp::Any CypherMainVisitor::visitKafkaCreateStreamConfig(MemgraphCypher::KafkaCreateStreamConfigContext *ctx) {
@@ -899,6 +911,7 @@ antlrcpp::Any CypherMainVisitor::visitShowTransactions(MemgraphCypher::ShowTrans
 antlrcpp::Any CypherMainVisitor::visitTerminateTransactions(MemgraphCypher::TerminateTransactionsContext *ctx) {
   auto *terminator = storage_->Create<TransactionQueueQuery>();
   terminator->action_ = TransactionQueueQuery::Action::TERMINATE_TRANSACTIONS;
+  // terminator->transaction_ids_ = GetTransactionIds(ctx->transactionIds());
   return terminator;
 }
 
