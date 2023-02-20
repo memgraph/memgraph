@@ -41,14 +41,14 @@
 // ./query_performance
 //   --index-queries-file indices.cypher
 //   --init-queries-file dataset.cypher
-//   --benchmark-queries-file benchmark_queries.txt
+//   --benchmark-queries-files expand.cypher,match.cypyher
 //   --use-v3=false
 //
 // Example usage with Memgraph v3 without MultiFrame:
 // ./query_performance
 //   --split-file split_file
 //   --init-queries-file dataset.cypher
-//   --benchmark-queries-file benchmark_queries.txt
+//   --benchmark-queries-files expand.cypher,match.cypyher
 //   --use-v3=true
 //   --use-multi-frame=false
 //
@@ -56,7 +56,7 @@
 // ./query_performance
 //   --split-file split_file
 //   --init-queries-file dataset.cypher
-//   --benchmark-queries-file benchmark_queries.txt
+//   --benchmark-queries-files expand.cypher,match.cypyher
 //   --use-v3=true
 //   --use-multi-frame=true
 //
@@ -69,6 +69,7 @@
 // because of address resolution. See https://github.com/flamegraph-rs/flamegraph/issues/74.
 
 #include <chrono>
+#include <filesystem>
 #include <istream>
 #include <thread>
 
@@ -90,6 +91,9 @@
 #include "query/interpreter.hpp"
 #include "storage/v2/storage.hpp"
 
+// common includes
+#include "utils/string.hpp"
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(index_queries_file, "",
               "Path to the file which contains the queries to create indices. Used only for v2. Must contain an empty "
@@ -103,9 +107,9 @@ DEFINE_string(init_queries_file, "",
               "Path to the file that is used to insert the initial dataset, one query per line. Must contain an empty "
               "line at the end of the file after the queries.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(benchmark_queries_file, "",
-              "Path to the file that contains the queries that we want to compare, one query per line. Must contain an "
-              "empty line at the end of the file after the queries.");
+DEFINE_string(benchmark_queries_files, "",
+              "Comma separated paths to the files that contain the queries that we want to compare, one query per "
+              "line. Must contain an empty line at the end of each file after the queries.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(use_v3, true, "If set to true, then Memgraph v3 will be used, otherwise Memgraph v2 will be used.");
 
@@ -170,13 +174,23 @@ std::vector<std::string> ReadQueries(const std::string &file_name) {
   return queries;
 }
 
+std::map<std::string, std::vector<std::string>> ReadBenchmarkQueries(const std::string benchmark_queries_files) {
+  auto benchmark_files = utils::Split(benchmark_queries_files, ",");
+  std::map<std::string, std::vector<std::string>> result;
+  for (const auto &benchmark_file : benchmark_files) {
+    const auto path = std::filesystem::path(benchmark_file);
+    result.emplace(path.stem().string(), ReadQueries(benchmark_file));
+  }
+  return result;
+}
+
 void RunV2() {
   spdlog::critical("Running V2");
   const auto run_start = std::chrono::high_resolution_clock::now();
 
   const auto index_queries = ReadQueries(FLAGS_index_queries_file);
   const auto init_queries = ReadQueries(FLAGS_init_queries_file);
-  const auto benchmark_queries = ReadQueries(FLAGS_benchmark_queries_file);
+  const auto benchmarks = ReadBenchmarkQueries(FLAGS_benchmark_queries_files);
 
   storage::Storage storage{
       storage::Config{.durability{.snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::DISABLED}}};
@@ -196,12 +210,21 @@ void RunV2() {
   RunInitQueries(interpreter_context, index_queries);
   RunInitQueries(interpreter_context, init_queries);
   const auto benchmark_start = std::chrono::high_resolution_clock::now();
-  RunBenchmarkQueries(interpreter_context, benchmark_queries);
-  const auto benchmark_end = std::chrono::high_resolution_clock::now();
 
   spdlog::critical("Read: {}ms", std::chrono::duration_cast<std::chrono::milliseconds>(init_start - run_start).count());
   spdlog::critical("Init: {}ms",
                    std::chrono::duration_cast<std::chrono::milliseconds>(benchmark_start - init_start).count());
+
+  for (const auto &[name, queries] : benchmarks) {
+    const auto current_start = std::chrono::high_resolution_clock::now();
+    RunBenchmarkQueries(interpreter_context, queries);
+    const auto current_stop = std::chrono::high_resolution_clock::now();
+
+    spdlog::critical("Benchmark {}: {}ms", name,
+                     std::chrono::duration_cast<std::chrono::milliseconds>(current_stop - current_start).count());
+  }
+
+  const auto benchmark_end = std::chrono::high_resolution_clock::now();
   spdlog::critical("Benchmark: {}ms",
                    std::chrono::duration_cast<std::chrono::milliseconds>(benchmark_end - benchmark_start).count());
 }
@@ -214,7 +237,7 @@ void RunV3() {
   auto sm = memgraph::coordinator::ShardMap::Parse(sm_file);
 
   const auto init_queries = ReadQueries(FLAGS_init_queries_file);
-  const auto benchmark_queries = ReadQueries(FLAGS_benchmark_queries_file);
+  const auto benchmarks = ReadBenchmarkQueries(FLAGS_benchmark_queries_files);
 
   io::local_transport::LocalSystem ls;
 
@@ -250,14 +273,24 @@ void RunV3() {
   const auto init_start = std::chrono::high_resolution_clock::now();
   RunInitQueries(interpreter_context, init_queries);
   const auto benchmark_start = std::chrono::high_resolution_clock::now();
-  RunBenchmarkQueries(interpreter_context, benchmark_queries);
-  const auto benchmark_end = std::chrono::high_resolution_clock::now();
 
   spdlog::critical("Read: {}ms", std::chrono::duration_cast<std::chrono::milliseconds>(init_start - run_start).count());
   spdlog::critical("Init: {}ms",
                    std::chrono::duration_cast<std::chrono::milliseconds>(benchmark_start - init_start).count());
+
+  for (const auto &[name, queries] : benchmarks) {
+    const auto current_start = std::chrono::high_resolution_clock::now();
+    RunBenchmarkQueries(interpreter_context, queries);
+    const auto current_stop = std::chrono::high_resolution_clock::now();
+
+    spdlog::critical("Benchmark {}: {}ms", name,
+                     std::chrono::duration_cast<std::chrono::milliseconds>(current_stop - current_start).count());
+  }
+
+  const auto benchmark_end = std::chrono::high_resolution_clock::now();
   spdlog::critical("Benchmark: {}ms",
                    std::chrono::duration_cast<std::chrono::milliseconds>(benchmark_end - benchmark_start).count());
+
   ls.ShutDown();
 }
 }  // namespace memgraph::tests::manual
