@@ -590,7 +590,8 @@ class RuleBasedPlanner {
         return MakeExistsFilter(*exists, storage, symbol_table, bound_symbols);
       }
 
-      throw SemanticException("Pattern filter does not exist!");
+      // This should never happen
+      MG_ASSERT(false, "Pattern filter does not exist!");
     }
 
     return nullptr;
