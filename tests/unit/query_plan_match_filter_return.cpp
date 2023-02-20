@@ -3477,6 +3477,7 @@ class ExistsFixture : public testing::Test {
   memgraph::query::EdgeAccessor r2{*dba.InsertEdge(&v3, &v4, edge_type_unknown)};
 
   void SetUp() override {
+    // (:l1)-[:Edge]->(:l2), (:l3)-[:Other]->(:l4)
     ASSERT_TRUE(v1.AddLabel(dba.NameToLabel("l1")).HasValue());
     ASSERT_TRUE(v2.AddLabel(dba.NameToLabel("l2")).HasValue());
     ASSERT_TRUE(v3.AddLabel(dba.NameToLabel("l3")).HasValue());
@@ -3519,9 +3520,9 @@ class ExistsFixture : public testing::Test {
 
 TEST_F(ExistsFixture, BasicExists) {
   std::vector<memgraph::storage::EdgeTypeId> known_edge_types;
-  known_edge_types.emplace_back(edge_type);
+  known_edge_types.push_back(edge_type);
   std::vector<memgraph::storage::EdgeTypeId> unknown_edge_types;
-  unknown_edge_types.emplace_back(edge_type_unknown);
+  unknown_edge_types.push_back(edge_type_unknown);
 
   EXPECT_EQ(1, TestExists("l1", EdgeAtom::Direction::OUT, {}));
   EXPECT_EQ(1, TestExists("l1", EdgeAtom::Direction::BOTH, {}));
