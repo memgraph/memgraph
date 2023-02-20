@@ -74,6 +74,8 @@ class LDBC_Interactive(Dataset):
                             time = int(data[i]) / 1000
                             converted = datetime.utcfromtimestamp(time).strftime("%Y-%m-%dT%H:%M:%S")
                             parameters[header[i]] = converted
+                        elif data[i].isdigit():
+                            parameters[header[i]] = int(data[i])
                         else:
                             parameters[header[i]] = data[i]
 
@@ -227,7 +229,8 @@ class LDBC_Interactive(Dataset):
         )
 
     def benchmark__interactive__complex_query_3(self):
-        return (
+
+        memgraph = (
             """
             MATCH (countryX:Country {name: $countryXName }),
                 (countryY:Country {name: $countryYName }),
@@ -242,7 +245,42 @@ class LDBC_Interactive(Dataset):
             WITH DISTINCT friend, countryX, countryY
             MATCH (friend)<-[:HAS_CREATOR]-(message),
                 (message)-[:IS_LOCATED_IN]->(country)
-            WHERE localDateTime($startDate) + duration({day:$durationDays)}) > message.creationDate >= localDateTime($startDate) AND
+            WHERE localDateTime($startDate) + duration({day:$durationDays}) > message.creationDate >= localDateTime($startDate) AND
+                country IN [countryX, countryY]
+            WITH friend,
+                CASE WHEN country=countryX THEN 1 ELSE 0 END AS messageX,
+                CASE WHEN country=countryY THEN 1 ELSE 0 END AS messageY
+            WITH friend, sum(messageX) AS xCount, sum(messageY) AS yCount
+            WHERE xCount>0 AND yCount>0
+            RETURN friend.id AS friendId,
+                friend.firstName AS friendFirstName,
+                friend.lastName AS friendLastName,
+                xCount,
+                yCount,
+                xCount + yCount AS xyCount
+            ORDER BY xyCount DESC, friendId ASC
+            LIMIT 20
+            """.replace(
+                "\n", ""
+            ),
+            self._get_query_parameters(),
+        )
+        neo4j = (
+            """
+            MATCH (countryX:Country {name: $countryXName }),
+                (countryY:Country {name: $countryYName }),
+                (person:Person {id: $personId })
+            WITH person, countryX, countryY
+            LIMIT 1
+            MATCH (city:City)-[:IS_PART_OF]->(country:Country)
+            WHERE country IN [countryX, countryY]
+            WITH person, countryX, countryY, collect(city) AS cities
+            MATCH (person)-[:KNOWS*1..2]-(friend)-[:IS_LOCATED_IN]->(city)
+            WHERE NOT person=friend AND NOT city IN cities
+            WITH DISTINCT friend, countryX, countryY
+            MATCH (friend)<-[:HAS_CREATOR]-(message),
+                (message)-[:IS_LOCATED_IN]->(country)
+            WHERE localDateTime($startDate) + duration({days:$durationDays}) > message.creationDate >= localDateTime($startDate) AND
                 country IN [countryX, countryY]
             WITH friend,
                 CASE WHEN country=countryX THEN 1 ELSE 0 END AS messageX,
@@ -263,8 +301,13 @@ class LDBC_Interactive(Dataset):
             self._get_query_parameters(),
         )
 
+        if self._vendor == "memgraph":
+            return memgraph
+        else:
+            return neo4j
+
     def benchmark__interactive__complex_query_4(self):
-        return (
+        memgraph = (
             """
             MATCH (person:Person {id: $personId })-[:KNOWS]-(friend:Person),
                 (friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag)
@@ -275,7 +318,7 @@ class LDBC_Interactive(Dataset):
                     ELSE 0
                 END AS valid,
                 CASE
-                    WHEN $startDate > post.creationDate THEN 1
+                    WHEN localDateTime($startDate) > post.creationDate THEN 1
                     ELSE 0
                 END AS inValid
             WITH tag, sum(valid) AS postCount, sum(inValid) AS inValidPostCount
@@ -287,6 +330,35 @@ class LDBC_Interactive(Dataset):
             """,
             self._get_query_parameters(),
         )
+
+        neo4j = (
+            """
+            MATCH (person:Person {id: $personId })-[:KNOWS]-(friend:Person),
+                (friend)<-[:HAS_CREATOR]-(post:Post)-[:HAS_TAG]->(tag)
+            WITH DISTINCT tag, post
+            WITH tag,
+                CASE
+                    WHEN localDateTime($startDate) + duration({days:$durationDays}) > post.creationDate >= localDateTime($startDate) THEN 1
+                    ELSE 0
+                END AS valid,
+                CASE
+                    WHEN localDateTime($startDate) > post.creationDate THEN 1
+                    ELSE 0
+                END AS inValid
+            WITH tag, sum(valid) AS postCount, sum(inValid) AS inValidPostCount
+            WHERE postCount>0 AND inValidPostCount=0
+            RETURN tag.name AS tagName, postCount
+            ORDER BY postCount DESC, tagName ASC
+            LIMIT 10
+
+            """,
+            self._get_query_parameters(),
+        )
+
+        if self._vendor == "memgraph":
+            return memgraph
+        else:
+            return neo4j
 
     def benchmark__interactive__complex_query_5(self):
         return (
