@@ -886,7 +886,7 @@ antlrcpp::Any CypherMainVisitor::visitShowSettings(MemgraphCypher::ShowSettingsC
 antlrcpp::Any CypherMainVisitor::visitTransactionQueueQuery(MemgraphCypher::TransactionQueueQueryContext *ctx) {
   MG_ASSERT(ctx->children.size() == 1, "TransactionQueueQuery should have exactly one child!");
   auto *transaction_queue_query = std::any_cast<TransactionQueueQuery *>(ctx->children[0]->accept(this));
-  // query_ = transaction_queue_query;  // TODO unnecessary?
+  query_ = transaction_queue_query;
   return transaction_queue_query;
 }
 

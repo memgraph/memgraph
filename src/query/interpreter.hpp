@@ -35,6 +35,7 @@
 #include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
+#include "utils/rw_lock.hpp"
 #include "utils/settings.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
@@ -217,11 +218,6 @@ struct InterpreterContext {
 
   query::stream::Streams streams;
   utils::Synchronized<std::unordered_set<Interpreter *>, utils::SpinLock> interpreters;
-
-  std::vector<std::tuple<std::optional<std::string>, uint64_t, std::vector<std::string>>> ShowTransactions();
-
-  // For a sake of test, this will be in some Handle method when finished
-  std::vector<bool> KillTransactions(const std::vector<int> &transaction_ids);
 };
 
 /// Function that is used to tell all active interpreters that they should stop

@@ -19,6 +19,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <iterator>
 #include <limits>
 #include <optional>
 #include <unordered_map>
@@ -64,6 +65,7 @@
 #include "utils/memory_tracker.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/settings.hpp"
+#include "utils/spin_lock.hpp"
 #include "utils/string.hpp"
 #include "utils/tsc.hpp"
 #include "utils/typeinfo.hpp"
@@ -1913,8 +1915,9 @@ PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explic
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
 }
 
-Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query, const Parameters &parameters,
-                                     InterpreterContext *interpreter_context, DbAccessor *db_accessor) {
+Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query, uint64_t current_transaction_id,
+                                     const Parameters &parameters, InterpreterContext *interpreter_context,
+                                     DbAccessor *db_accessor) {
   Frame frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
@@ -1926,19 +1929,23 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query, c
   switch (transaction_query->action_) {
     case TransactionQueueQuery::Action::SHOW_TRANSACTIONS: {
       callback.header = {"username", "transaction_id", "queries summary"};
-      callback.fn = [&interpreter_context]() mutable {
+      callback.fn = [interpreter_context]() mutable {
         std::vector<std::vector<TypedValue>> results;
         results.reserve(interpreter_context->interpreters->size());
         interpreter_context->interpreters.WithLock([&results](const auto &interpreters) {
+          spdlog::info("Number of interpreters in callback: {}", interpreters.size());
           for (Interpreter *interpreter : interpreters) {
             if (interpreter->HasActiveTransaction()) {
-              auto queries_summary = std::vector<TypedValue>();
-              std::for_each(
-                  interpreter->GetQueriesSummary().begin(), interpreter->GetQueriesSummary().end(),
-                  [&queries_summary](const auto &query_summary) { queries_summary.emplace_back(query_summary); });
+              auto queries_summaries_typed = std::vector<TypedValue>();
+              auto queries_summaries = interpreter->GetQueriesSummary();
+              std::for_each(queries_summaries.begin(), queries_summaries.end(),
+                            [&queries_summaries_typed](const auto &query_summary) {
+                              queries_summaries_typed.emplace_back(query_summary);
+                            });
+
               results.push_back({TypedValue(interpreter->username_.value_or("")),
-                                 TypedValue(static_cast<int64_t>(interpreter->GetTransactionId())),
-                                 TypedValue(queries_summary)});
+                                 TypedValue(std::to_string(interpreter->GetTransactionId())),
+                                 TypedValue(queries_summaries_typed)});
             }
           }
         });
@@ -1975,19 +1982,21 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query, c
   return callback;
 }
 
-PreparedQuery PrepareTransactionQueueQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
-                                           InterpreterContext *intepreter_context, DbAccessor *dba) {
+PreparedQuery PrepareTransactionQueueQuery(ParsedQuery parsed_query, const uint64_t current_transaction_id,
+                                           const bool in_explicit_transaction, InterpreterContext *interpreter_context,
+                                           DbAccessor *dba) {
   if (in_explicit_transaction) {
     // throw SettingConfigInMulticommandTxException{};
   }
 
+  spdlog::info("Number of interpreters in prepare transactions: {}", interpreter_context->interpreters->size());
+
   auto *transaction_queue_query = utils::Downcast<TransactionQueueQuery>(parsed_query.query);
   MG_ASSERT(transaction_queue_query);
-  auto callback =
-      HandleTransactionQueueQuery(transaction_queue_query, parsed_query.parameters, intepreter_context, dba);
+  auto callback = HandleTransactionQueueQuery(transaction_queue_query, current_transaction_id, parsed_query.parameters,
+                                              interpreter_context, dba);
 
-  return PreparedQuery{std::move(callback.header),
-                       {},
+  return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
                            AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
                          if (UNLIKELY(!pull_plan)) {
@@ -2443,7 +2452,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     if (!in_explicit_transaction_ &&
         (utils::Downcast<CypherQuery>(parsed_query.query) || utils::Downcast<ExplainQuery>(parsed_query.query) ||
          utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
-         utils::Downcast<TriggerQuery>(parsed_query.query))) {
+         utils::Downcast<TriggerQuery>(parsed_query.query) ||
+         utils::Downcast<TransactionQueueQuery>(parsed_query.query))) {
       db_accessor_ =
           std::make_unique<storage::Storage::Accessor>(interpreter_context_->db->Access(GetIsolationLevelOverride()));
       execution_db_accessor_.emplace(db_accessor_.get());
@@ -2515,9 +2525,10 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<VersionQuery>(parsed_query.query)) {
       prepared_query = PrepareVersionQuery(std::move(parsed_query), in_explicit_transaction_);
     } else if (utils::Downcast<TransactionQueueQuery>(parsed_query.query)) {
-      spdlog::info("Transaction query");
-      prepared_query = PrepareTransactionQueueQuery(std::move(parsed_query), in_explicit_transaction_,
-                                                    interpreter_context_, &*execution_db_accessor_);
+      spdlog::info("Number of interpreters in else if: {}", interpreter_context_->interpreters->size());
+      prepared_query =
+          PrepareTransactionQueueQuery(std::move(parsed_query), GetTransactionId(), in_explicit_transaction_,
+                                       interpreter_context_, &*execution_db_accessor_);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }
@@ -2543,46 +2554,6 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     AbortCommand(&query_execution);
     throw;
   }
-}
-
-/*
-TODO: move this to the handle method
-Acquires lock in the loop so that interpreters that don't need to be killed wait for lock release.
-TODO: Don't allow to kill the transaction that is executing kill.
-*/
-std::vector<bool> InterpreterContext::KillTransactions(const std::vector<int> &transaction_ids) {
-  std::vector<bool> kill_results;
-  for (int transaction_id : transaction_ids) {
-    bool killed = false;
-    interpreters.WithLock([&transaction_id, &killed](const auto &interpreters) {
-      for (Interpreter *interpreter : interpreters) {
-        if (interpreter->HasActiveTransaction() && interpreter->GetTransactionId() == transaction_id) {
-          interpreter->Abort();
-          killed = true;
-          break;
-        }
-      }
-    });
-    kill_results.push_back(killed);
-  }
-  return kill_results;
-}
-
-/*
-TODO: move this to the handle method
-I think that show transctions should enable listing its own transaction.
-*/
-std::vector<std::tuple<std::optional<std::string>, uint64_t, std::vector<std::string>>>
-InterpreterContext::ShowTransactions() {
-  std::vector<std::tuple<std::optional<std::string>, uint64_t, std::vector<std::string>>> results;
-  interpreters.WithLock([&results](const auto &interpreters) {
-    for (Interpreter *interpreter : interpreters) {
-      if (interpreter->HasActiveTransaction()) {
-        results.emplace_back(interpreter->username_, interpreter->GetTransactionId(), interpreter->GetQueriesSummary());
-      }
-    }
-  });
-  return results;
 }
 
 std::vector<std::string> Interpreter::GetQueriesSummary() {
