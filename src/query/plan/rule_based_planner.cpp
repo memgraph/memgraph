@@ -235,22 +235,11 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     return true;
   }
 
-  bool PreVisit(Exists &exists) override {
-    in_exists_ = true;
-    return true;
-  }
-
-  bool PostVisit(Exists &exists) override {
-    in_exists_ = false;
-    return true;
+  bool PreVisit(Exists & /*exists*/) override {
+    throw SemanticException("Exists functionality works only with matching clauses!");
   }
 
   bool Visit(Identifier &ident) override {
-    // We don't want anonymous symbols from exists
-    if (in_exists_ && !ident.user_declared_) {
-      return true;
-    }
-
     const auto &symbol = symbol_table_.at(ident);
     if (!utils::Contains(output_symbols_, symbol)) {
       // Don't pick up new symbols, even though they may be used in ORDER BY or
@@ -472,7 +461,6 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   //                      group by it.
   std::list<bool> has_aggregation_;
   std::vector<NamedExpression *> named_expressions_;
-  bool in_exists_{false};
 };
 
 std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> input_op, bool advance_command,
