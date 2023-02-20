@@ -725,9 +725,16 @@ void Shard::Accessor::Commit(coordinator::Hlc commit_timestamp) {
   MG_ASSERT(!transaction_->must_abort, "The transaction can't be committed!");
   MG_ASSERT(transaction_->start_timestamp.logical_id < commit_timestamp.logical_id,
             "Commit timestamp must be older than start timestamp!");
-  MG_ASSERT(!transaction_->commit_info->is_locally_committed, "The transaction is already committed!");
-  transaction_->commit_info->start_or_commit_timestamp = commit_timestamp;
-  transaction_->commit_info->is_locally_committed = true;
+  if (transaction_->commit_info->is_locally_committed) {
+    MG_ASSERT(transaction_->commit_info->start_or_commit_timestamp == commit_timestamp);
+    spdlog::warn(
+        "Shard::Accessor::Commit called for already-committed transaction, probably due to a retry request that timed "
+        "out for the RequestRouter");
+  } else {
+    MG_ASSERT(transaction_->commit_info->start_or_commit_timestamp != commit_timestamp);
+    transaction_->commit_info->start_or_commit_timestamp = commit_timestamp;
+    transaction_->commit_info->is_locally_committed = true;
+  }
 }
 
 void Shard::Accessor::Abort() {
