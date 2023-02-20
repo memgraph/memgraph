@@ -2304,10 +2304,8 @@ bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::OLD);
   while (input_cursor_->Pull(frame, context)) {
-    if (!pattern_filter_cursors_.empty()) {
-      for (const auto &pattern_filter_cursor : pattern_filter_cursors_) {
-        pattern_filter_cursor->Pull(frame, context);
-      }
+    for (const auto &pattern_filter_cursor : pattern_filter_cursors_) {
+      pattern_filter_cursor->Pull(frame, context);
     }
 
     if (EvaluateFilter(evaluator, self_.expression_)) return true;
@@ -2343,11 +2341,7 @@ bool EvaluatePatternFilter::EvaluatePatternFilterCursor::Pull(Frame &frame, Exec
 
   input_cursor_->Reset();
 
-  if (input_cursor_->Pull(frame, context)) {
-    frame[self_.output_symbol_] = TypedValue(true, context.evaluation_context.memory);
-  } else {
-    frame[self_.output_symbol_] = TypedValue(false, context.evaluation_context.memory);
-  }
+  frame[self_.output_symbol_] = TypedValue(input_cursor_->Pull(frame, context), context.evaluation_context.memory);
 
   return true;
 }
