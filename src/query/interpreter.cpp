@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <boost/system/detail/interop_category.hpp>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -28,6 +29,7 @@
 #include "glue/communication.hpp"
 #include "license/license.hpp"
 #include "memory/memory_control.hpp"
+#include "query/common.hpp"
 #include "query/constants.hpp"
 #include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
@@ -64,6 +66,7 @@
 #include "utils/settings.hpp"
 #include "utils/string.hpp"
 #include "utils/tsc.hpp"
+#include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
 
 namespace EventCounter {
@@ -1910,30 +1913,94 @@ PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explic
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
 }
 
-// PreparedQuery PrepareTransactionQueueQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
-//                                            DbAccessor *dba) {
-//   if (in_explicit_transaction) {
-//     // throw SettingConfigInMulticommandTxException{};
-//   }
+Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query, const Parameters &parameters,
+                                     InterpreterContext *interpreter_context, DbAccessor *db_accessor) {
+  Frame frame(0);
+  SymbolTable symbol_table;
+  EvaluationContext evaluation_context;
+  evaluation_context.timestamp = QueryTimestamp();
+  evaluation_context.parameters = parameters;
+  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::View::OLD);
 
-//   auto *transaction_queue_query = utils::Downcast<TransactionQueueQuery>(parsed_query.query);
-//   MG_ASSERT(transaction_queue_query);
-//   auto callback = HandleTransactionQueueQuery(transaction_queue_query, parsed_query.parameters, dba);
+  Callback callback;
+  switch (transaction_query->action_) {
+    case TransactionQueueQuery::Action::SHOW_TRANSACTIONS: {
+      callback.header = {"username", "transaction_id", "queries summary"};
+      callback.fn = [&interpreter_context]() mutable {
+        std::vector<std::vector<TypedValue>> results;
+        results.reserve(interpreter_context->interpreters->size());
+        interpreter_context->interpreters.WithLock([&results](const auto &interpreters) {
+          for (Interpreter *interpreter : interpreters) {
+            if (interpreter->HasActiveTransaction()) {
+              auto queries_summary = std::vector<TypedValue>();
+              std::for_each(
+                  interpreter->GetQueriesSummary().begin(), interpreter->GetQueriesSummary().end(),
+                  [&queries_summary](const auto &query_summary) { queries_summary.emplace_back(query_summary); });
+              results.push_back({TypedValue(interpreter->username_.value_or("")),
+                                 TypedValue(static_cast<int64_t>(interpreter->GetTransactionId())),
+                                 TypedValue(queries_summary)});
+            }
+          }
+        });
+        return results;
+      };
+      break;
+    }
+    case TransactionQueueQuery::Action::TERMINATE_TRANSACTIONS: {
+      // get transaction ids
+      std::vector<int> transaction_ids{1, 2, 3};  // TODO: evaluate this
+      callback.header = {"transaction_id", "status"};
+      callback.fn = [&interpreter_context, &transaction_ids]() mutable {
+        std::vector<std::vector<TypedValue>> results;
+        for (int transaction_id : transaction_ids) {
+          std::string status{"Not killed"};
+          interpreter_context->interpreters.WithLock([&transaction_id, &status, &results](const auto &interpreters) {
+            for (Interpreter *interpreter : interpreters) {
+              if (interpreter->HasActiveTransaction() && interpreter->GetTransactionId() == transaction_id) {
+                interpreter->Abort();
+                status = "killed";
+                break;
+              }
+              results.push_back(
+                  {TypedValue(static_cast<int64_t>(interpreter->GetTransactionId())), TypedValue(status)});
+            }
+          });
+        }
+        return results;
+      };
+      break;
+    }
+  }
 
-//   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
-//                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
-//                            AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-//                          if (UNLIKELY(!pull_plan)) {
-//                            pull_plan = std::make_shared<PullPlanVector>(callback_fn());
-//                          }
+  return callback;
+}
 
-//                          if (pull_plan->Pull(stream, n)) {
-//                            return QueryHandlerResult::COMMIT;
-//                          }
-//                          return std::nullopt;
-//                        },
-//                        RWType::NONE};
-// }
+PreparedQuery PrepareTransactionQueueQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
+                                           InterpreterContext *intepreter_context, DbAccessor *dba) {
+  if (in_explicit_transaction) {
+    // throw SettingConfigInMulticommandTxException{};
+  }
+
+  auto *transaction_queue_query = utils::Downcast<TransactionQueueQuery>(parsed_query.query);
+  MG_ASSERT(transaction_queue_query);
+  auto callback =
+      HandleTransactionQueueQuery(transaction_queue_query, parsed_query.parameters, intepreter_context, dba);
+
+  return PreparedQuery{std::move(callback.header),
+                       {},
+                       [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                         if (UNLIKELY(!pull_plan)) {
+                           pull_plan = std::make_shared<PullPlanVector>(callback_fn());
+                         }
+
+                         if (pull_plan->Pull(stream, n)) {
+                           return QueryHandlerResult::COMMIT;
+                         }
+                         return std::nullopt;
+                       },
+                       RWType::NONE};
+}
 
 PreparedQuery PrepareVersionQuery(ParsedQuery parsed_query, const bool in_explicit_transaction) {
   if (in_explicit_transaction) {
@@ -2447,6 +2514,10 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_, &*execution_db_accessor_);
     } else if (utils::Downcast<VersionQuery>(parsed_query.query)) {
       prepared_query = PrepareVersionQuery(std::move(parsed_query), in_explicit_transaction_);
+    } else if (utils::Downcast<TransactionQueueQuery>(parsed_query.query)) {
+      spdlog::info("Transaction query");
+      prepared_query = PrepareTransactionQueueQuery(std::move(parsed_query), in_explicit_transaction_,
+                                                    interpreter_context_, &*execution_db_accessor_);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }
