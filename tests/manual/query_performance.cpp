@@ -50,7 +50,7 @@
 //   --init-queries-file dataset.cypher
 //   --benchmark-queries-file benchmark_queries.txt
 //   --use-v3=true
-//   --use-mutli-frame=false
+//   --use-multi-frame=false
 //
 // Example usage with Memgraph v3 with MultiFrame:
 // ./query_performance
@@ -58,7 +58,7 @@
 //   --init-queries-file dataset.cypher
 //   --benchmark-queries-file benchmark_queries.txt
 //   --use-v3=true
-//   --use-mutli-frame=true
+//   --use-multi-frame=true
 //
 // The examples are using only the necessary flags, however specifying all of them is not a problem, so if you specify
 // --index-queries-file for Memgraph v3, then it will be safely ignored just as --split-file for Memgraph v2.
@@ -153,47 +153,31 @@ void RunBenchmarkQueries(TInterpreterContext &interpreter_context, const std::ve
   RunQueries(interpreter_context, benchmark_queries);
 }
 
+std::vector<std::string> ReadQueries(const std::string &file_name) {
+  std::vector<std::string> queries{};
+  std::string buffer;
+
+  std::ifstream file{file_name, std::ios::in};
+  MG_ASSERT(file.good(), "Cannot open queries file to read: {}", file_name);
+  while (file.good()) {
+    std::getline(file, buffer);
+    if (buffer.empty()) {
+      continue;
+    }
+    // Trim the trailing `;`
+    queries.push_back(buffer.substr(0, buffer.size() - 1));
+  }
+  return queries;
+}
+
 void RunV2() {
   spdlog::critical("Running V2");
   const auto run_start = std::chrono::high_resolution_clock::now();
 
-  std::vector<std::string> init_queries{};
-  std::string buffer;
+  const auto index_queries = ReadQueries(FLAGS_index_queries_file);
+  const auto init_queries = ReadQueries(FLAGS_init_queries_file);
+  const auto benchmark_queries = ReadQueries(FLAGS_benchmark_queries_file);
 
-  std::ifstream indices_file{FLAGS_index_queries_file, std::ios::in};
-  MG_ASSERT(indices_file.good(), "Cannot open index queries file to read: {}", FLAGS_index_queries_file);
-  while (indices_file.good()) {
-    std::getline(indices_file, buffer);
-    if (buffer.empty()) {
-      continue;
-    }
-    // Trim the trailing `;`
-    init_queries.push_back(buffer.substr(0, buffer.size() - 1));
-  }
-
-  std::ifstream init_file{FLAGS_init_queries_file, std::ios::in};
-  MG_ASSERT(init_file.good(), "Cannot open init queries file to read: {}", FLAGS_init_queries_file);
-  while (init_file.good()) {
-    std::getline(init_file, buffer);
-    if (buffer.empty()) {
-      continue;
-    }
-    // Trim the trailing `;`
-    init_queries.push_back(buffer.substr(0, buffer.size() - 1));
-  }
-
-  std::ifstream benchmark_file{FLAGS_benchmark_queries_file, std::ios::in};
-  MG_ASSERT(benchmark_file.good(), "Cannot open benchmark queries file to read: {}", FLAGS_benchmark_queries_file);
-  std::vector<std::string> benchmark_queries{};
-
-  while (benchmark_file.good()) {
-    std::getline(benchmark_file, buffer);
-    if (buffer.empty()) {
-      continue;
-    }
-    // Trim the trailing `;`
-    benchmark_queries.push_back(buffer.substr(0, buffer.size() - 1));
-  }
   storage::Storage storage{
       storage::Config{.durability{.snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::DISABLED}}};
 
@@ -209,6 +193,7 @@ void RunV2() {
       "query_performance_data"};
 
   const auto init_start = std::chrono::high_resolution_clock::now();
+  RunInitQueries(interpreter_context, index_queries);
   RunInitQueries(interpreter_context, init_queries);
   const auto benchmark_start = std::chrono::high_resolution_clock::now();
   RunBenchmarkQueries(interpreter_context, benchmark_queries);
@@ -228,31 +213,8 @@ void RunV3() {
   MG_ASSERT(sm_file.good(), "Cannot open split file to read: {}", FLAGS_split_file);
   auto sm = memgraph::coordinator::ShardMap::Parse(sm_file);
 
-  std::ifstream init_file{FLAGS_init_queries_file, std::ios::in};
-  MG_ASSERT(init_file.good(), "Cannot open init queries file to read: {}", FLAGS_init_queries_file);
-  std::vector<std::string> init_queries{};
-  std::string buffer;
-  while (init_file.good()) {
-    std::getline(init_file, buffer);
-    if (buffer.empty()) {
-      continue;
-    }
-    // Trim the trailing `;`
-    init_queries.push_back(buffer.substr(0, buffer.size() - 1));
-  }
-
-  std::ifstream benchmark_file{FLAGS_benchmark_queries_file, std::ios::in};
-  MG_ASSERT(benchmark_file.good(), "Cannot open benchmark queries file to read: {}", FLAGS_benchmark_queries_file);
-  std::vector<std::string> benchmark_queries{};
-
-  while (benchmark_file.good()) {
-    std::getline(benchmark_file, buffer);
-    if (buffer.empty()) {
-      continue;
-    }
-    // Trim the trailing `;`
-    benchmark_queries.push_back(buffer.substr(0, buffer.size() - 1));
-  }
+  const auto init_queries = ReadQueries(FLAGS_init_queries_file);
+  const auto benchmark_queries = ReadQueries(FLAGS_benchmark_queries_file);
 
   io::local_transport::LocalSystem ls;
 
