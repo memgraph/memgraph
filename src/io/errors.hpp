@@ -14,7 +14,12 @@
 namespace memgraph::io {
 // Signifies that a retriable operation was unable to
 // complete after a configured number of retries.
-struct RetriesExhausted {};
+struct RetriesExhausted {
+  friend std::ostream &operator<<(std::ostream &in, const RetriesExhausted & /* retries_exhausted */) {
+    in << "RetriesExhausted {}";
+    return in;
+  }
+};
 
 // Signifies that a request was unable to receive a response
 // within some configured timeout duration. It is important
@@ -22,5 +27,10 @@ struct RetriesExhausted {};
 // not signify that a request was not received or processed.
 // It may be the case that the request was fully processed
 // but that the response was not received.
-struct TimedOut {};
+struct TimedOut {
+  friend std::ostream &operator<<(std::ostream &in, const TimedOut & /* timed_out */) {
+    in << "TimedOut {}";
+    return in;
+  }
+};
 };  // namespace memgraph::io

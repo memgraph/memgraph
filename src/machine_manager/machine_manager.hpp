@@ -175,11 +175,18 @@ class MachineManager {
       bool to_sm = shard_manager_.GetAddress() == request_envelope.to_address;
       spdlog::info("smm: {}", shard_manager_.GetAddress().ToString());
       if (to_sm) {
+        spdlog::warn("got shard manager message, addressed to {}", request_envelope.to_address);
+
         std::optional<ShardManagerMessages> conversion_attempt =
             ConvertVariant<AllMessages, msgs::SuggestedSplitInfo, msgs::InitializeSplitShard>(
                 std::move(request_envelope.message));
 
-        MG_ASSERT(conversion_attempt.has_value(), "shard manager message conversion failed");
+        if (!conversion_attempt.has_value()) {
+          spdlog::warn(
+              "MachineManager dropping message addressed to the ShardManager, assuming it was a HeartbeatResponse that "
+              "timed out");
+          continue;
+        }
 
         spdlog::info("got shard manager message");
 

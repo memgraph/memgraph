@@ -202,7 +202,7 @@ class RequestRouter : public RequestRouterInterface {
         // RETRY on timeouts?
         // Sometimes this produces a timeout. Temporary solution is to use a while(true) as was done in shard_map test
         if (commit_response.HasError()) {
-          spdlog::warn("throwing because of commit failure 2");
+          spdlog::warn("throwing because of commit failure 2: {}", commit_response.GetError());
           throw std::runtime_error("Commit request timed out");
         }
         msgs::WriteResponses write_response_variant = commit_response.GetValue();
