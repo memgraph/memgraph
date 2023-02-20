@@ -513,12 +513,12 @@ void AddMatching(const std::vector<Pattern *> &patterns, Where *where, SymbolTab
   if (!edge_symbols.empty()) {
     matching.edge_symbols.emplace_back(edge_symbols);
   }
-  for (auto *pattern : patterns) {
+  for (auto *const pattern : patterns) {
     matching.filters.CollectPatternFilters(*pattern, symbol_table, storage);
     if (pattern->identifier_->user_declared_) {
       std::vector<Symbol> path_elements;
-      for (auto *pattern_atom : pattern->atoms_)
-        path_elements.emplace_back(symbol_table.at(*pattern_atom->identifier_));
+      for (auto *const pattern_atom : pattern->atoms_)
+        path_elements.push_back(symbol_table.at(*pattern_atom->identifier_));
       matching.named_paths.emplace(symbol_table.at(*pattern->identifier_), std::move(path_elements));
     }
   }

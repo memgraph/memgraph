@@ -135,6 +135,9 @@ class PatternFilterVisitor : public ExpressionVisitor<void> {
 
   // Unary operators
   void Visit(NotOperator &op) override { op.expression_->Accept(*this); }
+  void Visit(IsNullOperator &op) override { op.expression_->Accept(*this); };
+  void Visit(UnaryPlusOperator &op) override{};
+  void Visit(UnaryMinusOperator &op) override{};
 
   // Binary operators
   void Visit(OrOperator &op) override {
@@ -149,25 +152,27 @@ class PatternFilterVisitor : public ExpressionVisitor<void> {
     op.expression1_->Accept(*this);
     op.expression2_->Accept(*this);
   }
-
-  // Unary operators
-  void Visit(UnaryPlusOperator &op) override{};
-  void Visit(UnaryMinusOperator &op) override{};
-  void Visit(IsNullOperator &op) override{};
-
-  // Binary operators
+  void Visit(NotEqualOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  };
+  void Visit(EqualOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  };
+  void Visit(InListOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  };
   void Visit(AdditionOperator &op) override{};
   void Visit(SubtractionOperator &op) override{};
   void Visit(MultiplicationOperator &op) override{};
   void Visit(DivisionOperator &op) override{};
   void Visit(ModOperator &op) override{};
-  void Visit(NotEqualOperator &op) override{};
-  void Visit(EqualOperator &op) override{};
   void Visit(LessOperator &op) override{};
   void Visit(GreaterOperator &op) override{};
   void Visit(LessEqualOperator &op) override{};
   void Visit(GreaterEqualOperator &op) override{};
-  void Visit(InListOperator &op) override{};
   void Visit(SubscriptOperator &op) override{};
 
   // Other

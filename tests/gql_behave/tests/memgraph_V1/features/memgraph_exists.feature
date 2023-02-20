@@ -173,6 +173,42 @@ Feature: WHERE exists
           | n.prop |
           | 1      |
 
+  Scenario: Test exists with correct edge property and wrong node label property
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:One {prop:1})-[:TYPE {prop: 1}]->(:Two {prop: 2})
+          """
+      When executing query:
+          """
+          MATCH (n:One) WHERE exists((n)-[:TYPE {prop: 1}]->(:Two {prop: 3})) RETURN n.prop;
+          """
+      Then the result should be empty
+
+  Scenario: Test exists with wrong edge property and correct node label property
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:One {prop:1})-[:TYPE {prop: 1}]->(:Two {prop: 2})
+          """
+      When executing query:
+          """
+          MATCH (n:One) WHERE exists((n)-[:TYPE {prop: 2}]->(:Two {prop:2})) RETURN n.prop;
+          """
+      Then the result should be empty
+
+  Scenario: Test exists with wrong edge property and wrong node label property
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:One {prop:1})-[:TYPE {prop: 1}]->(:Two {prop: 2})
+          """
+      When executing query:
+          """
+          MATCH (n:One) WHERE exists((n)-[:TYPE {prop: 2}]->(:Two {prop:3})) RETURN n.prop;
+          """
+      Then the result should be empty
+
   Scenario: Test exists AND exists
       Given an empty graph
       And having executed:
@@ -279,3 +315,81 @@ Feature: WHERE exists
           MATCH (n:Two) WITH n WHERE exists((n)<-[:TYPE]-()) RETURN n.prop;
           """
       Then an error should be raised
+
+  Scenario: Test exists is not null
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:One {prop:1})-[:TYPE]->(:Two);
+          """
+      When executing query:
+          """
+          MATCH (n:One) WHERE exists((n)-[]-()) is not null RETURN n.prop;
+          """
+      Then the result should be:
+          | n.prop |
+          | 1      |
+
+  Scenario: Test exists is null
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:One {prop:1})-[:TYPE]->(:Two);
+          """
+      When executing query:
+          """
+          MATCH (n:One) WHERE exists((n)-[]-()) is null RETURN n.prop;
+          """
+      Then the result should be empty
+
+  Scenario: Test exists equal to true
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:One {prop:1})-[:TYPE]->(:Two);
+          """
+      When executing query:
+          """
+          MATCH (n:One) WHERE exists((n)-[]-()) = true RETURN n.prop;
+          """
+      Then the result should be:
+          | n.prop |
+          | 1      |
+
+  Scenario: Test exists equal to true
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:One {prop:1})-[:TYPE]->(:Two);
+          """
+      When executing query:
+          """
+          MATCH (n:One) WHERE exists((n)-[]-()) = false RETURN n.prop;
+          """
+      Then the result should be empty
+
+  Scenario: Test exists in list
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:One {prop:1})-[:TYPE]->(:Two);
+          """
+      When executing query:
+          """
+          MATCH (n:One) WHERE exists((n)-[]-()) in [true] RETURN n.prop;
+          """
+      Then the result should be:
+          | n.prop |
+          | 1      |
+
+  Scenario: Test exists not in list
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:One {prop:1})-[:TYPE]->(:Two);
+          """
+      When executing query:
+          """
+          MATCH (n:One) WHERE exists((n)-[]-()) in [false] RETURN n.prop;
+          """
+      Then the result should be empty

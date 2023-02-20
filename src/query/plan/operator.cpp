@@ -2296,10 +2296,8 @@ bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::OLD);
   while (input_cursor_->Pull(frame, context)) {
-    if (!pattern_filter_cursors_.empty()) {
-      for (const auto &pattern_filter_cursor : pattern_filter_cursors_) {
-        pattern_filter_cursor->Pull(frame, context);
-      }
+    for (const auto &pattern_filter_cursor : pattern_filter_cursors_) {
+      pattern_filter_cursor->Pull(frame, context);
     }
 
     if (EvaluateFilter(evaluator, self_.expression_)) return true;
