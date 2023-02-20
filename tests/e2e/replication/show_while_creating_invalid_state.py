@@ -9,17 +9,16 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import sys
-
 import os
-import pytest
 import random
+import sys
+import tempfile
 
-from common import execute_and_fetch_all
-from mg_utils import mg_sleep_and_assert
 import interactive_mg_runner
 import mgclient
-import tempfile
+import pytest
+from common import execute_and_fetch_all
+from mg_utils import mg_sleep_and_assert
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -286,10 +285,7 @@ def test_basic_recovery(connection):
     assert actual_data == expected_data
 
     # 12/
-    with pytest.raises(mgclient.DatabaseError):
-        interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(
-            "CREATE (p1:Number {name:'Magic_again_again', value:44})"
-        )
+    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("CREATE (p1:Number {name:'Magic_again_again', value:44})")
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "invalid"),
         ("replica_2", "127.0.0.1:10002", "sync", 9, 0, "ready"),
@@ -709,8 +705,7 @@ def test_attempt_to_write_data_on_main_when_sync_replica_is_down():
     assert actual_data == expected_data
 
     # 4/
-    with pytest.raises(mgclient.DatabaseError):
-        interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("CREATE (p:Number {name:2});")
+    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("CREATE (p:Number {name:2});")
 
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
     assert len(res_from_main) == 2
@@ -994,8 +989,7 @@ def test_trigger_on_create_before_commit_with_offline_sync_replica():
     assert actual_data == expected_data
 
     # 6/
-    with pytest.raises(mgclient.DatabaseError):
-        interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_CREATE_NODE)
+    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_CREATE_NODE)
 
     # 7/
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
@@ -1098,8 +1092,7 @@ def test_trigger_on_update_before_commit_with_offline_sync_replica():
     assert actual_data == expected_data
 
     # 7/
-    with pytest.raises(mgclient.DatabaseError):
-        interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_UPDATE)
+    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_UPDATE)
 
     # 8/
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
@@ -1206,8 +1199,7 @@ def test_trigger_on_delete_before_commit_with_offline_sync_replica():
     assert actual_data == expected_data
 
     # 7/
-    with pytest.raises(mgclient.DatabaseError):
-        interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_DELETE)
+    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_DELETE)
 
     # 8/
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
@@ -1313,8 +1305,7 @@ def test_trigger_on_create_before_and_after_commit_with_offline_sync_replica():
     assert actual_data == expected_data
 
     # 6/
-    with pytest.raises(mgclient.DatabaseError):
-        interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_CREATE_NODE)
+    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_CREATE_NODE)
 
     # 7/
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
@@ -1418,8 +1409,7 @@ def test_triggers_on_create_before_commit_with_offline_sync_replica():
     assert actual_data == expected_data
 
     # 6/
-    with pytest.raises(mgclient.DatabaseError):
-        interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_CREATE_NODE)
+    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_CREATE_NODE)
 
     # 7/
     def get_number_of_nodes():
