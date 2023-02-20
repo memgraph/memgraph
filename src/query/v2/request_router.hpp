@@ -99,6 +99,7 @@ class RequestRouterInterface {
 
   virtual ~RequestRouterInterface() = default;
 
+  virtual coordinator::Hlc RefreshShardMap() = 0;
   virtual void StartTransaction() = 0;
   virtual void Commit() = 0;
   virtual std::vector<VertexAccessor> ScanVertices(std::optional<std::string> label) = 0;
@@ -150,47 +151,36 @@ class RequestRouter : public RequestRouterInterface {
     notifier_.InstallSimulatorTicker(tick_simulator);
   }
 
-  void StartTransaction() override {
+  coordinator::Hlc RefreshShardMap() override {
     coordinator::HlcRequest req{.last_shard_map_version = shard_map_.GetHlc()};
     CoordinatorWriteRequests write_req = req;
     spdlog::trace("sending hlc request to start transaction");
     auto write_res = coord_cli_.SendWriteRequest(write_req);
     spdlog::trace("received hlc response to start transaction");
-    if (write_res.HasError()) {
-      spdlog::warn("throwing because of hlc request failure 3");
-      throw std::runtime_error("HLC request failed");
+
+    // TODO(tyler) enforce max retries here
+    while (write_res.HasError()) {
+      spdlog::warn("RequestRouter retrying HlcRequest to coordinator after timeout");
+      write_res = coord_cli_.SendWriteRequest(write_req);
     }
+
     auto coordinator_write_response = write_res.GetValue();
     auto hlc_response = std::get<coordinator::HlcResponse>(coordinator_write_response);
-
-    // Transaction ID to be used later...
-    transaction_id_ = hlc_response.new_hlc;
 
     if (hlc_response.fresher_shard_map) {
       shard_map_ = hlc_response.fresher_shard_map.value();
       SetUpNameIdMappers();
     }
+
+    return hlc_response.new_hlc;
   }
 
-  void Commit() override {
-    coordinator::HlcRequest req{.last_shard_map_version = shard_map_.GetHlc()};
-    CoordinatorWriteRequests write_req = req;
-    spdlog::trace("sending hlc request before committing transaction");
-    auto write_res = coord_cli_.SendWriteRequest(write_req);
-    spdlog::trace("received hlc response before committing transaction");
-    if (write_res.HasError()) {
-      spdlog::warn("throwing because of commit failure");
-      throw std::runtime_error("HLC request for commit failed");
-    }
-    auto coordinator_write_response = write_res.GetValue();
-    auto hlc_response = std::get<coordinator::HlcResponse>(coordinator_write_response);
+  void StartTransaction() override {
+    // Transaction ID to be used later...
+    transaction_id_ = RefreshShardMap();
+  }
 
-    if (hlc_response.fresher_shard_map) {
-      shard_map_ = hlc_response.fresher_shard_map.value();
-      SetUpNameIdMappers();
-    }
-    auto commit_timestamp = hlc_response.new_hlc;
-
+  bool CommitInner(coordinator::Hlc commit_timestamp) {
     msgs::CommitRequest commit_req{.transaction_id = transaction_id_, .commit_timestamp = commit_timestamp};
 
     for (const auto &[label, space] : shard_map_.label_spaces) {
@@ -206,9 +196,33 @@ class RequestRouter : public RequestRouterInterface {
         msgs::WriteResponses write_response_variant = commit_response.GetValue();
         auto &response = std::get<msgs::CommitResponse>(write_response_variant);
         if (response.error) {
-          spdlog::warn("throwing because of commit failure 3");
-          throw std::runtime_error("Commit request did not succeed");
+          if (response.error->code == common::ErrorCode::STALE_SHARD_MAP) {
+            RefreshShardMap();
+
+            // signal to caller that we should retry
+            return false;
+          } else {
+            spdlog::warn("RequestRouter throwing because of unhandled commit failure 3: {}",
+                         common::ErrorCodeToString(response.error->code));
+            throw std::runtime_error("Commit request did not succeed");
+          }
         }
+      }
+    }
+
+    return true;
+  }
+
+  void Commit() override {
+    spdlog::trace("sending hlc request before committing transaction");
+    auto commit_timestamp = RefreshShardMap();
+
+    // TODO(tyler) enforce max commit retries here
+    while (true) {
+      // Commit is idempotent, so it's fine to retry it to the same shards if it fails
+      bool success = CommitInner(commit_timestamp);
+      if (success) {
+        return;
       }
     }
   }
