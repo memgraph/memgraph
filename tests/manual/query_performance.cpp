@@ -70,12 +70,14 @@
 
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <istream>
 #include <thread>
 
 #include <gflags/gflags.h>
 #include <spdlog/cfg/env.h>
 #include <spdlog/spdlog.h>
+#include <json/json.hpp>
 
 // v3 includes
 #include "io/address.hpp"
@@ -113,6 +115,8 @@ DEFINE_string(benchmark_queries_files, "",
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(use_v3, true, "If set to true, then Memgraph v3 will be used, otherwise Memgraph v2 will be used.");
 
+DEFINE_string(export_json_results, "", "If not empty, then the results will be exported as a json file.");
+
 namespace memgraph::tests::manual {
 
 template <typename TInterpreterContext>
@@ -129,6 +133,11 @@ struct DependantTypes<query::v2::InterpreterContext> {
   using Interpreter = query::v2::Interpreter;
   using DiscardValueResultStream = query::v2::DiscardValueResultStream;
 };
+
+template <typename TRep, typename TPeriod>
+void PutResult(nlohmann::json &json, const std::string_view name, std::chrono::duration<TRep, TPeriod> duration) {
+  json[name] = std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
+}
 
 template <typename TInterpreterContext>
 using Interpreter = typename DependantTypes<TInterpreterContext>::Interpreter;
@@ -215,18 +224,32 @@ void RunV2() {
   spdlog::critical("Init: {}ms",
                    std::chrono::duration_cast<std::chrono::milliseconds>(benchmark_start - init_start).count());
 
+  std::map<std::string, std::chrono::nanoseconds> benchmark_results;
   for (const auto &[name, queries] : benchmarks) {
     const auto current_start = std::chrono::high_resolution_clock::now();
     RunBenchmarkQueries(interpreter_context, queries);
     const auto current_stop = std::chrono::high_resolution_clock::now();
-
+    const auto elapsed = current_stop - current_start;
     spdlog::critical("Benchmark {}: {}ms", name,
-                     std::chrono::duration_cast<std::chrono::milliseconds>(current_stop - current_start).count());
+                     std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
+    benchmark_results.emplace(name, elapsed);
   }
 
   const auto benchmark_end = std::chrono::high_resolution_clock::now();
   spdlog::critical("Benchmark: {}ms",
                    std::chrono::duration_cast<std::chrono::milliseconds>(benchmark_end - benchmark_start).count());
+
+  if (!FLAGS_export_json_results.empty()) {
+    nlohmann::json results;
+    PutResult(results, "init", benchmark_start - init_start);
+    nlohmann::json benchmark_results_json;
+    for (const auto &[name, duration] : benchmark_results) {
+      PutResult(benchmark_results_json, name, duration);
+    }
+    results["benchmarks"] = std::move(benchmark_results_json);
+    std::ofstream results_file{FLAGS_export_json_results};
+    results_file << results.dump();
+  }
 }
 
 void RunV3() {
@@ -278,13 +301,15 @@ void RunV3() {
   spdlog::critical("Init: {}ms",
                    std::chrono::duration_cast<std::chrono::milliseconds>(benchmark_start - init_start).count());
 
+  std::map<std::string, std::chrono::nanoseconds> benchmark_results;
   for (const auto &[name, queries] : benchmarks) {
     const auto current_start = std::chrono::high_resolution_clock::now();
     RunBenchmarkQueries(interpreter_context, queries);
     const auto current_stop = std::chrono::high_resolution_clock::now();
-
+    const auto elapsed = current_stop - current_start;
     spdlog::critical("Benchmark {}: {}ms", name,
-                     std::chrono::duration_cast<std::chrono::milliseconds>(current_stop - current_start).count());
+                     std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count());
+    benchmark_results.emplace(name, elapsed);
   }
 
   const auto benchmark_end = std::chrono::high_resolution_clock::now();
@@ -292,6 +317,18 @@ void RunV3() {
                    std::chrono::duration_cast<std::chrono::milliseconds>(benchmark_end - benchmark_start).count());
 
   ls.ShutDown();
+
+  if (!FLAGS_export_json_results.empty()) {
+    nlohmann::json results;
+    PutResult(results, "init", benchmark_start - init_start);
+    nlohmann::json benchmark_results_json;
+    for (const auto &[name, duration] : benchmark_results) {
+      PutResult(benchmark_results_json, name, duration);
+    }
+    results["benchmarks"] = std::move(benchmark_results_json);
+    std::ofstream results_file{FLAGS_export_json_results};
+    results_file << results.dump();
+  }
 }
 }  // namespace memgraph::tests::manual
 
