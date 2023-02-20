@@ -627,7 +627,8 @@ class RuleBasedPlanner {
           continue;
         }
 
-        throw SemanticException("Invalid pattern filter!");
+        // This should never happen
+        MG_ASSERT(false, "Pattern filter does not exist!");
       }
     }
 

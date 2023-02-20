@@ -2335,11 +2335,7 @@ bool EvaluatePatternFilter::EvaluatePatternFilterCursor::Pull(Frame &frame, Exec
 
   input_cursor_->Reset();
 
-  if (input_cursor_->Pull(frame, context)) {
-    frame[self_.output_symbol_] = TypedValue(true, context.evaluation_context.memory);
-  } else {
-    frame[self_.output_symbol_] = TypedValue(false, context.evaluation_context.memory);
-  }
+  frame[self_.output_symbol_] = TypedValue(input_cursor_->Pull(frame, context), context.evaluation_context.memory);
 
   return true;
 }
