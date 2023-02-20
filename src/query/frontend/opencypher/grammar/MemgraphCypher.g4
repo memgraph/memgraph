@@ -102,6 +102,8 @@ memgraphCypherKeyword : cypherKeyword
                       | USER
                       | USERS
                       | VERSION
+                      | TERMINATE
+                      | TRANSACTIONS
                       ;
 
 symbolicName : UnescapedSymbolicName
@@ -127,6 +129,7 @@ query : cypherQuery
       | settingQuery
       | versionQuery
       | showConfigQuery
+      | transactionQueueQuery
       ;
 
 authQuery : createRole
@@ -196,6 +199,14 @@ settingQuery : setSetting
              | showSetting
              | showSettings
              ;
+
+transactionQueueQuery : showTransactions
+                      | terminateTransactions
+                      ;
+
+showTransactions : SHOW TRANSACTIONS ;
+
+terminateTransactions : TERMINATE TRANSACTIONS ;
 
 loadCsv : LOAD CSV FROM csvFile ( WITH | NO ) HEADER
          ( IGNORE BAD ) ?
