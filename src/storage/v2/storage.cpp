@@ -1989,6 +1989,7 @@ bool Storage::SetReplicaRole(io::network::Endpoint endpoint, const replication::
                                        .replica_check_frequency = std::chrono::seconds(0),
                                        .ssl = std::nullopt,
                                        .role = replication::ReplicationRole::REPLICA});
+
     if (!storage_->Put(replication::kReservedReplicationRoleName, data.dump())) {
       spdlog::error("Error when saving REPLICA replication role in settings.");
       return false;
@@ -2040,9 +2041,9 @@ bool Storage::SetMainReplicationRole() {
       spdlog::error("Error when saving MAIN replication role in settings.");
       return false;
     }
-
-    replication_role_.store(replication::ReplicationRole::MAIN);
   }
+
+  replication_role_.store(replication::ReplicationRole::MAIN);
 
   return true;
 }
