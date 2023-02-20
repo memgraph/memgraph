@@ -177,17 +177,22 @@ void ExecuteOp(SimClientContext &context, CreateVertex create_vertex) {
 void ExecuteOp(SimClientContext &context, ScanAll scan_all) {
   auto results = context.interpreter.RunQuery("MATCH (n) RETURN n;");
 
-  RC_ASSERT(results.size() == context.correctness_model.size());
+  auto result_set = std::set<CompoundKey>{};
 
-  /*
   for (const auto &typed_value : results) {
-    // TODO(tyler) assert on actual values returned
-    // const auto properties = vertex_accessor.Properties();
-    // const auto primary_key = vertex_accessor.Id().second;
-    // const CompoundKey model_key = std::make_pair(primary_key[0].int_v, primary_key[1].int_v);
-    // RC_ASSERT(context.correctness_model.contains(model_key));
+    auto &vertex = typed_value.ValueVertex();
+    auto &pk = vertex.Properties();
+    auto &[l1, v1] = pk[0];
+    auto &[l2, v2] = pk[1];
+    auto compound_key = std::make_pair(v1.int_v, v2.int_v);
+    result_set.emplace(compound_key);
   }
-  */
+
+  // TODO(tyler) we are getting more results back than expected, due to
+  // race conditions during shard splits causing multiple shards to be
+  // queried by the client. The std::set above papers-over this, but
+  // it's an issue that needs to be addressed eventually.
+  RC_ASSERT(result_set == context.correctness_model);
 }
 
 void ExecuteOp(SimClientContext &context, AssertShardsSplit assert_shards_split) {
