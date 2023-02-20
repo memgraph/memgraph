@@ -170,6 +170,7 @@ clause : cypherMatch
        | callProcedure
        | loadCsv
        | foreach
+       | callSubquery
        ;
 
 updateClause : set
@@ -181,6 +182,8 @@ updateClause : set
              ;
 
 foreach :  FOREACH '(' variable IN expression '|' updateClause+  ')' ;
+
+callSubquery : CALL '{' StringLiteral '}' ;
 
 streamQuery : checkStream
             | createStream

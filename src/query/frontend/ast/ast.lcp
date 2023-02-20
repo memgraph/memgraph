@@ -2686,5 +2686,26 @@ cpp<#
   (:serialize (:slk))
   (:clone))
 
+(lcp:define-class call-subquery (clause)
+  ((str "std::string" :scope :public
+          :slk-save #'slk-save-ast-pointer
+          :slk-load (slk-load-ast-pointer "Expression")))
+  (:public
+    #>cpp
+    CallSubquery() = default;
+
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
 (lcp:pop-namespace) ;; namespace query
 (lcp:pop-namespace) ;; namespace memgraph
