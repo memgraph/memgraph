@@ -123,18 +123,12 @@ class LabelIndex {
   void Clear() { index_.clear(); }
 
   std::map<IndexType, IndexContainer> SplitIndexEntries(const PrimaryKey &split_key) {
-    if (index_.empty()) {
-      return {};
-    }
-
-    // Cloned index entries will contain new index entry iterators, but old
-    // vertices address which need to be adjusted after extracting vertices
     std::map<IndexType, IndexContainer> cloned_indices;
     for (auto &[index_type_val, index] : index_) {
       auto entry_it = index.begin();
       auto &cloned_indices_container = cloned_indices[index_type_val];
       while (entry_it != index.end()) {
-        // We need to save the next pointer since the current one will be
+        // We need to save the next iterator since the current one will be
         // invalidated after extract
         auto next_entry_it = std::next(entry_it);
         if (entry_it->vertex->first > split_key) {
@@ -266,18 +260,12 @@ class LabelPropertyIndex {
   void Clear() { index_.clear(); }
 
   std::map<IndexType, IndexContainer> SplitIndexEntries(const PrimaryKey &split_key) {
-    if (index_.empty()) {
-      return {};
-    }
-
-    // Cloned index entries will contain new index entry iterators, but old
-    // vertices address which need to be adjusted after extracting vertices
     std::map<IndexType, IndexContainer> cloned_indices;
     for (auto &[index_type_val, index] : index_) {
       auto entry_it = index.begin();
       auto &cloned_index_container = cloned_indices[index_type_val];
       while (entry_it != index.end()) {
-        // We need to save the next pointer since the current one will be
+        // We need to save the next iterator since the current one will be
         // invalidated after extract
         auto next_entry_it = std::next(entry_it);
         if (entry_it->vertex->first > split_key) {
