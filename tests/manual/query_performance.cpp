@@ -257,6 +257,7 @@ void RunV2() {
 
 void RunV3() {
   spdlog::critical("Running V3");
+  MG_RAII_TIMER(timer, "WHOLE v3");
   const auto run_start = std::chrono::high_resolution_clock::now();
   std::ifstream sm_file{FLAGS_split_file, std::ios::in};
   MG_ASSERT(sm_file.good(), "Cannot open split file to read: {}", FLAGS_split_file);

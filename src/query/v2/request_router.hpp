@@ -47,6 +47,7 @@
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/value_conversions.hpp"
 #include "utils/result.hpp"
+#include "utils/timer.hpp"
 
 namespace memgraph::query::v2 {
 
@@ -151,6 +152,7 @@ class RequestRouter : public RequestRouterInterface {
   }
 
   void StartTransaction() override {
+    MG_RAII_TIMER(timer, __PRETTY_FUNCTION__);
     coordinator::HlcRequest req{.last_shard_map_version = shards_map_.GetHlc()};
     CoordinatorWriteRequests write_req = req;
     spdlog::trace("sending hlc request to start transaction");
@@ -172,6 +174,7 @@ class RequestRouter : public RequestRouterInterface {
   }
 
   void Commit() override {
+    MG_RAII_TIMER(timer, __PRETTY_FUNCTION__);
     coordinator::HlcRequest req{.last_shard_map_version = shards_map_.GetHlc()};
     CoordinatorWriteRequests write_req = req;
     spdlog::trace("sending hlc request before committing transaction");
@@ -232,6 +235,7 @@ class RequestRouter : public RequestRouterInterface {
   }
 
   bool IsPrimaryProperty(storage::v3::LabelId primary_label, storage::v3::PropertyId property) const override {
+    MG_RAII_TIMER(timer, __PRETTY_FUNCTION__);
     const auto schema_it = shards_map_.schemas.find(primary_label);
     MG_ASSERT(schema_it != shards_map_.schemas.end(), "Invalid primary label id: {}", primary_label.AsUint());
 
@@ -248,6 +252,7 @@ class RequestRouter : public RequestRouterInterface {
 
   // TODO(kostasrim) Simplify return result
   std::vector<VertexAccessor> ScanVertices(std::optional<std::string> label) override {
+    MG_RAII_TIMER(timer, __PRETTY_FUNCTION__);
     // create requests
     auto requests_to_be_sent = RequestsForScanVertices(label);
 
@@ -283,6 +288,7 @@ class RequestRouter : public RequestRouterInterface {
 
   std::vector<msgs::CreateVerticesResponse> CreateVertices(std::vector<msgs::NewVertex> new_vertices) override {
     MG_ASSERT(!new_vertices.empty());
+    MG_RAII_TIMER(timer, __PRETTY_FUNCTION__);
 
     // create requests
     std::vector<ShardRequestState<msgs::CreateVerticesRequest>> requests_to_be_sent =
@@ -310,6 +316,7 @@ class RequestRouter : public RequestRouterInterface {
 
   std::vector<msgs::CreateExpandResponse> CreateExpand(std::vector<msgs::NewExpand> new_edges) override {
     MG_ASSERT(!new_edges.empty());
+    MG_RAII_TIMER(timer, __PRETTY_FUNCTION__);
 
     // create requests
     std::vector<ShardRequestState<msgs::CreateExpandRequest>> requests_to_be_sent =
@@ -332,6 +339,7 @@ class RequestRouter : public RequestRouterInterface {
   }
 
   std::vector<msgs::ExpandOneResultRow> ExpandOne(msgs::ExpandOneRequest request) override {
+    MG_RAII_TIMER(timer, __PRETTY_FUNCTION__);
     // TODO(kostasrim)Update to limit the batch size here
     // Expansions of the destination must be handled by the caller. For example
     // match (u:L1 { prop : 1 })-[:Friend]-(v:L1)
@@ -373,6 +381,7 @@ class RequestRouter : public RequestRouterInterface {
   }
 
   std::vector<msgs::GetPropertiesResultRow> GetProperties(msgs::GetPropertiesRequest requests) override {
+    MG_RAII_TIMER(timer, __PRETTY_FUNCTION__);
     requests.transaction_id = transaction_id_;
     // create requests
     std::vector<ShardRequestState<msgs::GetPropertiesRequest>> requests_to_be_sent =

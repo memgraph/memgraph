@@ -63,7 +63,7 @@ class CachedPlan {
 
  private:
   std::unique_ptr<LogicalPlan> plan_;
-  utils::Timer cache_timer_;
+  utils::Timer<> cache_timer_;
 };
 
 struct CachedQuery {
