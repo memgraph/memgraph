@@ -33,4 +33,15 @@ struct TimedOut {
     return in;
   }
 };
+
+// This error signifies that a shard has been contacted that does
+// not match our expected shard version, and that we should retry
+// the operation so that we can ensure that we are talking to the
+// correct shard.
+struct ShardVersionMismatch {
+  friend std::ostream &operator<<(std::ostream &in, const ShardVersionMismatch & /* shard_version_mismatch */) {
+    in << "ShardVersionMismatch {}";
+    return in;
+  }
+};
 };  // namespace memgraph::io

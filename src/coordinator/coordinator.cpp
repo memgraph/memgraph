@@ -44,6 +44,8 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(HeartbeatRequest &&heartbeat_r
       continue;
     }
 
+    MG_ASSERT(!label_space.shards.contains(split_key));
+
     // begin the split process for this shard
     const auto new_uuid_lhs = shard_map_.GetHlc();
     const auto new_uuid_rhs = shard_map_.GetHlc();

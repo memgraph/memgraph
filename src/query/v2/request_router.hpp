@@ -154,9 +154,9 @@ class RequestRouter : public RequestRouterInterface {
   coordinator::Hlc RefreshShardMap() override {
     coordinator::HlcRequest req{.last_shard_map_version = shard_map_.GetHlc()};
     CoordinatorWriteRequests write_req = req;
-    spdlog::trace("sending hlc request to start transaction");
+    spdlog::trace("RequestRouter sending hlc request to get an HLC and refresh the ShardMap");
     auto write_res = coord_cli_.SendWriteRequest(write_req);
-    spdlog::trace("received hlc response to start transaction");
+    spdlog::trace("RequestRouter received hlc response to start transaction");
 
     // TODO(tyler) enforce max retries here
     while (write_res.HasError()) {
@@ -264,87 +264,118 @@ class RequestRouter : public RequestRouterInterface {
 
   // TODO(kostasrim) Simplify return result
   std::vector<VertexAccessor> ScanVertices(std::optional<std::string> label) override {
-    // create requests
-    auto requests_to_be_sent = RequestsForScanVertices(label);
+    while (true) {
+      // create requests
+      auto requests_to_be_sent = RequestsForScanVertices(label);
 
-    spdlog::trace("created {} ScanVertices requests", requests_to_be_sent.size());
+      spdlog::trace("created {} ScanVertices requests", requests_to_be_sent.size());
 
-    // begin all requests in parallel
-    RunningRequests<msgs::ScanVerticesRequest> running_requests = {};
-    running_requests.reserve(requests_to_be_sent.size());
-    for (size_t i = 0; i < requests_to_be_sent.size(); i++) {
-      auto &request = requests_to_be_sent[i];
-      io::ReadinessToken readiness_token{i};
-      auto &storage_client = GetStorageClientForShard(request.shard);
-      storage_client.SendAsyncReadRequest(request.request, notifier_, readiness_token);
-      running_requests.emplace(readiness_token.GetId(), request);
-    }
-    spdlog::trace("sent {} ScanVertices requests in parallel", running_requests.size());
-
-    // drive requests to completion
-    auto responses = DriveReadResponses<msgs::ScanVerticesRequest, msgs::ScanVerticesResponse>(running_requests);
-    spdlog::trace("got back {} ScanVertices responses after driving to completion", responses.size());
-
-    // convert responses into VertexAccessor objects to return
-    std::vector<VertexAccessor> accessors;
-    accessors.reserve(responses.size());
-    for (auto &response : responses) {
-      for (auto &result_row : response.results) {
-        accessors.emplace_back(VertexAccessor(std::move(result_row.vertex), std::move(result_row.props), this));
+      // begin all requests in parallel
+      RunningRequests<msgs::ScanVerticesRequest> running_requests = {};
+      running_requests.reserve(requests_to_be_sent.size());
+      for (size_t i = 0; i < requests_to_be_sent.size(); i++) {
+        auto &request = requests_to_be_sent[i];
+        io::ReadinessToken readiness_token{i};
+        auto &storage_client = GetStorageClientForShard(request.shard);
+        storage_client.SendAsyncReadRequest(request.request, notifier_, readiness_token);
+        running_requests.emplace(readiness_token.GetId(), request);
       }
-    }
+      spdlog::trace("sent {} ScanVertices requests in parallel", running_requests.size());
 
-    return accessors;
+      // drive requests to completion
+      auto responses_result =
+          DriveReadResponses<msgs::ScanVerticesRequest, msgs::ScanVerticesResponse>(running_requests);
+
+      if (responses_result.HasError()) {
+        spdlog::warn(
+            "RequestRouter refreshing ShardMap and re-sending requests for ScanVertices after Shard version mismatch");
+        RefreshShardMap();
+        continue;
+      }
+
+      auto responses = responses_result.GetValue();
+
+      spdlog::trace("got back {} ScanVertices responses after driving to completion", responses.size());
+
+      // convert responses into VertexAccessor objects to return
+      std::vector<VertexAccessor> accessors;
+      accessors.reserve(responses.size());
+      for (auto &response : responses) {
+        for (auto &result_row : response.results) {
+          accessors.emplace_back(VertexAccessor(std::move(result_row.vertex), std::move(result_row.props), this));
+        }
+      }
+
+      return accessors;
+    }
   }
 
   std::vector<msgs::CreateVerticesResponse> CreateVertices(std::vector<msgs::NewVertex> new_vertices) override {
     MG_ASSERT(!new_vertices.empty());
 
-    // create requests
-    std::vector<ShardRequestState<msgs::CreateVerticesRequest>> requests_to_be_sent =
-        RequestsForCreateVertices(new_vertices);
-    spdlog::trace("created {} CreateVertices requests", requests_to_be_sent.size());
+    while (true) {
+      // create requests
+      std::vector<ShardRequestState<msgs::CreateVerticesRequest>> requests_to_be_sent =
+          RequestsForCreateVertices(new_vertices);
+      spdlog::trace("created {} CreateVertices requests", requests_to_be_sent.size());
 
-    // begin all requests in parallel
-    RunningRequests<msgs::CreateVerticesRequest> running_requests = {};
-    running_requests.reserve(requests_to_be_sent.size());
-    for (size_t i = 0; i < requests_to_be_sent.size(); i++) {
-      auto &request = requests_to_be_sent[i];
-      io::ReadinessToken readiness_token{i};
-      for (auto &new_vertex : request.request.new_vertices) {
-        new_vertex.label_ids.erase(new_vertex.label_ids.begin());
+      // begin all requests in parallel
+      RunningRequests<msgs::CreateVerticesRequest> running_requests = {};
+      running_requests.reserve(requests_to_be_sent.size());
+      for (size_t i = 0; i < requests_to_be_sent.size(); i++) {
+        auto &request = requests_to_be_sent[i];
+        io::ReadinessToken readiness_token{i};
+        for (auto &new_vertex : request.request.new_vertices) {
+          new_vertex.label_ids.erase(new_vertex.label_ids.begin());
+        }
+        auto &storage_client = GetStorageClientForShard(request.shard);
+        storage_client.SendAsyncWriteRequest(request.request, notifier_, readiness_token);
+        running_requests.emplace(readiness_token.GetId(), request);
       }
-      auto &storage_client = GetStorageClientForShard(request.shard);
-      storage_client.SendAsyncWriteRequest(request.request, notifier_, readiness_token);
-      running_requests.emplace(readiness_token.GetId(), request);
-    }
-    spdlog::trace("sent {} CreateVertices requests in parallel", running_requests.size());
+      spdlog::trace("sent {} CreateVertices requests in parallel", running_requests.size());
 
-    // drive requests to completion
-    return DriveWriteResponses<msgs::CreateVerticesRequest, msgs::CreateVerticesResponse>(running_requests);
+      // drive requests to completion
+      auto result = DriveWriteResponses<msgs::CreateVerticesRequest, msgs::CreateVerticesResponse>(running_requests);
+
+      if (result.HasValue()) {
+        return result.GetValue();
+      } else {
+        // retry request that failed due to outdated ShardMap
+        RefreshShardMap();
+      }
+    }
   }
 
   std::vector<msgs::CreateExpandResponse> CreateExpand(std::vector<msgs::NewExpand> new_edges) override {
     MG_ASSERT(!new_edges.empty());
 
-    // create requests
-    std::vector<ShardRequestState<msgs::CreateExpandRequest>> requests_to_be_sent =
-        RequestsForCreateExpand(std::move(new_edges));
+    while (true) {
+      // create requests
+      std::vector<ShardRequestState<msgs::CreateExpandRequest>> requests_to_be_sent =
+          RequestsForCreateExpand(new_edges);
 
-    // begin all requests in parallel
-    RunningRequests<msgs::CreateExpandRequest> running_requests = {};
-    running_requests.reserve(requests_to_be_sent.size());
-    for (size_t i = 0; i < requests_to_be_sent.size(); i++) {
-      auto &request = requests_to_be_sent[i];
-      io::ReadinessToken readiness_token{i};
-      auto &storage_client = GetStorageClientForShard(request.shard);
-      msgs::WriteRequests req = request.request;
-      storage_client.SendAsyncWriteRequest(req, notifier_, readiness_token);
-      running_requests.emplace(readiness_token.GetId(), request);
+      // begin all requests in parallel
+      RunningRequests<msgs::CreateExpandRequest> running_requests = {};
+      running_requests.reserve(requests_to_be_sent.size());
+      for (size_t i = 0; i < requests_to_be_sent.size(); i++) {
+        auto &request = requests_to_be_sent[i];
+        io::ReadinessToken readiness_token{i};
+        auto &storage_client = GetStorageClientForShard(request.shard);
+        msgs::WriteRequests req = request.request;
+        storage_client.SendAsyncWriteRequest(req, notifier_, readiness_token);
+        running_requests.emplace(readiness_token.GetId(), request);
+      }
+
+      // drive requests to completion
+      auto result = DriveWriteResponses<msgs::CreateExpandRequest, msgs::CreateExpandResponse>(running_requests);
+
+      if (result.HasValue()) {
+        return result.GetValue();
+      } else {
+        // retry request that failed due to outdated ShardMap
+        RefreshShardMap();
+      }
     }
-
-    // drive requests to completion
-    return DriveWriteResponses<msgs::CreateExpandRequest, msgs::CreateExpandResponse>(running_requests);
   }
 
   std::vector<msgs::ExpandOneResultRow> ExpandOne(msgs::ExpandOneRequest request) override {
@@ -354,69 +385,93 @@ class RequestRouter : public RequestRouterInterface {
     // For each vertex U, the ExpandOne will result in <U, Edges>. The destination vertex and its properties
     // must be fetched again with an ExpandOne(Edges.dst)
 
-    // create requests
-    std::vector<ShardRequestState<msgs::ExpandOneRequest>> requests_to_be_sent = RequestsForExpandOne(request);
+    while (true) {
+      // create requests
+      std::vector<ShardRequestState<msgs::ExpandOneRequest>> requests_to_be_sent = RequestsForExpandOne(request);
 
-    // begin all requests in parallel
-    RunningRequests<msgs::ExpandOneRequest> running_requests = {};
-    running_requests.reserve(requests_to_be_sent.size());
-    for (size_t i = 0; i < requests_to_be_sent.size(); i++) {
-      auto &request = requests_to_be_sent[i];
-      io::ReadinessToken readiness_token{i};
-      auto &storage_client = GetStorageClientForShard(request.shard);
-      msgs::ReadRequests req = request.request;
-      storage_client.SendAsyncReadRequest(req, notifier_, readiness_token);
-      running_requests.emplace(readiness_token.GetId(), request);
+      // begin all requests in parallel
+      RunningRequests<msgs::ExpandOneRequest> running_requests = {};
+      running_requests.reserve(requests_to_be_sent.size());
+      for (size_t i = 0; i < requests_to_be_sent.size(); i++) {
+        auto &request = requests_to_be_sent[i];
+        io::ReadinessToken readiness_token{i};
+        auto &storage_client = GetStorageClientForShard(request.shard);
+        msgs::ReadRequests req = request.request;
+        storage_client.SendAsyncReadRequest(req, notifier_, readiness_token);
+        running_requests.emplace(readiness_token.GetId(), request);
+      }
+
+      // drive requests to completion
+      auto responses_result = DriveReadResponses<msgs::ExpandOneRequest, msgs::ExpandOneResponse>(running_requests);
+
+      if (responses_result.HasError()) {
+        spdlog::warn(
+            "RequestRouter refreshing ShardMap and re-sending requests for ScanVertices after Shard version mismatch");
+        RefreshShardMap();
+        continue;
+      }
+
+      auto responses = responses_result.GetValue();
+
+      // post-process responses
+      std::vector<msgs::ExpandOneResultRow> result_rows;
+      const auto total_row_count = std::accumulate(
+          responses.begin(), responses.end(), 0, [](const int64_t partial_count, const msgs::ExpandOneResponse &resp) {
+            return partial_count + resp.result.size();
+          });
+      result_rows.reserve(total_row_count);
+
+      for (auto &response : responses) {
+        result_rows.insert(result_rows.end(), std::make_move_iterator(response.result.begin()),
+                           std::make_move_iterator(response.result.end()));
+      }
+
+      return result_rows;
     }
-
-    // drive requests to completion
-    auto responses = DriveReadResponses<msgs::ExpandOneRequest, msgs::ExpandOneResponse>(running_requests);
-
-    // post-process responses
-    std::vector<msgs::ExpandOneResultRow> result_rows;
-    const auto total_row_count = std::accumulate(responses.begin(), responses.end(), 0,
-                                                 [](const int64_t partial_count, const msgs::ExpandOneResponse &resp) {
-                                                   return partial_count + resp.result.size();
-                                                 });
-    result_rows.reserve(total_row_count);
-
-    for (auto &response : responses) {
-      result_rows.insert(result_rows.end(), std::make_move_iterator(response.result.begin()),
-                         std::make_move_iterator(response.result.end()));
-    }
-
-    return result_rows;
   }
 
   std::vector<msgs::GetPropertiesResultRow> GetProperties(msgs::GetPropertiesRequest requests) override {
     requests.transaction_id = transaction_id_;
-    // create requests
-    std::vector<ShardRequestState<msgs::GetPropertiesRequest>> requests_to_be_sent =
-        RequestsForGetProperties(std::move(requests));
 
-    // begin all requests in parallel
-    RunningRequests<msgs::GetPropertiesRequest> running_requests = {};
-    running_requests.reserve(requests_to_be_sent.size());
-    for (size_t i = 0; i < requests_to_be_sent.size(); i++) {
-      auto &request = requests_to_be_sent[i];
-      io::ReadinessToken readiness_token{i};
-      auto &storage_client = GetStorageClientForShard(request.shard);
-      msgs::ReadRequests req = request.request;
-      storage_client.SendAsyncReadRequest(req, notifier_, readiness_token);
-      running_requests.emplace(readiness_token.GetId(), request);
+    while (true) {
+      // create requests
+      std::vector<ShardRequestState<msgs::GetPropertiesRequest>> requests_to_be_sent =
+          RequestsForGetProperties(requests);
+
+      // begin all requests in parallel
+      RunningRequests<msgs::GetPropertiesRequest> running_requests = {};
+      running_requests.reserve(requests_to_be_sent.size());
+      for (size_t i = 0; i < requests_to_be_sent.size(); i++) {
+        auto &request = requests_to_be_sent[i];
+        io::ReadinessToken readiness_token{i};
+        auto &storage_client = GetStorageClientForShard(request.shard);
+        msgs::ReadRequests req = request.request;
+        storage_client.SendAsyncReadRequest(req, notifier_, readiness_token);
+        running_requests.emplace(readiness_token.GetId(), request);
+      }
+
+      // drive requests to completion
+      auto responses_result =
+          DriveReadResponses<msgs::GetPropertiesRequest, msgs::GetPropertiesResponse>(running_requests);
+
+      if (responses_result.HasError()) {
+        spdlog::warn(
+            "RequestRouter refreshing ShardMap and re-sending requests for ScanVertices after Shard version mismatch");
+        RefreshShardMap();
+        continue;
+      }
+
+      auto responses = responses_result.GetValue();
+
+      // post-process responses
+      std::vector<msgs::GetPropertiesResultRow> result_rows;
+
+      for (auto &&response : responses) {
+        std::move(response.result_row.begin(), response.result_row.end(), std::back_inserter(result_rows));
+      }
+
+      return result_rows;
     }
-
-    // drive requests to completion
-    auto responses = DriveReadResponses<msgs::GetPropertiesRequest, msgs::GetPropertiesResponse>(running_requests);
-
-    // post-process responses
-    std::vector<msgs::GetPropertiesResultRow> result_rows;
-
-    for (auto &&response : responses) {
-      std::move(response.result_row.begin(), response.result_row.end(), std::back_inserter(result_rows));
-    }
-
-    return result_rows;
   }
 
   std::optional<storage::v3::PropertyId> MaybeNameToProperty(const std::string &name) const override {
@@ -462,7 +517,7 @@ class RequestRouter : public RequestRouterInterface {
   }
 
   std::vector<ShardRequestState<msgs::CreateExpandRequest>> RequestsForCreateExpand(
-      std::vector<msgs::NewExpand> new_expands) {
+      const std::vector<msgs::NewExpand> &new_expands) {
     std::map<ShardMetadata, msgs::CreateExpandRequest> per_shard_request_table;
     auto ensure_shard_exists_in_table = [&per_shard_request_table,
                                          transaction_id = transaction_id_](const ShardMetadata &shard) {
@@ -565,7 +620,7 @@ class RequestRouter : public RequestRouterInterface {
   }
 
   std::vector<ShardRequestState<msgs::GetPropertiesRequest>> RequestsForGetProperties(
-      msgs::GetPropertiesRequest &&request) {
+      const msgs::GetPropertiesRequest &request) {
     std::map<ShardMetadata, msgs::GetPropertiesRequest> per_shard_request_table;
     auto top_level_rqst_template = request;
     top_level_rqst_template.transaction_id = transaction_id_;
@@ -629,7 +684,8 @@ class RequestRouter : public RequestRouterInterface {
   }
 
   template <typename RequestT, typename ResponseT>
-  std::vector<ResponseT> DriveReadResponses(RunningRequests<RequestT> &running_requests) {
+  utils::BasicResult<io::ShardVersionMismatch, std::vector<ResponseT>> DriveReadResponses(
+      RunningRequests<RequestT> &running_requests) {
     // Store responses in a map based on the corresponding request
     // offset, so that they can be reassembled in the correct order
     // even if they came back in randomized orders.
@@ -662,8 +718,15 @@ class RequestRouter : public RequestRouterInterface {
       msgs::ReadResponses response_variant = poll_result->GetValue();
       auto response = std::get<ResponseT>(response_variant);
       if (response.error) {
-        spdlog::warn("throwing because of timeout 5");
-        throw std::runtime_error("RequestRouter Read request did not succeed");
+        if (response.error->code == common::ErrorCode::STALE_SHARD_MAP) {
+          RefreshShardMap();
+
+          // signal to caller that we should retry
+          return io::ShardVersionMismatch{};
+        } else {
+          spdlog::warn("throwing because of unhandled error: {}", common::ErrorCodeToString(response.error->code));
+          throw std::runtime_error("RequestRouter Read request did not succeed");
+        }
       }
 
       // the readiness token has an ID based on the request vector offset
@@ -684,7 +747,8 @@ class RequestRouter : public RequestRouterInterface {
   }
 
   template <typename RequestT, typename ResponseT>
-  std::vector<ResponseT> DriveWriteResponses(RunningRequests<RequestT> &running_requests) {
+  utils::BasicResult<io::ShardVersionMismatch, std::vector<ResponseT>> DriveWriteResponses(
+      RunningRequests<RequestT> &running_requests) {
     // Store responses in a map based on the corresponding request
     // offset, so that they can be reassembled in the correct order
     // even if they came back in randomized orders.
@@ -710,8 +774,16 @@ class RequestRouter : public RequestRouterInterface {
       msgs::WriteResponses response_variant = poll_result->GetValue();
       auto response = std::get<ResponseT>(response_variant);
       if (response.error) {
-        spdlog::warn("throwing because of timeout 2");
-        throw std::runtime_error("RequestRouter Write request did not succeed");
+        if (response.error->code == common::ErrorCode::STALE_SHARD_MAP) {
+          RefreshShardMap();
+
+          // signal to caller that we should retry
+          return io::ShardVersionMismatch{};
+        } else {
+          spdlog::warn("throwing because of unhandled error: {}", common::ErrorCodeToString(response.error->code));
+          throw std::runtime_error("RequestRouter Read request did not succeed");
+          throw std::runtime_error("RequestRouter Write request did not succeed");
+        }
       }
 
       // the readiness token has an ID based on the request vector offset
