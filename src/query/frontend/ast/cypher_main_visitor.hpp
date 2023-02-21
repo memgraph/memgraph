@@ -358,6 +358,8 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    */
   antlrcpp::Any visitShowSettings(MemgraphCypher::ShowSettingsContext *ctx) override;
 
+  antlrcpp::Any visitTransactionIds(MemgraphCypher::TransactionIdsContext *ctx) override;
+
   /**
    * @return TransactionQueueQuery*
    */
