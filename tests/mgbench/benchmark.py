@@ -34,147 +34,134 @@ from workload import dataset
 WITH_FINE_GRAINED_AUTHORIZATION = "with_fine_grained_authorization"
 WITHOUT_FINE_GRAINED_AUTHORIZATION = "without_fine_grained_authorization"
 
-# Parse options.
-parser = argparse.ArgumentParser(
-    description="Memgraph benchmark executor.",
-    formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-)
-parser.add_argument(
-    "benchmarks",
-    nargs="*",
-    default="",
-    help="descriptions of benchmarks that should be run; "
-    "multiple descriptions can be specified to run multiple "
-    "benchmarks; the description is specified as "
-    "dataset/variant/group/query; Unix shell-style wildcards "
-    "can be used in the descriptions; variant, group and query "
-    "are optional and they can be left out; the default "
-    "variant is '' which selects the default dataset variant; "
-    "the default group is '*' which selects all groups; the"
-    "default query is '*' which selects all queries",
-)
-parser.add_argument(
-    "--vendor-binary",
-    help="Vendor binary used for benchmarking, by defuault it is memgraph",
-    default=helpers.get_binary_path("memgraph"),
-)
 
-parser.add_argument(
-    "--vendor-name",
-    default="memgraph",
-    help="Input vendor binary name (memgraph, neo4j)",
-)
-parser.add_argument(
-    "--client-binary",
-    default=helpers.get_binary_path("tests/mgbench/client"),
-    help="Client binary used for benchmarking",
-)
-parser.add_argument(
-    "--num-workers-for-import",
-    type=int,
-    default=multiprocessing.cpu_count() // 2,
-    help="number of workers used to import the dataset",
-)
-parser.add_argument(
-    "--num-workers-for-benchmark",
-    type=int,
-    default=1,
-    help="number of workers used to execute the benchmark",
-)
-parser.add_argument(
-    "--single-threaded-runtime-sec",
-    type=int,
-    default=10,
-    help="single threaded duration of each query",
-)
-parser.add_argument(
-    "--no-load-query-counts",
-    action="store_true",
-    help="disable loading of cached query counts",
-)
-parser.add_argument(
-    "--no-save-query-counts",
-    action="store_true",
-    help="disable storing of cached query counts",
-)
-parser.add_argument(
-    "--export-results",
-    default="",
-    help="file path into which results should be exported",
-)
-parser.add_argument(
-    "--temporary-directory",
-    default="/tmp",
-    help="directory path where temporary data should " "be stored",
-)
-parser.add_argument("--no-properties-on-edges", action="store_true", help="disable properties on edges")
+def parse_args():
 
-parser.add_argument("--bolt-port", default=7687, help="memgraph bolt port")
+    parser = argparse.ArgumentParser(
+        description="Memgraph benchmark executor.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "benchmarks",
+        nargs="*",
+        default="",
+        help="descriptions of benchmarks that should be run; "
+        "multiple descriptions can be specified to run multiple "
+        "benchmarks; the description is specified as "
+        "dataset/variant/group/query; Unix shell-style wildcards "
+        "can be used in the descriptions; variant, group and query "
+        "are optional and they can be left out; the default "
+        "variant is '' which selects the default dataset variant; "
+        "the default group is '*' which selects all groups; the"
+        "default query is '*' which selects all queries",
+    )
+    parser.add_argument(
+        "--vendor-binary",
+        help="Vendor binary used for benchmarking, by defuault it is memgraph",
+        default=helpers.get_binary_path("memgraph"),
+    )
 
-parser.add_argument(
-    "--no-authorization",
-    action="store_false",
-    default=True,
-    help="Run each query with authorization",
-)
+    parser.add_argument(
+        "--vendor-name",
+        default="memgraph",
+        help="Input vendor binary name (memgraph, neo4j)",
+    )
+    parser.add_argument(
+        "--client-binary",
+        default=helpers.get_binary_path("tests/mgbench/client"),
+        help="Client binary used for benchmarking",
+    )
+    parser.add_argument(
+        "--num-workers-for-import",
+        type=int,
+        default=multiprocessing.cpu_count() // 2,
+        help="number of workers used to import the dataset",
+    )
+    parser.add_argument(
+        "--num-workers-for-benchmark",
+        type=int,
+        default=1,
+        help="number of workers used to execute the benchmark",
+    )
+    parser.add_argument(
+        "--single-threaded-runtime-sec",
+        type=int,
+        default=10,
+        help="single threaded duration of each query",
+    )
+    parser.add_argument(
+        "--no-load-query-counts",
+        action="store_true",
+        help="disable loading of cached query counts",
+    )
+    parser.add_argument(
+        "--no-save-query-counts",
+        action="store_true",
+        help="disable storing of cached query counts",
+    )
+    parser.add_argument(
+        "--export-results",
+        default="",
+        help="file path into which results should be exported",
+    )
+    parser.add_argument(
+        "--temporary-directory",
+        default="/tmp",
+        help="directory path where temporary data should " "be stored",
+    )
+    parser.add_argument("--no-properties-on-edges", action="store_true", help="disable properties on edges")
 
-parser.add_argument(
-    "--warmup-run",
-    action="store_true",
-    default=False,
-    help="Run warmup before benchmarks",
-)
+    parser.add_argument("--bolt-port", default=7687, help="memgraph bolt port")
 
-parser.add_argument(
-    "--mixed-workload",
-    nargs="*",
-    type=int,
-    default=[],
-    help="""Define combination that defines the mixed workload.
-    Mixed workload can be run as a single configuration for all groups of queries,
-    Pass the positional arguments as values of what percentage of
-    write/read/update/analytical queries you want to have in your workload.
-    Example:  --mixed-workload 1000 20 70 10 0 will execute 1000 queries, 20% write,
-    70% read, 10% update and 0% analytical.
+    parser.add_argument(
+        "--no-authorization",
+        action="store_false",
+        default=True,
+        help="Run each query with authorization",
+    )
 
-    Mixed workload can also be run on each query under some defined load.
-    By passing one more positional argument, you are defining what percentage of that query
-    will be in mixed workload, and this is executed for each query. The rest of the queries will be
-    selected from the appropriate groups
-    Running --mixed-workload 1000 30 0 0 0 70, will execute each query 700 times or 70%,
-    with the presence of 300 write queries from write type or 30%""",
-)
+    parser.add_argument(
+        "--warmup-run",
+        action="store_true",
+        default=False,
+        help="Run warmup before benchmarks",
+    )
 
-parser.add_argument("--tail-latency", type=int, default=0, help="Number of queries for the tail latency statistics")
+    parser.add_argument(
+        "--workload-realistic",
+        nargs="*",
+        type=int,
+        default=None,
+        help="""Define combination that defines the realistic workload.
+        Realistic workload can be run as a single configuration for all groups of queries,
+        Pass the positional arguments as values of what percentage of
+        write/read/update/analytical queries you want to have in your workload.
+        Example:  --workload-realistic 1000 20 70 10 0 will execute 1000 queries, 20% write,
+        70% read, 10% update and 0% analytical.""",
+    )
 
-parser.add_argument(
-    "--performance-tracking",
-    action="store_true",
-    default=False,
-    help="Flag for runners performance tracking, this logs RES through time and vendor specific performance tracking.",
-)
+    parser.add_argument(
+        "--workload-mixed",
+        type=int,
+        default=None,
+        help="""Mixed workload can be run on each query under some defined load.
+        By passing one more positional argument, you are defining what percentage of that query
+        will be in mixed workload, and this is executed for each query. The rest of the queries will be
+        selected from the appropriate groups
+        Running --mixed-workload 1000 30 0 0 0 70, will execute each query 700 times or 70%,
+        with the presence of 300 write queries from write type or 30%""",
+    )
 
-args = parser.parse_args()
+    parser.add_argument("--tail-latency", type=int, default=0, help="Number of queries for the tail latency statistics")
 
+    parser.add_argument(
+        "--performance-tracking",
+        action="store_true",
+        default=False,
+        help="Flag for runners performance tracking, this logs RES through time and vendor specific performance tracking.",
+    )
 
-class Workload:
-    def __init__(self, config):
-        config_len = len(config)
-        if config_len == 0:
-            self.name = "Isolated"
-            self.config = config
-        elif config_len >= 5:
-            if sum(config[1:]) != 100:
-                raise Exception(
-                    "Please make sure that passed arguments % sum to 100% percent!, passed: ",
-                    config,
-                )
-            if config_len == 5:
-                self.name = "Realistic"
-                self.config = config
-            else:
-                self.name = "Mixed"
-                self.config = config
+    return parser.parse_args()
 
 
 def get_queries(gen, count):
@@ -201,7 +188,7 @@ def match_patterns(dataset, variant, group, query, is_default_variant, patterns)
     return False
 
 
-def filter_benchmarks(generators, patterns):
+def filter_benchmarks(generators, patterns, vendor_name):
     patterns = copy.deepcopy(patterns)
     for i in range(len(patterns)):
         pattern = patterns[i].split("/")
@@ -236,7 +223,7 @@ def filter_benchmarks(generators, patterns):
                 if res >= 2 and key in current.keys():
                     current.pop(key)
 
-            filtered.append((generator(variant, args.vendor_name), dict(current)))
+            filtered.append((generator(variant, vendor_name), dict(current)))
     return filtered
 
 
@@ -252,11 +239,11 @@ def warmup(client):
     )
 
 
-def tail_latency(vendor, client, func):
-    iteration = args.tail_latency
+def tail_latency(vendor, client, func, iterations, warmup):
+    iteration = iterations
     if iteration >= 10:
         vendor.start_benchmark("tail_latency")
-        if args.warmup_run:
+        if warmup:
             warmup(client)
         latency = []
 
@@ -284,16 +271,16 @@ def tail_latency(vendor, client, func):
     return query_stats
 
 
-def mixed_workload(vendor, client, dataset, group, queries, workload):
+def mixed_workload(vendor, client, dataset, group, queries, workload_type, workload_config, warmup, number_of_workers):
 
-    num_of_queries = workload.config[0]
-    percentage_distribution = workload.config[1:]
+    num_of_queries = workload_config.config[0]
+    percentage_distribution = workload_config.config[1:]
     if sum(percentage_distribution) != 100:
         raise Exception(
             "Please make sure that passed arguments % sum to 100% percent!, passed: ",
             percentage_distribution,
         )
-    s = [str(i) for i in workload.config]
+    s = [str(i) for i in workload_config.config]
 
     config_distribution = "_".join(s)
 
@@ -327,7 +314,7 @@ def mixed_workload(vendor, client, dataset, group, queries, workload):
     random.seed(config_distribution)
 
     # Executing mixed workload for each test
-    if workload.name == "Mixed":
+    if workload_type == "Mixed":
         for query, funcname in queries[group]:
             full_workload = []
 
@@ -361,11 +348,11 @@ def mixed_workload(vendor, client, dataset, group, queries, workload):
             vendor.start_benchmark(
                 dataset.NAME + dataset.get_variant() + "_" + "mixed" + "_" + query + "_" + config_distribution
             )
-            if args.warmup_run:
+            if warmup:
                 warmup(client)
             ret = client.execute(
                 queries=full_workload,
-                num_workers=args.num_workers_for_benchmark,
+                num_workers=number_of_workers,
             )[0]
             usage_workload = vendor.stop(
                 dataset.NAME + dataset.get_variant() + "_" + "mixed" + "_" + query + "_" + config_distribution
@@ -395,11 +382,11 @@ def mixed_workload(vendor, client, dataset, group, queries, workload):
             full_workload.append(aditional_query())
 
         vendor.start_benchmark(dataset.NAME + dataset.get_variant() + "_" + workload.name + "_" + config_distribution)
-        if args.warmup_run:
+        if warmup:
             warmup(client)
         ret = client.execute(
             queries=full_workload,
-            num_workers=args.num_workers_for_benchmark,
+            num_workers=number_of_workers,
         )[0]
         usage_workload = vendor.stop(
             dataset.NAME + dataset.get_variant() + "_" + workload.name + "_" + config_distribution
@@ -424,18 +411,18 @@ def mixed_workload(vendor, client, dataset, group, queries, workload):
         print(mixed_workload)
 
 
-def get_query_cache_count(vendor, client, func, config_key):
+def get_query_cache_count(vendor, client, func, config_key, single_threaded_runtime_sec, warmup):
     cached_count = config.get_value(*config_key)
 
     if cached_count is None:
         print(
             "Determining the number of queries necessary for",
-            args.single_threaded_runtime_sec,
+            single_threaded_runtime_sec,
             "seconds of single-threaded runtime...",
         )
         # First run to prime the query caches.
         vendor.start_benchmark("cache")
-        if args.warmup_run:
+        if warmup:
             warmup(client)
         client.execute(queries=get_queries(func, 1), num_workers=1)
         # Get a sense of the runtime.
@@ -443,7 +430,7 @@ def get_query_cache_count(vendor, client, func, config_key):
         while True:
             ret = client.execute(queries=get_queries(func, count), num_workers=1)
             duration = ret[0]["duration"]
-            should_execute = int(args.single_threaded_runtime_sec / (duration / count))
+            should_execute = int(single_threaded_runtime_sec / (duration / count))
             print(
                 "executed_queries={}, total_duration={}, "
                 "query_duration={}, estimated_count={}".format(count, duration, duration / count, should_execute)
@@ -466,7 +453,7 @@ def get_query_cache_count(vendor, client, func, config_key):
             *config_key,
             value={
                 "count": count,
-                "duration": args.single_threaded_runtime_sec,
+                "duration": single_threaded_runtime_sec,
             },
         )
     else:
@@ -477,333 +464,354 @@ def get_query_cache_count(vendor, client, func, config_key):
             cached_count["duration"],
             "seconds of single-threaded runtime.",
         )
-        count = int(cached_count["count"] * args.single_threaded_runtime_sec / cached_count["duration"])
+        count = int(cached_count["count"] * single_threaded_runtime_sec / cached_count["duration"])
     return count
 
 
-# Testing pre commit.
+if __name__ == "__main__":
 
-# Detect available datasets.
-generators = {}
-workloads = map(workload.__dict__.get, workload.__all__)
-for module in workloads:
-    if module != None:
-        for key in dir(module):
-            dataset_class = getattr(module, key)
-            if not inspect.isclass(dataset_class) or not issubclass(dataset_class, dataset.Dataset):
-                continue
-            queries = collections.defaultdict(list)
-            for funcname in dir(dataset_class):
-                if not funcname.startswith("benchmark__"):
+    args = parse_args()
+
+    # Detect available datasets.
+    generators = {}
+    workloads = map(workload.__dict__.get, workload.__all__)
+    for module in workloads:
+        if module != None:
+            for key in dir(module):
+                dataset_class = getattr(module, key)
+                if not inspect.isclass(dataset_class) or not issubclass(dataset_class, dataset.Dataset):
                     continue
-                group, query = funcname.split("__")[1:]
-                queries[group].append((query, funcname))
-            generators[dataset_class.NAME] = (dataset_class, dict(queries))
-            if dataset_class.PROPERTIES_ON_EDGES and args.no_properties_on_edges:
-                raise Exception(
-                    'The "{}" dataset requires properties on edges, ' "but you have disabled them!".format(dataset.NAME)
-                )
-
-# List datasets if there is no specified dataset.
-if len(args.benchmarks) == 0:
-    log.init("Available queries")
-    for name in sorted(generators.keys()):
-        print("Dataset:", name)
-        dataset, queries = generators[name]
-        print(
-            "    Variants:",
-            ", ".join(dataset.VARIANTS),
-            "(default: " + dataset.DEFAULT_VARIANT + ")",
-        )
-        for group in sorted(queries.keys()):
-            print("    Group:", group)
-            for query_name, query_func in queries[group]:
-                print("        Query:", query_name)
-    sys.exit(0)
-
-# Create cache, config and results objects.
-cache = helpers.Cache()
-if not args.no_load_query_counts:
-    config = cache.load_config()
-else:
-    config = helpers.RecursiveDict()
-results = helpers.RecursiveDict()
-
-# Filter out the generators.
-benchmarks = filter_benchmarks(generators, args.benchmarks)
-# Run all specified benchmarks.
-for dataset, queries in benchmarks:
-
-    workload = Workload(args.mixed_workload)
-
-    run_config = {
-        "vendor": args.vendor_name,
-        "condition": "hot" if args.warmup_run else "cold",
-        "workload": workload.name,
-        "workload_config": workload.config,
-    }
-
-    results.set_value("__run_configuration__", value=run_config)
-
-    log.init("Preparing", dataset.NAME + "/" + dataset.get_variant(), "dataset")
-    dataset.prepare(cache.cache_directory("datasets", dataset.NAME, dataset.get_variant()))
-
-    # TODO: Create some abstract class for vendors, that will hold this data
-    if args.vendor_name == "neo4j":
-        vendor = runners.Neo4j(
-            args.vendor_binary,
-            args.temporary_directory,
-            args.bolt_port,
-            args.performance_tracking,
-        )
-    else:
-        vendor = runners.Memgraph(
-            args.vendor_binary,
-            args.temporary_directory,
-            not args.no_properties_on_edges,
-            args.bolt_port,
-            args.performance_tracking,
-        )
-
-    client = runners.Client(args.client_binary, args.temporary_directory, args.bolt_port)
-
-    importer = importer.Importer(dataset=dataset, vendor=vendor, client=client)
-
-    status = importer.try_optimal_import()
-
-    if status == False:
-        print("Need alternative import")
-    else:
-        print("Fast import executed")
-
-    ret = None
-    usage = None
-    if args.vendor_name == "neo4j":
-        vendor.start_preparation("preparation")
-        print("Executing database cleanup and index setup...")
-        ret = client.execute(file_path=dataset.get_index(), num_workers=args.num_workers_for_import)
-        usage = vendor.stop("preparation")
-        dump_dir = cache.cache_directory("datasets", dataset.NAME, dataset.get_variant())
-        dump_file, exists = dump_dir.get_file("neo4j.dump")
-        if exists:
-            vendor.load_db_from_dump(path=dump_dir.get_path())
-        else:
-            vendor.start_preparation("import")
-            print("Importing dataset...")
-            ret = client.execute(file_path=dataset.get_file(), num_workers=args.num_workers_for_import)
-            usage = vendor.stop("import")
-
-            vendor.dump_db(path=dump_dir.get_path())
-    else:
-        vendor.start_preparation("import")
-        print("Executing database cleanup and index setup...")
-        ret = client.execute(file_path=dataset.get_index(), num_workers=args.num_workers_for_import)
-        print("Importing dataset...")
-        ret = client.execute(file_path=dataset.get_file(), num_workers=args.num_workers_for_import)
-        usage = vendor.stop("import")
-        # Save import results.
-    import_key = [dataset.NAME, dataset.get_variant(), "__import__"]
-    if ret != None and usage != None:
-        # Display import statistics.
-        print()
-        for row in ret:
-            print(
-                "Executed",
-                row["count"],
-                "queries in",
-                row["duration"],
-                "seconds using",
-                row["num_workers"],
-                "workers with a total throughput of",
-                row["throughput"],
-                "queries/second.",
-            )
-        print()
-        print(
-            "The database used",
-            usage["cpu"],
-            "seconds of CPU time and peaked at",
-            usage["memory"] / 1024 / 1024,
-            "MiB of RAM.",
-        )
-
-        results.set_value(*import_key, value={"client": ret, "database": usage})
-    else:
-        results.set_value(*import_key, value={"client": "dump_load", "database": "dump_load"})
-
-    # Run all benchmarks in all available groups.
-    for group in sorted(queries.keys()):
-
-        # Running queries in mixed workload
-        if workload.name == "Mixed" or workload.name == "Realistic":
-            mixed_workload(vendor, client, dataset, group, queries, workload)
-        else:
-            for query, funcname in queries[group]:
-                log.info(
-                    "Running query:",
-                    "{}/{}/{}/{}".format(group, query, funcname, WITHOUT_FINE_GRAINED_AUTHORIZATION),
-                )
-                func = getattr(dataset, funcname)
-                query_statistics = tail_latency(vendor, client, func)
-
-                # Query count for each vendor
-                config_key = [
-                    dataset.NAME,
-                    dataset.get_variant(),
-                    args.vendor_name,
-                    group,
-                    query,
-                ]
-                count = get_query_cache_count(vendor, client, func, config_key)
-
-                # Benchmark run.
-                print("Sample query:", get_queries(func, 1)[0][0])
-                print(
-                    "Executing benchmark with",
-                    count,
-                    "queries that should " "yield a single-threaded runtime of",
-                    args.single_threaded_runtime_sec,
-                    "seconds.",
-                )
-                print(
-                    "Queries are executed using",
-                    args.num_workers_for_benchmark,
-                    "concurrent clients.",
-                )
-                vendor.start_benchmark(dataset.NAME + dataset.get_variant() + "_" + workload.name + "_" + query)
-                if args.warmup_run:
-                    warmup(client)
-                ret = client.execute(
-                    queries=get_queries(func, count),
-                    num_workers=args.num_workers_for_benchmark,
-                )[0]
-                usage = vendor.stop(dataset.NAME + dataset.get_variant() + "_" + workload.name + "_" + query)
-                ret["database"] = usage
-                ret["query_statistics"] = query_statistics
-
-                # Output summary.
-                print()
-                print("Executed", ret["count"], "queries in", ret["duration"], "seconds.")
-                print("Queries have been retried", ret["retries"], "times.")
-                print("Database used {:.3f} seconds of CPU time.".format(usage["cpu"]))
-                print("Database peaked at {:.3f} MiB of memory.".format(usage["memory"] / 1024.0 / 1024.0))
-                print("{:<31} {:>20} {:>20} {:>20}".format("Metadata:", "min", "avg", "max"))
-                metadata = ret["metadata"]
-                for key in sorted(metadata.keys()):
-                    print(
-                        "{name:>30}: {minimum:>20.06f} {average:>20.06f} "
-                        "{maximum:>20.06f}".format(name=key, **metadata[key])
+                queries = collections.defaultdict(list)
+                for funcname in dir(dataset_class):
+                    if not funcname.startswith("benchmark__"):
+                        continue
+                    group, query = funcname.split("__")[1:]
+                    queries[group].append((query, funcname))
+                generators[dataset_class.NAME] = (dataset_class, dict(queries))
+                if dataset_class.PROPERTIES_ON_EDGES and args.no_properties_on_edges:
+                    raise Exception(
+                        'The "{}" dataset requires properties on edges, '
+                        "but you have disabled them!".format(dataset.NAME)
                     )
-                log.success("Throughput: {:02f} QPS".format(ret["throughput"]))
 
-                # Save results.
-                results_key = [
-                    dataset.NAME,
-                    dataset.get_variant(),
-                    group,
-                    query,
-                    WITHOUT_FINE_GRAINED_AUTHORIZATION,
-                ]
-                results.set_value(*results_key, value=ret)
-
-        ## If there is need for authorization testing.
-        if args.no_authorization:
-            print("Running query with authorization")
-            vendor.start_benchmark("authorization")
-            client.execute(
-                queries=[
-                    ("CREATE USER user IDENTIFIED BY 'test';", {}),
-                    ("GRANT ALL PRIVILEGES TO user;", {}),
-                    ("GRANT CREATE_DELETE ON EDGE_TYPES * TO user;", {}),
-                    ("GRANT CREATE_DELETE ON LABELS * TO user;", {}),
-                ]
+    # List datasets if there is no specified dataset.
+    if len(args.benchmarks) == 0:
+        log.init("Available queries")
+        for name in sorted(generators.keys()):
+            print("Dataset:", name)
+            dataset, queries = generators[name]
+            print(
+                "    Variants:",
+                ", ".join(dataset.VARIANTS),
+                "(default: " + dataset.DEFAULT_VARIANT + ")",
             )
-            client = runners.Client(
-                args.client_binary,
+            for group in sorted(queries.keys()):
+                print("    Group:", group)
+                for query_name, query_func in queries[group]:
+                    print("        Query:", query_name)
+        sys.exit(0)
+
+    # Create cache, config and results objects.
+    cache = helpers.Cache()
+    if not args.no_load_query_counts:
+        config = cache.load_config()
+    else:
+        config = helpers.RecursiveDict()
+    results = helpers.RecursiveDict()
+
+    # Filter out the generators.
+    benchmarks = filter_benchmarks(generators, args.benchmarks)
+    # Run all specified benchmarks.
+    for dataset, queries in benchmarks:
+
+        run_config = {
+            "vendor": args.vendor_name,
+            "condition": "hot" if args.warmup_run else "cold",
+            "workload": workload.name,
+            "workload_config": workload.config,
+        }
+
+        results.set_value("__run_configuration__", value=run_config)
+
+        log.init("Preparing", dataset.NAME + "/" + dataset.get_variant(), "dataset")
+        dataset.prepare(cache.cache_directory("datasets", dataset.NAME, dataset.get_variant()))
+
+        # TODO: Create some abstract class for vendors, that will hold this data
+        if args.vendor_name == "neo4j":
+            vendor = runners.Neo4j(
+                args.vendor_binary,
                 args.temporary_directory,
                 args.bolt_port,
-                username="user",
-                password="test",
+                args.performance_tracking,
             )
-            vendor.stop("authorization")
+        else:
+            vendor = runners.Memgraph(
+                args.vendor_binary,
+                args.temporary_directory,
+                not args.no_properties_on_edges,
+                args.bolt_port,
+                args.performance_tracking,
+            )
 
-            for query, funcname in queries[group]:
+        client = runners.Client(args.client_binary, args.temporary_directory, args.bolt_port)
 
-                log.info(
-                    "Running query:",
-                    "{}/{}/{}/{}".format(group, query, funcname, WITH_FINE_GRAINED_AUTHORIZATION),
-                )
-                func = getattr(dataset, funcname)
+        importer = importer.Importer(dataset=dataset, vendor=vendor, client=client)
 
-                query_statistics = tail_latency(vendor, client, func)
+        status = importer.try_optimal_import()
 
-                config_key = [
-                    dataset.NAME,
-                    dataset.get_variant(),
-                    args.vendor_name,
-                    group,
-                    query,
-                ]
-                count = get_query_cache_count(vendor, client, func, config_key)
+        if status == False:
+            print("Need alternative import")
+        else:
+            print("Fast import executed")
 
-                vendor.start_benchmark("authorization")
-                if args.warmup_run:
-                    warmup(client)
-                ret = client.execute(
-                    queries=get_queries(func, count),
-                    num_workers=args.num_workers_for_benchmark,
-                )[0]
-                usage = vendor.stop("authorization")
-                ret["database"] = usage
-                ret["query_statistics"] = query_statistics
+        ret = None
+        usage = None
+        if args.vendor_name == "neo4j":
+            vendor.start_preparation("preparation")
+            print("Executing database cleanup and index setup...")
+            ret = client.execute(file_path=dataset.get_index(), num_workers=args.num_workers_for_import)
+            usage = vendor.stop("preparation")
+            dump_dir = cache.cache_directory("datasets", dataset.NAME, dataset.get_variant())
+            dump_file, exists = dump_dir.get_file("neo4j.dump")
+            if exists:
+                vendor.load_db_from_dump(path=dump_dir.get_path())
+            else:
+                vendor.start_preparation("import")
+                print("Importing dataset...")
+                ret = client.execute(file_path=dataset.get_file(), num_workers=args.num_workers_for_import)
+                usage = vendor.stop("import")
 
-                # Output summary.
-                print()
+                vendor.dump_db(path=dump_dir.get_path())
+        else:
+            vendor.start_preparation("import")
+            print("Executing database cleanup and index setup...")
+            ret = client.execute(file_path=dataset.get_index(), num_workers=args.num_workers_for_import)
+            print("Importing dataset...")
+        #     ret = client.execute(file_path=dataset.get_file(), num_workers=args.num_workers_for_import)
+        #     usage = vendor.stop("import")
+        # Save import results.
+        import_key = [dataset.NAME, dataset.get_variant(), "__import__"]
+        if ret != None and usage != None:
+            # Display import statistics.
+            print()
+            for row in ret:
                 print(
                     "Executed",
-                    ret["count"],
+                    row["count"],
                     "queries in",
-                    ret["duration"],
-                    "seconds.",
+                    row["duration"],
+                    "seconds using",
+                    row["num_workers"],
+                    "workers with a total throughput of",
+                    row["throughput"],
+                    "queries/second.",
                 )
-                print("Queries have been retried", ret["retries"], "times.")
-                print("Database used {:.3f} seconds of CPU time.".format(usage["cpu"]))
-                print("Database peaked at {:.3f} MiB of memory.".format(usage["memory"] / 1024.0 / 1024.0))
-                print("{:<31} {:>20} {:>20} {:>20}".format("Metadata:", "min", "avg", "max"))
-                metadata = ret["metadata"]
-                for key in sorted(metadata.keys()):
-                    print(
-                        "{name:>30}: {minimum:>20.06f} {average:>20.06f} "
-                        "{maximum:>20.06f}".format(name=key, **metadata[key])
-                    )
-                log.success("Throughput: {:02f} QPS".format(ret["throughput"]))
-                # Save results.
-                results_key = [
-                    dataset.NAME,
-                    dataset.get_variant(),
-                    group,
-                    query,
-                    WITH_FINE_GRAINED_AUTHORIZATION,
-                ]
-                results.set_value(*results_key, value=ret)
-
-            # Clean up database from any roles and users job
-            vendor.start_benchmark("authorizations")
-            ret = client.execute(
-                queries=[
-                    ("REVOKE LABELS * FROM user;", {}),
-                    ("REVOKE EDGE_TYPES * FROM user;", {}),
-                    ("DROP USER user;", {}),
-                ]
+            print()
+            print(
+                "The database used",
+                usage["cpu"],
+                "seconds of CPU time and peaked at",
+                usage["memory"] / 1024 / 1024,
+                "MiB of RAM.",
             )
-            vendor.stop("authorization")
 
+            results.set_value(*import_key, value={"client": ret, "database": usage})
+        else:
+            results.set_value(*import_key, value={"client": "dump_load", "database": "dump_load"})
 
-# Save configuration.
-if not args.no_save_query_counts:
-    cache.save_config(config)
+        # Run all benchmarks in all available groups.
+        for group in sorted(queries.keys()):
 
-# Export results.
-if args.export_results:
-    with open(args.export_results, "w") as f:
-        json.dump(results.get_data(), f)
+            if args.workload_realistic != None:
+                mixed_workload(
+                    vendor,
+                    client,
+                    dataset,
+                    group,
+                    queries,
+                    "realistic",
+                    args.workload_realistic,
+                    args.warmup,
+                    args.num_workers_for_benchmark,
+                )
+            elif args.workload_mixed != None:
+                mixed_workload(
+                    vendor,
+                    client,
+                    dataset,
+                    group,
+                    queries,
+                    "mixed",
+                    args.workload_realistic,
+                    args.warmup,
+                    args.num_workers_for_benchmark,
+                )
+            else:
+                for query, funcname in queries[group]:
+                    log.info(
+                        "Running query:",
+                        "{}/{}/{}/{}".format(group, query, funcname, WITHOUT_FINE_GRAINED_AUTHORIZATION),
+                    )
+                    func = getattr(dataset, funcname)
+                    query_statistics = tail_latency(vendor, client, func)
+
+                    # Query count for each vendor
+                    config_key = [
+                        dataset.NAME,
+                        dataset.get_variant(),
+                        args.vendor_name,
+                        group,
+                        query,
+                    ]
+                    count = get_query_cache_count(vendor, client, func, config_key)
+
+                    # Benchmark run.
+                    print("Sample query:", get_queries(func, 1)[0][0])
+                    print(
+                        "Executing benchmark with",
+                        count,
+                        "queries that should " "yield a single-threaded runtime of",
+                        args.single_threaded_runtime_sec,
+                        "seconds.",
+                    )
+                    print(
+                        "Queries are executed using",
+                        args.num_workers_for_benchmark,
+                        "concurrent clients.",
+                    )
+                    vendor.start_benchmark(dataset.NAME + dataset.get_variant() + "_" + workload.name + "_" + query)
+                    if args.warmup_run:
+                        warmup(client)
+                    ret = client.execute(
+                        queries=get_queries(func, count),
+                        num_workers=args.num_workers_for_benchmark,
+                    )[0]
+                    usage = vendor.stop(dataset.NAME + dataset.get_variant() + "_" + workload.name + "_" + query)
+                    ret["database"] = usage
+                    ret["query_statistics"] = query_statistics
+
+                    # Output summary.
+                    print()
+                    print("Executed", ret["count"], "queries in", ret["duration"], "seconds.")
+                    print("Queries have been retried", ret["retries"], "times.")
+                    print("Database used {:.3f} seconds of CPU time.".format(usage["cpu"]))
+                    print("Database peaked at {:.3f} MiB of memory.".format(usage["memory"] / 1024.0 / 1024.0))
+                    print("{:<31} {:>20} {:>20} {:>20}".format("Metadata:", "min", "avg", "max"))
+                    metadata = ret["metadata"]
+                    for key in sorted(metadata.keys()):
+                        print(
+                            "{name:>30}: {minimum:>20.06f} {average:>20.06f} "
+                            "{maximum:>20.06f}".format(name=key, **metadata[key])
+                        )
+                    log.success("Throughput: {:02f} QPS".format(ret["throughput"]))
+
+                    # Save results.
+                    results_key = [
+                        dataset.NAME,
+                        dataset.get_variant(),
+                        group,
+                        query,
+                        WITHOUT_FINE_GRAINED_AUTHORIZATION,
+                    ]
+                    results.set_value(*results_key, value=ret)
+
+            ## If there is need for authorization testing.
+            if args.no_authorization:
+                print("Running query with authorization")
+                vendor.start_benchmark("authorization")
+                client.execute(
+                    queries=[
+                        ("CREATE USER user IDENTIFIED BY 'test';", {}),
+                        ("GRANT ALL PRIVILEGES TO user;", {}),
+                        ("GRANT CREATE_DELETE ON EDGE_TYPES * TO user;", {}),
+                        ("GRANT CREATE_DELETE ON LABELS * TO user;", {}),
+                    ]
+                )
+                client = runners.Client(
+                    args.client_binary,
+                    args.temporary_directory,
+                    args.bolt_port,
+                    username="user",
+                    password="test",
+                )
+                vendor.stop("authorization")
+
+                for query, funcname in queries[group]:
+
+                    log.info(
+                        "Running query:",
+                        "{}/{}/{}/{}".format(group, query, funcname, WITH_FINE_GRAINED_AUTHORIZATION),
+                    )
+                    func = getattr(dataset, funcname)
+
+                    query_statistics = tail_latency(vendor, client, func)
+
+                    config_key = [
+                        dataset.NAME,
+                        dataset.get_variant(),
+                        args.vendor_name,
+                        group,
+                        query,
+                    ]
+                    count = get_query_cache_count(vendor, client, func, config_key)
+
+                    vendor.start_benchmark("authorization")
+                    if args.warmup_run:
+                        warmup(client)
+                    ret = client.execute(
+                        queries=get_queries(func, count),
+                        num_workers=args.num_workers_for_benchmark,
+                    )[0]
+                    usage = vendor.stop("authorization")
+                    ret["database"] = usage
+                    ret["query_statistics"] = query_statistics
+
+                    # Output summary.
+                    print()
+                    print(
+                        "Executed",
+                        ret["count"],
+                        "queries in",
+                        ret["duration"],
+                        "seconds.",
+                    )
+                    print("Queries have been retried", ret["retries"], "times.")
+                    print("Database used {:.3f} seconds of CPU time.".format(usage["cpu"]))
+                    print("Database peaked at {:.3f} MiB of memory.".format(usage["memory"] / 1024.0 / 1024.0))
+                    print("{:<31} {:>20} {:>20} {:>20}".format("Metadata:", "min", "avg", "max"))
+                    metadata = ret["metadata"]
+                    for key in sorted(metadata.keys()):
+                        print(
+                            "{name:>30}: {minimum:>20.06f} {average:>20.06f} "
+                            "{maximum:>20.06f}".format(name=key, **metadata[key])
+                        )
+                    log.success("Throughput: {:02f} QPS".format(ret["throughput"]))
+                    # Save results.
+                    results_key = [
+                        dataset.NAME,
+                        dataset.get_variant(),
+                        group,
+                        query,
+                        WITH_FINE_GRAINED_AUTHORIZATION,
+                    ]
+                    results.set_value(*results_key, value=ret)
+
+                # Clean up database from any roles and users job
+                vendor.start_benchmark("authorizations")
+                ret = client.execute(
+                    queries=[
+                        ("REVOKE LABELS * FROM user;", {}),
+                        ("REVOKE EDGE_TYPES * FROM user;", {}),
+                        ("DROP USER user;", {}),
+                    ]
+                )
+                vendor.stop("authorization")
+
+    # Save configuration.
+    if not args.no_save_query_counts:
+        cache.save_config(config)
+
+    # Export results.
+    if args.export_results:
+        with open(args.export_results, "w") as f:
+            json.dump(results.get_data(), f)

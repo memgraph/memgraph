@@ -1033,7 +1033,6 @@ class LDBC_BI(Dataset):
         return (
             """
             MATCH (tag:Tag {name: $tag})
-            // score
             OPTIONAL MATCH (tag)<-[interest:HAS_INTEREST]-(person:Person)
             WITH tag, collect(person) AS interestedPersons
             OPTIONAL MATCH (tag)<-[:HAS_TAG]-(message:Message)-[:HAS_CREATOR]->(person:Person)
@@ -1048,8 +1047,6 @@ class LDBC_BI(Dataset):
                 100 * size([(tag)<-[interest:HAS_INTEREST]-(person) | interest]) + size([(tag)<-[:HAS_TAG]-(message:Message)-[:HAS_CREATOR]->(person) WHERE localDateTime($startDate) < message.creationDate AND message.creationDate < localDateTime($endDate) | message])
                 AS score
             OPTIONAL MATCH (person)-[:KNOWS]-(friend)
-            // We need to use a redundant computation due to the lack of composable graph queries in the currently supported Cypher version.
-            // This might change in the future with new Cypher versions and GQL.
             WITH
                 person,
                 score,
@@ -1247,14 +1244,9 @@ class LDBC_BI(Dataset):
                 (tag:Tag {name: $tag}),
                 (person1:Person)<-[:HAS_CREATOR]-(message1:Message)-[:REPLY_OF*0..]->(post1:Post)<-[:CONTAINER_OF]-(forum1:Forum),
                 (message1)-[:HAS_TAG]->(tag),
-                // Having two HAS_MEMBER edges in the same MATCH clause ensures that person2 and person3 are different
-                // as Cypher's edge-isomorphic matching does not allow for such a match in a single MATCH clause.
                 (forum1)<-[:HAS_MEMBER]->(person2:Person)<-[:HAS_CREATOR]-(comment:Comment)-[:HAS_TAG]->(tag),
                 (forum1)<-[:HAS_MEMBER]->(person3:Person)<-[:HAS_CREATOR]-(message2:Message),
                 (comment)-[:REPLY_OF]->(message2)-[:REPLY_OF*0..]->(post2:Post)<-[:CONTAINER_OF]-(forum2:Forum)
-                // The query allows message2 = post2. If this is the case, their HAS_TAG edges to tag overlap,
-                // and Cypher's edge-isomorphic matching does not allow for such a match in a single MATCH clause.
-                // To work around this, we add them in separate MATCH clauses.
             MATCH (comment)-[:HAS_TAG]->(tag)
             MATCH (message2)-[:HAS_TAG]->(tag)
             WHERE forum1 <> forum2
