@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -66,6 +66,7 @@ struct ExecutionContext {
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
   std::atomic<bool> *is_shutting_down{nullptr};
+  std::atomic<bool> *aborted_by_user{nullptr};
   bool is_profile_query{false};
   std::chrono::duration<double> profile_execution_time;
   plan::ProfilingStats stats;
@@ -82,7 +83,8 @@ static_assert(std::is_move_assignable_v<ExecutionContext>, "ExecutionContext mus
 static_assert(std::is_move_constructible_v<ExecutionContext>, "ExecutionContext must be move constructible!");
 
 inline bool MustAbort(const ExecutionContext &context) noexcept {
-  return (context.is_shutting_down != nullptr && context.is_shutting_down->load(std::memory_order_acquire)) ||
+  return (context.aborted_by_user != nullptr && context.aborted_by_user->load(std::memory_order_acquire)) ||
+         (context.is_shutting_down != nullptr && context.is_shutting_down->load(std::memory_order_acquire)) ||
          context.timer.IsExpired();
 }
 

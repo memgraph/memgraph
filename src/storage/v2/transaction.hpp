@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -36,6 +36,7 @@ struct Transaction {
         start_timestamp(start_timestamp),
         command_id(0),
         must_abort(false),
+        aborted_by_user(false),
         isolation_level(isolation_level) {}
 
   Transaction(Transaction &&other) noexcept
@@ -69,6 +70,7 @@ struct Transaction {
   uint64_t command_id;
   std::list<Delta> deltas;
   bool must_abort;
+  std::atomic<bool> aborted_by_user;
   IsolationLevel isolation_level;
 };
 

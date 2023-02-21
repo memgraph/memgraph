@@ -238,9 +238,10 @@ class Interpreter final {
     std::vector<query::AuthQuery::Privilege> privileges;
     std::optional<int> qid;
   };
-  // isAdmin_ is not needed but just for the sake of testing
-  bool isAdmin_ = false;
+
   std::optional<std::string> username_;
+  bool in_explicit_transaction_{false};
+  bool expect_rollback_{false};
 
   /**
    * Prepare a query for execution.
@@ -315,6 +316,8 @@ class Interpreter final {
    */
   void Abort();
 
+  void AbortTransactionByUser();
+
   // this will be moved to the right place
 
  private:
@@ -364,8 +367,8 @@ class Interpreter final {
   std::unique_ptr<storage::Storage::Accessor> db_accessor_;
   std::optional<DbAccessor> execution_db_accessor_;
   std::optional<TriggerContextCollector> trigger_context_collector_;
-  bool in_explicit_transaction_{false};
-  bool expect_rollback_{false};
+  // bool in_explicit_transaction_{false};
+  // bool expect_rollback_{false};
 
   std::optional<storage::IsolationLevel> interpreter_isolation_level;
   std::optional<storage::IsolationLevel> next_transaction_isolation_level;

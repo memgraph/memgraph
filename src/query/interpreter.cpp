@@ -23,6 +23,7 @@
 #include <limits>
 #include <optional>
 #include <unordered_map>
+#include <utility>
 #include <variant>
 
 #include "auth/models.hpp"
@@ -31,6 +32,7 @@
 #include "license/license.hpp"
 #include "memory/memory_control.hpp"
 #include "query/common.hpp"
+#include "query/config.hpp"
 #include "query/constants.hpp"
 #include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
@@ -1031,6 +1033,7 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
     ctx_.timer = utils::AsyncTimer{interpreter_context->config.execution_timeout_sec};
   }
   ctx_.is_shutting_down = &interpreter_context->is_shutting_down;
+  ctx_.aborted_by_user = dba->TransactionAbortedByUser();
   ctx_.is_profile_query = is_profile_query;
   ctx_.trigger_context_collector = trigger_context_collector;
 }
@@ -1940,7 +1943,7 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
           for (Interpreter *interpreter : interpreters) {
             if (interpreter->HasActiveTransaction() && (interpreter->username_ == username || isAdmin)) {
               auto queries_summaries_typed = std::vector<TypedValue>();
-              auto queries_summaries = interpreter->GetQueriesSummary();
+              auto queries_summaries = interpreter->GetQueriesSummary();  // in std::transform
               std::for_each(queries_summaries.begin(), queries_summaries.end(),
                             [&queries_summaries_typed](const auto &query_summary) {
                               queries_summaries_typed.emplace_back(query_summary);
@@ -1957,24 +1960,38 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
       break;
     }
     case TransactionQueueQuery::Action::TERMINATE_TRANSACTIONS: {
-      // get transaction ids
-      std::vector<int> transaction_ids{1, 2, 3};  // TODO: evaluate this
+      std::vector<std::string> transaction_ids;
+      std::transform(transaction_query->transaction_id_list_.begin(), transaction_query->transaction_id_list_.end(),
+                     std::back_inserter(transaction_ids), [&evaluator](Expression *expression) {
+                       return std::string(expression->Accept(evaluator).ValueString());
+                     });
       callback.header = {"transaction_id", "status"};
-      callback.fn = [&interpreter_context, &transaction_ids]() mutable {
+      callback.fn = [interpreter_context, db_accessor, transaction_ids, username, isAdmin]() mutable {
+        spdlog::info("Number of transactions to kill in callback: {}", transaction_ids.size());
         std::vector<std::vector<TypedValue>> results;
-        for (int transaction_id : transaction_ids) {
-          std::string status{"Not killed"};
-          interpreter_context->interpreters.WithLock([&transaction_id, &status, &results](const auto &interpreters) {
-            for (Interpreter *interpreter : interpreters) {
-              if (interpreter->HasActiveTransaction() && interpreter->GetTransactionId() == transaction_id) {
-                interpreter->Abort();
-                status = "killed";
-                break;
-              }
-              results.push_back(
-                  {TypedValue(static_cast<int64_t>(interpreter->GetTransactionId())), TypedValue(status)});
-            }
-          });
+        for (const std::string &transaction_id : transaction_ids) {
+          std::string status{"Transaction not found"};
+          interpreter_context->interpreters.WithLock(
+              [db_accessor, &transaction_id, &status, username, isAdmin](const auto &interpreters) {
+                for (Interpreter *interpreter : interpreters) {
+                  std::string intr_trans_str = std::to_string(interpreter->GetTransactionId());
+                  if (interpreter->HasActiveTransaction() && transaction_id == intr_trans_str) {
+                    if (interpreter->username_ == username || isAdmin) {
+                      // if (interpreter->in_explicit_transaction_) {
+                      //   interpreter->expect_rollback_ = true;
+                      // } else {
+                      interpreter->AbortTransactionByUser();
+                      interpreter->Abort();
+                      // }
+                      status = "Transaction killed";
+                    } else {
+                      status = "Not enough rights to kill the transaction";
+                    }
+                    break;
+                  }
+                }
+              });
+          results.push_back({TypedValue(transaction_id), TypedValue(status)});
         }
         return results;
       };
@@ -2370,7 +2387,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
 
 uint64_t Interpreter::GetTransactionId() const { return db_accessor_->GetTransactionId(); }
 
-bool Interpreter::HasActiveTransaction() const { return db_accessor_->IsTransactionActive(); }
+bool Interpreter::HasActiveTransaction() const { return db_accessor_ && db_accessor_->IsTransactionActive(); }
 
 void Interpreter::BeginTransaction() {
   const auto prepared_query = PrepareTransactionQuery("BEGIN");
@@ -2400,18 +2417,6 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   // show transactions.
   std::optional<std::string> user = StringPointerToOptional(username);
   username_ = user;
-  if (interpreter_context_ != nullptr && interpreter_context_->auth_checker != nullptr) {
-    bool isAdmin = interpreter_context_->auth_checker->IsUserAdmin(user);
-    isAdmin_ = isAdmin;
-  }
-
-  /*
-  if (query_string == "SHOW TRANSACTIONS\n") {
-    const auto &results = interpreter_context_->ShowTransactions();
-  } else if (query_string == "KILL TRANSACTIONS\n") {
-    interpreter_context_->KillTransactions(std::vector<int>{1, 2, 3});
-  }
-  */
 
   query_executions_.emplace_back(std::make_unique<QueryExecution>());
   auto &query_execution = query_executions_.back();
@@ -2560,18 +2565,24 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 }
 
 std::vector<std::string> Interpreter::GetQueriesSummary() {
+  if (in_explicit_transaction_) {
+    return {"EXPLICIT TRANSACTION"};
+  }
   std::vector<std::string> queries;
   for (const auto &query_exec_ptr : query_executions_) {
-    queries.push_back(query_exec_ptr->query);
+    if (query_exec_ptr) queries.push_back(query_exec_ptr->query);
   }
   return queries;
 }
+
+void Interpreter::AbortTransactionByUser() { db_accessor_->AbortTransactionByUser(); }
 
 void Interpreter::Abort() {
   expect_rollback_ = false;
   in_explicit_transaction_ = false;
   if (!db_accessor_) return;
   db_accessor_->Abort();
+  // db_accessor_->AbortTransaction();
   execution_db_accessor_.reset();
   db_accessor_.reset();
   trigger_context_collector_.reset();

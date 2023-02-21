@@ -329,6 +329,12 @@ class Storage final {
 
     bool IsTransactionActive() const;
 
+    std::atomic<bool> *TransactionAbortedByUser();
+
+    void AbortTransactionByUser();
+
+    bool transaction_aborted_by_user = false;
+
    private:
     /// @throw std::bad_alloc
     VertexAccessor CreateVertex(storage::Gid gid);
