@@ -31,8 +31,8 @@ struct CommitInfo {
 };
 
 struct Transaction {
-  Transaction(coordinator::Hlc start_timestamp, CommitInfo new_commit_info, std::list<Delta> deltas,
-              uint64_t command_id, bool must_abort, bool is_aborted, IsolationLevel isolation_level)
+  Transaction(coordinator::Hlc start_timestamp, CommitInfo new_commit_info, uint64_t command_id, bool must_abort,
+              bool is_aborted, IsolationLevel isolation_level)
       : start_timestamp{start_timestamp},
         commit_info{std::make_unique<CommitInfo>(new_commit_info)},
         command_id(command_id),
@@ -108,8 +108,10 @@ struct Transaction {
 
   // This does not solve the whole problem of copying deltas
   std::unique_ptr<Transaction> Clone() const {
-    return std::make_unique<Transaction>(start_timestamp, *commit_info, CopyDeltas(commit_info.get()), command_id,
-                                         must_abort, is_aborted, isolation_level);
+    auto transaction_ptr = std::make_unique<Transaction>(start_timestamp, *commit_info, command_id, must_abort,
+                                                         is_aborted, isolation_level);
+    transaction_ptr->deltas = CopyDeltas(transaction_ptr->commit_info.get());
+    return transaction_ptr;
   }
 
   coordinator::Hlc start_timestamp;
