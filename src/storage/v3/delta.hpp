@@ -29,7 +29,7 @@ struct Edge;
 struct Delta;
 struct CommitInfo;
 
-inline uint64_t GetNextDeltaId() noexcept {
+inline uint64_t GetNextDeltaId() {
   static utils::Synchronized<uint64_t, utils::SpinLock> delta_id{0};
   return delta_id.WithLock([](auto &id) { return id++; });
 }
