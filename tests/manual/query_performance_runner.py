@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright 2023 Memgraph Ltd.
 #
 # Use of this software is governed by the Business Source License
