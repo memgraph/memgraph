@@ -51,8 +51,8 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(HeartbeatRequest &&heartbeat_r
     const auto new_uuid_rhs = shard_map_.GetHlc();
     spdlog::warn(
         "Coordinator beginning new split process for shard {} after receiving a pending split. splitting into lhs: {} "
-        "and rhs: {}",
-        shard.version.logical_id, new_uuid_lhs.logical_id, new_uuid_rhs.logical_id);
+        "and rhs: {} at split key {}",
+        shard.version.logical_id, new_uuid_lhs.logical_id, new_uuid_rhs.logical_id, split_key.back());
 
     // bump current shard version and store pending split info
     shard.version = new_uuid_lhs;
@@ -72,7 +72,8 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(HeartbeatRequest &&heartbeat_r
 
       const auto new_uuid = shard_map_.NewShardUuid();
 
-      spdlog::info("Coordinator allocating new rsm uuid: {}", new_uuid);
+      spdlog::warn("Coordinator allocating new rsm uuid: {} for new shard {} with low key {}", new_uuid, new_uuid_rhs,
+                   split_key.back());
 
       // store new uuid for the right side of each shard
       rsm_split_from_.insert({new_uuid, splitting_shard_id});
@@ -122,10 +123,11 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(HeartbeatRequest &&heartbeat_r
           peer.address.last_known_port == heartbeat_request.from_storage_manager.last_known_port) {
         // TODO(tyler) switch the conditional to match on rsm uuid and update the peer last_known_* address always
         const int low_key_int = low_key[0].ValueInt();
+        // TODO(tyler) this is failing in simulation tests
+        spdlog::warn("Coordinator marking rsm {} for shard {} as initialized", initialized_rsm, shard.version);
         MG_ASSERT(peer.address.unique_id == initialized_rsm,
                   "expected Coordinator uuid {} to equal peer uuid {} for shard version {} with low key {}",
                   peer.address.unique_id, initialized_rsm, shard.version, low_key_int);
-        spdlog::warn("Coordinator marking rsm {} for shard {} as initialized", initialized_rsm, shard.version);
         peer.status = Status::CONSENSUS_PARTICIPANT;
         ret.acknowledged_initialized_rsms.push_back(initialized_rsm);
         found = true;
@@ -135,12 +137,13 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(HeartbeatRequest &&heartbeat_r
         initialized_count++;
       }
     }
+    MG_ASSERT(shard.peers.size() == 1);
 
     MG_ASSERT(found, "did not find peer {} in shard version {}", heartbeat_request.from_storage_manager.unique_id,
               shard.version);
 
     if (initialized_count >= label_space.replication_factor) {
-      spdlog::info("clearing underreplicated shard with {} initialized peers", initialized_count);
+      spdlog::warn("clearing underreplicated shard with {} initialized peers", initialized_count);
       underreplicated_shards_.erase(shard_id);
     }
   }
@@ -151,13 +154,46 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(HeartbeatRequest &&heartbeat_r
     auto &label_space = shard_map_.label_spaces.at(label_id);
     auto &shard = label_space.shards.at(low_key);
 
+    bool needs_to_initialize = true;
+
     // make sure we're not already a member
     for (const auto &peer : shard.peers) {
       if (peer.address.last_known_ip == heartbeat_request.from_storage_manager.last_known_ip &&
           peer.address.last_known_port == heartbeat_request.from_storage_manager.last_known_port) {
-        // we are already a member of this shard. continue to next underreplicated shard to consider
-        continue;
+        needs_to_initialize = false;
+
+        if (peer.status == Status::INITIALIZING) {
+          spdlog::warn(
+              "Coordinator reminding ShardManager to initialize a shard that we have previously assigned it to");
+          Address address = heartbeat_request.from_storage_manager;
+          address.unique_id = peer.address.unique_id;
+
+          std::optional<PrimaryKey> high_key;
+          auto next = std::next(label_space.shards.find(low_key));
+          if (next != label_space.shards.end()) {
+            high_key = next->first;
+          }
+
+          ret.shards_to_initialize.push_back(ShardToInitialize{
+              .new_shard_version = shard.version,
+              .uuid = address.unique_id,
+              .label_id = label_id,
+              .min_key = low_key,
+              .max_key = high_key,
+              .schema = shard_map_.schemas[label_id],
+              .config = Config{.split =
+                                   Config::Split{
+                                       .max_shard_vertex_size = label_space.split_threshold,
+                                   }},
+              .id_to_names = shard_map_.IdToNames(),
+          });
+        }
       }
+    }
+
+    if (!needs_to_initialize) {
+      // we are already a member of this shard. continue to next underreplicated shard to consider
+      continue;
     }
 
     // we are not already a member, so we can be assigned to this shard
@@ -170,7 +206,8 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(HeartbeatRequest &&heartbeat_r
       high_key = next->first;
     }
 
-    spdlog::info("assigning shard manager to shard");
+    spdlog::warn("Coordinator assigning new rsm uuid {} to shard version {} with low key {} to shard worker {}",
+                 address.unique_id, shard.version, low_key.back(), address);
 
     ret.shards_to_initialize.push_back(ShardToInitialize{
         .new_shard_version = shard.version,
