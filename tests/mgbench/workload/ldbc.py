@@ -919,14 +919,14 @@ class LDBC_BI(Dataset):
             """.replace(
                 "\n", ""
             ),
-            {"tagClass": "MusicalArtist", "country": "Burma"},
+            self._get_query_parameters(),
         )
 
     def benchmark__bi__query_4(self):
         return (
             """
             MATCH (country:Country)<-[:IS_PART_OF]-(:City)<-[:IS_LOCATED_IN]-(person:Person)<-[:HAS_MEMBER]-(forum:Forum)
-            WHERE forum.creationDate > $date
+            WHERE forum.creationDate > localDateTime($date)
             WITH country, forum, count(person) AS numberOfMembers
             ORDER BY numberOfMembers DESC, forum.id ASC, country.id
             WITH DISTINCT forum AS topForum
@@ -962,7 +962,7 @@ class LDBC_BI(Dataset):
             """.replace(
                 "\n", ""
             ),
-            {"datetime": "2010-01-29"},
+            self._get_query_parameters(),
         )
 
     def benchmark__bi__query_5(self):
@@ -987,7 +987,7 @@ class LDBC_BI(Dataset):
             """.replace(
                 "\n", ""
             ),
-            {"tag": "Abbas_I_of_Persia"},
+            self._get_query_parameters(),
         )
 
     def benchmark__bi__query_6(self):
@@ -1006,7 +1006,7 @@ class LDBC_BI(Dataset):
             """.replace(
                 "\n", ""
             ),
-            {"tag": "Arnold_Schwarzenegger"},
+            self._get_query_parameters(),
         )
 
     def benchmark__bi__query_7(self):
@@ -1026,7 +1026,7 @@ class LDBC_BI(Dataset):
             """.replace(
                 "\n", ""
             ),
-            {"tag": "Enrique_Iglesias"},
+            self._get_query_parameters(),
         )
 
     def benchmark__bi__query_8(self):
@@ -1037,15 +1037,15 @@ class LDBC_BI(Dataset):
             OPTIONAL MATCH (tag)<-[interest:HAS_INTEREST]-(person:Person)
             WITH tag, collect(person) AS interestedPersons
             OPTIONAL MATCH (tag)<-[:HAS_TAG]-(message:Message)-[:HAS_CREATOR]->(person:Person)
-                    WHERE $startDate < message.creationDate
-                    AND message.creationDate < $endDate
+                    WHERE localDateTime($startDate) < message.creationDate
+                    AND message.creationDate < localDateTime($endDate)
             WITH tag, interestedPersons + collect(person) AS persons
             UNWIND persons AS person
             WITH DISTINCT tag, person
             WITH
                 tag,
                 person,
-                100 * size([(tag)<-[interest:HAS_INTEREST]-(person) | interest]) + size([(tag)<-[:HAS_TAG]-(message:Message)-[:HAS_CREATOR]->(person) WHERE $startDate < message.creationDate AND message.creationDate < $endDate | message])
+                100 * size([(tag)<-[interest:HAS_INTEREST]-(person) | interest]) + size([(tag)<-[:HAS_TAG]-(message:Message)-[:HAS_CREATOR]->(person) WHERE localDateTime($startDate) < message.creationDate AND message.creationDate < localDateTime($endDate) | message])
                 AS score
             OPTIONAL MATCH (person)-[:KNOWS]-(friend)
             // We need to use a redundant computation due to the lack of composable graph queries in the currently supported Cypher version.
@@ -1053,7 +1053,7 @@ class LDBC_BI(Dataset):
             WITH
                 person,
                 score,
-                100 * size([(tag)<-[interest:HAS_INTEREST]-(friend) | interest]) + size([(tag)<-[:HAS_TAG]-(message:Message)-[:HAS_CREATOR]->(friend) WHERE $startDate < message.creationDate AND message.creationDate < $endDate | message])
+                100 * size([(tag)<-[interest:HAS_INTEREST]-(friend) | interest]) + size([(tag)<-[:HAS_TAG]-(message:Message)-[:HAS_CREATOR]->(friend) WHERE localDateTime($startDate) < message.creationDate AND message.creationDate < localDateTime($endDate) | message])
                 AS friendScore
             RETURN
                 person.id,
@@ -1066,21 +1066,17 @@ class LDBC_BI(Dataset):
             """.replace(
                 "\n", ""
             ),
-            {
-                "tag": "Che_Guevara",
-                "startDate": "2011-07-20",
-                "endDate": "2011-07-25",
-            },
+            self._get_query_parameters(),
         )
 
     def benchmark__bi__query_9(self):
         return (
             """
             MATCH (person:Person)<-[:HAS_CREATOR]-(post:Post)<-[:REPLY_OF*0..]-(reply:Message)
-            WHERE  post.creationDate >= $startDate
-                AND  post.creationDate <= $endDate
-                AND reply.creationDate >= $startDate
-                AND reply.creationDate <= $endDate
+            WHERE  post.creationDate >= localDateTime($startDate)
+                AND  post.creationDate <= localDateTime($endDate)
+                AND reply.creationDate >= localDateTime($startDate)
+                AND reply.creationDate <= localDateTime($endDate)
             RETURN
                 person.id,
                 person.firstName,
@@ -1094,10 +1090,7 @@ class LDBC_BI(Dataset):
             """.replace(
                 "\n", ""
             ),
-            {
-                "startDate": "2011-10-01",
-                "endDate": "2011-10-15",
-            },
+            self._get_query_parameters(),
         )
 
     def benchmark__bi__query_11(self):
@@ -1106,23 +1099,23 @@ class LDBC_BI(Dataset):
             MATCH (a:Person)-[:IS_LOCATED_IN]->(:City)-[:IS_PART_OF]->(country:Country {name: $country}),
                 (a)-[k1:KNOWS]-(b:Person)
             WHERE a.id < b.id
-                AND $startDate <= k1.creationDate AND k1.creationDate <= $endDate
+                AND localDateTime($startDate) <= k1.creationDate AND k1.creationDate <= localDateTime($endDate)
             WITH DISTINCT country, a, b
             MATCH (b)-[:IS_LOCATED_IN]->(:City)-[:IS_PART_OF]->(country)
             WITH DISTINCT country, a, b
             MATCH (b)-[k2:KNOWS]-(c:Person),
                 (c)-[:IS_LOCATED_IN]->(:City)-[:IS_PART_OF]->(country)
             WHERE b.id < c.id
-                AND $startDate <= k2.creationDate AND k2.creationDate <= $endDate
+                AND localDateTime($startDate) <= k2.creationDate AND k2.creationDate <= localDateTime($endDate)
             WITH DISTINCT a, b, c
             MATCH (c)-[k3:KNOWS]-(a)
-            WHERE $startDate <= k3.creationDate AND k3.creationDate <= $endDate
+            WHERE localDateTime($startDate) <= k3.creationDate AND k3.creationDate <= localDateTime($endDate)
             WITH DISTINCT a, b, c
             RETURN count(*) AS count
             """.replace(
                 "\n", ""
             ),
-            {"startDate": "2012-09-29", "endDate": "2013-01-01"},
+            self._get_query_parameters(),
         )
 
     def benchmark__bi__query_12(self):
@@ -1132,7 +1125,7 @@ class LDBC_BI(Dataset):
             OPTIONAL MATCH (person)<-[:HAS_CREATOR]-(message:Message)-[:REPLY_OF*0..]->(post:Post)
             WHERE message.content IS NOT NULL
                 AND message.length < $lengthThreshold
-                AND message.creationDate > $startDate
+                AND message.creationDate > localDateTime($startDate)
                 AND post.language IN $languages
             WITH
                 person,
@@ -1146,21 +1139,17 @@ class LDBC_BI(Dataset):
             """.replace(
                 "\n", ""
             ),
-            {
-                "startDate": "2010-07-22",
-                "lengthThreshold": 20,
-                "languages": ["ar", "hu"],
-            },
+            self._get_query_parameters(),
         )
 
     def benchmark__bi__query_13(self):
         return (
             """
             MATCH (country:Country {name: $country})<-[:IS_PART_OF]-(:City)<-[:IS_LOCATED_IN]-(zombie:Person)
-            WHERE zombie.creationDate < $endDate
+            WHERE zombie.creationDate < localDateTime($endDate)
             WITH country, zombie
             OPTIONAL MATCH (zombie)<-[:HAS_CREATOR]-(message:Message)
-            WHERE message.creationDate < $endDate
+            WHERE message.creationDate < localDateTime($endDate)
             WITH
                 country,
                 zombie,
@@ -1168,8 +1157,8 @@ class LDBC_BI(Dataset):
             WITH
                 country,
                 zombie,
-                12 * ($endDate.year  - zombie.creationDate.year )
-                    + ($endDate.month - zombie.creationDate.month)
+                12 * (localDateTime($endDate).year  - zombie.creationDate.year )
+                    + (localDateTime($endDate).month - zombie.creationDate.month)
                     + 1 AS months,
                 messageCount
             WHERE messageCount / months < 1
@@ -1185,7 +1174,7 @@ class LDBC_BI(Dataset):
                 count(likerZombie) AS zombieLikeCount
             OPTIONAL MATCH
                 (zombie)<-[:HAS_CREATOR]-(message:Message)<-[:LIKES]-(likerPerson:Person)
-            WHERE likerPerson.creationDate < $endDate
+            WHERE likerPerson.creationDate < localDateTime($endDate)
             WITH
                 zombie,
                 zombieLikeCount,
@@ -1205,10 +1194,7 @@ class LDBC_BI(Dataset):
             """.replace(
                 "\n", ""
             ),
-            {
-                "country": "France",
-                "endDate": "2013-01-01",
-            },
+            self._get_query_parameters(),
         )
 
     def benchmark__bi__query_14(self):
@@ -1251,7 +1237,7 @@ class LDBC_BI(Dataset):
             """.replace(
                 "\n", ""
             ),
-            {"country1": "Chile", "country2": "Argentina"},
+            self._get_query_parameters(),
         )
 
     def benchmark__bi__query_17(self):
@@ -1280,10 +1266,7 @@ class LDBC_BI(Dataset):
             """.replace(
                 "\n", ""
             ),
-            {
-                "tag": "Slavoj_Žižek",
-                "delta": 4,
-            },
+            self._get_query_parameters(),
         )
 
     def benchmark__bi__query_18(self):
@@ -1298,5 +1281,5 @@ class LDBC_BI(Dataset):
             """.replace(
                 "\n", ""
             ),
-            {"tag": "Frank_Sinatra"},
+            self._get_query_parameters(),
         )
