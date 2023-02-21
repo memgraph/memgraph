@@ -271,3 +271,30 @@ jobs:
           source ve3/bin/activate
           cd e2e
           LD_LIBRARY_PATH=$LD_LIBRARY_PATH:../../libs/mgclient/lib python runner.py --workloads-root-directory ./distributed_queries
+
+      - name: Run query performance tests
+        run: |
+          cd tests/manual
+          ./query_performance_runner.py
+
+      - name: Get branch name (merge)
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
+
+      - name: Get branch name (pull request)
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: echo "BRANCH_NAME=$(echo ${GITHUB_HEAD_REF} | tr / -)" >> $GITHUB_ENV
+
+      - name: Upload macro benchmark results
+        run: |
+          cd tools/bench-graph-client
+          virtualenv -p python3 ve3
+          source ve3/bin/activate
+          pip install -r requirements.txt
+          ./main.py --benchmark-name "query_performance" \
+                    --benchmark-results-path "../../build/tests/manual/query_performance_benchmark/summary.json" \
+                    --github-run-id "${{ github.run_id }}" \
+                    --github-run-number "${{ github.run_number }}" \
+                    --head-branch-name "${{ env.BRANCH_NAME }}"
