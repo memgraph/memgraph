@@ -183,7 +183,7 @@ updateClause : set
 
 foreach :  FOREACH '(' variable IN expression '|' updateClause+  ')' ;
 
-callSubquery : CALL '{' StringLiteral '}' ;
+callSubquery : CALL '{' cypherQuery '}' ;
 
 streamQuery : checkStream
             | createStream
