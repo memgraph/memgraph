@@ -34,8 +34,8 @@ class LDBC_Interactive(Dataset):
     }
 
     URL_INDEX_FILES = {
-        "memgraph": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/interactive/memgraph_index.cypher",
-        "neo4j": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/interactive/neo4j_index.cypher",
+        "memgraph": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/interactive/memgraph_interactive_index.cypher",
+        "neo4j": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/interactive/neo4j_interactive_index.cypher",
     }
 
     PROPERTIES_ON_EDGES = True
@@ -60,8 +60,6 @@ class LDBC_Interactive(Dataset):
 
     def _get_query_parameters(self) -> dict:
         func_name = inspect.stack()[1].function
-        print(func_name)
-
         parameters = {}
         for file in self._parameters_dir.glob("interactive_*.txt"):
             if file.name.split("_")[1] == func_name.split("_")[-1]:
@@ -84,18 +82,6 @@ class LDBC_Interactive(Dataset):
     def __init__(self, variant=None, vendor=None):
         super().__init__(variant, vendor)
         self._parameters_dir = self._prepare_parameters_directory()
-
-    # def benchmark__interactive__sample_query(self):
-    #     return ("MATCH(n:Tag) RETURN COUNT(*);", {})
-
-    # def benchmark__interactive__sample_query_1(self):
-    #     return ("MATCH (n:Person {id: $personId, firstname: $firstName}) RETURN n;", self._get_query_parameters())
-
-    # def benchmark__interactive__sample_query_2(self):
-    #     return ("MATCH(n:Tag) RETURN COUNT(*);", self._get_query_parameters())
-
-    # def benchmark__interactive__sample_query4(self):
-    #     return ("MATCH (n:Person {id: $personId}) RETURN n;", {"personId": 933})
 
     def benchmark__interactive__complex_query_1(self):
         memgraph = (
@@ -772,6 +758,13 @@ class LDBC_BI(Dataset):
         "sf10": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/bi/ldbc_bi_sf10.cypher.gz",
     }
 
+    URL_CSV = {
+        "sf1": "https://pub-383410a98aef4cb686f0c7601eddd25f.r2.dev/bi-pre-audit/bi-sf1-composite-projected-fk.tar.zst",
+        "sf3": "https://pub-383410a98aef4cb686f0c7601eddd25f.r2.dev/bi-pre-audit/bi-sf3-composite-projected-fk.tar.zst",
+        "sf10": "https://pub-383410a98aef4cb686f0c7601eddd25f.r2.dev/bi-pre-audit/bi-sf10-composite-projected-fk.tar.zst",
+    }
+
+    # 2997352 15457338
     SIZES = {
         "sf1": {"vertices": 2997352, "edges": 17196776},
         "sf3": {"vertices": 1, "edges": 1},
@@ -781,22 +774,65 @@ class LDBC_BI(Dataset):
     LOCAL_INDEX_FILES = None
 
     URL_INDEX_FILES = {
-        "memgraph": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/bi/indices_memgraph.cypher",
-        "neo4j": "",
+        "memgraph": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/bi/memgraph_bi_index.cypher",
+        "neo4j": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/bi/neo4j_bi_index.cypher",
     }
+
+    QUERY_PARAMETERS = {
+        "sf1": "https://pub-383410a98aef4cb686f0c7601eddd25f.r2.dev/bi-pre-audit/parameters-2022-10-01.zip",
+        "sf3": "https://pub-383410a98aef4cb686f0c7601eddd25f.r2.dev/bi-pre-audit/parameters-2022-10-01.zip",
+        "sf10": "https://pub-383410a98aef4cb686f0c7601eddd25f.r2.dev/bi-pre-audit/parameters-2022-10-01.zip",
+    }
+
+    def _prepare_parameters_directory(self):
+        parameters = Path() / ".cache" / "datasets" / self.NAME / self._variant / "parameters"
+        if parameters.exists():
+            print("Files downloaded.")
+        else:
+            print("Downloading files")
+            downloaded_file = helpers.download_file(self.QUERY_PARAMETERS[self._variant], parameters.parent.absolute())
+            print("Unpacking the file..." + downloaded_file)
+            parameters = helpers.unpack_zip(Path(downloaded_file))
+        return parameters / ("parameters-" + self._variant)
+
+    def _get_query_parameters(self) -> dict:
+        func_name = inspect.stack()[1].function
+        parameters = {}
+        for file in self._parameters_dir.glob("bi-*.csv"):
+            file_name_query_id = file.name.split("-")[1][0:-4]
+            func_name_id = func_name.split("_")[-1]
+            if file_name_query_id == func_name_id or file_name_query_id == func_name_id + "a":
+                with file.open("r") as input:
+                    lines = input.readlines()
+                    header = lines[0].strip("\n").split("|")
+                    data = lines[1].strip("\n").split("|")
+                    for i in range(len(header)):
+                        key, value_type = header[i].split(":")
+                        if value_type == "DATETIME":
+                            # Drop time zone
+                            converted = data[i][0:-6]
+                            parameters[key] = converted
+                        elif value_type == "INT":
+                            parameters[key] = int(data[i])
+                        else:
+                            parameters[key] = data[i]
+                break
+
+        return parameters
 
     def __init__(self, variant=None, vendor=None):
         super().__init__(variant, vendor)
+        self._parameters_dir = self._prepare_parameters_directory()
 
     def benchmark__bi__query_1(self):
         return (
             """
             MATCH (message:Message)
-            WHERE message.creationDate < $datetime
-            WITH count(message) AS totalMessageCountInt // this should be a subquery once Cypher supports it
+            WHERE message.creationDate < localDateTime($datetime)
+            WITH count(message) AS totalMessageCountInt
             WITH toFloat(totalMessageCountInt) AS totalMessageCount
             MATCH (message:Message)
-            WHERE message.creationDate < $datetime
+            WHERE message.creationDate < localDateTime($datetime)
             AND message.content IS NOT NULL
             WITH
                 totalMessageCount,
@@ -830,7 +866,7 @@ class LDBC_BI(Dataset):
             """.replace(
                 "\n", ""
             ),
-            {"datetime": "2011-12-01T00:00:00.000"},
+            self._get_query_parameters(),
         )
 
     def benchmark__bi__query_2(self):
@@ -838,12 +874,12 @@ class LDBC_BI(Dataset):
             """
             MATCH (tag:Tag)-[:HAS_TYPE]->(:TagClass {name: $tagClass})
             OPTIONAL MATCH (message1:Message)-[:HAS_TAG]->(tag)
-            WHERE $date <= message1.creationDate
-                AND message1.creationDate < $date + duration({days: 100})
+            WHERE localDateTime($date) <= message1.creationDate
+                AND message1.creationDate < localDateTime($date) + duration({days: 100})
             WITH tag, count(message1) AS countWindow1
             OPTIONAL MATCH (message2:Message)-[:HAS_TAG]->(tag)
-            WHERE $date + duration({days: 100}) <= message2.creationDate
-                AND message2.creationDate < $date + duration({days: 200})
+            WHERE localDateTime($date) + duration({days: 100}) <= message2.creationDate
+                AND message2.creationDate < localDateTime($date) + duration({days: 200})
             WITH
                 tag,
                 countWindow1,
@@ -860,7 +896,7 @@ class LDBC_BI(Dataset):
             """.replace(
                 "\n", ""
             ),
-            {"date": "2012-06-01", "tagClass": "MusicalArtist"},
+            self._get_query_parameters(),
         )
 
     def benchmark__bi__query_3(self):

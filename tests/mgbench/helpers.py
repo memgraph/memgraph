@@ -51,12 +51,33 @@ def unpack_gz_and_move_file(input_path, output_path):
 def unpack_gz(input_path: Path):
     if input_path.suffix == ".gz":
         subprocess.run(["gzip", "-d", input_path], capture_output=True, check=True)
+        input_path = input_path.with_suffix("")
+    return input_path
+
+
+def unpack_zip(input_path: Path):
+    if input_path.suffix == ".zip":
+        subprocess.run(["unzip", input_path], capture_output=True, check=True, cwd=input_path.parent)
+        input_path = input_path.with_suffix("")
+    return input_path
 
 
 def unpack_tar_zst(input_path: Path):
     if input_path.suffix == ".zst":
         subprocess.run(
             ["tar", "--use-compress-program=unzstd", "-xvf", input_path],
+            cwd=input_path.parent,
+            capture_output=True,
+            check=True,
+        )
+        input_path = input_path.with_suffix("").with_suffix("")
+    return input_path
+
+
+def unpack_tar_gz(input_path: Path):
+    if input_path.suffix == ".gz":
+        subprocess.run(
+            ["tar", "-xvf", input_path],
             cwd=input_path.parent,
             capture_output=True,
             check=True,
