@@ -259,7 +259,7 @@ Feature: WHERE exists
           """
       When executing query:
           """
-          MATCH (n:One) WHERE exists((n)-[:TYPE2]->()) AND exists((n)-[]->(:Three)) RETURN n.prop;
+          MATCH (n:One) WHERE exists((n)-[:TYPE2]->()) OR exists((n)-[]->(:Three)) RETURN n.prop;
           """
       Then the result should be empty
 
