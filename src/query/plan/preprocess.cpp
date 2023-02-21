@@ -549,7 +549,7 @@ void PatternFilterVisitor::Visit(Exists &op) {
   filter_matching.type = PatternFilterType::EXISTS;
   filter_matching.symbol = std::make_optional<Symbol>(this->symbol_table_.at(op));
 
-  this->matchings_.push_back(std::move(filter_matching));
+  matchings_.push_back(std::move(filter_matching));
 }
 
 static void ParseForeach(query::Foreach &foreach, SingleQueryPart &query_part, AstStorage &storage,
