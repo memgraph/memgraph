@@ -10,16 +10,23 @@
 # licenses/APL.txt.
 
 import argparse
+import io
 import json
 import os
 import subprocess
+import tarfile
 import tempfile
+
+import requests
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
 BUILD_DIR = os.path.join(PROJECT_DIR, "build")
 BINARY_DIR = os.path.join(BUILD_DIR, "tests/manual")
 DEFAULT_BENCHMARK_DIR = os.path.join(BINARY_DIR, "query_performance_benchmark")
+DATA_URL = (
+    "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/query_performance/query_performance_benchmark.tar.gz"
+)
 
 parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument(
@@ -58,6 +65,16 @@ args = parser.parse_args()
 v2_results_path = os.path.join(DEFAULT_BENCHMARK_DIR, "v2_results.json")
 v3_results_path = os.path.join(DEFAULT_BENCHMARK_DIR, "v3_results.json")
 
+
+if os.path.exists(DEFAULT_BENCHMARK_DIR):
+    print(f"Using cachced data from {DEFAULT_BENCHMARK_DIR}")
+else:
+    print(f"Downloading benchmark data to {DEFAULT_BENCHMARK_DIR}")
+    r = requests.get(DATA_URL)
+    assert r.ok, "Cannot download data"
+    file_like_object = io.BytesIO(r.content)
+    tar = tarfile.open(fileobj=file_like_object)
+    tar.extractall(os.path.dirname(DEFAULT_BENCHMARK_DIR))
 
 subprocess.run(
     [
