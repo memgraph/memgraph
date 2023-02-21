@@ -636,13 +636,12 @@ class RuleBasedPlanner {
 
     for (const auto &filter : filters) {
       for (const auto &matching : filter.matchings) {
-        if (matching.type == PatternFilterType::EXISTS) {
-          operators.push_back(MakeExistsFilter(matching, symbol_table, storage, bound_symbols));
-          continue;
+        switch (matching.type) {
+          case PatternFilterType::EXISTS: {
+            operators.push_back(MakeExistsFilter(matching, symbol_table, storage, bound_symbols));
+            break;
+          }
         }
-
-        // This should never happen
-        MG_ASSERT(false, "Pattern filter does not exist!");
       }
     }
 
