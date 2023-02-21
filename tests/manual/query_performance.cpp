@@ -117,6 +117,8 @@ DEFINE_bool(use_v3, true, "If set to true, then Memgraph v3 will be used, otherw
 
 DEFINE_string(export_json_results, "", "If not empty, then the results will be exported as a json file.");
 
+DEFINE_string(data_directory, "mg_data", "Path to directory to use as storage directory for Memgraph v2.");
+
 namespace memgraph::tests::manual {
 
 template <typename TInterpreterContext>
@@ -202,7 +204,8 @@ void RunV2() {
   const auto benchmarks = ReadBenchmarkQueries(FLAGS_benchmark_queries_files);
 
   storage::Storage storage{
-      storage::Config{.durability{.snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::DISABLED}}};
+      storage::Config{.durability{.storage_directory = FLAGS_data_directory,
+                                  .snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::DISABLED}}};
 
   memgraph::query::InterpreterContext interpreter_context{
       &storage,
@@ -213,7 +216,7 @@ void RunV2() {
        .default_pulsar_service_url = "",
        .stream_transaction_conflict_retries = 0,
        .stream_transaction_retry_interval = std::chrono::milliseconds(0)},
-      "query_performance_data"};
+      FLAGS_data_directory};
 
   const auto init_start = std::chrono::high_resolution_clock::now();
   RunInitQueries(interpreter_context, index_queries);
