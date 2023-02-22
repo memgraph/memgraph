@@ -433,6 +433,5 @@ class Client:
             if error and error[0] != "":
                 print("Reported errros from client")
                 print(error)
-            print(data)
             data = [x for x in data if not x.startswith("[")]
             return list(map(json.loads, data))

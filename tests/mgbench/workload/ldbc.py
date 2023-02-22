@@ -812,8 +812,14 @@ class LDBC_BI(Dataset):
                             # Drop time zone
                             converted = data[i][0:-6]
                             parameters[key] = converted
+                        elif value_type == "DATE":
+                            converted = data[i] + "T00:00:00"
+                            parameters[key] = converted
                         elif value_type == "INT":
                             parameters[key] = int(data[i])
+                        elif value_type == "STRING[]":
+                            elements = data[i].split(";")
+                            parameters[key] = elements
                         else:
                             parameters[key] = data[i]
                 break
@@ -825,7 +831,8 @@ class LDBC_BI(Dataset):
         self._parameters_dir = self._prepare_parameters_directory()
 
     def benchmark__bi__query_1(self):
-        return (
+
+        memgraph = (
             """
             MATCH (message:Message)
             WHERE message.creationDate < localDateTime($datetime)
@@ -869,8 +876,86 @@ class LDBC_BI(Dataset):
             self._get_query_parameters(),
         )
 
+        neo4j = (
+            """
+            MATCH (message:Message)
+            WHERE message.creationDate < DateTime($datetime)
+            WITH count(message) AS totalMessageCountInt
+            WITH toFloat(totalMessageCountInt) AS totalMessageCount
+            MATCH (message:Message)
+            WHERE message.creationDate < DateTime($datetime)
+            AND message.content IS NOT NULL
+            WITH
+                totalMessageCount,
+                message,
+                message.creationDate.year AS year
+            WITH
+                totalMessageCount,
+                year,
+                message:Comment AS isComment,
+                CASE
+                    WHEN message.length <  40 THEN 0
+                    WHEN message.length <  80 THEN 1
+                    WHEN message.length < 160 THEN 2
+                    ELSE                           3
+                END AS lengthCategory,
+                count(message) AS messageCount,
+                sum(message.length) / toFloat(count(message)) AS averageMessageLength,
+                sum(message.length) AS sumMessageLength
+            RETURN
+                year,
+                isComment,
+                lengthCategory,
+                messageCount,
+                averageMessageLength,
+                sumMessageLength,
+                messageCount / totalMessageCount AS percentageOfMessages
+            ORDER BY
+                year DESC,
+                isComment ASC,
+                lengthCategory ASC
+            """.replace(
+                "\n", ""
+            ),
+            self._get_query_parameters(),
+        )
+        if self._vendor == "memgraph":
+            return memgraph
+        else:
+            return neo4j
+
     def benchmark__bi__query_2(self):
-        return (
+
+        memgraph = (
+            """
+            MATCH (tag:Tag)-[:HAS_TYPE]->(:TagClass {name: $tagClass})
+            OPTIONAL MATCH (message1:Message)-[:HAS_TAG]->(tag)
+            WHERE localDateTime($date) <= message1.creationDate
+                AND message1.creationDate < localDateTime($date) + duration({day: 100})
+            WITH tag, count(message1) AS countWindow1
+            OPTIONAL MATCH (message2:Message)-[:HAS_TAG]->(tag)
+            WHERE localDateTime($date) + duration({day: 100}) <= message2.creationDate
+                AND message2.creationDate < localDateTime($date) + duration({day: 200})
+            WITH
+                tag,
+                countWindow1,
+                count(message2) AS countWindow2
+            RETURN
+                tag.name,
+                countWindow1,
+                countWindow2,
+                abs(countWindow1 - countWindow2) AS diff
+            ORDER BY
+                diff DESC,
+                tag.name ASC
+            LIMIT 100
+            """.replace(
+                "\n", ""
+            ),
+            self._get_query_parameters(),
+        )
+
+        neo4j = (
             """
             MATCH (tag:Tag)-[:HAS_TYPE]->(:TagClass {name: $tagClass})
             OPTIONAL MATCH (message1:Message)-[:HAS_TAG]->(tag)
@@ -898,6 +983,10 @@ class LDBC_BI(Dataset):
             ),
             self._get_query_parameters(),
         )
+        if self._vendor == "memgraph":
+            return memgraph
+        else:
+            return neo4j
 
     def benchmark__bi__query_3(self):
         return (
@@ -907,14 +996,13 @@ class LDBC_BI(Dataset):
                 (person:Person)<-[:HAS_MODERATOR]-(forum:Forum)-[:CONTAINER_OF]->
                 (post:Post)<-[:REPLY_OF*0..]-(message:Message)-[:HAS_TAG]->(:Tag)-[:HAS_TYPE]->(:TagClass {name: $tagClass})
             RETURN
-                forum.id,
+                forum.id as id,
                 forum.title,
-                forum.creationDate,
                 person.id,
                 count(DISTINCT message) AS messageCount
             ORDER BY
                 messageCount DESC,
-                forum.id ASC
+                id ASC
             LIMIT 20
             """.replace(
                 "\n", ""
@@ -997,11 +1085,11 @@ class LDBC_BI(Dataset):
             OPTIONAL MATCH (message1)<-[:LIKES]-(person2:Person)
             OPTIONAL MATCH (person2)<-[:HAS_CREATOR]-(message2:Message)<-[like:LIKES]-(person3:Person)
             RETURN
-                person1.id,
+                person1.id as id,
                 count(DISTINCT like) AS authorityScore
             ORDER BY
                 authorityScore DESC,
-                person1.id ASC
+                id ASC
             LIMIT 100
             """.replace(
                 "\n", ""
@@ -1067,7 +1155,7 @@ class LDBC_BI(Dataset):
         )
 
     def benchmark__bi__query_9(self):
-        return (
+        memgraph = (
             """
             MATCH (person:Person)<-[:HAS_CREATOR]-(post:Post)<-[:REPLY_OF*0..]-(reply:Message)
             WHERE  post.creationDate >= localDateTime($startDate)
@@ -1075,20 +1163,46 @@ class LDBC_BI(Dataset):
                 AND reply.creationDate >= localDateTime($startDate)
                 AND reply.creationDate <= localDateTime($endDate)
             RETURN
-                person.id,
+                person.id as id,
                 person.firstName,
                 person.lastName,
                 count(DISTINCT post) AS threadCount,
                 count(DISTINCT reply) AS messageCount
             ORDER BY
                 messageCount DESC,
-                person.id ASC
+                id ASC
             LIMIT 100
             """.replace(
                 "\n", ""
             ),
             self._get_query_parameters(),
         )
+        neo4j = (
+            """
+            MATCH (person:Person)<-[:HAS_CREATOR]-(post:Post)<-[:REPLY_OF*0..]-(reply:Message)
+            WHERE  post.creationDate >= DateTime($startDate)
+                AND  post.creationDate <= DateTime($endDate)
+                AND reply.creationDate >= DateTime($startDate)
+                AND reply.creationDate <= DateTime($endDate)
+            RETURN
+                person.id as id,
+                person.firstName,
+                person.lastName,
+                count(DISTINCT post) AS threadCount,
+                count(DISTINCT reply) AS messageCount
+            ORDER BY
+                messageCount DESC,
+                id ASC
+            LIMIT 100
+            """.replace(
+                "\n", ""
+            ),
+            self._get_query_parameters(),
+        )
+        if self._vendor == "memgraph":
+            return memgraph
+        else:
+            return neo4j
 
     def benchmark__bi__query_11(self):
         return (
@@ -1140,7 +1254,7 @@ class LDBC_BI(Dataset):
         )
 
     def benchmark__bi__query_13(self):
-        return (
+        memgraph = (
             """
             MATCH (country:Country {name: $country})<-[:IS_PART_OF]-(:City)<-[:IS_LOCATED_IN]-(zombie:Person)
             WHERE zombie.creationDate < localDateTime($endDate)
@@ -1194,6 +1308,65 @@ class LDBC_BI(Dataset):
             self._get_query_parameters(),
         )
 
+        neo4j = (
+            """
+            MATCH (country:Country {name: $country})<-[:IS_PART_OF]-(:City)<-[:IS_LOCATED_IN]-(zombie:Person)
+            WHERE zombie.creationDate < DateTime($endDate)
+            WITH country, zombie
+            OPTIONAL MATCH (zombie)<-[:HAS_CREATOR]-(message:Message)
+            WHERE message.creationDate < DateTime($endDate)
+            WITH
+                country,
+                zombie,
+                count(message) AS messageCount
+            WITH
+                country,
+                zombie,
+                12 * (DateTime($endDate).year  - zombie.creationDate.year )
+                    + (DateTime($endDate).month - zombie.creationDate.month)
+                    + 1 AS months,
+                messageCount
+            WHERE messageCount / months < 1
+            WITH
+                country,
+                collect(zombie) AS zombies
+            UNWIND zombies AS zombie
+            OPTIONAL MATCH
+                (zombie)<-[:HAS_CREATOR]-(message:Message)<-[:LIKES]-(likerZombie:Person)
+            WHERE likerZombie IN zombies
+            WITH
+                zombie,
+                count(likerZombie) AS zombieLikeCount
+            OPTIONAL MATCH
+                (zombie)<-[:HAS_CREATOR]-(message:Message)<-[:LIKES]-(likerPerson:Person)
+            WHERE likerPerson.creationDate < DateTime($endDate)
+            WITH
+                zombie,
+                zombieLikeCount,
+                count(likerPerson) AS totalLikeCount
+            RETURN
+                zombie.id,
+                zombieLikeCount,
+                totalLikeCount,
+            CASE totalLikeCount
+            WHEN 0 THEN 0.0
+            ELSE zombieLikeCount / toFloat(totalLikeCount)
+            END AS zombieScore
+            ORDER BY
+                zombieScore DESC,
+                zombie.id ASC
+            LIMIT 100
+            """.replace(
+                "\n", ""
+            ),
+            self._get_query_parameters(),
+        )
+
+        if self._vendor == "memgraph":
+            return memgraph
+        else:
+            return neo4j
+
     def benchmark__bi__query_14(self):
         return (
             """
@@ -1202,19 +1375,14 @@ class LDBC_BI(Dataset):
                 (country2:Country {name: $country2})<-[:IS_PART_OF]-(city2:City)<-[:IS_LOCATED_IN]-(person2:Person),
                 (person1)-[:KNOWS]-(person2)
             WITH person1, person2, city1, 0 AS score
-            // case 1
             OPTIONAL MATCH (person1)<-[:HAS_CREATOR]-(c:Comment)-[:REPLY_OF]->(:Message)-[:HAS_CREATOR]->(person2)
             WITH DISTINCT person1, person2, city1, score + (CASE c WHEN null THEN 0 ELSE  4 END) AS score
-            // case 2
             OPTIONAL MATCH (person1)<-[:HAS_CREATOR]-(m:Message)<-[:REPLY_OF]-(:Comment)-[:HAS_CREATOR]->(person2)
             WITH DISTINCT person1, person2, city1, score + (CASE m WHEN null THEN 0 ELSE  1 END) AS score
-            // case 3
             OPTIONAL MATCH (person1)-[:LIKES]->(m:Message)-[:HAS_CREATOR]->(person2)
             WITH DISTINCT person1, person2, city1, score + (CASE m WHEN null THEN 0 ELSE 10 END) AS score
-            // case 4
             OPTIONAL MATCH (person1)<-[:HAS_CREATOR]-(m:Message)<-[:LIKES]-(person2)
             WITH DISTINCT person1, person2, city1, score + (CASE m WHEN null THEN 0 ELSE  1 END) AS score
-            // preorder
             ORDER BY
                 city1.name ASC,
                 score DESC,
