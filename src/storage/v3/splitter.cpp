@@ -62,7 +62,7 @@ SplitData Splitter::SplitShard(const PrimaryKey &split_key, const std::optional<
   return data;
 }
 
-void Splitter::ScanDeltas(std::set<uint64_t> &collected_transactions_, Delta *delta) {
+void Splitter::ScanDeltas(std::set<uint64_t> &collected_transactions_, const Delta *delta) {
   while (delta != nullptr) {
     collected_transactions_.insert(delta->commit_info->start_or_commit_timestamp.logical_id);
     delta = delta->next;
@@ -195,7 +195,7 @@ void Splitter::AdjustClonedTransactions(std::map<uint64_t, std::unique_ptr<Trans
                             cloned_vertices, cloned_edges, split_key);
   }
   // Prune deltas whose delta chain points to vertex/edge that should not belong on that shard
-  // Prune must be after ajdust, since next, and prev are not set and we cannot follow the chain
+  // Prune must be after adjust, since next, and prev are not set and we cannot follow the chain
   for (auto &[commit_start, cloned_transaction] : cloned_transactions) {
     PruneDeltas(*cloned_transaction, cloned_transactions, split_key);
   }

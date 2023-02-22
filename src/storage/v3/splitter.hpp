@@ -74,7 +74,7 @@ class Splitter final {
       const std::set<uint64_t> &collected_transactions_start_id, VertexContainer &cloned_vertices,
       EdgeContainer &cloned_edges, const PrimaryKey &split_key);
 
-  static void ScanDeltas(std::set<uint64_t> &collected_transactions_start_id, Delta *delta);
+  static void ScanDeltas(std::set<uint64_t> &collected_transactions_start_id, const Delta *delta);
 
   void AdjustClonedTransaction(Transaction &cloned_transaction, const Transaction &transaction,
                                std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions,
