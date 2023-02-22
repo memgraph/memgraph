@@ -589,7 +589,7 @@ Feature: Functions
             """
         Then the result should be:
             | p         |
-            | {a: null} |
+            | {}        |
             | {b: true} |
             | {c: 123}  |
 
