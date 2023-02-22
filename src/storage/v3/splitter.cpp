@@ -141,9 +141,32 @@ std::map<uint64_t, std::unique_ptr<Transaction>> Splitter::CollectTransactions(
 }
 
 void PruneDeltas(Transaction &cloned_transaction, std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions,
-                 const PrimaryKey &split_key) {
+                 const PrimaryKey &split_key, EdgeContainer &cloned_edges) {
   // Remove delta chains that don't point to objects on splitted shard
   auto cloned_delta_it = cloned_transaction.deltas.begin();
+
+  const auto remove_from_delta_chain = [&cloned_transaction, &cloned_transactions](auto &cloned_delta_it) {
+    auto *current_next_delta = cloned_delta_it->next;
+    cloned_delta_it = cloned_transaction.deltas.erase(cloned_delta_it);
+
+    while (current_next_delta != nullptr) {
+      auto *next_delta = current_next_delta->next;
+      // Find next delta transaction delta list
+      auto current_transaction_it = std::ranges::find_if(
+          cloned_transactions,
+          [&start_or_commit_timestamp =
+               current_next_delta->commit_info->start_or_commit_timestamp](const auto &transaction) {
+            return transaction.second->start_timestamp == start_or_commit_timestamp ||
+                   transaction.second->commit_info->start_or_commit_timestamp == start_or_commit_timestamp;
+          });
+      MG_ASSERT(current_transaction_it != cloned_transactions.end(), "Error when pruning deltas!");
+      // Remove it
+      current_transaction_it->second->deltas.remove_if(
+          [&current_next_delta = *current_next_delta](const auto &delta) { return delta == current_next_delta; });
+
+      current_next_delta = next_delta;
+    }
+  };
 
   while (cloned_delta_it != cloned_transaction.deltas.end()) {
     const auto prev = cloned_delta_it->prev.Get();
@@ -155,34 +178,21 @@ void PruneDeltas(Transaction &cloned_transaction, std::map<uint64_t, std::unique
       case PreviousPtr::Type::VERTEX: {
         if (prev.vertex->first < split_key) {
           // We can remove this delta chain
-          auto *current_next_delta = cloned_delta_it->next;
-          cloned_delta_it = cloned_transaction.deltas.erase(cloned_delta_it);
-
-          while (current_next_delta != nullptr) {
-            auto *next_delta = current_next_delta->next;
-            // Find next delta transaction delta list
-            auto current_transaction_it = std::ranges::find_if(
-                cloned_transactions,
-                [&start_or_commit_timestamp =
-                     current_next_delta->commit_info->start_or_commit_timestamp](const auto &transaction) {
-                  return transaction.second->start_timestamp == start_or_commit_timestamp ||
-                         transaction.second->commit_info->start_or_commit_timestamp == start_or_commit_timestamp;
-                });
-            MG_ASSERT(current_transaction_it != cloned_transactions.end(), "Error when pruning deltas!");
-            // Remove it
-            current_transaction_it->second->deltas.remove_if(
-                [&current_next_delta = *current_next_delta](const auto &delta) { return delta == current_next_delta; });
-
-            current_next_delta = next_delta;
-          }
+          remove_from_delta_chain(cloned_delta_it);
         } else {
           ++cloned_delta_it;
         }
         break;
       }
-      case PreviousPtr::Type::EDGE:
-        ++cloned_delta_it;
-        break;
+      case PreviousPtr::Type::EDGE: {
+        if (const auto edge_gid = prev.edge->gid; !cloned_edges.contains(edge_gid)) {
+          // We can remove this delta chain
+          remove_from_delta_chain(cloned_delta_it);
+        } else {
+          ++cloned_delta_it;
+          break;
+        }
+      }
     }
   }
 }
@@ -197,7 +207,7 @@ void Splitter::AdjustClonedTransactions(std::map<uint64_t, std::unique_ptr<Trans
   // Prune deltas whose delta chain points to vertex/edge that should not belong on that shard
   // Prune must be after adjust, since next, and prev are not set and we cannot follow the chain
   for (auto &[commit_start, cloned_transaction] : cloned_transactions) {
-    PruneDeltas(*cloned_transaction, cloned_transactions, split_key);
+    PruneDeltas(*cloned_transaction, cloned_transactions, split_key, cloned_edges);
   }
 }
 
