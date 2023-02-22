@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1861,6 +1861,7 @@ Produce::ProduceCursor::ProduceCursor(const Produce &self, utils::MemoryResource
 
 bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Produce");
+  MG_RAII_TIMER(timer, "PRODUCE_PULL v2");
 
   if (input_cursor_->Pull(frame, context)) {
     // Produce should always yield the latest results.

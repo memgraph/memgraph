@@ -15,10 +15,14 @@
 
 namespace memgraph::utils {
 
+// TODO(gitbuda): Figure out the relation with tsc.hpp
+// TODO(gitbuda): Consider adding system_clock as an option
+
 // This class is threadsafe.
 template <typename TTime = std::chrono::duration<double>>
 class Timer {
  public:
+  // TODO(gitbuda): Timer(TFun&& destroy_callback...
   Timer(std::function<void(decltype(std::declval<TTime>().count()) elapsed)> destroy_callback = nullptr)
       : start_time_(std::chrono::steady_clock::now()), destroy_callback_(destroy_callback) {}
 
@@ -35,16 +39,18 @@ class Timer {
 
  private:
   std::chrono::steady_clock::time_point start_time_;
+  // TODO(gitbuda): std::function is an overhead, replace with TFun
   std::function<void(decltype(std::declval<TTime>().count()))> destroy_callback_ = nullptr;
 };
 
-#define __MG_RAII_TIMER(name, message) \
+// The intention with the macro is to have an easy way to probe how long a
+// certain code block takes. It should be a short living piece of code. For
+// something that has to stay longer in the code, please use the Timer
+// directly.
+// TODO(gitbuda): Maybe a desired property would be to at any given time, turn
+// some of them ON/OFF (not all).
+//
+#define MG_RAII_TIMER(name, message) \
   memgraph::utils::Timer<> name([](auto elapsed) { spdlog::critical("{} {}s", message, elapsed); })
-// TODO(gitbuda): Swap MG_TIMER defines
-#ifdef MG_TIMER
-#define MG_RAII_TIMER(name, message)
-#else
-#define MG_RAII_TIMER(name, message) __MG_RAII_TIMER(name, message)
-#endif
 
 }  // namespace memgraph::utils

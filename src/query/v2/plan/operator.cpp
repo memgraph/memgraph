@@ -1108,6 +1108,7 @@ Produce::ProduceCursor::ProduceCursor(const Produce &self, utils::MemoryResource
 
 bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Produce");
+  MG_RAII_TIMER(timer, "PRODUCE_PULL v3");
 
   if (input_cursor_->Pull(frame, context)) {
     // Produce should always yield the latest results.
