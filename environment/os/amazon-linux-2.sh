@@ -5,7 +5,7 @@ set -Eeuo pipefail
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
-check_operating_system "amazon-linux-2"
+check_operating_system "amzn-2"
 check_architecture "x86_64"
 
 TOOLCHAIN_BUILD_DEPS=(
