@@ -58,7 +58,7 @@ TEST(CreateNodeTest, CreateNodeCursor) {
   MockedRequestRouter router;
   EXPECT_CALL(router, CreateVertices(_)).Times(1).WillOnce(Return(std::vector<msgs::CreateVerticesResponse>{}));
   EXPECT_CALL(router, IsPrimaryLabel(_)).WillRepeatedly(Return(true));
-  EXPECT_CALL(router, IsPrimaryKey(_, _)).WillRepeatedly(Return(true));
+  EXPECT_CALL(router, IsPrimaryProperty(_, _)).WillRepeatedly(Return(true));
   auto context = MakeContext(ast, symbol_table, &router, &id_alloc);
   auto multi_frame = CreateMultiFrame(context.symbol_table.max_position());
   cursor->PullMultiple(multi_frame, context);

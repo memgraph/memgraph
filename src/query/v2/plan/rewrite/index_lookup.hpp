@@ -597,6 +597,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                      [](const auto &schema_elem) { return schema_elem.property_id; });
 
       for (const auto &property_filter : property_filters) {
+        if (property_filter.property_filter->type_ != PropertyFilter::Type::EQUAL) {
+          continue;
+        }
         const auto &property_id = db_->NameToProperty(property_filter.property_filter->property_.name);
         if (std::find(schema_properties.begin(), schema_properties.end(), property_id) != schema_properties.end()) {
           pk_temp.emplace_back(std::make_pair(property_filter.expression, property_filter));
