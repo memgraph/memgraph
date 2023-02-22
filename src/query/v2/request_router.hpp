@@ -694,10 +694,8 @@ class RequestRouter : public RequestRouterInterface {
     spdlog::trace("waiting on readiness for token");
     size_t polls = 0;
     while (response_map.size() < running_requests.size()) {
-      spdlog::info("awaiting readiness token");
       auto ready = notifier_.Await();
       spdlog::trace("got readiness for token {}", ready.GetId());
-      spdlog::info("got readiness for token {}", ready.GetId());
 
       MG_ASSERT(polls++ < 1000, "polls has reached 1000");
       auto &request = running_requests.at(ready.GetId());
@@ -724,7 +722,8 @@ class RequestRouter : public RequestRouterInterface {
           // signal to caller that we should retry
           return io::ShardVersionMismatch{};
         } else {
-          spdlog::warn("throwing because of unhandled error: {}", common::ErrorCodeToString(response.error->code));
+          spdlog::warn("throwing in DriveReadResponses because of unhandled error: {}",
+                       common::ErrorCodeToString(response.error->code));
           throw std::runtime_error("RequestRouter Read request did not succeed");
         }
       }
@@ -780,8 +779,8 @@ class RequestRouter : public RequestRouterInterface {
           // signal to caller that we should retry
           return io::ShardVersionMismatch{};
         } else {
-          spdlog::warn("throwing because of unhandled error: {}", common::ErrorCodeToString(response.error->code));
-          throw std::runtime_error("RequestRouter Read request did not succeed");
+          spdlog::warn("throwing in DriveWriteResponses because of unhandled error: {}",
+                       common::ErrorCodeToString(response.error->code));
           throw std::runtime_error("RequestRouter Write request did not succeed");
         }
       }

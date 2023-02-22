@@ -243,6 +243,7 @@ class ShardWorker {
       // it's not a bug for the coordinator to send us UUIDs that we have
       // already created, because there may have been lag that caused
       // the coordinator not to hear back from us.
+      spdlog::warn("SM told to initialize already-existing shard with UUID {} - skipping", to_init.uuid);
       return;
     }
 
@@ -266,7 +267,7 @@ class ShardWorker {
 
     ShardRaft<IoImpl> rsm{std::move(rsm_io), rsm_peers, std::move(rsm_state)};
 
-    spdlog::info("SM created a new shard with UUID {}", to_init.uuid);
+    spdlog::warn("SM created a new shard with UUID {}", to_init.uuid);
 
     // perform an initial Cron call for the new RSM
     Time next_cron = rsm.Cron();

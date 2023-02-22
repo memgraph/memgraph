@@ -295,7 +295,7 @@ class ShardManager {
 
     for (const auto &to_init : hr.shards_to_initialize) {
       coordinator::ShardId new_shard_id = std::make_pair(to_init.label_id, to_init.min_key);
-      spdlog::warn("ShardManager has been told to initialize shard {}", to_init.uuid);
+      spdlog::warn("ShardManager has been told to initialize shard rsm with uuid {}", to_init.uuid);
       initialized_but_not_confirmed_rsm_.emplace(to_init.uuid, new_shard_id);
 
       if (rsm_worker_mapping_.contains(to_init.uuid)) {

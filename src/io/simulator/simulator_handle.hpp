@@ -64,10 +64,11 @@ class SimulatorHandle {
   bool TimeoutPromisesPastDeadline() {
     bool timed_anything_out = false;
     const Time now = cluster_wide_time_microseconds_;
+
     for (auto it = promises_.begin(); it != promises_.end();) {
       auto &[promise_key, dop] = *it;
       if (dop.deadline < now && config_.perform_timeouts) {
-        spdlog::trace("timing out request from requester {}.", promise_key.requester_address.ToString());
+        spdlog::warn("Simulator timing out request from requester {}.", promise_key.requester_address.ToString());
         std::move(dop).promise.TimeOut();
         it = promises_.erase(it);
 
@@ -77,6 +78,7 @@ class SimulatorHandle {
         ++it;
       }
     }
+
     return timed_anything_out;
   }
 
