@@ -9,12 +9,12 @@ check_operating_system "amzn-2"
 check_architecture "x86_64"
 
 TOOLCHAIN_BUILD_DEPS=(
-    coreutils-common gcc gcc-c++ make # generic build tools
+    gcc gcc-c++ make # generic build tools
     wget # used for archive download
     gnupg2 # used for archive signature verification
     tar gzip bzip2 xz unzip # used for archive unpacking
     zlib-devel # zlib library used for all builds
-    expat-devel xz-devel python3-devel texinfo libbabeltrace-devel # for gdb
+    expat-devel xz-devel python3-devel texinfo
     curl libcurl-devel # for cmake
     readline-devel # for cmake and llvm
     libffi-devel libxml2-devel # for llvm
@@ -24,7 +24,6 @@ TOOLCHAIN_BUILD_DEPS=(
     gmp-devel
     gperf
     diffutils
-    libipt libipt-devel # intel
     patch
     perl # for openssl
 )
@@ -66,10 +65,10 @@ check() {
     local missing=""
     # On Fedora yum/dnf and python10 use newer glibc which is not compatible
     # with ours, so we need to momentarely disable env
-    local OLD_LD_LIBRARY_PATH=${LD_LIBRARY_PATH}
+    local OLD_LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-""}
     LD_LIBRARY_PATH=""
     for pkg in $1; do
-        if ! dnf list installed "$pkg" >/dev/null 2>/dev/null; then
+        if ! yum list installed "$pkg" >/dev/null 2>/dev/null; then
             missing="$pkg $missing"
         fi
     done
@@ -93,9 +92,9 @@ install() {
     else
         echo "NOTE: export LANG=en_US.utf8"
     fi
-    dnf update -y
+    yum update -y
     for pkg in $1; do
-        dnf install -y "$pkg"
+        yum install -y "$pkg"
     done
 }
 
