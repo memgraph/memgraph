@@ -2687,18 +2687,25 @@ cpp<#
   (:clone))
 
 (lcp:define-class call-subquery (clause)
-  ((str "std::string" :scope :public
+  ((single-query "SingleQuery *" :scope :public
           :slk-save #'slk-save-ast-pointer
-          :slk-load (slk-load-ast-pointer "Expression")))
+          :slk-load (slk-load-ast-pointer "CypherQuery"))
+  (cypher-unions "std::vector<CypherUnion *>"
+                  :scope :public
+                  :slk-save #'slk-save-ast-vector
+                  :slk-load (slk-load-ast-vector "CypherUnion")
+                  :documentation "Contains remaining queries that should form and union with `single_query_`."))
   (:public
     #>cpp
     CallSubquery() = default;
 
     bool Accept(HierarchicalTreeVisitor &visitor) override {
       if (visitor.PreVisit(*this)) {
+        single_query_->Accept(visitor);
       }
       return visitor.PostVisit(*this);
     }
+
     cpp<#)
   (:private
     #>cpp
