@@ -63,7 +63,7 @@ class PropertyStore {
   /// returned if there exists property in property store and insertion couldn't take place. The time complexity of this
   /// function is O(n).
   /// @throw std::bad_alloc
-  bool SetProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties);
+  bool SetProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties);
 
   /// Remove all properties and return `true` if any removal took place.
   /// `false` is returned if there were no properties to remove. The time

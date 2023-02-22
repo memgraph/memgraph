@@ -71,7 +71,7 @@ class VertexAccessor final {
   /// Set property values only if property store is empty. Returns `true` if successully set all values,
   /// `false` otherwise.
   /// @throw std::bad_alloc
-  Result<bool> SetProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties);
+  Result<bool> SetProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties);
 
   /// Remove all properties and return the values of the removed properties.
   /// @throw std::bad_alloc

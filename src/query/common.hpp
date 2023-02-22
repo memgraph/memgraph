@@ -110,13 +110,13 @@ storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key
 template <typename T>
 concept AccessorWithSetProperties = requires(T accessor,
                                              const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
-  { accessor.SetProperties(properties) } -> std::same_as<storage::Result<std::vector<storage::PropertyValue>>>;
+  { accessor.SetProperties(properties) } -> std::same_as<storage::Result<bool>>;
 };
 
-/// Set a property `value` mapped with given `key` on a `record`.
+/// Set property `values` mapped with given `key` on a `record`.
 ///
 /// @throw QueryRuntimeException if value cannot be set as a property value
-template <AccessorWithSetProperty T>
+template <AccessorWithSetProperties T>
 bool MultiPropsSetChecked(T *record, std::map<storage::PropertyId, storage::PropertyValue> &properties) {
   try {
     auto maybe_values = record->SetProperties(properties);

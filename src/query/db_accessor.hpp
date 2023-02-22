@@ -71,7 +71,7 @@ class EdgeAccessor final {
     return impl_.SetProperty(key, value);
   }
 
-  storage::Result<bool> SetProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+  storage::Result<bool> SetProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
     return impl_.SetProperties(properties);
   }
 
@@ -129,7 +129,7 @@ class VertexAccessor final {
     return impl_.SetProperty(key, value);
   }
 
-  storage::Result<bool> SetProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+  storage::Result<bool> SetProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
     return impl_.SetProperties(properties);
   }
 

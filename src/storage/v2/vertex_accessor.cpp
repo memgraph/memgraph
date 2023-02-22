@@ -230,7 +230,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   return std::move(current_value);
 }
 
-Result<bool> VertexAccessor::SetProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+Result<bool> VertexAccessor::SetProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
