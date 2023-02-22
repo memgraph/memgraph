@@ -281,9 +281,7 @@ void Splitter::AdjustEdgeRef(Delta &cloned_delta, EdgeContainer &cloned_edges) c
       if (config_.items.properties_on_edges) {
         // Only case when not finding is when the edge is not on splitted shard
         // TODO Do this after prune an move condition into assert
-        if (const auto cloned_edge_it =
-                std::ranges::find_if(cloned_edges, [edge_ptr = cloned_delta.vertex_edge.edge.ptr](
-                                                       const auto &elem) { return elem.second.gid == edge_ptr->gid; });
+        if (const auto cloned_edge_it = cloned_edges.find(cloned_delta.vertex_edge.edge.ptr->gid);
             cloned_edge_it != cloned_edges.end()) {
           cloned_delta.vertex_edge.edge = EdgeRef{&cloned_edge_it->second};
         }
@@ -304,10 +302,15 @@ void Splitter::AdjustEdgeRef(Delta &cloned_delta, EdgeContainer &cloned_edges) c
 void Splitter::AdjustDeltaNext(const Delta &original, Delta &cloned,
                                std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions) {
   // Get cloned_delta->next transaction, using delta->next original transaction
-  auto cloned_transaction_it = std::ranges::find_if(cloned_transactions, [&original](const auto &elem) {
-    return elem.second->start_timestamp == original.next->commit_info->start_or_commit_timestamp ||
-           elem.second->commit_info->start_or_commit_timestamp == original.next->commit_info->start_or_commit_timestamp;
-  });
+  // cloned_transactions key is start_timestamp
+  auto cloned_transaction_it =
+      cloned_transactions.find(original.next->commit_info->start_or_commit_timestamp.logical_id);
+  if (cloned_transaction_it == cloned_transactions.end()) {
+    cloned_transaction_it = std::ranges::find_if(cloned_transactions, [&original](const auto &elem) {
+      return elem.second->commit_info->start_or_commit_timestamp ==
+             original.next->commit_info->start_or_commit_timestamp;
+    });
+  }
   // TODO(jbajic) What if next in delta chain does not belong to cloned transaction?
   // MG_ASSERT(cloned_transaction_it != cloned_transactions.end(), "Cloned transaction not found");
   if (cloned_transaction_it == cloned_transactions.end()) return;
