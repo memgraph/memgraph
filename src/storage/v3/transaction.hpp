@@ -36,7 +36,6 @@ struct Transaction {
       : start_timestamp{start_timestamp},
         commit_info{std::make_unique<CommitInfo>(new_commit_info)},
         command_id(command_id),
-        deltas(std::move(deltas)),
         must_abort(must_abort),
         is_aborted(is_aborted),
         isolation_level(isolation_level){};
