@@ -699,7 +699,7 @@ class RequestRouter : public RequestRouterInterface {
     // even if they came back in randomized orders.
     std::map<size_t, ResponseT> response_map;
 
-    spdlog::trace("waiting on readiness for token");
+    spdlog::trace("waiting on readiness for token in DriveReadResponses");
     size_t polls = 0;
     while (response_map.size() < running_requests.size()) {
       auto ready = notifier_.Await();

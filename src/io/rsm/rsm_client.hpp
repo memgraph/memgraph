@@ -139,6 +139,10 @@ class RsmClient {
   }
 
   std::optional<BasicResult<TimedOut, ReadResponseT>> PollAsyncReadRequest(const ReadinessToken &readiness_token) {
+    if (!async_reads_.contains(readiness_token.GetId())) {
+      spdlog::warn("async_reads_ does not contain Polled readiness token {}", readiness_token.GetId());
+      return std::nullopt;
+    }
     auto &async_request = async_reads_.at(readiness_token.GetId());
 
     if (!async_request.future.IsReady()) {
@@ -171,7 +175,8 @@ class RsmClient {
 
       if (read_get_response.success) {
         async_reads_.erase(readiness_token.GetId());
-        spdlog::debug("returning read_return for RSM request");
+        spdlog::debug("returning read_return and erasing async state for RSM request for token {}",
+                      readiness_token.GetId());
         return std::move(read_get_response.read_return);
       }
     } else {
@@ -209,6 +214,10 @@ class RsmClient {
   }
 
   std::optional<BasicResult<TimedOut, WriteResponseT>> PollAsyncWriteRequest(const ReadinessToken &readiness_token) {
+    if (!async_writes_.contains(readiness_token.GetId())) {
+      spdlog::warn("async_writes_ does not contain Polled readiness token {}", readiness_token.GetId());
+      return std::nullopt;
+    }
     auto &async_request = async_writes_.at(readiness_token.GetId());
 
     if (!async_request.future.IsReady()) {

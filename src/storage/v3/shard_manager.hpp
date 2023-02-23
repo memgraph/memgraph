@@ -250,7 +250,7 @@ class ShardManager {
         heartbeat_res_.reset();
 
         if (response_result.HasError()) {
-          spdlog::error("SM timed out while trying to reach C");
+          spdlog::info("SM timed out while trying to reach C");
         } else {
           auto response_envelope = response_result.GetValue();
           WriteResponse<CoordinatorWriteResponses> wr = response_envelope.message;
@@ -281,7 +281,8 @@ class ShardManager {
     WriteRequest<CoordinatorWriteRequests> ww;
     ww.operation = cwr;
 
-    spdlog::info("SM sending heartbeat to coordinator {}", coordinator_leader_.ToString());
+    spdlog::info("SM sending heartbeat to coordinator {} with {} initialized rsms", coordinator_leader_.ToString(),
+                 initialized_but_not_confirmed_rsm_.size());
     heartbeat_res_.emplace(std::move(
         io_.template Request<WriteRequest<CoordinatorWriteRequests>, WriteResponse<CoordinatorWriteResponses>>(
             coordinator_leader_, ww)));
