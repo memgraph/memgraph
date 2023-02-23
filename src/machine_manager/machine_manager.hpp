@@ -93,6 +93,7 @@ class MachineManager {
 
   ~MachineManager() {
     if (coordinator_handle_.joinable()) {
+      MaybeBlockOnSyncHandling();
       coordinator_queue_.Push(coordinator::coordinator_worker::ShutDown{});
       coordinator_handle_.join();
     }

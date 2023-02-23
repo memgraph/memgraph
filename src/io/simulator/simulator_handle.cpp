@@ -22,7 +22,30 @@ namespace memgraph::io::simulator {
 
 void SimulatorHandle::ShutDown() {
   std::unique_lock<std::mutex> lock(mu_);
+
+  if (should_shut_down_) {
+    spdlog::warn("Simulator's ShutDown method called multiple times.");
+    return;
+  }
+
+  while (true) {
+    const size_t blocked_servers = blocked_on_receive_.size();
+
+    const bool all_servers_blocked = blocked_servers == server_addresses_.size();
+
+    if (all_servers_blocked) {
+      spdlog::trace("quiescent state detected - {} out of {} servers now blocked on receive", blocked_servers,
+                    server_addresses_.size());
+      break;
+    }
+
+    spdlog::trace("not returning from quiescent because we see {} blocked out of {}", blocked_servers,
+                  server_addresses_.size());
+    cv_.wait(lock);
+  }
+
   should_shut_down_ = true;
+
   for (auto it = promises_.begin(); it != promises_.end();) {
     auto &[promise_key, dop] = *it;
     std::move(dop).promise.TimeOut();
