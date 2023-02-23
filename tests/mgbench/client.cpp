@@ -58,10 +58,10 @@ DEFINE_bool(validation, false,
             "Set to true to run client in validation mode."
             "Validation mode works for singe query and returns results for validation"
             "with metadata");
-DEFINE_int32(time_dependent_execution, 0,
-             "Time dependend executins executes the queries for a specified number of minutes."
-             "If all queries are executed and there is still time, queries are rerun again."
-             "If the time runs out, client is done with the job and returning results.");
+DEFINE_int64(time_dependent_execution, 0,
+             "Time-dependent executions execute the queries for a specified number of seconds."
+             "If all queries are executed, and there is still time, queries are rerun again."
+             "If the time runs out, the client is done with the job and returning results.");
 
 std::pair<std::map<std::string, memgraph::communication::bolt::Value>, uint64_t> ExecuteNTimesTillSuccess(
     memgraph::communication::bolt::Client *client, const std::string &query,
@@ -242,7 +242,8 @@ void ExecuteTimeDependentWorkload(
   std::atomic<uint64_t> position(0);
 
   memgraph::utils::Timer workload_timer;
-  std::chrono::duration<double> time_limit = std::chrono::minutes(FLAGS_time_dependent_execution);
+
+  std::chrono::duration<double> time_limit = std::chrono::seconds(FLAGS_time_dependent_execution);
   for (int worker = 0; worker < FLAGS_num_workers; ++worker) {
     threads.push_back(std::thread([&, worker]() {
       memgraph::io::network::Endpoint endpoint(FLAGS_address, FLAGS_port);
@@ -309,7 +310,7 @@ void ExecuteTimeDependentWorkload(
   // Check for duration overhead delta
   double execution_delta = final_duration / time_limit.count();
   if (execution_delta > one_percent) {
-    throughput = throughput * execution_delta;
+    throughput = throughput * (1 - (execution_delta - 1));
   }
 
   nlohmann::json summary = nlohmann::json::object();
