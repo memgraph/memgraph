@@ -25,6 +25,7 @@ TOOLCHAIN_BUILD_DEPS=(
     gperf
     diffutils
     patch
+    libiptcdata.x86_64 libiptcdata-devel.x86_64 # intel
     perl # for openssl
 )
 
@@ -94,6 +95,18 @@ install() {
     fi
     yum update -y
     for pkg in $1; do
+        if [ "$pkg" == libipt ]; then
+            if ! yum list installed libipt >/dev/null 2>/dev/null; then
+                yum install -y http://repo.okay.com.mx/centos/8/x86_64/release/libipt-1.6.1-8.el8.x86_64.rpm
+            fi
+            continue
+        fi
+        if [ "$pkg" == libipt-devel ]; then
+            if ! yum list installed libipt-devel >/dev/null 2>/dev/null; then
+                yum install -y http://repo.okay.com.mx/centos/8/x86_64/release/libipt-devel-1.6.1-8.el8.x86_64.rpm
+            fi
+            continue
+        fi
         yum install -y "$pkg"
     done
 }
