@@ -81,8 +81,10 @@ class DbAccessor final {
   storage::v3::ShardResult<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
                                                     const storage::v3::EdgeTypeId &edge_type) {
     static constexpr auto kDummyGid = storage::v3::Gid::FromUint(0);
-    auto maybe_edge = accessor_->CreateEdge(from->Id(storage::v3::View::NEW).GetValue(),
-                                            to->Id(storage::v3::View::NEW).GetValue(), edge_type, kDummyGid);
+    const uint64_t dummy_idempotency_token = 0;
+    auto maybe_edge =
+        accessor_->CreateEdge(from->Id(storage::v3::View::NEW).GetValue(), to->Id(storage::v3::View::NEW).GetValue(),
+                              edge_type, kDummyGid, dummy_idempotency_token);
     if (maybe_edge.HasError()) return {maybe_edge.GetError()};
     return EdgeAccessor(*maybe_edge);
   }

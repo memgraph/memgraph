@@ -101,10 +101,12 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
     PrimaryKey transformed_pk;
     std::transform(new_vertex.primary_key.begin(), new_vertex.primary_key.end(), std::back_inserter(transformed_pk),
                    [](msgs::Value &val) { return ToPropertyValue(std::move(val)); });
-    auto result_schema = acc.CreateVertexAndValidate(converted_label_ids, transformed_pk, converted_property_map);
 
-    if (result_schema.HasError()) {
-      shard_error.emplace(CreateErrorResponse(result_schema.GetError(), req.transaction_id, "creating vertices"));
+    auto error_opt = acc.CreateVertexAndValidate(new_vertex.idempotency_token, converted_label_ids, transformed_pk,
+                                                 converted_property_map);
+
+    if (error_opt) {
+      shard_error.emplace(CreateErrorResponse(error_opt.value(), req.transaction_id, "creating vertices"));
       break;
     }
   }
@@ -210,7 +212,8 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateExpandRequest &&req) {
       break;
     }
 
-    auto edge_acc = acc.CreateEdge(from_vertex_id, to_vertex_id, new_expand.type.id, Gid::FromUint(new_expand.id.gid));
+    auto edge_acc = acc.CreateEdge(from_vertex_id, to_vertex_id, new_expand.type.id, Gid::FromUint(new_expand.id.gid),
+                                   new_expand.idempotency_token);
     if (edge_acc.HasValue()) {
       auto edge = edge_acc.GetValue();
       if (!new_expand.properties.empty()) {

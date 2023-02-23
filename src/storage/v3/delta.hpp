@@ -165,8 +165,13 @@ struct Delta {
   struct RemoveInEdgeTag {};
   struct RemoveOutEdgeTag {};
 
-  Delta(DeleteObjectTag /*unused*/, CommitInfo *commit_info, uint64_t delta_id, uint64_t command_id)
-      : action(Action::DELETE_OBJECT), id(delta_id), commit_info(commit_info), command_id(command_id) {}
+  Delta(DeleteObjectTag /*unused*/, CommitInfo *commit_info, uint64_t delta_id, uint64_t command_id,
+        uint64_t idempotency_token)
+      : action(Action::DELETE_OBJECT),
+        id(delta_id),
+        commit_info(commit_info),
+        command_id(command_id),
+        idempotency_token(idempotency_token) {}
 
   Delta(RecreateObjectTag /*unused*/, CommitInfo *commit_info, uint64_t delta_id, uint64_t command_id)
       : action(Action::RECREATE_OBJECT), id(delta_id), commit_info(commit_info), command_id(command_id) {}
@@ -250,6 +255,7 @@ struct Delta {
   uint64_t command_id;
   PreviousPtr prev;
   Delta *next{nullptr};
+  uint64_t idempotency_token;
 
   union {
     LabelId label;

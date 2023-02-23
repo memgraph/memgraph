@@ -231,8 +231,9 @@ class Shard final {
 
    public:
     /// @throw std::bad_alloc
-    ShardResult<VertexAccessor> CreateVertexAndValidate(
-        const std::vector<LabelId> &labels, const std::vector<PropertyValue> &primary_properties,
+    std::optional<ShardError> CreateVertexAndValidate(
+        const uint64_t idempotency_token, const std::vector<LabelId> &labels,
+        const std::vector<PropertyValue> &primary_properties,
         const std::vector<std::pair<PropertyId, PropertyValue>> &properties);
 
     std::optional<VertexAccessor> FindVertex(std::vector<PropertyValue> primary_key, View view);
@@ -293,7 +294,8 @@ class Shard final {
         VertexAccessor *vertex);
 
     /// @throw std::bad_alloc
-    ShardResult<EdgeAccessor> CreateEdge(VertexId from_vertex_id, VertexId to_vertex_id, EdgeTypeId edge_type, Gid gid);
+    ShardResult<EdgeAccessor> CreateEdge(VertexId from_vertex_id, VertexId to_vertex_id, EdgeTypeId edge_type, Gid gid,
+                                         const uint64_t idempotency_token);
 
     /// Accessor to the deleted edge if a deletion took place, std::nullopt otherwise
     /// @throw std::bad_alloc

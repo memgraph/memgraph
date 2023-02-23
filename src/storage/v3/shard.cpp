@@ -406,8 +406,8 @@ std::unique_ptr<Shard> Shard::FromSplitData(SplitData &&split_data) {
 Shard::Accessor::Accessor(Shard &shard, Transaction &transaction)
     : shard_(&shard), transaction_(&transaction), config_(shard_->config_.items) {}
 
-ShardResult<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
-    const std::vector<LabelId> &labels, const PrimaryKey &primary_properties,
+std::optional<ShardError> Shard::Accessor::CreateVertexAndValidate(
+    const uint64_t idempotency_token, const std::vector<LabelId> &labels, const PrimaryKey &primary_properties,
     const std::vector<std::pair<PropertyId, PropertyValue>> &properties) {
   OOMExceptionEnabler oom_exception;
   const auto schema = shard_->GetSchema(shard_->primary_label_)->second;
@@ -418,14 +418,19 @@ ShardResult<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
     return {std::move(maybe_schema_violation.GetError())};
   }
 
-  auto *delta = CreateDeleteObjectDelta(transaction_);
+  auto *delta = CreateDeleteObjectDelta(transaction_, idempotency_token);
   auto [it, inserted] = shard_->vertices_.emplace(primary_properties, VertexData{delta});
-  delta->prev.Set(&*it);
 
-  VertexAccessor vertex_acc{&*it, transaction_, &shard_->indices_, config_, shard_->vertex_validator_};
   if (!inserted) {
+    if (it->second.delta->idempotency_token == idempotency_token) {
+      // this is a benign race condition due to request retries - signal success
+      return std::nullopt;
+    }
     return SHARD_ERROR(ErrorCode::VERTEX_ALREADY_INSERTED);
   }
+
+  delta->prev.Set(&*it);
+  VertexAccessor vertex_acc{&*it, transaction_, &shard_->indices_, config_, shard_->vertex_validator_};
   MG_ASSERT(it != shard_->vertices_.end(), "Invalid Vertex accessor!");
 
   // TODO(jbajic) Improve, maybe delay index update
@@ -442,7 +447,8 @@ ShardResult<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
       return {err.GetError()};
     }
   }
-  return vertex_acc;
+
+  return std::nullopt;
 }
 
 std::optional<VertexAccessor> Shard::Accessor::FindVertex(std::vector<PropertyValue> primary_key, View view) {
@@ -542,7 +548,8 @@ ShardResult<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>>
 }
 
 ShardResult<EdgeAccessor> Shard::Accessor::CreateEdge(VertexId from_vertex_id, VertexId to_vertex_id,
-                                                      const EdgeTypeId edge_type, const Gid gid) {
+                                                      const EdgeTypeId edge_type, const Gid gid,
+                                                      const uint64_t idempotency_token) {
   OOMExceptionEnabler oom_exception;
   Vertex *from_vertex{nullptr};
   Vertex *to_vertex{nullptr};
@@ -576,7 +583,7 @@ ShardResult<EdgeAccessor> Shard::Accessor::CreateEdge(VertexId from_vertex_id, V
 
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
-    auto *delta = CreateDeleteObjectDelta(transaction_);
+    auto *delta = CreateDeleteObjectDelta(transaction_, idempotency_token);
     auto [it, inserted] = shard_->edges_.emplace(gid, Edge{gid, delta});
     MG_ASSERT(inserted, "The edge must be inserted here!");
     MG_ASSERT(it != shard_->edges_.end(), "Invalid Edge accessor!");

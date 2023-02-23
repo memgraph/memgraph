@@ -313,6 +313,10 @@ class RequestRouter : public RequestRouterInterface {
   std::vector<msgs::CreateVerticesResponse> CreateVertices(std::vector<msgs::NewVertex> new_vertices) override {
     MG_ASSERT(!new_vertices.empty());
 
+    for (auto &new_vertex : new_vertices) {
+      new_vertex.idempotency_token = idempotency_token_generator_++;
+    }
+
     while (true) {
       // create requests
       std::vector<ShardRequestState<msgs::CreateVerticesRequest>> requests_to_be_sent =
@@ -348,6 +352,10 @@ class RequestRouter : public RequestRouterInterface {
 
   std::vector<msgs::CreateExpandResponse> CreateExpand(std::vector<msgs::NewExpand> new_edges) override {
     MG_ASSERT(!new_edges.empty());
+
+    for (auto &new_edge : new_edges) {
+      new_edge.idempotency_token = idempotency_token_generator_++;
+    }
 
     while (true) {
       // create requests
@@ -846,6 +854,7 @@ class RequestRouter : public RequestRouterInterface {
   io::Io<TTransport> io_;
   coordinator::Hlc transaction_id_;
   io::Notifier notifier_ = {};
+  std::atomic<uint64_t> idempotency_token_generator_;
   // TODO(kostasrim) Add batch prefetching
 };
 

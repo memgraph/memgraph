@@ -492,6 +492,7 @@ struct UpdateEdgeProp {
  * Vertices
  */
 struct NewVertex {
+  uint64_t idempotency_token;
   std::vector<Label> label_ids;
   PrimaryKey primary_key;
   // This should be a map
@@ -534,6 +535,7 @@ struct UpdateVerticesResponse {
 // No need for specifying direction since it has to be in one, and src and dest
 // vertices clearly communicate the direction
 struct NewExpand {
+  uint64_t idempotency_token;
   EdgeId id;
   EdgeType type;
   VertexId src_vertex;

@@ -69,7 +69,8 @@ struct Transaction {
     for (const auto &delta : deltas) {
       switch (delta.action) {
         case Delta::Action::DELETE_OBJECT:
-          copied_deltas.emplace_back(Delta::DeleteObjectTag{}, commit_info, delta.id, command_id);
+          copied_deltas.emplace_back(Delta::DeleteObjectTag{}, commit_info, delta.id, command_id,
+                                     delta.idempotency_token);
           break;
         case Delta::Action::RECREATE_OBJECT:
           copied_deltas.emplace_back(Delta::RecreateObjectTag{}, commit_info, delta.id, command_id);
