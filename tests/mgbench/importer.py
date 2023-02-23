@@ -46,7 +46,7 @@ HEADERS_URL = "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/
 
 
 class Importer:
-    def __init__(self, dataset: Dataset, vendor: Runners, client: Client, num_workers_for_import):
+    def __init__(self, dataset: Dataset, vendor: Runners, client: Client, num_workers_for_import: int):
         self._dataset = dataset
         self._vendor = vendor
         self._size = dataset.get_variant()
@@ -172,7 +172,9 @@ class Importer:
             ret = self._client.execute(file_path=self._dataset.get_index(), num_workers=self._num_workers_for_index)
             print("Importing dataset...")
             ret = self._client.execute(
-                file_path=self._dataset.get_file_cypherl(), num_workers=self._num_workers_for_import, max_retries=400
+                file_path=self._dataset.get_file_cypherl(),
+                num_workers=self._num_workers_for_import,
+                max_retries=self._num_retries,
             )
             usage = self._vendor.stop("import")
 

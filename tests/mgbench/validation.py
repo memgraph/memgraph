@@ -3,15 +3,58 @@ import collections
 import copy
 import fnmatch
 import inspect
+import multiprocessing
 import random
 import sys
-import time
 
 import helpers
 import importer
 import runners
 import workload
 from workload import dataset
+
+
+def pars_args():
+
+    parser = argparse.ArgumentParser(
+        prog="Validator for individual query checking",
+        description="""Validates that query is running, and validates output between different vendors""",
+    )
+    parser.add_argument(
+        "benchmarks",
+        nargs="*",
+        default="",
+        help="descriptions of benchmarks that should be run; "
+        "multiple descriptions can be specified to run multiple "
+        "benchmarks; the description is specified as "
+        "dataset/variant/group/query; Unix shell-style wildcards "
+        "can be used in the descriptions; variant, group and query "
+        "are optional and they can be left out; the default "
+        "variant is '' which selects the default dataset variant; "
+        "the default group is '*' which selects all groups; the"
+        "default query is '*' which selects all queries",
+    )
+
+    parser.add_argument(
+        "--client-binary",
+        default=helpers.get_binary_path("tests/mgbench/client"),
+        help="Client binary used for benchmarking",
+    )
+
+    parser.add_argument(
+        "--temporary-directory",
+        default="/tmp",
+        help="directory path where temporary data should " "be stored",
+    )
+
+    parser.add_argument(
+        "--num-workers-for-import",
+        type=int,
+        default=multiprocessing.cpu_count() // 2,
+        help="number of workers used to import the dataset",
+    )
+
+    return parser.parse_args()
 
 
 def get_queries(gen, count):
@@ -79,39 +122,7 @@ def filter_benchmarks(generators, patterns, vendor_name: str):
 
 if __name__ == "__main__":
 
-    parser = argparse.ArgumentParser(
-        prog="Validator for individual query checking",
-        description="""Validates that query is running, and validates output between different vendors""",
-    )
-
-    parser.add_argument(
-        "benchmarks",
-        nargs="*",
-        default="",
-        help="descriptions of benchmarks that should be run; "
-        "multiple descriptions can be specified to run multiple "
-        "benchmarks; the description is specified as "
-        "dataset/variant/group/query; Unix shell-style wildcards "
-        "can be used in the descriptions; variant, group and query "
-        "are optional and they can be left out; the default "
-        "variant is '' which selects the default dataset variant; "
-        "the default group is '*' which selects all groups; the"
-        "default query is '*' which selects all queries",
-    )
-
-    parser.add_argument(
-        "--client-binary",
-        default=helpers.get_binary_path("tests/mgbench/client"),
-        help="Client binary used for benchmarking",
-    )
-
-    parser.add_argument(
-        "--temporary-directory",
-        default="/tmp",
-        help="directory path where temporary data should " "be stored",
-    )
-
-    args = parser.parse_args()
+    args = pars_args()
 
     generators = {}
     workloads = map(workload.__dict__.get, workload.__all__)
@@ -128,15 +139,9 @@ if __name__ == "__main__":
                     group, query = funcname.split("__")[1:]
                     queries[group].append((query, funcname))
                 generators[dataset_class.NAME] = (dataset_class, dict(queries))
-                if dataset_class.PROPERTIES_ON_EDGES and False:
-                    raise Exception(
-                        'The "{}" dataset requires properties on edges, '
-                        "but you have disabled them!".format(dataset.NAME)
-                    )
 
     # List datasets if there is no specified dataset.
     if len(args.benchmarks) == 0:
-        log.init("Available queries")
         for name in sorted(generators.keys()):
             print("Dataset:", name)
             dataset, queries = generators[name]
@@ -170,14 +175,9 @@ if __name__ == "__main__":
 
         dataset.prepare(cache.cache_directory("datasets", dataset.NAME, dataset.get_variant()))
 
-        impor = importer.Importer(dataset=dataset, vendor=memgraph, client=client)
-
-        status = impor.try_optimal_import()
-
-        if status == False:
-            print("Need alternative import")
-        else:
-            print("Fast import executed")
+        importer.Importer(
+            dataset=dataset, vendor=memgraph, client=client, num_workers_for_import=args.num_workers_for_import
+        ).try_import()
 
         for group in sorted(queries.keys()):
             for query, funcname in queries[group]:
@@ -214,7 +214,7 @@ if __name__ == "__main__":
     for dataset, queries in benchmarks_neo4j:
 
         dataset.prepare(cache.cache_directory("datasets", dataset.NAME, dataset.get_variant()))
-        impo = importer.Importer(dataset=dataset, vendor=neo4j, client=client)
+        importer = importer.Importer(dataset=dataset, vendor=neo4j, client=client)
 
         status = impo.try_optimal_import()
 
