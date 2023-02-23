@@ -1,7 +1,7 @@
 import inspect
+import random
 from datetime import datetime
 from pathlib import Path
-from textwrap import dedent
 
 import helpers
 
@@ -65,8 +65,9 @@ class LDBC_Interactive(Dataset):
             if file.name.split("_")[1] == func_name.split("_")[-1]:
                 with file.open("r") as input:
                     lines = input.readlines()
+                    position = random.randint(1, len(lines))
                     header = lines[0].strip("\n").split("|")
-                    data = lines[1].strip("\n").split("|")
+                    data = lines[position].strip("\n").split("|")
                     for i in range(len(header)):
                         if "Date" in header[i]:
                             time = int(data[i]) / 1000
@@ -805,7 +806,8 @@ class LDBC_BI(Dataset):
                 with file.open("r") as input:
                     lines = input.readlines()
                     header = lines[0].strip("\n").split("|")
-                    data = lines[1].strip("\n").split("|")
+                    position = random.randint(1, len(lines))
+                    data = lines[position].strip("\n").split("|")
                     for i in range(len(header)):
                         key, value_type = header[i].split(":")
                         if value_type == "DATETIME":

@@ -164,6 +164,19 @@ def parse_args():
     return parser.parse_args()
 
 
+class WorkloadMode:
+    name = "Isolated"
+    config = None
+
+    def __init__(self, workload_mixed, workload_realistic) -> None:
+        if workload_mixed != None:
+            self.workload_name = "Mixed"
+            self.workload_config = workload_mixed
+        elif workload_realistic != None:
+            self.workload_name = "Realistic"
+            self.workload_config = workload_realistic
+
+
 def get_queries(gen, count):
     # Make the generator deterministic.
     random.seed(gen.__name__)
@@ -472,6 +485,23 @@ if __name__ == "__main__":
 
     args = parse_args()
 
+    # Supported vendors
+    assert args.vendor_name == "memgraph" or args.vendor_name == "neo4j"
+    assert args.num_workers_for_import > 0
+    assert args.num_workers_for_benchmark > 0
+    assert args.single_threaded_runtime_sec >= 10
+    # Cannot run in both modes in the same time, default is isolated query execution
+    assert args.workload_realistic == None or args.workload_mixed == None
+
+    workload_mode = WorkloadMode(args.workload_realistic, args.workload_mixed)
+
+    run_config = {
+        "vendor": args.vendor_name,
+        "condition": "hot" if args.warmup_run else "cold",
+        "workload": workload_mode.name,
+        "workload_config": workload_mode.config,
+    }
+
     # Detect available datasets.
     generators = {}
     workloads = map(workload.__dict__.get, workload.__all__)
@@ -520,16 +550,9 @@ if __name__ == "__main__":
     results = helpers.RecursiveDict()
 
     # Filter out the generators.
-    benchmarks = filter_benchmarks(generators, args.benchmarks)
+    benchmarks = filter_benchmarks(generators, args.benchmarks, args.vendor_name)
     # Run all specified benchmarks.
     for dataset, queries in benchmarks:
-
-        run_config = {
-            "vendor": args.vendor_name,
-            "condition": "hot" if args.warmup_run else "cold",
-            "workload": workload.name,
-            "workload_config": workload.config,
-        }
 
         results.set_value("__run_configuration__", value=run_config)
 
@@ -629,8 +652,8 @@ if __name__ == "__main__":
                     dataset,
                     group,
                     queries,
-                    "realistic",
-                    args.workload_realistic,
+                    workload_mode.name,
+                    workload_mode.config,
                     args.warmup,
                     args.num_workers_for_benchmark,
                 )
@@ -641,8 +664,8 @@ if __name__ == "__main__":
                     dataset,
                     group,
                     queries,
-                    "mixed",
-                    args.workload_realistic,
+                    workload_mode.name,
+                    workload_mode.config,
                     args.warmup,
                     args.num_workers_for_benchmark,
                 )
