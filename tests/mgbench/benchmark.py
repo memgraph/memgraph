@@ -578,40 +578,10 @@ if __name__ == "__main__":
 
         client = runners.Client(args.client_binary, args.temporary_directory, args.bolt_port)
 
-        importer = importer.Importer(dataset=dataset, vendor=vendor, client=client)
-
-        status = importer.try_optimal_import()
-
-        if status == False:
-            print("Need alternative import")
-        else:
-            print("Fast import executed")
-
         ret = None
         usage = None
-        if args.vendor_name == "neo4j":
-            vendor.start_preparation("preparation")
-            print("Executing database cleanup and index setup...")
-            ret = client.execute(file_path=dataset.get_index(), num_workers=args.num_workers_for_import)
-            usage = vendor.stop("preparation")
-            dump_dir = cache.cache_directory("datasets", dataset.NAME, dataset.get_variant())
-            dump_file, exists = dump_dir.get_file("neo4j.dump")
-            if exists:
-                vendor.load_db_from_dump(path=dump_dir.get_path())
-            else:
-                vendor.start_preparation("import")
-                print("Importing dataset...")
-                ret = client.execute(file_path=dataset.get_file(), num_workers=args.num_workers_for_import)
-                usage = vendor.stop("import")
+        ret, usage = importer.Importer(dataset=dataset, vendor=vendor, client=client).try_import()
 
-                vendor.dump_db(path=dump_dir.get_path())
-        else:
-            vendor.start_preparation("import")
-            print("Executing database cleanup and index setup...")
-            ret = client.execute(file_path=dataset.get_index(), num_workers=args.num_workers_for_import)
-            print("Importing dataset...")
-        #     ret = client.execute(file_path=dataset.get_file(), num_workers=args.num_workers_for_import)
-        #     usage = vendor.stop("import")
         # Save import results.
         import_key = [dataset.NAME, dataset.get_variant(), "__import__"]
         if ret != None and usage != None:
@@ -640,7 +610,7 @@ if __name__ == "__main__":
 
             results.set_value(*import_key, value={"client": ret, "database": usage})
         else:
-            results.set_value(*import_key, value={"client": "dump_load", "database": "dump_load"})
+            results.set_value(*import_key, value={"client": "custom_load", "database": "custom_load"})
 
         # Run all benchmarks in all available groups.
         for group in sorted(queries.keys()):

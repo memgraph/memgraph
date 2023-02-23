@@ -46,13 +46,17 @@ HEADERS_URL = "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/
 
 
 class Importer:
-    def __init__(self, dataset: Dataset, vendor: Runners, client: Client):
+    def __init__(self, dataset: Dataset, vendor: Runners, client: Client, num_workers_for_import):
         self._dataset = dataset
         self._vendor = vendor
         self._size = dataset.get_variant()
         self._client = client
+        self._num_workers_for_import = num_workers_for_import
+        self._num_workers_for_index = 1
+        # Retries to avoid serilisation error failure.
+        self._num_retries = 300
 
-    def try_optimal_import(self) -> bool:
+    def try_import(self) -> bool:
         if self._dataset.NAME == "ldbc_interactive" and isinstance(self._vendor, Neo4j):
             print("Runnning Neo4j import")
             dump_dir = Path() / ".cache" / "datasets" / self._dataset.NAME / self._size / "dump"
@@ -149,10 +153,10 @@ class Importer:
 
             self._vendor.start_preparation("Index preparation")
             print("Executing database index setup")
-            self._client.execute(file_path=self._dataset.get_index(), num_workers=1)
+            self._client.execute(file_path=self._dataset.get_index(), num_workers=self._)
             self._vendor.stop("Stop index preparation")
 
-            return True
+            return None, None
 
         elif self._dataset.NAME == "ldbc_interactive" and isinstance(self._vendor, Memgraph):
 
@@ -162,35 +166,17 @@ class Importer:
                 queries=[
                     ("MATCH (n) DETACH DELETE n;", {}),
                 ],
-                num_workers=1,
+                num_workers=self._num_workers_for_index,
             )
 
-            ret = self._client.execute(file_path=self._dataset.get_index(), num_workers=12)
+            ret = self._client.execute(file_path=self._dataset.get_index(), num_workers=self._num_workers_for_index)
             print("Importing dataset...")
-            ret = self._client.execute(file_path=self._dataset.get_file_cypherl(), num_workers=12, max_retries=400)
+            ret = self._client.execute(
+                file_path=self._dataset.get_file_cypherl(), num_workers=self._num_workers_for_import, max_retries=400
+            )
             usage = self._vendor.stop("import")
-            for row in ret:
-                print(
-                    "Executed",
-                    row["count"],
-                    "queries in",
-                    row["duration"],
-                    "seconds using",
-                    row["num_workers"],
-                    "workers with a total throughput of",
-                    row["throughput"],
-                    "queries/second.",
-                )
-                print()
-                print(
-                    "The database used",
-                    usage["cpu"],
-                    "seconds of CPU time and peaked at",
-                    usage["memory"] / 1024 / 1024,
-                    "MiB of RAM.",
-                )
 
-            return True
+            return ret, usage
 
         elif self._dataset.NAME == "ldbc_bi" and isinstance(self._vendor, Neo4j):
 
@@ -373,10 +359,10 @@ class Importer:
 
             self._vendor.start_preparation("Index preparation")
             print("Executing database index setup")
-            self._client.execute(file_path=self._dataset.get_index(), num_workers=1)
+            self._client.execute(file_path=self._dataset.get_index(), num_workers=self._num_workers_for_index)
             self._vendor.stop("Stop index preparation")
 
-            return True
+            return None, None
 
         elif self._dataset.NAME == "ldbc_bi" and isinstance(self._vendor, Memgraph):
 
@@ -386,37 +372,50 @@ class Importer:
                 queries=[
                     ("MATCH (n) DETACH DELETE n;", {}),
                 ],
-                num_workers=1,
+                num_workers=self._num_workers_for_index,
             )
 
-            ret = self._client.execute(file_path=self._dataset.get_index(), num_workers=1)
+            ret = self._client.execute(file_path=self._dataset.get_index(), num_workers=self._num_workers_for_index)
             print("Importing dataset...")
-            ret = self._client.execute(file_path=self._dataset.get_file_cypherl(), num_workers=12, max_retries=400)
+            ret = self._client.execute(
+                file_path=self._dataset.get_file_cypherl(),
+                num_workers=self._num_workers_for_import,
+                max_retries=self._num_retries,
+            )
             usage = self._vendor.stop("import")
-            for row in ret:
-                print(
-                    "Executed",
-                    row["count"],
-                    "queries in",
-                    row["duration"],
-                    "seconds using",
-                    row["num_workers"],
-                    "workers with a total throughput of",
-                    row["throughput"],
-                    "queries/second.",
+
+            return ret, usage
+
+        elif self._dataset.NAME == "pokec" and isinstance(self._vendor, Neo4j):
+
+            self._vendor.start_preparation("preparation")
+            print("Executing database cleanup and index setup...")
+            ret = self.client.execute(file_path=self.dataset.get_index(), num_workers=self._num_workers_for_index)
+            usage = self.vendor.stop("preparation")
+            neo4j_dump = Path() / ".cache" / "datasets" / self._dataset.NAME / self._size / "neo4j.dump"
+            if neo4j_dump.exists():
+                self._vendor.load_db_from_dump(path=dump_dir.get_path())
+            else:
+                self._vendor.start_preparation("import")
+                print("Importing dataset...")
+                ret = self._clientclient.execute(
+                    file_path=self._dataset.get_file(), num_workers=self._num_workers_for_import
                 )
-                print()
-                print(
-                    "The database used",
-                    usage["cpu"],
-                    "seconds of CPU time and peaked at",
-                    usage["memory"] / 1024 / 1024,
-                    "MiB of RAM.",
-                )
-                return True
+                usage = self._vendor.stop("import")
+
+                self._vendor.dump_db(path=dump_dir.get_path())
+
+            return ret, usage
+
+        elif isinstance(self._vendor, Memgraph):
+            self._vendor.start_preparation("import")
+            print("Executing database cleanup and index setup...")
+            ret = self._client.execute(file_path=self._dataset.get_index(), num_workers=self._num_workers_for_index)
+            print("Importing dataset...")
+            ret = self._client.execute(file_path=self._dataset.get_file(), num_workers=self._num_workers_for_import)
+            usage = self._vendor.stop("import")
+
+            return ret, usage
 
         else:
-            return False
-
-    def bi_memgraph():
-        pass
+            raise Exception("Not sure how to import dataset for given vendor.")
