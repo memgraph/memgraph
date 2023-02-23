@@ -248,8 +248,8 @@ class RequestRouter : public RequestRouterInterface {
   }
 
   bool IsPrimaryProperty(storage::v3::LabelId primary_label, storage::v3::PropertyId property) const override {
-    const auto schema_it = shards_map_.schemas.find(primary_label);
-    MG_ASSERT(schema_it != shards_map_.schemas.end(), "Invalid primary label id: {}", primary_label.AsUint());
+    const auto schema_it = shard_map_.schemas.find(primary_label);
+    MG_ASSERT(schema_it != shard_map_.schemas.end(), "Invalid primary label id: {}", primary_label.AsUint());
 
     return std::find_if(schema_it->second.begin(), schema_it->second.end(), [property](const auto &schema_prop) {
              return schema_prop.property_id == property;
