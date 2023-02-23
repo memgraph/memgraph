@@ -48,6 +48,7 @@ struct SplitData {
   std::map<std::pair<LabelId, PropertyId>, LabelPropertyIndex::IndexContainer> label_property_indices;
 };
 
+// TODO(jbajic) Handle deleted_vertices_ and deleted_edges_ after the finishing GC
 class Splitter final {
  public:
   Splitter(LabelId primary_label, VertexContainer &vertices, EdgeContainer &edges,
