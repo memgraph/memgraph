@@ -58,6 +58,10 @@ DEFINE_bool(validation, false,
             "Set to true to run client in validation mode."
             "Validation mode works for singe query and returns results for validation"
             "with metadata");
+DEFINE_int32(time_dependent_execution, -1,
+             "Time dependend executins executes the queries for a specified number of minutes."
+             "If all queries are executed and there is still time, queries are rerun again."
+             "If the time runs out, client is done with the job and returning results.");
 
 std::pair<std::map<std::string, memgraph::communication::bolt::Value>, uint64_t> ExecuteNTimesTillSuccess(
     memgraph::communication::bolt::Client *client, const std::string &query,
