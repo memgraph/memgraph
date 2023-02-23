@@ -238,16 +238,15 @@ void Splitter::AdjustClonedTransaction(Transaction &cloned_transaction, const Tr
     const auto *delta = &*delta_it;
     auto *cloned_delta = &*cloned_delta_it;
     Delta *cloned_delta_prev_ptr = cloned_delta;
+    // The head of delta chains contain either vertex/edge as prev ptr so we adjust
+    // it just at the beginning of delta chain
+    AdjustDeltaPrevPtr(*delta, *cloned_delta_prev_ptr, cloned_transactions, cloned_edges);
+
     while (delta->next != nullptr) {
       AdjustEdgeRef(*cloned_delta, cloned_edges);
 
-      // Align next ptr
-      AdjustDeltaNext(*delta, *cloned_delta, cloned_transactions);
-
-      // Align prev ptr
-      if (cloned_delta_prev_ptr != nullptr) {
-        AdjustDeltaPrevPtr(*delta, *cloned_delta_prev_ptr, cloned_transactions, cloned_vertices, cloned_edges);
-      }
+      // Align next ptr and prev ptr
+      AdjustDeltaNextAndPrev(*delta, *cloned_delta, cloned_transactions);
 
       // TODO Next delta might not belong to the cloned transaction and thats
       // why we skip this delta of the delta chain
@@ -261,7 +260,7 @@ void Splitter::AdjustClonedTransaction(Transaction &cloned_transaction, const Tr
     }
     // Align prev ptr
     if (cloned_delta_prev_ptr != nullptr) {
-      AdjustDeltaPrevPtr(*delta, *cloned_delta_prev_ptr, cloned_transactions, cloned_vertices, cloned_edges);
+      AdjustDeltaPrevPtr(*delta, *cloned_delta_prev_ptr, cloned_transactions, cloned_edges);
     }
 
     ++delta_it;
@@ -299,8 +298,8 @@ void Splitter::AdjustEdgeRef(Delta &cloned_delta, EdgeContainer &cloned_edges) c
   }
 }
 
-void Splitter::AdjustDeltaNext(const Delta &original, Delta &cloned,
-                               std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions) {
+void Splitter::AdjustDeltaNextAndPrev(const Delta &original, Delta &cloned,
+                                      std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions) {
   // Get cloned_delta->next transaction, using delta->next original transaction
   // cloned_transactions key is start_timestamp
   auto cloned_transaction_it =
@@ -319,15 +318,16 @@ void Splitter::AdjustDeltaNext(const Delta &original, Delta &cloned,
       cloned_transaction_it->second->deltas, [&original](const auto &elem) { return elem.id == original.next->id; });
   MG_ASSERT(found_cloned_delta_it != cloned_transaction_it->second->deltas.end(), "Delta with given uuid must exist!");
   cloned.next = &*found_cloned_delta_it;
+  found_cloned_delta_it->prev.Set(&cloned);
 }
 
 void Splitter::AdjustDeltaPrevPtr(const Delta &original, Delta &cloned,
                                   std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions,
-                                  VertexContainer & /*cloned_vertices*/, EdgeContainer &cloned_edges) {
+                                  EdgeContainer &cloned_edges) {
   auto ptr = original.prev.Get();
   switch (ptr.type) {
     case PreviousPtr::Type::NULLPTR: {
-      // noop
+      MG_ASSERT(false, "PreviousPtr cannot be a nullptr!");
       break;
     }
     case PreviousPtr::Type::DELTA: {
