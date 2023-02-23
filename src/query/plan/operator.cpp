@@ -220,7 +220,7 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
       properties.emplace(dba.NameToProperty(key), value);
     }
   }
-  MultiPropsSetChecked(&new_node, properties);
+  MultiPropsInitChecked(&new_node, properties);
 
   (*frame)[node_info.symbol] = new_node;
   return (*frame)[node_info.symbol].ValueVertex();
@@ -312,7 +312,7 @@ EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, Vert
         properties.emplace(dba->NameToProperty(key), value);
       }
     }
-    if (!properties.empty()) MultiPropsSetChecked(&edge, properties);
+    if (!properties.empty()) MultiPropsInitChecked(&edge, properties);
 
     (*frame)[edge_info.symbol] = edge;
   } else {

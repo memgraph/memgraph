@@ -108,18 +108,18 @@ storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key
 }
 
 template <typename T>
-concept AccessorWithSetProperties = requires(T accessor,
-                                             const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
-  { accessor.SetProperties(properties) } -> std::same_as<storage::Result<bool>>;
+concept AccessorWithInitProperties = requires(T accessor,
+                                              const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+  { accessor.InitProperties(properties) } -> std::same_as<storage::Result<bool>>;
 };
 
 /// Set property `values` mapped with given `key` on a `record`.
 ///
 /// @throw QueryRuntimeException if value cannot be set as a property value
-template <AccessorWithSetProperties T>
-bool MultiPropsSetChecked(T *record, std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+template <AccessorWithInitProperties T>
+bool MultiPropsInitChecked(T *record, std::map<storage::PropertyId, storage::PropertyValue> &properties) {
   try {
-    auto maybe_values = record->SetProperties(properties);
+    auto maybe_values = record->InitProperties(properties);
     if (maybe_values.HasError()) {
       switch (maybe_values.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:

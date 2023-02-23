@@ -1144,7 +1144,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
   return !existed;
 }
 
-bool PropertyStore::SetProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+bool PropertyStore::InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
   uint64_t size = 0;
   uint8_t *data = nullptr;
   std::tie(size, data) = GetSizeData(buffer_);

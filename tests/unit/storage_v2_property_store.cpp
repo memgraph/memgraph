@@ -666,7 +666,7 @@ TEST(PropertyStore, SetMultipleProperties) {
       {memgraph::storage::PropertyId::FromInt(6), memgraph::storage::PropertyValue(map)},
       {memgraph::storage::PropertyId::FromInt(7), memgraph::storage::PropertyValue(temporal)}};
 
-  store.SetProperties(data);
+  store.InitProperties(data);
 
   for (auto &[key, value] : data) {
     ASSERT_TRUE(store.IsPropertyEqual(key, value));

@@ -230,7 +230,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   return std::move(current_value);
 }
 
-Result<bool> VertexAccessor::SetProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
@@ -238,7 +238,7 @@ Result<bool> VertexAccessor::SetProperties(const std::map<storage::PropertyId, s
 
   if (vertex_->deleted) return Error::DELETED_OBJECT;
 
-  if (!vertex_->properties.SetProperties(properties)) return false;
+  if (!vertex_->properties.InitProperties(properties)) return false;
   for (const auto &[property, value] : properties) {
     CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, PropertyValue());
     UpdateOnSetProperty(indices_, property, value, vertex_, *transaction_);
