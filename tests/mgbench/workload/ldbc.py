@@ -65,7 +65,7 @@ class LDBC_Interactive(Dataset):
             if file.name.split("_")[1] == func_name.split("_")[-1]:
                 with file.open("r") as input:
                     lines = input.readlines()
-                    position = random.randint(1, len(lines))
+                    position = random.randint(1, len(lines) - 1)
                     header = lines[0].strip("\n").split("|")
                     data = lines[position].strip("\n").split("|")
                     for i in range(len(header)):
@@ -806,7 +806,7 @@ class LDBC_BI(Dataset):
                 with file.open("r") as input:
                     lines = input.readlines()
                     header = lines[0].strip("\n").split("|")
-                    position = random.randint(1, len(lines))
+                    position = random.randint(1, len(lines) - 1)
                     data = lines[position].strip("\n").split("|")
                     for i in range(len(header)):
                         key, value_type = header[i].split(":")

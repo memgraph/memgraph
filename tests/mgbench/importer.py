@@ -153,7 +153,7 @@ class Importer:
 
             self._vendor.start_preparation("Index preparation")
             print("Executing database index setup")
-            self._client.execute(file_path=self._dataset.get_index(), num_workers=self._)
+            self._client.execute(file_path=self._dataset.get_index(), num_workers=self._num_workers_for_index)
             self._vendor.stop("Stop index preparation")
 
             return None, None

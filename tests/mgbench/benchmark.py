@@ -580,7 +580,9 @@ if __name__ == "__main__":
 
         ret = None
         usage = None
-        ret, usage = importer.Importer(dataset=dataset, vendor=vendor, client=client).try_import()
+        ret, usage = importer.Importer(
+            dataset=dataset, vendor=vendor, client=client, num_workers_for_import=args.num_workers_for_import
+        ).try_import()
 
         # Save import results.
         import_key = [dataset.NAME, dataset.get_variant(), "__import__"]
@@ -646,7 +648,6 @@ if __name__ == "__main__":
                         "{}/{}/{}/{}".format(group, query, funcname, WITHOUT_FINE_GRAINED_AUTHORIZATION),
                     )
                     func = getattr(dataset, funcname)
-                    query_statistics = tail_latency(vendor, client, func)
 
                     # Query count for each vendor
                     config_key = [
@@ -656,7 +657,9 @@ if __name__ == "__main__":
                         group,
                         query,
                     ]
-                    count = get_query_cache_count(vendor, client, func, config_key)
+                    count = get_query_cache_count(
+                        vendor, client, func, config_key, args.single_threaded_runtime_sec, args.warmup_run
+                    )
 
                     # Benchmark run.
                     print("Sample query:", get_queries(func, 1)[0][0])
@@ -672,16 +675,17 @@ if __name__ == "__main__":
                         args.num_workers_for_benchmark,
                         "concurrent clients.",
                     )
-                    vendor.start_benchmark(dataset.NAME + dataset.get_variant() + "_" + workload.name + "_" + query)
+                    vendor.start_benchmark(
+                        dataset.NAME + dataset.get_variant() + "_" + workload_mode.name + "_" + query
+                    )
                     if args.warmup_run:
                         warmup(client)
                     ret = client.execute(
                         queries=get_queries(func, count),
                         num_workers=args.num_workers_for_benchmark,
                     )[0]
-                    usage = vendor.stop(dataset.NAME + dataset.get_variant() + "_" + workload.name + "_" + query)
+                    usage = vendor.stop(dataset.NAME + dataset.get_variant() + "_" + workload_mode.name + "_" + query)
                     ret["database"] = usage
-                    ret["query_statistics"] = query_statistics
 
                     # Output summary.
                     print()
@@ -746,7 +750,9 @@ if __name__ == "__main__":
                         group,
                         query,
                     ]
-                    count = get_query_cache_count(vendor, client, func, config_key)
+                    count = get_query_cache_count(
+                        vendor, client, func, config_key, args.single_threaded_runtime_sec, args.warmup
+                    )
 
                     vendor.start_benchmark("authorization")
                     if args.warmup_run:
