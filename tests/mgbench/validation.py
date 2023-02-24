@@ -191,7 +191,6 @@ if __name__ == "__main__":
                 try:
                     ret = client.execute(queries=get_queries(func, count), num_workers=1, validation=True)[0]
                     results_memgraph[funcname] = ret["results"].items()
-
                 except Exception as e:
                     print("Issue running the query" + funcname)
                     print(e)
@@ -214,14 +213,10 @@ if __name__ == "__main__":
     for dataset, queries in benchmarks_neo4j:
 
         dataset.prepare(cache.cache_directory("datasets", dataset.NAME, dataset.get_variant()))
-        importer = importer.Importer(dataset=dataset, vendor=neo4j, client=client)
 
-        status = impo.try_optimal_import()
-
-        if status == False:
-            print("Need alternative import")
-        else:
-            print("Fast import executed")
+        importer.Importer(
+            dataset=dataset, vendor=neo4j, client=client, num_workers_for_import=args.num_workers_for_import
+        ).try_import()
 
         for group in sorted(queries.keys()):
             for query, funcname in queries[group]:

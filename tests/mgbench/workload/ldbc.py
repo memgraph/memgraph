@@ -1100,7 +1100,27 @@ class LDBC_BI(Dataset):
         )
 
     def benchmark__bi__query_7(self):
-        return (
+
+        memgraph = (
+            """
+            MATCH
+                (tag:Tag {name: $tag})<-[:HAS_TAG]-(message:Message),
+                (message)<-[:REPLY_OF]-(comment:Comment)-[:HAS_TAG]->(relatedTag:Tag)
+            OPTIONAL MATCH (comment)-[:HAS_TAG]->(tag) WHERE tag IS NOT NULL
+            RETURN
+                relatedTag,
+                count(DISTINCT comment) AS count
+            ORDER BY
+                relatedTag.name ASC,
+                count DESC
+            LIMIT 100
+            """.replace(
+                "\n", ""
+            ),
+            self._get_query_parameters(),
+        )
+
+        neo4j = (
             """
             MATCH
                 (tag:Tag {name: $tag})<-[:HAS_TAG]-(message:Message),
@@ -1118,6 +1138,10 @@ class LDBC_BI(Dataset):
             ),
             self._get_query_parameters(),
         )
+        if self._vendor == "memgraph":
+            return memgraph
+        else:
+            return neo4j
 
     def benchmark__bi__query_8(self):
         return (
@@ -1408,7 +1432,30 @@ class LDBC_BI(Dataset):
         )
 
     def benchmark__bi__query_17(self):
-        return (
+
+        memgraph = (
+            """
+            MATCH
+                (tag:Tag {name: "Cosmic_Egg"}),
+                (person1:Person)<-[:HAS_CREATOR]-(message1:Message)-[:REPLY_OF*0..]->(post1:Post)<-[:CONTAINER_OF]-(forum1:Forum),
+                (message1)-[:HAS_TAG]->(tag),
+                (forum1)<-[:HAS_MEMBER]->(person2:Person)<-[:HAS_CREATOR]-(comment:Comment)-[:HAS_TAG]->(tag),
+                (forum1)<-[:HAS_MEMBER]->(person3:Person)<-[:HAS_CREATOR]-(message2:Message),
+                (comment)-[:REPLY_OF]->(message2)-[:REPLY_OF*0..]->(post2:Post)<-[:CONTAINER_OF]-(forum2:Forum)
+            MATCH (comment)-[:HAS_TAG]->(tag)
+            MATCH (message2)-[:HAS_TAG]->(tag)
+            OPTIONAL MATCH (forum2)-[:HAS_MEMBER]->(person1)
+            WHERE forum1 <> forum2 AND message2.creationDate > message1.creationDate + duration({hours: 12})
+            RETURN person1, count(DISTINCT message2) AS messageCount
+            ORDER BY messageCount DESC, person1.id ASC
+            LIMIT 10
+            """.replace(
+                "\n", ""
+            ),
+            self._get_query_parameters(),
+        )
+
+        neo4j = (
             """
             MATCH
                 (tag:Tag {name: $tag}),
@@ -1422,7 +1469,7 @@ class LDBC_BI(Dataset):
             WHERE forum1 <> forum2
                 AND message2.creationDate > message1.creationDate + duration({hours: $delta})
                 AND NOT (forum2)-[:HAS_MEMBER]->(person1)
-            RETURN person1.id, count(DISTINCT message2) AS messageCount
+            RETURN person1, count(DISTINCT message2) AS messageCount
             ORDER BY messageCount DESC, person1.id ASC
             LIMIT 10
             """.replace(
@@ -1430,9 +1477,28 @@ class LDBC_BI(Dataset):
             ),
             self._get_query_parameters(),
         )
+        if self._vendor == "memgraph":
+            return memgraph
+        else:
+            return neo4j
 
     def benchmark__bi__query_18(self):
-        return (
+
+        memgraph = (
+            """
+            MATCH (tag:Tag {name: $tag})<-[:HAS_INTEREST]-(person1:Person)-[:KNOWS]-(mutualFriend:Person)-[:KNOWS]-(person2:Person)-[:HAS_INTEREST]->(tag)
+            OPTIONAL MATCH (person1)-[:KNOWS]-(person2)
+            WHERE person1 <> person2
+            RETURN person1.id AS person1Id, person2.id AS person2Id, count(DISTINCT mutualFriend) AS mutualFriendCount
+            ORDER BY mutualFriendCount DESC, person1Id ASC, person2Id ASC
+            LIMIT 20
+            """.replace(
+                "\n", ""
+            ),
+            self._get_query_parameters(),
+        )
+
+        neo4j = (
             """
             MATCH (tag:Tag {name: $tag})<-[:HAS_INTEREST]-(person1:Person)-[:KNOWS]-(mutualFriend:Person)-[:KNOWS]-(person2:Person)-[:HAS_INTEREST]->(tag)
             WHERE person1 <> person2
@@ -1445,3 +1511,7 @@ class LDBC_BI(Dataset):
             ),
             self._get_query_parameters(),
         )
+        if self._vendor == "memgraph":
+            return memgraph
+        else:
+            return neo4j
