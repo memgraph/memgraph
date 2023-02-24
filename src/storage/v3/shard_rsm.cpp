@@ -72,7 +72,7 @@ auto CreateErrorResponse(const ShardError &shard_error, const auto transaction_i
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
   if (req.shard_map_version < shard_->Version()) {
-    spdlog::warn("ShardRsm Rejecting client request with stale ShardMap version, so that they retry");
+    spdlog::debug("ShardRsm Rejecting client request with stale ShardMap version, so that they retry");
     return msgs::CreateVerticesResponse{
         .error = msgs::ShardError{
             .code = common::ErrorCode::STALE_SHARD_MAP,
@@ -335,8 +335,8 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::SplitRequest &&req) {
                                                    req.new_lhs_shard_version, req.new_rhs_shard_version);
 
   if (new_shard_split_data) {
-    spdlog::warn("ShardRsm performed split at key {} from version {} to versions {} and {}", req.split_key.back().int_v,
-                 req.old_shard_version, req.new_lhs_shard_version, req.new_rhs_shard_version);
+    spdlog::debug("ShardRsm performed split from version {} to versions {} and {}", req.old_shard_version,
+                  req.new_lhs_shard_version, req.new_rhs_shard_version);
     msgs::InitializeSplitShard msg{.shard = Shard::FromSplitData(std::move(*new_shard_split_data)),
                                    .uuid_mapping = req.uuid_mapping};
     shard_manager_sender_.Send(std::move(msg));
@@ -347,7 +347,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::SplitRequest &&req) {
 
 msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
   if (req.shard_map_version < shard_->Version()) {
-    spdlog::warn("ShardRsm Rejecting client request with stale ShardMap version, so that they retry");
+    spdlog::debug("ShardRsm Rejecting client request with stale ShardMap version, so that they retry");
     return msgs::ScanVerticesResponse{
         .error = msgs::ShardError{
             .code = common::ErrorCode::STALE_SHARD_MAP,
@@ -448,9 +448,8 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
     resp.results = std::move(results);
   }
 
-  uint64_t low_key = shard_->LowKey().back().ValueInt();
-  spdlog::warn("Shard version {} with low key {}: shard returning {} results for ScanVertices",
-               shard_->Version().logical_id, low_key, resp.results.size());
+  spdlog::trace("Shard version {} returning {} results for ScanVertices", shard_->Version().logical_id,
+                resp.results.size());
 
   return resp;
 }
