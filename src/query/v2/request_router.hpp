@@ -713,6 +713,11 @@ class RequestRouter : public RequestRouterInterface {
     while (response_map.size() < running_requests.size()) {
       auto ready = notifier_.Await();
       spdlog::trace("got readiness for token {}", ready.GetId());
+      if (!running_requests.contains(ready.GetId())) {
+        spdlog::debug(
+            "RequestRouter continuing to next Await after notifier returned already-succeeded notification token");
+        continue;
+      }
 
       MG_ASSERT(polls++ / running_requests.size() < 1000,
                 "polled over 1000 times per operation (almost certainly due to a bug) when performing request");
@@ -773,6 +778,11 @@ class RequestRouter : public RequestRouterInterface {
 
     while (response_map.size() < running_requests.size()) {
       auto ready = notifier_.Await();
+      if (!running_requests.contains(ready.GetId())) {
+        spdlog::debug(
+            "RequestRouter continuing to next Await after notifier returned already-succeeded notification token");
+        continue;
+      }
       auto &request = running_requests.at(ready.GetId());
       auto &storage_client = GetStorageClientForShard(request.shard);
 

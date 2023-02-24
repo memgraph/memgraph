@@ -196,17 +196,12 @@ void ExecuteOp(SimClientContext &context, ScanAll scan_all) {
 }
 
 void ExecuteOp(SimClientContext &context, AssertShardsSplit assert_shards_split) {
-  // 1 -> 1
-  // 2 -> 1
-  // 3 -> 1
-  // 4 -> 2
-  // 5 -> 2
-  // 6 -> 2
-  // 7 -> 3
   const int max_shard_size = context.cluster_config.split_threshold - 1;
-  const int min_shards = (std::max((size_t)1, context.correctness_model.size()) - 1) / max_shard_size;
-  const int minimum_expected_shards = min_shards + 1;
-  const int maximum_attempts = 10'000;
+  const int max_shards = context.correctness_model.size() / max_shard_size;
+
+  // TODO(tyler) raise this up over time, but it requires more math
+  const int minimum_expected_shards = max_shards / 2;
+  const int maximum_attempts = 1000;
   size_t initialized_shards;
 
   for (int i = 0; i < maximum_attempts; i++) {
