@@ -115,10 +115,7 @@ class MachineManager {
       uint64_t next_us = next_cron_.time_since_epoch().count();
 
       if (now >= next_cron_) {
-        spdlog::info("now {} >= next_cron_ {}", now_us, next_us);
         next_cron_ = Cron();
-      } else {
-        spdlog::info("now {} < next_cron_ {}", now_us, next_us);
       }
 
       Duration receive_timeout = std::max(next_cron_, now) - now;
@@ -131,7 +128,7 @@ class MachineManager {
                        AppendRequest<StorageWriteRequest>, WriteRequest<StorageWriteRequest>, msgs::SuggestedSplitInfo,
                        msgs::InitializeSplitShard>;
 
-      spdlog::info("MM waiting on Receive on address {}", io_.GetAddress().ToString());
+      spdlog::trace("MachineManager waiting on Receive on address {}", io_.GetAddress().ToString());
 
       // Note: this parameter pack must be kept in-sync with the AllMessages parameter pack above
       auto request_result = io_.template ReceiveWithTimeout<
@@ -147,19 +144,19 @@ class MachineManager {
 
       auto &&request_envelope = std::move(request_result.GetValue());
 
-      spdlog::info("MM got message to {}", request_envelope.to_address.ToString());
+      spdlog::trace("MachineManager received message addressed to {}", request_envelope.to_address.ToString());
 
       // If message is for the coordinator, cast it to subset and pass it to the coordinator
       bool to_coordinator = coordinator_address_ == request_envelope.to_address;
       if (to_coordinator) {
+        spdlog::trace("MachineManager got message addressed to the coordinator");
+
         std::optional<CoordinatorMessages> conversion_attempt =
             ConvertVariant<AllMessages, ReadRequest<CoordinatorReadRequests>, AppendRequest<CoordinatorWriteRequests>,
                            AppendResponse, WriteRequest<CoordinatorWriteRequests>, VoteRequest, VoteResponse>(
                 std::move(request_envelope.message));
 
         MG_ASSERT(conversion_attempt.has_value(), "coordinator message conversion failed");
-
-        spdlog::info("got coordinator message");
 
         CoordinatorMessages &&cm = std::move(conversion_attempt.value());
 
@@ -174,22 +171,20 @@ class MachineManager {
       }
 
       bool to_sm = shard_manager_.GetAddress() == request_envelope.to_address;
-      spdlog::info("smm: {}", shard_manager_.GetAddress().ToString());
       if (to_sm) {
-        spdlog::warn("got shard manager message, addressed to {}", request_envelope.to_address);
+        spdlog::trace("MachineManager got shard manager message, addressed to {}", request_envelope.to_address);
 
         std::optional<ShardManagerMessages> conversion_attempt =
             ConvertVariant<AllMessages, msgs::SuggestedSplitInfo, msgs::InitializeSplitShard>(
                 std::move(request_envelope.message));
 
         if (!conversion_attempt.has_value()) {
-          spdlog::warn(
-              "MachineManager dropping message addressed to the ShardManager, assuming it was a HeartbeatResponse that "
+          spdlog::debug(
+              "MachineManager dropping message with an unexpected type addressed to the ShardManager, assuming it was "
+              "a HeartbeatResponse that "
               "timed out");
           continue;
         }
-
-        spdlog::info("got shard manager message");
 
         ShardManagerMessages &&smm = std::move(conversion_attempt.value());
         shard_manager_.Receive(std::forward<ShardManagerMessages>(smm), request_envelope.request_id,
@@ -207,7 +202,7 @@ class MachineManager {
       MG_ASSERT(conversion_attempt.has_value(), "shard rsm message conversion failed for {} - incorrect message type",
                 request_envelope.to_address.ToString());
 
-      spdlog::info("got shard rsm message");
+      spdlog::trace("MachineManager forwarding message to shard rsm");
 
       ShardMessages &&sm = std::move(conversion_attempt.value());
       shard_manager_.Route(std::forward<ShardMessages>(sm), request_envelope.request_id, request_envelope.to_address,
@@ -231,7 +226,7 @@ class MachineManager {
   }
 
   Time Cron() {
-    spdlog::info("running MachineManager::Cron, address {}", io_.GetAddress().ToString());
+    spdlog::trace("MachineManager running Cron, address {}", io_.GetAddress().ToString());
     coordinator_queue_.Push(coordinator::coordinator_worker::Cron{});
     MaybeBlockOnSyncHandling();
     Time ret = shard_manager_.Cron();

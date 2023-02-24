@@ -20,7 +20,7 @@ namespace memgraph::coordinator {
 // 3. assign any valid underreplicated shards to the Heartbeat sender
 // 4. send any split requests that the Heartbeat sender should be applying
 CoordinatorWriteResponses Coordinator::ApplyWrite(HeartbeatRequest &&heartbeat_request) {
-  spdlog::info("Coordinator handling HeartbeatRequest");
+  spdlog::trace("Coordinator handling HeartbeatRequest");
 
   HeartbeatResponse ret{};
 
@@ -39,8 +39,8 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(HeartbeatRequest &&heartbeat_r
     const ShardId splitting_shard_id = std::make_pair(label_id, splitting_shard_low_key);
 
     if (shard.pending_split.has_value() || shard.version != suggested_split_info.shard_version) {
-      spdlog::info("skipping split, already splitting: {}, shard.version: {}, suggested shard_version: {}",
-                   shard.pending_split.has_value(), shard.version, suggested_split_info.shard_version);
+      spdlog::debug("Coordinator skipping split, already splitting: {}, shard.version: {}, suggested shard_version: {}",
+                    shard.pending_split.has_value(), shard.version, suggested_split_info.shard_version);
       continue;
     }
 
@@ -49,7 +49,7 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(HeartbeatRequest &&heartbeat_r
     // begin the split process for this shard
     const auto new_uuid_lhs = shard_map_.GetHlc();
     const auto new_uuid_rhs = shard_map_.GetHlc();
-    spdlog::warn(
+    spdlog::debug(
         "Coordinator beginning new split process for shard {} after receiving a pending split. splitting into lhs: {} "
         "and rhs: {} at split key {}",
         shard.version.logical_id, new_uuid_lhs.logical_id, new_uuid_rhs.logical_id, split_key.back());
@@ -72,8 +72,8 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(HeartbeatRequest &&heartbeat_r
 
       const auto new_uuid = shard_map_.NewShardUuid();
 
-      spdlog::warn("Coordinator allocating new rsm uuid: {} for new shard {} with low key {}", new_uuid, new_uuid_rhs,
-                   split_key.back());
+      spdlog::debug("Coordinator allocating new rsm uuid: {} for new shard {} with low key {}", new_uuid, new_uuid_rhs,
+                    split_key.back());
 
       // store new uuid for the right side of each shard
       rsm_split_from_.insert({new_uuid, splitting_shard_id});
@@ -93,7 +93,6 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(HeartbeatRequest &&heartbeat_r
 
   // 2. mark all initialized RSMs as INITIALIZED in the ShardMap
   for (const auto &[initialized_rsm, shard_id] : heartbeat_request.initialized_rsms) {
-    spdlog::info("looking at rsm {}", initialized_rsm);
     auto [label_id, low_key] = shard_id;
     auto &label_space = shard_map_.label_spaces.at(label_id);
     auto &shard = label_space.shards.at(low_key);
@@ -107,7 +106,7 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(HeartbeatRequest &&heartbeat_r
       auto [split_label_id, split_low_key] = split_shard_id;
       auto &split_shard = label_space.shards.at(split_low_key);
 
-      spdlog::warn("Coordinator clearing split for shard {}", split_shard.version);
+      spdlog::debug("Coordinator clearing split for shard {}", split_shard.version);
       MG_ASSERT(split_shard.pending_split.has_value());
       MG_ASSERT(splitting_shards_.contains(split_shard_id));
 
@@ -124,7 +123,7 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(HeartbeatRequest &&heartbeat_r
         // TODO(tyler) switch the conditional to match on rsm uuid and update the peer last_known_* address always
         const int low_key_int = low_key[0].ValueInt();
         // TODO(tyler) this is failing in simulation tests
-        spdlog::warn("Coordinator marking rsm {} for shard {} as initialized", initialized_rsm, shard.version);
+        spdlog::debug("Coordinator marking rsm {} for shard {} as initialized", initialized_rsm, shard.version);
         MG_ASSERT(peer.address.unique_id == initialized_rsm,
                   "expected Coordinator uuid {} to equal peer uuid {} for shard version {} with low key {}",
                   peer.address.unique_id, initialized_rsm, shard.version, low_key_int);
@@ -143,7 +142,7 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(HeartbeatRequest &&heartbeat_r
               shard.version);
 
     if (initialized_count >= label_space.replication_factor) {
-      spdlog::warn("clearing underreplicated shard with {} initialized peers", initialized_count);
+      spdlog::debug("Coordinator clearing underreplicated shard with {} initialized peers", initialized_count);
       underreplicated_shards_.erase(shard_id);
     }
   }
@@ -163,7 +162,7 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(HeartbeatRequest &&heartbeat_r
         needs_to_initialize = false;
 
         if (peer.status == Status::INITIALIZING) {
-          spdlog::warn(
+          spdlog::trace(
               "Coordinator reminding ShardManager to initialize a shard that we have previously assigned it to");
           Address address = heartbeat_request.from_storage_manager;
           address.unique_id = peer.address.unique_id;
@@ -206,8 +205,8 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(HeartbeatRequest &&heartbeat_r
       high_key = next->first;
     }
 
-    spdlog::warn("Coordinator assigning new rsm uuid {} to shard version {} with low key {} to shard worker {}",
-                 address.unique_id, shard.version, low_key.back(), address);
+    spdlog::debug("Coordinator assigning new rsm uuid {} to shard version {} with low key {} to shard worker {}",
+                  address.unique_id, shard.version, low_key.back(), address);
 
     ret.shards_to_initialize.push_back(ShardToInitialize{
         .new_shard_version = shard.version,
@@ -232,7 +231,6 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(HeartbeatRequest &&heartbeat_r
   }
 
   // 4. send any split requests that the Heartbeat sender should be applying
-  spdlog::info("0");
   for (const auto &[label_id, low_key] : splitting_shards_) {
     // see if this machine is a PENDING_SPLIT peer for any of the splitting shards
     const auto &label_space = shard_map_.label_spaces.at(label_id);
@@ -242,19 +240,17 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(HeartbeatRequest &&heartbeat_r
     const auto split_key = storage::conversions::ConvertPropertyVector(suggested_split_info.split_key);
     const auto &new_shard = label_space.shards.at(split_key);
 
-    spdlog::info("1");
     for (const auto &peer : new_shard.peers) {
-      spdlog::info("2");
       if (peer.status != Status::PENDING_SPLIT ||
           peer.address.last_known_ip != heartbeat_request.from_storage_manager.last_known_ip ||
           peer.address.last_known_port != heartbeat_request.from_storage_manager.last_known_port) {
-        spdlog::warn("not splitting peer: status is PENDING_SPLIT: {}, peer address: {} storage manager address: {}",
-                     peer.status == Status::PENDING_SPLIT, peer.address, heartbeat_request.from_storage_manager);
+        spdlog::debug("Coordinator not splitting peer: status is: {}, peer address: {} storage manager address: {}",
+                      peer.status, peer.address, heartbeat_request.from_storage_manager);
         // not splitting or not us
         continue;
       }
 
-      spdlog::warn("Coordinator expecting heartbeating peer to split, so it will reply with a ShardToSplit message");
+      spdlog::trace("Coordinator expecting heartbeating peer to split, so it will reply with a ShardToSplit message");
 
       std::map<boost::uuids::uuid, boost::uuids::uuid> uuid_mapping{};
 

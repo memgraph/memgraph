@@ -705,7 +705,8 @@ class RequestRouter : public RequestRouterInterface {
       auto ready = notifier_.Await();
       spdlog::trace("got readiness for token {}", ready.GetId());
 
-      MG_ASSERT(polls++ < 1000, "polls has reached 1000");
+      MG_ASSERT(polls++ / running_requests.size() < 1000,
+                "polled over 1000 times per operation (almost certainly due to a bug) when performing request");
       auto &request = running_requests.at(ready.GetId());
       auto &storage_client = GetStorageClientForShard(request.shard);
 

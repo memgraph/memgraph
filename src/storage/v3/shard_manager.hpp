@@ -76,7 +76,7 @@ static_assert(kMinimumCronInterval < kMaximumCronInterval,
 /// * reconciling the storage engine's local configuration with the Coordinator's
 ///   intentions for how it should participate in multiple raft clusters
 /// * replying to heartbeat requests to the Coordinator
-/// * routing incoming messages to the appropriate sRSM
+/// * routing incoming messages to the appropriate RSM
 ///
 /// Every storage engine has exactly one RsmEngine.
 template <typename IoImpl>
@@ -154,7 +154,7 @@ class ShardManager {
   /// Periodic protocol maintenance. Returns the time that Cron should be called again
   /// in the future.
   Time Cron() {
-    spdlog::info("running ShardManager::Cron, address {}", io_.GetAddress().ToString());
+    spdlog::trace("ShardManager running Cron, address {}", io_.GetAddress().ToString());
     Time now = io_.Now();
 
     if (now >= next_reconciliation_) {
@@ -180,15 +180,15 @@ class ShardManager {
   Address GetAddress() { return io_.GetAddress(); }
 
   void InitializeSplitShard(msgs::InitializeSplitShard &&init_split_shard) {
-    spdlog::warn("ShardManager received InitializeSplitShard message");
+    spdlog::trace("ShardManager received InitializeSplitShard message");
     for (const auto &[from_uuid, new_uuid] : init_split_shard.uuid_mapping) {
       bool has_source = rsm_worker_mapping_.contains(from_uuid);
       if (has_source) {
         const auto low_key = init_split_shard.shard->LowKey();
         coordinator::ShardId new_shard_id = std::make_pair(init_split_shard.shard->PrimaryLabel(), low_key);
 
-        spdlog::warn("ShardManager initialized split shard {} with uuid {} and low key {}",
-                     init_split_shard.shard->Version().logical_id, new_uuid, low_key.back());
+        spdlog::debug("ShardManager initialized split shard {} with uuid {} and low key {}",
+                      init_split_shard.shard->Version().logical_id, new_uuid, low_key.back());
         msgs::InitializeSplitShardByUUID msg{.shard = std::move(init_split_shard.shard), .shard_uuid = new_uuid};
         SendToWorkerByUuid(new_uuid, std::move(msg));
 
@@ -200,14 +200,14 @@ class ShardManager {
 
   void Receive(ShardManagerMessages &&smm, RequestId request_id, Address from) {
     std::visit(utils::Overloaded{[this](msgs::SuggestedSplitInfo &&split_info) {
-                                   spdlog::info(
+                                   spdlog::debug(
                                        "ShardManager adding new suggested split info to the pending_splits_ structure");
                                    pending_splits_.emplace(std::move(split_info));
                                  },
                                  [this](msgs::InitializeSplitShard &&init_split_shard) {
                                    // TODO(jbajic) remove pending split for this completed split
                                    // TODO(jbajic) Add new shard to initialized but not confirmed rsm
-                                   spdlog::info("ShardManager received a new split shard that it will now initialize");
+                                   spdlog::debug("ShardManager received a new split shard that it will now initialize");
                                    InitializeSplitShard(std::move(init_split_shard));
                                  }},
                std::move(smm));
@@ -254,18 +254,18 @@ class ShardManager {
         heartbeat_res_.reset();
 
         if (response_result.HasError()) {
-          spdlog::info("SM timed out while trying to reach C");
+          spdlog::info("ShardManager timed out while trying to reach Coordinator");
         } else {
           auto response_envelope = response_result.GetValue();
           WriteResponse<CoordinatorWriteResponses> wr = response_envelope.message;
 
           if (wr.retry_leader.has_value()) {
-            spdlog::info("SM redirected to new C leader");
+            spdlog::info("ShardManager redirected to new Coordinator leader");
             coordinator_leader_ = wr.retry_leader.value();
           } else if (wr.success) {
             CoordinatorWriteResponses cwr = wr.write_return;
             HeartbeatResponse hr = std::get<HeartbeatResponse>(cwr);
-            spdlog::info("SM received heartbeat response from C");
+            spdlog::info("ShardManager received heartbeat response from Coordinator");
 
             EnsureShardsInitialized(hr);
           }
@@ -285,12 +285,12 @@ class ShardManager {
     WriteRequest<CoordinatorWriteRequests> ww;
     ww.operation = cwr;
 
-    spdlog::info("SM sending heartbeat to coordinator {} with {} initialized rsms", coordinator_leader_.ToString(),
-                 initialized_but_not_confirmed_rsm_.size());
+    spdlog::info("ShardManager sending heartbeat to coordinator {} with {} initialized rsms",
+                 coordinator_leader_.ToString(), initialized_but_not_confirmed_rsm_.size());
     heartbeat_res_.emplace(std::move(
         io_.template Request<WriteRequest<CoordinatorWriteRequests>, WriteResponse<CoordinatorWriteResponses>>(
             coordinator_leader_, ww)));
-    spdlog::info("SM sent heartbeat");
+    spdlog::info("ShardManager sent heartbeat");
   }
 
   void EnsureShardsInitialized(HeartbeatResponse hr) {
@@ -300,7 +300,7 @@ class ShardManager {
 
     for (const auto &to_init : hr.shards_to_initialize) {
       coordinator::ShardId new_shard_id = std::make_pair(to_init.label_id, to_init.min_key);
-      spdlog::warn("ShardManager has been told to initialize shard rsm with uuid {}", to_init.uuid);
+      spdlog::trace("ShardManager has been told to initialize shard rsm with uuid {}", to_init.uuid);
       initialized_but_not_confirmed_rsm_.emplace(to_init.uuid, new_shard_id);
 
       if (rsm_worker_mapping_.contains(to_init.uuid)) {

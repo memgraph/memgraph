@@ -93,13 +93,13 @@ ShardMap ShardMap::Parse(std::istream &input_stream) {
 
   const auto read_names = [&read_size, &read_word] {
     const auto number_of_names = read_size();
-    spdlog::trace("Reading {} names", number_of_names);
+    spdlog::trace("ShardMap::Parse reading {} names", number_of_names);
     std::vector<std::string> names;
     names.reserve(number_of_names);
 
     for (auto name_index = 0; name_index < number_of_names; ++name_index) {
       names.push_back(read_word());
-      spdlog::trace("Read '{}'", names.back());
+      spdlog::trace("ShardMap::Parse read '{}'", names.back());
     }
     return names;
   };
@@ -113,32 +113,32 @@ ShardMap ShardMap::Parse(std::istream &input_stream) {
     return it->second;
   };
 
-  spdlog::debug("Reading properties");
+  spdlog::trace("ShardMap::Parse reading properties");
   const auto properties = read_names();
   MG_ASSERT(shard_map.AllocatePropertyIds(properties).size() == properties.size(),
             "Unexpected number of properties created!");
 
-  spdlog::debug("Reading edge types");
+  spdlog::trace("ShardMap::Parse Reading edge types");
   const auto edge_types = read_names();
   MG_ASSERT(shard_map.AllocateEdgeTypeIds(edge_types).size() == edge_types.size(),
             "Unexpected number of properties created!");
 
-  spdlog::debug("Reading primary labels");
+  spdlog::trace("ShardMap::Parse reading primary labels");
   const auto number_of_primary_labels = read_size();
-  spdlog::debug("Reading {} primary labels", number_of_primary_labels);
+  spdlog::trace("ShardMap::Parse reading {} primary labels", number_of_primary_labels);
 
   for (auto label_index = 0; label_index < number_of_primary_labels; ++label_index) {
     const auto primary_label = read_word();
-    spdlog::debug("Reading primary label named '{}'", primary_label);
+    spdlog::trace("ShardMap::Parse reading primary label named '{}'", primary_label);
     const auto number_of_primary_properties = read_size();
-    spdlog::debug("Reading {} primary properties", number_of_primary_properties);
+    spdlog::trace("ShardMap::Parse reading {} primary properties", number_of_primary_properties);
     std::vector<std::string> pp_names;
     std::vector<common::SchemaType> pp_types;
     pp_names.reserve(number_of_primary_properties);
     pp_types.reserve(number_of_primary_properties);
     for (auto property_index = 0; property_index < number_of_primary_properties; ++property_index) {
       pp_names.push_back(read_word());
-      spdlog::debug("Reading primary property named '{}'", pp_names.back());
+      spdlog::trace("ShardMap::Parse reading primary property named '{}'", pp_names.back());
       pp_types.push_back(parse_type(read_word()));
     }
     auto pp_mapping = shard_map.AllocatePropertyIds(pp_names);
@@ -428,13 +428,13 @@ bool ShardMap::ClusterInitialized() const {
   for (const auto &[label_id, label_space] : label_spaces) {
     for (const auto &[low_key, shard] : label_space.shards) {
       if (shard.peers.size() < label_space.replication_factor) {
-        spdlog::info("label_space below desired replication factor");
+        spdlog::trace("ShardMap::ClusterInitialized label_space below desired replication factor");
         return false;
       }
 
       for (const auto &peer_metadata : shard.peers) {
         if (peer_metadata.status != Status::CONSENSUS_PARTICIPANT) {
-          spdlog::info("shard member not yet a CONSENSUS_PARTICIPANT");
+          spdlog::trace("ShardMap::ClusterInitialized shard member not yet a CONSENSUS_PARTICIPANT");
           return false;
         }
       }
@@ -447,18 +447,15 @@ bool ShardMap::ClusterInitialized() const {
 size_t ShardMap::InitializedShards() const {
   size_t count = 0;
 
-  // spdlog::warn("calculating initialized shards");
   for (const auto &[label_id, label_space] : label_spaces) {
     for (const auto &[low_key, shard] : label_space.shards) {
       if (shard.peers.size() < label_space.replication_factor) {
-        // spdlog::warn("not enough peers in shard {}", shard.version);
         continue;
       }
 
       bool all_initialized = true;
       for (const auto &peer_metadata : shard.peers) {
         if (peer_metadata.status != Status::CONSENSUS_PARTICIPANT) {
-          // spdlog::warn("peer not yet CONSENSUS_PARTICIPANT in shard {}", shard.version);
           all_initialized = false;
         }
       }
