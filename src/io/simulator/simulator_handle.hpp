@@ -68,7 +68,7 @@ class SimulatorHandle {
     for (auto it = promises_.begin(); it != promises_.end();) {
       auto &[promise_key, dop] = *it;
       if (dop.deadline < now && config_.perform_timeouts) {
-        spdlog::warn("Simulator timing out request from requester {}.", promise_key.requester_address.ToString());
+        spdlog::trace("Simulator timing out request from requester {}.", promise_key.requester_address.ToString());
         std::move(dop).promise.TimeOut();
         it = promises_.erase(it);
 
@@ -114,7 +114,7 @@ class SimulatorHandle {
                                          std::function<void()> &&fill_notifier) {
     auto type_info = TypeInfoFor(request);
     std::string demangled_name = boost::core::demangle(type_info.get().name());
-    spdlog::trace("simulator sending request {} to {}", demangled_name, to_address);
+    spdlog::trace("Simulator sending request {} to {}", demangled_name, to_address);
 
     auto [future, promise] = memgraph::io::FuturePromisePairWithNotifications<ResponseResult<Response>>(
         // set notifier for when the Future::Wait is called
@@ -185,20 +185,21 @@ class SimulatorHandle {
       if (!should_shut_down_) {
         if (!blocked_on_receive_.contains(receiver)) {
           blocked_on_receive_.emplace(receiver);
-          spdlog::trace("blocking receiver {}", receiver.ToPartialAddress().port);
+          spdlog::trace("Simulator blocking receiver until it receives something or a timeout happens {}",
+                        receiver.ToPartialAddress().port);
           cv_.notify_all();
         }
         cv_.wait(lock);
       }
     }
-    spdlog::trace("timing out receiver {}", receiver.ToPartialAddress().port);
+    spdlog::trace("Simulator timing out receiver {}", receiver.ToPartialAddress().port);
 
     return TimedOut{};
   }
 
   template <utils::Message M>
   void Send(Address to_address, Address from_address, RequestId request_id, M message) {
-    spdlog::trace("sending message from {} to {}", from_address.last_known_port, to_address.last_known_port);
+    spdlog::trace("Simulator sending message from {} to {}", from_address.last_known_port, to_address.last_known_port);
     auto type_info = TypeInfoFor(message);
     {
       std::unique_lock<std::mutex> lock(mu_);

@@ -65,7 +65,7 @@ class RsmClient {
     size_t addr_index = io_.Rand(addr_distrib);
     leader_ = server_addrs_[addr_index];
 
-    spdlog::debug("selecting a random leader at index {} with address {}", addr_index, leader_.ToString());
+    spdlog::trace("RsmClient selecting a random leader at index {} with address {}", addr_index, leader_.ToString());
   }
 
   template <typename ResponseT>
@@ -73,7 +73,7 @@ class RsmClient {
     if (response.retry_leader) {
       MG_ASSERT(!response.success, "retry_leader should never be set for successful responses");
       leader_ = response.retry_leader.value();
-      spdlog::debug("client redirected to leader server {}", leader_.ToString());
+      spdlog::trace("RsmClient redirected to leader server {}", leader_.ToString());
     }
     if (!response.success) {
       SelectRandomLeader();
@@ -140,7 +140,7 @@ class RsmClient {
 
   std::optional<BasicResult<TimedOut, ReadResponseT>> PollAsyncReadRequest(const ReadinessToken &readiness_token) {
     if (!async_reads_.contains(readiness_token.GetId())) {
-      spdlog::warn("async_reads_ does not contain Polled readiness token {}", readiness_token.GetId());
+      spdlog::debug("RsmClient async_reads_ does not contain Polled readiness token {}", readiness_token.GetId());
       return std::nullopt;
     }
     auto &async_request = async_reads_.at(readiness_token.GetId());
@@ -162,7 +162,7 @@ class RsmClient {
 
     if (result_has_error && past_time_out) {
       // TODO static assert the exact type of error.
-      spdlog::debug("client timed out while trying to communicate with leader server {}", leader_.ToString());
+      spdlog::debug("RsmClient timed out while trying to communicate with leader server {}", leader_.ToString());
       async_reads_.erase(readiness_token.GetId());
       return TimedOut{};
     }
@@ -175,7 +175,7 @@ class RsmClient {
 
       if (read_get_response.success) {
         async_reads_.erase(readiness_token.GetId());
-        spdlog::debug("returning read_return and erasing async state for RSM request for token {}",
+        spdlog::trace("RsmClient returning read_return and erasing async state for RSM request for token {}",
                       readiness_token.GetId());
         return std::move(read_get_response.read_return);
       }
@@ -215,7 +215,7 @@ class RsmClient {
 
   std::optional<BasicResult<TimedOut, WriteResponseT>> PollAsyncWriteRequest(const ReadinessToken &readiness_token) {
     if (!async_writes_.contains(readiness_token.GetId())) {
-      spdlog::warn("async_writes_ does not contain Polled readiness token {}", readiness_token.GetId());
+      spdlog::debug("RsmClient async_writes_ does not contain Polled readiness token {}", readiness_token.GetId());
       return std::nullopt;
     }
     auto &async_request = async_writes_.at(readiness_token.GetId());
@@ -237,7 +237,7 @@ class RsmClient {
 
     if (result_has_error && past_time_out) {
       // TODO static assert the exact type of error.
-      spdlog::debug("client timed out while trying to communicate with leader server {}", leader_.ToString());
+      spdlog::debug("RsmClient timed out while trying to communicate with leader server {}", leader_.ToString());
       async_writes_.erase(readiness_token.GetId());
       return TimedOut{};
     }
