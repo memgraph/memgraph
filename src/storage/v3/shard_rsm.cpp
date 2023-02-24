@@ -75,7 +75,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
     spdlog::debug("ShardRsm Rejecting client request with stale ShardMap version, so that they retry");
     return msgs::CreateVerticesResponse{
         .error = msgs::ShardError{
-            .code = common::ErrorCode::STALE_SHARD_MAP,
+            .code = common::ErrorCode::MISMATCHED_SHARD_VERSION,
             .message = "Shard has a higher version than the requestor's ShardMap due to a Shard split or merge, so the "
                        "requestor must refresh their ShardMap and try again",
         }};
@@ -119,7 +119,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateVerticesRequest &&req) {
     spdlog::debug("ShardRsm Rejecting client request with stale ShardMap version, so that they retry");
     return msgs::UpdateVerticesResponse{
         .error = msgs::ShardError{
-            .code = common::ErrorCode::STALE_SHARD_MAP,
+            .code = common::ErrorCode::MISMATCHED_SHARD_VERSION,
             .message = "Shard has a higher version than the requestor's ShardMap due to a Shard split or merge, so the "
                        "requestor must refresh their ShardMap and try again",
         }};
@@ -168,7 +168,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteVerticesRequest &&req) {
     spdlog::debug("ShardRsm Rejecting client request with stale ShardMap version, so that they retry");
     return msgs::DeleteVerticesResponse{
         .error = msgs::ShardError{
-            .code = common::ErrorCode::STALE_SHARD_MAP,
+            .code = common::ErrorCode::MISMATCHED_SHARD_VERSION,
             .message = "Shard has a higher version than the requestor's ShardMap due to a Shard split or merge, so the "
                        "requestor must refresh their ShardMap and try again",
         }};
@@ -218,7 +218,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateExpandRequest &&req) {
     spdlog::debug("ShardRsm Rejecting client request with stale ShardMap version, so that they retry");
     return msgs::CreateExpandResponse{
         .error = msgs::ShardError{
-            .code = common::ErrorCode::STALE_SHARD_MAP,
+            .code = common::ErrorCode::MISMATCHED_SHARD_VERSION,
             .message = "Shard has a higher version than the requestor's ShardMap due to a Shard split or merge, so the "
                        "requestor must refresh their ShardMap and try again",
         }};
@@ -285,7 +285,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteEdgesRequest &&req) {
     spdlog::debug("ShardRsm Rejecting client request with stale ShardMap version, so that they retry");
     return msgs::DeleteEdgesResponse{
         .error = msgs::ShardError{
-            .code = common::ErrorCode::STALE_SHARD_MAP,
+            .code = common::ErrorCode::MISMATCHED_SHARD_VERSION,
             .message = "Shard has a higher version than the requestor's ShardMap due to a Shard split or merge, so the "
                        "requestor must refresh their ShardMap and try again",
         }};
@@ -316,7 +316,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateEdgesRequest &&req) {
     spdlog::debug("ShardRsm Rejecting client request with stale ShardMap version, so that they retry");
     return msgs::UpdateEdgesResponse{
         .error = msgs::ShardError{
-            .code = common::ErrorCode::STALE_SHARD_MAP,
+            .code = common::ErrorCode::MISMATCHED_SHARD_VERSION,
             .message = "Shard has a higher version than the requestor's ShardMap due to a Shard split or merge, so the "
                        "requestor must refresh their ShardMap and try again",
         }};
@@ -400,7 +400,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
     spdlog::debug("ShardRsm Rejecting client request with stale ShardMap version, so that they retry");
     return msgs::ScanVerticesResponse{
         .error = msgs::ShardError{
-            .code = common::ErrorCode::STALE_SHARD_MAP,
+            .code = common::ErrorCode::MISMATCHED_SHARD_VERSION,
             .message = "Shard has a higher version than the requestor's ShardMap due to a Shard split or merge, so the "
                        "requestor must refresh their ShardMap and try again",
         }};
@@ -509,7 +509,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
     spdlog::debug("ShardRsm Rejecting client request with stale ShardMap version, so that they retry");
     return msgs::ExpandOneResponse{
         .error = msgs::ShardError{
-            .code = common::ErrorCode::STALE_SHARD_MAP,
+            .code = common::ErrorCode::MISMATCHED_SHARD_VERSION,
             .message = "Shard has a higher version than the requestor's ShardMap due to a Shard split or merge, so the "
                        "requestor must refresh their ShardMap and try again",
         }};
@@ -617,7 +617,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CommitRequest &&req) {
     spdlog::debug("ShardRsm Rejecting client request with stale ShardMap version, so that they retry");
     return msgs::CommitResponse{
         .error = msgs::ShardError{
-            .code = common::ErrorCode::STALE_SHARD_MAP,
+            .code = common::ErrorCode::MISMATCHED_SHARD_VERSION,
             .message = "Shard has a higher version than the requestor's ShardMap due to a Shard split or merge, so the "
                        "requestor must refresh their ShardMap and try again",
         }};
@@ -631,7 +631,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::GetPropertiesRequest &&req) {
     spdlog::debug("ShardRsm Rejecting client request with stale ShardMap version, so that they retry");
     return msgs::GetPropertiesResponse{
         .error = msgs::ShardError{
-            .code = common::ErrorCode::STALE_SHARD_MAP,
+            .code = common::ErrorCode::MISMATCHED_SHARD_VERSION,
             .message = "Shard has a higher version than the requestor's ShardMap due to a Shard split or merge, so the "
                        "requestor must refresh their ShardMap and try again",
         }};

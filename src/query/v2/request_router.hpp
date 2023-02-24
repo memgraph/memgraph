@@ -197,7 +197,7 @@ class RequestRouter : public RequestRouterInterface {
         msgs::WriteResponses write_response_variant = commit_response.GetValue();
         auto &response = std::get<msgs::CommitResponse>(write_response_variant);
         if (response.error) {
-          if (response.error->code == common::ErrorCode::STALE_SHARD_MAP) {
+          if (response.error->code == common::ErrorCode::MISMATCHED_SHARD_VERSION) {
             RefreshShardMap();
 
             // signal to caller that we should retry
@@ -739,7 +739,7 @@ class RequestRouter : public RequestRouterInterface {
       msgs::ReadResponses response_variant = poll_result->GetValue();
       auto response = std::get<ResponseT>(response_variant);
       if (response.error) {
-        if (response.error->code == common::ErrorCode::STALE_SHARD_MAP) {
+        if (response.error->code == common::ErrorCode::MISMATCHED_SHARD_VERSION) {
           RefreshShardMap();
 
           // signal to caller that we should retry
@@ -801,7 +801,7 @@ class RequestRouter : public RequestRouterInterface {
       msgs::WriteResponses response_variant = poll_result->GetValue();
       auto response = std::get<ResponseT>(response_variant);
       if (response.error) {
-        if (response.error->code == common::ErrorCode::STALE_SHARD_MAP) {
+        if (response.error->code == common::ErrorCode::MISMATCHED_SHARD_VERSION) {
           RefreshShardMap();
 
           // signal to caller that we should retry

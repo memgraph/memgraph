@@ -120,7 +120,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       case Error::SCHEMA_VERTEX_SECONDARY_LABEL_IS_PRIMARY:
       case Error::SCHEMA_VERTEX_PRIMARY_PROPERTIES_UNDEFINED:
         throw ExpressionRuntimeException("Unexpected schema violation when accessing {}.", accessed_object);
-      case Error::STALE_SHARD_MAP:
+      case Error::MISMATCHED_SHARD_VERSION:
         throw ExpressionRuntimeException(
             "Cluster performed a Shard split or merge that invalidated the transaction's metadata. This should have "
             "been handled in the RequestRouter.");
