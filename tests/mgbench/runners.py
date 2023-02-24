@@ -435,3 +435,4 @@ class Client:
                 print(error)
             data = [x for x in data if not x.startswith("[")]
             return list(map(json.loads, data))
+

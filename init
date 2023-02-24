@@ -113,8 +113,8 @@ if [[ "$setup_libs" == "true" ]]; then
 fi
 
 # Fix for centos 7 during release
-if [ "${ARCHITECTURE}" = "centos-7" ]; then
-  python3 -m pip uninstall virtualenv
+if [ "${DISTRO}" = "centos-7" ] || [ "${DISTRO}" = "debian-11" ]; then
+  python3 -m pip uninstall -y virtualenv
   python3 -m pip install virtualenv
 fi
 
@@ -149,7 +149,7 @@ python3 -m pre_commit install
 
 # Install py format tools
 echo "Install black formatter"
-python3 -m pip install black==22.10.*
+python3 -m pip install black==22.8.*
 echo "Install isort"
 python3 -m pip install isort==5.10.*
 
