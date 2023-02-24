@@ -46,7 +46,6 @@ struct VertexIdCmpr {
 std::optional<std::map<PropertyId, Value>> PrimaryKeysFromAccessor(const VertexAccessor &acc, View view,
                                                                    const Schemas::Schema &schema) {
   std::map<PropertyId, Value> ret;
-  auto props = acc.Properties(view);
   auto maybe_pk = acc.PrimaryKey(view);
   if (maybe_pk.HasError()) {
     spdlog::debug("Encountered an error while trying to get vertex primary key.");
@@ -58,7 +57,7 @@ std::optional<std::map<PropertyId, Value>> PrimaryKeysFromAccessor(const VertexA
     ret.emplace(schema.second[i].property_id, FromPropertyValueToValue(std::move(pk[i])));
   }
 
-  return ret;
+  return {std::move(ret)};
 }
 
 ShardResult<std::vector<msgs::Label>> FillUpSourceVertexSecondaryLabels(const std::optional<VertexAccessor> &v_acc,
@@ -99,7 +98,7 @@ ShardResult<std::map<PropertyId, Value>> FillUpSourceVertexProperties(const std:
     }
     auto pks = PrimaryKeysFromAccessor(*v_acc, view, schema);
     if (pks) {
-      src_vertex_properties.merge(*pks);
+      src_vertex_properties.merge(std::move(*pks));
     }
 
   } else if (req.src_vertex_properties.value().empty()) {
