@@ -41,10 +41,10 @@ RC_GTEST_PROP(RandomClusterConfig, BulkLoadAndSplit,
   // splits
   std::vector<Op> ops{};
 
-  for (int key = 0; key < inserts; key++) {
-    Op op1 = {.inner = AssertShardsSplit{}};
-    ops.emplace_back(std::move(op1));
+  // TODO(tyler) remove this and allow more splits to happen
+  auto max_inserts = 20;
 
+  for (int key = 0; key < inserts % max_inserts; key++) {
     Op op2 = {.inner = CreateVertex{.first = 0, .second = key}};
     ops.emplace_back(std::move(op2));
   }

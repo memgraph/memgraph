@@ -188,6 +188,7 @@ class RequestRouter : public RequestRouterInterface {
         auto &storage_client = GetStorageClientForShard(shard);
         // TODO(kostasrim) Currently requests return the result directly. Adjust this when the API works MgFuture
         // instead.
+        commit_req.expected_shard_version = shard.version;
         auto commit_response = storage_client.SendWriteRequest(commit_req);
         while (commit_response.HasError()) {
           spdlog::debug("RequestRouter retrying Commit request due to timeout");
@@ -510,7 +511,7 @@ class RequestRouter : public RequestRouterInterface {
                                              storage::conversions::ConvertPropertyVector(new_vertex.primary_key));
       if (!per_shard_request_table.contains(shard)) {
         msgs::CreateVerticesRequest create_v_rqst{.transaction_id = transaction_id_,
-                                                  .shard_map_version = shard_map_.shard_map_version};
+                                                  .expected_shard_version = shard.version};
         per_shard_request_table.insert(std::pair(shard, std::move(create_v_rqst)));
       }
       per_shard_request_table[shard].new_vertices.push_back(std::move(new_vertex));
@@ -558,6 +559,7 @@ class RequestRouter : public RequestRouterInterface {
     std::vector<ShardRequestState<msgs::CreateExpandRequest>> requests = {};
 
     for (auto &[shard, request] : per_shard_request_table) {
+      request.expected_shard_version = shard.version;
       ShardRequestState<msgs::CreateExpandRequest> shard_request_state{
           .shard = shard,
           .request = request,
@@ -588,7 +590,7 @@ class RequestRouter : public RequestRouterInterface {
 
         msgs::ScanVerticesRequest request;
         request.transaction_id = transaction_id_;
-        request.shard_map_version = shard_map_.shard_map_version;
+        request.expected_shard_version = shard.version;
         request.start_id.second = storage::conversions::ConvertValueVector(key);
 
         ShardRequestState<msgs::ScanVerticesRequest> shard_request_state{
@@ -621,6 +623,7 @@ class RequestRouter : public RequestRouterInterface {
     std::vector<ShardRequestState<msgs::ExpandOneRequest>> requests = {};
 
     for (auto &[shard, request] : per_shard_request_table) {
+      request.expected_shard_version = shard.version;
       ShardRequestState<msgs::ExpandOneRequest> shard_request_state{
           .shard = shard,
           .request = request,
@@ -661,6 +664,7 @@ class RequestRouter : public RequestRouterInterface {
     std::vector<ShardRequestState<msgs::GetPropertiesRequest>> requests;
 
     for (auto &[shard, rqst] : per_shard_request_table) {
+      rqst.expected_shard_version = shard.version;
       ShardRequestState<msgs::GetPropertiesRequest> shard_request_state{
           .shard = shard,
           .request = std::move(rqst),

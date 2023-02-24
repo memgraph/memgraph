@@ -344,7 +344,7 @@ enum class StorageView { OLD = 0, NEW = 1 };
 
 struct ScanVerticesRequest {
   Hlc transaction_id;
-  Hlc shard_map_version;
+  Hlc expected_shard_version;
   // This should be optional
   VertexId start_id;
   //  The empty optional means return all of the properties, while an empty list means do not return any properties
@@ -377,6 +377,7 @@ struct ScanVerticesResponse {
 
 struct GetPropertiesRequest {
   Hlc transaction_id;
+  Hlc expected_shard_version;
   std::vector<VertexId> vertex_ids;
   std::vector<std::pair<VertexId, EdgeId>> vertices_and_edges;
 
@@ -408,6 +409,7 @@ enum class EdgeDirection : uint8_t { OUT = 1, IN = 2, BOTH = 3 };
 
 struct ExpandOneRequest {
   Hlc transaction_id;
+  Hlc expected_shard_version;
   std::vector<VertexId> src_vertices;
   // return types that type is in this list
   // empty means all the types
@@ -501,7 +503,7 @@ struct NewVertex {
 
 struct CreateVerticesRequest {
   Hlc transaction_id;
-  Hlc shard_map_version;
+  Hlc expected_shard_version;
   std::vector<NewVertex> new_vertices;
 };
 
@@ -512,6 +514,7 @@ struct CreateVerticesResponse {
 struct DeleteVerticesRequest {
   enum class DeletionType { DELETE, DETACH_DELETE };
   Hlc transaction_id;
+  Hlc expected_shard_version;
   std::vector<std::vector<Value>> primary_keys;
   DeletionType deletion_type;
 };
@@ -522,6 +525,7 @@ struct DeleteVerticesResponse {
 
 struct UpdateVerticesRequest {
   Hlc transaction_id;
+  Hlc expected_shard_version;
   std::vector<UpdateVertex> update_vertices;
 };
 
@@ -545,6 +549,7 @@ struct NewExpand {
 
 struct CreateExpandRequest {
   Hlc transaction_id;
+  Hlc expected_shard_version;
   std::vector<NewExpand> new_expands;
 };
 
@@ -554,6 +559,7 @@ struct CreateExpandResponse {
 
 struct DeleteEdgesRequest {
   Hlc transaction_id;
+  Hlc expected_shard_version;
   std::vector<Edge> edges;
 };
 
@@ -563,6 +569,7 @@ struct DeleteEdgesResponse {
 
 struct UpdateEdgesRequest {
   Hlc transaction_id;
+  Hlc expected_shard_version;
   std::vector<UpdateEdgeProp> new_properties;
 };
 
@@ -572,6 +579,7 @@ struct UpdateEdgesResponse {
 
 struct CommitRequest {
   Hlc transaction_id;
+  Hlc expected_shard_version;
   Hlc commit_timestamp;
 };
 

@@ -111,9 +111,6 @@ class MachineManager {
 
       const auto now = io_.Now();
 
-      uint64_t now_us = now.time_since_epoch().count();
-      uint64_t next_us = next_cron_.time_since_epoch().count();
-
       if (now >= next_cron_) {
         next_cron_ = Cron();
       }
