@@ -160,7 +160,7 @@ class RequestRouter : public RequestRouterInterface {
 
     // TODO(tyler) enforce max retries here
     while (write_res.HasError()) {
-      spdlog::warn("RequestRouter retrying HlcRequest to coordinator after timeout");
+      spdlog::debug("RequestRouter retrying HlcRequest to coordinator after timeout");
       write_res = coord_cli_.SendWriteRequest(write_req);
     }
 
@@ -190,7 +190,7 @@ class RequestRouter : public RequestRouterInterface {
         // instead.
         auto commit_response = storage_client.SendWriteRequest(commit_req);
         while (commit_response.HasError()) {
-          spdlog::warn("RequestRouter retrying Commit request due to timeout");
+          spdlog::debug("RequestRouter retrying Commit request due to timeout");
           commit_response = storage_client.SendWriteRequest(commit_req);
         }
         msgs::WriteResponses write_response_variant = commit_response.GetValue();
@@ -287,7 +287,7 @@ class RequestRouter : public RequestRouterInterface {
           DriveReadResponses<msgs::ScanVerticesRequest, msgs::ScanVerticesResponse>(running_requests);
 
       if (responses_result.HasError()) {
-        spdlog::warn(
+        spdlog::debug(
             "RequestRouter refreshing ShardMap and re-sending requests for ScanVertices after Shard version mismatch");
         RefreshShardMap();
         continue;
@@ -413,8 +413,8 @@ class RequestRouter : public RequestRouterInterface {
       auto responses_result = DriveReadResponses<msgs::ExpandOneRequest, msgs::ExpandOneResponse>(running_requests);
 
       if (responses_result.HasError()) {
-        spdlog::warn(
-            "RequestRouter refreshing ShardMap and re-sending requests for ScanVertices after Shard version mismatch");
+        spdlog::debug(
+            "RequestRouter refreshing ShardMap and re-sending requests for ExpandOne after Shard version mismatch");
         RefreshShardMap();
         continue;
       }
@@ -463,8 +463,8 @@ class RequestRouter : public RequestRouterInterface {
           DriveReadResponses<msgs::GetPropertiesRequest, msgs::GetPropertiesResponse>(running_requests);
 
       if (responses_result.HasError()) {
-        spdlog::warn(
-            "RequestRouter refreshing ShardMap and re-sending requests for ScanVertices after Shard version mismatch");
+        spdlog::debug(
+            "RequestRouter refreshing ShardMap and re-sending requests for GetProperties after Shard version mismatch");
         RefreshShardMap();
         continue;
       }
