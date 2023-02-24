@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -78,7 +78,7 @@ int main() {
 
   auto req = ScanVerticesRequest{2, std::nullopt};
 
-  auto res_f = cli_io.Request<ScanVerticesRequest, VerticesResponse>(srv_addr, req);
+  auto res_f = cli_io.Request<VerticesResponse>(srv_addr, req);
   auto res_rez = std::move(res_f).Wait();
   simulator.ShutDown();
   return 0;

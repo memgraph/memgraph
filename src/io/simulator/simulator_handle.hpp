@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -105,7 +105,7 @@ class SimulatorHandle {
 
   bool ShouldShutDown() const;
 
-  template <Message Request, Message Response>
+  template <Message Response, Message Request>
   ResponseFuture<Response> SubmitRequest(Address to_address, Address from_address, Request &&request, Duration timeout,
                                          std::function<bool()> &&maybe_tick_simulator,
                                          std::function<void()> &&fill_notifier) {
@@ -194,12 +194,12 @@ class SimulatorHandle {
   }
 
   template <Message M>
-  void Send(Address to_address, Address from_address, RequestId request_id, M message) {
+  void Send(Address to_address, Address from_address, RequestId request_id, M &&message) {
     spdlog::trace("sending message from {} to {}", from_address.last_known_port, to_address.last_known_port);
     auto type_info = TypeInfoFor(message);
     {
       std::unique_lock<std::mutex> lock(mu_);
-      std::any message_any(std::move(message));
+      std::any message_any(std::forward<M>(message));
       OpaqueMessage om{.to_address = to_address,
                        .from_address = from_address,
                        .request_id = request_id,

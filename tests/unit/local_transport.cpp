@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -70,7 +70,7 @@ TEST(LocalTransport, BasicRequest) {
     auto value = 1;  // i;
     cli_req.proposal = value;
     spdlog::info("[CLIENT] sending request");
-    auto res_f = cli_io.Request<CounterRequest, CounterResponse>(srv_addr, cli_req);
+    auto res_f = cli_io.Request<CounterResponse>(srv_addr, cli_req);
     spdlog::info("[CLIENT] waiting on future");
 
     auto res_rez = std::move(res_f).Wait();

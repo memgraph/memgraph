@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -76,7 +76,7 @@ std::pair<SimulatorStats, LatencyHistogramSummaries> RunWorkload(SimulatorConfig
     CounterRequest cli_req;
     cli_req.proposal = i;
     spdlog::info("[CLIENT] calling Request");
-    auto res_f = cli_io.Request<CounterRequest, CounterResponse>(srv_addr, cli_req);
+    auto res_f = cli_io.Request<CounterResponse>(srv_addr, cli_req);
     spdlog::info("[CLIENT] calling Wait");
     auto res_rez = std::move(res_f).Wait();
     spdlog::info("[CLIENT] Wait returned");

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -33,15 +33,15 @@ class SimulatorTransport {
   SimulatorTransport(std::shared_ptr<SimulatorHandle> simulator_handle, Address address, uint64_t seed)
       : simulator_handle_(simulator_handle), address_(address), rng_(std::mt19937{seed}) {}
 
-  template <Message RequestT, Message ResponseT>
+  template <Message ResponseT, Message RequestT>
   ResponseFuture<ResponseT> Request(Address to_address, Address from_address, RequestT request,
                                     std::function<void()> notification, Duration timeout) {
     std::function<bool()> tick_simulator = [handle_copy = simulator_handle_] {
       return handle_copy->MaybeTickSimulator();
     };
 
-    return simulator_handle_->template SubmitRequest<RequestT, ResponseT>(
-        to_address, from_address, std::move(request), timeout, std::move(tick_simulator), std::move(notification));
+    return simulator_handle_->template SubmitRequest<ResponseT>(to_address, from_address, std::move(request), timeout,
+                                                                std::move(tick_simulator), std::move(notification));
   }
 
   template <Message... Ms>
@@ -51,7 +51,7 @@ class SimulatorTransport {
 
   template <Message M>
   void Send(Address to_address, Address from_address, uint64_t request_id, M message) {
-    return simulator_handle_->template Send<M>(to_address, from_address, request_id, message);
+    return simulator_handle_->template Send(to_address, from_address, request_id, message);
   }
 
   Time Now() const { return simulator_handle_->Now(); }

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -138,7 +138,7 @@ class LocalTransportHandle {
     cv_.notify_all();
   }
 
-  template <Message RequestT, Message ResponseT>
+  template <Message ResponseT, Message RequestT>
   ResponseFuture<ResponseT> SubmitRequest(Address to_address, Address from_address, RequestT &&request,
                                           Duration timeout, std::function<void()> fill_notifier) {
     auto [future, promise] = memgraph::io::FuturePromisePairWithNotifications<ResponseResult<ResponseT>>(

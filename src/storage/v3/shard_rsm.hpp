@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -42,7 +42,7 @@ class ShardRsm {
   explicit ShardRsm(std::unique_ptr<Shard> &&shard) : shard_(std::move(shard)){};
 
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-  msgs::ReadResponses Read(msgs::ReadRequests requests) {
+  msgs::ReadResponses Read(msgs::ReadRequests &&requests) {
     return std::visit([&](auto &&request) mutable { return HandleRead(std::forward<decltype(request)>(request)); },
                       std::move(requests));
   }
