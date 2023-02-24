@@ -225,14 +225,7 @@ void ExecuteOp(SimClientContext &context, AssertShardsSplit assert_shards_split)
     initialized_shards = shard_map.InitializedShards();
 
     if (initialized_shards >= minimum_expected_shards) {
-      auto shard_for_0 =
-          shard_map.GetShardForKey("test_label", {storage::v3::PropertyValue(0), storage::v3::PropertyValue(0)});
-      auto shard_for_6 =
-          shard_map.GetShardForKey("test_label", {storage::v3::PropertyValue(0), storage::v3::PropertyValue(6)});
-
-      spdlog::info("first shard: {}", shard_for_0);
-      spdlog::info("last shard: {}", shard_for_6);
-      spdlog::warn(
+      spdlog::info(
           "AssertShardsSplit returning after we see {} initialized shards ({} minimum expected with model size {} and "
           "split threshold {})",
           initialized_shards, minimum_expected_shards, context.correctness_model.size(),
@@ -304,32 +297,15 @@ std::pair<SimulatorStats, LatencyHistogramSummaries> RunClusterSimulation(const 
 
   WaitForShardsToInitialize(context.coordinator_client);
 
-  /*
-  TODO(tyler) un-OVERRIDE ops
-
   for (const Op &op : ops) {
     std::visit([&](auto &o) { ExecuteOp(context, o); }, op.inner);
   }
-  */
-
-  for (int key = 0; key < 10; key++) {
-    spdlog::warn("~~~~~~~~~~~~~~~~~1");
-    ExecuteOp(context, AssertShardsSplit{});
-    spdlog::warn("~~~~~~~~~~~~~~~~~2: about to create key {}", key);
-    ExecuteOp(context, CreateVertex{.first = 0, .second = key});
-    spdlog::warn("~~~~~~~~~~~~~~~~~3 created {} successfully", key);
-  }
-  spdlog::warn("~~~~~~~~~~~~~~~~~4");
-  ExecuteOp(context, AssertShardsSplit{});
-  spdlog::warn("~~~~~~~~~~~~~~~~~5 performing MATCH(n) return n");
-  ExecuteOp(context, ScanAll{});
 
   // We have now completed our workload without failing any assertions, so we can
   // disable detaching the worker thread, which will cause the mm_thread_1 jthread
   // to be joined when this function returns.
   detach_on_error.detach = false;
 
-  spdlog::warn("~~~~~~~~~~~~~~~~~6");
   simulator.ShutDown();
 
   mm_thread_1.join();
