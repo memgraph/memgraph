@@ -5,10 +5,6 @@
 ---
 
 <p align="center">
-Build modern, graph-based applications on top of your streaming data in minutes.
-</p>
-
-<p align="center">
   <a href="https://github.com/memgraph/memgraph/blob/master/licenses/APL.txt">
     <img src="https://img.shields.io/badge/license-APL-green" alt="license" title="license"/>
   </a>
