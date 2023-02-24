@@ -167,7 +167,7 @@ class ShardWorker {
       auto type_info = std::visit([&](const auto &msg) { return io::TypeInfoFor(msg); }, route_message.message);
 
       std::string demangled_name = boost::core::demangle(type_info.get().name());
-      spdlog::warn(
+      spdlog::debug(
           "ShardWorker received {} message for rsm {} which does not exist on our system (possibly due to a split not "
           "having been applied locally yet)",
           demangled_name, route_message.to.unique_id);
@@ -199,7 +199,7 @@ class ShardWorker {
 
     ShardRaft<IoImpl> rsm{std::move(rsm_io), rsm_peers, std::move(rsm_state)};
 
-    spdlog::info("SM created a new shard with UUID {}", initialize_split_shard.shard_uuid);
+    spdlog::info("ShardWorker created a new shard with UUID {}", initialize_split_shard.shard_uuid);
 
     // perform an initial Cron call for the new RSM
     Time next_cron = rsm.Cron();
@@ -243,7 +243,7 @@ class ShardWorker {
       // it's not a bug for the coordinator to send us UUIDs that we have
       // already created, because there may have been lag that caused
       // the coordinator not to hear back from us.
-      spdlog::warn("SM told to initialize already-existing shard with UUID {} - skipping", to_init.uuid);
+      spdlog::debug("ShardWorker told to initialize already-existing shard with UUID {} - skipping", to_init.uuid);
       return;
     }
 
@@ -267,7 +267,7 @@ class ShardWorker {
 
     ShardRaft<IoImpl> rsm{std::move(rsm_io), rsm_peers, std::move(rsm_state)};
 
-    spdlog::warn("SM created a new shard with UUID {}", to_init.uuid);
+    spdlog::debug("ShardWorker created a new shard with UUID {}", to_init.uuid);
 
     // perform an initial Cron call for the new RSM
     Time next_cron = rsm.Cron();
