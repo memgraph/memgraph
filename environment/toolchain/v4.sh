@@ -51,10 +51,22 @@ CPPCHECK_VERSION=2.6
 LLVM_VERSION=13.0.0
 SWIG_VERSION=4.0.2 # used only for LLVM compilation
 
-# Check for the dependencies.
-echo "ALL BUILD PACKAGES: $($DIR/../os/$DISTRO.sh list TOOLCHAIN_BUILD_DEPS)"
-$DIR/../os/$DISTRO.sh check TOOLCHAIN_BUILD_DEPS
-echo "ALL RUN PACKAGES: $($DIR/../os/$DISTRO.sh list TOOLCHAIN_RUN_DEPS)"
+# Check for the toolchain build dependencies.
+if [[ "$for_arm" = true ]]; then
+    echo "ALL BUILD PACKAGES: $($DIR/../os/$DISTRO-arm.sh list TOOLCHAIN_BUILD_DEPS)"
+    $DIR/../os/$DISTRO-arm.sh check TOOLCHAIN_BUILD_DEPS
+else
+    echo "ALL BUILD PACKAGES: $($DIR/../os/$DISTRO.sh list TOOLCHAIN_BUILD_DEPS)"
+    $DIR/../os/$DISTRO.sh check TOOLCHAIN_BUILD_DEPS
+fi
+# Check for the toolchain run dependencies.
+if [[ "$for_arm" = true ]]; then
+    echo "ALL RUN PACKAGES: $($DIR/../os/$DISTRO-arm.sh list TOOLCHAIN_RUN_DEPS)"
+    $DIR/../os/$DISTRO-arm.sh check TOOLCHAIN_RUN_DEPS
+else
+    echo "ALL RUN PACKAGES: $($DIR/../os/$DISTRO.sh list TOOLCHAIN_RUN_DEPS)"
+    $DIR/../os/$DISTRO.sh check TOOLCHAIN_RUN_DEPS
+fi
 $DIR/../os/$DISTRO.sh check TOOLCHAIN_RUN_DEPS
 
 # check installation directory
