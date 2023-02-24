@@ -217,7 +217,7 @@ class RequestRouter : public RequestRouterInterface {
     spdlog::trace("sending hlc request before committing transaction");
     auto commit_timestamp = RefreshShardMap();
 
-    // TODO(tyler) enforce max commit retries here
+    // TODO(tyler) enforce max commit retries here when we go distributed
     while (true) {
       // Commit is idempotent, so it's fine to retry it to the same shards if it fails
       bool success = CommitInner(commit_timestamp);
@@ -264,6 +264,7 @@ class RequestRouter : public RequestRouterInterface {
 
   // TODO(kostasrim) Simplify return result
   std::vector<VertexAccessor> ScanVertices(std::optional<std::string> label) override {
+    // TODO(tyler) enforce max commit retries here when we go distributed
     while (true) {
       // create requests
       auto requests_to_be_sent = RequestsForScanVertices(label);
@@ -317,6 +318,7 @@ class RequestRouter : public RequestRouterInterface {
       new_vertex.idempotency_token = idempotency_token_generator_++;
     }
 
+    // TODO(tyler) enforce max commit retries here when we go distributed
     while (true) {
       // create requests
       std::vector<ShardRequestState<msgs::CreateVerticesRequest>> requests_to_be_sent =
@@ -357,6 +359,7 @@ class RequestRouter : public RequestRouterInterface {
       new_edge.idempotency_token = idempotency_token_generator_++;
     }
 
+    // TODO(tyler) enforce max commit retries here when we go distributed
     while (true) {
       // create requests
       std::vector<ShardRequestState<msgs::CreateExpandRequest>> requests_to_be_sent =
@@ -393,6 +396,7 @@ class RequestRouter : public RequestRouterInterface {
     // For each vertex U, the ExpandOne will result in <U, Edges>. The destination vertex and its properties
     // must be fetched again with an ExpandOne(Edges.dst)
 
+    // TODO(tyler) enforce max commit retries here when we go distributed
     while (true) {
       // create requests
       std::vector<ShardRequestState<msgs::ExpandOneRequest>> requests_to_be_sent = RequestsForExpandOne(request);
@@ -441,6 +445,7 @@ class RequestRouter : public RequestRouterInterface {
   std::vector<msgs::GetPropertiesResultRow> GetProperties(msgs::GetPropertiesRequest requests) override {
     requests.transaction_id = transaction_id_;
 
+    // TODO(tyler) enforce max commit retries here when we go distributed
     while (true) {
       // create requests
       std::vector<ShardRequestState<msgs::GetPropertiesRequest>> requests_to_be_sent =
