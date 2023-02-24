@@ -82,8 +82,11 @@ static_assert(kMinimumCronInterval < kMaximumCronInterval,
 template <typename IoImpl>
 class ShardManager {
  public:
-  ShardManager(io::Io<IoImpl> io, size_t shard_worker_threads, Address coordinator_leader)
-      : io_(io), coordinator_leader_(coordinator_leader) {
+  ShardManager(io::Io<IoImpl> io, size_t shard_worker_threads, Address coordinator_leader,
+               bool serialize_shard_splits_for_determinisim = false)
+      : io_(io),
+        coordinator_leader_(coordinator_leader),
+        serialize_shard_splits_for_determinisim_(serialize_shard_splits_for_determinisim) {
     MG_ASSERT(shard_worker_threads >= 1);
 
     for (int i = 0; i < shard_worker_threads; i++) {
@@ -241,6 +244,7 @@ class ShardManager {
   Address coordinator_leader_;
   std::optional<ResponseFuture<WriteResponse<CoordinatorWriteResponses>>> heartbeat_res_;
   std::map<boost::uuids::uuid, coordinator::ShardId> initialized_but_not_confirmed_rsm_;
+  bool serialize_shard_splits_for_determinisim_;
 
   void Reconciliation() {
     if (heartbeat_res_.has_value()) {
@@ -314,14 +318,6 @@ class ShardManager {
 
     for (const auto &to_split : hr.shards_to_split) {
       for (const auto &[source, destination] : to_split.uuid_mapping) {
-        if (rsm_worker_mapping_.contains(destination)) {
-          // it's not a bug for the coordinator to send us UUIDs that we have
-          // already created, because there may have been lag that caused
-          // the coordinator not to hear back from us.
-          // TODO(tyler) make this idempotent before it hits raft
-          // break;
-        }
-
         if (rsm_worker_mapping_.contains(source)) {
           // Create the proper layered request providing a Raft write
           // request to the local shard rsm, under the guess that it is
@@ -354,6 +350,14 @@ class ShardManager {
           };
 
           SendToWorkerByUuid(source, shard_worker_message);
+
+          if (serialize_shard_splits_for_determinisim_) {
+            // This is only serialized during simulation for determinism
+            // purposes, and has been tested for correctness without the
+            // imposed determinism.
+            size_t worker_index = UuidToWorkerIndex(source);
+            workers_[worker_index].BlockOnQuiescence();
+          }
         } else {
           MG_ASSERT(false, "bad split source: {}", source);
         }

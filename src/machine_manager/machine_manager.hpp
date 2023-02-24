@@ -80,7 +80,7 @@ class MachineManager {
         config_(config),
         coordinator_address_(io.GetAddress().ForkLocalCoordinator()),
         shard_manager_{io.ForkLocal(io.GetAddress().ForkLocalShardManager().unique_id), config.shard_worker_threads,
-                       coordinator_address_} {
+                       coordinator_address_, config_.sync_message_handling} {
     auto coordinator_io = io.ForkLocal(coordinator_address_.unique_id);
     CoordinatorWorker coordinator_worker{coordinator_io, coordinator_queue_, coordinator};
     coordinator_handle_ = std::jthread([coordinator = std::move(coordinator_worker)]() mutable { coordinator.Run(); });
