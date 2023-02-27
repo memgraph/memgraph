@@ -195,7 +195,8 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor,
 
 void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory,
                       const double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
-                      const TriggerContext &context, const AuthChecker *auth_checker) const {
+                      std::atomic<bool> *is_transaction_aborted_by_user, const TriggerContext &context,
+                      const AuthChecker *auth_checker) const {
   if (!context.ShouldEventTrigger(event_type_)) {
     return;
   }
@@ -214,7 +215,7 @@ void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution
   ctx.evaluation_context.labels = NamesToLabels(plan.ast_storage().labels_, dba);
   ctx.timer = utils::AsyncTimer(max_execution_time_sec);
   ctx.is_shutting_down = is_shutting_down;
-  ctx.aborted_by_user = dba->IsTransactionAbortedByUser();
+  ctx.is_aborted_by_user = is_transaction_aborted_by_user;
   ctx.is_profile_query = false;
 
   // Set up temporary memory for a single Pull. Initial memory comes from the

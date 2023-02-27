@@ -983,7 +983,8 @@ struct PullPlanVector {
 struct PullPlan {
   explicit PullPlan(std::shared_ptr<CachedPlan> plan, const Parameters &parameters, bool is_profile_query,
                     DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
-                    std::optional<std::string> username, TriggerContextCollector *trigger_context_collector = nullptr,
+                    std::optional<std::string> username, std::atomic<bool> *is_transaction_aborted_by_user,
+                    TriggerContextCollector *trigger_context_collector = nullptr,
                     std::optional<size_t> memory_limit = {});
   std::optional<plan::ProfilingStatsWithTotalTime> Pull(AnyStream *stream, std::optional<int> n,
                                                         const std::vector<Symbol> &output_symbols,
@@ -1012,8 +1013,8 @@ struct PullPlan {
 
 PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &parameters, const bool is_profile_query,
                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
-                   std::optional<std::string> username, TriggerContextCollector *trigger_context_collector,
-                   const std::optional<size_t> memory_limit)
+                   std::optional<std::string> username, std::atomic<bool> *is_transaction_aborted_by_user,
+                   TriggerContextCollector *trigger_context_collector, const std::optional<size_t> memory_limit)
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory)),
       frame_(plan->symbol_table().max_position(), execution_memory),
@@ -1033,7 +1034,7 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
     ctx_.timer = utils::AsyncTimer{interpreter_context->config.execution_timeout_sec};
   }
   ctx_.is_shutting_down = &interpreter_context->is_shutting_down;
-  ctx_.aborted_by_user = dba->IsTransactionAbortedByUser();
+  ctx_.is_aborted_by_user = is_transaction_aborted_by_user;
   ctx_.is_profile_query = is_profile_query;
   ctx_.trigger_context_collector = trigger_context_collector;
 }
@@ -1203,7 +1204,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
 PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
                                  InterpreterContext *interpreter_context, DbAccessor *dba,
                                  utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
-                                 const std::string *username,
+                                 const std::string *username, std::atomic<bool> *is_transaction_aborted_by_user,
                                  TriggerContextCollector *trigger_context_collector = nullptr) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
 
@@ -1248,9 +1249,9 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
     header.push_back(
         utils::FindOr(parsed_query.stripped_query.named_expressions(), symbol.token_position(), symbol.name()).first);
   }
-  auto pull_plan =
-      std::make_shared<PullPlan>(plan, parsed_query.parameters, false, dba, interpreter_context, execution_memory,
-                                 StringPointerToOptional(username), trigger_context_collector, memory_limit);
+  auto pull_plan = std::make_shared<PullPlan>(plan, parsed_query.parameters, false, dba, interpreter_context,
+                                              execution_memory, StringPointerToOptional(username),
+                                              is_transaction_aborted_by_user, trigger_context_collector, memory_limit);
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
                        [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary](
                            AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
@@ -1310,8 +1311,8 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
 
 PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                   std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
-                                  DbAccessor *dba, utils::MemoryResource *execution_memory,
-                                  const std::string *username) {
+                                  DbAccessor *dba, utils::MemoryResource *execution_memory, const std::string *username,
+                                  std::atomic<bool> *is_transaction_aborted_by_user) {
   const std::string kProfileQueryStart = "profile ";
 
   MG_ASSERT(utils::StartsWith(utils::ToLowerCase(parsed_query.stripped_query.query()), kProfileQueryStart),
@@ -1372,13 +1373,14 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                         // We want to execute the query we are profiling lazily, so we delay
                         // the construction of the corresponding context.
                         stats_and_total_time = std::optional<plan::ProfilingStatsWithTotalTime>{},
-                        pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                        pull_plan = std::shared_ptr<PullPlanVector>(nullptr), is_transaction_aborted_by_user](
                            AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
                          // No output symbols are given so that nothing is streamed.
                          if (!stats_and_total_time) {
-                           stats_and_total_time = PullPlan(plan, parameters, true, dba, interpreter_context,
-                                                           execution_memory, optional_username, nullptr, memory_limit)
-                                                      .Pull(stream, {}, {}, summary);
+                           stats_and_total_time =
+                               PullPlan(plan, parameters, true, dba, interpreter_context, execution_memory,
+                                        optional_username, is_transaction_aborted_by_user, nullptr, memory_limit)
+                                   .Pull(stream, {}, {}, summary);
                            pull_plan = std::make_shared<PullPlanVector>(ProfilingStatsToTable(*stats_and_total_time));
                          }
 
@@ -1533,7 +1535,8 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
 
 PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
-                               DbAccessor *dba, utils::MemoryResource *execution_memory, const std::string *username) {
+                               DbAccessor *dba, utils::MemoryResource *execution_memory, const std::string *username,
+                               std::atomic<bool> *is_transaction_aborted_by_user_) {
   if (in_explicit_transaction) {
     throw UserModificationInMulticommandTxException();
   }
@@ -1553,8 +1556,9 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
                                           [fn = callback.fn](Frame *, ExecutionContext *) { return fn(); }),
       0.0, AstStorage{}, symbol_table));
 
-  auto pull_plan = std::make_shared<PullPlan>(plan, parsed_query.parameters, false, dba, interpreter_context,
-                                              execution_memory, StringPointerToOptional(username));
+  auto pull_plan =
+      std::make_shared<PullPlan>(plan, parsed_query.parameters, false, dba, interpreter_context, execution_memory,
+                                 StringPointerToOptional(username), is_transaction_aborted_by_user_);
   return PreparedQuery{
       callback.header, std::move(parsed_query.required_privileges),
       [pull_plan = std::move(pull_plan), callback = std::move(callback), output_symbols = std::move(output_symbols),
@@ -1924,7 +1928,8 @@ std::vector<std::vector<TypedValue>> TransactionQueueQueryHandler::ShowTransacti
   results.reserve(interpreter_context->interpreters->size());
   interpreter_context->interpreters.WithLock([&results, username, isAdmin](const auto &interpreters) {
     for (const Interpreter *interpreter : interpreters) {
-      if (interpreter->HasActiveTransaction() && (interpreter->username_ == username || isAdmin)) {
+      std::optional<uint64_t> transaction_id = interpreter->GetTransactionId();
+      if (transaction_id.has_value() && (interpreter->username_ == username || isAdmin)) {
         auto queries_summaries_typed = std::vector<TypedValue>();
         auto queries_summaries = interpreter->GetQueries();
         std::for_each(queries_summaries.begin(), queries_summaries.end(),
@@ -1932,8 +1937,7 @@ std::vector<std::vector<TypedValue>> TransactionQueueQueryHandler::ShowTransacti
                         queries_summaries_typed.emplace_back(query_summary);
                       });
         results.push_back({TypedValue(interpreter->username_.value_or("")),
-                           TypedValue(std::to_string(interpreter->GetTransactionId())),
-                           TypedValue(queries_summaries_typed)});
+                           TypedValue(std::to_string(transaction_id.value())), TypedValue(queries_summaries_typed)});
       }
     }
   });
@@ -1948,11 +1952,10 @@ std::vector<std::vector<TypedValue>> TransactionQueueQueryHandler::KillTransacti
     std::string status{"Transaction not found"};
     interpreter_context->interpreters.WithLock([&transaction_id, &status, username, isAdmin](const auto &interpreters) {
       for (Interpreter *interpreter : interpreters) {
-        std::string intr_trans_str = std::to_string(interpreter->GetTransactionId());
-        if (interpreter->HasActiveTransaction() && transaction_id == intr_trans_str) {
+        std::optional<uint64_t> intr_trans = interpreter->GetTransactionId();
+        if (intr_trans.has_value() && std::to_string(intr_trans.value()) == transaction_id) {
           if (interpreter->username_ == username || isAdmin) {
             interpreter->AbortTransactionByUser();
-            interpreter->Abort();
             status = "Transaction killed";
           } else {
             status = "Not enough rights to kill the transaction";
@@ -2386,9 +2389,12 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                        RWType::NONE};
 }
 
-uint64_t Interpreter::GetTransactionId() const { return db_accessor_->GetTransactionId(); }
-
-bool Interpreter::HasActiveTransaction() const { return db_accessor_ && db_accessor_->IsTransactionActive(); }
+std::optional<uint64_t> Interpreter::GetTransactionId() const {
+  if (db_accessor_) {
+    return db_accessor_->GetTransactionId();
+  }
+  return {};
+}
 
 void Interpreter::BeginTransaction() {
   const auto prepared_query = PrepareTransactionQuery("BEGIN");
@@ -2478,7 +2484,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
       prepared_query = PrepareCypherQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
                                           &*execution_db_accessor_, &query_execution->execution_memory,
-                                          &query_execution->notifications, username,
+                                          &query_execution->notifications, username, &is_transaction_aborted_by_user_,
                                           trigger_context_collector_ ? &*trigger_context_collector_ : nullptr);
     } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
       prepared_query = PrepareExplainQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
@@ -2486,7 +2492,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<ProfileQuery>(parsed_query.query)) {
       prepared_query = PrepareProfileQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
                                            interpreter_context_, &*execution_db_accessor_,
-                                           &query_execution->execution_memory_with_exception, username);
+                                           &query_execution->execution_memory_with_exception, username,
+                                           &is_transaction_aborted_by_user_);
     } else if (utils::Downcast<DumpQuery>(parsed_query.query)) {
       prepared_query = PrepareDumpQuery(std::move(parsed_query), &query_execution->summary, &*execution_db_accessor_,
                                         &query_execution->execution_memory);
@@ -2496,7 +2503,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<AuthQuery>(parsed_query.query)) {
       prepared_query = PrepareAuthQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
                                         interpreter_context_, &*execution_db_accessor_,
-                                        &query_execution->execution_memory_with_exception, username);
+                                        &query_execution->execution_memory_with_exception, username,
+                                        &is_transaction_aborted_by_user_);
     } else if (utils::Downcast<InfoQuery>(parsed_query.query)) {
       prepared_query = PrepareInfoQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
                                         interpreter_context_, interpreter_context_->db,
@@ -2569,12 +2577,12 @@ std::vector<std::string> Interpreter::GetQueries() const {
   }
   std::vector<std::string> queries;
   std::for_each(query_executions_.begin(), query_executions_.end(), [&queries](const auto &execution) {
-    if (execution) return queries.push_back(execution->query);
+    if (execution) queries.push_back(execution->query);
   });
   return queries;
 }
 
-void Interpreter::AbortTransactionByUser() { db_accessor_->AbortTransactionByUser(); }
+void Interpreter::AbortTransactionByUser() { is_transaction_aborted_by_user_.store(true, std::memory_order_release); }
 
 void Interpreter::Abort() {
   expect_rollback_ = false;
@@ -2588,7 +2596,7 @@ void Interpreter::Abort() {
 
 namespace {
 void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, InterpreterContext *interpreter_context,
-                             TriggerContext trigger_context) {
+                             TriggerContext trigger_context, std::atomic<bool> *is_transaction_aborted_by_user) {
   // Run the triggers
   for (const auto &trigger : triggers.access()) {
     utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
@@ -2600,7 +2608,8 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
     trigger_context.AdaptForAccessor(&db_accessor);
     try {
       trigger.Execute(&db_accessor, &execution_memory, interpreter_context->config.execution_timeout_sec,
-                      &interpreter_context->is_shutting_down, trigger_context, interpreter_context->auth_checker);
+                      &interpreter_context->is_shutting_down, is_transaction_aborted_by_user, trigger_context,
+                      interpreter_context->auth_checker);
     } catch (const utils::BasicException &exception) {
       spdlog::warn("Trigger '{}' failed with exception:\n{}", trigger.Name(), exception.what());
       db_accessor.Abort();
@@ -2668,7 +2677,8 @@ void Interpreter::Commit() {
       AdvanceCommand();
       try {
         trigger.Execute(&*execution_db_accessor_, &execution_memory, interpreter_context_->config.execution_timeout_sec,
-                        &interpreter_context_->is_shutting_down, *trigger_context, interpreter_context_->auth_checker);
+                        &interpreter_context_->is_shutting_down, &is_transaction_aborted_by_user_, *trigger_context,
+                        interpreter_context_->auth_checker);
       } catch (const utils::BasicException &e) {
         throw utils::BasicException(
             fmt::format("Trigger '{}' caused the transaction to fail.\nException: {}", trigger.Name(), e.what()));
@@ -2730,10 +2740,11 @@ void Interpreter::Commit() {
   // This means the ordered execution of after commit triggers are not guaranteed.
   if (trigger_context && interpreter_context_->trigger_store.AfterCommitTriggers().size() > 0) {
     interpreter_context_->after_commit_trigger_pool.AddTask(
-        [trigger_context = std::move(*trigger_context), interpreter_context = this->interpreter_context_,
+        [this, trigger_context = std::move(*trigger_context),
          user_transaction = std::shared_ptr(std::move(db_accessor_))]() mutable {
-          RunTriggersIndividually(interpreter_context->trigger_store.AfterCommitTriggers(), interpreter_context,
-                                  std::move(trigger_context));
+          RunTriggersIndividually(this->interpreter_context_->trigger_store.AfterCommitTriggers(),
+                                  this->interpreter_context_, std::move(trigger_context),
+                                  &this->is_transaction_aborted_by_user_);
           user_transaction->FinalizeTransaction();
           SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)
         });

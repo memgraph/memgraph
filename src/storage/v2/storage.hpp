@@ -327,12 +327,6 @@ class Storage final {
 
     uint64_t GetTransactionId() const;
 
-    bool IsTransactionActive() const;
-
-    std::atomic<bool> *IsTransactionAbortedByUser();
-
-    void AbortTransactionByUser();
-
    private:
     /// @throw std::bad_alloc
     VertexAccessor CreateVertex(storage::Gid gid);

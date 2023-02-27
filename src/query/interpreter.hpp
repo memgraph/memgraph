@@ -316,12 +316,10 @@ class Interpreter final {
 
   void BeginTransaction();
 
-  uint64_t GetTransactionId() const;
-
   /*
-  Checks if the storage has active transaction.
+  Returns transaction id or empty if the db_accessor is not initialized.
   */
-  bool HasActiveTransaction() const;
+  std::optional<uint64_t> GetTransactionId() const;
 
   void CommitTransaction();
 
@@ -331,8 +329,7 @@ class Interpreter final {
   void SetSessionIsolationLevel(storage::IsolationLevel isolation_level);
 
   /*
-  If the explicit transaction is being run, return Explicit transactions. Otherwise, return current queries that are
-  being prepared.
+  If the explicit transaction is being run, return EXPLICIT TRANSACTION. Otherwise, return currently prepared queries.
   */
   std::vector<std::string> GetQueries() const;
 
@@ -342,8 +339,6 @@ class Interpreter final {
   void Abort();
 
   void AbortTransactionByUser();
-
-  // this will be moved to the right place
 
  private:
   struct QueryExecution {
@@ -385,6 +380,8 @@ class Interpreter final {
   std::vector<std::unique_ptr<QueryExecution>> query_executions_;
 
   InterpreterContext *interpreter_context_;
+
+  std::atomic<bool> is_transaction_aborted_by_user_{false};
 
   // This cannot be std::optional because we need to move this accessor later on into a lambda capture
   // which is assigned to std::function. std::function requires every object to be copyable, so we
