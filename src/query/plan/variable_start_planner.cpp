@@ -213,7 +213,7 @@ CartesianProduct<VaryMatchingStart> VaryFilterMatchingStarts(const Matching &mat
                                                              const SymbolTable &symbol_table) {
   auto i = 0;
   for (const auto &filter : matching.filters) {
-    for ([[maybe_unused]] const auto &filter_matchings : filter.matchings) {
+    for (const auto &_ : filter.matchings) {
       i += 1;
     }
   }
@@ -269,11 +269,17 @@ VaryQueryPartMatching::iterator &VaryQueryPartMatching::iterator::operator++() {
   //    * matchings (m1) and (m2)
   //    * optional matchings (o1) and (o2)
   //    * merge matching (g1)
+  //    * filter matching (f1) and (f2)
   // We want to produce parts for:
-  //    * (m1), (o1), (g1)
-  //    * (m1), (o2), (g1)
-  //    * (m2), (o1), (g1)
-  //    * (m2), (o2), (g1)
+  //    * (m1), (o1), (g1), (f1)
+  //    * (m1), (o1), (g1), (f2)
+  //    * (m1), (o2), (g1), (f1)
+  //    * (m1), (o2), (g1), (f2)
+  //    * (m2), (o1), (g1), (f1)
+  //    * (m2), (o1), (g1), (f2)
+  //    * (m2), (o2), (g1), (f1)
+  //    * (m2), (o2), (g1), (f2)
+
   // Create variations by changing the merge part first.
   if (filter_it_ != filter_end_) ++filter_it_;
 
