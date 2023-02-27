@@ -13,10 +13,14 @@
 
 #include <iterator>
 
+#include <gflags/gflags.h>
+
 #include "query/v2/bindings/frame.hpp"
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_uint64(default_multi_frame_size);
+
 namespace memgraph::query::v2 {
-constexpr uint64_t kNumberOfFramesInMultiframe = 1000;  // TODO have it configurable
 
 class ValidFramesConsumer;
 class ValidFramesModifier;
@@ -33,6 +37,7 @@ class MultiFrame {
   MultiFrame(size_t size_of_frame, size_t number_of_frames, utils::MemoryResource *execution_memory);
   ~MultiFrame() = default;
 
+  // Assigning and moving the MultiFrame is not allowed if any accessor from the above ones are alive.
   MultiFrame(const MultiFrame &other);
   MultiFrame(MultiFrame &&other) noexcept;
   MultiFrame &operator=(const MultiFrame &other) = delete;
@@ -97,9 +102,9 @@ class ValidFramesReader {
 
   ~ValidFramesReader() = default;
   ValidFramesReader(const ValidFramesReader &other) = delete;
-  ValidFramesReader(ValidFramesReader &&other) noexcept = delete;
+  ValidFramesReader(ValidFramesReader &&other) noexcept = default;
   ValidFramesReader &operator=(const ValidFramesReader &other) = delete;
-  ValidFramesReader &operator=(ValidFramesReader &&other) noexcept = delete;
+  ValidFramesReader &operator=(ValidFramesReader &&other) noexcept = default;
 
   struct Iterator {
     using iterator_category = std::forward_iterator_tag;
@@ -147,9 +152,9 @@ class ValidFramesModifier {
 
   ~ValidFramesModifier() = default;
   ValidFramesModifier(const ValidFramesModifier &other) = delete;
-  ValidFramesModifier(ValidFramesModifier &&other) noexcept = delete;
+  ValidFramesModifier(ValidFramesModifier &&other) noexcept = default;
   ValidFramesModifier &operator=(const ValidFramesModifier &other) = delete;
-  ValidFramesModifier &operator=(ValidFramesModifier &&other) noexcept = delete;
+  ValidFramesModifier &operator=(ValidFramesModifier &&other) noexcept = default;
 
   struct Iterator {
     using iterator_category = std::forward_iterator_tag;
@@ -202,9 +207,9 @@ class ValidFramesConsumer {
 
   ~ValidFramesConsumer() noexcept;
   ValidFramesConsumer(const ValidFramesConsumer &other) = delete;
-  ValidFramesConsumer(ValidFramesConsumer &&other) noexcept = delete;
+  ValidFramesConsumer(ValidFramesConsumer &&other) noexcept = default;
   ValidFramesConsumer &operator=(const ValidFramesConsumer &other) = delete;
-  ValidFramesConsumer &operator=(ValidFramesConsumer &&other) noexcept = delete;
+  ValidFramesConsumer &operator=(ValidFramesConsumer &&other) noexcept = default;
 
   struct Iterator {
     using iterator_category = std::forward_iterator_tag;
@@ -256,9 +261,9 @@ class InvalidFramesPopulator {
   ~InvalidFramesPopulator() = default;
 
   InvalidFramesPopulator(const InvalidFramesPopulator &other) = delete;
-  InvalidFramesPopulator(InvalidFramesPopulator &&other) noexcept = delete;
+  InvalidFramesPopulator(InvalidFramesPopulator &&other) noexcept = default;
   InvalidFramesPopulator &operator=(const InvalidFramesPopulator &other) = delete;
-  InvalidFramesPopulator &operator=(InvalidFramesPopulator &&other) noexcept = delete;
+  InvalidFramesPopulator &operator=(InvalidFramesPopulator &&other) noexcept = default;
 
   struct Iterator {
     using iterator_category = std::forward_iterator_tag;

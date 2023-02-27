@@ -17,6 +17,9 @@
 #include "query/v2/bindings/frame.hpp"
 #include "utils/pmr/vector.hpp"
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint64(default_multi_frame_size, 100, "Default size of MultiFrame");
+
 namespace memgraph::query::v2 {
 
 static_assert(std::forward_iterator<ValidFramesReader::Iterator>);
@@ -54,15 +57,17 @@ bool MultiFrame::HasInvalidFrame() const noexcept {
 
 // NOLINTNEXTLINE (bugprone-exception-escape)
 void MultiFrame::DefragmentValidFrames() noexcept {
-  /*
-  from: https://en.cppreference.com/w/cpp/algorithm/remove
-  "Removing is done by shifting (by means of copy assignment (until C++11)move assignment (since C++11)) the elements
-  in the range in such a way that the elements that are not to be removed appear in the beginning of the range.
-  Relative order of the elements that remain is preserved and the physical size of the container is unchanged."
-  */
-
-  // NOLINTNEXTLINE (bugprone-unused-return-value)
-  std::remove_if(frames_.begin(), frames_.end(), [](auto &frame) { return !frame.IsValid(); });
+  static constexpr auto kIsValid = [](const FrameWithValidity &frame) { return frame.IsValid(); };
+  static constexpr auto kIsInvalid = [](const FrameWithValidity &frame) { return !frame.IsValid(); };
+  auto first_invalid_frame = std::find_if(frames_.begin(), frames_.end(), kIsInvalid);
+  auto following_first_valid = std::find_if(first_invalid_frame, frames_.end(), kIsValid);
+  while (first_invalid_frame != frames_.end() && following_first_valid != frames_.end()) {
+    std::swap(*first_invalid_frame, *following_first_valid);
+    first_invalid_frame++;
+    first_invalid_frame = std::find_if(first_invalid_frame, frames_.end(), kIsInvalid);
+    following_first_valid++;
+    following_first_valid = std::find_if(following_first_valid, frames_.end(), kIsValid);
+  }
 }
 
 ValidFramesReader MultiFrame::GetValidFramesReader() { return ValidFramesReader{*this}; }

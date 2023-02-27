@@ -36,6 +36,8 @@
 #include "utils/print_helpers.hpp"
 #include "utils/variant_helpers.hpp"
 
+#include "simulation_interpreter.hpp"
+
 namespace memgraph::tests::simulation {
 
 using coordinator::Coordinator;
@@ -254,6 +256,67 @@ std::pair<SimulatorStats, LatencyHistogramSummaries> RunClusterSimulation(const 
   for (const Op &op : ops) {
     std::visit([&](auto &o) { ExecuteOp(request_router, correctness_model, o); }, op.inner);
   }
+
+  // We have now completed our workload without failing any assertions, so we can
+  // disable detaching the worker thread, which will cause the mm_thread_1 jthread
+  // to be joined when this function returns.
+  detach_on_error.detach = false;
+
+  simulator.ShutDown();
+
+  mm_thread_1.join();
+
+  SimulatorStats stats = simulator.Stats();
+
+  spdlog::info("total messages:     {}", stats.total_messages);
+  spdlog::info("dropped messages:   {}", stats.dropped_messages);
+  spdlog::info("timed out requests: {}", stats.timed_out_requests);
+  spdlog::info("total requests:     {}", stats.total_requests);
+  spdlog::info("total responses:    {}", stats.total_responses);
+  spdlog::info("simulator ticks:    {}", stats.simulator_ticks);
+
+  auto histo = cli_io_2.ResponseLatencies();
+
+  spdlog::info("========================== SUCCESS :) ==========================");
+  return std::make_pair(stats, histo);
+}
+
+std::pair<SimulatorStats, LatencyHistogramSummaries> RunClusterSimulationWithQueries(
+    const SimulatorConfig &sim_config, const ClusterConfig &cluster_config, const std::vector<std::string> &queries) {
+  spdlog::info("========================== NEW SIMULATION ==========================");
+
+  auto simulator = Simulator(sim_config);
+
+  auto machine_1_addr = Address::TestAddress(1);
+  auto cli_addr = Address::TestAddress(2);
+  auto cli_addr_2 = Address::TestAddress(3);
+
+  Io<SimulatorTransport> cli_io = simulator.Register(cli_addr);
+  Io<SimulatorTransport> cli_io_2 = simulator.Register(cli_addr_2);
+
+  auto coordinator_addresses = std::vector{
+      machine_1_addr,
+  };
+
+  ShardMap initialization_sm = TestShardMap(cluster_config.shards - 1, cluster_config.replication_factor);
+
+  auto mm_1 = MkMm(simulator, coordinator_addresses, machine_1_addr, initialization_sm);
+  Address coordinator_address = mm_1.CoordinatorAddress();
+
+  auto mm_thread_1 = std::jthread(RunMachine, std::move(mm_1));
+  simulator.IncrementServerCountAndWaitForQuiescentState(machine_1_addr);
+
+  auto detach_on_error = DetachIfDropped{.handle = mm_thread_1};
+
+  // TODO(tyler) clarify addresses of coordinator etc... as it's a mess
+
+  CoordinatorClient<SimulatorTransport> coordinator_client(cli_io, coordinator_address, {coordinator_address});
+  WaitForShardsToInitialize(coordinator_client);
+
+  auto simulated_interpreter = io::simulator::SetUpInterpreter(coordinator_address, simulator);
+  simulated_interpreter.InstallSimulatorTicker(simulator);
+
+  auto query_results = simulated_interpreter.RunQueries(queries);
 
   // We have now completed our workload without failing any assertions, so we can
   // disable detaching the worker thread, which will cause the mm_thread_1 jthread

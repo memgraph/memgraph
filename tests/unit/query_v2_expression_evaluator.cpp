@@ -123,8 +123,13 @@ class MockedRequestRouter : public RequestRouterInterface {
 
   bool IsPrimaryLabel(LabelId label) const override { return true; }
 
-  bool IsPrimaryKey(LabelId primary_label, PropertyId property) const override { return true; }
+  bool IsPrimaryProperty(LabelId primary_label, PropertyId property) const override { return true; }
 
+  std::optional<std::pair<uint64_t, uint64_t>> AllocateInitialEdgeIds(io::Address coordinator_address) override {
+    return {};
+  }
+
+  void InstallSimulatorTicker(std::function<bool()> tick_simulator) override {}
   const std::vector<coordinator::SchemaProperty> &GetSchemaForLabel(storage::v3::LabelId /*label*/) const override {
     static std::vector<coordinator::SchemaProperty> schema;
     return schema;

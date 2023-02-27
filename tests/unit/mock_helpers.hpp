@@ -41,7 +41,9 @@ class MockedRequestRouter : public RequestRouterInterface {
   MOCK_METHOD(std::optional<storage::v3::EdgeTypeId>, MaybeNameToEdgeType, (const std::string &), (const));
   MOCK_METHOD(std::optional<storage::v3::LabelId>, MaybeNameToLabel, (const std::string &), (const));
   MOCK_METHOD(bool, IsPrimaryLabel, (storage::v3::LabelId), (const));
-  MOCK_METHOD(bool, IsPrimaryKey, (storage::v3::LabelId, storage::v3::PropertyId), (const));
+  MOCK_METHOD(bool, IsPrimaryProperty, (storage::v3::LabelId, storage::v3::PropertyId), (const));
+  MOCK_METHOD((std::optional<std::pair<uint64_t, uint64_t>>), AllocateInitialEdgeIds, (io::Address));
+  MOCK_METHOD(void, InstallSimulatorTicker, (std::function<bool()>));
   MOCK_METHOD(const std::vector<coordinator::SchemaProperty> &, GetSchemaForLabel, (storage::v3::LabelId), (const));
 };
 
@@ -59,7 +61,7 @@ class MockedLogicalOperator : public plan::LogicalOperator {
 class MockedCursor : public plan::Cursor {
  public:
   MOCK_METHOD(bool, Pull, (Frame &, expr::ExecutionContext &));
-  MOCK_METHOD(void, PullMultiple, (MultiFrame &, expr::ExecutionContext &));
+  MOCK_METHOD(bool, PullMultiple, (MultiFrame &, expr::ExecutionContext &));
   MOCK_METHOD(void, Reset, ());
   MOCK_METHOD(void, Shutdown, ());
 };
