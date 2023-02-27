@@ -28,7 +28,9 @@ Feature: WHERE exists
           | n.prop |
           | 1      |
           | 3      |
-MATCH (n:One) WHERE exists((n)-[]-()) RETURN n.prop ORDER BY n.prop;
+
+  Scenario: Test exists with edge specifier
+      Given an empty graph
       And having executed:
           """
           CREATE (:One {prop:1})-[:TYPE]->(:Two)
@@ -349,7 +351,15 @@ MATCH (n:One) WHERE exists((n)-[]-()) RETURN n.prop ORDER BY n.prop;
           """
           CREATE (:One {prop:1})-[:TYPE {prop: 1}]->(:Two {prop: 2})-[:TYPE {prop:2}]->(:Three {prop: 3})
           """
-      When executing query:SemanticException
+      When executing query:
+          """
+          MATCH (n) WHERE exists(({prop: 1})-[:TYPE]->(n)-[:TYPE2]->(:Three)) RETURN n.prop;
+          """
+      Then the result should be empty
+
+  Scenario: Test node-only hop
+      Given an empty graph
+      And having executed:
           """
           CREATE (:One {prop:1})-[:TYPE {prop: 1}]->(:Two {prop: 2})-[:TYPE {prop:2}]->(:Three {prop: 3})
           """
