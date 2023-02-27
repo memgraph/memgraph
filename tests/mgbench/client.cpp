@@ -241,8 +241,6 @@ void ExecuteTimeDependentWorkload(
   std::atomic<uint64_t> ready(0);
   std::atomic<uint64_t> position(0);
 
-  memgraph::utils::Timer workload_timer;
-
   std::chrono::duration<double> time_limit = std::chrono::seconds(FLAGS_time_dependent_execution);
   for (int worker = 0; worker < FLAGS_num_workers; ++worker) {
     threads.push_back(std::thread([&, worker]() {
@@ -262,7 +260,9 @@ void ExecuteTimeDependentWorkload(
 
       memgraph::utils::Timer worker_timer;
       while (true) {
-        if (workload_timer.Elapsed().count() > time_limit.count()) break;
+        double total_workload_duration =
+            std::accumulate(worker_duration.begin(), worker_duration.end(), 0.0) / FLAGS_num_workers;
+        if (total_workload_duration > time_limit.count()) break;
         auto pos = position.fetch_add(1, std::memory_order_acq_rel);
         if (pos >= size) {
           /// Get back to inital position
@@ -275,8 +275,8 @@ void ExecuteTimeDependentWorkload(
         query_duration.push_back(query_timer.Elapsed().count());
         retries += ret.second;
         metadata.Append(ret.first);
+        duration = worker_timer.Elapsed().count();
       }
-      duration = worker_timer.Elapsed().count();
       client.Close();
     }));
   }
@@ -304,14 +304,9 @@ void ExecuteTimeDependentWorkload(
                 [&](const std::vector<double> &v) { total_iterations += v.size(); });
 
   final_duration /= FLAGS_num_workers;
-  double throughput = total_iterations / final_duration;
+  double execution_delta = time_limit.count() / final_duration;
+  double throughput = (total_iterations / final_duration) * execution_delta;
   double raw_throughput = total_iterations / final_duration;
-  const double one_percent = 1.01;
-  // Check for duration overhead delta
-  double execution_delta = final_duration / time_limit.count();
-  if (execution_delta > one_percent) {
-    throughput = throughput * (1 - (execution_delta - 1));
-  }
 
   nlohmann::json summary = nlohmann::json::object();
   summary["count"] = queries.size();
