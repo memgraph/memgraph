@@ -1923,7 +1923,6 @@ std::vector<std::vector<TypedValue>> TransactionQueueQueryHandler::ShowTransacti
   std::vector<std::vector<TypedValue>> results;
   results.reserve(interpreter_context->interpreters->size());
   interpreter_context->interpreters.WithLock([&results, username, isAdmin](const auto &interpreters) {
-    spdlog::info("Number of interpreters in callback: {}", interpreters.size());
     for (const Interpreter *interpreter : interpreters) {
       if (interpreter->HasActiveTransaction() && (interpreter->username_ == username || isAdmin)) {
         auto queries_summaries_typed = std::vector<TypedValue>();
