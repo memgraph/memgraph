@@ -407,6 +407,34 @@ if [ ! -f $PREFIX/bin/gdb ]; then
                 --with-intel-pt \
                 --enable-tui \
                 --with-python=python3
+    elif [[ "${DISTRO}" == "amzn-2" ]]; then
+        # Remove readline, gdb does not compile
+        env \
+            CC=gcc \
+            CXX=g++ \
+            CFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
+            CXXFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
+            CPPFLAGS="-Wdate-time -D_FORTIFY_SOURCE=2 -fPIC" \
+            LDFLAGS="-Wl,-z,relro" \
+            PYTHON="" \
+            ../configure \
+                --build=x86_64-linux-gnu \
+                --host=x86_64-linux-gnu \
+                --prefix=$PREFIX \
+                --disable-maintainer-mode \
+                --disable-dependency-tracking \
+                --disable-silent-rules \
+                --disable-gdbtk \
+                --disable-shared \
+                --without-guile \
+                --with-system-gdbinit=$PREFIX/etc/gdb/gdbinit \
+                --with-expat \
+                --with-system-zlib \
+                --with-lzma \
+                --with-babeltrace \
+                --with-intel-pt \
+                --enable-tui \
+                --with-python=python3
     else
         # https://buildd.debian.org/status/fetch.php?pkg=gdb&arch=amd64&ver=8.2.1-2&stamp=1550831554&raw=0
         env \
