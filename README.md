@@ -5,10 +5,6 @@
 ---
 
 <p align="center">
-Build modern, graph-based applications on top of your streaming data in minutes.
-</p>
-
-<p align="center">
   <a href="https://github.com/memgraph/memgraph/blob/master/licenses/APL.txt">
     <img src="https://img.shields.io/badge/license-APL-green" alt="license" title="license"/>
   </a>
@@ -89,6 +85,7 @@ your browser.
 ### macOS
 
 [![macOS](https://img.shields.io/badge/macOS-Docker-000000?style=for-the-badge&logo=macos&logoColor=F0F0F0)](https://memgraph.com/docs/memgraph/install-memgraph-on-macos-docker)
+[![macOS](https://img.shields.io/badge/lima-AACF41?style=for-the-badge&logo=macos&logoColor=F0F0F0)](https://memgraph.com/docs/memgraph/install-memgraph-on-ubuntu)
 
 ### Linux
 
