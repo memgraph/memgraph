@@ -73,8 +73,8 @@ RC_GTEST_PROP(RandomClusterConfig, BulkLoadAndSplit,
     spdlog::error("run 2 simulator stats: {}", sim_stats_2);
     spdlog::error("run 1 latency:\n{}", latency_stats_1.SummaryTable());
     spdlog::error("run 2 latency:\n{}", latency_stats_2.SummaryTable());
-    RC_ASSERT(latency_stats_1 == latency_stats_2);
     RC_ASSERT(sim_stats_1 == sim_stats_2);
+    RC_ASSERT(latency_stats_1 == latency_stats_2);
   }
 
   spdlog::trace("passed stats comparison - all good!");
