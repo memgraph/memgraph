@@ -14,7 +14,7 @@ TOOLCHAIN_BUILD_DEPS=(
     gnupg2 # used for archive signature verification
     tar gzip bzip2 xz unzip # used for archive unpacking
     zlib-devel # zlib library used for all builds
-    expat-devel xz-devel python3-devel texinfo
+    expat-devel xz-devel python3-devel texinfo libbabeltrace-devel
     curl libcurl-devel # for cmake
     readline-devel # for cmake and llvm
     libffi-devel libxml2-devel # for llvm
@@ -25,7 +25,7 @@ TOOLCHAIN_BUILD_DEPS=(
     gperf
     diffutils
     patch
-    libiptcdata.x86_64 libiptcdata-devel.x86_64 # intel
+    libipt libipt-dev # intel
     perl # for openssl
 )
 
