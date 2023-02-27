@@ -22,7 +22,7 @@ Feature: WHERE exists
           """
       When executing query:
           """
-          MATCH (n:One) WHERE exists((n)-[]-()) RETURN n.prop;
+          MATCH (n:One) WHERE exists((n)-[]-()) RETURN n.prop ORDER BY n.prop;
           """
       Then the result should be:
           | n.prop |
@@ -394,7 +394,7 @@ Feature: WHERE exists
           """
       When executing query:
           """
-          MATCH (n:Two) WHERE exists((n)<-[:TYPE]-()) RETURN n.prop;
+          MATCH (n:Two) WHERE exists((n)<-[:TYPE]-()) RETURN n.prop ORDER BY n.prop;
           """
       Then the result should be:
           | n.prop |
