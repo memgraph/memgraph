@@ -27,6 +27,7 @@ UNDERSCORE : '_' ;
 
 AFTER               : A F T E R ;
 ALTER               : A L T E R ;
+ANALYZE             : A N A L Y Z E ;
 ASYNC               : A S Y N C ;
 AUTH                : A U T H ;
 BAD                 : B A D ;
@@ -61,6 +62,7 @@ FREE_MEMORY         : F R E E UNDERSCORE M E M O R Y ;
 FROM                : F R O M ;
 GLOBAL              : G L O B A L ;
 GRANT               : G R A N T ;
+GRAPH               : G R A P H ;
 GRANTS              : G R A N T S ;
 HEADER              : H E A D E R ;
 IDENTIFIED          : I D E N T I F I E D ;

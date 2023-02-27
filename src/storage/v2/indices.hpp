@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -131,6 +131,10 @@ class LabelIndex {
   Config::Items config_;
 };
 
+struct IndexStats {
+  uint64_t max_number_of_vertices_with_same_value;
+};
+
 class LabelPropertyIndex {
  private:
   struct Entry {
@@ -237,12 +241,17 @@ class LabelPropertyIndex {
                                  const std::optional<utils::Bound<PropertyValue>> &lower,
                                  const std::optional<utils::Bound<PropertyValue>> &upper) const;
 
+  bool SetIndexStats(storage::LabelId label, storage::PropertyId property, IndexStats stats);
+
+  IndexStats GetIndexStats(storage::LabelId label, storage::PropertyId property) const;
+
   void Clear() { index_.clear(); }
 
   void RunGC();
 
  private:
   std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>> index_;
+  std::map<std::pair<LabelId, PropertyId>, IndexStats> stats_;
   Indices *indices_;
   Constraints *constraints_;
   Config::Items config_;

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -39,6 +39,7 @@
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/required_privileges.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
+#include "query/index_statistics.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/metadata.hpp"
 #include "query/plan/planner.hpp"
@@ -1399,6 +1400,31 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, std::map<std::string, T
                        RWType::R};
 }
 
+PreparedQuery PrepareAnalyzeGraphQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
+                                       DbAccessor *dba, InterpreterContext *interpreter_context,
+                                       utils::MemoryResource *execution_memory) {
+  // Creating an index influences computed plan costs.
+  auto invalidate_plan_cache = [plan_cache = &interpreter_context->plan_cache] {
+    auto access = plan_cache->access();
+    for (auto &kv : access) {
+      access.remove(kv.first);
+    }
+  };
+
+  return PreparedQuery{{"QUERY"},
+                       std::move(parsed_query.required_privileges),
+                       [pull_plan = std::make_shared<PullPlanIndexStatistics>(dba),
+                        invalidate_plan_cache = std::move(invalidate_plan_cache)](
+                           AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+                         utils::OnScopeExit invalidator(invalidate_plan_cache);
+
+                         pull_plan->Pull(stream, n);
+
+                         return QueryHandlerResult::COMMIT;
+                       },
+                       RWType::W};
+}
+
 PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                 std::vector<Notification> *notifications, InterpreterContext *interpreter_context) {
   if (in_explicit_transaction) {
@@ -2327,7 +2353,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     if (!in_explicit_transaction_ &&
         (utils::Downcast<CypherQuery>(parsed_query.query) || utils::Downcast<ExplainQuery>(parsed_query.query) ||
          utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
-         utils::Downcast<TriggerQuery>(parsed_query.query))) {
+         utils::Downcast<TriggerQuery>(parsed_query.query) || utils::Downcast<AnalyzeGraphQuery>(parsed_query.query))) {
       db_accessor_ =
           std::make_unique<storage::Storage::Accessor>(interpreter_context_->db->Access(GetIsolationLevelOverride()));
       execution_db_accessor_.emplace(db_accessor_.get());
@@ -2358,6 +2384,10 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<IndexQuery>(parsed_query.query)) {
       prepared_query = PrepareIndexQuery(std::move(parsed_query), in_explicit_transaction_,
                                          &query_execution->notifications, interpreter_context_);
+    } else if (utils::Downcast<AnalyzeGraphQuery>(parsed_query.query)) {
+      prepared_query =
+          PrepareAnalyzeGraphQuery(std::move(parsed_query), &query_execution->summary, &*execution_db_accessor_,
+                                   interpreter_context_, &query_execution->execution_memory);
     } else if (utils::Downcast<AuthQuery>(parsed_query.query)) {
       prepared_query = PrepareAuthQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
                                         interpreter_context_, &*execution_db_accessor_,

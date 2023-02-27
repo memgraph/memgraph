@@ -310,6 +310,10 @@ class VerticesIterable final {
   }
 };
 
+struct IndexStats {
+  uint64_t max_number_of_vertices_with_same_value;
+};
+
 class DbAccessor final {
   storage::Storage::Accessor *accessor_;
 
@@ -447,6 +451,18 @@ class DbAccessor final {
                         const std::optional<utils::Bound<storage::PropertyValue>> &lower,
                         const std::optional<utils::Bound<storage::PropertyValue>> &upper) const {
     return accessor_->ApproximateVertexCount(label, property, lower, upper);
+  }
+
+  bool SetIndexStats(storage::LabelId label, storage::PropertyId property, IndexStats stats) {
+    return accessor_->SetIndexStats(
+        label, property,
+        storage::IndexStats{.max_number_of_vertices_with_same_value = stats.max_number_of_vertices_with_same_value});
+  }
+
+  IndexStats GetIndexStats(storage::LabelId label, storage::PropertyId property) const {
+    auto stats = accessor_->GetIndexStats(label, property);
+
+    return IndexStats{.max_number_of_vertices_with_same_value = stats.max_number_of_vertices_with_same_value};
   }
 
   storage::IndicesInfo ListAllIndices() const { return accessor_->ListAllIndices(); }

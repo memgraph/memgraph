@@ -472,6 +472,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     // FilterInfo with PropertyFilter.
     FilterInfo filter;
     int64_t vertex_count;
+    uint64_t index_stats_count;
   };
 
   bool DefaultPreVisit() override { throw utils::NotYetImplemented("optimizing index lookup"); }
@@ -547,9 +548,13 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           auto *type_sort_ix = std::find(kFilterTypeOrder, kFilterTypeOrder + 3, type);
           return type_sort_ix < found_sort_ix;
         };
+        IndexStats index_stats = db_->GetIndexStats(GetLabel(label), GetProperty(property));
+
         if (!found || vertex_count < found->vertex_count ||
-            (vertex_count == found->vertex_count && is_better_type(filter.property_filter->type_))) {
-          found = LabelPropertyIndex{label, filter, vertex_count};
+            (vertex_count == found->vertex_count &&
+             (index_stats.max_number_of_vertices_with_same_value < found->index_stats_count ||
+              is_better_type(filter.property_filter->type_)))) {
+          found = LabelPropertyIndex{label, filter, vertex_count, index_stats.max_number_of_vertices_with_same_value};
         }
       }
     }

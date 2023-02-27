@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -686,6 +686,22 @@ int64_t LabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId pro
   MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
   auto acc = it->second.access();
   return acc.estimate_range_count(lower, upper, utils::SkipListLayerForCountEstimation(acc.size()));
+}
+
+bool LabelPropertyIndex::SetIndexStats(storage::LabelId label, storage::PropertyId property, IndexStats stats) {
+  stats_[std::make_pair(label, property)] = stats;
+
+  return true;
+}
+
+IndexStats LabelPropertyIndex::GetIndexStats(storage::LabelId label, storage::PropertyId property) const {
+  auto key = std::make_pair(label, property);
+
+  if (stats_.find(key) == stats_.end()) {
+    return IndexStats{.max_number_of_vertices_with_same_value = UINT64_MAX};
+  }
+
+  return stats_.find(key)->second;
 }
 
 void LabelPropertyIndex::RunGC() {

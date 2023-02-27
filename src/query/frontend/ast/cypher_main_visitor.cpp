@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -237,6 +237,12 @@ antlrcpp::Any CypherMainVisitor::visitDumpQuery(MemgraphCypher::DumpQueryContext
   auto *dump_query = storage_->Create<DumpQuery>();
   query_ = dump_query;
   return dump_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitAnalyzeGraphQuery(MemgraphCypher::AnalyzeGraphQueryContext *ctx) {
+  auto *analyze_graph_query = storage_->Create<AnalyzeGraphQuery>();
+  query_ = analyze_graph_query;
+  return analyze_graph_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitReplicationQuery(MemgraphCypher::ReplicationQueryContext *ctx) {

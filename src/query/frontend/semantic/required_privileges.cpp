@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,6 +26,8 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
   std::vector<AuthQuery::Privilege> privileges() { return privileges_; }
 
   void Visit(IndexQuery &) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
+
+  void Visit(AnalyzeGraphQuery &) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
 
   void Visit(AuthQuery &) override { AddPrivilege(AuthQuery::Privilege::AUTH); }
 
