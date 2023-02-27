@@ -448,11 +448,11 @@ bool SymbolGenerator::PreVisit(Exists &exists) {
   auto &scope = scopes_.back();
 
   if (scope.in_set_property) {
-    throw SemanticException("Set property can not be used with exists, but only during matching!");
+    throw utils::NotYetImplemented("Set property can not be used with exists, but only during matching!");
   }
 
   if (scope.in_with) {
-    throw SemanticException("WITH can not be used with exists, but only during matching!");
+    throw utils::NotYetImplemented("WITH can not be used with exists, but only during matching!");
   }
 
   scope.in_exists = true;
