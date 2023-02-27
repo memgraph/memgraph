@@ -501,7 +501,10 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
   db.StoreMapping({{1, "label"}, {2, "property"}, {3, "edge_type"}, {4, "prop"}});
   auto edge_type = dba.NameToEdgeType("edge_type");
   auto prop = dba.NameToProperty("prop");
-  auto v1 = storage_dba.CreateVertexAndValidate({}, {PropertyValue(0)}, {}).GetValue();
+  auto idempotency_token = 0;
+  bool has_error = storage_dba.CreateVertexAndValidate(idempotency_token, {}, {PropertyValue(0)}, {}).has_value();
+  ASSERT_FALSE(has_error);
+  auto v1 = storage_dba.FindVertex({PropertyValue(0)}, View::NEW).value();
   auto e11 = dba.InsertEdge(&v1, &v1, edge_type);
   ASSERT_TRUE(e11.HasValue());
   ASSERT_TRUE(v1.SetPropertyAndValidate(prop, memgraph::storage::v3::PropertyValue(42)).HasValue());
@@ -689,7 +692,10 @@ TEST_F(ExpressionEvaluatorTest, IsNullOperator) {
 
 TEST_F(ExpressionEvaluatorTest, LabelsTest) {
   db.StoreMapping({{1, "label"}, {2, "property"}, {3, "ANIMAL"}, {4, "DOG"}, {5, "NICE_DOG"}, {6, "BAD_DOG"}});
-  auto v1 = storage_dba.CreateVertexAndValidate({}, {PropertyValue(1)}, {}).GetValue();
+  auto idempotency_token = 0;
+  bool has_error = storage_dba.CreateVertexAndValidate(idempotency_token, {}, {PropertyValue(1)}, {}).has_value();
+  ASSERT_FALSE(has_error);
+  auto v1 = storage_dba.FindVertex({PropertyValue(1)}, View::NEW).value();
   ASSERT_TRUE(v1.AddLabelAndValidate(dba.NameToLabel("ANIMAL")).HasValue());
   ASSERT_TRUE(v1.AddLabelAndValidate(dba.NameToLabel("DOG")).HasValue());
   ASSERT_TRUE(v1.AddLabelAndValidate(dba.NameToLabel("NICE_DOG")).HasValue());
@@ -1115,7 +1121,10 @@ class ExpressionEvaluatorPropertyLookup : public ExpressionEvaluatorTest {
 };
 
 TEST_F(ExpressionEvaluatorPropertyLookup, Vertex) {
-  auto v1 = storage_dba.CreateVertexAndValidate({}, {PropertyValue(3)}, {}).GetValue();
+  auto idempotency_token = 0;
+  bool has_error = storage_dba.CreateVertexAndValidate(idempotency_token, {}, {PropertyValue(3)}, {}).has_value();
+  ASSERT_FALSE(has_error);
+  auto v1 = storage_dba.FindVertex({PropertyValue(3)}, View::NEW).value();
   ASSERT_TRUE(v1.SetPropertyAndValidate(prop_age.second, PropertyValue(10)).HasValue());
   dba.AdvanceCommand();
   frame[symbol] = TypedValue(v1);
@@ -1276,8 +1285,13 @@ TEST_F(ExpressionEvaluatorPropertyLookup, LocalDateTime) {
 
 TEST_F(ExpressionEvaluatorPropertyLookup, Edge) {
   db.StoreMapping({{1, "label"}, {2, "property"}, {3, "age"}, {4, "height"}, {5, "edge_type"}});
-  auto v1 = storage_dba.CreateVertexAndValidate({}, {PropertyValue(1)}, {}).GetValue();
-  auto v2 = storage_dba.CreateVertexAndValidate({}, {PropertyValue(2)}, {}).GetValue();
+  auto idempotency_token = 0;
+  bool has_error_1 = storage_dba.CreateVertexAndValidate(idempotency_token, {}, {PropertyValue(1)}, {}).has_value();
+  ASSERT_FALSE(has_error_1);
+  auto v1 = storage_dba.FindVertex({PropertyValue(1)}, View::NEW).value();
+  auto has_error_2 = storage_dba.CreateVertexAndValidate(idempotency_token, {}, {PropertyValue(2)}, {}).has_value();
+  ASSERT_FALSE(has_error_2);
+  auto v2 = storage_dba.FindVertex({PropertyValue(2)}, View::NEW).value();
   auto e12 = dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("edge_type"));
   ASSERT_TRUE(e12.HasValue());
   ASSERT_TRUE(e12->SetProperty(prop_age.second, PropertyValue(10)).HasValue());
