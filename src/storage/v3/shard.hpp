@@ -438,7 +438,6 @@ class Shard final {
   // Holds all of the (in progress, committed and aborted) transactions that are read or write to this shard, but
   // haven't been cleaned up yet
   std::map<uint64_t, std::unique_ptr<Transaction>> start_logical_id_to_transaction_{};
-  Splitter shard_splitter_;
   bool has_any_transaction_aborted_since_last_gc{false};
 };
 

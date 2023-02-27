@@ -49,6 +49,7 @@ struct SplitData {
   std::map<std::pair<LabelId, PropertyId>, LabelPropertyIndex::IndexContainer> label_property_indices;
 };
 
+// TODO(jbajic) Handle deleted_vertices_ and deleted_edges_ after the finishing GC
 class Splitter final {
  public:
   Splitter(LabelId primary_label, VertexContainer &vertices, EdgeContainer &edges,
@@ -75,7 +76,7 @@ class Splitter final {
       const std::set<uint64_t> &collected_transactions_start_id, VertexContainer &cloned_vertices,
       EdgeContainer &cloned_edges, const PrimaryKey &split_key);
 
-  static void ScanDeltas(std::set<uint64_t> &collected_transactions_start_id, Delta *delta);
+  static void ScanDeltas(std::set<uint64_t> &collected_transactions_start_id, const Delta *delta);
 
   void AdjustClonedTransaction(Transaction &cloned_transaction, const Transaction &transaction,
                                std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions,
@@ -88,12 +89,12 @@ class Splitter final {
 
   void AdjustEdgeRef(Delta &cloned_delta, EdgeContainer &cloned_edges) const;
 
-  static void AdjustDeltaNext(const Delta &original, Delta &cloned,
-                              std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions);
+  static void AdjustDeltaNextAndPrev(const Delta &original, Delta &cloned,
+                                     std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions);
 
   static void AdjustDeltaPrevPtr(const Delta &original, Delta &cloned,
                                  std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions,
-                                 VertexContainer &cloned_vertices, EdgeContainer &cloned_edges);
+                                 EdgeContainer &cloned_edges);
 
   const LabelId primary_label_;
   VertexContainer &vertices_;

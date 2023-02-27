@@ -338,6 +338,7 @@ Shard::Shard(const LabelId primary_label, const PrimaryKey min_primary_key,
       shard_splitter_(primary_label, vertices_, edges_, start_logical_id_to_transaction_, indices_, config_, schema,
                       name_id_mapper_) {
   spdlog::trace("Shard constructed with low key {} (path 1)", min_primary_key_.back());
+
   CreateSchema(primary_label_, schema);
   StoreMapping(std::move(id_to_name));
 }
@@ -361,6 +362,7 @@ Shard::Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<Pr
       shard_splitter_(primary_label, vertices_, edges_, start_logical_id_to_transaction_, indices_, config_, schema,
                       name_id_mapper_) {
   spdlog::trace("Shard constructed with low key {} (path 2)", min_primary_key_.back());
+
   CreateSchema(primary_label_, schema);
   StoreMapping(id_to_name);
 }
@@ -383,6 +385,7 @@ Shard::Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<Pr
       shard_splitter_(primary_label, vertices_, edges_, start_logical_id_to_transaction_, indices_, config_, schema,
                       name_id_mapper_) {
   spdlog::trace("Shard constructed with low key {} (path 3)", min_primary_key_.back());
+
   CreateSchema(primary_label_, schema);
   StoreMapping(id_to_name);
 }
@@ -1163,7 +1166,13 @@ std::optional<SplitData> Shard::PerformSplit(const PrimaryKey &split_key, const 
   shard_version_ = new_lhs_shard_version;
   const auto old_max_key = max_primary_key_;
   max_primary_key_ = split_key;
-  return shard_splitter_.SplitShard(split_key, old_max_key, new_rhs_shard_version);
+
+  const auto *schema = GetSchema(primary_label_);
+  MG_ASSERT(schema, "Shard must know about schema of primary label!");
+  Splitter shard_splitter(primary_label_, vertices_, edges_, start_logical_id_to_transaction_, indices_, config_,
+                          schema->second, name_id_mapper_);
+  return shard_splitter.SplitShard(split_key, old_max_key, shard_version);
+
 }
 
 bool Shard::IsVertexBelongToShard(const VertexId &vertex_id) const {

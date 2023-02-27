@@ -27,7 +27,7 @@ struct Hlc final {
   uint64_t logical_id{0};
   Time coordinator_wall_clock = Time::min();
 
-  auto operator<=>(const Hlc &other) const { return logical_id <=> other.logical_id; }
+  auto operator<=>(const Hlc &other) const noexcept { return logical_id <=> other.logical_id; }
 
   bool operator==(const Hlc &other) const noexcept = default;
   bool operator<(const Hlc &other) const noexcept = default;
