@@ -1803,6 +1803,27 @@ TYPED_TEST(TestPlanner, Exists) {
     DeleteListContent(&pattern_filter_without_types);
   }
 
+  // MATCH (n) WHERE n.prop = 1 AND exists((n)-[:TYPE]-(:Two))
+  {
+    auto property = dba.Property("prop");
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("n"))),
+        WHERE(AND(EXISTS(PATTERN(NODE("n"), EDGE("edge", memgraph::query::EdgeAtom::Direction::BOTH, {"TYPE"}, false),
+                                 NODE("node", "Two", false))),
+                  PROPERTY_LOOKUP("n", property))),
+        RETURN("n")));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+    std::list<BaseOpChecker *> pattern_filter{new ExpectExpand(), new ExpectFilter(), new ExpectLimit(),
+                                              new ExpectEvaluatePatternFilter()};
+
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(),
+              ExpectFilter(std::vector<std::list<BaseOpChecker *>>{pattern_filter}), ExpectProduce());
+
+    DeleteListContent(&pattern_filter);
+  }
+
   // MATCH (n) WHERE exists((n)-[:TYPE]-(:Two)) OR exists((n)-[]-())
   {
     auto *query = QUERY(SINGLE_QUERY(
