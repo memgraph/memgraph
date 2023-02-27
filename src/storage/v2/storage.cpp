@@ -1977,6 +1977,7 @@ bool Storage::SetReplicaRole(io::network::Endpoint endpoint, const replication::
     return false;
   }
 
+  auto port = endpoint.port;  // assigning because we will move the endpoint
   replication_server_ = std::make_unique<ReplicationServer>(this, std::move(endpoint), config);
 
   if (ShouldStoreAndRestoreReplicationState()) {
@@ -1984,7 +1985,7 @@ bool Storage::SetReplicaRole(io::network::Endpoint endpoint, const replication::
     auto data = replication::ReplicationStatusToJSON(
         replication::ReplicationStatus{.name = replication::kReservedReplicationRoleName,
                                        .ip_address = "",
-                                       .port = endpoint.port,
+                                       .port = port,
                                        .sync_mode = replication::ReplicationMode::SYNC,
                                        .replica_check_frequency = std::chrono::seconds(0),
                                        .ssl = std::nullopt,

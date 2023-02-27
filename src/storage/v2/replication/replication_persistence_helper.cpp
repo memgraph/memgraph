@@ -77,8 +77,8 @@ std::optional<ReplicationStatus> JSONToReplicationStatus(nlohmann::json &&data) 
     }
 
     if (data.find(kReplicationRole) != data.end()) {
-      replication::ReplicationRole role;
-      const auto replication_role = data.at(kReplicationRole).get_to(role);
+      auto role = replication::ReplicationRole::MAIN;  // initializing it to dummy value because of clang-tidy
+      data.at(kReplicationRole).get_to(role);          // here happens the assigning of the role
 
       replica_status.role = role;
     }
