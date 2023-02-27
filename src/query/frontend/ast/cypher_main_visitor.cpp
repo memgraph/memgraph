@@ -33,7 +33,6 @@
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
-#include "query/frontend/opencypher/generated/MemgraphCypher.h"
 #include "query/frontend/parsing.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/procedure/module.hpp"
@@ -635,14 +634,6 @@ void GetTopicNames(auto &destination, MemgraphCypher::TopicNamesContext *topic_n
   }
 }
 
-// std::vector<std::string> GetTransactionIds(MemgraphCypher::TransactionIdsContext *context) {
-//   std::vector<std::string> transaction_ids{};
-//   for (auto *transaction_id : context->transactionId()) {
-//     transaction_ids.push_back(transaction_id->accept(conte));
-//   }
-//   return transaction_ids;
-// }
-
 }  // namespace
 
 antlrcpp::Any CypherMainVisitor::visitKafkaCreateStreamConfig(MemgraphCypher::KafkaCreateStreamConfigContext *ctx) {
@@ -902,10 +893,17 @@ antlrcpp::Any CypherMainVisitor::visitTransactionQueueQuery(MemgraphCypher::Tran
   return transaction_queue_query;
 }
 
-antlrcpp::Any CypherMainVisitor::visitShowTransactions(MemgraphCypher::ShowTransactionsContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitShowTransactions(MemgraphCypher::ShowTransactionsContext * /*ctx*/) {
   auto *transaction_shower = storage_->Create<TransactionQueueQuery>();
   transaction_shower->action_ = TransactionQueueQuery::Action::SHOW_TRANSACTIONS;
   return transaction_shower;
+}
+
+antlrcpp::Any CypherMainVisitor::visitTerminateTransactions(MemgraphCypher::TerminateTransactionsContext *ctx) {
+  auto *terminator = storage_->Create<TransactionQueueQuery>();
+  terminator->action_ = TransactionQueueQuery::Action::TERMINATE_TRANSACTIONS;
+  terminator->transaction_id_list_ = std::any_cast<std::vector<Expression *>>(ctx->transactionIdList()->accept(this));
+  return terminator;
 }
 
 antlrcpp::Any CypherMainVisitor::visitTransactionIdList(MemgraphCypher::TransactionIdListContext *ctx) {
@@ -914,18 +912,6 @@ antlrcpp::Any CypherMainVisitor::visitTransactionIdList(MemgraphCypher::Transact
     transaction_ids.push_back(std::any_cast<Expression *>(transaction_id->accept(this)));
   }
   return transaction_ids;
-}
-
-antlrcpp::Any CypherMainVisitor::visitTerminateTransactions(MemgraphCypher::TerminateTransactionsContext *ctx) {
-  auto *terminator = storage_->Create<TransactionQueueQuery>();
-  terminator->action_ = TransactionQueueQuery::Action::TERMINATE_TRANSACTIONS;
-  // terminator->transaction_id_ = std::any_cast<Expression *>(ctx->transactionId()->accept(this));
-  // std::vector<std::string> transaction_ids{};
-  // for (auto *transaction_id : ctx->transactionIds()->transactionId()) {
-  //   transaction_ids.push_back(std::any_cast<std::string>(transaction_id));
-  // }
-  terminator->transaction_id_list_ = std::any_cast<std::vector<Expression *>>(ctx->transactionIdList()->accept(this));
-  return terminator;
 }
 
 antlrcpp::Any CypherMainVisitor::visitVersionQuery(MemgraphCypher::VersionQueryContext * /*ctx*/) {

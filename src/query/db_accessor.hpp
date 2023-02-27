@@ -316,7 +316,7 @@ class DbAccessor final {
 
   void FinalizeTransaction() { accessor_->FinalizeTransaction(); }
 
-  std::atomic<bool> *TransactionAbortedByUser() { return accessor_->TransactionAbortedByUser(); }
+  std::atomic<bool> *IsTransactionAbortedByUser() { return accessor_->IsTransactionAbortedByUser(); }
 
   bool IsTransactionActive() { return accessor_->IsTransactionActive(); }
 
@@ -458,6 +458,10 @@ class SubgraphDbAccessor final {
   explicit SubgraphDbAccessor(DbAccessor db_accessor, Graph *graph);
 
   static SubgraphDbAccessor *MakeSubgraphDbAccessor(DbAccessor *db_accessor, Graph *graph);
+
+  std::atomic<bool> *IsTransactionAbortedByUser() { return db_accessor_.IsTransactionAbortedByUser(); }
+
+  bool IsTransactionActive() { return db_accessor_.IsTransactionActive(); }
 
   storage::PropertyId NameToProperty(std::string_view name);
 

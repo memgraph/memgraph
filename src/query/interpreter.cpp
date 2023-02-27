@@ -1033,7 +1033,7 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
     ctx_.timer = utils::AsyncTimer{interpreter_context->config.execution_timeout_sec};
   }
   ctx_.is_shutting_down = &interpreter_context->is_shutting_down;
-  ctx_.aborted_by_user = dba->TransactionAbortedByUser();
+  ctx_.aborted_by_user = dba->IsTransactionAbortedByUser();
   ctx_.is_profile_query = is_profile_query;
   ctx_.trigger_context_collector = trigger_context_collector;
 }
@@ -1918,10 +1918,58 @@ PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explic
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
 }
 
+std::vector<std::vector<TypedValue>> TransactionQueueQueryHandler::ShowTransactions(
+    InterpreterContext *interpreter_context, const std::optional<std::string> &username, bool isAdmin) {
+  std::vector<std::vector<TypedValue>> results;
+  results.reserve(interpreter_context->interpreters->size());
+  interpreter_context->interpreters.WithLock([&results, username, isAdmin](const auto &interpreters) {
+    spdlog::info("Number of interpreters in callback: {}", interpreters.size());
+    for (const Interpreter *interpreter : interpreters) {
+      if (interpreter->HasActiveTransaction() && (interpreter->username_ == username || isAdmin)) {
+        auto queries_summaries_typed = std::vector<TypedValue>();
+        auto queries_summaries = interpreter->GetQueries();
+        std::for_each(queries_summaries.begin(), queries_summaries.end(),
+                      [&queries_summaries_typed](const auto &query_summary) {
+                        queries_summaries_typed.emplace_back(query_summary);
+                      });
+        results.push_back({TypedValue(interpreter->username_.value_or("")),
+                           TypedValue(std::to_string(interpreter->GetTransactionId())),
+                           TypedValue(queries_summaries_typed)});
+      }
+    }
+  });
+  return results;
+}
+
+std::vector<std::vector<TypedValue>> TransactionQueueQueryHandler::KillTransactions(
+    InterpreterContext *interpreter_context, const std::vector<std::string> &maybe_kill_transaction_ids,
+    const std::optional<std::string> &username, bool isAdmin) {
+  std::vector<std::vector<TypedValue>> results;
+  for (const std::string &transaction_id : maybe_kill_transaction_ids) {
+    std::string status{"Transaction not found"};
+    interpreter_context->interpreters.WithLock([&transaction_id, &status, username, isAdmin](const auto &interpreters) {
+      for (Interpreter *interpreter : interpreters) {
+        std::string intr_trans_str = std::to_string(interpreter->GetTransactionId());
+        if (interpreter->HasActiveTransaction() && transaction_id == intr_trans_str) {
+          if (interpreter->username_ == username || isAdmin) {
+            interpreter->AbortTransactionByUser();
+            interpreter->Abort();
+            status = "Transaction killed";
+          } else {
+            status = "Not enough rights to kill the transaction";
+          }
+          break;
+        }
+      }
+    });
+    results.push_back({TypedValue(transaction_id), TypedValue(status)});
+  }
+  return results;
+}
+
 Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
-                                     const std::optional<std::string> &username, uint64_t current_transaction_id,
-                                     const Parameters &parameters, InterpreterContext *interpreter_context,
-                                     DbAccessor *db_accessor) {
+                                     const std::optional<std::string> &username, const Parameters &parameters,
+                                     InterpreterContext *interpreter_context, DbAccessor *db_accessor) {
   Frame frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
@@ -1934,66 +1982,22 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
   Callback callback;
   switch (transaction_query->action_) {
     case TransactionQueueQuery::Action::SHOW_TRANSACTIONS: {
-      callback.header = {"username", "transaction_id", "queries summary"};
-      callback.fn = [interpreter_context, username, isAdmin]() mutable {
-        std::vector<std::vector<TypedValue>> results;
-        results.reserve(interpreter_context->interpreters->size());
-        interpreter_context->interpreters.WithLock([&results, username, isAdmin](const auto &interpreters) {
-          spdlog::info("Number of interpreters in callback: {}", interpreters.size());
-          for (Interpreter *interpreter : interpreters) {
-            if (interpreter->HasActiveTransaction() && (interpreter->username_ == username || isAdmin)) {
-              auto queries_summaries_typed = std::vector<TypedValue>();
-              auto queries_summaries = interpreter->GetQueriesSummary();  // in std::transform
-              std::for_each(queries_summaries.begin(), queries_summaries.end(),
-                            [&queries_summaries_typed](const auto &query_summary) {
-                              queries_summaries_typed.emplace_back(query_summary);
-                            });
-
-              results.push_back({TypedValue(interpreter->username_.value_or("")),
-                                 TypedValue(std::to_string(interpreter->GetTransactionId())),
-                                 TypedValue(queries_summaries_typed)});
-            }
-          }
-        });
-        return results;
+      callback.header = {"username", "transaction_id", "query"};
+      callback.fn = [handler = TransactionQueueQueryHandler(), interpreter_context, username, isAdmin]() mutable {
+        return handler.ShowTransactions(interpreter_context, username, isAdmin);
       };
       break;
     }
     case TransactionQueueQuery::Action::TERMINATE_TRANSACTIONS: {
-      std::vector<std::string> transaction_ids;
+      std::vector<std::string> maybe_kill_transaction_ids;
       std::transform(transaction_query->transaction_id_list_.begin(), transaction_query->transaction_id_list_.end(),
-                     std::back_inserter(transaction_ids), [&evaluator](Expression *expression) {
+                     std::back_inserter(maybe_kill_transaction_ids), [&evaluator](Expression *expression) {
                        return std::string(expression->Accept(evaluator).ValueString());
                      });
       callback.header = {"transaction_id", "status"};
-      callback.fn = [interpreter_context, db_accessor, transaction_ids, username, isAdmin]() mutable {
-        spdlog::info("Number of transactions to kill in callback: {}", transaction_ids.size());
-        std::vector<std::vector<TypedValue>> results;
-        for (const std::string &transaction_id : transaction_ids) {
-          std::string status{"Transaction not found"};
-          interpreter_context->interpreters.WithLock(
-              [db_accessor, &transaction_id, &status, username, isAdmin](const auto &interpreters) {
-                for (Interpreter *interpreter : interpreters) {
-                  std::string intr_trans_str = std::to_string(interpreter->GetTransactionId());
-                  if (interpreter->HasActiveTransaction() && transaction_id == intr_trans_str) {
-                    if (interpreter->username_ == username || isAdmin) {
-                      // if (interpreter->in_explicit_transaction_) {
-                      //   interpreter->expect_rollback_ = true;
-                      // } else {
-                      interpreter->AbortTransactionByUser();
-                      interpreter->Abort();
-                      // }
-                      status = "Transaction killed";
-                    } else {
-                      status = "Not enough rights to kill the transaction";
-                    }
-                    break;
-                  }
-                }
-              });
-          results.push_back({TypedValue(transaction_id), TypedValue(status)});
-        }
-        return results;
+      callback.fn = [handler = TransactionQueueQueryHandler(), interpreter_context, maybe_kill_transaction_ids,
+                     username, isAdmin]() mutable {
+        return handler.KillTransactions(interpreter_context, maybe_kill_transaction_ids, username, isAdmin);
       };
       break;
     }
@@ -2003,18 +2007,16 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
 }
 
 PreparedQuery PrepareTransactionQueueQuery(ParsedQuery parsed_query, const std::optional<std::string> &username,
-                                           const uint64_t current_transaction_id, const bool in_explicit_transaction,
-                                           InterpreterContext *interpreter_context, DbAccessor *dba) {
+                                           const bool in_explicit_transaction, InterpreterContext *interpreter_context,
+                                           DbAccessor *dba) {
   if (in_explicit_transaction) {
-    // throw SettingConfigInMulticommandTxException{};
+    throw VersionInfoInMulticommandTxException();
   }
-
-  spdlog::info("Number of interpreters in prepare transactions: {}", interpreter_context->interpreters->size());
 
   auto *transaction_queue_query = utils::Downcast<TransactionQueueQuery>(parsed_query.query);
   MG_ASSERT(transaction_queue_query);
-  auto callback = HandleTransactionQueueQuery(transaction_queue_query, username, current_transaction_id,
-                                              parsed_query.parameters, interpreter_context, dba);
+  auto callback =
+      HandleTransactionQueueQuery(transaction_queue_query, username, parsed_query.parameters, interpreter_context, dba);
 
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -2533,10 +2535,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<VersionQuery>(parsed_query.query)) {
       prepared_query = PrepareVersionQuery(std::move(parsed_query), in_explicit_transaction_);
     } else if (utils::Downcast<TransactionQueueQuery>(parsed_query.query)) {
-      spdlog::info("Number of interpreters in else if: {}", interpreter_context_->interpreters->size());
-      prepared_query =
-          PrepareTransactionQueueQuery(std::move(parsed_query), username_, GetTransactionId(), in_explicit_transaction_,
-                                       interpreter_context_, &*execution_db_accessor_);
+      prepared_query = PrepareTransactionQueueQuery(std::move(parsed_query), username_, in_explicit_transaction_,
+                                                    interpreter_context_, &*execution_db_accessor_);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }
@@ -2564,14 +2564,14 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   }
 }
 
-std::vector<std::string> Interpreter::GetQueriesSummary() {
+std::vector<std::string> Interpreter::GetQueries() const {
   if (in_explicit_transaction_) {
     return {"EXPLICIT TRANSACTION"};
   }
   std::vector<std::string> queries;
-  for (const auto &query_exec_ptr : query_executions_) {
-    if (query_exec_ptr) queries.push_back(query_exec_ptr->query);
-  }
+  std::for_each(query_executions_.begin(), query_executions_.end(), [&queries](const auto &execution) {
+    if (execution) return queries.push_back(execution->query);
+  });
   return queries;
 }
 
@@ -2582,7 +2582,6 @@ void Interpreter::Abort() {
   in_explicit_transaction_ = false;
   if (!db_accessor_) return;
   db_accessor_->Abort();
-  // db_accessor_->AbortTransaction();
   execution_db_accessor_.reset();
   db_accessor_.reset();
   trigger_context_collector_.reset();

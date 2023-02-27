@@ -133,6 +133,24 @@ class AuthQueryHandler {
 
 enum class QueryHandlerResult { COMMIT, ABORT, NOTHING };
 
+class TransactionQueueQueryHandler {
+ public:
+  TransactionQueueQueryHandler() = default;
+  virtual ~TransactionQueueQueryHandler() = default;
+
+  TransactionQueueQueryHandler(const TransactionQueueQueryHandler &) = default;
+  TransactionQueueQueryHandler &operator=(const TransactionQueueQueryHandler &) = default;
+
+  TransactionQueueQueryHandler(TransactionQueueQueryHandler &&) = default;
+  TransactionQueueQueryHandler &operator=(TransactionQueueQueryHandler &&) = default;
+
+  static std::vector<std::vector<TypedValue>> ShowTransactions(InterpreterContext *, const std::optional<std::string> &,
+                                                               bool);
+
+  static std::vector<std::vector<TypedValue>> KillTransactions(InterpreterContext *, const std::vector<std::string> &,
+                                                               const std::optional<std::string> &, bool);
+};
+
 class ReplicationQueryHandler {
  public:
   ReplicationQueryHandler() = default;
@@ -300,6 +318,9 @@ class Interpreter final {
 
   uint64_t GetTransactionId() const;
 
+  /*
+  Checks if the storage has active transaction.
+  */
   bool HasActiveTransaction() const;
 
   void CommitTransaction();
@@ -309,7 +330,11 @@ class Interpreter final {
   void SetNextTransactionIsolationLevel(storage::IsolationLevel isolation_level);
   void SetSessionIsolationLevel(storage::IsolationLevel isolation_level);
 
-  std::vector<std::string> GetQueriesSummary();
+  /*
+  If the explicit transaction is being run, return Explicit transactions. Otherwise, return current queries that are
+  being prepared.
+  */
+  std::vector<std::string> GetQueries() const;
 
   /**
    * Abort the current multicommand transaction.
@@ -367,8 +392,6 @@ class Interpreter final {
   std::unique_ptr<storage::Storage::Accessor> db_accessor_;
   std::optional<DbAccessor> execution_db_accessor_;
   std::optional<TriggerContextCollector> trigger_context_collector_;
-  // bool in_explicit_transaction_{false};
-  // bool expect_rollback_{false};
 
   std::optional<storage::IsolationLevel> interpreter_isolation_level;
   std::optional<storage::IsolationLevel> next_transaction_isolation_level;

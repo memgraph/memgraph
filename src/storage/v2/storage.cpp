@@ -1148,10 +1148,10 @@ uint64_t Storage::Accessor::GetTransactionId() const { return transaction_.trans
 
 bool Storage::Accessor::IsTransactionActive() const { return is_transaction_active_; }
 
-std::atomic<bool> *Storage::Accessor::TransactionAbortedByUser() { return &transaction_.aborted_by_user; }
+std::atomic<bool> *Storage::Accessor::IsTransactionAbortedByUser() { return &transaction_.is_aborted_by_user_; }
 
 void Storage::Accessor::AbortTransactionByUser() {
-  transaction_.aborted_by_user.store(true, std::memory_order_release);
+  transaction_.is_aborted_by_user_.store(true, std::memory_order_release);
 }
 
 const std::string &Storage::LabelToName(LabelId label) const { return name_id_mapper_.IdToName(label.AsUint()); }

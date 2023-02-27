@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -214,6 +214,7 @@ void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution
   ctx.evaluation_context.labels = NamesToLabels(plan.ast_storage().labels_, dba);
   ctx.timer = utils::AsyncTimer(max_execution_time_sec);
   ctx.is_shutting_down = is_shutting_down;
+  ctx.aborted_by_user = dba->IsTransactionAbortedByUser();
   ctx.is_profile_query = false;
 
   // Set up temporary memory for a single Pull. Initial memory comes from the

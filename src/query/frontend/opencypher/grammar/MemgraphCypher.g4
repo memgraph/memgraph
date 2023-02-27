@@ -414,6 +414,6 @@ showConfigQuery : SHOW CONFIG ;
 
 versionQuery : SHOW VERSION ;
 
-transactionId : literal ;
-
 transactionIdList : transactionId ( ',' transactionId )* ;
+
+transactionId : literal ;

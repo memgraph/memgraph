@@ -329,11 +329,9 @@ class Storage final {
 
     bool IsTransactionActive() const;
 
-    std::atomic<bool> *TransactionAbortedByUser();
+    std::atomic<bool> *IsTransactionAbortedByUser();
 
     void AbortTransactionByUser();
-
-    bool transaction_aborted_by_user = false;
 
    private:
     /// @throw std::bad_alloc

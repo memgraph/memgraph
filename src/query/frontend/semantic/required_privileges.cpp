@@ -80,10 +80,7 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(SettingQuery & /*setting_query*/) override { AddPrivilege(AuthQuery::Privilege::CONFIG); }
 
-  void Visit(TransactionQueueQuery &transaction_queue_query) override {
-    // AddPrivilege(AuthQuery::Privilege::SET);
-    // TODO replace privilege
-  }
+  void Visit(TransactionQueueQuery & /*transaction_queue_query*/) override {}
 
   void Visit(VersionQuery & /*version_query*/) override { AddPrivilege(AuthQuery::Privilege::STATS); }
 

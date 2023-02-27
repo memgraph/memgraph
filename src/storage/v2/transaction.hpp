@@ -36,7 +36,7 @@ struct Transaction {
         start_timestamp(start_timestamp),
         command_id(0),
         must_abort(false),
-        aborted_by_user(false),
+        is_aborted_by_user_(false),
         isolation_level(isolation_level) {}
 
   Transaction(Transaction &&other) noexcept
@@ -46,6 +46,7 @@ struct Transaction {
         command_id(other.command_id),
         deltas(std::move(other.deltas)),
         must_abort(other.must_abort),
+        is_aborted_by_user_(false),
         isolation_level(other.isolation_level) {}
 
   Transaction(const Transaction &) = delete;
@@ -70,7 +71,7 @@ struct Transaction {
   uint64_t command_id;
   std::list<Delta> deltas;
   bool must_abort;
-  std::atomic<bool> aborted_by_user;
+  std::atomic<bool> is_aborted_by_user_;
   IsolationLevel isolation_level;
 };
 

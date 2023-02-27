@@ -92,10 +92,10 @@ class IsolationLevelQuery;
 class CreateSnapshotQuery;
 class StreamQuery;
 class SettingQuery;
-class TransactionQueueQuery;
 class VersionQuery;
 class Foreach;
 class ShowConfigQuery;
+class TransactionQueueQuery;
 
 using TreeCompositeVisitor = utils::CompositeVisitor<
     SingleQuery, CypherUnion, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator, AdditionOperator,
