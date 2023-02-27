@@ -25,7 +25,7 @@ TOOLCHAIN_BUILD_DEPS=(
     gperf
     diffutils
     patch
-    libipt libipt-dev # intel
+    libipt libipt-devel # intel
     perl # for openssl
 )
 
