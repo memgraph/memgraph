@@ -235,10 +235,6 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     return true;
   }
 
-  bool PreVisit(Exists & /*exists*/) override {
-    throw SemanticException("Exists functionality works only with matching clauses!");
-  }
-
   bool Visit(Identifier &ident) override {
     const auto &symbol = symbol_table_.at(ident);
     if (!utils::Contains(output_symbols_, symbol)) {

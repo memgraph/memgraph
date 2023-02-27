@@ -28,9 +28,7 @@ Feature: WHERE exists
           | n.prop |
           | 1      |
           | 3      |
-
-  Scenario: Test exists with edge specifier
-      Given an empty graph
+MATCH (n:One) WHERE exists((n)-[]-()) RETURN n.prop ORDER BY n.prop;
       And having executed:
           """
           CREATE (:One {prop:1})-[:TYPE]->(:Two)
@@ -351,16 +349,7 @@ Feature: WHERE exists
           """
           CREATE (:One {prop:1})-[:TYPE {prop: 1}]->(:Two {prop: 2})-[:TYPE {prop:2}]->(:Three {prop: 3})
           """
-      When executing query:
-          """
-          MATCH (n) WHERE exists(({prop: 1})-[:TYPE]->(n)-[:TYPE2]->(:Three)) RETURN n.prop;
-          """
-      Then the result should be empty
-
-
-  Scenario: Test node-only hop
-      Given an empty graph
-      And having executed:
+      When executing query:SemanticException
           """
           CREATE (:One {prop:1})-[:TYPE {prop: 1}]->(:Two {prop: 2})-[:TYPE {prop:2}]->(:Three {prop: 3})
           """
@@ -504,3 +493,15 @@ Feature: WHERE exists
           MATCH (n:One) WHERE exists((n)-[]-()) in [false] RETURN n.prop;
           """
       Then the result should be empty
+
+  Scenario: Test exists does not work in SetProperty clauses
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:One {prop:1})-[:TYPE]->(:Two);
+          """
+      When executing query:
+          """
+          MATCH (n:Two) SET n.prop = exists((n)<-[:TYPE]-()) RETURN n.prop;
+          """
+      Then an error should be raised

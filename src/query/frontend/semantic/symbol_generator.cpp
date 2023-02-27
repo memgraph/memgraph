@@ -473,6 +473,8 @@ bool SymbolGenerator::PostVisit(Exists & /*exists*/) {
 bool SymbolGenerator::PreVisit(SetProperty & /*set_property*/) {
   auto &scope = scopes_.back();
   scope.in_set_property = true;
+
+  return true;
 }
 
 bool SymbolGenerator::PostVisit(SetProperty & /*set_property*/) {
