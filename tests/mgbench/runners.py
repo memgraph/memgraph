@@ -398,7 +398,15 @@ class Client:
     def _get_args(self, **kwargs):
         return _convert_args_to_flags(self._client_binary, **kwargs)
 
-    def execute(self, queries=None, file_path=None, num_workers=1, max_retries: int = 50, validation: bool = False):
+    def execute(
+        self,
+        queries=None,
+        file_path=None,
+        num_workers=1,
+        max_retries: int = 50,
+        validation: bool = False,
+        time_dependent_execution: int = 0,
+    ):
         if (queries is None and file_path is None) or (queries is not None and file_path is not None):
             raise ValueError("Either queries or input_path must be specified!")
 
@@ -422,6 +430,7 @@ class Client:
             password=self._password,
             port=self._bolt_port,
             validation=validation,
+            time_dependent_execution=time_dependent_execution,
         )
 
         ret = None
@@ -435,4 +444,3 @@ class Client:
                 print(error)
             data = [x for x in data if not x.startswith("[")]
             return list(map(json.loads, data))
-

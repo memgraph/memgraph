@@ -17,19 +17,18 @@ import copy
 import fnmatch
 import inspect
 import json
-import math
 import multiprocessing
 import random
-import statistics
 import sys
-from abc import ABC
 
 import helpers
 import importer
 import log
 import runners
-import workload
-from workload import dataset
+import workload.dataset
+from workload import *
+
+# from workload import dataset
 
 WITH_FINE_GRAINED_AUTHORIZATION = "with_fine_grained_authorization"
 WITHOUT_FINE_GRAINED_AUTHORIZATION = "without_fine_grained_authorization"
@@ -99,6 +98,7 @@ def parse_args():
         action="store_true",
         help="disable storing of cached query counts",
     )
+
     parser.add_argument(
         "--export-results",
         default="",
@@ -150,6 +150,13 @@ def parse_args():
         selected from the appropriate groups
         Running --mixed-workload 1000 30 0 0 0 70, will execute each query 700 times or 70%,
         with the presence of 300 write queries from write type or 30%""",
+    )
+
+    parser.add_argument(
+        "--time-depended-execution",
+        type=int,
+        default=0,
+        help="Execute defined number of queries (based on single-threaded-runtime-sec) for a defined duration in of wall-clock time",
     )
 
     parser.add_argument(
@@ -646,10 +653,19 @@ if __name__ == "__main__":
                     )
                     if args.warmup_run:
                         warmup(client)
-                    ret = client.execute(
-                        queries=get_queries(func, count),
-                        num_workers=args.num_workers_for_benchmark,
-                    )[0]
+
+                    if args.time_depended_execution != 0:
+                        ret = client.execute(
+                            queries=get_queries(func, count),
+                            num_workers=args.num_workers_for_benchmark,
+                            time_dependent_execution=args.time_depended_execution,
+                        )[0]
+                    else:
+                        ret = client.execute(
+                            queries=get_queries(func, count),
+                            num_workers=args.num_workers_for_benchmark,
+                        )[0]
+
                     usage = vendor.stop(dataset.NAME + dataset.get_variant() + "_" + workload_mode.name + "_" + query)
                     ret["database"] = usage
 

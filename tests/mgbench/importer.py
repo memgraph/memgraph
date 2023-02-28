@@ -414,7 +414,9 @@ class Importer:
             print("Executing database cleanup and index setup...")
             ret = self._client.execute(file_path=self._dataset.get_index(), num_workers=self._num_workers_for_index)
             print("Importing dataset...")
-            ret = self._client.execute(file_path=self._dataset.get_file(), num_workers=self._num_workers_for_import)
+            ret = self._client.execute(
+                file_path=self._dataset.get_file_cypherl(), num_workers=self._num_workers_for_import
+            )
             usage = self._vendor.stop("import")
 
             return ret, usage
