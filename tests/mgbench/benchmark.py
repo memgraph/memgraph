@@ -152,8 +152,6 @@ def parse_args():
         with the presence of 300 write queries from write type or 30%""",
     )
 
-    parser.add_argument("--tail-latency", type=int, default=0, help="Number of queries for the tail latency statistics")
-
     parser.add_argument(
         "--performance-tracking",
         action="store_true",
@@ -165,16 +163,16 @@ def parse_args():
 
 
 class WorkloadMode:
-    name = "Isolated"
-    config = None
-
     def __init__(self, workload_mixed, workload_realistic) -> None:
         if workload_mixed != None:
-            self.workload_name = "Mixed"
-            self.workload_config = workload_mixed
+            self.name = "Mixed"
+            self.config = workload_mixed
         elif workload_realistic != None:
-            self.workload_name = "Realistic"
-            self.workload_config = workload_realistic
+            self.name = "Realistic"
+            self.config = workload_realistic
+        else:
+            self.name = "Isolated"
+            self.config = None
 
 
 def get_queries(gen, count):
@@ -250,38 +248,6 @@ def warmup(client):
         ],
         num_workers=1,
     )
-
-
-def tail_latency(vendor, client, func, iterations, warmup):
-    iteration = iterations
-    if iteration >= 10:
-        vendor.start_benchmark("tail_latency")
-        if warmup:
-            warmup(client)
-        latency = []
-
-        query_list = get_queries(func, iteration)
-        for i in range(0, iteration):
-            ret = client.execute(queries=[query_list[i]], num_workers=1)
-            latency.append(ret[0]["duration"])
-        latency.sort()
-        query_stats = {
-            "iterations": iteration,
-            "min": latency[0],
-            "max": latency[iteration - 1],
-            "mean": statistics.mean(latency),
-            "p99": latency[math.floor(iteration * 0.99) - 1],
-            "p95": latency[math.floor(iteration * 0.95) - 1],
-            "p90": latency[math.floor(iteration * 0.90) - 1],
-            "p75": latency[math.floor(iteration * 0.75) - 1],
-            "p50": latency[math.floor(iteration * 0.50) - 1],
-        }
-        print("Query statistics for tail latency: ")
-        print(query_stats)
-        vendor.stop("tail_latency")
-    else:
-        query_stats = {}
-    return query_stats
 
 
 def mixed_workload(vendor, client, dataset, group, queries, workload_type, workload_config, warmup, number_of_workers):
