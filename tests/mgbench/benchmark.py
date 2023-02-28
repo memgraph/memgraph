@@ -28,8 +28,6 @@ import runners
 import workload.dataset
 from workload import *
 
-# from workload import dataset
-
 WITH_FINE_GRAINED_AUTHORIZATION = "with_fine_grained_authorization"
 WITHOUT_FINE_GRAINED_AUTHORIZATION = "without_fine_grained_authorization"
 

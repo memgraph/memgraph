@@ -46,7 +46,7 @@ class LDBC_Interactive(Dataset):
 
     def _prepare_parameters_directory(self):
         parameters = Path() / ".cache" / "datasets" / self.NAME / self._variant / "parameters"
-        parameters.mkdir(exist_ok=True)
+        parameters.mkdir(parents=True, exist_ok=True)
         dir_name = self.QUERY_PARAMETERS[self._variant].split("/")[-1:][0].removesuffix(".tar.zst")
         if (parameters / dir_name).exists():
             print("Files downloaded:")
@@ -88,15 +88,16 @@ class LDBC_Interactive(Dataset):
         memgraph = (
             """
         MATCH (p:Person {id: $personId}), (friend:Person {firstName: $firstName})
-        WHERE NOT p=friend
-        WITH p, friend
-        MATCH path =((p)-[:KNOWS *BFS 1..3]-(friend))
-        WITH min(size(path)) AS distance, friend
+            WHERE NOT p=friend
+            WITH p, friend
+            MATCH path =((p)-[:KNOWS*1..3]-(friend))
+            WITH min(size(path)) AS distance, friend
         ORDER BY
             distance ASC,
             friend.lastName ASC,
             toInteger(friend.id) ASC
         LIMIT 20
+
         MATCH (friend)-[:IS_LOCATED_IN]->(friendCity:City)
         OPTIONAL MATCH (friend)-[studyAt:STUDY_AT]->(uni:University)-[:IS_LOCATED_IN]->(uniCity:City)
         WITH friend, collect(
@@ -418,7 +419,7 @@ class LDBC_Interactive(Dataset):
                 WITH liker, message, like.creationDate AS likeTime, person
                 ORDER BY likeTime DESC, toInteger(message.id) ASC
                 WITH liker, head(collect({msg: message, likeTime: likeTime})) AS latestLike, person
-                OPTIONAL MATCH (liker)-[:KNOWS]->(person)
+                OPTIONAL MATCH (liker)-[:KNOWS]-(person)
                 WITH liker, latestLike, person,
                     CASE WHEN person=null THEN TRUE ELSE FALSE END AS isNew
             RETURN
@@ -658,84 +659,6 @@ class LDBC_Interactive(Dataset):
                     WHEN true THEN -1
                     ELSE length(path)
                 END AS shortestPathLength
-            """.replace(
-                "\n", ""
-            ),
-            self._get_query_parameters(),
-        )
-
-        if self._vendor == "memgraph":
-            return memgraph
-        else:
-            return neo4j
-
-    def benchmark__interactive__complex_query_14(self):
-        memgraph = (
-            """
-            MATCH path = allShortestPaths((person1:Person { id: $person1Id })-[:KNOWS*0..]-(person2:Person { id: $person2Id }))
-            WITH collect(path) as paths
-            UNWIND paths as path
-            WITH path, relationships(path) as rels_in_path
-            WITH
-                [n in nodes(path) | n.id ] as personIdsInPath,
-                [r in rels_in_path |
-                    reduce(w=0.0, v in [
-                        (a:Person)<-[:HAS_CREATOR]-(:Comment)-[:REPLY_OF]->(:Post)-[:HAS_CREATOR]->(b:Person)
-                        WHERE
-                            (a.id = startNode(r).id and b.id=endNode(r).id) OR (a.id=endNode(r).id and b.id=startNode(r).id)
-                        | 1.0] | w+v)
-                ] as weight1,
-                [r in rels_in_path |
-                    reduce(w=0.0,v in [
-                    (a:Person)<-[:HAS_CREATOR]-(:Comment)-[:REPLY_OF]->(:Comment)-[:HAS_CREATOR]->(b:Person)
-                    WHERE
-                            (a.id = startNode(r).id and b.id=endNode(r).id) OR (a.id=endNode(r).id and b.id=startNode(r).id)
-                    | 0.5] | w+v)
-                ] as weight2
-            WITH
-                personIdsInPath,
-                reduce(w=0.0,v in weight1| w+v) as w1,
-                reduce(w=0.0,v in weight2| w+v) as w2
-            RETURN
-                personIdsInPath,
-                (w1+w2) as pathWeight
-            ORDER BY pathWeight desc
-            """.replace(
-                "\n", ""
-            ),
-            self._get_query_parameters(),
-        )
-
-        neo4j = (
-            """
-            MATCH path = allShortestPaths((person1:Person { id: $person1Id })-[:KNOWS*0..]-(person2:Person { id: $person2Id }))
-            WITH collect(path) as paths
-            UNWIND paths as path
-            WITH path, relationships(path) as rels_in_path
-            WITH
-                [n in nodes(path) | n.id ] as personIdsInPath,
-                [r in rels_in_path |
-                    reduce(w=0.0, v in [
-                        (a:Person)<-[:HAS_CREATOR]-(:Comment)-[:REPLY_OF]->(:Post)-[:HAS_CREATOR]->(b:Person)
-                        WHERE
-                            (a.id = startNode(r).id and b.id=endNode(r).id) OR (a.id=endNode(r).id and b.id=startNode(r).id)
-                        | 1.0] | w+v)
-                ] as weight1,
-                [r in rels_in_path |
-                    reduce(w=0.0,v in [
-                    (a:Person)<-[:HAS_CREATOR]-(:Comment)-[:REPLY_OF]->(:Comment)-[:HAS_CREATOR]->(b:Person)
-                    WHERE
-                            (a.id = startNode(r).id and b.id=endNode(r).id) OR (a.id=endNode(r).id and b.id=startNode(r).id)
-                    | 0.5] | w+v)
-                ] as weight2
-            WITH
-                personIdsInPath,
-                reduce(w=0.0,v in weight1| w+v) as w1,
-                reduce(w=0.0,v in weight2| w+v) as w2
-            RETURN
-                personIdsInPath,
-                (w1+w2) as pathWeight
-            ORDER BY pathWeight desc
             """.replace(
                 "\n", ""
             ),
