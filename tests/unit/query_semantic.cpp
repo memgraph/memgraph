@@ -1201,7 +1201,7 @@ TEST_F(TestSymbolGenerator, Exists) {
                                                   NODE("node", std::nullopt, false)))),
                              RETURN("n")));
   auto symbol_table = MakeSymbolTable(query);
-  ASSERT_EQ(symbol_table.max_position(), 6);
+  ASSERT_EQ(symbol_table.max_position(), 7);
 
   memgraph::query::plan::UsedSymbolsCollector collector(symbol_table);
   auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
