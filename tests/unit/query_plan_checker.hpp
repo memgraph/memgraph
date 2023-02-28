@@ -64,7 +64,6 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(ScanAllById);
   PRE_VISIT(Expand);
   PRE_VISIT(ExpandVariable);
-  PRE_VISIT(Filter);
   PRE_VISIT(ConstructNamedPath);
   PRE_VISIT(EmptyResult);
   PRE_VISIT(Produce);
@@ -95,6 +94,12 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Foreach &op) override {
     CheckOp(op);
+    return false;
+  }
+
+  bool PreVisit(Filter &op) override {
+    CheckOp(op);
+    op.input()->Accept(*this);
     return false;
   }
 
