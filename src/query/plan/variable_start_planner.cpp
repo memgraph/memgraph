@@ -213,7 +213,7 @@ CartesianProduct<VaryMatchingStart> VaryFilterMatchingStarts(const Matching &mat
                                                              const SymbolTable &symbol_table) {
   auto i = 0;
   for (const auto &filter : matching.filters) {
-    for (const auto &_ : filter.matchings) {
+    for ([[maybe_unused]] const auto &filter_matchings : filter.matchings) {
       i += 1;
     }
   }
