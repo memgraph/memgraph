@@ -133,24 +133,6 @@ class AuthQueryHandler {
 
 enum class QueryHandlerResult { COMMIT, ABORT, NOTHING };
 
-class TransactionQueueQueryHandler {
- public:
-  TransactionQueueQueryHandler() = default;
-  virtual ~TransactionQueueQueryHandler() = default;
-
-  TransactionQueueQueryHandler(const TransactionQueueQueryHandler &) = default;
-  TransactionQueueQueryHandler &operator=(const TransactionQueueQueryHandler &) = default;
-
-  TransactionQueueQueryHandler(TransactionQueueQueryHandler &&) = default;
-  TransactionQueueQueryHandler &operator=(TransactionQueueQueryHandler &&) = default;
-
-  static std::vector<std::vector<TypedValue>> ShowTransactions(InterpreterContext *, const std::optional<std::string> &,
-                                                               bool);
-
-  static std::vector<std::vector<TypedValue>> KillTransactions(InterpreterContext *, const std::vector<std::string> &,
-                                                               const std::optional<std::string> &, bool);
-};
-
 class ReplicationQueryHandler {
  public:
   ReplicationQueryHandler() = default;
@@ -338,7 +320,7 @@ class Interpreter final {
    */
   void Abort();
 
-  void AbortTransactionByUser();
+  std::atomic<TransactionStatus> transaction_status_{TransactionStatus::NO_TRANSACTION};
 
  private:
   struct QueryExecution {
@@ -381,8 +363,6 @@ class Interpreter final {
 
   InterpreterContext *interpreter_context_;
 
-  std::atomic<bool> is_transaction_aborted_by_user_{false};
-
   // This cannot be std::optional because we need to move this accessor later on into a lambda capture
   // which is assigned to std::function. std::function requires every object to be copyable, so we
   // move this unique_ptr into a shrared_ptr.
@@ -403,6 +383,24 @@ class Interpreter final {
     return std::count_if(query_executions_.begin(), query_executions_.end(),
                          [](const auto &execution) { return execution && execution->prepared_query; });
   }
+};
+
+class TransactionQueueQueryHandler {
+ public:
+  TransactionQueueQueryHandler() = default;
+  virtual ~TransactionQueueQueryHandler() = default;
+
+  TransactionQueueQueryHandler(const TransactionQueueQueryHandler &) = default;
+  TransactionQueueQueryHandler &operator=(const TransactionQueueQueryHandler &) = default;
+
+  TransactionQueueQueryHandler(TransactionQueueQueryHandler &&) = default;
+  TransactionQueueQueryHandler &operator=(TransactionQueueQueryHandler &&) = default;
+
+  static std::vector<std::vector<TypedValue>> ShowTransactions(InterpreterContext *, const std::optional<std::string> &,
+                                                               bool);
+
+  static std::vector<std::vector<TypedValue>> KillTransactions(InterpreterContext *, const std::vector<std::string> &,
+                                                               const std::optional<std::string> &, bool);
 };
 
 template <typename TStream>

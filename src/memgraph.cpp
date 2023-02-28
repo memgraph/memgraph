@@ -534,7 +534,6 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
   }
 
   ~BoltSession() override {
-    // this should automaticaly require the lock on the interpreters_
     interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.erase(&interpreter_); });
   }
 

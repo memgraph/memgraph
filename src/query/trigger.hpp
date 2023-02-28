@@ -31,6 +31,8 @@
 #include "utils/spin_lock.hpp"
 
 namespace memgraph::query {
+
+enum class TransactionStatus;
 struct Trigger {
   explicit Trigger(std::string name, const std::string &query,
                    const std::map<std::string, storage::PropertyValue> &user_parameters, TriggerEventType event_type,
@@ -39,7 +41,7 @@ struct Trigger {
                    const query::AuthChecker *auth_checker);
 
   void Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory, double max_execution_time_sec,
-               std::atomic<bool> *is_shutting_down, std::atomic<bool> *is_transaction_aborted_by_user,
+               std::atomic<bool> *is_shutting_down, std::atomic<TransactionStatus> *transaction_status,
                const TriggerContext &context, const AuthChecker *auth_checker) const;
 
   bool operator==(const Trigger &other) const { return name_ == other.name_; }

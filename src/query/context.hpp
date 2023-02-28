@@ -24,6 +24,14 @@
 
 namespace memgraph::query {
 
+enum class TransactionStatus {
+  NO_TRANSACTION,
+  ALIVE,
+  STARTED_KILLING,
+  STARTED_COMMITTING,
+  STARTED_ROLLBACK,
+};
+
 struct EvaluationContext {
   /// Memory for allocations during evaluation of a *single* Pull call.
   ///
@@ -66,7 +74,7 @@ struct ExecutionContext {
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
   std::atomic<bool> *is_shutting_down{nullptr};
-  std::atomic<bool> *is_aborted_by_user{nullptr};
+  std::atomic<TransactionStatus> *transaction_status{nullptr};
   bool is_profile_query{false};
   std::chrono::duration<double> profile_execution_time;
   plan::ProfilingStats stats;
@@ -83,7 +91,8 @@ static_assert(std::is_move_assignable_v<ExecutionContext>, "ExecutionContext mus
 static_assert(std::is_move_constructible_v<ExecutionContext>, "ExecutionContext must be move constructible!");
 
 inline bool MustAbort(const ExecutionContext &context) noexcept {
-  return (context.is_aborted_by_user != nullptr && context.is_aborted_by_user->load(std::memory_order_acquire)) ||
+  return (context.transaction_status != nullptr &&
+          context.transaction_status->load(std::memory_order_acquire) == TransactionStatus::STARTED_KILLING) ||
          (context.is_shutting_down != nullptr && context.is_shutting_down->load(std::memory_order_acquire)) ||
          context.timer.IsExpired();
 }

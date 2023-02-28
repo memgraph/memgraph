@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -118,11 +118,7 @@ class QueryRuntimeException : public QueryException {
 class HintedAbortError : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
-  HintedAbortError()
-      : utils::BasicException(
-            "Transaction was asked to abort, most likely because it was "
-            "executing longer than time specified by "
-            "--query-execution-timeout-sec flag.") {}
+  HintedAbortError() : utils::BasicException("Transaction was asked to abort") {}
 };
 
 class ExplicitTransactionUsageException : public QueryRuntimeException {
