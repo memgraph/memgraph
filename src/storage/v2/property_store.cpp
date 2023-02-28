@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1053,7 +1053,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
         in_local_buffer = true;
       } else {
         // Allocate a new external buffer.
-        auto alloc_data = new uint8_t[property_size_to_power_of_8];
+        auto *alloc_data = new uint8_t[property_size_to_power_of_8];
         auto alloc_size = property_size_to_power_of_8;
 
         SetSizeData(buffer_, alloc_size, alloc_data);
@@ -1142,6 +1142,64 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
   }
 
   return !existed;
+}
+
+bool PropertyStore::InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+  uint64_t size = 0;
+  uint8_t *data = nullptr;
+  std::tie(size, data) = GetSizeData(buffer_);
+  if (size != 0) {
+    return false;
+  }
+
+  uint64_t property_size = 0;
+  {
+    Writer writer;
+    for (const auto &[property, value] : properties) {
+      if (value.IsNull()) {
+        continue;
+      }
+      EncodeProperty(&writer, property, value);
+      property_size = writer.Written();
+    }
+  }
+
+  auto property_size_to_power_of_8 = ToPowerOf8(property_size);
+  if (property_size <= sizeof(buffer_) - 1) {
+    // Use the local buffer.
+    buffer_[0] = kUseLocalBuffer;
+    size = sizeof(buffer_) - 1;
+    data = &buffer_[1];
+  } else {
+    // Allocate a new external buffer.
+    auto *alloc_data = new uint8_t[property_size_to_power_of_8];
+    auto alloc_size = property_size_to_power_of_8;
+
+    SetSizeData(buffer_, alloc_size, alloc_data);
+
+    size = alloc_size;
+    data = alloc_data;
+  }
+
+  // Encode the property into the data buffer.
+  Writer writer(data, size);
+
+  for (const auto &[property, value] : properties) {
+    if (value.IsNull()) {
+      continue;
+    }
+    MG_ASSERT(EncodeProperty(&writer, property, value), "Invalid database state!");
+    writer.Written();
+  }
+
+  auto metadata = writer.WriteMetadata();
+  if (metadata) {
+    // If there is any space left in the buffer we add a tombstone to
+    // indicate that there are no more properties to be decoded.
+    metadata->Set({Type::EMPTY});
+  }
+
+  return true;
 }
 
 bool PropertyStore::ClearProperties() {
