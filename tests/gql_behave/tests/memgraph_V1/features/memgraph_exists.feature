@@ -504,6 +504,18 @@ Feature: WHERE exists
           """
       Then the result should be empty
 
+	Scenario: Test exists on multihop patterns without results
+		Given an empty graph
+		And having executed:
+				"""
+				MATCH (n) DETACH DELETE n;
+				"""
+		When executing query:
+				"""
+				MATCH ()-[]-(m)-[]->(a) WHERE m.prop=1 and a.prop=3 and exists(()-[]->(m)) RETURN m, a;
+				"""
+  	Then the result should be empty
+
   Scenario: Test exists does not work in SetProperty clauses
       Given an empty graph
       And having executed:
