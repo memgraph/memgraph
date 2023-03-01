@@ -1,4 +1,4 @@
-# Copyright 2022 Memgraph Ltd.
+# Copyright 2021 Memgraph Ltd.
 #
 # Use of this software is governed by the Business Source License
 # included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,18 +9,12 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import typing
-
-import mgclient
-import pytest
+import mgp
 
 
-def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}) -> typing.List[tuple]:
-    cursor.execute(query, params)
-    return cursor.fetchall()
-
-
-def connect(**kwargs) -> mgclient.Connection:
-    connection = mgclient.connect(host="localhost", port=7687, **kwargs)
-    connection.autocommit = True
-    return connection
+@mgp.read_proc
+def long_query(ctx: mgp.ProcCtx) -> mgp.Record(my_id=int):
+    id = 1
+    while True:
+        id += 1
+    return mgp.Record(my_id=id)

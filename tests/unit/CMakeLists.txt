@@ -130,6 +130,9 @@ target_link_libraries(${test_prefix}query_serialization_property_value mg-query)
 add_unit_test(query_streams.cpp)
 target_link_libraries(${test_prefix}query_streams mg-query kafka-mock)
 
+add_unit_test(transaction_queue.cpp)
+target_link_libraries(${test_prefix}transaction_queue mg-communication mg-query mg-glue)
+
 # Test query functions
 add_unit_test(query_function_mgp_module.cpp)
 target_link_libraries(${test_prefix}query_function_mgp_module mg-query)

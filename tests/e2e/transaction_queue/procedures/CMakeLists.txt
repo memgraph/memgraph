@@ -1,1 +1,1 @@
-copy_e2e_python_files(transaction_queue write.py)
+copy_e2e_python_files(transaction_queue infinite_query.py)

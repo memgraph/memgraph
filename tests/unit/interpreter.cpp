@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,6 +18,7 @@
 #include "glue/communication.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "interpreter_faker.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/exceptions.hpp"
@@ -40,57 +41,18 @@ auto ToEdgeList(const memgraph::communication::bolt::Value &v) {
   return list;
 };
 
-struct InterpreterFaker {
-  InterpreterFaker(memgraph::storage::Storage *db, const memgraph::query::InterpreterConfig config,
-                   const std::filesystem::path &data_directory)
-      : interpreter_context(db, config, data_directory), interpreter(&interpreter_context) {
-    interpreter_context.auth_checker = &auth_checker;
-  }
-
-  auto Prepare(const std::string &query, const std::map<std::string, memgraph::storage::PropertyValue> &params = {}) {
-    ResultStreamFaker stream(interpreter_context.db);
-
-    const auto [header, _, qid] = interpreter.Prepare(query, params, nullptr);
-    stream.Header(header);
-    return std::make_pair(std::move(stream), qid);
-  }
-
-  void Pull(ResultStreamFaker *stream, std::optional<int> n = {}, std::optional<int> qid = {}) {
-    const auto summary = interpreter.Pull(stream, n, qid);
-    stream->Summary(summary);
-  }
-
-  /**
-   * Execute the given query and commit the transaction.
-   *
-   * Return the query stream.
-   */
-  auto Interpret(const std::string &query, const std::map<std::string, memgraph::storage::PropertyValue> &params = {}) {
-    auto prepare_result = Prepare(query, params);
-
-    auto &stream = prepare_result.first;
-    auto summary = interpreter.Pull(&stream, {}, prepare_result.second);
-    stream.Summary(summary);
-
-    return std::move(stream);
-  }
-
-  memgraph::query::AllowEverythingAuthChecker auth_checker;
-  memgraph::query::InterpreterContext interpreter_context;
-  memgraph::query::Interpreter interpreter;
-};
-
 }  // namespace
 
 // TODO: This is not a unit test, but tests/integration dir is chaotic at the
 // moment. After tests refactoring is done, move/rename this.
 
 class InterpreterTest : public ::testing::Test {
- protected:
+ public:
   memgraph::storage::Storage db_;
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_interpreter"};
+  memgraph::query::InterpreterContext interpreter_context{&db_, {}, data_directory};
 
-  InterpreterFaker default_interpreter{&db_, {}, data_directory};
+  InterpreterFaker default_interpreter{&db_, &interpreter_context};
 
   auto Prepare(const std::string &query, const std::map<std::string, memgraph::storage::PropertyValue> &params = {}) {
     return default_interpreter.Prepare(query, params);
@@ -638,8 +600,6 @@ TEST_F(InterpreterTest, UniqueConstraintTest) {
 }
 
 TEST_F(InterpreterTest, ExplainQuery) {
-  const auto &interpreter_context = default_interpreter.interpreter_context;
-
   EXPECT_EQ(interpreter_context.plan_cache.size(), 0U);
   EXPECT_EQ(interpreter_context.ast_cache.size(), 0U);
   auto stream = Interpret("EXPLAIN MATCH (n) RETURN *;");
@@ -663,8 +623,6 @@ TEST_F(InterpreterTest, ExplainQuery) {
 }
 
 TEST_F(InterpreterTest, ExplainQueryMultiplePulls) {
-  const auto &interpreter_context = default_interpreter.interpreter_context;
-
   EXPECT_EQ(interpreter_context.plan_cache.size(), 0U);
   EXPECT_EQ(interpreter_context.ast_cache.size(), 0U);
   auto [stream, qid] = Prepare("EXPLAIN MATCH (n) RETURN *;");
@@ -698,8 +656,6 @@ TEST_F(InterpreterTest, ExplainQueryMultiplePulls) {
 }
 
 TEST_F(InterpreterTest, ExplainQueryInMulticommandTransaction) {
-  const auto &interpreter_context = default_interpreter.interpreter_context;
-
   EXPECT_EQ(interpreter_context.plan_cache.size(), 0U);
   EXPECT_EQ(interpreter_context.ast_cache.size(), 0U);
   Interpret("BEGIN");
@@ -725,8 +681,6 @@ TEST_F(InterpreterTest, ExplainQueryInMulticommandTransaction) {
 }
 
 TEST_F(InterpreterTest, ExplainQueryWithParams) {
-  const auto &interpreter_context = default_interpreter.interpreter_context;
-
   EXPECT_EQ(interpreter_context.plan_cache.size(), 0U);
   EXPECT_EQ(interpreter_context.ast_cache.size(), 0U);
   auto stream =
@@ -751,8 +705,6 @@ TEST_F(InterpreterTest, ExplainQueryWithParams) {
 }
 
 TEST_F(InterpreterTest, ProfileQuery) {
-  const auto &interpreter_context = default_interpreter.interpreter_context;
-
   EXPECT_EQ(interpreter_context.plan_cache.size(), 0U);
   EXPECT_EQ(interpreter_context.ast_cache.size(), 0U);
   auto stream = Interpret("PROFILE MATCH (n) RETURN *;");
@@ -776,8 +728,6 @@ TEST_F(InterpreterTest, ProfileQuery) {
 }
 
 TEST_F(InterpreterTest, ProfileQueryMultiplePulls) {
-  const auto &interpreter_context = default_interpreter.interpreter_context;
-
   EXPECT_EQ(interpreter_context.plan_cache.size(), 0U);
   EXPECT_EQ(interpreter_context.ast_cache.size(), 0U);
   auto [stream, qid] = Prepare("PROFILE MATCH (n) RETURN *;");
@@ -820,8 +770,6 @@ TEST_F(InterpreterTest, ProfileQueryInMulticommandTransaction) {
 }
 
 TEST_F(InterpreterTest, ProfileQueryWithParams) {
-  const auto &interpreter_context = default_interpreter.interpreter_context;
-
   EXPECT_EQ(interpreter_context.plan_cache.size(), 0U);
   EXPECT_EQ(interpreter_context.ast_cache.size(), 0U);
   auto stream =
@@ -846,8 +794,6 @@ TEST_F(InterpreterTest, ProfileQueryWithParams) {
 }
 
 TEST_F(InterpreterTest, ProfileQueryWithLiterals) {
-  const auto &interpreter_context = default_interpreter.interpreter_context;
-
   EXPECT_EQ(interpreter_context.plan_cache.size(), 0U);
   EXPECT_EQ(interpreter_context.ast_cache.size(), 0U);
   auto stream = Interpret("PROFILE UNWIND range(1, 1000) AS x CREATE (:Node {id: x});", {});
@@ -1087,7 +1033,6 @@ TEST_F(InterpreterTest, LoadCsvClause) {
 }
 
 TEST_F(InterpreterTest, CacheableQueries) {
-  const auto &interpreter_context = default_interpreter.interpreter_context;
   // This should be cached
   {
     SCOPED_TRACE("Cacheable query");
@@ -1120,7 +1065,9 @@ TEST_F(InterpreterTest, AllowLoadCsvConfig) {
         "CREATE TRIGGER trigger ON CREATE BEFORE COMMIT EXECUTE LOAD CSV FROM 'file.csv' WITH HEADER AS row RETURN "
         "row"};
 
-    InterpreterFaker interpreter_faker{&db_, {.query = {.allow_load_csv = allow_load_csv}}, directory_manager.Path()};
+    memgraph::query::InterpreterContext csv_interpreter_context{
+        &db_, {.query = {.allow_load_csv = allow_load_csv}}, directory_manager.Path()};
+    InterpreterFaker interpreter_faker{&db_, &csv_interpreter_context};
     for (const auto &query : queries) {
       if (allow_load_csv) {
         SCOPED_TRACE(fmt::format("'{}' should not throw because LOAD CSV is allowed", query));
