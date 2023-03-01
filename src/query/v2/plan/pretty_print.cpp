@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,13 +14,13 @@
 
 #include "query/v2/bindings/pretty_print.hpp"
 #include "query/v2/db_accessor.hpp"
-#include "query/v2/shard_request_manager.hpp"
+#include "query/v2/request_router.hpp"
 #include "utils/string.hpp"
 
 namespace memgraph::query::v2::plan {
 
-PlanPrinter::PlanPrinter(const msgs::ShardRequestManagerInterface *request_manager, std::ostream *out)
-    : request_manager_(request_manager), out_(out) {}
+PlanPrinter::PlanPrinter(const RequestRouterInterface *request_router, std::ostream *out)
+    : request_router_(request_router), out_(out) {}
 
 #define PRE_VISIT(TOp)                                   \
   bool PlanPrinter::PreVisit(TOp &) {                    \
@@ -34,7 +34,7 @@ bool PlanPrinter::PreVisit(CreateExpand &op) {
   WithPrintLn([&](auto &out) {
     out << "* CreateExpand (" << op.input_symbol_.name() << ")"
         << (op.edge_info_.direction == query::v2::EdgeAtom::Direction::IN ? "<-" : "-") << "["
-        << op.edge_info_.symbol.name() << ":" << request_manager_->EdgeTypeToName(op.edge_info_.edge_type) << "]"
+        << op.edge_info_.symbol.name() << ":" << request_router_->EdgeTypeToName(op.edge_info_.edge_type) << "]"
         << (op.edge_info_.direction == query::v2::EdgeAtom::Direction::OUT ? "->" : "-") << "("
         << op.node_info_.symbol.name() << ")";
   });
@@ -54,7 +54,7 @@ bool PlanPrinter::PreVisit(query::v2::plan::ScanAll &op) {
 bool PlanPrinter::PreVisit(query::v2::plan::ScanAllByLabel &op) {
   WithPrintLn([&](auto &out) {
     out << "* ScanAllByLabel"
-        << " (" << op.output_symbol_.name() << " :" << request_manager_->LabelToName(op.label_) << ")";
+        << " (" << op.output_symbol_.name() << " :" << request_router_->LabelToName(op.label_) << ")";
   });
   return true;
 }
@@ -62,8 +62,8 @@ bool PlanPrinter::PreVisit(query::v2::plan::ScanAllByLabel &op) {
 bool PlanPrinter::PreVisit(query::v2::plan::ScanAllByLabelPropertyValue &op) {
   WithPrintLn([&](auto &out) {
     out << "* ScanAllByLabelPropertyValue"
-        << " (" << op.output_symbol_.name() << " :" << request_manager_->LabelToName(op.label_) << " {"
-        << request_manager_->PropertyToName(op.property_) << "})";
+        << " (" << op.output_symbol_.name() << " :" << request_router_->LabelToName(op.label_) << " {"
+        << request_router_->PropertyToName(op.property_) << "})";
   });
   return true;
 }
@@ -71,8 +71,8 @@ bool PlanPrinter::PreVisit(query::v2::plan::ScanAllByLabelPropertyValue &op) {
 bool PlanPrinter::PreVisit(query::v2::plan::ScanAllByLabelPropertyRange &op) {
   WithPrintLn([&](auto &out) {
     out << "* ScanAllByLabelPropertyRange"
-        << " (" << op.output_symbol_.name() << " :" << request_manager_->LabelToName(op.label_) << " {"
-        << request_manager_->PropertyToName(op.property_) << "})";
+        << " (" << op.output_symbol_.name() << " :" << request_router_->LabelToName(op.label_) << " {"
+        << request_router_->PropertyToName(op.property_) << "})";
   });
   return true;
 }
@@ -80,16 +80,16 @@ bool PlanPrinter::PreVisit(query::v2::plan::ScanAllByLabelPropertyRange &op) {
 bool PlanPrinter::PreVisit(query::v2::plan::ScanAllByLabelProperty &op) {
   WithPrintLn([&](auto &out) {
     out << "* ScanAllByLabelProperty"
-        << " (" << op.output_symbol_.name() << " :" << request_manager_->LabelToName(op.label_) << " {"
-        << request_manager_->PropertyToName(op.property_) << "})";
+        << " (" << op.output_symbol_.name() << " :" << request_router_->LabelToName(op.label_) << " {"
+        << request_router_->PropertyToName(op.property_) << "})";
   });
   return true;
 }
 
-bool PlanPrinter::PreVisit(ScanAllById &op) {
+bool PlanPrinter::PreVisit(query::v2::plan::ScanByPrimaryKey &op) {
   WithPrintLn([&](auto &out) {
-    out << "* ScanAllById"
-        << " (" << op.output_symbol_.name() << ")";
+    out << "* ScanByPrimaryKey"
+        << " (" << op.output_symbol_.name() << " :" << request_router_->LabelToName(op.label_) << ")";
   });
   return true;
 }
@@ -100,7 +100,7 @@ bool PlanPrinter::PreVisit(query::v2::plan::Expand &op) {
           << (op.common_.direction == query::v2::EdgeAtom::Direction::IN ? "<-" : "-") << "["
           << op.common_.edge_symbol.name();
     utils::PrintIterable(*out_, op.common_.edge_types, "|", [this](auto &stream, const auto &edge_type) {
-      stream << ":" << request_manager_->EdgeTypeToName(edge_type);
+      stream << ":" << request_router_->EdgeTypeToName(edge_type);
     });
     *out_ << "]" << (op.common_.direction == query::v2::EdgeAtom::Direction::OUT ? "->" : "-") << "("
           << op.common_.node_symbol.name() << ")";
@@ -129,7 +129,7 @@ bool PlanPrinter::PreVisit(query::v2::plan::ExpandVariable &op) {
           << (op.common_.direction == query::v2::EdgeAtom::Direction::IN ? "<-" : "-") << "["
           << op.common_.edge_symbol.name();
     utils::PrintIterable(*out_, op.common_.edge_types, "|", [this](auto &stream, const auto &edge_type) {
-      stream << ":" << request_manager_->EdgeTypeToName(edge_type);
+      stream << ":" << request_router_->EdgeTypeToName(edge_type);
     });
     *out_ << "]" << (op.common_.direction == query::v2::EdgeAtom::Direction::OUT ? "->" : "-") << "("
           << op.common_.node_symbol.name() << ")";
@@ -263,15 +263,14 @@ void PlanPrinter::Branch(query::v2::plan::LogicalOperator &op, const std::string
   --depth_;
 }
 
-void PrettyPrint(const msgs::ShardRequestManagerInterface &request_manager, const LogicalOperator *plan_root,
-                 std::ostream *out) {
-  PlanPrinter printer(&request_manager, out);
+void PrettyPrint(const RequestRouterInterface &request_router, const LogicalOperator *plan_root, std::ostream *out) {
+  PlanPrinter printer(&request_router, out);
   // FIXME(mtomic): We should make visitors that take const arguments.
   const_cast<LogicalOperator *>(plan_root)->Accept(printer);
 }
 
-nlohmann::json PlanToJson(const msgs::ShardRequestManagerInterface &request_manager, const LogicalOperator *plan_root) {
-  impl::PlanToJsonVisitor visitor(&request_manager);
+nlohmann::json PlanToJson(const RequestRouterInterface &request_router, const LogicalOperator *plan_root) {
+  impl::PlanToJsonVisitor visitor(&request_router);
   // FIXME(mtomic): We should make visitors that take const arguments.
   const_cast<LogicalOperator *>(plan_root)->Accept(visitor);
   return visitor.output();
@@ -349,16 +348,16 @@ json ToJson(const utils::Bound<Expression *> &bound) {
 
 json ToJson(const Symbol &symbol) { return symbol.name(); }
 
-json ToJson(storage::v3::EdgeTypeId edge_type, const msgs::ShardRequestManagerInterface &request_manager) {
-  return request_manager.EdgeTypeToName(edge_type);
+json ToJson(storage::v3::EdgeTypeId edge_type, const RequestRouterInterface &request_router) {
+  return request_router.EdgeTypeToName(edge_type);
 }
 
-json ToJson(storage::v3::LabelId label, const msgs::ShardRequestManagerInterface &request_manager) {
-  return request_manager.LabelToName(label);
+json ToJson(storage::v3::LabelId label, const RequestRouterInterface &request_router) {
+  return request_router.LabelToName(label);
 }
 
-json ToJson(storage::v3::PropertyId property, const msgs::ShardRequestManagerInterface &request_manager) {
-  return request_manager.PropertyToName(property);
+json ToJson(storage::v3::PropertyId property, const RequestRouterInterface &request_router) {
+  return request_router.PropertyToName(property);
 }
 
 json ToJson(NamedExpression *nexpr) {
@@ -369,29 +368,29 @@ json ToJson(NamedExpression *nexpr) {
 }
 
 json ToJson(const std::vector<std::pair<storage::v3::PropertyId, Expression *>> &properties,
-            const msgs::ShardRequestManagerInterface &request_manager) {
+            const RequestRouterInterface &request_router) {
   json json;
   for (const auto &prop_pair : properties) {
-    json.emplace(ToJson(prop_pair.first, request_manager), ToJson(prop_pair.second));
+    json.emplace(ToJson(prop_pair.first, request_router), ToJson(prop_pair.second));
   }
   return json;
 }
 
-json ToJson(const NodeCreationInfo &node_info, const msgs::ShardRequestManagerInterface &request_manager) {
+json ToJson(const NodeCreationInfo &node_info, const RequestRouterInterface &request_router) {
   json self;
   self["symbol"] = ToJson(node_info.symbol);
-  self["labels"] = ToJson(node_info.labels, request_manager);
+  self["labels"] = ToJson(node_info.labels, request_router);
   const auto *props = std::get_if<PropertiesMapList>(&node_info.properties);
-  self["properties"] = ToJson(props ? *props : PropertiesMapList{}, request_manager);
+  self["properties"] = ToJson(props ? *props : PropertiesMapList{}, request_router);
   return self;
 }
 
-json ToJson(const EdgeCreationInfo &edge_info, const msgs::ShardRequestManagerInterface &request_manager) {
+json ToJson(const EdgeCreationInfo &edge_info, const RequestRouterInterface &request_router) {
   json self;
   self["symbol"] = ToJson(edge_info.symbol);
   const auto *props = std::get_if<PropertiesMapList>(&edge_info.properties);
-  self["properties"] = ToJson(props ? *props : PropertiesMapList{}, request_manager);
-  self["edge_type"] = ToJson(edge_info.edge_type, request_manager);
+  self["properties"] = ToJson(props ? *props : PropertiesMapList{}, request_router);
+  self["edge_type"] = ToJson(edge_info.edge_type, request_router);
   self["direction"] = ToString(edge_info.direction);
   return self;
 }
@@ -433,7 +432,7 @@ bool PlanToJsonVisitor::PreVisit(ScanAll &op) {
 bool PlanToJsonVisitor::PreVisit(ScanAllByLabel &op) {
   json self;
   self["name"] = "ScanAllByLabel";
-  self["label"] = ToJson(op.label_, *request_manager_);
+  self["label"] = ToJson(op.label_, *request_router_);
   self["output_symbol"] = ToJson(op.output_symbol_);
 
   op.input_->Accept(*this);
@@ -446,8 +445,8 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByLabel &op) {
 bool PlanToJsonVisitor::PreVisit(ScanAllByLabelPropertyRange &op) {
   json self;
   self["name"] = "ScanAllByLabelPropertyRange";
-  self["label"] = ToJson(op.label_, *request_manager_);
-  self["property"] = ToJson(op.property_, *request_manager_);
+  self["label"] = ToJson(op.label_, *request_router_);
+  self["property"] = ToJson(op.property_, *request_router_);
   self["lower_bound"] = op.lower_bound_ ? ToJson(*op.lower_bound_) : json();
   self["upper_bound"] = op.upper_bound_ ? ToJson(*op.upper_bound_) : json();
   self["output_symbol"] = ToJson(op.output_symbol_);
@@ -462,8 +461,8 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByLabelPropertyRange &op) {
 bool PlanToJsonVisitor::PreVisit(ScanAllByLabelPropertyValue &op) {
   json self;
   self["name"] = "ScanAllByLabelPropertyValue";
-  self["label"] = ToJson(op.label_, *request_manager_);
-  self["property"] = ToJson(op.property_, *request_manager_);
+  self["label"] = ToJson(op.label_, *request_router_);
+  self["property"] = ToJson(op.property_, *request_router_);
   self["expression"] = ToJson(op.expression_);
   self["output_symbol"] = ToJson(op.output_symbol_);
 
@@ -477,8 +476,8 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByLabelPropertyValue &op) {
 bool PlanToJsonVisitor::PreVisit(ScanAllByLabelProperty &op) {
   json self;
   self["name"] = "ScanAllByLabelProperty";
-  self["label"] = ToJson(op.label_, *request_manager_);
-  self["property"] = ToJson(op.property_, *request_manager_);
+  self["label"] = ToJson(op.label_, *request_router_);
+  self["property"] = ToJson(op.property_, *request_router_);
   self["output_symbol"] = ToJson(op.output_symbol_);
 
   op.input_->Accept(*this);
@@ -488,12 +487,15 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByLabelProperty &op) {
   return false;
 }
 
-bool PlanToJsonVisitor::PreVisit(ScanAllById &op) {
+bool PlanToJsonVisitor::PreVisit(ScanByPrimaryKey &op) {
   json self;
-  self["name"] = "ScanAllById";
+  self["name"] = "ScanByPrimaryKey";
+  self["label"] = ToJson(op.label_, *request_router_);
   self["output_symbol"] = ToJson(op.output_symbol_);
+
   op.input_->Accept(*this);
   self["input"] = PopOutput();
+
   output_ = std::move(self);
   return false;
 }
@@ -501,7 +503,7 @@ bool PlanToJsonVisitor::PreVisit(ScanAllById &op) {
 bool PlanToJsonVisitor::PreVisit(CreateNode &op) {
   json self;
   self["name"] = "CreateNode";
-  self["node_info"] = ToJson(op.node_info_, *request_manager_);
+  self["node_info"] = ToJson(op.node_info_, *request_router_);
 
   op.input_->Accept(*this);
   self["input"] = PopOutput();
@@ -514,8 +516,8 @@ bool PlanToJsonVisitor::PreVisit(CreateExpand &op) {
   json self;
   self["name"] = "CreateExpand";
   self["input_symbol"] = ToJson(op.input_symbol_);
-  self["node_info"] = ToJson(op.node_info_, *request_manager_);
-  self["edge_info"] = ToJson(op.edge_info_, *request_manager_);
+  self["node_info"] = ToJson(op.node_info_, *request_router_);
+  self["edge_info"] = ToJson(op.edge_info_, *request_router_);
   self["existing_node"] = op.existing_node_;
 
   op.input_->Accept(*this);
@@ -531,7 +533,7 @@ bool PlanToJsonVisitor::PreVisit(Expand &op) {
   self["input_symbol"] = ToJson(op.input_symbol_);
   self["node_symbol"] = ToJson(op.common_.node_symbol);
   self["edge_symbol"] = ToJson(op.common_.edge_symbol);
-  self["edge_types"] = ToJson(op.common_.edge_types, *request_manager_);
+  self["edge_types"] = ToJson(op.common_.edge_types, *request_router_);
   self["direction"] = ToString(op.common_.direction);
   self["existing_node"] = op.common_.existing_node;
 
@@ -548,7 +550,7 @@ bool PlanToJsonVisitor::PreVisit(ExpandVariable &op) {
   self["input_symbol"] = ToJson(op.input_symbol_);
   self["node_symbol"] = ToJson(op.common_.node_symbol);
   self["edge_symbol"] = ToJson(op.common_.edge_symbol);
-  self["edge_types"] = ToJson(op.common_.edge_types, *request_manager_);
+  self["edge_types"] = ToJson(op.common_.edge_types, *request_router_);
   self["direction"] = ToString(op.common_.direction);
   self["type"] = ToString(op.type_);
   self["is_reverse"] = op.is_reverse_;
@@ -623,7 +625,7 @@ bool PlanToJsonVisitor::PreVisit(Delete &op) {
 bool PlanToJsonVisitor::PreVisit(SetProperty &op) {
   json self;
   self["name"] = "SetProperty";
-  self["property"] = ToJson(op.property_, *request_manager_);
+  self["property"] = ToJson(op.property_, *request_router_);
   self["lhs"] = ToJson(op.lhs_);
   self["rhs"] = ToJson(op.rhs_);
 
@@ -660,7 +662,7 @@ bool PlanToJsonVisitor::PreVisit(SetLabels &op) {
   json self;
   self["name"] = "SetLabels";
   self["input_symbol"] = ToJson(op.input_symbol_);
-  self["labels"] = ToJson(op.labels_, *request_manager_);
+  self["labels"] = ToJson(op.labels_, *request_router_);
 
   op.input_->Accept(*this);
   self["input"] = PopOutput();
@@ -672,7 +674,7 @@ bool PlanToJsonVisitor::PreVisit(SetLabels &op) {
 bool PlanToJsonVisitor::PreVisit(RemoveProperty &op) {
   json self;
   self["name"] = "RemoveProperty";
-  self["property"] = ToJson(op.property_, *request_manager_);
+  self["property"] = ToJson(op.property_, *request_router_);
   self["lhs"] = ToJson(op.lhs_);
 
   op.input_->Accept(*this);
@@ -686,7 +688,7 @@ bool PlanToJsonVisitor::PreVisit(RemoveLabels &op) {
   json self;
   self["name"] = "RemoveLabels";
   self["input_symbol"] = ToJson(op.input_symbol_);
-  self["labels"] = ToJson(op.labels_, *request_manager_);
+  self["labels"] = ToJson(op.labels_, *request_router_);
 
   op.input_->Accept(*this);
   self["input"] = PopOutput();

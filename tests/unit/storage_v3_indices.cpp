@@ -18,7 +18,7 @@
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/name_id_mapper.hpp"
 #include "storage/v3/property_value.hpp"
-#include "storage/v3/storage.hpp"
+#include "storage/v3/shard.hpp"
 #include "storage/v3/temporal.hpp"
 #include "storage/v3/view.hpp"
 

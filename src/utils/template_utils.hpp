@@ -9,6 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v3/lexicographically_ordered_vertex.hpp"
+#pragma once
 
-namespace memgraph::storage::v3 {}  // namespace memgraph::storage::v3
+namespace memgraph::utils {
+
+template <typename>
+constexpr auto kAlwaysFalse{false};
+
+}  // namespace memgraph::utils

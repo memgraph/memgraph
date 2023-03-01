@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <boost/core/demangle.hpp>
+
 #include "io/transport.hpp"
 #include "utils/type_info_ref.hpp"
 
@@ -19,9 +21,6 @@ namespace memgraph::io {
 struct PromiseKey {
   Address requester_address;
   uint64_t request_id;
-  // TODO(tyler) possibly remove replier_address from promise key
-  // once we want to support DSR.
-  Address replier_address;
 
  public:
   friend bool operator<(const PromiseKey &lhs, const PromiseKey &rhs) {
@@ -29,11 +28,7 @@ struct PromiseKey {
       return lhs.requester_address < rhs.requester_address;
     }
 
-    if (lhs.request_id != rhs.request_id) {
-      return lhs.request_id < rhs.request_id;
-    }
-
-    return lhs.replier_address < rhs.replier_address;
+    return lhs.request_id < rhs.request_id;
   }
 };
 
@@ -89,6 +84,10 @@ struct OpaqueMessage {
           .from_address = from_address,
       };
     }
+
+    std::string demangled_name = "\"" + boost::core::demangle(message.type().name()) + "\"";
+    spdlog::error("failed to cast message of type {} to expected request type (probably in Receive argument types)",
+                  demangled_name);
 
     return std::nullopt;
   }

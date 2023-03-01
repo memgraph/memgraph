@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,6 +24,8 @@
 #include "coordinator/hybrid_logical_clock.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
+#include "storage/v3/result.hpp"
+#include "utils/fnv.hpp"
 
 namespace memgraph::msgs {
 
@@ -35,6 +37,7 @@ struct Value;
 struct Label {
   LabelId id;
   friend bool operator==(const Label &lhs, const Label &rhs) { return lhs.id == rhs.id; }
+  friend bool operator==(const Label &lhs, const LabelId &rhs) { return lhs.id == rhs; }
 };
 
 // TODO(kostasrim) update this with CompoundKey, same for the rest of the file.
@@ -317,12 +320,13 @@ struct Value {
   }
 };
 
-struct Expression {
-  std::string expression;
+struct ShardError {
+  common::ErrorCode code;
+  std::string message;
 };
 
-struct Filter {
-  std::string filter_expression;
+struct Expression {
+  std::string expression;
 };
 
 enum class OrderingDirection { ASCENDING = 1, DESCENDING = 2 };
@@ -361,27 +365,38 @@ struct ScanResultRow {
 };
 
 struct ScanVerticesResponse {
-  bool success;
+  std::optional<ShardError> error;
   std::optional<VertexId> next_start_id;
   std::vector<ScanResultRow> results;
 };
 
-using VertexOrEdgeIds = std::variant<VertexId, EdgeId>;
-
 struct GetPropertiesRequest {
   Hlc transaction_id;
-  // Shouldn't contain mixed vertex and edge ids
-  VertexOrEdgeIds vertex_or_edge_ids;
-  std::vector<PropertyId> property_ids;
-  std::vector<Expression> expressions;
-  bool only_unique = false;
-  std::optional<std::vector<OrderBy>> order_by;
+  std::vector<VertexId> vertex_ids;
+  std::vector<std::pair<VertexId, EdgeId>> vertices_and_edges;
+
+  std::optional<std::vector<PropertyId>> property_ids;
+  std::vector<std::string> expressions;
+
+  std::vector<OrderBy> order_by;
   std::optional<size_t> limit;
-  std::optional<Filter> filter;
+
+  // Return only the properties of the vertices or edges that the filter predicate
+  // evaluates to true
+  std::optional<std::string> filter;
+};
+
+struct GetPropertiesResultRow {
+  VertexId vertex;
+  std::optional<EdgeId> edge;
+
+  std::vector<std::pair<PropertyId, Value>> props;
+  std::vector<Value> evaluated_expressions;
 };
 
 struct GetPropertiesResponse {
-  bool success;
+  std::vector<GetPropertiesResultRow> result_row;
+  std::optional<ShardError> error;
 };
 
 enum class EdgeDirection : uint8_t { OUT = 1, IN = 2, BOTH = 3 };
@@ -403,7 +418,9 @@ struct ExpandOneRequest {
   std::vector<std::string> vertex_expressions;
   std::vector<std::string> edge_expressions;
 
-  std::optional<std::vector<OrderBy>> order_by;
+  std::vector<OrderBy> order_by_vertices;
+  std::vector<OrderBy> order_by_edges;
+
   // Limit the edges or the vertices?
   std::optional<size_t> limit;
   std::vector<std::string> filters;
@@ -446,14 +463,16 @@ struct ExpandOneResultRow {
 };
 
 struct ExpandOneResponse {
-  bool success;
+  std::optional<ShardError> error;
   std::vector<ExpandOneResultRow> result;
 };
 
-struct UpdateVertexProp {
+struct UpdateVertex {
   PrimaryKey primary_key;
-  // This should be a map
-  std::vector<std::pair<PropertyId, Value>> property_updates;
+  // Labels are first added and then removed from vertices
+  std::vector<LabelId> add_labels;
+  std::vector<LabelId> remove_labels;
+  std::map<PropertyId, Value> property_updates;
 };
 
 struct UpdateEdgeProp {
@@ -480,7 +499,7 @@ struct CreateVerticesRequest {
 };
 
 struct CreateVerticesResponse {
-  bool success;
+  std::optional<ShardError> error;
 };
 
 struct DeleteVerticesRequest {
@@ -491,16 +510,16 @@ struct DeleteVerticesRequest {
 };
 
 struct DeleteVerticesResponse {
-  bool success;
+  std::optional<ShardError> error;
 };
 
 struct UpdateVerticesRequest {
   Hlc transaction_id;
-  std::vector<UpdateVertexProp> new_properties;
+  std::vector<UpdateVertex> update_vertices;
 };
 
 struct UpdateVerticesResponse {
-  bool success;
+  std::optional<ShardError> error;
 };
 
 /*
@@ -522,7 +541,7 @@ struct CreateExpandRequest {
 };
 
 struct CreateExpandResponse {
-  bool success;
+  std::optional<ShardError> error;
 };
 
 struct DeleteEdgesRequest {
@@ -531,7 +550,7 @@ struct DeleteEdgesRequest {
 };
 
 struct DeleteEdgesResponse {
-  bool success;
+  std::optional<ShardError> error;
 };
 
 struct UpdateEdgesRequest {
@@ -540,7 +559,7 @@ struct UpdateEdgesRequest {
 };
 
 struct UpdateEdgesResponse {
-  bool success;
+  std::optional<ShardError> error;
 };
 
 struct CommitRequest {
@@ -549,7 +568,7 @@ struct CommitRequest {
 };
 
 struct CommitResponse {
-  bool success;
+  std::optional<ShardError> error;
 };
 
 using ReadRequests = std::variant<ExpandOneRequest, GetPropertiesRequest, ScanVerticesRequest>;
@@ -561,3 +580,48 @@ using WriteResponses = std::variant<CreateVerticesResponse, DeleteVerticesRespon
                                     CreateExpandResponse, DeleteEdgesResponse, UpdateEdgesResponse, CommitResponse>;
 
 }  // namespace memgraph::msgs
+
+namespace std {
+
+template <>
+struct hash<memgraph::msgs::Value>;
+
+template <>
+struct hash<memgraph::msgs::VertexId> {
+  size_t operator()(const memgraph::msgs::VertexId &id) const {
+    using LabelId = memgraph::storage::v3::LabelId;
+    using Value = memgraph::msgs::Value;
+    return memgraph::utils::HashCombine<LabelId, std::vector<Value>, std::hash<LabelId>,
+                                        memgraph::utils::FnvCollection<std::vector<Value>, Value>>{}(id.first.id,
+                                                                                                     id.second);
+  }
+};
+
+template <>
+struct hash<memgraph::msgs::Value> {
+  size_t operator()(const memgraph::msgs::Value &value) const {
+    using Type = memgraph::msgs::Value::Type;
+    switch (value.type) {
+      case Type::Null:
+        return std::hash<size_t>{}(0U);
+      case Type::Bool:
+        return std::hash<bool>{}(value.bool_v);
+      case Type::Int64:
+        return std::hash<int64_t>{}(value.int_v);
+      case Type::Double:
+        return std::hash<double>{}(value.double_v);
+      case Type::String:
+        return std::hash<std::string>{}(value.string_v);
+      case Type::List:
+        LOG_FATAL("Add hash for lists");
+      case Type::Map:
+        LOG_FATAL("Add hash for maps");
+      case Type::Vertex:
+        LOG_FATAL("Add hash for vertices");
+      case Type::Edge:
+        LOG_FATAL("Add hash for edges");
+    }
+  }
+};
+
+}  // namespace std

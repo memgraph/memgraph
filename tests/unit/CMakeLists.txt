@@ -93,6 +93,9 @@ target_link_libraries(${test_prefix}query_expression_evaluator mg-query)
 add_unit_test(query_plan.cpp)
 target_link_libraries(${test_prefix}query_plan mg-query)
 
+add_unit_test(query_v2_plan.cpp)
+target_link_libraries(${test_prefix}query_v2_plan mg-query-v2)
+
 add_unit_test(query_plan_accumulate_aggregate.cpp)
 target_link_libraries(${test_prefix}query_plan_accumulate_aggregate mg-query)
 
@@ -278,49 +281,6 @@ target_link_libraries(${test_prefix}utils_temporal mg-utils)
 add_unit_test(utils_histogram.cpp)
 target_link_libraries(${test_prefix}utils_histogram mg-utils)
 
-# Test mg-storage-v2
-add_unit_test(commit_log_v2.cpp)
-target_link_libraries(${test_prefix}commit_log_v2 gflags mg-utils mg-storage-v2)
-
-add_unit_test(property_value_v2.cpp)
-target_link_libraries(${test_prefix}property_value_v2 mg-storage-v2 mg-utils)
-
-add_unit_test(storage_v2.cpp)
-target_link_libraries(${test_prefix}storage_v2 mg-storage-v2 storage_test_utils)
-
-add_unit_test(storage_v2_constraints.cpp)
-target_link_libraries(${test_prefix}storage_v2_constraints mg-storage-v2)
-
-add_unit_test(storage_v2_decoder_encoder.cpp)
-target_link_libraries(${test_prefix}storage_v2_decoder_encoder mg-storage-v2)
-
-add_unit_test(storage_v2_durability.cpp)
-target_link_libraries(${test_prefix}storage_v2_durability mg-storage-v2)
-
-add_unit_test(storage_v2_edge.cpp)
-target_link_libraries(${test_prefix}storage_v2_edge mg-storage-v2)
-
-add_unit_test(storage_v2_gc.cpp)
-target_link_libraries(${test_prefix}storage_v2_gc mg-storage-v2)
-
-add_unit_test(storage_v2_indices.cpp)
-target_link_libraries(${test_prefix}storage_v2_indices mg-storage-v2 mg-utils)
-
-add_unit_test(storage_v2_name_id_mapper.cpp)
-target_link_libraries(${test_prefix}storage_v2_name_id_mapper mg-storage-v2)
-
-add_unit_test(storage_v2_property_store.cpp)
-target_link_libraries(${test_prefix}storage_v2_property_store mg-storage-v2 fmt)
-
-add_unit_test(storage_v2_wal_file.cpp)
-target_link_libraries(${test_prefix}storage_v2_wal_file mg-storage-v2 fmt)
-
-add_unit_test(storage_v2_replication.cpp)
-target_link_libraries(${test_prefix}storage_v2_replication mg-storage-v2 fmt)
-
-add_unit_test(storage_v2_isolation_level.cpp)
-target_link_libraries(${test_prefix}storage_v2_isolation_level mg-storage-v2)
-
 # Test mg-storage-v3
 add_library(storage_v3_test_utils storage_v3_test_utils.cpp)
 target_link_libraries(storage_v3_test_utils mg-storage-v3)
@@ -371,9 +331,6 @@ target_link_libraries(${test_prefix}query_v2_dummy_test mg-query-v2)
 add_unit_test(storage_v3_property_store.cpp)
 target_link_libraries(${test_prefix}storage_v3_property_store mg-storage-v3 fmt)
 
-add_unit_test(storage_v3_key_store.cpp)
-target_link_libraries(${test_prefix}storage_v3_key_store mg-storage-v3 rapidcheck rapidcheck_gtest)
-
 add_unit_test(storage_v3_indices.cpp)
 target_link_libraries(${test_prefix}storage_v3_indices mg-storage-v3)
 
@@ -385,6 +342,9 @@ target_link_libraries(${test_prefix}storage_v3_edge mg-storage-v3)
 
 add_unit_test(storage_v3_isolation_level.cpp)
 target_link_libraries(${test_prefix}storage_v3_isolation_level mg-storage-v3)
+
+add_unit_test(storage_v3_shard_rsm.cpp)
+target_link_libraries(${test_prefix}storage_v3_shard_rsm mg-storage-v3)
 
 add_unit_test(replication_persistence_helper.cpp)
 target_link_libraries(${test_prefix}replication_persistence_helper mg-storage-v2)
@@ -442,3 +402,18 @@ target_link_libraries(${test_prefix}pretty_print_ast_to_original_expression_test
 # Tests for mg-coordinator
 add_unit_test(coordinator_shard_map.cpp)
 target_link_libraries(${test_prefix}coordinator_shard_map mg-coordinator)
+
+# Tests for many shards, many creates, scan
+add_unit_test(high_density_shard_create_scan.cpp)
+target_link_libraries(${test_prefix}high_density_shard_create_scan mg-io mg-coordinator mg-storage-v3 mg-query-v2)
+
+# Tests for awesome_memgraph_functions
+add_unit_test(query_v2_expression_evaluator.cpp)
+target_link_libraries(${test_prefix}query_v2_expression_evaluator mg-query-v2)
+
+# Tests for multiframes
+add_unit_test(query_v2_create_expand_multiframe.cpp)
+target_link_libraries(${test_prefix}query_v2_create_expand_multiframe mg-query-v2)
+
+add_unit_test(query_v2_create_node_multiframe.cpp)
+target_link_libraries(${test_prefix}query_v2_create_node_multiframe mg-query-v2)

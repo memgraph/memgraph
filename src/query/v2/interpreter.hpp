@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,7 +16,6 @@
 
 #include "coordinator/coordinator.hpp"
 #include "coordinator/coordinator_client.hpp"
-#include "io/local_transport/local_transport.hpp"
 #include "io/transport.hpp"
 #include "query/v2/auth_checker.hpp"
 #include "query/v2/bindings/cypher_main_visitor.hpp"
@@ -172,7 +171,8 @@ struct PreparedQuery {
 struct InterpreterContext {
   explicit InterpreterContext(storage::v3::Shard *db, InterpreterConfig config,
                               const std::filesystem::path &data_directory,
-                              io::Io<io::local_transport::LocalTransport> io, coordinator::Address coordinator_addr);
+                              std::unique_ptr<RequestRouterFactory> request_router_factory,
+                              coordinator::Address coordinator_addr);
 
   storage::v3::Shard *db;
 
@@ -188,26 +188,24 @@ struct InterpreterContext {
   const InterpreterConfig config;
   IdAllocator edge_ids_alloc;
 
-  // TODO (antaljanosbenjamin) Figure out an abstraction for io::Io to make it possible to construct an interpreter
-  // context with a simulator transport without templatizing it.
-  io::Io<io::local_transport::LocalTransport> io;
   coordinator::Address coordinator_address;
+  std::unique_ptr<RequestRouterFactory> request_router_factory_;
 
   storage::v3::LabelId NameToLabelId(std::string_view label_name) {
-    return storage::v3::LabelId::FromUint(query_id_mapper.NameToId(label_name));
+    return storage::v3::LabelId::FromUint(query_id_mapper_.NameToId(label_name));
   }
 
   storage::v3::PropertyId NameToPropertyId(std::string_view property_name) {
-    return storage::v3::PropertyId::FromUint(query_id_mapper.NameToId(property_name));
+    return storage::v3::PropertyId::FromUint(query_id_mapper_.NameToId(property_name));
   }
 
   storage::v3::EdgeTypeId NameToEdgeTypeId(std::string_view edge_type_name) {
-    return storage::v3::EdgeTypeId::FromUint(query_id_mapper.NameToId(edge_type_name));
+    return storage::v3::EdgeTypeId::FromUint(query_id_mapper_.NameToId(edge_type_name));
   }
 
  private:
   // TODO Replace with local map of labels, properties and edge type ids
-  storage::v3::NameIdMapper query_id_mapper;
+  storage::v3::NameIdMapper query_id_mapper_;
 };
 
 /// Function that is used to tell all active interpreters that they should stop
@@ -296,13 +294,16 @@ class Interpreter final {
    */
   void Abort();
 
-  const msgs::ShardRequestManagerInterface *GetShardRequestManager() const { return shard_request_manager_.get(); }
+  const RequestRouterInterface *GetRequestRouter() const { return request_router_.get(); }
+  void InstallSimulatorTicker(std::function<bool()> &&tick_simulator) {
+    request_router_->InstallSimulatorTicker(tick_simulator);
+  }
 
  private:
   struct QueryExecution {
-    std::optional<PreparedQuery> prepared_query;
     utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
     utils::ResourceWithOutOfMemoryException execution_memory_with_exception{&execution_memory};
+    std::optional<PreparedQuery> prepared_query;
 
     std::map<std::string, TypedValue> summary;
     std::vector<Notification> notifications;
@@ -342,7 +343,7 @@ class Interpreter final {
   // move this unique_ptr into a shared_ptr.
   std::unique_ptr<storage::v3::Shard::Accessor> db_accessor_;
   std::optional<DbAccessor> execution_db_accessor_;
-  std::unique_ptr<msgs::ShardRequestManagerInterface> shard_request_manager_;
+  std::unique_ptr<RequestRouterInterface> request_router_;
   bool in_explicit_transaction_{false};
   bool expect_rollback_{false};
 

@@ -76,8 +76,35 @@ struct AddressAndStatus {
 };
 
 using PrimaryKey = std::vector<PropertyValue>;
-using Shard = std::vector<AddressAndStatus>;
-using Shards = std::map<PrimaryKey, Shard>;
+
+struct ShardMetadata {
+  std::vector<AddressAndStatus> peers;
+  uint64_t version;
+
+  friend std::ostream &operator<<(std::ostream &in, const ShardMetadata &shard) {
+    using utils::print_helpers::operator<<;
+
+    in << "ShardMetadata { peers: ";
+    in << shard.peers;
+    in << " version: ";
+    in << shard.version;
+    in << " }";
+
+    return in;
+  }
+
+  friend bool operator==(const ShardMetadata &lhs, const ShardMetadata &rhs) = default;
+
+  friend bool operator<(const ShardMetadata &lhs, const ShardMetadata &rhs) {
+    if (lhs.peers != rhs.peers) {
+      return lhs.peers < rhs.peers;
+    }
+
+    return lhs.version < rhs.version;
+  }
+};
+
+using Shards = std::map<PrimaryKey, ShardMetadata>;
 using LabelName = std::string;
 using PropertyName = std::string;
 using EdgeTypeName = std::string;
@@ -91,6 +118,7 @@ struct ShardToInitialize {
   std::optional<PrimaryKey> max_key;
   std::vector<SchemaProperty> schema;
   Config config;
+  std::unordered_map<uint64_t, std::string> id_to_names;
 };
 
 PrimaryKey SchemaToMinKey(const std::vector<SchemaProperty> &schema);
@@ -98,7 +126,7 @@ PrimaryKey SchemaToMinKey(const std::vector<SchemaProperty> &schema);
 struct LabelSpace {
   std::vector<SchemaProperty> schema;
   // Maps between the smallest primary key stored in the shard and the shard
-  std::map<PrimaryKey, Shard> shards;
+  std::map<PrimaryKey, ShardMetadata> shards;
   size_t replication_factor;
 
   friend std::ostream &operator<<(std::ostream &in, const LabelSpace &label_space) {
@@ -137,6 +165,8 @@ struct ShardMap {
   Hlc IncrementShardMapVersion() noexcept;
   Hlc GetHlc() const noexcept;
 
+  std::unordered_map<uint64_t, std::string> IdToNames();
+
   // Returns the shard UUIDs that have been assigned but not yet acknowledged for this storage manager
   std::vector<ShardToInitialize> AssignShards(Address storage_manager, std::set<boost::uuids::uuid> initialized);
 
@@ -157,9 +187,9 @@ struct ShardMap {
 
   Shards GetShardsForRange(const LabelName &label_name, const PrimaryKey &start_key, const PrimaryKey &end_key) const;
 
-  Shard GetShardForKey(const LabelName &label_name, const PrimaryKey &key) const;
+  ShardMetadata GetShardForKey(const LabelName &label_name, const PrimaryKey &key) const;
 
-  Shard GetShardForKey(const LabelId &label_id, const PrimaryKey &key) const;
+  ShardMetadata GetShardForKey(const LabelId &label_id, const PrimaryKey &key) const;
 
   PropertyMap AllocatePropertyIds(const std::vector<PropertyName> &new_properties);
 

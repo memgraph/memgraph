@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include "storage/v3/storage.hpp"
+#include "storage/v3/shard.hpp"
 #include "storage/v3/view.hpp"
 
 namespace memgraph::storage::v3::tests {

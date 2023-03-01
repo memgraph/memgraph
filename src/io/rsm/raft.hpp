@@ -19,8 +19,9 @@
 #include <map>
 #include <set>
 #include <thread>
-#include <unordered_map>
 #include <vector>
+
+#include <boost/core/demangle.hpp>
 
 #include "io/message_conversion.hpp"
 #include "io/simulator/simulator.hpp"
@@ -90,23 +91,43 @@ struct ReadResponse {
 };
 
 template <class... ReadReturn>
-utils::TypeInfoRef TypeInfoFor(const ReadResponse<std::variant<ReadReturn...>> &read_response) {
-  return TypeInfoForVariant(read_response.read_return);
+utils::TypeInfoRef TypeInfoFor(const ReadResponse<std::variant<ReadReturn...>> &response) {
+  return TypeInfoForVariant(response.read_return);
 }
 
 template <class ReadReturn>
-utils::TypeInfoRef TypeInfoFor(const ReadResponse<ReadReturn> & /* read_response */) {
+utils::TypeInfoRef TypeInfoFor(const ReadResponse<ReadReturn> & /* response */) {
   return typeid(ReadReturn);
 }
 
+template <class ReadOperation>
+utils::TypeInfoRef TypeInfoFor(const ReadRequest<ReadOperation> & /* request */) {
+  return typeid(ReadOperation);
+}
+
+template <class... ReadOperations>
+utils::TypeInfoRef TypeInfoFor(const ReadRequest<std::variant<ReadOperations...>> &request) {
+  return TypeInfoForVariant(request.operation);
+}
+
 template <class... WriteReturn>
-utils::TypeInfoRef TypeInfoFor(const WriteResponse<std::variant<WriteReturn...>> &write_response) {
-  return TypeInfoForVariant(write_response.write_return);
+utils::TypeInfoRef TypeInfoFor(const WriteResponse<std::variant<WriteReturn...>> &response) {
+  return TypeInfoForVariant(response.write_return);
 }
 
 template <class WriteReturn>
-utils::TypeInfoRef TypeInfoFor(const WriteResponse<WriteReturn> & /* write_response */) {
+utils::TypeInfoRef TypeInfoFor(const WriteResponse<WriteReturn> & /* response */) {
   return typeid(WriteReturn);
+}
+
+template <class WriteOperation>
+utils::TypeInfoRef TypeInfoFor(const WriteRequest<WriteOperation> & /* request */) {
+  return typeid(WriteOperation);
+}
+
+template <class... WriteOperations>
+utils::TypeInfoRef TypeInfoFor(const WriteRequest<std::variant<WriteOperations...>> &request) {
+  return TypeInfoForVariant(request.operation);
 }
 
 /// AppendRequest is a raft-level message that the Leader
@@ -170,7 +191,7 @@ struct PendingClientRequest {
 
 struct Leader {
   std::map<Address, FollowerTracker> followers;
-  std::unordered_map<LogIndex, PendingClientRequest> pending_client_requests;
+  std::map<LogIndex, PendingClientRequest> pending_client_requests;
   Time last_broadcast = Time::min();
 
   std::string static ToString() { return "\tLeader   \t"; }
@@ -569,7 +590,7 @@ class Raft {
     const Time now = io_.Now();
     const Duration broadcast_timeout = RandomTimeout(kMinimumBroadcastTimeout, kMaximumBroadcastTimeout);
 
-    if (now - leader.last_broadcast > broadcast_timeout) {
+    if (now > leader.last_broadcast + broadcast_timeout) {
       BroadcastAppendEntries(leader.followers);
       leader.last_broadcast = now;
     }
@@ -671,7 +692,7 @@ class Raft {
 
       return Leader{
           .followers = std::move(followers),
-          .pending_client_requests = std::unordered_map<LogIndex, PendingClientRequest>(),
+          .pending_client_requests = std::map<LogIndex, PendingClientRequest>(),
       };
     }
 
@@ -835,7 +856,9 @@ class Raft {
   // Leaders are able to immediately respond to the requester (with a ReadResponseValue) applied to the ReplicatedState
   std::optional<Role> Handle(Leader & /* variable */, ReadRequest<ReadOperation> &&req, RequestId request_id,
                              Address from_address) {
-    Log("handling ReadOperation");
+    auto type_info = TypeInfoFor(req);
+    std::string demangled_name = boost::core::demangle(type_info.get().name());
+    Log("handling ReadOperation<" + demangled_name + ">");
     ReadOperation read_operation = req.operation;
 
     ReadResponseValue read_return = replicated_state_.Read(read_operation);
@@ -918,7 +941,9 @@ class Raft {
   // only leaders actually handle replication requests from clients
   std::optional<Role> Handle(Leader &leader, WriteRequest<WriteOperation> &&req, RequestId request_id,
                              Address from_address) {
-    Log("handling WriteRequest");
+    auto type_info = TypeInfoFor(req);
+    std::string demangled_name = boost::core::demangle(type_info.get().name());
+    Log("handling WriteRequest<" + demangled_name + ">");
 
     // we are the leader. add item to log and send Append to peers
     MG_ASSERT(state_.term >= LastLogTerm());

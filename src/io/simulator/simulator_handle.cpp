@@ -23,6 +23,12 @@ namespace memgraph::io::simulator {
 void SimulatorHandle::ShutDown() {
   std::unique_lock<std::mutex> lock(mu_);
   should_shut_down_ = true;
+  for (auto it = promises_.begin(); it != promises_.end();) {
+    auto &[promise_key, dop] = *it;
+    std::move(dop).promise.TimeOut();
+    it = promises_.erase(it);
+  }
+  can_receive_.clear();
   cv_.notify_all();
 }
 
@@ -31,7 +37,7 @@ bool SimulatorHandle::ShouldShutDown() const {
   return should_shut_down_;
 }
 
-std::unordered_map<std::string, LatencyHistogramSummary> SimulatorHandle::ResponseLatencies() {
+LatencyHistogramSummaries SimulatorHandle::ResponseLatencies() {
   std::unique_lock<std::mutex> lock(mu_);
   return histograms_.ResponseLatencies();
 }
@@ -46,11 +52,26 @@ void SimulatorHandle::IncrementServerCountAndWaitForQuiescentState(Address addre
     const bool all_servers_blocked = blocked_servers == server_addresses_.size();
 
     if (all_servers_blocked) {
+      spdlog::trace("quiescent state detected - {} out of {} servers now blocked on receive", blocked_servers,
+                    server_addresses_.size());
       return;
     }
 
+    spdlog::trace("not returning from quiescent because we see {} blocked out of {}", blocked_servers,
+                  server_addresses_.size());
     cv_.wait(lock);
   }
+}
+
+bool SortInFlight(const std::pair<Address, OpaqueMessage> &lhs, const std::pair<Address, OpaqueMessage> &rhs) {
+  // NB: never sort based on the request ID etc...
+  // This should only be used from std::stable_sort
+  // because by comparing on the from_address alone,
+  // we expect the sender ordering to remain
+  // deterministic.
+  const auto &[addr_1, om_1] = lhs;
+  const auto &[addr_2, om_2] = rhs;
+  return om_1.from_address < om_2.from_address;
 }
 
 bool SimulatorHandle::MaybeTickSimulator() {
@@ -58,40 +79,57 @@ bool SimulatorHandle::MaybeTickSimulator() {
 
   const size_t blocked_servers = blocked_on_receive_.size();
 
-  if (blocked_servers < server_addresses_.size()) {
+  if (should_shut_down_ || blocked_servers < server_addresses_.size()) {
     // we only need to advance the simulator when all
     // servers have reached a quiescent state, blocked
     // on their own futures or receive methods.
     return false;
   }
 
+  // We allow the simulator to progress the state of the system only
+  // after all servers are blocked on receive.
+  spdlog::trace("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ simulator tick ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
   stats_.simulator_ticks++;
-
+  blocked_on_receive_.clear();
   cv_.notify_all();
 
-  TimeoutPromisesPastDeadline();
+  bool timed_anything_out = TimeoutPromisesPastDeadline();
+
+  if (timed_anything_out) {
+    spdlog::trace("simulator progressing: timed out a request");
+  }
+
+  const Duration clock_advance = std::chrono::microseconds{time_distrib_(rng_)};
+
+  // We don't always want to advance the clock with every message that we deliver because
+  // when we advance it for every message, it causes timeouts to occur for any "request path"
+  // over a certain length. Alternatively, we don't want to simply deliver multiple messages
+  // in a single simulator tick because that would reduce the amount of concurrent message
+  // mixing that may naturally occur in production. This approach is to mod the random clock
+  // advance by a prime number (hopefully avoiding most harmonic effects that would be introduced
+  // by only advancing the clock by an even amount etc...) and only advancing the clock close to
+  // half of the time.
+  if (clock_advance.count() % 97 > 49) {
+    spdlog::trace("simulator progressing: clock advanced by {}", clock_advance.count());
+    cluster_wide_time_microseconds_ += clock_advance;
+    stats_.elapsed_time = cluster_wide_time_microseconds_ - config_.start_time;
+  }
+
+  if (cluster_wide_time_microseconds_ >= config_.abort_time) {
+    spdlog::error(
+        "Cluster has executed beyond its configured abort_time, and something may be failing to make progress "
+        "in an expected amount of time. The SimulatorConfig.rng_seed for this run is {}",
+        config_.rng_seed);
+    throw utils::BasicException{"Cluster has executed beyond its configured abort_time"};
+  }
 
   if (in_flight_.empty()) {
-    // return early here because there are no messages to schedule
-
-    // We tick the clock forward when all servers are blocked but
-    // there are no in-flight messages to schedule delivery of.
-    const Duration clock_advance = std::chrono::microseconds{time_distrib_(rng_)};
-    cluster_wide_time_microseconds_ += clock_advance;
-
-    if (cluster_wide_time_microseconds_ >= config_.abort_time) {
-      if (should_shut_down_) {
-        return false;
-      }
-      spdlog::error(
-          "Cluster has executed beyond its configured abort_time, and something may be failing to make progress "
-          "in an expected amount of time.");
-      throw utils::BasicException{"Cluster has executed beyond its configured abort_time"};
-    }
     return true;
   }
 
-  if (config_.scramble_messages) {
+  std::stable_sort(in_flight_.begin(), in_flight_.end(), SortInFlight);
+
+  if (config_.scramble_messages && in_flight_.size() > 1) {
     // scramble messages
     std::uniform_int_distribution<size_t> swap_distrib(0, in_flight_.size() - 1);
     const size_t swap_index = swap_distrib(rng_);
@@ -108,9 +146,7 @@ bool SimulatorHandle::MaybeTickSimulator() {
     stats_.dropped_messages++;
   }
 
-  PromiseKey promise_key{.requester_address = to_address,
-                         .request_id = opaque_message.request_id,
-                         .replier_address = opaque_message.from_address};
+  PromiseKey promise_key{.requester_address = to_address, .request_id = opaque_message.request_id};
 
   if (promises_.contains(promise_key)) {
     // complete waiting promise if it's there
@@ -122,17 +158,22 @@ bool SimulatorHandle::MaybeTickSimulator() {
     if (should_drop || normal_timeout) {
       stats_.timed_out_requests++;
       dop.promise.TimeOut();
+      spdlog::trace("simulator timing out request ");
     } else {
       stats_.total_responses++;
       Duration response_latency = cluster_wide_time_microseconds_ - dop.requested_at;
       auto type_info = opaque_message.type_info;
       dop.promise.Fill(std::move(opaque_message), response_latency);
       histograms_.Measure(type_info, response_latency);
+      spdlog::trace("simulator replying to request");
     }
   } else if (should_drop) {
     // don't add it anywhere, let it drop
+    spdlog::trace("simulator silently dropping request");
   } else {
     // add to can_receive_ if not
+    spdlog::trace("simulator adding message to can_receive_ from {} to {}", opaque_message.from_address.last_known_port,
+                  opaque_message.to_address.last_known_port);
     const auto &[om_vec, inserted] =
         can_receive_.try_emplace(to_address.ToPartialAddress(), std::vector<OpaqueMessage>());
     om_vec->second.emplace_back(std::move(opaque_message));

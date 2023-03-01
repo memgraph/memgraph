@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,16 +24,19 @@
 #include "coordinator/shard_map.hpp"
 #include "generated_operations.hpp"
 #include "io/address.hpp"
+#include "io/message_histogram_collector.hpp"
 #include "io/simulator/simulator.hpp"
 #include "io/simulator/simulator_config.hpp"
 #include "io/simulator/simulator_transport.hpp"
 #include "machine_manager/machine_config.hpp"
 #include "machine_manager/machine_manager.hpp"
+#include "query/v2/request_router.hpp"
 #include "query/v2/requests.hpp"
-#include "query/v2/shard_request_manager.hpp"
 #include "testing_constants.hpp"
 #include "utils/print_helpers.hpp"
 #include "utils/variant_helpers.hpp"
+
+#include "simulation_interpreter.hpp"
 
 namespace memgraph::tests::simulation {
 
@@ -46,8 +49,8 @@ using coordinator::GetShardMapRequest;
 using coordinator::GetShardMapResponse;
 using coordinator::Hlc;
 using coordinator::HlcResponse;
-using coordinator::Shard;
 using coordinator::ShardMap;
+using coordinator::ShardMetadata;
 using io::Address;
 using io::Io;
 using io::rsm::RsmClient;
@@ -57,6 +60,7 @@ using io::simulator::SimulatorStats;
 using io::simulator::SimulatorTransport;
 using machine_manager::MachineConfig;
 using machine_manager::MachineManager;
+using memgraph::io::LatencyHistogramSummaries;
 using msgs::ReadRequests;
 using msgs::ReadResponses;
 using msgs::WriteRequests;
@@ -75,13 +79,15 @@ MachineManager<SimulatorTransport> MkMm(Simulator &simulator, std::vector<Addres
       .is_coordinator = true,
       .listen_ip = addr.last_known_ip,
       .listen_port = addr.last_known_port,
+      .shard_worker_threads = 4,
+      .sync_message_handling = true,
   };
 
   Io<SimulatorTransport> io = simulator.Register(addr);
 
   Coordinator coordinator{shard_map};
 
-  return MachineManager{io, config, coordinator, shard_map};
+  return MachineManager{io, config, coordinator};
 }
 
 void RunMachine(MachineManager<SimulatorTransport> mm) { mm.Run(); }
@@ -147,8 +153,8 @@ ShardMap TestShardMap(int n_splits, int replication_factor) {
   return sm;
 }
 
-void ExecuteOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_manager,
-               std::set<CompoundKey> &correctness_model, CreateVertex create_vertex) {
+void ExecuteOp(query::v2::RequestRouter<SimulatorTransport> &request_router, std::set<CompoundKey> &correctness_model,
+               CreateVertex create_vertex) {
   const auto key1 = memgraph::storage::v3::PropertyValue(create_vertex.first);
   const auto key2 = memgraph::storage::v3::PropertyValue(create_vertex.second);
 
@@ -160,9 +166,7 @@ void ExecuteOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_mana
     return;
   }
 
-  msgs::ExecutionState<msgs::CreateVerticesRequest> state;
-
-  auto label_id = shard_request_manager.NameToLabel("test_label");
+  auto label_id = request_router.NameToLabel("test_label");
 
   msgs::NewVertex nv{.primary_key = primary_key};
   nv.label_ids.push_back({label_id});
@@ -170,19 +174,17 @@ void ExecuteOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_mana
   std::vector<msgs::NewVertex> new_vertices;
   new_vertices.push_back(std::move(nv));
 
-  auto result = shard_request_manager.Request(state, std::move(new_vertices));
+  auto result = request_router.CreateVertices(std::move(new_vertices));
 
   RC_ASSERT(result.size() == 1);
-  RC_ASSERT(result[0].success);
+  RC_ASSERT(!result[0].error.has_value());
 
   correctness_model.emplace(std::make_pair(create_vertex.first, create_vertex.second));
 }
 
-void ExecuteOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_manager,
-               std::set<CompoundKey> &correctness_model, ScanAll scan_all) {
-  msgs::ExecutionState<msgs::ScanVerticesRequest> request{.label = "test_label"};
-
-  auto results = shard_request_manager.Request(request);
+void ExecuteOp(query::v2::RequestRouter<SimulatorTransport> &request_router, std::set<CompoundKey> &correctness_model,
+               ScanAll scan_all) {
+  auto results = request_router.ScanVertices("test_label");
 
   RC_ASSERT(results.size() == correctness_model.size());
 
@@ -194,17 +196,35 @@ void ExecuteOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_mana
   }
 }
 
-void RunClusterSimulation(const SimulatorConfig &sim_config, const ClusterConfig &cluster_config,
-                          const std::vector<Op> &ops) {
+/// This struct exists as a way of detaching
+/// a thread if something causes an uncaught
+/// exception - because that thread would not
+/// receive a ShutDown message otherwise, and
+/// would cause the test to hang forever.
+struct DetachIfDropped {
+  std::jthread &handle;
+  bool detach = true;
+
+  ~DetachIfDropped() {
+    if (detach && handle.joinable()) {
+      handle.detach();
+    }
+  }
+};
+
+std::pair<SimulatorStats, LatencyHistogramSummaries> RunClusterSimulation(const SimulatorConfig &sim_config,
+                                                                          const ClusterConfig &cluster_config,
+                                                                          const std::vector<Op> &ops) {
   spdlog::info("========================== NEW SIMULATION ==========================");
 
   auto simulator = Simulator(sim_config);
 
-  auto cli_addr = Address::TestAddress(1);
-  auto machine_1_addr = cli_addr.ForkUniqueAddress();
+  auto machine_1_addr = Address::TestAddress(1);
+  auto cli_addr = Address::TestAddress(2);
+  auto cli_addr_2 = Address::TestAddress(3);
 
   Io<SimulatorTransport> cli_io = simulator.Register(cli_addr);
-  Io<SimulatorTransport> cli_io_2 = simulator.Register(Address::TestAddress(2));
+  Io<SimulatorTransport> cli_io_2 = simulator.Register(cli_addr_2);
 
   auto coordinator_addresses = std::vector{
       machine_1_addr,
@@ -216,27 +236,35 @@ void RunClusterSimulation(const SimulatorConfig &sim_config, const ClusterConfig
   Address coordinator_address = mm_1.CoordinatorAddress();
 
   auto mm_thread_1 = std::jthread(RunMachine, std::move(mm_1));
+  simulator.IncrementServerCountAndWaitForQuiescentState(machine_1_addr);
 
-  // Need to detach this thread so that the destructor does not
-  // block before we can propagate assertion failures.
-  mm_thread_1.detach();
+  auto detach_on_error = DetachIfDropped{.handle = mm_thread_1};
 
   // TODO(tyler) clarify addresses of coordinator etc... as it's a mess
 
   CoordinatorClient<SimulatorTransport> coordinator_client(cli_io, coordinator_address, {coordinator_address});
   WaitForShardsToInitialize(coordinator_client);
 
-  msgs::ShardRequestManager<SimulatorTransport> shard_request_manager(std::move(coordinator_client), std::move(cli_io));
+  query::v2::RequestRouter<SimulatorTransport> request_router(std::move(coordinator_client), std::move(cli_io));
+  std::function<bool()> tick_simulator = simulator.GetSimulatorTickClosure();
+  request_router.InstallSimulatorTicker(tick_simulator);
 
-  shard_request_manager.StartTransaction();
+  request_router.StartTransaction();
 
   auto correctness_model = std::set<CompoundKey>{};
 
   for (const Op &op : ops) {
-    std::visit([&](auto &o) { ExecuteOp(shard_request_manager, correctness_model, o); }, op.inner);
+    std::visit([&](auto &o) { ExecuteOp(request_router, correctness_model, o); }, op.inner);
   }
 
+  // We have now completed our workload without failing any assertions, so we can
+  // disable detaching the worker thread, which will cause the mm_thread_1 jthread
+  // to be joined when this function returns.
+  detach_on_error.detach = false;
+
   simulator.ShutDown();
+
+  mm_thread_1.join();
 
   SimulatorStats stats = simulator.Stats();
 
@@ -249,10 +277,69 @@ void RunClusterSimulation(const SimulatorConfig &sim_config, const ClusterConfig
 
   auto histo = cli_io_2.ResponseLatencies();
 
-  using memgraph::utils::print_helpers::operator<<;
-  std::cout << "response latencies: " << histo << std::endl;
+  spdlog::info("========================== SUCCESS :) ==========================");
+  return std::make_pair(stats, histo);
+}
+
+std::pair<SimulatorStats, LatencyHistogramSummaries> RunClusterSimulationWithQueries(
+    const SimulatorConfig &sim_config, const ClusterConfig &cluster_config, const std::vector<std::string> &queries) {
+  spdlog::info("========================== NEW SIMULATION ==========================");
+
+  auto simulator = Simulator(sim_config);
+
+  auto machine_1_addr = Address::TestAddress(1);
+  auto cli_addr = Address::TestAddress(2);
+  auto cli_addr_2 = Address::TestAddress(3);
+
+  Io<SimulatorTransport> cli_io = simulator.Register(cli_addr);
+  Io<SimulatorTransport> cli_io_2 = simulator.Register(cli_addr_2);
+
+  auto coordinator_addresses = std::vector{
+      machine_1_addr,
+  };
+
+  ShardMap initialization_sm = TestShardMap(cluster_config.shards - 1, cluster_config.replication_factor);
+
+  auto mm_1 = MkMm(simulator, coordinator_addresses, machine_1_addr, initialization_sm);
+  Address coordinator_address = mm_1.CoordinatorAddress();
+
+  auto mm_thread_1 = std::jthread(RunMachine, std::move(mm_1));
+  simulator.IncrementServerCountAndWaitForQuiescentState(machine_1_addr);
+
+  auto detach_on_error = DetachIfDropped{.handle = mm_thread_1};
+
+  // TODO(tyler) clarify addresses of coordinator etc... as it's a mess
+
+  CoordinatorClient<SimulatorTransport> coordinator_client(cli_io, coordinator_address, {coordinator_address});
+  WaitForShardsToInitialize(coordinator_client);
+
+  auto simulated_interpreter = io::simulator::SetUpInterpreter(coordinator_address, simulator);
+  simulated_interpreter.InstallSimulatorTicker(simulator);
+
+  auto query_results = simulated_interpreter.RunQueries(queries);
+
+  // We have now completed our workload without failing any assertions, so we can
+  // disable detaching the worker thread, which will cause the mm_thread_1 jthread
+  // to be joined when this function returns.
+  detach_on_error.detach = false;
+
+  simulator.ShutDown();
+
+  mm_thread_1.join();
+
+  SimulatorStats stats = simulator.Stats();
+
+  spdlog::info("total messages:     {}", stats.total_messages);
+  spdlog::info("dropped messages:   {}", stats.dropped_messages);
+  spdlog::info("timed out requests: {}", stats.timed_out_requests);
+  spdlog::info("total requests:     {}", stats.total_requests);
+  spdlog::info("total responses:    {}", stats.total_responses);
+  spdlog::info("simulator ticks:    {}", stats.simulator_ticks);
+
+  auto histo = cli_io_2.ResponseLatencies();
 
   spdlog::info("========================== SUCCESS :) ==========================");
+  return std::make_pair(stats, histo);
 }
 
 }  // namespace memgraph::tests::simulation

@@ -20,6 +20,7 @@
 #include "io/errors.hpp"
 #include "io/future.hpp"
 #include "io/message_histogram_collector.hpp"
+#include "io/notifier.hpp"
 #include "io/time.hpp"
 #include "utils/result.hpp"
 
@@ -68,7 +69,6 @@ template <typename I>
 class Io {
   I implementation_;
   Address address_;
-  RequestId request_id_counter_ = 0;
   Duration default_timeout_ = std::chrono::microseconds{100000};
 
  public:
@@ -84,20 +84,42 @@ class Io {
   /// Issue a request with an explicit timeout in microseconds provided. This tends to be used by clients.
   template <Message RequestT, Message ResponseT>
   ResponseFuture<ResponseT> RequestWithTimeout(Address address, RequestT request, Duration timeout) {
-    const RequestId request_id = ++request_id_counter_;
     const Address from_address = address_;
-    return implementation_.template Request<RequestT, ResponseT>(address, from_address, request_id, request, timeout);
+    std::function<void()> fill_notifier = nullptr;
+    return implementation_.template Request<RequestT, ResponseT>(address, from_address, request, fill_notifier,
+                                                                 timeout);
   }
 
   /// Issue a request that times out after the default timeout. This tends
   /// to be used by clients.
   template <Message RequestT, Message ResponseT>
   ResponseFuture<ResponseT> Request(Address to_address, RequestT request) {
-    const RequestId request_id = ++request_id_counter_;
     const Duration timeout = default_timeout_;
     const Address from_address = address_;
-    return implementation_.template Request<RequestT, ResponseT>(to_address, from_address, request_id,
-                                                                 std::move(request), timeout);
+    std::function<void()> fill_notifier = nullptr;
+    return implementation_.template Request<RequestT, ResponseT>(to_address, from_address, std::move(request),
+                                                                 fill_notifier, timeout);
+  }
+
+  /// Issue a request that will notify a Notifier when it is filled or times out.
+  template <Message RequestT, Message ResponseT>
+  ResponseFuture<ResponseT> RequestWithNotification(Address to_address, RequestT request, Notifier notifier,
+                                                    ReadinessToken readiness_token) {
+    const Duration timeout = default_timeout_;
+    const Address from_address = address_;
+    std::function<void()> fill_notifier = [notifier, readiness_token]() { notifier.Notify(readiness_token); };
+    return implementation_.template Request<RequestT, ResponseT>(to_address, from_address, std::move(request),
+                                                                 fill_notifier, timeout);
+  }
+
+  /// Issue a request that will notify a Notifier when it is filled or times out.
+  template <Message RequestT, Message ResponseT>
+  ResponseFuture<ResponseT> RequestWithNotificationAndTimeout(Address to_address, RequestT request, Notifier notifier,
+                                                              ReadinessToken readiness_token, Duration timeout) {
+    const Address from_address = address_;
+    std::function<void()> fill_notifier = [notifier, readiness_token]() { notifier.Notify(readiness_token); };
+    return implementation_.template Request<RequestT, ResponseT>(to_address, from_address, std::move(request),
+                                                                 fill_notifier, timeout);
   }
 
   /// Wait for an explicit number of microseconds for a request of one of the
@@ -141,10 +163,15 @@ class Io {
   Address GetAddress() { return address_; }
   void SetAddress(Address address) { address_ = address; }
 
-  Io<I> ForkLocal() { return Io(implementation_, address_.ForkUniqueAddress()); }
-
-  std::unordered_map<std::string, LatencyHistogramSummary> ResponseLatencies() {
-    return implementation_.ResponseLatencies();
+  Io<I> ForkLocal(boost::uuids::uuid uuid) {
+    Address new_address{
+        .unique_id = uuid,
+        .last_known_ip = address_.last_known_ip,
+        .last_known_port = address_.last_known_port,
+    };
+    return Io(implementation_, new_address);
   }
+
+  LatencyHistogramSummaries ResponseLatencies() { return implementation_.ResponseLatencies(); }
 };
 };  // namespace memgraph::io

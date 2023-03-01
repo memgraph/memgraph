@@ -20,7 +20,6 @@
 
 #include "query/v2/bindings/symbol.hpp"
 #include "query/v2/bindings/typed_value.hpp"
-#include "query/v2/db_accessor.hpp"
 #include "query/v2/exceptions.hpp"
 #include "query/v2/frontend/ast/ast.hpp"
 #include "query/v2/path.hpp"
@@ -28,7 +27,6 @@
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/result.hpp"
-#include "storage/v3/schema_validator.hpp"
 #include "storage/v3/view.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
@@ -80,38 +78,6 @@ class TypedValueVectorCompare final {
 inline void ExpectType(const Symbol &symbol, const TypedValue &value, TypedValue::Type expected) {
   if (value.type() != expected)
     throw QueryRuntimeException("Expected a {} for '{}', but got {}.", expected, symbol.name(), value.type());
-}
-
-template <typename T>
-concept AccessorWithSetProperty = requires(T accessor, const storage::v3::PropertyId key,
-                                           const storage::v3::PropertyValue new_value) {
-  { accessor.SetProperty(key, new_value) } -> std::same_as<storage::v3::Result<storage::v3::PropertyValue>>;
-};
-
-template <typename T>
-concept AccessorWithSetPropertyAndValidate = requires(T accessor, const storage::v3::PropertyId key,
-                                                      const storage::v3::PropertyValue new_value) {
-  {
-    accessor.SetPropertyAndValidate(key, new_value)
-    } -> std::same_as<storage::v3::ResultSchema<storage::v3::PropertyValue>>;
-};
-
-template <typename TRecordAccessor>
-concept RecordAccessor =
-    AccessorWithSetProperty<TRecordAccessor> || AccessorWithSetPropertyAndValidate<TRecordAccessor>;
-
-inline void HandleErrorOnPropertyUpdate(const storage::v3::Error error) {
-  switch (error) {
-    case storage::v3::Error::SERIALIZATION_ERROR:
-      throw TransactionSerializationException();
-    case storage::v3::Error::DELETED_OBJECT:
-      throw QueryRuntimeException("Trying to set properties on a deleted object.");
-    case storage::v3::Error::PROPERTIES_DISABLED:
-      throw QueryRuntimeException("Can't set property because properties on edges are disabled.");
-    case storage::v3::Error::VERTEX_HAS_EDGES:
-    case storage::v3::Error::NONEXISTENT_OBJECT:
-      throw QueryRuntimeException("Unexpected error when setting a property.");
-  }
 }
 
 int64_t QueryTimestamp();
