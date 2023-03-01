@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -233,7 +233,7 @@ ShardResult<std::map<PropertyId, Value>> CollectAllPropertiesImpl(const TAccesso
                  [](std::pair<const PropertyId, PropertyValue> &pair) {
                    return std::make_pair(pair.first, conversions::FromPropertyValueToValue(std::move(pair.second)));
                  });
-  return ret;
+  return {std::move(ret)};
 }
 }  // namespace impl
 
