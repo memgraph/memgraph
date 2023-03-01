@@ -31,7 +31,7 @@ class LocalTransport {
       : local_transport_handle_(std::move(local_transport_handle)) {}
 
   template <Message ResponseT, Message RequestT>
-  ResponseFuture<ResponseT> Request(Address to_address, Address from_address, RequestT request,
+  ResponseFuture<ResponseT> Request(Address to_address, Address from_address, RequestT &&request,
                                     std::function<void()> fill_notifier, Duration timeout) {
     return local_transport_handle_->template SubmitRequest<ResponseT, RequestT>(
         to_address, from_address, std::move(request), timeout, fill_notifier);
@@ -44,7 +44,7 @@ class LocalTransport {
 
   template <Message M>
   void Send(Address to_address, Address from_address, RequestId request_id, M &&message) {
-    return local_transport_handle_->template Send(to_address, from_address, request_id, std::forward<M>(message));
+    return local_transport_handle_->template Send(to_address, from_address, request_id, std::move(message));
   }
 
   Time Now() const { return local_transport_handle_->Now(); }

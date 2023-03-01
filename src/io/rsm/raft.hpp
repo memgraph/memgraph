@@ -554,7 +554,7 @@ class Raft {
       for (const auto &peer : peers_) {
         // request_id not necessary to set because it's not a Future-backed Request.
         static constexpr auto request_id = 0;
-        io_.template Send(peer, request_id, request);
+        io_.template Send(peer, request_id, VoteRequest{request});
         outstanding_votes.insert(peer);
       }
 
@@ -630,7 +630,7 @@ class Raft {
         .vote_granted = new_leader,
     };
 
-    io_.Send(from_address, request_id, res);
+    io_.Send(from_address, request_id, std::move(res));
 
     if (new_leader) {
       // become a follower
@@ -808,7 +808,7 @@ class Raft {
 
     Log("returning log_size of ", res.log_size);
 
-    io_.Send(from_address, request_id, res);
+    io_.Send(from_address, request_id, std::move(res));
 
     return std::nullopt;
   }

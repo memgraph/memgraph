@@ -48,7 +48,7 @@ void RunServer(Io<LocalTransport> io) {
     highest_seen = std::max(highest_seen, req.proposal);
     auto srv_res = CounterResponse{highest_seen};
 
-    io.Send(request_envelope.from_address, request_envelope.request_id, srv_res);
+    io.Send(request_envelope.from_address, request_envelope.request_id, std::move(srv_res));
   }
 }
 
@@ -70,7 +70,7 @@ TEST(LocalTransport, BasicRequest) {
     auto value = 1;  // i;
     cli_req.proposal = value;
     spdlog::info("[CLIENT] sending request");
-    auto res_f = cli_io.Request<CounterResponse>(srv_addr, cli_req);
+    auto res_f = cli_io.Request<CounterResponse>(srv_addr, std::move(cli_req));
     spdlog::info("[CLIENT] waiting on future");
 
     auto res_rez = std::move(res_f).Wait();

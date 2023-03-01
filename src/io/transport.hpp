@@ -32,7 +32,7 @@ using memgraph::utils::BasicResult;
 // reasonable constraints around message types over time,
 // as we adapt things to use Thrift-generated message types.
 template <typename T>
-concept Message = true;
+concept Message = std::movable<T> && std::copyable<T>;
 
 using RequestId = uint64_t;
 

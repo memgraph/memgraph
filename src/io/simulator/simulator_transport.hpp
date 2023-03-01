@@ -34,7 +34,7 @@ class SimulatorTransport {
       : simulator_handle_(simulator_handle), address_(address), rng_(std::mt19937{seed}) {}
 
   template <Message ResponseT, Message RequestT>
-  ResponseFuture<ResponseT> Request(Address to_address, Address from_address, RequestT request,
+  ResponseFuture<ResponseT> Request(Address to_address, Address from_address, RequestT &&request,
                                     std::function<void()> notification, Duration timeout) {
     std::function<bool()> tick_simulator = [handle_copy = simulator_handle_] {
       return handle_copy->MaybeTickSimulator();
@@ -50,8 +50,8 @@ class SimulatorTransport {
   }
 
   template <Message M>
-  void Send(Address to_address, Address from_address, uint64_t request_id, M message) {
-    return simulator_handle_->template Send(to_address, from_address, request_id, message);
+  void Send(Address to_address, Address from_address, uint64_t request_id, M &&message) {
+    return simulator_handle_->template Send(to_address, from_address, request_id, std::move(message));
   }
 
   Time Now() const { return simulator_handle_->Now(); }

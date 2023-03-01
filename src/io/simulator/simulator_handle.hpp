@@ -126,7 +126,7 @@ class SimulatorHandle {
 
       const Time deadline = cluster_wide_time_microseconds_ + timeout;
 
-      std::any message(request);
+      std::any message(std::move(request));
       OpaqueMessage om{.to_address = to_address,
                        .from_address = from_address,
                        .request_id = request_id,
@@ -199,7 +199,7 @@ class SimulatorHandle {
     auto type_info = TypeInfoFor(message);
     {
       std::unique_lock<std::mutex> lock(mu_);
-      std::any message_any(std::forward<M>(message));
+      std::any message_any(std::move(message));
       OpaqueMessage om{.to_address = to_address,
                        .from_address = from_address,
                        .request_id = request_id,

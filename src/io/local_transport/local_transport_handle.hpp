@@ -107,7 +107,7 @@ class LocalTransportHandle {
   void Send(Address to_address, Address from_address, RequestId request_id, M &&message) {
     auto type_info = TypeInfoFor(message);
 
-    std::any message_any(std::forward<M>(message));
+    std::any message_any(std::move(message));
     OpaqueMessage opaque_message{.to_address = to_address,
                                  .from_address = from_address,
                                  .request_id = request_id,
@@ -168,7 +168,7 @@ class LocalTransportHandle {
       promises_.emplace(std::move(promise_key), std::move(dop));
     }  // lock dropped
 
-    Send(to_address, from_address, request_id, std::forward<RequestT>(request));
+    Send(to_address, from_address, request_id, std::move(request));
 
     return std::move(future);
   }
