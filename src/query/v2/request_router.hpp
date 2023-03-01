@@ -504,6 +504,7 @@ class RequestRouter : public RequestRouterInterface {
 
         msgs::ScanVerticesRequest request;
         request.transaction_id = transaction_id_;
+        request.props_to_return.emplace();
         request.start_id.second = storage::conversions::ConvertValueVector(key);
 
         ShardRequestState<msgs::ScanVerticesRequest> shard_request_state{
