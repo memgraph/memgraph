@@ -26,6 +26,7 @@ TOOLCHAIN_BUILD_DEPS=(
     diffutils
     libipt libipt-devel # intel
     patch
+    perl # for openssl
 )
 
 TOOLCHAIN_RUN_DEPS=(
@@ -36,7 +37,6 @@ TOOLCHAIN_RUN_DEPS=(
     readline # for cmake and llvm
     libffi libxml2 # for llvm
     openssl-devel
-    perl # for openssl
 )
 
 MEMGRAPH_BUILD_DEPS=(
@@ -64,6 +64,10 @@ list() {
 
 check() {
     local missing=""
+    # On Fedora yum/dnf and python10 use newer glibc which is not compatible
+    # with ours, so we need to momentarely disable env
+    local OLD_LD_LIBRARY_PATH=${LD_LIBRARY_PATH}
+    LD_LIBRARY_PATH=""
     for pkg in $1; do
         if ! dnf list installed "$pkg" >/dev/null 2>/dev/null; then
             missing="$pkg $missing"
@@ -73,6 +77,7 @@ check() {
         echo "MISSING PACKAGES: $missing"
         exit 1
     fi
+    LD_LIBRARY_PATH=${OLD_LD_LIBRARY_PATH}
 }
 
 install() {
