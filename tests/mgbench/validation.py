@@ -183,10 +183,7 @@ if __name__ == "__main__":
             for query, funcname in queries[group]:
                 print("Running query:{}/{}/{}".format(group, query, funcname))
                 func = getattr(dataset, funcname)
-                sample = (get_queries(func, 1),)
                 count = 1
-                # Benchmark run.
-                print("Sample query:", get_queries(func, 1)[0][0])
                 memgraph.start_benchmark("validation")
                 try:
                     ret = client.execute(queries=get_queries(func, count), num_workers=1, validation=True)[0]
@@ -224,8 +221,6 @@ if __name__ == "__main__":
                 func = getattr(dataset, funcname)
                 sample = (get_queries(func, 1),)
                 count = 1
-                # Benchmark run.
-                print("Sample query:", get_queries(func, 1)[0][0])
                 neo4j.start_benchmark("validation")
                 try:
                     ret = client.execute(queries=get_queries(func, count), num_workers=1, validation=True)[0]
@@ -254,12 +249,6 @@ if __name__ == "__main__":
             if memgraph_values == neo4j_values:
                 validation[key] = "Identical results"
             else:
-                print(neo4j_values)
-                print(memgraph_values)
-                s1 = memgraph_values.intersection(neo4j_values)
-                s2 = neo4j_values.intersection(memgraph_values)
-                print(s1)
-                print(s2)
                 validation[key] = "Different results, check manually."
 
     for key, value in validation.items():

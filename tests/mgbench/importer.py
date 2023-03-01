@@ -46,21 +46,23 @@ HEADERS_URL = "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/
 
 
 class Importer:
-    def __init__(self, dataset: Dataset, vendor: Runners, client: Client, num_workers_for_import: int):
+    def __init__(
+        self, dataset: Dataset, vendor: Runners, client: Client, num_workers_for_import: int, retries: int = 300
+    ):
         self._dataset = dataset
         self._vendor = vendor
         self._size = dataset.get_variant()
         self._client = client
         self._num_workers_for_import = num_workers_for_import
         self._num_workers_for_index = 1
-        # Retries to avoid serilisation error failure.
+        # Retries to avoid serialization error failure.
         self._num_retries = 300
 
     def try_import(self) -> bool:
         if self._dataset.NAME == "ldbc_interactive" and isinstance(self._vendor, Neo4j):
             print("Runnning Neo4j import")
             dump_dir = Path() / ".cache" / "datasets" / self._dataset.NAME / self._size / "dump"
-            dump_dir.mkdir(exist_ok=True)
+            dump_dir.mkdir(parents=True, exist_ok=True)
             dir_name = self._dataset.URL_CSV[self._size].split("/")[-1:][0].removesuffix(".tar.zst")
             if (dump_dir / dir_name).exists():
                 print("Files downloaded")
@@ -184,7 +186,7 @@ class Importer:
 
             print("Runnning Neo4j import")
             data_dir = Path() / ".cache" / "datasets" / self._dataset.NAME / self._size / "data_neo4j"
-            data_dir.mkdir(exist_ok=True)
+            data_dir.mkdir(parents=True, exist_ok=True)
             dir_name = self._dataset.URL_CSV[self._size].split("/")[-1:][0].removesuffix(".tar.zst")
             if (data_dir / dir_name).exists():
                 print("Files downloaded")
@@ -196,7 +198,7 @@ class Importer:
                 data_dir = helpers.unpack_tar_zst(Path(downloaded_file))
 
             headers_dir = Path() / ".cache" / "datasets" / self._dataset.NAME / self._size / "headers_neo4j"
-            headers_dir.mkdir(exist_ok=True)
+            headers_dir.mkdir(parents=True, exist_ok=True)
             headers = HEADERS_URL.split("/")[-1:][0].removesuffix(".tar.gz")
             if (headers_dir / headers).exists():
                 print("Header files downloaded.")

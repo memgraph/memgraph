@@ -513,71 +513,71 @@ class LDBC_Interactive(Dataset):
             self._get_query_parameters(),
         )
 
-    def benchmark__interactive__complex_query_10(self):
-        memgraph = (
-            """
-            MATCH (person:Person {id: $personId})-[:KNOWS*2..2]-(friend),
-                (friend)-[:IS_LOCATED_IN]->(city:City)
-            WHERE NOT friend=person AND
-                NOT (friend)-[:KNOWS]-(person)
-            WITH person, city, friend, datetime({epochMillis: friend.birthday}) as birthday
-            WHERE  (birthday.month=$month AND birthday.day>=21) OR
-                    (birthday.month=($month%12)+1 AND birthday.day<22)
-            WITH DISTINCT friend, city, person
-            OPTIONAL MATCH (friend)<-[:HAS_CREATOR]-(post:Post)
-            WITH friend, city, collect(post) AS posts, person
-            WITH friend,
-                city,
-                size(posts) AS postCount,
-                size([p IN posts WHERE (p)-[:HAS_TAG]->()<-[:HAS_INTEREST]-(person)]) AS commonPostCount
-            RETURN friend.id AS personId,
-                friend.firstName AS personFirstName,
-                friend.lastName AS personLastName,
-                commonPostCount - (postCount - commonPostCount) AS commonInterestScore,
-                friend.gender AS personGender,
-                city.name AS personCityName
-            ORDER BY commonInterestScore DESC, personId ASC
-            LIMIT 10
-            """.replace(
-                "\n", ""
-            ),
-            self._get_query_parameters(),
-        )
+    # def benchmark__interactive__complex_query_10(self):
+    #     memgraph = (
+    #         """
+    #         MATCH (person:Person {id: $personId})-[:KNOWS*2..2]-(friend),
+    #             (friend)-[:IS_LOCATED_IN]->(city:City)
+    #         WHERE NOT friend=person AND
+    #             NOT (friend)-[:KNOWS]-(person)
+    #         WITH person, city, friend, datetime({epochMillis: friend.birthday}) as birthday
+    #         WHERE  (birthday.month=$month AND birthday.day>=21) OR
+    #                 (birthday.month=($month%12)+1 AND birthday.day<22)
+    #         WITH DISTINCT friend, city, person
+    #         OPTIONAL MATCH (friend)<-[:HAS_CREATOR]-(post:Post)
+    #         WITH friend, city, collect(post) AS posts, person
+    #         WITH friend,
+    #             city,
+    #             size(posts) AS postCount,
+    #             size([p IN posts WHERE (p)-[:HAS_TAG]->()<-[:HAS_INTEREST]-(person)]) AS commonPostCount
+    #         RETURN friend.id AS personId,
+    #             friend.firstName AS personFirstName,
+    #             friend.lastName AS personLastName,
+    #             commonPostCount - (postCount - commonPostCount) AS commonInterestScore,
+    #             friend.gender AS personGender,
+    #             city.name AS personCityName
+    #         ORDER BY commonInterestScore DESC, personId ASC
+    #         LIMIT 10
+    #         """.replace(
+    #             "\n", ""
+    #         ),
+    #         self._get_query_parameters(),
+    #     )
 
-        neo4j = (
-            """
-            MATCH (person:Person {id: $personId})-[:KNOWS*2..2]-(friend),
-                (friend)-[:IS_LOCATED_IN]->(city:City)
-            WHERE NOT friend=person AND
-                NOT (friend)-[:KNOWS]-(person)
-            WITH person, city, friend, datetime({epochMillis: friend.birthday}) as birthday
-            WHERE  (birthday.month=$month AND birthday.day>=21) OR
-                    (birthday.month=($month%12)+1 AND birthday.day<22)
-            WITH DISTINCT friend, city, person
-            OPTIONAL MATCH (friend)<-[:HAS_CREATOR]-(post:Post)
-            WITH friend, city, collect(post) AS posts, person
-            WITH friend,
-                city,
-                size(posts) AS postCount,
-                size([p IN posts WHERE (p)-[:HAS_TAG]->()<-[:HAS_INTEREST]-(person)]) AS commonPostCount
-            RETURN friend.id AS personId,
-                friend.firstName AS personFirstName,
-                friend.lastName AS personLastName,
-                commonPostCount - (postCount - commonPostCount) AS commonInterestScore,
-                friend.gender AS personGender,
-                city.name AS personCityName
-            ORDER BY commonInterestScore DESC, personId ASC
-            LIMIT 10
-            """.replace(
-                "\n", ""
-            ),
-            self._get_query_parameters(),
-        )
+    #     neo4j = (
+    #         """
+    #         MATCH (person:Person {id: $personId})-[:KNOWS*2..2]-(friend),
+    #             (friend)-[:IS_LOCATED_IN]->(city:City)
+    #         WHERE NOT friend=person AND
+    #             NOT (friend)-[:KNOWS]-(person)
+    #         WITH person, city, friend, datetime({epochMillis: friend.birthday}) as birthday
+    #         WHERE  (birthday.month=$month AND birthday.day>=21) OR
+    #                 (birthday.month=($month%12)+1 AND birthday.day<22)
+    #         WITH DISTINCT friend, city, person
+    #         OPTIONAL MATCH (friend)<-[:HAS_CREATOR]-(post:Post)
+    #         WITH friend, city, collect(post) AS posts, person
+    #         WITH friend,
+    #             city,
+    #             size(posts) AS postCount,
+    #             size([p IN posts WHERE (p)-[:HAS_TAG]->()<-[:HAS_INTEREST]-(person)]) AS commonPostCount
+    #         RETURN friend.id AS personId,
+    #             friend.firstName AS personFirstName,
+    #             friend.lastName AS personLastName,
+    #             commonPostCount - (postCount - commonPostCount) AS commonInterestScore,
+    #             friend.gender AS personGender,
+    #             city.name AS personCityName
+    #         ORDER BY commonInterestScore DESC, personId ASC
+    #         LIMIT 10
+    #         """.replace(
+    #             "\n", ""
+    #         ),
+    #         self._get_query_parameters(),
+    #     )
 
-        if self._vendor == "memgraph":
-            return memgraph
-        else:
-            return neo4j
+    #     if self._vendor == "memgraph":
+    #         return memgraph
+    #     else:
+    #         return neo4j
 
     def benchmark__interactive__complex_query_11(self):
         return (
@@ -708,7 +708,8 @@ class LDBC_BI(Dataset):
 
     def _prepare_parameters_directory(self):
         parameters = Path() / ".cache" / "datasets" / self.NAME / self._variant / "parameters"
-        if parameters.exists():
+        parameters.mkdir(parents=True, exist_ok=True)
+        if parameters.exists() and any(parameters.iterdir()):
             print("Files downloaded.")
         else:
             print("Downloading files")
@@ -882,12 +883,12 @@ class LDBC_BI(Dataset):
             """
             MATCH (tag:Tag)-[:HAS_TYPE]->(:TagClass {name: $tagClass})
             OPTIONAL MATCH (message1:Message)-[:HAS_TAG]->(tag)
-            WHERE localDateTime($date) <= message1.creationDate
-                AND message1.creationDate < localDateTime($date) + duration({days: 100})
+            WHERE DateTime($date) <= message1.creationDate
+                AND message1.creationDate < DateTime($date) + duration({days: 100})
             WITH tag, count(message1) AS countWindow1
             OPTIONAL MATCH (message2:Message)-[:HAS_TAG]->(tag)
-            WHERE localDateTime($date) + duration({days: 100}) <= message2.creationDate
-                AND message2.creationDate < localDateTime($date) + duration({days: 200})
+            WHERE DateTime($date) + duration({days: 100}) <= message2.creationDate
+                AND message2.creationDate < DateTime($date) + duration({days: 200})
             WITH
                 tag,
                 countWindow1,
@@ -984,7 +985,8 @@ class LDBC_BI(Dataset):
             MATCH
                 (tag:Tag {name: $tag})<-[:HAS_TAG]-(message:Message),
                 (message)<-[:REPLY_OF]-(comment:Comment)-[:HAS_TAG]->(relatedTag:Tag)
-            OPTIONAL MATCH (comment)-[:HAS_TAG]->(tag) WHERE tag IS NOT NULL
+            OPTIONAL MATCH (comment)-[:HAS_TAG]->(tag)
+            WHERE tag IS NOT NULL
             RETURN
                 relatedTag,
                 count(DISTINCT comment) AS count
@@ -1008,8 +1010,8 @@ class LDBC_BI(Dataset):
                 relatedTag.name,
                 count(DISTINCT comment) AS count
             ORDER BY
+                relatedTag.name ASC,
                 count DESC,
-                relatedTag.name ASC
             LIMIT 100
             """.replace(
                 "\n", ""
@@ -1020,43 +1022,6 @@ class LDBC_BI(Dataset):
             return memgraph
         else:
             return neo4j
-
-    def benchmark__bi__query_8(self):
-        return (
-            """
-            MATCH (tag:Tag {name: $tag})
-            OPTIONAL MATCH (tag)<-[interest:HAS_INTEREST]-(person:Person)
-            WITH tag, collect(person) AS interestedPersons
-            OPTIONAL MATCH (tag)<-[:HAS_TAG]-(message:Message)-[:HAS_CREATOR]->(person:Person)
-                    WHERE localDateTime($startDate) < message.creationDate
-                    AND message.creationDate < localDateTime($endDate)
-            WITH tag, interestedPersons + collect(person) AS persons
-            UNWIND persons AS person
-            WITH DISTINCT tag, person
-            WITH
-                tag,
-                person,
-                100 * size([(tag)<-[interest:HAS_INTEREST]-(person) | interest]) + size([(tag)<-[:HAS_TAG]-(message:Message)-[:HAS_CREATOR]->(person) WHERE localDateTime($startDate) < message.creationDate AND message.creationDate < localDateTime($endDate) | message])
-                AS score
-            OPTIONAL MATCH (person)-[:KNOWS]-(friend)
-            WITH
-                person,
-                score,
-                100 * size([(tag)<-[interest:HAS_INTEREST]-(friend) | interest]) + size([(tag)<-[:HAS_TAG]-(message:Message)-[:HAS_CREATOR]->(friend) WHERE localDateTime($startDate) < message.creationDate AND message.creationDate < localDateTime($endDate) | message])
-                AS friendScore
-            RETURN
-                person.id,
-                score,
-                sum(friendScore) AS friendsScore
-            ORDER BY
-                score + friendsScore DESC,
-                person.id ASC
-            LIMIT 100
-            """.replace(
-                "\n", ""
-            ),
-            self._get_query_parameters(),
-        )
 
     def benchmark__bi__query_9(self):
         memgraph = (
@@ -1314,7 +1279,7 @@ class LDBC_BI(Dataset):
         memgraph = (
             """
             MATCH
-                (tag:Tag {name: "Cosmic_Egg"}),
+                (tag:Tag {name: $tag}),
                 (person1:Person)<-[:HAS_CREATOR]-(message1:Message)-[:REPLY_OF*0..]->(post1:Post)<-[:CONTAINER_OF]-(forum1:Forum),
                 (message1)-[:HAS_TAG]->(tag),
                 (forum1)<-[:HAS_MEMBER]->(person2:Person)<-[:HAS_CREATOR]-(comment:Comment)-[:HAS_TAG]->(tag),
@@ -1323,7 +1288,7 @@ class LDBC_BI(Dataset):
             MATCH (comment)-[:HAS_TAG]->(tag)
             MATCH (message2)-[:HAS_TAG]->(tag)
             OPTIONAL MATCH (forum2)-[:HAS_MEMBER]->(person1)
-            WHERE forum1 <> forum2 AND message2.creationDate > message1.creationDate + duration({hours: 12})
+            WHERE forum1 <> forum2 AND message2.creationDate > message1.creationDate + duration({hours: $delta}) AND person1 IS NULL
             RETURN person1, count(DISTINCT message2) AS messageCount
             ORDER BY messageCount DESC, person1.id ASC
             LIMIT 10
