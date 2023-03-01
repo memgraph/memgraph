@@ -38,12 +38,15 @@ class VertexCountCache {
   auto NameToProperty(const std::string &name) { return request_router_->NameToProperty(name); }
   auto NameToEdgeType(const std::string &name) { return request_router_->NameToEdgeType(name); }
 
-  int64_t VerticesCount() { return 1; }
+  int64_t VerticesCount() { return request_router_->GetApproximateVertexCount(); }
 
-  int64_t VerticesCount(storage::v3::LabelId /*label*/) { return 1; }
+  int64_t VerticesCount(storage::v3::LabelId label) { return request_router_->GetApproximateVertexCount(label); }
 
-  int64_t VerticesCount(storage::v3::LabelId /*label*/, storage::v3::PropertyId /*property*/) { return 1; }
+  int64_t VerticesCount(storage::v3::LabelId label, storage::v3::PropertyId property) {
+    return request_router_->GetApproximateVertexCount(label, property);
+  }
 
+  // TODO(gvolfing) check if we actually use these overloads...
   int64_t VerticesCount(storage::v3::LabelId /*label*/, storage::v3::PropertyId /*property*/,
                         const storage::v3::PropertyValue & /*value*/) {
     return 1;

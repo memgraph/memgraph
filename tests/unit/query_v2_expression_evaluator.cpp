@@ -135,6 +135,13 @@ class MockedRequestRouter : public RequestRouterInterface {
     return schema;
   };
 
+  // TODO(gvolfing) once the real implementation is done make sure these are solved as well.
+  int64_t GetApproximateVertexCount() const override { return 1; }
+  int64_t GetApproximateVertexCount(storage::v3::LabelId label) const override { return 1; }
+  int64_t GetApproximateVertexCount(storage::v3::LabelId label, storage::v3::PropertyId property) const override {
+    return 1;
+  }
+
  private:
   void SetUpNameIdMappers() {
     std::unordered_map<uint64_t, std::string> id_to_name;

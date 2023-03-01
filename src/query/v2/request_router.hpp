@@ -122,6 +122,10 @@ class RequestRouterInterface {
   virtual std::optional<std::pair<uint64_t, uint64_t>> AllocateInitialEdgeIds(io::Address coordinator_address) = 0;
   virtual void InstallSimulatorTicker(std::function<bool()> tick_simulator) = 0;
   virtual const std::vector<coordinator::SchemaProperty> &GetSchemaForLabel(storage::v3::LabelId label) const = 0;
+
+  virtual int64_t GetApproximateVertexCount() const = 0;
+  virtual int64_t GetApproximateVertexCount(storage::v3::LabelId label) const = 0;
+  virtual int64_t GetApproximateVertexCount(storage::v3::LabelId label, storage::v3::PropertyId property) const = 0;
 };
 
 // TODO(kostasrim)rename this class template
@@ -413,6 +417,17 @@ class RequestRouter : public RequestRouterInterface {
 
   std::optional<storage::v3::LabelId> MaybeNameToLabel(const std::string &name) const override {
     return shards_map_.GetLabelId(name);
+  }
+
+  int64_t GetApproximateVertexCount() const override { return 1; }
+
+  int64_t GetApproximateVertexCount(storage::v3::LabelId label) const override {
+    const auto &label_space = shards_map_.label_spaces.at(label);
+    return 1;
+  }
+
+  int64_t GetApproximateVertexCount(storage::v3::LabelId label, storage::v3::PropertyId property) const override {
+    return 1;
   }
 
  private:
