@@ -155,6 +155,18 @@ auto ExpansionNodes(const std::vector<Expansion> &expansions, const SymbolTable 
   return nodes;
 }
 
+FilterMatching ToFilterMatching(Matching &matching) {
+  FilterMatching filter_matching;
+  filter_matching.expansions = matching.expansions;
+  filter_matching.edge_symbols = matching.edge_symbols;
+  filter_matching.filters = matching.filters;
+  filter_matching.node_symbol_to_expansions = matching.node_symbol_to_expansions;
+  filter_matching.named_paths = matching.named_paths;
+  filter_matching.expansion_symbols = matching.expansion_symbols;
+
+  return filter_matching;
+}
+
 }  // namespace
 
 VaryMatchingStart::VaryMatchingStart(Matching matching, const SymbolTable &symbol_table)
@@ -332,7 +344,7 @@ void VaryQueryPartMatching::iterator::SetCurrentQueryPart() {
     new_matchings.reserve(matchings_size);
 
     for (auto i = 0; i < matchings_size; i++) {
-      new_matchings.push_back(static_cast<FilterMatching &>(filter_matchings[iterator_cnt]));
+      new_matchings.push_back(ToFilterMatching(filter_matchings[iterator_cnt]));
       new_matchings[i].symbol = filter.matchings[i].symbol;
       new_matchings[i].type = filter.matchings[i].type;
 
