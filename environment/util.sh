@@ -19,13 +19,16 @@ function architecture() {
 }
 
 check_architecture() {
+    local ARCH=$(architecture)
     for arch in "$@"; do
-        if [ "$(architecture)" = "$arch" ]; then
+        if [ "${ARCH}" = "$arch" ]; then
             echo "The right architecture!"
             return 0
         fi
     done
     echo "Not the right architecture!"
+    echo "Expected: $@"
+    echo "Actual: ${ARCH}"
     exit 1
 }
 
