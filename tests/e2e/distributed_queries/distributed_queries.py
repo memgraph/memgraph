@@ -43,7 +43,7 @@ def test_vertex_creation_and_scanall(connection):
         assert r.type == "TO"
 
         m_props = m.properties
-        assert m_props["property"] <= 3 and m_props["property"] >= 0, "Wrong key"
+        assert len(m_props) == 0, "n is not expected to have properties, update the test!"
         assert len(m.labels) == 0, "m is not expected to have labels, update the test!"
 
 
