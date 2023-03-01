@@ -249,8 +249,9 @@ class ShardManager {
     ww.operation = cwr;
 
     spdlog::info("SM sending heartbeat to coordinator {}", coordinator_leader_.ToString());
-    heartbeat_res_.emplace(
-        std::move(io_.template Request<WriteResponse<CoordinatorWriteResponses>>(coordinator_leader_, std::move(ww))));
+    heartbeat_res_.emplace(std::move(
+        io_.template Request<WriteResponse<CoordinatorWriteResponses>, WriteRequest<CoordinatorWriteRequests>>(
+            coordinator_leader_, std::move(ww))));
     spdlog::info("SM sent heartbeat");
   }
 

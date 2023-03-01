@@ -19,6 +19,7 @@
 #include <map>
 #include <set>
 #include <thread>
+#include <type_traits>
 #include <vector>
 
 #include <boost/core/demangle.hpp>
@@ -624,13 +625,12 @@ class Raft {
       MG_ASSERT(std::max(req.term, state_.term) == req.term);
     }
 
-    VoteResponse res{
-        .term = std::max(req.term, state_.term),
-        .committed_log_size = state_.committed_log_size,
-        .vote_granted = new_leader,
-    };
-
-    io_.Send(from_address, request_id, std::move(res));
+    io_.Send(from_address, request_id,
+             VoteResponse{
+                 .term = std::max(req.term, state_.term),
+                 .committed_log_size = state_.committed_log_size,
+                 .vote_granted = new_leader,
+             });
 
     if (new_leader) {
       // become a follower
@@ -717,6 +717,10 @@ class Raft {
         .last_log_term = CommittedLogTerm(),
         .log_size = state_.log.size(),
     };
+
+    static_assert(std::is_trivially_copyable_v<AppendResponse>,
+                  "This function copies this message, therefore it is important to be trivially copyable. Otherwise it "
+                  "should be moved");
 
     if constexpr (std::is_same<ALL, Leader>()) {
       MG_ASSERT(req.term != state_.term, "Multiple leaders are acting under the term ", req.term);
@@ -808,7 +812,7 @@ class Raft {
 
     Log("returning log_size of ", res.log_size);
 
-    io_.Send(from_address, request_id, std::move(res));
+    io_.Send(from_address, request_id, AppendResponse{res});
 
     return std::nullopt;
   }

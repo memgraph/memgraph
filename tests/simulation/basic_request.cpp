@@ -76,7 +76,7 @@ std::pair<SimulatorStats, LatencyHistogramSummaries> RunWorkload(SimulatorConfig
     CounterRequest cli_req;
     cli_req.proposal = i;
     spdlog::info("[CLIENT] calling Request");
-    auto res_f = cli_io.Request<CounterResponse>(srv_addr, std::move(cli_req));
+    auto res_f = cli_io.Request<CounterResponse, CounterRequest>(srv_addr, std::move(cli_req));
     spdlog::info("[CLIENT] calling Wait");
     auto res_rez = std::move(res_f).Wait();
     spdlog::info("[CLIENT] Wait returned");

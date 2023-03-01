@@ -22,6 +22,7 @@
 #include "io/message_histogram_collector.hpp"
 #include "io/notifier.hpp"
 #include "io/time.hpp"
+#include "utils/concepts.hpp"
 #include "utils/result.hpp"
 
 namespace memgraph::io {
@@ -33,6 +34,14 @@ using memgraph::utils::BasicResult;
 // as we adapt things to use Thrift-generated message types.
 template <typename T>
 concept Message = std::movable<T> && std::copyable<T>;
+
+template <utils::Object T>
+struct RValueRefEnforcer {
+  using Type = T &&;
+};
+
+template <typename T>
+using RValueRef = typename RValueRefEnforcer<T>::Type;
 
 using RequestId = uint64_t;
 
@@ -83,33 +92,33 @@ class Io {
 
   /// Issue a request with an explicit timeout in microseconds provided. This tends to be used by clients.
   template <Message ResponseT, Message RequestT>
-  ResponseFuture<ResponseT> RequestWithTimeout(Address address, RequestT &&request, Duration timeout) {
+  ResponseFuture<ResponseT> RequestWithTimeout(Address address, RValueRef<RequestT> request, Duration timeout) {
     const Address from_address = address_;
     std::function<void()> fill_notifier = nullptr;
-    return implementation_.template Request<ResponseT>(address, from_address, std::forward<RequestT>(request),
-                                                       fill_notifier, timeout);
+    return implementation_.template Request<ResponseT, RequestT>(address, from_address, std::move(request),
+                                                                 fill_notifier, timeout);
   }
 
   /// Issue a request that times out after the default timeout. This tends
   /// to be used by clients.
   template <Message ResponseT, Message RequestT>
-  ResponseFuture<ResponseT> Request(Address to_address, RequestT &&request) {
+  ResponseFuture<ResponseT> Request(Address to_address, RValueRef<RequestT> request) {
     const Duration timeout = default_timeout_;
     const Address from_address = address_;
     std::function<void()> fill_notifier = nullptr;
-    return implementation_.template Request<ResponseT>(to_address, from_address, std::forward<RequestT>(request),
-                                                       fill_notifier, timeout);
+    return implementation_.template Request<ResponseT, RequestT>(to_address, from_address, std::move(request),
+                                                                 fill_notifier, timeout);
   }
 
   /// Issue a request that will notify a Notifier when it is filled or times out.
   template <Message ResponseT, Message RequestT>
-  ResponseFuture<ResponseT> RequestWithNotification(Address to_address, RequestT &&request, Notifier notifier,
+  ResponseFuture<ResponseT> RequestWithNotification(Address to_address, RValueRef<RequestT> request, Notifier notifier,
                                                     ReadinessToken readiness_token) {
     const Duration timeout = default_timeout_;
     const Address from_address = address_;
     std::function<void()> fill_notifier = [notifier, readiness_token]() { notifier.Notify(readiness_token); };
-    return implementation_.template Request<ResponseT>(to_address, from_address, std::forward<RequestT>(request),
-                                                       fill_notifier, timeout);
+    return implementation_.template Request<ResponseT, RequestT>(to_address, from_address, std::move(request),
+                                                                 fill_notifier, timeout);
   }
 
   /// Issue a request that will notify a Notifier when it is filled or times out.
@@ -143,7 +152,7 @@ class Io {
   template <Message M>
   void Send(Address to_address, RequestId request_id, M &&message) {
     Address from_address = address_;
-    return implementation_.template Send(to_address, from_address, request_id, std::forward<M>(message));
+    return implementation_.template Send<M>(to_address, from_address, request_id, std::forward<M>(message));
   }
 
   /// The current system time. This time source should be preferred over any other,

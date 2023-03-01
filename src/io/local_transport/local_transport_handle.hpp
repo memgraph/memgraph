@@ -104,7 +104,7 @@ class LocalTransportHandle {
   }
 
   template <Message M>
-  void Send(Address to_address, Address from_address, RequestId request_id, M &&message) {
+  void Send(Address to_address, Address from_address, RequestId request_id, RValueRef<M> message) {
     auto type_info = TypeInfoFor(message);
 
     std::any message_any(std::move(message));
@@ -139,13 +139,13 @@ class LocalTransportHandle {
   }
 
   template <Message ResponseT, Message RequestT>
-  ResponseFuture<ResponseT> SubmitRequest(Address to_address, Address from_address, RequestT &&request,
+  ResponseFuture<ResponseT> SubmitRequest(Address to_address, Address from_address, RValueRef<RequestT> request,
                                           Duration timeout, std::function<void()> fill_notifier) {
     auto [future, promise] = memgraph::io::FuturePromisePairWithNotifications<ResponseResult<ResponseT>>(
         // set null notifier for when the Future::Wait is called
         nullptr,
         // set notifier for when Promise::Fill is called
-        std::forward<std::function<void()>>(fill_notifier));
+        std::move(fill_notifier));
 
     const bool port_matches = to_address.last_known_port == from_address.last_known_port;
     const bool ip_matches = to_address.last_known_ip == from_address.last_known_ip;
@@ -168,7 +168,7 @@ class LocalTransportHandle {
       promises_.emplace(std::move(promise_key), std::move(dop));
     }  // lock dropped
 
-    Send(to_address, from_address, request_id, std::move(request));
+    Send<RequestT>(to_address, from_address, request_id, std::move(request));
 
     return std::move(future);
   }

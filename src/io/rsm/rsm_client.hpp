@@ -122,8 +122,8 @@ class RsmClient {
         .start_time = io_.Now(),
         .request = std::move(req),
         .notifier = notifier,
-        .future = io_.template RequestWithNotification<ReadResponse<ReadResponseT>>(leader_, std::move(read_req),
-                                                                                    notifier, readiness_token),
+        .future = io_.template RequestWithNotification<ReadResponse<ReadResponseT>, ReadRequest<ReadRequestT>>(
+            leader_, std::move(read_req), notifier, readiness_token),
     };
 
     async_reads_.emplace(readiness_token.GetId(), std::move(async_request));
@@ -134,7 +134,7 @@ class RsmClient {
 
     ReadRequest<ReadRequestT> read_req = {.operation = async_request.request};
 
-    async_request.future = io_.template RequestWithNotification<ReadResponse<ReadResponseT>>(
+    async_request.future = io_.template RequestWithNotification<ReadResponse<ReadResponseT>, ReadRequest<ReadRequestT>>(
         leader_, std::move(read_req), async_request.notifier, readiness_token);
   }
 
@@ -191,8 +191,8 @@ class RsmClient {
         .start_time = io_.Now(),
         .request = std::move(req),
         .notifier = notifier,
-        .future = io_.template RequestWithNotification<WriteResponse<WriteResponseT>>(leader_, std::move(write_req),
-                                                                                      notifier, readiness_token),
+        .future = io_.template RequestWithNotification<WriteResponse<WriteResponseT>, WriteRequest<WriteRequestT>>(
+            leader_, std::move(write_req), notifier, readiness_token),
     };
 
     async_writes_.emplace(readiness_token.GetId(), std::move(async_request));
@@ -203,8 +203,9 @@ class RsmClient {
 
     WriteRequest<WriteRequestT> write_req = {.operation = async_request.request};
 
-    async_request.future = io_.template RequestWithNotification<WriteResponse<WriteResponseT>>(
-        leader_, std::move(write_req), async_request.notifier, readiness_token);
+    async_request.future =
+        io_.template RequestWithNotification<WriteResponse<WriteResponseT>, WriteRequest<WriteRequestT>>(
+            leader_, std::move(write_req), async_request.notifier, readiness_token);
   }
 
   std::optional<BasicResult<TimedOut, WriteResponseT>> PollAsyncWriteRequest(const ReadinessToken &readiness_token) {

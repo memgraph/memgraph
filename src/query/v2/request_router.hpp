@@ -729,8 +729,9 @@ class RequestRouter : public RequestRouterInterface {
 
     io::rsm::WriteRequest<coordinator::CoordinatorWriteRequests> ww;
     ww.operation = std::move(requests);
-    auto resp = io_.template Request<io::rsm::WriteResponse<coordinator::CoordinatorWriteResponses>>(
-                       coordinator_address, std::move(ww))
+    auto resp = io_.template Request<io::rsm::WriteResponse<coordinator::CoordinatorWriteResponses>,
+                                     io::rsm::WriteRequest<coordinator::CoordinatorWriteRequests>>(coordinator_address,
+                                                                                                   std::move(ww))
                     .Wait();
     if (resp.HasValue()) {
       const auto alloc_edge_id_reps =

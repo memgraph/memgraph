@@ -105,19 +105,19 @@ class SimulatorHandle {
 
   bool ShouldShutDown() const;
 
-  template <Message Response, Message Request>
-  ResponseFuture<Response> SubmitRequest(Address to_address, Address from_address, Request &&request, Duration timeout,
-                                         std::function<bool()> &&maybe_tick_simulator,
-                                         std::function<void()> &&fill_notifier) {
+  template <Message ResponseT, Message RequestT>
+  ResponseFuture<ResponseT> SubmitRequest(Address to_address, Address from_address, RValueRef<RequestT> request,
+                                          Duration timeout, std::function<bool()> &&maybe_tick_simulator,
+                                          std::function<void()> &&fill_notifier) {
     auto type_info = TypeInfoFor(request);
     std::string demangled_name = boost::core::demangle(type_info.get().name());
     spdlog::trace("simulator sending request {} to {}", demangled_name, to_address);
 
-    auto [future, promise] = memgraph::io::FuturePromisePairWithNotifications<ResponseResult<Response>>(
+    auto [future, promise] = memgraph::io::FuturePromisePairWithNotifications<ResponseResult<ResponseT>>(
         // set notifier for when the Future::Wait is called
-        std::forward<std::function<bool()>>(maybe_tick_simulator),
+        std::move(maybe_tick_simulator),
         // set notifier for when Promise::Fill is called
-        std::forward<std::function<void()>>(fill_notifier));
+        std::move(fill_notifier));
 
     {
       std::unique_lock<std::mutex> lock(mu_);
@@ -194,7 +194,7 @@ class SimulatorHandle {
   }
 
   template <Message M>
-  void Send(Address to_address, Address from_address, RequestId request_id, M &&message) {
+  void Send(Address to_address, Address from_address, RequestId request_id, RValueRef<M> message) {
     spdlog::trace("sending message from {} to {}", from_address.last_known_port, to_address.last_known_port);
     auto type_info = TypeInfoFor(message);
     {

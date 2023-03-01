@@ -70,7 +70,7 @@ TEST(LocalTransport, BasicRequest) {
     auto value = 1;  // i;
     cli_req.proposal = value;
     spdlog::info("[CLIENT] sending request");
-    auto res_f = cli_io.Request<CounterResponse>(srv_addr, std::move(cli_req));
+    auto res_f = cli_io.Request<CounterResponse, CounterRequest>(srv_addr, std::move(cli_req));
     spdlog::info("[CLIENT] waiting on future");
 
     auto res_rez = std::move(res_f).Wait();

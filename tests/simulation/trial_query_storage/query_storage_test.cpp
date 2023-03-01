@@ -78,7 +78,7 @@ int main() {
 
   auto req = ScanVerticesRequest{2, std::nullopt};
 
-  auto res_f = cli_io.Request<VerticesResponse>(srv_addr, std::move(req));
+  auto res_f = cli_io.Request<VerticesResponse, ScanVerticesRequest>(srv_addr, std::move(req));
   auto res_rez = std::move(res_f).Wait();
   simulator.ShutDown();
   return 0;
