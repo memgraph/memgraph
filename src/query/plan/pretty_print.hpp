@@ -74,7 +74,7 @@ class PlanPrinter : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ConstructNamedPath &) override;
 
   bool PreVisit(Filter &) override;
-  bool PreVisit(EvaluatePatternFilter &) override;
+  bool PreVisit(EvaluatePatternFilter & /*unused*/) override;
   bool PreVisit(EdgeUniquenessFilter &) override;
 
   bool PreVisit(Merge &) override;
@@ -187,7 +187,7 @@ class PlanToJsonVisitor : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(Optional &) override;
 
   bool PreVisit(Filter &) override;
-  bool PreVisit(EvaluatePatternFilter &) override;
+  bool PreVisit(EvaluatePatternFilter & /*op*/) override;
   bool PreVisit(EdgeUniquenessFilter &) override;
   bool PreVisit(Cartesian &) override;
 

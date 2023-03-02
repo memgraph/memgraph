@@ -501,12 +501,9 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
 namespace impl {
 
 bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, const FilterInfo &filter) {
-  for (const auto &symbol : filter.used_symbols) {
-    if (bound_symbols.find(symbol) == bound_symbols.end()) {
-      return false;
-    }
-  }
-  return true;
+  return std::ranges::all_of(filter.used_symbols.begin(), filter.used_symbols.end(), [bound_symbols](auto symbol) {
+    return bound_symbols.find(symbol) != bound_symbols.end();
+  });
 }
 
 Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols, Filters &filters, AstStorage &storage) {
