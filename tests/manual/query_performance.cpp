@@ -74,6 +74,7 @@
 #include <istream>
 #include <thread>
 
+#include <fmt/core.h>
 #include <gflags/gflags.h>
 #include <spdlog/cfg/env.h>
 #include <spdlog/spdlog.h>
@@ -320,6 +321,8 @@ void RunV3() {
                    std::chrono::duration_cast<std::chrono::milliseconds>(benchmark_end - benchmark_start).count());
 
   ls.ShutDown();
+  auto latency_histograms = nlohmann::json::parse(fmt::format("{}", io.ResponseLatencies()));
+  spdlog::warn(latency_histograms.dump(4));
 
   if (!FLAGS_export_json_results.empty()) {
     nlohmann::json results;
@@ -329,6 +332,7 @@ void RunV3() {
       PutResult(benchmark_results_json, name, duration);
     }
     results["benchmarks"] = std::move(benchmark_results_json);
+    results["latencies"] = std::move(latency_histograms);
     std::ofstream results_file{FLAGS_export_json_results};
     results_file << results.dump();
   }
