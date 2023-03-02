@@ -81,6 +81,9 @@ namespace impl {
 // removed from `Filters`.
 Expression *ExtractFilters(const std::unordered_set<Symbol> &, Filters &, AstStorage &);
 
+/// Checks if the filters has all the bound symbols to be included in the current part of the query
+bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, const FilterInfo &filter);
+
 /// Utility function for iterating pattern atoms and accumulating a result.
 ///
 /// Each pattern is of the form `NodeAtom (, EdgeAtom, NodeAtom)*`. Therefore,
@@ -636,6 +639,10 @@ class RuleBasedPlanner {
 
     for (const auto &filter : filters) {
       for (const auto &matching : filter.matchings) {
+        if (!impl::HasBoundFilterSymbols(bound_symbols, filter)) {
+          continue;
+        }
+
         switch (matching.type) {
           case PatternFilterType::EXISTS: {
             operators.push_back(MakeExistsFilter(matching, symbol_table, storage, bound_symbols));

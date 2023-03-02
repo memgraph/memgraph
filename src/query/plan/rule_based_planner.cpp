@@ -25,15 +25,6 @@ namespace memgraph::query::plan {
 
 namespace {
 
-bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, const FilterInfo &filter) {
-  for (const auto &symbol : filter.used_symbols) {
-    if (bound_symbols.find(symbol) == bound_symbols.end()) {
-      return false;
-    }
-  }
-  return true;
-}
-
 // Ast tree visitor which collects the context for a return body.
 // The return body of WITH and RETURN clauses consists of:
 //
@@ -504,6 +495,15 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
 }  // namespace
 
 namespace impl {
+
+bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, const FilterInfo &filter) {
+  for (const auto &symbol : filter.used_symbols) {
+    if (bound_symbols.find(symbol) == bound_symbols.end()) {
+      return false;
+    }
+  }
+  return true;
+}
 
 Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols, Filters &filters, AstStorage &storage) {
   Expression *filter_expr = nullptr;

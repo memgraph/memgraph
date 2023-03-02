@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,6 +14,7 @@
 
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/pretty_print.hpp"
+#include "query/plan/operator.hpp"
 #include "utils/string.hpp"
 
 namespace memgraph::query::plan {
@@ -148,7 +149,6 @@ bool PlanPrinter::PreVisit(query::plan::Produce &op) {
 }
 
 PRE_VISIT(ConstructNamedPath);
-PRE_VISIT(Filter);
 PRE_VISIT(SetProperty);
 PRE_VISIT(SetProperties);
 PRE_VISIT(SetLabels);
@@ -157,6 +157,7 @@ PRE_VISIT(RemoveLabels);
 PRE_VISIT(EdgeUniquenessFilter);
 PRE_VISIT(Accumulate);
 PRE_VISIT(EmptyResult);
+PRE_VISIT(EvaluatePatternFilter);
 
 bool PlanPrinter::PreVisit(query::plan::Aggregate &op) {
   WithPrintLn([&](auto &out) {
@@ -248,6 +249,15 @@ bool PlanPrinter::PreVisit(query::plan::Cartesian &op) {
 bool PlanPrinter::PreVisit(query::plan::Foreach &op) {
   WithPrintLn([](auto &out) { out << "* Foreach"; });
   Branch(*op.update_clauses_);
+  op.input_->Accept(*this);
+  return false;
+}
+
+bool PlanPrinter::PreVisit(query::plan::Filter &op) {
+  WithPrintLn([](auto &out) { out << "* Filter"; });
+  for (const auto &pattern_filter : op.pattern_filters_) {
+    Branch(*pattern_filter);
+  }
   op.input_->Accept(*this);
   return false;
 }
@@ -589,6 +599,16 @@ bool PlanToJsonVisitor::PreVisit(Filter &op) {
   op.input_->Accept(*this);
   self["input"] = PopOutput();
 
+  auto i = 1;
+  for (const auto &pattern_filter : op.pattern_filters_) {
+    auto s = std::to_string(i);
+
+    pattern_filter->Accept(*this);
+    self["pattern_filter" + s] = PopOutput();
+
+    i++;
+  }
+
   output_ = std::move(self);
   return false;
 }
@@ -908,6 +928,7 @@ bool PlanToJsonVisitor::PreVisit(Cartesian &op) {
   output_ = std::move(self);
   return false;
 }
+
 bool PlanToJsonVisitor::PreVisit(Foreach &op) {
   json self;
   self["name"] = "Foreach";
@@ -919,6 +940,18 @@ bool PlanToJsonVisitor::PreVisit(Foreach &op) {
 
   op.update_clauses_->Accept(*this);
   self["update_clauses"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(EvaluatePatternFilter &op) {
+  json self;
+  self["name"] = "EvaluatePatternFilter";
+  self["output_symbol"] = ToJson(op.output_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
 
   output_ = std::move(self);
   return false;
