@@ -41,7 +41,9 @@ class LDBC_Interactive(Dataset):
     PROPERTIES_ON_EDGES = True
 
     QUERY_PARAMETERS = {
-        "sf0.1": "https://repository.surfsara.nl/datasets/cwi/snb/files/substitution_parameters/substitution_parameters-sf0.1.tar.zst"
+        "sf0.1": "https://repository.surfsara.nl/datasets/cwi/snb/files/substitution_parameters/substitution_parameters-sf0.1.tar.zst",
+        "sf1": "https://repository.surfsara.nl/datasets/cwi/snb/files/substitution_parameters/substitution_parameters-sf0.1.tar.zst",
+        "sf3": "https://repository.surfsara.nl/datasets/cwi/snb/files/substitution_parameters/substitution_parameters-sf0.1.tar.zst",
     }
 
     def _prepare_parameters_directory(self):
@@ -1011,7 +1013,7 @@ class LDBC_BI(Dataset):
                 count(DISTINCT comment) AS count
             ORDER BY
                 relatedTag.name ASC,
-                count DESC,
+                count DESC
             LIMIT 100
             """.replace(
                 "\n", ""
