@@ -34,6 +34,27 @@ function setup_virtualenv () {
     popd > /dev/null
 }
 
+setup_libs=true
+if [[ $# -eq 1 && "$1" == "-h" ]]; then
+    print_help
+    exit 0
+else
+    while(($#)); do
+        case "$1" in
+          --without-libs-setup)
+              shift
+              setup_libs=false
+          ;;
+          *)
+              # unknown option
+              echo "Invalid argument provided: $1"
+              print_help
+              exit 1
+          ;;
+        esac
+    done
+fi
+
 if [ "${ARCHITECTURE}" = "arm64" ] || [ "${ARCHITECTURE}" = "aarch64" ]; then
   OS_SCRIPT=$DIR/environment/os/$DISTRO-arm.sh
 else
@@ -45,6 +66,14 @@ echo "All packages are in-place..."
 
 # create a default build directory
 mkdir -p ./build
+
+if [[ "$setup_libs" == "true" ]]; then
+  # Setup libs (download).
+  cd libs
+  ./cleanup.sh
+  ./setup.sh
+  cd ..
+fi
 
 # Fix for centos 7 during release
 if [ "${DISTRO}" = "centos-7" ] || [ "${DISTRO}" = "debian-11" ]; then
