@@ -419,15 +419,28 @@ class RequestRouter : public RequestRouterInterface {
     return shards_map_.GetLabelId(name);
   }
 
-  int64_t GetApproximateVertexCount() const override { return 1; }
+  int64_t GetApproximateVertexCount() const override {
+    int64_t vertex_count = 0;
+
+    for (const auto &label_space : shards_map_.label_spaces) {
+      const auto split_threshold = label_space.second.split_threshold;
+      const auto shard_count = static_cast<int64_t>(label_space.second.shards.size());
+      vertex_count += split_threshold * shard_count;
+    }
+
+    return vertex_count;
+  }
 
   int64_t GetApproximateVertexCount(storage::v3::LabelId label) const override {
     const auto &label_space = shards_map_.label_spaces.at(label);
-    return 1;
+    return label_space.split_threshold * label_space.shards.size();
   }
 
-  int64_t GetApproximateVertexCount(storage::v3::LabelId label, storage::v3::PropertyId property) const override {
-    return 1;
+  int64_t GetApproximateVertexCount(storage::v3::LabelId label, storage::v3::PropertyId /*property*/) const override {
+    // TODO
+    // Once we have reliable metadata to approximate the
+    // vertex count -based on properties- rework this function.
+    return GetApproximateVertexCount(label);
   }
 
  private:

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -128,6 +128,9 @@ struct LabelSpace {
   // Maps between the smallest primary key stored in the shard and the shard
   std::map<PrimaryKey, ShardMetadata> shards;
   size_t replication_factor;
+  // TODO
+  // Stub value. Should be replaced once the shard-split logic is in place.
+  int64_t split_threshold{10000};
 
   friend std::ostream &operator<<(std::ostream &in, const LabelSpace &label_space) {
     using utils::print_helpers::operator<<;
