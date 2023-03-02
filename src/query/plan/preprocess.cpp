@@ -544,10 +544,10 @@ void PatternFilterVisitor::Visit(Exists &op) {
   patterns.push_back(op.pattern_);
 
   FilterMatching filter_matching;
-  AddMatching(patterns, nullptr, this->symbol_table_, this->storage_, filter_matching);
+  AddMatching(patterns, nullptr, symbol_table_, storage_, filter_matching);
 
   filter_matching.type = PatternFilterType::EXISTS;
-  filter_matching.symbol = std::make_optional<Symbol>(this->symbol_table_.at(op));
+  filter_matching.symbol = std::make_optional<Symbol>(symbol_table_.at(op));
 
   matchings_.push_back(std::move(filter_matching));
 }
