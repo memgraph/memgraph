@@ -488,13 +488,13 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
                      [](const auto &edge_element) { return edge_element.object_acc; });
       const auto *schema = shard_->GetSchema(shard_->PrimaryLabel());
       MG_ASSERT(schema);
-      return GetExpandOneResult(src_vertex_acc, std::move(src_vertex), req, in_edge_ordered_accessors,
-                                out_edge_ordered_accessors, maybe_filter_based_on_edge_uniqueness, edge_filler,
-                                *schema);
+      return GetExpandOneResult(src_vertex_acc, std::move(src_vertex), req, std::move(in_edge_ordered_accessors),
+                                std::move(out_edge_ordered_accessors), maybe_filter_based_on_edge_uniqueness,
+                                edge_filler, *schema);
     });
 
     if (maybe_result.HasError()) {
-      shard_error.emplace(CreateErrorResponse(primary_key.GetError(), req.transaction_id, "getting primary key"));
+      shard_error.emplace(CreateErrorResponse(maybe_result.GetError(), req.transaction_id, "getting expand result"));
       break;
     }
 
