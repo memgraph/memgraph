@@ -225,7 +225,7 @@ CartesianProduct<VaryMatchingStart> VaryFilterMatchingStarts(const Matching &mat
                                                              const SymbolTable &symbol_table) {
   auto filter_matchings_cnt = 0;
   for (const auto &filter : matching.filters) {
-    filter_matchings_cnt += filter.matchings.size();
+    filter_matchings_cnt += static_cast<int>(filter.matchings.size());
   }
 
   std::vector<VaryMatchingStart> variants;
