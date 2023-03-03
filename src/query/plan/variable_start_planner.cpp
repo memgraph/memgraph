@@ -223,15 +223,13 @@ CartesianProduct<VaryMatchingStart> VaryMultiMatchingStarts(const std::vector<Ma
 
 CartesianProduct<VaryMatchingStart> VaryFilterMatchingStarts(const Matching &matching,
                                                              const SymbolTable &symbol_table) {
-  auto i = 0;
+  auto filter_matchings_cnt = 0;
   for (const auto &filter : matching.filters) {
-    for ([[maybe_unused]] const auto &filter_matchings : filter.matchings) {
-      i += 1;
-    }
+    filter_matchings_cnt += static_cast<int>(filter.matchings.size());
   }
 
   std::vector<VaryMatchingStart> variants;
-  variants.reserve(i);
+  variants.reserve(filter_matchings_cnt);
 
   for (const auto &filter : matching.filters) {
     for (const auto &filter_matching : filter.matchings) {
@@ -292,14 +290,16 @@ VaryQueryPartMatching::iterator &VaryQueryPartMatching::iterator::operator++() {
   //    * (m2), (o2), (g1), (f1)
   //    * (m2), (o2), (g1), (f2)
 
-  // Create variations by changing the merge part first.
+  // Create variations by changing the filter part first.
   if (filter_it_ != filter_end_) ++filter_it_;
 
+  // Create variations by changing the merge part.
   if (filter_it_ == filter_end_) {
     filter_it_ = filter_begin_;
     if (merge_it_ != merge_end_) ++merge_it_;
   }
 
+  // Create variations by changing the optional part.
   if (merge_it_ == merge_end_ && filter_it_ == filter_begin_) {
     merge_it_ = merge_begin_;
     if (optional_it_ != optional_end_) ++optional_it_;
@@ -335,8 +335,8 @@ void VaryQueryPartMatching::iterator::SetCurrentQueryPart() {
              "Either there are no filter matchings or we can always generate"
              "a variation");
 
-  auto filter_matchings = *filter_it_;
-  auto iterator_cnt = 0;
+  auto all_filter_matchings = *filter_it_;
+  auto all_filter_matchings_idx = 0;
   for (auto &filter : current_query_part_.matching.filters) {
     auto matchings_size = filter.matchings.size();
 
@@ -344,11 +344,11 @@ void VaryQueryPartMatching::iterator::SetCurrentQueryPart() {
     new_matchings.reserve(matchings_size);
 
     for (auto i = 0; i < matchings_size; i++) {
-      new_matchings.push_back(ToFilterMatching(filter_matchings[iterator_cnt]));
+      new_matchings.push_back(ToFilterMatching(all_filter_matchings[all_filter_matchings_idx]));
       new_matchings[i].symbol = filter.matchings[i].symbol;
       new_matchings[i].type = filter.matchings[i].type;
 
-      iterator_cnt++;
+      all_filter_matchings_idx++;
     }
 
     filter.matchings = std::move(new_matchings);
