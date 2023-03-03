@@ -29,7 +29,8 @@ corresponding interpreter.
 class TransactionQueueMultipleTest : public ::testing::Test {
  protected:
   memgraph::storage::Storage db_;
-  std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_transaction_queue_intr"};
+  std::filesystem::path data_directory{std::filesystem::temp_directory_path() /
+                                       "MG_tests_unit_transaction_queue_multiple_intr"};
   memgraph::query::InterpreterContext interpreter_context{&db_, {}, data_directory};
   InterpreterFaker main_interpreter{&interpreter_context};
   std::vector<InterpreterFaker *> running_interpreters;
