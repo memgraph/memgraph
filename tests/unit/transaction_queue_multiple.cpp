@@ -12,6 +12,7 @@
 #include "interpreter_faker.hpp"
 
 #include <gtest/gtest.h>
+#include <chrono>
 #include <random>
 #include <stop_token>
 #include <string>
@@ -20,7 +21,7 @@
 #include "query/exceptions.hpp"
 #include "spdlog/spdlog.h"
 
-constexpr int NUM_INTERPRETERS = 4, INSERTIONS = 1000;
+constexpr int NUM_INTERPRETERS = 4, INSERTIONS = 4000;
 
 /*
 Tests rely on the fact that interpreters are sequentially added to running_interpreters to get transaction_id of its
@@ -57,6 +58,7 @@ TEST_F(TransactionQueueMultipleTest, TerminateTransaction) {
       // add try-catch block
       for (int j = 0; j < INSERTIONS; ++j) {
         running_interpreters[thread_index]->Interpret("CREATE (:Person {prop: " + std::to_string(thread_index) + "})");
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
       }
       running_interpreters[thread_index]->Interpret("COMMIT");
     } catch (memgraph::query::HintedAbortError &e) {
