@@ -247,7 +247,7 @@ EdgeUniquenessFunction InitializeEdgeUniquenessFunction(bool only_unique_neighbo
 EdgeFiller InitializeEdgeFillerFunction(const msgs::ExpandOneRequest &req);
 
 ShardResult<msgs::ExpandOneResultRow> GetExpandOneResult(
-    Shard::Accessor &acc, msgs::VertexId src_vertex, const msgs::ExpandOneRequest &req,
+    VertexAccessor v_acc, msgs::VertexId src_vertex, const msgs::ExpandOneRequest &req,
     const EdgeUniquenessFunction &maybe_filter_based_on_edge_uniqueness, const EdgeFiller &edge_filler,
     const Schemas::Schema &schema);
 

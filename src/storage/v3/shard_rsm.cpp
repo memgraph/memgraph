@@ -472,8 +472,8 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
       if (req.order_by_edges.empty()) {
         const auto *schema = shard_->GetSchema(shard_->PrimaryLabel());
         MG_ASSERT(schema);
-        return GetExpandOneResult(acc, std::move(src_vertex), req, maybe_filter_based_on_edge_uniqueness, edge_filler,
-                                  *schema);
+        return GetExpandOneResult(src_vertex_acc, std::move(src_vertex), req, maybe_filter_based_on_edge_uniqueness,
+                                  edge_filler, *schema);
       }
       auto [in_edge_accessors, out_edge_accessors] = GetEdgesFromVertex(src_vertex_acc, req.direction);
       const auto in_ordered_edges = OrderByEdges(dba, in_edge_accessors, req.order_by_edges, src_vertex_acc);

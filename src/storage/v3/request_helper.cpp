@@ -383,13 +383,10 @@ bool FilterOnEdge(DbAccessor &dba, const storage::v3::VertexAccessor &v_acc, con
 }
 
 ShardResult<msgs::ExpandOneResultRow> GetExpandOneResult(
-    Shard::Accessor &acc, msgs::VertexId src_vertex, const msgs::ExpandOneRequest &req,
+    VertexAccessor v_acc, msgs::VertexId src_vertex, const msgs::ExpandOneRequest &req,
     const EdgeUniquenessFunction &maybe_filter_based_on_edge_uniqueness, const EdgeFiller &edge_filler,
     const Schemas::Schema &schema) {
   /// Fill up source vertex
-  const auto primary_key = ConvertPropertyVector(src_vertex.second);
-  auto v_acc = acc.FindVertex(primary_key, View::NEW);
-
   msgs::Vertex source_vertex = {.id = src_vertex};
   auto maybe_secondary_labels = FillUpSourceVertexSecondaryLabels(v_acc, req);
   if (maybe_secondary_labels.HasError()) {
