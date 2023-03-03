@@ -12,26 +12,95 @@
 #include "interpreter_faker.hpp"
 
 #include <gtest/gtest.h>
+#include <chrono>
+#include <stop_token>
+#include <string>
+#include <thread>
 #include "gmock/gmock.h"
 
+/*
+Tests rely on the fact that interpreters are sequentially added to runninng_interpreters to get transaction_id of its
+corresponding interpreter/.
+*/
 class TransactionQueueSimpleTest : public ::testing::Test {
  protected:
   memgraph::storage::Storage db_;
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_transaction_queue_intr"};
   memgraph::query::InterpreterContext interpreter_context{&db_, {}, data_directory};
-  //    InterpreterFaker running_interpreter{&db_, {}, data_directory_running}
-  InterpreterFaker main_interpreter{&db_, &interpreter_context};
+  InterpreterFaker running_interpreter{&interpreter_context}, main_interpreter{&interpreter_context};
 };
 
-TEST_F(TransactionQueueSimpleTest, OneInterpreterOneTransaction) {
+// This test relies on explicit transations + explicit thread killing for testing if show transactions work as expected
+TEST_F(TransactionQueueSimpleTest, ShowTransactions) {
+  std::jthread running_thread = std::jthread(
+      [this](int thread_index) {
+        running_interpreter.Interpret("BEGIN");
+        for (int i = 0; i < 5; i++) {
+          running_interpreter.Interpret("CREATE (:Person {prop: " + std::to_string(thread_index) + "})");
+          std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        }
+        running_interpreter.Interpret("ROLLBACK");
+      },
+      0);
+
   {
-    auto stream = main_interpreter.Interpret("SHOW TRANSACTIONS");
-    ASSERT_EQ(stream.GetHeader().size(), 3U);
-    EXPECT_EQ(stream.GetHeader()[0], "username");
-    EXPECT_EQ(stream.GetHeader()[1], "transaction_id");
-    EXPECT_EQ(stream.GetHeader()[2], "query");
-    ASSERT_EQ(stream.GetResults().size(), 1U);
-    EXPECT_EQ(stream.GetResults()[0][0].ValueString(), "");
-    EXPECT_EQ(stream.GetResults()[0][2].ValueList().at(0).ValueString(), "SHOW TRANSACTIONS");
+    main_interpreter.Interpret("CREATE (:Person {prop: 1})");
+    auto show_stream = main_interpreter.Interpret("SHOW TRANSACTIONS");
+    ASSERT_EQ(show_stream.GetResults().size(), 2U);
+    // admin executing the transaction
+    EXPECT_EQ(show_stream.GetResults()[0][0].ValueString(), "");
+    ASSERT_TRUE(show_stream.GetResults()[0][1].IsString());
+    EXPECT_EQ(show_stream.GetResults()[0][2].ValueList().at(0).ValueString(), "SHOW TRANSACTIONS");
+    // Also admin executing
+    EXPECT_EQ(show_stream.GetResults()[1][0].ValueString(), "");
+    ASSERT_TRUE(show_stream.GetResults()[1][1].IsString());
+    EXPECT_EQ(show_stream.GetResults()[1][2].ValueList().at(0).ValueString(), "EXPLICIT TRANSACTION");
+    // test the state of the database
+    auto results_stream = main_interpreter.Interpret("MATCH (n) RETURN n");
+    ASSERT_EQ(results_stream.GetResults().size(), 1U);
+    main_interpreter.Interpret("MATCH (n) DETACH DELETE n");
+  }
+}
+
+TEST_F(TransactionQueueSimpleTest, TerminateTransaction) {
+  std::jthread running_thread = std::jthread(
+      [this](std::stop_token st, int thread_index) {
+        running_interpreter.Interpret("BEGIN");
+        while (!st.stop_requested()) {
+          running_interpreter.Interpret("CREATE (:Person {prop: " + std::to_string(thread_index) + "})");
+          std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        }
+      },
+      0);
+
+  {
+    main_interpreter.Interpret("CREATE (:Person {prop: 1})");
+    auto show_stream = main_interpreter.Interpret("SHOW TRANSACTIONS");
+    ASSERT_EQ(show_stream.GetResults().size(), 2U);
+    // superadmin executing the transaction
+    EXPECT_EQ(show_stream.GetResults()[0][0].ValueString(), "");
+    ASSERT_TRUE(show_stream.GetResults()[0][1].IsString());
+    EXPECT_EQ(show_stream.GetResults()[0][2].ValueList().at(0).ValueString(), "SHOW TRANSACTIONS");
+    // Also anonymous user executing
+    EXPECT_EQ(show_stream.GetResults()[1][0].ValueString(), "");
+    ASSERT_TRUE(show_stream.GetResults()[1][1].IsString());
+    EXPECT_EQ(show_stream.GetResults()[1][2].ValueList().at(0).ValueString(), "EXPLICIT TRANSACTION");
+    // Kill the other transaction
+    std::string run_trans_id = show_stream.GetResults()[1][1].ValueString();
+    std::string esc_run_trans_id = "'" + run_trans_id + "'";
+    auto terminate_stream = main_interpreter.Interpret("TERMINATE TRANSACTIONS " + esc_run_trans_id);
+    // check result of killing
+    ASSERT_EQ(terminate_stream.GetResults().size(), 1U);
+    EXPECT_EQ(terminate_stream.GetResults()[0][0].ValueString(), run_trans_id);
+    ASSERT_TRUE(terminate_stream.GetResults()[0][1].ValueBool());  // that the transaction is actually killed
+    // check the number of transactions now
+    auto show_stream_after_killing = main_interpreter.Interpret("SHOW TRANSACTIONS");
+    ASSERT_EQ(show_stream_after_killing.GetResults().size(), 1U);
+    // test the state of the database
+    auto results_stream = main_interpreter.Interpret("MATCH (n) RETURN n");
+    ASSERT_EQ(results_stream.GetResults().size(), 1U);  // from the main interpreter
+    main_interpreter.Interpret("MATCH (n) DETACH DELETE n");
+    // finish thread
+    running_thread.request_stop();
   }
 }

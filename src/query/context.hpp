@@ -27,7 +27,7 @@ namespace memgraph::query {
 enum class TransactionStatus {
   NO_TRANSACTION,
   ALIVE,
-  STARTED_KILLING,
+  KILLED,
   STARTED_COMMITTING,
   STARTED_ROLLBACK,
 };
@@ -92,7 +92,7 @@ static_assert(std::is_move_constructible_v<ExecutionContext>, "ExecutionContext 
 
 inline bool MustAbort(const ExecutionContext &context) noexcept {
   return (context.transaction_status != nullptr &&
-          context.transaction_status->load(std::memory_order_acquire) == TransactionStatus::STARTED_KILLING) ||
+          context.transaction_status->load(std::memory_order_acquire) == TransactionStatus::KILLED) ||
          (context.is_shutting_down != nullptr && context.is_shutting_down->load(std::memory_order_acquire)) ||
          context.timer.IsExpired();
 }

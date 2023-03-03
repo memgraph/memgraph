@@ -1147,7 +1147,6 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
       if (in_explicit_transaction_) {
         throw ExplicitTransactionUsageException("Nested transactions are not supported.");
       }
-
       transaction_status_.store(TransactionStatus::ALIVE, std::memory_order_release);
       in_explicit_transaction_ = true;
       expect_rollback_ = false;
@@ -1929,6 +1928,10 @@ std::vector<std::vector<TypedValue>> TransactionQueueQueryHandler::ShowTransacti
   results.reserve(interpreter_context->interpreters->size());
   interpreter_context->interpreters.WithLock([&results, username, isAdmin](const auto &interpreters) {
     for (const Interpreter *interpreter : interpreters) {
+      TransactionStatus loadedStatus = interpreter->transaction_status_.load(std::memory_order_acquire);
+      if (loadedStatus == TransactionStatus::NO_TRANSACTION || loadedStatus == TransactionStatus::KILLED) {
+        continue;
+      }
       std::optional<uint64_t> transaction_id = interpreter->GetTransactionId();
       if (transaction_id.has_value() && (interpreter->username_ == username || isAdmin)) {
         auto queries_summaries_typed = std::vector<TypedValue>();
@@ -1951,39 +1954,39 @@ std::vector<std::vector<TypedValue>> TransactionQueueQueryHandler::KillTransacti
   std::vector<std::vector<TypedValue>> results;
   for (const std::string &transaction_id : maybe_kill_transaction_ids) {
     bool killed = false;
-    interpreter_context->interpreters.WithLock([&transaction_id, &killed, username, isAdmin](const auto &interpreters) {
+    bool transaction_found = false;
+    interpreter_context->interpreters.WithLock([&transaction_id, &killed, &transaction_found, username,
+                                                isAdmin](const auto &interpreters) {
       for (Interpreter *interpreter : interpreters) {
-        // linearize from this point
         // the problem can happen e.g: you see that transaction is alive you check transaction_id and username but
-        // interpreter->AbortTransactionByUser() kills the new transaction even if the new transaction hasn't started,
-        // as soon as it starts it will be killed We can try two approaches:
-        // 1. somehow make sure that they are executed consecutively, not de-scheluded from the cpu, so all atomic
-        // I think this would correspond to having lock on the Interpreter
-        // 2. don't create new transaction while we are in the process of killing this one
+        // we kill the new transaction. This can happen even if the new transaction hasn't started because
+        // as soon as it starts it will be killed. However, this situation is extremely rare + random tests are
+        // passing so this is for now not handled.
 
-        // the assumption is that this whole block should be executed atomically
         std::optional<uint64_t> intr_trans = interpreter->GetTransactionId();
-        if (intr_trans.has_value() && std::to_string(intr_trans.value()) == transaction_id) {  // but this can change
-          if (interpreter->username_ == username ||
-              isAdmin) {  // this cannot change between executions of two transactions in the same interpreter
-            TransactionStatus loaded_status = TransactionStatus::ALIVE;
+        if (intr_trans.has_value() && std::to_string(intr_trans.value()) == transaction_id) {
+          transaction_found = true;
+          if (interpreter->username_ == username || isAdmin) {
+            TransactionStatus expected_status = TransactionStatus::ALIVE;
             // if the transaction status is not ALIVE, then we don't do anything because it means we are in the process
-            // of committing, aborting (rollback) or no transaction is active
-            if (!interpreter->transaction_status_.compare_exchange_strong(loaded_status,
-                                                                          TransactionStatus::STARTED_KILLING)) {
-              spdlog::debug("Transaction {} cannot be killed because it already started committing or rollback. ",
-                            transaction_id);
+            // of committing, aborting (rollback) or that interpreter doesn't have active transaction.
+            if (!interpreter->transaction_status_.compare_exchange_strong(expected_status, TransactionStatus::KILLED)) {
+              spdlog::warn("Transaction {} cannot be killed because it already started committing or rollback. ",
+                           transaction_id);
               continue;
             }
             killed = true;
-            spdlog::debug("Transaction with id: {} successfully killed", transaction_id);
+            spdlog::warn("Transaction {} successfully killed", transaction_id);
           } else {
-            spdlog::debug("Not enough rights to kill the transaction");
+            spdlog::warn("Not enough rights to kill the transaction");
           }
           break;
         }
       }
     });
+    if (!transaction_found) {
+      spdlog::warn("Transaction {} not found", transaction_id);
+    }
     results.push_back({TypedValue(transaction_id), TypedValue(killed)});
   }
   return results;
@@ -2596,9 +2599,11 @@ std::vector<std::string> Interpreter::GetQueries() const {
     return {"EXPLICIT TRANSACTION"};
   }
   std::vector<std::string> queries;
-  std::for_each(query_executions_.begin(), query_executions_.end(), [&queries](const auto &execution) {
-    if (execution) queries.push_back(execution->query);
-  });
+  for (const auto &ptr : query_executions_) {
+    if (ptr) {
+      queries.push_back(ptr->query);
+    }
+  }
   return queries;
 }
 
@@ -2684,7 +2689,6 @@ void Interpreter::Commit() {
   // We should document clearly that all results should be pulled to complete
   // a query.
   if (!db_accessor_) return;
-
   /*
   At this point we must only check that the transaction is alive because it cannot be in the ended committed state,
   started rollback state or finished rollbacked state in the same thread. The only danger is that other thread requested

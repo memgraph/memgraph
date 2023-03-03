@@ -9,12 +9,19 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import threading
+import time
+
 import mgp
 
 
 @mgp.read_proc
 def long_query(ctx: mgp.ProcCtx) -> mgp.Record(my_id=int):
     id = 1
-    while True:
-        id += 1
-    return mgp.Record(my_id=id)
+    try:
+        while True:
+            if ctx.check_must_abort():
+                break
+            id += 1
+    except mgp.AbortError:
+        return mgp.Record(my_id=id)

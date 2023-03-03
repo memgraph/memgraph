@@ -13,7 +13,7 @@
 #include "query/interpreter.hpp"
 
 struct InterpreterFaker {
-  InterpreterFaker(memgraph::storage::Storage *db, memgraph::query::InterpreterContext *interpreter_context)
+  InterpreterFaker(memgraph::query::InterpreterContext *interpreter_context)
       : interpreter_context(interpreter_context), interpreter(interpreter_context) {
     interpreter_context->auth_checker = &auth_checker;
     interpreter_context->interpreters.WithLock([this](auto &interpreters) { interpreters.insert(&interpreter); });

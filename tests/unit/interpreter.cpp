@@ -52,7 +52,7 @@ class InterpreterTest : public ::testing::Test {
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_interpreter"};
   memgraph::query::InterpreterContext interpreter_context{&db_, {}, data_directory};
 
-  InterpreterFaker default_interpreter{&db_, &interpreter_context};
+  InterpreterFaker default_interpreter{&interpreter_context};
 
   auto Prepare(const std::string &query, const std::map<std::string, memgraph::storage::PropertyValue> &params = {}) {
     return default_interpreter.Prepare(query, params);
@@ -1067,7 +1067,7 @@ TEST_F(InterpreterTest, AllowLoadCsvConfig) {
 
     memgraph::query::InterpreterContext csv_interpreter_context{
         &db_, {.query = {.allow_load_csv = allow_load_csv}}, directory_manager.Path()};
-    InterpreterFaker interpreter_faker{&db_, &csv_interpreter_context};
+    InterpreterFaker interpreter_faker{&csv_interpreter_context};
     for (const auto &query : queries) {
       if (allow_load_csv) {
         SCOPED_TRACE(fmt::format("'{}' should not throw because LOAD CSV is allowed", query));

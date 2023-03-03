@@ -325,7 +325,7 @@ class Storage final {
 
     void FinalizeTransaction();
 
-    uint64_t GetTransactionId() const;
+    std::optional<uint64_t> GetTransactionId() const;
 
    private:
     /// @throw std::bad_alloc
