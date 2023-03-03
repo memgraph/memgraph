@@ -1171,119 +1171,121 @@ if [ ! -f $PREFIX/include/libaio.h ]; then
     popd
 fi
 
-log_tool_name "folly $FBLIBS_VERSION"
-if [ ! -d $PREFIX/include/folly ]; then
-    if [ -d folly-$FBLIBS_VERSION ]; then
-        rm -rf folly-$FBLIBS_VERSION
+if [[ "${DISTRO}" != "amzn-2" ]]; then
+    log_tool_name "folly $FBLIBS_VERSION"
+    if [ ! -d $PREFIX/include/folly ]; then
+        if [ -d folly-$FBLIBS_VERSION ]; then
+            rm -rf folly-$FBLIBS_VERSION
+        fi
+        mkdir folly-$FBLIBS_VERSION
+        tar -xzf ../archives/folly-$FBLIBS_VERSION.tar.gz -C folly-$FBLIBS_VERSION
+        pushd folly-$FBLIBS_VERSION
+        patch -p1 < ../../folly.patch
+        # build is used by facebook builder
+        mkdir _build
+        pushd _build
+        cmake .. $COMMON_CMAKE_FLAGS \
+            -DBOOST_LINK_STATIC=ON \
+            -DBUILD_TESTS=OFF \
+            -DGFLAGS_NOTHREADS=OFF \
+            -DCXX_STD="c++20"
+        make -j$CPUS install
+        popd && popd
     fi
-    mkdir folly-$FBLIBS_VERSION
-    tar -xzf ../archives/folly-$FBLIBS_VERSION.tar.gz -C folly-$FBLIBS_VERSION
-    pushd folly-$FBLIBS_VERSION
-    patch -p1 < ../../folly.patch
-    # build is used by facebook builder
-    mkdir _build
-    pushd _build
-    cmake .. $COMMON_CMAKE_FLAGS \
-        -DBOOST_LINK_STATIC=ON \
-        -DBUILD_TESTS=OFF \
-        -DGFLAGS_NOTHREADS=OFF \
-        -DCXX_STD="c++20"
-    make -j$CPUS install
-    popd && popd
-fi
 
-log_tool_name "fizz $FBLIBS_VERSION"
-if [ ! -d $PREFIX/include/fizz ]; then
-    if [ -d fizz-$FBLIBS_VERSION ]; then
-        rm -rf fizz-$FBLIBS_VERSION
+    log_tool_name "fizz $FBLIBS_VERSION"
+    if [ ! -d $PREFIX/include/fizz ]; then
+        if [ -d fizz-$FBLIBS_VERSION ]; then
+            rm -rf fizz-$FBLIBS_VERSION
+        fi
+        mkdir fizz-$FBLIBS_VERSION
+        tar -xzf ../archives/fizz-$FBLIBS_VERSION.tar.gz -C fizz-$FBLIBS_VERSION
+        pushd fizz-$FBLIBS_VERSION
+        # build is used by facebook builder
+        mkdir _build
+        pushd _build
+        cmake ../fizz $COMMON_CMAKE_FLAGS \
+            -DBUILD_TESTS=OFF \
+            -DBUILD_EXAMPLES=OFF \
+            -DGFLAGS_NOTHREADS=OFF
+        make -j$CPUS install
+        popd && popd
     fi
-    mkdir fizz-$FBLIBS_VERSION
-    tar -xzf ../archives/fizz-$FBLIBS_VERSION.tar.gz -C fizz-$FBLIBS_VERSION
-    pushd fizz-$FBLIBS_VERSION
-    # build is used by facebook builder
-    mkdir _build
-    pushd _build
-    cmake ../fizz $COMMON_CMAKE_FLAGS \
-        -DBUILD_TESTS=OFF \
-        -DBUILD_EXAMPLES=OFF \
-        -DGFLAGS_NOTHREADS=OFF
-    make -j$CPUS install
-    popd && popd
-fi
 
-log_tool_name "wangle FBLIBS_VERSION"
-if [ ! -d $PREFIX/include/wangle ]; then
-    if [ -d wangle-$FBLIBS_VERSION ]; then
-        rm -rf wangle-$FBLIBS_VERSION
+    log_tool_name "wangle FBLIBS_VERSION"
+    if [ ! -d $PREFIX/include/wangle ]; then
+        if [ -d wangle-$FBLIBS_VERSION ]; then
+            rm -rf wangle-$FBLIBS_VERSION
+        fi
+        mkdir wangle-$FBLIBS_VERSION
+        tar -xzf ../archives/wangle-$FBLIBS_VERSION.tar.gz -C wangle-$FBLIBS_VERSION
+        pushd wangle-$FBLIBS_VERSION
+        # build is used by facebook builder
+        mkdir _build
+        pushd _build
+        cmake ../wangle $COMMON_CMAKE_FLAGS \
+            -DBUILD_TESTS=OFF \
+            -DBUILD_EXAMPLES=OFF \
+            -DGFLAGS_NOTHREADS=OFF
+        make -j$CPUS install
+        popd && popd
     fi
-    mkdir wangle-$FBLIBS_VERSION
-    tar -xzf ../archives/wangle-$FBLIBS_VERSION.tar.gz -C wangle-$FBLIBS_VERSION
-    pushd wangle-$FBLIBS_VERSION
-    # build is used by facebook builder
-    mkdir _build
-    pushd _build
-    cmake ../wangle $COMMON_CMAKE_FLAGS \
-        -DBUILD_TESTS=OFF \
-        -DBUILD_EXAMPLES=OFF \
-        -DGFLAGS_NOTHREADS=OFF
-    make -j$CPUS install
-    popd && popd
-fi
 
-log_tool_name "proxygen $FBLIBS_VERSION"
-if [ ! -d $PREFIX/include/proxygen ]; then
-    if [ -d proxygen-$FBLIBS_VERSION ]; then
-        rm -rf proxygen-$FBLIBS_VERSION
+    log_tool_name "proxygen $FBLIBS_VERSION"
+    if [ ! -d $PREFIX/include/proxygen ]; then
+        if [ -d proxygen-$FBLIBS_VERSION ]; then
+            rm -rf proxygen-$FBLIBS_VERSION
+        fi
+        mkdir proxygen-$FBLIBS_VERSION
+        tar -xzf ../archives/proxygen-$FBLIBS_VERSION.tar.gz -C proxygen-$FBLIBS_VERSION
+        pushd proxygen-$FBLIBS_VERSION
+        patch -p1 < ../../proxygen.patch
+        # build is used by facebook builder
+        mkdir _build
+        pushd _build
+        cmake .. $COMMON_CMAKE_FLAGS \
+            -DBUILD_TESTS=OFF \
+            -DBUILD_SAMPLES=OFF \
+            -DGFLAGS_NOTHREADS=OFF \
+            -DBUILD_QUIC=OFF
+        make -j$CPUS install
+        popd && popd
     fi
-    mkdir proxygen-$FBLIBS_VERSION
-    tar -xzf ../archives/proxygen-$FBLIBS_VERSION.tar.gz -C proxygen-$FBLIBS_VERSION
-    pushd proxygen-$FBLIBS_VERSION
-    patch -p1 < ../../proxygen.patch
-    # build is used by facebook builder
-    mkdir _build
-    pushd _build
-    cmake .. $COMMON_CMAKE_FLAGS \
-        -DBUILD_TESTS=OFF \
-        -DBUILD_SAMPLES=OFF \
-        -DGFLAGS_NOTHREADS=OFF \
-        -DBUILD_QUIC=OFF
-    make -j$CPUS install
-    popd && popd
-fi
 
-log_tool_name "flex $FBLIBS_VERSION"
-if [ ! -f $PREFIX/include/FlexLexer.h ]; then
-    if [ -d flex-$FLEX_VERSION ]; then
-        rm -rf flex-$FLEX_VERSION
+    log_tool_name "flex $FBLIBS_VERSION"
+    if [ ! -f $PREFIX/include/FlexLexer.h ]; then
+        if [ -d flex-$FLEX_VERSION ]; then
+            rm -rf flex-$FLEX_VERSION
+        fi
+        tar -xzf ../archives/flex-$FLEX_VERSION.tar.gz
+        pushd flex-$FLEX_VERSION
+        ./configure $COMMON_CONFIGURE_FLAGS
+        make -j$CPUS install
+        popd
     fi
-    tar -xzf ../archives/flex-$FLEX_VERSION.tar.gz
-    pushd flex-$FLEX_VERSION
-    ./configure $COMMON_CONFIGURE_FLAGS
-    make -j$CPUS install
-    popd
-fi
 
-log_tool_name "fbthrift $FBLIBS_VERSION"
-if [ ! -d $PREFIX/include/thrift ]; then
-    if [ -d fbthrift-$FBLIBS_VERSION ]; then
-        rm -rf fbthrift-$FBLIBS_VERSION
+    log_tool_name "fbthrift $FBLIBS_VERSION"
+    if [ ! -d $PREFIX/include/thrift ]; then
+        if [ -d fbthrift-$FBLIBS_VERSION ]; then
+            rm -rf fbthrift-$FBLIBS_VERSION
+        fi
+        git clone --depth 1 --branch v$FBLIBS_VERSION https://github.com/facebook/fbthrift.git fbthrift-$FBLIBS_VERSION
+        pushd fbthrift-$FBLIBS_VERSION
+        # build is used by facebook builder
+        mkdir _build
+        pushd _build
+        if [ "$TOOLCHAIN_STDCXX" = "libstdc++" ]; then
+            CMAKE_CXX_FLAGS="-fsized-deallocation"
+        else
+            CMAKE_CXX_FLAGS="-fsized-deallocation -stdlib=libc++"
+        fi
+        cmake .. $COMMON_CMAKE_FLAGS \
+            -Denable_tests=OFF \
+            -DGFLAGS_NOTHREADS=OFF \
+            -DCMAKE_CXX_FLAGS="$CMAKE_CXX_FLAGS"
+        make -j$CPUS install
+        popd
     fi
-    git clone --depth 1 --branch v$FBLIBS_VERSION https://github.com/facebook/fbthrift.git fbthrift-$FBLIBS_VERSION
-    pushd fbthrift-$FBLIBS_VERSION
-    # build is used by facebook builder
-    mkdir _build
-    pushd _build
-    if [ "$TOOLCHAIN_STDCXX" = "libstdc++" ]; then
-        CMAKE_CXX_FLAGS="-fsized-deallocation"
-    else
-        CMAKE_CXX_FLAGS="-fsized-deallocation -stdlib=libc++"
-    fi
-    cmake .. $COMMON_CMAKE_FLAGS \
-        -Denable_tests=OFF \
-        -DGFLAGS_NOTHREADS=OFF \
-        -DCMAKE_CXX_FLAGS="$CMAKE_CXX_FLAGS"
-    make -j$CPUS install
-    popd
 fi
 
 popd
