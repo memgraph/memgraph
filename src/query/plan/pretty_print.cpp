@@ -599,14 +599,11 @@ bool PlanToJsonVisitor::PreVisit(Filter &op) {
   op.input_->Accept(*this);
   self["input"] = PopOutput();
 
-  auto i = 1;
-  for (const auto &pattern_filter : op.pattern_filters_) {
-    auto s = std::to_string(i);
+  for (auto pattern_idx = 0; pattern_idx < op.pattern_filters_.size(); pattern_idx++) {
+    auto pattern_filter_key = "pattern_filter" + std::to_string(pattern_idx + 1);
 
-    pattern_filter->Accept(*this);
-    self["pattern_filter" + s] = PopOutput();
-
-    i++;
+    op.pattern_filters_[pattern_idx]->Accept(*this);
+    self[pattern_filter_key] = PopOutput();
   }
 
   output_ = std::move(self);
