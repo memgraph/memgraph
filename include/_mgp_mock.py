@@ -1,8 +1,8 @@
 import typing
 
-import kafka
 import networkx as nx
 import pulsar
+from kafka.consumer.fetcher import ConsumerRecord
 
 NX_LABEL_ATTR = "labels"
 NX_TYPE_ATTR = "type"
@@ -347,7 +347,7 @@ class Message:
     __slots__ = ("_message", "_valid")
 
     def __init__(self, message) -> None:
-        if not isinstance(message, (kafka.consumer.fetcher.ConsumerRecord, pulsar.Message)):
+        if not isinstance(message, (ConsumerRecord, pulsar.Message)):
             raise TypeError(
                 f"Expected 'kafka.consumer.fetcher.ConsumerRecord' or 'pulsar.Message', got '{type(message)}'"
             )
@@ -356,7 +356,7 @@ class Message:
         self._valid = True
 
     @property
-    def message(self) -> typing.Union[kafka.consumer.fetcher.ConsumerRecord, pulsar.Message]:
+    def message(self) -> typing.Union[ConsumerRecord, pulsar.Message]:
         return self._message
 
     def is_valid(self) -> bool:
@@ -366,19 +366,15 @@ class Message:
         self._valid = False
 
     def source_type(self) -> str:
-        return (
-            SOURCE_TYPE_KAFKA
-            if isinstance(self._message, kafka.consumer.fetcher.ConsumerRecord)
-            else SOURCE_TYPE_PULSAR
-        )
+        return SOURCE_TYPE_KAFKA if isinstance(self._message, ConsumerRecord) else SOURCE_TYPE_PULSAR
 
     def is_source_supported(self, supported: typing.Tuple) -> bool:
         if SOURCE_TYPE_KAFKA in supported and SOURCE_TYPE_PULSAR in supported:
-            return isinstance(self._message, (kafka.consumer.fetcher.ConsumerRecord, pulsar.Message))
+            return isinstance(self._message, (ConsumerRecord, pulsar.Message))
         elif SOURCE_TYPE_KAFKA in supported:
-            return isinstance(self._message, kafka.consumer.fetcher.ConsumerRecord)
+            return isinstance(self._message, ConsumerRecord)
         elif SOURCE_TYPE_PULSAR in supported:
-            return isinstance(self._message, kafka.consumer.pulsar.Message)
+            return isinstance(self._message, pulsar.Message)
         else:
             return False
 
@@ -386,36 +382,28 @@ class Message:
         if not self.is_source_supported(supported=(SOURCE_TYPE_KAFKA, SOURCE_TYPE_PULSAR)):
             raise InvalidArgumentError("Invalid argument.")
 
-        return (
-            self._message.value
-            if isinstance(self._message, kafka.consumer.fetcher.ConsumerRecord)
-            else self._message.data()
-        )
+        return self._message.value if isinstance(self._message, ConsumerRecord) else self._message.data()
 
     def topic_name(self) -> str:
         if not self.is_source_supported(supported=(SOURCE_TYPE_KAFKA, SOURCE_TYPE_PULSAR)):
             raise InvalidArgumentError("Invalid argument.")
 
-        return (
-            self._message.topic
-            if isinstance(self._message, kafka.consumer.fetcher.ConsumerRecord)
-            else self._message.topic_name()
-        )
+        return self._message.topic if isinstance(self._message, ConsumerRecord) else self._message.topic_name()
 
     def key(self) -> bytes:
-        if not isinstance(self._message, kafka.consumer.fetcher.ConsumerRecord):
+        if not isinstance(self._message, ConsumerRecord):
             raise InvalidArgumentError("Invalid argument.")
 
         return self._message.key
 
     def timestamp(self) -> int:
-        if not isinstance(self._message, kafka.consumer.fetcher.ConsumerRecord):
+        if not isinstance(self._message, ConsumerRecord):
             raise InvalidArgumentError("Invalid argument.")
 
         return self._message.timestamp
 
     def offset(self) -> int:
-        if not isinstance(self._message, kafka.consumer.fetcher.ConsumerRecord):
+        if not isinstance(self._message, ConsumerRecord):
             raise InvalidArgumentError("Invalid argument.")
 
         return self._message.offset
