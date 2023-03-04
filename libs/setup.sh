@@ -122,6 +122,7 @@ declare -A primary_urls=(
   ["protobuf"]="http://$local_cache_host/git/protobuf.git"
   ["pulsar"]="http://$local_cache_host/git/pulsar.git"
   ["librdtsc"]="http://$local_cache_host/git/librdtsc.git"
+  ["kafka-python"]="http://$local_cache_host/git/kafka-python.git"
 )
 
 # The goal of secondary urls is to have links to the "source of truth" of
@@ -147,6 +148,7 @@ declare -A secondary_urls=(
   ["protobuf"]="https://github.com/protocolbuffers/protobuf.git"
   ["pulsar"]="https://github.com/apache/pulsar.git"
   ["librdtsc"]="https://github.com/gabrieleara/librdtsc.git"
+  ["kafka-python"]="https://github.com/dpkp/kafka-python.git"
 )
 
 # antlr
@@ -238,3 +240,7 @@ repo_clone_try_double "${primary_urls[librdtsc]}" "${secondary_urls[librdtsc]}" 
 pushd librdtsc
 git apply ../librdtsc.patch
 popd
+
+# kafka-python
+kafkapython_tag="2.0.0"
+repo_clone_try_double "${primary_urls[kafka-python]}" "${secondary_urls[kafka-python]}" "kafka-python" "$kafkapython_tag"
