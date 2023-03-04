@@ -15,7 +15,7 @@ PIP_DEPS=(
    "pytest==6.2.3"
    "pyyaml==5.4.1"
    "six==1.15.0"
-   "networkx==2.8.4"
+   "networkx==2.4"
 )
 cd "$DIR"
 

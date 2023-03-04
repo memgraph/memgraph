@@ -1321,10 +1321,12 @@ class ProcCtx:
     __slots__ = ("_graph",)
 
     def __init__(self, graph):
-        if not isinstance(graph, _mgp_mock.Graph):
-            raise TypeError(f"Expected '_mgp_mock.Graph', got '{type(graph)}'")
+        import networkx as nx
 
-        self._graph = Graph(graph)
+        if not isinstance(graph, (_mgp_mock.Graph, nx.MultiDiGraph)):
+            raise TypeError(f"Expected '_mgp_mock.Graph' or 'networkx.MultiDiGraph', got '{type(graph)}'")
+
+        self._graph = Graph(graph) if isinstance(graph, _mgp_mock.Graph) else Graph(_mgp_mock.Graph(graph))
 
     def is_valid(self) -> bool:
         """
@@ -1515,267 +1517,267 @@ def write_proc(func: typing.Callable[..., Record]):
     return _register_proc(func, True)
 
 
-class InvalidMessageError(Exception):
-    """
-    Signals using a message instance outside of the registered transformation.
-    """
-
-    pass
-
-
-SOURCE_TYPE_KAFKA = _mgp_mock.SOURCE_TYPE_KAFKA
-SOURCE_TYPE_PULSAR = _mgp_mock.SOURCE_TYPE_PULSAR
-
-
-class Message:
-    """Represents a message from a stream."""
-
-    __slots__ = ("_message",)
-
-    def __init__(self, message):
-        if not isinstance(message, _mgp_mock.Message):
-            raise TypeError(f"Expected '_mgp_mock.Message', got '{type(message)}'")
-
-        self._message = message
-
-    def __deepcopy__(self, memo):
-        # In line with the Python API, this is the same as the shallow copy.
-        return Message(self._message)
+# class InvalidMessageError(Exception):
+#     """
+#     Signals using a message instance outside of the registered transformation.
+#     """
+
+#     pass
+
+
+# SOURCE_TYPE_KAFKA = _mgp_mock.SOURCE_TYPE_KAFKA
+# SOURCE_TYPE_PULSAR = _mgp_mock.SOURCE_TYPE_PULSAR
+
+
+# class Message:
+#     """Represents a message from a stream."""
+
+#     __slots__ = ("_message",)
+
+#     def __init__(self, message):
+#         if not isinstance(message, _mgp_mock.Message):
+#             raise TypeError(f"Expected '_mgp_mock.Message', got '{type(message)}'")
+
+#         self._message = message
+
+#     def __deepcopy__(self, memo):
+#         # In line with the Python API, this is the same as the shallow copy.
+#         return Message(self._message)
 
-    def is_valid(self) -> bool:
-        """
-        Check if the message is valid, i.e. if it may be used.
+#     def is_valid(self) -> bool:
+#         """
+#         Check if the message is valid, i.e. if it may be used.
 
-        Returns:
-            A `bool` value that represents whether the message is in a valid context.
+#         Returns:
+#             A `bool` value that represents whether the message is in a valid context.
 
-        Examples:
-            ```message.is_valid()```
-        """
-        return self._message.is_valid()
+#         Examples:
+#             ```message.is_valid()```
+#         """
+#         return self._message.is_valid()
 
-    def source_type(self) -> str:
-        """
-        Supported stream sources:
-          * Kafka
-          * Pulsar
-        """
-        if not self.is_valid():
-            raise InvalidMessageError()
+#     def source_type(self) -> str:
+#         """
+#         Supported stream sources:
+#           * Kafka
+#           * Pulsar
+#         """
+#         if not self.is_valid():
+#             raise InvalidMessageError()
 
-        return self._message.source_type()
+#         return self._message.source_type()
 
-    def payload(self) -> bytes:
-        """
-        Supported stream sources:
-          * Kafka
-          * Pulsar
+#     def payload(self) -> bytes:
+#         """
+#         Supported stream sources:
+#           * Kafka
+#           * Pulsar
 
-        Raises:
-            InvalidArgumentError: If the message is from an unsupported stream source.
-            InvalidMessageError: If the message is not in a valid context.
-        """
-        if not self.is_valid():
-            raise InvalidMessageError()
+#         Raises:
+#             InvalidArgumentError: If the message is from an unsupported stream source.
+#             InvalidMessageError: If the message is not in a valid context.
+#         """
+#         if not self.is_valid():
+#             raise InvalidMessageError()
 
-        return self._message.payload()
+#         return self._message.payload()
 
-    def topic_name(self) -> str:
-        """
-        Supported stream sources:
-          * Kafka
-          * Pulsar
+#     def topic_name(self) -> str:
+#         """
+#         Supported stream sources:
+#           * Kafka
+#           * Pulsar
 
-        Raises:
-            InvalidArgumentError: If the message is from an unsupported stream source.
-            InvalidMessageError: If the message is not in a valid context.
-        """
-        if not self.is_valid():
-            raise InvalidMessageError()
+#         Raises:
+#             InvalidArgumentError: If the message is from an unsupported stream source.
+#             InvalidMessageError: If the message is not in a valid context.
+#         """
+#         if not self.is_valid():
+#             raise InvalidMessageError()
 
-        return self._message.topic_name()
+#         return self._message.topic_name()
 
-    def key(self) -> bytes:
-        """
-        Supported stream sources:
-          * Kafka
+#     def key(self) -> bytes:
+#         """
+#         Supported stream sources:
+#           * Kafka
 
-        Raises:
-            InvalidArgumentError: If the message is from an unsupported stream source.
-            InvalidMessageError: If the message is not in a valid context.
-        """
-        if not self.is_valid():
-            raise InvalidMessageError()
+#         Raises:
+#             InvalidArgumentError: If the message is from an unsupported stream source.
+#             InvalidMessageError: If the message is not in a valid context.
+#         """
+#         if not self.is_valid():
+#             raise InvalidMessageError()
 
-        return self._message.key()
+#         return self._message.key()
 
-    def timestamp(self) -> int:
-        """
-        Supported stream sources:
-          * Kafka
+#     def timestamp(self) -> int:
+#         """
+#         Supported stream sources:
+#           * Kafka
 
-        Raises:
-            InvalidArgumentError: If the message is from an unsupported stream source.
-            InvalidMessageError: If the message is not in a valid context.
-        """
-        if not self.is_valid():
-            raise InvalidMessageError()
+#         Raises:
+#             InvalidArgumentError: If the message is from an unsupported stream source.
+#             InvalidMessageError: If the message is not in a valid context.
+#         """
+#         if not self.is_valid():
+#             raise InvalidMessageError()
 
-        return self._message.timestamp()
+#         return self._message.timestamp()
 
-    def offset(self) -> int:
-        """
-        Supported stream sources:
-          * Kafka
+#     def offset(self) -> int:
+#         """
+#         Supported stream sources:
+#           * Kafka
 
-        Raises:
-            InvalidMessageError: If the message is not in a valid context.
-            InvalidArgumentError: If the message is from an unsupported stream source.
-        """
-        if not self.is_valid():
-            raise InvalidMessageError()
+#         Raises:
+#             InvalidMessageError: If the message is not in a valid context.
+#             InvalidArgumentError: If the message is from an unsupported stream source.
+#         """
+#         if not self.is_valid():
+#             raise InvalidMessageError()
 
-        return self._message.offset()
+#         return self._message.offset()
 
 
-class InvalidMessagesError(Exception):
-    """Signals using a messages instance outside of the registered transformation."""
+# class InvalidMessagesError(Exception):
+#     """Signals using a messages instance outside of the registered transformation."""
 
-    pass
+#     pass
 
 
-class Messages:
-    """Represents a list of messages from a stream."""
+# class Messages:
+#     """Represents a list of messages from a stream."""
 
-    __slots__ = ("_messages",)
+#     __slots__ = ("_messages",)
 
-    def __init__(self, messages):
-        if not isinstance(messages, _mgp_mock.Messages):
-            raise TypeError("Expected '_mgp_mock.Messages', got '{}'".format(type(messages)))
-        self._messages = messages
+#     def __init__(self, messages):
+#         if not isinstance(messages, _mgp_mock.Messages):
+#             raise TypeError("Expected '_mgp_mock.Messages', got '{}'".format(type(messages)))
+#         self._messages = messages
 
-    def __deepcopy__(self, memo):
-        # In line with the Python API, this is the same as the shallow copy.
-        return Messages(self._messages)
+#     def __deepcopy__(self, memo):
+#         # In line with the Python API, this is the same as the shallow copy.
+#         return Messages(self._messages)
 
-    def is_valid(self) -> bool:
-        """
-        Check if the `Messages` instance is valid, i.e. if it may be used.
+#     def is_valid(self) -> bool:
+#         """
+#         Check if the `Messages` instance is valid, i.e. if it may be used.
 
-        Returns:
-            A `bool` value that represents whether the instance is in a valid context.
+#         Returns:
+#             A `bool` value that represents whether the instance is in a valid context.
 
-        Examples:
-            ```messages.is_valid()```
-        """
-        return self._messages.is_valid()
+#         Examples:
+#             ```messages.is_valid()```
+#         """
+#         return self._messages.is_valid()
 
-    def message_at(self, id: int) -> Message:
-        """
-        Returns the message at the given position.
+#     def message_at(self, id: int) -> Message:
+#         """
+#         Returns the message at the given position.
 
-        Raises:
-            InvalidMessagesError: If the `Messages` instance is not in a valid context.
-        """
-        if not self.is_valid():
-            raise InvalidMessagesError()
+#         Raises:
+#             InvalidMessagesError: If the `Messages` instance is not in a valid context.
+#         """
+#         if not self.is_valid():
+#             raise InvalidMessagesError()
 
-        return Message(self._messages.messages[id])
+#         return Message(self._messages.messages[id])
 
-    def total_messages(self) -> int:
-        """
-        Returns how many messages are stored in the `Messages` instance.
+#     def total_messages(self) -> int:
+#         """
+#         Returns how many messages are stored in the `Messages` instance.
 
-        Raises:
-            InvalidMessagesError: If the `Messages` instance is not in a valid context.
-        """
-        if not self.is_valid():
-            raise InvalidMessagesError()
+#         Raises:
+#             InvalidMessagesError: If the `Messages` instance is not in a valid context.
+#         """
+#         if not self.is_valid():
+#             raise InvalidMessagesError()
 
-        return len(self._messages.messages)
+#         return len(self._messages.messages)
 
 
-class TransCtx:
-    """The context of the transformation being executed.
+# class TransCtx:
+#     """The context of the transformation being executed.
 
-    Access to a `TransCtx` is only valid during a single execution of a transformation.
-    You should not globally store a `TransCtx` instance.
-    """
+#     Access to a `TransCtx` is only valid during a single execution of a transformation.
+#     You should not globally store a `TransCtx` instance.
+#     """
 
-    __slots__ = ("_graph",)
+#     __slots__ = ("_graph",)
 
-    def __init__(self, graph):
-        if not isinstance(graph, _mgp_mock.Graph):
-            raise TypeError(f"Expected '_mgp_mock.Graph', got '{type(graph)}'")
+#     def __init__(self, graph):
+#         if not isinstance(graph, _mgp_mock.Graph):
+#             raise TypeError(f"Expected '_mgp_mock.Graph', got '{type(graph)}'")
 
-        self._graph = Graph(graph)
+#         self._graph = Graph(graph)
 
-    def is_valid(self) -> bool:
-        """
-        Check if the context is valid, i.e. if the contained structures may be used.
+#     def is_valid(self) -> bool:
+#         """
+#         Check if the context is valid, i.e. if the contained structures may be used.
 
-        Returns:
-            A `bool` value that represents whether the context is valid.
+#         Returns:
+#             A `bool` value that represents whether the context is valid.
 
-        Examples:
-            ```context.is_valid()```
-        """
-        return self._graph.is_valid()
+#         Examples:
+#             ```context.is_valid()```
+#         """
+#         return self._graph.is_valid()
 
-    @property
-    def graph(self) -> Graph:
-        """
-        Access the graph.
+#     @property
+#     def graph(self) -> Graph:
+#         """
+#         Access the graph.
 
-        Returns:
-            A `Graph` object representing the graph.
+#         Returns:
+#             A `Graph` object representing the graph.
 
-        Raises:
-            InvalidContextError: If the transformation context is not valid.
+#         Raises:
+#             InvalidContextError: If the transformation context is not valid.
 
-        Examples:
-            ```context.graph```
-        """
-        if not self.is_valid():
-            raise InvalidContextError()
+#         Examples:
+#             ```context.graph```
+#         """
+#         if not self.is_valid():
+#             raise InvalidContextError()
 
-        return self._graph
+#         return self._graph
 
 
-def transformation(func: typing.Callable[..., Record]):
-    raise_if_does_not_meet_requirements(func)
+# def transformation(func: typing.Callable[..., Record]):
+#     raise_if_does_not_meet_requirements(func)
 
-    sig = inspect.signature(func)
+#     sig = inspect.signature(func)
 
-    params = tuple(sig.parameters.values())
-    if not params or not isinstance(params[0].annotation, Messages):
-        if not len(params) == 2 or not isinstance(params[1].annotation, Messages):
-            raise NotImplementedError("Valid signatures for transformations are (TransCtx, Messages) or (Messages)")
+#     params = tuple(sig.parameters.values())
+#     if not params or not isinstance(params[0].annotation, Messages):
+#         if not len(params) == 2 or not isinstance(params[1].annotation, Messages):
+#             raise NotImplementedError("Valid signatures for transformations are (TransCtx, Messages) or (Messages)")
 
-    if params[0].annotation is TransCtx:
+#     if params[0].annotation is TransCtx:
 
-        @wraps(func)
-        def wrapper(ctx, messages):
-            result_record = func(ctx, messages)
+#         @wraps(func)
+#         def wrapper(ctx, messages):
+#             result_record = func(ctx, messages)
 
-            # Invalidate context and messages after execution
-            ctx._graph._graph.invalidate()
-            messages._messages.invalidate()
+#             # Invalidate context and messages after execution
+#             ctx._graph._graph.invalidate()
+#             messages._messages.invalidate()
 
-            return result_record
+#             return result_record
 
-    else:
+#     else:
 
-        @wraps(func)
-        def wrapper(_, messages):
-            result_record = func(messages)
+#         @wraps(func)
+#         def wrapper(_, messages):
+#             result_record = func(messages)
 
-            # Invalidate messages after execution
-            messages._messages.invalidate()
+#             # Invalidate messages after execution
+#             messages._messages.invalidate()
 
-            return result_record
+#             return result_record
 
-    return wrapper
+#     return wrapper
 
 
 class FuncCtx:

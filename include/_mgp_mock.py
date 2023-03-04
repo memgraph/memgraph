@@ -1,8 +1,9 @@
 import typing
 
 import networkx as nx
-import pulsar
-from kafka.consumer.fetcher import ConsumerRecord
+
+# import pulsar
+# from kafka.consumer.fetcher import ConsumerRecord
 
 NX_LABEL_ATTR = "labels"
 NX_TYPE_ATTR = "type"
@@ -341,101 +342,102 @@ class Path:
         return len(self._edges)
 
 
-class Message:
-    """Represents a streamed message."""
+# class Message:
+#     """Represents a streamed message."""
 
-    __slots__ = ("_message", "_valid")
+#     __slots__ = ("_message", "_valid")
 
-    def __init__(self, message) -> None:
-        if not isinstance(message, (ConsumerRecord, pulsar.Message)):
-            raise TypeError(
-                f"Expected 'kafka.consumer.fetcher.ConsumerRecord' or 'pulsar.Message', got '{type(message)}'"
-            )
+#     def __init__(self, message) -> None:
+#         if not isinstance(message, (ConsumerRecord, pulsar.Message)):
+#             raise TypeError(
+#                 f"Expected 'kafka.consumer.fetcher.ConsumerRecord' or 'pulsar.Message', got '{type(message)}'"
+#             )
 
-        self._message = message
-        self._valid = True
+#         self._message = message
+#         self._valid = True
 
-    @property
-    def message(self) -> typing.Union[ConsumerRecord, pulsar.Message]:
-        return self._message
+#     @property
+#     def message(self) -> typing.Union[ConsumerRecord, pulsar.Message]:
+#         return self._message
 
-    def is_valid(self) -> bool:
-        return self._valid
+#     def is_valid(self) -> bool:
+#         return self._valid
 
-    def invalidate(self):
-        self._valid = False
+#     def invalidate(self):
+#         self._valid = False
 
-    def source_type(self) -> str:
-        return SOURCE_TYPE_KAFKA if isinstance(self._message, ConsumerRecord) else SOURCE_TYPE_PULSAR
+#     def source_type(self) -> str:
+#         return SOURCE_TYPE_KAFKA if isinstance(self._message, ConsumerRecord) else SOURCE_TYPE_PULSAR
 
-    def is_source_supported(self, supported: typing.Tuple) -> bool:
-        if SOURCE_TYPE_KAFKA in supported and SOURCE_TYPE_PULSAR in supported:
-            return isinstance(self._message, (ConsumerRecord, pulsar.Message))
-        elif SOURCE_TYPE_KAFKA in supported:
-            return isinstance(self._message, ConsumerRecord)
-        elif SOURCE_TYPE_PULSAR in supported:
-            return isinstance(self._message, pulsar.Message)
-        else:
-            return False
+#     def is_source_supported(self, supported: typing.Tuple) -> bool:
+#         if SOURCE_TYPE_KAFKA in supported and SOURCE_TYPE_PULSAR in supported:
+#             return isinstance(self._message, (ConsumerRecord, pulsar.Message))
+#         elif SOURCE_TYPE_KAFKA in supported:
+#             return isinstance(self._message, ConsumerRecord)
+#         elif SOURCE_TYPE_PULSAR in supported:
+#             return isinstance(self._message, pulsar.Message)
+#         else:
+#             return False
 
-    def payload(self) -> bytes:
-        if not self.is_source_supported(supported=(SOURCE_TYPE_KAFKA, SOURCE_TYPE_PULSAR)):
-            raise InvalidArgumentError("Invalid argument.")
+#     def payload(self) -> bytes:
+#         if not self.is_source_supported(supported=(SOURCE_TYPE_KAFKA, SOURCE_TYPE_PULSAR)):
+#             raise InvalidArgumentError("Invalid argument.")
 
-        return self._message.value if isinstance(self._message, ConsumerRecord) else self._message.data()
+#         return self._message.value if isinstance(self._message, ConsumerRecord) else self._message.data()
 
-    def topic_name(self) -> str:
-        if not self.is_source_supported(supported=(SOURCE_TYPE_KAFKA, SOURCE_TYPE_PULSAR)):
-            raise InvalidArgumentError("Invalid argument.")
+#     def topic_name(self) -> str:
+#         if not self.is_source_supported(supported=(SOURCE_TYPE_KAFKA, SOURCE_TYPE_PULSAR)):
+#             raise InvalidArgumentError("Invalid argument.")
 
-        return self._message.topic if isinstance(self._message, ConsumerRecord) else self._message.topic_name()
+#         return self._message.topic if isinstance(self._message, ConsumerRecord) else self._message.topic_name()
 
-    def key(self) -> bytes:
-        if not isinstance(self._message, ConsumerRecord):
-            raise InvalidArgumentError("Invalid argument.")
+#     def key(self) -> bytes:
+#         if not isinstance(self._message, ConsumerRecord):
+#             raise InvalidArgumentError("Invalid argument.")
 
-        return self._message.key
+#         return self._message.key
 
-    def timestamp(self) -> int:
-        if not isinstance(self._message, ConsumerRecord):
-            raise InvalidArgumentError("Invalid argument.")
+#     def timestamp(self) -> int:
+#         if not isinstance(self._message, ConsumerRecord):
+#             raise InvalidArgumentError("Invalid argument.")
 
-        return self._message.timestamp
+#         return self._message.timestamp
 
-    def offset(self) -> int:
-        if not isinstance(self._message, ConsumerRecord):
-            raise InvalidArgumentError("Invalid argument.")
+#     def offset(self) -> int:
+#         if not isinstance(self._message, ConsumerRecord):
+#             raise InvalidArgumentError("Invalid argument.")
 
-        return self._message.offset
+#         return self._message.offset
 
 
-class Messages:
-    """Represents a list of streamed messages."""
+# class Messages:
+#     """Represents a list of streamed messages."""
 
-    __slots__ = ("_messages", "_graph", "_valid")
+#     __slots__ = ("_messages", "_graph", "_valid")
 
-    def __init__(self, messages: typing.List, graph: Graph) -> None:
-        if not isinstance(messages, typing.List):
-            raise TypeError("Expected 'List', got '{}'".format(type(messages)))
+#     def __init__(self, messages: typing.List, graph: Graph) -> None:
+#         if not isinstance(messages, typing.List):
+#             raise TypeError("Expected 'List', got '{}'".format(type(messages)))
 
-        if not isinstance(graph, Graph):
-            raise TypeError("Expected '_mgp_mock.Graph', got '{}'".format(type(messages)))
+#         if not isinstance(graph, Graph):
+#             raise TypeError("Expected '_mgp_mock.Graph', got '{}'".format(type(messages)))
 
-        self._messages = messages
-        self._graph = graph
-        self._valid = True
+#         self._messages = messages
+#         self._graph = graph
+#         self._valid = True
 
-    @property
-    def messages(self) -> typing.List:
-        return self._messages
+#     @property
+#     def messages(self) -> typing.List:
+#         return self._messages
 
-    def is_valid(self) -> bool:
-        return self._valid
+#     def is_valid(self) -> bool:
+#         return self._valid
 
-    def invalidate(self):
-        if self._messages is not None:
-            for i in range(len(self._messages)):
-                self._messages[i].invalidate()
-        self._messages = None
+#     def invalidate(self):
+#         print("run_invalidate")
+#         if self._messages is not None:
+#             for i in range(len(self._messages)):
+#                 self._messages[i].invalidate()
+#         self._messages = None
 
-        self._valid = False
+#         self._valid = False
