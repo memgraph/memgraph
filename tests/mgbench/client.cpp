@@ -310,6 +310,7 @@ void ExecuteTimeDependentWorkload(
 
   final_duration /= FLAGS_num_workers;
   double execution_delta = time_limit.count() / final_duration;
+  // This is adjusted throughput based on how much longer did workload execution time took.
   double throughput = (total_iterations / final_duration) * execution_delta;
   double raw_throughput = total_iterations / final_duration;
 
@@ -318,6 +319,7 @@ void ExecuteTimeDependentWorkload(
   summary["duration"] = final_duration;
   summary["time_limit"] = FLAGS_time_dependent_execution;
   summary["queries_executed"] = total_iterations;
+
   summary["throughput"] = throughput;
   summary["raw_throughput"] = raw_throughput;
   summary["latency_stats"] = LatencyStatistics(worker_query_durations);
