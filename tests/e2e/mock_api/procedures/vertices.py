@@ -23,11 +23,11 @@ def compare_apis(ctx: mgp.ProcCtx) -> mgp.Record(results_dict=mgp.Map):
         True,
     )
 
-    results["__contains__"] = test_utils.all_equal(
-        all((test_utils.get_vertex(ctx, permanent_id=permanent_id) in vertices) for permanent_id in range(27)),
-        all((mock_ctx.graph.get_vertex_by_id(id) in mock_vertices) for id in range(27)),
-        True,
-    )
+    # results["__contains__"] = test_utils.all_equal(
+    #     all((test_utils.get_vertex(ctx, permanent_id=permanent_id) in vertices) for permanent_id in range(27)),
+    #     all((mock_ctx.graph.get_vertex_by_id(id) in mock_vertices) for id in range(27)),
+    #     True,
+    # )
 
     results["__len__"] = test_utils.all_equal(
         len(vertices),

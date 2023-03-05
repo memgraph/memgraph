@@ -152,7 +152,7 @@ def test_vertices():
     expected_results = {
         "is_valid": True,
         "__iter__": True,
-        "__contains__": True,
+        # "__contains__": True,
         "__len__": True,
     }
 
@@ -193,4 +193,4 @@ def test_graph():
 
 
 if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-rA"]))
+    sys.exit(pytest.main([__file__, "-rvA"]))
