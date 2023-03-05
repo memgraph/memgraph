@@ -1423,7 +1423,7 @@ def _register_proc(func: typing.Callable[..., Record], is_write: bool):
             result_record = func(ctx, *args)
 
             # Invalidate context after execution
-            ctx._graph._graph.invalidate()
+            # ctx._graph._graph.invalidate()
 
             return result_record
 
@@ -1857,7 +1857,7 @@ def function(func: typing.Callable):
             result = func(ctx, *args)
 
             # Invalidate context after execution
-            ctx._graph._graph.invalidate()
+            # ctx._graph._graph.invalidate()
 
             return result
 
