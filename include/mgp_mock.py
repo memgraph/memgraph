@@ -1357,17 +1357,6 @@ class ProcCtx:
 
         return self._graph
 
-    # TODO try to implement
-    # def must_abort(self) -> bool:
-    #     if not self.is_valid():
-    #         raise InvalidContextError()
-
-    #     return self._graph._graph.nx.must_abort()
-
-    # def check_must_abort(self):
-    #     if self.must_abort():
-    #         raise AbortError
-
 
 # Additional typing support
 
@@ -1421,7 +1410,7 @@ def _register_proc(func: typing.Callable[..., Record], is_write: bool):
             result_record = func(ctx, *args)
 
             # Invalidate context after execution
-            # ctx._graph._graph.invalidate()
+            ctx._graph._graph.invalidate()
 
             return result_record
 

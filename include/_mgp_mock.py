@@ -1,9 +1,7 @@
 import typing
+from enum import Enum
 
 import networkx as nx
-
-# import pulsar
-# from kafka.consumer.fetcher import ConsumerRecord
 
 NX_LABEL_ATTR = "labels"
 NX_TYPE_ATTR = "type"
@@ -36,12 +34,16 @@ class DeletedObjectError(Exception):
     pass
 
 
+class EdgeConstants(Enum):
+    I_START = 0
+    I_END = 1
+    I_KEY = 2
+
+
 class Graph:
     """Wrapper around a NetworkX MultiDiGraph instance."""
 
     __slots__ = ("nx", "_highest_vertex_id", "_highest_edge_id", "_valid")
-
-    I_KEY = 2
 
     def __init__(self, graph: nx.MultiDiGraph) -> None:
         if not isinstance(graph, nx.MultiDiGraph):
@@ -93,7 +95,7 @@ class Graph:
 
     def _new_edge_id(self):
         if self._highest_edge_id is None:
-            self._highest_edge_id = max(edge[Graph.I_KEY] for edge in self.nx.edges(keys=True))
+            self._highest_edge_id = max(edge[EdgeConstants.I_KEY.value] for edge in self.nx.edges(keys=True))
 
         return self._highest_edge_id + 1
 
@@ -135,7 +137,7 @@ class Graph:
     @property
     def highest_edge_id(self) -> int:
         if self._highest_edge_id is None:
-            self._highest_edge_id = max(edge[Graph.I_KEY] for edge in self.nx.edges(keys=True))
+            self._highest_edge_id = max(edge[EdgeConstants.I_KEY.value] for edge in self.nx.edges(keys=True))
 
         return self._highest_edge_id + 1
 
@@ -227,10 +229,6 @@ class Edge:
 
     __slots__ = ("_edge", "_graph")
 
-    I_START = 0
-    I_END = 1
-    I_KEY = 2
-
     def __init__(self, edge: typing.Tuple[int, int, int], graph: Graph) -> None:
         if not isinstance(edge, typing.Tuple):
             raise TypeError(f"Expected 'Tuple', got '{type(edge)}'")
@@ -239,7 +237,7 @@ class Edge:
             raise TypeError(f"Expected '_mgp_mock.Graph', got '{type(graph)}'")
 
         if not graph.nx.has_edge(*edge):
-            raise IndexError(f"Unable to find edge with ID {edge[Edge.I_KEY]}.")
+            raise IndexError(f"Unable to find edge with ID {edge[EdgeConstants.I_KEY.value]}.")
 
         self._edge = edge
         self._graph = graph
@@ -248,14 +246,17 @@ class Edge:
         return self._graph.is_valid()
 
     def is_deleted(self) -> bool:
-        return not self._graph.nx.has_edge(*self._edge) and self._edge[self.I_KEY] <= self._graph.highest_edge_id
+        return (
+            not self._graph.nx.has_edge(*self._edge)
+            and self._edge[EdgeConstants.I_KEY.value] <= self._graph.highest_edge_id
+        )
 
     def underlying_graph_is_mutable(self) -> bool:
         return not nx.is_frozen(self._graph.nx)
 
     @property
     def id(self) -> int:
-        return self._edge[Edge.I_KEY]
+        return self._edge[EdgeConstants.I_KEY.value]
 
     @property
     def edge(self) -> typing.Tuple[int, int, int]:
@@ -263,11 +264,11 @@ class Edge:
 
     @property
     def start_id(self) -> int:
-        return self._edge[Edge.I_START]
+        return self._edge[EdgeConstants.I_START.value]
 
     @property
     def end_id(self) -> int:
-        return self._edge[Edge.I_END]
+        return self._edge[EdgeConstants.I_END.value]
 
     def get_type_name(self):
         return self._graph.nx.get_edge_data(*self._edge)[NX_TYPE_ATTR]
