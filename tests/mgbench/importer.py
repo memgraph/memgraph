@@ -392,22 +392,23 @@ class Importer:
 
         elif self._dataset.NAME == "pokec" and isinstance(self._vendor, Neo4j):
 
+            self._vendor.clean_db()
             self._vendor.start_preparation("preparation")
             print("Executing database cleanup and index setup...")
-            ret = self.client.execute(file_path=self.dataset.get_index(), num_workers=self._num_workers_for_index)
-            usage = self.vendor.stop("preparation")
+            ret = self._client.execute(file_path=self._dataset.get_index(), num_workers=self._num_workers_for_index)
+            usage = self._vendor.stop("preparation")
             neo4j_dump = Path() / ".cache" / "datasets" / self._dataset.NAME / self._size / "neo4j.dump"
             if neo4j_dump.exists():
-                self._vendor.load_db_from_dump(path=dump_dir.get_path())
+                self._vendor.load_db_from_dump(path=neo4j_dump.parent)
             else:
                 self._vendor.start_preparation("import")
                 print("Importing dataset...")
-                ret = self._clientclient.execute(
-                    file_path=self._dataset.get_file(), num_workers=self._num_workers_for_import
+                ret = self._client.execute(
+                    file_path=self._dataset.get_file_cypherl(), num_workers=self._num_workers_for_import
                 )
                 usage = self._vendor.stop("import")
 
-                self._vendor.dump_db(path=dump_dir.get_path())
+                self._vendor.dump_db(path=neo4j_dump.parent)
 
             return ret, usage
 

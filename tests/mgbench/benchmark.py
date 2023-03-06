@@ -54,7 +54,7 @@ def parse_args():
     )
     parser.add_argument(
         "--vendor-binary",
-        help="Vendor binary used for benchmarking, by defuault it is memgraph",
+        help="Vendor binary used for benchmarking, by default it is memgraph",
         default=helpers.get_binary_path("memgraph"),
     )
 
