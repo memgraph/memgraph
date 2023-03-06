@@ -389,6 +389,10 @@ TEST_F(CppApiTestFixture, TestLocalDateTime) {
   auto ldt_1 = mgp::LocalDateTime("2021-10-05T14:15:00");
   auto ldt_2 = mgp::LocalDateTime(2021, 10, 5, 14, 15, 0, 0, 0);
 
+  ASSERT_ANY_THROW(mgp::LocalDateTime(
+      2021, 10, 0, 14, 15, 0, 0,
+      0));  // ...10, 0, 14... <- 0 is an illegal value for the `day` parameter; must throw an exception
+
   ASSERT_EQ(ldt_1.Year(), 2021);
   ASSERT_EQ(ldt_1.Month(), 10);
   ASSERT_EQ(ldt_1.Day(), 5);
