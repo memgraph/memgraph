@@ -89,7 +89,7 @@ class Graph:
 
     def _new_vertex_id(self):
         if self._highest_vertex_id is None:
-            self._highest_vertex_id = max(vertex_id for vertex_id in self.nx.nodes) + 1
+            self._highest_vertex_id = max(vertex_id for vertex_id in self.nx.nodes)
 
         return self._highest_vertex_id + 1
 

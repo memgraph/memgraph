@@ -21,6 +21,7 @@ import inspect
 import sys
 import typing
 from collections import namedtuple
+from copy import deepcopy
 from functools import wraps
 
 import _mgp_mock
@@ -1322,9 +1323,7 @@ class ProcCtx:
     __slots__ = ("_graph",)
 
     def __init__(self, graph):
-        import networkx as nx
-
-        if not isinstance(graph, (_mgp_mock.Graph, nx.MultiDiGraph)):
+        if not isinstance(graph, (_mgp_mock.Graph, _mgp_mock.nx.MultiDiGraph)):
             raise TypeError(f"Expected '_mgp_mock.Graph' or 'networkx.MultiDiGraph', got '{type(graph)}'")
 
         self._graph = Graph(graph) if isinstance(graph, _mgp_mock.Graph) else Graph(_mgp_mock.Graph(graph))
@@ -1407,13 +1406,24 @@ def _register_proc(func: typing.Callable[..., Record], is_write: bool):
 
         @wraps(func)
         def wrapper(ctx, *args):
-            if not is_write:
+            result_record = None
+
+            if is_write:
+                ctx_copy = ProcCtx(deepcopy(ctx._graph._graph.nx))
+
+                result_record = func(ctx_copy, *args)
+
+                ctx._graph._graph = deepcopy(ctx_copy._graph._graph)
+
+                # Invalidate context after execution
+                ctx_copy._graph._graph.invalidate()
+            else:
                 ctx._graph._graph.make_immutable()
 
-            result_record = func(ctx, *args)
+                result_record = func(ctx, *args)
 
-            # Invalidate context after execution
-            ctx._graph._graph.invalidate()
+                # Invalidate context after execution
+                ctx._graph._graph.invalidate()
 
             return result_record
 
@@ -1518,10 +1528,10 @@ class FuncCtx:
     __slots__ = ("_graph",)
 
     def __init__(self, graph):
-        if not isinstance(graph, _mgp_mock.Graph):
-            raise TypeError(f"Expected '_mgp_mock.Graph', got '{type(graph)}'")
+        if not isinstance(graph, (_mgp_mock.Graph, _mgp_mock.nx.MultiDiGraph)):
+            raise TypeError(f"Expected '_mgp_mock.Graph' or 'networkx.MultiDiGraph', got '{type(graph)}'")
 
-        self._graph = Graph(graph)
+        self._graph = Graph(graph) if isinstance(graph, _mgp_mock.Graph) else Graph(_mgp_mock.Graph(graph))
 
     def is_valid(self) -> bool:
         """
@@ -1584,7 +1594,7 @@ def function(func: typing.Callable):
             result = func(ctx, *args)
 
             # Invalidate context after execution
-            # ctx._graph._graph.invalidate()
+            ctx._graph._graph.invalidate()
 
             return result
 
