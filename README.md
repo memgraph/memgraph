@@ -5,10 +5,6 @@
 ---
 
 <p align="center">
-Build modern, graph-based applications on top of your streaming data in minutes.
-</p>
-
-<p align="center">
   <a href="https://github.com/memgraph/memgraph/blob/master/licenses/APL.txt">
     <img src="https://img.shields.io/badge/license-APL-green" alt="license" title="license"/>
   </a>
@@ -56,6 +52,17 @@ to ensure that you’re getting the [best possible
 performance](http://memgraph.com/benchgraph) consistently and without surprises.
 It’s also ACID-compliant and highly available.
 
+## :zap: Features
+
+- Run Python, Rust, and C/C++ code natively, check out the
+  [MAGE](https://github.com/memgraph/mage) graph algorithm library
+- Native support for machine learning
+- Streaming support
+- Replication
+- Authentication and authorization
+- ACID compliance
+
+
 ## :video_game: Memgraph Playground
 
 You don't need to install anything to try out Memgraph. Check out 
@@ -78,28 +85,49 @@ your browser.
 ### macOS
 
 [![macOS](https://img.shields.io/badge/macOS-Docker-000000?style=for-the-badge&logo=macos&logoColor=F0F0F0)](https://memgraph.com/docs/memgraph/install-memgraph-on-macos-docker)
+[![macOS](https://img.shields.io/badge/lima-AACF41?style=for-the-badge&logo=macos&logoColor=F0F0F0)](https://memgraph.com/docs/memgraph/install-memgraph-on-ubuntu)
 
 ### Linux
 
 [![Linux](https://img.shields.io/badge/Linux-Docker-FCC624?style=for-the-badge&logo=linux&logoColor=black)](https://memgraph.com/docs/memgraph/install-memgraph-on-linux-docker)
 [![Debian](https://img.shields.io/badge/Debian-D70A53?style=for-the-badge&logo=debian&logoColor=white)](https://memgraph.com/docs/memgraph/install-memgraph-on-debian)
 [![Ubuntu](https://img.shields.io/badge/Ubuntu-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://memgraph.com/docs/memgraph/install-memgraph-on-ubuntu)
-[![Cent
-OS](https://img.shields.io/badge/cent%20os-002260?style=for-the-badge&logo=centos&logoColor=F0F0F0)](https://memgraph.com/docs/memgraph/install-memgraph-from-rpm)
+[![Cent OS](https://img.shields.io/badge/cent%20os-002260?style=for-the-badge&logo=centos&logoColor=F0F0F0)](https://memgraph.com/docs/memgraph/install-memgraph-from-rpm)
+[![Fedora](https://img.shields.io/badge/fedora-0B57A4?style=for-the-badge&logo=fedora&logoColor=F0F0F0)](https://memgraph.com/docs/memgraph/install-memgraph-from-rpm)
+[![RedHat](https://img.shields.io/badge/redhat-EE0000?style=for-the-badge&logo=redhat&logoColor=F0F0F0)](https://memgraph.com/docs/memgraph/install-memgraph-from-rpm)
 
 You can find the binaries and Docker images on the [Download
 Hub](https://memgraph.com/download) and the installation instructions in the
 [official documentation](https://memgraph.com/docs/memgraph/installation).
 
-## :zap: Features
 
-- Run Python, Rust, and C/C++ code natively, check out the
-  [MAGE](https://github.com/memgraph/mage) graph algorithm library
-- Native support for machine learning
-- Streaming support
-- Replication
-- Authentication and authorization
-- ACID compliance
+## :cloud: Memgraph Cloud
+
+Check out [Memgraph Cloud](https://memgraph.com/docs/memgraph-cloud) - a cloud service fully managed on AWS and available in 6 geographic regions around the world. Memgraph Cloud allows you to create projects with Enterprise instances of MemgraphDB from your browser.
+
+<p align="left">
+  <a href="https://memgraph.com/docs/memgraph-cloud">
+    <img width="450px" alt="Memgraph Cloud" src="https://public-assets.memgraph.com/memgraph-gifs%2Fcloud.gif">
+  </a>
+</p>
+
+## :link: Connect to Memgraph
+
+[Connect to the database](https://memgraph.com/docs/memgraph/connect-to-memgraph) using Memgraph Lab, mgconsole, various drivers (Python, C/C++ and others) and WebSocket. 
+
+### :microscope: Memgraph Lab
+
+Visualize graphs and play with queries to understand your data. [Memgraph Lab](https://memgraph.com/docs/memgraph-lab) is a user interface that helps you explore and manipulate the data stored in Memgraph. Visualize graphs, execute ad hoc queries, and optimize their performance.
+
+<p align="left">
+  <a href="https://memgraph.com/docs/memgraph-lab">
+    <img width="450px" alt="Memgraph Cloud" src="https://public-assets.memgraph.com/memgraph-gifs%2Flab.gif">
+  </a>
+</p>
+
+## :file_folder: Import data
+
+[Import data](https://memgraph.com/docs/memgraph/import-data) into Memgraph using Kafka, RedPanda or Pulsar streams, CSV and JSON files, or Cypher commands.
 
 ## :bookmark_tabs: Documentation
 
@@ -143,17 +171,17 @@ Memgraph Community is available under the [BSL
 license](./licenses/BSL.txt).</br> Memgraph Enterprise is available under the
 [MEL license](./licenses/MEL.txt).
 
-## 🙋 Community
+## :busts_in_silhouette: Community
 
 - :purple_heart: [**Discord**](https://discord.gg/memgraph)
+- :ocean: [**Stack Overflow**](https://stackoverflow.com/questions/tagged/memgraphdb)
 - :busts_in_silhouette: [**Discourse forum**](https://discourse.memgraph.com/)
-- :open_file_folder: [**Memgraph GitHub**](https://github.com/memgraph)
 - :bird: [**Twitter**](https://twitter.com/memgraphdb)
 - :movie_camera:
   [**YouTube**](https://www.youtube.com/channel/UCZ3HOJvHGxtQ_JHxOselBYg)
 
 <p align="center">
   <a href="#">
-    <img src="https://img.shields.io/badge/⬆️back_to_top_⬆️-white" alt="Back to top" title="Back to top"/>
+    <img src="https://img.shields.io/badge/⬆️ back_to_top_⬆️-white" alt="Back to top" title="Back to top"/>
   </a>
 </p>
