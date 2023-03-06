@@ -585,12 +585,12 @@ Feature: Functions
             """
         When executing query:
             """
-            MATCH ()-[r]->() RETURN PROPERTIES(r) AS p
+            MATCH ()-[r]->() RETURN PROPERTIES(r) AS p ORDER BY p.prop;
             """
         Then the result should be:
             | p         |
-            | {b: true} |
             | {}        |
+            | {b: true} |
             | {c: 123}  |
 
     Scenario: Properties test2:

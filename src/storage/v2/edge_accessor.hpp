@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -57,6 +57,11 @@ class EdgeAccessor final {
   /// Set a property value and return the old value.
   /// @throw std::bad_alloc
   Result<storage::PropertyValue> SetProperty(PropertyId property, const PropertyValue &value);
+
+  /// Set property values only if property store is empty. Returns `true` if successully set all values,
+  /// `false` otherwise.
+  /// @throw std::bad_alloc
+  Result<bool> InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties);
 
   /// Remove all properties and return old values for each removed property.
   /// @throw std::bad_alloc
