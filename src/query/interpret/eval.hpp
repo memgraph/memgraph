@@ -89,6 +89,7 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue *> {
   UNSUCCESSFUL_VISIT(None);
   UNSUCCESSFUL_VISIT(ParameterLookup);
   UNSUCCESSFUL_VISIT(RegexMatch);
+  UNSUCCESSFUL_VISIT(Exists);
 
  private:
   Frame *frame_;

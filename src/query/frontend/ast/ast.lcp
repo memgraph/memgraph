@@ -2723,6 +2723,7 @@ cpp<#
     Exists() = default;
 
     DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<TypedValue*>);
     DEFVISITABLE(ExpressionVisitor<void>);
     bool Accept(HierarchicalTreeVisitor &visitor) override {
       if (visitor.PreVisit(*this)) {
