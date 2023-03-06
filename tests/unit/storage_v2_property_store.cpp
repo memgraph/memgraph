@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -648,4 +648,27 @@ TEST(PropertyStore, IsPropertyEqualTemporalData) {
   // Same type, different value.
   ASSERT_FALSE(props.IsPropertyEqual(prop, memgraph::storage::PropertyValue(memgraph::storage::TemporalData{
                                                memgraph::storage::TemporalType::Date, 30})));
+}
+
+TEST(PropertyStore, SetMultipleProperties) {
+  memgraph::storage::PropertyStore store;
+  std::vector<memgraph::storage::PropertyValue> vec{memgraph::storage::PropertyValue(true),
+                                                    memgraph::storage::PropertyValue(123),
+                                                    memgraph::storage::PropertyValue()};
+  std::map<std::string, memgraph::storage::PropertyValue> map{{"nandare", memgraph::storage::PropertyValue(false)}};
+  const memgraph::storage::TemporalData temporal{memgraph::storage::TemporalType::LocalDateTime, 23};
+  std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> data{
+      {memgraph::storage::PropertyId::FromInt(1), memgraph::storage::PropertyValue(true)},
+      {memgraph::storage::PropertyId::FromInt(2), memgraph::storage::PropertyValue(123)},
+      {memgraph::storage::PropertyId::FromInt(3), memgraph::storage::PropertyValue(123.5)},
+      {memgraph::storage::PropertyId::FromInt(4), memgraph::storage::PropertyValue("nandare")},
+      {memgraph::storage::PropertyId::FromInt(5), memgraph::storage::PropertyValue(vec)},
+      {memgraph::storage::PropertyId::FromInt(6), memgraph::storage::PropertyValue(map)},
+      {memgraph::storage::PropertyId::FromInt(7), memgraph::storage::PropertyValue(temporal)}};
+
+  store.InitProperties(data);
+
+  for (auto &[key, value] : data) {
+    ASSERT_TRUE(store.IsPropertyEqual(key, value));
+  }
 }
