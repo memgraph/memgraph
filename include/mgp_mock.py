@@ -51,8 +51,6 @@ class LogicErrorError(Exception):
     pass
 
 
-# DONE check how to trigger and if applicable elsewhere
-# DONE check if vertex/edge in graph; if not in graph & id <= highest, then deleted
 class DeletedObjectError(Exception):
     """
     Signals accessing an already deleted object.
@@ -398,7 +396,7 @@ class Properties:
             Boolean value that represents whether a property with the given name exists.
 
         Raises:
-            InvalidContextError: If edge or vertex is out of context. # TODO replace elsewhere
+            InvalidContextError: If edge or vertex is out of context.
             DeletedObjectError: If the edge or vertex has been deleted.
 
         Examples:
@@ -856,7 +854,7 @@ class Path:
             self._path = starting_vertex_or_path
 
         elif isinstance(starting_vertex_or_path, Vertex):
-            # for consistency with the Python API, the `_vertex` attribute isn’t a “public” property
+            # For consistency with the Python API, the `_vertex` attribute isn’t a “public” property.
             vertex = starting_vertex_or_path._vertex
             if not vertex.is_valid():
                 raise InvalidContextError()
@@ -924,7 +922,7 @@ class Path:
         if not self.is_valid() or not edge.is_valid():
             raise InvalidContextError()
 
-        # for consistency with the Python API, the `_edge` attribute isn’t a “public” property
+        # For consistency with the Python API, the `_edge` attribute isn’t a “public” property.
         self._path.expand(edge._edge)
 
         self._vertices = None
