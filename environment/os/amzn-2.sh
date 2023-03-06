@@ -112,7 +112,7 @@ install() {
             continue
         fi
         if [ "$pkg" == nodejs ]; then
-            curl -sL https://rpm.nodesource.com/setup_16.x | sudo bash -
+            curl -sL https://rpm.nodesource.com/setup_16.x | bash -
             if ! yum list installed nodejs >/dev/null 2>/dev/null; then
                 yum install -y nodejs
             fi
@@ -127,7 +127,7 @@ install() {
             continue
         fi
         if [ "$pkg" == nodejs ]; then
-            curl -sL https://rpm.nodesource.com/setup_16.x | sudo bash -
+            curl -sL https://rpm.nodesource.com/setup_16.x | bash -
             if ! yum list installed nodejs >/dev/null 2>/dev/null; then
                 yum install -y nodejs
             fi
