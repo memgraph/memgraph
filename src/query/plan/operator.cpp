@@ -2255,11 +2255,19 @@ std::vector<Symbol> ConstructNamedPath::ModifiedSymbols(const SymbolTable &table
   return symbols;
 }
 
-Filter::Filter(const std::shared_ptr<LogicalOperator> &input, const std::shared_ptr<LogicalOperator> &pattern_filter,
-               Expression *expression)
-    : input_(input ? input : std::make_shared<Once>()), pattern_filter_(pattern_filter), expression_(expression) {}
+Filter::Filter(const std::shared_ptr<LogicalOperator> &input,
+               const std::vector<std::shared_ptr<LogicalOperator>> &pattern_filters, Expression *expression)
+    : input_(input ? input : std::make_shared<Once>()), pattern_filters_(pattern_filters), expression_(expression) {}
 
-ACCEPT_WITH_INPUT(Filter)
+bool Filter::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    input_->Accept(visitor);
+    for (const auto &pattern_filter : pattern_filters_) {
+      pattern_filter->Accept(visitor);
+    }
+  }
+  return visitor.PostVisit(*this);
+}
 
 UniqueCursorPtr Filter::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::FilterOperator);
@@ -2269,10 +2277,24 @@ UniqueCursorPtr Filter::MakeCursor(utils::MemoryResource *mem) const {
 
 std::vector<Symbol> Filter::ModifiedSymbols(const SymbolTable &table) const { return input_->ModifiedSymbols(table); }
 
+static std::vector<UniqueCursorPtr> MakeCursorVector(const std::vector<std::shared_ptr<LogicalOperator>> &ops,
+                                                     utils::MemoryResource *mem) {
+  std::vector<UniqueCursorPtr> cursors;
+  cursors.reserve(ops.size());
+
+  if (!ops.empty()) {
+    for (const auto &op : ops) {
+      cursors.push_back(op->MakeCursor(mem));
+    }
+  }
+
+  return cursors;
+}
+
 Filter::FilterCursor::FilterCursor(const Filter &self, utils::MemoryResource *mem)
     : self_(self),
       input_cursor_(self_.input_->MakeCursor(mem)),
-      pattern_filter_cursor_(self_.pattern_filter_ ? self_.pattern_filter_->MakeCursor(mem) : nullptr) {}
+      pattern_filter_cursors_(MakeCursorVector(self_.pattern_filters_, mem)) {}
 
 bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Filter");
@@ -2282,8 +2304,8 @@ bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::OLD);
   while (input_cursor_->Pull(frame, context)) {
-    if (pattern_filter_cursor_) {
-      pattern_filter_cursor_->Pull(frame, context);
+    for (const auto &pattern_filter_cursor : pattern_filter_cursors_) {
+      pattern_filter_cursor->Pull(frame, context);
     }
 
     if (EvaluateFilter(evaluator, self_.expression_)) return true;

@@ -121,6 +121,93 @@ struct Expansion {
   NodeAtom *node2 = nullptr;
 };
 
+struct FilterMatching;
+
+enum class PatternFilterType { EXISTS };
+
+/// Collects matchings from filters that include patterns
+class PatternFilterVisitor : public ExpressionVisitor<void> {
+ public:
+  explicit PatternFilterVisitor(SymbolTable &symbol_table, AstStorage &storage)
+      : symbol_table_(symbol_table), storage_(storage) {}
+
+  using ExpressionVisitor<void>::Visit;
+
+  // Unary operators
+  void Visit(NotOperator &op) override { op.expression_->Accept(*this); }
+  void Visit(IsNullOperator &op) override { op.expression_->Accept(*this); };
+  void Visit(UnaryPlusOperator &op) override{};
+  void Visit(UnaryMinusOperator &op) override{};
+
+  // Binary operators
+  void Visit(OrOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+  void Visit(XorOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+  void Visit(AndOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+  void Visit(NotEqualOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  };
+  void Visit(EqualOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  };
+  void Visit(InListOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  };
+  void Visit(AdditionOperator &op) override{};
+  void Visit(SubtractionOperator &op) override{};
+  void Visit(MultiplicationOperator &op) override{};
+  void Visit(DivisionOperator &op) override{};
+  void Visit(ModOperator &op) override{};
+  void Visit(LessOperator &op) override{};
+  void Visit(GreaterOperator &op) override{};
+  void Visit(LessEqualOperator &op) override{};
+  void Visit(GreaterEqualOperator &op) override{};
+  void Visit(SubscriptOperator &op) override{};
+
+  // Other
+  void Visit(ListSlicingOperator &op) override{};
+  void Visit(IfOperator &op) override{};
+  void Visit(ListLiteral &op) override{};
+  void Visit(MapLiteral &op) override{};
+  void Visit(LabelsTest &op) override{};
+  void Visit(Aggregation &op) override{};
+  void Visit(Function &op) override{};
+  void Visit(Reduce &op) override{};
+  void Visit(Coalesce &op) override{};
+  void Visit(Extract &op) override{};
+  void Visit(Exists &op) override;
+  void Visit(All &op) override{};
+  void Visit(Single &op) override{};
+  void Visit(Any &op) override{};
+  void Visit(None &op) override{};
+  void Visit(Identifier &op) override{};
+  void Visit(PrimitiveLiteral &op) override{};
+  void Visit(PropertyLookup &op) override{};
+  void Visit(ParameterLookup &op) override{};
+  void Visit(NamedExpression &op) override{};
+  void Visit(RegexMatch &op) override{};
+
+  std::vector<FilterMatching> getMatchings() { return matchings_; }
+
+  SymbolTable &symbol_table_;
+  AstStorage &storage_;
+
+ private:
+  /// Collection of matchings in the filter expression being analyzed.
+  std::vector<FilterMatching> matchings_;
+};
+
 /// Stores the symbols and expression used to filter a property.
 class PropertyFilter {
  public:
@@ -188,6 +275,8 @@ struct FilterInfo {
   std::optional<PropertyFilter> property_filter;
   /// Information for Type::Id filtering.
   std::optional<IdFilter> id_filter;
+  /// Matchings for filters that include patterns
+  std::vector<FilterMatching> matchings;
 };
 
 /// Stores information on filters used inside the @c Matching of a @c QueryPart.
@@ -307,6 +396,13 @@ struct Matching {
   std::unordered_map<Symbol, std::vector<Symbol>> named_paths{};
   /// All node and edge symbols across all expansions (from all matches).
   std::unordered_set<Symbol> expansion_symbols{};
+};
+
+struct FilterMatching : Matching {
+  /// Type of pattern filter
+  PatternFilterType type;
+  /// Symbol for the filter expression
+  std::optional<Symbol> symbol;
 };
 
 /// @brief Represents a read (+ write) part of a query. Parts are split on
