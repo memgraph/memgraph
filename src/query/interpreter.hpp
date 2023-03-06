@@ -11,9 +11,9 @@
 
 #pragma once
 
-#include <gflags/gflags.h>
 #include <unordered_set>
 
+#include <gflags/gflags.h>
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/context.hpp"
@@ -240,7 +240,7 @@ class Interpreter final {
   };
 
   std::optional<std::string> username_;
-  bool in_explicit_transaction_{false};
+  std::atomic<bool> in_explicit_transaction_{false};
   bool expect_rollback_{false};
 
   /**
@@ -310,10 +310,7 @@ class Interpreter final {
   void SetNextTransactionIsolationLevel(storage::IsolationLevel isolation_level);
   void SetSessionIsolationLevel(storage::IsolationLevel isolation_level);
 
-  /*
-  If the explicit transaction is being run, return EXPLICIT TRANSACTION. Otherwise, return currently prepared queries.
-  */
-  std::vector<std::string> GetQueries() const;
+  std::vector<std::string> GetQueries();
 
   /**
    * Abort the current multicommand transaction.
@@ -359,7 +356,7 @@ class Interpreter final {
   // To avoid this, we use unique_ptr with which we manualy control construction
   // and deletion of a single query execution, i.e. when a query finishes,
   // we reset the corresponding unique_ptr.
-  std::vector<std::unique_ptr<QueryExecution>> query_executions_;
+  utils::Synchronized<std::vector<std::unique_ptr<QueryExecution>>> query_executions_;
 
   InterpreterContext *interpreter_context_;
 
@@ -380,7 +377,7 @@ class Interpreter final {
   std::optional<storage::IsolationLevel> GetIsolationLevelOverride();
 
   size_t ActiveQueryExecutions() {
-    return std::count_if(query_executions_.begin(), query_executions_.end(),
+    return std::count_if(query_executions_->begin(), query_executions_->end(),
                          [](const auto &execution) { return execution && execution->prepared_query; });
   }
 };
@@ -396,28 +393,34 @@ class TransactionQueueQueryHandler {
   TransactionQueueQueryHandler(TransactionQueueQueryHandler &&) = default;
   TransactionQueueQueryHandler &operator=(TransactionQueueQueryHandler &&) = default;
 
-  static std::vector<std::vector<TypedValue>> ShowTransactions(InterpreterContext *, const std::optional<std::string> &,
-                                                               bool);
+  static std::vector<std::vector<TypedValue>> ShowTransactions(const std::unordered_set<Interpreter *> &interpreters,
+                                                               const std::optional<std::string> &username,
+                                                               bool isAdmin);
 
-  static std::vector<std::vector<TypedValue>> KillTransactions(InterpreterContext *, const std::vector<std::string> &,
-                                                               const std::optional<std::string> &, bool);
+  static std::vector<std::vector<TypedValue>> KillTransactions(
+      InterpreterContext *interpreter_context, const std::vector<std::string> &maybe_kill_transaction_ids,
+      const std::optional<std::string> &username, bool isAdmin);
 };
 
 template <typename TStream>
 std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std::optional<int> n,
                                                     std::optional<int> qid) {
-  MG_ASSERT(in_explicit_transaction_ || !qid, "qid can be only used in explicit transaction!");
-  const int qid_value = qid ? *qid : static_cast<int>(query_executions_.size() - 1);
+  MG_ASSERT(in_explicit_transaction_.load(std::memory_order_acquire) || !qid,
+            "qid can be only used in explicit transaction!");
 
-  if (qid_value < 0 || qid_value >= query_executions_.size()) {
-    throw InvalidArgumentsException("qid", "Query with specified ID does not exist!");
-  }
+  int qid_value = -1;
+  query_executions_.WithLock([&qid_value, qid](const auto &query_executions) {
+    qid_value = qid ? *qid : static_cast<int>(query_executions.size() - 1);
+    if (qid_value < 0 || qid_value >= query_executions.size()) {
+      throw InvalidArgumentsException("qid", "Query with specified ID does not exist!");
+    }
+  });
 
   if (n && n < 0) {
     throw InvalidArgumentsException("n", "Cannot fetch negative number of results!");
   }
 
-  auto &query_execution = query_executions_[qid_value];
+  auto &query_execution = query_executions_->at(qid_value);
 
   MG_ASSERT(query_execution && query_execution->prepared_query, "Query already finished executing!");
 
@@ -448,7 +451,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
         }
         maybe_summary->insert_or_assign("notifications", std::move(notifications));
       }
-      if (!in_explicit_transaction_) {
+      if (!in_explicit_transaction_.load(std::memory_order_acquire)) {
         switch (*maybe_res) {
           case QueryHandlerResult::COMMIT:
             Commit();
@@ -460,14 +463,14 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
             // The only cases in which we have nothing to do are those where
             // we're either in an explicit transaction or the query is such that
             // a transaction wasn't started on a call to `Prepare()`.
-            MG_ASSERT(in_explicit_transaction_ || !db_accessor_);
+            MG_ASSERT(in_explicit_transaction_.load(std::memory_order_acquire) || !db_accessor_);
             break;
         }
         // As the transaction is done we can clear all the executions
         // NOTE: we cannot clear query_execution inside the Abort and Commit
         // methods as we will delete summary contained in them which we need
         // after our query finished executing.
-        query_executions_.clear();
+        query_executions_->clear();
       } else {
         // We can only clear this execution as some of the queries
         // in the transaction can be in unfinished state

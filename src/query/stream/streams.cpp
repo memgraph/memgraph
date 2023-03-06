@@ -499,7 +499,8 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
     DiscardValueResultStream stream;
 
     spdlog::trace("Start transaction in stream '{}'", stream_name);
-    utils::OnScopeExit cleanup{[&interpreter, &result]() {
+    utils::OnScopeExit cleanup{[interpreter_context, &interpreter, &result]() {
+      interpreter_context->interpreters->erase(interpreter.get());
       result.rows.clear();
       interpreter->Abort();
     }};
@@ -540,8 +541,6 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
         std::this_thread::sleep_for(retry_interval);
       }
     }
-    // deregister interpreter from interpreter_context
-    interpreter_context->interpreters->erase(interpreter.get());
   };
 
   auto insert_result = map.try_emplace(

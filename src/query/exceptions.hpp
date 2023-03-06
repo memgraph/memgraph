@@ -118,7 +118,10 @@ class QueryRuntimeException : public QueryException {
 class HintedAbortError : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
-  HintedAbortError() : utils::BasicException("Transaction was asked to abort") {}
+  HintedAbortError()
+      : utils::BasicException(
+            "Transaction was asked to abort either because it was executing longer than time specified or another user "
+            "asked it to abort.") {}
 };
 
 class ExplicitTransactionUsageException : public QueryRuntimeException {

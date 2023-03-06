@@ -9,17 +9,18 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "interpreter_faker.hpp"
-
-#include <gtest/gtest.h>
 #include <chrono>
 #include <random>
 #include <stop_token>
 #include <string>
 #include <thread>
+
+#include <gtest/gtest.h>
 #include "gmock/gmock.h"
-#include "query/exceptions.hpp"
 #include "spdlog/spdlog.h"
+
+#include "interpreter_faker.hpp"
+#include "query/exceptions.hpp"
 
 constexpr int NUM_INTERPRETERS = 4, INSERTIONS = 8000;
 

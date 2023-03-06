@@ -9,14 +9,15 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "interpreter_faker.hpp"
-
-#include <gtest/gtest.h>
 #include <chrono>
 #include <stop_token>
 #include <string>
 #include <thread>
+
+#include <gtest/gtest.h>
 #include "gmock/gmock.h"
+
+#include "interpreter_faker.hpp"
 
 /*
 Tests rely on the fact that interpreters are sequentially added to runninng_interpreters to get transaction_id of its
@@ -54,7 +55,6 @@ TEST_F(TransactionQueueSimpleTest, ShowTransactions) {
     // Also admin executing
     EXPECT_EQ(show_stream.GetResults()[1][0].ValueString(), "");
     ASSERT_TRUE(show_stream.GetResults()[1][1].IsString());
-    EXPECT_EQ(show_stream.GetResults()[1][2].ValueList().at(0).ValueString(), "EXPLICIT TRANSACTION");
     // test the state of the database
     auto results_stream = main_interpreter.Interpret("MATCH (n) RETURN n");
     ASSERT_EQ(results_stream.GetResults().size(), 1U);
@@ -84,7 +84,6 @@ TEST_F(TransactionQueueSimpleTest, TerminateTransaction) {
     // Also anonymous user executing
     EXPECT_EQ(show_stream.GetResults()[1][0].ValueString(), "");
     ASSERT_TRUE(show_stream.GetResults()[1][1].IsString());
-    EXPECT_EQ(show_stream.GetResults()[1][2].ValueList().at(0).ValueString(), "EXPLICIT TRANSACTION");
     // Kill the other transaction
     std::string run_trans_id = show_stream.GetResults()[1][1].ValueString();
     std::string esc_run_trans_id = "'" + run_trans_id + "'";
