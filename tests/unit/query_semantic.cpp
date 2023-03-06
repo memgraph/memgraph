@@ -19,6 +19,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
+#include "query/plan/preprocess.hpp"
 
 #include "query_common.hpp"
 
@@ -1178,4 +1179,38 @@ TEST_F(TestSymbolGenerator, Foreach) {
 
   query = QUERY(SINGLE_QUERY(FOREACH(i, {CREATE(PATTERN(NODE("n")))}), RETURN("i")));
   EXPECT_THROW(memgraph::query::MakeSymbolTable(query), UnboundVariableError);
+}
+
+TEST_F(TestSymbolGenerator, Exists) {
+  auto query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      WHERE(EXISTS(PATTERN(NODE("n"), EDGE("", EdgeAtom::Direction::BOTH, {}, false), NODE("m")))), RETURN("n")));
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+
+  query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                             WHERE(EXISTS(PATTERN(NODE("n"), EDGE("r"), NODE("", std::nullopt, false)))), RETURN("n")));
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+
+  query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EXISTS(PATTERN(NODE("n"), EDGE("r"), NODE("m")))), RETURN("n")));
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+
+  // Symbols for match pattern, node symbol, exists pattern, exists edge, exists second node, named expression in return
+  query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                             WHERE(EXISTS(PATTERN(NODE("n"), EDGE("edge", EdgeAtom::Direction::BOTH, {}, false),
+                                                  NODE("node", std::nullopt, false)))),
+                             RETURN("n")));
+  auto symbol_table = MakeSymbolTable(query);
+  ASSERT_EQ(symbol_table.max_position(), 6);
+
+  memgraph::query::plan::UsedSymbolsCollector collector(symbol_table);
+  auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+  auto *expression = dynamic_cast<Expression *>(match->where_->expression_);
+
+  expression->Accept(collector);
+
+  ASSERT_EQ(collector.symbols_.size(), 1);
+
+  auto symbol = *collector.symbols_.begin();
+  ASSERT_EQ(symbol.name_, "n");
 }

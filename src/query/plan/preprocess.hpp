@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -70,7 +70,26 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   }
 
   bool Visit(Identifier &ident) override {
-    symbols_.insert(symbol_table_.at(ident));
+    if (!in_exists || ident.user_declared_) {
+      symbols_.insert(symbol_table_.at(ident));
+    }
+
+    return true;
+  }
+
+  bool PreVisit(Exists &exists) override {
+    in_exists = true;
+
+    // We do not visit pattern identifier since we're in exists filter pattern
+    for (auto &atom : exists.pattern_->atoms_) {
+      atom->Accept(*this);
+    }
+
+    return false;
+  }
+
+  bool PostVisit(Exists & /*exists*/) override {
+    in_exists = false;
     return true;
   }
 
@@ -79,6 +98,9 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
 
   std::unordered_set<Symbol> symbols_;
   const SymbolTable &symbol_table_;
+
+ private:
+  bool in_exists{false};
 };
 
 /// Normalized representation of a pattern that needs to be matched.
@@ -153,7 +175,7 @@ struct FilterInfo {
   /// applied for labels or a property. Non generic types contain extra
   /// information which can be used to produce indexed scans of graph
   /// elements.
-  enum class Type { Generic, Label, Property, Id };
+  enum class Type { Generic, Label, Property, Id, Pattern };
 
   Type type;
   /// The original filter expression which must be satisfied.

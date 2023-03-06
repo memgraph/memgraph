@@ -81,9 +81,6 @@ namespace impl {
 // removed from `Filters`.
 Expression *ExtractFilters(const std::unordered_set<Symbol> &, Filters &, AstStorage &);
 
-std::unique_ptr<LogicalOperator> GenFilters(std::unique_ptr<LogicalOperator>, const std::unordered_set<Symbol> &,
-                                            Filters &, AstStorage &);
-
 /// Utility function for iterating pattern atoms and accumulating a result.
 ///
 /// Each pattern is of the form `NodeAtom (, EdgeAtom, NodeAtom)*`. Therefore,
@@ -398,17 +395,18 @@ class RuleBasedPlanner {
     // Try to generate any filters even before the 1st match operator. This
     // optimizes the optional match which filters only on symbols bound in
     // regular match.
-    auto last_op = impl::GenFilters(std::move(input_op), bound_symbols, filters, storage);
+    auto last_op = GenFilters(std::move(input_op), bound_symbols, filters, storage, symbol_table);
     for (const auto &expansion : matching.expansions) {
       const auto &node1_symbol = symbol_table.at(*expansion.node1->identifier_);
       if (bound_symbols.insert(node1_symbol).second) {
         // We have just bound this symbol, so generate ScanAll which fills it.
         last_op = std::make_unique<ScanAll>(std::move(last_op), node1_symbol, match_context.view);
         match_context.new_symbols.emplace_back(node1_symbol);
-        last_op = impl::GenFilters(std::move(last_op), bound_symbols, filters, storage);
+        last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
         last_op = impl::GenNamedPaths(std::move(last_op), bound_symbols, named_paths);
-        last_op = impl::GenFilters(std::move(last_op), bound_symbols, filters, storage);
+        last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
       }
+
       // We have an edge, so generate Expand.
       if (expansion.edge) {
         auto *edge = expansion.edge;
@@ -506,9 +504,9 @@ class RuleBasedPlanner {
             last_op = std::make_unique<EdgeUniquenessFilter>(std::move(last_op), edge_symbol, other_symbols);
           }
         }
-        last_op = impl::GenFilters(std::move(last_op), bound_symbols, filters, storage);
+        last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
         last_op = impl::GenNamedPaths(std::move(last_op), bound_symbols, named_paths);
-        last_op = impl::GenFilters(std::move(last_op), bound_symbols, filters, storage);
+        last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
       }
     }
     MG_ASSERT(named_paths.empty(), "Expected to generate all named paths");
@@ -566,6 +564,67 @@ class RuleBasedPlanner {
     }
     return std::make_unique<plan::Foreach>(std::move(input_op), std::move(op), foreach->named_expression_->expression_,
                                            symbol);
+  }
+
+  std::unique_ptr<LogicalOperator> GenFilters(std::unique_ptr<LogicalOperator> last_op,
+                                              const std::unordered_set<Symbol> &bound_symbols, Filters &filters,
+                                              AstStorage &storage, const SymbolTable &symbol_table) {
+    std::unique_ptr<LogicalOperator> pattern_filter =
+        ExtractPatternFilters(filters, storage, symbol_table, bound_symbols);
+    auto *filter_expr = impl::ExtractFilters(bound_symbols, filters, storage);
+    if (filter_expr) {
+      last_op = std::make_unique<Filter>(std::move(last_op), std::move(pattern_filter), filter_expr);
+    }
+    return last_op;
+  }
+
+  std::unique_ptr<LogicalOperator> ExtractPatternFilters(const Filters &filters, AstStorage &storage,
+                                                         const SymbolTable &symbol_table,
+                                                         const std::unordered_set<Symbol> &bound_symbols) {
+    for (const auto &filter : filters) {
+      if (filter.type != FilterInfo::Type::Pattern) {
+        continue;
+      }
+
+      if (const auto *exists = utils::Downcast<Exists>(filter.expression)) {
+        return MakeExistsFilter(*exists, storage, symbol_table, bound_symbols);
+      }
+
+      // This should never happen
+      MG_ASSERT(false, "Pattern filter does not exist!");
+    }
+
+    return nullptr;
+  }
+
+  std::unique_ptr<LogicalOperator> MakeExistsFilter(const Exists &exists, AstStorage &storage,
+                                                    const SymbolTable &symbol_table,
+                                                    const std::unordered_set<Symbol> &bound_symbols) {
+    auto *from_node = static_cast<NodeAtom *>(exists.pattern_->atoms_[0]);
+    auto *relationship = static_cast<EdgeAtom *>(exists.pattern_->atoms_[1]);
+    auto *to_node = static_cast<NodeAtom *>(exists.pattern_->atoms_[2]);
+    auto node1_symbol = symbol_table.at(*from_node->identifier_);
+    auto node2_symbol = symbol_table.at(*to_node->identifier_);
+    auto edge_symbol = symbol_table.at(*relationship->identifier_);
+    auto direction = relationship->direction_;
+
+    std::vector<storage::EdgeTypeId> edge_types;
+    edge_types.reserve(relationship->edge_types_.size());
+    for (const auto &type : relationship->edge_types_) {
+      edge_types.push_back(GetEdgeType(type));
+    }
+
+    std::vector<Symbol> once_symbols(bound_symbols.begin(), bound_symbols.end());
+    std::unique_ptr<LogicalOperator> last_op = std::make_unique<Once>(once_symbols);
+
+    last_op = std::make_unique<Expand>(std::move(last_op), node1_symbol, node2_symbol, edge_symbol, direction,
+                                       edge_types, false, storage::View::OLD);
+
+    last_op = std::make_unique<Limit>(std::move(last_op), storage.Create<PrimitiveLiteral>(1));
+
+    last_op = std::make_unique<EvaluatePatternFilter>(std::move(last_op), symbol_table.at(exists));
+
+    return last_op;
   }
 };
 
