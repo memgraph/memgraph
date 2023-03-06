@@ -1080,6 +1080,9 @@ class Record:
         """Initialize with {name}={value} fields in kwargs."""
         self.fields = kwargs
 
+    def __str__(self):
+        return str(self.fields)
+
 
 class Graph:
     """The graph that stands in for Memgraph’s graph."""
