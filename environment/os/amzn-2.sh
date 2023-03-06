@@ -43,7 +43,7 @@ MEMGRAPH_BUILD_DEPS=(
     git # source code control
     make # build system
     wget # for downloading libs
-    libuuid-devel java-11-amazon-corretto # required by antlr
+    libuuid-devel java-11-openjdk # required by antlr
     readline-devel # for memgraph console
     python3-devel # for query modules
     openssl-devel
@@ -57,7 +57,7 @@ MEMGRAPH_BUILD_DEPS=(
     libcurl-devel # mg-requests
     rpm-build rpmlint # for RPM package building
     doxygen graphviz # source documentation generators
-    which nodejs golang zip unzip java-11-amazon-corretto-devel # for driver tests
+    which nodejs golang zip unzip java-11-openjdk-devel # for driver tests
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
 )
@@ -131,6 +131,15 @@ install() {
             if ! yum list installed nodejs >/dev/null 2>/dev/null; then
                 yum install -y nodejs
             fi
+            continue
+        fi
+        if [ "$pkg" == java-11-openjdk ]; then
+            amazon-linux-extras install java-openjdk11
+            continue
+        fi
+        if [ "$pkg" == java-11-openjdk-devel ]; then
+            amazon-linux-extras install java-openjdk11
+            yum install java-11-openjdk-devel
             continue
         fi
         yum install -y "$pkg"
