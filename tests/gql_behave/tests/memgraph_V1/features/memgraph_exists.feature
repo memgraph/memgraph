@@ -277,6 +277,102 @@ Feature: WHERE exists
           | n.prop |
           | 1      |
 
+  Scenario: Test multi-hop first in sequence
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:One {prop:1})-[:TYPE {prop: 1}]->(:Two {prop: 2})-[:TYPE {prop:2}]->(:Three {prop: 3})
+          """
+      When executing query:
+          """
+          MATCH (n) WHERE exists((n)-[]->()-[]->()) RETURN n.prop;
+          """
+      Then the result should be:
+          | n.prop |
+          | 1      |
+
+  Scenario: Test multi-hop in middle sequence
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:One {prop:1})-[:TYPE {prop: 1}]->(:Two {prop: 2})-[:TYPE {prop:2}]->(:Three {prop: 3})
+          """
+      When executing query:
+          """
+          MATCH (n) WHERE exists(()-[]->(n)-[]->()) RETURN n.prop;
+          """
+      Then the result should be:
+          | n.prop |
+          | 2      |
+
+  Scenario: Test multi-hop at the end of the sequence
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:One {prop:1})-[:TYPE {prop: 1}]->(:Two {prop: 2})-[:TYPE {prop:2}]->(:Three {prop: 3})
+          """
+      When executing query:
+          """
+          MATCH (n) WHERE exists(()-[]->()-[]->(n)) RETURN n.prop;
+          """
+      Then the result should be:
+          | n.prop |
+          | 3      |
+
+  Scenario: Test multi-hop not exists
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:One {prop:1})-[:TYPE {prop: 1}]->(:Two {prop: 2})-[:TYPE {prop:2}]->(:Three {prop: 3})
+          """
+      When executing query:
+          """
+          MATCH (n) WHERE exists(()-[]->(n)<-[]-()) RETURN n.prop;
+          """
+      Then the result should be empty
+
+  Scenario: Test multi-hop with filters
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:One {prop:1})-[:TYPE {prop: 1}]->(:Two {prop: 2})-[:TYPE {prop:2}]->(:Three {prop: 3})
+          """
+      When executing query:
+          """
+          MATCH (n) WHERE exists(({prop: 1})-[:TYPE]->(n)-[{prop:2}]->(:Three)) RETURN n.prop;
+          """
+      Then the result should be:
+          | n.prop |
+          | 2      |
+
+  Scenario: Test multi-hop with wrong filters
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:One {prop:1})-[:TYPE {prop: 1}]->(:Two {prop: 2})-[:TYPE {prop:2}]->(:Three {prop: 3})
+          """
+      When executing query:
+          """
+          MATCH (n) WHERE exists(({prop: 1})-[:TYPE]->(n)-[:TYPE2]->(:Three)) RETURN n.prop;
+          """
+      Then the result should be empty
+
+  Scenario: Test node-only hop
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:One {prop:1})-[:TYPE {prop: 1}]->(:Two {prop: 2})-[:TYPE {prop:2}]->(:Three {prop: 3})
+          """
+      When executing query:
+          """
+          MATCH (n) WHERE exists((n)) RETURN n.prop;
+          """
+      Then the result should be:
+          | n.prop |
+          | 1      |
+          | 2      |
+          | 3      |
+
   Scenario: Test exists with different edge type
       Given an empty graph
       And having executed:
@@ -382,6 +478,20 @@ Feature: WHERE exists
           | n.prop |
           | 1      |
 
+  Scenario: Test BFS hop
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:One {prop:1})-[:TYPE {prop: 1}]->(:Two {prop: 2})-[:TYPE {prop:2}]->(:Three {prop: 3})
+          """
+      When executing query:
+          """
+          MATCH (n:One) WHERE exists((n)-[*bfs]->(:Three)) RETURN n.prop;
+          """
+      Then the result should be:
+          | n.prop |
+          | 1      |
+
   Scenario: Test exists not in list
       Given an empty graph
       And having executed:
@@ -393,3 +503,27 @@ Feature: WHERE exists
           MATCH (n:One) WHERE exists((n)-[]-()) in [false] RETURN n.prop;
           """
       Then the result should be empty
+
+	Scenario: Test exists on multihop patterns without results
+		Given an empty graph
+		And having executed:
+				"""
+				MATCH (n) DETACH DELETE n;
+				"""
+		When executing query:
+				"""
+				MATCH ()-[]-(m)-[]->(a) WHERE m.prop=1 and a.prop=3 and exists(()-[]->(m)) RETURN m, a;
+				"""
+  	Then the result should be empty
+
+  Scenario: Test exists does not work in SetProperty clauses
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:One {prop:1})-[:TYPE]->(:Two);
+          """
+      When executing query:
+          """
+          MATCH (n:Two) SET n.prop = exists((n)<-[:TYPE]-()) RETURN n.prop;
+          """
+      Then an error should be raised

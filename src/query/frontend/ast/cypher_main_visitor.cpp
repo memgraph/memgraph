@@ -2215,10 +2215,6 @@ antlrcpp::Any CypherMainVisitor::visitExistsExpression(MemgraphCypher::ExistsExp
     throw SyntaxException("Identifiers are not supported in exists(...).");
   }
 
-  if (exists->pattern_->atoms_.size() != 3) {
-    throw SyntaxException("exists(...) supports only node-edge-node patterns.");
-  }
-
   return static_cast<Expression *>(exists);
 }
 
