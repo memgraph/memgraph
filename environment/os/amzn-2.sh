@@ -134,12 +134,12 @@ install() {
             continue
         fi
         if [ "$pkg" == java-11-openjdk ]; then
-            amazon-linux-extras install java-openjdk11
+            amazon-linux-extras install -y java-openjdk11
             continue
         fi
         if [ "$pkg" == java-11-openjdk-devel ]; then
-            amazon-linux-extras install java-openjdk11
-            yum install java-11-openjdk-devel
+            amazon-linux-extras install -y java-openjdk11
+            yum install -y java-11-openjdk-devel
             continue
         fi
         yum install -y "$pkg"
