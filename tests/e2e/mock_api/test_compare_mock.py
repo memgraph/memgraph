@@ -152,7 +152,6 @@ def test_vertices():
     expected_results = {
         "is_valid": True,
         "__iter__": True,
-        # "__contains__": True,
         "__len__": True,
     }
 
