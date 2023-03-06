@@ -3,7 +3,7 @@ FROM amazonlinux:2
 ARG TOOLCHAIN_VERSION
 
 RUN yum -y update \
-    && yum install -y wget git
+    && yum install -y wget git tar
 # Do NOT be smart here and clean the cache because the container is used in the
 # stateful context.
 
