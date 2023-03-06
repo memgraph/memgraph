@@ -25,6 +25,7 @@
 
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
+#include "query/common.hpp"
 #include "spdlog/spdlog.h"
 
 #include "license/license.hpp"
@@ -115,6 +116,7 @@ extern const Event CartesianOperator;
 extern const Event CallProcedureOperator;
 extern const Event ForeachOperator;
 extern const Event EmptyResultOperator;
+extern const Event EvaluatePatternFilterOperator;
 }  // namespace EventCounter
 
 namespace memgraph::query::plan {
@@ -208,17 +210,18 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
                                 storage::View::NEW);
   // TODO: PropsSetChecked allocates a PropertyValue, make it use context.memory
   // when we update PropertyValue with custom allocator.
+  std::map<storage::PropertyId, storage::PropertyValue> properties;
   if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info.properties)) {
     for (const auto &[key, value_expression] : *node_info_properties) {
-      PropsSetChecked(&new_node, key, value_expression->Accept(evaluator));
+      properties.emplace(key, value_expression->Accept(evaluator));
     }
   } else {
     auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info.properties));
     for (const auto &[key, value] : property_map.ValueMap()) {
-      auto property_id = dba.NameToProperty(key);
-      PropsSetChecked(&new_node, property_id, value);
+      properties.emplace(dba.NameToProperty(key), value);
     }
   }
+  MultiPropsInitChecked(&new_node, properties);
 
   (*frame)[node_info.symbol] = new_node;
   return (*frame)[node_info.symbol].ValueVertex();
@@ -299,17 +302,18 @@ EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, Vert
   auto maybe_edge = dba->InsertEdge(from, to, edge_info.edge_type);
   if (maybe_edge.HasValue()) {
     auto &edge = *maybe_edge;
-    if (const auto *properties = std::get_if<PropertiesMapList>(&edge_info.properties)) {
-      for (const auto &[key, value_expression] : *properties) {
-        PropsSetChecked(&edge, key, value_expression->Accept(*evaluator));
+    std::map<storage::PropertyId, storage::PropertyValue> properties;
+    if (const auto *edge_info_properties = std::get_if<PropertiesMapList>(&edge_info.properties)) {
+      for (const auto &[key, value_expression] : *edge_info_properties) {
+        properties.emplace(key, value_expression->Accept(*evaluator));
       }
     } else {
       auto property_map = evaluator->Visit(*std::get<ParameterLookup *>(edge_info.properties));
       for (const auto &[key, value] : property_map.ValueMap()) {
-        auto property_id = dba->NameToProperty(key);
-        PropsSetChecked(&edge, property_id, value);
+        properties.emplace(dba->NameToProperty(key), value);
       }
     }
+    if (!properties.empty()) MultiPropsInitChecked(&edge, properties);
 
     (*frame)[edge_info.symbol] = edge;
   } else {
@@ -2254,10 +2258,19 @@ std::vector<Symbol> ConstructNamedPath::ModifiedSymbols(const SymbolTable &table
   return symbols;
 }
 
-Filter::Filter(const std::shared_ptr<LogicalOperator> &input, Expression *expression)
-    : input_(input ? input : std::make_shared<Once>()), expression_(expression) {}
+Filter::Filter(const std::shared_ptr<LogicalOperator> &input,
+               const std::vector<std::shared_ptr<LogicalOperator>> &pattern_filters, Expression *expression)
+    : input_(input ? input : std::make_shared<Once>()), pattern_filters_(pattern_filters), expression_(expression) {}
 
-ACCEPT_WITH_INPUT(Filter)
+bool Filter::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    input_->Accept(visitor);
+    for (const auto &pattern_filter : pattern_filters_) {
+      pattern_filter->Accept(visitor);
+    }
+  }
+  return visitor.PostVisit(*this);
+}
 
 UniqueCursorPtr Filter::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::FilterOperator);
@@ -2267,8 +2280,24 @@ UniqueCursorPtr Filter::MakeCursor(utils::MemoryResource *mem) const {
 
 std::vector<Symbol> Filter::ModifiedSymbols(const SymbolTable &table) const { return input_->ModifiedSymbols(table); }
 
+static std::vector<UniqueCursorPtr> MakeCursorVector(const std::vector<std::shared_ptr<LogicalOperator>> &ops,
+                                                     utils::MemoryResource *mem) {
+  std::vector<UniqueCursorPtr> cursors;
+  cursors.reserve(ops.size());
+
+  if (!ops.empty()) {
+    for (const auto &op : ops) {
+      cursors.push_back(op->MakeCursor(mem));
+    }
+  }
+
+  return cursors;
+}
+
 Filter::FilterCursor::FilterCursor(const Filter &self, utils::MemoryResource *mem)
-    : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
+    : self_(self),
+      input_cursor_(self_.input_->MakeCursor(mem)),
+      pattern_filter_cursors_(MakeCursorVector(self_.pattern_filters_, mem)) {}
 
 bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Filter");
@@ -2278,6 +2307,10 @@ bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::OLD);
   while (input_cursor_->Pull(frame, context)) {
+    for (const auto &pattern_filter_cursor : pattern_filter_cursors_) {
+      pattern_filter_cursor->Pull(frame, context);
+    }
+
     if (EvaluateFilter(evaluator, self_.expression_)) return true;
   }
   return false;
@@ -2286,6 +2319,39 @@ bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
 void Filter::FilterCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void Filter::FilterCursor::Reset() { input_cursor_->Reset(); }
+
+EvaluatePatternFilter::EvaluatePatternFilter(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol)
+    : input_(input), output_symbol_(output_symbol) {}
+
+ACCEPT_WITH_INPUT(EvaluatePatternFilter);
+
+UniqueCursorPtr EvaluatePatternFilter::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::EvaluatePatternFilterOperator);
+
+  return MakeUniqueCursorPtr<EvaluatePatternFilterCursor>(mem, *this, mem);
+}
+
+EvaluatePatternFilter::EvaluatePatternFilterCursor::EvaluatePatternFilterCursor(const EvaluatePatternFilter &self,
+                                                                                utils::MemoryResource *mem)
+    : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
+
+std::vector<Symbol> EvaluatePatternFilter::ModifiedSymbols(const SymbolTable &table) const {
+  return input_->ModifiedSymbols(table);
+}
+
+bool EvaluatePatternFilter::EvaluatePatternFilterCursor::Pull(Frame &frame, ExecutionContext &context) {
+  SCOPED_PROFILE_OP("EvaluatePatternFilter");
+
+  input_cursor_->Reset();
+
+  frame[self_.output_symbol_] = TypedValue(input_cursor_->Pull(frame, context), context.evaluation_context.memory);
+
+  return true;
+}
+
+void EvaluatePatternFilter::EvaluatePatternFilterCursor::Shutdown() { input_cursor_->Shutdown(); }
+
+void EvaluatePatternFilter::EvaluatePatternFilterCursor::Reset() { input_cursor_->Reset(); }
 
 Produce::Produce(const std::shared_ptr<LogicalOperator> &input, const std::vector<NamedExpression *> &named_expressions)
     : input_(input ? input : std::make_shared<Once>()), named_expressions_(named_expressions) {}
