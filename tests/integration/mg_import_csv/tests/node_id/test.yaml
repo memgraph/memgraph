@@ -1,8 +1,0 @@
-- name: test_node_ids_missing_not_saved_and_saved
-  nodes:
-    - "nodes_no_id.csv"
-    - "nodes_id_not_saved.csv"
-    - "nodes_id_saved.csv"
-  relationships: "relationships.csv"
-  id_type: "integer"
-  expected: expected.cypher

@@ -1,8 +1,0 @@
-*
-!.gitignore
-!setup.sh
-!cleanup.sh
-!CMakeLists.txt
-!__main.cpp
-!pulsar.patch
-!antlr4.10.1.patch

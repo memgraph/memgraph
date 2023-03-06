@@ -1,5 +1,0 @@
-- name: multiple_same_properties
-  nodes: "nodes.csv"
-  relationships: "relationships.csv"
-  properties_on_edges: True
-  import_should_fail: True

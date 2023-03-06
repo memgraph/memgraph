@@ -1,4 +1,0 @@
-- name: invalid_integer_node_id
-  nodes: "nodes.csv"
-  id_type: "integer"
-  import_should_fail: True

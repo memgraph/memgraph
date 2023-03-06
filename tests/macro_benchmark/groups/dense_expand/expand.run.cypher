@@ -1,2 +1,0 @@
-MATCH (a)-->(c)
-RETURN 1 SKIP 1000000;

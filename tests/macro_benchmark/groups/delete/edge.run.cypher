@@ -1,1 +1,0 @@
-MATCH ()-[e]->() DELETE e

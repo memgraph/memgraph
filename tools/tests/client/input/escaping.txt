@@ -1,1 +1,0 @@
-CREATE (n:Node{tmp:"\"\\;\\"}) RETURN n;

@@ -1,8 +1,0 @@
-- name: default_disabled
-  nodes: "nodes.csv"
-  expected: expected_disabled.cypher
-
-- name: enabled
-  nodes: "nodes.csv"
-  ignore_empty_strings: True
-  expected: expected_enabled.cypher

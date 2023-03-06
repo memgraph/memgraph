@@ -1,6 +1,0 @@
-:ID,country:string,browser:string,content:string,:LABEL
-0,Croatia,Chrome,yes,Message;Comment;Entry0;hello
-1,"United Kingdom",Chrome,thanks,Message;Comment;Entry1
-2,Germany,,LOL,Message;Comment;Entry2;world
-3,France,Firefox,I see,Message;Comment;Entry3
-4,Italy,Internet Explorer,fine,Message;Comment;Entry4;this;is;a; lot ;of; labels

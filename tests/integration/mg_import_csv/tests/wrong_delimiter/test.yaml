@@ -1,4 +1,0 @@
-- name: wrong_delimiter
-  nodes: "nodes.csv"
-  delimiter: "-"
-  import_should_fail: True

@@ -1,8 +1,0 @@
-country_id:ID,country,value:int
-4,Bulgaria,9
-5,Spain,10
-6,Latvia,11
-7,Russia,12
-8,Poland,13
-9,"Czech Republic",14
-10,Moldova,15

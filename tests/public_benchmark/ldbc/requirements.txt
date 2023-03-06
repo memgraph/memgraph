@@ -1,3 +1,0 @@
-neo4j-driver==1.4.0
-matplotlib==2.0.2
-numpy==1.21

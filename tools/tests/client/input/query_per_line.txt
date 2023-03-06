@@ -1,4 +1,0 @@
-CREATE (n:Node) RETURN n;
-MATCH (n:Node) RETURN n;
-CREATE (n:Vertex) RETURN n;
-MATCH (n:Vertex) RETURN n;
