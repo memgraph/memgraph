@@ -55,7 +55,7 @@ else
     done
 fi
 
-if [ "${ARCHITECTURE}" = "arm64" ] || [ "${ARCHITECTURE}" = "aarch64" ]; then
+if [ "${DISTRO}" = "centos-7" ] || [ "${DISTRO}" = "debian-11" ] || [ "${DISTRO}" = "amzn-2" ]; then
   OS_SCRIPT=$DIR/environment/os/$DISTRO-arm.sh
 else
   OS_SCRIPT=$DIR/environment/os/$DISTRO.sh
