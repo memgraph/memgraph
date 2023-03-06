@@ -8,5 +8,3 @@ copy_mock_python_api_e2e_files(properties.py)
 copy_mock_python_api_e2e_files(record.py)
 copy_mock_python_api_e2e_files(vertex.py)
 copy_mock_python_api_e2e_files(vertices.py)
-
-# add_subdirectory(test_utils)
