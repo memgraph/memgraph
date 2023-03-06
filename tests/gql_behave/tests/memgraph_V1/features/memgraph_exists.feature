@@ -357,7 +357,6 @@ Feature: WHERE exists
           """
       Then the result should be empty
 
-
   Scenario: Test node-only hop
       Given an empty graph
       And having executed:
@@ -516,3 +515,15 @@ Feature: WHERE exists
 				MATCH ()-[]-(m)-[]->(a) WHERE m.prop=1 and a.prop=3 and exists(()-[]->(m)) RETURN m, a;
 				"""
   	Then the result should be empty
+
+  Scenario: Test exists does not work in SetProperty clauses
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:One {prop:1})-[:TYPE]->(:Two);
+          """
+      When executing query:
+          """
+          MATCH (n:Two) SET n.prop = exists((n)<-[:TYPE]-()) RETURN n.prop;
+          """
+      Then an error should be raised

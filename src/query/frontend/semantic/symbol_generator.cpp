@@ -447,6 +447,14 @@ bool SymbolGenerator::PreVisit(Extract &extract) {
 bool SymbolGenerator::PreVisit(Exists &exists) {
   auto &scope = scopes_.back();
 
+  if (scope.in_set_property) {
+    throw utils::NotYetImplemented("Set property can not be used with exists, but only during matching!");
+  }
+
+  if (scope.in_with) {
+    throw utils::NotYetImplemented("WITH can not be used with exists, but only during matching!");
+  }
+
   scope.in_exists = true;
 
   const auto &symbol = CreateAnonymousSymbol();
@@ -458,6 +466,20 @@ bool SymbolGenerator::PreVisit(Exists &exists) {
 bool SymbolGenerator::PostVisit(Exists & /*exists*/) {
   auto &scope = scopes_.back();
   scope.in_exists = false;
+
+  return true;
+}
+
+bool SymbolGenerator::PreVisit(SetProperty & /*set_property*/) {
+  auto &scope = scopes_.back();
+  scope.in_set_property = true;
+
+  return true;
+}
+
+bool SymbolGenerator::PostVisit(SetProperty & /*set_property*/) {
+  auto &scope = scopes_.back();
+  scope.in_set_property = false;
 
   return true;
 }
