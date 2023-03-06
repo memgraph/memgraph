@@ -1123,9 +1123,9 @@ pulled.")
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
           :slk-save #'slk-save-operator-pointer
           :slk-load #'slk-load-operator-pointer)
-   (pattern_filter "std::shared_ptr<LogicalOperator>" :scope :public
-          :slk-save #'slk-save-operator-pointer
-          :slk-load #'slk-load-operator-pointer)
+   (pattern_filters "std::vector<std::shared_ptr<LogicalOperator>>" :scope :public
+          :slk-save #'slk-save-ast-vector
+          :slk-load (slk-load-ast-vector "std::shared_ptr<LogicalOperator>"))
    (expression "Expression *" :scope :public
                :slk-save #'slk-save-ast-pointer
                :slk-load (slk-load-ast-pointer "Expression")))
@@ -1140,7 +1140,7 @@ a boolean value.")
    Filter() {}
 
    Filter(const std::shared_ptr<LogicalOperator> &input_,
-          const std::shared_ptr<LogicalOperator> &pattern_filter_,
+          const std::vector<std::shared_ptr<LogicalOperator>> &pattern_filters_,
           Expression *expression_);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
@@ -1164,6 +1164,7 @@ a boolean value.")
     private:
      const Filter &self_;
      const UniqueCursorPtr input_cursor_;
+     const std::vector<UniqueCursorPtr> pattern_filter_cursors_;
    };
    cpp<#)
   (:serialize (:slk))

@@ -64,7 +64,6 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(ScanAllById);
   PRE_VISIT(Expand);
   PRE_VISIT(ExpandVariable);
-  PRE_VISIT(Filter);
   PRE_VISIT(ConstructNamedPath);
   PRE_VISIT(EmptyResult);
   PRE_VISIT(Produce);
@@ -95,6 +94,12 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Foreach &op) override {
     CheckOp(op);
+    return false;
+  }
+
+  bool PreVisit(Filter &op) override {
+    CheckOp(op);
+    op.input()->Accept(*this);
     return false;
   }
 
@@ -160,17 +165,18 @@ using ExpectEvaluatePatternFilter = OpChecker<EvaluatePatternFilter>;
 
 class ExpectFilter : public OpChecker<Filter> {
  public:
-  ExpectFilter(const std::list<BaseOpChecker *> &pattern_filter = {}) : pattern_filter_(pattern_filter) {}
+  ExpectFilter(const std::vector<std::list<BaseOpChecker *>> &pattern_filters = {})
+      : pattern_filters_(pattern_filters) {}
 
   void ExpectOp(Filter &filter, const SymbolTable &symbol_table) override {
-    PlanChecker check_updates(pattern_filter_, symbol_table);
+    for (auto i = 0; i < filter.pattern_filters_.size(); i++) {
+      PlanChecker check_updates(pattern_filters_[i], symbol_table);
 
-    if (filter.pattern_filter_) {
-      filter.pattern_filter_->Accept(check_updates);
+      filter.pattern_filters_[i]->Accept(check_updates);
     }
   }
 
-  std::list<BaseOpChecker *> pattern_filter_;
+  std::vector<std::list<BaseOpChecker *>> pattern_filters_;
 };
 
 class ExpectForeach : public OpChecker<Foreach> {

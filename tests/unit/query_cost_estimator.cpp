@@ -204,7 +204,8 @@ TEST_F(QueryCostEstimator, Foreach) {
   EXPECT_COST(OP_COST_PARAM + OP_CARD_PARAM * OP_COST_PARAM);
 
 TEST_F(QueryCostEstimator, Filter) {
-  TEST_OP(MakeOp<Filter>(last_op_, nullptr, Literal(true)), CostParam::kFilter, CardParam::kFilter);
+  TEST_OP(MakeOp<Filter>(last_op_, std::vector<std::shared_ptr<LogicalOperator>>{}, Literal(true)), CostParam::kFilter,
+          CardParam::kFilter);
 }
 
 TEST_F(QueryCostEstimator, EdgeUniquenessFilter) {

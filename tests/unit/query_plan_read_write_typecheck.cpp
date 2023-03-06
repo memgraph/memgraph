@@ -57,7 +57,8 @@ TEST_F(ReadWriteTypeCheckTest, CreateNode) {
 TEST_F(ReadWriteTypeCheckTest, Filter) {
   std::shared_ptr<LogicalOperator> scan_all = std::make_shared<ScanAll>(nullptr, GetSymbol("node1"));
   std::shared_ptr<LogicalOperator> filter =
-      std::make_shared<Filter>(scan_all, nullptr, EQ(PROPERTY_LOOKUP("node1", dba.NameToProperty("prop")), LITERAL(0)));
+      std::make_shared<Filter>(scan_all, std::vector<std::shared_ptr<LogicalOperator>>{},
+                               EQ(PROPERTY_LOOKUP("node1", dba.NameToProperty("prop")), LITERAL(0)));
 
   CheckPlanType(filter.get(), RWType::R);
 }
@@ -87,7 +88,8 @@ TEST_F(ReadWriteTypeCheckTest, OrderByAndLimit) {
 
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<Once>();
   last_op = std::make_shared<ScanAllByLabel>(last_op, node_sym, label);
-  last_op = std::make_shared<Filter>(last_op, nullptr, EQ(PROPERTY_LOOKUP("node", prop), LITERAL(5)));
+  last_op = std::make_shared<Filter>(last_op, std::vector<std::shared_ptr<LogicalOperator>>{},
+                                     EQ(PROPERTY_LOOKUP("node", prop), LITERAL(5)));
   last_op = std::make_shared<Produce>(last_op, std::vector<NamedExpression *>{NEXPR("n", IDENT("n"))});
   last_op = std::make_shared<OrderBy>(last_op, std::vector<SortItem>{{Ordering::DESC, PROPERTY_LOOKUP("node", prop)}},
                                       std::vector<Symbol>{node_sym});
