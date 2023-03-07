@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,7 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <climits>
 
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
@@ -435,6 +436,11 @@ class FakeDbAccessor {
       }
     }
     return false;
+  }
+
+  memgraph::query::IndexStats GetIndexStats(memgraph::storage::LabelId label,
+                                            memgraph::storage::PropertyId property) const {
+    return memgraph::query::IndexStats{.max_number_of_vertices_with_same_value = UINT64_MAX};
   }
 
   void SetIndexCount(memgraph::storage::LabelId label, int64_t count) { label_index_[label] = count; }

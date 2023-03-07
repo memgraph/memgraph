@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -211,6 +211,14 @@ class InteractiveDbAccessor {
       label_property_index_[key] = resp;
     }
     return label_property_index_.at(key);
+  }
+
+  memgraph::query::IndexStats GetIndexStats(memgraph::storage::LabelId label,
+                                            memgraph::storage::PropertyId property) const {
+    auto stats = dba_->GetIndexStats(label, property);
+
+    return memgraph::query::IndexStats{.max_number_of_vertices_with_same_value =
+                                           stats.max_number_of_vertices_with_same_value};
   }
 
   // Save the cached vertex counts to a stream.
