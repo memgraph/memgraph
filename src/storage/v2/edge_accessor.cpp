@@ -124,6 +124,24 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
   return std::move(current_value);
 }
 
+Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  if (!config_.properties_on_edges) return Error::PROPERTIES_DISABLED;
+
+  std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
+
+  if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
+
+  if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
+
+  if (!edge_.ptr->properties.InitProperties(properties)) return false;
+  for (const auto &[property, _] : properties) {
+    CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, PropertyValue());
+  }
+
+  return true;
+}
+
 Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
   if (!config_.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
