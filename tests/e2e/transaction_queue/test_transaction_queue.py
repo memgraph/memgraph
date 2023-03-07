@@ -37,9 +37,10 @@ def show_transactions_test(cursor, expected_num_results: int):
     return results
 
 
-def process_function(cursor, query: str):
+def process_function(cursor, queries: List[str]):
     try:
-        cursor.execute(query, {})
+        for query in queries:
+            cursor.execute(query, {})
     except mgclient.DatabaseError:
         pass
 
@@ -62,10 +63,34 @@ def test_admin_has_one_transaction():
     execute_and_fetch_all(admin_cursor, "CREATE USER admin")
     execute_and_fetch_all(admin_cursor, "GRANT ALL PRIVILEGES TO admin")
     admin_cursor = connect(username="admin", password="").cursor()
-    admin_connection = threading.Thread(target=show_transactions_test, args=(admin_cursor, 1))
-    admin_connection.start()
-    admin_connection.join()
+    process = multiprocessing.Process(target=show_transactions_test, args=(admin_cursor, 1))
+    process.start()
+    process.join()
     execute_and_fetch_all(admin_cursor, "DROP USER admin")
+
+
+def test_explicit_transaction_output():
+    superadmin_cursor = connect().cursor()
+    execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
+    execute_and_fetch_all(superadmin_cursor, "GRANT ALL PRIVILEGES TO admin")
+    admin_connection = connect(username="admin", password="")
+    admin_cursor = admin_connection.cursor()
+    # Admin starts running explicit transaction
+    process = multiprocessing.Process(
+        target=process_function,
+        args=(superadmin_cursor, ["BEGIN", "CREATE (n:Person {id_: 1})", "CREATE (n:Person {id_: 2})"]),
+    )
+    process.start()
+    time.sleep(0.5)
+    show_results = show_transactions_test(admin_cursor, 2)
+    if show_results[0][2] == ["SHOW TRANSACTIONS"]:
+        executing_index = 0
+    else:
+        executing_index = 1
+    assert show_results[1 - executing_index][2] == ["CREATE (n:Person {id_: 1})", "CREATE (n:Person {id_: 2})"]
+
+    execute_and_fetch_all(superadmin_cursor, "ROLLBACK")
+    execute_and_fetch_all(superadmin_cursor, "DROP USER admin")
 
 
 def test_superadmin_cannot_see_admin_can_see_admin():
@@ -81,7 +106,7 @@ def test_superadmin_cannot_see_admin_can_see_admin():
     admin_connection_2 = connect(username="admin2", password="")
     admin_cursor_2 = admin_connection_2.cursor()
     process = multiprocessing.Process(
-        target=process_function, args=(admin_cursor_1, "CALL infinite_query.long_query() YIELD my_id RETURN my_id")
+        target=process_function, args=(admin_cursor_1, ["CALL infinite_query.long_query() YIELD my_id RETURN my_id"])
     )
     process.start()
     time.sleep(0.5)
@@ -114,7 +139,7 @@ def test_admin_sees_superadmin():
     execute_and_fetch_all(superadmin_cursor, "GRANT ALL PRIVILEGES TO admin")
     # Admin starts running infinite query
     process = multiprocessing.Process(
-        target=process_function, args=(superadmin_cursor, "CALL infinite_query.long_query() YIELD my_id RETURN my_id")
+        target=process_function, args=(superadmin_cursor, ["CALL infinite_query.long_query() YIELD my_id RETURN my_id"])
     )
     process.start()
     time.sleep(0.5)
@@ -149,7 +174,7 @@ def test_admin_can_see_user_transaction():
     user_connection = connect(username="user", password="")
     user_cursor = user_connection.cursor()
     process = multiprocessing.Process(
-        target=process_function, args=(user_cursor, "CALL infinite_query.long_query() YIELD my_id RETURN my_id")
+        target=process_function, args=(user_cursor, ["CALL infinite_query.long_query() YIELD my_id RETURN my_id"])
     )
     process.start()
     time.sleep(0.5)
@@ -190,7 +215,7 @@ def test_user_cannot_see_admin_transaction():
     user_cursor = user_connection.cursor()
     # Admin1 starts running long running query
     process = multiprocessing.Process(
-        target=process_function, args=(admin_cursor_1, "CALL infinite_query.long_query() YIELD my_id RETURN my_id")
+        target=process_function, args=(admin_cursor_1, ["CALL infinite_query.long_query() YIELD my_id RETURN my_id"])
     )
     process.start()
     time.sleep(0.5)

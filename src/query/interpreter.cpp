@@ -1143,7 +1143,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
 
   if (query_upper == "BEGIN") {
     handler = [this] {
-      if (in_explicit_transaction_.load(std::memory_order_acquire)) {
+      if (in_explicit_transaction_) {
         throw ExplicitTransactionUsageException("Nested transactions are not supported.");
       }
       // We just need to wait for the resolvement of CHECKING_KILL status. If the transactions is KILLED
@@ -1151,7 +1151,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
       while (transaction_status_.load(std::memory_order_acquire) == TransactionStatus::CHECKING_STATUS)
         ;
       transaction_status_.store(TransactionStatus::ALIVE, std::memory_order_release);
-      in_explicit_transaction_.store(true, std::memory_order_release);
+      in_explicit_transaction_ = true;
       expect_rollback_ = false;
 
       db_accessor_ =
@@ -1164,7 +1164,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
     };
   } else if (query_upper == "COMMIT") {
     handler = [this] {
-      if (!in_explicit_transaction_.load(std::memory_order_acquire)) {
+      if (!in_explicit_transaction_) {
         throw ExplicitTransactionUsageException("No current transaction to commit.");
       }
       if (expect_rollback_) {
@@ -1181,16 +1181,16 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
       }
 
       expect_rollback_ = false;
-      in_explicit_transaction_.store(false, std::memory_order_release);
+      in_explicit_transaction_ = false;
     };
   } else if (query_upper == "ROLLBACK") {
     handler = [this] {
-      if (!in_explicit_transaction_.load(std::memory_order_acquire)) {
+      if (!in_explicit_transaction_) {
         throw ExplicitTransactionUsageException("No current transaction to rollback.");
       }
       Abort();
       expect_rollback_ = false;
-      in_explicit_transaction_.store(false, std::memory_order_release);
+      in_explicit_transaction_ = false;
     };
   } else {
     LOG_FATAL("Should not get here -- unknown transaction query!");
@@ -1313,7 +1313,7 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
                        RWType::NONE};
 }
 
-PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, std::atomic<bool> *in_explicit_transaction,
+PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                   std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
                                   DbAccessor *dba, utils::MemoryResource *execution_memory, const std::string *username,
                                   std::atomic<TransactionStatus> *transaction_status) {
@@ -1334,7 +1334,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, std::atomic<bool> *i
   // transaction terms) because it doesn't execute the query, it just prints its
   // query plan. That is why EXPLAIN can be used in multicommand (explicit)
   // transactions.
-  if (in_explicit_transaction->load(std::memory_order_acquire)) {
+  if (in_explicit_transaction) {
     throw ProfileInMulticommandTxException();
   }
 
@@ -1414,9 +1414,9 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, std::map<std::string, T
                        RWType::R};
 }
 
-PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, std::atomic<bool> *in_explicit_transaction,
+PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                 std::vector<Notification> *notifications, InterpreterContext *interpreter_context) {
-  if (in_explicit_transaction->load(std::memory_order_acquire)) {
+  if (in_explicit_transaction) {
     throw IndexInMulticommandTxException();
   }
 
@@ -1537,11 +1537,11 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, std::atomic<bool> *in_
       RWType::W};
 }
 
-PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, std::atomic<bool> *in_explicit_transaction,
+PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
                                DbAccessor *dba, utils::MemoryResource *execution_memory, const std::string *username,
                                std::atomic<TransactionStatus> *transaction_status) {
-  if (in_explicit_transaction->load(std::memory_order_acquire)) {
+  if (in_explicit_transaction) {
     throw UserModificationInMulticommandTxException();
   }
 
@@ -1574,10 +1574,10 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, std::atomic<bool> *in_e
       RWType::NONE};
 }
 
-PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, std::atomic<bool> *in_explicit_transaction,
+PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                       std::vector<Notification> *notifications, InterpreterContext *interpreter_context,
                                       DbAccessor *dba) {
-  if (in_explicit_transaction->load(std::memory_order_acquire)) {
+  if (in_explicit_transaction) {
     throw ReplicationModificationInMulticommandTxException();
   }
 
@@ -1602,9 +1602,9 @@ PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, std::atomic<bool
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
 }
 
-PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query, std::atomic<bool> *in_explicit_transaction,
+PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                    InterpreterContext *interpreter_context, DbAccessor *dba) {
-  if (in_explicit_transaction->load(std::memory_order_acquire)) {
+  if (in_explicit_transaction) {
     throw LockPathModificationInMulticommandTxException();
   }
 
@@ -1631,9 +1631,9 @@ PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query, std::atomic<bool> *
                        RWType::NONE};
 }
 
-PreparedQuery PrepareFreeMemoryQuery(ParsedQuery parsed_query, std::atomic<bool> *in_explicit_transaction,
+PreparedQuery PrepareFreeMemoryQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                      InterpreterContext *interpreter_context) {
-  if (in_explicit_transaction->load(std::memory_order_acquire)) {
+  if (in_explicit_transaction) {
     throw FreeMemoryModificationInMulticommandTxException();
   }
 
@@ -1648,8 +1648,8 @@ PreparedQuery PrepareFreeMemoryQuery(ParsedQuery parsed_query, std::atomic<bool>
       RWType::NONE};
 }
 
-PreparedQuery PrepareShowConfigQuery(ParsedQuery parsed_query, std::atomic<bool> *in_explicit_transaction) {
-  if (in_explicit_transaction->load(std::memory_order_acquire)) {
+PreparedQuery PrepareShowConfigQuery(ParsedQuery parsed_query, bool in_explicit_transaction) {
+  if (in_explicit_transaction) {
     throw ShowConfigModificationInMulticommandTxException();
   }
 
@@ -1752,11 +1752,11 @@ Callback ShowTriggers(InterpreterContext *interpreter_context) {
           }};
 }
 
-PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, std::atomic<bool> *in_explicit_transaction,
+PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                   std::vector<Notification> *notifications, InterpreterContext *interpreter_context,
                                   DbAccessor *dba, const std::map<std::string, storage::PropertyValue> &user_parameters,
                                   const std::string *username) {
-  if (in_explicit_transaction->load(std::memory_order_acquire)) {
+  if (in_explicit_transaction) {
     throw TriggerModificationInMulticommandTxException();
   }
 
@@ -1802,12 +1802,12 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, std::atomic<bool> *i
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
 }
 
-PreparedQuery PrepareStreamQuery(ParsedQuery parsed_query, std::atomic<bool> *in_explicit_transaction,
+PreparedQuery PrepareStreamQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                  std::vector<Notification> *notifications, InterpreterContext *interpreter_context,
                                  DbAccessor *dba,
                                  const std::map<std::string, storage::PropertyValue> & /*user_parameters*/,
                                  const std::string *username) {
-  if (in_explicit_transaction->load(std::memory_order_acquire)) {
+  if (in_explicit_transaction) {
     throw StreamQueryInMulticommandTxException();
   }
 
@@ -1844,9 +1844,9 @@ constexpr auto ToStorageIsolationLevel(const IsolationLevelQuery::IsolationLevel
   }
 }
 
-PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, std::atomic<bool> *in_explicit_transaction,
+PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                          InterpreterContext *interpreter_context, Interpreter *interpreter) {
-  if (in_explicit_transaction->load(std::memory_order_acquire)) {
+  if (in_explicit_transaction) {
     throw IsolationLevelModificationInMulticommandTxException();
   }
 
@@ -1877,9 +1877,9 @@ PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, std::atomic<b
       RWType::NONE};
 }
 
-PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, std::atomic<bool> *in_explicit_transaction,
+PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                          InterpreterContext *interpreter_context) {
-  if (in_explicit_transaction->load(std::memory_order_acquire)) {
+  if (in_explicit_transaction) {
     throw CreateSnapshotInMulticommandTxException();
   }
 
@@ -1899,9 +1899,8 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, std::atomic<b
       RWType::NONE};
 }
 
-PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, std::atomic<bool> *in_explicit_transaction,
-                                  DbAccessor *dba) {
-  if (in_explicit_transaction->load(std::memory_order_acquire)) {
+PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, bool in_explicit_transaction, DbAccessor *dba) {
+  if (in_explicit_transaction) {
     throw SettingConfigInMulticommandTxException{};
   }
 
@@ -1943,14 +1942,9 @@ std::vector<std::vector<TypedValue>> TransactionQueueQueryHandler::ShowTransacti
     // }
     std::optional<uint64_t> transaction_id = interpreter->GetTransactionId();
     if (transaction_id.has_value() && (interpreter->username_ == username || isAdmin)) {
-      auto queries_summaries_typed = std::vector<TypedValue>();
-      auto queries_summaries = interpreter->GetQueries();
-      std::for_each(queries_summaries.begin(), queries_summaries.end(),
-                    [&queries_summaries_typed](const auto &query_summary) {
-                      queries_summaries_typed.emplace_back(query_summary);
-                    });
+      const auto &typed_queries = interpreter->GetQueries();
       results.push_back({TypedValue(interpreter->username_.value_or("")),
-                         TypedValue(std::to_string(transaction_id.value())), TypedValue(queries_summaries_typed)});
+                         TypedValue(std::to_string(transaction_id.value())), TypedValue(typed_queries)});
     }
     interpreter->transaction_status_.store(TransactionStatus::ALIVE, std::memory_order_release);
   }
@@ -2047,9 +2041,9 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
 }
 
 PreparedQuery PrepareTransactionQueueQuery(ParsedQuery parsed_query, const std::optional<std::string> &username,
-                                           std::atomic<bool> *in_explicit_transaction,
-                                           InterpreterContext *interpreter_context, DbAccessor *dba) {
-  if (in_explicit_transaction->load(std::memory_order_acquire)) {
+                                           bool in_explicit_transaction, InterpreterContext *interpreter_context,
+                                           DbAccessor *dba) {
+  if (in_explicit_transaction) {
     throw VersionInfoInMulticommandTxException();
   }
 
@@ -2073,8 +2067,8 @@ PreparedQuery PrepareTransactionQueueQuery(ParsedQuery parsed_query, const std::
                        RWType::NONE};
 }
 
-PreparedQuery PrepareVersionQuery(ParsedQuery parsed_query, std::atomic<bool> *in_explicit_transaction) {
-  if (in_explicit_transaction->load(std::memory_order_acquire)) {
+PreparedQuery PrepareVersionQuery(ParsedQuery parsed_query, bool in_explicit_transaction) {
+  if (in_explicit_transaction) {
     throw VersionInfoInMulticommandTxException();
   }
 
@@ -2091,10 +2085,10 @@ PreparedQuery PrepareVersionQuery(ParsedQuery parsed_query, std::atomic<bool> *i
                        RWType::NONE};
 }
 
-PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, std::atomic<bool> *in_explicit_transaction,
+PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
                                storage::Storage *db, utils::MemoryResource *execution_memory) {
-  if (in_explicit_transaction->load(std::memory_order_acquire)) {
+  if (in_explicit_transaction) {
     throw InfoInMulticommandTxException();
   }
 
@@ -2179,10 +2173,10 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, std::atomic<bool> *in_e
                        RWType::NONE};
 }
 
-PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, std::atomic<bool> *in_explicit_transaction,
+PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                      std::vector<Notification> *notifications,
                                      InterpreterContext *interpreter_context) {
-  if (in_explicit_transaction->load(std::memory_order_acquire)) {
+  if (in_explicit_transaction) {
     throw ConstraintInMulticommandTxException();
   }
 
@@ -2442,20 +2436,23 @@ void Interpreter::BeginTransaction() {
 void Interpreter::CommitTransaction() {
   const auto prepared_query = PrepareTransactionQuery("COMMIT");
   prepared_query.query_handler(nullptr, {});
-  query_executions_->clear();
+  query_executions_.clear();
+  transaction_queries_->clear();
 }
 
 void Interpreter::RollbackTransaction() {
   const auto prepared_query = PrepareTransactionQuery("ROLLBACK");
   prepared_query.query_handler(nullptr, {});
-  query_executions_->clear();
+  query_executions_.clear();
+  transaction_queries_->clear();
 }
 
 Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                                 const std::map<std::string, storage::PropertyValue> &params,
                                                 const std::string *username) {
-  if (!in_explicit_transaction_.load(std::memory_order_acquire)) {
-    query_executions_->clear();
+  if (!in_explicit_transaction_) {
+    query_executions_.clear();
+    transaction_queries_->clear();
   }
 
   // This will be done in the handle transaction query. Our handler can save username and then send it to the kill and
@@ -2463,13 +2460,12 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   std::optional<std::string> user = StringPointerToOptional(username);
   username_ = user;
 
-  query_executions_->emplace_back(std::make_unique<QueryExecution>());
-  auto &query_execution = query_executions_->back();
+  query_executions_.emplace_back(std::make_unique<QueryExecution>());
+  auto &query_execution = query_executions_.back();
   query_execution->query = query_string;
 
-  std::optional<int> qid = in_explicit_transaction_.load(std::memory_order_acquire)
-                               ? static_cast<int>(query_executions_->size() - 1)
-                               : std::optional<int>{};
+  std::optional<int> qid =
+      in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};
 
   // Handle transaction control queries.
 
@@ -2481,9 +2477,12 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid};
   }
 
+  // Don't save BEGIN, COMMIT or ROLLBACK
+  transaction_queries_->push_back(query_string);
+
   // All queries other than transaction control queries advance the command in
   // an explicit transaction block.
-  if (in_explicit_transaction_.load(std::memory_order_acquire)) {
+  if (in_explicit_transaction_) {
     AdvanceCommand();
   }
   // If we're not in an explicit transaction block and we have an open
@@ -2503,7 +2502,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     query_execution->summary["parsing_time"] = parsing_timer.Elapsed().count();
 
     // Some queries require an active transaction in order to be prepared.
-    if (!in_explicit_transaction_.load(std::memory_order_acquire) &&
+    if (!in_explicit_transaction_ &&
         (utils::Downcast<CypherQuery>(parsed_query.query) || utils::Downcast<ExplainQuery>(parsed_query.query) ||
          utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
          utils::Downcast<TriggerQuery>(parsed_query.query) ||
@@ -2536,57 +2535,56 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                            &*execution_db_accessor_, &query_execution->execution_memory_with_exception);
     } else if (utils::Downcast<ProfileQuery>(parsed_query.query)) {
       prepared_query = PrepareProfileQuery(
-          std::move(parsed_query), &in_explicit_transaction_, &query_execution->summary, interpreter_context_,
+          std::move(parsed_query), in_explicit_transaction_, &query_execution->summary, interpreter_context_,
           &*execution_db_accessor_, &query_execution->execution_memory_with_exception, username, &transaction_status_);
     } else if (utils::Downcast<DumpQuery>(parsed_query.query)) {
       prepared_query = PrepareDumpQuery(std::move(parsed_query), &query_execution->summary, &*execution_db_accessor_,
                                         &query_execution->execution_memory);
     } else if (utils::Downcast<IndexQuery>(parsed_query.query)) {
-      prepared_query = PrepareIndexQuery(std::move(parsed_query), &in_explicit_transaction_,
+      prepared_query = PrepareIndexQuery(std::move(parsed_query), in_explicit_transaction_,
                                          &query_execution->notifications, interpreter_context_);
     } else if (utils::Downcast<AuthQuery>(parsed_query.query)) {
       prepared_query = PrepareAuthQuery(
-          std::move(parsed_query), &in_explicit_transaction_, &query_execution->summary, interpreter_context_,
+          std::move(parsed_query), in_explicit_transaction_, &query_execution->summary, interpreter_context_,
           &*execution_db_accessor_, &query_execution->execution_memory_with_exception, username, &transaction_status_);
     } else if (utils::Downcast<InfoQuery>(parsed_query.query)) {
-      prepared_query = PrepareInfoQuery(std::move(parsed_query), &in_explicit_transaction_, &query_execution->summary,
+      prepared_query = PrepareInfoQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
                                         interpreter_context_, interpreter_context_->db,
                                         &query_execution->execution_memory_with_exception);
     } else if (utils::Downcast<ConstraintQuery>(parsed_query.query)) {
-      prepared_query = PrepareConstraintQuery(std::move(parsed_query), &in_explicit_transaction_,
+      prepared_query = PrepareConstraintQuery(std::move(parsed_query), in_explicit_transaction_,
                                               &query_execution->notifications, interpreter_context_);
     } else if (utils::Downcast<ReplicationQuery>(parsed_query.query)) {
       prepared_query =
-          PrepareReplicationQuery(std::move(parsed_query), &in_explicit_transaction_, &query_execution->notifications,
+          PrepareReplicationQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
                                   interpreter_context_, &*execution_db_accessor_);
     } else if (utils::Downcast<LockPathQuery>(parsed_query.query)) {
-      prepared_query = PrepareLockPathQuery(std::move(parsed_query), &in_explicit_transaction_, interpreter_context_,
+      prepared_query = PrepareLockPathQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
                                             &*execution_db_accessor_);
     } else if (utils::Downcast<FreeMemoryQuery>(parsed_query.query)) {
-      prepared_query = PrepareFreeMemoryQuery(std::move(parsed_query), &in_explicit_transaction_, interpreter_context_);
+      prepared_query = PrepareFreeMemoryQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
     } else if (utils::Downcast<ShowConfigQuery>(parsed_query.query)) {
-      prepared_query = PrepareShowConfigQuery(std::move(parsed_query), &in_explicit_transaction_);
+      prepared_query = PrepareShowConfigQuery(std::move(parsed_query), in_explicit_transaction_);
     } else if (utils::Downcast<TriggerQuery>(parsed_query.query)) {
       prepared_query =
-          PrepareTriggerQuery(std::move(parsed_query), &in_explicit_transaction_, &query_execution->notifications,
+          PrepareTriggerQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
                               interpreter_context_, &*execution_db_accessor_, params, username);
     } else if (utils::Downcast<StreamQuery>(parsed_query.query)) {
       prepared_query =
-          PrepareStreamQuery(std::move(parsed_query), &in_explicit_transaction_, &query_execution->notifications,
+          PrepareStreamQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
                              interpreter_context_, &*execution_db_accessor_, params, username);
     } else if (utils::Downcast<IsolationLevelQuery>(parsed_query.query)) {
       prepared_query =
-          PrepareIsolationLevelQuery(std::move(parsed_query), &in_explicit_transaction_, interpreter_context_, this);
+          PrepareIsolationLevelQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_, this);
     } else if (utils::Downcast<CreateSnapshotQuery>(parsed_query.query)) {
       prepared_query =
-          PrepareCreateSnapshotQuery(std::move(parsed_query), &in_explicit_transaction_, interpreter_context_);
+          PrepareCreateSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
     } else if (utils::Downcast<SettingQuery>(parsed_query.query)) {
-      prepared_query =
-          PrepareSettingQuery(std::move(parsed_query), &in_explicit_transaction_, &*execution_db_accessor_);
+      prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_, &*execution_db_accessor_);
     } else if (utils::Downcast<VersionQuery>(parsed_query.query)) {
-      prepared_query = PrepareVersionQuery(std::move(parsed_query), &in_explicit_transaction_);
+      prepared_query = PrepareVersionQuery(std::move(parsed_query), in_explicit_transaction_);
     } else if (utils::Downcast<TransactionQueueQuery>(parsed_query.query)) {
-      prepared_query = PrepareTransactionQueueQuery(std::move(parsed_query), username_, &in_explicit_transaction_,
+      prepared_query = PrepareTransactionQueueQuery(std::move(parsed_query), username_, in_explicit_transaction_,
                                                     interpreter_context_, &*execution_db_accessor_);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
@@ -2615,20 +2613,13 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   }
 }
 
-std::vector<std::string> Interpreter::GetQueries() {
-  if (in_explicit_transaction_.load(std::memory_order_acquire)) {
-    std::vector<std::string> queries;
-    query_executions_.WithLock([&queries](const auto &query_executions) {
-      for (const auto &ptr : query_executions) {
-        if (ptr) {
-          queries.push_back(ptr->query);
-        }
-      }
-    });
-
-    return queries;
-  }
-  return {query_executions_->back()->query};
+std::vector<TypedValue> Interpreter::GetQueries() {
+  auto typed_queries = std::vector<TypedValue>();
+  transaction_queries_.WithLock([&typed_queries](const auto &transaction_queries) {
+    std::for_each(transaction_queries.begin(), transaction_queries.end(),
+                  [&typed_queries](const auto &query) { typed_queries.emplace_back(query); });
+  });
+  return typed_queries;
 }
 
 void Interpreter::Abort() {
@@ -2638,7 +2629,7 @@ void Interpreter::Abort() {
   // Process with the abort no matter the transaction status
   transaction_status_.store(TransactionStatus::STARTED_ROLLBACK, std::memory_order_release);
   expect_rollback_ = false;
-  in_explicit_transaction_.store(false, std::memory_order_release);
+  in_explicit_transaction_ = false;
   if (!db_accessor_) return;
   db_accessor_->Abort();
   execution_db_accessor_.reset();
@@ -2835,7 +2826,7 @@ void Interpreter::AbortCommand(std::unique_ptr<QueryExecution> *query_execution)
   if (query_execution) {
     query_execution->reset(nullptr);
   }
-  if (in_explicit_transaction_.load(std::memory_order_acquire)) {
+  if (in_explicit_transaction_) {
     expect_rollback_ = true;
   } else {
     Abort();
