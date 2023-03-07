@@ -985,8 +985,8 @@ void Storage::Accessor::Abort() {
         auto vertex = prev.vertex;
         std::lock_guard<utils::SpinLock> guard(vertex->lock);
         Delta *current = vertex->delta;
-        while (current != nullptr &&
-               current->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id) {
+        while (current != nullptr && current->timestamp->load(std::memory_order_acquire) ==
+                                         transaction_.transaction_id.load(std::memory_order_acquire)) {
           switch (current->action) {
             case Delta::Action::REMOVE_LABEL: {
               auto it = std::find(vertex->labels.begin(), vertex->labels.end(), current->label);
@@ -1072,8 +1072,8 @@ void Storage::Accessor::Abort() {
         auto edge = prev.edge;
         std::lock_guard<utils::SpinLock> guard(edge->lock);
         Delta *current = edge->delta;
-        while (current != nullptr &&
-               current->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id) {
+        while (current != nullptr && current->timestamp->load(std::memory_order_acquire) ==
+                                         transaction_.transaction_id.load(std::memory_order_acquire)) {
           switch (current->action) {
             case Delta::Action::SET_PROPERTY: {
               edge->properties.SetProperty(current->property.key, current->property.value);
@@ -1146,7 +1146,7 @@ void Storage::Accessor::FinalizeTransaction() {
 
 std::optional<uint64_t> Storage::Accessor::GetTransactionId() const {
   if (is_transaction_active_) {
-    return transaction_.transaction_id;
+    return transaction_.transaction_id.load(std::memory_order_acquire);
   }
   return {};
 }

@@ -27,7 +27,7 @@ namespace memgraph::query {
 enum class TransactionStatus {
   NO_TRANSACTION,
   ALIVE,
-  CHECKING_KILL,
+  CHECKING_STATUS,
   KILLED,
   STARTED_COMMITTING,
   STARTED_ROLLBACK,
