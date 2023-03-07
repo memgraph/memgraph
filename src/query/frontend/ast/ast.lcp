@@ -2731,5 +2731,41 @@ cpp<#
   (:serialize (:slk))
   (:clone))
 
+(lcp:define-class exists (expression)
+  ((pattern "Pattern *" :initval "nullptr" :scope :public
+             :slk-save #'slk-save-ast-pointer
+             :slk-load (slk-load-ast-pointer "Pattern"))
+   (symbol-pos :int32_t :initval -1 :scope :public
+               :documentation "Symbol table position of the symbol this Aggregation is mapped to."))
+
+  (:public
+    #>cpp
+    Exists() = default;
+
+    DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<TypedValue*>);
+    DEFVISITABLE(ExpressionVisitor<void>);
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        pattern_->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
+    Exists *MapTo(const Symbol &symbol) {
+      symbol_pos_ = symbol.position();
+      return this;
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    Exists(Pattern * pattern) : pattern_(pattern) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
 (lcp:pop-namespace) ;; namespace query
 (lcp:pop-namespace) ;; namespace memgraph

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -146,10 +146,10 @@ struct mgp_date {
   mgp_date(const memgraph::utils::Date &date, memgraph::utils::MemoryResource *memory) noexcept
       : memory(memory), date(date) {}
 
-  mgp_date(const std::string_view string, memgraph::utils::MemoryResource *memory) noexcept
+  mgp_date(const std::string_view string, memgraph::utils::MemoryResource *memory)
       : memory(memory), date(memgraph::utils::ParseDateParameters(string).first) {}
 
-  mgp_date(const mgp_date_parameters *parameters, memgraph::utils::MemoryResource *memory) noexcept
+  mgp_date(const mgp_date_parameters *parameters, memgraph::utils::MemoryResource *memory)
       : memory(memory), date(MapDateParameters(parameters)) {}
 
   mgp_date(const int64_t microseconds, memgraph::utils::MemoryResource *memory) noexcept
@@ -194,10 +194,10 @@ struct mgp_local_time {
   // have everything noexcept here.
   static_assert(std::is_nothrow_copy_constructible_v<memgraph::utils::LocalTime>);
 
-  mgp_local_time(const std::string_view string, memgraph::utils::MemoryResource *memory) noexcept
+  mgp_local_time(const std::string_view string, memgraph::utils::MemoryResource *memory)
       : memory(memory), local_time(memgraph::utils::ParseLocalTimeParameters(string).first) {}
 
-  mgp_local_time(const mgp_local_time_parameters *parameters, memgraph::utils::MemoryResource *memory) noexcept
+  mgp_local_time(const mgp_local_time_parameters *parameters, memgraph::utils::MemoryResource *memory)
       : memory(memory), local_time(MapLocalTimeParameters(parameters)) {}
 
   mgp_local_time(const memgraph::utils::LocalTime &local_time, memgraph::utils::MemoryResource *memory) noexcept
@@ -250,8 +250,7 @@ struct mgp_local_date_time {
   mgp_local_date_time(const std::string_view string, memgraph::utils::MemoryResource *memory) noexcept
       : memory(memory), local_date_time(CreateLocalDateTimeFromString(string)) {}
 
-  mgp_local_date_time(const mgp_local_date_time_parameters *parameters,
-                      memgraph::utils::MemoryResource *memory) noexcept
+  mgp_local_date_time(const mgp_local_date_time_parameters *parameters, memgraph::utils::MemoryResource *memory)
       : memory(memory),
         local_date_time(MapDateParameters(parameters->date_parameters),
                         MapLocalTimeParameters(parameters->local_time_parameters)) {}
@@ -301,7 +300,7 @@ struct mgp_duration {
   // have everything noexcept here.
   static_assert(std::is_nothrow_copy_constructible_v<memgraph::utils::Duration>);
 
-  mgp_duration(const std::string_view string, memgraph::utils::MemoryResource *memory) noexcept
+  mgp_duration(const std::string_view string, memgraph::utils::MemoryResource *memory)
       : memory(memory), duration(memgraph::utils::ParseDurationParameters(string)) {}
 
   mgp_duration(const mgp_duration_parameters *parameters, memgraph::utils::MemoryResource *memory) noexcept
