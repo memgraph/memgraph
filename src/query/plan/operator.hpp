@@ -126,6 +126,7 @@ class CallProcedure;
 class LoadCsv;
 class Foreach;
 class EmptyResult;
+class EvaluatePatternFilter;
 
 using LogicalOperatorCompositeVisitor =
     utils::CompositeVisitor<Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel, ScanAllByLabelPropertyRange,
@@ -133,12 +134,12 @@ using LogicalOperatorCompositeVisitor =
                             ConstructNamedPath, Filter, Produce, Delete, SetProperty, SetProperties, SetLabels,
                             RemoveProperty, RemoveLabels, EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit,
                             OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv,
-                            Foreach, EmptyResult>;
+                            Foreach, EmptyResult, EvaluatePatternFilter>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
 /**
- * @brief Base class for hierarhical visitors of @c LogicalOperator class
+ * @brief Base class for hierarchical visitors of @c LogicalOperator class
  * hierarchy.
  */
 class HierarchicalLogicalOperatorVisitor : public LogicalOperatorCompositeVisitor, public LogicalOperatorLeafVisitor {
@@ -1013,7 +1014,8 @@ class Filter : public memgraph::query::plan::LogicalOperator {
 
   Filter() {}
 
-  Filter(const std::shared_ptr<LogicalOperator> &input_, Expression *expression_);
+  Filter(const std::shared_ptr<LogicalOperator> &input_,
+         const std::vector<std::shared_ptr<LogicalOperator>> &pattern_filters_, Expression *expression_);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -1023,11 +1025,16 @@ class Filter : public memgraph::query::plan::LogicalOperator {
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
+  std::vector<std::shared_ptr<memgraph::query::plan::LogicalOperator>> pattern_filters_;
   Expression *expression_;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<Filter>();
     object->input_ = input_ ? input_->Clone(storage) : nullptr;
+    object->pattern_filters_.resize(pattern_filters_.size());
+    for (auto i1 = 0; i1 < pattern_filters_.size(); ++i1) {
+      object->pattern_filters_[i1] = pattern_filters_[i1] ? pattern_filters_[i1]->Clone(storage) : nullptr;
+    }
     object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
     return object;
   }
@@ -1043,6 +1050,7 @@ class Filter : public memgraph::query::plan::LogicalOperator {
    private:
     const Filter &self_;
     const UniqueCursorPtr input_cursor_;
+    const std::vector<UniqueCursorPtr> pattern_filter_cursors_;
   };
 };
 
@@ -1665,6 +1673,47 @@ class Skip : public memgraph::query::plan::LogicalOperator {
     // that it's still unknown (input has not been Pulled yet)
     int64_t to_skip_{-1};
     int64_t skipped_{0};
+  };
+};
+
+/// Applies the pattern filter by putting the value of the input cursor to the frame.
+class EvaluatePatternFilter : public memgraph::query::plan::LogicalOperator {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  EvaluatePatternFilter() {}
+
+  EvaluatePatternFilter(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
+
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
+  Symbol output_symbol_;
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
+    auto object = std::make_unique<EvaluatePatternFilter>();
+    object->input_ = input_ ? input_->Clone(storage) : nullptr;
+    object->output_symbol_ = output_symbol_;
+    return object;
+  }
+
+ private:
+  class EvaluatePatternFilterCursor : public Cursor {
+   public:
+    EvaluatePatternFilterCursor(const EvaluatePatternFilter &, utils::MemoryResource *);
+    bool Pull(Frame &, ExecutionContext &) override;
+    void Shutdown() override;
+    void Reset() override;
+
+   private:
+    const EvaluatePatternFilter &self_;
+    UniqueCursorPtr input_cursor_;
   };
 };
 

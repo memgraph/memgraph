@@ -104,6 +104,9 @@ const memgraph::utils::TypeInfo memgraph::query::plan::Aggregate::kType{0x275C50
 const memgraph::utils::TypeInfo memgraph::query::plan::Skip::kType{0x85B81ECB8F0197AEULL, "Skip",
                                                                    &memgraph::query::plan::LogicalOperator::kType};
 
+const memgraph::utils::TypeInfo memgraph::query::plan::EvaluatePatternFilter::kType{
+    0xF77BC145A4C54D06ULL, "EvaluatePatternFilter", &memgraph::query::plan::LogicalOperator::kType};
+
 const memgraph::utils::TypeInfo memgraph::query::plan::Limit::kType{0x79C67A0E22B61400ULL, "Limit",
                                                                     &memgraph::query::plan::LogicalOperator::kType};
 

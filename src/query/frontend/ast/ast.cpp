@@ -284,3 +284,6 @@ const memgraph::utils::TypeInfo memgraph::query::Foreach::kType{0xF22E7972BF35BA
 
 const memgraph::utils::TypeInfo memgraph::query::ShowConfigQuery::kType{0x3E7D0B5FDE8211DBULL, "ShowConfigQuery",
                                                                         &memgraph::query::Query::kType};
+
+const memgraph::utils::TypeInfo memgraph::query::Exists::kType{0x5F492EE46988DD42ULL, "Exists",
+                                                               &memgraph::query::Expression::kType};

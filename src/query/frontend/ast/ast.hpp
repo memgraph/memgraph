@@ -3203,5 +3203,44 @@ class ShowConfigQuery : public memgraph::query::Query {
   }
 };
 
+class Exists : public memgraph::query::Expression {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  Exists() = default;
+
+  DEFVISITABLE(ExpressionVisitor<TypedValue>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<void>);
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      pattern_->Accept(visitor);
+    }
+    return visitor.PostVisit(*this);
+  }
+  Exists *MapTo(const Symbol &symbol) {
+    symbol_pos_ = symbol.position();
+    return this;
+  }
+
+  memgraph::query::Pattern *pattern_{nullptr};
+  /// Symbol table position of the symbol this Aggregation is mapped to.
+  int32_t symbol_pos_{-1};
+
+  Exists *Clone(AstStorage *storage) const override {
+    Exists *object = storage->Create<Exists>();
+    object->pattern_ = pattern_ ? pattern_->Clone(storage) : nullptr;
+    object->symbol_pos_ = symbol_pos_;
+    return object;
+  }
+
+ protected:
+  Exists(Pattern *pattern) : pattern_(pattern) {}
+
+ private:
+  friend class AstStorage;
+};
+
 }  // namespace query
 }  // namespace memgraph
