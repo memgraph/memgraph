@@ -206,6 +206,18 @@ bool SymbolGenerator::PostVisit(CallProcedure &call_proc) {
   return true;
 }
 
+bool SymbolGenerator::PreVisit(CallSubquery & /*call_sub*/) {
+  scopes_.emplace_back(Scope());
+  scopes_.back().in_call_subquery = true;
+  // create symbols?
+  return true;
+}
+
+bool SymbolGenerator::PostVisit(CallSubquery & /*call_sub*/) {
+  scopes_.pop_back();
+  return true;
+}
+
 bool SymbolGenerator::PreVisit(LoadCsv &load_csv) { return false; }
 
 bool SymbolGenerator::PostVisit(LoadCsv &load_csv) {

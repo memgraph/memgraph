@@ -2702,6 +2702,9 @@ cpp<#
     bool Accept(HierarchicalTreeVisitor &visitor) override {
       if (visitor.PreVisit(*this)) {
         single_query_->Accept(visitor);
+        for (auto *cypher_union : cypher_unions_) {
+          cypher_union->Accept(visitor);
+        }
       }
       return visitor.PostVisit(*this);
     }
