@@ -20,6 +20,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/plan/operator.hpp"
+#include "query/plan/planner.hpp"
 #include "query/plan/preprocess.hpp"
 #include "utils/logging.hpp"
 #include "utils/typeinfo.hpp"
@@ -164,7 +165,8 @@ class RuleBasedPlanner {
   /// tree.
   using PlanResult = std::unique_ptr<LogicalOperator>;
   /// @brief Generates the operator tree based on explicitly set rules.
-  PlanResult Plan(const std::vector<SingleQueryPart> &query_parts) {
+  PlanResult Plan(const std::vector<SingleQueryPart> &query_parts, const std::queue<LogicalOperator> &sub_plans,
+                  std::unique_ptr<LogicalOperator> input_op = nullptr) {
     auto &context = *context_;
     std::unique_ptr<LogicalOperator> input_op;
     // Set to true if a query command writes to the database.
@@ -234,6 +236,11 @@ class RuleBasedPlanner {
           is_write = true;
           input_op = HandleForeachClause(foreach, std::move(input_op), *context.symbol_table, context.bound_symbols,
                                          query_part, merge_id);
+        } else if (auto *call_sub = utils::Downcast<query::CallSubquery>(clause)) {
+          // is_write?
+          // take plans about subqueries, connect operators, add
+          input_op = HandleSubquery(call_sub, std::move(input_op), sub_plans.pop());
+
         } else {
           throw utils::NotYetImplemented("clause '{}' conversion to operator(s)", clause->GetTypeInfo().name);
         }
@@ -566,6 +573,11 @@ class RuleBasedPlanner {
     }
     return std::make_unique<plan::Foreach>(std::move(input_op), std::move(op), foreach->named_expression_->expression_,
                                            symbol);
+  }
+
+  std::unique_ptr<LogicalOperator> HandleSubquery(std::unique_ptr<LogicalOperator> input_op) {
+    // bound symbols?
+    return std::make_unique<plan::BrunoOperator>();
   }
 };
 

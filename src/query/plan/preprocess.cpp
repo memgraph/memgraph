@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -542,10 +542,10 @@ static void ParseForeach(query::Foreach &foreach, SingleQueryPart &query_part, A
 
 // Converts a Query to multiple QueryParts. In the process new Ast nodes may be
 // created, e.g. filter expressions.
-std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, AstStorage &storage,
-                                                     SingleQuery *single_query) {
+QueryPart CollectSingleQueryParts(SymbolTable &symbol_table, AstStorage &storage, SingleQuery *single_query) {
   std::vector<SingleQueryPart> query_parts(1);
   auto *query_part = &query_parts.back();
+  std::vector<std::unique_ptr<QueryParts>> subqueries{};
   for (auto &clause : single_query->clauses_) {
     if (auto *match = utils::Downcast<Match>(clause)) {
       if (match->optional_) {
@@ -560,6 +560,13 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
       if (auto *merge = utils::Downcast<query::Merge>(clause)) {
         query_part->merge_matching.emplace_back(Matching{});
         AddMatching({merge->pattern_}, nullptr, symbol_table, storage, query_part->merge_matching.back());
+      } else if (auto *call_subquery = utils::Downcast<query::CallSubquery>(clause)) {
+        // with more than one CALL subquery, we need to either know where we are in the vector or use a queue
+        auto subquery_parts =
+            CollectQueryParts(symbol_table, storage, call_subquery->single_query_, call_subquery->cypher_unions_);
+        std::unique_ptr<QueryParts> subquery;
+        *subquery = subquery_parts;
+        subqueries.push_back(std::move(subquery));
       } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
         ParseForeach(*foreach, *query_part, storage, symbol_table);
       } else if (utils::IsSubtype(*clause, With::kType) || utils::IsSubtype(*clause, query::Unwind::kType) ||
@@ -569,29 +576,31 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
         query_parts.emplace_back(SingleQueryPart{});
         query_part = &query_parts.back();
       } else if (utils::IsSubtype(*clause, Return::kType)) {
-        return query_parts;
+        return QueryPart{query_parts, subqueries};
       }
     }
   }
-  return query_parts;
+  return QueryPart{query_parts, subqueries};
 }
 
-QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, CypherQuery *query) {
+QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, SingleQuery *single_query,
+                             std::vector<memgraph::query::CypherUnion *> cypher_unions) {
   std::vector<QueryPart> query_parts;
 
-  auto *single_query = query->single_query_;
   MG_ASSERT(single_query, "Expected at least a single query");
-  query_parts.push_back(QueryPart{CollectSingleQueryParts(symbol_table, storage, single_query)});
+  query_parts.push_back(CollectSingleQueryParts(symbol_table, storage, single_query));
 
   bool distinct = false;
-  for (auto *cypher_union : query->cypher_unions_) {
+  for (auto *cypher_union : cypher_unions) {
     if (cypher_union->distinct_) {
       distinct = true;
     }
 
     auto *single_query = cypher_union->single_query_;
     MG_ASSERT(single_query, "Expected UNION to have a query");
-    query_parts.push_back(QueryPart{CollectSingleQueryParts(symbol_table, storage, single_query), cypher_union});
+    QueryPart qp = CollectSingleQueryParts(symbol_table, storage, single_query);
+    qp.query_combinator = cypher_union;
+    query_parts.push_back(qp);
   }
   return QueryParts{query_parts, distinct};
 }

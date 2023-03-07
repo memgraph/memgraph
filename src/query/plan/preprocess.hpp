@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -287,6 +287,9 @@ struct Matching {
   std::unordered_set<Symbol> expansion_symbols{};
 };
 
+// TODO clumsy to need to declare it before, usually only the struct definition would be in header
+struct QueryParts;
+
 /// @brief Represents a read (+ write) part of a query. Parts are split on
 /// `WITH` clauses.
 ///
@@ -337,6 +340,7 @@ struct SingleQueryPart {
 /// about the combinator used between this single query and the previous one.
 struct QueryPart {
   std::vector<SingleQueryPart> single_query_parts = {};
+  std::vector<std::unique_ptr<QueryParts>> subqueries{};
   /// Optional AST query combinator node
   Tree *query_combinator = nullptr;
 };
@@ -355,6 +359,6 @@ struct QueryParts {
 /// and do some other preprocessing in order to generate multiple @c QueryPart
 /// structures. @c AstStorage and @c SymbolTable may be used to create new
 /// AST nodes.
-QueryParts CollectQueryParts(SymbolTable &, AstStorage &, CypherQuery *);
+QueryParts CollectQueryParts(SymbolTable &, AstStorage &, SingleQuery *, std::vector<memgraph::query::CypherUnion *>);
 
 }  // namespace memgraph::query::plan
