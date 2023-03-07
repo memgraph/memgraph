@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -60,6 +60,7 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
   void Visit(Reduce &op) override;
   void Visit(Coalesce &op) override;
   void Visit(Extract &op) override;
+  void Visit(Exists &op) override;
   void Visit(All &op) override;
   void Visit(Single &op) override;
   void Visit(Any &op) override;
@@ -263,6 +264,8 @@ void ExpressionPrettyPrinter::Visit(Coalesce &op) { PrintOperator(out_, "Coalesc
 void ExpressionPrettyPrinter::Visit(Extract &op) {
   PrintOperator(out_, "Extract", op.identifier_, op.list_, op.expression_);
 }
+
+void ExpressionPrettyPrinter::Visit(Exists & /*op*/) { PrintOperator(out_, "Exists", "expression"); }
 
 void ExpressionPrettyPrinter::Visit(All &op) {
   PrintOperator(out_, "All", op.identifier_, op.list_expression_, op.where_->expression_);

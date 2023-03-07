@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -51,6 +51,7 @@ class SymbolTable final {
   const Symbol &at(const Identifier &ident) const { return table_.at(ident.symbol_pos_); }
   const Symbol &at(const NamedExpression &nexpr) const { return table_.at(nexpr.symbol_pos_); }
   const Symbol &at(const Aggregation &aggr) const { return table_.at(aggr.symbol_pos_); }
+  const Symbol &at(const Exists &exists) const { return table_.at(exists.symbol_pos_); }
 
   // TODO: Remove these since members are public
   int32_t max_position() const { return static_cast<int32_t>(table_.size()); }
