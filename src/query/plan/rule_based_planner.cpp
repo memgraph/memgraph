@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,15 +24,6 @@
 namespace memgraph::query::plan {
 
 namespace {
-
-bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, const FilterInfo &filter) {
-  for (const auto &symbol : filter.used_symbols) {
-    if (bound_symbols.find(symbol) == bound_symbols.end()) {
-      return false;
-    }
-  }
-  return true;
-}
 
 // Ast tree visitor which collects the context for a return body.
 // The return body of WITH and RETURN clauses consists of:
@@ -495,7 +486,8 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
   // Where may see new symbols so it comes after we generate Produce and in
   // general, comes after any OrderBy, Skip or Limit.
   if (body.where()) {
-    last_op = std::make_unique<Filter>(std::move(last_op), body.where()->expression_);
+    last_op = std::make_unique<Filter>(std::move(last_op), std::vector<std::shared_ptr<LogicalOperator>>{},
+                                       body.where()->expression_);
   }
   return last_op;
 }
@@ -503,6 +495,12 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
 }  // namespace
 
 namespace impl {
+
+bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, const FilterInfo &filter) {
+  return std::ranges::all_of(
+      filter.used_symbols.begin(), filter.used_symbols.end(),
+      [&bound_symbols](const auto &symbol) { return bound_symbols.find(symbol) != bound_symbols.end(); });
+}
 
 Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols, Filters &filters, AstStorage &storage) {
   Expression *filter_expr = nullptr;
@@ -515,16 +513,6 @@ Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols, Filt
     }
   }
   return filter_expr;
-}
-
-std::unique_ptr<LogicalOperator> GenFilters(std::unique_ptr<LogicalOperator> last_op,
-                                            const std::unordered_set<Symbol> &bound_symbols, Filters &filters,
-                                            AstStorage &storage) {
-  auto *filter_expr = ExtractFilters(bound_symbols, filters, storage);
-  if (filter_expr) {
-    last_op = std::make_unique<Filter>(std::move(last_op), filter_expr);
-  }
-  return last_op;
 }
 
 std::unique_ptr<LogicalOperator> GenNamedPaths(std::unique_ptr<LogicalOperator> last_op,

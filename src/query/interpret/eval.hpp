@@ -89,6 +89,7 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue *> {
   UNSUCCESSFUL_VISIT(None);
   UNSUCCESSFUL_VISIT(ParameterLookup);
   UNSUCCESSFUL_VISIT(RegexMatch);
+  UNSUCCESSFUL_VISIT(Exists);
 
  private:
   Frame *frame_;
@@ -618,6 +619,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
     return TypedValue(result, ctx_->memory);
   }
+
+  TypedValue Visit(Exists &exists) override { return TypedValue{frame_->at(symbol_table_->at(exists)), ctx_->memory}; }
 
   TypedValue Visit(All &all) override {
     auto list_value = all.list_expression_->Accept(*this);
