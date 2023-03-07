@@ -85,23 +85,6 @@ bool AuthChecker::IsUserAuthorized(const std::optional<std::string> &username,
   return maybe_user.has_value() && IsUserAuthorized(*maybe_user, privileges);
 }
 
-/*
-Creates a user from the username and checks if it is the admin. If there are no users, everyone is the admin.
-*/
-bool AuthChecker::IsUserAdmin(const std::optional<std::string> &username) const {
-  std::optional<memgraph::auth::User> maybe_user;
-  {
-    auto locked_auth = auth_->ReadLock();
-    if (!locked_auth->HasUsers()) {
-      return true;
-    }
-    if (username.has_value()) {
-      maybe_user = locked_auth->GetUser(*username);
-    }
-  }
-  return maybe_user.has_value() && IsUserAdmin(*maybe_user);
-}
-
 #ifdef MG_ENTERPRISE
 std::unique_ptr<memgraph::query::FineGrainedAuthChecker> AuthChecker::GetFineGrainedAuthChecker(
     const std::string &username, const memgraph::query::DbAccessor *dba) const {
@@ -130,15 +113,6 @@ bool AuthChecker::IsUserAuthorized(const memgraph::auth::User &user,
     return user_permissions.Has(memgraph::glue::PrivilegeToPermission(privilege)) ==
            memgraph::auth::PermissionLevel::GRANT;
   });
-}
-
-bool AuthChecker::IsUserAdmin(const memgraph::auth::User &user) {
-  const auto user_permissions = user.GetPermissions();
-  return std::all_of(query::kPrivilegesAll.begin(), query::kPrivilegesAll.end(),
-                     [&user_permissions](const auto privilege) {
-                       return user_permissions.Has(memgraph::glue::PrivilegeToPermission(privilege)) ==
-                              memgraph::auth::PermissionLevel::GRANT;
-                     });
 }
 
 #ifdef MG_ENTERPRISE

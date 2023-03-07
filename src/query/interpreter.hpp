@@ -397,11 +397,11 @@ class TransactionQueueQueryHandler {
 
   static std::vector<std::vector<TypedValue>> ShowTransactions(const std::unordered_set<Interpreter *> &interpreters,
                                                                const std::optional<std::string> &username,
-                                                               bool isAdmin);
+                                                               bool hasTransactionManagementPrivilege);
 
   static std::vector<std::vector<TypedValue>> KillTransactions(
       InterpreterContext *interpreter_context, const std::vector<std::string> &maybe_kill_transaction_ids,
-      const std::optional<std::string> &username, bool isAdmin);
+      const std::optional<std::string> &username, bool hasTransactionManagementPrivilege);
 };
 
 template <typename TStream>

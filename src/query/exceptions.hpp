@@ -236,4 +236,11 @@ class ReplicationException : public utils::BasicException {
       : utils::BasicException("Replication Exception: {} Check the status of the replicas using 'SHOW REPLICA' query.",
                               message) {}
 };
+
+class TransactionQueueInMulticommandTxException : public QueryException {
+ public:
+  TransactionQueueInMulticommandTxException()
+      : QueryException("Transaction queue queries not allowed in multicommand transactions.") {}
+};
+
 }  // namespace memgraph::query

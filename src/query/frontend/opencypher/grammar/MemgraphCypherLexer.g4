@@ -109,6 +109,7 @@ TIMEOUT             : T I M E O U T ;
 TO                  : T O ;
 TOPICS              : T O P I C S;
 TRANSACTION         : T R A N S A C T I O N ;
+TRANSACTION_MANAGEMENT : T R A N S A C T I O N UNDERSCORE M A N A G E M E N T ;
 TRANSACTIONS        : T R A N S A C T I O N S ;
 TRANSFORM           : T R A N S F O R M ;
 TRIGGER             : T R I G G E R ;

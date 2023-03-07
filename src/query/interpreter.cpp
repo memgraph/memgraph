@@ -30,6 +30,7 @@
 #include "glue/communication.hpp"
 #include "license/license.hpp"
 #include "memory/memory_control.hpp"
+#include "query/auth_checker.hpp"
 #include "query/common.hpp"
 #include "query/config.hpp"
 #include "query/constants.hpp"
@@ -1926,7 +1927,8 @@ PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, bool in_explicit_tra
 }
 
 std::vector<std::vector<TypedValue>> TransactionQueueQueryHandler::ShowTransactions(
-    const std::unordered_set<Interpreter *> &interpreters, const std::optional<std::string> &username, bool isAdmin) {
+    const std::unordered_set<Interpreter *> &interpreters, const std::optional<std::string> &username,
+    bool hasTransactionManagementPrivilege) {
   std::vector<std::vector<TypedValue>> results;
   results.reserve(interpreters.size());
   for (Interpreter *interpreter : interpreters) {
@@ -1941,7 +1943,7 @@ std::vector<std::vector<TypedValue>> TransactionQueueQueryHandler::ShowTransacti
     //   continue;
     // }
     std::optional<uint64_t> transaction_id = interpreter->GetTransactionId();
-    if (transaction_id.has_value() && (interpreter->username_ == username || isAdmin)) {
+    if (transaction_id.has_value() && (interpreter->username_ == username || hasTransactionManagementPrivilege)) {
       const auto &typed_queries = interpreter->GetQueries();
       results.push_back({TypedValue(interpreter->username_.value_or("")),
                          TypedValue(std::to_string(transaction_id.value())), TypedValue(typed_queries)});
@@ -1953,42 +1955,42 @@ std::vector<std::vector<TypedValue>> TransactionQueueQueryHandler::ShowTransacti
 
 std::vector<std::vector<TypedValue>> TransactionQueueQueryHandler::KillTransactions(
     InterpreterContext *interpreter_context, const std::vector<std::string> &maybe_kill_transaction_ids,
-    const std::optional<std::string> &username, bool isAdmin) {
+    const std::optional<std::string> &username, bool hasTransactionManagementPrivilege) {
   std::vector<std::vector<TypedValue>> results;
   for (const std::string &transaction_id : maybe_kill_transaction_ids) {
     bool killed = false;
     bool transaction_found = false;
-    interpreter_context->interpreters.WithLock(
-        [&transaction_id, &killed, &transaction_found, username, isAdmin](const auto &interpreters) {
-          for (Interpreter *interpreter : interpreters) {
-            TransactionStatus alive_status = TransactionStatus::ALIVE;
-            // if it is just checking kill, commit and abort should wait for the end of the check
-            // The only way to start checking if the transaction is getting killed is if the transaction_status is
-            // active
-            if (!interpreter->transaction_status_.compare_exchange_strong(alive_status,
-                                                                          TransactionStatus::CHECKING_STATUS)) {
-              continue;
-            }
+    interpreter_context->interpreters.WithLock([&transaction_id, &killed, &transaction_found, username,
+                                                hasTransactionManagementPrivilege](const auto &interpreters) {
+      for (Interpreter *interpreter : interpreters) {
+        TransactionStatus alive_status = TransactionStatus::ALIVE;
+        // if it is just checking kill, commit and abort should wait for the end of the check
+        // The only way to start checking if the transaction will get killed is if the transaction_status is
+        // active
+        if (!interpreter->transaction_status_.compare_exchange_strong(alive_status,
+                                                                      TransactionStatus::CHECKING_STATUS)) {
+          continue;
+        }
 
-            std::optional<uint64_t> intr_trans = interpreter->GetTransactionId();
-            if (intr_trans.has_value() && std::to_string(intr_trans.value()) == transaction_id) {
-              transaction_found = true;
-              if (interpreter->username_ == username || isAdmin) {
-                // Here status doesn't need to be checked because all other places(new transaction being created, commit
-                // start or rollback start) will wait for checking_kill to end
-                killed = true;
-                interpreter->transaction_status_.store(TransactionStatus::KILLED, std::memory_order_release);
-                spdlog::warn("Transaction {} successfully killed", transaction_id);
-              } else {
-                interpreter->transaction_status_.store(TransactionStatus::ALIVE, std::memory_order_release);
-                spdlog::warn("Not enough rights to kill the transaction");
-              }
-              break;
-            }
-            // return to normal execution
+        std::optional<uint64_t> intr_trans = interpreter->GetTransactionId();
+        if (intr_trans.has_value() && std::to_string(intr_trans.value()) == transaction_id) {
+          transaction_found = true;
+          if (interpreter->username_ == username || hasTransactionManagementPrivilege) {
+            // Here status doesn't need to be checked because all other places(new transaction being created, commit
+            // start or rollback start) will wait for checking_kill to end
+            killed = true;
+            interpreter->transaction_status_.store(TransactionStatus::KILLED, std::memory_order_release);
+            spdlog::warn("Transaction {} successfully killed", transaction_id);
+          } else {
             interpreter->transaction_status_.store(TransactionStatus::ALIVE, std::memory_order_release);
+            spdlog::warn("Not enough rights to kill the transaction");
           }
-        });
+          break;
+        }
+        // return to normal execution
+        interpreter->transaction_status_.store(TransactionStatus::ALIVE, std::memory_order_release);
+      }
+    });
     if (!transaction_found) {
       spdlog::warn("Transaction {} not found", transaction_id);
     }
@@ -2007,17 +2009,20 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
   evaluation_context.parameters = parameters;
   ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::View::OLD);
 
-  bool isAdmin = interpreter_context->auth_checker->IsUserAdmin(username);
+  bool hasTransactionManagementPrivilege = interpreter_context->auth_checker->IsUserAuthorized(
+      username, {query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT});
 
   Callback callback;
   switch (transaction_query->action_) {
     case TransactionQueueQuery::Action::SHOW_TRANSACTIONS: {
       callback.header = {"username", "transaction_id", "query"};
-      callback.fn = [handler = TransactionQueueQueryHandler(), interpreter_context, username, isAdmin]() mutable {
+      callback.fn = [handler = TransactionQueueQueryHandler(), interpreter_context, username,
+                     hasTransactionManagementPrivilege]() mutable {
         std::vector<std::vector<TypedValue>> results;
-        interpreter_context->interpreters.WithLock([&results, handler, username, isAdmin](const auto &interpreters) {
-          results = handler.ShowTransactions(interpreters, username, isAdmin);
-        });
+        interpreter_context->interpreters.WithLock(
+            [&results, handler, username, hasTransactionManagementPrivilege](const auto &interpreters) {
+              results = handler.ShowTransactions(interpreters, username, hasTransactionManagementPrivilege);
+            });
         return results;
       };
       break;
@@ -2030,8 +2035,9 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
                      });
       callback.header = {"transaction_id", "killed"};
       callback.fn = [handler = TransactionQueueQueryHandler(), interpreter_context, maybe_kill_transaction_ids,
-                     username, isAdmin]() mutable {
-        return handler.KillTransactions(interpreter_context, maybe_kill_transaction_ids, username, isAdmin);
+                     username, hasTransactionManagementPrivilege]() mutable {
+        return handler.KillTransactions(interpreter_context, maybe_kill_transaction_ids, username,
+                                        hasTransactionManagementPrivilege);
       };
       break;
     }
@@ -2044,7 +2050,7 @@ PreparedQuery PrepareTransactionQueueQuery(ParsedQuery parsed_query, const std::
                                            bool in_explicit_transaction, InterpreterContext *interpreter_context,
                                            DbAccessor *dba) {
   if (in_explicit_transaction) {
-    throw VersionInfoInMulticommandTxException();
+    throw TransactionQueueInMulticommandTxException();
   }
 
   auto *transaction_queue_query = utils::Downcast<TransactionQueueQuery>(parsed_query.query);

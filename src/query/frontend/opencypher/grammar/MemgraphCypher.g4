@@ -270,6 +270,7 @@ privilege : CREATE
           | MODULE_READ
           | MODULE_WRITE
           | WEBSOCKET
+          | TRANSACTION_MANAGEMENT
           ;
 
 granularPrivilege : NOTHING | READ | UPDATE | CREATE_DELETE ;
