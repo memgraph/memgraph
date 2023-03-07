@@ -93,10 +93,11 @@ inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
 /// and is primarily used to create the first delta for an object (that must be
 /// a `DELETE_OBJECT` delta).
 /// @throw std::bad_alloc
-inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
-  transaction->EnsureCommitTimestampExists();
-  return &transaction->deltas.emplace_back(Delta::DeleteObjectTag(), transaction->commit_timestamp.get(),
-                                           transaction->command_id);
+inline Delta *CreateDeleteObjectDelta(Transaction * /*transaction*/) {
+  // transaction->EnsureCommitTimestampExists();
+  return nullptr;
+  // return &transaction->deltas.emplace_back(Delta::DeleteObjectTag(), transaction->commit_timestamp.get(),
+  //                                          transaction->command_id);
 }
 
 /// This function creates a delta in the transaction for the object and links

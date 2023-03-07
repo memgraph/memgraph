@@ -490,12 +490,17 @@ VertexAccessor Storage::Accessor::CreateVertex() {
   OOMExceptionEnabler oom_exception;
   auto gid = storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
   auto acc = storage_->vertices_.access();
-  auto delta = CreateDeleteObjectDelta(&transaction_);
-  auto [it, inserted] = acc.insert(Vertex{storage::Gid::FromUint(gid), delta});
-  MG_ASSERT(inserted, "The vertex must be inserted here!");
-  MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
-  delta->prev.Set(&*it);
+
+  CreateDeleteObjectDelta(&transaction_);
+  auto [it, inserted] = acc.insert(Vertex{storage::Gid::FromUint(gid), nullptr});
   return VertexAccessor(&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_);
+
+  // auto delta = CreateDeleteObjectDelta(&transaction_);
+  // auto [it, inserted] = acc.insert(Vertex{storage::Gid::FromUint(gid), delta});
+  // MG_ASSERT(inserted, "The vertex must be inserted here!");
+  // MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
+  // delta->prev.Set(&*it);
+  // return VertexAccessor(&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_);
 }
 
 VertexAccessor Storage::Accessor::CreateVertex(storage::Gid gid) {
@@ -509,12 +514,18 @@ VertexAccessor Storage::Accessor::CreateVertex(storage::Gid gid) {
   storage_->vertex_id_.store(std::max(storage_->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
                              std::memory_order_release);
   auto acc = storage_->vertices_.access();
-  auto delta = CreateDeleteObjectDelta(&transaction_);
-  auto [it, inserted] = acc.insert(Vertex{gid, delta});
-  MG_ASSERT(inserted, "The vertex must be inserted here!");
-  MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
-  delta->prev.Set(&*it);
+
+  CreateDeleteObjectDelta(&transaction_);
+  auto [it, inserted] = acc.insert(Vertex{gid, nullptr});
+
   return VertexAccessor(&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_);
+
+  // auto delta = CreateDeleteObjectDelta(&transaction_);
+  // auto [it, inserted] = acc.insert(Vertex{gid, delta});
+  // MG_ASSERT(inserted, "The vertex must be inserted here!");
+  // MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
+  // delta->prev.Set(&*it);
+  // return VertexAccessor(&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_);
 }
 
 std::optional<VertexAccessor> Storage::Accessor::FindVertex(Gid gid, View view) {
@@ -656,18 +667,24 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexA
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
     auto acc = storage_->edges_.access();
-    auto delta = CreateDeleteObjectDelta(&transaction_);
-    auto [it, inserted] = acc.insert(Edge(gid, delta));
-    MG_ASSERT(inserted, "The edge must be inserted here!");
-    MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
+
+    CreateDeleteObjectDelta(&transaction_);
+    auto [it, inserted] = acc.insert(Edge(gid, nullptr));
+
     edge = EdgeRef(&*it);
-    delta->prev.Set(&*it);
+
+    // auto delta = CreateDeleteObjectDelta(&transaction_);
+    // auto [it, inserted] = acc.insert(Edge(gid, delta));
+    // MG_ASSERT(inserted, "The edge must be inserted here!");
+    // MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
+    // edge = EdgeRef(&*it);
+    // delta->prev.Set(&*it);
   }
 
-  // CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
+  CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
   from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
 
-  // CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
+  CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
   to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
   // Increment edge count.
@@ -724,12 +741,16 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexA
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
     auto acc = storage_->edges_.access();
-    auto delta = CreateDeleteObjectDelta(&transaction_);
-    auto [it, inserted] = acc.insert(Edge(gid, delta));
-    MG_ASSERT(inserted, "The edge must be inserted here!");
-    MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
+    CreateDeleteObjectDelta(&transaction_);
+    auto [it, inserted] = acc.insert(Edge(gid, nullptr));
     edge = EdgeRef(&*it);
-    delta->prev.Set(&*it);
+
+    // auto delta = CreateDeleteObjectDelta(&transaction_);
+    // auto [it, inserted] = acc.insert(Edge(gid, delta));
+    // MG_ASSERT(inserted, "The edge must be inserted here!");
+    // MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
+    // edge = EdgeRef(&*it);
+    // delta->prev.Set(&*it);
   }
 
   CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);

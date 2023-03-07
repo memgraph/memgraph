@@ -118,7 +118,7 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
   // "modify in-place". Additionally, the created delta will make other
   // transactions get a SERIALIZATION_ERROR.
 
-  // CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, current_value);
+  CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, current_value);
   edge_.ptr->properties.SetProperty(property, value);
 
   return std::move(current_value);
