@@ -26,13 +26,9 @@
 #include <variant>
 
 #include "auth/models.hpp"
-#include "glue/auth_checker.hpp"
 #include "glue/communication.hpp"
 #include "license/license.hpp"
 #include "memory/memory_control.hpp"
-#include "query/auth_checker.hpp"
-#include "query/common.hpp"
-#include "query/config.hpp"
 #include "query/constants.hpp"
 #include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
@@ -67,10 +63,8 @@
 #include "utils/memory_tracker.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/settings.hpp"
-#include "utils/spin_lock.hpp"
 #include "utils/string.hpp"
 #include "utils/tsc.hpp"
-#include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
 
 namespace EventCounter {
@@ -1938,10 +1932,6 @@ std::vector<std::vector<TypedValue>> TransactionQueueQueryHandler::ShowTransacti
     if (!interpreter->transaction_status_.compare_exchange_strong(alive_status, TransactionStatus::CHECKING_STATUS)) {
       continue;
     }
-    // TransactionStatus loadedStatus = interpreter->transaction_status_.load(std::memory_order_acquire);
-    // if (loadedStatus == TransactionStatus::NO_TRANSACTION || loadedStatus == TransactionStatus::KILLED) {
-    //   continue;
-    // }
     std::optional<uint64_t> transaction_id = interpreter->GetTransactionId();
     if (transaction_id.has_value() && (interpreter->username_ == username || hasTransactionManagementPrivilege)) {
       const auto &typed_queries = interpreter->GetQueries();

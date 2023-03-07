@@ -11,7 +11,6 @@
 
 #include "glue/auth.hpp"
 #include "auth/models.hpp"
-#include "query/frontend/ast/ast.hpp"
 
 namespace memgraph::glue {
 

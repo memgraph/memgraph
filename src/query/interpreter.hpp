@@ -35,7 +35,6 @@
 #include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
-#include "utils/rw_lock.hpp"
 #include "utils/settings.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
@@ -409,7 +408,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
                                                     std::optional<int> qid) {
   MG_ASSERT(in_explicit_transaction_ || !qid, "qid can be only used in explicit transaction!");
 
-  int qid_value = qid ? *qid : static_cast<int>(query_executions_.size() - 1);
+  const int qid_value = qid ? *qid : static_cast<int>(query_executions_.size() - 1);
   if (qid_value < 0 || qid_value >= query_executions_.size()) {
     throw InvalidArgumentsException("qid", "Query with specified ID does not exist!");
   }
@@ -418,7 +417,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     throw InvalidArgumentsException("n", "Cannot fetch negative number of results!");
   }
 
-  auto &query_execution = query_executions_.at(qid_value);
+  auto &query_execution = query_executions_[qid_value];
 
   MG_ASSERT(query_execution && query_execution->prepared_query, "Query already finished executing!");
 
