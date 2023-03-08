@@ -2,6 +2,10 @@
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/memgraph.service
         DESTINATION /lib/systemd/system)
 
+# Set parameters to recognize the host distro
+cmake_host_system_information(RESULT DISTRO QUERY DISTRIB_NAME)
+cmake_host_system_information(RESULT DISTRO_VERSION QUERY DISTRIB_VERSION)
+
 # ---- Setup CPack --------
 
 # General setup
@@ -67,7 +71,13 @@ It aims to deliver developers the speed, simplicity and scale required to build
 the next generation of applications driver by real-time connected data.")
 # Add `openssl` package to dependencies list. Used to generate SSL certificates.
 # We also depend on `python3` because we embed it in Memgraph.
-set(CPACK_RPM_PACKAGE_REQUIRES "openssl >= 1.0.0, curl >= 7.29.0, python3 >= 3.5.0, libstdc++ >= 6, logrotate")
+set(CPACK_RPM_PACKAGE_REQUIRES "openssl >= 1.0.0, curl >= 7.29.0, python3 >= 3.5.0, libstdc++, logrotate")
+
+# If amzn-2
+if(DISTRO STREQUAL "Amazon Linux" AND DISTRO_VERSION STREQUAL "2")
+    # It causes issues with glibcxx 2.4
+    set(CPACK_RPM_PACKAGE_AUTOREQ " no")
+endif()
 
 # All variables must be set before including.
 include(CPack)
