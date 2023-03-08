@@ -1035,7 +1035,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   // Set up temporary memory for a single Pull. Initial memory comes from the
   // stack. 256 KiB should fit on the stack and should be more than enough for a
   // single `Pull`.
-  static constexpr size_t stack_size = 256UL * 512UL;
+  static constexpr size_t stack_size = 256UL * 256UL;
   char stack_data[stack_size];
   utils::ResourceWithOutOfMemoryException resource_with_exception;
   utils::MonotonicBufferResource monotonic_memory(&stack_data[0], stack_size, &resource_with_exception);
@@ -1044,14 +1044,14 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   // Also, we want to throw only when the query engine requests more memory and not the storage
   // so we add the exception to the allocator.
   // TODO (mferencevic): Tune the parameters accordingly.
-  utils::PoolResource pool_memory(128, 512, &monotonic_memory, utils::NewDeleteResource());
+  utils::PoolResource pool_memory(64, 256, utils::NewDeleteResource(), utils::NewDeleteResource());
   std::optional<utils::LimitedMemoryResource> maybe_limited_resource;
 
   if (memory_limit_) {
-    maybe_limited_resource.emplace(&pool_memory, *memory_limit_);
+    maybe_limited_resource.emplace(utils::NewDeleteResource(), *memory_limit_);
     ctx_.evaluation_context.memory = &*maybe_limited_resource;
   } else {
-    ctx_.evaluation_context.memory = &pool_memory;
+    ctx_.evaluation_context.memory = utils::NewDeleteResource();
   }
 
   // Returns true if a result was pulled.
