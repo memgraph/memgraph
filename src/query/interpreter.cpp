@@ -2503,14 +2503,14 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
          utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
          utils::Downcast<TriggerQuery>(parsed_query.query) ||
          utils::Downcast<TransactionQueueQuery>(parsed_query.query))) {
-      db_accessor_ =
-          std::make_unique<storage::Storage::Accessor>(interpreter_context_->db->Access(GetIsolationLevelOverride()));
-      execution_db_accessor_.emplace(db_accessor_.get());
       // Implicit transaction setup
-      // We just need to wait for the resolvement of CHECKING_KILL status. If the transactions is KILLED
+      // We just need to wait for the resolvement of CHECKING_KILL status. If the transaction is KILLED
       // this doesn't prevent us of creating new transaction.
       while (transaction_status_.load(std::memory_order_acquire) == TransactionStatus::CHECKING_STATUS)
         ;
+      db_accessor_ =
+          std::make_unique<storage::Storage::Accessor>(interpreter_context_->db->Access(GetIsolationLevelOverride()));
+      execution_db_accessor_.emplace(db_accessor_.get());
       transaction_status_.store(TransactionStatus::ALIVE, std::memory_order_release);
 
       if (utils::Downcast<CypherQuery>(parsed_query.query) && interpreter_context_->trigger_store.HasTriggers()) {
