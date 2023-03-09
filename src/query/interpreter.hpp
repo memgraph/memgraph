@@ -305,7 +305,7 @@ class Interpreter final {
  private:
   struct QueryExecution {
     std::optional<PreparedQuery> prepared_query;
-    utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
+    utils::PoolResource execution_memory{8, 1024, utils::NewDeleteResource(), utils::NewDeleteResource()};
     utils::ResourceWithOutOfMemoryException execution_memory_with_exception{&execution_memory};
 
     std::map<std::string, TypedValue> summary;

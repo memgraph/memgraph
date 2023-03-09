@@ -16,6 +16,7 @@
 #pragma once
 
 #include <cstddef>
+#include <iostream>
 #include <memory>
 #include <mutex>
 #include <new>
@@ -265,14 +266,23 @@ class StdMemoryResource final : public MemoryResource {
     // implementation of _S_aligned_size, but we throw if it overflows.
     // Currently, this only concerns new_delete_resource as there are no other
     // memory_resource implementations available. This issue appears to persist
-    // in newer implementations, additionally pool_resource does no alignment of
+    // in newer implementations, additionally pool_resource does no alignment of.
     // allocated pointers whatsoever.
     size_t aligned_size = ((bytes - 1) | (alignment - 1)) + 1;
     if (aligned_size < bytes) throw BadAlloc("Allocation alignment overflow");
+    counter_allocations++;
+
+    if (counter_allocations % 10000 == 0) {
+      // std::cout<< counter_allocations << "num allocations"  << std::endl;
+    }
     return memory_->allocate(bytes, alignment);
   }
 
   void DoDeallocate(void *p, size_t bytes, size_t alignment) override {
+    counter_deallocations++;
+    if (counter_deallocations % 10000 == 0) {
+      // std::cout<< counter_deallocations << "deallocatiois"  << std::endl;
+    }
     return memory_->deallocate(p, bytes, alignment);
   }
 
@@ -286,6 +296,8 @@ class StdMemoryResource final : public MemoryResource {
   std::experimental::pmr::memory_resource *memory_;
 #else
   std::pmr::memory_resource *memory_;
+  int counter_allocations = 0;
+  int counter_deallocations = 0;
 #endif
 };
 
