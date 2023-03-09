@@ -17,6 +17,7 @@
 #pragma once
 
 #include <algorithm>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <unordered_map>
@@ -561,8 +562,12 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // `max_vertex_count` controls, whether no operator should be created if the
   // vertex count in the best index exceeds this number. In such a case,
   // `nullptr` is returned and `input` is not chained.
-  std::unique_ptr<ScanAll> GenScanByIndex(const ScanAll &scan,
-                                          const std::optional<int64_t> &max_vertex_count = std::nullopt) {
+  // std::unique_ptr<ScanAll> GenScanByIndex(const ScanAll &scan, const std::optional<int64_t> &max_vertex_count =
+  // std::nullopt) {
+  std::unique_ptr<ScanAll> GenScanByIndex(const ScanAll &scan, std::optional<int64_t> max_vertex_count = std::nullopt) {
+    // debug (gvolfing)
+    max_vertex_count = std::numeric_limits<int64_t>::max();
+
     const auto &input = scan.input();
     const auto &node_symbol = scan.output_symbol_;
     const auto &view = scan.view_;

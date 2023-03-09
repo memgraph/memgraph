@@ -437,7 +437,7 @@ class RequestRouter : public RequestRouterInterface {
   }
 
   int64_t GetApproximateVertexCount(storage::v3::LabelId label, storage::v3::PropertyId /*property*/) const override {
-    // TODO
+    // TODO(gvolfing)
     // Once we have reliable metadata to approximate the
     // vertex count -based on properties- rework this function.
     return GetApproximateVertexCount(label);
