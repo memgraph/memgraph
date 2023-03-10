@@ -282,11 +282,11 @@ revokePrivilegesList : privilegeOrEntities ( ',' privilegeOrEntities )* ;
 
 privilegesList : privilege ( ',' privilege )* ;
 
-entitiesList : ASTERISK | listOfEntities ;
+entitiesList : ASTERISK | listOfColonSymbolicNames ;
 
-listOfEntities : entity ( ',' entity )* ;
+listOfColonSymbolicNames : colonSymbolicName ( ',' colonSymbolicName )* ;
 
-entity : COLON symbolicName ;
+colonSymbolicName : COLON symbolicName ;
 
 showPrivileges : SHOW PRIVILEGES FOR userOrRole=userOrRoleName ;
 
@@ -296,7 +296,7 @@ showUsersForRole : SHOW USERS FOR role=userOrRoleName ;
 
 dumpQuery: DUMP DATABASE ;
 
-analyzeGraphQuery: ANALYZE GRAPH ;
+analyzeGraphQuery: ANALYZE GRAPH ( ON LABELS ( listOfColonSymbolicNames | ASTERISK ) ) ? ( DELETE STATISTICS ) ? ;
 
 setReplicationRole  : SET REPLICATION ROLE TO ( MAIN | REPLICA )
                       ( WITH PORT port=literal ) ? ;

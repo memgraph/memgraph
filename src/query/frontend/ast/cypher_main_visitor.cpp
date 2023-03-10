@@ -13,6 +13,7 @@
 #include <support/Any.h>
 
 #include <algorithm>
+#include <any>
 #include <climits>
 #include <codecvt>
 #include <cstring>
@@ -242,6 +243,17 @@ antlrcpp::Any CypherMainVisitor::visitDumpQuery(MemgraphCypher::DumpQueryContext
 antlrcpp::Any CypherMainVisitor::visitAnalyzeGraphQuery(MemgraphCypher::AnalyzeGraphQueryContext *ctx) {
   auto *analyze_graph_query = storage_->Create<AnalyzeGraphQuery>();
   query_ = analyze_graph_query;
+  if (ctx->listOfColonSymbolicNames()) {
+    analyze_graph_query->labels_ =
+        std::any_cast<std::vector<std::string>>(ctx->listOfColonSymbolicNames()->accept(this));
+  } else {
+    analyze_graph_query->labels_ = {"*"};
+  }
+  if (ctx->DELETE() && ctx->STATISTICS()) {
+    analyze_graph_query->action_ = AnalyzeGraphQuery::Action::DELETE;
+  } else {
+    analyze_graph_query->action_ = AnalyzeGraphQuery::Action::ANALYZE;
+  }
   return analyze_graph_query;
 }
 
@@ -1416,20 +1428,23 @@ antlrcpp::Any CypherMainVisitor::visitEntityPrivilegeList(MemgraphCypher::Entity
   return result;
 }
 
+antlrcpp::Any CypherMainVisitor::visitListOfColonSymbolicNames(MemgraphCypher::ListOfColonSymbolicNamesContext *ctx) {
+  std::vector<std::string> symbolic_names;
+  for (auto *symbolic_name : ctx->colonSymbolicName()) {
+    symbolic_names.push_back(std::any_cast<std::string>(symbolic_name->symbolicName()->accept(this)));
+  }
+  return symbolic_names;
+}
+
 /**
  * @return std::vector<std::string>
  */
 antlrcpp::Any CypherMainVisitor::visitEntitiesList(MemgraphCypher::EntitiesListContext *ctx) {
   std::vector<std::string> entities;
-  if (ctx->listOfEntities()) {
-    for (auto *entity : ctx->listOfEntities()->entity()) {
-      entities.push_back(std::any_cast<std::string>(entity->symbolicName()->accept(this)));
-    }
-  } else {
-    entities.emplace_back("*");
+  if (ctx->listOfColonSymbolicNames()) {
+    return ctx->listOfColonSymbolicNames()->accept(this);
   }
-
-  return entities;
+  return {"*"};
 }
 
 /**

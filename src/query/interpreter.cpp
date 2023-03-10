@@ -11,6 +11,7 @@
 
 #include "query/interpreter.hpp"
 #include <fmt/core.h>
+#include <openssl/x509v3.h>
 
 #include <algorithm>
 #include <atomic>
@@ -64,6 +65,7 @@
 #include "utils/settings.hpp"
 #include "utils/string.hpp"
 #include "utils/tsc.hpp"
+#include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
 
 namespace EventCounter {
@@ -1400,29 +1402,37 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, std::map<std::string, T
                        RWType::R};
 }
 
-PreparedQuery PrepareAnalyzeGraphQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
-                                       DbAccessor *dba, InterpreterContext *interpreter_context,
+Callback HandleAnalyzeGraphQuery(AnalyzeGraphQuery *analyze_graph_query, DbAccessor *dba) {
+  Callback callback;
+
+  return callback;
+}
+
+PreparedQuery PrepareAnalyzeGraphQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                                       std::map<std::string, TypedValue> *summary, DbAccessor *dba,
+                                       InterpreterContext *interpreter_context,
                                        utils::MemoryResource *execution_memory) {
-  // Creating an index influences computed plan costs.
-  auto invalidate_plan_cache = [plan_cache = &interpreter_context->plan_cache] {
-    auto access = plan_cache->access();
-    for (auto &kv : access) {
-      access.remove(kv.first);
-    }
-  };
+  if (in_explicit_transaction) {
+    throw AnalyzeGraphInMulticommandTxException();
+  }
 
-  return PreparedQuery{{"QUERY"},
-                       std::move(parsed_query.required_privileges),
-                       [pull_plan = std::make_shared<PullPlanIndexStatistics>(dba),
-                        invalidate_plan_cache = std::move(invalidate_plan_cache)](
-                           AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-                         utils::OnScopeExit invalidator(invalidate_plan_cache);
+  auto *analyze_graph_query = utils::Downcast<AnalyzeGraphQuery>(parsed_query.query);
+  MG_ASSERT(analyze_graph_query);
+  auto callback = HandleAnalyzeGraphQuery(analyze_graph_query, dba);
 
-                         pull_plan->Pull(stream, n);
+  return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
+                       [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                         if (UNLIKELY(!pull_plan)) {
+                           pull_plan = std::make_shared<PullPlanVector>(callback_fn());
+                         }
 
-                         return QueryHandlerResult::COMMIT;
+                         if (pull_plan->Pull(stream, n)) {
+                           return QueryHandlerResult::COMMIT;
+                         }
+                         return std::nullopt;
                        },
-                       RWType::W};
+                       RWType::NONE};
 }
 
 PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
@@ -2386,8 +2396,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                          &query_execution->notifications, interpreter_context_);
     } else if (utils::Downcast<AnalyzeGraphQuery>(parsed_query.query)) {
       prepared_query =
-          PrepareAnalyzeGraphQuery(std::move(parsed_query), &query_execution->summary, &*execution_db_accessor_,
-                                   interpreter_context_, &query_execution->execution_memory);
+          PrepareAnalyzeGraphQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
+                                   &*execution_db_accessor_, interpreter_context_, &query_execution->execution_memory);
     } else if (utils::Downcast<AuthQuery>(parsed_query.query)) {
       prepared_query = PrepareAuthQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
                                         interpreter_context_, &*execution_db_accessor_,

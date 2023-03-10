@@ -25,6 +25,8 @@
 
 #include <gflags/gflags.h>
 
+// #include "query/interpret/eval.hpp"
+// #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 
@@ -513,6 +515,12 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return best_label;
   }
 
+  // struct ExecutionContext;
+  // class ExpressionEvaluator;
+  // class ExpressionEvaluator;
+  // class EvaluationContext;
+  // class Frame;
+
   // Finds the label-property combination which has indexed the lowest amount of
   // vertices. If the index cannot be found, nullopt is returned.
   std::optional<LabelPropertyIndex> FindBestLabelPropertyIndex(const Symbol &symbol,
@@ -525,6 +533,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       }
       return true;
     };
+    // Frame frame(0);
+    // EvaluationContext evaluation_context;
+    // evaluation_context.timestamp = QueryTimestamp();
+    // ExpressionEvaluator evaluator_(&frame, symbol_table_, {}, db_, storage::View::OLD);
+
     std::optional<LabelPropertyIndex> found;
     for (const auto &label : filters_.FilteredLabels(symbol)) {
       for (const auto &filter : filters_.PropertyFilters(symbol)) {
@@ -548,19 +561,15 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           auto *type_sort_ix = std::find(kFilterTypeOrder, kFilterTypeOrder + 3, type);
           return type_sort_ix < found_sort_ix;
         };
-        IndexStats index_stats = db_->GetIndexStats(GetLabel(label), GetProperty(property));
 
         if (!found || vertex_count < found->vertex_count ||
-            (vertex_count == found->vertex_count &&
-             (index_stats.max_number_of_vertices_with_same_value < found->index_stats_count ||
-              is_better_type(filter.property_filter->type_)))) {
-          found = LabelPropertyIndex{label, filter, vertex_count, index_stats.max_number_of_vertices_with_same_value};
+            (vertex_count == found->vertex_count && is_better_type(filter.property_filter->type_))) {
+          found = LabelPropertyIndex{label, filter, vertex_count};
         }
       }
     }
     return found;
   }
-
   // Creates a ScanAll by the best possible index for the `node_symbol`. Best
   // index is defined as the index with least number of vertices. If the node
   // does not have at least a label, no indexed lookup can be created and

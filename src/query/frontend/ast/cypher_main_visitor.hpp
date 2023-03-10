@@ -18,6 +18,7 @@
 #include <antlr4-runtime.h>
 
 #include "query/frontend/ast/ast.hpp"
+#include "query/frontend/opencypher/generated/MemgraphCypher.h"
 #include "query/frontend/opencypher/generated/MemgraphCypherBaseVisitor.h"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
@@ -182,6 +183,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return DumpQuery*
    */
   antlrcpp::Any visitDumpQuery(MemgraphCypher::DumpQueryContext *ctx) override;
+
+  /**
+  @return std::vector<std::string>
+  */
+  antlrcpp::Any visitListOfColonSymbolicNames(MemgraphCypher::ListOfColonSymbolicNamesContext *ctx) override;
 
   /**
    * @return AnalyzeGraphQuery*

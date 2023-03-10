@@ -60,18 +60,25 @@ void PullPlanIndexStatistics::CollectStatistics() {
 
   using LPIndexPair = std::pair<storage::LabelId, storage::PropertyId>;
 
+  // I think this can all be optimized and put under the indices.hpp
   std::unordered_map<LPIndexPair, std::unordered_map<int64_t, int64_t>, pair_hash> histogram;
+  // this data structure saves maximum number of different property values for each pair: label_id-property id that is
+  // in the index
   std::unordered_map<LPIndexPair, uint64_t, pair_hash> max_values;
 
+  // iterates over a vector containing pair label_id-property_id
   for (const auto &info : indices_info_->label_property) {
     histogram.insert(std::make_pair(info, std::unordered_map<int64_t, int64_t>()));
     max_values.insert(std::make_pair(info, 0));
   }
 
+  // iterate over vertices
   auto current_iter = vertices_iterable_.begin();
 
   while (current_iter != vertices_iterable_.end()) {
     const auto &vertex = *current_iter;
+
+    // fetch and check labels and properties
     const auto maybe_labels = vertex.Labels(storage::View::OLD);
 
     if (maybe_labels.HasError()) {
@@ -88,18 +95,23 @@ void PullPlanIndexStatistics::CollectStatistics() {
       for (const auto &props : *maybe_props) {
         auto key = std::make_pair(label, props.first);
 
+        // if doesn't exist in the histogram continue
+        // that's possible because histogram saves only those pairs that are saved in index
         if (histogram.find(key) == histogram.end()) {
           continue;
         }
-
+        // what if the property value isn't integer?
         auto prop_value = props.second.ValueInt();
 
+        // perform simple counting with c++ maps
+        // TODO: this can be optimized
         auto &label_property_map = histogram[key];
         if (label_property_map.find(prop_value) == label_property_map.end()) {
           label_property_map[prop_value] = 0;
         }
         label_property_map[prop_value] += 1;
 
+        // update max values
         if (max_values[key] < histogram[key][prop_value]) {
           max_values[key] = histogram[key][prop_value];
         }
@@ -109,6 +121,7 @@ void PullPlanIndexStatistics::CollectStatistics() {
     ++current_iter;
   }
 
+  // and then just cache it under the db_acessor structure
   for (const auto &[key, value] : max_values) {
     dba_->SetIndexStats(key.first, key.second, IndexStats{.max_number_of_vertices_with_same_value = value});
   }
