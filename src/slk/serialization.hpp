@@ -310,13 +310,6 @@ inline void Save(const std::optional<T> &obj, Builder *builder) {
   }
 }
 
-// template <typename TEnum>
-// requires(std::is_enum_v<TEnum> &&std::is_integral_v<std::underlying_type_t<TEnum>>) inline void Save(const TEnum obj,
-//                                                                                                      Builder
-//                                                                                                      *builder) {
-//   Save(static_cast<std::underlying_type_t<TEnum>>(obj), builder);
-// }
-
 inline void Save(const utils::TypeId &obj, Builder *builder) {
   Save(static_cast<std::underlying_type_t<utils::TypeId>>(obj), builder);
 }
@@ -484,13 +477,6 @@ inline void Load(std::optional<T> *obj, Reader *reader, std::function<void(T *, 
     *obj = std::nullopt;
   }
 }
-
-// template <typename TEnum>
-// requires(std::is_enum_v<TEnum> &&std::is_integral_v<std::underlying_type_t<TEnum>>) inline void Load(TEnum &obj,
-//                                                                                                      Reader *reader)
-//                                                                                                      {
-//   Load(static_cast<std::underlying_type_t<TEnum>>(obj), reader);
-// }
 
 inline void Load(utils::TypeId *obj, Reader *reader) {
   using enum_type = std::underlying_type_t<utils::TypeId>;
