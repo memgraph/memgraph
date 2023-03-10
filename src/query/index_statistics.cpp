@@ -123,7 +123,7 @@ void PullPlanIndexStatistics::CollectStatistics() {
 
   // and then just cache it under the db_acessor structure
   for (const auto &[key, value] : max_values) {
-    dba_->SetIndexStats(key.first, key.second, IndexStats{.max_number_of_vertices_with_same_value = value});
+    // dba_->SetIndexStats(key.first, key.second, IndexStats{.max_number_of_vertices_with_same_value = value});
   }
 }
 }  // namespace memgraph::query

@@ -23,7 +23,9 @@
 #include <optional>
 #include <unordered_map>
 #include <variant>
+#include <vector>
 
+#include "_mgp.hpp"
 #include "auth/models.hpp"
 #include "glue/communication.hpp"
 #include "license/license.hpp"
@@ -1402,14 +1404,39 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, std::map<std::string, T
                        RWType::R};
 }
 
-Callback HandleAnalyzeGraphQuery(AnalyzeGraphQuery *analyze_graph_query, DbAccessor *dba) {
+void AnalyzeGraphQueryHandler::AnalyzeGraphCreateStatistics(const std::vector<std::string> &labels,
+                                                            storage::Storage::Accessor *dba) {}
+
+void AnalyzeGraphQueryHandler::AnalyzeGraphDeleteStatistics(const std::vector<std::string> &labels,
+                                                            storage::Storage::Accessor *dba) {}
+
+Callback HandleAnalyzeGraphQuery(AnalyzeGraphQuery *analyze_graph_query, storage::Storage::Accessor *dba) {
   Callback callback;
+
+  switch (analyze_graph_query->action_) {
+    case AnalyzeGraphQuery::Action::ANALYZE: {
+      callback.header = {"status"};
+      callback.fn = [handler = AnalyzeGraphQueryHandler(), labels = analyze_graph_query->labels_, dba]() mutable {
+        handler.AnalyzeGraphCreateStatistics(labels, dba);
+        auto results = std::vector<std::vector<TypedValue>>{{TypedValue(true)}};
+        return results;
+      };
+    }
+    case AnalyzeGraphQuery::Action::DELETE: {
+      callback.header = {"status"};
+      callback.fn = [handler = AnalyzeGraphQueryHandler(), labels = analyze_graph_query->labels_, dba] mutable {
+        handler.AnalyzeGraphDeleteStatistics(labels, dba);
+        auto results = std::vector<std::vector<TypedValue>>{{TypedValue(true)}};
+        return results;
+      };
+    }
+  }
 
   return callback;
 }
 
 PreparedQuery PrepareAnalyzeGraphQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                       std::map<std::string, TypedValue> *summary, DbAccessor *dba,
+                                       std::map<std::string, TypedValue> *summary, storage::Storage::Accessor *dba,
                                        InterpreterContext *interpreter_context,
                                        utils::MemoryResource *execution_memory) {
   if (in_explicit_transaction) {
@@ -2397,7 +2424,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<AnalyzeGraphQuery>(parsed_query.query)) {
       prepared_query =
           PrepareAnalyzeGraphQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
-                                   &*execution_db_accessor_, interpreter_context_, &query_execution->execution_memory);
+                                   &*db_accessor_, interpreter_context_, &query_execution->execution_memory);
     } else if (utils::Downcast<AuthQuery>(parsed_query.query)) {
       prepared_query = PrepareAuthQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
                                         interpreter_context_, &*execution_db_accessor_,
