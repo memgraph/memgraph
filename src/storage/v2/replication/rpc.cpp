@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/replication/rpc.hpp"
+#include "utils/typeinfo.hpp"
 
 namespace memgraph {
 
@@ -72,52 +73,51 @@ void TimestampRes::Load(TimestampRes *self, memgraph::slk::Reader *reader) { mem
 
 }  // namespace replication
 }  // namespace storage
-}  // namespace memgraph
-const memgraph::utils::TypeInfo memgraph::storage::replication::AppendDeltasReq::kType{0x2D0CAB0B9D315D3CULL,
-                                                                                       "AppendDeltasReq", nullptr};
 
-const memgraph::utils::TypeInfo memgraph::storage::replication::AppendDeltasRes::kType{0x2D0CAD0B9D3160A2ULL,
-                                                                                       "AppendDeltasRes", nullptr};
+constexpr utils::TypeInfo storage::replication::AppendDeltasReq::kType{utils::TypeId::REP_APPEND_DELTAS_REQ,
+                                                                       "AppendDeltasReq", nullptr};
 
-const memgraph::utils::TypeInfo memgraph::storage::replication::HeartbeatReq::kType{0x228EF887DCA40C03ULL,
-                                                                                    "HeartbeatReq", nullptr};
+constexpr utils::TypeInfo storage::replication::AppendDeltasRes::kType{utils::TypeId::REP_APPEND_DELTAS_RES,
+                                                                       "AppendDeltasRes", nullptr};
 
-const memgraph::utils::TypeInfo memgraph::storage::replication::HeartbeatRes::kType{0x228EFA87DCA40F69ULL,
-                                                                                    "HeartbeatRes", nullptr};
+constexpr utils::TypeInfo storage::replication::HeartbeatReq::kType{utils::TypeId::REP_HEARTBEAT_REQ, "HeartbeatReq",
+                                                                    nullptr};
 
-const memgraph::utils::TypeInfo memgraph::storage::replication::FrequentHeartbeatReq::kType{
-    0x6DE0C7329F80CD41ULL, "FrequentHeartbeatReq", nullptr};
+constexpr utils::TypeInfo storage::replication::HeartbeatRes::kType{utils::TypeId::REP_HEARTBEAT_RES, "HeartbeatRes",
+                                                                    nullptr};
 
-const memgraph::utils::TypeInfo memgraph::storage::replication::FrequentHeartbeatRes::kType{
-    0x6DE0C5329F80C9DBULL, "FrequentHeartbeatRes", nullptr};
+constexpr utils::TypeInfo storage::replication::FrequentHeartbeatReq::kType{utils::TypeId::REP_FREQUENT_HEARTBEAT_REQ,
+                                                                            "FrequentHeartbeatReq", nullptr};
 
-const memgraph::utils::TypeInfo memgraph::storage::replication::SnapshotReq::kType{0x37773E14410D9E5DULL, "SnapshotReq",
-                                                                                   nullptr};
+constexpr utils::TypeInfo storage::replication::FrequentHeartbeatRes::kType{utils::TypeId::REP_FREQUENT_HEARTBEAT_RES,
+                                                                            "FrequentHeartbeatRes", nullptr};
 
-const memgraph::utils::TypeInfo memgraph::storage::replication::SnapshotRes::kType{0x37773C14410D9AF7ULL, "SnapshotRes",
-                                                                                   nullptr};
+constexpr utils::TypeInfo storage::replication::SnapshotReq::kType{utils::TypeId::REP_SNAPSHOT_REQ, "SnapshotReq",
+                                                                   nullptr};
 
-const memgraph::utils::TypeInfo memgraph::storage::replication::WalFilesReq::kType{0xFF80AC7309545B88ULL, "WalFilesReq",
-                                                                                   nullptr};
+constexpr utils::TypeInfo storage::replication::SnapshotRes::kType{utils::TypeId::REP_SNAPSHOT_RES, "SnapshotRes",
+                                                                   nullptr};
 
-const memgraph::utils::TypeInfo memgraph::storage::replication::WalFilesRes::kType{0xFF80AE7309545EEEULL, "WalFilesRes",
-                                                                                   nullptr};
+constexpr utils::TypeInfo storage::replication::WalFilesReq::kType{utils::TypeId::REP_WALFILES_REQ, "WalFilesReq",
+                                                                   nullptr};
 
-const memgraph::utils::TypeInfo memgraph::storage::replication::CurrentWalReq::kType{0xFBFF598A6406C9C8ULL,
-                                                                                     "CurrentWalReq", nullptr};
+constexpr utils::TypeInfo storage::replication::WalFilesRes::kType{utils::TypeId::REP_WALFILES_RES, "WalFilesRes",
+                                                                   nullptr};
 
-const memgraph::utils::TypeInfo memgraph::storage::replication::CurrentWalRes::kType{0xFBFF5B8A6406CD2EULL,
-                                                                                     "CurrentWalRes", nullptr};
+constexpr utils::TypeInfo storage::replication::CurrentWalReq::kType{utils::TypeId::REP_CURRENT_WAL_REQ,
+                                                                     "CurrentWalReq", nullptr};
 
-const memgraph::utils::TypeInfo memgraph::storage::replication::TimestampReq::kType{0x3629662224F9276BULL,
-                                                                                    "TimestampReq", nullptr};
+constexpr utils::TypeInfo storage::replication::CurrentWalRes::kType{utils::TypeId::REP_CURRENT_WAL_RES,
+                                                                     "CurrentWalRes", nullptr};
 
-const memgraph::utils::TypeInfo memgraph::storage::replication::TimestampRes::kType{0x3629682224F92AD1ULL,
-                                                                                    "TimestampRes", nullptr};
+constexpr utils::TypeInfo storage::replication::TimestampReq::kType{utils::TypeId::REP_TIMESTAMP_REQ, "TimestampReq",
+                                                                    nullptr};
+
+constexpr utils::TypeInfo storage::replication::TimestampRes::kType{utils::TypeId::REP_TIMESTAMP_RES, "TimestampRes",
+                                                                    nullptr};
 
 // Autogenerated SLK serialization code
-namespace memgraph::slk {
-
+namespace slk {
 // Serialize code for TimestampRes
 
 void Save(const memgraph::storage::replication::TimestampRes &self, memgraph::slk::Builder *builder) {
@@ -259,5 +259,5 @@ void Load(memgraph::storage::replication::AppendDeltasReq *self, memgraph::slk::
   memgraph::slk::Load(&self->previous_commit_timestamp, reader);
   memgraph::slk::Load(&self->seq_num, reader);
 }
-
-}  // namespace memgraph::slk
+}  // namespace slk
+}  // namespace memgraph

@@ -10,5 +10,9 @@
 // licenses/APL.txt.
 
 #include "query/frontend/semantic/symbol.hpp"
+#include "utils/typeinfo.hpp"
 
-const memgraph::utils::TypeInfo memgraph::query::Symbol::kType{0x40C5BF2CC5216F4AULL, "Symbol", nullptr};
+namespace memgraph {
+
+constexpr utils::TypeInfo query::Symbol::kType{utils::TypeId::SYMBOL, "Symbol", nullptr};
+}  // namespace memgraph

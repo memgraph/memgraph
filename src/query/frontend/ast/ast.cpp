@@ -10,280 +10,254 @@
 // licenses/APL.txt.
 
 #include "query/frontend/ast/ast.hpp"
+#include "utils/typeinfo.hpp"
 
-const memgraph::utils::TypeInfo memgraph::query::LabelIx::kType{0x11DA5C011A9F1309ULL, "LabelIx", nullptr};
+namespace memgraph {
 
-const memgraph::utils::TypeInfo memgraph::query::PropertyIx::kType{0xCEA5DC57324EA35EULL, "PropertyIx", nullptr};
+constexpr utils::TypeInfo query::LabelIx::kType{utils::TypeId::AST_LABELIX, "LabelIx", nullptr};
 
-const memgraph::utils::TypeInfo memgraph::query::EdgeTypeIx::kType{0x53FD4D0015B2805AULL, "EdgeTypeIx", nullptr};
+constexpr utils::TypeInfo query::PropertyIx::kType{utils::TypeId::AST_PROPERTYIX, "PropertyIx", nullptr};
 
-const memgraph::utils::TypeInfo memgraph::query::Tree::kType{0x4344888F6660DFD6ULL, "Tree", nullptr};
+constexpr utils::TypeInfo query::EdgeTypeIx::kType{utils::TypeId::AST_EDGETYPEIX, "EdgeTypeIx", nullptr};
 
-const memgraph::utils::TypeInfo memgraph::query::Expression::kType{0xDCBF69BE8668F528ULL, "Expression",
-                                                                   &memgraph::query::Tree::kType};
+constexpr utils::TypeInfo query::Tree::kType{utils::TypeId::AST_TREE, "Tree", nullptr};
 
-const memgraph::utils::TypeInfo memgraph::query::Where::kType{0x62792B21ED499AC1ULL, "Where",
-                                                              &memgraph::query::Tree::kType};
+constexpr utils::TypeInfo query::Expression::kType{utils::TypeId::AST_EXPRESSION, "Expression", &query::Tree::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::BinaryOperator::kType{0x5B2E430CE6B0429BULL, "BinaryOperator",
-                                                                       &memgraph::query::Expression::kType};
+constexpr utils::TypeInfo query::Where::kType{utils::TypeId::AST_WHERE, "Where", &query::Tree::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::UnaryOperator::kType{0x8031CA2870755F9DULL, "UnaryOperator",
-                                                                      &memgraph::query::Expression::kType};
+constexpr utils::TypeInfo query::BinaryOperator::kType{utils::TypeId::AST_BINARY_OPERATOR, "BinaryOperator",
+                                                       &query::Expression::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::OrOperator::kType{0x1BCDF6D4561D227ULL, "OrOperator",
-                                                                   &memgraph::query::BinaryOperator::kType};
+constexpr utils::TypeInfo query::UnaryOperator::kType{utils::TypeId::AST_UNARY_OPERATOR, "UnaryOperator",
+                                                      &query::Expression::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::XorOperator::kType{0x5AB64F8056E4891BULL, "XorOperator",
-                                                                    &memgraph::query::BinaryOperator::kType};
+constexpr utils::TypeInfo query::OrOperator::kType{utils::TypeId::AST_OR_OPERATOR, "OrOperator",
+                                                   &query::BinaryOperator::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::AndOperator::kType{0x62BDE5D339401E7BULL, "AndOperator",
-                                                                    &memgraph::query::BinaryOperator::kType};
+constexpr utils::TypeInfo query::XorOperator::kType{utils::TypeId::AST_XOR_OPERATOR, "XorOperator",
+                                                    &query::BinaryOperator::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::AdditionOperator::kType{0x52D17561301C1D42ULL, "AdditionOperator",
-                                                                         &memgraph::query::BinaryOperator::kType};
+constexpr utils::TypeInfo query::AndOperator::kType{utils::TypeId::AST_AND_OPERATOR, "AndOperator",
+                                                    &query::BinaryOperator::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::SubtractionOperator::kType{0xFCF5A1BA84B0C90ULL, "SubtractionOperator",
-                                                                            &memgraph::query::BinaryOperator::kType};
+constexpr utils::TypeInfo query::AdditionOperator::kType{utils::TypeId::AST_ADDITION_OPERATOR, "AdditionOperator",
+                                                         &query::BinaryOperator::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::MultiplicationOperator::kType{
-    0x6ADE43AB6C2A3530ULL, "MultiplicationOperator", &memgraph::query::BinaryOperator::kType};
+constexpr utils::TypeInfo query::SubtractionOperator::kType{utils::TypeId::AST_SUBTRACTION_OPERATOR,
+                                                            "SubtractionOperator", &query::BinaryOperator::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::DivisionOperator::kType{0x2D7BB196E9571D8DULL, "DivisionOperator",
-                                                                         &memgraph::query::BinaryOperator::kType};
+constexpr utils::TypeInfo query::MultiplicationOperator::kType{utils::TypeId::AST_MULTIPLICATION_OPERATOR,
+                                                               "MultiplicationOperator", &query::BinaryOperator::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::ModOperator::kType{0x149CAB96EB3C4EULL, "ModOperator",
-                                                                    &memgraph::query::BinaryOperator::kType};
+constexpr utils::TypeInfo query::DivisionOperator::kType{utils::TypeId::AST_DIVISION_OPERATOR, "DivisionOperator",
+                                                         &query::BinaryOperator::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::NotEqualOperator::kType{0xF13556B8D0A0D025ULL, "NotEqualOperator",
-                                                                         &memgraph::query::BinaryOperator::kType};
+constexpr utils::TypeInfo query::ModOperator::kType{utils::TypeId::AST_MOD_OPERATOR, "ModOperator",
+                                                    &query::BinaryOperator::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::EqualOperator::kType{0xAC4646D2975CC11EULL, "EqualOperator",
-                                                                      &memgraph::query::BinaryOperator::kType};
+constexpr utils::TypeInfo query::NotEqualOperator::kType{utils::TypeId::AST_NOT_EQUAL_OPERATOR, "NotEqualOperator",
+                                                         &query::BinaryOperator::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::LessOperator::kType{0xC1B0BF810466E2C3ULL, "LessOperator",
-                                                                     &memgraph::query::BinaryOperator::kType};
+constexpr utils::TypeInfo query::EqualOperator::kType{utils::TypeId::AST_EQUAL_OPERATOR, "EqualOperator",
+                                                      &query::BinaryOperator::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::GreaterOperator::kType{0xFC38BB8B1B6D2C68ULL, "GreaterOperator",
-                                                                        &memgraph::query::BinaryOperator::kType};
+constexpr utils::TypeInfo query::LessOperator::kType{utils::TypeId::AST_LESS_OPERATOR, "LessOperator",
+                                                     &query::BinaryOperator::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::LessEqualOperator::kType{0xE000F643E2DF0FB1ULL, "LessEqualOperator",
-                                                                          &memgraph::query::BinaryOperator::kType};
+constexpr utils::TypeInfo query::GreaterOperator::kType{utils::TypeId::AST_GREATER_OPERATOR, "GreaterOperator",
+                                                        &query::BinaryOperator::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::GreaterEqualOperator::kType{
-    0x6089DF79F16D1540ULL, "GreaterEqualOperator", &memgraph::query::BinaryOperator::kType};
+constexpr utils::TypeInfo query::LessEqualOperator::kType{utils::TypeId::AST_LESS_EQUAL_OPERATOR, "LessEqualOperator",
+                                                          &query::BinaryOperator::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::InListOperator::kType{0x2F4A2CAE8729D9E9ULL, "InListOperator",
-                                                                       &memgraph::query::BinaryOperator::kType};
+constexpr utils::TypeInfo query::GreaterEqualOperator::kType{utils::TypeId::AST_GREATER_EQUAL_OPERATOR,
+                                                             "GreaterEqualOperator", &query::BinaryOperator::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::SubscriptOperator::kType{0xBF71EC9E9CCDBF3BULL, "SubscriptOperator",
-                                                                          &memgraph::query::BinaryOperator::kType};
+constexpr utils::TypeInfo query::InListOperator::kType{utils::TypeId::AST_IN_LIST_OPERATOR, "InListOperator",
+                                                       &query::BinaryOperator::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::NotOperator::kType{0x70CBC2CC602C6887ULL, "NotOperator",
-                                                                    &memgraph::query::UnaryOperator::kType};
+constexpr utils::TypeInfo query::SubscriptOperator::kType{utils::TypeId::AST_SUBSCRIPT_OPERATOR, "SubscriptOperator",
+                                                          &query::BinaryOperator::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::UnaryPlusOperator::kType{0xB755AEAE5F1F6CDULL, "UnaryPlusOperator",
-                                                                          &memgraph::query::UnaryOperator::kType};
+constexpr utils::TypeInfo query::NotOperator::kType{utils::TypeId::AST_NOT_OPERATOR, "NotOperator",
+                                                    &query::UnaryOperator::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::UnaryMinusOperator::kType{0x25CD9E3AEC4E13EFULL, "UnaryMinusOperator",
-                                                                           &memgraph::query::UnaryOperator::kType};
+constexpr utils::TypeInfo query::UnaryPlusOperator::kType{utils::TypeId::AST_UNARY_PLUS_OPERATOR, "UnaryPlusOperator",
+                                                          &query::UnaryOperator::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::IsNullOperator::kType{0xD108479FB6CC864FULL, "IsNullOperator",
-                                                                       &memgraph::query::UnaryOperator::kType};
+constexpr utils::TypeInfo query::UnaryMinusOperator::kType{utils::TypeId::AST_UNARY_MINUS_OPERATOR,
+                                                           "UnaryMinusOperator", &query::UnaryOperator::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::Aggregation::kType{0xF951EC4E42B59308ULL, "Aggregation",
-                                                                    &memgraph::query::BinaryOperator::kType};
+constexpr utils::TypeInfo query::IsNullOperator::kType{utils::TypeId::AST_IS_NULL_OPERATOR, "IsNullOperator",
+                                                       &query::UnaryOperator::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::ListSlicingOperator::kType{
-    0x2C8C4A3A0E7D0847ULL, "ListSlicingOperator", &memgraph::query::Expression::kType};
+constexpr utils::TypeInfo query::Aggregation::kType{utils::TypeId::AST_AGGREGATION, "Aggregation",
+                                                    &query::BinaryOperator::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::IfOperator::kType{0xF546776DD9D906F5ULL, "IfOperator",
-                                                                   &memgraph::query::Expression::kType};
+constexpr utils::TypeInfo query::ListSlicingOperator::kType{utils::TypeId::AST_LIST_SLICING_OPERATOR,
+                                                            "ListSlicingOperator", &query::Expression::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::BaseLiteral::kType{0x62D38804A2693BAEULL, "BaseLiteral",
-                                                                    &memgraph::query::Expression::kType};
+constexpr utils::TypeInfo query::IfOperator::kType{utils::TypeId::AST_IF_OPERATOR, "IfOperator",
+                                                   &query::Expression::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::PrimitiveLiteral::kType{0x2B217BAA686D53DEULL, "PrimitiveLiteral",
-                                                                         &memgraph::query::BaseLiteral::kType};
+constexpr utils::TypeInfo query::BaseLiteral::kType{utils::TypeId::AST_BASE_LITERAL, "BaseLiteral",
+                                                    &query::Expression::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::ListLiteral::kType{0x4DE40DC42B658AADULL, "ListLiteral",
-                                                                    &memgraph::query::BaseLiteral::kType};
+constexpr utils::TypeInfo query::PrimitiveLiteral::kType{utils::TypeId::AST_PRIMITIVE_LITERAL, "PrimitiveLiteral",
+                                                         &query::BaseLiteral::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::MapLiteral::kType{0xACF06A81158A01ABULL, "MapLiteral",
-                                                                   &memgraph::query::BaseLiteral::kType};
+constexpr utils::TypeInfo query::ListLiteral::kType{utils::TypeId::AST_LIST_LITERAL, "ListLiteral",
+                                                    &query::BaseLiteral::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::Identifier::kType{0xA56BF6F2F344DB9ULL, "Identifier",
-                                                                   &memgraph::query::Expression::kType};
+constexpr utils::TypeInfo query::MapLiteral::kType{utils::TypeId::AST_MAP_LITERAL, "MapLiteral",
+                                                   &query::BaseLiteral::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::PropertyLookup::kType{0xDFCE26AF96CECA59ULL, "PropertyLookup",
-                                                                       &memgraph::query::Expression::kType};
+constexpr utils::TypeInfo query::Identifier::kType{utils::TypeId::AST_IDENTIFIER, "Identifier",
+                                                   &query::Expression::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::LabelsTest::kType{0xEA448992A167401ULL, "LabelsTest",
-                                                                   &memgraph::query::Expression::kType};
+constexpr utils::TypeInfo query::PropertyLookup::kType{utils::TypeId::AST_PROPERTY_LOOKUP, "PropertyLookup",
+                                                       &query::Expression::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::Function::kType{0xE32DA253EF62E16EULL, "Function",
-                                                                 &memgraph::query::Expression::kType};
+constexpr utils::TypeInfo query::LabelsTest::kType{utils::TypeId::AST_LABELS_TEST, "LabelsTest",
+                                                   &query::Expression::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::Reduce::kType{0xA7575119A971A100ULL, "Reduce",
-                                                               &memgraph::query::Expression::kType};
+constexpr utils::TypeInfo query::Function::kType{utils::TypeId::AST_FUNCTION, "Function", &query::Expression::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::Coalesce::kType{0x6016F400F741CEADULL, "Coalesce",
-                                                                 &memgraph::query::Expression::kType};
+constexpr utils::TypeInfo query::Reduce::kType{utils::TypeId::AST_REDUCE, "Reduce", &query::Expression::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::Extract::kType{0xE7F77C95B95D4C0FULL, "Extract",
-                                                                &memgraph::query::Expression::kType};
+constexpr utils::TypeInfo query::Coalesce::kType{utils::TypeId::AST_COALESCE, "Coalesce", &query::Expression::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::All::kType{0x522ED151337F2FE1ULL, "All",
-                                                            &memgraph::query::Expression::kType};
+constexpr utils::TypeInfo query::Extract::kType{utils::TypeId::AST_EXTRACT, "Extract", &query::Expression::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::Single::kType{0xC2501281959170C2ULL, "Single",
-                                                               &memgraph::query::Expression::kType};
+constexpr utils::TypeInfo query::All::kType{utils::TypeId::AST_ALL, "All", &query::Expression::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::Any::kType{0x5235C051338531ACULL, "Any",
-                                                            &memgraph::query::Expression::kType};
+constexpr utils::TypeInfo query::Single::kType{utils::TypeId::AST_SINGLE, "Single", &query::Expression::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::None::kType{0x109A79BFBFFEBEC0ULL, "None",
-                                                             &memgraph::query::Expression::kType};
+constexpr utils::TypeInfo query::Any::kType{utils::TypeId::AST_ANY, "Any", &query::Expression::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::ParameterLookup::kType{0xF509150171270893ULL, "ParameterLookup",
-                                                                        &memgraph::query::Expression::kType};
+constexpr utils::TypeInfo query::None::kType{utils::TypeId::AST_NONE, "None", &query::Expression::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::RegexMatch::kType{0x62835B5DCBB47696ULL, "RegexMatch",
-                                                                   &memgraph::query::Expression::kType};
+constexpr utils::TypeInfo query::ParameterLookup::kType{utils::TypeId::AST_PARAMETER_LOOKUP, "ParameterLookup",
+                                                        &query::Expression::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::NamedExpression::kType{0xB5DC8CE8B571C741ULL, "NamedExpression",
-                                                                        &memgraph::query::Tree::kType};
+constexpr utils::TypeInfo query::RegexMatch::kType{utils::TypeId::AST_REGEX_MATCH, "RegexMatch",
+                                                   &query::Expression::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::PatternAtom::kType{0xB0919DE94D286B89ULL, "PatternAtom",
-                                                                    &memgraph::query::Tree::kType};
+constexpr utils::TypeInfo query::NamedExpression::kType{utils::TypeId::AST_NAMED_EXPRESSION, "NamedExpression",
+                                                        &query::Tree::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::NodeAtom::kType{0xDC95C7EFA10C7DDBULL, "NodeAtom",
-                                                                 &memgraph::query::PatternAtom::kType};
+constexpr utils::TypeInfo query::PatternAtom::kType{utils::TypeId::AST_PATTERN_ATOM, "PatternAtom",
+                                                    &query::Tree::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::EdgeAtom::Lambda::kType{0x5EAAAC14AEAEF225ULL, "Lambda", nullptr};
+constexpr utils::TypeInfo query::NodeAtom::kType{utils::TypeId::AST_NODE_ATOM, "NodeAtom", &query::PatternAtom::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::EdgeAtom::kType{0xD3F077F262CEA052ULL, "EdgeAtom",
-                                                                 &memgraph::query::PatternAtom::kType};
+constexpr utils::TypeInfo query::EdgeAtom::Lambda::kType{utils::TypeId::AST_EDGE_ATOM_LAMBDA, "Lambda", nullptr};
 
-const memgraph::utils::TypeInfo memgraph::query::Pattern::kType{0x15E5FD256974140ULL, "Pattern",
-                                                                &memgraph::query::Tree::kType};
+constexpr utils::TypeInfo query::EdgeAtom::kType{utils::TypeId::AST_EDGE_ATOM, "EdgeAtom", &query::PatternAtom::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::Clause::kType{0xB52EEC9FBB2853D7ULL, "Clause",
-                                                               &memgraph::query::Tree::kType};
+constexpr utils::TypeInfo query::Pattern::kType{utils::TypeId::AST_PATTERN, "Pattern", &query::Tree::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::SingleQuery::kType{0xB6E28A944CD9182EULL, "SingleQuery",
-                                                                    &memgraph::query::Tree::kType};
+constexpr utils::TypeInfo query::Clause::kType{utils::TypeId::AST_CLAUSE, "Clause", &query::Tree::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::CypherUnion::kType{0xC387DFABFE1FB730ULL, "CypherUnion",
-                                                                    &memgraph::query::Tree::kType};
+constexpr utils::TypeInfo query::SingleQuery::kType{utils::TypeId::AST_SINGLE_QUERY, "SingleQuery",
+                                                    &query::Tree::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::Query::kType{0xE280D65C1EB115C6ULL, "Query",
-                                                              &memgraph::query::Tree::kType};
+constexpr utils::TypeInfo query::CypherUnion::kType{utils::TypeId::AST_CYPHER_UNION, "CypherUnion",
+                                                    &query::Tree::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::CypherQuery::kType{0x2FD066553FCC9DDFULL, "CypherQuery",
-                                                                    &memgraph::query::Query::kType};
+constexpr utils::TypeInfo query::Query::kType{utils::TypeId::AST_QUERY, "Query", &query::Tree::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::ExplainQuery::kType{0xF3EFEB69DEB1186FULL, "ExplainQuery",
-                                                                     &memgraph::query::Query::kType};
+constexpr utils::TypeInfo query::CypherQuery::kType{utils::TypeId::AST_CYPHER_QUERY, "CypherQuery",
+                                                    &query::Query::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::ProfileQuery::kType{0x24B61FC5A0AFB7FDULL, "ProfileQuery",
-                                                                     &memgraph::query::Query::kType};
+constexpr utils::TypeInfo query::ExplainQuery::kType{utils::TypeId::AST_EXPLAIN_QUERY, "ExplainQuery",
+                                                     &query::Query::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::IndexQuery::kType{0x3C1D8D92B9312C12ULL, "IndexQuery",
-                                                                   &memgraph::query::Query::kType};
+constexpr utils::TypeInfo query::ProfileQuery::kType{utils::TypeId::AST_PROFILE_QUERY, "ProfileQuery",
+                                                     &query::Query::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::Create::kType{0xACE3D09D645BF60EULL, "Create",
-                                                               &memgraph::query::Clause::kType};
+constexpr utils::TypeInfo query::IndexQuery::kType{utils::TypeId::AST_INDEX_QUERY, "IndexQuery", &query::Query::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::CallProcedure::kType{0x560339D48ED2F44FULL, "CallProcedure",
-                                                                      &memgraph::query::Clause::kType};
+constexpr utils::TypeInfo query::Create::kType{utils::TypeId::AST_CREATE, "Create", &query::Clause::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::Match::kType{0x6CBF9A7D0E8C766BULL, "Match",
-                                                              &memgraph::query::Clause::kType};
+constexpr utils::TypeInfo query::CallProcedure::kType{utils::TypeId::AST_CALL_PROCEDURE, "CallProcedure",
+                                                      &query::Clause::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::SortItem::kType{0xE1AF9E8C71B734A1ULL, "SortItem", nullptr};
+constexpr utils::TypeInfo query::Match::kType{utils::TypeId::AST_MATCH, "Match", &query::Clause::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::ReturnBody::kType{0x110F1E75DDAE9CD0ULL, "ReturnBody", nullptr};
+constexpr utils::TypeInfo query::SortItem::kType{utils::TypeId::AST_SORT_ITEM, "SortItem", nullptr};
 
-const memgraph::utils::TypeInfo memgraph::query::Return::kType{0x118F7AA21E55A934ULL, "Return",
-                                                               &memgraph::query::Clause::kType};
+constexpr utils::TypeInfo query::ReturnBody::kType{utils::TypeId::AST_RETURN_BODY, "ReturnBody", nullptr};
 
-const memgraph::utils::TypeInfo memgraph::query::With::kType{0xF2376847777F0C6ULL, "With",
-                                                             &memgraph::query::Clause::kType};
+constexpr utils::TypeInfo query::Return::kType{utils::TypeId::AST_RETURN, "Return", &query::Clause::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::Delete::kType{0x7B875C0362AD99C5ULL, "Delete",
-                                                               &memgraph::query::Clause::kType};
+constexpr utils::TypeInfo query::With::kType{utils::TypeId::AST_WITH, "With", &query::Clause::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::SetProperty::kType{0x3DD61ACA20CC820FULL, "SetProperty",
-                                                                    &memgraph::query::Clause::kType};
+constexpr utils::TypeInfo query::Delete::kType{utils::TypeId::AST_DELETE, "Delete", &query::Clause::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::SetProperties::kType{0x6D89C20D4D481E67ULL, "SetProperties",
-                                                                      &memgraph::query::Clause::kType};
+constexpr utils::TypeInfo query::SetProperty::kType{utils::TypeId::AST_SET_PROPERTY, "SetProperty",
+                                                    &query::Clause::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::SetLabels::kType{0x1CB79B18DC5683A9ULL, "SetLabels",
-                                                                  &memgraph::query::Clause::kType};
+constexpr utils::TypeInfo query::SetProperties::kType{utils::TypeId::AST_SET_PROPERTIES, "SetProperties",
+                                                      &query::Clause::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::RemoveProperty::kType{0x7E6FE9C800A545CBULL, "RemoveProperty",
-                                                                       &memgraph::query::Clause::kType};
+constexpr utils::TypeInfo query::SetLabels::kType{utils::TypeId::AST_SET_LABELS, "SetLabels", &query::Clause::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::RemoveLabels::kType{0x66EE62F4E97784E5ULL, "RemoveLabels",
-                                                                     &memgraph::query::Clause::kType};
+constexpr utils::TypeInfo query::RemoveProperty::kType{utils::TypeId::AST_REMOVE_PROPERTY, "RemoveProperty",
+                                                       &query::Clause::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::Merge::kType{0x7495D75E46539F62ULL, "Merge",
-                                                              &memgraph::query::Clause::kType};
+constexpr utils::TypeInfo query::RemoveLabels::kType{utils::TypeId::AST_REMOVE_LABELS, "RemoveLabels",
+                                                     &query::Clause::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::Unwind::kType{0x4645FD88B37C7C53ULL, "Unwind",
-                                                               &memgraph::query::Clause::kType};
+constexpr utils::TypeInfo query::Merge::kType{utils::TypeId::AST_MERGE, "Merge", &query::Clause::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::AuthQuery::kType{0xADFB12C266132854ULL, "AuthQuery",
-                                                                  &memgraph::query::Query::kType};
+constexpr utils::TypeInfo query::Unwind::kType{utils::TypeId::AST_UNWIND, "Unwind", &query::Clause::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::InfoQuery::kType{0x67C04B7AE20004AEULL, "InfoQuery",
-                                                                  &memgraph::query::Query::kType};
+constexpr utils::TypeInfo query::AuthQuery::kType{utils::TypeId::AST_AUTH_QUERY, "AuthQuery", &query::Query::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::Constraint::kType{0x4040168D5B6D2EA9ULL, "Constraint", nullptr};
+constexpr utils::TypeInfo query::InfoQuery::kType{utils::TypeId::AST_INFO_QUERY, "InfoQuery", &query::Query::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::ConstraintQuery::kType{0x9B55D3642FB9765FULL, "ConstraintQuery",
-                                                                        &memgraph::query::Query::kType};
+constexpr utils::TypeInfo query::Constraint::kType{utils::TypeId::AST_CONSTRAINT, "Constraint", nullptr};
 
-const memgraph::utils::TypeInfo memgraph::query::DumpQuery::kType{0x4BFE2FB4AB02B7A4ULL, "DumpQuery",
-                                                                  &memgraph::query::Query::kType};
+constexpr utils::TypeInfo query::ConstraintQuery::kType{utils::TypeId::AST_CONSTRAINT_QUERY, "ConstraintQuery",
+                                                        &query::Query::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::ReplicationQuery::kType{0xF8C44201464F8970ULL, "ReplicationQuery",
-                                                                         &memgraph::query::Query::kType};
+constexpr utils::TypeInfo query::DumpQuery::kType{utils::TypeId::AST_DUMP_QUERY, "DumpQuery", &query::Query::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::LockPathQuery::kType{0x2F7DE35B8A3A91EAULL, "LockPathQuery",
-                                                                      &memgraph::query::Query::kType};
+constexpr utils::TypeInfo query::ReplicationQuery::kType{utils::TypeId::AST_REPLICATION_QUERY, "ReplicationQuery",
+                                                         &query::Query::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::LoadCsv::kType{0xCAABB7895328BB12ULL, "LoadCsv",
-                                                                &memgraph::query::Clause::kType};
+constexpr utils::TypeInfo query::LockPathQuery::kType{utils::TypeId::AST_LOCK_PATH_QUERY, "LockPathQuery",
+                                                      &query::Query::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::FreeMemoryQuery::kType{0x6159878D41E2ABE1ULL, "FreeMemoryQuery",
-                                                                        &memgraph::query::Query::kType};
+constexpr utils::TypeInfo query::LoadCsv::kType{utils::TypeId::AST_LOAD_CSV, "LoadCsv", &query::Clause::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::TriggerQuery::kType{0x9F83F333E4C5C606ULL, "TriggerQuery",
-                                                                     &memgraph::query::Query::kType};
+constexpr utils::TypeInfo query::FreeMemoryQuery::kType{utils::TypeId::AST_FREE_MEMORY_QUERY, "FreeMemoryQuery",
+                                                        &query::Query::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::IsolationLevelQuery::kType{0xC1DB3EFA523DE20ULL, "IsolationLevelQuery",
-                                                                            &memgraph::query::Query::kType};
+constexpr utils::TypeInfo query::TriggerQuery::kType{utils::TypeId::AST_TRIGGER_QUERY, "TriggerQuery",
+                                                     &query::Query::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::CreateSnapshotQuery::kType{
-    0x2BB6237F3AC564BEULL, "CreateSnapshotQuery", &memgraph::query::Query::kType};
+constexpr utils::TypeInfo query::IsolationLevelQuery::kType{utils::TypeId::AST_ISOLATION_LEVEL_QUERY,
+                                                            "IsolationLevelQuery", &query::Query::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::StreamQuery::kType{0xC541BC25300676AEULL, "StreamQuery",
-                                                                    &memgraph::query::Query::kType};
+constexpr utils::TypeInfo query::CreateSnapshotQuery::kType{utils::TypeId::AST_CREATE_SNAPSHOT_QUERY,
+                                                            "CreateSnapshotQuery", &query::Query::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::SettingQuery::kType{0xB9454814207B2A5AULL, "SettingQuery",
-                                                                     &memgraph::query::Query::kType};
+constexpr utils::TypeInfo query::StreamQuery::kType{utils::TypeId::AST_STREAM_QUERY, "StreamQuery",
+                                                    &query::Query::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::VersionQuery::kType{0x5DAC03A5A2BE0CAULL, "VersionQuery",
-                                                                     &memgraph::query::Query::kType};
+constexpr utils::TypeInfo query::SettingQuery::kType{utils::TypeId::AST_SETTING_QUERY, "SettingQuery",
+                                                     &query::Query::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::Foreach::kType{0xF22E7972BF35BA14ULL, "Foreach",
-                                                                &memgraph::query::Clause::kType};
+constexpr utils::TypeInfo query::VersionQuery::kType{utils::TypeId::AST_VERSION_QUERY, "VersionQuery",
+                                                     &query::Query::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::ShowConfigQuery::kType{0x3E7D0B5FDE8211DBULL, "ShowConfigQuery",
-                                                                        &memgraph::query::Query::kType};
+constexpr utils::TypeInfo query::Foreach::kType{utils::TypeId::AST_FOREACH, "Foreach", &query::Clause::kType};
 
-const memgraph::utils::TypeInfo memgraph::query::Exists::kType{0x5F492EE46988DD42ULL, "Exists",
-                                                               &memgraph::query::Expression::kType};
+constexpr utils::TypeInfo query::ShowConfigQuery::kType{utils::TypeId::AST_SHOW_CONFIG_QUERY, "ShowConfigQuery",
+                                                        &query::Query::kType};
+
+constexpr utils::TypeInfo query::Exists::kType{utils::TypeId::AST_EXISTS, "Exists", &query::Expression::kType};
+}  // namespace memgraph

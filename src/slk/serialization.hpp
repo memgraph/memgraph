@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -29,8 +29,10 @@
 
 #include "slk/streams.hpp"
 #include "utils/cast.hpp"
+#include "utils/concepts.hpp"
 #include "utils/endian.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/typeinfo.hpp"
 
 // The namespace name stands for SaveLoadKit. It should be not mistaken for the
 // Mercedes car model line.
@@ -308,6 +310,17 @@ inline void Save(const std::optional<T> &obj, Builder *builder) {
   }
 }
 
+// template <typename TEnum>
+// requires(std::is_enum_v<TEnum> &&std::is_integral_v<std::underlying_type_t<TEnum>>) inline void Save(const TEnum obj,
+//                                                                                                      Builder
+//                                                                                                      *builder) {
+//   Save(static_cast<std::underlying_type_t<TEnum>>(obj), builder);
+// }
+
+inline void Save(const utils::TypeId &obj, Builder *builder) {
+  Save(static_cast<std::underlying_type_t<utils::TypeId>>(obj), builder);
+}
+
 template <typename T>
 inline void Load(std::optional<T> *obj, Reader *reader) {
   bool exists = false;
@@ -471,4 +484,19 @@ inline void Load(std::optional<T> *obj, Reader *reader, std::function<void(T *, 
     *obj = std::nullopt;
   }
 }
+
+// template <typename TEnum>
+// requires(std::is_enum_v<TEnum> &&std::is_integral_v<std::underlying_type_t<TEnum>>) inline void Load(TEnum &obj,
+//                                                                                                      Reader *reader)
+//                                                                                                      {
+//   Load(static_cast<std::underlying_type_t<TEnum>>(obj), reader);
+// }
+
+inline void Load(utils::TypeId *obj, Reader *reader) {
+  using enum_type = std::underlying_type_t<utils::TypeId>;
+  enum_type obj_encoded;
+  slk::Load(&obj_encoded, reader);
+  *obj = utils::TypeId(utils::MemcpyCast<enum_type>(obj_encoded));
+}
+
 }  // namespace memgraph::slk
