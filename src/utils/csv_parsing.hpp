@@ -83,7 +83,7 @@ class Reader {
   using ParsingResult = utils::BasicResult<ParseError, Row>;
   [[nodiscard]] bool HasHeader() const;
   const Header &GetHeader() const;
-  std::optional<Row> GetNextRow(utils::MemoryResource *mem);
+  std::optional<Row> GetNextRow();
 
  private:
   utils::MemoryResource *memory_;
@@ -98,11 +98,11 @@ class Reader {
 
   void TryInitializeHeader();
 
-  std::optional<utils::pmr::string> GetNextLine(utils::MemoryResource *mem);
+  std::optional<utils::pmr::string> GetNextLine();
 
   ParsingResult ParseHeader();
 
-  ParsingResult ParseRow(utils::MemoryResource *mem);
+  ParsingResult ParseRow();
 };
 
 }  // namespace memgraph::csv

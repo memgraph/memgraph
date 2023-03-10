@@ -30,8 +30,8 @@ void Reader::InitializeStream() {
   }
 }
 
-std::optional<utils::pmr::string> Reader::GetNextLine(utils::MemoryResource *mem) {
-  utils::pmr::string line(mem);
+std::optional<utils::pmr::string> Reader::GetNextLine() {
+  utils::pmr::string line(memory_);
   if (!std::getline(csv_stream_, line)) {
     // reached end of file or an I/0 error occurred
     if (!csv_stream_.good()) {
@@ -46,7 +46,7 @@ std::optional<utils::pmr::string> Reader::GetNextLine(utils::MemoryResource *mem
 Reader::ParsingResult Reader::ParseHeader() {
   // header must be the very first line in the file
   MG_ASSERT(line_count_ == 1, "Invalid use of {}", __func__);
-  return ParseRow(memory_);
+  return ParseRow();
 }
 
 void Reader::TryInitializeHeader() {
@@ -76,8 +76,8 @@ enum class CsvParserState : uint8_t { INITIAL_FIELD, NEXT_FIELD, QUOTING, EXPECT
 
 }  // namespace
 
-Reader::ParsingResult Reader::ParseRow(utils::MemoryResource *mem) {
-  utils::pmr::vector<utils::pmr::string> row(mem);
+Reader::ParsingResult Reader::ParseRow() {
+  utils::pmr::vector<utils::pmr::string> row(memory_);
   if (number_of_columns_ != 0) {
     row.reserve(number_of_columns_);
   }
@@ -87,7 +87,7 @@ Reader::ParsingResult Reader::ParseRow(utils::MemoryResource *mem) {
   auto state = CsvParserState::INITIAL_FIELD;
 
   do {
-    const auto maybe_line = GetNextLine(mem);
+    const auto maybe_line = GetNextLine();
     if (!maybe_line) {
       // The whole file was processed.
       break;
@@ -221,8 +221,8 @@ Reader::ParsingResult Reader::ParseRow(utils::MemoryResource *mem) {
 // making it unreadable;
 // @throws CsvReadException if a bad row is encountered, and the ignore_bad is set
 // to 'true' in the Reader::Config.
-std::optional<Reader::Row> Reader::GetNextRow(utils::MemoryResource *mem) {
-  auto row = ParseRow(mem);
+std::optional<Reader::Row> Reader::GetNextRow() {
+  auto row = ParseRow();
 
   if (row.HasError()) {
     if (!read_config_.ignore_bad) {
@@ -234,7 +234,7 @@ std::optional<Reader::Row> Reader::GetNextRow(utils::MemoryResource *mem) {
       if (!csv_stream_.good()) {
         return std::nullopt;
       }
-      row = ParseRow(mem);
+      row = ParseRow();
     } while (row.HasError());
   }
 
