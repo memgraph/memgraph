@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -46,7 +46,7 @@ static_assert(kSegmentMaxDataSize <= std::numeric_limits<SegmentSize>::max(),
 /// Builder used to create a SLK segment stream.
 class Builder {
  public:
-  Builder(std::function<void(const uint8_t *, size_t, bool)> write_func);
+  explicit Builder(std::function<void(const uint8_t *, size_t, bool)> write_func);
 
   /// Function used internally by SLK to serialize the data.
   void Save(const uint8_t *data, uint64_t size);
