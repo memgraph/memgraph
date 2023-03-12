@@ -41,7 +41,7 @@ def parse_args():
     parser.add_argument(
         "benchmarks",
         nargs="*",
-        default="",
+        default=None,
         help="descriptions of benchmarks that should be run; "
         "multiple descriptions can be specified to run multiple "
         "benchmarks; the description is specified as "
@@ -89,11 +89,13 @@ def parse_args():
     parser.add_argument(
         "--no-load-query-counts",
         action="store_true",
+        default=False,
         help="disable loading of cached query counts",
     )
     parser.add_argument(
         "--no-save-query-counts",
         action="store_true",
+        default=False,
         help="disable storing of cached query counts",
     )
 
@@ -105,7 +107,7 @@ def parse_args():
     parser.add_argument(
         "--temporary-directory",
         default="/tmp",
-        help="directory path where temporary data should " "be stored",
+        help="directory path where temporary data should be stored",
     )
     parser.add_argument("--no-properties-on-edges", action="store_true", help="disable properties on edges")
 
@@ -119,10 +121,10 @@ def parse_args():
     )
 
     parser.add_argument(
-        "--warmup-run",
-        action="store_true",
-        default=False,
-        help="Run warmup before benchmarks",
+        "--warm-up",
+        default="cold",
+        choices=["cold", "hot", "heavy_hot_run"],
+        help="Run different warmups before benchmarks sample starts",
     )
 
     parser.add_argument(
@@ -167,17 +169,55 @@ def parse_args():
     return parser.parse_args()
 
 
-class WorkloadMode:
-    def __init__(self, workload_mixed, workload_realistic) -> None:
+class BenchmarkContext:
+
+    """
+    Class for holding information on what type of benchmark is being executed
+    """
+
+    def __init__(
+        self,
+        benchmark_target_workload: str = None,  # Workload that needs to be executed (dataset/variant/group/query)
+        vendor_context: str = None,  # Benchmark vendor context(binary, folder, DB Runner)
+        vendor_name: str = None,
+        num_workers_for_import: int = None,
+        num_workers_for_benchmark: int = None,
+        no_load_query_counts: bool = False,
+        no_save_query_counts: bool = False,
+        export_results: str = None,
+        temporary_directory: str = None,
+        workload_mixed: str = None,  # Default mode is isolated, mixed None
+        workload_realistic: str = None,  # Default mode is isolated, realistic None
+        time_dependent_execution: int = 0,
+        warm_up: str = None,
+        performance_tracking: bool = False,
+        no_authorization: bool = True,
+    ) -> None:
+
+        self.benchmark_target_workload = benchmark_target_workload
+        self.vendor_context = vendor_context
+        self.vendor_name = vendor_name
+        self.num_workers_for_import = num_workers_for_import
+        self.num_workers_for_benchmark = num_workers_for_benchmark
+        self.no_load_query_counts = no_load_query_counts
+        self.no_save_query_counts = no_save_query_counts
+        self.export_results = export_results
+        self.temporary_directory = temporary_directory
+
         if workload_mixed != None:
-            self.name = "Mixed"
-            self.config = workload_mixed
+            self.mode = "Mixed"
+            self.mode_config = workload_mixed
         elif workload_realistic != None:
-            self.name = "Realistic"
-            self.config = workload_realistic
+            self.mode = "Realistic"
+            self.mode_config = workload_realistic
         else:
-            self.name = "Isolated"
-            self.config = None
+            self.mode = "Isolated"
+            self.mode_config = "Isolated run does not have a config."
+
+        self.time_dependent_execution = time_dependent_execution
+        self.performance_tracking = performance_tracking
+        self.warm_up = warm_up
+        self.no_authorization = no_authorization
 
 
 def get_queries(gen, count):
@@ -406,8 +446,9 @@ def get_query_cache_count(vendor, client, func, config_key, single_threaded_runt
         )
         # First run to prime the query caches.
         vendor.start_benchmark("cache")
-        if warmup:
+        if warmup == "hot":
             warmup(client)
+
         client.execute(queries=get_queries(func, 1), num_workers=1)
         # Get a sense of the runtime.
         count = 1
@@ -456,6 +497,7 @@ if __name__ == "__main__":
 
     args = parse_args()
 
+    assert args.benchmarks != None
     # Supported vendors
     assert args.vendor_name == "memgraph" or args.vendor_name == "neo4j"
     assert args.num_workers_for_import > 0
@@ -464,13 +506,28 @@ if __name__ == "__main__":
     # Cannot run in both modes in the same time, default is isolated query execution
     assert args.workload_realistic == None or args.workload_mixed == None
 
-    workload_mode = WorkloadMode(args.workload_realistic, args.workload_mixed)
+    benchmark_context = BenchmarkContext(
+        benchmark_target_workload=args.benchmarks,
+        vendor_context=args.vendor_binary,
+        vendor_name=args.vendor_name,
+        num_workers_for_import=args.num_workers_for_import,
+        num_workers_for_benchmark=args.num_workers_for_benchmark,
+        no_load_query_counts=args.no_load_query_counts,
+        export_results=args.export_results,
+        temporary_directory=args.temporary_directory,
+        workload_mixed=args.workload_realistic,
+        workload_realistic=args.workload_mixed,
+        time_dependent_execution=args.time_depended_execution,
+        warm_up=args.warm_up,
+        performance_tracking=args.performance_tracking,
+        no_authorization=args.no_authorization,
+    )
 
     run_config = {
-        "vendor": args.vendor_name,
-        "condition": "hot" if args.warmup_run else "cold",
-        "workload": workload_mode.name,
-        "workload_config": workload_mode.config,
+        "vendor": benchmark_context.vendor_name,
+        "condition": benchmark_context.warm_up,
+        "workload": benchmark_context.mode,
+        "workload_config": benchmark_context.mode_config,
     }
 
     # Detect available datasets.

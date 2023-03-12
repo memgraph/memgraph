@@ -68,6 +68,18 @@ class Runners(ABC):
     def _get_args(self, **kwargs):
         pass
 
+    @abstractclassmethod
+    def _start(self, **kwargs):
+        pass
+
+    @abstractclassmethod
+    def _stop(self):
+        pass
+
+    @abstractclassmethod
+    def _clean_up(self):
+        pass
+
 
 class Memgraph(Runners):
     def __init__(self, memgraph_binary, temporary_dir, properties_on_edges, bolt_port, performance_tracking):
