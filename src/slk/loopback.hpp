@@ -29,6 +29,12 @@ namespace memgraph::slk {
 /// and try to decode the encoded data.
 class Loopback {
  public:
+  Loopback() = default;
+  Loopback(const Loopback &) = delete;
+  Loopback &operator=(const Loopback &) = delete;
+  Loopback(Loopback &&) = delete;
+  Loopback &operator=(Loopback &&) = delete;
+
   ~Loopback() {
     MG_ASSERT(builder_, "You haven't created a builder!");
     MG_ASSERT(reader_, "You haven't created a reader!");
@@ -54,7 +60,7 @@ class Loopback {
     return reader_.get();
   }
 
-  size_t size() { return size_; }
+  size_t size() const { return size_; }
 
  private:
   void Write(const uint8_t *data, size_t size, bool have_more) {
