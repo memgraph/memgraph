@@ -106,6 +106,7 @@ class RequestRouterInterface {
   virtual std::vector<msgs::ExpandOneResultRow> ExpandOne(msgs::ExpandOneRequest request) = 0;
   virtual std::vector<msgs::CreateExpandResponse> CreateExpand(std::vector<msgs::NewExpand> new_edges) = 0;
   virtual std::vector<msgs::GetPropertiesResultRow> GetProperties(msgs::GetPropertiesRequest request) = 0;
+  virtual std::vector<msgs::GraphResponse> GetGraph(msgs::GraphRequest req) = 0;
 
   virtual storage::v3::EdgeTypeId NameToEdgeType(const std::string &name) const = 0;
   virtual storage::v3::PropertyId NameToProperty(const std::string &name) const = 0;
@@ -401,6 +402,11 @@ class RequestRouter : public RequestRouterInterface {
     }
 
     return result_rows;
+  }
+
+  std::vector<msgs::GraphResponse> GetGraph(msgs::GraphRequest req) override {
+    LOG_FATAL("Implement GetGraph request");
+    return {};
   }
 
   std::optional<storage::v3::PropertyId> MaybeNameToProperty(const std::string &name) const override {

@@ -97,6 +97,8 @@ class MockedRequestRouter : public RequestRouterInterface {
 
   std::vector<GetPropertiesResultRow> GetProperties(GetPropertiesRequest rqst) override { return {}; }
 
+  std::vector<msgs::GraphResponse> GetGraph(msgs::GraphRequest rqst) override { return {}; }
+
   const std::string &PropertyToName(memgraph::storage::v3::PropertyId id) const override {
     return properties_.IdToName(id.AsUint());
   }

@@ -574,6 +574,21 @@ struct UpdateEdgesResponse {
   std::optional<ShardError> error;
 };
 
+// TODO(gitbuda): Add more filtering options.
+struct GraphRequest {
+  Hlc transaction_id;
+  std::optional<VertexId> maybe_start_id;
+  //  The empty optional means return all of the properties, while an empty list means do not return any properties
+  std::optional<std::vector<PropertyId>> props_to_return;
+  std::optional<size_t> batch_limit;
+  StorageView storage_view{StorageView::NEW};
+};
+
+struct GraphResponse {
+  std::optional<ShardError> error;
+  Graph data;
+};
+
 struct CommitRequest {
   Hlc transaction_id;
   Hlc commit_timestamp;
@@ -583,8 +598,8 @@ struct CommitResponse {
   std::optional<ShardError> error;
 };
 
-using ReadRequests = std::variant<ExpandOneRequest, GetPropertiesRequest, ScanVerticesRequest>;
-using ReadResponses = std::variant<ExpandOneResponse, GetPropertiesResponse, ScanVerticesResponse>;
+using ReadRequests = std::variant<ExpandOneRequest, GetPropertiesRequest, ScanVerticesRequest, GraphRequest>;
+using ReadResponses = std::variant<ExpandOneResponse, GetPropertiesResponse, ScanVerticesResponse, GraphResponse>;
 
 using WriteRequests = std::variant<CreateVerticesRequest, DeleteVerticesRequest, UpdateVerticesRequest,
                                    CreateExpandRequest, DeleteEdgesRequest, UpdateEdgesRequest, CommitRequest>;

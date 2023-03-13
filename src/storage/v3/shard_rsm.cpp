@@ -706,4 +706,8 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::GetPropertiesRequest &&req) {
   });
 }
 
+msgs::ReadResponses ShardRsm::HandleRead(msgs::GraphRequest &&req) {
+  LOG_FATAL("Implement ShardRsm HandleRead GraphRequest");
+}
+
 }  // namespace memgraph::storage::v3

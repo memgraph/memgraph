@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -117,6 +117,8 @@ class MockedShardRsm {
     }
     return resp;
   }
+
+  msgs::GraphResponse ReadImpl(msgs::GraphRequest rqst) { LOG_FATAL("Implement Simulator ReadImpl GraphRequest"); }
 
   ReadResponses Read(ReadRequests read_requests) {
     return {std::visit([this]<typename T>(T &&request) { return ReadResponses{ReadImpl(std::forward<T>(request))}; },

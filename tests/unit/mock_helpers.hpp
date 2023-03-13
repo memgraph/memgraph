@@ -27,6 +27,7 @@ class MockedRequestRouter : public RequestRouterInterface {
   MOCK_METHOD(std::vector<msgs::ExpandOneResultRow>, ExpandOne, (msgs::ExpandOneRequest));
   MOCK_METHOD(std::vector<msgs::CreateExpandResponse>, CreateExpand, (std::vector<msgs::NewExpand>));
   MOCK_METHOD(std::vector<msgs::GetPropertiesResultRow>, GetProperties, (msgs::GetPropertiesRequest));
+  MOCK_METHOD(std::vector<msgs::GraphResponse>, GetGraph, (msgs::GraphRequest));
   MOCK_METHOD(void, StartTransaction, ());
   MOCK_METHOD(void, Commit, ());
 
