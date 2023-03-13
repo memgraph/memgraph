@@ -569,7 +569,7 @@ static void ParseForeach(query::Foreach &foreach, SingleQueryPart &query_part, A
 QueryPart CollectSingleQueryParts(SymbolTable &symbol_table, AstStorage &storage, SingleQuery *single_query) {
   std::vector<SingleQueryPart> query_parts(1);
   auto *query_part = &query_parts.back();
-  std::vector<std::unique_ptr<QueryParts>> subqueries{};
+  std::vector<std::shared_ptr<QueryParts>> subqueries{};
   for (auto &clause : single_query->clauses_) {
     if (auto *match = utils::Downcast<Match>(clause)) {
       if (match->optional_) {
@@ -588,7 +588,7 @@ QueryPart CollectSingleQueryParts(SymbolTable &symbol_table, AstStorage &storage
         // with more than one CALL subquery, we need to either know where we are in the vector or use a queue
         auto subquery_parts =
             CollectQueryParts(symbol_table, storage, call_subquery->single_query_, call_subquery->cypher_unions_);
-        std::unique_ptr<QueryParts> subquery;
+        std::shared_ptr<QueryParts> subquery;
         *subquery = subquery_parts;
         subqueries.push_back(std::move(subquery));
       } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {

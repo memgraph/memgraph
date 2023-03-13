@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <queue>
 #include "query/plan/cost_estimator.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
@@ -83,9 +84,9 @@ class PostProcessor final {
 /// @sa VariableStartPlanner
 template <template <class> class TPlanner, class TDbAccessor>
 auto MakeLogicalPlanForSingleQuery(std::vector<SingleQueryPart> single_query_parts,
-                                   PlanningContext<TDbAccessor> *context, std::vector<LogicalOperator> sub_plans) {
+                                   PlanningContext<TDbAccessor> *context /*, std::queue<LogicalOperator> sub_plans*/) {
   context->bound_symbols.clear();
-  return TPlanner<PlanningContext<TDbAccessor>>(context).Plan(single_query_parts, sub_plans);
+  return TPlanner<PlanningContext<TDbAccessor>>(context).Plan(single_query_parts /*, sub_plans*/);
 }
 
 /// Generates the LogicalOperator tree and returns the resulting plan.
@@ -102,7 +103,8 @@ auto MakeLogicalPlanForSingleQuery(std::vector<SingleQueryPart> single_query_par
 template <class TPlanningContext, class TPlanPostProcess>
 auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, bool use_variable_planner) {
   // TODO Bruno change parameters
-  auto query_parts = CollectQueryParts(*context->symbol_table, *context->ast_storage, context->query);
+  auto query_parts = CollectQueryParts(*context->symbol_table, *context->ast_storage, context->query->single_query_,
+                                       context->query->cypher_unions_);
   auto &vertex_counts = *context->db;
   double total_cost = 0;
 
@@ -113,20 +115,19 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
     // recursive call for subqueries in query_part
     // after that? add to total_cost (maybe unnecessary if EstimatePlanCost deals with that), send last_plan to
     // MakeLogicalPlanForSingleQuery
-    std::queue<ProcessedPlan> sub_plans;
-    for (const auto &subquery : query_part.subqueries) {
-      auto [root, cost] = MakeLogicalPlan(context, post_process, use_variable_planner);
-      // since we can have multiple subqueries, gather them and send to planner
-      total_cost += cost;
-      sub_plans.push(root);
-    }
+    // std::queue<ProcessedPlan> sub_plans;
+    // for (const auto &subquery : query_part.subqueries) {
+    //   auto [root, cost] = MakeLogicalPlan(context, post_process, use_variable_planner);
+    //   // since we can have multiple subqueries, gather them and send to planner
+    //   total_cost += cost;
+    //   sub_plans.push(root);
+    // }
 
     std::optional<ProcessedPlan> curr_plan;
     double min_cost = std::numeric_limits<double>::max();
 
     if (use_variable_planner) {
-      auto plans =
-          MakeLogicalPlanForSingleQuery<VariableStartPlanner>(query_part.single_query_parts, context, sub_plans);
+      auto plans = MakeLogicalPlanForSingleQuery<VariableStartPlanner>(query_part.single_query_parts, context);
       for (auto plan : plans) {
         // Plans are generated lazily and the current plan will disappear, so
         // it's ok to move it.
@@ -138,7 +139,7 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
         }
       }
     } else {
-      auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(query_part.single_query_parts, context, sub_plans);
+      auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(query_part.single_query_parts, context);
       auto rewritten_plan = post_process->Rewrite(std::move(plan), context);
       min_cost = post_process->EstimatePlanCost(rewritten_plan, &vertex_counts);
       curr_plan.emplace(std::move(rewritten_plan));

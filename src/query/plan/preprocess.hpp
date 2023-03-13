@@ -458,7 +458,7 @@ struct SingleQueryPart {
 /// about the combinator used between this single query and the previous one.
 struct QueryPart {
   std::vector<SingleQueryPart> single_query_parts = {};
-  std::vector<std::unique_ptr<QueryParts>> subqueries{};
+  std::vector<std::shared_ptr<QueryParts>> subqueries{};
   /// Optional AST query combinator node
   Tree *query_combinator = nullptr;
 };

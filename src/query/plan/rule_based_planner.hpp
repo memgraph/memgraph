@@ -165,10 +165,10 @@ class RuleBasedPlanner {
   /// tree.
   using PlanResult = std::unique_ptr<LogicalOperator>;
   /// @brief Generates the operator tree based on explicitly set rules.
-  PlanResult Plan(const std::vector<SingleQueryPart> &query_parts, const std::queue<LogicalOperator> &sub_plans,
-                  std::unique_ptr<LogicalOperator> input_op = nullptr) {
+  PlanResult Plan(const std::vector<SingleQueryPart> &query_parts/*, const std::queue<LogicalOperator> &sub_plans,
+                  std::unique_ptr<LogicalOperator> input_op = nullptr*/) {
     auto &context = *context_;
-    // std::unique_ptr<LogicalOperator> input_op;
+    std::unique_ptr<LogicalOperator> input_op;
     // Set to true if a query command writes to the database.
     bool is_write = false;
     for (const auto &query_part : query_parts) {
@@ -239,7 +239,7 @@ class RuleBasedPlanner {
         } else if (auto *call_sub = utils::Downcast<query::CallSubquery>(clause)) {
           // is_write?
           // take plans about subqueries, connect operators, add
-          input_op = HandleSubquery(call_sub, std::move(input_op), sub_plans.pop());
+          // input_op = HandleSubquery(call_sub, std::move(input_op), sub_plans.pop());
 
         } else {
           throw utils::NotYetImplemented("clause '{}' conversion to operator(s)", clause->GetTypeInfo().name);
@@ -663,7 +663,7 @@ class RuleBasedPlanner {
   }
   std::unique_ptr<LogicalOperator> HandleSubquery(std::unique_ptr<LogicalOperator> input_op) {
     // bound symbols?
-    return std::make_unique<plan::BrunoOperator>();
+    // return std::make_unique<plan::BrunoOperator>();
   }
 };
 
