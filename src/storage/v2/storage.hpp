@@ -26,6 +26,7 @@
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/indices.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/mvcc.hpp"
@@ -264,12 +265,18 @@ class Storage final {
       return storage_->indices_.label_property_index.ApproximateVertexCount(label, property, lower, upper);
     }
 
-    bool SetIndexStats(storage::LabelId label, storage::PropertyId property, IndexStats stats) {
-      return storage_->indices_.label_property_index.SetIndexStats(label, property, stats);
+    IndexStats GetIndexStats(const storage::LabelId &label, const storage::PropertyId &property) const {
+      return storage_->indices_.label_property_index.GetIndexStats(label, property);
     }
 
-    IndexStats GetIndexStats(storage::LabelId label, storage::PropertyId property) const {
-      return storage_->indices_.label_property_index.GetIndexStats(label, property);
+    void DeleteIndexStatsForLabels(const std::vector<std::string> &labels) {
+      std::for_each(labels.begin(), labels.end(), [this](const auto &label_str) {
+        storage_->indices_.label_property_index.DeleteIndexStatsForLabel(NameToLabel(label_str));
+      });
+    }
+
+    void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property, const IndexStats &stats) {
+      storage_->indices_.label_property_index.SetIndexStats(label, property, stats);
     }
 
     /// @return Accessor to the deleted vertex if a deletion took place, std::nullopt otherwise

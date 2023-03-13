@@ -16,6 +16,7 @@
 #include <utility>
 
 #include "storage/v2/config.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -132,7 +133,12 @@ class LabelIndex {
 };
 
 struct IndexStats {
-  uint64_t max_number_of_vertices_with_same_value;
+  // Count of max occurring property value
+  int64_t max_count_property_value;
+  // Count of min occurring property value
+  int64_t min_count_property_value;
+  // Statistics value
+  double stat_value;
 };
 
 class LabelPropertyIndex {
@@ -241,9 +247,11 @@ class LabelPropertyIndex {
                                  const std::optional<utils::Bound<PropertyValue>> &lower,
                                  const std::optional<utils::Bound<PropertyValue>> &upper) const;
 
-  bool SetIndexStats(storage::LabelId label, storage::PropertyId property, IndexStats stats);
+  void DeleteIndexStatsForLabel(const storage::LabelId &label);
 
-  IndexStats GetIndexStats(storage::LabelId label, storage::PropertyId property) const;
+  void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property, const IndexStats &stats);
+
+  IndexStats GetIndexStats(const storage::LabelId &label, const storage::PropertyId &property) const;
 
   void Clear() { index_.clear(); }
 

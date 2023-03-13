@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <functional>
 #include <limits>
+#include <numeric>
 #include <optional>
 #include <unordered_map>
 #include <variant>
@@ -53,7 +54,9 @@
 #include "query/typed_value.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/view.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
@@ -61,6 +64,7 @@
 #include "utils/flag_validation.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
+#include "utils/math.hpp"
 #include "utils/memory.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/readable_size.hpp"
@@ -1404,31 +1408,97 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, std::map<std::string, T
                        RWType::R};
 }
 
-void AnalyzeGraphQueryHandler::AnalyzeGraphCreateStatistics(const std::vector<std::string> &labels,
-                                                            storage::Storage::Accessor *dba) {}
+std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreateStatistics(
+    const std::vector<std::string> &labels, DbAccessor *execution_db_accessor, storage::Storage::Accessor *dba) {
+  auto results = std::vector<std::vector<TypedValue>>();
+  using VertexAccessorIterable = decltype(std::declval<query::DbAccessor>().Vertices(storage::View::OLD));
+  using LPIndex = std::pair<storage::LabelId, storage::PropertyId>;
+  VertexAccessorIterable vertices = execution_db_accessor->Vertices(storage::View::OLD);
+
+  std::map<LPIndex, std::map<storage::PropertyValue, int64_t>> counter;
+
+  // initialize index
+  const auto &indices_info = execution_db_accessor->ListAllIndices();
+  std::for_each(vertices.begin(), vertices.end(), [&indices_info, &counter](const auto &vertex) {
+    for (const auto &info : indices_info.label_property) {
+      if (const auto &has_label = vertex.HasLabel(storage::View::OLD, info.first); has_label.HasError() || !*has_label)
+        continue;
+      if (const auto &property = vertex.GetProperty(storage::View::NEW, info.second);
+          !property.HasError() && (*property).type() != storage::PropertyValue::Type::Null) {
+        spdlog::debug("Found property: {}", (*property).type());
+        counter[info][*property]++;
+      } else {
+        continue;
+      }
+    }
+  });
+
+  results.reserve(counter.size());
+  for (auto &[label_property, values_map] : counter) {
+    std::vector<TypedValue> result;
+    // Extract info
+    int64_t max_count_property_value = std::accumulate(
+        values_map.begin(), values_map.end(), 0,
+        [](int64_t prev_value, const auto &prop_value_count) { return std::max(prev_value, prop_value_count.second); });
+    int64_t min_count_property_value = std::accumulate(
+        values_map.begin(), values_map.end(), INT64_MAX,
+        [](int64_t prev_value, const auto &prop_value_count) { return std::min(prev_value, prop_value_count.second); });
+    int64_t sum_property_value = std::accumulate(
+        values_map.begin(), values_map.end(), 0,
+        [](int64_t prev_value, const auto &prop_value_count) { return prev_value + prop_value_count.second; });
+    // num_distinc_values will never be 0
+    double E = static_cast<double>(sum_property_value) / static_cast<double>(values_map.size());
+    double chi_squared_stat =
+        std::accumulate(values_map.begin(), values_map.end(), 0.0, [E](double prev_result, const auto &value_entry) {
+          return prev_result + utils::ChiSquaredValue(value_entry.second, E);
+        });
+    dba->SetIndexStats(label_property.first, label_property.second,
+                       storage::IndexStats{.max_count_property_value = max_count_property_value,
+                                           .min_count_property_value = min_count_property_value,
+                                           .stat_value = chi_squared_stat});
+    // Save result
+    result.emplace_back(dba->LabelToName(label_property.first));
+    result.emplace_back(dba->PropertyToName(label_property.second));
+    result.emplace_back(sum_property_value);
+    result.emplace_back(max_count_property_value);
+    result.emplace_back(min_count_property_value);
+    result.emplace_back(chi_squared_stat);
+    results.push_back(std::move(result));
+  }
+  return results;
+}
 
 void AnalyzeGraphQueryHandler::AnalyzeGraphDeleteStatistics(const std::vector<std::string> &labels,
-                                                            storage::Storage::Accessor *dba) {}
+                                                            storage::Storage::Accessor *dba) {
+  dba->DeleteIndexStatsForLabels(labels);
+}
 
-Callback HandleAnalyzeGraphQuery(AnalyzeGraphQuery *analyze_graph_query, storage::Storage::Accessor *dba) {
+Callback HandleAnalyzeGraphQuery(AnalyzeGraphQuery *analyze_graph_query, DbAccessor *execution_db_accessor,
+                                 storage::Storage::Accessor *dba) {
   Callback callback;
 
   switch (analyze_graph_query->action_) {
     case AnalyzeGraphQuery::Action::ANALYZE: {
-      callback.header = {"status"};
-      callback.fn = [handler = AnalyzeGraphQueryHandler(), labels = analyze_graph_query->labels_, dba]() mutable {
-        handler.AnalyzeGraphCreateStatistics(labels, dba);
-        auto results = std::vector<std::vector<TypedValue>>{{TypedValue(true)}};
-        return results;
+      callback.header = {"label",
+                         "property",
+                         "num estimation nodes",
+                         "max_count_property_value",
+                         "min_count_property_value",
+                         "chi-squared value"};
+      callback.fn = [handler = AnalyzeGraphQueryHandler(), labels = analyze_graph_query->labels_, dba,
+                     execution_db_accessor]() mutable {
+        return handler.AnalyzeGraphCreateStatistics(labels, execution_db_accessor, dba);
       };
+      break;
     }
     case AnalyzeGraphQuery::Action::DELETE: {
       callback.header = {"status"};
-      callback.fn = [handler = AnalyzeGraphQueryHandler(), labels = analyze_graph_query->labels_, dba] mutable {
+      callback.fn = [handler = AnalyzeGraphQueryHandler(), labels = analyze_graph_query->labels_, dba]() mutable {
         handler.AnalyzeGraphDeleteStatistics(labels, dba);
         auto results = std::vector<std::vector<TypedValue>>{{TypedValue(true)}};
         return results;
       };
+      break;
     }
   }
 
@@ -1436,8 +1506,8 @@ Callback HandleAnalyzeGraphQuery(AnalyzeGraphQuery *analyze_graph_query, storage
 }
 
 PreparedQuery PrepareAnalyzeGraphQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                       std::map<std::string, TypedValue> *summary, storage::Storage::Accessor *dba,
-                                       InterpreterContext *interpreter_context,
+                                       std::map<std::string, TypedValue> *summary, DbAccessor *execution_db_accessor,
+                                       storage::Storage::Accessor *dba, InterpreterContext *interpreter_context,
                                        utils::MemoryResource *execution_memory) {
   if (in_explicit_transaction) {
     throw AnalyzeGraphInMulticommandTxException();
@@ -1445,7 +1515,7 @@ PreparedQuery PrepareAnalyzeGraphQuery(ParsedQuery parsed_query, bool in_explici
 
   auto *analyze_graph_query = utils::Downcast<AnalyzeGraphQuery>(parsed_query.query);
   MG_ASSERT(analyze_graph_query);
-  auto callback = HandleAnalyzeGraphQuery(analyze_graph_query, dba);
+  auto callback = HandleAnalyzeGraphQuery(analyze_graph_query, execution_db_accessor, dba);
 
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -2422,9 +2492,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareIndexQuery(std::move(parsed_query), in_explicit_transaction_,
                                          &query_execution->notifications, interpreter_context_);
     } else if (utils::Downcast<AnalyzeGraphQuery>(parsed_query.query)) {
-      prepared_query =
-          PrepareAnalyzeGraphQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
-                                   &*db_accessor_, interpreter_context_, &query_execution->execution_memory);
+      prepared_query = PrepareAnalyzeGraphQuery(std::move(parsed_query), in_explicit_transaction_,
+                                                &query_execution->summary, &*execution_db_accessor_, &*db_accessor_,
+                                                interpreter_context_, &query_execution->execution_memory);
     } else if (utils::Downcast<AuthQuery>(parsed_query.query)) {
       prepared_query = PrepareAuthQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
                                         interpreter_context_, &*execution_db_accessor_,

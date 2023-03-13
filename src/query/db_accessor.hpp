@@ -434,6 +434,10 @@ class DbAccessor final {
     return accessor_->LabelPropertyIndexExists(label, prop);
   }
 
+  storage::IndexStats GetIndexStats(const storage::LabelId &label, const storage::PropertyId &property) const {
+    return accessor_->GetIndexStats(label, property);
+  }
+
   int64_t VerticesCount() const { return accessor_->ApproximateVertexCount(); }
 
   int64_t VerticesCount(storage::LabelId label) const { return accessor_->ApproximateVertexCount(label); }

@@ -180,7 +180,9 @@ class AnalyzeGraphQueryHandler {
   AnalyzeGraphQueryHandler(AnalyzeGraphQueryHandler &&) = default;
   AnalyzeGraphQueryHandler &operator=(AnalyzeGraphQueryHandler &&) = default;
 
-  static void AnalyzeGraphCreateStatistics(const std::vector<std::string> &labels, storage::Storage::Accessor *dba);
+  static std::vector<std::vector<TypedValue>> AnalyzeGraphCreateStatistics(const std::vector<std::string> &labels,
+                                                                           DbAccessor *execution_db_accessor,
+                                                                           storage::Storage::Accessor *dba);
 
   static void AnalyzeGraphDeleteStatistics(const std::vector<std::string> &labels, storage::Storage::Accessor *dba);
 };

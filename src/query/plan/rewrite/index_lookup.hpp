@@ -515,12 +515,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return best_label;
   }
 
-  // struct ExecutionContext;
-  // class ExpressionEvaluator;
-  // class ExpressionEvaluator;
-  // class EvaluationContext;
-  // class Frame;
-
   // Finds the label-property combination which has indexed the lowest amount of
   // vertices. If the index cannot be found, nullopt is returned.
   std::optional<LabelPropertyIndex> FindBestLabelPropertyIndex(const Symbol &symbol,
@@ -533,10 +527,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       }
       return true;
     };
-    // Frame frame(0);
-    // EvaluationContext evaluation_context;
-    // evaluation_context.timestamp = QueryTimestamp();
-    // ExpressionEvaluator evaluator_(&frame, symbol_table_, {}, db_, storage::View::OLD);
 
     std::optional<LabelPropertyIndex> found;
     for (const auto &label : filters_.FilteredLabels(symbol)) {

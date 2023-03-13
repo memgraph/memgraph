@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,6 +15,7 @@
 #include <limits>
 #include <optional>
 #include <type_traits>
+#include "utils/async_timer.hpp"
 
 namespace memgraph::utils {
 
@@ -62,6 +63,11 @@ constexpr std::optional<uint64_t> RoundUint64ToMultiple(uint64_t val, uint64_t m
   // No overflow is possible as the final, rounded value can only be less than
   // or equal to `numerator`.
   return (numerator / multiple) * multiple;
+}
+
+// calculates one chi squared e
+constexpr double ChiSquaredValue(double observed, double expected) {
+  return (observed - expected) * (observed - expected) / expected;
 }
 
 }  // namespace memgraph::utils

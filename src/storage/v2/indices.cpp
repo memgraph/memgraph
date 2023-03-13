@@ -688,20 +688,30 @@ int64_t LabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId pro
   return acc.estimate_range_count(lower, upper, utils::SkipListLayerForCountEstimation(acc.size()));
 }
 
-bool LabelPropertyIndex::SetIndexStats(storage::LabelId label, storage::PropertyId property, IndexStats stats) {
-  stats_[std::make_pair(label, property)] = stats;
-
-  return true;
+/*
+Iterate over all property-label pairs and deletes if label from the index is equal to label parameter.
+*/
+void LabelPropertyIndex::DeleteIndexStatsForLabel(const storage::LabelId &label) {
+  for (auto it = stats_.cbegin(); it != stats_.cend();) {
+    if (it->first.first == label) {
+      it = stats_.erase(it);
+    } else {
+      ++it;
+    }
+  }
 }
 
-IndexStats LabelPropertyIndex::GetIndexStats(storage::LabelId label, storage::PropertyId property) const {
-  auto key = std::make_pair(label, property);
+void LabelPropertyIndex::SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
+                                       const IndexStats &stats) {
+  stats_[{label, property}] = stats;
+}
 
-  if (stats_.find(key) == stats_.end()) {
-    return IndexStats{.max_number_of_vertices_with_same_value = UINT64_MAX};
+IndexStats LabelPropertyIndex::GetIndexStats(const storage::LabelId &label, const storage::PropertyId &property) const {
+  auto it = stats_.find({label, property});
+  if (it == stats_.end()) {
+    return {};
   }
-
-  return stats_.find(key)->second;
+  return it->second;
 }
 
 void LabelPropertyIndex::RunGC() {
