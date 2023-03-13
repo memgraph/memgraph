@@ -79,6 +79,18 @@ struct Vertex {
   friend bool operator==(const Vertex &lhs, const Vertex &rhs) { return lhs.id == rhs.id; }
 };
 
+struct Path {
+  // TODO(gitbuda): Define how a path should look like.
+};
+struct Graph {
+  std::vector<Vertex> vertices;
+  std::vector<Edge> edges;
+  friend bool operator==(const Graph &lhs, const Graph &rhs) {
+    LOG_FATAL("Implement memgraph::msgs::Graph::operator==");
+  }
+};
+// TODO(gitbuda): Figure out how to serialize memgraph::msgs::Graph/Path.
+
 struct Null {};
 
 struct Value {
@@ -582,7 +594,6 @@ using WriteResponses = std::variant<CreateVerticesResponse, DeleteVerticesRespon
 }  // namespace memgraph::msgs
 
 namespace std {
-
 template <>
 struct hash<memgraph::msgs::Value>;
 
