@@ -121,6 +121,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     bool in_foreach{false};
     bool in_exists{false};
     bool in_set_property{false};
+    bool in_call_subquery{false};
     // True when visiting a pattern atom (node or edge) identifier, which can be
     // reused or created in the pattern itself.
     bool in_pattern_atom_identifier{false};
