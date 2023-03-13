@@ -9,6 +9,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import argparse
 import collections
 import copy
 import fnmatch
@@ -20,8 +21,8 @@ import sys
 from pathlib import Path
 
 import workloads
+from workloads import base
 
-# from workloads import base
 # from workloads import *
 
 
@@ -143,57 +144,17 @@ def list_available_workloads():
                 print("        Query:", query_name)
 
 
-def filter_benchmarks(generators, patterns):
-    patterns = copy.deepcopy(patterns)
-    for i in range(len(patterns)):
-        pattern = patterns[i].split("/")
-        if len(pattern) > 5 or len(pattern) == 0:
-            raise Exception("Invalid benchmark description '" + pattern + "'!")
-        pattern.extend(["", "*", "*"][len(pattern) - 1 :])
-        patterns[i] = pattern
-    filtered = []
-    for dataset in sorted(generators.keys()):
-        generator, queries = generators[dataset]
-        for variant in generator.VARIANTS:
-            is_default_variant = variant == generator.DEFAULT_VARIANT
-            current = collections.defaultdict(list)
-            for group in queries:
-                for query_name, query_func in queries[group]:
-                    if match_patterns(
-                        dataset,
-                        variant,
-                        group,
-                        query_name,
-                        is_default_variant,
-                        patterns,
-                    ):
-                        current[group].append((query_name, query_func))
-            if len(current) == 0:
-                continue
+def parse_kwargs(items):
+    """
+    Parse a series of key-value pairs and return a dictionary
+    """
+    d = {}
 
-            # Ignore benchgraph "basic" queries in standard CI/CD run
-            for pattern in patterns:
-                res = pattern.count("*")
-                key = "basic"
-                if res >= 2 and key in current.keys():
-                    current.pop(key)
-            # (TODO) Fix vendor name.
-            filtered.append((generator(variant, "memgraph"), dict(current)))
-    return filtered
-
-
-def match_patterns(dataset, variant, group, query, is_default_variant, patterns):
-    for pattern in patterns:
-        verdict = [fnmatch.fnmatchcase(dataset, pattern[0])]
-        if pattern[1] != "":
-            verdict.append(fnmatch.fnmatchcase(variant, pattern[1]))
-        else:
-            verdict.append(is_default_variant)
-        verdict.append(fnmatch.fnmatchcase(group, pattern[2]))
-        verdict.append(fnmatch.fnmatchcase(query, pattern[3]))
-        if all(verdict):
-            return True
-    return False
+    if items:
+        for item in items:
+            key, value = item.split("=")
+            d[key] = value
+    return d
 
 
 class Directory:

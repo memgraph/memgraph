@@ -1,4 +1,4 @@
-# Copyright 2022 Memgraph Ltd.
+# Copyright 2023 Memgraph Ltd.
 #
 # Use of this software is governed by the Business Source License
 # included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,7 +21,7 @@ from abc import ABC, abstractclassmethod
 from pathlib import Path
 
 
-def wait_for_server(port, delay=0.1):
+def _wait_for_server(port, delay=0.1):
     cmd = ["nc", "-z", "-w", "1", "127.0.0.1", str(port)]
     while subprocess.call(cmd) != 0:
         time.sleep(0.01)
@@ -63,7 +63,29 @@ def _get_current_usage(pid):
     return rss / 1024
 
 
-class Runners(ABC):
+class BaseRunner(ABC):
+    subclasses = {}
+
+    def __init_subclass__(cls, **kwargs) -> None:
+        super().__init_subclass__(**kwargs)
+        cls.subclasses[cls.__name__.lower()] = cls
+        return
+
+    @classmethod
+    def create(cls, vendor_name: str, database_context: str, performance_tracking: bool, vendor_args: dict):
+        if vendor_name not in cls.subclasses:
+            raise ValueError("Missing runner with name: {}".format(vendor_name))
+
+        return cls.subclasses[vendor_name](
+            database_context=database_context, performance_tracking=performance_tracking, vendor_args=vendor_args
+        )
+
+    @abstractclassmethod
+    def __init__(self, database_context: str, performance_tracking: bool, vendor_args: dict):
+        self.database_context = database_context
+        self.performance_tracking = performance_tracking
+        self.arguments = vendor_args
+
     @abstractclassmethod
     def _get_args(self, **kwargs):
         pass
@@ -81,26 +103,33 @@ class Runners(ABC):
         pass
 
 
-class Memgraph(Runners):
-    def __init__(self, memgraph_binary, temporary_dir, properties_on_edges, bolt_port, performance_tracking):
-        self._memgraph_binary = memgraph_binary
-        self._directory = tempfile.TemporaryDirectory(dir=temporary_dir)
-        self._properties_on_edges = properties_on_edges
+class Memgraph(BaseRunner):
+    def __init__(self, database_context: str, performance_tracking: bool, **kwargs):
+        super().__init__(database_context=database_context, performance_tracking=performance_tracking, **kwargs)
+        self._memgraph_binary = database_context
+        self._directory = tempfile.TemporaryDirectory(dir="/tmp")
+        self._properties_on_edges = False
         self._proc_mg = None
-        self._bolt_port = bolt_port
+        self._bolt_port = 7687
         self.performance_tracking = performance_tracking
         self._stop_event = threading.Event()
         self._rss = []
         atexit.register(self._cleanup)
 
         # Determine Memgraph version
-        ret = subprocess.run([memgraph_binary, "--version"], stdout=subprocess.PIPE, check=True)
+        ret = subprocess.run([database_context, "--version"], stdout=subprocess.PIPE, check=True)
         version = re.search(r"[0-9]+\.[0-9]+\.[0-9]+", ret.stdout.decode("utf-8")).group(0)
         self._memgraph_version = tuple(map(int, version.split(".")))
 
     def __del__(self):
         self._cleanup()
         atexit.unregister(self._cleanup)
+
+    def _clean_up():
+        pass
+
+    def _stop():
+        pass
 
     def _get_args(self, **kwargs):
         data_directory = os.path.join(self._directory.name, "memgraph")
@@ -124,7 +153,7 @@ class Memgraph(Runners):
         if self._proc_mg.poll() is not None:
             self._proc_mg = None
             raise Exception("The database process died prematurely!")
-        wait_for_server(self._bolt_port)
+        _wait_for_server(self._bolt_port)
         ret = self._proc_mg.poll()
         assert ret is None, "The database process died prematurely " "({})!".format(ret)
 
@@ -181,7 +210,7 @@ class Memgraph(Runners):
         return usage
 
 
-class Neo4j(Runners):
+class Neo4j(BaseRunner):
     def __init__(self, neo4j_path, temporary_dir, bolt_port, performance_tracking):
         self._neo4j_path = Path(neo4j_path)
         self._neo4j_binary = Path(neo4j_path) / "bin" / "neo4j"

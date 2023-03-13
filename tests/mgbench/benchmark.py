@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright 2022 Memgraph Ltd.
+# Copyright 2023 Memgraph Ltd.
 #
 # Use of this software is governed by the Business Source License
 # included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -62,6 +62,7 @@ def parse_args():
     parser.add_argument(
         "--vendor-name",
         default="memgraph",
+        choices=["memgraph", "neo4j"],
         help="Input vendor binary name (memgraph, neo4j)",
     )
     parser.add_argument(
@@ -167,6 +168,13 @@ def parse_args():
         help="Flag for runners performance tracking, this logs RES through time and vendor specific performance tracking.",
     )
 
+    parser.add_argument(
+        "--vendor-specific",
+        nargs="*",
+        default=["bolt-port=7687", "no-properties-on-edges=False"],
+        help="Vendor specific arguments that can be applied to each vendor, format: key=value",
+    )
+
     return parser.parse_args()
 
 
@@ -231,9 +239,9 @@ def get_queries(gen, count):
     return ret
 
 
-def match_patterns(dataset, variant, group, query, is_default_variant, patterns):
+def match_patterns(workload, variant, group, query, is_default_variant, patterns):
     for pattern in patterns:
-        verdict = [fnmatch.fnmatchcase(dataset, pattern[0])]
+        verdict = [fnmatch.fnmatchcase(workload, pattern[0])]
         if pattern[1] != "":
             verdict.append(fnmatch.fnmatchcase(variant, pattern[1]))
         else:
@@ -245,8 +253,8 @@ def match_patterns(dataset, variant, group, query, is_default_variant, patterns)
     return False
 
 
-def filter_benchmarks(generators, patterns, vendor_name):
-    patterns = copy.deepcopy(patterns)
+def filter_workloads(available_workloads: dict, benchmark_context: BenchmarkContext) -> list:
+    patterns = benchmark_context.benchmark_target_workload
     for i in range(len(patterns)):
         pattern = patterns[i].split("/")
         if len(pattern) > 5 or len(pattern) == 0:
@@ -254,15 +262,15 @@ def filter_benchmarks(generators, patterns, vendor_name):
         pattern.extend(["", "*", "*"][len(pattern) - 1 :])
         patterns[i] = pattern
     filtered = []
-    for dataset in sorted(generators.keys()):
-        generator, queries = generators[dataset]
+    for workload in sorted(available_workloads.keys()):
+        generator, queries = available_workloads[workload]
         for variant in generator.VARIANTS:
             is_default_variant = variant == generator.DEFAULT_VARIANT
             current = collections.defaultdict(list)
             for group in queries:
                 for query_name, query_func in queries[group]:
                     if match_patterns(
-                        dataset,
+                        workload,
                         variant,
                         group,
                         query_name,
@@ -280,7 +288,7 @@ def filter_benchmarks(generators, patterns, vendor_name):
                 if res >= 2 and key in current.keys():
                     current.pop(key)
 
-            filtered.append((generator(variant, vendor_name), dict(current)))
+            filtered.append((generator(variant, benchmark_context.vendor_name), dict(current)))
     return filtered
 
 
@@ -497,8 +505,9 @@ def get_query_cache_count(vendor, client, func, config_key, single_threaded_runt
 if __name__ == "__main__":
 
     args = parse_args()
+    vendor_specific_args = helpers.parse_kwargs(args.vendor_specific)
 
-    assert args.benchmarks != None, ""
+    assert args.benchmarks != None, helpers.list_available_workloads()
     assert args.vendor_name == "memgraph" or args.vendor_name == "neo4j", "Unsupported vendors"
     assert args.vendor_binary != None, "Pass database context for runner"
     assert args.num_workers_for_import > 0
@@ -540,64 +549,32 @@ if __name__ == "__main__":
 
     helpers.list_available_workloads()
 
-    # Detect available datasets.
-    generators = {}
-    workloads = map(workloads.__dict__.get, workloads.__all__)
-    for module in workloads:
-        if module != None:
-            for key in dir(module):
-                dataset_class = getattr(module, key)
-                if not inspect.isclass(dataset_class) or not issubclass(dataset_class, dataset.Dataset):
-                    continue
-                queries = collections.defaultdict(list)
-                for funcname in dir(dataset_class):
-                    if not funcname.startswith("benchmark__"):
-                        continue
-                    group, query = funcname.split("__")[1:]
-                    queries[group].append((query, funcname))
-                generators[dataset_class.NAME] = (dataset_class, dict(queries))
-                if dataset_class.PROPERTIES_ON_EDGES and args.no_properties_on_edges:
-                    raise Exception(
-                        'The "{}" dataset requires properties on edges, '
-                        "but you have disabled them!".format(dataset.NAME)
-                    )
-
-    # List datasets if there is no specified dataset.
-    if len(args.benchmarks) == 0:
-        log.init("Available queries")
-        for name in sorted(generators.keys()):
-            print("Dataset:", name)
-            dataset, queries = generators[name]
-            print(
-                "    Variants:",
-                ", ".join(dataset.VARIANTS),
-                "(default: " + dataset.DEFAULT_VARIANT + ")",
-            )
-            for group in sorted(queries.keys()):
-                print("    Group:", group)
-                for query_name, query_func in queries[group]:
-                    print("        Query:", query_name)
-        sys.exit(0)
-
     # Create cache, config and results objects.
     cache = helpers.Cache()
-    if not args.no_load_query_counts:
+    if not benchmark_context.no_load_query_counts:
         config = cache.load_config()
     else:
         config = helpers.RecursiveDict()
     results = helpers.RecursiveDict()
 
-    # Filter out the generators.
-    benchmarks = filter_benchmarks(generators, args.benchmarks, args.vendor_name)
-    # Run all specified benchmarks.
-    for dataset, queries in benchmarks:
+    # Filter out the workloads based on the pattern
+    target_workloads = filter_workloads(available_workloads=available_workloads, benchmark_context=benchmark_context)
+
+    # Run all target workloads.
+    for workload, queries in target_workloads:
 
         results.set_value("__run_configuration__", value=run_config)
 
-        log.init("Preparing", dataset.NAME + "/" + dataset.get_variant(), "dataset")
-        dataset.prepare(cache.cache_directory("datasets", dataset.NAME, dataset.get_variant()))
+        log.init("Preparing workload: ", workload.NAME + "/" + workload.get_variant())
+        workload.prepare(cache.cache_directory("datasets", workload.NAME, workload.get_variant()))
 
-        # TODO: Create some abstract class for vendors, that will hold this data
+        memgraph = runners.BaseRunner.create(
+            vendor_name=benchmark_context.vendor_name,
+            database_context=benchmark_context.vendor_context,
+            performance_tracking=benchmark_context.performance_tracking,
+            vendor_args=vendor_specific_args,
+        )
+
         if args.vendor_name == "neo4j":
             vendor = runners.Neo4j(
                 args.vendor_binary,
