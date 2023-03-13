@@ -20,7 +20,6 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/plan/operator.hpp"
-#include "query/plan/planner.hpp"
 #include "query/plan/preprocess.hpp"
 #include "utils/logging.hpp"
 #include "utils/typeinfo.hpp"
