@@ -764,6 +764,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitParameter(MemgraphCypher::ParameterContext *ctx) override;
 
   /**
+   * @return Exists* (Expression)
+   */
+  antlrcpp::Any visitExistsExpression(MemgraphCypher::ExistsExpressionContext *ctx) override;
+
+  /**
    * @return Expression*
    */
   antlrcpp::Any visitParenthesizedExpression(MemgraphCypher::ParenthesizedExpressionContext *ctx) override;

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -30,6 +30,72 @@
 #include "utils/exceptions.hpp"
 
 namespace memgraph::query {
+
+class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue *> {
+ public:
+  ReferenceExpressionEvaluator(Frame *frame, const SymbolTable *symbol_table, const EvaluationContext *ctx)
+      : frame_(frame), symbol_table_(symbol_table), ctx_(ctx) {}
+
+  using ExpressionVisitor<TypedValue *>::Visit;
+
+  utils::MemoryResource *GetMemoryResource() const { return ctx_->memory; }
+
+#define UNSUCCESSFUL_VISIT(expr_name) \
+  TypedValue *Visit(expr_name &expr) override { return nullptr; }
+
+  TypedValue *Visit(Identifier &ident) override { return &frame_->at(symbol_table_->at(ident)); }
+
+  UNSUCCESSFUL_VISIT(NamedExpression);
+  UNSUCCESSFUL_VISIT(OrOperator);
+  UNSUCCESSFUL_VISIT(XorOperator);
+  UNSUCCESSFUL_VISIT(AdditionOperator);
+  UNSUCCESSFUL_VISIT(SubtractionOperator);
+  UNSUCCESSFUL_VISIT(MultiplicationOperator);
+  UNSUCCESSFUL_VISIT(DivisionOperator);
+  UNSUCCESSFUL_VISIT(ModOperator);
+  UNSUCCESSFUL_VISIT(NotEqualOperator);
+  UNSUCCESSFUL_VISIT(EqualOperator);
+  UNSUCCESSFUL_VISIT(LessOperator);
+  UNSUCCESSFUL_VISIT(GreaterOperator);
+  UNSUCCESSFUL_VISIT(LessEqualOperator);
+  UNSUCCESSFUL_VISIT(GreaterEqualOperator);
+
+  UNSUCCESSFUL_VISIT(NotOperator);
+  UNSUCCESSFUL_VISIT(UnaryPlusOperator);
+  UNSUCCESSFUL_VISIT(UnaryMinusOperator);
+
+  UNSUCCESSFUL_VISIT(AndOperator);
+  UNSUCCESSFUL_VISIT(IfOperator);
+  UNSUCCESSFUL_VISIT(InListOperator);
+
+  UNSUCCESSFUL_VISIT(SubscriptOperator);
+
+  UNSUCCESSFUL_VISIT(ListSlicingOperator);
+  UNSUCCESSFUL_VISIT(IsNullOperator);
+  UNSUCCESSFUL_VISIT(PropertyLookup);
+  UNSUCCESSFUL_VISIT(LabelsTest);
+
+  UNSUCCESSFUL_VISIT(PrimitiveLiteral);
+  UNSUCCESSFUL_VISIT(ListLiteral);
+  UNSUCCESSFUL_VISIT(MapLiteral);
+  UNSUCCESSFUL_VISIT(Aggregation);
+  UNSUCCESSFUL_VISIT(Coalesce);
+  UNSUCCESSFUL_VISIT(Function);
+  UNSUCCESSFUL_VISIT(Reduce);
+  UNSUCCESSFUL_VISIT(Extract);
+  UNSUCCESSFUL_VISIT(All);
+  UNSUCCESSFUL_VISIT(Single);
+  UNSUCCESSFUL_VISIT(Any);
+  UNSUCCESSFUL_VISIT(None);
+  UNSUCCESSFUL_VISIT(ParameterLookup);
+  UNSUCCESSFUL_VISIT(RegexMatch);
+  UNSUCCESSFUL_VISIT(Exists);
+
+ private:
+  Frame *frame_;
+  const SymbolTable *symbol_table_;
+  const EvaluationContext *ctx_;
+};
 
 class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
@@ -159,50 +225,53 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(SubscriptOperator &list_indexing) override {
-    auto lhs = list_indexing.expression1_->Accept(*this);
+    ReferenceExpressionEvaluator referenceExpressionEvaluator(frame_, symbol_table_, ctx_);
+
+    TypedValue *lhs_ptr = list_indexing.expression1_->Accept(referenceExpressionEvaluator);
+    TypedValue lhs;
+    const auto referenced = nullptr != lhs_ptr;
+    if (!referenced) {
+      lhs = list_indexing.expression1_->Accept(*this);
+      lhs_ptr = &lhs;
+    }
     auto index = list_indexing.expression2_->Accept(*this);
-    if (!lhs.IsList() && !lhs.IsMap() && !lhs.IsVertex() && !lhs.IsEdge() && !lhs.IsNull())
+    if (!lhs_ptr->IsList() && !lhs_ptr->IsMap() && !lhs_ptr->IsVertex() && !lhs_ptr->IsEdge() && !lhs_ptr->IsNull())
       throw QueryRuntimeException(
           "Expected a list, a map, a node or an edge to index with '[]', got "
           "{}.",
-          lhs.type());
-    if (lhs.IsNull() || index.IsNull()) return TypedValue(ctx_->memory);
-    if (lhs.IsList()) {
+          lhs_ptr->type());
+    if (lhs_ptr->IsNull() || index.IsNull()) return TypedValue(ctx_->memory);
+    if (lhs_ptr->IsList()) {
       if (!index.IsInt()) throw QueryRuntimeException("Expected an integer as a list index, got {}.", index.type());
       auto index_int = index.ValueInt();
-      // NOTE: Take non-const reference to list, so that we can move out the
-      // indexed element as the result.
-      auto &list = lhs.ValueList();
+      auto &list = lhs_ptr->ValueList();
       if (index_int < 0) {
         index_int += static_cast<int64_t>(list.size());
       }
       if (index_int >= static_cast<int64_t>(list.size()) || index_int < 0) return TypedValue(ctx_->memory);
-      // NOTE: Explicit move is needed, so that we return the move constructed
-      // value and preserve the correct MemoryResource.
-      return std::move(list[index_int]);
+      return referenced ? TypedValue(list[index_int], ctx_->memory)
+                        : TypedValue(std::move(list[index_int]), ctx_->memory);
     }
 
-    if (lhs.IsMap()) {
+    if (lhs_ptr->IsMap()) {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a map index, got {}.", index.type());
       // NOTE: Take non-const reference to map, so that we can move out the
       // looked-up element as the result.
-      auto &map = lhs.ValueMap();
+      auto &map = lhs_ptr->ValueMap();
       auto found = map.find(index.ValueString());
       if (found == map.end()) return TypedValue(ctx_->memory);
-      // NOTE: Explicit move is needed, so that we return the move constructed
-      // value and preserve the correct MemoryResource.
-      return std::move(found->second);
+      return referenced ? TypedValue(found->second, ctx_->memory) : TypedValue(std::move(found->second), ctx_->memory);
     }
 
-    if (lhs.IsVertex()) {
+    if (lhs_ptr->IsVertex()) {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
-      return TypedValue(GetProperty(lhs.ValueVertex(), index.ValueString()), ctx_->memory);
+      return {GetProperty(lhs_ptr->ValueVertex(), index.ValueString()), ctx_->memory};
     }
 
-    if (lhs.IsEdge()) {
+    if (lhs_ptr->IsEdge()) {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
-      return TypedValue(GetProperty(lhs.ValueEdge(), index.ValueString()), ctx_->memory);
-    }
+      return {GetProperty(lhs_ptr->ValueEdge(), index.ValueString()), ctx_->memory};
+    };
 
     // lhs is Null
     return TypedValue(ctx_->memory);
@@ -258,7 +327,15 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(PropertyLookup &property_lookup) override {
-    auto expression_result = property_lookup.expression_->Accept(*this);
+    ReferenceExpressionEvaluator referenceExpressionEvaluator(frame_, symbol_table_, ctx_);
+
+    TypedValue *expression_result_ptr = property_lookup.expression_->Accept(referenceExpressionEvaluator);
+    TypedValue expression_result;
+
+    if (nullptr == expression_result_ptr) {
+      expression_result = property_lookup.expression_->Accept(*this);
+      expression_result_ptr = &expression_result;
+    }
     auto maybe_date = [this](const auto &date, const auto &prop_name) -> std::optional<TypedValue> {
       if (prop_name == "year") {
         return TypedValue(date.year, ctx_->memory);
@@ -332,42 +409,38 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
       return std::nullopt;
     };
-    switch (expression_result.type()) {
+    switch (expression_result_ptr->type()) {
       case TypedValue::Type::Null:
         return TypedValue(ctx_->memory);
       case TypedValue::Type::Vertex:
-        return TypedValue(GetProperty(expression_result.ValueVertex(), property_lookup.property_), ctx_->memory);
+        return TypedValue(GetProperty(expression_result_ptr->ValueVertex(), property_lookup.property_), ctx_->memory);
       case TypedValue::Type::Edge:
-        return TypedValue(GetProperty(expression_result.ValueEdge(), property_lookup.property_), ctx_->memory);
+        return TypedValue(GetProperty(expression_result_ptr->ValueEdge(), property_lookup.property_), ctx_->memory);
       case TypedValue::Type::Map: {
-        // NOTE: Take non-const reference to map, so that we can move out the
-        // looked-up element as the result.
-        auto &map = expression_result.ValueMap();
+        auto &map = expression_result_ptr->ValueMap();
         auto found = map.find(property_lookup.property_.name.c_str());
         if (found == map.end()) return TypedValue(ctx_->memory);
-        // NOTE: Explicit move is needed, so that we return the move constructed
-        // value and preserve the correct MemoryResource.
-        return std::move(found->second);
+        return TypedValue(found->second, ctx_->memory);
       }
       case TypedValue::Type::Duration: {
         const auto &prop_name = property_lookup.property_.name;
-        const auto &dur = expression_result.ValueDuration();
+        const auto &dur = expression_result_ptr->ValueDuration();
         if (auto dur_field = maybe_duration(dur, prop_name); dur_field) {
-          return std::move(*dur_field);
+          return TypedValue(*dur_field, ctx_->memory);
         }
         throw QueryRuntimeException("Invalid property name {} for Duration", prop_name);
       }
       case TypedValue::Type::Date: {
         const auto &prop_name = property_lookup.property_.name;
-        const auto &date = expression_result.ValueDate();
+        const auto &date = expression_result_ptr->ValueDate();
         if (auto date_field = maybe_date(date, prop_name); date_field) {
-          return std::move(*date_field);
+          return TypedValue(*date_field, ctx_->memory);
         }
         throw QueryRuntimeException("Invalid property name {} for Date", prop_name);
       }
       case TypedValue::Type::LocalTime: {
         const auto &prop_name = property_lookup.property_.name;
-        const auto &lt = expression_result.ValueLocalTime();
+        const auto &lt = expression_result_ptr->ValueLocalTime();
         if (auto lt_field = maybe_local_time(lt, prop_name); lt_field) {
           return std::move(*lt_field);
         }
@@ -375,20 +448,20 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
       case TypedValue::Type::LocalDateTime: {
         const auto &prop_name = property_lookup.property_.name;
-        const auto &ldt = expression_result.ValueLocalDateTime();
+        const auto &ldt = expression_result_ptr->ValueLocalDateTime();
         if (auto date_field = maybe_date(ldt.date, prop_name); date_field) {
           return std::move(*date_field);
         }
         if (auto lt_field = maybe_local_time(ldt.local_time, prop_name); lt_field) {
-          return std::move(*lt_field);
+          return TypedValue(*lt_field, ctx_->memory);
         }
         throw QueryRuntimeException("Invalid property name {} for LocalDateTime", prop_name);
       }
       case TypedValue::Type::Graph: {
         const auto &prop_name = property_lookup.property_.name;
-        const auto &graph = expression_result.ValueGraph();
+        const auto &graph = expression_result_ptr->ValueGraph();
         if (auto graph_field = maybe_graph(graph, prop_name); graph_field) {
-          return std::move(*graph_field);
+          return TypedValue(*graph_field, ctx_->memory);
         }
         throw QueryRuntimeException("Invalid property name {} for Graph", prop_name);
       }
@@ -546,6 +619,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
     return TypedValue(result, ctx_->memory);
   }
+
+  TypedValue Visit(Exists &exists) override { return TypedValue{frame_->at(symbol_table_->at(exists)), ctx_->memory}; }
 
   TypedValue Visit(All &all) override {
     auto list_value = all.list_expression_->Accept(*this);

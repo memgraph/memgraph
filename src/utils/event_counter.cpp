@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -51,6 +51,7 @@
   M(CartesianOperator, "Number of times Cartesian operator was used.")                                     \
   M(CallProcedureOperator, "Number of times CallProcedure operator was used.")                             \
   M(ForeachOperator, "Number of times Foreach operator was used.")                                         \
+  M(EvaluatePatternFilterOperator, "Number of times EvaluatePatternFilter operator was used.")             \
                                                                                                            \
   M(FailedQuery, "Number of times executing a query failed.")                                              \
   M(LabelIndexCreated, "Number of times a label index was created.")                                       \
