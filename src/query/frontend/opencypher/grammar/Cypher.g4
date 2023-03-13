@@ -236,6 +236,7 @@ atom : literal
      | ( ANY '(' filterExpression ')' )
      | ( NONE '(' filterExpression ')' )
      | ( SINGLE '(' filterExpression ')' )
+     | ( EXISTS '(' existsExpression ')' )
      | relationshipsPattern
      | parenthesizedExpression
      | functionInvocation
@@ -274,6 +275,8 @@ filterExpression : idInColl ( where )? ;
 reduceExpression : accumulator=variable '=' initial=expression ',' idInColl '|' expression ;
 
 extractExpression : idInColl '|' expression ;
+
+existsExpression : patternPart ;
 
 idInColl : variable IN expression ;
 

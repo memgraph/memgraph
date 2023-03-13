@@ -64,6 +64,11 @@ auto SymbolGenerator::CreateSymbol(const std::string &name, bool user_declared, 
   return symbol;
 }
 
+auto SymbolGenerator::CreateAnonymousSymbol(Symbol::Type /*type*/) {
+  auto symbol = symbol_table_->CreateAnonymousSymbol();
+  return symbol;
+}
+
 auto SymbolGenerator::GetOrCreateSymbol(const std::string &name, bool user_declared, Symbol::Type type) {
   // NOLINTNEXTLINE
   for (auto scope = scopes_.rbegin(); scope != scopes_.rend(); ++scope) {
@@ -314,6 +319,14 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
   if (scope.in_skip || scope.in_limit) {
     throw SemanticException("Variables are not allowed in {}.", scope.in_skip ? "SKIP" : "LIMIT");
   }
+
+  if (scope.in_exists && (scope.visiting_edge || scope.in_node_atom)) {
+    auto has_symbol = HasSymbol(ident.name_);
+    if (!has_symbol && !ConsumePredefinedIdentifier(ident.name_) && ident.user_declared_) {
+      throw SemanticException("Unbounded variables are not allowed in exists!");
+    }
+  }
+
   Symbol symbol;
   if (scope.in_pattern && !(scope.in_node_atom || scope.visiting_edge)) {
     // If we are in the pattern, and outside of a node or an edge, the
@@ -340,7 +353,8 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     }
     symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, type);
   } else if (scope.in_pattern && !scope.in_pattern_atom_identifier && scope.in_match) {
-    if (scope.in_edge_range && scope.visiting_edge->identifier_->name_ == ident.name_) {
+    if (scope.in_edge_range && scope.visiting_edge && scope.visiting_edge->identifier_ &&
+        scope.visiting_edge->identifier_->name_ == ident.name_) {
       // Prevent variable path bounds to reference the identifier which is bound
       // by the variable path itself.
       throw UnboundVariableError(ident.name_);
@@ -442,6 +456,46 @@ bool SymbolGenerator::PreVisit(Extract &extract) {
   return false;
 }
 
+bool SymbolGenerator::PreVisit(Exists &exists) {
+  auto &scope = scopes_.back();
+
+  if (scope.in_set_property) {
+    throw utils::NotYetImplemented("Set property can not be used with exists, but only during matching!");
+  }
+
+  if (scope.in_with) {
+    throw utils::NotYetImplemented("WITH can not be used with exists, but only during matching!");
+  }
+
+  scope.in_exists = true;
+
+  const auto &symbol = CreateAnonymousSymbol();
+  exists.MapTo(symbol);
+
+  return true;
+}
+
+bool SymbolGenerator::PostVisit(Exists & /*exists*/) {
+  auto &scope = scopes_.back();
+  scope.in_exists = false;
+
+  return true;
+}
+
+bool SymbolGenerator::PreVisit(SetProperty & /*set_property*/) {
+  auto &scope = scopes_.back();
+  scope.in_set_property = true;
+
+  return true;
+}
+
+bool SymbolGenerator::PostVisit(SetProperty & /*set_property*/) {
+  auto &scope = scopes_.back();
+  scope.in_set_property = false;
+
+  return true;
+}
+
 // Pattern and its subparts.
 
 bool SymbolGenerator::PreVisit(Pattern &pattern) {
@@ -451,6 +505,7 @@ bool SymbolGenerator::PreVisit(Pattern &pattern) {
     MG_ASSERT(utils::IsSubtype(*pattern.atoms_[0], NodeAtom::kType), "Expected a single NodeAtom in Pattern");
     scope.in_create_node = true;
   }
+
   return true;
 }
 

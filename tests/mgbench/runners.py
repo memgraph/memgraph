@@ -398,7 +398,13 @@ class Client:
             password=self._password,
             port=self._bolt_port,
         )
+
         ret = subprocess.run(args, capture_output=True, check=True)
+        error = ret.stderr.decode("utf-8").strip().split("\n")
+        if error and error[0] != "":
+            print("Reported errros from client")
+            print(error)
+
         data = ret.stdout.decode("utf-8").strip().split("\n")
-        # data = [x for x in data if not x.startswith("[")]
+        data = [x for x in data if not x.startswith("[")]
         return list(map(json.loads, data))
