@@ -48,3 +48,47 @@ Feature: Subqueries
     Then the result should be:
       | m.prop |
       | 2      |
+
+  Scenario: Subquery with bounded symbols
+    Given an empty graph
+    And having executed
+      """
+      CREATE (:Label1 {prop: 1})-[:TYPE]->(:Label2 {prop: 2})
+      """
+    When executing query:
+      """
+			MATCH (n:Label1)
+      CALL {
+				WITH n
+        MATCH (n)-[:TYPE]->(m:Label2)
+        RETURN m;
+      }
+      RETURN m.prop;
+      """
+    Then the result should be:
+      | m.prop |
+      | 2      |
+
+  Scenario: Subquery with union
+    Given an empty graph
+    And having executed
+      """
+      CREATE (:Person {figure: "grandpa"})<-[:CHILD_OF]-(:Person {figure: "dad"})-[:FATHER_OF]->(:Person {figure: "child"})
+      """
+    When executing query:
+      """
+			MATCH (p:Person)
+			CALL {
+					WITH p
+					OPTIONAL MATCH (p)-[:CHILD_OF]->(other:Person)
+					RETURN other
+				UNION
+					WITH p
+					OPTIONAL MATCH (p)-[:PARENT_OF]->(other:Parent)
+					RETURN other
+			}
+			RETURN DISTINCT p.figure, count(other) as cnt
+      """
+    Then the result should be:
+      | p.figure | cnt |
+      | "dad"    | 2   |
