@@ -18,6 +18,7 @@ import fnmatch
 import inspect
 import json
 import multiprocessing
+import platform
 import random
 import sys
 
@@ -25,8 +26,8 @@ import helpers
 import importer
 import log
 import runners
-import workload.dataset
-from workload import *
+import workloads.base
+from workloads import *
 
 WITH_FINE_GRAINED_AUTHORIZATION = "with_fine_grained_authorization"
 WITHOUT_FINE_GRAINED_AUTHORIZATION = "without_fine_grained_authorization"
@@ -101,7 +102,7 @@ def parse_args():
 
     parser.add_argument(
         "--export-results",
-        default="",
+        default=None,
         help="file path into which results should be exported",
     )
     parser.add_argument(
@@ -405,7 +406,7 @@ def mixed_workload(vendor, client, dataset, group, queries, workload_type, workl
             aditional_query = getattr(dataset, funcname)
             full_workload.append(aditional_query())
 
-        vendor.start_benchmark(dataset.NAME + dataset.get_variant() + "_" + workload.name + "_" + config_distribution)
+        vendor.start_benchmark(dataset.NAME + dataset.get_variant() + "_" + workloads.name + "_" + config_distribution)
         if warmup:
             warmup(client)
         ret = client.execute(
@@ -413,7 +414,7 @@ def mixed_workload(vendor, client, dataset, group, queries, workload_type, workl
             num_workers=number_of_workers,
         )[0]
         usage_workload = vendor.stop(
-            dataset.NAME + dataset.get_variant() + "_" + workload.name + "_" + config_distribution
+            dataset.NAME + dataset.get_variant() + "_" + workloads.name + "_" + config_distribution
         )
         mixed_workload = {
             "count": ret["count"],
@@ -497,14 +498,18 @@ if __name__ == "__main__":
 
     args = parse_args()
 
-    assert args.benchmarks != None
-    # Supported vendors
-    assert args.vendor_name == "memgraph" or args.vendor_name == "neo4j"
+    assert args.benchmarks != None, ""
+    assert args.vendor_name == "memgraph" or args.vendor_name == "neo4j", "Unsupported vendors"
+    assert args.vendor_binary != None, "Pass database context for runner"
     assert args.num_workers_for_import > 0
     assert args.num_workers_for_benchmark > 0
-    assert args.single_threaded_runtime_sec >= 10
-    # Cannot run in both modes in the same time, default is isolated query execution
-    assert args.workload_realistic == None or args.workload_mixed == None
+    assert args.export_results != None, "Pass where will results be saved"
+    assert (
+        args.single_threaded_runtime_sec >= 10
+    ), "Low runtime value, consider extending time for more accurate results"
+    assert (
+        args.workload_realistic == None or args.workload_mixed == None
+    ), "Cannot run both realistic and mixed workload, only one mode run at the time"
 
     benchmark_context = BenchmarkContext(
         benchmark_target_workload=args.benchmarks,
@@ -526,13 +531,18 @@ if __name__ == "__main__":
     run_config = {
         "vendor": benchmark_context.vendor_name,
         "condition": benchmark_context.warm_up,
-        "workload": benchmark_context.mode,
-        "workload_config": benchmark_context.mode_config,
+        "benchmark_mode": benchmark_context.mode,
+        "benchmark_mode_config": benchmark_context.mode_config,
+        "platform": platform.platform(),
     }
+
+    available_workloads = helpers.get_available_workloads()
+
+    helpers.list_available_workloads()
 
     # Detect available datasets.
     generators = {}
-    workloads = map(workload.__dict__.get, workload.__all__)
+    workloads = map(workloads.__dict__.get, workloads.__all__)
     for module in workloads:
         if module != None:
             for key in dir(module):

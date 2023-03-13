@@ -5,7 +5,7 @@ from pathlib import Path
 
 import helpers
 from runners import Client, Memgraph, Neo4j, Runners
-from workload.dataset import Dataset
+from workloads.base import Workload
 
 # Removed speaks/email from person header
 HEADERS_INTERACTIVE = {
@@ -47,7 +47,7 @@ HEADERS_URL = "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/
 
 class Importer:
     def __init__(
-        self, dataset: Dataset, vendor: Runners, client: Client, num_workers_for_import: int, retries: int = 300
+        self, dataset: Workload, vendor: Runners, client: Client, num_workers_for_import: int, retries: int = 300
     ):
         self._dataset = dataset
         self._vendor = vendor

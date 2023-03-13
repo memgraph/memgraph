@@ -1,9 +1,9 @@
 import random
 
-from .dataset import Dataset
+from workloads.base import Workload
 
 
-class Pokec(Dataset):
+class Pokec(Workload):
     NAME = "pokec"
     VARIANTS = ["small", "medium", "large"]
     DEFAULT_VARIANT = "small"

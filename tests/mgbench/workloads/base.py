@@ -17,7 +17,7 @@ import helpers
 
 # Base dataset class used as a template to create each individual dataset. All
 # common logic is handled here.
-class Dataset(ABC):
+class Workload(ABC):
     # Name of the dataset.
     NAME = "Base dataset"
     # List of all variants of the dataset that exist.

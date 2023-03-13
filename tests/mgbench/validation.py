@@ -10,8 +10,8 @@ import sys
 import helpers
 import importer
 import runners
-import workload
-from workload import dataset
+import workloads
+from workloads import base
 
 
 def pars_args():
@@ -125,12 +125,12 @@ if __name__ == "__main__":
     args = pars_args()
 
     generators = {}
-    workloads = map(workload.__dict__.get, workload.__all__)
+    workloads = map(workloads.__dict__.get, workloads.__all__)
     for module in workloads:
         if module != None:
             for key in dir(module):
                 dataset_class = getattr(module, key)
-                if not inspect.isclass(dataset_class) or not issubclass(dataset_class, dataset.Dataset):
+                if not inspect.isclass(dataset_class) or not issubclass(dataset_class, base.Dataset):
                     continue
                 queries = collections.defaultdict(list)
                 for funcname in dir(dataset_class):
@@ -144,11 +144,11 @@ if __name__ == "__main__":
     if len(args.benchmarks) == 0:
         for name in sorted(generators.keys()):
             print("Dataset:", name)
-            dataset, queries = generators[name]
+            base, queries = generators[name]
             print(
                 "    Variants:",
-                ", ".join(dataset.VARIANTS),
-                "(default: " + dataset.DEFAULT_VARIANT + ")",
+                ", ".join(base.VARIANTS),
+                "(default: " + base.DEFAULT_VARIANT + ")",
             )
             for group in sorted(queries.keys()):
                 print("    Group:", group)
@@ -171,18 +171,18 @@ if __name__ == "__main__":
 
     results_memgraph = {}
 
-    for dataset, queries in benchmarks_memgraph:
+    for base, queries in benchmarks_memgraph:
 
-        dataset.prepare(cache.cache_directory("datasets", dataset.NAME, dataset.get_variant()))
+        base.prepare(cache.cache_directory("datasets", base.NAME, base.get_variant()))
 
         importer.Importer(
-            dataset=dataset, vendor=memgraph, client=client, num_workers_for_import=args.num_workers_for_import
+            dataset=base, vendor=memgraph, client=client, num_workers_for_import=args.num_workers_for_import
         ).try_import()
 
         for group in sorted(queries.keys()):
             for query, funcname in queries[group]:
                 print("Running query:{}/{}/{}".format(group, query, funcname))
-                func = getattr(dataset, funcname)
+                func = getattr(base, funcname)
                 count = 1
                 memgraph.start_benchmark("validation")
                 try:
@@ -207,18 +207,18 @@ if __name__ == "__main__":
 
     results_neo4j = {}
 
-    for dataset, queries in benchmarks_neo4j:
+    for base, queries in benchmarks_neo4j:
 
-        dataset.prepare(cache.cache_directory("datasets", dataset.NAME, dataset.get_variant()))
+        base.prepare(cache.cache_directory("datasets", base.NAME, base.get_variant()))
 
         importer.Importer(
-            dataset=dataset, vendor=neo4j, client=client, num_workers_for_import=args.num_workers_for_import
+            dataset=base, vendor=neo4j, client=client, num_workers_for_import=args.num_workers_for_import
         ).try_import()
 
         for group in sorted(queries.keys()):
             for query, funcname in queries[group]:
                 print("Running query:{}/{}/{}".format(group, query, funcname))
-                func = getattr(dataset, funcname)
+                func = getattr(base, funcname)
                 sample = (get_queries(func, 1),)
                 count = 1
                 neo4j.start_benchmark("validation")

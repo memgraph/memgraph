@@ -4,11 +4,10 @@ from datetime import datetime
 from pathlib import Path
 
 import helpers
+from workloads.base import Workload
 
-from .dataset import Dataset
 
-
-class LDBC_Interactive(Dataset):
+class LDBC_Interactive(Workload):
     NAME = "ldbc_interactive"
     VARIANTS = ["sf0.1", "sf1", "sf3", "sf10"]
     DEFAULT_VARIANT = "sf1"
@@ -671,7 +670,7 @@ class LDBC_Interactive(Dataset):
             return neo4j
 
 
-class LDBC_BI(Dataset):
+class LDBC_BI(Workload):
     NAME = "ldbc_bi"
     VARIANTS = ["sf1", "sf3", "sf10"]
     DEFAULT_VARIANT = "sf1"

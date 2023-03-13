@@ -19,7 +19,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-from workload import ldbc
+import workloads
+
+# from workloads import base
+# from workloads import *
+
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 
@@ -105,34 +109,26 @@ def ensure_directory(path):
         raise Exception("The path '{}' should be a directory!".format(path))
 
 
-def generate_workload(name: str):
+def get_available_workloads() -> dict:
     generators = {}
-    # (TODO) fix hardcoded ldbc
-    test = dir(ldbc)
-
-    for key in dir(ldbc):
-        if key.startswith("_"):
-            continue
-        dataset = getattr(ldbc, key)
-        if not inspect.isclass(dataset) or dataset == dataset.Dataset or not issubclass(dataset, dataset.Dataset):
-            continue
-        queries = collections.defaultdict(list)
-        for funcname in dir(dataset):
-            if not funcname.startswith("benchmark__"):
+    available_workloads = map(workloads.__dict__.get, workloads.__all__)
+    for module in available_workloads:
+        for key in dir(module):
+            base_class = getattr(module, key)
+            if not inspect.isclass(base_class) or not issubclass(base_class, base.Workload):
                 continue
-            group, query = funcname.split("__")[1:]
-            queries[group].append((query, funcname))
-        generators[dataset.NAME] = (dataset, dict(queries))
-        # (TODO) Fix properties on edges.
-        if dataset.PROPERTIES_ON_EDGES and False:
-            raise Exception(
-                'The "{}" dataset requires properties on edges, ' "but you have disabled them!".format(dataset.NAME)
-            )
+            queries = collections.defaultdict(list)
+            for funcname in dir(base_class):
+                if not funcname.startswith("benchmark__"):
+                    continue
+                group, query = funcname.split("__")[1:]
+                queries[group].append((query, funcname))
+            generators[base_class.NAME] = (base_class, dict(queries))
     return generators
 
 
-def list_possible_workloads():
-    generators = generate_workload("ldbc")
+def list_available_workloads():
+    generators = get_available_workloads()
     for name in sorted(generators.keys()):
         print("Dataset:", name)
         dataset, queries = generators[name]
