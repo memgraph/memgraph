@@ -158,7 +158,6 @@ PRE_VISIT(EdgeUniquenessFilter);
 PRE_VISIT(Accumulate);
 PRE_VISIT(EmptyResult);
 PRE_VISIT(EvaluatePatternFilter);
-PRE_VISIT(Apply);
 
 bool PlanPrinter::PreVisit(query::plan::Aggregate &op) {
   WithPrintLn([&](auto &out) {
@@ -259,6 +258,13 @@ bool PlanPrinter::PreVisit(query::plan::Filter &op) {
   for (const auto &pattern_filter : op.pattern_filters_) {
     Branch(*pattern_filter);
   }
+  op.input_->Accept(*this);
+  return false;
+}
+
+bool PlanPrinter::PreVisit(query::plan::Apply &op) {
+  WithPrintLn([](auto &out) { out << "* Apply"; });
+  Branch(*op.subquery_);
   op.input_->Accept(*this);
   return false;
 }
@@ -950,6 +956,20 @@ bool PlanToJsonVisitor::PreVisit(EvaluatePatternFilter &op) {
 
   op.input_->Accept(*this);
   self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(Apply &op) {
+  json self;
+  self["name"] = "Apply";
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  op.subquery_->Accept(*this);
+  self["subquery"] = PopOutput();
 
   output_ = std::move(self);
   return false;
