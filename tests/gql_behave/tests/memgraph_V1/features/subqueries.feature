@@ -49,6 +49,62 @@ Feature: Subqueries
       | m.prop |
       | 2      |
 
+  Scenario: Subquery returning 2 values
+    Given an empty graph
+    And having executed
+      """
+      CREATE (:Label1 {prop: 1})-[:TYPE]->(:Label2 {prop: 2})
+      """
+    When executing query:
+      """
+			MATCH (n:Label1)
+      CALL {
+        MATCH (m:Label1)-[:TYPE]->(o:Label2)
+        RETURN m, o;
+      }
+      RETURN m.prop, o.prop;
+      """
+    Then the result should be:
+      | m.prop | o.prop |
+      | 1      | 2      |
+
+  Scenario: Subquery returning nothing because match did not find any results
+    Given an empty graph
+    And having executed
+      """
+      CREATE (:Label1 {prop: 1})-[:TYPE]->(:Label2 {prop: 2})
+      """
+    When executing query:
+      """
+			MATCH (n:Label3)
+      CALL {
+        MATCH (m:Label1)-[:TYPE]->(:Label2)
+        RETURN m;
+      }
+      RETURN m.prop;
+      """
+    Then the result should be empty
+
+  Scenario: Subquery returning a multiple of results since we join elements from basic query and the subquery
+    Given an empty graph
+    And having executed
+      """
+      CREATE (:Label1 {prop: 1})-[:TYPE]->(:Label2 {prop: 2})
+      """
+    When executing query:
+      """
+			MATCH (n:Label1)
+      CALL {
+        MATCH (m)
+        RETURN m;
+      }
+      RETURN n.prop, m.prop;
+      """
+    Then the result should be:
+      | n.prop | m.prop |
+      | 1      | 1      |
+      | 1      | 2      |
+
   Scenario: Subquery with bounded symbols
     Given an empty graph
     And having executed
