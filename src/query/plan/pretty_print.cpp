@@ -158,6 +158,7 @@ PRE_VISIT(EdgeUniquenessFilter);
 PRE_VISIT(Accumulate);
 PRE_VISIT(EmptyResult);
 PRE_VISIT(EvaluatePatternFilter);
+PRE_VISIT(Apply);
 
 bool PlanPrinter::PreVisit(query::plan::Aggregate &op) {
   WithPrintLn([&](auto &out) {

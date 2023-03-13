@@ -95,6 +95,7 @@ class PlanPrinter : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(CallProcedure &) override;
   bool PreVisit(LoadCsv &) override;
   bool PreVisit(Foreach &) override;
+  bool PreVisit(Apply & /*unused*/) override;
 
   bool Visit(Once &) override;
 

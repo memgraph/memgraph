@@ -117,6 +117,7 @@ extern const Event CallProcedureOperator;
 extern const Event ForeachOperator;
 extern const Event EmptyResultOperator;
 extern const Event EvaluatePatternFilterOperator;
+extern const Event ApplyOperator;
 }  // namespace EventCounter
 
 namespace memgraph::query::plan {
@@ -4769,6 +4770,52 @@ bool Foreach::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
     update_clauses_->Accept(visitor);
   }
   return visitor.PostVisit(*this);
+}
+
+Apply::Apply(const std::shared_ptr<LogicalOperator> input, const std::shared_ptr<LogicalOperator> subquery)
+    : input_(input), subquery_(subquery) {}
+
+ACCEPT_WITH_INPUT(Apply);
+
+UniqueCursorPtr Apply::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::ApplyOperator);
+
+  return MakeUniqueCursorPtr<ApplyCursor>(mem, *this, mem);
+}
+
+Apply::ApplyCursor::ApplyCursor(const Apply &self, utils::MemoryResource *mem)
+    : self_(self), input_(self.input_->MakeCursor(mem)), subquery_(self.subquery_->MakeCursor(mem)) {}
+
+std::vector<Symbol> Apply::ModifiedSymbols(const SymbolTable &table) const {
+  auto symbols = input_->ModifiedSymbols(table);
+  auto subquery_symbols = subquery_->ModifiedSymbols(table);
+  symbols.insert(symbols.end(), subquery_symbols.begin(), subquery_symbols.end());
+
+  return symbols;
+}
+
+bool Apply::ApplyCursor::Pull(Frame &frame, ExecutionContext &context) {
+  SCOPED_PROFILE_OP("Apply");
+
+  if (!input_->Pull(frame, context)) {
+    return false;
+  }
+
+  if (!subquery_->Pull(frame, context)) {
+    return false;
+  }
+
+  return true;
+}
+
+void Apply::ApplyCursor::Shutdown() {
+  input_->Shutdown();
+  subquery_->Shutdown();
+}
+
+void Apply::ApplyCursor::Reset() {
+  input_->Reset();
+  subquery_->Reset();
 }
 
 }  // namespace memgraph::query::plan
