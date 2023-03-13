@@ -12,7 +12,9 @@
 /// @file
 #pragma once
 
+#include <memory>
 #include <optional>
+#include <queue>
 #include <variant>
 
 #include "gflags/gflags.h"
@@ -164,8 +166,7 @@ class RuleBasedPlanner {
   /// tree.
   using PlanResult = std::unique_ptr<LogicalOperator>;
   /// @brief Generates the operator tree based on explicitly set rules.
-  PlanResult Plan(const std::vector<SingleQueryPart> &query_parts/*, const std::queue<LogicalOperator> &sub_plans,
-                  std::unique_ptr<LogicalOperator> input_op = nullptr*/) {
+  PlanResult Plan(const std::vector<SingleQueryPart> &query_parts) {
     auto &context = *context_;
     std::unique_ptr<LogicalOperator> input_op;
     // Set to true if a query command writes to the database.
@@ -238,7 +239,11 @@ class RuleBasedPlanner {
         } else if (auto *call_sub = utils::Downcast<query::CallSubquery>(clause)) {
           // is_write?
           // take plans about subqueries, connect operators, add
-          // input_op = HandleSubquery(call_sub, std::move(input_op), sub_plans.pop());
+          auto subquery = query_part.subquery;
+          auto subquery_op = Plan(subquery->query_parts[0].single_query_parts);
+          input_op = std::make_unique<Apply>(std::move(input_op), std::move(subquery_op));
+          // Apply operator
+          // input_op = HandleSubquery(call_sub, std::move(input_op));
 
         } else {
           throw utils::NotYetImplemented("clause '{}' conversion to operator(s)", clause->GetTypeInfo().name);

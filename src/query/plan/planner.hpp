@@ -84,9 +84,9 @@ class PostProcessor final {
 /// @sa VariableStartPlanner
 template <template <class> class TPlanner, class TDbAccessor>
 auto MakeLogicalPlanForSingleQuery(std::vector<SingleQueryPart> single_query_parts,
-                                   PlanningContext<TDbAccessor> *context /*, std::queue<LogicalOperator> sub_plans*/) {
+                                   PlanningContext<TDbAccessor> *context) {
   context->bound_symbols.clear();
-  return TPlanner<PlanningContext<TDbAccessor>>(context).Plan(single_query_parts /*, sub_plans*/);
+  return TPlanner<PlanningContext<TDbAccessor>>(context).Plan(single_query_parts);
 }
 
 /// Generates the LogicalOperator tree and returns the resulting plan.

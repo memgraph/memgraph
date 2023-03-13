@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <queue>
 #include <stack>
 #include <type_traits>
 #include <unordered_map>
@@ -566,10 +567,10 @@ static void ParseForeach(query::Foreach &foreach, SingleQueryPart &query_part, A
 
 // Converts a Query to multiple QueryParts. In the process new Ast nodes may be
 // created, e.g. filter expressions.
-QueryPart CollectSingleQueryParts(SymbolTable &symbol_table, AstStorage &storage, SingleQuery *single_query) {
+std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, AstStorage &storage,
+                                                     SingleQuery *single_query) {
   std::vector<SingleQueryPart> query_parts(1);
   auto *query_part = &query_parts.back();
-  std::vector<std::shared_ptr<QueryParts>> subqueries{};
   for (auto &clause : single_query->clauses_) {
     if (auto *match = utils::Downcast<Match>(clause)) {
       if (match->optional_) {
@@ -586,11 +587,14 @@ QueryPart CollectSingleQueryParts(SymbolTable &symbol_table, AstStorage &storage
         AddMatching({merge->pattern_}, nullptr, symbol_table, storage, query_part->merge_matching.back());
       } else if (auto *call_subquery = utils::Downcast<query::CallSubquery>(clause)) {
         // with more than one CALL subquery, we need to either know where we are in the vector or use a queue
-        auto subquery_parts =
-            CollectQueryParts(symbol_table, storage, call_subquery->single_query_, call_subquery->cypher_unions_);
-        std::shared_ptr<QueryParts> subquery;
-        *subquery = subquery_parts;
-        subqueries.push_back(std::move(subquery));
+        // auto subquery_parts =
+        //     CollectQueryParts(symbol_table, storage, call_subquery->single_query_, call_subquery->cypher_unions_);
+        // std::shared_ptr<QueryParts> subquery;
+        // *subquery = subquery_parts;
+        auto subquery = std::make_shared<QueryParts>(
+            CollectQueryParts(symbol_table, storage, call_subquery->single_query_, call_subquery->cypher_unions_));
+        query_part->subquery = subquery;
+        // subqueries.push(std::move(subquery));
       } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
         ParseForeach(*foreach, *query_part, storage, symbol_table);
       } else if (utils::IsSubtype(*clause, With::kType) || utils::IsSubtype(*clause, query::Unwind::kType) ||
@@ -600,11 +604,11 @@ QueryPart CollectSingleQueryParts(SymbolTable &symbol_table, AstStorage &storage
         query_parts.emplace_back(SingleQueryPart{});
         query_part = &query_parts.back();
       } else if (utils::IsSubtype(*clause, Return::kType)) {
-        return QueryPart{query_parts, subqueries};
+        return query_parts;
       }
     }
   }
-  return QueryPart{query_parts, subqueries};
+  return query_parts;
 }
 
 QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, SingleQuery *single_query,
@@ -612,7 +616,7 @@ QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, Sin
   std::vector<QueryPart> query_parts;
 
   MG_ASSERT(single_query, "Expected at least a single query");
-  query_parts.push_back(CollectSingleQueryParts(symbol_table, storage, single_query));
+  query_parts.push_back(QueryPart{CollectSingleQueryParts(symbol_table, storage, single_query)});
 
   bool distinct = false;
   for (auto *cypher_union : cypher_unions) {
@@ -622,9 +626,7 @@ QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, Sin
 
     auto *single_query = cypher_union->single_query_;
     MG_ASSERT(single_query, "Expected UNION to have a query");
-    QueryPart qp = CollectSingleQueryParts(symbol_table, storage, single_query);
-    qp.query_combinator = cypher_union;
-    query_parts.push_back(qp);
+    query_parts.push_back(QueryPart{CollectSingleQueryParts(symbol_table, storage, single_query), cypher_union});
   }
   return QueryParts{query_parts, distinct};
 }
