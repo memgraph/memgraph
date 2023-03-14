@@ -105,6 +105,28 @@ Feature: Subqueries
       | 1      | 1      |
       | 1      | 2      |
 
+  Scenario: Subquery returning a cartesian product
+    Given an empty graph
+    And having executed
+      """
+      CREATE (:Label1 {prop: 1})-[:TYPE]->(:Label2 {prop: 2})
+      """
+    When executing query:
+      """
+			MATCH (n)
+      CALL {
+        MATCH (m)
+        RETURN m;
+      }
+      RETURN n.prop, m.prop;
+      """
+    Then the result should be:
+      | n.prop | m.prop |
+      | 1      | 1      |
+      | 1      | 2      |
+      | 2      | 1      |
+      | 2      | 2      |
+
   Scenario: Subquery with bounded symbols
     Given an empty graph
     And having executed
@@ -124,6 +146,24 @@ Feature: Subqueries
     Then the result should be:
       | m.prop |
       | 2      |
+
+  Scenario: Subquery with invalid bounded symbols
+    Given an empty graph
+    And having executed
+      """
+      CREATE (:Label1 {prop: 1})-[:TYPE]->(:Label2 {prop: 2})
+      """
+    When executing query:
+      """
+			MATCH (n:Label1)
+      CALL {
+				WITH o
+        MATCH (o)-[:TYPE]->(m:Label2)
+        RETURN m;
+      }
+      RETURN m.prop;
+      """
+    Then an error should be raised
 
   Scenario: Subquery with union
     Given an empty graph
