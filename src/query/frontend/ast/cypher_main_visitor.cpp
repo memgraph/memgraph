@@ -1550,6 +1550,7 @@ antlrcpp::Any CypherMainVisitor::visitReturnItem(MemgraphCypher::ReturnItemConte
   named_expr->expression_ = std::any_cast<Expression *>(ctx->expression()->accept(this));
   MG_ASSERT(named_expr->expression_);
   if (ctx->variable()) {
+    named_expr->is_aliased_ = true;
     named_expr->name_ = std::string(std::any_cast<std::string>(ctx->variable()->accept(this)));
     users_identifiers.insert(named_expr->name_);
   } else {

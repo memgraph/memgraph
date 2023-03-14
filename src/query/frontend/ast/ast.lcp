@@ -1237,7 +1237,9 @@ cpp<#
    (token-position :int32_t :initval -1 :scope :public
                    :documentation "This field contains token position of first token in named expression used to create name_. If NamedExpression object is not created from query or it is aliased leave this value at -1.")
    (symbol-pos :int32_t :initval -1 :scope :public
-               :documentation "Symbol table position of the symbol this NamedExpression is mapped to."))
+               :documentation "Symbol table position of the symbol this NamedExpression is mapped to.")
+   (is-aliased :bool :initval "false" :scope :public
+               :documentation "True if the variable is aliased"))
   (:public
     #>cpp
     using utils::Visitable<ExpressionVisitor<TypedValue>>::Accept;

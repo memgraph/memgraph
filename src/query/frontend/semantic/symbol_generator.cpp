@@ -495,6 +495,20 @@ bool SymbolGenerator::PostVisit(Exists & /*exists*/) {
   return true;
 }
 
+bool SymbolGenerator::PreVisit(NamedExpression &named_expression) {
+  auto &scope = scopes_.back();
+
+  if (scope.in_call_subquery && scope.in_return) {
+    auto *ident = utils::Downcast<Identifier>(named_expression.expression_);
+
+    if (!ident && !named_expression.is_aliased_) {
+      throw SemanticException("Expression returned from subquery must be aliased (use AS)!");
+    }
+  }
+
+  return true;
+}
+
 bool SymbolGenerator::PreVisit(SetProperty & /*set_property*/) {
   auto &scope = scopes_.back();
   scope.in_set_property = true;
