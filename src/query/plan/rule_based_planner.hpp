@@ -242,6 +242,9 @@ class RuleBasedPlanner {
           auto subquery = query_part.subquery;
           auto subquery_op = Plan(subquery->query_parts[0].single_query_parts);
           input_op = std::make_unique<Apply>(std::move(input_op), std::move(subquery_op));
+          // input_op =
+          //     std::make_unique<Cartesian>(std::move(input_op), input_op->OutputSymbols(*context.symbol_table),
+          //                                 std::move(subquery_op), subquery_op->OutputSymbols(*context.symbol_table));
           // Apply operator
           // input_op = HandleSubquery(call_sub, std::move(input_op));
 
