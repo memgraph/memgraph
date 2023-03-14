@@ -4802,14 +4802,6 @@ std::vector<Symbol> Apply::ModifiedSymbols(const SymbolTable &table) const {
 bool Apply::ApplyCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Apply");
 
-  // if the subquery doesn't have RETURN at the end, return the rows from before
-  if (!has_return_) {
-    // TODO not necessary to try pull every time
-    while (subquery_->Pull(frame, context))
-      ;
-    return input_->Pull(frame, context);
-  }
-
   while (true) {
     if (pull_input_) {
       if (!input_->Pull(frame, context)) return false;
@@ -4824,6 +4816,9 @@ bool Apply::ApplyCursor::Pull(Frame &frame, ExecutionContext &context) {
     // skip that row
     pull_input_ = true;
     subquery_->Reset();
+
+    // don't skip row if no rows are returned from subquery, return input_ rows
+    if (!has_return_) return true;
   }
 }
 
