@@ -406,7 +406,40 @@ class RequestRouter : public RequestRouterInterface {
 
   std::vector<msgs::GraphResponse> GetGraph(msgs::GraphRequest req) override {
     SPDLOG_WARN("RequestRouter::GetGraph(GraphRequest) not fully implemented");
-    return {msgs::GraphResponse{}};
+
+    // InitializeRequests
+    // TODO(gitbuda): This seems quite expensive because potentially a lot of requests has to be initialized.
+    auto multi_shards = shards_map_.GetAllShards();
+    std::vector<ShardRequestState<msgs::GraphRequest>> requests = {};
+    for (auto &shards : multi_shards) {
+      for (auto &[key, shard] : shards) {
+        MG_ASSERT(!shard.peers.empty());
+        msgs::GraphRequest request;
+        request.transaction_id = transaction_id_;
+        ShardRequestState<msgs::GraphRequest> shard_request_state{
+            .shard = shard,
+            .request = std::move(request),
+        };
+        requests.emplace_back(std::move(shard_request_state));
+      }
+    }
+    spdlog::trace("created {} Graph requests", requests.size());
+
+    // SendRequests and CollectResponses
+    RunningRequests<msgs::GraphRequest> running_requests = {};
+    running_requests.reserve(requests.size());
+    for (size_t i = 0; i < requests.size(); i++) {
+      auto &request = requests[i];
+      io::ReadinessToken readiness_token{i};
+      auto &storage_client = GetStorageClientForShard(request.shard);
+      storage_client.SendAsyncReadRequest(request.request, notifier_, readiness_token);
+      running_requests.emplace(readiness_token.GetId(), request);
+    }
+    spdlog::trace("sent {} Graph requests in parallel", running_requests.size());
+    auto responses = DriveReadResponses<msgs::GraphRequest, msgs::GraphResponse>(running_requests);
+    spdlog::trace("got back {} Graph responses after driving to completion", responses.size());
+
+    return responses;
   }
 
   std::optional<storage::v3::PropertyId> MaybeNameToProperty(const std::string &name) const override {

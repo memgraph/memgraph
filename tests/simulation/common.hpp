@@ -118,7 +118,10 @@ class MockedShardRsm {
     return resp;
   }
 
-  msgs::GraphResponse ReadImpl(msgs::GraphRequest rqst) { LOG_FATAL("Implement Simulator ReadImpl GraphRequest"); }
+  msgs::GraphResponse ReadImpl(msgs::GraphRequest rqst) {
+    msgs::GraphResponse resp;
+    return resp;
+  }
 
   ReadResponses Read(ReadRequests read_requests) {
     return {std::visit([this]<typename T>(T &&request) { return ReadResponses{ReadImpl(std::forward<T>(request))}; },

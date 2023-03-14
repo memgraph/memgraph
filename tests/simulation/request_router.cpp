@@ -213,17 +213,17 @@ void TestGetProperties(query::v2::RequestRouterInterface &request_router) {
   auto result = request_router.GetProperties(std::move(request));
   MG_ASSERT(result.size() == 3);
 }
-
 template <typename RequestRouter>
 void TestAggregate(RequestRouter &request_router) {}
 
 void TestGetGraph(query::v2::RequestRouterInterface &rr) {
   msgs::GraphRequest req;
   auto graphs = rr.GetGraph(req);
-  MG_ASSERT(graphs.size() == 1);
-  auto graph = graphs[0];
-  MG_ASSERT(graph.data.vertices.size() == 0);
-  MG_ASSERT(graph.data.edges.size() == 0);
+  MG_ASSERT(graphs.size() == 2);
+  for (const auto &graph : graphs) {
+    MG_ASSERT(graph.data.vertices.size() == 0);
+    MG_ASSERT(graph.data.edges.size() == 0);
+  }
 }
 
 void DoTest() {
