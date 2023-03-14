@@ -405,8 +405,8 @@ class RequestRouter : public RequestRouterInterface {
   }
 
   std::vector<msgs::GraphResponse> GetGraph(msgs::GraphRequest req) override {
-    LOG_FATAL("Implement GetGraph request");
-    return {};
+    SPDLOG_WARN("RequestRouter::GetGraph(GraphRequest) not fully implemented");
+    return {msgs::GraphResponse{}};
   }
 
   std::optional<storage::v3::PropertyId> MaybeNameToProperty(const std::string &name) const override {

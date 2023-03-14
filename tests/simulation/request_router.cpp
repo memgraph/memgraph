@@ -44,40 +44,23 @@ using CompoundKey = coordinator::PrimaryKey;
 using coordinator::Coordinator;
 using coordinator::CoordinatorClient;
 using coordinator::CoordinatorRsm;
-using coordinator::HlcRequest;
-using coordinator::HlcResponse;
 using coordinator::ShardMap;
 using coordinator::ShardMetadata;
 using coordinator::Shards;
 using coordinator::Status;
 using io::Address;
 using io::Io;
-using io::ResponseEnvelope;
 using io::ResponseFuture;
 using io::Time;
-using io::TimedOut;
 using io::rsm::Raft;
-using io::rsm::ReadRequest;
-using io::rsm::ReadResponse;
-using io::rsm::StorageReadRequest;
-using io::rsm::StorageReadResponse;
-using io::rsm::StorageWriteRequest;
-using io::rsm::StorageWriteResponse;
-using io::rsm::WriteRequest;
-using io::rsm::WriteResponse;
 using io::simulator::Simulator;
 using io::simulator::SimulatorConfig;
 using io::simulator::SimulatorStats;
 using io::simulator::SimulatorTransport;
-using msgs::CreateVerticesRequest;
-using msgs::CreateVerticesResponse;
-using msgs::ScanVerticesRequest;
-using msgs::ScanVerticesResponse;
 using msgs::VertexId;
 using storage::v3::LabelId;
 using storage::v3::SchemaProperty;
 using storage::v3::tests::MockedShardRsm;
-using utils::BasicResult;
 
 namespace {
 
@@ -234,6 +217,15 @@ void TestGetProperties(query::v2::RequestRouterInterface &request_router) {
 template <typename RequestRouter>
 void TestAggregate(RequestRouter &request_router) {}
 
+void TestGetGraph(query::v2::RequestRouterInterface &rr) {
+  msgs::GraphRequest req;
+  auto graphs = rr.GetGraph(req);
+  MG_ASSERT(graphs.size() == 1);
+  auto graph = graphs[0];
+  MG_ASSERT(graph.data.vertices.size() == 0);
+  MG_ASSERT(graph.data.edges.size() == 0);
+}
+
 void DoTest() {
   SimulatorConfig config{
       .drop_percent = 0,
@@ -356,6 +348,7 @@ void DoTest() {
   TestCreateVertices(request_router);
   TestCreateExpand(request_router);
   TestGetProperties(request_router);
+  TestGetGraph(request_router);
 
   simulator.ShutDown();
 
