@@ -14,6 +14,7 @@
 #include <unordered_set>
 
 #include <gflags/gflags.h>
+
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/context.hpp"

@@ -492,6 +492,8 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
     auto accessor = interpreter_context->db->Access();
     // register new interpreter into interpreter_context_
     interpreter_context->interpreters->insert(interpreter.get());
+    utils::OnScopeExit interpreter_cleanup{
+        [interpreter_context, interpreter]() { interpreter_context->interpreters->erase(interpreter.get()); }};
 
     EventCounter::IncrementCounter(EventCounter::MessagesConsumed, messages.size());
     CallCustomTransformation(transformation_name, messages, result, accessor, *memory_resource, stream_name);
@@ -499,8 +501,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
     DiscardValueResultStream stream;
 
     spdlog::trace("Start transaction in stream '{}'", stream_name);
-    utils::OnScopeExit cleanup{[interpreter_context, &interpreter, &result]() {
-      interpreter_context->interpreters->erase(interpreter.get());
+    utils::OnScopeExit cleanup{[&interpreter, &result]() {
       result.rows.clear();
       interpreter->Abort();
     }};
