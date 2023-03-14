@@ -192,10 +192,28 @@ Feature: Subqueries
     When executing query:
       """
       MATCH (n:Label1)
-      WITH n
       CALL {
-        MATCH (n:Label1)-[:TYPE]->(m:Label2)
+        WITH n
+        MATCH (n)-[:TYPE]->(m:Label2)
         RETURN m.prop
+      }
+      RETURN n;
+      """
+    Then an error should be raised
+
+  Scenario: Subquery returning one primitive and others aliased
+    Given an empty graph
+    And having executed
+      """
+      CREATE (:Label1 {prop: 1})-[:TYPE]->(:Label2 {prop: 2})
+      """
+    When executing query:
+      """
+      MATCH (n:Label1)
+      CALL {
+        WITH n
+        MATCH (o)-[:TYPE]->(m:Label2)
+        RETURN m.prop, o
       }
       RETURN n;
       """
@@ -210,8 +228,8 @@ Feature: Subqueries
     When executing query:
       """
       MATCH (n:Label1), (m:Label2)
-      WITH n
       CALL {
+        WITH n
         MATCH (n:Label1)-[:TYPE]->(m:Label2)
         RETURN m
       }
