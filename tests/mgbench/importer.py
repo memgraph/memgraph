@@ -421,7 +421,7 @@ class Importer:
                 file_path=self._dataset.get_file_cypherl(), num_workers=self._num_workers_for_import
             )
             usage = self._vendor.stop("import")
-
+            print(ret)
             return ret, usage
 
         else:

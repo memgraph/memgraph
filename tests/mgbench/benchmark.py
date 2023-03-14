@@ -111,9 +111,6 @@ def parse_args():
         default="/tmp",
         help="directory path where temporary data should be stored",
     )
-    parser.add_argument("--no-properties-on-edges", action="store_true", help="disable properties on edges")
-
-    parser.add_argument("--bolt-port", default=7687, help="memgraph bolt port")
 
     parser.add_argument(
         "--no-authorization",
@@ -189,6 +186,7 @@ class BenchmarkContext:
         benchmark_target_workload: str = None,  # Workload that needs to be executed (dataset/variant/group/query)
         vendor_context: str = None,  # Benchmark vendor context(binary, folder, DB Runner)
         vendor_name: str = None,
+        client_binary: str = None,
         num_workers_for_import: int = None,
         num_workers_for_benchmark: int = None,
         no_load_query_counts: bool = False,
@@ -206,6 +204,7 @@ class BenchmarkContext:
         self.benchmark_target_workload = benchmark_target_workload
         self.vendor_context = vendor_context
         self.vendor_name = vendor_name
+        self.client_binary = client_binary
         self.num_workers_for_import = num_workers_for_import
         self.num_workers_for_benchmark = num_workers_for_benchmark
         self.no_load_query_counts = no_load_query_counts
@@ -510,6 +509,7 @@ if __name__ == "__main__":
     assert args.benchmarks != None, helpers.list_available_workloads()
     assert args.vendor_name == "memgraph" or args.vendor_name == "neo4j", "Unsupported vendors"
     assert args.vendor_binary != None, "Pass database context for runner"
+    assert args.client_binary != None
     assert args.num_workers_for_import > 0
     assert args.num_workers_for_benchmark > 0
     assert args.export_results != None, "Pass where will results be saved"
@@ -524,6 +524,7 @@ if __name__ == "__main__":
         benchmark_target_workload=args.benchmarks,
         vendor_context=args.vendor_binary,
         vendor_name=args.vendor_name,
+        client_binary=args.client_binary,
         num_workers_for_import=args.num_workers_for_import,
         num_workers_for_benchmark=args.num_workers_for_benchmark,
         no_load_query_counts=args.no_load_query_counts,
@@ -568,35 +569,35 @@ if __name__ == "__main__":
         log.init("Preparing workload: ", workload.NAME + "/" + workload.get_variant())
         workload.prepare(cache.cache_directory("datasets", workload.NAME, workload.get_variant()))
 
-        memgraph = runners.BaseRunner.create(
-            vendor_name=benchmark_context.vendor_name,
-            database_context=benchmark_context.vendor_context,
-            performance_tracking=benchmark_context.performance_tracking,
+        vendor_runner = runners.BaseRunner.create(
+            benchmark_context=benchmark_context,
             vendor_args=vendor_specific_args,
         )
 
-        if args.vendor_name == "neo4j":
-            vendor = runners.Neo4j(
-                args.vendor_binary,
-                args.temporary_directory,
-                args.bolt_port,
-                args.performance_tracking,
-            )
-        else:
-            vendor = runners.Memgraph(
-                args.vendor_binary,
-                args.temporary_directory,
-                not args.no_properties_on_edges,
-                args.bolt_port,
-                args.performance_tracking,
-            )
+        # if args.vendor_name == "neo4j":
+        #     vendor = runners.Neo4j(
+        #         args.vendor_binary,
+        #         args.temporary_directory,
+        #         args.bolt_port,
+        #         args.performance_tracking,
+        #     )
+        # else:
+        #     vendor = runners.Memgraph(
+        #         args.vendor_binary,
+        #         args.temporary_directory,
+        #         not args.no_properties_on_edges,
+        #         args.bolt_port,
+        #         args.performance_tracking,
+        #     )
 
-        client = runners.Client(args.client_binary, args.temporary_directory, args.bolt_port)
+        client = runners.Client(
+            client_binary=benchmark_context.client_binary, temporary_directory=benchmark_context.temporary_directory
+        )
 
         ret = None
         usage = None
         ret, usage = importer.Importer(
-            dataset=dataset, vendor=vendor, client=client, num_workers_for_import=args.num_workers_for_import
+            dataset=workload, vendor=vendor_runner, client=client, num_workers_for_import=args.num_workers_for_import
         ).try_import()
 
         # Save import results.

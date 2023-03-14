@@ -20,6 +20,8 @@ import time
 from abc import ABC, abstractclassmethod
 from pathlib import Path
 
+from benchmark import BenchmarkContext
+
 
 def _wait_for_server(port, delay=0.1):
     cmd = ["nc", "-z", "-w", "1", "127.0.0.1", str(port)]
@@ -72,18 +74,18 @@ class BaseRunner(ABC):
         return
 
     @classmethod
-    def create(cls, vendor_name: str, database_context: str, performance_tracking: bool, vendor_args: dict):
-        if vendor_name not in cls.subclasses:
-            raise ValueError("Missing runner with name: {}".format(vendor_name))
+    def create(cls, benchmark_context: BenchmarkContext, vendor_args: dict):
+        if benchmark_context.vendor_name not in cls.subclasses:
+            raise ValueError("Missing runner with name: {}".format(benchmark_context.vendor_name))
 
-        return cls.subclasses[vendor_name](
-            database_context=database_context, performance_tracking=performance_tracking, vendor_args=vendor_args
+        return cls.subclasses[benchmark_context.vendor_name](
+            benchmark_context=benchmark_context,
+            vendor_args=vendor_args,
         )
 
     @abstractclassmethod
-    def __init__(self, database_context: str, performance_tracking: bool, vendor_args: dict):
-        self.database_context = database_context
-        self.performance_tracking = performance_tracking
+    def __init__(self, benchmark_context: BenchmarkContext, vendor_args: dict):
+        self.benchmark_context = benchmark_context
         self.arguments = vendor_args
 
     @abstractclassmethod
@@ -104,44 +106,35 @@ class BaseRunner(ABC):
 
 
 class Memgraph(BaseRunner):
-    def __init__(self, database_context: str, performance_tracking: bool, **kwargs):
-        super().__init__(database_context=database_context, performance_tracking=performance_tracking, **kwargs)
-        self._memgraph_binary = database_context
-        self._directory = tempfile.TemporaryDirectory(dir="/tmp")
-        self._properties_on_edges = False
+    def __init__(self, benchmark_context: BenchmarkContext, vendor_args: dict):
+        super().__init__(benchmark_context=benchmark_context, vendor_args=vendor_args)
+        self._memgraph_binary = benchmark_context.vendor_context
+        self._performance_tracking = benchmark_context.performance_tracking
+        self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
+        self._properties_on_edges = (
+            vendor_args["no-properties-on-edges"] if "no-properties-on-edges" in vendor_args.keys() else False
+        )
+        self._bolt_port = vendor_args["bolt-port"] if "bolt-port" in vendor_args.keys() else 7687
         self._proc_mg = None
-        self._bolt_port = 7687
-        self.performance_tracking = performance_tracking
         self._stop_event = threading.Event()
         self._rss = []
-        atexit.register(self._cleanup)
 
         # Determine Memgraph version
-        ret = subprocess.run([database_context, "--version"], stdout=subprocess.PIPE, check=True)
+        ret = subprocess.run([self._memgraph_binary, "--version"], stdout=subprocess.PIPE, check=True)
         version = re.search(r"[0-9]+\.[0-9]+\.[0-9]+", ret.stdout.decode("utf-8")).group(0)
         self._memgraph_version = tuple(map(int, version.split(".")))
+
+        atexit.register(self._cleanup)
 
     def __del__(self):
         self._cleanup()
         atexit.unregister(self._cleanup)
 
-    def _clean_up():
-        pass
-
-    def _stop():
-        pass
-
     def _get_args(self, **kwargs):
         data_directory = os.path.join(self._directory.name, "memgraph")
         kwargs["bolt_port"] = self._bolt_port
-        if self._memgraph_version >= (0, 50, 0):
-            kwargs["data_directory"] = data_directory
-        else:
-            kwargs["durability_directory"] = data_directory
-        if self._memgraph_version >= (0, 50, 0):
-            kwargs["storage_properties_on_edges"] = self._properties_on_edges
-        else:
-            assert self._properties_on_edges, "Older versions of Memgraph can't disable properties on edges!"
+        kwargs["data_directory"] = data_directory
+        kwargs["storage_properties_on_edges"] = self._properties_on_edges
         return _convert_args_to_flags(self._memgraph_binary, **kwargs)
 
     def _start(self, **kwargs):
@@ -167,7 +160,7 @@ class Memgraph(BaseRunner):
         return ret, usage
 
     def start_preparation(self, workload):
-        if self.performance_tracking:
+        if self._performance_tracking:
             p = threading.Thread(target=self.res_background_tracking, args=(self._rss, self._stop_event))
             self._stop_event.clear()
             self._rss.clear()
@@ -175,7 +168,7 @@ class Memgraph(BaseRunner):
         self._start(storage_snapshot_on_exit=True)
 
     def start_benchmark(self, workload):
-        if self.performance_tracking:
+        if self._performance_tracking:
             p = threading.Thread(target=self.res_background_tracking, args=(self._rss, self._stop_event))
             self._stop_event.clear()
             self._rss.clear()
@@ -202,12 +195,18 @@ class Memgraph(BaseRunner):
             f.close()
 
     def stop(self, workload):
-        if self.performance_tracking:
+        if self._performance_tracking:
             self._stop_event.set()
             self.dump_rss(workload)
         ret, usage = self._cleanup()
         assert ret == 0, "The database process exited with a non-zero " "status ({})!".format(ret)
         return usage
+
+    def _clean_up():
+        pass
+
+    def _stop():
+        pass
 
 
 class Neo4j(BaseRunner):
@@ -429,7 +428,12 @@ class Neo4j(BaseRunner):
 
 class Client:
     def __init__(
-        self, client_binary: str, temporary_directory: str, bolt_port: int, username: str = "", password: str = ""
+        self,
+        client_binary: str,
+        temporary_directory: str,
+        bolt_port: int = 7687,
+        username: str = "",
+        password: str = "",
     ):
         self._client_binary = client_binary
         self._directory = tempfile.TemporaryDirectory(dir=temporary_directory)
