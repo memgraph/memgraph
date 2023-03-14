@@ -170,91 +170,95 @@ class RuleBasedPlanner {
   /// tree.
   using PlanResult = std::unique_ptr<LogicalOperator>;
   /// @brief Generates the operator tree based on explicitly set rules.
-  PlanResult Plan(const std::vector<SingleQueryPart> &query_parts) {
+  PlanResult Plan(const QueryParts &query_parts) {
     auto &context = *context_;
-    std::unique_ptr<LogicalOperator> input_op;
-    // Set to true if a query command writes to the database.
-    for (const auto &query_part : query_parts) {
-      MatchContext match_ctx{query_part.matching, *context.symbol_table, context.bound_symbols};
-      input_op = PlanMatching(match_ctx, std::move(input_op));
-      for (const auto &matching : query_part.optional_matching) {
-        MatchContext opt_ctx{matching, *context.symbol_table, context.bound_symbols};
+    std::unique_ptr<LogicalOperator> final_plan;
 
-        std::vector<Symbol> bound_symbols(context_->bound_symbols.begin(), context_->bound_symbols.end());
-        auto once_with_symbols = std::make_unique<Once>(bound_symbols);
+    for (const auto &query_part : query_parts.query_parts) {
+      std::unique_ptr<LogicalOperator> input_op;
 
-        auto match_op = PlanMatching(opt_ctx, std::move(once_with_symbols));
-        if (match_op) {
-          input_op = std::make_unique<Optional>(std::move(input_op), std::move(match_op), opt_ctx.new_symbols);
-        }
-      }
+      for (const auto &single_query_part : query_part.single_query_parts) {
+        input_op = HandleMatching(std::move(input_op), single_query_part, *context.symbol_table, context.bound_symbols);
 
-      uint64_t merge_id = 0;
-      uint64_t subquery_id = 0;
+        uint64_t merge_id = 0;
+        uint64_t subquery_id = 0;
 
-      for (const auto &clause : query_part.remaining_clauses) {
-        MG_ASSERT(!utils::IsSubtype(*clause, Match::kType), "Unexpected Match in remaining clauses");
-        if (auto *ret = utils::Downcast<Return>(clause)) {
-          input_op = impl::GenReturn(*ret, std::move(input_op), *context.symbol_table, context.is_write_query,
+        for (const auto &clause : single_query_part.remaining_clauses) {
+          MG_ASSERT(!utils::IsSubtype(*clause, Match::kType), "Unexpected Match in remaining clauses");
+          if (auto *ret = utils::Downcast<Return>(clause)) {
+            input_op = impl::GenReturn(*ret, std::move(input_op), *context.symbol_table, context.is_write_query,
+                                       context.bound_symbols, *context.ast_storage);
+          } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
+            input_op = GenMerge(*merge, std::move(input_op), single_query_part.merge_matching[merge_id++]);
+            // Treat MERGE clause as write, because we do not know if it will
+            // create anything.
+            context.is_write_query = true;
+          } else if (auto *with = utils::Downcast<query::With>(clause)) {
+            input_op = impl::GenWith(*with, std::move(input_op), *context.symbol_table, context.is_write_query,
                                      context.bound_symbols, *context.ast_storage);
-        } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
-          input_op = GenMerge(*merge, std::move(input_op), query_part.merge_matching[merge_id++]);
-          // Treat MERGE clause as write, because we do not know if it will
-          // create anything.
-          context.is_write_query = true;
-        } else if (auto *with = utils::Downcast<query::With>(clause)) {
-          input_op = impl::GenWith(*with, std::move(input_op), *context.symbol_table, context.is_write_query,
-                                   context.bound_symbols, *context.ast_storage);
-          // WITH clause advances the command, so reset the flag.
-          context.is_write_query = false;
-        } else if (auto op = HandleWriteClause(clause, input_op, *context.symbol_table, context.bound_symbols)) {
-          context.is_write_query = true;
-          input_op = std::move(op);
-        } else if (auto *unwind = utils::Downcast<query::Unwind>(clause)) {
-          const auto &symbol = context.symbol_table->at(*unwind->named_expression_);
-          context.bound_symbols.insert(symbol);
-          input_op =
-              std::make_unique<plan::Unwind>(std::move(input_op), unwind->named_expression_->expression_, symbol);
+            // WITH clause advances the command, so reset the flag.
+            context.is_write_query = false;
+          } else if (auto op = HandleWriteClause(clause, input_op, *context.symbol_table, context.bound_symbols)) {
+            context.is_write_query = true;
+            input_op = std::move(op);
+          } else if (auto *unwind = utils::Downcast<query::Unwind>(clause)) {
+            const auto &symbol = context.symbol_table->at(*unwind->named_expression_);
+            context.bound_symbols.insert(symbol);
+            input_op =
+                std::make_unique<plan::Unwind>(std::move(input_op), unwind->named_expression_->expression_, symbol);
 
-        } else if (auto *call_proc = utils::Downcast<query::CallProcedure>(clause)) {
-          std::vector<Symbol> result_symbols;
-          result_symbols.reserve(call_proc->result_identifiers_.size());
-          for (const auto *ident : call_proc->result_identifiers_) {
-            const auto &sym = context.symbol_table->at(*ident);
-            context.bound_symbols.insert(sym);
-            result_symbols.push_back(sym);
+          } else if (auto *call_proc = utils::Downcast<query::CallProcedure>(clause)) {
+            std::vector<Symbol> result_symbols;
+            result_symbols.reserve(call_proc->result_identifiers_.size());
+            for (const auto *ident : call_proc->result_identifiers_) {
+              const auto &sym = context.symbol_table->at(*ident);
+              context.bound_symbols.insert(sym);
+              result_symbols.push_back(sym);
+            }
+            // TODO: When we add support for write and eager procedures, we will
+            // need to plan this operator with Accumulate and pass in
+            // storage::View::NEW.
+            input_op = std::make_unique<plan::CallProcedure>(
+                std::move(input_op), call_proc->procedure_name_, call_proc->arguments_, call_proc->result_fields_,
+                result_symbols, call_proc->memory_limit_, call_proc->memory_scale_, call_proc->is_write_);
+          } else if (auto *load_csv = utils::Downcast<query::LoadCsv>(clause)) {
+            const auto &row_sym = context.symbol_table->at(*load_csv->row_var_);
+            context.bound_symbols.insert(row_sym);
+
+            input_op =
+                std::make_unique<plan::LoadCsv>(std::move(input_op), load_csv->file_, load_csv->with_header_,
+                                                load_csv->ignore_bad_, load_csv->delimiter_, load_csv->quote_, row_sym);
+
+          } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
+            context.is_write_query = true;
+            input_op = HandleForeachClause(foreach, std::move(input_op), *context.symbol_table, context.bound_symbols,
+                                           single_query_part, merge_id);
+          } else if (auto *call_sub = utils::Downcast<query::CallSubquery>(clause)) {
+            input_op = HandleSubquery(std::move(input_op), single_query_part.subqueries[subquery_id++],
+                                      *context.symbol_table, *context_->ast_storage);
+          } else {
+            throw utils::NotYetImplemented("clause '{}' conversion to operator(s)", clause->GetTypeInfo().name);
           }
-          // TODO: When we add support for write and eager procedures, we will
-          // need to plan this operator with Accumulate and pass in
-          // storage::View::NEW.
-          input_op = std::make_unique<plan::CallProcedure>(
-              std::move(input_op), call_proc->procedure_name_, call_proc->arguments_, call_proc->result_fields_,
-              result_symbols, call_proc->memory_limit_, call_proc->memory_scale_, call_proc->is_write_);
-        } else if (auto *load_csv = utils::Downcast<query::LoadCsv>(clause)) {
-          const auto &row_sym = context.symbol_table->at(*load_csv->row_var_);
-          context.bound_symbols.insert(row_sym);
-
-          input_op =
-              std::make_unique<plan::LoadCsv>(std::move(input_op), load_csv->file_, load_csv->with_header_,
-                                              load_csv->ignore_bad_, load_csv->delimiter_, load_csv->quote_, row_sym);
-
-        } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
-          context.is_write_query = true;
-          input_op = HandleForeachClause(foreach, std::move(input_op), *context.symbol_table, context.bound_symbols,
-                                         query_part, merge_id);
-        } else if (auto *call_sub = utils::Downcast<query::CallSubquery>(clause)) {
-          input_op = HandleSubquery(std::move(input_op), query_part.subqueries[subquery_id++], *context.symbol_table,
-                                    *context_->ast_storage);
-        } else {
-          throw utils::NotYetImplemented("clause '{}' conversion to operator(s)", clause->GetTypeInfo().name);
         }
       }
+
+      // Is this the only situation that should be covered
+      if (input_op->OutputSymbols(*context.symbol_table).empty()) {
+        input_op = std::make_unique<EmptyResult>(std::move(input_op));
+      }
+
+      if (query_part.query_combinator) {
+        final_plan = MergeWithCombinator(std::move(input_op), std::move(final_plan), *query_part.query_combinator);
+      } else {
+        final_plan = std::move(input_op);
+      }
     }
-    // Is this the only situation that should be covered
-    if (input_op->OutputSymbols(*context.symbol_table).empty()) {
-      input_op = std::make_unique<EmptyResult>(std::move(input_op));
+
+    if (query_parts.distinct) {
+      final_plan = MakeDistinct(std::move(final_plan));
     }
-    return input_op;
+
+    return final_plan;
   }
 
  private:
@@ -265,6 +269,28 @@ class RuleBasedPlanner {
   storage::PropertyId GetProperty(PropertyIx prop) { return context_->db->NameToProperty(prop.name); }
 
   storage::EdgeTypeId GetEdgeType(EdgeTypeIx edge_type) { return context_->db->NameToEdgeType(edge_type.name); }
+
+  std::unique_ptr<LogicalOperator> HandleMatching(std::unique_ptr<LogicalOperator> input_op,
+                                                  const SingleQueryPart &single_query_part, SymbolTable &symbol_table,
+                                                  std::unordered_set<Symbol> &bound_symbols) {
+    auto last_op = std::move(input_op);
+
+    MatchContext match_ctx{single_query_part.matching, symbol_table, bound_symbols};
+    last_op = PlanMatching(match_ctx, std::move(input_op));
+    for (const auto &matching : single_query_part.optional_matching) {
+      MatchContext opt_ctx{matching, symbol_table, bound_symbols};
+
+      std::vector<Symbol> bound_symbols(context_->bound_symbols.begin(), context_->bound_symbols.end());
+      auto once_with_symbols = std::make_unique<Once>(bound_symbols);
+
+      auto match_op = PlanMatching(opt_ctx, std::move(once_with_symbols));
+      if (match_op) {
+        last_op = std::make_unique<Optional>(std::move(input_op), std::move(match_op), opt_ctx.new_symbols);
+      }
+    }
+
+    return last_op;
+  }
 
   std::unique_ptr<LogicalOperator> GenCreate(Create &create, std::unique_ptr<LogicalOperator> input_op,
                                              const SymbolTable &symbol_table,
@@ -619,7 +645,7 @@ class RuleBasedPlanner {
     context_->bound_symbols.clear();
     context_->bound_symbols.insert(bound_symbols.begin(), bound_symbols.end());
 
-    auto subquery_op = Plan(subquery->query_parts[0].single_query_parts);
+    auto subquery_op = Plan(*subquery);
 
     context_->bound_symbols.clear();
     context_->bound_symbols.insert(outer_scope_bound_symbols.begin(), outer_scope_bound_symbols.end());
@@ -685,6 +711,21 @@ class RuleBasedPlanner {
     }
 
     return operators;
+  }
+
+  std::unique_ptr<LogicalOperator> MergeWithCombinator(std::unique_ptr<LogicalOperator> curr_op,
+                                                       std::unique_ptr<LogicalOperator> last_op,
+                                                       const Tree &combinator) {
+    if (const auto *union_ = utils::Downcast<const CypherUnion>(&combinator)) {
+      return impl::GenUnion(*union_, std::move(last_op), std::move(curr_op), *context_->symbol_table);
+    }
+
+    throw utils::NotYetImplemented("query combinator");
+  }
+
+  std::unique_ptr<LogicalOperator> MakeDistinct(std::unique_ptr<LogicalOperator> last_op) {
+    auto output_symbols = last_op->OutputSymbols(*context_->symbol_table);
+    return std::make_unique<Distinct>(std::move(last_op), output_symbols);
   }
 };
 
