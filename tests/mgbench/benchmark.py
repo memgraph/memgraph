@@ -287,7 +287,7 @@ def filter_workloads(available_workloads: dict, benchmark_context: BenchmarkCont
                 if res >= 2 and key in current.keys():
                     current.pop(key)
 
-            filtered.append((generator(variant, benchmark_context.vendor_name), dict(current)))
+            filtered.append((generator(variant=variant, benchmark_context=benchmark_context), dict(current)))
     return filtered
 
 
@@ -538,6 +538,11 @@ if __name__ == "__main__":
         no_authorization=args.no_authorization,
     )
 
+    vendor_runner = runners.BaseRunner.create(
+        benchmark_context=benchmark_context,
+        vendor_args=vendor_specific_args,
+    )
+
     run_config = {
         "vendor": benchmark_context.vendor_name,
         "condition": benchmark_context.warm_up,
@@ -564,15 +569,10 @@ if __name__ == "__main__":
     # Run all target workloads.
     for workload, queries in target_workloads:
 
-        results.set_value("__run_configuration__", value=run_config)
-
         log.init("Preparing workload: ", workload.NAME + "/" + workload.get_variant())
         workload.prepare(cache.cache_directory("datasets", workload.NAME, workload.get_variant()))
 
-        vendor_runner = runners.BaseRunner.create(
-            benchmark_context=benchmark_context,
-            vendor_args=vendor_specific_args,
-        )
+        result = workload.custom_importer()
 
         # if args.vendor_name == "neo4j":
         #     vendor = runners.Neo4j(
@@ -711,7 +711,7 @@ if __name__ == "__main__":
 
                     usage = vendor.stop(dataset.NAME + dataset.get_variant() + "_" + workload_mode.name + "_" + query)
                     ret["database"] = usage
-
+                    results.set_value("__run_configuration__", value=run_config)
                     # Output summary.
                     print()
                     print("Executed", ret["count"], "queries in", ret["duration"], "seconds.")
