@@ -51,6 +51,7 @@ struct PlanningContext {
   /// write) the first `n`, but the latter `n` would only read the already
   /// written information.
   std::unordered_set<Symbol> bound_symbols{};
+  bool is_write_query{false};
 };
 
 template <class TDbAccessor>
@@ -173,7 +174,6 @@ class RuleBasedPlanner {
     auto &context = *context_;
     std::unique_ptr<LogicalOperator> input_op;
     // Set to true if a query command writes to the database.
-    bool is_write = false;
     for (const auto &query_part : query_parts) {
       MatchContext match_ctx{query_part.matching, *context.symbol_table, context.bound_symbols};
       input_op = PlanMatching(match_ctx, std::move(input_op));
@@ -188,24 +188,27 @@ class RuleBasedPlanner {
           input_op = std::make_unique<Optional>(std::move(input_op), std::move(match_op), opt_ctx.new_symbols);
         }
       }
+
       uint64_t merge_id = 0;
+      uint64_t subquery_id = 0;
+
       for (const auto &clause : query_part.remaining_clauses) {
         MG_ASSERT(!utils::IsSubtype(*clause, Match::kType), "Unexpected Match in remaining clauses");
         if (auto *ret = utils::Downcast<Return>(clause)) {
-          input_op = impl::GenReturn(*ret, std::move(input_op), *context.symbol_table, is_write, context.bound_symbols,
-                                     *context.ast_storage);
+          input_op = impl::GenReturn(*ret, std::move(input_op), *context.symbol_table, context.is_write_query,
+                                     context.bound_symbols, *context.ast_storage);
         } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
           input_op = GenMerge(*merge, std::move(input_op), query_part.merge_matching[merge_id++]);
           // Treat MERGE clause as write, because we do not know if it will
           // create anything.
-          is_write = true;
+          context.is_write_query = true;
         } else if (auto *with = utils::Downcast<query::With>(clause)) {
-          input_op = impl::GenWith(*with, std::move(input_op), *context.symbol_table, is_write, context.bound_symbols,
-                                   *context.ast_storage);
+          input_op = impl::GenWith(*with, std::move(input_op), *context.symbol_table, context.is_write_query,
+                                   context.bound_symbols, *context.ast_storage);
           // WITH clause advances the command, so reset the flag.
-          is_write = false;
+          context.is_write_query = false;
         } else if (auto op = HandleWriteClause(clause, input_op, *context.symbol_table, context.bound_symbols)) {
-          is_write = true;
+          context.is_write_query = true;
           input_op = std::move(op);
         } else if (auto *unwind = utils::Downcast<query::Unwind>(clause)) {
           const auto &symbol = context.symbol_table->at(*unwind->named_expression_);
@@ -236,13 +239,12 @@ class RuleBasedPlanner {
                                               load_csv->ignore_bad_, load_csv->delimiter_, load_csv->quote_, row_sym);
 
         } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
-          is_write = true;
+          context.is_write_query = true;
           input_op = HandleForeachClause(foreach, std::move(input_op), *context.symbol_table, context.bound_symbols,
                                          query_part, merge_id);
         } else if (auto *call_sub = utils::Downcast<query::CallSubquery>(clause)) {
-          input_op =
-              HandleSubquery(std::move(input_op), query_part.subquery, *context.symbol_table, *context_->ast_storage);
-
+          input_op = HandleSubquery(std::move(input_op), query_part.subqueries[subquery_id++], *context.symbol_table,
+                                    *context_->ast_storage);
         } else {
           throw utils::NotYetImplemented("clause '{}' conversion to operator(s)", clause->GetTypeInfo().name);
         }

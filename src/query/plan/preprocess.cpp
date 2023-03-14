@@ -586,15 +586,9 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
         query_part->merge_matching.emplace_back(Matching{});
         AddMatching({merge->pattern_}, nullptr, symbol_table, storage, query_part->merge_matching.back());
       } else if (auto *call_subquery = utils::Downcast<query::CallSubquery>(clause)) {
-        // with more than one CALL subquery, we need to either know where we are in the vector or use a queue
-        // auto subquery_parts =
-        //     CollectQueryParts(symbol_table, storage, call_subquery->single_query_, call_subquery->cypher_unions_);
-        // std::shared_ptr<QueryParts> subquery;
-        // *subquery = subquery_parts;
         auto subquery = std::make_shared<QueryParts>(
             CollectQueryParts(symbol_table, storage, call_subquery->single_query_, call_subquery->cypher_unions_));
-        query_part->subquery = subquery;
-        // subqueries.push(std::move(subquery));
+        query_part->subqueries.push_back(std::move(subquery));
       } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
         ParseForeach(*foreach, *query_part, storage, symbol_table);
       } else if (utils::IsSubtype(*clause, With::kType) || utils::IsSubtype(*clause, query::Unwind::kType) ||
