@@ -23,7 +23,7 @@ Feature: Subqueries
       MATCH (n:Label1)
       CALL {
         MATCH (n:Label1)-[:TYPE]->(m:Label2)
-        RETURN m;
+        RETURN m
       }
       RETURN m.prop;
       """
@@ -41,7 +41,7 @@ Feature: Subqueries
       """
       CALL {
         MATCH (n:Label1)-[:TYPE]->(m:Label2)
-        RETURN m;
+        RETURN m
       }
       RETURN m.prop;
       """
@@ -60,7 +60,7 @@ Feature: Subqueries
 			MATCH (n:Label1)
       CALL {
         MATCH (m:Label1)-[:TYPE]->(o:Label2)
-        RETURN m, o;
+        RETURN m, o
       }
       RETURN m.prop, o.prop;
       """
@@ -79,7 +79,7 @@ Feature: Subqueries
 			MATCH (n:Label3)
       CALL {
         MATCH (m:Label1)-[:TYPE]->(:Label2)
-        RETURN m;
+        RETURN m
       }
       RETURN m.prop;
       """
@@ -96,7 +96,7 @@ Feature: Subqueries
 			MATCH (n:Label1)
       CALL {
         MATCH (m)
-        RETURN m;
+        RETURN m
       }
       RETURN n.prop, m.prop;
       """
@@ -116,7 +116,7 @@ Feature: Subqueries
 			MATCH (n)
       CALL {
         MATCH (m)
-        RETURN m;
+        RETURN m
       }
       RETURN n.prop, m.prop;
       """
@@ -139,7 +139,7 @@ Feature: Subqueries
       CALL {
 				WITH n
         MATCH (n)-[:TYPE]->(m:Label2)
-        RETURN m;
+        RETURN m
       }
       RETURN m.prop;
       """
@@ -159,7 +159,7 @@ Feature: Subqueries
       CALL {
 				WITH o
         MATCH (o)-[:TYPE]->(m:Label2)
-        RETURN m;
+        RETURN m
       }
       RETURN m.prop;
       """
@@ -183,7 +183,7 @@ Feature: Subqueries
 					OPTIONAL MATCH (p)-[:PARENT_OF]->(other:Parent)
 					RETURN other
 			}
-			RETURN DISTINCT p.figure, count(other) as cnt
+			RETURN DISTINCT p.figure, count(other) as cnt;
       """
     Then the result should be:
       | p.figure | cnt |
