@@ -2421,6 +2421,8 @@ clauses.
      const Apply &self_;
      UniqueCursorPtr input_;
      UniqueCursorPtr subquery_;
+     bool pull_input_{true};
+     bool has_return_{true};
    };
    cpp<#)
   (:serialize (:slk))

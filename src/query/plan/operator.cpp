@@ -4773,7 +4773,7 @@ bool Foreach::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
 }
 
 Apply::Apply(const std::shared_ptr<LogicalOperator> input, const std::shared_ptr<LogicalOperator> subquery)
-    : input_(input), subquery_(subquery) {}
+    : input_(input ? input : std::make_shared<Once>()), subquery_(subquery) {}
 
 ACCEPT_WITH_INPUT(Apply);
 
@@ -4784,7 +4784,12 @@ UniqueCursorPtr Apply::MakeCursor(utils::MemoryResource *mem) const {
 }
 
 Apply::ApplyCursor::ApplyCursor(const Apply &self, utils::MemoryResource *mem)
-    : self_(self), input_(self.input_->MakeCursor(mem)), subquery_(self.subquery_->MakeCursor(mem)) {}
+    : self_(self), input_(self.input_->MakeCursor(mem)), subquery_(self.subquery_->MakeCursor(mem)) {
+  // If the last operator is EmptyResult, that means the subquery doesn't have a RETURN at the end
+  if (typeid(*subquery_) == typeid(EmptyResultCursor)) {
+    has_return_ = false;
+  }
+}
 
 std::vector<Symbol> Apply::ModifiedSymbols(const SymbolTable &table) const {
   auto symbols = input_->ModifiedSymbols(table);
@@ -4797,15 +4802,28 @@ std::vector<Symbol> Apply::ModifiedSymbols(const SymbolTable &table) const {
 bool Apply::ApplyCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Apply");
 
-  if (!input_->Pull(frame, context)) {
-    return false;
+  // if the subquery doesn't have RETURN at the end, return the rows from before
+  if (!has_return_) {
+    // TODO not necessary to try pull every time
+    while (subquery_->Pull(frame, context))
+      ;
+    return input_->Pull(frame, context);
   }
 
-  if (!subquery_->Pull(frame, context)) {
-    return false;
-  }
+  while (true) {
+    if (pull_input_) {
+      if (!input_->Pull(frame, context)) return false;
+    }
 
-  return true;
+    if (subquery_->Pull(frame, context)) {
+      // if successful, next Pull from this should not pull_input_
+      pull_input_ = false;
+      return true;
+    }
+    // failed to pull from subquery cursor
+    // skip that row
+    pull_input_ = true;
+  }
 }
 
 void Apply::ApplyCursor::Shutdown() {
@@ -4816,6 +4834,7 @@ void Apply::ApplyCursor::Shutdown() {
 void Apply::ApplyCursor::Reset() {
   input_->Reset();
   subquery_->Reset();
+  pull_input_ = true;
 }
 
 }  // namespace memgraph::query::plan
