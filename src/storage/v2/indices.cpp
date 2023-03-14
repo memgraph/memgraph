@@ -10,8 +10,11 @@
 // licenses/APL.txt.
 
 #include "indices.hpp"
+#include <algorithm>
 #include <limits>
+#include <utility>
 
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/bound.hpp"
@@ -691,14 +694,28 @@ int64_t LabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId pro
 /*
 Iterate over all property-label pairs and deletes if label from the index is equal to label parameter.
 */
-void LabelPropertyIndex::DeleteIndexStatsForLabel(const storage::LabelId &label) {
+std::vector<std::pair<LabelId, PropertyId>> LabelPropertyIndex::DeleteIndexStatsForLabel(
+    const storage::LabelId &label) {
+  std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;
   for (auto it = stats_.cbegin(); it != stats_.cend();) {
     if (it->first.first == label) {
+      deleted_indexes.push_back(it->first);
       it = stats_.erase(it);
     } else {
       ++it;
     }
   }
+  return deleted_indexes;
+}
+
+std::vector<std::pair<LabelId, PropertyId>> LabelPropertyIndex::ClearIndexStats() {
+  std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;
+  deleted_indexes.reserve(stats_.size());
+  for (auto it = stats_.begin(); it != stats_.end();) {
+    deleted_indexes.push_back(it->first);
+    it = stats_.erase(it);
+  }
+  return deleted_indexes;
 }
 
 void LabelPropertyIndex::SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
@@ -706,7 +723,8 @@ void LabelPropertyIndex::SetIndexStats(const storage::LabelId &label, const stor
   stats_[{label, property}] = stats;
 }
 
-IndexStats LabelPropertyIndex::GetIndexStats(const storage::LabelId &label, const storage::PropertyId &property) const {
+std::optional<IndexStats> LabelPropertyIndex::GetIndexStats(const storage::LabelId &label,
+                                                            const storage::PropertyId &property) const {
   auto it = stats_.find({label, property});
   if (it == stats_.end()) {
     return {};

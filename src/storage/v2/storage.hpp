@@ -11,8 +11,10 @@
 
 #pragma once
 
+#include <algorithm>
 #include <atomic>
 #include <filesystem>
+#include <iterator>
 #include <optional>
 #include <shared_mutex>
 #include <variant>
@@ -265,14 +267,24 @@ class Storage final {
       return storage_->indices_.label_property_index.ApproximateVertexCount(label, property, lower, upper);
     }
 
-    IndexStats GetIndexStats(const storage::LabelId &label, const storage::PropertyId &property) const {
+    std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId &label,
+                                                     const storage::PropertyId &property) const {
       return storage_->indices_.label_property_index.GetIndexStats(label, property);
     }
 
-    void DeleteIndexStatsForLabels(const std::vector<std::string> &labels) {
-      std::for_each(labels.begin(), labels.end(), [this](const auto &label_str) {
-        storage_->indices_.label_property_index.DeleteIndexStatsForLabel(NameToLabel(label_str));
+    std::vector<std::pair<LabelId, PropertyId>> ClearIndexStats() {
+      return storage_->indices_.label_property_index.ClearIndexStats();
+    }
+
+    std::vector<std::pair<LabelId, PropertyId>> DeleteIndexStatsForLabels(const std::vector<std::string> &labels) {
+      std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;
+      std::for_each(labels.begin(), labels.end(), [this, &deleted_indexes](const auto &label_str) {
+        std::vector<std::pair<LabelId, PropertyId>> loc_results =
+            storage_->indices_.label_property_index.DeleteIndexStatsForLabel(NameToLabel(label_str));
+        deleted_indexes.insert(deleted_indexes.end(), std::make_move_iterator(loc_results.begin()),
+                               std::make_move_iterator(loc_results.end()));
       });
+      return deleted_indexes;
     }
 
     void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property, const IndexStats &stats) {

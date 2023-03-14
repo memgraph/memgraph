@@ -133,12 +133,7 @@ class LabelIndex {
 };
 
 struct IndexStats {
-  // Count of max occurring property value
-  int64_t max_count_property_value;
-  // Count of min occurring property value
-  int64_t min_count_property_value;
-  // Statistics value
-  double stat_value;
+  double stat_value, avg_group_size;
 };
 
 class LabelPropertyIndex {
@@ -247,11 +242,15 @@ class LabelPropertyIndex {
                                  const std::optional<utils::Bound<PropertyValue>> &lower,
                                  const std::optional<utils::Bound<PropertyValue>> &upper) const;
 
-  void DeleteIndexStatsForLabel(const storage::LabelId &label);
+  std::vector<std::pair<LabelId, PropertyId>> ClearIndexStats();
 
-  void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property, const IndexStats &stats);
+  std::vector<std::pair<LabelId, PropertyId>> DeleteIndexStatsForLabel(const storage::LabelId &label);
 
-  IndexStats GetIndexStats(const storage::LabelId &label, const storage::PropertyId &property) const;
+  void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
+                     const storage::IndexStats &stats);
+
+  std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId &label,
+                                                   const storage::PropertyId &property) const;
 
   void Clear() { index_.clear(); }
 
@@ -259,7 +258,7 @@ class LabelPropertyIndex {
 
  private:
   std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>> index_;
-  std::map<std::pair<LabelId, PropertyId>, IndexStats> stats_;
+  std::map<std::pair<LabelId, PropertyId>, storage::IndexStats> stats_;
   Indices *indices_;
   Constraints *constraints_;
   Config::Items config_;

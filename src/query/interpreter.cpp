@@ -43,7 +43,6 @@
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/required_privileges.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
-#include "query/index_statistics.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/metadata.hpp"
 #include "query/plan/planner.hpp"
@@ -1419,49 +1418,43 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
 
   // initialize index
   const auto &indices_info = execution_db_accessor->ListAllIndices();
-  std::for_each(vertices.begin(), vertices.end(), [&indices_info, &counter](const auto &vertex) {
-    for (const auto &info : indices_info.label_property) {
-      if (const auto &has_label = vertex.HasLabel(storage::View::OLD, info.first); has_label.HasError() || !*has_label)
-        continue;
-      if (const auto &property = vertex.GetProperty(storage::View::NEW, info.second);
-          !property.HasError() && (*property).type() != storage::PropertyValue::Type::Null) {
-        spdlog::debug("Found property: {}", (*property).type());
-        counter[info][*property]++;
-      } else {
-        continue;
-      }
-    }
-  });
+  std::for_each(
+      vertices.begin(), vertices.end(), [&indices_info, &counter, &labels, execution_db_accessor](const auto &vertex) {
+        for (const auto &info : indices_info.label_property) {
+          if (const auto &has_label = vertex.HasLabel(storage::View::OLD, info.first);
+              has_label.HasError() || !*has_label ||
+              (labels[0] != "*" &&
+               std::find(labels.begin(), labels.end(), execution_db_accessor->LabelToName(info.first)) == labels.end()))
+            continue;
+          if (const auto &property = vertex.GetProperty(storage::View::NEW, info.second);
+              !property.HasError() && (*property).type() != storage::PropertyValue::Type::Null) {
+            counter[info][*property]++;
+          } else {
+            continue;
+          }
+        }
+      });
 
   results.reserve(counter.size());
   for (auto &[label_property, values_map] : counter) {
     std::vector<TypedValue> result;
     // Extract info
-    int64_t max_count_property_value = std::accumulate(
-        values_map.begin(), values_map.end(), 0,
-        [](int64_t prev_value, const auto &prop_value_count) { return std::max(prev_value, prop_value_count.second); });
-    int64_t min_count_property_value = std::accumulate(
-        values_map.begin(), values_map.end(), INT64_MAX,
-        [](int64_t prev_value, const auto &prop_value_count) { return std::min(prev_value, prop_value_count.second); });
     int64_t sum_property_value = std::accumulate(
         values_map.begin(), values_map.end(), 0,
         [](int64_t prev_value, const auto &prop_value_count) { return prev_value + prop_value_count.second; });
     // num_distinc_values will never be 0
-    double E = static_cast<double>(sum_property_value) / static_cast<double>(values_map.size());
-    double chi_squared_stat =
-        std::accumulate(values_map.begin(), values_map.end(), 0.0, [E](double prev_result, const auto &value_entry) {
-          return prev_result + utils::ChiSquaredValue(value_entry.second, E);
+    double avg_group_size = static_cast<double>(sum_property_value) / static_cast<double>(values_map.size());
+    double chi_squared_stat = std::accumulate(
+        values_map.begin(), values_map.end(), 0.0, [avg_group_size](double prev_result, const auto &value_entry) {
+          return prev_result + utils::ChiSquaredValue(value_entry.second, avg_group_size);
         });
     dba->SetIndexStats(label_property.first, label_property.second,
-                       storage::IndexStats{.max_count_property_value = max_count_property_value,
-                                           .min_count_property_value = min_count_property_value,
-                                           .stat_value = chi_squared_stat});
+                       storage::IndexStats{.stat_value = chi_squared_stat, .avg_group_size = avg_group_size});
     // Save result
     result.emplace_back(dba->LabelToName(label_property.first));
     result.emplace_back(dba->PropertyToName(label_property.second));
     result.emplace_back(sum_property_value);
-    result.emplace_back(max_count_property_value);
-    result.emplace_back(min_count_property_value);
+    result.emplace_back(avg_group_size);
     result.emplace_back(chi_squared_stat);
     results.push_back(std::move(result));
   }
@@ -1470,7 +1463,11 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
 
 void AnalyzeGraphQueryHandler::AnalyzeGraphDeleteStatistics(const std::vector<std::string> &labels,
                                                             storage::Storage::Accessor *dba) {
-  dba->DeleteIndexStatsForLabels(labels);
+  if (labels[0] == "*") {
+    dba->ClearIndexStats();
+  } else {
+    dba->DeleteIndexStatsForLabels(labels);
+  }
 }
 
 Callback HandleAnalyzeGraphQuery(AnalyzeGraphQuery *analyze_graph_query, DbAccessor *execution_db_accessor,
@@ -1479,12 +1476,7 @@ Callback HandleAnalyzeGraphQuery(AnalyzeGraphQuery *analyze_graph_query, DbAcces
 
   switch (analyze_graph_query->action_) {
     case AnalyzeGraphQuery::Action::ANALYZE: {
-      callback.header = {"label",
-                         "property",
-                         "num estimation nodes",
-                         "max_count_property_value",
-                         "min_count_property_value",
-                         "chi-squared value"};
+      callback.header = {"label", "property", "num estimation nodes", "avg group size", "chi-squared value"};
       callback.fn = [handler = AnalyzeGraphQueryHandler(), labels = analyze_graph_query->labels_, dba,
                      execution_db_accessor]() mutable {
         return handler.AnalyzeGraphCreateStatistics(labels, execution_db_accessor, dba);

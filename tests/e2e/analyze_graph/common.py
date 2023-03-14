@@ -12,6 +12,7 @@
 import typing
 
 import mgclient
+import pytest
 
 
 def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}) -> typing.List[tuple]:
@@ -19,7 +20,10 @@ def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}
     return cursor.fetchall()
 
 
+@pytest.fixture
 def connect(**kwargs) -> mgclient.Connection:
     connection = mgclient.connect(host="localhost", port=7687, **kwargs)
     connection.autocommit = True
-    return connection
+    yield connection
+    cursor = connection.cursor()
+    execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")

@@ -11,7 +11,6 @@ set(mg_query_sources
     common.cpp
     cypher_query_interpreter.cpp
     dump.cpp
-    index_statistics.cpp
     frontend/ast/cypher_main_visitor.cpp
     frontend/ast/pretty_print.cpp
     frontend/parsing.cpp

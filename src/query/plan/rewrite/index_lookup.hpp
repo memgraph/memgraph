@@ -29,6 +29,8 @@
 // #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
+#include "storage/v2/indices.hpp"
+#include "utils/math.hpp"
 
 DECLARE_int64(query_vertex_count_to_expand_existing);
 
@@ -474,7 +476,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     // FilterInfo with PropertyFilter.
     FilterInfo filter;
     int64_t vertex_count;
-    uint64_t index_stats_count;
+    std::optional<storage::IndexStats> stats;
   };
 
   bool DefaultPreVisit() override { throw utils::NotYetImplemented("optimizing index lookup"); }
@@ -543,18 +545,16 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           continue;
         }
         int64_t vertex_count = db_->VerticesCount(GetLabel(label), GetProperty(property));
-        auto is_better_type = [&found](PropertyFilter::Type type) {
-          // Order the types by the most preferred index lookup type.
-          static const PropertyFilter::Type kFilterTypeOrder[] = {
-              PropertyFilter::Type::EQUAL, PropertyFilter::Type::RANGE, PropertyFilter::Type::REGEX_MATCH};
-          auto *found_sort_ix = std::find(kFilterTypeOrder, kFilterTypeOrder + 3, found->filter.property_filter->type_);
-          auto *type_sort_ix = std::find(kFilterTypeOrder, kFilterTypeOrder + 3, type);
-          return type_sort_ix < found_sort_ix;
-        };
 
-        if (!found || vertex_count < found->vertex_count ||
-            (vertex_count == found->vertex_count && is_better_type(filter.property_filter->type_))) {
-          found = LabelPropertyIndex{label, filter, vertex_count};
+        std::optional<storage::IndexStats> new_stats = db_->GetIndexStats(GetLabel(label), GetProperty(property));
+
+        if (!found ||
+            (new_stats.has_value() && found->stats.has_value() &&
+             (utils::LessThanDecimal(new_stats->avg_group_size, found->stats->avg_group_size) ||
+              (utils::ApproxEqualDecimal(found->stats->avg_group_size, new_stats->avg_group_size) &&
+               utils::GreaterThanDecimal(found->stats->stat_value, new_stats->stat_value)))) ||
+            found->vertex_count > vertex_count) {
+          found = LabelPropertyIndex{label, filter, vertex_count, new_stats};
         }
       }
     }

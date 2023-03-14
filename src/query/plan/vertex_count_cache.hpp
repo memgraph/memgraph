@@ -78,7 +78,8 @@ class VertexCountCache {
     return db_->LabelPropertyIndexExists(label, property);
   }
 
-  IndexStats GetIndexStats(storage::LabelId label, storage::PropertyId property) const {
+  std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId &label,
+                                                   const storage::PropertyId &property) const {
     return db_->GetIndexStats(label, property);
   }
 

@@ -310,10 +310,6 @@ class VerticesIterable final {
   }
 };
 
-struct IndexStats {
-  uint64_t max_number_of_vertices_with_same_value;
-};
-
 class DbAccessor final {
   storage::Storage::Accessor *accessor_;
 
@@ -434,7 +430,8 @@ class DbAccessor final {
     return accessor_->LabelPropertyIndexExists(label, prop);
   }
 
-  storage::IndexStats GetIndexStats(const storage::LabelId &label, const storage::PropertyId &property) const {
+  std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId &label,
+                                                   const storage::PropertyId &property) const {
     return accessor_->GetIndexStats(label, property);
   }
 

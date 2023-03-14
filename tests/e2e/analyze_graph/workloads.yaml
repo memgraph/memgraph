@@ -3,10 +3,7 @@ analyze_graph_cluster: &analyze_graph_cluster
     main:
       args: ["--bolt-port", "7687", "--log-level=TRACE"]
       log_file: "analyze_graph.log"
-      setup_queries:
-        [
-          "FOREACH (i IN range(1, 1000) | CREATE (n:Label {id1: i, id2: i % 5}));"
-        ]
+      setup_queries: []
       validation_queries: []
 
 

@@ -3,5 +3,4 @@ function(copy_analyze_graph_e2e_python_files FILE_NAME)
 endfunction()
 
 copy_analyze_graph_e2e_python_files(common.py)
-copy_analyze_graph_e2e_python_files(conftest.py)
 copy_analyze_graph_e2e_python_files(optimize_indexes.py)

@@ -213,13 +213,10 @@ class InteractiveDbAccessor {
     return label_property_index_.at(key);
   }
 
-  // memgraph::query::IndexStats GetIndexStats(memgraph::storage::LabelId label,
-  //                                           memgraph::storage::PropertyId property) const {
-  //   auto stats = dba_->GetIndexStats(label, property);
-
-  //   return memgraph::query::IndexStats{.max_number_of_vertices_with_same_value =
-  //                                          stats.max_number_of_vertices_with_same_value};
-  // }
+  std::optional<memgraph::storage::IndexStats> GetIndexStats(memgraph::storage::LabelId label,
+                                                             memgraph::storage::PropertyId property) const {
+    return dba_->GetIndexStats(label, property);
+  }
 
   // Save the cached vertex counts to a stream.
   void Save(std::ostream &out) {

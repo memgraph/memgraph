@@ -11,31 +11,43 @@
 
 import sys
 
-import common
 import pytest
+from common import connect, execute_and_fetch_all
 
 
-def test_analyze_graph_better_index_applied_after_analysis(connection):
-    cursor = connection.cursor()
+@pytest.mark.parametrize(
+    "analyze_query",
+    [
+        "ANALYZE GRAPH",
+        "ANALYZE GRAPH ON LABELS *",
+        "ANALYZE GRAPH ON LABELS :Label",
+        "ANALYZE GRAPH ON LABELS :Label, :NONEXISTING",
+    ],
+)
+def test_analyze_full_graph(analyze_query, connect):
+    """Tests analyzing full graph and choosing better index based on the smaller average group size.
+    It also tests querying based on labels and that nothing bad will happend by providing non-existing label.
+    """
+    cursor = connect.cursor()
+    execute_and_fetch_all(cursor, "FOREACH (i IN range(1, 100) | CREATE (n:Label {id1: i, id2: i % 5}));")
+    execute_and_fetch_all(cursor, "CREATE INDEX ON :Label(id1);")
+    execute_and_fetch_all(cursor, "CREATE INDEX ON :Label(id2);")
+    analyze_graph_results = execute_and_fetch_all(cursor, analyze_query)
+    if analyze_graph_results[0][1] == "id1":
+        first_index = 0
+    else:
+        first_index = 1
 
-    # id1 is the more scattered index
-    common.execute_and_fetch_all(cursor, "CREATE INDEX ON :Label(id1);")
-
-    # id2 is a more dense index -> this indes should not be applied
-    common.execute_and_fetch_all(cursor, "CREATE INDEX ON :Label(id2);")
-
-    expected_explain = [
-        (f" * Produce {{n}}",),
-        (f" * Filter",),
-        (f" * ScanAllByLabelPropertyValue (n :Label {{id2}})",),
-        (f" * Once",),
-    ]
-
-    results = common.execute_and_fetch_all(cursor, "EXPLAIN MATCH (n:Label) WHERE n.id2 = 3 AND n.id1 = 3 RETURN n;")
-
-    assert results == expected_explain
-
-    common.execute_and_fetch_all(cursor, "ANALYZE GRAPH;")
+    assert analyze_graph_results[first_index][0] == "Label"
+    assert analyze_graph_results[first_index][1] == "id1"
+    assert analyze_graph_results[first_index][2] == 100
+    assert analyze_graph_results[first_index][3] == 1
+    assert analyze_graph_results[first_index][4] == 0
+    assert analyze_graph_results[1 - first_index][0] == "Label"
+    assert analyze_graph_results[1 - first_index][1] == "id2"
+    assert analyze_graph_results[1 - first_index][2] == 100
+    assert analyze_graph_results[1 - first_index][3] == 20
+    assert analyze_graph_results[1 - first_index][4] == 0
 
     expected_explain_after_analysis = [
         (f" * Produce {{n}}",),
@@ -43,14 +55,12 @@ def test_analyze_graph_better_index_applied_after_analysis(connection):
         (f" * ScanAllByLabelPropertyValue (n :Label {{id1}})",),
         (f" * Once",),
     ]
-    results = common.execute_and_fetch_all(cursor, "EXPLAIN MATCH (n:Label) WHERE n.id2 = 3 AND n.id1 = 3 RETURN n;")
-
-    assert results == expected_explain_after_analysis
-
-    # results should not differ after switching the indexes in the filter
-    results = common.execute_and_fetch_all(cursor, f"EXPLAIN MATCH (n:Label) WHERE n.id1 = 3 AND n.id2 = 3 RETURN n;")
-
-    assert results == expected_explain_after_analysis
+    assert (
+        execute_and_fetch_all(cursor, "EXPLAIN MATCH (n:Label) WHERE n.id2 = 3 AND n.id1 = 3 RETURN n;")
+        == expected_explain_after_analysis
+    )
+    execute_and_fetch_all(cursor, "DROP INDEX ON :Label(id1);")
+    execute_and_fetch_all(cursor, "DROP INDEX ON :Label(id2);")
 
 
 if __name__ == "__main__":
