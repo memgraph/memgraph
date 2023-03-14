@@ -49,6 +49,24 @@ Feature: Subqueries
       | m.prop |
       | 2      |
 
+  Scenario: Subquery returning primitive
+    Given an empty graph
+    And having executed
+      """
+      CREATE (:Label1 {prop: 1})-[:TYPE]->(:Label2 {prop: 2})
+      """
+    When executing query:
+      """
+      CALL {
+        MATCH (n:Label1)-[:TYPE]->(m:Label2)
+        RETURN m.prop AS prop
+      }
+      RETURN prop;
+      """
+    Then the result should be:
+      | prop   |
+      | 2      |
+
   Scenario: Subquery returning 2 values
     Given an empty graph
     And having executed
@@ -162,6 +180,42 @@ Feature: Subqueries
         RETURN m
       }
       RETURN m.prop;
+      """
+    Then an error should be raised
+
+  Scenario: Subquery returning primitive but not aliased
+    Given an empty graph
+    And having executed
+      """
+      CREATE (:Label1 {prop: 1})-[:TYPE]->(:Label2 {prop: 2})
+      """
+    When executing query:
+      """
+      MATCH (n:Label1)
+      WITH n
+      CALL {
+        MATCH (n:Label1)-[:TYPE]->(m:Label2)
+        RETURN m.prop
+      }
+      RETURN n;
+      """
+    Then an error should be raised
+
+  Scenario: Subquery returning already declared variable in outer scope
+    Given an empty graph
+    And having executed
+      """
+      CREATE (:Label1 {prop: 1})-[:TYPE]->(:Label2 {prop: 2})
+      """
+    When executing query:
+      """
+      MATCH (n:Label1), (m:Label2)
+      WITH n
+      CALL {
+        MATCH (n:Label1)-[:TYPE]->(m:Label2)
+        RETURN m
+      }
+      RETURN n;
       """
     Then an error should be raised
 

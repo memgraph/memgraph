@@ -219,7 +219,20 @@ bool SymbolGenerator::PreVisit(CallSubquery & /*call_sub*/) {
 }
 
 bool SymbolGenerator::PostVisit(CallSubquery & /*call_sub*/) {
+  // no need to set the flag to true as we are popping the scope
+  auto subquery_scope = scopes_.back();
   scopes_.pop_back();
+  auto &main_query_scope = scopes_.back();
+
+  // append symbols returned in from subquery to outer scope
+  for (const auto &[symbol_name, symbol] : subquery_scope.symbols) {
+    if (main_query_scope.symbols.find(symbol_name) != main_query_scope.symbols.end()) {
+      throw SemanticException("Variable in subquery already declared in outer scope!");
+    }
+
+    main_query_scope.symbols[symbol_name] = symbol;
+  }
+
   return true;
 }
 
