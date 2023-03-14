@@ -978,11 +978,10 @@ struct PullPlan {
   explicit PullPlan(std::shared_ptr<CachedPlan> plan, const Parameters &parameters, bool is_profile_query,
                     DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                     std::optional<std::string> username, TriggerContextCollector *trigger_context_collector = nullptr,
-                    std::optional<size_t> memory_limit = {});
+                    std::optional<size_t> memory_limit = {}, bool contains_csv = false);
   std::optional<plan::ProfilingStatsWithTotalTime> Pull(AnyStream *stream, std::optional<int> n,
                                                         const std::vector<Symbol> &output_symbols,
-                                                        std::map<std::string, TypedValue> *summary,
-                                                        std::optional<std::vector<Clause *>> maybe_clauses);
+                                                        std::map<std::string, TypedValue> *summary);
 
  private:
   std::shared_ptr<CachedPlan> plan_ = nullptr;
@@ -1003,16 +1002,19 @@ struct PullPlan {
   // we have to keep track of any unsent results from previous `PullPlan::Pull`
   // manually by using this flag.
   bool has_unsent_results_ = false;
+
+  bool contains_csv_;
 };
 
 PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &parameters, const bool is_profile_query,
                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                    std::optional<std::string> username, TriggerContextCollector *trigger_context_collector,
-                   const std::optional<size_t> memory_limit)
+                   const std::optional<size_t> memory_limit, bool contains_csv)
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory)),
       frame_(plan->symbol_table().max_position(), execution_memory),
-      memory_limit_(memory_limit) {
+      memory_limit_(memory_limit),
+      contains_csv_(contains_csv) {
   ctx_.db_accessor = dba;
   ctx_.symbol_table = plan->symbol_table();
   ctx_.evaluation_context.timestamp = QueryTimestamp();
@@ -1034,11 +1036,7 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
 
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
                                                                 const std::vector<Symbol> &output_symbols,
-                                                                std::map<std::string, TypedValue> *summary,
-                                                                std::optional<std::vector<Clause *>> maybe_clauses) {
-  bool contains_csv = maybe_clauses && std::any_of((*maybe_clauses).begin(), (*maybe_clauses).end(),
-                                                   [](auto clause) { return clause->GetTypeInfo() == LoadCsv::kType; });
-
+                                                                std::map<std::string, TypedValue> *summary) {
   // Set up temporary memory for a single Pull. Initial memory comes from the
   // stack. 256 KiB should fit on the stack and should be more than enough for a
   // single `Pull`.
@@ -1047,12 +1045,10 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
 
   utils::ResourceWithOutOfMemoryException resource_with_exception;
   std::optional<utils::MonotonicBufferResource> maybe_monotonic_memory;
-  utils::MemoryResource *used_resource = nullptr;
   std::optional<utils::PoolResource> pool_memory;
 
-  if (contains_csv) {
+  if (contains_csv_) {
     pool_memory.emplace(1, kExecutionPoolMaxBlockSize, utils::NewDeleteResource(), utils::NewDeleteResource());
-    used_resource = &*pool_memory;
   } else {
     maybe_monotonic_memory.emplace(&stack_data[0], stack_size, &resource_with_exception);
     // We can throw on every query because a simple queries for deleting will use only
@@ -1061,15 +1057,14 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     // so we add the exception to the allocator.
     // TODO (mferencevic): Tune the parameters accordingly.
     pool_memory.emplace(128, 1024, &*maybe_monotonic_memory, utils::NewDeleteResource());
-    used_resource = &*pool_memory;
   }
 
   std::optional<utils::LimitedMemoryResource> maybe_limited_resource;
   if (memory_limit_) {
-    maybe_limited_resource.emplace(used_resource, *memory_limit_);
+    maybe_limited_resource.emplace(&*pool_memory, *memory_limit_);
     ctx_.evaluation_context.memory = &*maybe_limited_resource;
   } else {
-    ctx_.evaluation_context.memory = used_resource;
+    ctx_.evaluation_context.memory = &*pool_memory;
   }
 
   // Returns true if a result was pulled.
@@ -1227,14 +1222,16 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   if (memory_limit) {
     spdlog::info("Running query with memory limit of {}", utils::GetReadableSize(*memory_limit));
   }
-
-  if (const auto &clauses = cypher_query->single_query_->clauses_; std::any_of(
-          clauses.begin(), clauses.end(), [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
+  auto clauses = cypher_query->single_query_->clauses_;
+  bool contains_csv = false;
+  if (std::any_of(clauses.begin(), clauses.end(),
+                  [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
     notifications->emplace_back(
         SeverityLevel::INFO, NotificationCode::LOAD_CSV_TIP,
         "It's important to note that the parser parses the values as strings. It's up to the user to "
         "convert the parsed row values to the appropriate type. This can be done using the built-in "
         "conversion functions such as ToInteger, ToFloat, ToBoolean etc.");
+    contains_csv = true;
   }
 
   auto plan = CypherQueryToPlan(parsed_query.stripped_query.hash(), std::move(parsed_query.ast_storage), cypher_query,
@@ -1257,13 +1254,13 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
     header.push_back(
         utils::FindOr(parsed_query.stripped_query.named_expressions(), symbol.token_position(), symbol.name()).first);
   }
-  auto pull_plan =
-      std::make_shared<PullPlan>(plan, parsed_query.parameters, false, dba, interpreter_context, execution_memory,
-                                 StringPointerToOptional(username), trigger_context_collector, memory_limit);
+  auto pull_plan = std::make_shared<PullPlan>(plan, parsed_query.parameters, false, dba, interpreter_context,
+                                              execution_memory, StringPointerToOptional(username),
+                                              trigger_context_collector, memory_limit, contains_csv);
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
                        [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary](
                            AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-                         if (pull_plan->Pull(stream, n, output_symbols, summary, std::nullopt)) {
+                         if (pull_plan->Pull(stream, n, output_symbols, summary)) {
                            return QueryHandlerResult::COMMIT;
                          }
                          return std::nullopt;
@@ -1387,7 +1384,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                          if (!stats_and_total_time) {
                            stats_and_total_time = PullPlan(plan, parameters, true, dba, interpreter_context,
                                                            execution_memory, optional_username, nullptr, memory_limit)
-                                                      .Pull(stream, {}, {}, summary, std::nullopt);
+                                                      .Pull(stream, {}, {}, summary);
                            pull_plan = std::make_shared<PullPlanVector>(ProfilingStatsToTable(*stats_and_total_time));
                          }
 
@@ -1568,7 +1565,7 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
       callback.header, std::move(parsed_query.required_privileges),
       [pull_plan = std::move(pull_plan), callback = std::move(callback), output_symbols = std::move(output_symbols),
        summary](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-        if (pull_plan->Pull(stream, n, output_symbols, summary, std::nullopt)) {
+        if (pull_plan->Pull(stream, n, output_symbols, summary)) {
           return callback.should_abort_query ? QueryHandlerResult::ABORT : QueryHandlerResult::COMMIT;
         }
         return std::nullopt;
