@@ -116,7 +116,8 @@ Feature: Subqueries
         MATCH (m)
         RETURN m
       }
-      RETURN n.prop, m.prop;
+      RETURN n.prop, m.prop
+      ORDER BY n.prop, m.prop;
       """
     Then the result should be:
       | n.prop | m.prop |
@@ -136,7 +137,8 @@ Feature: Subqueries
         MATCH (m)
         RETURN m
       }
-      RETURN n.prop, m.prop;
+      RETURN n.prop, m.prop
+      ORDER BY n.prop, m.prop;
       """
     Then the result should be:
       | n.prop | m.prop |
@@ -236,6 +238,37 @@ Feature: Subqueries
       RETURN n;
       """
     Then an error should be raised
+
+  Scenario: Subquery after subquery
+    Given an empty graph
+    And having executed
+      """
+      CREATE (:Label1 {prop: 1})-[:TYPE]->(:Label2 {prop: 2})
+      """
+    When executing query:
+      """
+      MATCH (n)
+      CALL {
+        MATCH (m)
+        RETURN m
+      }
+      CALL {
+        MATCH (o)
+        RETURN o
+      }
+      RETURN n.prop, m.prop, o.prop
+      ORDER BY n.prop, m.prop, o.prop;
+      """
+    Then the result should be:
+      | n.prop | m.prop | o.prop |
+      | 1      | 1      | 1      |
+      | 1      | 1      | 2      |
+      | 1      | 2      | 1      |
+      | 1      | 2      | 2      |
+      | 2      | 1      | 1      |
+      | 2      | 1      | 2      |
+      | 2      | 2      | 1      |
+      | 2      | 2      | 2      |
 
   Scenario: Subquery with union
     Given an empty graph
