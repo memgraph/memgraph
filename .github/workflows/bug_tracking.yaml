@@ -1,4 +1,4 @@
-name: BugTracking
+name: Bug tracking
 
 on:
   workflow_dispatch:
