@@ -103,7 +103,7 @@ TEST_P(CsvReaderTest, CommaDelimiter) {
   memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
   auto reader = memgraph::csv::Reader(filepath, cfg, mem);
 
-  auto parsed_row = reader.GetNextRow(mem);
+  auto parsed_row = reader.GetNextRow();
   ASSERT_EQ(*parsed_row, ToPmrColumns(columns));
 }
 
@@ -126,7 +126,7 @@ TEST_P(CsvReaderTest, SemicolonDelimiter) {
   const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
   auto reader = memgraph::csv::Reader(filepath, cfg, mem);
 
-  auto parsed_row = reader.GetNextRow(mem);
+  auto parsed_row = reader.GetNextRow();
   ASSERT_EQ(*parsed_row, ToPmrColumns(columns));
 }
 
@@ -159,7 +159,7 @@ TEST_P(CsvReaderTest, SkipBad) {
     const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
     auto reader = memgraph::csv::Reader(filepath, cfg, mem);
 
-    auto parsed_row = reader.GetNextRow(mem);
+    auto parsed_row = reader.GetNextRow();
     ASSERT_EQ(*parsed_row, ToPmrColumns(columns_good));
   }
 
@@ -171,7 +171,7 @@ TEST_P(CsvReaderTest, SkipBad) {
     const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
     auto reader = memgraph::csv::Reader(filepath, cfg, mem);
 
-    EXPECT_THROW(reader.GetNextRow(mem), memgraph::csv::CsvReadException);
+    EXPECT_THROW(reader.GetNextRow(), memgraph::csv::CsvReadException);
   }
 }
 
@@ -196,10 +196,10 @@ TEST_P(CsvReaderTest, AllRowsValid) {
   const bool with_header = false;
   const bool ignore_bad = false;
   const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-  auto reader = memgraph::csv::Reader(filepath, cfg);
+  auto reader = memgraph::csv::Reader(filepath, cfg, mem);
 
   const auto pmr_columns = ToPmrColumns(columns);
-  while (auto parsed_row = reader.GetNextRow(mem)) {
+  while (auto parsed_row = reader.GetNextRow()) {
     ASSERT_EQ(*parsed_row, pmr_columns);
   }
 }
@@ -225,9 +225,9 @@ TEST_P(CsvReaderTest, SkipAllRows) {
   const bool with_header = false;
   const bool ignore_bad = true;
   const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-  auto reader = memgraph::csv::Reader(filepath, cfg);
+  auto reader = memgraph::csv::Reader(filepath, cfg, mem);
 
-  auto parsed_row = reader.GetNextRow(mem);
+  auto parsed_row = reader.GetNextRow();
   ASSERT_EQ(parsed_row, std::nullopt);
 }
 
@@ -252,13 +252,13 @@ TEST_P(CsvReaderTest, WithHeader) {
   const bool with_header = true;
   const bool ignore_bad = false;
   const memgraph::csv::Reader::Config cfg(with_header, ignore_bad, delimiter, quote);
-  auto reader = memgraph::csv::Reader(filepath, cfg);
+  auto reader = memgraph::csv::Reader(filepath, cfg, mem);
 
   const auto pmr_header = ToPmrColumns(header);
   ASSERT_EQ(reader.GetHeader(), pmr_header);
 
   const auto pmr_columns = ToPmrColumns(columns);
-  while (auto parsed_row = reader.GetNextRow(mem)) {
+  while (auto parsed_row = reader.GetNextRow()) {
     ASSERT_EQ(*parsed_row, pmr_columns);
   }
 }
@@ -288,13 +288,13 @@ TEST_P(CsvReaderTest, MultilineQuotedString) {
   const bool with_header = false;
   const bool ignore_bad = true;
   const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-  auto reader = memgraph::csv::Reader(filepath, cfg);
+  auto reader = memgraph::csv::Reader(filepath, cfg, mem);
 
-  auto parsed_row = reader.GetNextRow(mem);
+  auto parsed_row = reader.GetNextRow();
   ASSERT_EQ(*parsed_row, ToPmrColumns(first_row));
 
   const std::vector<std::string> expected_multiline{"D", "E,\"FG", "H"};
-  parsed_row = reader.GetNextRow(mem);
+  parsed_row = reader.GetNextRow();
   ASSERT_EQ(*parsed_row, ToPmrColumns(expected_multiline));
 }
 
@@ -320,11 +320,11 @@ TEST_P(CsvReaderTest, EmptyColumns) {
   const bool with_header = false;
   const bool ignore_bad = false;
   const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
-  auto reader = memgraph::csv::Reader(filepath, cfg);
+  auto reader = memgraph::csv::Reader(filepath, cfg, mem);
 
   for (const auto &expected_row : expected_rows) {
     const auto pmr_expected_row = ToPmrColumns(expected_row);
-    const auto parsed_row = reader.GetNextRow(mem);
+    const auto parsed_row = reader.GetNextRow();
     ASSERT_TRUE(parsed_row.has_value());
     ASSERT_EQ(*parsed_row, pmr_expected_row);
   }

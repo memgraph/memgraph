@@ -4682,7 +4682,7 @@ class LoadCsvCursor : public Cursor {
     return csv::Reader(
         *maybe_file,
         csv::Reader::Config(self_->with_header_, self_->ignore_bad_, std::move(maybe_delim), std::move(maybe_quote)),
-        eval_context->memory);
+        utils::NewDeleteResource());
   }
 };
 

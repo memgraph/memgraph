@@ -1036,14 +1036,13 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
                                                                 const std::vector<Symbol> &output_symbols,
                                                                 std::map<std::string, TypedValue> *summary,
                                                                 std::optional<std::vector<Clause *>> maybe_clauses) {
-  bool contains_csv = maybe_clauses && std::any_of(maybe_clauses->begin(), maybe_clauses->end(), [](auto *clause) {
-                        return clause->GetTypeInfo() == LoadCsv::kType;
-                      });
+  bool contains_csv = maybe_clauses && std::any_of((*maybe_clauses).begin(), (*maybe_clauses).end(),
+                                                   [](auto clause) { return clause->GetTypeInfo() == LoadCsv::kType; });
 
   utils::MemoryResource *used_resource = nullptr;
   std::optional<utils::PoolResource> maybe_pool_memory;
   if (contains_csv) {
-    maybe_pool_memory.emplace(1, 16384, utils::NewDeleteResource(), utils::NewDeleteResource());
+    maybe_pool_memory.emplace(1, kExecutionPoolMaxBlockSize, utils::NewDeleteResource(), utils::NewDeleteResource());
     used_resource = &*maybe_pool_memory;
   } else {
     // Set up temporary memory for a single Pull. Initial memory comes from the
@@ -1225,9 +1224,9 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   if (memory_limit) {
     spdlog::info("Running query with memory limit of {}", utils::GetReadableSize(*memory_limit));
   }
-
-  if (const auto &clauses = cypher_query->single_query_->clauses_; std::any_of(
-          clauses.begin(), clauses.end(), [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
+  const auto clauses = cypher_query->single_query_->clauses_;
+  if (std::any_of(clauses.begin(), clauses.end(),
+                  [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
     notifications->emplace_back(
         SeverityLevel::INFO, NotificationCode::LOAD_CSV_TIP,
         "It's important to note that the parser parses the values as strings. It's up to the user to "
@@ -1260,8 +1259,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                  StringPointerToOptional(username), trigger_context_collector, memory_limit);
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
                        [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary,
-                        clauses = cypher_query->single_query_->clauses_](
-                           AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+                        &clauses](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
                          if (pull_plan->Pull(stream, n, output_symbols, summary, clauses)) {
                            return QueryHandlerResult::COMMIT;
                          }
@@ -2330,47 +2328,34 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   else if (db_accessor_) {
     query_executions_.emplace_back(
         std::make_unique<QueryExecution>(utils::MonotonicBufferResource(kExecutionMemoryBlockSize)));
-    auto &query_execution = query_executions_.back();
-    AbortCommand(&query_execution);
+    AbortCommand(&query_executions_.back());
   }
 
-  std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;
-
   try {
+    query_executions_.emplace_back(
+        std::make_unique<QueryExecution>(utils::MonotonicBufferResource(kExecutionMemoryBlockSize)));
     utils::Timer parsing_timer;
     ParsedQuery parsed_query =
         ParseQuery(query_string, params, &interpreter_context_->ast_cache, interpreter_context_->config.query);
+    TypedValue parsing_time{parsing_timer.Elapsed().count()};
 
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
       auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
       if (const auto &clauses = cypher_query->single_query_->clauses_;
           std::any_of(clauses.begin(), clauses.end(),
                       [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
-        auto &clauses_2 = cypher_query->single_query_->clauses_;
-        auto maybe_load_csv_clause = std::find_if(clauses_2.begin(), clauses_2.end(), [](const auto *clause) {
-          return clause->GetTypeInfo() == LoadCsv::kType;
-        });
-        if (maybe_load_csv_clause != clauses_2.end()) {
-          auto load_csv_clause = utils::Downcast<LoadCsv>(*maybe_load_csv_clause);
-          // process file here to decide how many characters will we use
-        }
-        query_executions_.emplace_back(std::make_unique<QueryExecution>(
-            utils::PoolResource(1, 32768, utils::NewDeleteResource(), utils::NewDeleteResource())));
-      } else {
-        query_executions_.emplace_back(
-            std::make_unique<QueryExecution>(utils::MonotonicBufferResource(kExecutionMemoryBlockSize)));
+        query_executions_.pop_back();
+        query_executions_.emplace_back(std::make_unique<QueryExecution>(utils::PoolResource(
+            1, kExecutionPoolMaxBlockSize, utils::NewDeleteResource(), utils::NewDeleteResource())));
       }
-    } else {
-      query_executions_.emplace_back(
-          std::make_unique<QueryExecution>(utils::MonotonicBufferResource(kExecutionMemoryBlockSize)));
     }
 
     auto &query_execution = query_executions_.back();
-    query_execution_ptr = &query_executions_.back();
+
     std::optional<int> qid =
         in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};
 
-    query_execution->summary["parsing_time"] = parsing_timer.Elapsed().count();
+    query_execution->summary["parsing_time"] = std::move(parsing_time);
 
     // Set a default cost estimate of 0. Individual queries can overwrite this
     // field with an improved estimate.
@@ -2475,7 +2460,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid};
   } catch (const utils::BasicException &) {
     EventCounter::IncrementCounter(EventCounter::FailedQuery);
-    AbortCommand(query_execution_ptr);
+    AbortCommand(&query_executions_.back());
     throw;
   }
 }
