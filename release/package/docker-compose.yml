@@ -32,3 +32,7 @@ services:
     build:
       context: fedora-36
     container_name: "mgbuild_fedora-36"
+  mgbuild_amzn-2:
+    build:
+      context: amzn-2
+    container_name: "mgbuild_amzn-2"
