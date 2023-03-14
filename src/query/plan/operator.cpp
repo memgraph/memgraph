@@ -4823,6 +4823,7 @@ bool Apply::ApplyCursor::Pull(Frame &frame, ExecutionContext &context) {
     // failed to pull from subquery cursor
     // skip that row
     pull_input_ = true;
+    subquery_->Reset();
   }
 }
 
