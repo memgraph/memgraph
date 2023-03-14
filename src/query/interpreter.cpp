@@ -1032,41 +1032,29 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
   ctx_.trigger_context_collector = trigger_context_collector;
 }
 
-std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
-                                                                const std::vector<Symbol> &output_symbols,
-                                                                std::map<std::string, TypedValue> *summary,
-                                                                std::optional<std::vector<Clause *>> maybe_clauses) {
-  bool contains_csv = maybe_clauses && std::any_of((*maybe_clauses).begin(), (*maybe_clauses).end(),
-                                                   [](auto clause) { return clause->GetTypeInfo() == LoadCsv::kType; });
-
-  utils::MemoryResource *used_resource = nullptr;
-  std::optional<utils::PoolResource> maybe_pool_memory;
-  if (contains_csv) {
-    maybe_pool_memory.emplace(1, kExecutionPoolMaxBlockSize, utils::NewDeleteResource(), utils::NewDeleteResource());
-    used_resource = &*maybe_pool_memory;
-  } else {
-    // Set up temporary memory for a single Pull. Initial memory comes from the
-    // stack. 256 KiB should fit on the stack and should be more than enough for a
-    // single `Pull`.
-    static constexpr size_t stack_size = 256UL * 1024UL;
-    char stack_data[stack_size];
-    utils::ResourceWithOutOfMemoryException resource_with_exception;
-    utils::MonotonicBufferResource monotonic_memory(&stack_data[0], stack_size, &resource_with_exception);
-    // We can throw on every query because a simple queries for deleting will use only
-    // the stack allocated buffer.
-    // Also, we want to throw only when the query engine requests more memory and not the storage
-    // so we add the exception to the allocator.
-    // TODO (mferencevic): Tune the parameters accordingly.
-    maybe_pool_memory.emplace(128, 1024, &monotonic_memory, utils::NewDeleteResource());
-    used_resource = &*maybe_pool_memory;
-  }
-
+std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(
+    AnyStream *stream, std::optional<int> n, const std::vector<Symbol> &output_symbols,
+    std::map<std::string, TypedValue> *summary, std::optional<std::vector<Clause *>> /*maybe_clauses*/) {
+  // Set up temporary memory for a single Pull. Initial memory comes from the
+  // stack. 256 KiB should fit on the stack and should be more than enough for a
+  // single `Pull`.
+  static constexpr size_t stack_size = 256UL * 1024UL;
+  char stack_data[stack_size];
+  utils::ResourceWithOutOfMemoryException resource_with_exception;
+  utils::MonotonicBufferResource monotonic_memory(&stack_data[0], stack_size, &resource_with_exception);
+  // We can throw on every query because a simple queries for deleting will use only
+  // the stack allocated buffer.
+  // Also, we want to throw only when the query engine requests more memory and not the storage
+  // so we add the exception to the allocator.
+  // TODO (mferencevic): Tune the parameters accordingly.
+  utils::PoolResource pool_memory(128, 1024, &monotonic_memory, utils::NewDeleteResource());
   std::optional<utils::LimitedMemoryResource> maybe_limited_resource;
+
   if (memory_limit_) {
-    maybe_limited_resource.emplace(used_resource, *memory_limit_);
+    maybe_limited_resource.emplace(&pool_memory, *memory_limit_);
     ctx_.evaluation_context.memory = &*maybe_limited_resource;
   } else {
-    ctx_.evaluation_context.memory = used_resource;
+    ctx_.evaluation_context.memory = &pool_memory;
   }
 
   // Returns true if a result was pulled.
@@ -1224,9 +1212,9 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   if (memory_limit) {
     spdlog::info("Running query with memory limit of {}", utils::GetReadableSize(*memory_limit));
   }
-  const auto clauses = cypher_query->single_query_->clauses_;
-  if (std::any_of(clauses.begin(), clauses.end(),
-                  [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
+
+  if (const auto &clauses = cypher_query->single_query_->clauses_; std::any_of(
+          clauses.begin(), clauses.end(), [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
     notifications->emplace_back(
         SeverityLevel::INFO, NotificationCode::LOAD_CSV_TIP,
         "It's important to note that the parser parses the values as strings. It's up to the user to "
@@ -1258,9 +1246,9 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
       std::make_shared<PullPlan>(plan, parsed_query.parameters, false, dba, interpreter_context, execution_memory,
                                  StringPointerToOptional(username), trigger_context_collector, memory_limit);
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
-                       [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary,
-                        &clauses](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-                         if (pull_plan->Pull(stream, n, output_symbols, summary, clauses)) {
+                       [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary](
+                           AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+                         if (pull_plan->Pull(stream, n, output_symbols, summary, std::nullopt)) {
                            return QueryHandlerResult::COMMIT;
                          }
                          return std::nullopt;
@@ -2330,10 +2318,11 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         std::make_unique<QueryExecution>(utils::MonotonicBufferResource(kExecutionMemoryBlockSize)));
     AbortCommand(&query_executions_.back());
   }
-
+  std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;
   try {
     query_executions_.emplace_back(
         std::make_unique<QueryExecution>(utils::MonotonicBufferResource(kExecutionMemoryBlockSize)));
+    query_execution_ptr = &query_executions_.back();
     utils::Timer parsing_timer;
     ParsedQuery parsed_query =
         ParseQuery(query_string, params, &interpreter_context_->ast_cache, interpreter_context_->config.query);
@@ -2344,9 +2333,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       if (const auto &clauses = cypher_query->single_query_->clauses_;
           std::any_of(clauses.begin(), clauses.end(),
                       [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
-        query_executions_.pop_back();
-        query_executions_.emplace_back(std::make_unique<QueryExecution>(utils::PoolResource(
-            1, kExecutionPoolMaxBlockSize, utils::NewDeleteResource(), utils::NewDeleteResource())));
+        query_executions_[query_executions_.size() - 1] = std::make_unique<QueryExecution>(
+            utils::PoolResource(1, kExecutionPoolMaxBlockSize, utils::NewDeleteResource(), utils::NewDeleteResource()));
+        query_execution_ptr = &query_executions_.back();
       }
     }
 
@@ -2460,7 +2449,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid};
   } catch (const utils::BasicException &) {
     EventCounter::IncrementCounter(EventCounter::FailedQuery);
-    AbortCommand(&query_executions_.back());
+    AbortCommand(query_execution_ptr);
     throw;
   }
 }

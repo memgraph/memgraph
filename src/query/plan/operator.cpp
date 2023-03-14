@@ -4647,7 +4647,7 @@ class LoadCsvCursor : public Cursor {
     // have to read at most cardinality(n) rows (but we can read less and stop
     // pulling MATCH).
     if (!input_is_once_ && !input_pulled) return false;
-    auto row = reader_->GetNextRow();
+    auto row = reader_->GetNextRow(context.evaluation_context.memory);
     if (!row) {
       return false;
     }
