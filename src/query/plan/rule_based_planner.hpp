@@ -86,6 +86,9 @@ Expression *ExtractFilters(const std::unordered_set<Symbol> &, Filters &, AstSto
 /// Checks if the filters has all the bound symbols to be included in the current part of the query
 bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, const FilterInfo &filter);
 
+std::unordered_set<Symbol> GetSubqueryBoundSymbols(const std::vector<SingleQueryPart> &single_query_parts,
+                                                   SymbolTable &symbol_table, AstStorage &storage);
+
 /// Utility function for iterating pattern atoms and accumulating a result.
 ///
 /// Each pattern is of the form `NodeAtom (, EdgeAtom, NodeAtom)*`. Therefore,
@@ -237,16 +240,8 @@ class RuleBasedPlanner {
           input_op = HandleForeachClause(foreach, std::move(input_op), *context.symbol_table, context.bound_symbols,
                                          query_part, merge_id);
         } else if (auto *call_sub = utils::Downcast<query::CallSubquery>(clause)) {
-          // is_write?
-          // take plans about subqueries, connect operators, add
-          auto subquery = query_part.subquery;
-          auto subquery_op = Plan(subquery->query_parts[0].single_query_parts);
-          input_op = std::make_unique<Apply>(std::move(input_op), std::move(subquery_op));
-          // input_op =
-          //     std::make_unique<Cartesian>(std::move(input_op), input_op->OutputSymbols(*context.symbol_table),
-          //                                 std::move(subquery_op), subquery_op->OutputSymbols(*context.symbol_table));
-          // Apply operator
-          // input_op = HandleSubquery(call_sub, std::move(input_op));
+          input_op =
+              HandleSubquery(std::move(input_op), query_part.subquery, *context.symbol_table, *context_->ast_storage);
 
         } else {
           throw utils::NotYetImplemented("clause '{}' conversion to operator(s)", clause->GetTypeInfo().name);
@@ -611,6 +606,27 @@ class RuleBasedPlanner {
                                            symbol);
   }
 
+  std::unique_ptr<LogicalOperator> HandleSubquery(std::unique_ptr<LogicalOperator> last_op,
+                                                  std::shared_ptr<QueryParts> subquery, SymbolTable &symbol_table,
+                                                  AstStorage &storage) {
+    auto bound_symbols =
+        impl::GetSubqueryBoundSymbols(subquery->query_parts[0].single_query_parts, symbol_table, storage);
+    std::unordered_set<Symbol> outer_scope_bound_symbols(context_->bound_symbols.begin(),
+                                                         context_->bound_symbols.end());
+
+    context_->bound_symbols.clear();
+    context_->bound_symbols.insert(bound_symbols.begin(), bound_symbols.end());
+
+    auto subquery_op = Plan(subquery->query_parts[0].single_query_parts);
+
+    context_->bound_symbols.clear();
+    context_->bound_symbols.insert(outer_scope_bound_symbols.begin(), outer_scope_bound_symbols.end());
+
+    last_op = std::make_unique<Apply>(std::move(last_op), std::move(subquery_op));
+
+    return last_op;
+  }
+
   std::unique_ptr<LogicalOperator> GenFilters(std::unique_ptr<LogicalOperator> last_op,
                                               const std::unordered_set<Symbol> &bound_symbols, Filters &filters,
                                               AstStorage &storage, const SymbolTable &symbol_table) {
@@ -667,10 +683,6 @@ class RuleBasedPlanner {
     }
 
     return operators;
-  }
-  std::unique_ptr<LogicalOperator> HandleSubquery(std::unique_ptr<LogicalOperator> input_op) {
-    // bound symbols?
-    // return std::make_unique<plan::BrunoOperator>();
   }
 };
 
