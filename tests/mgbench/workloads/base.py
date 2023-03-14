@@ -13,12 +13,16 @@ from abc import ABC, abstractclassmethod
 from pathlib import Path
 
 import helpers
-from benchmark import BenchmarkContext
+from benchmark_context import BenchmarkContext
 
 
 # Base dataset class used as a template to create each individual dataset. All
 # common logic is handled here.
 class Workload(ABC):
+
+    # Indicates if Workload is generator or dataset "GENERATOR" OR "DATASET"
+    WORKLOAD_MODE = None
+
     # Name of the workload/dataset.
     NAME = "Base workload"
     # List of all variants of the workload/dataset that exist.
@@ -29,7 +33,7 @@ class Workload(ABC):
     # List of local files that should be used to import the dataset.
     LOCAL_FILE = None
 
-    # URLs of remote dataset files that should be used to import the dataset, compresed in gz format.
+    # URLs of remote dataset files that should be used to import the dataset, compressed in gz format.
     URL_FILE = None
 
     # Index files
@@ -52,6 +56,8 @@ class Workload(ABC):
         self.benchmark_context = benchmark_context
         self._variant = variant
         self._vendor = benchmark_context.vendor_name
+        self._file = None
+        self._file_index = None
 
         if variant is None:
             variant = self.DEFAULT_VARIANT
@@ -105,7 +111,7 @@ class Workload(ABC):
                 print("Unpacking and caching file:", downloaded_file)
                 helpers.unpack_gz_and_move_file(downloaded_file, cached_input)
             print("Using cached dataset file:", cached_input)
-            self._file_ = cached_input
+            self._file = cached_input
 
         if self._local_index is not None:
             print("Using local index file:", self._local_index)
@@ -113,8 +119,8 @@ class Workload(ABC):
         elif self._url_index is not None:
             cached_index, exists = directory.get_file(self._vendor + ".cypher")
             if not exists:
-                print("Downloading index file:", self._index)
-                downloaded_file = helpers.download_file(self._index, directory.get_path())
+                print("Downloading index file:", self._url_index)
+                downloaded_file = helpers.download_file(self._url_index, directory.get_path())
                 print("Unpacking and caching file:", downloaded_file)
                 helpers.unpack_gz_and_move_file(downloaded_file, cached_index)
             print("Using cached index file:", cached_index)
@@ -138,9 +144,13 @@ class Workload(ABC):
         """Returns number of vertices/edges for the current variant."""
         return self._size
 
-    @abstractclassmethod
     def custom_import(self) -> bool:
-        pass
+        print("Workload does not have a custom import")
+        return False
+
+    def generator(self) -> list:
+        print("Workload is not auto generated")
+        return []
 
     # All tests should be query generator functions that output all of the
     # queries that should be executed by the runner. The functions should be

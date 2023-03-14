@@ -20,7 +20,7 @@ import time
 from abc import ABC, abstractclassmethod
 from pathlib import Path
 
-from benchmark import BenchmarkContext
+from benchmark_context import BenchmarkContext
 
 
 def _wait_for_server(port, delay=0.1):
@@ -210,26 +210,27 @@ class Memgraph(BaseRunner):
 
 
 class Neo4j(BaseRunner):
-    def __init__(self, neo4j_path, temporary_dir, bolt_port, performance_tracking):
-        self._neo4j_path = Path(neo4j_path)
-        self._neo4j_binary = Path(neo4j_path) / "bin" / "neo4j"
-        self._neo4j_config = Path(neo4j_path) / "conf" / "neo4j.conf"
-        self._neo4j_pid = Path(neo4j_path) / "run" / "neo4j.pid"
-        self._neo4j_admin = Path(neo4j_path) / "bin" / "neo4j-admin"
-        self.performance_tracking = performance_tracking
+    def __init__(self, benchmark_context: BenchmarkContext, vendor_args: dict):
+        self._neo4j_path = Path(benchmark_context.vendor_context)
+        self._neo4j_binary = Path(benchmark_context.vendor_context) / "bin" / "neo4j"
+        self._neo4j_config = Path(benchmark_context.vendor_context) / "conf" / "neo4j.conf"
+        self._neo4j_pid = Path(benchmark_context.vendor_context) / "run" / "neo4j.pid"
+        self._neo4j_admin = Path(benchmark_context.vendor_context) / "bin" / "neo4j-admin"
+        self._performance_tracking = benchmark_context.performance_tracking
         self._stop_event = threading.Event()
         self._rss = []
 
         if not self._neo4j_binary.is_file():
             raise Exception("Wrong path to binary!")
-        self._directory = tempfile.TemporaryDirectory(dir=temporary_dir)
-        self._bolt_port = bolt_port
+
+        tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
+        self._bolt_port = vendor_args["bolt-port"] if "bolt-port" in vendor_args.keys() else 7687
         atexit.register(self._cleanup)
         configs = []
         memory_flag = "server.jvm.additional=-XX:NativeMemoryTracking=detail"
         auth_flag = "dbms.security.auth_enabled=false"
 
-        if self.performance_tracking:
+        if self._performance_tracking:
             configs.append(memory_flag)
         else:
             lines = []
@@ -281,7 +282,7 @@ class Neo4j(BaseRunner):
         else:
             raise Exception("The database process died prematurely!")
         print("Run server check:")
-        wait_for_server(self._bolt_port)
+        _wait_for_server(self._bolt_port)
 
     def _cleanup(self):
         if self._neo4j_pid.exists():
@@ -295,7 +296,7 @@ class Neo4j(BaseRunner):
             return 0
 
     def start_preparation(self, workload):
-        if self.performance_tracking:
+        if self._performance_tracking:
             p = threading.Thread(target=self.res_background_tracking, args=(self._rss, self._stop_event))
             self._stop_event.clear()
             self._rss.clear()
@@ -304,11 +305,11 @@ class Neo4j(BaseRunner):
         # Start DB
         self._start()
 
-        if self.performance_tracking:
+        if self._performance_tracking:
             self.get_memory_usage("start_" + workload)
 
     def start_benchmark(self, workload):
-        if self.performance_tracking:
+        if self._performance_tracking:
             p = threading.Thread(target=self.res_background_tracking, args=(self._rss, self._stop_event))
             self._stop_event.clear()
             self._rss.clear()
@@ -316,7 +317,7 @@ class Neo4j(BaseRunner):
         # Start DB
         self._start()
 
-        if self.performance_tracking:
+        if self._performance_tracking:
             self.get_memory_usage("start_" + workload)
 
     def dump_db(self, path):
@@ -387,7 +388,7 @@ class Neo4j(BaseRunner):
             return True
 
     def stop(self, workload):
-        if self.performance_tracking:
+        if self._performance_tracking:
             self._stop_event.set()
             self.get_memory_usage("stop_" + workload)
             self.dump_rss(workload)
@@ -423,6 +424,12 @@ class Neo4j(BaseRunner):
                 f.close()
 
     def _get_args(self, **kwargs):
+        pass
+
+    def _clean_up():
+        pass
+
+    def _stop():
         pass
 
 

@@ -27,6 +27,7 @@ import importer
 import log
 import runners
 import workloads.base
+from benchmark_context import BenchmarkContext
 from workloads import *
 
 WITH_FINE_GRAINED_AUTHORIZATION = "with_fine_grained_authorization"
@@ -173,59 +174,6 @@ def parse_args():
     )
 
     return parser.parse_args()
-
-
-class BenchmarkContext:
-
-    """
-    Class for holding information on what type of benchmark is being executed
-    """
-
-    def __init__(
-        self,
-        benchmark_target_workload: str = None,  # Workload that needs to be executed (dataset/variant/group/query)
-        vendor_context: str = None,  # Benchmark vendor context(binary, folder, DB Runner)
-        vendor_name: str = None,
-        client_binary: str = None,
-        num_workers_for_import: int = None,
-        num_workers_for_benchmark: int = None,
-        no_load_query_counts: bool = False,
-        no_save_query_counts: bool = False,
-        export_results: str = None,
-        temporary_directory: str = None,
-        workload_mixed: str = None,  # Default mode is isolated, mixed None
-        workload_realistic: str = None,  # Default mode is isolated, realistic None
-        time_dependent_execution: int = 0,
-        warm_up: str = None,
-        performance_tracking: bool = False,
-        no_authorization: bool = True,
-    ) -> None:
-
-        self.benchmark_target_workload = benchmark_target_workload
-        self.vendor_context = vendor_context
-        self.vendor_name = vendor_name
-        self.client_binary = client_binary
-        self.num_workers_for_import = num_workers_for_import
-        self.num_workers_for_benchmark = num_workers_for_benchmark
-        self.no_load_query_counts = no_load_query_counts
-        self.no_save_query_counts = no_save_query_counts
-        self.export_results = export_results
-        self.temporary_directory = temporary_directory
-
-        if workload_mixed != None:
-            self.mode = "Mixed"
-            self.mode_config = workload_mixed
-        elif workload_realistic != None:
-            self.mode = "Realistic"
-            self.mode_config = workload_realistic
-        else:
-            self.mode = "Isolated"
-            self.mode_config = "Isolated run does not have a config."
-
-        self.time_dependent_execution = time_dependent_execution
-        self.performance_tracking = performance_tracking
-        self.warm_up = warm_up
-        self.no_authorization = no_authorization
 
 
 def get_queries(gen, count):
@@ -527,6 +475,7 @@ if __name__ == "__main__":
         client_binary=args.client_binary,
         num_workers_for_import=args.num_workers_for_import,
         num_workers_for_benchmark=args.num_workers_for_benchmark,
+        single_threaded_runtime_sec=args.single_threaded_runtime_sec,
         no_load_query_counts=args.no_load_query_counts,
         export_results=args.export_results,
         temporary_directory=args.temporary_directory,
@@ -553,7 +502,7 @@ if __name__ == "__main__":
 
     available_workloads = helpers.get_available_workloads()
 
-    helpers.list_available_workloads()
+    print(helpers.list_available_workloads())
 
     # Create cache, config and results objects.
     cache = helpers.Cache()
@@ -572,36 +521,32 @@ if __name__ == "__main__":
         log.init("Preparing workload: ", workload.NAME + "/" + workload.get_variant())
         workload.prepare(cache.cache_directory("datasets", workload.NAME, workload.get_variant()))
 
-        result = workload.custom_importer()
-
-        # if args.vendor_name == "neo4j":
-        #     vendor = runners.Neo4j(
-        #         args.vendor_binary,
-        #         args.temporary_directory,
-        #         args.bolt_port,
-        #         args.performance_tracking,
-        #     )
-        # else:
-        #     vendor = runners.Memgraph(
-        #         args.vendor_binary,
-        #         args.temporary_directory,
-        #         not args.no_properties_on_edges,
-        #         args.bolt_port,
-        #         args.performance_tracking,
-        #     )
-
         client = runners.Client(
             client_binary=benchmark_context.client_binary, temporary_directory=benchmark_context.temporary_directory
         )
 
+        if workload.MODE == "DATASET":
+            custom_import = workload.custom_import()
+            if not custom_import:
+                vendor_runner.start_preparation("import")
+                print("Executing database cleanup and index setup...")
+                client.execute(file_path=workload.get_index(), num_workers=benchmark_context.num_workers_for_import)
+                print("Importing dataset...")
+                ret = client.execute(
+                    file_path=workload.get_file(), num_workers=benchmark_context.num_workers_for_import
+                )
+                usage = vendor_runner.stop("import")
+
+        elif workload.MODE == "GENERATOR":
+            queries = workload.generator()
+            vendor_runner.start_preparation("import")
+            client.execute(queries=queries, num_workers=benchmark_context.num_workers_for_import)
+            vendor_runner.stop("import")
+
         ret = None
         usage = None
-        ret, usage = importer.Importer(
-            dataset=workload, vendor=vendor_runner, client=client, num_workers_for_import=args.num_workers_for_import
-        ).try_import()
-
         # Save import results.
-        import_key = [dataset.NAME, dataset.get_variant(), "__import__"]
+        import_key = [workload.NAME, workload.get_variant(), "__import__"]
         if ret != None and usage != None:
             # Display import statistics.
             print()
@@ -633,29 +578,29 @@ if __name__ == "__main__":
         # Run all benchmarks in all available groups.
         for group in sorted(queries.keys()):
 
-            if args.workload_realistic != None:
+            if benchmark_context.mode == "Mixed":
                 mixed_workload(
-                    vendor,
+                    vendor_runner,
                     client,
-                    dataset,
+                    workload,
                     group,
                     queries,
-                    workload_mode.name,
-                    workload_mode.config,
-                    args.warmup,
-                    args.num_workers_for_benchmark,
+                    benchmark_context.mode,
+                    benchmark_context.mode_config,
+                    benchmark_context.warm_up,
+                    benchmark_context.num_workers_for_benchmark,
                 )
-            elif args.workload_mixed != None:
+            elif benchmark_context.mode == "Realistic":
                 mixed_workload(
-                    vendor,
+                    vendor_runner,
                     client,
-                    dataset,
+                    workload,
                     group,
                     queries,
-                    workload_mode.name,
-                    workload_mode.config,
-                    args.warmup,
-                    args.num_workers_for_benchmark,
+                    benchmark_context.mode,
+                    benchmark_context.mode_config,
+                    benchmark_context.warm_up,
+                    benchmark_context.num_workers_for_benchmark,
                 )
             else:
                 for query, funcname in queries[group]:
@@ -663,18 +608,23 @@ if __name__ == "__main__":
                         "Running query:",
                         "{}/{}/{}/{}".format(group, query, funcname, WITHOUT_FINE_GRAINED_AUTHORIZATION),
                     )
-                    func = getattr(dataset, funcname)
+                    func = getattr(workload, funcname)
 
                     # Query count for each vendor
                     config_key = [
-                        dataset.NAME,
-                        dataset.get_variant(),
-                        args.vendor_name,
+                        workload.NAME,
+                        workload.get_variant(),
+                        benchmark_context.vendor_name,
                         group,
                         query,
                     ]
                     count = get_query_cache_count(
-                        vendor, client, func, config_key, args.single_threaded_runtime_sec, args.warmup_run
+                        vendor_runner,
+                        client,
+                        func,
+                        config_key,
+                        benchmark_context.single_threaded_runtime_sec,
+                        benchmark_context.warm_up,
                     )
 
                     # Benchmark run.
@@ -683,18 +633,18 @@ if __name__ == "__main__":
                         "Executing benchmark with",
                         count,
                         "queries that should " "yield a single-threaded runtime of",
-                        args.single_threaded_runtime_sec,
+                        benchmark_context.single_threaded_runtime_sec,
                         "seconds.",
                     )
                     print(
                         "Queries are executed using",
-                        args.num_workers_for_benchmark,
+                        benchmark_context.num_workers_for_benchmark,
                         "concurrent clients.",
                     )
-                    vendor.start_benchmark(
-                        dataset.NAME + dataset.get_variant() + "_" + workload_mode.name + "_" + query
+                    vendor_runner.start_benchmark(
+                        workload.NAME + workload.get_variant() + "_" + "_" + benchmark_context.mode + "_" + query
                     )
-                    if args.warmup_run:
+                    if benchmark_context.warm_up == "hot":
                         warmup(client)
 
                     if args.time_depended_execution != 0:
@@ -709,7 +659,9 @@ if __name__ == "__main__":
                             num_workers=args.num_workers_for_benchmark,
                         )[0]
 
-                    usage = vendor.stop(dataset.NAME + dataset.get_variant() + "_" + workload_mode.name + "_" + query)
+                    usage = vendor_runner.stop(
+                        workload.NAME + workload.get_variant() + "_" + benchmark_context.mode + "_" + query
+                    )
                     ret["database"] = usage
                     results.set_value("__run_configuration__", value=run_config)
                     # Output summary.
@@ -729,8 +681,8 @@ if __name__ == "__main__":
 
                     # Save results.
                     results_key = [
-                        dataset.NAME,
-                        dataset.get_variant(),
+                        workload.NAME,
+                        workload.get_variant(),
                         group,
                         query,
                         WITHOUT_FINE_GRAINED_AUTHORIZATION,
@@ -738,7 +690,7 @@ if __name__ == "__main__":
                     results.set_value(*results_key, value=ret)
 
             ## If there is need for authorization testing.
-            if args.no_authorization:
+            if benchmark_context.no_authorization:
                 print("Running query with authorization")
                 vendor.start_benchmark("authorization")
                 client.execute(
@@ -764,13 +716,13 @@ if __name__ == "__main__":
                         "Running query:",
                         "{}/{}/{}/{}".format(group, query, funcname, WITH_FINE_GRAINED_AUTHORIZATION),
                     )
-                    func = getattr(dataset, funcname)
+                    func = getattr(workload, funcname)
 
                     query_statistics = tail_latency(vendor, client, func)
 
                     config_key = [
-                        dataset.NAME,
-                        dataset.get_variant(),
+                        workload.NAME,
+                        workload.get_variant(),
                         args.vendor_name,
                         group,
                         query,
@@ -812,8 +764,8 @@ if __name__ == "__main__":
                     log.success("Throughput: {:02f} QPS".format(ret["throughput"]))
                     # Save results.
                     results_key = [
-                        dataset.NAME,
-                        dataset.get_variant(),
+                        workload.NAME,
+                        workload.get_variant(),
                         group,
                         query,
                         WITH_FINE_GRAINED_AUTHORIZATION,
