@@ -224,6 +224,10 @@ bool SymbolGenerator::PostVisit(CallSubquery & /*call_sub*/) {
   scopes_.pop_back();
   auto &main_query_scope = scopes_.back();
 
+  if (!subquery_scope.has_return) {
+    return true;
+  }
+
   // append symbols returned in from subquery to outer scope
   for (const auto &[symbol_name, symbol] : subquery_scope.symbols) {
     if (main_query_scope.symbols.find(symbol_name) != main_query_scope.symbols.end()) {
@@ -249,6 +253,8 @@ bool SymbolGenerator::PostVisit(LoadCsv &load_csv) {
 bool SymbolGenerator::PreVisit(Return &ret) {
   auto &scope = scopes_.back();
   scope.in_return = true;
+  scope.has_return = true;
+
   VisitReturnBody(ret.body_);
   scope.in_return = false;
   return false;  // We handled the traversal ourselves.
