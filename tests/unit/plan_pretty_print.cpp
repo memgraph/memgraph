@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -378,7 +378,8 @@ TEST_F(PrintToJsonTest, ConstructNamedPath) {
 
 TEST_F(PrintToJsonTest, Filter) {
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, GetSymbol("node1"));
-  last_op = std::make_shared<Filter>(last_op, EQ(PROPERTY_LOOKUP("node1", dba.NameToProperty("prop")), LITERAL(5)));
+  last_op = std::make_shared<Filter>(last_op, std::vector<std::shared_ptr<LogicalOperator>>{},
+                                     EQ(PROPERTY_LOOKUP("node1", dba.NameToProperty("prop")), LITERAL(5)));
 
   Check(last_op.get(), R"sep(
           {
@@ -993,5 +994,57 @@ TEST_F(PrintToJsonTest, Foreach) {
              "symbol": "node"
             }
            }
+          })sep");
+}
+
+TEST_F(PrintToJsonTest, Exists) {
+  Symbol x = GetSymbol("x");
+  Symbol e = GetSymbol("edge");
+  Symbol n = GetSymbol("node");
+  Symbol output = GetSymbol("output_symbol");
+  std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, x);
+  std::shared_ptr<LogicalOperator> expand = std::make_shared<Expand>(
+      nullptr, x, n, e, memgraph::query::EdgeAtom::Direction::BOTH,
+      std::vector<memgraph::storage::EdgeTypeId>{dba.NameToEdgeType("EdgeType1")}, false, memgraph::storage::View::OLD);
+  std::shared_ptr<LogicalOperator> limit = std::make_shared<Limit>(expand, LITERAL(1));
+  std::shared_ptr<LogicalOperator> evaluate_pattern_filter = std::make_shared<EvaluatePatternFilter>(limit, output);
+  last_op = std::make_shared<Filter>(
+      last_op, std::vector<std::shared_ptr<LogicalOperator>>{evaluate_pattern_filter},
+      EXISTS(PATTERN(NODE("x"), EDGE("edge", memgraph::query::EdgeAtom::Direction::BOTH, {}, false),
+                     NODE("node", std::nullopt, false))));
+
+  Check(last_op.get(), R"sep(
+          {
+            "expression": "(Exists expression)",
+            "input": {
+              "input": {
+                "name": "Once"
+              },
+              "name": "ScanAll",
+              "output_symbol": "x"
+            },
+            "name": "Filter",
+            "pattern_filter1": {
+              "input": {
+                "expression": "1",
+                "input": {
+                  "direction": "both",
+                  "edge_symbol": "edge",
+                  "edge_types": [
+                    "EdgeType1"
+                  ],
+                  "existing_node": false,
+                  "input": {
+                    "name": "Once"
+                  },
+                  "input_symbol": "x",
+                  "name": "Expand",
+                  "node_symbol": "node"
+                },
+                "name": "Limit"
+              },
+              "name": "EvaluatePatternFilter",
+              "output_symbol": "output_symbol"
+            }
           })sep");
 }
