@@ -91,4 +91,12 @@ CheckOptions:
     value:           llvm
   - key:             modernize-use-nullptr.NullMacros
     value:           'NULL'
+  - key:             readability-identifier-length.MinimumVariableNameLength
+    value:           '0'
+  - key:             readability-identifier-length.MinimumParameterNameLength
+    value:           '0'
+  - key:             readability-identifier-length.MinimumLoopCounterNameLength
+    value:           '0'
+  - key:             readability-identifier-length.MinimumExceptionNameLength
+    value:           '0'
 ...

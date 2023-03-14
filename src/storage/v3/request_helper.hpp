@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,10 +25,12 @@
 #include "utils/template_utils.hpp"
 
 namespace memgraph::storage::v3 {
+
 using EdgeAccessors = std::vector<storage::v3::EdgeAccessor>;
 using EdgeUniquenessFunction = std::function<EdgeAccessors(EdgeAccessors &&, msgs::EdgeDirection)>;
 using EdgeFiller =
     std::function<ShardResult<void>(const EdgeAccessor &edge, bool is_in_edge, msgs::ExpandOneResultRow &result_row)>;
+using conversions::FromPropertyValueToValue;
 using msgs::Value;
 
 template <typename T>

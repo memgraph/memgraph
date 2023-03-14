@@ -50,17 +50,13 @@
 #include "utils/logging.hpp"
 
 namespace memgraph::storage::v3 {
-using msgs::Label;
-using msgs::PropertyId;
-using msgs::Value;
-
 using conversions::ConvertPropertyMap;
 using conversions::ConvertPropertyVector;
 using conversions::ConvertValueVector;
 using conversions::FromMap;
-using conversions::FromPropertyValueToValue;
-using conversions::ToMsgsVertexId;
 using conversions::ToPropertyValue;
+using msgs::PropertyId;
+using msgs::Value;
 
 auto CreateErrorResponse(const ShardError &shard_error, const auto transaction_id, const std::string_view action) {
   msgs::ShardError message_shard_error{shard_error.code, shard_error.message};
@@ -530,7 +526,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::GetPropertiesRequest &&req) {
     std::vector<std::pair<PropertyId, Value>> result;
     result.reserve(value.size());
     for (auto &[id, val] : value) {
-      result.emplace_back(std::make_pair(id, std::move(val)));
+      result.emplace_back(id, std::move(val));
     }
     return result;
   };
@@ -707,7 +703,11 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::GetPropertiesRequest &&req) {
 }
 
 msgs::ReadResponses ShardRsm::HandleRead(msgs::GraphRequest &&req) {
-  LOG_FATAL("Implement ShardRsm HandleRead GraphRequest");
+  shard_->Access(req.transaction_id);
+  SPDLOG_WARN("ShardRsm::HandleRead(GraphRequest) not fully implemented");
+  msgs::GraphResponse response;
+  response.data = msgs::Graph{.vertices = {}, .edges = {}};
+  return response;
 }
 
 }  // namespace memgraph::storage::v3
