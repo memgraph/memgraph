@@ -120,6 +120,7 @@ class MockedShardRsm {
 
   msgs::GraphResponse ReadImpl(msgs::GraphRequest rqst) {
     msgs::GraphResponse resp;
+    SPDLOG_INFO("MockedShardRsm::ReadImpl");
     return resp;
   }
 

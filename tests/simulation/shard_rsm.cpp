@@ -33,32 +33,21 @@
 #include "utils/result.hpp"
 
 namespace memgraph::storage::v3::tests {
-
 using io::Address;
 using io::Io;
-using io::ResponseEnvelope;
 using io::ResponseFuture;
 using io::Time;
-using io::TimedOut;
 using io::rsm::Raft;
-using io::rsm::ReadRequest;
-using io::rsm::ReadResponse;
 using io::rsm::RsmClient;
-using io::rsm::WriteRequest;
-using io::rsm::WriteResponse;
 using io::simulator::Simulator;
 using io::simulator::SimulatorConfig;
 using io::simulator::SimulatorStats;
 using io::simulator::SimulatorTransport;
-using utils::BasicResult;
-
 using msgs::ReadRequests;
 using msgs::ReadResponses;
 using msgs::WriteRequests;
 using msgs::WriteResponses;
-
 using ShardClient = RsmClient<SimulatorTransport, WriteRequests, WriteResponses, ReadRequests, ReadResponses>;
-
 using ConcreteShardRsm = Raft<SimulatorTransport, ShardRsm, WriteRequests, WriteResponses, ReadRequests, ReadResponses>;
 
 // TODO(gvolfing) test vertex deletion with DETACH_DELETE as well
@@ -1462,6 +1451,21 @@ void TestGetProperties(ShardClient &client) {
   }
 }
 
+void TestGetGraph(ShardClient &client) {
+  SPDLOG_WARN("shard_rsm.cpp:TestGetGraph(ShardClient) not yet implemented");
+  msgs::GraphRequest req{};
+  while (true) {
+    auto read_res = client.SendReadRequest(req);
+    if (read_res.HasError()) {
+      continue;
+    }
+    auto res = read_res.GetValue();
+    auto graph_res = std::get<msgs::GraphResponse>(res);
+    MG_ASSERT(graph_res.error == std::nullopt);
+    return;
+  }
+}
+
 }  // namespace
 
 int TestMessages() {
@@ -1549,8 +1553,11 @@ int TestMessages() {
 
   // GetProperties tests
   TestGetProperties(client);
-  simulator.ShutDown();
 
+  // GetGraph tests
+  TestGetGraph(client);
+
+  simulator.ShutDown();
   SimulatorStats stats = simulator.Stats();
 
   std::cout << "total messages:     " << stats.total_messages << std::endl;
