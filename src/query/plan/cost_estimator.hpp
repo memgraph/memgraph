@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -62,6 +62,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     static constexpr double kEdgeUniquenessFilter{1.5};
     static constexpr double kUnwind{1.3};
     static constexpr double kForeach{1.0};
+    static constexpr double kUnion{1.0};
   };
 
   struct CardParam {
@@ -212,6 +213,16 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(Union &op) override {
+    double left_cost = EstimateCostOnBranch(&op.left_op_);
+    double right_cost = EstimateCostOnBranch(&op.right_op_);
+
+    cardinality_ *= (left_cost + right_cost);
+    IncrementCost(CostParam::kUnion);
+
+    return false;
+  }
+
   bool Visit(Once &) override { return true; }
 
   auto cost() const { return cost_; }
@@ -231,6 +242,12 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   const Parameters &parameters;
 
   void IncrementCost(double param) { cost_ += param * cardinality_; }
+
+  double EstimateCostOnBranch(std::shared_ptr<LogicalOperator> *branch) {
+    CostEstimator<TDbAccessor> cost_estimator(db_accessor_, parameters);
+    (*branch)->Accept(cost_estimator);
+    return cost_estimator.cost();
+  }
 
   // converts an optional ScanAll range bound into a property value
   // if the bound is present and is a constant expression convertible to

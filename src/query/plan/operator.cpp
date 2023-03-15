@@ -4775,7 +4775,12 @@ bool Foreach::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
 Apply::Apply(const std::shared_ptr<LogicalOperator> input, const std::shared_ptr<LogicalOperator> subquery)
     : input_(input ? input : std::make_shared<Once>()), subquery_(subquery) {}
 
-ACCEPT_WITH_INPUT(Apply);
+bool Apply::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    input_->Accept(visitor) && subquery_->Accept(visitor);
+  }
+  return visitor.PostVisit(*this);
+}
 
 UniqueCursorPtr Apply::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ApplyOperator);
