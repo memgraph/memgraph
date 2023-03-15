@@ -1828,6 +1828,15 @@ constexpr auto ToStorageIsolationLevel(const IsolationLevelQuery::IsolationLevel
   }
 }
 
+constexpr auto ToStorageAnalyticsMode(const AnalyticsModeQuery::AnalyticsMode analytics_mode) noexcept {
+  switch (analytics_mode) {
+    case AnalyticsModeQuery::AnalyticsMode::ON:
+      return storage::AnalyticsMode::ON;
+    case AnalyticsModeQuery::AnalyticsMode::OFF:
+      return storage::AnalyticsMode::OFF;
+  }
+}
+
 PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
                                          InterpreterContext *interpreter_context, Interpreter *interpreter) {
   if (in_explicit_transaction) {
@@ -1848,6 +1857,36 @@ PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in
         return [interpreter, isolation_level] { interpreter->SetSessionIsolationLevel(isolation_level); };
       case IsolationLevelQuery::IsolationLevelScope::NEXT:
         return [interpreter, isolation_level] { interpreter->SetNextTransactionIsolationLevel(isolation_level); };
+    }
+  }();
+
+  return PreparedQuery{
+      {},
+      std::move(parsed_query.required_privileges),
+      [callback = std::move(callback)](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+        callback();
+        return QueryHandlerResult::COMMIT;
+      },
+      RWType::NONE};
+}
+
+PreparedQuery PrepareAnalyticsModeQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
+                                        InterpreterContext *interpreter_context, Interpreter *interpreter) {
+  if (in_explicit_transaction) {
+    throw AnalyticsModeModificationInMulticommandTxException();
+  }
+
+  auto *analytics_mode_query = utils::Downcast<AnalyticsModeQuery>(parsed_query.query);
+  MG_ASSERT(analytics_mode_query);
+
+  const auto analytics_mode = ToStorageAnalyticsMode(analytics_mode_query->analytics_mode_);
+
+  auto callback = [analytics_mode_query, analytics_mode, interpreter_context, interpreter]() -> std::function<void()> {
+    switch (analytics_mode_query->analytics_mode_) {
+      case AnalyticsModeQuery::AnalyticsMode::ON:
+        return [interpreter_context, analytics_mode] { interpreter_context->db->SetAnalyticsMode(analytics_mode); };
+      case AnalyticsModeQuery::AnalyticsMode::OFF:
+        return [interpreter_context, analytics_mode] { interpreter_context->db->SetAnalyticsMode(analytics_mode); };
     }
   }();
 
@@ -2398,6 +2437,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_, &*execution_db_accessor_);
     } else if (utils::Downcast<VersionQuery>(parsed_query.query)) {
       prepared_query = PrepareVersionQuery(std::move(parsed_query), in_explicit_transaction_);
+    } else if (utils::Downcast<AnalyticsModeQuery>(parsed_query.query)) {
+      prepared_query =
+          PrepareAnalyticsModeQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_, this);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }

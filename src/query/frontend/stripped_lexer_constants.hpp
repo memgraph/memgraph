@@ -208,7 +208,8 @@ const trie::Trie kKeywords = {"union",
                               "websocket",
                               "foreach",
                               "labels",
-                              "edge_types"};
+                              "edge_types",
+                              "off"};
 
 // Unicode codepoints that are allowed at the start of the unescaped name.
 const std::bitset<kBitsetSize> kUnescapedNameAllowedStarts(

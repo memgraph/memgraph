@@ -27,6 +27,7 @@ UNDERSCORE : '_' ;
 
 AFTER               : A F T E R ;
 ALTER               : A L T E R ;
+ANALYTICS           : A N A L Y T I C S ;
 ASYNC               : A S Y N C ;
 AUTH                : A U T H ;
 BAD                 : B A D ;
@@ -78,6 +79,8 @@ MODULE_WRITE        : M O D U L E UNDERSCORE W R I T E ;
 NEXT                : N E X T ;
 NO                  : N O ;
 NOTHING             : N O T H I N G ;
+OFF                 : O F F ;
+ON                  : O N ;
 PASSWORD            : P A S S W O R D ;
 PORT                : P O R T ;
 PRIVILEGES          : P R I V I L E G E S ;

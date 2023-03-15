@@ -198,7 +198,7 @@ class Storage final {
    private:
     friend class Storage;
 
-    explicit Accessor(Storage *storage, IsolationLevel isolation_level);
+    explicit Accessor(Storage *storage, IsolationLevel isolation_level, AnalyticsMode analytics_mode);
 
    public:
     Accessor(const Accessor &) = delete;
@@ -340,7 +340,7 @@ class Storage final {
   };
 
   Accessor Access(std::optional<IsolationLevel> override_isolation_level = {}) {
-    return Accessor{this, override_isolation_level.value_or(isolation_level_)};
+    return Accessor{this, override_isolation_level.value_or(isolation_level_), analytics_mode_};
   }
 
   const std::string &LabelToName(LabelId label) const;
@@ -483,12 +483,14 @@ class Storage final {
 
   void SetIsolationLevel(IsolationLevel isolation_level);
 
+  void SetAnalyticsMode(AnalyticsMode analytics_mode);
+
   enum class CreateSnapshotError : uint8_t { DisabledForReplica };
 
   utils::BasicResult<CreateSnapshotError> CreateSnapshot();
 
  private:
-  Transaction CreateTransaction(IsolationLevel isolation_level);
+  Transaction CreateTransaction(IsolationLevel isolation_level, AnalyticsMode analytics_mode);
 
   /// The force parameter determines the behaviour of the garbage collector.
   /// If it's set to true, it will behave as a global operation, i.e. it can't
@@ -554,6 +556,7 @@ class Storage final {
 
   utils::Synchronized<std::list<Transaction>, utils::SpinLock> committed_transactions_;
   IsolationLevel isolation_level_;
+  AnalyticsMode analytics_mode_;
 
   Config config_;
   utils::Scheduler gc_runner_;

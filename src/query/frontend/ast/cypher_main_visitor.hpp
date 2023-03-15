@@ -254,6 +254,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitIsolationLevelQuery(MemgraphCypher::IsolationLevelQueryContext *ctx) override;
 
   /**
+   * @return AnalyticsModeQuery*
+   */
+  antlrcpp::Any visitAnalyticsModeQuery(MemgraphCypher::AnalyticsModeQueryContext *ctx) override;
+
+  /**
    * @return CreateSnapshotQuery*
    */
   antlrcpp::Any visitCreateSnapshotQuery(MemgraphCypher::CreateSnapshotQueryContext *ctx) override;

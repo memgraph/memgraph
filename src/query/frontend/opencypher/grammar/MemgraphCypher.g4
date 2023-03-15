@@ -22,6 +22,7 @@ import Cypher ;
 memgraphCypherKeyword : cypherKeyword
                       | AFTER
                       | ALTER
+                      | ANALYTICS
                       | ASYNC
                       | AUTH
                       | BAD
@@ -67,6 +68,8 @@ memgraphCypherKeyword : cypherKeyword
                       | NEXT
                       | NO
                       | NOTHING
+                      | OFF
+                      | ON
                       | PASSWORD
                       | PULSAR
                       | PORT
@@ -122,6 +125,7 @@ query : cypherQuery
       | freeMemoryQuery
       | triggerQuery
       | isolationLevelQuery
+      | analyticsModeQuery
       | createSnapshotQuery
       | streamQuery
       | settingQuery
@@ -333,6 +337,10 @@ isolationLevel : SNAPSHOT ISOLATION | READ COMMITTED | READ UNCOMMITTED ;
 isolationLevelScope : GLOBAL | SESSION | NEXT ;
 
 isolationLevelQuery : SET isolationLevelScope TRANSACTION ISOLATION LEVEL isolationLevel ;
+
+analyticsMode : ON | OFF ;
+
+analyticsModeQuery : ANALYTICS MODE analyticsMode ;
 
 createSnapshotQuery : CREATE SNAPSHOT ;
 

@@ -27,6 +27,7 @@
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/indices.hpp"
+#include "storage/v2/isolation_level.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
@@ -316,6 +317,7 @@ bool VerticesIterable::Iterator::operator==(const Iterator &other) const {
 Storage::Storage(Config config)
     : indices_(&constraints_, config.items),
       isolation_level_(config.transaction.isolation_level),
+      analytics_mode_(AnalyticsMode::OFF),
       config_(config),
       snapshot_directory_(config_.durability.storage_directory / durability::kSnapshotDirectory),
       wal_directory_(config_.durability.storage_directory / durability::kWalDirectory),
@@ -456,13 +458,13 @@ Storage::~Storage() {
   }
 }
 
-Storage::Accessor::Accessor(Storage *storage, IsolationLevel isolation_level)
+Storage::Accessor::Accessor(Storage *storage, IsolationLevel isolation_level, AnalyticsMode analytics_mode)
     : storage_(storage),
       // The lock must be acquired before creating the transaction object to
       // prevent freshly created transactions from dangling in an active state
       // during exclusive operations.
       storage_guard_(storage_->main_lock_),
-      transaction_(storage->CreateTransaction(isolation_level)),
+      transaction_(storage->CreateTransaction(isolation_level, analytics_mode)),
       is_transaction_active_(true),
       config_(storage->config_.items) {}
 
@@ -1394,7 +1396,7 @@ VerticesIterable Storage::Accessor::Vertices(LabelId label, PropertyId property,
       storage_->indices_.label_property_index.Vertices(label, property, lower_bound, upper_bound, view, &transaction_));
 }
 
-Transaction Storage::CreateTransaction(IsolationLevel isolation_level) {
+Transaction Storage::CreateTransaction(IsolationLevel isolation_level, AnalyticsMode analytics_mode) {
   // We acquire the transaction engine lock here because we access (and
   // modify) the transaction engine variables (`transaction_id` and
   // `timestamp`) below.
@@ -1415,7 +1417,7 @@ Transaction Storage::CreateTransaction(IsolationLevel isolation_level) {
       start_timestamp = timestamp_++;
     }
   }
-  return {transaction_id, start_timestamp, isolation_level};
+  return {transaction_id, start_timestamp, isolation_level, analytics_mode};
 }
 
 template <bool force>
@@ -1932,7 +1934,9 @@ utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot() {
   std::shared_lock<utils::RWLock> storage_guard(main_lock_);
 
   // Create the transaction used to create the snapshot.
-  auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION);
+  // We don't care about analytics mode level here, since snapshot only reads data
+  // We can only add log about potential dirty reads when creating snapshot
+  auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION, analytics_mode_);
 
   // Create snapshot.
   durability::CreateSnapshot(&transaction, snapshot_directory_, wal_directory_,
@@ -2131,6 +2135,11 @@ std::vector<Storage::ReplicaInfo> Storage::ReplicasInfo() {
 void Storage::SetIsolationLevel(IsolationLevel isolation_level) {
   std::unique_lock main_guard{main_lock_};
   isolation_level_ = isolation_level;
+}
+
+void Storage::SetAnalyticsMode(AnalyticsMode analytics_mode) {
+  std::unique_lock main_guard{main_lock_};
+  analytics_mode_ = analytics_mode;
 }
 
 void Storage::RestoreReplicas() {

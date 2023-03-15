@@ -212,6 +212,12 @@ class IsolationLevelModificationInMulticommandTxException : public QueryExceptio
       : QueryException("Isolation level cannot be modified in multicommand transactions.") {}
 };
 
+class AnalyticsModeModificationInMulticommandTxException : public QueryException {
+ public:
+  AnalyticsModeModificationInMulticommandTxException()
+      : QueryException("Analytics mode cannot be modified in multicommand transactions.") {}
+};
+
 class CreateSnapshotInMulticommandTxException final : public QueryException {
  public:
   CreateSnapshotInMulticommandTxException()

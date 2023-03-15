@@ -468,6 +468,20 @@ antlrcpp::Any CypherMainVisitor::visitIsolationLevelQuery(MemgraphCypher::Isolat
   return isolation_level_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitAnalyticsModeQuery(MemgraphCypher::AnalyticsModeQueryContext *ctx) {
+  auto *analytics_mode_query = storage_->Create<AnalyticsModeQuery>();
+
+  analytics_mode_query->analytics_mode_ = [mode = ctx->analyticsMode()]() {
+    if (mode->ON()) {
+      return AnalyticsModeQuery::AnalyticsMode::ON;
+    }
+    return AnalyticsModeQuery::AnalyticsMode::OFF;
+  }();
+
+  query_ = analytics_mode_query;
+  return analytics_mode_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitCreateSnapshotQuery(MemgraphCypher::CreateSnapshotQueryContext *ctx) {
   query_ = storage_->Create<CreateSnapshotQuery>();
   return query_;

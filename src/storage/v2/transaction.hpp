@@ -31,12 +31,14 @@ const uint64_t kTimestampInitialId = 0;
 const uint64_t kTransactionInitialId = 1ULL << 63U;
 
 struct Transaction {
-  Transaction(uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level)
+  Transaction(uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level,
+              AnalyticsMode analytics_mode)
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
         command_id(0),
         must_abort(false),
-        isolation_level(isolation_level) {}
+        isolation_level(isolation_level),
+        analytics_mode(analytics_mode) {}
 
   Transaction(Transaction &&other) noexcept
       : transaction_id(other.transaction_id),
@@ -70,6 +72,7 @@ struct Transaction {
   std::list<Delta> deltas;
   bool must_abort;
   IsolationLevel isolation_level;
+  AnalyticsMode analytics_mode;
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {
