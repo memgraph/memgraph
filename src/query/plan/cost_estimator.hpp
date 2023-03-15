@@ -63,6 +63,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     static constexpr double kUnwind{1.3};
     static constexpr double kForeach{1.0};
     static constexpr double kUnion{1.0};
+    static constexpr double kSubquery{1.0};
   };
 
   struct CardParam {
@@ -219,6 +220,16 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
     cardinality_ *= (left_cost + right_cost);
     IncrementCost(CostParam::kUnion);
+
+    return false;
+  }
+
+  bool PreVisit(Apply &op) override {
+    double input_cost = EstimateCostOnBranch(&op.input_);
+    double subquery_cost = EstimateCostOnBranch(&op.subquery_);
+
+    cardinality_ = cardinality_ * input_cost * subquery_cost;
+    IncrementCost(CostParam::kSubquery);
 
     return false;
   }
