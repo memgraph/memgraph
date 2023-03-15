@@ -177,6 +177,23 @@ jobs:
           name: fedora-36
           path: build/output/fedora-36/memgraph*.rpm
 
+  amzn-2:
+    runs-on: [self-hosted, DockerMgBuild, X64]
+    timeout-minutes: 60
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # Required because of release/get_version.py
+      - name: "Build package"
+        run: |
+          ./release/package/run.sh package amzn-2
+      - name: "Upload package"
+        uses: actions/upload-artifact@v3
+        with:
+          name: amzn-2
+          path: build/output/amzn-2/memgraph*.rpm
+
   debian-11-arm:
     runs-on: [self-hosted, DockerMgBuild, ARM64, strange]
     timeout-minutes: 60

@@ -3,7 +3,14 @@
 set -Eeuo pipefail
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-SUPPORTED_OS=(centos-7 centos-9 debian-10 debian-11 ubuntu-18.04 ubuntu-20.04 ubuntu-22.04 debian-11-arm fedora-36 ubuntu-22.04-arm)
+SUPPORTED_OS=(
+    centos-7 centos-9
+    debian-10 debian-11 debian-11-arm
+    ubuntu-18.04 ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm
+    fedora-36
+    amzn-2
+)
+
 PROJECT_ROOT="$SCRIPT_DIR/../.."
 TOOLCHAIN_VERSION="toolchain-v4"
 ACTIVATE_TOOLCHAIN="source /opt/${TOOLCHAIN_VERSION}/activate"
@@ -23,7 +30,7 @@ make_package () {
     echo "Building Memgraph for $os on $build_container..."
 
     package_command=""
-    if [[ "$os" =~ ^"centos".* ]] || [[ "$os" =~ ^"fedora".* ]]; then
+    if [[ "$os" =~ ^"centos".* ]] || [[ "$os" =~ ^"fedora".* ]] || [[ "$os" =~ ^"amzn".* ]]; then
         docker exec "$build_container" bash -c "yum -y update"
         package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc' memgraph*.rpm "
     fi
