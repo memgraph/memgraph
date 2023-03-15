@@ -274,24 +274,24 @@ Feature: Subqueries
         Given an empty graph
         And having executed
             """
-            CREATE (:Person {figure: "grandpa"})<-[:CHILD_OF]-(:Person {figure: "dad"})-[:FATHER_OF]->(:Person {figure: "child"})
+            CREATE (:Person {figure: "grandpa"})<-[:CHILD_OF]-(:Person {figure: "dad"})-[:PARENT_OF]->(:Person {figure: "child"})
             """
         When executing query:
             """
-            MATCH (p:Person)
+            MATCH (p:Person {figure: "dad"})
             CALL {
                 WITH p
                 OPTIONAL MATCH (p)-[:CHILD_OF]->(other:Person)
                 RETURN other
               UNION
                 WITH p
-                OPTIONAL MATCH (p)-[:PARENT_OF]->(other:Parent)
+                OPTIONAL MATCH (p)-[:PARENT_OF]->(other:Person)
                 RETURN other
             } RETURN DISTINCT p.figure, count(other) as cnt;
             """
         Then the result should be:
             | p.figure | cnt |
-            | "dad"    | 2   |
+            | 'dad'    | 2   |
 
     Scenario: Subquery cloning nodes
         Given an empty graph
