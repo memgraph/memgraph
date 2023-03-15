@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,6 +16,7 @@
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/typeinfo.hpp"
 
 namespace memgraph::rpc {
 
@@ -41,7 +42,7 @@ void Session::Execute() {
       [&](const uint8_t *data, size_t size, bool have_more) { output_stream_->Write(data, size, have_more); });
 
   // Load the request ID.
-  uint64_t req_id = 0;
+  utils::TypeId req_id{utils::TypeId::UNKNOWN};
   slk::Load(&req_id, &req_reader);
 
   // Access to `callbacks_` and `extended_callbacks_` is done here without
