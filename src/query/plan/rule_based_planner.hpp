@@ -270,13 +270,11 @@ class RuleBasedPlanner {
 
   storage::EdgeTypeId GetEdgeType(EdgeTypeIx edge_type) { return context_->db->NameToEdgeType(edge_type.name); }
 
-  std::unique_ptr<LogicalOperator> HandleMatching(std::unique_ptr<LogicalOperator> input_op,
+  std::unique_ptr<LogicalOperator> HandleMatching(std::unique_ptr<LogicalOperator> last_op,
                                                   const SingleQueryPart &single_query_part, SymbolTable &symbol_table,
                                                   std::unordered_set<Symbol> &bound_symbols) {
-    auto last_op = std::move(input_op);
-
     MatchContext match_ctx{single_query_part.matching, symbol_table, bound_symbols};
-    last_op = PlanMatching(match_ctx, std::move(input_op));
+    last_op = PlanMatching(match_ctx, std::move(last_op));
     for (const auto &matching : single_query_part.optional_matching) {
       MatchContext opt_ctx{matching, symbol_table, bound_symbols};
 
@@ -285,7 +283,7 @@ class RuleBasedPlanner {
 
       auto match_op = PlanMatching(opt_ctx, std::move(once_with_symbols));
       if (match_op) {
-        last_op = std::make_unique<Optional>(std::move(input_op), std::move(match_op), opt_ctx.new_symbols);
+        last_op = std::make_unique<Optional>(std::move(last_op), std::move(match_op), opt_ctx.new_symbols);
       }
     }
 
