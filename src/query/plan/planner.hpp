@@ -89,40 +89,31 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
   double total_cost = std::numeric_limits<double>::max();
 
   using ProcessedPlan = typename TPlanPostProcess::ProcessedPlan;
-  ProcessedPlan last_plan;
+  ProcessedPlan plan_with_least_cost;
 
   std::optional<ProcessedPlan> curr_plan;
-  // if (use_variable_planner) {
-  //   auto plans = MakeLogicalPlanForSingleQuery<VariableStartPlanner>(query_parts, context);
-  //   for (auto plan : plans) {
-  //     // Plans are generated lazily and the current plan will disappear, so
-  //     // it's ok to move it.
-  //     auto rewritten_plan = post_process->Rewrite(std::move(plan), context);
-  //     double cost = post_process->EstimatePlanCost(rewritten_plan, &vertex_counts);
-  //     if (!curr_plan || cost < total_cost) {
-  //       curr_plan.emplace(std::move(rewritten_plan));
-  //       total_cost = cost;
-  //     }
-  //   }
-  // } else {
-  auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(query_parts, context);
-  auto rewritten_plan = post_process->Rewrite(std::move(plan), context);
-  total_cost = post_process->EstimatePlanCost(rewritten_plan, &vertex_counts);
-  curr_plan.emplace(std::move(rewritten_plan));
-  // }
+  if (use_variable_planner) {
+    auto plans = MakeLogicalPlanForSingleQuery<VariableStartPlanner>(query_parts, context);
+    for (auto plan : plans) {
+      // Plans are generated lazily and the current plan will disappear, so
+      // it's ok to move it.
+      auto rewritten_plan = post_process->Rewrite(std::move(plan), context);
+      double cost = post_process->EstimatePlanCost(rewritten_plan, &vertex_counts);
+      if (!curr_plan || cost < total_cost) {
+        curr_plan.emplace(std::move(rewritten_plan));
+        total_cost = cost;
+      }
+    }
+  } else {
+    auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(query_parts, context);
+    auto rewritten_plan = post_process->Rewrite(std::move(plan), context);
+    total_cost = post_process->EstimatePlanCost(rewritten_plan, &vertex_counts);
+    curr_plan.emplace(std::move(rewritten_plan));
+  }
 
-  // if (query_part.query_combinator) {
-  //   last_plan = post_process->MergeWithCombinator(std::move(*curr_plan), std::move(last_plan),
-  //                                                 *query_part.query_combinator, context);
-  // } else {
-  last_plan = std::move(*curr_plan);
-  // }
+  plan_with_least_cost = std::move(*curr_plan);
 
-  // if (query_parts.distinct) {
-  //   last_plan = post_process->MakeDistinct(std::move(last_plan), context);
-  // }
-
-  return std::make_pair(std::move(last_plan), total_cost);
+  return std::make_pair(std::move(plan_with_least_cost), total_cost);
 }
 
 template <class TPlanningContext>
