@@ -184,7 +184,8 @@ class AnalyzeGraphQueryHandler {
                                                                            DbAccessor *execution_db_accessor,
                                                                            storage::Storage::Accessor *dba);
 
-  static void AnalyzeGraphDeleteStatistics(const std::vector<std::string> &labels, storage::Storage::Accessor *dba);
+  static std::vector<std::vector<TypedValue>> AnalyzeGraphDeleteStatistics(const std::vector<std::string> &labels,
+                                                                           storage::Storage::Accessor *dba);
 };
 
 /**

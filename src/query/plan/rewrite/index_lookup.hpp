@@ -548,8 +548,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
         std::optional<storage::IndexStats> new_stats = db_->GetIndexStats(GetLabel(label), GetProperty(property));
 
-        if (!found ||
-            (new_stats.has_value() && found->stats.has_value() &&
+        if (!found || (vertex_count * 10 < found->vertex_count) ||
+            (new_stats.has_value() && found->stats.has_value() && (vertex_count / 10 <= found->vertex_count) &&
              (utils::LessThanDecimal(new_stats->avg_group_size, found->stats->avg_group_size) ||
               (utils::ApproxEqualDecimal(found->stats->avg_group_size, new_stats->avg_group_size) &&
                utils::GreaterThanDecimal(found->stats->stat_value, new_stats->stat_value)))) ||

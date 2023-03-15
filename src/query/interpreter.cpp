@@ -19,6 +19,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <iterator>
 #include <limits>
 #include <numeric>
 #include <optional>
@@ -1461,13 +1462,21 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
   return results;
 }
 
-void AnalyzeGraphQueryHandler::AnalyzeGraphDeleteStatistics(const std::vector<std::string> &labels,
-                                                            storage::Storage::Accessor *dba) {
+std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDeleteStatistics(
+    const std::vector<std::string> &labels, storage::Storage::Accessor *dba) {
+  std::vector<std::pair<storage::LabelId, storage::PropertyId>> loc_results;
   if (labels[0] == "*") {
-    dba->ClearIndexStats();
+    loc_results = dba->ClearIndexStats();
   } else {
-    dba->DeleteIndexStatsForLabels(labels);
+    loc_results = dba->DeleteIndexStatsForLabels(labels);
   }
+  std::vector<std::vector<TypedValue>> results;
+  std::transform(loc_results.begin(), loc_results.end(), std::back_inserter(results),
+                 [dba](const auto &label_property_index) {
+                   return std::vector<TypedValue>{TypedValue(dba->LabelToName(label_property_index.first)),
+                                                  TypedValue(dba->PropertyToName(label_property_index.second))};
+                 });
+  return results;
 }
 
 Callback HandleAnalyzeGraphQuery(AnalyzeGraphQuery *analyze_graph_query, DbAccessor *execution_db_accessor,
@@ -1484,11 +1493,9 @@ Callback HandleAnalyzeGraphQuery(AnalyzeGraphQuery *analyze_graph_query, DbAcces
       break;
     }
     case AnalyzeGraphQuery::Action::DELETE: {
-      callback.header = {"status"};
+      callback.header = {"label", "property"};
       callback.fn = [handler = AnalyzeGraphQueryHandler(), labels = analyze_graph_query->labels_, dba]() mutable {
-        handler.AnalyzeGraphDeleteStatistics(labels, dba);
-        auto results = std::vector<std::vector<TypedValue>>{{TypedValue(true)}};
-        return results;
+        return handler.AnalyzeGraphDeleteStatistics(labels, dba);
       };
       break;
     }
@@ -1504,6 +1511,15 @@ PreparedQuery PrepareAnalyzeGraphQuery(ParsedQuery parsed_query, bool in_explici
   if (in_explicit_transaction) {
     throw AnalyzeGraphInMulticommandTxException();
   }
+
+  // Creating an index influences computed plan costs.
+  auto invalidate_plan_cache = [plan_cache = &interpreter_context->plan_cache] {
+    auto access = plan_cache->access();
+    for (auto &kv : access) {
+      access.remove(kv.first);
+    }
+  };
+  utils::OnScopeExit cache_invalidator(invalidate_plan_cache);
 
   auto *analyze_graph_query = utils::Downcast<AnalyzeGraphQuery>(parsed_query.query);
   MG_ASSERT(analyze_graph_query);

@@ -438,9 +438,9 @@ class FakeDbAccessor {
     return false;
   }
 
-  memgraph::query::IndexStats GetIndexStats(memgraph::storage::LabelId label,
-                                            memgraph::storage::PropertyId property) const {
-    return memgraph::query::IndexStats{.max_number_of_vertices_with_same_value = UINT64_MAX};
+  memgraph::storage::IndexStats GetIndexStats(memgraph::storage::LabelId label,
+                                              memgraph::storage::PropertyId property) const {
+    return memgraph::storage::IndexStats{.avg_group_size = 1, .stat_value = 0};  // unique id
   }
 
   void SetIndexCount(memgraph::storage::LabelId label, int64_t count) { label_index_[label] = count; }
