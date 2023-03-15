@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -54,7 +54,8 @@ static void BM_PlanChainedMatches(benchmark::State &state) {
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     auto ctx = memgraph::query::plan::MakePlanningContext(&storage, &symbol_table, query, &dba);
     state.ResumeTiming();
-    auto query_parts = memgraph::query::plan::CollectQueryParts(symbol_table, storage, query);
+    auto query_parts =
+        memgraph::query::plan::CollectQueryParts(symbol_table, storage, query->single_query_, query->cypher_unions_);
     if (query_parts.query_parts.size() == 0) {
       std::exit(EXIT_FAILURE);
     }
@@ -125,7 +126,8 @@ static void BM_PlanAndEstimateIndexedMatching(benchmark::State &state) {
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     state.ResumeTiming();
     auto ctx = memgraph::query::plan::MakePlanningContext(&storage, &symbol_table, query, &dba);
-    auto query_parts = memgraph::query::plan::CollectQueryParts(symbol_table, storage, query);
+    auto query_parts =
+        memgraph::query::plan::CollectQueryParts(symbol_table, storage, query->single_query_, query->cypher_unions_);
     if (query_parts.query_parts.size() == 0) {
       std::exit(EXIT_FAILURE);
     }
@@ -156,7 +158,8 @@ static void BM_PlanAndEstimateIndexedMatchingWithCachedCounts(benchmark::State &
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     state.ResumeTiming();
     auto ctx = memgraph::query::plan::MakePlanningContext(&storage, &symbol_table, query, &vertex_counts);
-    auto query_parts = memgraph::query::plan::CollectQueryParts(symbol_table, storage, query);
+    auto query_parts =
+        memgraph::query::plan::CollectQueryParts(symbol_table, storage, query->single_query_, query->cypher_unions_);
     if (query_parts.query_parts.size() == 0) {
       std::exit(EXIT_FAILURE);
     }
