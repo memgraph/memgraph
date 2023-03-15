@@ -318,3 +318,33 @@ Feature: Subqueries
             | (:Person {name: 'Bruce'}) |
             | (:Person {name: 'Bruce'}) |
             | (:Person {name: 'Bruce'}) |
+
+    Scenario: Subquery in subquery
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Label {id: 1}), (:Label {id: 2})
+            """
+        When executing query:
+            """
+            MATCH (p:Label)
+            CALL {
+                MATCH (r:Label)
+                CALL {
+                    MATCH (s:Label)
+                    RETURN s
+                }
+                RETURN r, s
+            }
+            RETURN p.id, r.id, s.id;
+            """
+        Then the result should be:
+            | p.id | r.id | s.id |
+            | 1    | 1    | 1    |
+            | 1    | 1    | 2    |
+            | 1    | 2    | 1    |
+            | 1    | 2    | 2    |
+            | 2    | 1    | 1    |
+            | 2    | 1    | 2    |
+            | 2    | 2    | 1    |
+            | 2    | 2    | 2    |
