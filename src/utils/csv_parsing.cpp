@@ -82,7 +82,7 @@ Reader::ParsingResult Reader::ParseRow(utils::MemoryResource *mem) {
     row.reserve(number_of_columns_);
   }
 
-  utils::pmr::string column(mem);
+  utils::pmr::string column(memory_);
 
   auto state = CsvParserState::INITIAL_FIELD;
 
@@ -222,7 +222,7 @@ Reader::ParsingResult Reader::ParseRow(utils::MemoryResource *mem) {
 // @throws CsvReadException if a bad row is encountered, and the ignore_bad is set
 // to 'true' in the Reader::Config.
 std::optional<Reader::Row> Reader::GetNextRow(utils::MemoryResource *mem) {
-  auto row = ParseRow(memory_);
+  auto row = ParseRow(mem);
 
   if (row.HasError()) {
     if (!read_config_.ignore_bad) {
@@ -234,7 +234,7 @@ std::optional<Reader::Row> Reader::GetNextRow(utils::MemoryResource *mem) {
       if (!csv_stream_.good()) {
         return std::nullopt;
       }
-      row = ParseRow(memory_);
+      row = ParseRow(mem);
     } while (row.HasError());
   }
 

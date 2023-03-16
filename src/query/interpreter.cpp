@@ -2470,7 +2470,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 void Interpreter::Abort() {
   expect_rollback_ = false;
   in_explicit_transaction_ = false;
-  if (!db_accessor_) db_accessor_->Abort();
+  if (!db_accessor_) return;
+  db_accessor_->Abort();
   execution_db_accessor_.reset();
   db_accessor_.reset();
   trigger_context_collector_.reset();

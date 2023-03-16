@@ -4619,7 +4619,6 @@ class LoadCsvCursor : public Cursor {
   const UniqueCursorPtr input_cursor_;
   bool input_is_once_;
   std::optional<csv::Reader> reader_{};
-  int counter{0};
 
  public:
   LoadCsvCursor(const LoadCsv *self, utils::MemoryResource *mem)
@@ -4653,16 +4652,11 @@ class LoadCsvCursor : public Cursor {
     if (!row) {
       return false;
     }
-    counter++;
     if (!reader_->HasHeader()) {
       frame[self_->row_var_] = CsvRowToTypedList(*row);
     } else {
       frame[self_->row_var_] =
           CsvRowToTypedMap(*row, csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory));
-    }
-
-    if (counter % 1000 == 0) {
-      // malloc_trim(0);
     }
     return true;
   }
@@ -4689,7 +4683,7 @@ class LoadCsvCursor : public Cursor {
     return csv::Reader(
         *maybe_file,
         csv::Reader::Config(self_->with_header_, self_->ignore_bad_, std::move(maybe_delim), std::move(maybe_quote)),
-        eval_context->memory);
+        utils::NewDeleteResource());
   }
 };
 
