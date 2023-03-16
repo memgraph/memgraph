@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,9 +22,9 @@
 #include "utils/timer.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_bool(query_cost_planner);
+DECLARE_bool(query_v2_cost_planner);
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_int32(query_plan_cache_ttl);
+DECLARE_int32(query_v2_plan_cache_ttl);
 
 namespace memgraph::query::v2 {
 
@@ -58,7 +58,7 @@ class CachedPlan {
 
   bool IsExpired() const {
     // NOLINTNEXTLINE (modernize-use-nullptr)
-    return cache_timer_.Elapsed() > std::chrono::seconds(FLAGS_query_plan_cache_ttl);
+    return cache_timer_.Elapsed() > std::chrono::seconds(FLAGS_query_v2_plan_cache_ttl);
   };
 
  private:

@@ -9,11 +9,13 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import typing
-import mgclient
 import sys
-import pytest
 import time
+import typing
+
+import mgclient
+import pytest
+
 from common import *
 
 
@@ -30,8 +32,7 @@ def test_distinct(connection):
     assert len(results) == 2
     for i, n in enumerate(results):
         n_props = n[0].properties
-        assert len(n_props) == 1
-        assert n_props["property"] == i
+        assert len(n_props) == 0
 
 
 if __name__ == "__main__":

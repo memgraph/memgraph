@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -35,7 +35,7 @@ msgs::Value ConstructValueVertex(const VertexAccessor &acc, View view) {
   memgraph::msgs::Label value_label{.id = prim_label};
 
   auto prim_key = conversions::ConvertValueVector(acc.PrimaryKey(view).GetValue());
-  memgraph::msgs::VertexId vertex_id = std::make_pair(value_label, prim_key);
+  memgraph::msgs::VertexId vertex_id = std::make_pair(value_label, std::move(prim_key));
 
   // Get the labels
   auto vertex_labels = acc.Labels(view).GetValue();
@@ -45,7 +45,7 @@ msgs::Value ConstructValueVertex(const VertexAccessor &acc, View view) {
   std::transform(vertex_labels.begin(), vertex_labels.end(), std::back_inserter(value_labels),
                  [](const auto &label) { return msgs::Label{.id = label}; });
 
-  return msgs::Value({.id = vertex_id, .labels = value_labels});
+  return msgs::Value({.id = std::move(vertex_id), .labels = std::move(value_labels)});
 }
 
 msgs::Value ConstructValueEdge(const EdgeAccessor &acc, View view) {

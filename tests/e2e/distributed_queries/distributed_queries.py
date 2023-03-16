@@ -9,11 +9,13 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import typing
-import mgclient
 import sys
-import pytest
 import time
+import typing
+
+import mgclient
+import pytest
+
 from common import *
 
 
@@ -35,13 +37,13 @@ def test_vertex_creation_and_scanall(connection):
     assert len(results) == 9
     for (n, r, m) in results:
         n_props = n.properties
-        assert len(n_props) == 1, "n is not expected to have properties, update the test!"
+        assert len(n_props) == 0, "n is not expected to have properties, update the test!"
         assert len(n.labels) == 0, "n is not expected to have labels, update the test!"
 
         assert r.type == "TO"
 
         m_props = m.properties
-        assert m_props["property"] <= 3 and m_props["property"] >= 0, "Wrong key"
+        assert len(m_props) == 0, "n is not expected to have properties, update the test!"
         assert len(m.labels) == 0, "m is not expected to have labels, update the test!"
 
 
