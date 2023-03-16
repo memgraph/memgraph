@@ -508,7 +508,7 @@ class DistributedScanAllAndFilterCursor : public Cursor {
     SCOPED_PROFILE_OP(op_name_);
 
     if (!own_multi_frame_.has_value()) {
-      own_multi_frame_.emplace(MultiFrame(output_multi_frame.GetFirstFrame().elems().size(),
+      own_multi_frame_.emplace(MultiFrame(output_multi_frame.GetFirstFrame().Elems().size(),
                                           FLAGS_default_multi_frame_size, output_multi_frame.GetMemoryResource()));
       own_frames_consumer_.emplace(own_multi_frame_->GetValidFramesConsumer());
       own_frames_it_ = own_frames_consumer_->begin();
@@ -704,12 +704,12 @@ class DistributedScanByPrimaryKeyCursor : public Cursor {
 
   void EnsureOwnMultiFrameIsGood(MultiFrame &output_multi_frame) {
     if (!own_multi_frame_.has_value()) {
-      own_multi_frame_.emplace(MultiFrame(output_multi_frame.GetFirstFrame().elems().size(),
+      own_multi_frame_.emplace(MultiFrame(output_multi_frame.GetFirstFrame().Elems().size(),
                                           FLAGS_default_multi_frame_size, output_multi_frame.GetMemoryResource()));
       own_frames_consumer_.emplace(own_multi_frame_->GetValidFramesConsumer());
       own_frames_it_ = own_frames_consumer_->begin();
     }
-    MG_ASSERT(output_multi_frame.GetFirstFrame().elems().size() == own_multi_frame_->GetFirstFrame().elems().size());
+    MG_ASSERT(output_multi_frame.GetFirstFrame().Elems().size() == own_multi_frame_->GetFirstFrame().Elems().size());
   }
 
   bool PullMultiple(MultiFrame &output_multi_frame, ExecutionContext &context) override {
@@ -2212,7 +2212,7 @@ class UnwindCursor : public Cursor {
     SCOPED_PROFILE_OP("UnwindMF");
 
     if (!own_multi_frame_.has_value()) {
-      own_multi_frame_.emplace(MultiFrame(output_multi_frame.GetFirstFrame().elems().size(),
+      own_multi_frame_.emplace(MultiFrame(output_multi_frame.GetFirstFrame().Elems().size(),
                                           FLAGS_default_multi_frame_size, output_multi_frame.GetMemoryResource()));
       own_frames_consumer_.emplace(own_multi_frame_->GetValidFramesConsumer());
       own_frames_it_ = own_frames_consumer_->begin();
@@ -2477,7 +2477,7 @@ class CartesianCursor : public Cursor {
     if (!cartesian_pull_initialized_) {
       // Pull all left_op frames.
       while (left_op_cursor_->Pull(frame, context)) {
-        left_op_frames_.emplace_back(frame.elems().begin(), frame.elems().end());
+        left_op_frames_.emplace_back(frame.Elems().begin(), frame.Elems().end());
       }
 
       // We're setting the iterator to 'end' here so it pulls the right
@@ -2501,7 +2501,7 @@ class CartesianCursor : public Cursor {
       // Advance right_op_cursor_.
       if (!right_op_cursor_->Pull(frame, context)) return false;
 
-      right_op_frame_.assign(frame.elems().begin(), frame.elems().end());
+      right_op_frame_.assign(frame.Elems().begin(), frame.Elems().end());
       left_op_frames_it_ = left_op_frames_.begin();
     } else {
       // Make sure right_op_cursor last pulled results are on frame.
@@ -3381,12 +3381,12 @@ class DistributedExpandCursor : public Cursor {
 
   void EnsureOwnMultiFrameIsGood(MultiFrame &output_multi_frame) {
     if (!own_multi_frame_.has_value()) {
-      own_multi_frame_.emplace(MultiFrame(output_multi_frame.GetFirstFrame().elems().size(),
+      own_multi_frame_.emplace(MultiFrame(output_multi_frame.GetFirstFrame().Elems().size(),
                                           FLAGS_default_multi_frame_size, output_multi_frame.GetMemoryResource()));
       own_frames_consumer_.emplace(own_multi_frame_->GetValidFramesConsumer());
       own_frames_it_ = own_frames_consumer_->begin();
     }
-    MG_ASSERT(output_multi_frame.GetFirstFrame().elems().size() == own_multi_frame_->GetFirstFrame().elems().size());
+    MG_ASSERT(output_multi_frame.GetFirstFrame().Elems().size() == own_multi_frame_->GetFirstFrame().Elems().size());
   }
 
   void Shutdown() override { input_cursor_->Shutdown(); }

@@ -30,15 +30,18 @@ class Frame {
   TypedValue &operator[](const Symbol &symbol) { return elems_[symbol.position()]; }
   const TypedValue &operator[](const Symbol &symbol) const { return elems_[symbol.position()]; }
 
-  TypedValue &at(const Symbol &symbol) { return elems_.at(symbol.position()); }
-  const TypedValue &at(const Symbol &symbol) const { return elems_.at(symbol.position()); }
+  TypedValue &At(const Symbol &symbol) { return elems_.at(symbol.position()); }
+  const TypedValue &At(const Symbol &symbol) const { return elems_.at(symbol.position()); }
 
-  auto &elems() { return elems_; }
-  const auto &elems() const { return elems_; }
+  uint64_t Id() const { return id_; }
+  void SetId(const uint64_t id) { id_ = id; }
+
+  const utils::pmr::vector<TypedValue> &Elems() const { return elems_; }
 
   utils::MemoryResource *GetMemoryResource() const { return elems_.get_allocator().GetMemoryResource(); }
 
  private:
+  uint64_t id_{0u};
   utils::pmr::vector<TypedValue> elems_;
 };
 
