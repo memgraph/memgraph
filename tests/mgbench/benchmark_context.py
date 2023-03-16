@@ -24,6 +24,7 @@ class BenchmarkContext:
         warm_up: str = None,
         performance_tracking: bool = False,
         no_authorization: bool = True,
+        vendor_args: dict = {},
     ) -> None:
 
         self.benchmark_target_workload = benchmark_target_workload
@@ -52,3 +53,4 @@ class BenchmarkContext:
         self.performance_tracking = performance_tracking
         self.warm_up = warm_up
         self.no_authorization = no_authorization
+        self.vendor_args = vendor_args

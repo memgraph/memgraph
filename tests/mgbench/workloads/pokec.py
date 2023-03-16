@@ -1,7 +1,6 @@
 import random
 
 from benchmark_context import BenchmarkContext
-from runners import BaseRunner, Client
 from workloads.base import Workload
 from workloads.importers.importer_pokec import ImporterPokec
 

@@ -65,6 +65,77 @@ def _get_current_usage(pid):
     return rss / 1024
 
 
+class BaseClient(ABC):
+    @abstractmethod
+    def __init__(self, benchmark_context: BenchmarkContext):
+        self.benchmark_context = benchmark_context
+
+    @abstractmethod
+    def execute(self):
+        pass
+
+
+class BoltClient(BaseClient):
+    def __init__(self, benchmark_context: BenchmarkContext):
+        self._client_binary = benchmark_context.client_binary
+        self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
+        self._username = ""
+        self._password = ""
+        self._bolt_port = (
+            benchmark_context.vendor_args["bolt-port"] if "bolt-port" in benchmark_context.vendor_args.keys() else 7687
+        )
+
+    def _get_args(self, **kwargs):
+        return _convert_args_to_flags(self._client_binary, **kwargs)
+
+    def execute(
+        self,
+        queries=None,
+        file_path=None,
+        num_workers=1,
+        max_retries: int = 50,
+        validation: bool = False,
+        time_dependent_execution: int = 0,
+    ):
+        if (queries is None and file_path is None) or (queries is not None and file_path is not None):
+            raise ValueError("Either queries or input_path must be specified!")
+
+        # TODO: check `file_path.endswith(".json")` to support advanced
+        # input queries
+
+        queries_json = False
+        if queries is not None:
+            queries_json = True
+            file_path = os.path.join(self._directory.name, "queries.json")
+            with open(file_path, "w") as f:
+                for query in queries:
+                    json.dump(query, f)
+                    f.write("\n")
+        args = self._get_args(
+            input=file_path,
+            num_workers=num_workers,
+            max_retries=max_retries,
+            queries_json=queries_json,
+            username=self._username,
+            password=self._password,
+            port=self._bolt_port,
+            validation=validation,
+            time_dependent_execution=time_dependent_execution,
+        )
+
+        ret = None
+        try:
+            ret = subprocess.run(args, capture_output=True)
+        finally:
+            error = ret.stderr.decode("utf-8").strip().split("\n")
+            data = ret.stdout.decode("utf-8").strip().split("\n")
+            if error and error[0] != "":
+                print("Reported errros from client")
+                print(error)
+            data = [x for x in data if not x.startswith("[")]
+            return list(map(json.loads, data))
+
+
 class BaseRunner(ABC):
     subclasses = {}
 
@@ -104,6 +175,7 @@ class BaseRunner(ABC):
     def _clean_up(self):
         pass
 
+    @abstractmethod
     def fetch_client(self) -> BaseClient:
         pass
 
@@ -205,6 +277,9 @@ class Memgraph(BaseRunner):
         assert ret == 0, "The database process exited with a non-zero " "status ({})!".format(ret)
         return usage
 
+    def fetch_client(self) -> BoltClient:
+        return BoltClient(benchmark_context=self.benchmark_context)
+
     def _clean_up():
         pass
 
@@ -214,6 +289,7 @@ class Memgraph(BaseRunner):
 
 class Neo4j(BaseRunner):
     def __init__(self, benchmark_context: BenchmarkContext, vendor_args: dict):
+        super().__init__(benchmark_context=benchmark_context, vendor_args=vendor_args)
         self._neo4j_path = Path(benchmark_context.vendor_context)
         self._neo4j_binary = Path(benchmark_context.vendor_context) / "bin" / "neo4j"
         self._neo4j_config = Path(benchmark_context.vendor_context) / "conf" / "neo4j.conf"
@@ -438,72 +514,5 @@ class Neo4j(BaseRunner):
     def _stop():
         pass
 
-
-class BaseClient(ABC):
-    pass
-
-
-class BoltClient:
-    def __init__(
-        self,
-        client_binary: str,
-        temporary_directory: str,
-        bolt_port: int = 7687,
-        username: str = "",
-        password: str = "",
-    ):
-        self._client_binary = client_binary
-        self._directory = tempfile.TemporaryDirectory(dir=temporary_directory)
-        self._username = username
-        self._password = password
-        self._bolt_port = bolt_port
-
-    def _get_args(self, **kwargs):
-        return _convert_args_to_flags(self._client_binary, **kwargs)
-
-    def execute(
-        self,
-        queries=None,
-        file_path=None,
-        num_workers=1,
-        max_retries: int = 50,
-        validation: bool = False,
-        time_dependent_execution: int = 0,
-    ):
-        if (queries is None and file_path is None) or (queries is not None and file_path is not None):
-            raise ValueError("Either queries or input_path must be specified!")
-
-        # TODO: check `file_path.endswith(".json")` to support advanced
-        # input queries
-
-        queries_json = False
-        if queries is not None:
-            queries_json = True
-            file_path = os.path.join(self._directory.name, "queries.json")
-            with open(file_path, "w") as f:
-                for query in queries:
-                    json.dump(query, f)
-                    f.write("\n")
-        args = self._get_args(
-            input=file_path,
-            num_workers=num_workers,
-            max_retries=max_retries,
-            queries_json=queries_json,
-            username=self._username,
-            password=self._password,
-            port=self._bolt_port,
-            validation=validation,
-            time_dependent_execution=time_dependent_execution,
-        )
-
-        ret = None
-        try:
-            ret = subprocess.run(args, capture_output=True)
-        finally:
-            error = ret.stderr.decode("utf-8").strip().split("\n")
-            data = ret.stdout.decode("utf-8").strip().split("\n")
-            if error and error[0] != "":
-                print("Reported errros from client")
-                print(error)
-            data = [x for x in data if not x.startswith("[")]
-            return list(map(json.loads, data))
+    def fetch_client(self) -> BoltClient:
+        return BoltClient(benchmark_context=self.benchmark_context)

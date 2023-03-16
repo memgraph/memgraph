@@ -13,17 +13,13 @@
 
 import argparse
 import collections
-import copy
 import fnmatch
-import inspect
 import json
 import multiprocessing
 import platform
 import random
-import sys
 
 import helpers
-import importer
 import log
 import runners
 import workloads.base
@@ -485,6 +481,7 @@ if __name__ == "__main__":
         warm_up=args.warm_up,
         performance_tracking=args.performance_tracking,
         no_authorization=args.no_authorization,
+        vendor_args=vendor_specific_args,
     )
 
     vendor_runner = runners.BaseRunner.create(
@@ -518,9 +515,7 @@ if __name__ == "__main__":
     # Run all target workloads.
     for workload, queries in target_workloads:
 
-        client = runners.Client(
-            client_binary=benchmark_context.client_binary, temporary_directory=benchmark_context.temporary_directory
-        )
+        client = vendor_runner.fetch_client()
 
         ret = None
         usage = None

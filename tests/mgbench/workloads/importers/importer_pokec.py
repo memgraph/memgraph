@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from benchmark_context import BenchmarkContext
-from runners import BaseRunner, Client
+from runners import BaseRunner
 
 
 class ImporterPokec:
@@ -21,10 +21,7 @@ class ImporterPokec:
                 benchmark_context=self._benchmark_context,
                 vendor_args={},
             )
-            client = Client(
-                client_binary=self._benchmark_context.client_binary,
-                temporary_directory=self._benchmark_context.temporary_directory,
-            )
+            client = vendor_runner.fetch_client()
             vendor_runner.clean_db()
             vendor_runner.start_preparation("preparation")
             print("Executing database cleanup and index setup...")

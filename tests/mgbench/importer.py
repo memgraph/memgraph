@@ -4,7 +4,7 @@ from collections import defaultdict
 from pathlib import Path
 
 import helpers
-from runners import BaseRunner, Client, Memgraph, Neo4j
+from runners import BaseRunner, BoltClient, Memgraph, Neo4j
 from workloads.base import Workload
 
 # Removed speaks/email from person header
@@ -47,7 +47,7 @@ HEADERS_URL = "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/
 
 class Importer:
     def __init__(
-        self, dataset: Workload, vendor: BaseRunner, client: Client, num_workers_for_import: int, retries: int = 300
+        self, dataset: Workload, vendor: BaseRunner, client: BoltClient, num_workers_for_import: int, retries: int = 300
     ):
         self._dataset = dataset
         self._vendor = vendor
