@@ -59,9 +59,8 @@ static void BM_PlanChainedMatches(benchmark::State &state) {
     if (query_parts.query_parts.size() == 0) {
       std::exit(EXIT_FAILURE);
     }
-    auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
     auto plans = memgraph::query::plan::MakeLogicalPlanForSingleQuery<memgraph::query::plan::VariableStartPlanner>(
-        single_query_parts, &ctx);
+        query_parts, &ctx);
     for (const auto &plan : plans) {
       // Exhaust through all generated plans, since they are lazily generated.
       benchmark::DoNotOptimize(plan.get());
@@ -131,9 +130,8 @@ static void BM_PlanAndEstimateIndexedMatching(benchmark::State &state) {
     if (query_parts.query_parts.size() == 0) {
       std::exit(EXIT_FAILURE);
     }
-    auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
     auto plans = memgraph::query::plan::MakeLogicalPlanForSingleQuery<memgraph::query::plan::VariableStartPlanner>(
-        single_query_parts, &ctx);
+        query_parts, &ctx);
     for (auto plan : plans) {
       memgraph::query::plan::EstimatePlanCost(&dba, parameters, *plan);
     }
@@ -163,9 +161,8 @@ static void BM_PlanAndEstimateIndexedMatchingWithCachedCounts(benchmark::State &
     if (query_parts.query_parts.size() == 0) {
       std::exit(EXIT_FAILURE);
     }
-    auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
     auto plans = memgraph::query::plan::MakeLogicalPlanForSingleQuery<memgraph::query::plan::VariableStartPlanner>(
-        single_query_parts, &ctx);
+        query_parts, &ctx);
     for (auto plan : plans) {
       memgraph::query::plan::EstimatePlanCost(&vertex_counts, parameters, *plan);
     }

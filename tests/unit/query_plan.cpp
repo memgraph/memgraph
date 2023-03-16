@@ -51,10 +51,10 @@ namespace {
 class Planner {
  public:
   template <class TDbAccessor>
-  Planner(std::vector<SingleQueryPart> single_query_parts, PlanningContext<TDbAccessor> context) {
+  Planner(QueryParts query_parts, PlanningContext<TDbAccessor> context) {
     memgraph::query::Parameters parameters;
     PostProcessor post_processor(parameters);
-    plan_ = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(single_query_parts, &context);
+    plan_ = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(query_parts, &context);
     plan_ = post_processor.Rewrite(std::move(plan_), &context);
   }
 

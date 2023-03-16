@@ -75,8 +75,7 @@ void CheckPlansProduce(size_t expected_plan_count, memgraph::query::CypherQuery 
   auto planning_context = MakePlanningContext(&storage, &symbol_table, query, dba);
   auto query_parts = CollectQueryParts(symbol_table, storage, query->single_query_, query->cypher_unions_);
   EXPECT_TRUE(query_parts.query_parts.size() > 0);
-  auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
-  auto plans = MakeLogicalPlanForSingleQuery<VariableStartPlanner>(single_query_parts, &planning_context);
+  auto plans = MakeLogicalPlanForSingleQuery<VariableStartPlanner>(query_parts, &planning_context);
   EXPECT_EQ(std::distance(plans.begin(), plans.end()), expected_plan_count);
   for (const auto &plan : plans) {
     auto *produce = dynamic_cast<Produce *>(plan.get());
