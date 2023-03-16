@@ -20,11 +20,8 @@ from benchmark_context import BenchmarkContext
 # common logic is handled here.
 class Workload(ABC):
 
-    # Indicates if Workload is generator or dataset "GENERATOR" OR "DATASET"
-    WORKLOAD_MODE = None
-
     # Name of the workload/dataset.
-    NAME = "Base workload"
+    NAME = ""
     # List of all variants of the workload/dataset that exist.
     VARIANTS = ["default"]
     # One of the available variants that should be used as the default variant.
@@ -48,6 +45,46 @@ class Workload(ABC):
     # Indicates whether the dataset has properties on edges.
     PROPERTIES_ON_EDGES = False
 
+    def __init_subclass__(cls) -> None:
+        name_prerequisite = "NAME" in cls.__dict__
+        generator_prerequisite = "dataset_generator" in cls.__dict__
+        custom_import_prerequisite = "custom_import" in cls.__dict__
+        basic_import_prerequisite = ("LOCAL_FILE" in cls.__dict__ or "URL_FILE" in cls.__dict__) and (
+            "LOCAL_INDEX_FILE" in cls.__dict__ or "URL_INDEX_FILE" in cls.__dict__
+        )
+
+        if not name_prerequisite:
+            raise ValueError(
+                """Can't define a workload class {} without NAME property:
+                                NAME = "dataset name"
+                                Name property defines the workload you want to execute, for example: "demo/*/*/*"
+                            """.format(
+                    cls.__name__
+                )
+            )
+
+        # Check workload is in generator or dataset mode during interpretation (not both), not runtime
+        if generator_prerequisite and (custom_import_prerequisite or basic_import_prerequisite):
+            raise ValueError(
+                """
+                                The workload class {} cannot have defined dataset import and generate dataset at
+                                the same time.
+                                 """.format(
+                    cls.__name__
+                )
+            )
+
+        if not generator_prerequisite and (not custom_import_prerequisite and not basic_import_prerequisite):
+            raise ValueError(
+                """
+                                The workload class {} need to have defined dataset import or dataset generator
+                                """.format(
+                    cls.__name__
+                )
+            )
+
+        return super().__init_subclass__()
+
     def __init__(self, variant: str = None, benchmark_context: BenchmarkContext = None):
         """
         Accepts a `variant` variable that indicates which variant
@@ -58,6 +95,9 @@ class Workload(ABC):
         self._vendor = benchmark_context.vendor_name
         self._file = None
         self._file_index = None
+
+        if self.NAME == "":
+            raise ValueError("Give your workload a name, by setting self.NAME")
 
         if variant is None:
             variant = self.DEFAULT_VARIANT
@@ -94,10 +134,9 @@ class Workload(ABC):
             self._url_index = None
 
         self._size = self.SIZES[variant]
-        if "vertices" not in self._size or "edges" not in self._size:
-            raise ValueError("The size defined for this variant doesn't have the number of vertices and/or edges!")
-        self._num_vertices = self._size["vertices"]
-        self._num_edges = self._size["edges"]
+        if "vertices" in self._size or "edges" in self._size:
+            self._num_vertices = self._size["vertices"]
+            self._num_edges = self._size["edges"]
 
     def prepare(self, directory):
         if self._local_file is not None:
@@ -148,7 +187,7 @@ class Workload(ABC):
         print("Workload does not have a custom import")
         return False
 
-    def generator(self) -> list:
+    def dataset_generator(self) -> list:
         print("Workload is not auto generated")
         return []
 

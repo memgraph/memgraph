@@ -518,16 +518,22 @@ if __name__ == "__main__":
     # Run all target workloads.
     for workload, queries in target_workloads:
 
-        log.init("Preparing workload: ", workload.NAME + "/" + workload.get_variant())
-        workload.prepare(cache.cache_directory("datasets", workload.NAME, workload.get_variant()))
-
         client = runners.Client(
             client_binary=benchmark_context.client_binary, temporary_directory=benchmark_context.temporary_directory
         )
 
-        if workload.MODE == "DATASET":
-            custom_import = workload.custom_import()
-            if not custom_import:
+        ret = None
+        usage = None
+        generated_queries = workload.dataset_generator()
+        if generated_queries:
+            vendor_runner.start_preparation("import")
+            client.execute(queries=generated_queries, num_workers=benchmark_context.num_workers_for_import)
+            vendor_runner.stop("import")
+        else:
+            log.init("Preparing workload: ", workload.NAME + "/" + workload.get_variant())
+            workload.prepare(cache.cache_directory("datasets", workload.NAME, workload.get_variant()))
+            imported = workload.custom_import()
+            if not imported:
                 vendor_runner.start_preparation("import")
                 print("Executing database cleanup and index setup...")
                 client.execute(file_path=workload.get_index(), num_workers=benchmark_context.num_workers_for_import)
@@ -537,14 +543,6 @@ if __name__ == "__main__":
                 )
                 usage = vendor_runner.stop("import")
 
-        elif workload.MODE == "GENERATOR":
-            queries = workload.generator()
-            vendor_runner.start_preparation("import")
-            client.execute(queries=queries, num_workers=benchmark_context.num_workers_for_import)
-            vendor_runner.stop("import")
-
-        ret = None
-        usage = None
         # Save import results.
         import_key = [workload.NAME, workload.get_variant(), "__import__"]
         if ret != None and usage != None:

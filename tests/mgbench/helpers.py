@@ -112,8 +112,7 @@ def ensure_directory(path):
 
 def get_available_workloads() -> dict:
     generators = {}
-    available_workloads = map(workloads.__dict__.get, workloads.__all__)
-    for module in available_workloads:
+    for module in map(workloads.__dict__.get, workloads.__all__):
         for key in dir(module):
             base_class = getattr(module, key)
             if not inspect.isclass(base_class) or not issubclass(base_class, base.Workload):

@@ -7,7 +7,6 @@ from workloads.importers.importer_pokec import ImporterPokec
 
 
 class Pokec(Workload):
-    MODE = "DATASET"
     NAME = "pokec"
     VARIANTS = ["small", "medium", "large"]
     DEFAULT_VARIANT = "small"
@@ -43,9 +42,6 @@ class Pokec(Workload):
             variant=self._variant,
         )
         return importer.execute_import()
-
-    def workload_generator(self) -> list:
-        return []
 
     # Helpers used to generate the queries
     def _get_random_vertex(self):

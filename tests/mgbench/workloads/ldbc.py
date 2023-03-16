@@ -12,7 +12,7 @@ class LDBC_Interactive(Workload):
     VARIANTS = ["sf0.1", "sf1", "sf3", "sf10"]
     DEFAULT_VARIANT = "sf1"
 
-    URL_CYPHER = {
+    URL_FILE = {
         "sf0.1": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/interactive/ldbc_interactive_sf0.1.cypher.gz",
         "sf1": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/interactive/ldbc_interactive_sf1.cypher.gz",
         "sf3": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/interactive/ldbc_interactive_sf3.cypher.gz",
@@ -32,7 +32,7 @@ class LDBC_Interactive(Workload):
         "sf10": {"vertices": 1, "edges": 1},
     }
 
-    URL_INDEX_FILES = {
+    URL_INDEX_FILE = {
         "memgraph": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/interactive/memgraph_interactive_index.cypher",
         "neo4j": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/interactive/neo4j_interactive_index.cypher",
     }
@@ -675,7 +675,7 @@ class LDBC_BI(Workload):
     VARIANTS = ["sf1", "sf3", "sf10"]
     DEFAULT_VARIANT = "sf1"
 
-    URL_CYPHER = {
+    URL_FILE = {
         "sf1": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/bi/ldbc_bi_sf1.cypher.gz",
         "sf3": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/bi/ldbc_bi_sf3.cypher.gz",
         "sf10": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/bi/ldbc_bi_sf10.cypher.gz",
@@ -696,7 +696,7 @@ class LDBC_BI(Workload):
 
     LOCAL_INDEX_FILES = None
 
-    URL_INDEX_FILES = {
+    URL_INDEX_FILE = {
         "memgraph": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/bi/memgraph_bi_index.cypher",
         "neo4j": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/bi/neo4j_bi_index.cypher",
     }

@@ -17,7 +17,7 @@ import subprocess
 import tempfile
 import threading
 import time
-from abc import ABC, abstractclassmethod
+from abc import ABC, abstractmethod
 from pathlib import Path
 
 from benchmark_context import BenchmarkContext
@@ -83,25 +83,28 @@ class BaseRunner(ABC):
             vendor_args=vendor_args,
         )
 
-    @abstractclassmethod
+    @abstractmethod
     def __init__(self, benchmark_context: BenchmarkContext, vendor_args: dict):
         self.benchmark_context = benchmark_context
         self.arguments = vendor_args
 
-    @abstractclassmethod
+    @abstractmethod
     def _get_args(self, **kwargs):
         pass
 
-    @abstractclassmethod
+    @abstractmethod
     def _start(self, **kwargs):
         pass
 
-    @abstractclassmethod
+    @abstractmethod
     def _stop(self):
         pass
 
-    @abstractclassmethod
+    @abstractmethod
     def _clean_up(self):
+        pass
+
+    def fetch_client(self) -> BaseClient:
         pass
 
 
@@ -229,7 +232,8 @@ class Neo4j(BaseRunner):
         configs = []
         memory_flag = "server.jvm.additional=-XX:NativeMemoryTracking=detail"
         auth_flag = "dbms.security.auth_enabled=false"
-
+        bolt_flag = "server.bolt.listen_address=:7687"
+        http_flag = "server.http.listen_address=:7474"
         if self._performance_tracking:
             configs.append(memory_flag)
         else:
@@ -249,6 +253,8 @@ class Neo4j(BaseRunner):
                 file.close()
 
         configs.append(auth_flag)
+        configs.append(bolt_flag)
+        configs.append(http_flag)
         print("Check neo4j config flags:")
         for conf in configs:
             with self._neo4j_config.open("r+") as file:
@@ -433,7 +439,11 @@ class Neo4j(BaseRunner):
         pass
 
 
-class Client:
+class BaseClient(ABC):
+    pass
+
+
+class BoltClient:
     def __init__(
         self,
         client_binary: str,
