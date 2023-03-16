@@ -16,7 +16,6 @@
 #include <utility>
 
 #include "storage/v2/config.hpp"
-#include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_accessor.hpp"

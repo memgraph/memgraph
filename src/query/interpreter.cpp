@@ -11,7 +11,6 @@
 
 #include "query/interpreter.hpp"
 #include <fmt/core.h>
-#include <openssl/x509v3.h>
 
 #include <algorithm>
 #include <atomic>
@@ -19,13 +18,10 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
-#include <iterator>
 #include <limits>
-#include <numeric>
 #include <optional>
 #include <unordered_map>
 #include <variant>
-#include <vector>
 
 #include "_mgp.hpp"
 #include "auth/models.hpp"
@@ -54,9 +50,7 @@
 #include "query/typed_value.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/indices.hpp"
 #include "storage/v2/property_value.hpp"
-#include "storage/v2/view.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
@@ -64,14 +58,12 @@
 #include "utils/flag_validation.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
-#include "utils/math.hpp"
 #include "utils/memory.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/settings.hpp"
 #include "utils/string.hpp"
 #include "utils/tsc.hpp"
-#include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
 
 namespace EventCounter {

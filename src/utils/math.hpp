@@ -11,11 +11,11 @@
 
 #pragma once
 
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <optional>
 #include <type_traits>
-#include "utils/async_timer.hpp"
 
 namespace memgraph::utils {
 

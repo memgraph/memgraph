@@ -29,8 +29,6 @@
 // #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
-#include "storage/v2/indices.hpp"
-#include "utils/math.hpp"
 
 DECLARE_int64(query_vertex_count_to_expand_existing);
 
@@ -547,6 +545,15 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         if (!db_->LabelPropertyIndexExists(GetLabel(label), GetProperty(property))) {
           continue;
         }
+        auto is_better_type = [&found](PropertyFilter::Type type) {
+          // Order the types by the most preferred index lookup type.
+          static const PropertyFilter::Type kFilterTypeOrder[] = {
+              PropertyFilter::Type::EQUAL, PropertyFilter::Type::RANGE, PropertyFilter::Type::REGEX_MATCH};
+          auto *found_sort_ix = std::find(kFilterTypeOrder, kFilterTypeOrder + 3, found->filter.property_filter->type_);
+          auto *type_sort_ix = std::find(kFilterTypeOrder, kFilterTypeOrder + 3, type);
+          return type_sort_ix < found_sort_ix;
+        };
+
         int64_t vertex_count = db_->VerticesCount(GetLabel(label), GetProperty(property));
 
         std::optional<storage::IndexStats> new_stats = db_->GetIndexStats(GetLabel(label), GetProperty(property));
@@ -556,7 +563,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
              (utils::LessThanDecimal(new_stats->avg_group_size, found->stats->avg_group_size) ||
               (utils::ApproxEqualDecimal(found->stats->avg_group_size, new_stats->avg_group_size) &&
                utils::GreaterThanDecimal(found->stats->stat_value, new_stats->stat_value)))) ||
-            found->vertex_count > vertex_count) {
+            found->vertex_count > vertex_count ||
+            (found->vertex_count == vertex_count && is_better_type(filter.property_filter->type_))) {
           found = LabelPropertyIndex{label, filter, vertex_count, new_stats};
         }
       }

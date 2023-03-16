@@ -11,10 +11,8 @@
 
 #pragma once
 
-#include <algorithm>
 #include <atomic>
 #include <filesystem>
-#include <iterator>
 #include <optional>
 #include <shared_mutex>
 #include <span>
@@ -29,7 +27,6 @@
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_accessor.hpp"
-#include "storage/v2/id_types.hpp"
 #include "storage/v2/indices.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/mvcc.hpp"

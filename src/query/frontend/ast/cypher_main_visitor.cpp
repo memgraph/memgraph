@@ -13,7 +13,6 @@
 #include <support/Any.h>
 
 #include <algorithm>
-#include <any>
 #include <climits>
 #include <codecvt>
 #include <cstring>
@@ -247,7 +246,7 @@ antlrcpp::Any CypherMainVisitor::visitAnalyzeGraphQuery(MemgraphCypher::AnalyzeG
     analyze_graph_query->labels_ =
         std::any_cast<std::vector<std::string>>(ctx->listOfColonSymbolicNames()->accept(this));
   } else {
-    analyze_graph_query->labels_ = {"*"};
+    analyze_graph_query->labels_.emplace_back("*");
   }
   if (ctx->DELETE() && ctx->STATISTICS()) {
     analyze_graph_query->action_ = AnalyzeGraphQuery::Action::DELETE;
@@ -1444,7 +1443,8 @@ antlrcpp::Any CypherMainVisitor::visitEntitiesList(MemgraphCypher::EntitiesListC
   if (ctx->listOfColonSymbolicNames()) {
     return ctx->listOfColonSymbolicNames()->accept(this);
   }
-  return {"*"};
+  entities.emplace_back("*");
+  return entities;
 }
 
 /**

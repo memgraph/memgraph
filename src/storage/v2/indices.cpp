@@ -10,11 +10,8 @@
 // licenses/APL.txt.
 
 #include "indices.hpp"
-#include <algorithm>
 #include <limits>
-#include <utility>
 
-#include "storage/v2/id_types.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/bound.hpp"
