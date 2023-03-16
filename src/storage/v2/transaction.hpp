@@ -47,7 +47,8 @@ struct Transaction {
         command_id(other.command_id),
         deltas(std::move(other.deltas)),
         must_abort(other.must_abort),
-        isolation_level(other.isolation_level) {}
+        isolation_level(other.isolation_level),
+        analytics_mode(other.analytics_mode) {}
 
   Transaction(const Transaction &) = delete;
   Transaction &operator=(const Transaction &) = delete;
