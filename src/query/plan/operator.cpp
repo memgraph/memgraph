@@ -1834,7 +1834,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       : self_(self),
         input_cursor_(self_.input_->MakeCursor(mem)),
         visited_cost_(mem),
-        expanded_(mem),
+        total_cost_(mem),
         next_edges_(mem),
         traversal_stack_(mem),
         pq_(mem) {}
@@ -1844,6 +1844,9 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::OLD);
+    auto create_state = [this](const VertexAccessor &vertex, int64_t depth) {
+      return std::make_pair(vertex, upper_bound_set_ ? depth : 0);
+    };
 
     // For the given (edge, direction, weight, depth) tuple checks if they
     // satisfy the "where" condition. if so, places them in the priority
@@ -1935,10 +1938,15 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       }
     };
 
-    // Check if upper bound exists
-    upper_bound_ = self_.upper_bound_
-                       ? EvaluateInt(&evaluator, self_.upper_bound_, "Max depth in all shortest paths expansion")
-                       : std::numeric_limits<int64_t>::max();
+    // upper_bound_set is used when storing visited edges, because with an upper bound we also consider suboptimal paths
+    // if they are shorter in depth
+    if (self_.upper_bound_) {
+      upper_bound_ = EvaluateInt(&evaluator, self_.upper_bound_, "Max depth in all shortest path expansion");
+      upper_bound_set_ = true;
+    } else {
+      upper_bound_ = std::numeric_limits<int64_t>::max();
+      upper_bound_set_ = false;
+    }
 
     // Check if upper bound is valid
     if (upper_bound_ < 1) {
@@ -2022,9 +2030,9 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
         // Clear existing data structures.
         visited_cost_.clear();
-        expanded_.clear();
         next_edges_.clear();
         traversal_stack_.clear();
+        total_cost_.clear();
 
         expand_from_vertex(*start_vertex, TypedValue(), 0);
         visited_cost_.emplace(*start_vertex, 0);
@@ -2039,12 +2047,16 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         pq_.pop();
 
         const auto &[current_edge, direction, weight] = directed_edge;
-        if (expanded_.contains(current_edge)) continue;
-        expanded_.emplace(current_edge);
+        auto current_state = create_state(current_vertex, current_depth);
 
-        // Expand only if what we've just expanded is less than max depth.
-        if (current_depth < upper_bound_) {
-          expand_from_vertex(current_vertex, current_weight, current_depth);
+        auto position = total_cost_.find(current_state);
+        if (position != total_cost_.end()) {
+          if ((position->second < current_weight).ValueBool()) continue;
+        } else {
+          total_cost_.emplace(current_state, current_weight);
+          if (current_depth < upper_bound_) {
+            expand_from_vertex(current_vertex, current_weight, current_depth);
+          }
         }
 
         // Searching for a previous vertex in the expansion
@@ -2055,7 +2067,6 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
           utils::pmr::list<DirectedEdge> empty(memory);
           next_edges_[{prev_vertex, current_depth - 1}] = std::move(empty);
         }
-
         next_edges_.at({prev_vertex, current_depth - 1}).emplace_back(directed_edge);
       }
 
@@ -2071,9 +2082,9 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
   void Reset() override {
     input_cursor_->Reset();
     visited_cost_.clear();
-    expanded_.clear();
     next_edges_.clear();
     traversal_stack_.clear();
+    total_cost_.clear();
     ClearQueue();
   }
 
@@ -2083,6 +2094,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
   // Upper bound on the path length.
   int64_t upper_bound_{-1};
+  bool upper_bound_set_{false};
 
   struct AspStateHash {
     size_t operator()(const std::pair<VertexAccessor, int64_t> &key) const {
@@ -2094,8 +2106,8 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
   using NextEdgesState = std::pair<VertexAccessor, int64_t>;
   // Maps vertices to minimum weights they got in expansion.
   utils::pmr::unordered_map<VertexAccessor, TypedValue> visited_cost_;
-  // Marking the expanded edges to prevent multiple visits.
-  utils::pmr::unordered_set<EdgeAccessor> expanded_;
+  // Maps vertices to weights they got in expansion.
+  utils::pmr::unordered_map<NextEdgesState, TypedValue, AspStateHash> total_cost_;
   // Maps the vertex with the potential expansion edge.
   utils::pmr::unordered_map<NextEdgesState, utils::pmr::list<DirectedEdge>, AspStateHash> next_edges_;
   // Stack indicating the traversal level.
