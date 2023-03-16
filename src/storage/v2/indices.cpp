@@ -725,11 +725,10 @@ void LabelPropertyIndex::SetIndexStats(const storage::LabelId &label, const stor
 
 std::optional<IndexStats> LabelPropertyIndex::GetIndexStats(const storage::LabelId &label,
                                                             const storage::PropertyId &property) const {
-  auto it = stats_.find({label, property});
-  if (it == stats_.end()) {
-    return {};
+  if (auto it = stats_.find({label, property}); it != stats_.end()) {
+    return it->second;
   }
-  return it->second;
+  return {};
 }
 
 void LabelPropertyIndex::RunGC() {

@@ -17,6 +17,7 @@
 #include <iterator>
 #include <optional>
 #include <shared_mutex>
+#include <span>
 #include <variant>
 
 #include "io/network/endpoint.hpp"
@@ -276,7 +277,7 @@ class Storage final {
       return storage_->indices_.label_property_index.ClearIndexStats();
     }
 
-    std::vector<std::pair<LabelId, PropertyId>> DeleteIndexStatsForLabels(const std::vector<std::string> &labels) {
+    std::vector<std::pair<LabelId, PropertyId>> DeleteIndexStatsForLabels(const std::span<std::string> labels) {
       std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;
       std::for_each(labels.begin(), labels.end(), [this, &deleted_indexes](const auto &label_str) {
         std::vector<std::pair<LabelId, PropertyId>> loc_results =

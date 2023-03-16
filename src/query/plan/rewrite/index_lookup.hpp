@@ -517,8 +517,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return best_label;
   }
 
-  // Finds the label-property combination which has indexed the lowest amount of
-  // vertices. If the index cannot be found, nullopt is returned.
+  // Finds the label-property combination. The first criteria based on number of vertices indexed -> if one index has
+  // 10x less than the other one, always choose the smaller one. Otherwise, choose the index with smallest average group
+  // size based on key distribution. If average group size is equal, choose the index that has distribution closer to
+  // uniform distribution. Conditions based on average group size and key distribution can be only taken into account if
+  // the user has run `ANALYZE GRAPH` query before If the index cannot be found, nullopt is returned.
   std::optional<LabelPropertyIndex> FindBestLabelPropertyIndex(const Symbol &symbol,
                                                                const std::unordered_set<Symbol> &bound_symbols) {
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
@@ -560,8 +563,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
     return found;
   }
-  // Creates a ScanAll by the best possible index for the `node_symbol`. Best
-  // index is defined as the index with least number of vertices. If the node
+  // Creates a ScanAll by the best possible index for the `node_symbol`. If the node
   // does not have at least a label, no indexed lookup can be created and
   // `nullptr` is returned. The operator is chained after `input`. Optional
   // `max_vertex_count` controls, whether no operator should be created if the

@@ -440,7 +440,7 @@ class FakeDbAccessor {
 
   memgraph::storage::IndexStats GetIndexStats(memgraph::storage::LabelId label,
                                               memgraph::storage::PropertyId property) const {
-    return memgraph::storage::IndexStats{.avg_group_size = 1, .stat_value = 0};  // unique id
+    return memgraph::storage::IndexStats{.stat_value = 0, .avg_group_size = 1};  // unique id
   }
 
   void SetIndexCount(memgraph::storage::LabelId label, int64_t count) { label_index_[label] = count; }
