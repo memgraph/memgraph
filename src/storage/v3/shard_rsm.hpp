@@ -57,7 +57,7 @@ class ShardRsm {
   }
 
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-  msgs::ReadResponses Read(msgs::ReadRequests requests) {
+  msgs::ReadResponses Read(msgs::ReadRequests &&requests) {
     return std::visit([&](auto &&request) mutable { return HandleRead(std::forward<decltype(request)>(request)); },
                       std::move(requests));
   }

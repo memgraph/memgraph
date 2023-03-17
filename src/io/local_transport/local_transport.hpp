@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -30,10 +30,10 @@ class LocalTransport {
   explicit LocalTransport(std::shared_ptr<LocalTransportHandle> local_transport_handle)
       : local_transport_handle_(std::move(local_transport_handle)) {}
 
-  template <Message RequestT, Message ResponseT>
-  ResponseFuture<ResponseT> Request(Address to_address, Address from_address, RequestT request,
+  template <Message ResponseT, Message RequestT>
+  ResponseFuture<ResponseT> Request(Address to_address, Address from_address, RValueRef<RequestT> request,
                                     std::function<void()> fill_notifier, Duration timeout) {
-    return local_transport_handle_->template SubmitRequest<RequestT, ResponseT>(
+    return local_transport_handle_->template SubmitRequest<ResponseT, RequestT>(
         to_address, from_address, std::move(request), timeout, fill_notifier);
   }
 
@@ -43,8 +43,8 @@ class LocalTransport {
   }
 
   template <Message M>
-  void Send(Address to_address, Address from_address, RequestId request_id, M &&message) {
-    return local_transport_handle_->template Send<M>(to_address, from_address, request_id, std::forward<M>(message));
+  void Send(Address to_address, Address from_address, RequestId request_id, RValueRef<M> message) {
+    return local_transport_handle_->template Send<M>(to_address, from_address, request_id, std::move(message));
   }
 
   Time Now() const { return local_transport_handle_->Now(); }
