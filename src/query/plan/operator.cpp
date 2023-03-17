@@ -1938,6 +1938,91 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       }
     };
 
+    std::optional<VertexAccessor> start_vertex;
+    auto *memory = context.evaluation_context.memory;
+
+    auto create_path = [this, &frame, &memory]() {
+      auto &current_level = traversal_stack_.back();
+      auto &edges_on_frame = frame[self_.common_.edge_symbol].ValueList();
+
+      // Clean out the current stack
+      if (current_level.empty()) {
+        if (!edges_on_frame.empty()) {
+          if (!self_.is_reverse_)
+            edges_on_frame.erase(edges_on_frame.end());
+          else
+            edges_on_frame.erase(edges_on_frame.begin());
+        }
+        traversal_stack_.pop_back();
+        return false;
+      }
+
+      auto [current_edge, current_edge_direction, current_weight] = current_level.back();
+      current_level.pop_back();
+
+      // Edges order depends on direction of expansion
+      if (!self_.is_reverse_)
+        edges_on_frame.emplace_back(current_edge);
+      else
+        edges_on_frame.emplace(edges_on_frame.begin(), current_edge);
+
+      auto next_vertex = current_edge_direction == EdgeAtom::Direction::IN ? current_edge.From() : current_edge.To();
+      frame[self_.total_weight_.value()] = current_weight;
+
+      if (next_edges_.find({next_vertex, traversal_stack_.size()}) != next_edges_.end()) {
+        auto next_vertex_edges = next_edges_[{next_vertex, traversal_stack_.size()}];
+        traversal_stack_.emplace_back(std::move(next_vertex_edges));
+      } else {
+        // Signal the end of iteration
+        utils::pmr::list<DirectedEdge> empty(memory);
+        traversal_stack_.emplace_back(std::move(empty));
+      }
+
+      if ((current_weight > visited_cost_.at(next_vertex)).ValueBool()) return false;
+
+      // Place destination node on the frame, handle existence flag
+      if (self_.common_.existing_node) {
+        const auto &node = frame[self_.common_.node_symbol];
+        ExpectType(self_.common_.node_symbol, node, TypedValue::Type::Vertex);
+        if (node.ValueVertex() != next_vertex) return false;
+      } else {
+        frame[self_.common_.node_symbol] = next_vertex;
+      }
+      return true;
+    };
+
+    auto create_DFS_traversal_tree = [this, &context, &memory, &create_state, &expand_from_vertex]() {
+      while (!pq_.empty()) {
+        if (MustAbort(context)) throw HintedAbortError();
+
+        const auto [current_weight, current_depth, current_vertex, directed_edge] = pq_.top();
+        pq_.pop();
+
+        const auto &[current_edge, direction, weight] = directed_edge;
+        auto current_state = create_state(current_vertex, current_depth);
+
+        auto position = total_cost_.find(current_state);
+        if (position != total_cost_.end()) {
+          if ((position->second < current_weight).ValueBool()) continue;
+        } else {
+          total_cost_.emplace(current_state, current_weight);
+          if (current_depth < upper_bound_) {
+            expand_from_vertex(current_vertex, current_weight, current_depth);
+          }
+        }
+
+        // Searching for a previous vertex in the expansion
+        auto prev_vertex = direction == EdgeAtom::Direction::IN ? current_edge.To() : current_edge.From();
+
+        // Update the parent
+        if (next_edges_.find({prev_vertex, current_depth - 1}) == next_edges_.end()) {
+          utils::pmr::list<DirectedEdge> empty(memory);
+          next_edges_[{prev_vertex, current_depth - 1}] = std::move(empty);
+        }
+        next_edges_.at({prev_vertex, current_depth - 1}).emplace_back(directed_edge);
+      }
+    };
+
     // upper_bound_set is used when storing visited edges, because with an upper bound we also consider suboptimal paths
     // if they are shorter in depth
     if (self_.upper_bound_) {
@@ -1953,63 +2038,18 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       throw QueryRuntimeException("Maximum depth in all shortest paths expansion must be at least 1.");
     }
 
-    std::optional<VertexAccessor> start_vertex;
-    auto *memory = context.evaluation_context.memory;
-
+    // On first Pull run, traversal stack and priority queue are empty, so we start a pulling stream
+    // and create a DFS traversal tree (main part of algorithm). Then we return the first path
+    // created from the DFS traversal tree (basically a DFS algorithm).
+    // On each subsequent Pull run, paths are created from the traversal stack and returned.
     while (true) {
       // Check if there is an external error.
       if (MustAbort(context)) throw HintedAbortError();
 
-      // If traversal stack if filled, the DFS traversal tree is created. Traverse the tree iteratively by
-      // preserving the traversal state on stack.
+      // The algorithm is run all at once by create_DFS_traversal_tree, after which we
+      // traverse the tree iteratively by preserving the traversal state on stack.
       while (!traversal_stack_.empty()) {
-        auto &current_level = traversal_stack_.back();
-        auto &edges_on_frame = frame[self_.common_.edge_symbol].ValueList();
-
-        // Clean out the current stack
-        if (current_level.empty()) {
-          if (!edges_on_frame.empty()) {
-            if (!self_.is_reverse_)
-              edges_on_frame.erase(edges_on_frame.end());
-            else
-              edges_on_frame.erase(edges_on_frame.begin());
-          }
-          traversal_stack_.pop_back();
-          continue;
-        }
-
-        auto [current_edge, current_edge_direction, current_weight] = current_level.back();
-        current_level.pop_back();
-
-        // Edges order depends on direction of expansion
-        if (!self_.is_reverse_)
-          edges_on_frame.emplace_back(current_edge);
-        else
-          edges_on_frame.emplace(edges_on_frame.begin(), current_edge);
-
-        auto next_vertex = current_edge_direction == EdgeAtom::Direction::IN ? current_edge.From() : current_edge.To();
-        frame[self_.total_weight_.value()] = current_weight;
-
-        if (next_edges_.find({next_vertex, traversal_stack_.size()}) != next_edges_.end()) {
-          auto next_vertex_edges = next_edges_[{next_vertex, traversal_stack_.size()}];
-          traversal_stack_.emplace_back(std::move(next_vertex_edges));
-        } else {
-          // Signal the end of iteration
-          utils::pmr::list<DirectedEdge> empty(memory);
-          traversal_stack_.emplace_back(std::move(empty));
-        }
-
-        if ((current_weight > visited_cost_.at(next_vertex)).ValueBool()) continue;
-
-        // Place destination node on the frame, handle existence flag
-        if (self_.common_.existing_node) {
-          const auto &node = frame[self_.common_.node_symbol];
-          ExpectType(self_.common_.node_symbol, node, TypedValue::Type::Vertex);
-          if (node.ValueVertex() != next_vertex) continue;
-        } else {
-          frame[self_.common_.node_symbol] = next_vertex;
-        }
-        return true;
+        if (create_path()) return true;
       }
 
       // If priority queue is empty start new pulling stream.
@@ -2040,36 +2080,9 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       }
 
       // Create a DFS traversal tree from the start node
-      while (!pq_.empty()) {
-        if (MustAbort(context)) throw HintedAbortError();
+      create_DFS_traversal_tree();
 
-        const auto [current_weight, current_depth, current_vertex, directed_edge] = pq_.top();
-        pq_.pop();
-
-        const auto &[current_edge, direction, weight] = directed_edge;
-        auto current_state = create_state(current_vertex, current_depth);
-
-        auto position = total_cost_.find(current_state);
-        if (position != total_cost_.end()) {
-          if ((position->second < current_weight).ValueBool()) continue;
-        } else {
-          total_cost_.emplace(current_state, current_weight);
-          if (current_depth < upper_bound_) {
-            expand_from_vertex(current_vertex, current_weight, current_depth);
-          }
-        }
-
-        // Searching for a previous vertex in the expansion
-        auto prev_vertex = direction == EdgeAtom::Direction::IN ? current_edge.To() : current_edge.From();
-
-        // Update the parent
-        if (next_edges_.find({prev_vertex, current_depth - 1}) == next_edges_.end()) {
-          utils::pmr::list<DirectedEdge> empty(memory);
-          next_edges_[{prev_vertex, current_depth - 1}] = std::move(empty);
-        }
-        next_edges_.at({prev_vertex, current_depth - 1}).emplace_back(directed_edge);
-      }
-
+      // DFS traversal tree is create,
       if (start_vertex && next_edges_.find({*start_vertex, 0}) != next_edges_.end()) {
         auto start_vertex_edges = next_edges_[{*start_vertex, 0}];
         traversal_stack_.emplace_back(std::move(start_vertex_edges));
