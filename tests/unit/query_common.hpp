@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -157,13 +157,13 @@ auto GetPropertyLookup(AstStorage &storage, TDbAccessor &, Expression *expr,
 ///
 /// Name is used to create the Identifier which is assigned to the edge.
 auto GetEdge(AstStorage &storage, const std::string &name, EdgeAtom::Direction dir = EdgeAtom::Direction::BOTH,
-             const std::vector<std::string> &edge_types = {}) {
+             const std::vector<std::string> &edge_types = {}, const bool user_declared = true) {
   std::vector<EdgeTypeIx> types;
   types.reserve(edge_types.size());
   for (const auto &type : edge_types) {
     types.push_back(storage.GetEdgeTypeIx(type));
   }
-  return storage.Create<EdgeAtom>(storage.Create<Identifier>(name), EdgeAtom::Type::SINGLE, dir, types);
+  return storage.Create<EdgeAtom>(storage.Create<Identifier>(name, user_declared), EdgeAtom::Type::SINGLE, dir, types);
 }
 
 /// Create a variable length expansion EdgeAtom with given name, direction and
@@ -205,8 +205,9 @@ auto GetEdgeVariable(AstStorage &storage, const std::string &name, EdgeAtom::Typ
 /// Create a NodeAtom with given name and label.
 ///
 /// Name is used to create the Identifier which is assigned to the node.
-auto GetNode(AstStorage &storage, const std::string &name, std::optional<std::string> label = std::nullopt) {
-  auto node = storage.Create<NodeAtom>(storage.Create<Identifier>(name));
+auto GetNode(AstStorage &storage, const std::string &name, std::optional<std::string> label = std::nullopt,
+             const bool user_declared = true) {
+  auto node = storage.Create<NodeAtom>(storage.Create<Identifier>(name, user_declared));
   if (label) node->labels_.emplace_back(storage.GetLabelIx(*label));
   return node;
 }
@@ -586,6 +587,7 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
 #define COALESCE(...) storage.Create<memgraph::query::Coalesce>(std::vector<memgraph::query::Expression *>{__VA_ARGS__})
 #define EXTRACT(variable, list, expr) \
   storage.Create<memgraph::query::Extract>(storage.Create<memgraph::query::Identifier>(variable), list, expr)
+#define EXISTS(pattern) storage.Create<memgraph::query::Exists>(pattern)
 #define AUTH_QUERY(action, user, role, user_or_role, password, privileges, labels, edgeTypes)                  \
   storage.Create<memgraph::query::AuthQuery>((action), (user), (role), (user_or_role), password, (privileges), \
                                              (labels), (edgeTypes))

@@ -241,7 +241,6 @@ antlrcpp::Any CypherMainVisitor::visitDumpQuery(MemgraphCypher::DumpQueryContext
 
 antlrcpp::Any CypherMainVisitor::visitAnalyzeGraphQuery(MemgraphCypher::AnalyzeGraphQueryContext *ctx) {
   auto *analyze_graph_query = storage_->Create<AnalyzeGraphQuery>();
-  query_ = analyze_graph_query;
   if (ctx->listOfColonSymbolicNames()) {
     analyze_graph_query->labels_ =
         std::any_cast<std::vector<std::string>>(ctx->listOfColonSymbolicNames()->accept(this));
@@ -253,6 +252,7 @@ antlrcpp::Any CypherMainVisitor::visitAnalyzeGraphQuery(MemgraphCypher::AnalyzeG
   } else {
     analyze_graph_query->action_ = AnalyzeGraphQuery::Action::ANALYZE;
   }
+  query_ = analyze_graph_query;
   return analyze_graph_query;
 }
 
@@ -2181,7 +2181,10 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
     auto *list = std::any_cast<Expression *>(ctx->extractExpression()->idInColl()->expression()->accept(this));
     auto *expr = std::any_cast<Expression *>(ctx->extractExpression()->expression()->accept(this));
     return static_cast<Expression *>(storage_->Create<Extract>(ident, list, expr));
+  } else if (ctx->existsExpression()) {
+    return std::any_cast<Expression *>(ctx->existsExpression()->accept(this));
   }
+
   // TODO: Implement this. We don't support comprehensions, filtering... at
   // the moment.
   throw utils::NotYetImplemented("atom expression '{}'", ctx->getText());
@@ -2223,6 +2226,17 @@ antlrcpp::Any CypherMainVisitor::visitLiteral(MemgraphCypher::LiteralContext *ct
         std::any_cast<std::unordered_map<PropertyIx, Expression *>>(ctx->mapLiteral()->accept(this))));
   }
   return visitChildren(ctx);
+}
+
+antlrcpp::Any CypherMainVisitor::visitExistsExpression(MemgraphCypher::ExistsExpressionContext *ctx) {
+  auto *exists = storage_->Create<Exists>();
+  exists->pattern_ = std::any_cast<Pattern *>(ctx->patternPart()->accept(this));
+
+  if (exists->pattern_->identifier_) {
+    throw SyntaxException("Identifiers are not supported in exists(...).");
+  }
+
+  return static_cast<Expression *>(exists);
 }
 
 antlrcpp::Any CypherMainVisitor::visitParenthesizedExpression(MemgraphCypher::ParenthesizedExpressionContext *ctx) {

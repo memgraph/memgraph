@@ -65,7 +65,6 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(ScanAllById);
   PRE_VISIT(Expand);
   PRE_VISIT(ExpandVariable);
-  PRE_VISIT(Filter);
   PRE_VISIT(ConstructNamedPath);
   PRE_VISIT(EmptyResult);
   PRE_VISIT(Produce);
@@ -80,6 +79,7 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(Skip);
   PRE_VISIT(Limit);
   PRE_VISIT(OrderBy);
+  PRE_VISIT(EvaluatePatternFilter);
   bool PreVisit(Merge &op) override {
     CheckOp(op);
     op.input()->Accept(*this);
@@ -95,6 +95,12 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Foreach &op) override {
     CheckOp(op);
+    return false;
+  }
+
+  bool PreVisit(Filter &op) override {
+    CheckOp(op);
+    op.input()->Accept(*this);
     return false;
   }
 
@@ -142,7 +148,6 @@ using ExpectScanAll = OpChecker<ScanAll>;
 using ExpectScanAllByLabel = OpChecker<ScanAllByLabel>;
 using ExpectScanAllById = OpChecker<ScanAllById>;
 using ExpectExpand = OpChecker<Expand>;
-using ExpectFilter = OpChecker<Filter>;
 using ExpectConstructNamedPath = OpChecker<ConstructNamedPath>;
 using ExpectProduce = OpChecker<Produce>;
 using ExpectEmptyResult = OpChecker<EmptyResult>;
@@ -157,6 +162,23 @@ using ExpectLimit = OpChecker<Limit>;
 using ExpectOrderBy = OpChecker<OrderBy>;
 using ExpectUnwind = OpChecker<Unwind>;
 using ExpectDistinct = OpChecker<Distinct>;
+using ExpectEvaluatePatternFilter = OpChecker<EvaluatePatternFilter>;
+
+class ExpectFilter : public OpChecker<Filter> {
+ public:
+  ExpectFilter(const std::vector<std::list<BaseOpChecker *>> &pattern_filters = {})
+      : pattern_filters_(pattern_filters) {}
+
+  void ExpectOp(Filter &filter, const SymbolTable &symbol_table) override {
+    for (auto i = 0; i < filter.pattern_filters_.size(); i++) {
+      PlanChecker check_updates(pattern_filters_[i], symbol_table);
+
+      filter.pattern_filters_[i]->Accept(check_updates);
+    }
+  }
+
+  std::vector<std::list<BaseOpChecker *>> pattern_filters_;
+};
 
 class ExpectForeach : public OpChecker<Foreach> {
  public:
