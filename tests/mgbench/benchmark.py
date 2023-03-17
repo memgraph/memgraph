@@ -182,59 +182,6 @@ def get_queries(gen, count):
     return ret
 
 
-def match_patterns(workload, variant, group, query, is_default_variant, patterns):
-    for pattern in patterns:
-        verdict = [fnmatch.fnmatchcase(workload, pattern[0])]
-        if pattern[1] != "":
-            verdict.append(fnmatch.fnmatchcase(variant, pattern[1]))
-        else:
-            verdict.append(is_default_variant)
-        verdict.append(fnmatch.fnmatchcase(group, pattern[2]))
-        verdict.append(fnmatch.fnmatchcase(query, pattern[3]))
-        if all(verdict):
-            return True
-    return False
-
-
-def filter_workloads(available_workloads: dict, benchmark_context: BenchmarkContext) -> list:
-    patterns = benchmark_context.benchmark_target_workload
-    for i in range(len(patterns)):
-        pattern = patterns[i].split("/")
-        if len(pattern) > 5 or len(pattern) == 0:
-            raise Exception("Invalid benchmark description '" + pattern + "'!")
-        pattern.extend(["", "*", "*"][len(pattern) - 1 :])
-        patterns[i] = pattern
-    filtered = []
-    for workload in sorted(available_workloads.keys()):
-        generator, queries = available_workloads[workload]
-        for variant in generator.VARIANTS:
-            is_default_variant = variant == generator.DEFAULT_VARIANT
-            current = collections.defaultdict(list)
-            for group in queries:
-                for query_name, query_func in queries[group]:
-                    if match_patterns(
-                        workload,
-                        variant,
-                        group,
-                        query_name,
-                        is_default_variant,
-                        patterns,
-                    ):
-                        current[group].append((query_name, query_func))
-            if len(current) == 0:
-                continue
-
-            # Ignore benchgraph "basic" queries in standard CI/CD run
-            for pattern in patterns:
-                res = pattern.count("*")
-                key = "basic"
-                if res >= 2 and key in current.keys():
-                    current.pop(key)
-
-            filtered.append((generator(variant=variant, benchmark_context=benchmark_context), dict(current)))
-    return filtered
-
-
 def warmup(condition: str, client: runners.BaseRunner, queries: list = None):
     if condition == "hot":
         print("Executing hot warm-up queries")
@@ -518,7 +465,9 @@ if __name__ == "__main__":
     results = helpers.RecursiveDict()
 
     # Filter out the workloads based on the pattern
-    target_workloads = filter_workloads(available_workloads=available_workloads, benchmark_context=benchmark_context)
+    target_workloads = helpers.filter_workloads(
+        available_workloads=available_workloads, benchmark_context=benchmark_context
+    )
 
     # Run all target workloads.
     for workload, queries in target_workloads:
@@ -532,7 +481,7 @@ if __name__ == "__main__":
 
         generated_queries = workload.dataset_generator()
         if generated_queries:
-            vendor_runner.start("import")
+            vendor_runner.start_preparation("import")
             client.execute(queries=generated_queries, num_workers=benchmark_context.num_workers_for_import)
             vendor_runner.stop("import")
         else:
@@ -540,7 +489,7 @@ if __name__ == "__main__":
             workload.prepare(cache.cache_directory("datasets", workload.NAME, workload.get_variant()))
             imported = workload.custom_import()
             if not imported:
-                vendor_runner.start("import")
+                vendor_runner.start_preparation("import")
                 print("Executing database cleanup and index setup...")
                 client.execute(file_path=workload.get_index(), num_workers=benchmark_context.num_workers_for_import)
                 print("Importing dataset...")
@@ -602,12 +551,7 @@ if __name__ == "__main__":
                         query,
                     ]
                     count = get_query_cache_count(
-                        vendor_runner,
-                        client,
-                        get_queries(func, 1),
-                        config_key,
-                        benchmark_context.single_threaded_runtime_sec,
-                        benchmark_context.warm_up,
+                        vendor_runner, client, get_queries(func, 1), config_key, benchmark_context
                     )
 
                     # Benchmark run.
@@ -628,7 +572,7 @@ if __name__ == "__main__":
                         workload.NAME + workload.get_variant() + "_" + "_" + benchmark_context.mode + "_" + query
                     )
 
-                    warmup(type=benchmark_context.warm_up, client=client, queries=get_queries(func, count))
+                    warmup(condition=benchmark_context.warm_up, client=client, queries=get_queries(func, count))
                     if benchmark_context.time_dependent_execution != 0:
                         ret = client.execute(
                             queries=get_queries(func, count),

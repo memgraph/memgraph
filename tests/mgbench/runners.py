@@ -300,7 +300,7 @@ class Neo4j(BaseRunner):
     def __init__(self, benchmark_context: BenchmarkContext):
         super().__init__(benchmark_context=benchmark_context)
         self._neo4j_binary = Path(benchmark_context.vendor_binary)
-        self._neo4j_path = Path(benchmark_context.vendor_binary).parents[0]
+        self._neo4j_path = Path(benchmark_context.vendor_binary).parents[1]
         self._neo4j_config = self._neo4j_path / "conf" / "neo4j.conf"
         self._neo4j_pid = self._neo4j_path / "run" / "neo4j.pid"
         self._neo4j_admin = self._neo4j_path / "bin" / "neo4j-admin"

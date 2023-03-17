@@ -8,9 +8,9 @@ import random
 import sys
 
 import helpers
-import importer
 import runners
 import workloads
+from benchmark_context import BenchmarkContext
 from workloads import base
 
 
@@ -33,6 +33,32 @@ def pars_args():
         "variant is '' which selects the default dataset variant; "
         "the default group is '*' which selects all groups; the"
         "default query is '*' which selects all queries",
+    )
+
+    parser.add_argument(
+        "--vendor-binary-1",
+        help="Vendor binary used for benchmarking, by default it is memgraph",
+        default=helpers.get_binary_path("memgraph"),
+    )
+
+    parser.add_argument(
+        "--vendor-name-1",
+        default="memgraph",
+        choices=["memgraph", "neo4j"],
+        help="Input vendor binary name (memgraph, neo4j)",
+    )
+
+    parser.add_argument(
+        "--vendor-binary-2",
+        help="Vendor binary used for benchmarking, by default it is memgraph",
+        default=helpers.get_binary_path("memgraph"),
+    )
+
+    parser.add_argument(
+        "--vendor-name-2",
+        default="memgraph",
+        choices=["memgraph", "neo4j"],
+        help="Input vendor binary name (memgraph, neo4j)",
     )
 
     parser.add_argument(
@@ -67,186 +93,153 @@ def get_queries(gen, count):
     return ret
 
 
-def match_patterns(dataset, variant, group, query, is_default_variant, patterns):
-    for pattern in patterns:
-        verdict = [fnmatch.fnmatchcase(dataset, pattern[0])]
-        if pattern[1] != "":
-            verdict.append(fnmatch.fnmatchcase(variant, pattern[1]))
-        else:
-            verdict.append(is_default_variant)
-        verdict.append(fnmatch.fnmatchcase(group, pattern[2]))
-        verdict.append(fnmatch.fnmatchcase(query, pattern[3]))
-        if all(verdict):
-            return True
-    return False
-
-
-def filter_benchmarks(generators, patterns, vendor_name: str):
-    patterns = copy.deepcopy(patterns)
-    for i in range(len(patterns)):
-        pattern = patterns[i].split("/")
-        if len(pattern) > 5 or len(pattern) == 0:
-            raise Exception("Invalid benchmark description '" + pattern + "'!")
-        pattern.extend(["", "*", "*"][len(pattern) - 1 :])
-        patterns[i] = pattern
-    filtered = []
-    for dataset in sorted(generators.keys()):
-        generator, queries = generators[dataset]
-        for variant in generator.VARIANTS:
-            is_default_variant = variant == generator.DEFAULT_VARIANT
-            current = collections.defaultdict(list)
-            for group in queries:
-                for query_name, query_func in queries[group]:
-                    if match_patterns(
-                        dataset,
-                        variant,
-                        group,
-                        query_name,
-                        is_default_variant,
-                        patterns,
-                    ):
-                        current[group].append((query_name, query_func))
-            if len(current) == 0:
-                continue
-
-            # Ignore benchgraph "basic" queries in standard CI/CD run
-            for pattern in patterns:
-                res = pattern.count("*")
-                key = "basic"
-                if res >= 2 and key in current.keys():
-                    current.pop(key)
-
-            filtered.append((generator(variant, vendor_name), dict(current)))
-    return filtered
-
-
 if __name__ == "__main__":
 
     args = pars_args()
 
-    generators = {}
-    workloads = map(workloads.__dict__.get, workloads.__all__)
-    for module in workloads:
-        if module != None:
-            for key in dir(module):
-                dataset_class = getattr(module, key)
-                if not inspect.isclass(dataset_class) or not issubclass(dataset_class, base.Dataset):
-                    continue
-                queries = collections.defaultdict(list)
-                for funcname in dir(dataset_class):
-                    if not funcname.startswith("benchmark__"):
-                        continue
-                    group, query = funcname.split("__")[1:]
-                    queries[group].append((query, funcname))
-                generators[dataset_class.NAME] = (dataset_class, dict(queries))
+    benchmark_context_db_1 = BenchmarkContext(
+        vendor_name=args.vendor_name_1,
+        vendor_binary=args.vendor_binary_1,
+        benchmark_target_workload=args.benchmarks,
+        client_binary=args.client_binary,
+        num_workers_for_import=args.num_workers_for_import,
+        temporary_directory=args.temporary_directory,
+    )
 
-    # List datasets if there is no specified dataset.
-    if len(args.benchmarks) == 0:
-        for name in sorted(generators.keys()):
-            print("Dataset:", name)
-            base, queries = generators[name]
-            print(
-                "    Variants:",
-                ", ".join(base.VARIANTS),
-                "(default: " + base.DEFAULT_VARIANT + ")",
-            )
-            for group in sorted(queries.keys()):
-                print("    Group:", group)
-                for query_name, query_func in queries[group]:
-                    print("        Query:", query_name)
-        sys.exit(0)
+    available_workloads = helpers.get_available_workloads()
 
-    memgraph = runners.Memgraph(
-        "/home/maple/repos/test/memgraph/build/memgraph",
-        "/tmp",
-        True,
-        7687,
-        False,
+    print(helpers.list_available_workloads())
+
+    # Filter out the workloads based on the pattern
+    target_workloads = helpers.filter_workloads(
+        available_workloads=available_workloads, benchmark_context=benchmark_context_db_1
+    )
+
+    vendor_runner = runners.BaseRunner.create(
+        benchmark_context=benchmark_context_db_1,
     )
 
     cache = helpers.Cache()
-    client = runners.Client(args.client_binary, args.temporary_directory, 7687)
+    client = vendor_runner.fetch_client()
 
-    benchmarks_memgraph = filter_benchmarks(generators, args.benchmarks, "memgraph")
+    workloads = helpers.filter_workloads(available_workloads, benchmark_context=benchmark_context_db_1)
 
-    results_memgraph = {}
+    results_db_1 = {}
 
-    for base, queries in benchmarks_memgraph:
+    for workload, queries in workloads:
 
-        base.prepare(cache.cache_directory("datasets", base.NAME, base.get_variant()))
+        vendor_runner.clean_db()
 
-        importer.Importer(
-            dataset=base, vendor=memgraph, client=client, num_workers_for_import=args.num_workers_for_import
-        ).try_import()
+        generated_queries = workload.dataset_generator()
+        if generated_queries:
+            vendor_runner.start_preparation("import")
+            client.execute(queries=generated_queries, num_workers=benchmark_context_db_1.num_workers_for_import)
+            vendor_runner.stop("import")
+        else:
+            workload.prepare(cache.cache_directory("datasets", workload.NAME, workload.get_variant()))
+            imported = workload.custom_import()
+            if not imported:
+                vendor_runner.start_preparation("import")
+                print("Executing database cleanup and index setup...")
+                client.execute(
+                    file_path=workload.get_index(), num_workers=benchmark_context_db_1.num_workers_for_import
+                )
+                print("Importing dataset...")
+                ret = client.execute(
+                    file_path=workload.get_file(), num_workers=benchmark_context_db_1.num_workers_for_import
+                )
+                usage = vendor_runner.stop("import")
 
         for group in sorted(queries.keys()):
             for query, funcname in queries[group]:
                 print("Running query:{}/{}/{}".format(group, query, funcname))
                 func = getattr(base, funcname)
                 count = 1
-                memgraph.start_benchmark("validation")
+                vendor_runner.start_benchmark("validation")
                 try:
                     ret = client.execute(queries=get_queries(func, count), num_workers=1, validation=True)[0]
-                    results_memgraph[funcname] = ret["results"].items()
+                    results_db_1[funcname] = ret["results"].items()
                 except Exception as e:
                     print("Issue running the query" + funcname)
                     print(e)
-                    results_memgraph[funcname] = "Query not executed properly"
+                    results_db_1[funcname] = "Query not executed properly"
                 finally:
-                    usage = memgraph.stop("validation")
+                    usage = vendor_runner.stop("validation")
                     print("Database used {:.3f} seconds of CPU time.".format(usage["cpu"]))
                     print("Database peaked at {:.3f} MiB of memory.".format(usage["memory"] / 1024.0 / 1024.0))
 
-    neo4j = runners.Neo4j(
-        "/home/maple/repos/neo4j-community-5.4.0",
-        "/tmp",
-        7687,
-        False,
+    benchmark_context_db_2 = BenchmarkContext(
+        vendor_name=args.vendor_name_2,
+        vendor_binary=args.vendor_name_2,
+        benchmark_target_workload=args.benchmarks,
+        client_binary=args.client_binary,
+        num_workers_for_import=args.num_workers_for_import,
+        temporary_directory=args.temporary_directory,
     )
-    benchmarks_neo4j = filter_benchmarks(generators, args.benchmarks, "neo4j")
 
-    results_neo4j = {}
+    vendor_runner = runners.BaseRunner.create(
+        benchmark_context=benchmark_context_db_2,
+    )
 
-    for base, queries in benchmarks_neo4j:
+    workloads = helpers.filter_workloads(available_workloads, benchmark_context=benchmark_context_db_2)
 
-        base.prepare(cache.cache_directory("datasets", base.NAME, base.get_variant()))
+    results_db_2 = {}
 
-        importer.Importer(
-            dataset=base, vendor=neo4j, client=client, num_workers_for_import=args.num_workers_for_import
-        ).try_import()
+    for workload, queries in workloads:
+
+        vendor_runner.clean_db()
+
+        generated_queries = workload.dataset_generator()
+        if generated_queries:
+            vendor_runner.start_preparation("import")
+            client.execute(queries=generated_queries, num_workers=benchmark_context_db_2.num_workers_for_import)
+            vendor_runner.stop("import")
+        else:
+            workload.prepare(cache.cache_directory("datasets", workload.NAME, workload.get_variant()))
+            imported = workload.custom_import()
+            if not imported:
+                vendor_runner.start_preparation("import")
+                print("Executing database cleanup and index setup...")
+                client.execute(
+                    file_path=workload.get_index(), num_workers=benchmark_context_db_2.num_workers_for_import
+                )
+                print("Importing dataset...")
+                ret = client.execute(
+                    file_path=workload.get_file(), num_workers=benchmark_context_db_2.num_workers_for_import
+                )
+                usage = vendor_runner.stop("import")
 
         for group in sorted(queries.keys()):
             for query, funcname in queries[group]:
                 print("Running query:{}/{}/{}".format(group, query, funcname))
-                func = getattr(base, funcname)
-                sample = (get_queries(func, 1),)
+                func = getattr(workload, funcname)
                 count = 1
-                neo4j.start_benchmark("validation")
+                vendor_runner.start_benchmark("validation")
                 try:
                     ret = client.execute(queries=get_queries(func, count), num_workers=1, validation=True)[0]
-                    results_neo4j[funcname] = ret["results"].items()
+                    results_db_2[funcname] = ret["results"].items()
                 except Exception as e:
                     print("Issue running the query" + funcname)
                     print(e)
-                    results_neo4j[funcname] = "Query not executed properly."
+                    results_db_2[funcname] = "Query not executed properly"
                 finally:
-                    usage = neo4j.stop("validation")
+                    usage = vendor_runner.stop("validation")
                     print("Database used {:.3f} seconds of CPU time.".format(usage["cpu"]))
                     print("Database peaked at {:.3f} MiB of memory.".format(usage["memory"] / 1024.0 / 1024.0))
 
     validation = {}
-    for key in results_memgraph.keys():
-        if type(results_memgraph[key]) is str:
+    for key in results_db_1.keys():
+        if type(results_db_1[key]) is str:
             validation[key] = "Query not executed properly."
         else:
-            memgraph_values = set()
-            for index, value in results_memgraph[key]:
-                memgraph_values.add(value)
+            db_1_values = set()
+            for index, value in results_db_1[key]:
+                db_1_values.add(value)
             neo4j_values = set()
-            for index, value in results_neo4j[key]:
+            for index, value in results_db_2[key]:
                 neo4j_values.add(value)
 
-            if memgraph_values == neo4j_values:
+            if db_1_values == neo4j_values:
                 validation[key] = "Identical results"
             else:
                 validation[key] = "Different results, check manually."
