@@ -29,7 +29,7 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(AnalyzeGraphQuery &) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
 
-  void Visit(AuthQuery &) override { AddPrivilege(AuthQuery::Privilege::AUTH); }
+  void Visit(AuthQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::AUTH); }
 
   void Visit(ExplainQuery &query) override { query.cypher_query_->Accept(*this); }
 
