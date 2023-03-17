@@ -2753,13 +2753,17 @@ class AuthQuery : public memgraph::query::Query {
 
 /// Constant that holds all available privileges.
 const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
-    AuthQuery::Privilege::CREATE,      AuthQuery::Privilege::DELETE,       AuthQuery::Privilege::MATCH,
-    AuthQuery::Privilege::MERGE,       AuthQuery::Privilege::SET,          AuthQuery::Privilege::REMOVE,
-    AuthQuery::Privilege::INDEX,       AuthQuery::Privilege::STATS,        AuthQuery::Privilege::AUTH,
-    AuthQuery::Privilege::CONSTRAINT,  AuthQuery::Privilege::DUMP,         AuthQuery::Privilege::REPLICATION,
-    AuthQuery::Privilege::READ_FILE,   AuthQuery::Privilege::DURABILITY,   AuthQuery::Privilege::FREE_MEMORY,
-    AuthQuery::Privilege::TRIGGER,     AuthQuery::Privilege::CONFIG,       AuthQuery::Privilege::STREAM,
-    AuthQuery::Privilege::MODULE_READ, AuthQuery::Privilege::MODULE_WRITE, AuthQuery::Privilege::WEBSOCKET};
+    AuthQuery::Privilege::CREATE,      AuthQuery::Privilege::DELETE,
+    AuthQuery::Privilege::MATCH,       AuthQuery::Privilege::MERGE,
+    AuthQuery::Privilege::SET,         AuthQuery::Privilege::REMOVE,
+    AuthQuery::Privilege::INDEX,       AuthQuery::Privilege::STATS,
+    AuthQuery::Privilege::AUTH,        AuthQuery::Privilege::CONSTRAINT,
+    AuthQuery::Privilege::DUMP,        AuthQuery::Privilege::REPLICATION,
+    AuthQuery::Privilege::READ_FILE,   AuthQuery::Privilege::DURABILITY,
+    AuthQuery::Privilege::FREE_MEMORY, AuthQuery::Privilege::TRIGGER,
+    AuthQuery::Privilege::CONFIG,      AuthQuery::Privilege::STREAM,
+    AuthQuery::Privilege::MODULE_READ, AuthQuery::Privilege::MODULE_WRITE,
+    AuthQuery::Privilege::WEBSOCKET,   AuthQuery::Privilege::TRANSACTION_MANAGEMENT};
 
 class InfoQuery : public memgraph::query::Query {
  public:
@@ -3220,6 +3224,8 @@ class TransactionQueueQuery : public memgraph::query::Query {
 
   TransactionQueueQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<TransactionQueueQuery>();
+    object->action_ = action_;
+    object->transaction_id_list_ = transaction_id_list_;
     return object;
   }
 };
