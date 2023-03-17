@@ -194,12 +194,12 @@ Feature: All Shortest Path
         Given an empty graph
         And having executed:
             """
-            CREATE (n:One), (o:Two), (m:Three), (n)-[:TYPE {cost: 0.3}]->(o), (n)-[:TYPE {cost: 40}]->(m), (n)-[:TYPE {cost: 20}]->(m)
+            CREATE (n:One), (o:Two), (m:Three), (n)-[:TYPE {cost: 0.3}]->(o), (o)-[:TYPE {cost: 40}]->(m), (o)-[:TYPE {cost: 20}]->(m)
             """
         When executing query:
             """
-            MATCH p=(h:One)-[r*allshortest ..5 (e, v | e.cost)]->(k:Three) return count(p);
+            MATCH p=(h:One)-[r*allshortest ..5 (e, v | e.cost) total_cost]->(k:Three) return total_cost;
             """
         Then the result should be:
-            | count(p) |
-            | 1 |
+            | total_cost |
+            | 20.3       |
