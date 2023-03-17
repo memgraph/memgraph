@@ -119,7 +119,7 @@ def parse_args():
     parser.add_argument(
         "--warm-up",
         default="cold",
-        choices=["cold", "hot", "heavy_hot_run"],
+        choices=["cold", "hot", "vulcanic"],
         help="Run different warmups before benchmarks sample starts",
     )
 
@@ -235,16 +235,22 @@ def filter_workloads(available_workloads: dict, benchmark_context: BenchmarkCont
     return filtered
 
 
-def warmup(client):
-    print("Executing warm-up queries")
-    client.execute(
-        queries=[
-            ("CREATE ();", {}),
-            ("CREATE ()-[:TempEdge]->();", {}),
-            ("MATCH (n) RETURN n LIMIT 1;", {}),
-        ],
-        num_workers=1,
-    )
+def warmup(condition: str, client: runners.BaseRunner, queries: list):
+    if condition == "hot":
+        print("Executing hot warm-up queries")
+        client.execute(
+            queries=[
+                ("CREATE ();", {}),
+                ("CREATE ()-[:TempEdge]->();", {}),
+                ("MATCH (n) RETURN n LIMIT 1;", {}),
+            ],
+            num_workers=1,
+        )
+    elif condition == "vulcanic":
+        print("Executing vulcanic warm-up queries")
+        client.execute(queries=queries)
+    else:
+        print("Cold run")
 
 
 def mixed_workload(vendor, client, dataset, group, queries, workload_type, workload_config, warmup, number_of_workers):
@@ -639,9 +645,8 @@ if __name__ == "__main__":
                     vendor_runner.start_benchmark(
                         workload.NAME + workload.get_variant() + "_" + "_" + benchmark_context.mode + "_" + query
                     )
-                    if benchmark_context.warm_up != "cold":
-                        warmup(client)
 
+                    warmup(type=benchmark_context.warm_up, client=client, queries=get_queries(func, count))
                     if args.time_depended_execution != 0:
                         ret = client.execute(
                             queries=get_queries(func, count),
@@ -684,10 +689,10 @@ if __name__ == "__main__":
                     ]
                     results.set_value(*results_key, value=ret)
 
-            ## If there is need for authorization testing.
+            # If there is need for authorization testing.
             if benchmark_context.no_authorization:
                 print("Running query with authorization")
-                vendor.start_benchmark("authorization")
+                vendor_runner.start_benchmark("authorization")
                 client.execute(
                     queries=[
                         ("CREATE USER user IDENTIFIED BY 'test';", {}),
@@ -703,7 +708,7 @@ if __name__ == "__main__":
                     username="user",
                     password="test",
                 )
-                vendor.stop("authorization")
+                vendor_runner.stop("authorization")
 
                 for query, funcname in queries[group]:
 
@@ -713,8 +718,6 @@ if __name__ == "__main__":
                     )
                     func = getattr(workload, funcname)
 
-                    query_statistics = tail_latency(vendor, client, func)
-
                     config_key = [
                         workload.NAME,
                         workload.get_variant(),
@@ -723,20 +726,18 @@ if __name__ == "__main__":
                         query,
                     ]
                     count = get_query_cache_count(
-                        vendor, client, func, config_key, args.single_threaded_runtime_sec, args.warmup
+                        vendor_runner, client, func, config_key, args.single_threaded_runtime_sec, args.warmup
                     )
 
-                    vendor.start_benchmark("authorization")
+                    vendor_runner.start_benchmark("authorization")
                     if args.warmup_run:
                         warmup(client)
                     ret = client.execute(
                         queries=get_queries(func, count),
                         num_workers=args.num_workers_for_benchmark,
                     )[0]
-                    usage = vendor.stop("authorization")
+                    usage = vendor_runner.stop("authorization")
                     ret["database"] = usage
-                    ret["query_statistics"] = query_statistics
-
                     # Output summary.
                     print()
                     print(
@@ -768,7 +769,7 @@ if __name__ == "__main__":
                     results.set_value(*results_key, value=ret)
 
                 # Clean up database from any roles and users job
-                vendor.start_benchmark("authorizations")
+                vendor_runner.start_benchmark("authorizations")
                 ret = client.execute(
                     queries=[
                         ("REVOKE LABELS * FROM user;", {}),
@@ -776,10 +777,10 @@ if __name__ == "__main__":
                         ("DROP USER user;", {}),
                     ]
                 )
-                vendor.stop("authorization")
+                vendor_runner.stop("authorization")
 
     # Save configuration.
-    if not args.no_save_query_counts:
+    if not benchmark_context.no_save_query_counts:
         cache.save_config(config)
 
     # Export results.
