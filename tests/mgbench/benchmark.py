@@ -235,7 +235,7 @@ def filter_workloads(available_workloads: dict, benchmark_context: BenchmarkCont
     return filtered
 
 
-def warmup(condition: str, client: runners.BaseRunner, queries: list):
+def warmup(condition: str, client: runners.BaseRunner, queries: list = None):
     if condition == "hot":
         print("Executing hot warm-up queries")
         client.execute(
@@ -253,16 +253,18 @@ def warmup(condition: str, client: runners.BaseRunner, queries: list):
         print("Cold run")
 
 
-def mixed_workload(vendor, client, dataset, group, queries, workload_type, workload_config, warmup, number_of_workers):
+def mixed_workload(
+    vendor: runners.BaseRunner, client: runners.BaseClient, dataset, group, queries, benchmark_context: BenchmarkContext
+):
 
-    num_of_queries = workload_config.config[0]
-    percentage_distribution = workload_config.config[1:]
+    num_of_queries = benchmark_context.mode_config[0]
+    percentage_distribution = benchmark_context.config[1:]
     if sum(percentage_distribution) != 100:
         raise Exception(
             "Please make sure that passed arguments % sum to 100% percent!, passed: ",
             percentage_distribution,
         )
-    s = [str(i) for i in workload_config.config]
+    s = [str(i) for i in benchmark_context.config]
 
     config_distribution = "_".join(s)
 
@@ -296,7 +298,7 @@ def mixed_workload(vendor, client, dataset, group, queries, workload_type, workl
     random.seed(config_distribution)
 
     # Executing mixed workload for each test
-    if workload_type == "Mixed":
+    if benchmark_context.mode == "Mixed":
         for query, funcname in queries[group]:
             full_workload = []
 
@@ -324,17 +326,16 @@ def mixed_workload(vendor, client, dataset, group, queries, workload_type, workl
                     full_workload.append(base_query())
                 else:
                     funcname = random.choices(queries_by_type[t], k=1)[0]
-                    aditional_query = getattr(dataset, funcname)
-                    full_workload.append(aditional_query())
+                    additional_query = getattr(dataset, funcname)
+                    full_workload.append(additional_query())
 
             vendor.start_benchmark(
                 dataset.NAME + dataset.get_variant() + "_" + "mixed" + "_" + query + "_" + config_distribution
             )
-            if warmup:
-                warmup(client)
+            warmup(benchmark_context.warm_up, client=client)
             ret = client.execute(
                 queries=full_workload,
-                num_workers=number_of_workers,
+                num_workers=benchmark_context.num_workers_for_benchmark,
             )[0]
             usage_workload = vendor.stop(
                 dataset.NAME + dataset.get_variant() + "_" + "mixed" + "_" + query + "_" + config_distribution
@@ -358,17 +359,16 @@ def mixed_workload(vendor, client, dataset, group, queries, workload_type, workl
         function_type = random.choices(population=options, weights=percentage_distribution, k=num_of_queries)
 
         for t in function_type:
-            # Get the apropropriate functions with same probabilty
+            # Get the appropriate functions with same probability
             funcname = random.choices(queries_by_type[t], k=1)[0]
-            aditional_query = getattr(dataset, funcname)
-            full_workload.append(aditional_query())
+            additional_query = getattr(dataset, funcname)
+            full_workload.append(additional_query())
 
         vendor.start_benchmark(dataset.NAME + dataset.get_variant() + "_" + workloads.name + "_" + config_distribution)
-        if warmup:
-            warmup(client)
+        warmup(benchmark_context.warm_up, client=client)
         ret = client.execute(
             queries=full_workload,
-            num_workers=number_of_workers,
+            num_workers=benchmark_context.num_workers_for_benchmark,
         )[0]
         usage_workload = vendor.stop(
             dataset.NAME + dataset.get_variant() + "_" + workloads.name + "_" + config_distribution
@@ -393,27 +393,30 @@ def mixed_workload(vendor, client, dataset, group, queries, workload_type, workl
         print(mixed_workload)
 
 
-def get_query_cache_count(vendor, client, func, config_key, single_threaded_runtime_sec, warmup):
-    cached_count = config.get_value(*config_key)
+def get_query_cache_count(
+    vendor: runners.BaseRunner,
+    client: runners.BaseClient,
+    queries: list,
+    config_key: list,
+    benchmark_context: BenchmarkContext,
+):
 
+    cached_count = config.get_value(*config_key)
     if cached_count is None:
         print(
             "Determining the number of queries necessary for",
-            single_threaded_runtime_sec,
+            benchmark_context.single_threaded_runtime_sec,
             "seconds of single-threaded runtime...",
         )
         # First run to prime the query caches.
         vendor.start_benchmark("cache")
-        if warmup == "hot":
-            warmup(client)
-
-        client.execute(queries=get_queries(func, 1), num_workers=1)
+        client.execute(queries=queries, num_workers=1)
         # Get a sense of the runtime.
         count = 1
         while True:
             ret = client.execute(queries=get_queries(func, count), num_workers=1)
             duration = ret[0]["duration"]
-            should_execute = int(single_threaded_runtime_sec / (duration / count))
+            should_execute = int(benchmark_context.single_threaded_runtime_sec / (duration / count))
             print(
                 "executed_queries={}, total_duration={}, "
                 "query_duration={}, estimated_count={}".format(count, duration, duration / count, should_execute)
@@ -428,15 +431,15 @@ def get_query_cache_count(vendor, client, func, config_key, single_threaded_runt
                 count = count * 10
         vendor.stop("cache")
 
-        # Lower bound for count
-        if count < 20:
-            count = 20
+        count_lower_bound = 30
+        if count < count_lower_bound:
+            count = count_lower_bound
 
         config.set_value(
             *config_key,
             value={
                 "count": count,
-                "duration": single_threaded_runtime_sec,
+                "duration": benchmark_context.single_threaded_runtime_sec,
             },
         )
     else:
@@ -447,7 +450,7 @@ def get_query_cache_count(vendor, client, func, config_key, single_threaded_runt
             cached_count["duration"],
             "seconds of single-threaded runtime.",
         )
-        count = int(cached_count["count"] * single_threaded_runtime_sec / cached_count["duration"])
+        count = int(cached_count["count"] * benchmark_context.single_threaded_runtime_sec / cached_count["duration"])
     return count
 
 
@@ -458,8 +461,8 @@ if __name__ == "__main__":
 
     assert args.benchmarks != None, helpers.list_available_workloads()
     assert args.vendor_name == "memgraph" or args.vendor_name == "neo4j", "Unsupported vendors"
-    assert args.vendor_binary != None, "Pass database context for runner"
-    assert args.client_binary != None
+    assert args.vendor_binary != None, "Pass database binary for runner"
+    assert args.client_binary != None, "Pass client binary for benchmark client "
     assert args.num_workers_for_import > 0
     assert args.num_workers_for_benchmark > 0
     assert args.export_results != None, "Pass where will results be saved"
@@ -472,7 +475,7 @@ if __name__ == "__main__":
 
     benchmark_context = BenchmarkContext(
         benchmark_target_workload=args.benchmarks,
-        vendor_context=args.vendor_binary,
+        vendor_binary=args.vendor_binary,
         vendor_name=args.vendor_name,
         client_binary=args.client_binary,
         num_workers_for_import=args.num_workers_for_import,
@@ -580,29 +583,9 @@ if __name__ == "__main__":
         for group in sorted(queries.keys()):
 
             if benchmark_context.mode == "Mixed":
-                mixed_workload(
-                    vendor_runner,
-                    client,
-                    workload,
-                    group,
-                    queries,
-                    benchmark_context.mode,
-                    benchmark_context.mode_config,
-                    benchmark_context.warm_up,
-                    benchmark_context.num_workers_for_benchmark,
-                )
+                mixed_workload(vendor_runner, client, workload, group, queries, benchmark_context)
             elif benchmark_context.mode == "Realistic":
-                mixed_workload(
-                    vendor_runner,
-                    client,
-                    workload,
-                    group,
-                    queries,
-                    benchmark_context.mode,
-                    benchmark_context.mode_config,
-                    benchmark_context.warm_up,
-                    benchmark_context.num_workers_for_benchmark,
-                )
+                mixed_workload(vendor_runner, client, workload, group, queries, benchmark_context)
             else:
                 for query, funcname in queries[group]:
                     log.info(
@@ -611,18 +594,17 @@ if __name__ == "__main__":
                     )
                     func = getattr(workload, funcname)
 
-                    # Query count for each vendor
+                    # Query count
                     config_key = [
                         workload.NAME,
                         workload.get_variant(),
-                        benchmark_context.vendor_name,
                         group,
                         query,
                     ]
                     count = get_query_cache_count(
                         vendor_runner,
                         client,
-                        func,
+                        get_queries(func, 1),
                         config_key,
                         benchmark_context.single_threaded_runtime_sec,
                         benchmark_context.warm_up,
@@ -647,16 +629,16 @@ if __name__ == "__main__":
                     )
 
                     warmup(type=benchmark_context.warm_up, client=client, queries=get_queries(func, count))
-                    if args.time_depended_execution != 0:
+                    if benchmark_context.time_dependent_execution != 0:
                         ret = client.execute(
                             queries=get_queries(func, count),
-                            num_workers=args.num_workers_for_benchmark,
-                            time_dependent_execution=args.time_depended_execution,
+                            num_workers=benchmark_context.num_workers_for_benchmark,
+                            time_dependent_execution=benchmark_context.time_depended_execution,
                         )[0]
                     else:
                         ret = client.execute(
                             queries=get_queries(func, count),
-                            num_workers=args.num_workers_for_benchmark,
+                            num_workers=benchmark_context.num_workers_for_benchmark,
                         )[0]
 
                     usage = vendor_runner.stop(
@@ -701,13 +683,8 @@ if __name__ == "__main__":
                         ("GRANT CREATE_DELETE ON LABELS * TO user;", {}),
                     ]
                 )
-                client = runners.Client(
-                    args.client_binary,
-                    args.temporary_directory,
-                    args.bolt_port,
-                    username="user",
-                    password="test",
-                )
+
+                client.set_credentials(username="user", password="test")
                 vendor_runner.stop("authorization")
 
                 for query, funcname in queries[group]:
@@ -721,20 +698,23 @@ if __name__ == "__main__":
                     config_key = [
                         workload.NAME,
                         workload.get_variant(),
-                        args.vendor_name,
                         group,
                         query,
                     ]
                     count = get_query_cache_count(
-                        vendor_runner, client, func, config_key, args.single_threaded_runtime_sec, args.warmup
+                        vendor_runner,
+                        client,
+                        get_queries(func, 1),
+                        config_key,
+                        benchmark_context.single_threaded_runtime_sec,
+                        benchmark_context.warm_up,
                     )
 
                     vendor_runner.start_benchmark("authorization")
-                    if args.warmup_run:
-                        warmup(client)
+                    warmup(type=benchmark_context.warm_up, client=client, queries=get_queries(func, count))
                     ret = client.execute(
                         queries=get_queries(func, count),
-                        num_workers=args.num_workers_for_benchmark,
+                        num_workers=benchmark_context.num_workers_for_benchmark,
                     )[0]
                     usage = vendor_runner.stop("authorization")
                     ret["database"] = usage
@@ -784,6 +764,6 @@ if __name__ == "__main__":
         cache.save_config(config)
 
     # Export results.
-    if args.export_results:
-        with open(args.export_results, "w") as f:
+    if benchmark_context.export_results:
+        with open(benchmark_context.export_results, "w") as f:
             json.dump(results.get_data(), f)

@@ -88,6 +88,10 @@ class BoltClient(BaseClient):
     def _get_args(self, **kwargs):
         return _convert_args_to_flags(self._client_binary, **kwargs)
 
+    def set_credentials(self, username: str, password: str):
+        self._username = username
+        self._password = password
+
     def execute(
         self,
         queries=None,
@@ -178,7 +182,7 @@ class BaseRunner(ABC):
 class Memgraph(BaseRunner):
     def __init__(self, benchmark_context: BenchmarkContext):
         super().__init__(benchmark_context=benchmark_context)
-        self._memgraph_binary = benchmark_context.vendor_context
+        self._memgraph_binary = benchmark_context.vendor_binary
         self._performance_tracking = benchmark_context.performance_tracking
         self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
         self._vendor_args = benchmark_context.vendor_args
@@ -295,11 +299,11 @@ class Memgraph(BaseRunner):
 class Neo4j(BaseRunner):
     def __init__(self, benchmark_context: BenchmarkContext):
         super().__init__(benchmark_context=benchmark_context)
-        self._neo4j_path = Path(benchmark_context.vendor_context)
-        self._neo4j_binary = Path(benchmark_context.vendor_context) / "bin" / "neo4j"
-        self._neo4j_config = Path(benchmark_context.vendor_context) / "conf" / "neo4j.conf"
-        self._neo4j_pid = Path(benchmark_context.vendor_context) / "run" / "neo4j.pid"
-        self._neo4j_admin = Path(benchmark_context.vendor_context) / "bin" / "neo4j-admin"
+        self._neo4j_binary = Path(benchmark_context.vendor_binary)
+        self._neo4j_path = Path(benchmark_context.vendor_binary).parents[0]
+        self._neo4j_config = self._neo4j_path / "conf" / "neo4j.conf"
+        self._neo4j_pid = self._neo4j_path / "run" / "neo4j.pid"
+        self._neo4j_admin = self._neo4j_path / "bin" / "neo4j-admin"
         self._performance_tracking = benchmark_context.performance_tracking
         self._vendor_args = benchmark_context.vendor_args
         self._stop_event = threading.Event()

@@ -8,7 +8,7 @@ class BenchmarkContext:
     def __init__(
         self,
         benchmark_target_workload: str = None,  # Workload that needs to be executed (dataset/variant/group/query)
-        vendor_context: str = None,  # Benchmark vendor context(binary, folder, DB Runner)
+        vendor_binary: str = None,  # Benchmark vendor binary
         vendor_name: str = None,
         client_binary: str = None,
         num_workers_for_import: int = None,
@@ -28,7 +28,7 @@ class BenchmarkContext:
     ) -> None:
 
         self.benchmark_target_workload = benchmark_target_workload
-        self.vendor_context = vendor_context
+        self.vendor_binary = vendor_binary
         self.vendor_name = vendor_name
         self.client_binary = client_binary
         self.num_workers_for_import = num_workers_for_import
