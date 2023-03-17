@@ -56,7 +56,6 @@ class ImporterLDBCInteractive:
 
         vendor_runner = BaseRunner.create(
             benchmark_context=self._benchmark_context,
-            vendor_args={},
         )
         client = vendor_runner.fetch_client()
 

@@ -100,9 +100,6 @@ class BoltClient(BaseClient):
         if (queries is None and file_path is None) or (queries is not None and file_path is not None):
             raise ValueError("Either queries or input_path must be specified!")
 
-        # TODO: check `file_path.endswith(".json")` to support advanced
-        # input queries
-
         queries_json = False
         if queries is not None:
             queries_json = True
@@ -145,34 +142,32 @@ class BaseRunner(ABC):
         return
 
     @classmethod
-    def create(cls, benchmark_context: BenchmarkContext, vendor_args: dict):
+    def create(cls, benchmark_context: BenchmarkContext):
         if benchmark_context.vendor_name not in cls.subclasses:
             raise ValueError("Missing runner with name: {}".format(benchmark_context.vendor_name))
 
         return cls.subclasses[benchmark_context.vendor_name](
             benchmark_context=benchmark_context,
-            vendor_args=vendor_args,
         )
 
     @abstractmethod
-    def __init__(self, benchmark_context: BenchmarkContext, vendor_args: dict):
+    def __init__(self, benchmark_context: BenchmarkContext):
         self.benchmark_context = benchmark_context
-        self.arguments = vendor_args
 
     @abstractmethod
-    def _get_args(self, **kwargs):
+    def start_benchmark(self):
         pass
 
     @abstractmethod
-    def _start(self, **kwargs):
+    def start_preparation(self):
         pass
 
     @abstractmethod
-    def _stop(self):
+    def stop(self):
         pass
 
     @abstractmethod
-    def _clean_up(self):
+    def clean_db(self):
         pass
 
     @abstractmethod
@@ -181,15 +176,18 @@ class BaseRunner(ABC):
 
 
 class Memgraph(BaseRunner):
-    def __init__(self, benchmark_context: BenchmarkContext, vendor_args: dict):
-        super().__init__(benchmark_context=benchmark_context, vendor_args=vendor_args)
+    def __init__(self, benchmark_context: BenchmarkContext):
+        super().__init__(benchmark_context=benchmark_context)
         self._memgraph_binary = benchmark_context.vendor_context
         self._performance_tracking = benchmark_context.performance_tracking
         self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
+        self._vendor_args = benchmark_context.vendor_args
         self._properties_on_edges = (
-            vendor_args["no-properties-on-edges"] if "no-properties-on-edges" in vendor_args.keys() else False
+            self._vendor_args["no-properties-on-edges"]
+            if "no-properties-on-edges" in self._vendor_args.keys()
+            else False
         )
-        self._bolt_port = vendor_args["bolt-port"] if "bolt-port" in vendor_args.keys() else 7687
+        self._bolt_port = self._vendor_args["bolt-port"] if "bolt-port" in self._vendor_args.keys() else 7687
         self._proc_mg = None
         self._stop_event = threading.Event()
         self._rss = []
@@ -205,7 +203,7 @@ class Memgraph(BaseRunner):
         self._cleanup()
         atexit.unregister(self._cleanup)
 
-    def _get_args(self, **kwargs):
+    def _set_args(self, **kwargs):
         data_directory = os.path.join(self._directory.name, "memgraph")
         kwargs["bolt_port"] = self._bolt_port
         kwargs["data_directory"] = data_directory
@@ -215,7 +213,7 @@ class Memgraph(BaseRunner):
     def _start(self, **kwargs):
         if self._proc_mg is not None:
             raise Exception("The database process is already running!")
-        args = self._get_args(**kwargs)
+        args = self._set_args(**kwargs)
         self._proc_mg = subprocess.Popen(args, stdout=subprocess.DEVNULL)
         time.sleep(0.2)
         if self._proc_mg.poll() is not None:
@@ -250,6 +248,19 @@ class Memgraph(BaseRunner):
             p.start()
         self._start(storage_recover_on_startup=True)
 
+    def clean_db(self):
+        if self._proc_mg is not None:
+            raise Exception("The database process is already running, cannot clear data it!")
+        else:
+            out = subprocess.run(
+                args="rm -Rf memgraph/snapshots/*",
+                cwd=self._directory.name,
+                capture_output=True,
+                shell=True,
+            )
+            print(out.stderr.decode("utf-8"))
+            print(out.stdout.decode("utf-8"))
+
     def res_background_tracking(self, res, stop_event):
         print("Started rss tracking.")
         while not stop_event.is_set():
@@ -280,22 +291,17 @@ class Memgraph(BaseRunner):
     def fetch_client(self) -> BoltClient:
         return BoltClient(benchmark_context=self.benchmark_context)
 
-    def _clean_up():
-        pass
-
-    def _stop():
-        pass
-
 
 class Neo4j(BaseRunner):
-    def __init__(self, benchmark_context: BenchmarkContext, vendor_args: dict):
-        super().__init__(benchmark_context=benchmark_context, vendor_args=vendor_args)
+    def __init__(self, benchmark_context: BenchmarkContext):
+        super().__init__(benchmark_context=benchmark_context)
         self._neo4j_path = Path(benchmark_context.vendor_context)
         self._neo4j_binary = Path(benchmark_context.vendor_context) / "bin" / "neo4j"
         self._neo4j_config = Path(benchmark_context.vendor_context) / "conf" / "neo4j.conf"
         self._neo4j_pid = Path(benchmark_context.vendor_context) / "run" / "neo4j.pid"
         self._neo4j_admin = Path(benchmark_context.vendor_context) / "bin" / "neo4j-admin"
         self._performance_tracking = benchmark_context.performance_tracking
+        self._vendor_args = benchmark_context.vendor_args
         self._stop_event = threading.Event()
         self._rss = []
 
@@ -303,7 +309,11 @@ class Neo4j(BaseRunner):
             raise Exception("Wrong path to binary!")
 
         tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
-        self._bolt_port = vendor_args["bolt-port"] if "bolt-port" in vendor_args.keys() else 7687
+        self._bolt_port = (
+            self.benchmark_context.vendor_args["bolt-port"]
+            if "bolt-port" in self.benchmark_context.vendor_args.keys()
+            else 7687
+        )
         atexit.register(self._cleanup)
         configs = []
         memory_flag = "server.jvm.additional=-XX:NativeMemoryTracking=detail"
@@ -504,15 +514,6 @@ class Neo4j(BaseRunner):
             with file.open("r+") as f:
                 f.write(memory_usage.stdout)
                 f.close()
-
-    def _get_args(self, **kwargs):
-        pass
-
-    def _clean_up():
-        pass
-
-    def _stop():
-        pass
 
     def fetch_client(self) -> BoltClient:
         return BoltClient(benchmark_context=self.benchmark_context)

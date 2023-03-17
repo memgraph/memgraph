@@ -486,7 +486,6 @@ if __name__ == "__main__":
 
     vendor_runner = runners.BaseRunner.create(
         benchmark_context=benchmark_context,
-        vendor_args=vendor_specific_args,
     )
 
     run_config = {
@@ -519,9 +518,12 @@ if __name__ == "__main__":
 
         ret = None
         usage = None
+
+        vendor_runner.clean_db()
+
         generated_queries = workload.dataset_generator()
         if generated_queries:
-            vendor_runner.start_preparation("import")
+            vendor_runner.start("import")
             client.execute(queries=generated_queries, num_workers=benchmark_context.num_workers_for_import)
             vendor_runner.stop("import")
         else:
@@ -529,7 +531,7 @@ if __name__ == "__main__":
             workload.prepare(cache.cache_directory("datasets", workload.NAME, workload.get_variant()))
             imported = workload.custom_import()
             if not imported:
-                vendor_runner.start_preparation("import")
+                vendor_runner.start("import")
                 print("Executing database cleanup and index setup...")
                 client.execute(file_path=workload.get_index(), num_workers=benchmark_context.num_workers_for_import)
                 print("Importing dataset...")
@@ -637,7 +639,7 @@ if __name__ == "__main__":
                     vendor_runner.start_benchmark(
                         workload.NAME + workload.get_variant() + "_" + "_" + benchmark_context.mode + "_" + query
                     )
-                    if benchmark_context.warm_up == "hot":
+                    if benchmark_context.warm_up != "cold":
                         warmup(client)
 
                     if args.time_depended_execution != 0:

@@ -3,7 +3,9 @@ import random
 from pathlib import Path
 
 import helpers
+from benchmark_context import BenchmarkContext
 from workloads.base import Workload
+from workloads.importers.importer_ldbc_bi import ImporterLDBCBI
 
 
 class LDBC_BI(Workload):
@@ -23,7 +25,6 @@ class LDBC_BI(Workload):
         "sf10": "https://pub-383410a98aef4cb686f0c7601eddd25f.r2.dev/bi-pre-audit/bi-sf10-composite-projected-fk.tar.zst",
     }
 
-    # 2997352 15457338
     SIZES = {
         "sf1": {"vertices": 2997352, "edges": 17196776},
         "sf3": {"vertices": 1, "edges": 1},
@@ -42,6 +43,16 @@ class LDBC_BI(Workload):
         "sf3": "https://pub-383410a98aef4cb686f0c7601eddd25f.r2.dev/bi-pre-audit/parameters-2022-10-01.zip",
         "sf10": "https://pub-383410a98aef4cb686f0c7601eddd25f.r2.dev/bi-pre-audit/parameters-2022-10-01.zip",
     }
+
+    def custom_import(self) -> bool:
+        importer = ImporterLDBCBI(
+            benchmark_context=self.benchmark_context,
+            dataset_name=self.NAME,
+            variant=self._variant,
+            index_file=self._file_index,
+            csv_dict=self.URL_CSV,
+        )
+        return importer.execute_import()
 
     def _prepare_parameters_directory(self):
         parameters = Path() / ".cache" / "datasets" / self.NAME / self._variant / "parameters"
@@ -87,8 +98,8 @@ class LDBC_BI(Workload):
 
         return parameters
 
-    def __init__(self, variant=None, vendor=None):
-        super().__init__(variant, vendor)
+    def __init__(self, variant=None, benchmark_context: BenchmarkContext = None):
+        super().__init__(variant, benchmark_context=benchmark_context)
         self._parameters_dir = self._prepare_parameters_directory()
 
     def benchmark__bi__query_1(self):
