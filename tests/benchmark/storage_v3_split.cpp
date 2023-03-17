@@ -180,14 +180,40 @@ BENCHMARK_REGISTER_F(ShardSplitBenchmark, BigDataSplitWithGc)
 // Number of vertices
 // Number of edges
 // Number of transaction
+// BENCHMARK_REGISTER_F(ShardSplitBenchmark, BigDataSplitWithFewTransactions)
+//     ->Args({100'000, 100'000, 1'000})
+//     ->Args({100'000, 100'000, 10'000})
+//     ->Args({1'000'000, 100'000, 1'000})
+//     ->Args({1'000'000, 100'000, 10'000})
+//     ->Args({100'000, 1'000'000, 1'000})
+//     ->Args({1'000'000, 1'00'000, 10'000})
+//     ->Unit(::benchmark::kMillisecond);
+
+// Args:
+// Number of vertices
+// Number of edges
+// Number of transaction
 BENCHMARK_REGISTER_F(ShardSplitBenchmark, BigDataSplitWithFewTransactions)
+    ->Args({100'000, 100'000, 100})
+    ->Args({500'000, 100'000, 100})
+    ->Args({1'000'000, 100'000, 100})
+    ->Unit(::benchmark::kMillisecond)
+    ->Name("IncreaseVertices");
+
+BENCHMARK_REGISTER_F(ShardSplitBenchmark, BigDataSplitWithFewTransactions)
+    ->Args({100'000, 100'000, 100})
+    ->Args({100'000, 500'000, 100})
+    ->Args({100'000, 1'000'000, 100})
+    ->Unit(::benchmark::kMillisecond)
+    ->Name("IncreaseEdges");
+
+BENCHMARK_REGISTER_F(ShardSplitBenchmark, BigDataSplitWithFewTransactions)
+    ->Args({100'000, 100'000, 1})
+    ->Args({100'000, 100'000, 100})
     ->Args({100'000, 100'000, 1'000})
     ->Args({100'000, 100'000, 10'000})
-    ->Args({1'000'000, 100'000, 1'000})
-    ->Args({1'000'000, 100'000, 10'000})
-    ->Args({100'000, 1'000'000, 1'000})
-    ->Args({1'000'000, 1'00'000, 10'000})
-    ->Unit(::benchmark::kMillisecond);
+    ->Unit(::benchmark::kMillisecond)
+    ->Name("IncreaseTransactions");
 
 }  // namespace memgraph::benchmark
 
