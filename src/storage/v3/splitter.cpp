@@ -57,7 +57,7 @@ SplitData Splitter::SplitShard(const PrimaryKey &split_key, const std::optional<
   std::set<uint64_t> collected_transactions_;
   data.vertices = CollectVertices(data, collected_transactions_, split_key);
   data.edges = CollectEdges(collected_transactions_, data.vertices, split_key);
-  data.transactions = CollectTransactions(collected_transactions_, data.vertices, *data.edges, split_key);
+  data.transactions = CollectTransactions(collected_transactions_, *data.edges, split_key);
 
   return data;
 }
@@ -122,8 +122,7 @@ std::optional<EdgeContainer> Splitter::CollectEdges(std::set<uint64_t> &collecte
 }
 
 std::map<uint64_t, std::unique_ptr<Transaction>> Splitter::CollectTransactions(
-    const std::set<uint64_t> &collected_transactions_, VertexContainer &cloned_vertices, EdgeContainer &cloned_edges,
-    const PrimaryKey &split_key) {
+    const std::set<uint64_t> &collected_transactions_, EdgeContainer &cloned_edges, const PrimaryKey &split_key) {
   std::map<uint64_t, std::unique_ptr<Transaction>> transactions;
 
   for (const auto &[commit_start, transaction] : start_logical_id_to_transaction_) {
@@ -136,7 +135,7 @@ std::map<uint64_t, std::unique_ptr<Transaction>> Splitter::CollectTransactions(
 
   // It is necessary to clone all the transactions first so we have new addresses
   // for deltas, before doing alignment of deltas and prev_ptr
-  AdjustClonedTransactions(transactions, cloned_vertices, cloned_edges, split_key);
+  AdjustClonedTransactions(transactions, cloned_edges, split_key);
   return transactions;
 }
 
@@ -244,11 +243,10 @@ void Splitter::PruneOriginalDeltas(Transaction &transaction,
 }
 
 void Splitter::AdjustClonedTransactions(std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions,
-                                        VertexContainer &cloned_vertices, EdgeContainer &cloned_edges,
-                                        const PrimaryKey &split_key) {
+                                        EdgeContainer &cloned_edges, const PrimaryKey &split_key) {
   for (auto &[start_id, cloned_transaction] : cloned_transactions) {
     AdjustClonedTransaction(*cloned_transaction, *start_logical_id_to_transaction_[start_id], cloned_transactions,
-                            cloned_vertices, cloned_edges, split_key);
+                            cloned_edges);
   }
   // Prune deltas whose delta chain points to vertex/edge that should not belong on that shard
   // Prune must be after adjust, since next, and prev are not set and we cannot follow the chain
@@ -271,8 +269,7 @@ bool DoesPrevPtrPointsToSplittedData(const PreviousPtr::Pointer &prev_ptr, const
 
 void Splitter::AdjustClonedTransaction(Transaction &cloned_transaction, const Transaction &transaction,
                                        std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions,
-                                       VertexContainer &cloned_vertices, EdgeContainer &cloned_edges,
-                                       const PrimaryKey & /*split_key*/) {
+                                       EdgeContainer &cloned_edges) {
   auto delta_it = transaction.deltas.begin();
   auto cloned_delta_it = cloned_transaction.deltas.begin();
 
