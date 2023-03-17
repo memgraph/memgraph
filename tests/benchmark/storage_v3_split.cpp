@@ -120,38 +120,49 @@ BENCHMARK_DEFINE_F(ShardSplitBenchmark, BigDataSplitWithGc)(::benchmark::State &
   }
 }
 
-BENCHMARK_DEFINE_F(ShardSplitBenchmark, BigDataSplitWithFewTransactions)(::benchmark::State &state) {
+BENCHMARK_DEFINE_F(ShardSplitBenchmark, BigDataSplitWithFewTransactionsOnVertices)(::benchmark::State &state) {
   const auto number_of_vertices = state.range(0);
   const auto number_of_edges = state.range(1);
   const auto number_of_transactions = state.range(2);
   std::random_device r;
   std::default_random_engine e1(r());
-  std::uniform_int_distribution<int> uniform_dist(0, number_of_vertices);
+  std::uniform_int_distribution<int> uniform_dist(0, number_of_vertices - number_of_transactions);
 
-  const auto max_transactions_needed = std::max(number_of_vertices, number_of_edges);
-  for (int64_t vertex_counter{number_of_vertices}, edge_counter{number_of_edges}, i{0};
-       vertex_counter > 0 || edge_counter > 0; --vertex_counter, --edge_counter, ++i) {
+  // Create Vertices
+  int64_t vertex_count{0};
+  for (; vertex_count < number_of_vertices - number_of_transactions; ++vertex_count) {
     auto acc = storage->Access(GetNextHlc());
-    if (vertex_counter > 0) {
-      MG_ASSERT(acc.CreateVertexAndValidate({secondary_label}, PrimaryKey{PropertyValue(i)},
-                                            {{secondary_property, PropertyValue(i)}})
-                    .HasValue(),
-                "Failed creating with pk {}", i);
-    }
-    if (edge_counter > 0 && i > 1) {
-      const auto vtx1 = uniform_dist(e1) % std::min(i, number_of_vertices);
-      const auto vtx2 = uniform_dist(e1) % std::min(i, number_of_vertices);
-
-      MG_ASSERT(acc.CreateEdge(VertexId{primary_label, {PropertyValue(vtx1)}},
-                               VertexId{primary_label, {PropertyValue(vtx2)}}, edge_type_id, Gid::FromUint(i))
-                    .HasValue(),
-                "Failed on {} and {}", vtx1, vtx2);
-    }
-
+    MG_ASSERT(acc.CreateVertexAndValidate({secondary_label}, PrimaryKey{PropertyValue(vertex_count)},
+                                          {{secondary_property, PropertyValue(vertex_count)}})
+                  .HasValue(),
+              "Failed creating with pk {}", vertex_count);
     acc.Commit(GetNextHlc());
-    if (i == max_transactions_needed - number_of_transactions) {
-      storage->CollectGarbage(GetNextHlc().coordinator_wall_clock);
-    }
+  }
+
+  // Create Edges
+  for (int64_t i{0}; i < number_of_edges; ++i) {
+    auto acc = storage->Access(GetNextHlc());
+
+    const auto vtx1 = uniform_dist(e1);
+    const auto vtx2 = uniform_dist(e1);
+
+    MG_ASSERT(acc.CreateEdge(VertexId{primary_label, {PropertyValue(vtx1)}},
+                             VertexId{primary_label, {PropertyValue(vtx2)}}, edge_type_id, Gid::FromUint(i))
+                  .HasValue(),
+              "Failed on {} and {}", vtx1, vtx2);
+    acc.Commit(GetNextHlc());
+  }
+  // Clean up transactional data
+  storage->CollectGarbage(GetNextHlc().coordinator_wall_clock);
+
+  // Create rest of the objects and leave transactions
+  for (; vertex_count < number_of_vertices; ++vertex_count) {
+    auto acc = storage->Access(GetNextHlc());
+    MG_ASSERT(acc.CreateVertexAndValidate({secondary_label}, PrimaryKey{PropertyValue(vertex_count)},
+                                          {{secondary_property, PropertyValue(vertex_count)}})
+                  .HasValue(),
+              "Failed creating with pk {}", vertex_count);
+    acc.Commit(GetNextHlc());
   }
 
   for (auto _ : state) {
@@ -180,34 +191,21 @@ BENCHMARK_REGISTER_F(ShardSplitBenchmark, BigDataSplitWithGc)
 // Number of vertices
 // Number of edges
 // Number of transaction
-// BENCHMARK_REGISTER_F(ShardSplitBenchmark, BigDataSplitWithFewTransactions)
-//     ->Args({100'000, 100'000, 1'000})
-//     ->Args({100'000, 100'000, 10'000})
-//     ->Args({1'000'000, 100'000, 1'000})
-//     ->Args({1'000'000, 100'000, 10'000})
-//     ->Args({100'000, 1'000'000, 1'000})
-//     ->Args({1'000'000, 1'00'000, 10'000})
-//     ->Unit(::benchmark::kMillisecond);
-
-// Args:
-// Number of vertices
-// Number of edges
-// Number of transaction
-BENCHMARK_REGISTER_F(ShardSplitBenchmark, BigDataSplitWithFewTransactions)
+BENCHMARK_REGISTER_F(ShardSplitBenchmark, BigDataSplitWithFewTransactionsOnVertices)
     ->Args({100'000, 100'000, 100})
     ->Args({500'000, 100'000, 100})
     ->Args({1'000'000, 100'000, 100})
     ->Unit(::benchmark::kMillisecond)
     ->Name("IncreaseVertices");
 
-BENCHMARK_REGISTER_F(ShardSplitBenchmark, BigDataSplitWithFewTransactions)
+BENCHMARK_REGISTER_F(ShardSplitBenchmark, BigDataSplitWithFewTransactionsOnVertices)
     ->Args({100'000, 100'000, 100})
     ->Args({100'000, 500'000, 100})
     ->Args({100'000, 1'000'000, 100})
     ->Unit(::benchmark::kMillisecond)
     ->Name("IncreaseEdges");
 
-BENCHMARK_REGISTER_F(ShardSplitBenchmark, BigDataSplitWithFewTransactions)
+BENCHMARK_REGISTER_F(ShardSplitBenchmark, BigDataSplitWithFewTransactionsOnVertices)
     ->Args({100'000, 100'000, 1})
     ->Args({100'000, 100'000, 100})
     ->Args({100'000, 100'000, 1'000})
