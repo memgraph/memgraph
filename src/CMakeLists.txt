@@ -1,7 +1,6 @@
 # CMake configuration for the main memgraph library and executable
 
 # add memgraph sub libraries, ordered by dependency
-add_subdirectory(lisp)
 add_subdirectory(utils)
 add_subdirectory(requests)
 add_subdirectory(io)
@@ -105,6 +104,10 @@ install(PROGRAMS $<TARGET_FILE:memgraph>
 
 # Install Python source for supporting our embedded Python.
 install(FILES ${CMAKE_SOURCE_DIR}/include/mgp.py
+        DESTINATION lib/memgraph/python_support)
+install(FILES ${CMAKE_SOURCE_DIR}/include/mgp_mock.py
+        DESTINATION lib/memgraph/python_support)
+install(FILES ${CMAKE_SOURCE_DIR}/include/_mgp_mock.py
         DESTINATION lib/memgraph/python_support)
 
 # Install the includes file for writing custom procedures in C and C++>

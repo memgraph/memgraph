@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,7 +28,7 @@ struct SumReq {
   int y;
 };
 
-const memgraph::utils::TypeInfo SumReq::kType{0, "SumReq"};
+const memgraph::utils::TypeInfo SumReq::kType{memgraph::utils::TypeId::UNKNOWN, "SumReq"};
 
 struct SumRes {
   static const memgraph::utils::TypeInfo kType;
@@ -42,7 +42,7 @@ struct SumRes {
   int sum;
 };
 
-const memgraph::utils::TypeInfo SumRes::kType{1, "SumRes"};
+const memgraph::utils::TypeInfo SumRes::kType{memgraph::utils::TypeId::UNKNOWN, "SumRes"};
 
 namespace memgraph::slk {
 void Save(const SumReq &sum, Builder *builder);
@@ -66,7 +66,7 @@ struct EchoMessage {
   std::string data;
 };
 
-const memgraph::utils::TypeInfo EchoMessage::kType{2, "EchoMessage"};
+const memgraph::utils::TypeInfo EchoMessage::kType{memgraph::utils::TypeId::UNKNOWN, "EchoMessage"};
 
 namespace memgraph::slk {
 void Save(const EchoMessage &echo, Builder *builder);
