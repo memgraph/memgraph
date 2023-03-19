@@ -1,11 +1,7 @@
 import argparse
-import collections
 import copy
-import fnmatch
-import inspect
 import multiprocessing
 import random
-import sys
 
 import helpers
 import runners
@@ -100,7 +96,7 @@ if __name__ == "__main__":
     benchmark_context_db_1 = BenchmarkContext(
         vendor_name=args.vendor_name_1,
         vendor_binary=args.vendor_binary_1,
-        benchmark_target_workload=args.benchmarks,
+        benchmark_target_workload=copy.copy(args.benchmarks),
         client_binary=args.client_binary,
         num_workers_for_import=args.num_workers_for_import,
         temporary_directory=args.temporary_directory,
@@ -110,11 +106,6 @@ if __name__ == "__main__":
 
     print(helpers.list_available_workloads())
 
-    # Filter out the workloads based on the pattern
-    target_workloads = helpers.filter_workloads(
-        available_workloads=available_workloads, benchmark_context=benchmark_context_db_1
-    )
-
     vendor_runner = runners.BaseRunner.create(
         benchmark_context=benchmark_context_db_1,
     )
@@ -122,7 +113,9 @@ if __name__ == "__main__":
     cache = helpers.Cache()
     client = vendor_runner.fetch_client()
 
-    workloads = helpers.filter_workloads(available_workloads, benchmark_context=benchmark_context_db_1)
+    workloads = helpers.filter_workloads(
+        available_workloads=available_workloads, benchmark_context=benchmark_context_db_1
+    )
 
     results_db_1 = {}
 
@@ -153,7 +146,7 @@ if __name__ == "__main__":
         for group in sorted(queries.keys()):
             for query, funcname in queries[group]:
                 print("Running query:{}/{}/{}".format(group, query, funcname))
-                func = getattr(base, funcname)
+                func = getattr(workload, funcname)
                 count = 1
                 vendor_runner.start_benchmark("validation")
                 try:
@@ -170,8 +163,8 @@ if __name__ == "__main__":
 
     benchmark_context_db_2 = BenchmarkContext(
         vendor_name=args.vendor_name_2,
-        vendor_binary=args.vendor_name_2,
-        benchmark_target_workload=args.benchmarks,
+        vendor_binary=args.vendor_binary_2,
+        benchmark_target_workload=copy.copy(args.benchmarks),
         client_binary=args.client_binary,
         num_workers_for_import=args.num_workers_for_import,
         temporary_directory=args.temporary_directory,
@@ -180,8 +173,11 @@ if __name__ == "__main__":
     vendor_runner = runners.BaseRunner.create(
         benchmark_context=benchmark_context_db_2,
     )
+    available_workloads = helpers.get_available_workloads()
 
     workloads = helpers.filter_workloads(available_workloads, benchmark_context=benchmark_context_db_2)
+
+    client = vendor_runner.fetch_client()
 
     results_db_2 = {}
 

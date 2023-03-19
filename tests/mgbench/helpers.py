@@ -22,10 +22,8 @@ from pathlib import Path
 
 import workloads
 from benchmark_context import BenchmarkContext
+from workloads import *
 from workloads import base
-
-# from workloads import *
-
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 
