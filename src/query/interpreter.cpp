@@ -1893,6 +1893,22 @@ PreparedQuery PrepareAnalyticsModeQuery(ParsedQuery parsed_query, const bool in_
   const auto analytics_mode = ToStorageAnalyticsMode(analytics_mode_query->analytics_mode_);
 
   auto callback = [analytics_mode_query, analytics_mode, interpreter_context, interpreter]() -> std::function<void()> {
+    if (interpreter->transaction_status_.load() == TransactionStatus::ALIVE) {
+      std::cout << "active";
+    }
+    auto num_running_transactions = interpreter_context->interpreters.WithLock([](const auto &interpreters_) {
+      int counter = 0;
+      for (const auto &interpreter : interpreters_) {
+        if (interpreter->transaction_status_.load() != TransactionStatus::NO_TRANSACTION) {
+          counter++;
+          std::cout << "1";
+        }
+      }
+      return counter;
+    });
+    if (num_running_transactions > 1) {
+      throw AnalyticsModeModificationInMultiTxException();
+    }
     switch (analytics_mode_query->analytics_mode_) {
       case AnalyticsModeQuery::AnalyticsMode::ON:
         return [interpreter_context, analytics_mode] { interpreter_context->db->SetAnalyticsMode(analytics_mode); };

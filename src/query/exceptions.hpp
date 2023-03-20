@@ -217,6 +217,12 @@ class AnalyticsModeModificationInMulticommandTxException : public QueryException
       : QueryException("Analytics mode cannot be modified in multicommand transactions.") {}
 };
 
+class AnalyticsModeModificationInMultiTxException : public QueryException {
+ public:
+  AnalyticsModeModificationInMultiTxException()
+      : QueryException("Analytics mode cannot be modified when multiple transactions are running.") {}
+};
+
 class CreateSnapshotInMulticommandTxException final : public QueryException {
  public:
   CreateSnapshotInMulticommandTxException()
