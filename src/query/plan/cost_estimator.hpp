@@ -218,6 +218,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     double left_cost = EstimateCostOnBranch(&op.left_op_);
     double right_cost = EstimateCostOnBranch(&op.right_op_);
 
+    // the number of hits in the previous operator should be the joined number of results of both parts of the union
     cardinality_ *= (left_cost + right_cost);
     IncrementCost(CostParam::kUnion);
 
@@ -227,6 +228,10 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(Apply &op) override {
     double input_cost = EstimateCostOnBranch(&op.input_);
     double subquery_cost = EstimateCostOnBranch(&op.subquery_);
+
+    // if the query is a unit subquery, we don't want the cost to be zero but 1xN
+    input_cost = input_cost < 1 ? 1 : input_cost;
+    subquery_cost = subquery_cost < 1 ? 1 : subquery_cost;
 
     cardinality_ = cardinality_ * input_cost * subquery_cost;
     IncrementCost(CostParam::kSubquery);

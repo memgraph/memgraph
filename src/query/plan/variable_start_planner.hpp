@@ -314,37 +314,18 @@ class VariableStartPlanner {
   // Generates different, equivalent query parts by taking different graph
   // matching routes for each query part.
   auto VaryQueryMatching(const QueryParts &query_parts, const SymbolTable &symbol_table) {
-    std::vector<impl::VaryQueryPartMatching> alternative_query_parts;
+    std::vector<impl::VaryQueryPartMatching> varying_query_matchings;
 
-    auto number_of_alternating_query_parts = GetAlternatingQueryPartsSize(std::make_unique<QueryParts>(query_parts));
-    alternative_query_parts.reserve(number_of_alternating_query_parts);
+    auto single_query_parts = ExtractSingleQueryParts(std::make_unique<QueryParts>(query_parts));
 
-    auto alternating_single_query_parts = GetAlternatingQueryParts(std::make_unique<QueryParts>(query_parts));
-
-    for (const auto &alternating_query_part : alternating_single_query_parts) {
-      alternative_query_parts.emplace_back(impl::VaryQueryPartMatching(alternating_query_part, symbol_table));
+    for (const auto &single_query_part : single_query_parts) {
+      varying_query_matchings.emplace_back(impl::VaryQueryPartMatching(single_query_part, symbol_table));
     }
 
-    return iter::slice(MakeCartesianProduct(std::move(alternative_query_parts)), 0UL, FLAGS_query_max_plans);
+    return iter::slice(MakeCartesianProduct(std::move(varying_query_matchings)), 0UL, FLAGS_query_max_plans);
   }
 
-  uint64_t GetAlternatingQueryPartsSize(const std::shared_ptr<QueryParts> query_parts) {
-    auto alternating_query_parts_size = 0;
-
-    for (const auto &query_part : query_parts->query_parts) {
-      for (const auto &single_query_part : query_part.single_query_parts) {
-        alternating_query_parts_size++;
-
-        for (const auto &subquery : single_query_part.subqueries) {
-          alternating_query_parts_size += GetAlternatingQueryPartsSize(subquery);
-        }
-      }
-    }
-
-    return alternating_query_parts_size;
-  }
-
-  std::vector<SingleQueryPart> GetAlternatingQueryParts(const std::shared_ptr<QueryParts> query_parts) {
+  std::vector<SingleQueryPart> ExtractSingleQueryParts(const std::shared_ptr<QueryParts> query_parts) {
     std::vector<SingleQueryPart> results;
 
     for (const auto &query_part : query_parts->query_parts) {
@@ -352,7 +333,7 @@ class VariableStartPlanner {
         results.push_back(single_query_part);
 
         for (const auto &subquery : single_query_part.subqueries) {
-          const auto subquery_results = GetAlternatingQueryParts(subquery);
+          const auto subquery_results = ExtractSingleQueryParts(subquery);
           results.insert(results.end(), subquery_results.begin(), subquery_results.end());
         }
       }
@@ -361,25 +342,25 @@ class VariableStartPlanner {
     return results;
   }
 
-  QueryParts ReconstructQueryParts(const std::shared_ptr<QueryParts> &query_parts,
-                                   const std::vector<SingleQueryPart> &new_single_query_parts, uint64_t &index) {
-    auto query_part_copy = *query_parts;
+  QueryParts ReconstructQueryParts(const QueryParts &old_query_parts,
+                                   const std::vector<SingleQueryPart> &single_query_parts_variation, uint64_t &index) {
+    auto reconstructed_query_parts = old_query_parts;
 
-    for (auto i = 0; i < query_parts->query_parts.size(); i++) {
-      const auto &query_part = query_parts->query_parts[i];
+    for (auto i = 0; i < old_query_parts.query_parts.size(); i++) {
+      const auto &query_part = old_query_parts.query_parts[i];
       for (auto j = 0; j < query_part.single_query_parts.size(); j++) {
         const auto &single_query_part = query_part.single_query_parts[j];
-        query_part_copy.query_parts[i].single_query_parts[j] = new_single_query_parts[index++];
+        reconstructed_query_parts.query_parts[i].single_query_parts[j] = single_query_parts_variation[index++];
 
         for (auto k = 0; k < single_query_part.subqueries.size(); k++) {
           const auto &subquery = single_query_part.subqueries[k];
-          query_part_copy.query_parts[i].single_query_parts[j].subqueries[k] =
-              std::make_shared<QueryParts>(ReconstructQueryParts(subquery, new_single_query_parts, index));
+          reconstructed_query_parts.query_parts[i].single_query_parts[j].subqueries[k] =
+              std::make_shared<QueryParts>(ReconstructQueryParts(*subquery, single_query_parts_variation, index));
         }
       }
     }
 
-    return query_part_copy;
+    return reconstructed_query_parts;
   }
 
  public:
@@ -390,8 +371,7 @@ class VariableStartPlanner {
     return iter::imap(
         [context = context_, old_query_parts = query_parts, this](const auto &alternative_query_parts) {
           uint64_t index = 0;
-          auto reconstructed_query_parts =
-              ReconstructQueryParts(std::make_shared<QueryParts>(old_query_parts), alternative_query_parts, index);
+          auto reconstructed_query_parts = ReconstructQueryParts(old_query_parts, alternative_query_parts, index);
 
           RuleBasedPlanner<TPlanningContext> rule_planner(context);
           context->bound_symbols.clear();
