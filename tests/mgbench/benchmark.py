@@ -138,6 +138,7 @@ def parse_args():
 
     parser.add_argument(
         "--workload-mixed",
+        nargs="*",
         type=int,
         default=None,
         help="""Mixed workload can be run on each query under some defined load.
@@ -205,13 +206,13 @@ def mixed_workload(
 ):
 
     num_of_queries = benchmark_context.mode_config[0]
-    percentage_distribution = benchmark_context.config[1:]
+    percentage_distribution = benchmark_context.mode_config[1:]
     if sum(percentage_distribution) != 100:
         raise Exception(
             "Please make sure that passed arguments % sum to 100% percent!, passed: ",
             percentage_distribution,
         )
-    s = [str(i) for i in benchmark_context.config]
+    s = [str(i) for i in benchmark_context.mode_config]
 
     config_distribution = "_".join(s)
 
@@ -311,14 +312,14 @@ def mixed_workload(
             additional_query = getattr(dataset, funcname)
             full_workload.append(additional_query())
 
-        vendor.start_benchmark(dataset.NAME + dataset.get_variant() + "_" + workloads.name + "_" + config_distribution)
+        vendor.start_benchmark(dataset.NAME + dataset.get_variant() + "_" + "realistic" + "_" + config_distribution)
         warmup(benchmark_context.warm_up, client=client)
         ret = client.execute(
             queries=full_workload,
             num_workers=benchmark_context.num_workers_for_benchmark,
         )[0]
         usage_workload = vendor.stop(
-            dataset.NAME + dataset.get_variant() + "_" + workloads.name + "_" + config_distribution
+            dataset.NAME + dataset.get_variant() + "_" + "realistic" + "_" + config_distribution
         )
         mixed_workload = {
             "count": ret["count"],
@@ -431,14 +432,22 @@ if __name__ == "__main__":
         no_load_query_counts=args.no_load_query_counts,
         export_results=args.export_results,
         temporary_directory=args.temporary_directory,
-        workload_mixed=args.workload_realistic,
-        workload_realistic=args.workload_mixed,
+        workload_mixed=args.workload_mixed,
+        workload_realistic=args.workload_realistic,
         time_dependent_execution=args.time_depended_execution,
         warm_up=args.warm_up,
         performance_tracking=args.performance_tracking,
         no_authorization=args.no_authorization,
         vendor_args=vendor_specific_args,
     )
+
+    # Create cache, config and results objects.
+    cache = helpers.Cache()
+    if not benchmark_context.no_load_query_counts:
+        config = cache.load_config()
+    else:
+        config = helpers.RecursiveDict()
+    results = helpers.RecursiveDict()
 
     vendor_runner = runners.BaseRunner.create(
         benchmark_context=benchmark_context,
@@ -452,17 +461,11 @@ if __name__ == "__main__":
         "platform": platform.platform(),
     }
 
+    results.set_value("__run_configuration__", value=run_config)
+
     available_workloads = helpers.get_available_workloads()
 
     print(helpers.list_available_workloads())
-
-    # Create cache, config and results objects.
-    cache = helpers.Cache()
-    if not benchmark_context.no_load_query_counts:
-        config = cache.load_config()
-    else:
-        config = helpers.RecursiveDict()
-    results = helpers.RecursiveDict()
 
     # Filter out the workloads based on the pattern
     target_workloads = helpers.filter_workloads(
@@ -589,7 +592,6 @@ if __name__ == "__main__":
                         workload.NAME + workload.get_variant() + "_" + benchmark_context.mode + "_" + query
                     )
                     ret["database"] = usage
-                    results.set_value("__run_configuration__", value=run_config)
                     # Output summary.
                     print()
                     print("Executed", ret["count"], "queries in", ret["duration"], "seconds.")

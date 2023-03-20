@@ -120,26 +120,8 @@ def run_full_benchmarks(vendor, binary, dataset, dataset_size, dataset_group, re
                 analytical,
             ]
 
-            vulcanic = [
-                "--export-results",
-                vendor
-                + "_"
-                + dataset
-                + "_"
-                + dataset_size
-                + "_vulcanic_realistic_{}_{}_{}_{}_{}.json".format(count, write, read, update, analytical),
-                "--warm-up",
-                "vulcanic",
-                "--workload-realistic",
-                count,
-                write,
-                read,
-                update,
-                analytical,
-            ]
             configurations.append(cold)
             configurations.append(hot)
-            configurations.append(vulcanic)
 
     if mixed:
         # Configurations for workload per query
@@ -178,27 +160,9 @@ def run_full_benchmarks(vendor, binary, dataset, dataset_size, dataset_group, re
                 analytical,
                 query,
             ]
-            vulcanic = [
-                "--export-results",
-                vendor
-                + "_"
-                + dataset
-                + "_"
-                + dataset_size
-                + "_hot_mixed_{}_{}_{}_{}_{}_{}.json".format(count, write, read, update, analytical, query),
-                "--warm-up",
-                "vulcanic" "--workload-mixed",
-                count,
-                write,
-                read,
-                update,
-                analytical,
-                query,
-            ]
 
             configurations.append(cold)
             configurations.append(hot)
-            configurations.append(vulcanic)
 
     default_args = [
         "python3",
