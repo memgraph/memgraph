@@ -1143,9 +1143,9 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
       }
       // We just need to wait for the resolvement of CHECKING_KILL status. If the transactions is KILLED
       // this doesn't prevent us of creating new transaction.
-      while (transaction_status_.load(std::memory_order_acquire) == TransactionStatus::CHECKING_STATUS)
+      while (transaction_status_.load(std::memory_order_acquire) == TransactionStatus::VERIFYING)
         ;
-      transaction_status_.store(TransactionStatus::ALIVE, std::memory_order_release);
+      transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
       in_explicit_transaction_ = true;
       expect_rollback_ = false;
 
@@ -1926,10 +1926,10 @@ std::vector<std::vector<TypedValue>> TransactionQueueQueryHandler::ShowTransacti
   std::vector<std::vector<TypedValue>> results;
   results.reserve(interpreters.size());
   for (Interpreter *interpreter : interpreters) {
-    TransactionStatus alive_status = TransactionStatus::ALIVE;
+    TransactionStatus alive_status = TransactionStatus::ACTIVE;
     // if it is just checking status, commit and abort should wait for the end of the check
     // ignore interpreters that already started committing or rollback
-    if (!interpreter->transaction_status_.compare_exchange_strong(alive_status, TransactionStatus::CHECKING_STATUS)) {
+    if (!interpreter->transaction_status_.compare_exchange_strong(alive_status, TransactionStatus::VERIFYING)) {
       continue;
     }
     std::optional<uint64_t> transaction_id = interpreter->GetTransactionId();
@@ -1938,7 +1938,7 @@ std::vector<std::vector<TypedValue>> TransactionQueueQueryHandler::ShowTransacti
       results.push_back({TypedValue(interpreter->username_.value_or("")),
                          TypedValue(std::to_string(transaction_id.value())), TypedValue(typed_queries)});
     }
-    interpreter->transaction_status_.store(TransactionStatus::ALIVE, std::memory_order_release);
+    interpreter->transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
   }
   return results;
 }
@@ -1953,12 +1953,11 @@ std::vector<std::vector<TypedValue>> TransactionQueueQueryHandler::KillTransacti
     interpreter_context->interpreters.WithLock([&transaction_id, &killed, &transaction_found, username,
                                                 hasTransactionManagementPrivilege](const auto &interpreters) {
       for (Interpreter *interpreter : interpreters) {
-        TransactionStatus alive_status = TransactionStatus::ALIVE;
+        TransactionStatus alive_status = TransactionStatus::ACTIVE;
         // if it is just checking kill, commit and abort should wait for the end of the check
         // The only way to start checking if the transaction will get killed is if the transaction_status is
         // active
-        if (!interpreter->transaction_status_.compare_exchange_strong(alive_status,
-                                                                      TransactionStatus::CHECKING_STATUS)) {
+        if (!interpreter->transaction_status_.compare_exchange_strong(alive_status, TransactionStatus::VERIFYING)) {
           continue;
         }
 
@@ -1969,16 +1968,16 @@ std::vector<std::vector<TypedValue>> TransactionQueueQueryHandler::KillTransacti
             // Here status doesn't need to be checked because all other places(new transaction being created, commit
             // start or rollback start) will wait for checking_kill to end
             killed = true;
-            interpreter->transaction_status_.store(TransactionStatus::KILLED, std::memory_order_release);
+            interpreter->transaction_status_.store(TransactionStatus::TERMINATED, std::memory_order_release);
             spdlog::warn("Transaction {} successfully killed", transaction_id);
           } else {
-            interpreter->transaction_status_.store(TransactionStatus::ALIVE, std::memory_order_release);
+            interpreter->transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
             spdlog::warn("Not enough rights to kill the transaction");
           }
           break;
         }
         // return to normal execution
-        interpreter->transaction_status_.store(TransactionStatus::ALIVE, std::memory_order_release);
+        interpreter->transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
       }
     });
     if (!transaction_found) {
@@ -2458,7 +2457,6 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
   query_executions_.emplace_back(std::make_unique<QueryExecution>());
   auto &query_execution = query_executions_.back();
-  query_execution->query = query_string;
 
   std::optional<int> qid =
       in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};
@@ -2506,12 +2504,12 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       // Implicit transaction setup
       // We just need to wait for the resolvement of CHECKING_KILL status. If the transaction is KILLED
       // this doesn't prevent us of creating new transaction.
-      while (transaction_status_.load(std::memory_order_acquire) == TransactionStatus::CHECKING_STATUS)
+      while (transaction_status_.load(std::memory_order_acquire) == TransactionStatus::VERIFYING)
         ;
       db_accessor_ =
           std::make_unique<storage::Storage::Accessor>(interpreter_context_->db->Access(GetIsolationLevelOverride()));
       execution_db_accessor_.emplace(db_accessor_.get());
-      transaction_status_.store(TransactionStatus::ALIVE, std::memory_order_release);
+      transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
 
       if (utils::Downcast<CypherQuery>(parsed_query.query) && interpreter_context_->trigger_store.HasTriggers()) {
         trigger_context_collector_.emplace(interpreter_context_->trigger_store.GetEventTypes());
@@ -2620,7 +2618,7 @@ std::vector<TypedValue> Interpreter::GetQueries() {
 
 void Interpreter::Abort() {
   // Wait for the result of checking kill
-  while (transaction_status_.load(std::memory_order_acquire) == TransactionStatus::CHECKING_STATUS)
+  while (transaction_status_.load(std::memory_order_acquire) == TransactionStatus::VERIFYING)
     ;
   // Process with the abort no matter the transaction status
   transaction_status_.store(TransactionStatus::STARTED_ROLLBACK, std::memory_order_release);
@@ -2631,7 +2629,7 @@ void Interpreter::Abort() {
   execution_db_accessor_.reset();
   db_accessor_.reset();
   trigger_context_collector_.reset();
-  transaction_status_.store(TransactionStatus::NO_TRANSACTION, std::memory_order_release);
+  transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
 }
 
 namespace {
@@ -2704,15 +2702,15 @@ void Interpreter::Commit() {
   // a query.
   if (!db_accessor_) return;
 
-  while (transaction_status_.load(std::memory_order_acquire) == TransactionStatus::CHECKING_STATUS)
+  while (transaction_status_.load(std::memory_order_acquire) == TransactionStatus::VERIFYING)
     ;
 
   /*
-  At this point we must only check that the transaction is alive because it cannot be in the ended committed state,
-  started rollback state or finished rollbacked state in the same thread. The only danger is that other thread killed
-  the transactions and if it did, then this committing step must abort. Exception should suffice.
+  At this point we must only check that the transaction is alive because it cannot be in any other state in the same
+  thread. The only danger is that other thread killed the transactions and if it did, then this committing step must
+  abort. Exception should suffice.
   */
-  TransactionStatus alive_status = TransactionStatus::ALIVE;
+  TransactionStatus alive_status = TransactionStatus::ACTIVE;
   if (!transaction_status_.compare_exchange_strong(alive_status, TransactionStatus::STARTED_COMMITTING)) {
     throw memgraph::utils::BasicException(
         "Aborting transaction commit because the transaction was requested to stop from other session. ");
@@ -2810,7 +2808,7 @@ void Interpreter::Commit() {
 
   // Here we don't need to check any transaction status because if the killing thread noticed that this thread started
   // committing, it will stop
-  transaction_status_.store(TransactionStatus::NO_TRANSACTION, std::memory_order_release);
+  transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
 }
 
 void Interpreter::AdvanceCommand() {

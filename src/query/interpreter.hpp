@@ -317,15 +317,13 @@ class Interpreter final {
    */
   void Abort();
 
-  std::atomic<TransactionStatus> transaction_status_{TransactionStatus::NO_TRANSACTION};
+  std::atomic<TransactionStatus> transaction_status_{TransactionStatus::IDLE};
 
  private:
   struct QueryExecution {
     std::optional<PreparedQuery> prepared_query;
     utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
     utils::ResourceWithOutOfMemoryException execution_memory_with_exception{&execution_memory};
-
-    std::string query;
 
     std::map<std::string, TypedValue> summary;
     std::vector<Notification> notifications;
@@ -358,7 +356,7 @@ class Interpreter final {
   // we reset the corresponding unique_ptr.
   std::vector<std::unique_ptr<QueryExecution>> query_executions_;
   // all queries that are run as part of the current transaction
-  utils::Synchronized<std::vector<std::string>> transaction_queries_;
+  utils::Synchronized<std::vector<std::string>, utils::SpinLock> transaction_queries_;
 
   InterpreterContext *interpreter_context_;
 
