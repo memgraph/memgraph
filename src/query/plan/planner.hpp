@@ -83,8 +83,7 @@ auto MakeLogicalPlanForSingleQuery(QueryParts query_parts, PlanningContext<TDbAc
 /// the estimated cost of that plan as a `double`.
 template <class TPlanningContext, class TPlanPostProcess>
 auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, bool use_variable_planner) {
-  auto query_parts = CollectQueryParts(*context->symbol_table, *context->ast_storage, context->query->single_query_,
-                                       context->query->cypher_unions_);
+  auto query_parts = CollectQueryParts(*context->symbol_table, *context->ast_storage, context->query);
   auto &vertex_counts = *context->db;
   double total_cost = std::numeric_limits<double>::max();
 
