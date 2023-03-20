@@ -177,8 +177,8 @@ enum class TypeId : uint64_t {
   AST_VERSION_QUERY,
   AST_FOREACH,
   AST_SHOW_CONFIG_QUERY,
+  AST_TRANSACTION_QUEUE_QUERY,
   AST_EXISTS,
-
   // Symbol
   SYMBOL,
 };

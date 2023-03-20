@@ -2700,7 +2700,8 @@ class AuthQuery : public memgraph::query::Query {
     MODULE_READ,
     MODULE_WRITE,
     WEBSOCKET,
-    ANALYTICS
+    ANALYTICS,
+    TRANSACTION_MANAGEMENT
   };
 
   enum class FineGrainedPrivilege { NOTHING, READ, UPDATE, CREATE_DELETE };
@@ -3224,6 +3225,26 @@ class ShowConfigQuery : public memgraph::query::Query {
 
   ShowConfigQuery *Clone(AstStorage *storage) const override {
     ShowConfigQuery *object = storage->Create<ShowConfigQuery>();
+    return object;
+  }
+};
+
+class TransactionQueueQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  enum class Action { SHOW_TRANSACTIONS, TERMINATE_TRANSACTIONS };
+
+  TransactionQueueQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  memgraph::query::TransactionQueueQuery::Action action_;
+  std::vector<Expression *> transaction_id_list_;
+
+  TransactionQueueQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<TransactionQueueQuery>();
     return object;
   }
 };

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -41,7 +41,7 @@ struct Transaction {
         analytics_mode(analytics_mode) {}
 
   Transaction(Transaction &&other) noexcept
-      : transaction_id(other.transaction_id),
+      : transaction_id(other.transaction_id.load(std::memory_order_acquire)),
         start_timestamp(other.start_timestamp),
         commit_timestamp(std::move(other.commit_timestamp)),
         command_id(other.command_id),
@@ -59,10 +59,10 @@ struct Transaction {
   /// @throw std::bad_alloc if failed to create the `commit_timestamp`
   void EnsureCommitTimestampExists() {
     if (commit_timestamp != nullptr) return;
-    commit_timestamp = std::make_unique<std::atomic<uint64_t>>(transaction_id);
+    commit_timestamp = std::make_unique<std::atomic<uint64_t>>(transaction_id.load(std::memory_order_relaxed));
   }
 
-  uint64_t transaction_id;
+  std::atomic<uint64_t> transaction_id;
   uint64_t start_timestamp;
   // The `Transaction` object is stack allocated, but the `commit_timestamp`
   // must be heap allocated because `Delta`s have a pointer to it, and that
@@ -77,12 +77,16 @@ struct Transaction {
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {
-  return first.transaction_id == second.transaction_id;
+  return first.transaction_id.load(std::memory_order_acquire) == second.transaction_id.load(std::memory_order_acquire);
 }
 inline bool operator<(const Transaction &first, const Transaction &second) {
-  return first.transaction_id < second.transaction_id;
+  return first.transaction_id.load(std::memory_order_acquire) < second.transaction_id.load(std::memory_order_acquire);
 }
-inline bool operator==(const Transaction &first, const uint64_t &second) { return first.transaction_id == second; }
-inline bool operator<(const Transaction &first, const uint64_t &second) { return first.transaction_id < second; }
+inline bool operator==(const Transaction &first, const uint64_t &second) {
+  return first.transaction_id.load(std::memory_order_acquire) == second;
+}
+inline bool operator<(const Transaction &first, const uint64_t &second) {
+  return first.transaction_id.load(std::memory_order_acquire) < second;
+}
 
 }  // namespace memgraph::storage

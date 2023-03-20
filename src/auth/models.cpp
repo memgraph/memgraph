@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -34,13 +34,19 @@ namespace memgraph::auth {
 namespace {
 
 // Constant list of all available permissions.
-const std::vector<Permission> kPermissionsAll = {
-    Permission::MATCH,      Permission::CREATE,    Permission::MERGE,       Permission::DELETE,
-    Permission::SET,        Permission::REMOVE,    Permission::INDEX,       Permission::STATS,
-    Permission::CONSTRAINT, Permission::DUMP,      Permission::AUTH,        Permission::REPLICATION,
-    Permission::DURABILITY, Permission::READ_FILE, Permission::FREE_MEMORY, Permission::TRIGGER,
-    Permission::CONFIG,     Permission::STREAM,    Permission::MODULE_READ, Permission::MODULE_WRITE,
-    Permission::WEBSOCKET,  Permission::ANALYTICS};
+const std::vector<Permission> kPermissionsAll = {Permission::MATCH,       Permission::CREATE,
+                                                 Permission::MERGE,       Permission::DELETE,
+                                                 Permission::SET,         Permission::REMOVE,
+                                                 Permission::INDEX,       Permission::STATS,
+                                                 Permission::CONSTRAINT,  Permission::DUMP,
+                                                 Permission::AUTH,        Permission::REPLICATION,
+                                                 Permission::DURABILITY,  Permission::READ_FILE,
+                                                 Permission::FREE_MEMORY, Permission::TRIGGER,
+                                                 Permission::CONFIG,      Permission::STREAM,
+                                                 Permission::MODULE_READ, Permission::MODULE_WRITE,
+                                                 Permission::WEBSOCKET,   Permission::TRANSACTION_MANAGEMENT,
+                                                 Permission::ANALYTICS};
+
 }  // namespace
 
 std::string PermissionToString(Permission permission) {
@@ -87,6 +93,8 @@ std::string PermissionToString(Permission permission) {
       return "MODULE_WRITE";
     case Permission::WEBSOCKET:
       return "WEBSOCKET";
+    case Permission::TRANSACTION_MANAGEMENT:
+      return "TRANSACTION_MANAGEMENT";
     case Permission::ANALYTICS:
       return "ANALYTICS";
   }

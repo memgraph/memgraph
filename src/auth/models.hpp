@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -41,7 +41,11 @@ enum class Permission : uint64_t {
   MODULE_READ  = 1U << 18U,
   MODULE_WRITE = 1U << 19U,
   WEBSOCKET    = 1U << 20U,
+<<<<<<< HEAD
   ANALYTICS    = 1U << 21U
+=======
+  TRANSACTION_MANAGEMENT = 1U << 21U
+>>>>>>> T577-FL-transaction-queue
 };
 // clang-format on
 

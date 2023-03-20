@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <atomic>
+
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/transaction.hpp"
@@ -31,7 +33,7 @@ inline void ApplyDeltasForRead(Transaction *transaction, const Delta *delta, Vie
   // This allows the transaction to see its changes even though it's committed.
   const auto commit_timestamp = transaction->commit_timestamp
                                     ? transaction->commit_timestamp->load(std::memory_order_acquire)
-                                    : transaction->transaction_id;
+                                    : transaction->transaction_id.load(std::memory_order_acquire);
   while (delta != nullptr) {
     auto ts = delta->timestamp->load(std::memory_order_acquire);
     auto cid = delta->command_id;
@@ -81,7 +83,7 @@ inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
   if (object->delta == nullptr) return true;
 
   auto ts = object->delta->timestamp->load(std::memory_order_acquire);
-  if (ts == transaction->transaction_id || ts < transaction->start_timestamp) {
+  if (ts == transaction->transaction_id.load(std::memory_order_acquire) || ts < transaction->start_timestamp) {
     return true;
   }
 
