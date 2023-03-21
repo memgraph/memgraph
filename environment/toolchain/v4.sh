@@ -51,11 +51,19 @@ CPPCHECK_VERSION=2.6
 LLVM_VERSION=13.0.0
 SWIG_VERSION=4.0.2 # used only for LLVM compilation
 
-# Check for the dependencies.
-echo "ALL BUILD PACKAGES: $($DIR/../os/$DISTRO.sh list TOOLCHAIN_BUILD_DEPS)"
-$DIR/../os/$DISTRO.sh check TOOLCHAIN_BUILD_DEPS
-echo "ALL RUN PACKAGES: $($DIR/../os/$DISTRO.sh list TOOLCHAIN_RUN_DEPS)"
-$DIR/../os/$DISTRO.sh check TOOLCHAIN_RUN_DEPS
+# Set the right env script
+ENV_SCRIPT="$DIR/../os/$DISTRO.sh"
+if [[ "$for_arm" = true ]]; then
+    ENV_SCRIPT="$DIR/../os/$DISTRO-arm.sh"
+fi
+
+# Check for the toolchain build dependencies.
+echo "ALL BUILD PACKAGES: $(${ENV_SCRIPT} list TOOLCHAIN_BUILD_DEPS)"
+${ENV_SCRIPT} check TOOLCHAIN_BUILD_DEPS
+
+# Check for the toolchain run dependencies.
+echo "ALL RUN PACKAGES: $(${ENV_SCRIPT} list TOOLCHAIN_RUN_DEPS)"
+${ENV_SCRIPT} check TOOLCHAIN_RUN_DEPS
 
 # check installation directory
 NAME=toolchain-v$TOOLCHAIN_VERSION
@@ -407,6 +415,34 @@ if [ ! -f $PREFIX/bin/gdb ]; then
                 --with-intel-pt \
                 --enable-tui \
                 --with-python=python3
+    elif [[ "${DISTRO}" == "amzn-2" ]]; then
+        # Remove readline, gdb does not compile
+        env \
+            CC=gcc \
+            CXX=g++ \
+            CFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
+            CXXFLAGS="-g -O2 -fstack-protector-strong -Wformat -Werror=format-security" \
+            CPPFLAGS="-Wdate-time -D_FORTIFY_SOURCE=2 -fPIC" \
+            LDFLAGS="-Wl,-z,relro" \
+            PYTHON="" \
+            ../configure \
+                --build=x86_64-linux-gnu \
+                --host=x86_64-linux-gnu \
+                --prefix=$PREFIX \
+                --disable-maintainer-mode \
+                --disable-dependency-tracking \
+                --disable-silent-rules \
+                --disable-gdbtk \
+                --disable-shared \
+                --without-guile \
+                --with-system-gdbinit=$PREFIX/etc/gdb/gdbinit \
+                --with-expat \
+                --with-system-zlib \
+                --with-lzma \
+                --with-babeltrace \
+                --with-intel-pt \
+                --enable-tui \
+                --with-python=python3
     else
         # https://buildd.debian.org/status/fetch.php?pkg=gdb&arch=amd64&ver=8.2.1-2&stamp=1550831554&raw=0
         env \
@@ -622,7 +658,7 @@ In order to be able to run all of these tools you should install the following
 packages:
 
 \`\`\`
-$($DIR/../os/$DISTRO.sh list TOOLCHAIN_RUN_DEPS)
+$($DIR/../os/$ENV_SCRIPT.sh list TOOLCHAIN_RUN_DEPS)
 \`\`\`
 
 ## Usage
@@ -1135,119 +1171,121 @@ if [ ! -f $PREFIX/include/libaio.h ]; then
     popd
 fi
 
-log_tool_name "folly $FBLIBS_VERSION"
-if [ ! -d $PREFIX/include/folly ]; then
-    if [ -d folly-$FBLIBS_VERSION ]; then
-        rm -rf folly-$FBLIBS_VERSION
+if [[ "${DISTRO}" != "amzn-2" ]]; then
+    log_tool_name "folly $FBLIBS_VERSION"
+    if [ ! -d $PREFIX/include/folly ]; then
+        if [ -d folly-$FBLIBS_VERSION ]; then
+            rm -rf folly-$FBLIBS_VERSION
+        fi
+        mkdir folly-$FBLIBS_VERSION
+        tar -xzf ../archives/folly-$FBLIBS_VERSION.tar.gz -C folly-$FBLIBS_VERSION
+        pushd folly-$FBLIBS_VERSION
+        patch -p1 < ../../folly.patch
+        # build is used by facebook builder
+        mkdir _build
+        pushd _build
+        cmake .. $COMMON_CMAKE_FLAGS \
+            -DBOOST_LINK_STATIC=ON \
+            -DBUILD_TESTS=OFF \
+            -DGFLAGS_NOTHREADS=OFF \
+            -DCXX_STD="c++20"
+        make -j$CPUS install
+        popd && popd
     fi
-    mkdir folly-$FBLIBS_VERSION
-    tar -xzf ../archives/folly-$FBLIBS_VERSION.tar.gz -C folly-$FBLIBS_VERSION
-    pushd folly-$FBLIBS_VERSION
-    patch -p1 < ../../folly.patch
-    # build is used by facebook builder
-    mkdir _build
-    pushd _build
-    cmake .. $COMMON_CMAKE_FLAGS \
-        -DBOOST_LINK_STATIC=ON \
-        -DBUILD_TESTS=OFF \
-        -DGFLAGS_NOTHREADS=OFF \
-        -DCXX_STD="c++20"
-    make -j$CPUS install
-    popd && popd
-fi
 
-log_tool_name "fizz $FBLIBS_VERSION"
-if [ ! -d $PREFIX/include/fizz ]; then
-    if [ -d fizz-$FBLIBS_VERSION ]; then
-        rm -rf fizz-$FBLIBS_VERSION
+    log_tool_name "fizz $FBLIBS_VERSION"
+    if [ ! -d $PREFIX/include/fizz ]; then
+        if [ -d fizz-$FBLIBS_VERSION ]; then
+            rm -rf fizz-$FBLIBS_VERSION
+        fi
+        mkdir fizz-$FBLIBS_VERSION
+        tar -xzf ../archives/fizz-$FBLIBS_VERSION.tar.gz -C fizz-$FBLIBS_VERSION
+        pushd fizz-$FBLIBS_VERSION
+        # build is used by facebook builder
+        mkdir _build
+        pushd _build
+        cmake ../fizz $COMMON_CMAKE_FLAGS \
+            -DBUILD_TESTS=OFF \
+            -DBUILD_EXAMPLES=OFF \
+            -DGFLAGS_NOTHREADS=OFF
+        make -j$CPUS install
+        popd && popd
     fi
-    mkdir fizz-$FBLIBS_VERSION
-    tar -xzf ../archives/fizz-$FBLIBS_VERSION.tar.gz -C fizz-$FBLIBS_VERSION
-    pushd fizz-$FBLIBS_VERSION
-    # build is used by facebook builder
-    mkdir _build
-    pushd _build
-    cmake ../fizz $COMMON_CMAKE_FLAGS \
-        -DBUILD_TESTS=OFF \
-        -DBUILD_EXAMPLES=OFF \
-        -DGFLAGS_NOTHREADS=OFF
-    make -j$CPUS install
-    popd && popd
-fi
 
-log_tool_name "wangle FBLIBS_VERSION"
-if [ ! -d $PREFIX/include/wangle ]; then
-    if [ -d wangle-$FBLIBS_VERSION ]; then
-        rm -rf wangle-$FBLIBS_VERSION
+    log_tool_name "wangle FBLIBS_VERSION"
+    if [ ! -d $PREFIX/include/wangle ]; then
+        if [ -d wangle-$FBLIBS_VERSION ]; then
+            rm -rf wangle-$FBLIBS_VERSION
+        fi
+        mkdir wangle-$FBLIBS_VERSION
+        tar -xzf ../archives/wangle-$FBLIBS_VERSION.tar.gz -C wangle-$FBLIBS_VERSION
+        pushd wangle-$FBLIBS_VERSION
+        # build is used by facebook builder
+        mkdir _build
+        pushd _build
+        cmake ../wangle $COMMON_CMAKE_FLAGS \
+            -DBUILD_TESTS=OFF \
+            -DBUILD_EXAMPLES=OFF \
+            -DGFLAGS_NOTHREADS=OFF
+        make -j$CPUS install
+        popd && popd
     fi
-    mkdir wangle-$FBLIBS_VERSION
-    tar -xzf ../archives/wangle-$FBLIBS_VERSION.tar.gz -C wangle-$FBLIBS_VERSION
-    pushd wangle-$FBLIBS_VERSION
-    # build is used by facebook builder
-    mkdir _build
-    pushd _build
-    cmake ../wangle $COMMON_CMAKE_FLAGS \
-        -DBUILD_TESTS=OFF \
-        -DBUILD_EXAMPLES=OFF \
-        -DGFLAGS_NOTHREADS=OFF
-    make -j$CPUS install
-    popd && popd
-fi
 
-log_tool_name "proxygen $FBLIBS_VERSION"
-if [ ! -d $PREFIX/include/proxygen ]; then
-    if [ -d proxygen-$FBLIBS_VERSION ]; then
-        rm -rf proxygen-$FBLIBS_VERSION
+    log_tool_name "proxygen $FBLIBS_VERSION"
+    if [ ! -d $PREFIX/include/proxygen ]; then
+        if [ -d proxygen-$FBLIBS_VERSION ]; then
+            rm -rf proxygen-$FBLIBS_VERSION
+        fi
+        mkdir proxygen-$FBLIBS_VERSION
+        tar -xzf ../archives/proxygen-$FBLIBS_VERSION.tar.gz -C proxygen-$FBLIBS_VERSION
+        pushd proxygen-$FBLIBS_VERSION
+        patch -p1 < ../../proxygen.patch
+        # build is used by facebook builder
+        mkdir _build
+        pushd _build
+        cmake .. $COMMON_CMAKE_FLAGS \
+            -DBUILD_TESTS=OFF \
+            -DBUILD_SAMPLES=OFF \
+            -DGFLAGS_NOTHREADS=OFF \
+            -DBUILD_QUIC=OFF
+        make -j$CPUS install
+        popd && popd
     fi
-    mkdir proxygen-$FBLIBS_VERSION
-    tar -xzf ../archives/proxygen-$FBLIBS_VERSION.tar.gz -C proxygen-$FBLIBS_VERSION
-    pushd proxygen-$FBLIBS_VERSION
-    patch -p1 < ../../proxygen.patch
-    # build is used by facebook builder
-    mkdir _build
-    pushd _build
-    cmake .. $COMMON_CMAKE_FLAGS \
-        -DBUILD_TESTS=OFF \
-        -DBUILD_SAMPLES=OFF \
-        -DGFLAGS_NOTHREADS=OFF \
-        -DBUILD_QUIC=OFF
-    make -j$CPUS install
-    popd && popd
-fi
 
-log_tool_name "flex $FBLIBS_VERSION"
-if [ ! -f $PREFIX/include/FlexLexer.h ]; then
-    if [ -d flex-$FLEX_VERSION ]; then
-        rm -rf flex-$FLEX_VERSION
+    log_tool_name "flex $FBLIBS_VERSION"
+    if [ ! -f $PREFIX/include/FlexLexer.h ]; then
+        if [ -d flex-$FLEX_VERSION ]; then
+            rm -rf flex-$FLEX_VERSION
+        fi
+        tar -xzf ../archives/flex-$FLEX_VERSION.tar.gz
+        pushd flex-$FLEX_VERSION
+        ./configure $COMMON_CONFIGURE_FLAGS
+        make -j$CPUS install
+        popd
     fi
-    tar -xzf ../archives/flex-$FLEX_VERSION.tar.gz
-    pushd flex-$FLEX_VERSION
-    ./configure $COMMON_CONFIGURE_FLAGS
-    make -j$CPUS install
-    popd
-fi
 
-log_tool_name "fbthrift $FBLIBS_VERSION"
-if [ ! -d $PREFIX/include/thrift ]; then
-    if [ -d fbthrift-$FBLIBS_VERSION ]; then
-        rm -rf fbthrift-$FBLIBS_VERSION
+    log_tool_name "fbthrift $FBLIBS_VERSION"
+    if [ ! -d $PREFIX/include/thrift ]; then
+        if [ -d fbthrift-$FBLIBS_VERSION ]; then
+            rm -rf fbthrift-$FBLIBS_VERSION
+        fi
+        git clone --depth 1 --branch v$FBLIBS_VERSION https://github.com/facebook/fbthrift.git fbthrift-$FBLIBS_VERSION
+        pushd fbthrift-$FBLIBS_VERSION
+        # build is used by facebook builder
+        mkdir _build
+        pushd _build
+        if [ "$TOOLCHAIN_STDCXX" = "libstdc++" ]; then
+            CMAKE_CXX_FLAGS="-fsized-deallocation"
+        else
+            CMAKE_CXX_FLAGS="-fsized-deallocation -stdlib=libc++"
+        fi
+        cmake .. $COMMON_CMAKE_FLAGS \
+            -Denable_tests=OFF \
+            -DGFLAGS_NOTHREADS=OFF \
+            -DCMAKE_CXX_FLAGS="$CMAKE_CXX_FLAGS"
+        make -j$CPUS install
+        popd
     fi
-    git clone --depth 1 --branch v$FBLIBS_VERSION https://github.com/facebook/fbthrift.git fbthrift-$FBLIBS_VERSION
-    pushd fbthrift-$FBLIBS_VERSION
-    # build is used by facebook builder
-    mkdir _build
-    pushd _build
-    if [ "$TOOLCHAIN_STDCXX" = "libstdc++" ]; then
-        CMAKE_CXX_FLAGS="-fsized-deallocation"
-    else
-        CMAKE_CXX_FLAGS="-fsized-deallocation -stdlib=libc++"
-    fi
-    cmake .. $COMMON_CMAKE_FLAGS \
-        -Denable_tests=OFF \
-        -DGFLAGS_NOTHREADS=OFF \
-        -DCMAKE_CXX_FLAGS="$CMAKE_CXX_FLAGS"
-    make -j$CPUS install
-    popd
 fi
 
 popd

@@ -133,6 +133,7 @@ class CallProcedure;
 class LoadCsv;
 class Foreach;
 class EmptyResult;
+class EvaluatePatternFilter;
 
 using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel,
@@ -141,7 +142,7 @@ using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Expand, ExpandVariable, ConstructNamedPath, Filter, Produce, Delete,
     SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels,
     EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit, OrderBy, Merge,
-    Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv, Foreach, EmptyResult>;
+    Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv, Foreach, EmptyResult, EvaluatePatternFilter>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -1122,6 +1123,9 @@ pulled.")
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
           :slk-save #'slk-save-operator-pointer
           :slk-load #'slk-load-operator-pointer)
+   (pattern_filters "std::vector<std::shared_ptr<LogicalOperator>>" :scope :public
+          :slk-save #'slk-save-ast-vector
+          :slk-load (slk-load-ast-vector "std::shared_ptr<LogicalOperator>"))
    (expression "Expression *" :scope :public
                :slk-save #'slk-save-ast-pointer
                :slk-load (slk-load-ast-pointer "Expression")))
@@ -1136,6 +1140,7 @@ a boolean value.")
    Filter() {}
 
    Filter(const std::shared_ptr<LogicalOperator> &input_,
+          const std::vector<std::shared_ptr<LogicalOperator>> &pattern_filters_,
           Expression *expression_);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
@@ -1159,6 +1164,7 @@ a boolean value.")
     private:
      const Filter &self_;
      const UniqueCursorPtr input_cursor_;
+     const std::vector<UniqueCursorPtr> pattern_filter_cursors_;
    };
    cpp<#)
   (:serialize (:slk))
@@ -1772,6 +1778,45 @@ operator's implementation does not expect this.")
      // that it's still unknown (input has not been Pulled yet)
      int64_t to_skip_{-1};
      int64_t skipped_{0};
+   };
+   cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class evaluate-pattern-filter (logical-operator)
+  ((input "std::shared_ptr<LogicalOperator>" :scope :public
+          :slk-save #'slk-save-operator-pointer
+          :slk-load #'slk-load-operator-pointer)
+   (output-symbol "Symbol" :scope :public))
+  (:documentation "Applies the pattern filter by putting the value of the input cursor to the frame.")
+
+  (:public
+   #>cpp
+   EvaluatePatternFilter() {}
+
+   EvaluatePatternFilter(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol);
+   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+   bool HasSingleInput() const override { return true; }
+   std::shared_ptr<LogicalOperator> input() const override { return input_; }
+   void set_input(std::shared_ptr<LogicalOperator> input) override {
+     input_ = input;
+   }
+   cpp<#)
+  (:private
+   #>cpp
+   class EvaluatePatternFilterCursor : public Cursor {
+    public:
+     EvaluatePatternFilterCursor(const EvaluatePatternFilter &, utils::MemoryResource *);
+     bool Pull(Frame &, ExecutionContext &) override;
+     void Shutdown() override;
+     void Reset() override;
+
+    private:
+     const EvaluatePatternFilter &self_;
+     UniqueCursorPtr input_cursor_;
    };
    cpp<#)
   (:serialize (:slk))

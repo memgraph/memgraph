@@ -240,7 +240,9 @@ void ExecuteTimeDependentWorkload(
   std::atomic<bool> run(false);
   std::atomic<uint64_t> ready(0);
   std::atomic<uint64_t> position(0);
+  std::atomic<bool> start_workload_timer(false);
 
+  std::chrono::time_point<std::chrono::steady_clock> workload_start;
   std::chrono::duration<double> time_limit = std::chrono::seconds(FLAGS_time_dependent_execution);
   for (int worker = 0; worker < FLAGS_num_workers; ++worker) {
     threads.push_back(std::thread([&, worker]() {
@@ -252,27 +254,30 @@ void ExecuteTimeDependentWorkload(
       ready.fetch_add(1, std::memory_order_acq_rel);
       while (!run.load(std::memory_order_acq_rel))
         ;
-
       auto &retries = worker_retries[worker];
       auto &metadata = worker_metadata[worker];
       auto &duration = worker_duration[worker];
       auto &query_duration = worker_query_durations[worker];
 
+      // After all threads have been initialised, start the workload timer
+      if (!start_workload_timer.load()) {
+        workload_start = std::chrono::steady_clock::now();
+        start_workload_timer.store(true);
+      }
+
       memgraph::utils::Timer worker_timer;
-      while (true) {
-        double total_workload_duration =
-            std::accumulate(worker_duration.begin(), worker_duration.end(), 0.0) / FLAGS_num_workers;
-        if (total_workload_duration > time_limit.count()) break;
+      while (std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() -
+                                                                       workload_start) < time_limit) {
         auto pos = position.fetch_add(1, std::memory_order_acq_rel);
         if (pos >= size) {
           /// Get back to inital position
-          position = 0;
+          position.store(0, std::memory_order_acq_rel);
           pos = position.fetch_add(1, std::memory_order_acq_rel);
         }
         const auto &query = queries[pos];
         memgraph::utils::Timer query_timer;
         auto ret = ExecuteNTimesTillSuccess(&client, query.first, query.second, FLAGS_max_retries);
-        query_duration.push_back(query_timer.Elapsed().count());
+        query_duration.emplace_back(query_timer.Elapsed().count());
         retries += ret.second;
         metadata.Append(ret.first);
         duration = worker_timer.Elapsed().count();
@@ -284,7 +289,8 @@ void ExecuteTimeDependentWorkload(
   // Synchronize workers and collect runtime.
   while (ready.load(std::memory_order_acq_rel) < FLAGS_num_workers)
     ;
-  run.store(true, std::memory_order_acq_rel);
+
+  run.store(true);
   for (int i = 0; i < FLAGS_num_workers; ++i) {
     threads[i].join();
   }
@@ -305,6 +311,8 @@ void ExecuteTimeDependentWorkload(
 
   final_duration /= FLAGS_num_workers;
   double execution_delta = time_limit.count() / final_duration;
+
+  // This is adjusted throughput based on how much longer did workload execution time took.
   double throughput = (total_iterations / final_duration) * execution_delta;
   double raw_throughput = total_iterations / final_duration;
 
@@ -362,7 +370,7 @@ void ExecuteWorkload(
         const auto &query = queries[pos];
         memgraph::utils::Timer query_timer;
         auto ret = ExecuteNTimesTillSuccess(&client, query.first, query.second, FLAGS_max_retries);
-        query_duration.push_back(query_timer.Elapsed().count());
+        query_duration.emplace_back(query_timer.Elapsed().count());
         retries += ret.second;
         metadata.Append(ret.first);
       }
@@ -375,6 +383,7 @@ void ExecuteWorkload(
   while (ready.load(std::memory_order_acq_rel) < FLAGS_num_workers)
     ;
   run.store(true, std::memory_order_acq_rel);
+
   for (int i = 0; i < FLAGS_num_workers; ++i) {
     threads[i].join();
   }
