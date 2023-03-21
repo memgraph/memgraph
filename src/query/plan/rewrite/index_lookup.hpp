@@ -25,8 +25,6 @@
 
 #include <gflags/gflags.h>
 
-// #include "query/interpret/eval.hpp"
-// #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 
@@ -484,7 +482,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     // FilterInfo with PropertyFilter.
     FilterInfo filter;
     int64_t vertex_count;
-    std::optional<storage::IndexStats> stats;
+    std::optional<storage::IndexStats> index_stats;
   };
 
   bool DefaultPreVisit() override { throw utils::NotYetImplemented("optimizing index lookup"); }
@@ -569,10 +567,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         std::optional<storage::IndexStats> new_stats = db_->GetIndexStats(GetLabel(label), GetProperty(property));
 
         if (!found || (vertex_count * 10 < found->vertex_count) ||
-            (new_stats.has_value() && found->stats.has_value() && (vertex_count / 10 <= found->vertex_count) &&
-             (utils::LessThanDecimal(new_stats->avg_group_size, found->stats->avg_group_size) ||
-              (utils::ApproxEqualDecimal(found->stats->avg_group_size, new_stats->avg_group_size) &&
-               utils::GreaterThanDecimal(found->stats->stat_value, new_stats->stat_value)))) ||
+            (new_stats.has_value() && found->index_stats.has_value() && (vertex_count / 10 <= found->vertex_count) &&
+             (utils::LessThanDecimal(new_stats->avg_group_size, found->index_stats->avg_group_size) ||
+              (utils::ApproxEqualDecimal(found->index_stats->avg_group_size, new_stats->avg_group_size) &&
+               utils::LessThanDecimal(new_stats->stat_value, found->index_stats->stat_value)))) ||
             found->vertex_count > vertex_count ||
             (found->vertex_count == vertex_count && is_better_type(filter.property_filter->type_))) {
           found = LabelPropertyIndex{label, filter, vertex_count, new_stats};

@@ -247,7 +247,7 @@ antlrcpp::Any CypherMainVisitor::visitAnalyzeGraphQuery(MemgraphCypher::AnalyzeG
   } else {
     analyze_graph_query->labels_.emplace_back("*");
   }
-  if (ctx->DELETE() && ctx->STATISTICS()) {
+  if (ctx->DELETE()) {
     analyze_graph_query->action_ = AnalyzeGraphQuery::Action::DELETE;
   } else {
     analyze_graph_query->action_ = AnalyzeGraphQuery::Action::ANALYZE;

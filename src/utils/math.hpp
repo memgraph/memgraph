@@ -65,21 +65,18 @@ constexpr std::optional<uint64_t> RoundUint64ToMultiple(uint64_t val, uint64_t m
   return (numerator / multiple) * multiple;
 }
 
-template <class T>
-typename std::enable_if<!std::numeric_limits<T>::is_integer, bool>::type ApproxEqualDecimal(T a, T b) {
+template <typename T>
+concept FloatingPoint = std::is_floating_point_v<T>;
+
+template <FloatingPoint T>
+bool ApproxEqualDecimal(T a, T b) {
   return std::fabs(a - b) <=
          ((std::fabs(a) < std::fabs(b) ? std::fabs(b) : std::fabs(a)) * std::numeric_limits<T>::epsilon());
 }
 
-template <class T>
-typename std::enable_if<!std::numeric_limits<T>::is_integer, bool>::type LessThanDecimal(T a, T b) {
+template <FloatingPoint T>
+bool LessThanDecimal(T a, T b) {
   return (b - a) >
-         ((std::fabs(a) < std::fabs(b) ? std::fabs(b) : std::fabs(a)) * std::numeric_limits<double>::epsilon());
-}
-
-template <class T>
-typename std::enable_if<!std::numeric_limits<T>::is_integer, bool>::type GreaterThanDecimal(T a, T b) {
-  return (a - b) >
          ((std::fabs(a) < std::fabs(b) ? std::fabs(b) : std::fabs(a)) * std::numeric_limits<double>::epsilon());
 }
 

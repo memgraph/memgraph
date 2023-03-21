@@ -42,11 +42,6 @@ TEST(UtilsMath, LessThan) {
   ASSERT_TRUE(memgraph::utils::LessThanDecimal(0.2, 0.20001));
 }
 
-TEST(UtilsMath, GreaterThan) {
-  ASSERT_TRUE(memgraph::utils::GreaterThanDecimal(0.2, 0.1));
-  ASSERT_TRUE(memgraph::utils::GreaterThanDecimal(0.2, 0.199));
-}
-
 TEST(UtilsMath, ChiSquared) {
   ASSERT_EQ(std::numeric_limits<double>::max(), memgraph::utils::ChiSquaredValue(2.0, 0.0));
   ASSERT_DOUBLE_EQ(0.0, memgraph::utils::ChiSquaredValue(2.0, 2.0));

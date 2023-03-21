@@ -25,9 +25,9 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   std::vector<AuthQuery::Privilege> privileges() { return privileges_; }
 
-  void Visit(IndexQuery &) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
+  void Visit(IndexQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
 
-  void Visit(AnalyzeGraphQuery &) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
+  void Visit(AnalyzeGraphQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
 
   void Visit(AuthQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::AUTH); }
 

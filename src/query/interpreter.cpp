@@ -23,7 +23,6 @@
 #include <unordered_map>
 #include <variant>
 
-#include "_mgp.hpp"
 #include "auth/models.hpp"
 #include "glue/communication.hpp"
 #include "license/license.hpp"
@@ -1400,33 +1399,35 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, std::map<std::string, T
                        RWType::R};
 }
 
+bool comp(const std::pair<storage::LabelId, storage::PropertyId> &index_info, const std::string &label) { return true; }
+
 std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreateStatistics(
     const std::span<std::string> labels, DbAccessor *execution_db_accessor, storage::Storage::Accessor *dba) {
-  auto results = std::vector<std::vector<TypedValue>>();
   using VertexAccessorIterable = decltype(std::declval<query::DbAccessor>().Vertices(storage::View::OLD));
   using LPIndex = std::pair<storage::LabelId, storage::PropertyId>;
-  VertexAccessorIterable vertices = execution_db_accessor->Vertices(storage::View::OLD);
 
+  auto results = std::vector<std::vector<TypedValue>>();
   std::map<LPIndex, std::map<storage::PropertyValue, int64_t>> counter;
 
-  // initialize index
-  const auto &indices_info = execution_db_accessor->ListAllIndices();
-  std::for_each(
-      vertices.begin(), vertices.end(), [&indices_info, &counter, &labels, execution_db_accessor](const auto &vertex) {
-        std::for_each(
-            indices_info.label_property.begin(), indices_info.label_property.end(),
-            [&labels, &counter, execution_db_accessor, &vertex](const auto &info) {
-              if (const auto &has_label = vertex.HasLabel(storage::View::OLD, info.first);
-                  has_label.HasError() || !*has_label ||
-                  (labels[0] != "*" && std::find(labels.begin(), labels.end(),
-                                                 execution_db_accessor->LabelToName(info.first)) == labels.end()))
-                return;
-              if (const auto &property = vertex.GetProperty(storage::View::NEW, info.second);
-                  !property.HasError() && (*property).type() != storage::PropertyValue::Type::Null) {
-                counter[info][*property]++;
-              }
-            });
-      });
+  // Preprocess labels to avoid later checks
+  std::vector<LPIndex> indices_info = execution_db_accessor->ListAllIndices().label_property;
+  if (labels[0] != "*") {
+    for (auto it = indices_info.cbegin(); it != indices_info.cend();) {
+      if (std::find(labels.begin(), labels.end(), dba->LabelToName(it->first)) == labels.end()) {
+        indices_info.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+  // Iterate over all indexed vertices
+  std::for_each(indices_info.begin(), indices_info.end(), [execution_db_accessor, &counter](const LPIndex &index_info) {
+    VertexAccessorIterable vertices =
+        execution_db_accessor->Vertices(storage::View::OLD, index_info.first, index_info.second);
+    std::for_each(vertices.begin(), vertices.end(), [&index_info, &counter](const auto &vertex) {
+      counter[index_info][*vertex.GetProperty(storage::View::OLD, index_info.second)]++;
+    });
+  });
 
   results.reserve(counter.size());
   std::for_each(counter.begin(), counter.end(), [&results, dba](const auto &counter_entry) {
