@@ -108,8 +108,8 @@ class Workload(ABC):
         if variant not in self.SIZES:
             raise ValueError("The variant doesn't have a defined dataset " "size!")
 
-        if (self.LOCAL_INDEX_FILE and self._vendor not in self.LOCAL_INDEX_FILES) and (
-            self.URL_INDEX_FILE and self._vendor not in self.URL_INDEX_FILES
+        if (self.LOCAL_INDEX_FILE and self._vendor not in self.LOCAL_INDEX_FILE) and (
+            self.URL_INDEX_FILE and self._vendor not in self.URL_INDEX_FILE
         ):
             raise ValueError("Vendor does not have INDEX for dataset!")
 

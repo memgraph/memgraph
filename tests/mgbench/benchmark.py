@@ -25,6 +25,7 @@ from workloads import *
 
 WITH_FINE_GRAINED_AUTHORIZATION = "with_fine_grained_authorization"
 WITHOUT_FINE_GRAINED_AUTHORIZATION = "without_fine_grained_authorization"
+QUERY_COUNT_LOWER_BOUND = 30
 
 
 def parse_args():
@@ -165,8 +166,8 @@ def parse_args():
     parser.add_argument(
         "--vendor-specific",
         nargs="*",
-        default=["bolt-port=7687", "no-properties-on-edges=False"],
-        help="Vendor specific arguments that can be applied to each vendor, format: key=value",
+        default=[],
+        help="Vendor specific arguments that can be applied to each vendor, format: [key=value, key=value ...]",
     )
 
     return parser.parse_args()
@@ -380,9 +381,9 @@ def get_query_cache_count(
                 count = count * 10
         vendor.stop("cache")
 
-        count_lower_bound = 30
-        if count < count_lower_bound:
-            count = count_lower_bound
+        QUERY_COUNT_LOWER_BOUND = 30
+        if count < QUERY_COUNT_LOWER_BOUND:
+            count = QUERY_COUNT_LOWER_BOUND
 
         config.set_value(
             *config_key,
@@ -495,17 +496,21 @@ if __name__ == "__main__":
         ret = None
         usage = None
 
+        log.init("Preparing workload: " + workload.NAME + "/" + workload.get_variant())
+        workload.prepare(cache.cache_directory("datasets", workload.NAME, workload.get_variant()))
         generated_queries = workload.dataset_generator()
         if generated_queries:
-            log.info("Using workload as dataset generator...")
-            log.warning("Make sure proper indexes/constraints are created in generated queries!")
             vendor_runner.start_preparation("import")
+            log.info("Using workload as dataset generator...")
+            if workload.get_index():
+                log.info("Using index from specified file: {}".format(workload.get_index()))
+                client.execute(file_path=workload.get_index(), num_workers=benchmark_context.num_workers_for_import)
+            else:
+                log.warning("Make sure proper indexes/constraints are created in generated queries!")
             ret = client.execute(queries=generated_queries, num_workers=benchmark_context.num_workers_for_import)
             usage = vendor_runner.stop("import")
         else:
-            log.info("Using workload dataset information...")
-            log.init("Preparing workload: " + workload.NAME + "/" + workload.get_variant())
-            workload.prepare(cache.cache_directory("datasets", workload.NAME, workload.get_variant()))
+            log.info("Using workload dataset information for import...")
             imported = workload.custom_import()
             if not imported:
                 log.log("Basic import execution")
