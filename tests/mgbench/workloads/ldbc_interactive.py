@@ -76,7 +76,7 @@ class LDBC_Interactive(Workload):
         func_name = inspect.stack()[1].function
         parameters = {}
         for file in self._parameters_dir.glob("interactive_*.txt"):
-            if file.name.split("_")[1] == func_name.split("_")[-1]:
+            if file.name.split("_")[1] == func_name.split("_")[-2]:
                 with file.open("r") as input:
                     lines = input.readlines()
                     position = random.randint(1, len(lines) - 1)
@@ -99,7 +99,7 @@ class LDBC_Interactive(Workload):
         self._parameters_dir = self._prepare_parameters_directory()
         self.benchmark_context = benchmark_context
 
-    def benchmark__interactive__complex_query_1(self):
+    def benchmark__interactive__complex_query_1_analytical(self):
         memgraph = (
             """
         MATCH (p:Person {id: $personId}), (friend:Person {firstName: $firstName})
@@ -207,7 +207,7 @@ class LDBC_Interactive(Workload):
         else:
             return neo4j
 
-    def benchmark__interactive__complex_query_2(self):
+    def benchmark__interactive__complex_query_2_analytical(self):
         return (
             """
             MATCH (:Person {id: $personId })-[:KNOWS]-(friend:Person)<-[:HAS_CREATOR]-(message:Message)
@@ -229,7 +229,7 @@ class LDBC_Interactive(Workload):
             self._get_query_parameters(),
         )
 
-    def benchmark__interactive__complex_query_3(self):
+    def benchmark__interactive__complex_query_3_analytical(self):
 
         memgraph = (
             """
@@ -307,7 +307,7 @@ class LDBC_Interactive(Workload):
         else:
             return neo4j
 
-    def benchmark__interactive__complex_query_4(self):
+    def benchmark__interactive__complex_query_4_analytical(self):
         memgraph = (
             """
             MATCH (person:Person {id: $personId })-[:KNOWS]-(friend:Person),
@@ -361,7 +361,7 @@ class LDBC_Interactive(Workload):
         else:
             return neo4j
 
-    def benchmark__interactive__complex_query_5(self):
+    def benchmark__interactive__complex_query_5_analytical(self):
         return (
             """
             MATCH (person:Person { id: $personId })-[:KNOWS*1..2]-(friend)
@@ -393,7 +393,7 @@ class LDBC_Interactive(Workload):
             self._get_query_parameters(),
         )
 
-    def benchmark__interactive__complex_query_6(self):
+    def benchmark__interactive__complex_query_6_analytical(self):
         return (
             """
             MATCH (knownTag:Tag { name: $tagName })
@@ -425,7 +425,7 @@ class LDBC_Interactive(Workload):
             self._get_query_parameters(),
         )
 
-    def benchmark__interactive__complex_query_7(self):
+    def benchmark__interactive__complex_query_7_analytical(self):
         memgraph = (
             """
             MATCH (person:Person {id: $personId})<-[:HAS_CREATOR]-(message:Message)<-[like:LIKES]-(liker:Person)
@@ -481,7 +481,7 @@ class LDBC_Interactive(Workload):
         else:
             return neo4j
 
-    def benchmark__interactive__complex_query_8(self):
+    def benchmark__interactive__complex_query_8_analytical(self):
         return (
             """
             MATCH (start:Person {id: $personId})<-[:HAS_CREATOR]-(:Message)<-[:REPLY_OF]-(comment:Comment)-[:HAS_CREATOR]->(person:Person)
@@ -502,7 +502,7 @@ class LDBC_Interactive(Workload):
             self._get_query_parameters(),
         )
 
-    def benchmark__interactive__complex_query_9(self):
+    def benchmark__interactive__complex_query_9_analytical(self):
         return (
             """
             MATCH (root:Person {id: $personId })-[:KNOWS*1..2]-(friend:Person)
@@ -528,73 +528,73 @@ class LDBC_Interactive(Workload):
             self._get_query_parameters(),
         )
 
-    # def benchmark__interactive__complex_query_10(self):
-    #     memgraph = (
-    #         """
-    #         MATCH (person:Person {id: $personId})-[:KNOWS*2..2]-(friend),
-    #             (friend)-[:IS_LOCATED_IN]->(city:City)
-    #         WHERE NOT friend=person AND
-    #             NOT (friend)-[:KNOWS]-(person)
-    #         WITH person, city, friend, datetime({epochMillis: friend.birthday}) as birthday
-    #         WHERE  (birthday.month=$month AND birthday.day>=21) OR
-    #                 (birthday.month=($month%12)+1 AND birthday.day<22)
-    #         WITH DISTINCT friend, city, person
-    #         OPTIONAL MATCH (friend)<-[:HAS_CREATOR]-(post:Post)
-    #         WITH friend, city, collect(post) AS posts, person
-    #         WITH friend,
-    #             city,
-    #             size(posts) AS postCount,
-    #             size([p IN posts WHERE (p)-[:HAS_TAG]->()<-[:HAS_INTEREST]-(person)]) AS commonPostCount
-    #         RETURN friend.id AS personId,
-    #             friend.firstName AS personFirstName,
-    #             friend.lastName AS personLastName,
-    #             commonPostCount - (postCount - commonPostCount) AS commonInterestScore,
-    #             friend.gender AS personGender,
-    #             city.name AS personCityName
-    #         ORDER BY commonInterestScore DESC, personId ASC
-    #         LIMIT 10
-    #         """.replace(
-    #             "\n", ""
-    #         ),
-    #         self._get_query_parameters(),
-    #     )
+    def benchmark__interactive__complex_query_10_analytical(self):
+        memgraph = (
+            """
+            MATCH (person:Person {id: $personId})-[:KNOWS*2..2]-(friend),
+                (friend)-[:IS_LOCATED_IN]->(city:City)
+            WHERE NOT friend=person AND
+                NOT (friend)-[:KNOWS]-(person)
+            WITH person, city, friend, datetime({epochMillis: friend.birthday}) as birthday
+            WHERE  (birthday.month=$month AND birthday.day>=21) OR
+                    (birthday.month=($month%12)+1 AND birthday.day<22)
+            WITH DISTINCT friend, city, person
+            OPTIONAL MATCH (friend)<-[:HAS_CREATOR]-(post:Post)
+            WITH friend, city, collect(post) AS posts, person
+            WITH friend,
+                city,
+                size(posts) AS postCount,
+                size([p IN posts WHERE (p)-[:HAS_TAG]->()<-[:HAS_INTEREST]-(person)]) AS commonPostCount
+            RETURN friend.id AS personId,
+                friend.firstName AS personFirstName,
+                friend.lastName AS personLastName,
+                commonPostCount - (postCount - commonPostCount) AS commonInterestScore,
+                friend.gender AS personGender,
+                city.name AS personCityName
+            ORDER BY commonInterestScore DESC, personId ASC
+            LIMIT 10
+            """.replace(
+                "\n", ""
+            ),
+            self._get_query_parameters(),
+        )
 
-    #     neo4j = (
-    #         """
-    #         MATCH (person:Person {id: $personId})-[:KNOWS*2..2]-(friend),
-    #             (friend)-[:IS_LOCATED_IN]->(city:City)
-    #         WHERE NOT friend=person AND
-    #             NOT (friend)-[:KNOWS]-(person)
-    #         WITH person, city, friend, datetime({epochMillis: friend.birthday}) as birthday
-    #         WHERE  (birthday.month=$month AND birthday.day>=21) OR
-    #                 (birthday.month=($month%12)+1 AND birthday.day<22)
-    #         WITH DISTINCT friend, city, person
-    #         OPTIONAL MATCH (friend)<-[:HAS_CREATOR]-(post:Post)
-    #         WITH friend, city, collect(post) AS posts, person
-    #         WITH friend,
-    #             city,
-    #             size(posts) AS postCount,
-    #             size([p IN posts WHERE (p)-[:HAS_TAG]->()<-[:HAS_INTEREST]-(person)]) AS commonPostCount
-    #         RETURN friend.id AS personId,
-    #             friend.firstName AS personFirstName,
-    #             friend.lastName AS personLastName,
-    #             commonPostCount - (postCount - commonPostCount) AS commonInterestScore,
-    #             friend.gender AS personGender,
-    #             city.name AS personCityName
-    #         ORDER BY commonInterestScore DESC, personId ASC
-    #         LIMIT 10
-    #         """.replace(
-    #             "\n", ""
-    #         ),
-    #         self._get_query_parameters(),
-    #     )
+        neo4j = (
+            """
+            MATCH (person:Person {id: $personId})-[:KNOWS*2..2]-(friend),
+                (friend)-[:IS_LOCATED_IN]->(city:City)
+            WHERE NOT friend=person AND
+                NOT (friend)-[:KNOWS]-(person)
+            WITH person, city, friend, datetime({epochMillis: friend.birthday}) as birthday
+            WHERE  (birthday.month=$month AND birthday.day>=21) OR
+                    (birthday.month=($month%12)+1 AND birthday.day<22)
+            WITH DISTINCT friend, city, person
+            OPTIONAL MATCH (friend)<-[:HAS_CREATOR]-(post:Post)
+            WITH friend, city, collect(post) AS posts, person
+            WITH friend,
+                city,
+                size(posts) AS postCount,
+                size([p IN posts WHERE (p)-[:HAS_TAG]->()<-[:HAS_INTEREST]-(person)]) AS commonPostCount
+            RETURN friend.id AS personId,
+                friend.firstName AS personFirstName,
+                friend.lastName AS personLastName,
+                commonPostCount - (postCount - commonPostCount) AS commonInterestScore,
+                friend.gender AS personGender,
+                city.name AS personCityName
+            ORDER BY commonInterestScore DESC, personId ASC
+            LIMIT 10
+            """.replace(
+                "\n", ""
+            ),
+            self._get_query_parameters(),
+        )
 
-    #     if self._vendor == "memgraph":
-    #         return memgraph
-    #     else:
-    #         return neo4j
+        if self._vendor == "memgraph":
+            return memgraph
+        else:
+            return neo4j
 
-    def benchmark__interactive__complex_query_11(self):
+    def benchmark__interactive__complex_query_11_analytical(self):
         return (
             """
             MATCH (person:Person {id: $personId })-[:KNOWS*1..2]-(friend:Person)
@@ -619,7 +619,7 @@ class LDBC_Interactive(Workload):
             self._get_query_parameters(),
         )
 
-    def benchmark__interactive__complex_query_12(self):
+    def benchmark__interactive__complex_query_12_analytical(self):
         return (
             """
             MATCH (tag:Tag)-[:HAS_TYPE|IS_SUBCLASS_OF*0..]->(baseTagClass:TagClass)
@@ -643,7 +643,7 @@ class LDBC_Interactive(Workload):
             self._get_query_parameters(),
         )
 
-    def benchmark__interactive__complex_query_13(self):
+    def benchmark__interactive__complex_query_13_analytical(self):
         memgraph = (
             """
             MATCH

@@ -102,7 +102,7 @@ class LDBC_BI(Workload):
         super().__init__(variant, benchmark_context=benchmark_context)
         self._parameters_dir = self._prepare_parameters_directory()
 
-    def benchmark__bi__query_1(self):
+    def benchmark__bi__query_1_analytical(self):
 
         memgraph = (
             """
@@ -196,7 +196,7 @@ class LDBC_BI(Workload):
         else:
             return neo4j
 
-    def benchmark__bi__query_2(self):
+    def benchmark__bi__query_2_analytical(self):
 
         memgraph = (
             """
@@ -260,7 +260,7 @@ class LDBC_BI(Workload):
         else:
             return neo4j
 
-    def benchmark__bi__query_3(self):
+    def benchmark__bi__query_3_analytical(self):
         return (
             """
             MATCH
@@ -282,7 +282,7 @@ class LDBC_BI(Workload):
             self._get_query_parameters(),
         )
 
-    def benchmark__bi__query_5(self):
+    def benchmark__bi__query_5_analytical(self):
         return (
             """
             MATCH (tag:Tag {name: $tag})<-[:HAS_TAG]-(message:Message)-[:HAS_CREATOR]->(person:Person)
@@ -307,7 +307,7 @@ class LDBC_BI(Workload):
             self._get_query_parameters(),
         )
 
-    def benchmark__bi__query_6(self):
+    def benchmark__bi__query_6_analytical(self):
         return (
             """
             MATCH (tag:Tag {name: $tag})<-[:HAS_TAG]-(message1:Message)-[:HAS_CREATOR]->(person1:Person)
@@ -326,7 +326,7 @@ class LDBC_BI(Workload):
             self._get_query_parameters(),
         )
 
-    def benchmark__bi__query_7(self):
+    def benchmark__bi__query_7_analytical(self):
 
         memgraph = (
             """
@@ -371,7 +371,7 @@ class LDBC_BI(Workload):
         else:
             return neo4j
 
-    def benchmark__bi__query_9(self):
+    def benchmark__bi__query_9_analytical(self):
         memgraph = (
             """
             MATCH (person:Person)<-[:HAS_CREATOR]-(post:Post)<-[:REPLY_OF*0..]-(reply:Message)
@@ -421,7 +421,7 @@ class LDBC_BI(Workload):
         else:
             return neo4j
 
-    def benchmark__bi__query_11(self):
+    def benchmark__bi__query_11_analytical(self):
         return (
             """
             MATCH (a:Person)-[:IS_LOCATED_IN]->(:City)-[:IS_PART_OF]->(country:Country {name: $country}),
@@ -446,7 +446,7 @@ class LDBC_BI(Workload):
             self._get_query_parameters(),
         )
 
-    def benchmark__bi__query_12(self):
+    def benchmark__bi__query_12_analytical(self):
         return (
             """
             MATCH (person:Person)
@@ -470,7 +470,7 @@ class LDBC_BI(Workload):
             self._get_query_parameters(),
         )
 
-    def benchmark__bi__query_13(self):
+    def benchmark__bi__query_13_analytical(self):
         memgraph = (
             """
             MATCH (country:Country {name: $country})<-[:IS_PART_OF]-(:City)<-[:IS_LOCATED_IN]-(zombie:Person)
@@ -584,7 +584,7 @@ class LDBC_BI(Workload):
         else:
             return neo4j
 
-    def benchmark__bi__query_14(self):
+    def benchmark__bi__query_14_analytical(self):
         return (
             """
             MATCH
@@ -622,7 +622,7 @@ class LDBC_BI(Workload):
             self._get_query_parameters(),
         )
 
-    def benchmark__bi__query_17(self):
+    def benchmark__bi__query_17_analytical(self):
 
         memgraph = (
             """
@@ -673,7 +673,7 @@ class LDBC_BI(Workload):
         else:
             return neo4j
 
-    def benchmark__bi__query_18(self):
+    def benchmark__bi__query_18_analytical(self):
 
         memgraph = (
             """

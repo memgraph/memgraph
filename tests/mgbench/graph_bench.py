@@ -223,7 +223,7 @@ if __name__ == "__main__":
     vendor_names = {"memgraph", "neo4j"}
     for vendor_name, vendor_binary in args.vendor:
         path = Path(vendor_binary)
-        if vendor_name.lower() in vendor_names:
+        if vendor_name.lower() in vendor_names and path.is_file():
             run_full_benchmarks(
                 vendor_name,
                 vendor_binary,

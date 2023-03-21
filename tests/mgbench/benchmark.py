@@ -12,8 +12,6 @@
 # licenses/APL.txt.
 
 import argparse
-import collections
-import fnmatch
 import json
 import multiprocessing
 import platform
@@ -22,7 +20,6 @@ import random
 import helpers
 import log
 import runners
-import workloads.base
 from benchmark_context import BenchmarkContext
 from workloads import *
 
@@ -407,6 +404,8 @@ if __name__ == "__main__":
     args = parse_args()
     vendor_specific_args = helpers.parse_kwargs(args.vendor_specific)
 
+    log.log(args)
+
     assert args.benchmarks != None, helpers.list_available_workloads()
     assert args.vendor_name == "memgraph" or args.vendor_name == "neo4j", "Unsupported vendors"
     assert args.vendor_binary != None, "Pass database binary for runner"
@@ -441,6 +440,12 @@ if __name__ == "__main__":
         vendor_args=vendor_specific_args,
     )
 
+    log.info("Info")
+    log.init("Init")
+    log.log("Log")
+    log.success("Success")
+    log.warning("Warning")
+    log.error("error")
     # Create cache, config and results objects.
     cache = helpers.Cache()
     if not benchmark_context.no_load_query_counts:
@@ -488,7 +493,7 @@ if __name__ == "__main__":
             client.execute(queries=generated_queries, num_workers=benchmark_context.num_workers_for_import)
             vendor_runner.stop("import")
         else:
-            log.init("Preparing workload: ", workload.NAME + "/" + workload.get_variant())
+            log.init("Preparing workload: " + workload.NAME + "/" + workload.get_variant())
             workload.prepare(cache.cache_directory("datasets", workload.NAME, workload.get_variant()))
             imported = workload.custom_import()
             if not imported:
@@ -648,16 +653,11 @@ if __name__ == "__main__":
                         query,
                     ]
                     count = get_query_cache_count(
-                        vendor_runner,
-                        client,
-                        get_queries(func, 1),
-                        config_key,
-                        benchmark_context.single_threaded_runtime_sec,
-                        benchmark_context.warm_up,
+                        vendor_runner, client, get_queries(func, 1), config_key, benchmark_context
                     )
 
                     vendor_runner.start_benchmark("authorization")
-                    warmup(type=benchmark_context.warm_up, client=client, queries=get_queries(func, count))
+                    warmup(condition=benchmark_context.warm_up, client=client, queries=get_queries(func, count))
                     ret = client.execute(
                         queries=get_queries(func, count),
                         num_workers=benchmark_context.num_workers_for_benchmark,
