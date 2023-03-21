@@ -247,7 +247,7 @@ Index queries for each supported vendor can be downloaded from “https://s3.eu-
 |Q19|pattern_short| analytical | MATCH (n:User {id: $id})-[e]->(m) RETURN m LIMIT 1|
 |Q20|single_edge_write| write | MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m CREATE (n)-[e:Temp]->(m) RETURN e|
 |Q21|single_vertex_write| write |CREATE (n:UserTemp {id : $id}) RETURN n|
-|Q22|single_vertex_property_update| update | MATCH (n:User {id: $id})-[e]->(m) RETURN m LIMIT 1|
+|Q22|single_vertex_property_update| update | MATCH (n:User {id: $id}) SET n.property = -1|
 |Q23|single_vertex_read| read | MATCH (n:User {id : $id}) RETURN n|
 
 ## :computer: Platform
