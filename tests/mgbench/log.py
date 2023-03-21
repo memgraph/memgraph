@@ -32,9 +32,9 @@ def _log(color, *args):
     print("\033[1;3{}m~~".format(color), *args, "~~\033[0m")
 
 
-def log(*args):
-    _log(COLOR_WHITE, *args)
-    logger.info(*args)
+def log(msg):
+    print(msg)
+    logger.info(msg=msg)
 
 
 def init(*args):
@@ -43,7 +43,7 @@ def init(*args):
 
 
 def info(*args):
-    _log(COLOR_CYAN, *args)
+    _log(COLOR_WHITE, *args)
     logger.info(*args)
 
 

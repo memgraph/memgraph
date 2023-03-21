@@ -260,6 +260,9 @@ class Cache:
         ensure_directory(path)
         return Directory(path)
 
+    def get_default_cache_directory(self):
+        return self._directory
+
     def load_config(self):
         if not os.path.isfile(self._config):
             return RecursiveDict()
