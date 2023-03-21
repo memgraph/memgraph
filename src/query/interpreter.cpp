@@ -1399,8 +1399,6 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, std::map<std::string, T
                        RWType::R};
 }
 
-bool comp(const std::pair<storage::LabelId, storage::PropertyId> &index_info, const std::string &label) { return true; }
-
 std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreateStatistics(
     const std::span<std::string> labels, DbAccessor *execution_db_accessor, storage::Storage::Accessor *dba) {
   using VertexAccessorIterable = decltype(std::declval<query::DbAccessor>().Vertices(storage::View::OLD));
