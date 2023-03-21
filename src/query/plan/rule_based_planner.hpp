@@ -177,6 +177,7 @@ class RuleBasedPlanner {
     for (const auto &query_part : query_parts.query_parts) {
       std::unique_ptr<LogicalOperator> input_op;
 
+      context.is_write_query = false;
       for (const auto &single_query_part : query_part.single_query_parts) {
         input_op = HandleMatching(std::move(input_op), single_query_part, *context.symbol_table, context.bound_symbols);
 
