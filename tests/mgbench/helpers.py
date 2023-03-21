@@ -9,10 +9,10 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import argparse
 import collections
 import copy
 import fnmatch
+import importlib
 import inspect
 import json
 import os
@@ -109,10 +109,12 @@ def ensure_directory(path):
         raise Exception("The path '{}' should be a directory!".format(path))
 
 
-def get_available_workloads() -> dict:
+def get_available_workloads(customer_workloads: str = None) -> dict:
     generators = {}
     for module in map(workloads.__dict__.get, workloads.__all__):
         for key in dir(module):
+            if key.startswith("_"):
+                continue
             base_class = getattr(module, key)
             if not inspect.isclass(base_class) or not issubclass(base_class, base.Workload):
                 continue
@@ -123,11 +125,33 @@ def get_available_workloads() -> dict:
                 group, query = funcname.split("__")[1:]
                 queries[group].append((query, funcname))
             generators[base_class.NAME] = (base_class, dict(queries))
+
+    if customer_workloads:
+        head_tail = os.path.split(customer_workloads)
+        path_without_dataset_name = head_tail[0]
+        dataset_name = head_tail[1].split(".")[0]
+        sys.path.append(path_without_dataset_name)
+        dataset_to_use = importlib.import_module(dataset_name)
+
+        for key in dir(dataset_to_use):
+            if key.startswith("_"):
+                continue
+            base_class = getattr(dataset_to_use, key)
+            if not inspect.isclass(base_class) or not issubclass(base_class, base.Workload):
+                continue
+            queries = collections.defaultdict(list)
+            for funcname in dir(base_class):
+                if not funcname.startswith("benchmark__"):
+                    continue
+                group, query = funcname.split("__")[1:]
+                queries[group].append((query, funcname))
+            generators[base_class.NAME] = (base_class, dict(queries))
+
     return generators
 
 
-def list_available_workloads():
-    generators = get_available_workloads()
+def list_available_workloads(customer_workloads: str = None):
+    generators = get_available_workloads(customer_workloads)
     for name in sorted(generators.keys()):
         print("Dataset:", name)
         dataset, queries = generators[name]

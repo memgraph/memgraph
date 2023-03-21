@@ -160,6 +160,8 @@ def parse_args():
         help="Flag for runners performance tracking, this logs RES through time and vendor specific performance tracking.",
     )
 
+    parser.add_argument("--customer-workloads", default=None, help="Path to customers workloads")
+
     parser.add_argument(
         "--vendor-specific",
         nargs="*",
@@ -435,6 +437,7 @@ if __name__ == "__main__":
         warm_up=args.warm_up,
         performance_tracking=args.performance_tracking,
         no_authorization=args.no_authorization,
+        customer_workloads=args.customer_workloads,
         vendor_args=vendor_specific_args,
     )
 
@@ -469,10 +472,10 @@ if __name__ == "__main__":
 
     results.set_value("__run_configuration__", value=run_config)
 
-    available_workloads = helpers.get_available_workloads()
+    available_workloads = helpers.get_available_workloads(benchmark_context.customer_workloads)
 
     log.init("Currently available workloads: ")
-    log.log(helpers.list_available_workloads())
+    log.log(helpers.list_available_workloads(benchmark_context.customer_workloads))
 
     # Filter out the workloads based on the pattern
     target_workloads = helpers.filter_workloads(

@@ -1,6 +1,5 @@
 # Describes all the information of single benchmark.py run.
 class BenchmarkContext:
-
     """
     Class for holding information on what type of benchmark is being executed
     """
@@ -24,6 +23,7 @@ class BenchmarkContext:
         warm_up: str = None,
         performance_tracking: bool = False,
         no_authorization: bool = True,
+        customer_workloads: str = None,
         vendor_args: dict = {},
     ) -> None:
 
@@ -53,4 +53,5 @@ class BenchmarkContext:
         self.performance_tracking = performance_tracking
         self.warm_up = warm_up
         self.no_authorization = no_authorization
+        self.customer_workloads = customer_workloads
         self.vendor_args = vendor_args
