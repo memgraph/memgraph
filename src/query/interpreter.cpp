@@ -61,6 +61,7 @@
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/memory_tracker.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/settings.hpp"
 #include "utils/string.hpp"
@@ -2622,6 +2623,8 @@ void Interpreter::Abort() {
     ;
   // Process with the abort no matter the transaction status
   transaction_status_.store(TransactionStatus::STARTED_ROLLBACK, std::memory_order_release);
+  utils::OnScopeExit clean_status(
+      [this]() { transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release); });
   expect_rollback_ = false;
   in_explicit_transaction_ = false;
   if (!db_accessor_) return;
@@ -2629,7 +2632,6 @@ void Interpreter::Abort() {
   execution_db_accessor_.reset();
   db_accessor_.reset();
   trigger_context_collector_.reset();
-  transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
 }
 
 namespace {
@@ -2715,6 +2717,11 @@ void Interpreter::Commit() {
     throw memgraph::utils::BasicException(
         "Aborting transaction commit because the transaction was requested to stop from other session. ");
   }
+
+  // Here we don't need to check any transaction status because if the killing thread noticed that this thread started
+  // committing, it will stop
+  utils::OnScopeExit clean_status(
+      [this]() { transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release); });
 
   std::optional<TriggerContext> trigger_context = std::nullopt;
   if (trigger_context_collector_) {
@@ -2805,10 +2812,6 @@ void Interpreter::Commit() {
   if (!commit_confirmed_by_all_sync_repplicas) {
     throw ReplicationException("At least one SYNC replica has not confirmed committing last transaction.");
   }
-
-  // Here we don't need to check any transaction status because if the killing thread noticed that this thread started
-  // committing, it will stop
-  transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
 }
 
 void Interpreter::AdvanceCommand() {
