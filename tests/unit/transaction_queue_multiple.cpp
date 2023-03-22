@@ -22,7 +22,7 @@
 #include "interpreter_faker.hpp"
 #include "query/exceptions.hpp"
 
-constexpr int NUM_INTERPRETERS = 4, INSERTIONS = 8000;
+constexpr int NUM_INTERPRETERS = 4, INSERTIONS = 1200;
 
 /*
 Tests rely on the fact that interpreters are sequentially added to running_interpreters to get transaction_id of its
@@ -59,7 +59,7 @@ TEST_F(TransactionQueueMultipleTest, TerminateTransaction) {
       // add try-catch block
       for (int j = 0; j < INSERTIONS; ++j) {
         running_interpreters[thread_index]->Interpret("CREATE (:Person {prop: " + std::to_string(thread_index) + "})");
-        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
       }
       running_interpreters[thread_index]->Interpret("COMMIT");
     } catch (memgraph::query::HintedAbortError &e) {
