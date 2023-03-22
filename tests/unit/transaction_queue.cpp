@@ -38,9 +38,8 @@ TEST_F(TransactionQueueSimpleTest, ShowTransactions) {
         running_interpreter.Interpret("BEGIN");
         for (int i = 0; i < 5; i++) {
           running_interpreter.Interpret("CREATE (:Person {prop: " + std::to_string(thread_index) + "})");
-          std::this_thread::sleep_for(std::chrono::milliseconds(200));
+          std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
-        running_interpreter.Interpret("ROLLBACK");
       },
       0);
 
