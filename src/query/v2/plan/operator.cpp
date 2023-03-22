@@ -2183,7 +2183,13 @@ class OptionalCursor : public Cursor {
     EnsureOwnMultiFramesAreGood(output_multi_frame);
     auto populated_any{false};
 
+    auto output_frames_populator = output_multi_frame.GetInvalidFramesPopulator();
+    auto output_frames_it = output_frames_populator.begin();
+
     while (true) {
+      if (output_frames_it == output_frames_populator.end()) {
+        return populated_any;
+      }
       switch (state_) {
         case State::PullInput: {
           if (!input_cursor_->PullMultiple(*own_multi_frame_, context)) {
@@ -2199,18 +2205,19 @@ class OptionalCursor : public Cursor {
           optional_cursor_->PushDown(*own_multi_frame_);
           own_frames_consumer_ = own_multi_frame_->GetValidFramesConsumer();
           own_frames_it_ = own_frames_consumer_->begin();
-          if (!optional_frames_consumer_.has_value() || optional_frames_it_ == optional_frames_consumer_->end()) {
-            state_ = State::PullOptional;
-          } else {
-            state_ = State::Populate;
-          }
+          state_ = State::PullOptional;
           break;
         }
         case State::PullOptional: {
-          optional_cursor_->PullMultiple(*optional_multi_frame_, context);
-          optional_frames_consumer_ = optional_multi_frame_->GetValidFramesConsumer();
-          optional_frames_it_ = optional_frames_consumer_->begin();
-          state_ = State::Populate;
+          if (!optional_cursor_->PullMultiple(*optional_multi_frame_, context)) {
+            state_ = State::OptionalExhausted;
+            optional_frames_consumer_.reset();
+            optional_frames_it_ = {};
+          } else {
+            optional_frames_consumer_ = optional_multi_frame_->GetValidFramesConsumer();
+            optional_frames_it_ = optional_frames_consumer_->begin();
+            state_ = State::Populate;
+          }
           break;
         }
         case State::Populate: {
@@ -2218,20 +2225,26 @@ class OptionalCursor : public Cursor {
             state_ = State::PullInput;
             continue;
           }
-          auto output_frames_populator = output_multi_frame.GetInvalidFramesPopulator();
-          auto output_frames_it = output_frames_populator.begin();
           while (own_frames_it_ != own_frames_consumer_->end() && output_frames_it != output_frames_populator.end()) {
-            if (optional_frames_it_ != optional_frames_consumer_->end() &&
+            if (optional_frames_consumer_.has_value() && optional_frames_it_ != optional_frames_consumer_->end() &&
                 optional_frames_it_->Id() == own_frames_it_->Id()) {
               // This might be a move, but then in we have to have special logic is EnsureOwnMultiFramesAreGood
               *output_frames_it = *optional_frames_it_;
               ++optional_frames_it_;
+              ++output_frames_it;
+              if (optional_frames_it_ == optional_frames_consumer_->end()) {
+                ++own_frames_it_;
+                state_ = State::PullOptional;
+                populated_any = true;
+                break;
+              }
               if (optional_frames_it_->Id() != own_frames_it_->Id()) {
                 ++own_frames_it_;
               }
             } else {
               // TODO(antaljanosbenjamin): Remove (or improve the message of) this assert
-              MG_ASSERT(optional_frames_it_ == optional_frames_consumer_->end() ||
+              MG_ASSERT(!optional_frames_consumer_.has_value() ||
+                            optional_frames_it_ == optional_frames_consumer_->end() ||
                             optional_frames_it_->Id() > own_frames_it_->Id(),
                         "This should be the case DELETE ME");
               for (const auto &symbol : self_.optional_symbols_) {
@@ -2242,8 +2255,25 @@ class OptionalCursor : public Cursor {
               *output_frames_it = *own_frames_it_;
               ++own_frames_it_;
             }
+          }
+          break;
+        }
+        case State::OptionalExhausted: {
+          while (own_frames_it_ != own_frames_consumer_->end() && output_frames_it != output_frames_populator.end()) {
+            MG_ASSERT(!optional_frames_consumer_.has_value(), "This should be the case DELETE ME");
+            for (const auto &symbol : self_.optional_symbols_) {
+              spdlog::error("{}", symbol.name());
+              (*own_frames_it_)[symbol] = TypedValue(context.evaluation_context.memory);
+            }
+            // This might be a move, but then in we have to have special logic is EnsureOwnMultiFramesAreGood
+            *output_frames_it = *own_frames_it_;
+            ++own_frames_it_;
+
             populated_any = true;
             ++output_frames_it;
+          }
+          if (own_frames_it_ == own_frames_consumer_->end()) {
+            state_ = State::PullInput;
           }
           break;
         }
@@ -2267,7 +2297,7 @@ class OptionalCursor : public Cursor {
   }
 
  private:
-  enum class State { PullInput, PullOptional, Populate, Exhausted };
+  enum class State { PullInput, PullOptional, Populate, OptionalExhausted, Exhausted };
 
   void EnsureOwnMultiFramesAreGood(MultiFrame &output_multi_frame) {
     if (!own_multi_frame_.has_value()) {
@@ -3531,7 +3561,9 @@ class DistributedExpandCursor : public Cursor {
     result_rows_.clear();
     own_frames_it_ = ValidFramesConsumer::Iterator{};
     own_frames_consumer_.reset();
-    own_multi_frame_->MakeAllFramesInvalid();
+    if (own_multi_frame_.has_value()) {
+      own_multi_frame_->MakeAllFramesInvalid();
+    }
     state_ = State::PullInputAndEdges;
 
     current_in_edges_.clear();
