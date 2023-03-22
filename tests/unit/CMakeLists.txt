@@ -327,6 +327,9 @@ target_link_libraries(${test_prefix}storage_v2_replication mg-storage-v2 fmt)
 add_unit_test(storage_v2_isolation_level.cpp)
 target_link_libraries(${test_prefix}storage_v2_isolation_level mg-storage-v2)
 
+add_unit_test(storage_v2_analytics_mode.cpp)
+target_link_libraries(${test_prefix}storage_v2_analytics_mode mg-storage-v2)
+
 add_unit_test(replication_persistence_helper.cpp)
 target_link_libraries(${test_prefix}replication_persistence_helper mg-storage-v2)
 

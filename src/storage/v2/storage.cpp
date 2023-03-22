@@ -2137,10 +2137,7 @@ void Storage::SetIsolationLevel(IsolationLevel isolation_level) {
   isolation_level_ = isolation_level;
 }
 
-void Storage::SetAnalyticsMode(AnalyticsMode analytics_mode) {
-  std::unique_lock main_guard{main_lock_};
-  analytics_mode_ = analytics_mode;
-}
+void Storage::SetAnalyticsMode(AnalyticsMode analytics_mode) { analytics_mode_ = analytics_mode; }
 
 void Storage::RestoreReplicas() {
   MG_ASSERT(memgraph::storage::ReplicationRole::MAIN == GetReplicationRole());
