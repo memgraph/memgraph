@@ -8,21 +8,24 @@ class Demo(Workload):
     NAME = "demo"
 
     def dataset_generator(self):
-
-        queries = [("MATCH (n) DETACH DELETE n;", {})]
+        queries = [
+            ("CREATE INDEX ON :NodeA(id);", {}),
+            ("CREATE INDEX ON :NodeB(id);", {}),
+        ]
         for i in range(0, 100):
-            queries.append(("CREATE (:NodeA{{ id:{}}});".format(i), {}))
-            queries.append(("CREATE (:NodeB{{ id:{}}});".format(i), {}))
-
-        for i in range(0, 100):
+            queries.append(("CREATE (:NodeA {id: $id});", {"id": i}))
+            queries.append(("CREATE (:NodeB {id: $id});", {"id": i}))
+        for i in range(0, 300):
             a = random.randint(0, 99)
             b = random.randint(0, 99)
-            queries.append(("MATCH(a:NodeA{{ id: {}}}),(b:NodeB{{id: {}}}) CREATE (a)-[:EDGE]->(b)".format(a, b), {}))
+            queries.append(
+                (("MATCH(a:NodeA {id: $A_id}),(b:NodeB{id: $B_id}) CREATE (a)-[:EDGE]->(b)"), {"A_id": a, "B_id": b})
+            )
 
         return queries
 
-    def benchmark__test__sample_query1(self):
-        return ("MATCH (n) RETURN n", {})
+    def benchmark__test__get_nodes(self):
+        return ("MATCH (n) RETURN n;", {})
 
-    def benchmark__test__sample_query2(self):
-        return ("MATCH (n) RETURN n", {})
+    def benchmark__test__get_node_by_id(self):
+        return ("MATCH (n:NodeA{id: $id}) RETURN n;", {"id": random.randint(0, 99)})

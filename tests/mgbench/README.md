@@ -2,14 +2,12 @@
 
 ## :clipboard: Benchmark Overview
 
-mgBench is primarily designed to benchmark graph databases. To test graph database performance, this benchmark executes Cypher queries (write, read, update, aggregate, and analyze) on a given dataset. Queries are general and represent a typical workload that would be used to analyze any graph dataset. [BenchGraph](https://memgraph.com/benchgraph/) platform shows the results of running these queries on supported vendors. It shows the overall performance of each system relative to others.
+mgBench is primarily designed to benchmark graph databases (Currently, Neo4j and Memgraph). To test graph database performance, this benchmark executes Cypher queries that can write, read, update, aggregate, and analyze dataset present in database. There are some predefined queries and dataset in mgbench. Those present represent a typical workload queries that would be used to analyze any graph dataset and are pure Cypher based. [BenchGraph](https://memgraph.com/benchgraph/) platform shows the results of running these queries. It shows the overall performance of each system under test relative to other, best in test being the baseline.
 
 Three workload types can be executed:
 - Isolated - Concurrent execution of a single type of query,
 - Mixed - Concurrent execution of a single type of query mixed with a certain percentage of queries from a designated query group,
 - Realistic - Concurrent execution of queries from write, read, update and analyze groups.
-
-Currently, the benchmark is executed on the social media dataset Pokec, available in different sizes. The full list of queries and their grouping is available as [query list](#query-list).
 
 This methodology is designed to be read from top to bottom to understand what is being tested and how, but feel free to jump to parts that interest you.
 
@@ -44,7 +42,7 @@ This methodology is designed to be read from top to bottom to understand what is
 
 ### Reproducibility and validation
 
-Running this benchmark is automated, and the code used to run benchmarks is publicly available. You can  [run mgBench](#running-the-benchmark) with default settings to validate the results at [BenchGraph platform](https://memgraph.com/benchgraph). The results may differ depending on the hardware, database configuration, and other variables involved in your setup.  But if the results you get are significantly different, feel free to [open a GitHub issue](https://github.com/memgraph/memgraph/issues).
+Running this benchmark is automated, and the code used to run benchmarks is publicly available. You can  [run mgBench](#running-the-benchmark) with default settings to validate the results at [BenchGraph platform](https://memgraph.com/benchgraph). The results may differ depending on the hardware, benchmark run configuration, database configuration, and other variables involved in your setup.  But if the results you get are significantly different, feel free to [open a GitHub issue](https://github.com/memgraph/memgraph/issues).
 
 In the future, the project will be expanded to include more platforms to see how systems perform on different OS and hardware configurations. If you are interested in what will be added and tested, read the section about [the future of mgBench](#future-of-mgbench)
 
@@ -53,7 +51,7 @@ In the future, the project will be expanded to include more platforms to see how
 
 At the moment, support for graph databases is limited. To run the benchmarks, the graph database must support Cypher query language and the Bolt protocol.
 
-Using Cypher ensures that executed queries are identical or similar on every supported system. Possible differences are noted in [database notes](#database-notes). A single C++ client queries all database systems, and it is based on the Bolt protocol. Using a single client ensures minimal performance penalties from the client side and ensures fairness across different vendors.
+Using Cypher ensures that executed queries are identical or similar as possible on every supported system. A single C++ client queries database systems (Currently, Neo4j and Memgraph), and it is based on the Bolt protocol. Using a single client ensures minimal performance penalties from the client side and ensures fairness across different vendors.
 
 If your database supports the given requirements, feel free to contribute and add your database to mgBench.
 If your database does not support the mentioned requirements, follow the project because support for other languages and protocols in graph database space will be added.
@@ -89,11 +87,10 @@ Some configurational changes are necessary for test execution and are not consid
 
 Benchmarking different systems is challenging because the setup, environment, queries, workload, and dataset can benefit specific database vendors. Each vendor may have a particularly strong use-case scenario. This benchmark aims to be neutral and fair to all database vendors. Acknowledging some of the current limitations can help understand the issues you might notice:
 1. mgBench measures and tracks just a tiny subset of everything that can be tracked and compared during testing. Active benchmarking is strenuous because it requires a lot of time to set up and validate. Passive benchmarking is much faster to iterate on but can have a few bugs.
-2. Datasets and queries used for testing are simple. Datasets and queries in real-world environments can become quite complex. To avoid Cypher specifics, mgBench uses simple queries of different variates. Future versions will include more complex datasets and queries.
-3. The scale of the dataset used is miniature for production environments. Production environments can have up to trillions of nodes and edges.
+2. The scale of the dataset used is miniature for production environments. Production environments can have up to trillions of nodes and edges.
 Query results are not verified or important. The queries might return different results, but only the performance is measured, not correctness.
-4. All tests are performed on single-node databases.
-5. Architecturally different systems can be set up and measured biasedly.
+3. All tests are performed on single-node databases.
+4. Architecturally different systems can be set up and measured biasedly.
 
 
 ## :wrench: mgBench
@@ -101,14 +98,14 @@ Query results are not verified or important. The queries might return different 
 
 Listed below are the main scripts used to run the benchmarks:
 
-- `benchmark.py` - Script that runs the queries and workloads.
-- `datasets.py` - Script that handles datasets and queries for workloads.
+- `benchmark.py` - Script that runs the single workload iteration of queries.
+- `workloads.py` - Base script that defines how dataset and queries are defined.
 - `runners.py` - Script holding the configuration for different DB vendors.
 - `client.cpp` - Client for querying the database.
-- `graph_bench.py` - Script that starts all predefined and custom-defined workloads.
--` compare_results.py` - Script that visually compares benchmark results.
+- `graph_bench.py` - Script that starts all predefined and custom-defined workloads thst.
+- `compare_results.py` - Script that visually compares benchmark results.
 
-Except for these scripts, the project also includes dataset files and index configuration files. Once the first test is executed, those files can be located in the newly generated .cache folder.
+Except for these scripts, the project also includes dataset files and index configuration files. Once the first test is executed, those files can be located in the newly generated `.cache` folder.
 
 ### Prerequisites
 

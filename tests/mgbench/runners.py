@@ -20,6 +20,7 @@ import time
 from abc import ABC, abstractmethod
 from pathlib import Path
 
+import log
 from benchmark_context import BenchmarkContext
 
 
@@ -131,8 +132,10 @@ class BoltClient(BaseClient):
             error = ret.stderr.decode("utf-8").strip().split("\n")
             data = ret.stdout.decode("utf-8").strip().split("\n")
             if error and error[0] != "":
-                print("Reported errros from client")
-                print(error)
+                log.warning("Reported errors from client:")
+                log.warning("There is a possibility that query from: {} is not executed properly".format(file_path))
+                log.error(error)
+                log.error("Results for this query or benchmark run are probably invalid!")
             data = [x for x in data if not x.startswith("[")]
             return list(map(json.loads, data))
 
