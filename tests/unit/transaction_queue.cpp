@@ -31,48 +31,19 @@ class TransactionQueueSimpleTest : public ::testing::Test {
   InterpreterFaker running_interpreter{&interpreter_context}, main_interpreter{&interpreter_context};
 };
 
-// This test relies on explicit transations + explicit thread killing for testing if show transactions work as expected
-TEST_F(TransactionQueueSimpleTest, ShowTransactions) {
+TEST_F(TransactionQueueSimpleTest, TwoInterpretersInterleaving) {
+  bool started = false;
   std::jthread running_thread = std::jthread(
-      [this](int thread_index) {
+      [this, &started](std::stop_token st, int thread_index) {
+        started = true;
         running_interpreter.Interpret("BEGIN");
-        for (int i = 0; i < 5; i++) {
-          running_interpreter.Interpret("CREATE (:Person {prop: " + std::to_string(thread_index) + "})");
-          std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
       },
       0);
 
   {
-    main_interpreter.Interpret("CREATE (:Person {prop: 1})");
-    auto show_stream = main_interpreter.Interpret("SHOW TRANSACTIONS");
-    ASSERT_EQ(show_stream.GetResults().size(), 2U);
-    // admin executing the transaction
-    EXPECT_EQ(show_stream.GetResults()[0][0].ValueString(), "");
-    ASSERT_TRUE(show_stream.GetResults()[0][1].IsString());
-    EXPECT_EQ(show_stream.GetResults()[0][2].ValueList().at(0).ValueString(), "SHOW TRANSACTIONS");
-    // Also admin executing
-    EXPECT_EQ(show_stream.GetResults()[1][0].ValueString(), "");
-    ASSERT_TRUE(show_stream.GetResults()[1][1].IsString());
-    // test the state of the database
-    auto results_stream = main_interpreter.Interpret("MATCH (n) RETURN n");
-    ASSERT_EQ(results_stream.GetResults().size(), 1U);
-    main_interpreter.Interpret("MATCH (n) DETACH DELETE n");
-  }
-}
-
-TEST_F(TransactionQueueSimpleTest, TerminateTransaction) {
-  std::jthread running_thread = std::jthread(
-      [this](std::stop_token st, int thread_index) {
-        running_interpreter.Interpret("BEGIN");
-        while (!st.stop_requested()) {
-          running_interpreter.Interpret("CREATE (:Person {prop: " + std::to_string(thread_index) + "})");
-          std::this_thread::sleep_for(std::chrono::milliseconds(200));
-        }
-      },
-      0);
-
-  {
+    while (!started) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
     main_interpreter.Interpret("CREATE (:Person {prop: 1})");
     auto show_stream = main_interpreter.Interpret("SHOW TRANSACTIONS");
     ASSERT_EQ(show_stream.GetResults().size(), 2U);
