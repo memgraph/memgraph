@@ -114,7 +114,7 @@ def dataset_generator(self):
 
 ### 4. Define the queries you want to benchmark
 
-Now that your dataset will be imported from dataset generator queries, you can specify what queries you wish to benchmark on the given dataset. Here are two queries that `demo.py` workload specifies, they are written as Python methods that returns a single Tuple with query and dictionary.
+Now that your dataset will be imported from dataset generator queries, you can specify what queries you wish to benchmark on the given dataset. Here are two queries that `demo.py` workload specifies, they are written as Python methods that returns a single tuple with query and dictionary, the same way as in data generator method.
 
 ```python
 def benchmark__test__demo_query_get_nodes(self):
@@ -125,6 +125,36 @@ def benchmark__test__demo_query_get_node_by_id(self):
 
 ```
 
-The important details here are that each of the methods you wish to use for generating a workload
+The important details here are that each of the methods you wish to use in benchmark test needs to start with `benchmark__` in the name, otherwise it will be ignored.  The full method name has the following structure `benchmark__group__name`. Group can be used to execute specific tests, but more on that later.
+
+
+From the workload setup perspective this is it.
+
+Here are two more samples of simple demo workloads that are being generated via workload generator:
+
+1.
+2.
+
 
 ## How to run your custom workload
+
+When running benchmarks, duration, query variety, number of workers play an important role next to the queries and parameters. MgBench provides several options on how to run benchmarks. Let's start with the simplest run of demo workload from above.
+
+The main script that is managing benchmark execution is `benchmark.py`.
+
+To start the benchmark you need to run the following command with your paths and options:
+
+```python3 benchmark.py demo/*/*/* --vendor-binary path/to/(memgraph||neo4j) --vendor-name (memgraph||neo4j) --export-results result.json  --no-authorization```
+
+To run this on memgraph the command looks like this:
+
+```python3 benchmark.py demo/*/*/* --vendor-binary home/repos/build/memgraph --vendor-name memgraph --export-results results.json --no-authorization```
+
+Hopefully you should get a logs from benchmark.py process managing the benchmark. Main benchmarks script takes a lot of arguments, some used in the run above are self explanatory. But lets break down the most important ones:
+
+- `--num-workers-for-benchmark` - The flag defines how many clients will be open on Bolt connection, with this you are simulating different database users conecting to database
+- `--single-threaded-runtime-sec` - The question at hand is how many queries you wish to execute as a sample for a database benchmark. This flag defines the duration defines duration, that will yield how many queries you need for target duration of single thread runtime in seconds. Let's say you wan't to execute a
+
+
+
+## How to compare results
