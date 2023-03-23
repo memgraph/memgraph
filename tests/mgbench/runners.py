@@ -24,8 +24,8 @@ import log
 from benchmark_context import BenchmarkContext
 
 
-def _wait_for_server(port, delay=0.1):
-    cmd = ["nc", "-z", "-w", "1", "127.0.0.1", str(port)]
+def _wait_for_server(port, ip="127.0.0.1", delay=0.1):
+    cmd = ["nc", "-z", "-w", "1", ip, str(port)]
     while subprocess.call(cmd) != 0:
         time.sleep(0.01)
     time.sleep(delay)
@@ -542,6 +542,11 @@ class MemgraphDocker(BaseRunner):
     def start_benchmark(self, message):
         command = ["docker", "start", self._container_name]
         self.run_command(command)
+        time.sleep(0.5)
+        command = ["docker", "inspect", "--format", "{{ .NetworkSettings.IPAddress }}", self._container_name]
+        ret = subprocess.run(command, check=True, capture_output=True, text=True)
+        ip_address = ret.stdout.strip("\n")
+        _wait_for_server(self._bolt_port, ip=ip_address)
 
     def start_preparation(self, message):
         command = [
@@ -555,12 +560,18 @@ class MemgraphDocker(BaseRunner):
             "7687:7687",
             "memgraph/memgraph",
         ]
-        time.sleep(1)
-        self.run_command(command)
+        ret = self.run_command(command)
+        time.sleep(0.5)
+        command = ["docker", "inspect", "--format", "{{ .NetworkSettings.IPAddress }}", self._container_name]
+        ret = subprocess.run(command, check=True, capture_output=True, text=True)
+        ip_address = ret.stdout.strip("\n")
+        _wait_for_server(self._bolt_port, ip=ip_address)
 
     def stop(self, message):
         command = ["docker", "stop", self._container_name]
+
         self.run_command(command)
+        return {"cpu": 0, "memory": 0}
 
     def clean_db(self):
         self.remove_container(self._container_name)
@@ -574,4 +585,4 @@ class MemgraphDocker(BaseRunner):
 
     def run_command(self, command):
         print(command)
-        subprocess.run(command, check=True)
+        return subprocess.run(command, check=True)
