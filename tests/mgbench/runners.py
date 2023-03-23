@@ -524,3 +524,54 @@ class Neo4j(BaseRunner):
 
     def fetch_client(self) -> BoltClient:
         return BoltClient(benchmark_context=self.benchmark_context)
+
+
+class MemgraphDocker(BaseRunner):
+    def __init__(self, benchmark_context: BenchmarkContext):
+        super().__init__(benchmark_context=benchmark_context)
+        self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
+        self._vendor_args = benchmark_context.vendor_args
+        self._properties_on_edges = (
+            self._vendor_args["no-properties-on-edges"]
+            if "no-properties-on-edges" in self._vendor_args.keys()
+            else False
+        )
+        self._bolt_port = self._vendor_args["bolt-port"] if "bolt-port" in self._vendor_args.keys() else 7687
+        self._container_name = "memgraph_benchmark"
+
+    def start_benchmark(self, message):
+        command = ["docker", "start", self._container_name]
+        self.run_command(command)
+
+    def start_preparation(self, message):
+        command = [
+            "docker",
+            "run",
+            "--detach",
+            "--name",
+            self._container_name,
+            "-it",
+            "-p",
+            "7687:7687",
+            "memgraph/memgraph",
+        ]
+        time.sleep(1)
+        self.run_command(command)
+
+    def stop(self, message):
+        command = ["docker", "stop", self._container_name]
+        self.run_command(command)
+
+    def clean_db(self):
+        self.remove_container(self._container_name)
+
+    def fetch_client(self) -> BaseClient:
+        return BoltClient(benchmark_context=self.benchmark_context)
+
+    def remove_container(self, containerName):
+        command = ["docker", "rm", "-f", containerName]
+        self.run_command(command)
+
+    def run_command(self, command):
+        print(command)
+        subprocess.run(command, check=True)
