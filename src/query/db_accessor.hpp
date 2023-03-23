@@ -435,6 +435,20 @@ class DbAccessor final {
     return accessor_->GetIndexStats(label, property);
   }
 
+  std::vector<std::pair<storage::LabelId, storage::PropertyId>> ClearIndexStats() {
+    return accessor_->ClearIndexStats();
+  }
+
+  std::vector<std::pair<storage::LabelId, storage::PropertyId>> DeleteIndexStatsForLabels(
+      const std::span<std::string> labels) {
+    return accessor_->DeleteIndexStatsForLabels(labels);
+  }
+
+  void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
+                     const storage::IndexStats &stats) {
+    accessor_->SetIndexStats(label, property, stats);
+  }
+
   int64_t VerticesCount() const { return accessor_->ApproximateVertexCount(); }
 
   int64_t VerticesCount(storage::LabelId label) const { return accessor_->ApproximateVertexCount(label); }

@@ -49,6 +49,8 @@ namespace memgraph::query {
 
 inline constexpr size_t kExecutionMemoryBlockSize = 1UL * 1024UL * 1024UL;
 
+constexpr std::string_view kAsterisk = "*";
+
 class AuthQueryHandler {
  public:
   AuthQueryHandler() = default;
@@ -181,11 +183,10 @@ class AnalyzeGraphQueryHandler {
   AnalyzeGraphQueryHandler &operator=(AnalyzeGraphQueryHandler &&) = default;
 
   static std::vector<std::vector<TypedValue>> AnalyzeGraphCreateStatistics(const std::span<std::string> labels,
-                                                                           DbAccessor *execution_db_accessor,
-                                                                           storage::Storage::Accessor *dba);
+                                                                           DbAccessor *execution_db_accessor);
 
   static std::vector<std::vector<TypedValue>> AnalyzeGraphDeleteStatistics(const std::span<std::string> labels,
-                                                                           storage::Storage::Accessor *dba);
+                                                                           DbAccessor *execution_db_accessor);
 };
 
 /**

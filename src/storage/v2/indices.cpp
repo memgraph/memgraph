@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #include "indices.hpp"
+#include <algorithm>
+#include <iterator>
 #include <limits>
 
 #include "storage/v2/mvcc.hpp"
@@ -708,10 +710,9 @@ std::vector<std::pair<LabelId, PropertyId>> LabelPropertyIndex::DeleteIndexStats
 std::vector<std::pair<LabelId, PropertyId>> LabelPropertyIndex::ClearIndexStats() {
   std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;
   deleted_indexes.reserve(stats_.size());
-  for (auto it = stats_.begin(); it != stats_.end();) {
-    deleted_indexes.push_back(it->first);
-    it = stats_.erase(it);
-  }
+  std::transform(stats_.begin(), stats_.end(), std::back_inserter(deleted_indexes),
+                 [](const auto &elem) { return elem.first; });
+  stats_.clear();
   return deleted_indexes;
 }
 

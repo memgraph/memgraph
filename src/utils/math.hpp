@@ -11,11 +11,14 @@
 
 #pragma once
 
+#include <boost/math/special_functions/math_fwd.hpp>
 #include <cmath>
 #include <cstdint>
 #include <limits>
 #include <optional>
 #include <type_traits>
+
+#include <boost/math/special_functions/relative_difference.hpp>
 
 namespace memgraph::utils {
 
@@ -70,14 +73,16 @@ concept FloatingPoint = std::is_floating_point_v<T>;
 
 template <FloatingPoint T>
 bool ApproxEqualDecimal(T a, T b) {
-  return std::fabs(a - b) <=
-         ((std::fabs(a) < std::fabs(b) ? std::fabs(b) : std::fabs(a)) * std::numeric_limits<T>::epsilon());
+  // return std::fabs(a - b) <=
+  //  ((std::fabs(a) < std::fabs(b) ? std::fabs(b) : std::fabs(a)) * s);
+  return boost::math::relative_difference(a, b) < std::numeric_limits<T>::epsilon();
 }
 
 template <FloatingPoint T>
 bool LessThanDecimal(T a, T b) {
-  return (b - a) >
-         ((std::fabs(a) < std::fabs(b) ? std::fabs(b) : std::fabs(a)) * std::numeric_limits<double>::epsilon());
+  // return (b - a) >
+  //  ((std::fabs(a) < std::fabs(b) ? std::fabs(b) : std::fabs(a)) * std::numeric_limits<double>::epsilon());
+  return (b - a) > std::numeric_limits<T>::epsilon();
 }
 
 constexpr double ChiSquaredValue(double observed, double expected) {
