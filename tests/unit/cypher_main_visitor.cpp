@@ -4308,10 +4308,6 @@ TEST_P(CypherMainVisitorTest, Foreach) {
   }
 }
 
-TEST_P(CypherMainVisitorTest, CallSubqueryThrow) {}
-
-TEST_P(CypherMainVisitorTest, CallSubquery) {}
-
 TEST_P(CypherMainVisitorTest, ExistsThrow) {
   auto &ast_generator = *GetParam();
 
@@ -4383,3 +4379,12 @@ TEST_P(CypherMainVisitorTest, Exists) {
     ASSERT_TRUE(node);
   }
 }
+
+TEST_P(CypherMainVisitorTest, CallSubqueryThrow) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) CALL { MATCH (m) RETURN m QUERY MEMORY UNLIMITED } RETURN n",
+                                               ast_generator, "Subqueries don't have a query memory limit!");
+}
+
+TEST_P(CypherMainVisitorTest, CallSubquery) {}

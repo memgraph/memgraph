@@ -2522,12 +2522,15 @@ antlrcpp::Any CypherMainVisitor::visitShowConfigQuery(MemgraphCypher::ShowConfig
 
 antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryContext *ctx) {
   auto *call_subquery = storage_->Create<CallSubquery>();
-  MG_ASSERT(ctx->cypherQuery(), "Expected single query.");
-  MG_ASSERT(!ctx->cypherQuery()->queryMemoryLimit(), "Subqueries don't have a query memory limit!");
+
+  MG_ASSERT(ctx->cypherQuery(), "Expected query inside subquery clause");
+
+  if (ctx->cypherQuery()->queryMemoryLimit()) {
+    throw SyntaxException("Subqueries don't have a query memory limit!");
+  }
 
   call_subquery->cypher_query_ = std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
 
-  // query_ = call_subquery;
   return call_subquery;
 }
 
