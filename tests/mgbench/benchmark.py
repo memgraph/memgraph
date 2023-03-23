@@ -57,7 +57,7 @@ def parse_args():
     parser.add_argument(
         "--vendor-name",
         default="memgraph",
-        choices=["memgraph", "neo4j"],
+        choices=["memgraph", "neo4j", "memgraphdocker", "neo4jdocker"],
         help="Input vendor binary name (memgraph, neo4j)",
     )
     parser.add_argument(
@@ -408,7 +408,7 @@ if __name__ == "__main__":
     vendor_specific_args = helpers.parse_kwargs(args.vendor_specific)
 
     assert args.benchmarks != None, helpers.list_available_workloads()
-    assert args.vendor_name == "memgraph" or args.vendor_name == "neo4j", "Unsupported vendors"
+    # assert args.vendor_name == "memgraph" or args.vendor_name == "neo4j" or args.vendor_name == "memgraphdocker", "Unsupported vendors"
     assert args.vendor_binary != None, "Pass database binary for runner"
     assert args.client_binary != None, "Pass client binary for benchmark client "
     assert args.num_workers_for_import > 0
