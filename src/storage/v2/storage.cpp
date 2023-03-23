@@ -493,12 +493,12 @@ VertexAccessor Storage::Accessor::CreateVertex() {
   auto gid = storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
   auto acc = storage_->vertices_.access();
 
-  auto delta = CreateDeleteObjectDelta(&transaction_);
+  auto *delta = CreateDeleteObjectDelta(&transaction_);
   auto [it, inserted] = acc.insert(Vertex{storage::Gid::FromUint(gid), delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
 
-  if (transaction_.analytics_mode == AnalyticsMode::OFF) {
+  if (delta) {
     delta->prev.Set(&*it);
   }
 
@@ -517,11 +517,11 @@ VertexAccessor Storage::Accessor::CreateVertex(storage::Gid gid) {
                              std::memory_order_release);
   auto acc = storage_->vertices_.access();
 
-  auto delta = CreateDeleteObjectDelta(&transaction_);
+  auto *delta = CreateDeleteObjectDelta(&transaction_);
   auto [it, inserted] = acc.insert(Vertex{gid, delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
-  if (transaction_.analytics_mode == AnalyticsMode::OFF) {
+  if (delta) {
     delta->prev.Set(&*it);
   }
   return VertexAccessor(&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_);
@@ -667,12 +667,12 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexA
   if (config_.properties_on_edges) {
     auto acc = storage_->edges_.access();
 
-    auto delta = CreateDeleteObjectDelta(&transaction_);
+    auto *delta = CreateDeleteObjectDelta(&transaction_);
     auto [it, inserted] = acc.insert(Edge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
     MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
     edge = EdgeRef(&*it);
-    if (transaction_.analytics_mode == AnalyticsMode::OFF) {
+    if (delta) {
       delta->prev.Set(&*it);
     }
   }
@@ -738,12 +738,12 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexA
   if (config_.properties_on_edges) {
     auto acc = storage_->edges_.access();
 
-    auto delta = CreateDeleteObjectDelta(&transaction_);
+    auto *delta = CreateDeleteObjectDelta(&transaction_);
     auto [it, inserted] = acc.insert(Edge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
     MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
     edge = EdgeRef(&*it);
-    if (transaction_.analytics_mode == AnalyticsMode::OFF) {
+    if (delta) {
       delta->prev.Set(&*it);
     }
   }
