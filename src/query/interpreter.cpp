@@ -978,7 +978,7 @@ struct PullPlan {
   explicit PullPlan(std::shared_ptr<CachedPlan> plan, const Parameters &parameters, bool is_profile_query,
                     DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                     std::optional<std::string> username, TriggerContextCollector *trigger_context_collector = nullptr,
-                    std::optional<size_t> memory_limit = {}, bool contains_csv = false);
+                    std::optional<size_t> memory_limit = {}, bool use_monotonic_memory = false);
   std::optional<plan::ProfilingStatsWithTotalTime> Pull(AnyStream *stream, std::optional<int> n,
                                                         const std::vector<Symbol> &output_symbols,
                                                         std::map<std::string, TypedValue> *summary);
@@ -1003,18 +1003,18 @@ struct PullPlan {
   // manually by using this flag.
   bool has_unsent_results_ = false;
 
-  bool contains_csv_;
+  bool use_monotonic_memory_;
 };
 
 PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &parameters, const bool is_profile_query,
                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                    std::optional<std::string> username, TriggerContextCollector *trigger_context_collector,
-                   const std::optional<size_t> memory_limit, bool contains_csv)
+                   const std::optional<size_t> memory_limit, bool use_monotonic_memory)
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory)),
       frame_(plan->symbol_table().max_position(), execution_memory),
       memory_limit_(memory_limit),
-      contains_csv_(contains_csv) {
+      use_monotonic_memory_(use_monotonic_memory) {
   ctx_.db_accessor = dba;
   ctx_.symbol_table = plan->symbol_table();
   ctx_.evaluation_context.timestamp = QueryTimestamp();
@@ -1044,19 +1044,18 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   char stack_data[stack_size];
 
   utils::ResourceWithOutOfMemoryException resource_with_exception;
-  std::optional<utils::MonotonicBufferResource> maybe_monotonic_memory;
+  utils::MonotonicBufferResource monotonic_memory{&stack_data[0], stack_size, &resource_with_exception};
   std::optional<utils::PoolResource> pool_memory;
 
-  if (contains_csv_) {
+  if (use_monotonic_memory_) {
     pool_memory.emplace(1, kExecutionPoolMaxBlockSize, utils::NewDeleteResource(), utils::NewDeleteResource());
   } else {
-    maybe_monotonic_memory.emplace(&stack_data[0], stack_size, &resource_with_exception);
     // We can throw on every query because a simple queries for deleting will use only
     // the stack allocated buffer.
     // Also, we want to throw only when the query engine requests more memory and not the storage
     // so we add the exception to the allocator.
     // TODO (mferencevic): Tune the parameters accordingly.
-    pool_memory.emplace(128, 1024, &*maybe_monotonic_memory, utils::NewDeleteResource());
+    pool_memory.emplace(128, 1024, &monotonic_memory, utils::NewDeleteResource());
   }
 
   std::optional<utils::LimitedMemoryResource> maybe_limited_resource;
