@@ -2522,25 +2522,15 @@ antlrcpp::Any CypherMainVisitor::visitShowConfigQuery(MemgraphCypher::ShowConfig
 
 antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryContext *ctx) {
   auto *call_subquery = storage_->Create<CallSubquery>();
-  MG_ASSERT(ctx->singleQuery(), "Expected single query.");
-  call_subquery->single_query_ = std::any_cast<SingleQuery *>(ctx->singleQuery()->accept(this));
 
-  // Check that union and union all dont mix
-  bool has_union = false;
-  bool has_union_all = false;
-  for (auto *child : ctx->cypherUnion()) {
-    if (child->ALL()) {
-      has_union_all = true;
-    } else {
-      has_union = true;
-    }
-    if (has_union && has_union_all) {
-      throw SemanticException("Invalid combination of UNION and UNION ALL.");
-    }
-    call_subquery->cypher_unions_.push_back(std::any_cast<CypherUnion *>(child->accept(this)));
+  MG_ASSERT(ctx->cypherQuery(), "Expected query inside subquery clause");
+
+  if (ctx->cypherQuery()->queryMemoryLimit()) {
+    throw SyntaxException("Subqueries don't have a query memory limit!");
   }
 
-  // query_ = call_subquery;
+  call_subquery->cypher_query_ = std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
+
   return call_subquery;
 }
 

@@ -438,8 +438,7 @@ memgraph::query::Query *MakeAst(const std::string &query, memgraph::query::AstSt
 // cost.
 auto MakeLogicalPlans(memgraph::query::CypherQuery *query, memgraph::query::AstStorage &ast,
                       memgraph::query::SymbolTable &symbol_table, InteractiveDbAccessor *dba) {
-  auto query_parts =
-      memgraph::query::plan::CollectQueryParts(symbol_table, ast, query->single_query_, query->cypher_unions_);
+  auto query_parts = memgraph::query::plan::CollectQueryParts(symbol_table, ast, query);
   std::vector<InteractivePlan> interactive_plans;
   auto ctx = memgraph::query::plan::MakePlanningContext(&ast, &symbol_table, query, dba);
   if (query_parts.query_parts.size() <= 0) {
@@ -449,7 +448,7 @@ auto MakeLogicalPlans(memgraph::query::CypherQuery *query, memgraph::query::AstS
   memgraph::query::Parameters parameters;
   memgraph::query::plan::PostProcessor post_process(parameters);
   auto plans = memgraph::query::plan::MakeLogicalPlanForSingleQuery<memgraph::query::plan::VariableStartPlanner>(
-      query_parts.query_parts.at(0).single_query_parts, &ctx);
+      query_parts, &ctx);
   for (auto plan : plans) {
     memgraph::query::AstStorage ast_copy;
     auto unoptimized_plan = plan->Clone(&ast_copy);

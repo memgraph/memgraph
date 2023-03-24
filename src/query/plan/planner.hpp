@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <queue>
 #include "query/plan/cost_estimator.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
@@ -51,23 +50,6 @@ class PostProcessor final {
   double EstimatePlanCost(const std::unique_ptr<LogicalOperator> &plan, TVertexCounts *vertex_counts) {
     return query::plan::EstimatePlanCost(vertex_counts, parameters_, *plan);
   }
-
-  template <class TPlanningContext>
-  std::unique_ptr<LogicalOperator> MergeWithCombinator(std::unique_ptr<LogicalOperator> curr_op,
-                                                       std::unique_ptr<LogicalOperator> last_op, const Tree &combinator,
-                                                       TPlanningContext *context) {
-    if (const auto *union_ = utils::Downcast<const CypherUnion>(&combinator)) {
-      return std::unique_ptr<LogicalOperator>(
-          impl::GenUnion(*union_, std::move(last_op), std::move(curr_op), *context->symbol_table));
-    }
-    throw utils::NotYetImplemented("query combinator");
-  }
-
-  template <class TPlanningContext>
-  std::unique_ptr<LogicalOperator> MakeDistinct(std::unique_ptr<LogicalOperator> last_op, TPlanningContext *context) {
-    auto output_symbols = last_op->OutputSymbols(*context->symbol_table);
-    return std::make_unique<Distinct>(std::move(last_op), output_symbols);
-  }
 };
 
 /// @brief Generates the LogicalOperator tree for a single query and returns the
@@ -83,10 +65,9 @@ class PostProcessor final {
 /// @sa RuleBasedPlanner
 /// @sa VariableStartPlanner
 template <template <class> class TPlanner, class TDbAccessor>
-auto MakeLogicalPlanForSingleQuery(std::vector<SingleQueryPart> single_query_parts,
-                                   PlanningContext<TDbAccessor> *context) {
+auto MakeLogicalPlanForSingleQuery(QueryParts query_parts, PlanningContext<TDbAccessor> *context) {
   context->bound_symbols.clear();
-  return TPlanner<PlanningContext<TDbAccessor>>(context).Plan(single_query_parts);
+  return TPlanner<PlanningContext<TDbAccessor>>(context).Plan(query_parts);
 }
 
 /// Generates the LogicalOperator tree and returns the resulting plan.
@@ -102,63 +83,36 @@ auto MakeLogicalPlanForSingleQuery(std::vector<SingleQueryPart> single_query_par
 /// the estimated cost of that plan as a `double`.
 template <class TPlanningContext, class TPlanPostProcess>
 auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, bool use_variable_planner) {
-  // TODO Bruno change parameters
-  auto query_parts = CollectQueryParts(*context->symbol_table, *context->ast_storage, context->query->single_query_,
-                                       context->query->cypher_unions_);
+  auto query_parts = CollectQueryParts(*context->symbol_table, *context->ast_storage, context->query);
   auto &vertex_counts = *context->db;
-  double total_cost = 0;
+  double total_cost = std::numeric_limits<double>::max();
 
   using ProcessedPlan = typename TPlanPostProcess::ProcessedPlan;
-  ProcessedPlan last_plan;
+  ProcessedPlan plan_with_least_cost;
 
-  for (const auto &query_part : query_parts.query_parts) {
-    // recursive call for subqueries in query_part
-    // after that? add to total_cost (maybe unnecessary if EstimatePlanCost deals with that), send last_plan to
-    // MakeLogicalPlanForSingleQuery
-    // std::queue<ProcessedPlan> sub_plans;
-    // for (const auto &subquery : query_part.subqueries) {
-    //   auto [root, cost] = MakeLogicalPlan(context, post_process, use_variable_planner);
-    //   // since we can have multiple subqueries, gather them and send to planner
-    //   total_cost += cost;
-    //   sub_plans.push(root);
-    // }
-
-    std::optional<ProcessedPlan> curr_plan;
-    double min_cost = std::numeric_limits<double>::max();
-
-    if (use_variable_planner) {
-      auto plans = MakeLogicalPlanForSingleQuery<VariableStartPlanner>(query_part.single_query_parts, context);
-      for (auto plan : plans) {
-        // Plans are generated lazily and the current plan will disappear, so
-        // it's ok to move it.
-        auto rewritten_plan = post_process->Rewrite(std::move(plan), context);
-        double cost = post_process->EstimatePlanCost(rewritten_plan, &vertex_counts);
-        if (!curr_plan || cost < min_cost) {
-          curr_plan.emplace(std::move(rewritten_plan));
-          min_cost = cost;
-        }
-      }
-    } else {
-      auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(query_part.single_query_parts, context);
+  std::optional<ProcessedPlan> curr_plan;
+  if (use_variable_planner) {
+    auto plans = MakeLogicalPlanForSingleQuery<VariableStartPlanner>(query_parts, context);
+    for (auto plan : plans) {
+      // Plans are generated lazily and the current plan will disappear, so
+      // it's ok to move it.
       auto rewritten_plan = post_process->Rewrite(std::move(plan), context);
-      min_cost = post_process->EstimatePlanCost(rewritten_plan, &vertex_counts);
-      curr_plan.emplace(std::move(rewritten_plan));
+      double cost = post_process->EstimatePlanCost(rewritten_plan, &vertex_counts);
+      if (!curr_plan || cost < total_cost) {
+        curr_plan.emplace(std::move(rewritten_plan));
+        total_cost = cost;
+      }
     }
-
-    total_cost += min_cost;
-    if (query_part.query_combinator) {
-      last_plan = post_process->MergeWithCombinator(std::move(*curr_plan), std::move(last_plan),
-                                                    *query_part.query_combinator, context);
-    } else {
-      last_plan = std::move(*curr_plan);
-    }
+  } else {
+    auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(query_parts, context);
+    auto rewritten_plan = post_process->Rewrite(std::move(plan), context);
+    total_cost = post_process->EstimatePlanCost(rewritten_plan, &vertex_counts);
+    curr_plan.emplace(std::move(rewritten_plan));
   }
 
-  if (query_parts.distinct) {
-    last_plan = post_process->MakeDistinct(std::move(last_plan), context);
-  }
+  plan_with_least_cost = std::move(*curr_plan);
 
-  return std::make_pair(std::move(last_plan), total_cost);
+  return std::make_pair(std::move(plan_with_least_cost), total_cost);
 }
 
 template <class TPlanningContext>

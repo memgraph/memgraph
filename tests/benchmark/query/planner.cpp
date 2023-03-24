@@ -54,14 +54,12 @@ static void BM_PlanChainedMatches(benchmark::State &state) {
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     auto ctx = memgraph::query::plan::MakePlanningContext(&storage, &symbol_table, query, &dba);
     state.ResumeTiming();
-    auto query_parts =
-        memgraph::query::plan::CollectQueryParts(symbol_table, storage, query->single_query_, query->cypher_unions_);
+    auto query_parts = memgraph::query::plan::CollectQueryParts(symbol_table, storage, query);
     if (query_parts.query_parts.size() == 0) {
       std::exit(EXIT_FAILURE);
     }
-    auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
     auto plans = memgraph::query::plan::MakeLogicalPlanForSingleQuery<memgraph::query::plan::VariableStartPlanner>(
-        single_query_parts, &ctx);
+        query_parts, &ctx);
     for (const auto &plan : plans) {
       // Exhaust through all generated plans, since they are lazily generated.
       benchmark::DoNotOptimize(plan.get());
@@ -126,14 +124,12 @@ static void BM_PlanAndEstimateIndexedMatching(benchmark::State &state) {
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     state.ResumeTiming();
     auto ctx = memgraph::query::plan::MakePlanningContext(&storage, &symbol_table, query, &dba);
-    auto query_parts =
-        memgraph::query::plan::CollectQueryParts(symbol_table, storage, query->single_query_, query->cypher_unions_);
+    auto query_parts = memgraph::query::plan::CollectQueryParts(symbol_table, storage, query);
     if (query_parts.query_parts.size() == 0) {
       std::exit(EXIT_FAILURE);
     }
-    auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
     auto plans = memgraph::query::plan::MakeLogicalPlanForSingleQuery<memgraph::query::plan::VariableStartPlanner>(
-        single_query_parts, &ctx);
+        query_parts, &ctx);
     for (auto plan : plans) {
       memgraph::query::plan::EstimatePlanCost(&dba, parameters, *plan);
     }
@@ -158,14 +154,12 @@ static void BM_PlanAndEstimateIndexedMatchingWithCachedCounts(benchmark::State &
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     state.ResumeTiming();
     auto ctx = memgraph::query::plan::MakePlanningContext(&storage, &symbol_table, query, &vertex_counts);
-    auto query_parts =
-        memgraph::query::plan::CollectQueryParts(symbol_table, storage, query->single_query_, query->cypher_unions_);
+    auto query_parts = memgraph::query::plan::CollectQueryParts(symbol_table, storage, query);
     if (query_parts.query_parts.size() == 0) {
       std::exit(EXIT_FAILURE);
     }
-    auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
     auto plans = memgraph::query::plan::MakeLogicalPlanForSingleQuery<memgraph::query::plan::VariableStartPlanner>(
-        single_query_parts, &ctx);
+        query_parts, &ctx);
     for (auto plan : plans) {
       memgraph::query::plan::EstimatePlanCost(&vertex_counts, parameters, *plan);
     }

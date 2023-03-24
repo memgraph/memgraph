@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -62,6 +62,8 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     static constexpr double kEdgeUniquenessFilter{1.5};
     static constexpr double kUnwind{1.3};
     static constexpr double kForeach{1.0};
+    static constexpr double kUnion{1.0};
+    static constexpr double kSubquery{1.0};
   };
 
   struct CardParam {
@@ -212,6 +214,31 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(Union &op) override {
+    double left_cost = EstimateCostOnBranch(&op.left_op_);
+    double right_cost = EstimateCostOnBranch(&op.right_op_);
+
+    // the number of hits in the previous operator should be the joined number of results of both parts of the union
+    cardinality_ *= (left_cost + right_cost);
+    IncrementCost(CostParam::kUnion);
+
+    return false;
+  }
+
+  bool PreVisit(Apply &op) override {
+    double input_cost = EstimateCostOnBranch(&op.input_);
+    double subquery_cost = EstimateCostOnBranch(&op.subquery_);
+
+    // if the query is a unit subquery, we don't want the cost to be zero but 1xN
+    input_cost = input_cost < 1 ? 1 : input_cost;
+    subquery_cost = subquery_cost < 1 ? 1 : subquery_cost;
+
+    cardinality_ = cardinality_ * input_cost * subquery_cost;
+    IncrementCost(CostParam::kSubquery);
+
+    return false;
+  }
+
   bool Visit(Once &) override { return true; }
 
   auto cost() const { return cost_; }
@@ -231,6 +258,12 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   const Parameters &parameters;
 
   void IncrementCost(double param) { cost_ += param * cardinality_; }
+
+  double EstimateCostOnBranch(std::shared_ptr<LogicalOperator> *branch) {
+    CostEstimator<TDbAccessor> cost_estimator(db_accessor_, parameters);
+    (*branch)->Accept(cost_estimator);
+    return cost_estimator.cost();
+  }
 
   // converts an optional ScanAll range bound into a property value
   // if the bound is present and is a constant expression convertible to

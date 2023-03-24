@@ -13,7 +13,6 @@
 #pragma once
 
 #include <optional>
-#include <queue>
 #include <set>
 #include <unordered_map>
 #include <unordered_set>
@@ -478,6 +477,6 @@ struct QueryParts {
 /// and do some other preprocessing in order to generate multiple @c QueryPart
 /// structures. @c AstStorage and @c SymbolTable may be used to create new
 /// AST nodes.
-QueryParts CollectQueryParts(SymbolTable &, AstStorage &, SingleQuery *, std::vector<memgraph::query::CypherUnion *>);
+QueryParts CollectQueryParts(SymbolTable &, AstStorage &, CypherQuery *);
 
 }  // namespace memgraph::query::plan

@@ -270,6 +270,29 @@ Feature: Subqueries
             | 2      | 2      | 1      |
             | 2      | 2      | 2      |
 
+    Scenario: Subquery with union
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {figure: "grandpa"})<-[:CHILD_OF]-(:Person {figure: "dad"})-[:PARENT_OF]->(:Person {figure: "child"})
+            """
+        When executing query:
+            """
+            MATCH (p:Person {figure: "dad"})
+            CALL {
+                WITH p
+                OPTIONAL MATCH (p)-[:CHILD_OF]->(other:Person)
+                RETURN other
+              UNION
+                WITH p
+                OPTIONAL MATCH (p)-[:PARENT_OF]->(other:Person)
+                RETURN other
+            } RETURN DISTINCT p.figure, count(other) as cnt;
+            """
+        Then the result should be:
+            | p.figure | cnt |
+            | 'dad'    | 2   |
+
     Scenario: Subquery cloning nodes
         Given an empty graph
         And having executed
@@ -295,3 +318,57 @@ Feature: Subqueries
             | (:Person {name: 'Bruce'}) |
             | (:Person {name: 'Bruce'}) |
             | (:Person {name: 'Bruce'}) |
+
+    Scenario: Subquery in subquery
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Label {id: 1}), (:Label {id: 2})
+            """
+        When executing query:
+            """
+            MATCH (p:Label)
+            CALL {
+                MATCH (r:Label)
+                CALL {
+                    MATCH (s:Label)
+                    RETURN s
+                }
+                RETURN r, s
+            }
+            RETURN p.id, r.id, s.id;
+            """
+        Then the result should be:
+            | p.id | r.id | s.id |
+            | 1    | 1    | 1    |
+            | 1    | 1    | 2    |
+            | 1    | 2    | 1    |
+            | 1    | 2    | 2    |
+            | 2    | 1    | 1    |
+            | 2    | 1    | 2    |
+            | 2    | 2    | 1    |
+            | 2    | 2    | 2    |
+
+    Scenario:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Counter {count: 0})
+            """
+        When executing query:
+            """
+            UNWIND [0, 1, 2] AS x
+            CALL {
+                MATCH (n:Counter)
+                SET n.count = n.count + 1
+                RETURN n.count AS innerCount
+            }
+            WITH innerCount
+            MATCH (n:Counter)
+            RETURN innerCount, n.count AS totalCount
+            """
+        Then the result should be:
+            | innerCount | totalCount |
+            | 1          | 3          |
+            | 2          | 3          |
+            | 3          | 3          |
