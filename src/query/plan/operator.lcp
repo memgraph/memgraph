@@ -2389,7 +2389,8 @@ clauses.
           :slk-load #'slk-load-operator-pointer)
    (subquery "std::shared_ptr<LogicalOperator>" :scope :public
           :slk-save #'slk-save-operator-pointer
-          :slk-load #'slk-load-operator-pointer))
+          :slk-load #'slk-load-operator-pointer)
+   (subquery-has-return "bool" :scope :public))
 
   (:documentation "Applies symbols from both output branches.")
 
@@ -2397,7 +2398,7 @@ clauses.
    #>cpp
    Apply() {}
 
-   Apply(const std::shared_ptr<LogicalOperator> input, const std::shared_ptr<LogicalOperator> subquery);
+   Apply(const std::shared_ptr<LogicalOperator> input, const std::shared_ptr<LogicalOperator> subquery, bool subquery_has_return);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -2422,7 +2423,7 @@ clauses.
      UniqueCursorPtr input_;
      UniqueCursorPtr subquery_;
      bool pull_input_{true};
-     bool has_return_{true};
+     bool subquery_has_return_{true};
    };
    cpp<#)
   (:serialize (:slk))

@@ -649,7 +649,13 @@ class RuleBasedPlanner {
     context_->bound_symbols.clear();
     context_->bound_symbols.insert(outer_scope_bound_symbols.begin(), outer_scope_bound_symbols.end());
 
-    last_op = std::make_unique<Apply>(std::move(last_op), std::move(subquery_op));
+    auto subquery_has_return = true;
+
+    if (subquery_op->GetTypeInfo() == EmptyResult::kType) {
+      subquery_has_return = false;
+    }
+
+    last_op = std::make_unique<Apply>(std::move(last_op), std::move(subquery_op), subquery_has_return);
 
     return last_op;
   }

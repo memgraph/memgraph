@@ -4778,8 +4778,11 @@ bool Foreach::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   return visitor.PostVisit(*this);
 }
 
-Apply::Apply(const std::shared_ptr<LogicalOperator> input, const std::shared_ptr<LogicalOperator> subquery)
-    : input_(input ? input : std::make_shared<Once>()), subquery_(subquery) {}
+Apply::Apply(const std::shared_ptr<LogicalOperator> input, const std::shared_ptr<LogicalOperator> subquery,
+             bool subquery_has_return)
+    : input_(input ? input : std::make_shared<Once>()),
+      subquery_(subquery),
+      subquery_has_return_(subquery_has_return) {}
 
 bool Apply::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   if (visitor.PreVisit(*this)) {
@@ -4795,12 +4798,10 @@ UniqueCursorPtr Apply::MakeCursor(utils::MemoryResource *mem) const {
 }
 
 Apply::ApplyCursor::ApplyCursor(const Apply &self, utils::MemoryResource *mem)
-    : self_(self), input_(self.input_->MakeCursor(mem)), subquery_(self.subquery_->MakeCursor(mem)) {
-  // If the last operator is EmptyResult, that means the subquery doesn't have a RETURN at the end
-  if (typeid(*subquery_) == typeid(EmptyResultCursor)) {
-    has_return_ = false;
-  }
-}
+    : self_(self),
+      input_(self.input_->MakeCursor(mem)),
+      subquery_(self.subquery_->MakeCursor(mem)),
+      subquery_has_return_(self.subquery_has_return_) {}
 
 std::vector<Symbol> Apply::ModifiedSymbols(const SymbolTable &table) const {
   auto symbols = input_->ModifiedSymbols(table);
@@ -4829,7 +4830,7 @@ bool Apply::ApplyCursor::Pull(Frame &frame, ExecutionContext &context) {
     subquery_->Reset();
 
     // don't skip row if no rows are returned from subquery, return input_ rows
-    if (!has_return_) return true;
+    if (!subquery_has_return_) return true;
   }
 }
 

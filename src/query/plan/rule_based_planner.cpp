@@ -521,11 +521,11 @@ std::unordered_set<Symbol> GetSubqueryBoundSymbols(const std::vector<SingleQuery
 
   const auto &query = single_query_parts[0];
 
-  if (query.matching.expansions.size() > 0) {
+  if (!query.matching.expansions.empty()) {
     return bound_symbols;
   }
 
-  if (query.remaining_clauses.size() == 0) {
+  if (query.remaining_clauses.empty()) {
     return bound_symbols;
   }
 

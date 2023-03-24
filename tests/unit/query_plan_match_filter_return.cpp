@@ -3717,7 +3717,7 @@ TEST_F(SubqueriesFeature, BasicCartesian) {
   auto return_m = NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
   auto produce_subquery = MakeProduce(m.op_, return_m);
 
-  auto apply = std::make_shared<Apply>(n.op_, produce_subquery);
+  auto apply = std::make_shared<Apply>(n.op_, produce_subquery, true);
 
   auto produce = MakeProduce(apply, return_n, return_m);
 
@@ -3740,7 +3740,7 @@ TEST_F(SubqueriesFeature, BasicCartesianWithFilter) {
   auto return_m = NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
   auto produce_subquery = MakeProduce(m.op_, return_m);
 
-  auto apply = std::make_shared<Apply>(filter, produce_subquery);
+  auto apply = std::make_shared<Apply>(filter, produce_subquery, true);
 
   auto produce = MakeProduce(apply, return_n, return_m);
 
@@ -3763,7 +3763,7 @@ TEST_F(SubqueriesFeature, BasicCartesianWithFilterInsideSubquery) {
   auto return_m = NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
   auto produce_subquery = MakeProduce(filter, return_m);
 
-  auto apply = std::make_shared<Apply>(n.op_, produce_subquery);
+  auto apply = std::make_shared<Apply>(n.op_, produce_subquery, true);
 
   auto produce = MakeProduce(apply, return_n, return_m);
 
@@ -3786,7 +3786,7 @@ TEST_F(SubqueriesFeature, BasicCartesianWithFilterNoResults) {
   auto return_m = NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
   auto produce_subquery = MakeProduce(m.op_, return_m);
 
-  auto apply = std::make_shared<Apply>(filter, produce_subquery);
+  auto apply = std::make_shared<Apply>(filter, produce_subquery, true);
 
   auto produce = MakeProduce(apply, return_n, return_m);
 
@@ -3808,10 +3808,10 @@ TEST_F(SubqueriesFeature, SubqueryInsideSubqueryCartesian) {
   auto return_o = NEXPR("o", IDENT("o")->MapTo(o.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_3", true));
   auto produce_nested_subquery = MakeProduce(o.op_, return_o);
 
-  auto inner_apply = std::make_shared<Apply>(m.op_, produce_nested_subquery);
+  auto inner_apply = std::make_shared<Apply>(m.op_, produce_nested_subquery, true);
   auto produce_subquery = MakeProduce(inner_apply, return_o, return_m);
 
-  auto outer_apply = std::make_shared<Apply>(n.op_, produce_subquery);
+  auto outer_apply = std::make_shared<Apply>(n.op_, produce_subquery, true);
   auto produce = MakeProduce(outer_apply, return_n, return_m, return_o);
 
   auto context = MakeContext(storage, symbol_table, &dba);
@@ -3829,7 +3829,7 @@ TEST_F(SubqueriesFeature, UnitSubquery) {
   auto return_o = NEXPR("o", IDENT("o")->MapTo(o.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_3", true));
   auto produce_subquery = MakeProduce(o.op_, return_o);
 
-  auto apply = std::make_shared<Apply>(once, produce_subquery);
+  auto apply = std::make_shared<Apply>(once, produce_subquery, true);
   auto produce = MakeProduce(apply, return_o);
 
   auto context = MakeContext(storage, symbol_table, &dba);
@@ -3852,7 +3852,7 @@ TEST_F(SubqueriesFeature, SubqueryWithBoundedSymbol) {
       NEXPR("m", IDENT("m")->MapTo(expand.node_sym_))->MapTo(symbol_table.CreateSymbol("named_expression_3", true));
   auto produce_subquery = MakeProduce(expand.op_, return_m);
 
-  auto apply = std::make_shared<Apply>(n.op_, produce_subquery);
+  auto apply = std::make_shared<Apply>(n.op_, produce_subquery, true);
   auto produce = MakeProduce(apply, return_n, return_m);
 
   auto context = MakeContext(storage, symbol_table, &dba);
@@ -3879,7 +3879,7 @@ TEST_F(SubqueriesFeature, SubqueryWithUnionAll) {
                               produce_left_union_subquery->OutputSymbols(symbol_table),
                               produce_right_union_subquery->OutputSymbols(symbol_table));
 
-  auto apply = std::make_shared<Apply>(n.op_, union_operator);
+  auto apply = std::make_shared<Apply>(n.op_, union_operator, true);
 
   auto produce = MakeProduce(apply, return_n, return_m);
 
@@ -3912,7 +3912,7 @@ TEST_F(SubqueriesFeature, SubqueryWithUnion) {
   auto union_output_symbols = union_operator->OutputSymbols(symbol_table);
   auto distinct = std::make_shared<Distinct>(union_operator, std::vector<Symbol>{union_output_symbols});
 
-  auto apply = std::make_shared<Apply>(n.op_, distinct);
+  auto apply = std::make_shared<Apply>(n.op_, distinct, true);
 
   auto produce = MakeProduce(apply, return_n);
 
