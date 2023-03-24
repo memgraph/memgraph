@@ -56,8 +56,8 @@ TEST_F(TransactionQueueMultipleTest, TerminateTransaction) {
   std::vector<bool> started(NUM_INTERPRETERS, false);
   auto thread_func = [this, &started](int thread_index) {
     try {
-      started[thread_index] = true;
       running_interpreters[thread_index]->Interpret("BEGIN");
+      started[thread_index] = true;
       // add try-catch block
       for (int j = 0; j < INSERTIONS; ++j) {
         running_interpreters[thread_index]->Interpret("CREATE (:Person {prop: " + std::to_string(thread_index) + "})");

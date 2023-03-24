@@ -35,8 +35,8 @@ TEST_F(TransactionQueueSimpleTest, TwoInterpretersInterleaving) {
   bool started = false;
   std::jthread running_thread = std::jthread(
       [this, &started](std::stop_token st, int thread_index) {
-        started = true;
         running_interpreter.Interpret("BEGIN");
+        started = true;
       },
       0);
 
