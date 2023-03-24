@@ -2617,12 +2617,13 @@ std::vector<TypedValue> Interpreter::GetQueries() {
 }
 
 void Interpreter::Abort() {
-  auto expected = TransactionStatus::VERIFYING;
-  while (transaction_status_.compare_exchange_strong(expected, TransactionStatus::STARTED_ROLLBACK)) {
-    if (expected == TransactionStatus::ACTIVE) {
+  auto expected = TransactionStatus::ACTIVE;
+  while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::STARTED_ROLLBACK)) {
+    if (expected == TransactionStatus::TERMINATED || expected == TransactionStatus::IDLE) {
+      transaction_status_.store(TransactionStatus::STARTED_ROLLBACK);
       break;
     }
-    expected = TransactionStatus::VERIFYING;
+    expected = TransactionStatus::ACTIVE;
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
 
@@ -2714,7 +2715,7 @@ void Interpreter::Commit() {
   should suffice.
   */
   auto expected = TransactionStatus::ACTIVE;
-  while (!transaction_status_.compare_exchange_strong(expected, TransactionStatus::STARTED_COMMITTING)) {
+  while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::STARTED_COMMITTING)) {
     if (expected == TransactionStatus::TERMINATED) {
       throw memgraph::utils::BasicException(
           "Aborting transaction commit because the transaction was requested to stop from other session. ");
