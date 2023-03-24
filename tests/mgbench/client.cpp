@@ -337,6 +337,8 @@ void ExecuteWorkload(
   std::vector<std::thread> threads;
   threads.reserve(FLAGS_num_workers);
 
+  auto start_workload = std::chrono::steady_clock::now();
+
   std::vector<uint64_t> worker_retries(FLAGS_num_workers, 0);
   std::vector<Metadata> worker_metadata(FLAGS_num_workers, Metadata());
   std::vector<double> worker_duration(FLAGS_num_workers, 0.0);
@@ -398,8 +400,12 @@ void ExecuteWorkload(
     final_duration += worker_duration[i];
   }
 
+  auto end_workload = std::chrono::steady_clock::now();
+  auto workload_duration = std::chrono::duration_cast<std::chrono::duration<double>>(end_workload - start_workload);
+
   final_duration /= FLAGS_num_workers;
   nlohmann::json summary = nlohmann::json::object();
+  summary["workload_duration"] = workload_duration.count();
   summary["count"] = queries.size();
   summary["duration"] = final_duration;
   summary["throughput"] = static_cast<double>(queries.size()) / final_duration;
