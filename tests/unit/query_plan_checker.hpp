@@ -113,6 +113,17 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
     return false;
   }
 
+  bool PreVisit(Apply &op) override {
+    CheckOp(op);
+    op.input()->Accept(*this);
+    return false;
+  }
+
+  bool PreVisit(Union &op) override {
+    CheckOp(op);
+    return false;
+  }
+
   PRE_VISIT(CallProcedure);
 
 #undef PRE_VISIT
@@ -196,6 +207,36 @@ class ExpectForeach : public OpChecker<Foreach> {
  private:
   std::list<BaseOpChecker *> input_;
   std::list<BaseOpChecker *> updates_;
+};
+
+class ExpectApply : public OpChecker<Apply> {
+ public:
+  ExpectApply(const std::list<BaseOpChecker *> &subquery) : subquery_(subquery) {}
+
+  void ExpectOp(Apply &apply, const SymbolTable &symbol_table) override {
+    PlanChecker check_subquery(subquery_, symbol_table);
+    apply.subquery_->Accept(check_subquery);
+  }
+
+ private:
+  std::list<BaseOpChecker *> subquery_;
+};
+
+class ExpectUnion : public OpChecker<Union> {
+ public:
+  ExpectUnion(const std::list<BaseOpChecker *> &left, const std::list<BaseOpChecker *> &right)
+      : left_(left), right_(right) {}
+
+  void ExpectOp(Union &union_op, const SymbolTable &symbol_table) override {
+    PlanChecker check_left_op(left_, symbol_table);
+    union_op.left_op_->Accept(check_left_op);
+    PlanChecker check_right_op(left_, symbol_table);
+    union_op.right_op_->Accept(check_right_op);
+  }
+
+ private:
+  std::list<BaseOpChecker *> left_;
+  std::list<BaseOpChecker *> right_;
 };
 
 class ExpectExpandVariable : public OpChecker<ExpandVariable> {
@@ -425,8 +466,7 @@ template <class TPlanner, class TDbAccessor>
 TPlanner MakePlanner(TDbAccessor *dba, AstStorage &storage, SymbolTable &symbol_table, CypherQuery *query) {
   auto planning_context = MakePlanningContext(&storage, &symbol_table, query, dba);
   auto query_parts = CollectQueryParts(symbol_table, storage, query);
-  auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
-  return TPlanner(single_query_parts, planning_context);
+  return TPlanner(query_parts, planning_context);
 }
 
 class FakeDbAccessor {

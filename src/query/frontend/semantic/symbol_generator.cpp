@@ -219,7 +219,24 @@ bool SymbolGenerator::PreVisit(CallSubquery & /*call_sub*/) {
 }
 
 bool SymbolGenerator::PostVisit(CallSubquery & /*call_sub*/) {
+  // no need to set the flag to true as we are popping the scope
+  auto subquery_scope = scopes_.back();
   scopes_.pop_back();
+  auto &main_query_scope = scopes_.back();
+
+  if (!subquery_scope.has_return) {
+    return true;
+  }
+
+  // append symbols returned in from subquery to outer scope
+  for (const auto &[symbol_name, symbol] : subquery_scope.symbols) {
+    if (main_query_scope.symbols.find(symbol_name) != main_query_scope.symbols.end()) {
+      throw SemanticException("Variable in subquery already declared in outer scope!");
+    }
+
+    main_query_scope.symbols[symbol_name] = symbol;
+  }
+
   return true;
 }
 
@@ -236,6 +253,8 @@ bool SymbolGenerator::PostVisit(LoadCsv &load_csv) {
 bool SymbolGenerator::PreVisit(Return &ret) {
   auto &scope = scopes_.back();
   scope.in_return = true;
+  scope.has_return = true;
+
   VisitReturnBody(ret.body_);
   scope.in_return = false;
   return false;  // We handled the traversal ourselves.
@@ -478,6 +497,20 @@ bool SymbolGenerator::PreVisit(Exists &exists) {
 bool SymbolGenerator::PostVisit(Exists & /*exists*/) {
   auto &scope = scopes_.back();
   scope.in_exists = false;
+
+  return true;
+}
+
+bool SymbolGenerator::PreVisit(NamedExpression &named_expression) {
+  auto &scope = scopes_.back();
+
+  if (scope.in_call_subquery && scope.in_return) {
+    auto *ident = utils::Downcast<Identifier>(named_expression.expression_);
+
+    if (!ident && !named_expression.is_aliased_) {
+      throw SemanticException("Expression returned from subquery must be aliased (use AS)!");
+    }
+  }
 
   return true;
 }

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -29,9 +29,9 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(AuthQuery &) override { AddPrivilege(AuthQuery::Privilege::AUTH); }
 
-  void Visit(ExplainQuery &query) override { query.cypher_query_->Accept(*this); }
+  void Visit(ExplainQuery &query) override { query.cypher_query_->Accept(dynamic_cast<QueryVisitor &>(*this)); }
 
-  void Visit(ProfileQuery &query) override { query.cypher_query_->Accept(*this); }
+  void Visit(ProfileQuery &query) override { query.cypher_query_->Accept(dynamic_cast<QueryVisitor &>(*this)); }
 
   void Visit(InfoQuery &info_query) override {
     switch (info_query.info_type_) {

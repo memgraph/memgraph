@@ -50,8 +50,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PostVisit(Create &) override;
   bool PreVisit(CallProcedure &) override;
   bool PostVisit(CallProcedure &) override;
-  bool PreVisit(CallSubquery &) override;
-  bool PostVisit(CallSubquery &) override;
+  bool PreVisit(CallSubquery & /*unused*/) override;
+  bool PostVisit(CallSubquery & /*unused*/) override;
   bool PreVisit(LoadCsv &) override;
   bool PostVisit(LoadCsv &) override;
   bool PreVisit(Return &) override;
@@ -85,6 +85,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PreVisit(Extract &) override;
   bool PreVisit(Exists & /*exists*/) override;
   bool PostVisit(Exists & /*exists*/) override;
+  bool PreVisit(NamedExpression & /*unused*/) override;
 
   // Pattern and its subparts.
   bool PreVisit(Pattern &) override;
@@ -122,6 +123,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     bool in_exists{false};
     bool in_set_property{false};
     bool in_call_subquery{false};
+    bool has_return{false};
     // True when visiting a pattern atom (node or edge) identifier, which can be
     // reused or created in the pattern itself.
     bool in_pattern_atom_identifier{false};

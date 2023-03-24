@@ -398,6 +398,9 @@ struct Matching {
   std::unordered_set<Symbol> expansion_symbols{};
 };
 
+// TODO clumsy to need to declare it before, usually only the struct definition would be in header
+struct QueryParts;
+
 struct FilterMatching : Matching {
   /// Type of pattern filter
   PatternFilterType type;
@@ -449,6 +452,7 @@ struct SingleQueryPart {
   std::vector<Matching> merge_matching{};
   /// @brief All the remaining clauses (without @c Match).
   std::vector<Clause *> remaining_clauses{};
+  std::vector<std::shared_ptr<QueryParts>> subqueries;
 };
 
 /// Holds query parts of a single query together with the optional information
