@@ -162,15 +162,19 @@ class BaseRunner(ABC):
         self.benchmark_context = benchmark_context
 
     @abstractmethod
-    def start_benchmark(self):
+    def start_db_init(self):
         pass
 
     @abstractmethod
-    def start_preparation(self):
+    def stop_db_init(self):
         pass
 
     @abstractmethod
-    def stop(self):
+    def start_db(self):
+        pass
+
+    @abstractmethod
+    def stop_db(self):
         pass
 
     @abstractmethod
@@ -239,7 +243,7 @@ class Memgraph(BaseRunner):
         self._proc_mg = None
         return ret, usage
 
-    def start_preparation(self, workload):
+    def start_db_init(self, workload):
         if self._performance_tracking:
             p = threading.Thread(target=self.res_background_tracking, args=(self._rss, self._stop_event))
             self._stop_event.clear()
@@ -247,13 +251,29 @@ class Memgraph(BaseRunner):
             p.start()
         self._start(storage_snapshot_on_exit=True)
 
-    def start_benchmark(self, workload):
+    def stop_db_init(self, workload):
+        if self._performance_tracking:
+            self._stop_event.set()
+            self.dump_rss(workload)
+        ret, usage = self._cleanup()
+        assert ret == 0, "The database process exited with a non-zero " "status ({})!".format(ret)
+        return usage
+
+    def start_db(self, workload):
         if self._performance_tracking:
             p = threading.Thread(target=self.res_background_tracking, args=(self._rss, self._stop_event))
             self._stop_event.clear()
             self._rss.clear()
             p.start()
         self._start(storage_recover_on_startup=True)
+
+    def stop_db(self, workload):
+        if self._performance_tracking:
+            self._stop_event.set()
+            self.dump_rss(workload)
+        ret, usage = self._cleanup()
+        assert ret == 0, "The database process exited with a non-zero " "status ({})!".format(ret)
+        return usage
 
     def clean_db(self):
         if self._proc_mg is not None:
@@ -286,14 +306,6 @@ class Memgraph(BaseRunner):
                 f.write(str(rss))
                 f.write("\n")
             f.close()
-
-    def stop(self, workload):
-        if self._performance_tracking:
-            self._stop_event.set()
-            self.dump_rss(workload)
-        ret, usage = self._cleanup()
-        assert ret == 0, "The database process exited with a non-zero " "status ({})!".format(ret)
-        return usage
 
     def fetch_client(self) -> BoltClient:
         return BoltClient(benchmark_context=self.benchmark_context)
@@ -394,7 +406,7 @@ class Neo4j(BaseRunner):
         else:
             return 0
 
-    def start_preparation(self, workload):
+    def start_db_init(self, workload):
         if self._performance_tracking:
             p = threading.Thread(target=self.res_background_tracking, args=(self._rss, self._stop_event))
             self._stop_event.clear()
@@ -407,7 +419,16 @@ class Neo4j(BaseRunner):
         if self._performance_tracking:
             self.get_memory_usage("start_" + workload)
 
-    def start_benchmark(self, workload):
+    def stop_db_init(self, workload):
+        if self._performance_tracking:
+            self._stop_event.set()
+            self.get_memory_usage("stop_" + workload)
+            self.dump_rss(workload)
+        ret, usage = self._cleanup()
+        assert ret == 0, "The database process exited with a non-zero " "status ({})!".format(ret)
+        return usage
+
+    def start_db(self, workload):
         if self._performance_tracking:
             p = threading.Thread(target=self.res_background_tracking, args=(self._rss, self._stop_event))
             self._stop_event.clear()
@@ -418,6 +439,15 @@ class Neo4j(BaseRunner):
 
         if self._performance_tracking:
             self.get_memory_usage("start_" + workload)
+
+    def stop_db(self, workload):
+        if self._performance_tracking:
+            self._stop_event.set()
+            self.get_memory_usage("stop_" + workload)
+            self.dump_rss(workload)
+        ret, usage = self._cleanup()
+        assert ret == 0, "The database process exited with a non-zero " "status ({})!".format(ret)
+        return usage
 
     def dump_db(self, path):
         print("Dumping the neo4j database...")
@@ -486,15 +516,6 @@ class Neo4j(BaseRunner):
         else:
             return True
 
-    def stop(self, workload):
-        if self._performance_tracking:
-            self._stop_event.set()
-            self.get_memory_usage("stop_" + workload)
-            self.dump_rss(workload)
-        ret, usage = self._cleanup()
-        assert ret == 0, "The database process exited with a non-zero " "status ({})!".format(ret)
-        return usage
-
     def dump_rss(self, workload):
         file_name = workload + "_rss"
         Path.mkdir(Path().cwd() / "neo4j_memory", exist_ok=True)
@@ -538,17 +559,9 @@ class MemgraphDocker(BaseRunner):
         )
         self._bolt_port = self._vendor_args["bolt-port"] if "bolt-port" in self._vendor_args.keys() else 7687
         self._container_name = "memgraph_benchmark"
+        self._container_ip = None
 
-    def start_benchmark(self, message):
-        command = ["docker", "start", self._container_name]
-        self.run_command(command)
-        time.sleep(0.5)
-        command = ["docker", "inspect", "--format", "{{ .NetworkSettings.IPAddress }}", self._container_name]
-        ret = subprocess.run(command, check=True, capture_output=True, text=True)
-        ip_address = ret.stdout.strip("\n")
-        _wait_for_server(self._bolt_port, ip=ip_address)
-
-    def start_preparation(self, message):
+    def start_db_init(self, message):
         command = [
             "docker",
             "run",
@@ -559,17 +572,58 @@ class MemgraphDocker(BaseRunner):
             "-p",
             "7687:7687",
             "memgraph/memgraph",
+            "--storage-snapshot-on-exit=true",
         ]
         ret = self.run_command(command)
-        time.sleep(0.5)
         command = ["docker", "inspect", "--format", "{{ .NetworkSettings.IPAddress }}", self._container_name]
         ret = subprocess.run(command, check=True, capture_output=True, text=True)
         ip_address = ret.stdout.strip("\n")
         _wait_for_server(self._bolt_port, ip=ip_address)
 
-    def stop(self, message):
+    def stop_db_init(self, message):
+        # Stop to save the snapshot
         command = ["docker", "stop", self._container_name]
+        self.run_command(command)
 
+        # Start to change config
+        command = ["docker", "start", self._container_name]
+        self.run_command(command)
+
+        # Do not generate snapshots on exit any more
+        argument = "--storage-snapshot-on-exit=false"
+        command = [
+            "docker",
+            "exec",
+            self._container_name,
+            "grep",
+            "-qxF",
+            "--",
+            argument,
+            "/etc/memgraph/memgraph.conf",
+            "||",
+            "echo",
+            argument,
+            ">>",
+            "/etc/memgraph/memgraph.conf",
+        ]
+        self.run_command(command)
+
+        # Finally stop.
+        command = ["docker", "stop", self._container_name]
+        self.run_command(command)
+
+        return {"cpu": 0, "memory": 0}
+
+    def start_db(self, message):
+        command = ["docker", "start", self._container_name]
+        self.run_command(command)
+        command = ["docker", "inspect", "--format", "{{ .NetworkSettings.IPAddress }}", self._container_name]
+        ret = subprocess.run(command, check=True, capture_output=True, text=True)
+        ip_address = ret.stdout.strip("\n")
+        _wait_for_server(self._bolt_port, ip=ip_address)
+
+    def stop_db(self, message):
+        command = ["docker", "stop", self._container_name]
         self.run_command(command)
         return {"cpu": 0, "memory": 0}
 
@@ -585,4 +639,6 @@ class MemgraphDocker(BaseRunner):
 
     def run_command(self, command):
         print(command)
-        return subprocess.run(command, check=True)
+        ret = subprocess.run(command, check=True)
+        time.sleep(0.2)
+        return ret

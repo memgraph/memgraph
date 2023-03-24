@@ -204,10 +204,10 @@ class ImporterLDBCBI:
                 check=True,
             )
 
-            vendor_runner.start_preparation("Index preparation")
+            vendor_runner.start_db_init("Index preparation")
             print("Executing database index setup")
             client.execute(file_path=self._index_file, num_workers=1)
-            vendor_runner.stop("Stop index preparation")
+            vendor_runner.stop_db_init("Stop index preparation")
             return True
         else:
             return False

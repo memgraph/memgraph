@@ -286,7 +286,7 @@ def mixed_workload(
                 queries=full_workload,
                 num_workers=benchmark_context.num_workers_for_benchmark,
             )[0]
-            usage_workload = vendor.stop(
+            usage_workload = vendor.stop_db(
                 dataset.NAME + dataset.get_variant() + "_" + "mixed" + "_" + query + "_" + config_distribution
             )
 
@@ -319,7 +319,7 @@ def mixed_workload(
             queries=full_workload,
             num_workers=benchmark_context.num_workers_for_benchmark,
         )[0]
-        usage_workload = vendor.stop(
+        usage_workload = vendor.stop_db(
             dataset.NAME + dataset.get_variant() + "_" + "realistic" + "_" + config_distribution
         )
         mixed_workload = {
@@ -358,7 +358,7 @@ def get_query_cache_count(
             )
         )
         # First run to prime the query caches.
-        vendor.start_benchmark("cache")
+        vendor.start_db("cache")
         client.execute(queries=queries, num_workers=1)
         # Get a sense of the runtime.
         count = 1
@@ -379,7 +379,7 @@ def get_query_cache_count(
                 break
             else:
                 count = count * 10
-        vendor.stop("cache")
+        vendor.stop_db("cache")
 
         QUERY_COUNT_LOWER_BOUND = 30
         if count < QUERY_COUNT_LOWER_BOUND:
@@ -500,7 +500,7 @@ if __name__ == "__main__":
         workload.prepare(cache.cache_directory("datasets", workload.NAME, workload.get_variant()))
         generated_queries = workload.dataset_generator()
         if generated_queries:
-            vendor_runner.start_preparation("import")
+            vendor_runner.start_db_init("import")
             log.info("Using workload as dataset generator...")
             if workload.get_index():
                 log.info("Using index from specified file: {}".format(workload.get_index()))
@@ -508,20 +508,20 @@ if __name__ == "__main__":
             else:
                 log.warning("Make sure proper indexes/constraints are created in generated queries!")
             ret = client.execute(queries=generated_queries, num_workers=benchmark_context.num_workers_for_import)
-            usage = vendor_runner.stop("import")
+            usage = vendor_runner.stop_db_init("import")
         else:
             log.info("Using workload dataset information for import...")
             imported = workload.custom_import()
             if not imported:
                 log.log("Basic import execution")
-                vendor_runner.start_preparation("import")
+                vendor_runner.start_db_init("import")
                 log.log("Executing database index setup...")
                 client.execute(file_path=workload.get_index(), num_workers=benchmark_context.num_workers_for_import)
                 log.log("Importing dataset...")
                 ret = client.execute(
                     file_path=workload.get_file(), num_workers=benchmark_context.num_workers_for_import
                 )
-                usage = vendor_runner.stop("import")
+                usage = vendor_runner.stop_db_init("import")
             else:
                 log.info("Custom import executed...")
 
@@ -584,7 +584,7 @@ if __name__ == "__main__":
                             benchmark_context.num_workers_for_benchmark
                         )
                     )
-                    vendor_runner.start_benchmark(
+                    vendor_runner.start_db(
                         workload.NAME + workload.get_variant() + "_" + "_" + benchmark_context.mode + "_" + query
                     )
 
@@ -601,7 +601,7 @@ if __name__ == "__main__":
                             num_workers=benchmark_context.num_workers_for_benchmark,
                         )[0]
 
-                    usage = vendor_runner.stop(
+                    usage = vendor_runner.stop_db(
                         workload.NAME + workload.get_variant() + "_" + benchmark_context.mode + "_" + query
                     )
                     ret["database"] = usage
@@ -633,7 +633,7 @@ if __name__ == "__main__":
             # If there is need for authorization testing.
             if benchmark_context.no_authorization:
                 log.info("Running queries with authorization...")
-                vendor_runner.start_benchmark("authorization")
+                vendor_runner.start_db("authorization")
                 client.execute(
                     queries=[
                         ("CREATE USER user IDENTIFIED BY 'test';", {}),
@@ -644,7 +644,7 @@ if __name__ == "__main__":
                 )
 
                 client.set_credentials(username="user", password="test")
-                vendor_runner.stop("authorization")
+                vendor_runner.stop_db("authorization")
 
                 for query, funcname in queries[group]:
 
@@ -664,13 +664,13 @@ if __name__ == "__main__":
                         vendor_runner, client, get_queries(func, 1), config_key, benchmark_context
                     )
 
-                    vendor_runner.start_benchmark("authorization")
+                    vendor_runner.start_db("authorization")
                     warmup(condition=benchmark_context.warm_up, client=client, queries=get_queries(func, count))
                     ret = client.execute(
                         queries=get_queries(func, count),
                         num_workers=benchmark_context.num_workers_for_benchmark,
                     )[0]
-                    usage = vendor_runner.stop("authorization")
+                    usage = vendor_runner.stop_db("authorization")
                     ret["database"] = usage
                     # Output summary.
                     log.log("Executed  {} queries in {} seconds.".format(ret["count"], ret["duration"]))
@@ -696,7 +696,7 @@ if __name__ == "__main__":
                     results.set_value(*results_key, value=ret)
 
                 # Clean up database from any roles and users job
-                vendor_runner.start_benchmark("authorizations")
+                vendor_runner.start_db("authorizations")
                 ret = client.execute(
                     queries=[
                         ("REVOKE LABELS * FROM user;", {}),
@@ -704,7 +704,7 @@ if __name__ == "__main__":
                         ("DROP USER user;", {}),
                     ]
                 )
-                vendor_runner.stop("authorization")
+                vendor_runner.stop_db("authorization")
 
     # Save configuration.
     if not benchmark_context.no_save_query_counts:

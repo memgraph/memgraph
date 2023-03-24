@@ -125,14 +125,14 @@ if __name__ == "__main__":
 
         generated_queries = workload.dataset_generator()
         if generated_queries:
-            vendor_runner.start_preparation("import")
+            vendor_runner.start_db_init("import")
             client.execute(queries=generated_queries, num_workers=benchmark_context_db_1.num_workers_for_import)
-            vendor_runner.stop("import")
+            vendor_runner.stop_db_init("import")
         else:
             workload.prepare(cache.cache_directory("datasets", workload.NAME, workload.get_variant()))
             imported = workload.custom_import()
             if not imported:
-                vendor_runner.start_preparation("import")
+                vendor_runner.start_db_init("import")
                 print("Executing database cleanup and index setup...")
                 client.execute(
                     file_path=workload.get_index(), num_workers=benchmark_context_db_1.num_workers_for_import
@@ -141,14 +141,14 @@ if __name__ == "__main__":
                 ret = client.execute(
                     file_path=workload.get_file(), num_workers=benchmark_context_db_1.num_workers_for_import
                 )
-                usage = vendor_runner.stop("import")
+                usage = vendor_runner.stop_db_init("import")
 
         for group in sorted(queries.keys()):
             for query, funcname in queries[group]:
                 print("Running query:{}/{}/{}".format(group, query, funcname))
                 func = getattr(workload, funcname)
                 count = 1
-                vendor_runner.start_benchmark("validation")
+                vendor_runner.start_db("validation")
                 try:
                     ret = client.execute(queries=get_queries(func, count), num_workers=1, validation=True)[0]
                     results_db_1[funcname] = ret["results"].items()
@@ -157,7 +157,7 @@ if __name__ == "__main__":
                     print(e)
                     results_db_1[funcname] = "Query not executed properly"
                 finally:
-                    usage = vendor_runner.stop("validation")
+                    usage = vendor_runner.stop_db("validation")
                     print("Database used {:.3f} seconds of CPU time.".format(usage["cpu"]))
                     print("Database peaked at {:.3f} MiB of memory.".format(usage["memory"] / 1024.0 / 1024.0))
 
@@ -187,14 +187,14 @@ if __name__ == "__main__":
 
         generated_queries = workload.dataset_generator()
         if generated_queries:
-            vendor_runner.start_preparation("import")
+            vendor_runner.start_db_init("import")
             client.execute(queries=generated_queries, num_workers=benchmark_context_db_2.num_workers_for_import)
             vendor_runner.stop("import")
         else:
             workload.prepare(cache.cache_directory("datasets", workload.NAME, workload.get_variant()))
             imported = workload.custom_import()
             if not imported:
-                vendor_runner.start_preparation("import")
+                vendor_runner.start_db_init("import")
                 print("Executing database cleanup and index setup...")
                 client.execute(
                     file_path=workload.get_index(), num_workers=benchmark_context_db_2.num_workers_for_import
@@ -203,14 +203,14 @@ if __name__ == "__main__":
                 ret = client.execute(
                     file_path=workload.get_file(), num_workers=benchmark_context_db_2.num_workers_for_import
                 )
-                usage = vendor_runner.stop("import")
+                usage = vendor_runner.stop_db_init("import")
 
         for group in sorted(queries.keys()):
             for query, funcname in queries[group]:
                 print("Running query:{}/{}/{}".format(group, query, funcname))
                 func = getattr(workload, funcname)
                 count = 1
-                vendor_runner.start_benchmark("validation")
+                vendor_runner.start_db("validation")
                 try:
                     ret = client.execute(queries=get_queries(func, count), num_workers=1, validation=True)[0]
                     results_db_2[funcname] = ret["results"].items()
@@ -219,7 +219,7 @@ if __name__ == "__main__":
                     print(e)
                     results_db_2[funcname] = "Query not executed properly"
                 finally:
-                    usage = vendor_runner.stop("validation")
+                    usage = vendor_runner.stop_db("validation")
                     print("Database used {:.3f} seconds of CPU time.".format(usage["cpu"]))
                     print("Database peaked at {:.3f} MiB of memory.".format(usage["memory"] / 1024.0 / 1024.0))
 
