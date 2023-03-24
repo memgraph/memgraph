@@ -3920,3 +3920,29 @@ TEST_F(SubqueriesFeature, SubqueryWithUnion) {
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 4);
 }
+
+TEST_F(SubqueriesFeature, SubqueriesWithForeach) {
+  // MATCH (n) CALL { FOREACH (i in range(1, 5) | CREATE (n)) } RETURN n
+
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+
+  auto once_create = std::make_shared<Once>();
+  NodeCreationInfo node_creation_info;
+  node_creation_info.symbol = symbol_table.CreateSymbol("n", true);
+  auto create = std::make_shared<plan::CreateNode>(once_create, node_creation_info);
+
+  auto once_foreach = std::make_shared<Once>();
+  auto iteration_symbol = symbol_table.CreateSymbol("i", true);
+  auto iterating_list = LIST(LITERAL(1), LITERAL(2), LITERAL(3), LITERAL(4), LITERAL(5));
+  auto foreach = std::make_shared<plan::Foreach>(once_foreach, create, iterating_list, iteration_symbol);
+  auto empty_result = std::make_shared<EmptyResult>(foreach);
+
+  auto apply = std::make_shared<Apply>(n.op_, empty_result, false);
+
+  auto produce = MakeProduce(apply, return_n);
+
+  auto context = MakeContext(storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
+  EXPECT_EQ(results.size(), 2);
+}
