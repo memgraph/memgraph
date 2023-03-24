@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,6 +28,7 @@ namespace fs = std::filesystem;
 
 DECLARE_bool(auth_password_permit_null);
 DECLARE_string(auth_password_strength_regex);
+DECLARE_string(password_encryption_algorithm);
 
 class AuthWithStorage : public ::testing::Test {
  protected:
@@ -925,4 +926,34 @@ TEST(AuthWithoutStorage, Crypto) {
   auto hash = EncryptPassword("hello");
   ASSERT_TRUE(VerifyPassword("hello", hash));
   ASSERT_FALSE(VerifyPassword("hello1", hash));
+}
+
+class AuthWithVariousEncryptionAlgorithms : public ::testing::Test {
+ protected:
+  virtual void SetUp() { FLAGS_password_encryption_algorithm = "bcrypt"; }
+};
+
+TEST(AuthWithVariousEncryptionAlgorithms, VerifyPasswordDefault) {
+  auto hash = EncryptPassword("hello");
+  ASSERT_TRUE(VerifyPassword("hello", hash));
+  ASSERT_FALSE(VerifyPassword("hello1", hash));
+}
+
+TEST(AuthWithVariousEncryptionAlgorithms, VerifyPasswordSHA256) {
+  FLAGS_password_encryption_algorithm = "sha256";
+  auto hash = EncryptPassword("hello");
+  ASSERT_TRUE(VerifyPassword("hello", hash));
+  ASSERT_FALSE(VerifyPassword("hello1", hash));
+}
+
+TEST(AuthWithVariousEncryptionAlgorithms, VerifyPasswordSHA256_1024) {
+  FLAGS_password_encryption_algorithm = "sha256-1024";
+  auto hash = EncryptPassword("hello");
+  ASSERT_TRUE(VerifyPassword("hello", hash));
+  ASSERT_FALSE(VerifyPassword("hello1", hash));
+}
+
+TEST(AuthWithVariousEncryptionAlgorithms, VerifyPasswordThrow) {
+  FLAGS_password_encryption_algorithm = "abcd";
+  ASSERT_THROW(EncryptPassword("hello"), AuthException);
 }
