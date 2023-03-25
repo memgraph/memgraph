@@ -193,11 +193,6 @@ class Memgraph(BaseRunner):
         self._performance_tracking = benchmark_context.performance_tracking
         self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
         self._vendor_args = benchmark_context.vendor_args
-        self._properties_on_edges = (
-            self._vendor_args["no-properties-on-edges"]
-            if "no-properties-on-edges" in self._vendor_args.keys()
-            else False
-        )
         self._bolt_port = self._vendor_args["bolt-port"] if "bolt-port" in self._vendor_args.keys() else 7687
         self._proc_mg = None
         self._stop_event = threading.Event()
@@ -218,7 +213,8 @@ class Memgraph(BaseRunner):
         data_directory = os.path.join(self._directory.name, "memgraph")
         kwargs["bolt_port"] = self._bolt_port
         kwargs["data_directory"] = data_directory
-        kwargs["storage_properties_on_edges"] = self._properties_on_edges
+        for key, value in self._vendor_args.items():
+            kwargs[key] = value
         return _convert_args_to_flags(self._memgraph_binary, **kwargs)
 
     def _start(self, **kwargs):
@@ -249,7 +245,7 @@ class Memgraph(BaseRunner):
             self._stop_event.clear()
             self._rss.clear()
             p.start()
-        self._start(storage_snapshot_on_exit=True)
+        self._start(storage_snapshot_on_exit=True, **self._vendor_args)
 
     def stop_db_init(self, workload):
         if self._performance_tracking:
@@ -265,7 +261,7 @@ class Memgraph(BaseRunner):
             self._stop_event.clear()
             self._rss.clear()
             p.start()
-        self._start(storage_recover_on_startup=True)
+        self._start(storage_recover_on_startup=True, **self._vendor_args)
 
     def stop_db(self, workload):
         if self._performance_tracking:
@@ -552,15 +548,13 @@ class MemgraphDocker(BaseRunner):
         super().__init__(benchmark_context=benchmark_context)
         self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
         self._vendor_args = benchmark_context.vendor_args
-        self._properties_on_edges = (
-            self._vendor_args["no-properties-on-edges"]
-            if "no-properties-on-edges" in self._vendor_args.keys()
-            else False
-        )
         self._bolt_port = self._vendor_args["bolt-port"] if "bolt-port" in self._vendor_args.keys() else 7687
         self._container_name = "memgraph_benchmark"
         self._container_ip = None
         self._config_file = None
+
+    def _set_args(self, **kwargs):
+        return _convert_args_to_flags(**kwargs)
 
     def start_db_init(self, message):
         command = [
@@ -571,13 +565,15 @@ class MemgraphDocker(BaseRunner):
             self._container_name,
             "-it",
             "-p",
-            "7687:7687",
+            self._bolt_port + ":" + self._bolt_port,
             "memgraph/memgraph",
             "--telemetry_enabled=false",
             "--storage_wal_enabled=false",
             "--storage_recover_on_startup=true",
-            "--storage_snapshot_interval_sec=0",
+            "--storage_snapshot_interval_sec",
+            "0",
         ]
+        command.extend(self._set_args(**self._vendor_args))
         ret = self._run_command(command)
 
         command = [
