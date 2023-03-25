@@ -560,6 +560,7 @@ class MemgraphDocker(BaseRunner):
         self._bolt_port = self._vendor_args["bolt-port"] if "bolt-port" in self._vendor_args.keys() else 7687
         self._container_name = "memgraph_benchmark"
         self._container_ip = None
+        self._config_file = None
 
     def start_db_init(self, message):
         command = [
@@ -572,9 +573,22 @@ class MemgraphDocker(BaseRunner):
             "-p",
             "7687:7687",
             "memgraph/memgraph",
-            "--storage-snapshot-on-exit=true",
+            "--telemetry_enabled=false",
+            "--storage_wal_enabled=false",
+            "--storage_recover_on_startup=true",
+            "--storage_snapshot_interval_sec=0",
         ]
-        ret = self.run_command(command)
+        ret = self._run_command(command)
+
+        command = [
+            "docker",
+            "cp",
+            self._container_name + ":etc/memgraph/memgraph.conf",
+            self._directory.name + "/memgraph.conf",
+        ]
+        self._run_command(command)
+        self._config_file = Path(self._directory.name + "/memgraph.conf")
+
         command = ["docker", "inspect", "--format", "{{ .NetworkSettings.IPAddress }}", self._container_name]
         ret = subprocess.run(command, check=True, capture_output=True, text=True)
         ip_address = ret.stdout.strip("\n")
@@ -583,40 +597,24 @@ class MemgraphDocker(BaseRunner):
     def stop_db_init(self, message):
         # Stop to save the snapshot
         command = ["docker", "stop", self._container_name]
-        self.run_command(command)
+        self._run_command(command)
 
-        # Start to change config
-        command = ["docker", "start", self._container_name]
-        self.run_command(command)
-
-        # Do not generate snapshots on exit any more
+        # Change config back to default
         argument = "--storage-snapshot-on-exit=false"
+        self._replace_config_args(argument)
         command = [
             "docker",
-            "exec",
-            self._container_name,
-            "grep",
-            "-qxF",
-            "--",
-            argument,
-            "/etc/memgraph/memgraph.conf",
-            "||",
-            "echo",
-            argument,
-            ">>",
-            "/etc/memgraph/memgraph.conf",
+            "cp",
+            self._config_file.resolve(),
+            self._container_name + ":etc/memgraph/memgraph.conf",
         ]
-        self.run_command(command)
-
-        # Finally stop.
-        command = ["docker", "stop", self._container_name]
-        self.run_command(command)
+        self._run_command(command)
 
         return {"cpu": 0, "memory": 0}
 
     def start_db(self, message):
         command = ["docker", "start", self._container_name]
-        self.run_command(command)
+        self._run_command(command)
         command = ["docker", "inspect", "--format", "{{ .NetworkSettings.IPAddress }}", self._container_name]
         ret = subprocess.run(command, check=True, capture_output=True, text=True)
         ip_address = ret.stdout.strip("\n")
@@ -624,7 +622,7 @@ class MemgraphDocker(BaseRunner):
 
     def stop_db(self, message):
         command = ["docker", "stop", self._container_name]
-        self.run_command(command)
+        self._run_command(command)
         return {"cpu": 0, "memory": 0}
 
     def clean_db(self):
@@ -635,10 +633,32 @@ class MemgraphDocker(BaseRunner):
 
     def remove_container(self, containerName):
         command = ["docker", "rm", "-f", containerName]
-        self.run_command(command)
+        self._run_command(command)
 
-    def run_command(self, command):
+    def _replace_config_args(self, argument):
+        config_lines = []
+        with self._config_file.open("r") as file:
+            lines = file.readlines()
+            file.close()
+            key, value = argument.split("=")
+            for line in lines:
+
+                if line[0] == "#" or line.strip("\n") == "":
+                    config_lines.append(line)
+                else:
+                    key_file, value_file = line.split("=")
+                    if key_file == key and value != value_file:
+                        print("replacing: " + key_file + value_file + "with " + argument)
+                        line = argument + "\n"
+                    config_lines.append(line)
+
+        with self._config_file.open("w") as file:
+            file.writelines(config_lines)
+            file.close()
+
+    def _run_command(self, command):
         print(command)
-        ret = subprocess.run(command, check=True)
-        time.sleep(0.2)
+        ret = subprocess.run(command, text=True)
+
+        time.sleep(1)
         return ret
