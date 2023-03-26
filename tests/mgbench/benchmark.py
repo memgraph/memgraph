@@ -632,7 +632,8 @@ if __name__ == "__main__":
 
             # If there is need for authorization testing.
             if benchmark_context.no_authorization:
-                log.info("Running queries with authorization...")
+                log.init("Running queries with authorization...")
+                log.info("Setting USER and PRIVILEGES...")
                 vendor_runner.start_db("authorization")
                 client.execute(
                     queries=[
@@ -648,9 +649,8 @@ if __name__ == "__main__":
 
                 for query, funcname in queries[group]:
 
-                    log.info(
-                        "Running query:",
-                        "{}/{}/{}/{}".format(group, query, funcname, WITH_FINE_GRAINED_AUTHORIZATION),
+                    log.init(
+                        "Running query:" + "{}/{}/{}/{}".format(group, query, funcname, WITH_FINE_GRAINED_AUTHORIZATION)
                     )
                     func = getattr(workload, funcname)
 
@@ -695,7 +695,7 @@ if __name__ == "__main__":
                     ]
                     results.set_value(*results_key, value=ret)
 
-                # Clean up database from any roles and users job
+                log.info("Deleting USER and PRIVILEGES...")
                 vendor_runner.start_db("authorizations")
                 ret = client.execute(
                     queries=[
