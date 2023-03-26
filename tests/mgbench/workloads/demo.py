@@ -8,10 +8,17 @@ class Demo(Workload):
     NAME = "demo"
 
     def dataset_generator(self):
-        queries = [
-            ("CREATE INDEX ON :NodeA(id);", {}),
-            ("CREATE INDEX ON :NodeB(id);", {}),
-        ]
+
+        if self._vendor == "neo4jdocker":
+            queries = [
+                ("CREATE INDEX FOR (n:NodeA) ON (n.id);", {}),
+                ("CREATE INDEX FOR (n:NodeB) ON (n.id);", {}),
+            ]
+        else:
+            queries = [
+                ("CREATE INDEX ON :NodeA(id);", {}),
+                ("CREATE INDEX ON :NodeB(id);", {}),
+            ]
         for i in range(0, 100):
             queries.append(("CREATE (:NodeA {id: $id});", {"id": i}))
             queries.append(("CREATE (:NodeB {id: $id});", {"id": i}))

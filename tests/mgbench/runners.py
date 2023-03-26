@@ -548,7 +548,7 @@ class MemgraphDocker(BaseRunner):
         super().__init__(benchmark_context=benchmark_context)
         self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
         self._vendor_args = benchmark_context.vendor_args
-        self._bolt_port = self._vendor_args["bolt-port"] if "bolt-port" in self._vendor_args.keys() else 7687
+        self._bolt_port = self._vendor_args["bolt-port"] if "bolt-port" in self._vendor_args.keys() else "7687"
         self._container_name = "memgraph_benchmark"
         self._container_ip = None
         self._config_file = None
@@ -656,5 +656,78 @@ class MemgraphDocker(BaseRunner):
         print(command)
         ret = subprocess.run(command, text=True)
 
-        time.sleep(1)
+        time.sleep(0.2)
+        return ret
+
+
+class Neo4jDocker(BaseRunner):
+    def __init__(self, benchmark_context: BenchmarkContext):
+        super().__init__(benchmark_context=benchmark_context)
+        self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
+        self._vendor_args = benchmark_context.vendor_args
+        self._bolt_port = self._vendor_args["bolt-port"] if "bolt-port" in self._vendor_args.keys() else "7687"
+        self._container_name = "neo4j_benchmark"
+        self._container_ip = None
+        self._config_file = None
+
+    def _set_args(self, **kwargs):
+        return _convert_args_to_flags(**kwargs)
+
+    def start_db_init(self, message):
+        command = [
+            "docker",
+            "run",
+            "--detach",
+            "--name",
+            self._container_name,
+            "-it",
+            "-p",
+            self._bolt_port + ":" + self._bolt_port,
+            "--env",
+            "NEO4J_AUTH=none",
+            "neo4j:5.6.0",
+        ]
+        command.extend(self._set_args(**self._vendor_args))
+        ret = self._run_command(command)
+
+        command = ["docker", "inspect", "--format", "{{ .NetworkSettings.IPAddress }}", self._container_name]
+        ret = subprocess.run(command, check=True, capture_output=True, text=True)
+        ip_address = ret.stdout.strip("\n")
+        _wait_for_server(self._bolt_port, ip=ip_address)
+
+    def stop_db_init(self, message):
+        # Stop to save the snapshot
+        command = ["docker", "stop", self._container_name]
+        self._run_command(command)
+
+        # TODO Generate database dump
+        return {"cpu": 0, "memory": 0}
+
+    def start_db(self, message):
+        command = ["docker", "start", self._container_name]
+        self._run_command(command)
+        command = ["docker", "inspect", "--format", "{{ .NetworkSettings.IPAddress }}", self._container_name]
+        ret = subprocess.run(command, check=True, capture_output=True, text=True)
+        ip_address = ret.stdout.strip("\n")
+        _wait_for_server(self._bolt_port, ip=ip_address)
+
+    def stop_db(self, message):
+        command = ["docker", "stop", self._container_name]
+        self._run_command(command)
+        return {"cpu": 0, "memory": 0}
+
+    def clean_db(self):
+        self.remove_container(self._container_name)
+
+    def fetch_client(self) -> BaseClient:
+        return BoltClient(benchmark_context=self.benchmark_context)
+
+    def remove_container(self, containerName):
+        command = ["docker", "rm", "-f", containerName]
+        self._run_command(command)
+
+    def _run_command(self, command):
+        print(command)
+        ret = subprocess.run(command, text=True)
+        time.sleep(0.2)
         return ret
