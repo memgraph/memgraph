@@ -48,6 +48,7 @@
 #include "storage/v3/vertex_id.hpp"
 #include "storage/v3/view.hpp"
 #include "utils/logging.hpp"
+#include "utils/timer.hpp"
 
 namespace memgraph::storage::v3 {
 using msgs::Label;
@@ -516,6 +517,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CommitRequest &&req) {
 };
 
 msgs::ReadResponses ShardRsm::HandleRead(msgs::GetPropertiesRequest &&req) {
+  MG_RAII_TIMER(timer, "SHARD_RSM_HANDLE_GET_PROPS");
   if (!req.vertex_ids.empty() && !req.vertices_and_edges.empty()) {
     auto shard_error = SHARD_ERROR(ErrorCode::NONEXISTENT_OBJECT);
     auto error = CreateErrorResponse(shard_error, req.transaction_id, "");

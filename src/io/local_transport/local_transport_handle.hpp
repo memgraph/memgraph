@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,6 +22,7 @@
 #include "io/message_histogram_collector.hpp"
 #include "io/time.hpp"
 #include "io/transport.hpp"
+#include "utils/timer.hpp"
 
 namespace memgraph::io::local_transport {
 
@@ -108,6 +109,7 @@ class LocalTransportHandle {
     auto type_info = TypeInfoFor(message);
 
     std::any message_any(std::forward<M>(message));
+    MG_RAII_TIMER(timer, message_any.type().name());
     OpaqueMessage opaque_message{.to_address = to_address,
                                  .from_address = from_address,
                                  .request_id = request_id,

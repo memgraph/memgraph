@@ -12,6 +12,7 @@
 #pragma once
 
 #include <chrono>
+#include <functional>
 
 namespace memgraph::utils {
 
@@ -51,6 +52,6 @@ class Timer {
 // some of them ON/OFF (not all).
 //
 #define MG_RAII_TIMER(name, message) \
-  memgraph::utils::Timer<> name([](auto elapsed) { spdlog::critical("{} {}s", message, elapsed); })
+  memgraph::utils::Timer<> name([&](auto elapsed) { spdlog::critical("{} {}s", message, elapsed); })
 
 }  // namespace memgraph::utils
