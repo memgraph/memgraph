@@ -106,15 +106,18 @@ for hook in $(find $DIR/.githooks -type f -printf "%f\n"); do
   echo "Added $hook hook"
 done;
 
-# Install precommit hook
-python3 -m pip install pre-commit
-python3 -m pre_commit install
-
-# Install py format tools
-echo "Install black formatter"
-python3 -m pip install black==22.8.*
-echo "Install isort"
-python3 -m pip install isort==5.10.*
+# Install precommit hook except on old operating systems because we don't
+# develop on them -> pre-commit hook not required -> we can use latest
+# packages.
+if [ "${DISTRO}" != "centos-7" ] && [ "$DISTRO" != "debian-10" ] && [ "${DISTRO}" != "ubuntu-18.04" ]; then
+  python3 -m pip install pre-commit
+  python3 -m pre_commit install
+  # Install py format tools for usage during the development.
+  echo "Install black formatter"
+  python3 -m pip install black==23.1.*
+  echo "Install isort"
+  python3 -m pip install isort==5.12.*
+fi
 
 # Link `include/mgp.py` with `release/mgp/mgp.py`
 ln -v -f include/mgp.py release/mgp/mgp.py
