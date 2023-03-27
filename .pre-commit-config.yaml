@@ -15,6 +15,6 @@ repos:
       - id: isort
         name: isort (python)
   - repo: https://github.com/pre-commit/mirrors-clang-format
-    rev: v16.0.0
+    rev: v13.0.0
     hooks:
       - id: clang-format
