@@ -204,6 +204,7 @@ BENCHMARK_REGISTER_F(ShardSplitBenchmark, BigDataSplitWithFewTransactionsOnVerti
     ->Args({2'000'000, 100'000, 100})
     ->Args({3'000'000, 100'000, 100})
     ->Args({4'000'000, 100'000, 100})
+    ->Args({5'000'000, 100'000, 100})
     ->Args({6'000'000, 100'000, 100})
     ->Args({7'000'000, 100'000, 100})
     ->Args({8'000'000, 100'000, 100})
