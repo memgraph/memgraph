@@ -82,7 +82,7 @@ VertexContainer Splitter::CollectVertices(SplitData &data, std::set<uint64_t> &c
 
     auto next_it = std::next(split_key_it);
 
-    const auto new_it = splitted_data.insert(splitted_data.end(), vertices_.extract(split_key_it->first));
+    const auto new_it = splitted_data.insert(splitted_data.end(), vertices_.extract(split_key_it));
     MG_ASSERT(new_it != splitted_data.end(), "Failed to extract vertex!");
 
     split_key_it = next_it;
