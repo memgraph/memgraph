@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -15,7 +15,6 @@
 #include <json/json.hpp>
 
 namespace memgraph::auth {
-const std::string kAsterisk = "*";
 // These permissions must have values that are applicable for usage in a
 // bitmask.
 // clang-format off

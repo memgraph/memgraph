@@ -327,11 +327,11 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
           auth->GrantPrivilege(username, kPrivilegesAll
 #ifdef MG_ENTERPRISE
                                ,
-                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {auth::kAsterisk}}}},
+                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
                                {
                                  {
                                    {
-                                     AuthQuery::FineGrainedPrivilege::CREATE_DELETE, { auth::kAsterisk }
+                                     AuthQuery::FineGrainedPrivilege::CREATE_DELETE, { query::kAsterisk }
                                    }
                                  }
                                }
@@ -1411,7 +1411,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
   if (labels[0] != kAsterisk) {
     for (auto it = indices_info.cbegin(); it != indices_info.cend();) {
       if (std::find(labels.begin(), labels.end(), execution_db_accessor->LabelToName(it->first)) == labels.end()) {
-        indices_info.erase(it);
+        it = indices_info.erase(it);
       } else {
         ++it;
       }
@@ -1429,7 +1429,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
   std::for_each(counter.begin(), counter.end(), [&results, execution_db_accessor](const auto &counter_entry) {
     const auto &[label_property, values_map] = counter_entry;
     std::vector<TypedValue> result;
-    result.reserve(6);
+    result.reserve(kDeleteStatisticsNumResults);
     // Extract info
     int64_t count_property_value = std::accumulate(
         values_map.begin(), values_map.end(), 0,

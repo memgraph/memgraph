@@ -49,8 +49,6 @@ namespace memgraph::query {
 
 inline constexpr size_t kExecutionMemoryBlockSize = 1UL * 1024UL * 1024UL;
 
-constexpr std::string_view kAsterisk = "*";
-
 class AuthQueryHandler {
  public:
   AuthQueryHandler() = default;

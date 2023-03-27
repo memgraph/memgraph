@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,6 +15,7 @@
 #include "auth/models.hpp"
 #include "glue/auth.hpp"
 #include "license/license.hpp"
+#include "query/constants.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "utils/synchronized.hpp"
 
@@ -38,7 +39,7 @@ bool IsUserAuthorizedGloballyLabels(const memgraph::auth::User &user,
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return true;
   }
-  return user.GetFineGrainedAccessLabelPermissions().Has(memgraph::auth::kAsterisk, fine_grained_permission) ==
+  return user.GetFineGrainedAccessLabelPermissions().Has(memgraph::query::kAsterisk, fine_grained_permission) ==
          memgraph::auth::PermissionLevel::GRANT;
 }
 
@@ -47,7 +48,7 @@ bool IsUserAuthorizedGloballyEdges(const memgraph::auth::User &user,
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return true;
   }
-  return user.GetFineGrainedAccessEdgeTypePermissions().Has(memgraph::auth::kAsterisk, fine_grained_permission) ==
+  return user.GetFineGrainedAccessEdgeTypePermissions().Has(memgraph::query::kAsterisk, fine_grained_permission) ==
          memgraph::auth::PermissionLevel::GRANT;
 }
 

@@ -42,10 +42,8 @@ def test_analyze_graph_delete_statistics(delete_query, connect):
         first_index = 0
     else:
         first_index = 1
-    assert delete_stats_results[first_index][0] == "Label"
-    assert delete_stats_results[first_index][1] == "id1"
-    assert delete_stats_results[1 - first_index][0] == "Label"
-    assert delete_stats_results[1 - first_index][1] == "id2"
+    assert delete_stats_results[first_index] == ("Label", "id1")
+    assert delete_stats_results[1 - first_index] == ("Label", "id2")
     # After deleting statistics, id2 should be chosen because it has less vertices
     expected_explain_after_delete_analysis = [
         (f" * Produce {{n}}",),
@@ -98,18 +96,8 @@ def test_analyze_full_graph(analyze_query, connect):
     else:
         first_index = 1
     # Check results
-    assert analyze_graph_results[first_index][0] == "Label"
-    assert analyze_graph_results[first_index][1] == "id1"
-    assert analyze_graph_results[first_index][2] == 100  # num estimation nodes
-    assert analyze_graph_results[first_index][3] == 100  # num groups
-    assert analyze_graph_results[first_index][4] == 1  # average group size
-    assert analyze_graph_results[first_index][5] == 0  # chi-squared value
-    assert analyze_graph_results[1 - first_index][0] == "Label"
-    assert analyze_graph_results[1 - first_index][1] == "id2"
-    assert analyze_graph_results[1 - first_index][2] == 50  # num estimation nodes
-    assert analyze_graph_results[1 - first_index][3] == 5  # num groups
-    assert analyze_graph_results[1 - first_index][4] == 10  # average group size
-    assert analyze_graph_results[1 - first_index][5] == 0  # chi squared value
+    assert analyze_graph_results[first_index] == ("Label", "id1", 100, 100, 1, 0)
+    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 50, 5, 10, 0)
     # After analyzing graph, id1 index should be chosen because it has smaller average group size
     expected_explain_after_analysis = [
         (f" * Produce {{n}}",),
@@ -143,18 +131,8 @@ def test_cardinality_different_avg_group_size_uniform_dist(connect):
     else:
         first_index = 1
     # Check results
-    assert analyze_graph_results[first_index][0] == "Label"
-    assert analyze_graph_results[first_index][1] == "id1"
-    assert analyze_graph_results[first_index][2] == 100  # num estimation nodes
-    assert analyze_graph_results[first_index][3] == 100  # num groups
-    assert analyze_graph_results[first_index][4] == 1  # average group size
-    assert analyze_graph_results[first_index][5] == 0  # chi squared value
-    assert analyze_graph_results[1 - first_index][0] == "Label"
-    assert analyze_graph_results[1 - first_index][1] == "id2"
-    assert analyze_graph_results[1 - first_index][2] == 100  # num estimation nodes
-    assert analyze_graph_results[1 - first_index][3] == 20  # num groups
-    assert analyze_graph_results[1 - first_index][4] == 5  # average group size
-    assert analyze_graph_results[1 - first_index][5] == 0  # chi squared value
+    assert analyze_graph_results[first_index] == ("Label", "id1", 100, 100, 1, 0)
+    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 100, 20, 5, 0)
     expected_explain_after_analysis = [
         (f" * Produce {{n}}",),
         (f" * Filter",),
@@ -183,18 +161,8 @@ def test_cardinality_same_avg_group_size_uniform_dist_diff_vertex_count(connect)
     else:
         first_index = 1
     # Check results
-    assert analyze_graph_results[first_index][0] == "Label"
-    assert analyze_graph_results[first_index][1] == "id1"
-    assert analyze_graph_results[first_index][2] == 100  # num estimation nodes
-    assert analyze_graph_results[first_index][3] == 100  # num groups
-    assert analyze_graph_results[first_index][4] == 1  # average group size
-    assert analyze_graph_results[first_index][5] == 0  # chi squared value
-    assert analyze_graph_results[1 - first_index][0] == "Label"
-    assert analyze_graph_results[1 - first_index][1] == "id2"
-    assert analyze_graph_results[1 - first_index][2] == 50  # num estimation nodes
-    assert analyze_graph_results[1 - first_index][3] == 50  # num groups
-    assert analyze_graph_results[1 - first_index][4] == 1  # average group size
-    assert analyze_graph_results[1 - first_index][5] == 0  # chi squared value
+    assert analyze_graph_results[first_index] == ("Label", "id1", 100, 100, 1, 0)
+    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 50, 50, 1, 0)
     expected_explain_after_analysis = [
         (f" * Produce {{n}}",),
         (f" * Filter",),
@@ -223,18 +191,8 @@ def test_large_diff_in_num_vertices_v1(connect):
     else:
         first_index = 1
     # Check results
-    assert analyze_graph_results[first_index][0] == "Label"
-    assert analyze_graph_results[first_index][1] == "id1"
-    assert analyze_graph_results[first_index][2] == 1000  # num estimation nodes
-    assert analyze_graph_results[first_index][3] == 1000  # num groups
-    assert analyze_graph_results[first_index][4] == 1  # average group size
-    assert analyze_graph_results[first_index][5] == 0  # chi squared value
-    assert analyze_graph_results[1 - first_index][0] == "Label"
-    assert analyze_graph_results[1 - first_index][1] == "id2"
-    assert analyze_graph_results[1 - first_index][2] == 99  # num estimation nodes
-    assert analyze_graph_results[1 - first_index][3] == 1  # num groups
-    assert analyze_graph_results[1 - first_index][4] == 99  # average group size
-    assert analyze_graph_results[1 - first_index][5] == 0  # chi squared value
+    assert analyze_graph_results[first_index] == ("Label", "id1", 1000, 1000, 1, 0)
+    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 99, 1, 99, 0)
     expected_explain_after_analysis = [
         (f" * Produce {{n}}",),
         (f" * Filter",),
@@ -263,18 +221,8 @@ def test_large_diff_in_num_vertices_v2(connect):
     else:
         first_index = 1
     # Check results
-    assert analyze_graph_results[first_index][0] == "Label"
-    assert analyze_graph_results[first_index][1] == "id1"
-    assert analyze_graph_results[first_index][2] == 99  # num estimation nodes
-    assert analyze_graph_results[first_index][3] == 1  # num groups
-    assert analyze_graph_results[first_index][4] == 99  # average group size
-    assert analyze_graph_results[first_index][5] == 0  # chi squared value
-    assert analyze_graph_results[1 - first_index][0] == "Label"
-    assert analyze_graph_results[1 - first_index][1] == "id2"
-    assert analyze_graph_results[1 - first_index][2] == 1000  # num estimation nodes
-    assert analyze_graph_results[1 - first_index][3] == 1000  # num groups
-    assert analyze_graph_results[1 - first_index][4] == 1  # average group size
-    assert analyze_graph_results[1 - first_index][5] == 0  # chi squared value
+    assert analyze_graph_results[first_index] == ("Label", "id1", 99, 1, 99, 0)
+    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 1000, 1000, 1, 0)
     expected_explain_after_analysis = [
         (f" * Produce {{n}}",),
         (f" * Filter",),
@@ -313,18 +261,8 @@ def test_same_avg_group_size_diff_distribution(connect):
     else:
         first_index = 1
     # Check results
-    assert analyze_graph_results[first_index][0] == "Label"
-    assert analyze_graph_results[first_index][1] == "id1"
-    assert analyze_graph_results[first_index][2] == 100  # num estimation nodes
-    assert analyze_graph_results[first_index][3] == 5  #  num groups
-    assert analyze_graph_results[first_index][4] == 20  # average group size
-    assert analyze_graph_results[first_index][5] == 32.5  # chi squared value
-    assert analyze_graph_results[1 - first_index][0] == "Label"
-    assert analyze_graph_results[1 - first_index][1] == "id2"
-    assert analyze_graph_results[1 - first_index][2] == 100  # num estimation nodes
-    assert analyze_graph_results[1 - first_index][3] == 5  # number of groups
-    assert analyze_graph_results[1 - first_index][4] == 20  # average group size
-    assert analyze_graph_results[1 - first_index][5] == 0  # chi squared value
+    assert analyze_graph_results[first_index] == ("Label", "id1", 100, 5, 20, 32.5)
+    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 100, 5, 20, 0)
     expected_explain_after_analysis = [
         (f" * Produce {{n}}",),
         (f" * Filter",),
