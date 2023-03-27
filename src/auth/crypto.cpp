@@ -24,10 +24,9 @@ inline constexpr std::string_view sha256_1024_iterations_password_encryption = "
 inline constexpr uint64_t ONE_SHA_ITERATION = 1;
 inline constexpr uint64_t MULTIPLE_SHA_ITERATIONS = 1;
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-// NOLINTNEXTLINE(misc-unused-parameters)
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-unused-parameters)
 DEFINE_VALIDATED_string(password_encryption_algorithm, default_password_encryption.data(),
-                        "The password encryption algorithm used for authentication", {
+                        "The password encryption algorithm used for authentication.", {
                           if (value.empty()) {
                             return true;
                           }
@@ -111,7 +110,7 @@ bool VerifyPassword(const std::string &password, const std::string &hash) {
   throw AuthException("Invalid password encryption flag '{}'!", FLAGS_password_encryption_algorithm);
 }
 
-const std::string EncryptPassword(const std::string &password) {
+std::string EncryptPassword(const std::string &password) {
   if (FLAGS_password_encryption_algorithm == default_password_encryption) {
     return BCrypt::EncryptPassword(password);
   }
