@@ -591,6 +591,9 @@ class MemgraphDocker(BaseRunner):
         _wait_for_server(self._bolt_port, ip=ip_address)
 
     def stop_db_init(self, message):
+
+        usage = self._get_cpu_memory_usage()
+
         # Stop to save the snapshot
         command = ["docker", "stop", self._container_name]
         self._run_command(command)
@@ -606,7 +609,7 @@ class MemgraphDocker(BaseRunner):
         ]
         self._run_command(command)
 
-        return {"cpu": 0, "memory": 0}
+        return usage
 
     def start_db(self, message):
         command = ["docker", "start", self._container_name]
@@ -617,9 +620,10 @@ class MemgraphDocker(BaseRunner):
         _wait_for_server(self._bolt_port, ip=ip_address)
 
     def stop_db(self, message):
+        usage = self._get_cpu_memory_usage()
         command = ["docker", "stop", self._container_name]
         self._run_command(command)
-        return {"cpu": 0, "memory": 0}
+        return usage
 
     def clean_db(self):
         self.remove_container(self._container_name)
@@ -652,9 +656,40 @@ class MemgraphDocker(BaseRunner):
             file.writelines(config_lines)
             file.close()
 
+    def _get_cpu_memory_usage(self):
+        command = [
+            "docker",
+            "exec",
+            "-it",
+            self._container_name,
+            "bash",
+            "-c",
+            "grep ^VmPeak /proc/1/status",
+        ]
+        usage = {"cpu": 0, "memory": 0}
+        ret = self._run_command(command)
+        memory = ret.stdout.split()
+        usage["memory"] = memory[1] * 1024
+
+        command = [
+            "docker",
+            "exec",
+            "-it",
+            self._container_name,
+            "bash",
+            "-c",
+            "cat /proc/1/stat",
+        ]
+        ret = self._run_command(command)
+        stat = ret.stdout.strip("\n")
+        cpu_time = sum(map(int, stat.split(")")[1].split()[11:15])) / os.sysconf(os.sysconf_names["SC_CLK_TCK"])
+        usage["cpu"] = cpu_time
+
+        return usage
+
     def _run_command(self, command):
         print(command)
-        ret = subprocess.run(command, text=True)
+        ret = subprocess.run(command, check=True, capture_output=True, text=True)
 
         time.sleep(0.2)
         return ret
@@ -696,12 +731,14 @@ class Neo4jDocker(BaseRunner):
         _wait_for_server(self._bolt_port, ip=ip_address)
 
     def stop_db_init(self, message):
-        # Stop to save the snapshot
+
+        usage = self._get_cpu_memory_usage
+
         command = ["docker", "stop", self._container_name]
         self._run_command(command)
 
         # TODO Generate database dump
-        return {"cpu": 0, "memory": 0}
+        return usage
 
     def start_db(self, message):
         command = ["docker", "start", self._container_name]
@@ -712,9 +749,12 @@ class Neo4jDocker(BaseRunner):
         _wait_for_server(self._bolt_port, ip=ip_address)
 
     def stop_db(self, message):
+
+        usage = self._get_cpu_memory_usage
+
         command = ["docker", "stop", self._container_name]
         self._run_command(command)
-        return {"cpu": 0, "memory": 0}
+        return usage
 
     def clean_db(self):
         self.remove_container(self._container_name)
@@ -725,6 +765,37 @@ class Neo4jDocker(BaseRunner):
     def remove_container(self, containerName):
         command = ["docker", "rm", "-f", containerName]
         self._run_command(command)
+
+    def _get_cpu_memory_usage(self):
+        command = [
+            "docker",
+            "exec",
+            "-it",
+            self._container_name,
+            "bash",
+            "-c",
+            "grep ^VmPeak /proc/1/status",
+        ]
+        usage = {"cpu": 0, "memory": 0}
+        ret = self._run_command(command)
+        memory = ret.stdout.split()
+        usage["memory"] = memory[1] * 1024
+
+        command = [
+            "docker",
+            "exec",
+            "-it",
+            self._container_name,
+            "bash",
+            "-c",
+            "cat /proc/1/stat",
+        ]
+        ret = self._run_command(command)
+        stat = ret.stdout.strip("\n")
+        cpu_time = sum(map(int, stat.split(")")[1].split()[11:15])) / os.sysconf(os.sysconf_names["SC_CLK_TCK"])
+        usage["cpu"] = cpu_time
+
+        return usage
 
     def _run_command(self, command):
         print(command)
