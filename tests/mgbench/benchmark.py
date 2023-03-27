@@ -531,7 +531,7 @@ if __name__ == "__main__":
             # Display import statistics.
             for row in ret:
                 log.success(
-                    "Executed {} queries in {} seconds using {} workers with a total throughput of {} + Q/S.".format(
+                    "Executed {} queries in {} seconds using {} workers with a total throughput of {} Q/S.".format(
                         row["count"], row["duration"], row["num_workers"], row["throughput"]
                     )
                 )
@@ -539,7 +539,7 @@ if __name__ == "__main__":
             log.success(
                 "The database used {} seconds of CPU time and peaked at {} MiB of RAM".format(
                     usage["cpu"], usage["memory"] / 1024 / 1024
-                ),
+                )
             )
 
             results.set_value(*import_key, value={"client": ret, "database": usage})

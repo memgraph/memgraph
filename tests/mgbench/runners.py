@@ -669,7 +669,7 @@ class MemgraphDocker(BaseRunner):
         usage = {"cpu": 0, "memory": 0}
         ret = self._run_command(command)
         memory = ret.stdout.split()
-        usage["memory"] = memory[1] * 1024
+        usage["memory"] = int(memory[1]) * 1024
 
         command = [
             "docker",
@@ -732,7 +732,7 @@ class Neo4jDocker(BaseRunner):
 
     def stop_db_init(self, message):
 
-        usage = self._get_cpu_memory_usage
+        usage = self._get_cpu_memory_usage()
 
         command = ["docker", "stop", self._container_name]
         self._run_command(command)
@@ -750,7 +750,7 @@ class Neo4jDocker(BaseRunner):
 
     def stop_db(self, message):
 
-        usage = self._get_cpu_memory_usage
+        usage = self._get_cpu_memory_usage()
 
         command = ["docker", "stop", self._container_name]
         self._run_command(command)
@@ -774,12 +774,10 @@ class Neo4jDocker(BaseRunner):
             self._container_name,
             "bash",
             "-c",
-            "grep ^VmPeak /proc/1/status",
+            "cat /var/lib/neo4j/run/neo4j.pid",
         ]
-        usage = {"cpu": 0, "memory": 0}
         ret = self._run_command(command)
-        memory = ret.stdout.split()
-        usage["memory"] = memory[1] * 1024
+        pid = ret.stdout.split()[0]
 
         command = [
             "docker",
@@ -788,7 +786,21 @@ class Neo4jDocker(BaseRunner):
             self._container_name,
             "bash",
             "-c",
-            "cat /proc/1/stat",
+            "grep ^VmPeak /proc/{}/status".format(pid),
+        ]
+        usage = {"cpu": 0, "memory": 0}
+        ret = self._run_command(command)
+        memory = ret.stdout.split()
+        usage["memory"] = int(memory[1]) * 1024
+
+        command = [
+            "docker",
+            "exec",
+            "-it",
+            self._container_name,
+            "bash",
+            "-c",
+            "cat /proc/{}/stat".format(pid),
         ]
         ret = self._run_command(command)
         stat = ret.stdout.strip("\n")
@@ -799,6 +811,6 @@ class Neo4jDocker(BaseRunner):
 
     def _run_command(self, command):
         print(command)
-        ret = subprocess.run(command, text=True)
+        ret = subprocess.run(command, capture_output=True, check=True, text=True)
         time.sleep(0.2)
         return ret
