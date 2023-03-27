@@ -3,22 +3,26 @@ import random
 from workloads.base import Workload
 
 
-class Demo(Workload):
+class DemoWorkload(Workload):
 
     NAME = "demo"
 
     def indexes_generator(self):
-
-        if self._vendor == "neo4jdocker":
-            indexes = [
-                ("CREATE INDEX FOR (n:NodeA) ON (n.id);", {}),
-                ("CREATE INDEX FOR (n:NodeB) ON (n.id);", {}),
-            ]
+        indexes = []
+        if "neo4j" in self._vendor:
+            indexes.extend(
+                [
+                    ("CREATE INDEX FOR (n:NodeA) ON (n.id);", {}),
+                    ("CREATE INDEX FOR (n:NodeB) ON (n.id);", {}),
+                ]
+            )
         else:
-            indexes = [
-                ("CREATE INDEX ON :NodeA(id);", {}),
-                ("CREATE INDEX ON :NodeB(id);", {}),
-            ]
+            indexes.extend(
+                [
+                    ("CREATE INDEX ON :NodeA(id);", {}),
+                    ("CREATE INDEX ON :NodeB(id);", {}),
+                ]
+            )
         return indexes
 
     def dataset_generator(self):
