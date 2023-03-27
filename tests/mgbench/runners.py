@@ -579,7 +579,7 @@ class MemgraphDocker(BaseRunner):
         command = [
             "docker",
             "cp",
-            self._container_name + ":etc/memgraph/memgraph.conf",
+            self._container_name + ":/etc/memgraph/memgraph.conf",
             self._directory.name + "/memgraph.conf",
         ]
         self._run_command(command)

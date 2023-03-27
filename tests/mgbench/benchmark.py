@@ -506,7 +506,11 @@ if __name__ == "__main__":
                 log.info("Using index from specified file: {}".format(workload.get_index()))
                 client.execute(file_path=workload.get_index(), num_workers=benchmark_context.num_workers_for_import)
             else:
-                log.warning("Make sure proper indexes/constraints are created in generated queries!")
+                log.warning("Using following indexes...")
+                log.info(workload.indexes_generator())
+                client.execute(
+                    queries=workload.indexes_generator(), num_workers=benchmark_context.num_workers_for_import
+                )
             ret = client.execute(queries=generated_queries, num_workers=benchmark_context.num_workers_for_import)
             usage = vendor_runner.stop_db_init("import")
         else:

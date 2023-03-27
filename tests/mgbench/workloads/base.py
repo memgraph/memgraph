@@ -48,6 +48,7 @@ class Workload(ABC):
     def __init_subclass__(cls) -> None:
         name_prerequisite = "NAME" in cls.__dict__
         generator_prerequisite = "dataset_generator" in cls.__dict__
+        generator_indexes_prerequisite = "indexes_generator" in cls.__dict__
         custom_import_prerequisite = "custom_import" in cls.__dict__
         basic_import_prerequisite = ("LOCAL_FILE" in cls.__dict__ or "URL_FILE" in cls.__dict__) and (
             "LOCAL_INDEX_FILE" in cls.__dict__ or "URL_INDEX_FILE" in cls.__dict__
@@ -55,21 +56,20 @@ class Workload(ABC):
 
         if not name_prerequisite:
             raise ValueError(
-                """Can't define a workload class {} without NAME property:
-                                NAME = "dataset name"
-                                Name property defines the workload you want to execute, for example: "demo/*/*/*"
-                            """.format(
+                """
+                Can't define a workload class {} without NAME property:  NAME = "dataset name"
+                Name property defines the workload you want to execute, for example: "demo/*/*/*"
+                """.format(
                     cls.__name__
                 )
             )
 
-        # Check workload is in generator or dataset mode during interpretation (not both), not runtime
         if generator_prerequisite and (custom_import_prerequisite or basic_import_prerequisite):
             raise ValueError(
                 """
-                                The workload class {} cannot have defined dataset import and generate dataset at
-                                the same time.
-                                 """.format(
+                The workload class {} cannot have defined dataset import and generate dataset at
+                the same time.
+                """.format(
                     cls.__name__
                 )
             )
@@ -77,11 +77,14 @@ class Workload(ABC):
         if not generator_prerequisite and (not custom_import_prerequisite and not basic_import_prerequisite):
             raise ValueError(
                 """
-                                The workload class {} need to have defined dataset import or dataset generator
-                                """.format(
+                The workload class {} need to have defined dataset import or dataset generator
+                """.format(
                     cls.__name__
                 )
             )
+
+        if generator_prerequisite and not generator_indexes_prerequisite:
+            raise ValueError("The workload class {} need to define indexes_generator for generating a dataset. ")
 
         return super().__init_subclass__()
 
