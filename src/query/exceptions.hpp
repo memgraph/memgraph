@@ -211,16 +211,16 @@ class IsolationLevelModificationInMulticommandTxException : public QueryExceptio
       : QueryException("Isolation level cannot be modified in multicommand transactions.") {}
 };
 
-class AnalyticsModeModificationInMulticommandTxException : public QueryException {
+class StorageModeModificationInMulticommandTxException : public QueryException {
  public:
-  AnalyticsModeModificationInMulticommandTxException()
-      : QueryException("Analytics mode cannot be modified in multicommand transactions.") {}
+  StorageModeModificationInMulticommandTxException()
+      : QueryException("Storage mode cannot be modified in multicommand transactions.") {}
 };
 
-class AnalyticsModeModificationInMultiTxException : public QueryException {
+class StorageModeModificationInMultiTxException : public QueryException {
  public:
-  AnalyticsModeModificationInMultiTxException()
-      : QueryException("Analytics mode cannot be modified when multiple transactions are running.") {}
+  StorageModeModificationInMultiTxException()
+      : QueryException("Storage mode cannot be modified when multiple transactions are running.") {}
 };
 
 class CreateSnapshotInMulticommandTxException final : public QueryException {

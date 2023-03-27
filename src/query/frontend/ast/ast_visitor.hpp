@@ -89,7 +89,7 @@ class LoadCsv;
 class FreeMemoryQuery;
 class TriggerQuery;
 class IsolationLevelQuery;
-class AnalyticsModeQuery;
+class StorageModeQuery;
 class CreateSnapshotQuery;
 class StreamQuery;
 class SettingQuery;
@@ -132,7 +132,7 @@ template <class TResult>
 class QueryVisitor
     : public utils::Visitor<TResult, CypherQuery, ExplainQuery, ProfileQuery, IndexQuery, AuthQuery, InfoQuery,
                             ConstraintQuery, DumpQuery, ReplicationQuery, LockPathQuery, FreeMemoryQuery, TriggerQuery,
-                            IsolationLevelQuery, AnalyticsModeQuery, CreateSnapshotQuery, StreamQuery, SettingQuery,
+                            IsolationLevelQuery, StorageModeQuery, CreateSnapshotQuery, StreamQuery, SettingQuery,
                             TransactionQueueQuery, VersionQuery, ShowConfigQuery> {};
 
 }  // namespace memgraph::query

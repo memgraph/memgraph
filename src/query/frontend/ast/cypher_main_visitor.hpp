@@ -256,7 +256,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return AnalyticsModeQuery*
    */
-  antlrcpp::Any visitAnalyticsModeQuery(MemgraphCypher::AnalyticsModeQueryContext *ctx) override;
+  antlrcpp::Any visitStorageModeQuery(MemgraphCypher::StorageModeQueryContext *ctx) override;
 
   /**
    * @return CreateSnapshotQuery*

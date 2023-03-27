@@ -32,13 +32,13 @@ const uint64_t kTransactionInitialId = 1ULL << 63U;
 
 struct Transaction {
   Transaction(uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level,
-              AnalyticsMode analytics_mode)
+              StorageMode storage_mode)
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
         command_id(0),
         must_abort(false),
         isolation_level(isolation_level),
-        analytics_mode(analytics_mode) {}
+        storage_mode(storage_mode) {}
 
   Transaction(Transaction &&other) noexcept
       : transaction_id(other.transaction_id.load(std::memory_order_acquire)),
@@ -48,7 +48,7 @@ struct Transaction {
         deltas(std::move(other.deltas)),
         must_abort(other.must_abort),
         isolation_level(other.isolation_level),
-        analytics_mode(other.analytics_mode) {}
+        storage_mode(other.storage_mode) {}
 
   Transaction(const Transaction &) = delete;
   Transaction &operator=(const Transaction &) = delete;
@@ -73,7 +73,7 @@ struct Transaction {
   std::list<Delta> deltas;
   bool must_abort;
   IsolationLevel isolation_level;
-  AnalyticsMode analytics_mode;
+  StorageMode storage_mode;
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {

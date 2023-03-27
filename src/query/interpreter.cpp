@@ -1839,12 +1839,12 @@ constexpr auto ToStorageIsolationLevel(const IsolationLevelQuery::IsolationLevel
   }
 }
 
-constexpr auto ToStorageAnalyticsMode(const AnalyticsModeQuery::AnalyticsMode analytics_mode) noexcept {
-  switch (analytics_mode) {
-    case AnalyticsModeQuery::AnalyticsMode::ON:
-      return storage::AnalyticsMode::ON;
-    case AnalyticsModeQuery::AnalyticsMode::OFF:
-      return storage::AnalyticsMode::OFF;
+constexpr auto ToStorageStorageMode(const StorageModeQuery::StorageMode storage_mode) noexcept {
+  switch (storage_mode) {
+    case StorageModeQuery::StorageMode::IN_MEMORY_TRANSACTIONAL:
+      return storage::StorageMode::IN_MEMORY_TRANSACTIONAL;
+    case StorageModeQuery::StorageMode::IN_MEMORY_ANALYTICAL:
+      return storage::StorageMode::IN_MEMORY_ANALYTICAL;
   }
 }
 
@@ -1881,32 +1881,28 @@ PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in
       RWType::NONE};
 }
 
-PreparedQuery PrepareAnalyticsModeQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
-                                        InterpreterContext *interpreter_context, Interpreter *interpreter) {
+PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
+                                      InterpreterContext *interpreter_context) {
   if (in_explicit_transaction) {
-    throw AnalyticsModeModificationInMulticommandTxException();
+    throw StorageModeModificationInMulticommandTxException();
   }
 
-  auto *analytics_mode_query = utils::Downcast<AnalyticsModeQuery>(parsed_query.query);
-  MG_ASSERT(analytics_mode_query);
+  auto *storage_mode_query = utils::Downcast<StorageModeQuery>(parsed_query.query);
+  MG_ASSERT(storage_mode_query);
 
-  const auto analytics_mode = ToStorageAnalyticsMode(analytics_mode_query->analytics_mode_);
+  const auto storage_mode = ToStorageStorageMode(storage_mode_query->storage_mode_);
 
-  auto callback = [analytics_mode_query, analytics_mode, interpreter_context, interpreter]() -> std::function<void()> {
+  auto callback = [storage_mode, interpreter_context]() -> std::function<void()> {
     auto exists_active_transaction = interpreter_context->interpreters.WithLock([](const auto &interpreters_) {
       return std::any_of(interpreters_.begin(), interpreters_.end(), [](const auto &interpreter) {
         return interpreter->transaction_status_.load() == TransactionStatus::ALIVE;
       });
     });
     if (exists_active_transaction) {
-      throw AnalyticsModeModificationInMultiTxException();
+      throw StorageModeModificationInMultiTxException();
     }
-    switch (analytics_mode_query->analytics_mode_) {
-      case AnalyticsModeQuery::AnalyticsMode::ON:
-        return [interpreter_context, analytics_mode] { interpreter_context->db->SetAnalyticsMode(analytics_mode); };
-      case AnalyticsModeQuery::AnalyticsMode::OFF:
-        return [interpreter_context, analytics_mode] { interpreter_context->db->SetAnalyticsMode(analytics_mode); };
-    }
+
+    return [interpreter_context, storage_mode] { interpreter_context->db->SetStorageMode(storage_mode); };
   }();
 
   return PreparedQuery{
@@ -2626,9 +2622,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_, &*execution_db_accessor_);
     } else if (utils::Downcast<VersionQuery>(parsed_query.query)) {
       prepared_query = PrepareVersionQuery(std::move(parsed_query), in_explicit_transaction_);
-    } else if (utils::Downcast<AnalyticsModeQuery>(parsed_query.query)) {
-      prepared_query =
-          PrepareAnalyticsModeQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_, this);
+    } else if (utils::Downcast<StorageModeQuery>(parsed_query.query)) {
+      prepared_query = PrepareStorageModeQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
     } else if (utils::Downcast<TransactionQueueQuery>(parsed_query.query)) {
       prepared_query = PrepareTransactionQueueQuery(std::move(parsed_query), username_, in_explicit_transaction_,
                                                     interpreter_context_, &*execution_db_accessor_);

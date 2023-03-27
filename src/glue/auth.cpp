@@ -58,8 +58,8 @@ auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege) {
       return auth::Permission::MODULE_WRITE;
     case query::AuthQuery::Privilege::WEBSOCKET:
       return auth::Permission::WEBSOCKET;
-    case query::AuthQuery::Privilege::ANALYTICS:
-      return auth::Permission::ANALYTICS;
+    case query::AuthQuery::Privilege::STORAGE_MODE:
+      return auth::Permission::STORAGE_MODE;
     case query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT:
       return auth::Permission::TRANSACTION_MANAGEMENT;
   }

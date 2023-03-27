@@ -23,6 +23,7 @@
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/name_id_mapper.hpp"
+#include "storage/v2/storage.hpp"
 #include "utils/file.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/uuid.hpp"
@@ -60,7 +61,7 @@ class DeltaGenerator final {
     explicit Transaction(DeltaGenerator *gen)
         : gen_(gen),
           transaction_(gen->transaction_id_++, gen->timestamp_++, memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION,
-                       gen->analytics_mode_) {}
+                       gen->storage_mode_) {}
 
    public:
     memgraph::storage::Vertex *CreateVertex() {
@@ -70,7 +71,7 @@ class DeltaGenerator final {
       if (delta != nullptr) {
         delta->prev.Set(&it);
       }
-      if (transaction_.analytics_mode == memgraph::storage::AnalyticsMode::ON) return &it;
+      if (transaction_.storage_mode == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL) return &it;
       {
         memgraph::storage::durability::WalDeltaData data;
         data.type = memgraph::storage::durability::WalDeltaData::Type::VERTEX_CREATE;
@@ -82,7 +83,7 @@ class DeltaGenerator final {
 
     void DeleteVertex(memgraph::storage::Vertex *vertex) {
       memgraph::storage::CreateAndLinkDelta(&transaction_, &*vertex, memgraph::storage::Delta::RecreateObjectTag());
-      if (transaction_.analytics_mode == memgraph::storage::AnalyticsMode::ON) return;
+      if (transaction_.storage_mode == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL) return;
       {
         memgraph::storage::durability::WalDeltaData data;
         data.type = memgraph::storage::durability::WalDeltaData::Type::VERTEX_DELETE;
@@ -96,7 +97,7 @@ class DeltaGenerator final {
       vertex->labels.push_back(label_id);
       memgraph::storage::CreateAndLinkDelta(&transaction_, &*vertex, memgraph::storage::Delta::RemoveLabelTag(),
                                             label_id);
-      if (transaction_.analytics_mode == memgraph::storage::AnalyticsMode::ON) return;
+      if (transaction_.storage_mode == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL) return;
       {
         memgraph::storage::durability::WalDeltaData data;
         data.type = memgraph::storage::durability::WalDeltaData::Type::VERTEX_ADD_LABEL;
@@ -110,7 +111,7 @@ class DeltaGenerator final {
       auto label_id = memgraph::storage::LabelId::FromUint(gen_->mapper_.NameToId(label));
       vertex->labels.erase(std::find(vertex->labels.begin(), vertex->labels.end(), label_id));
       memgraph::storage::CreateAndLinkDelta(&transaction_, &*vertex, memgraph::storage::Delta::AddLabelTag(), label_id);
-      if (transaction_.analytics_mode == memgraph::storage::AnalyticsMode::ON) return;
+      if (transaction_.storage_mode == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL) return;
       {
         memgraph::storage::durability::WalDeltaData data;
         data.type = memgraph::storage::durability::WalDeltaData::Type::VERTEX_REMOVE_LABEL;
@@ -128,7 +129,7 @@ class DeltaGenerator final {
       memgraph::storage::CreateAndLinkDelta(&transaction_, &*vertex, memgraph::storage::Delta::SetPropertyTag(),
                                             property_id, old_value);
       props.SetProperty(property_id, value);
-      if (transaction_.analytics_mode == memgraph::storage::AnalyticsMode::ON) return;
+      if (transaction_.storage_mode == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL) return;
       {
         memgraph::storage::durability::WalDeltaData data;
         data.type = memgraph::storage::durability::WalDeltaData::Type::VERTEX_SET_PROPERTY;
@@ -193,13 +194,13 @@ class DeltaGenerator final {
   using DataT = std::vector<std::pair<uint64_t, memgraph::storage::durability::WalDeltaData>>;
 
   DeltaGenerator(const std::filesystem::path &data_directory, bool properties_on_edges, uint64_t seq_num,
-                 memgraph::storage::AnalyticsMode analytics_mode = memgraph::storage::AnalyticsMode::OFF)
+                 memgraph::storage::StorageMode storage_mode = memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL)
       : uuid_(memgraph::utils::GenerateUUID()),
         epoch_id_(memgraph::utils::GenerateUUID()),
         seq_num_(seq_num),
         wal_file_(data_directory, uuid_, epoch_id_, {.properties_on_edges = properties_on_edges}, &mapper_, seq_num,
                   &file_retainer_),
-        analytics_mode_(analytics_mode) {}
+        storage_mode_(storage_mode) {}
 
   Transaction CreateTransaction() { return Transaction(this); }
 
@@ -286,7 +287,7 @@ class DeltaGenerator final {
 
   memgraph::utils::FileRetainer file_retainer_;
 
-  memgraph::storage::AnalyticsMode analytics_mode_;
+  memgraph::storage::StorageMode storage_mode_;
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -635,30 +636,30 @@ TEST_P(WalFileTest, PartialData) {
   AssertWalInfoEqual(infos[infos.size() - 1].second, memgraph::storage::durability::ReadWalInfo(current_file));
 }
 
-std::string_view AnalyticsModeToString(memgraph::storage::AnalyticsMode analytics_mode) {
-  switch (analytics_mode) {
-    case memgraph::storage::AnalyticsMode::ON:
-      return "ON";
-    case memgraph::storage::AnalyticsMode::OFF:
-      return "OFF";
+std::string_view StorageModeToString(memgraph::storage::StorageMode storage_mode) {
+  switch (storage_mode) {
+    case memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL:
+      return "IN_MEMORY_ANALYTICAL";
+    case memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL:
+      return "IN_MEMORY_TRANSACTIONAL";
   }
 }
 
-class StorageAnalyticsModeTest : public ::testing::TestWithParam<memgraph::storage::AnalyticsMode> {
+class StorageModeTest : public ::testing::TestWithParam<memgraph::storage::StorageMode> {
  public:
   struct PrintStringParamToName {
-    std::string operator()(const testing::TestParamInfo<memgraph::storage::AnalyticsMode> &info) {
-      return std::string(AnalyticsModeToString(static_cast<memgraph::storage::AnalyticsMode>(info.param)));
+    std::string operator()(const testing::TestParamInfo<memgraph::storage::StorageMode> &info) {
+      return std::string(StorageModeToString(static_cast<memgraph::storage::StorageMode>(info.param)));
     }
   };
 };
 
-inline constexpr std::array analytics_modes{memgraph::storage::AnalyticsMode::ON,
-                                            memgraph::storage::AnalyticsMode::OFF};
+inline constexpr std::array storage_modes{memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL,
+                                          memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
 
-class AnalyticsWalFileTest : public ::testing::TestWithParam<memgraph::storage::AnalyticsMode> {
+class StorageModeWalFileTest : public ::testing::TestWithParam<memgraph::storage::StorageMode> {
  public:
-  AnalyticsWalFileTest() {}
+  StorageModeWalFileTest() {}
 
   void SetUp() override { Clear(); }
 
@@ -684,30 +685,30 @@ class AnalyticsWalFileTest : public ::testing::TestWithParam<memgraph::storage::
 };
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST_P(AnalyticsWalFileTest, AnalyticsModeData) {
+TEST_P(StorageModeWalFileTest, StorageModeData) {
   std::vector<std::pair<uint64_t, memgraph::storage::durability::WalInfo>> infos;
-  const memgraph::storage::AnalyticsMode analytics_mode = GetParam();
+  const memgraph::storage::StorageMode storage_mode = GetParam();
 
   {
-    DeltaGenerator gen(storage_directory, true, 5, analytics_mode);
+    DeltaGenerator gen(storage_directory, true, 5, storage_mode);
     auto tx = gen.CreateTransaction();
     tx.CreateVertex();
     tx.Finalize(true);
     infos.emplace_back(gen.GetPosition(), gen.GetInfo());
 
-    size_t num_expected_deltas = analytics_mode == memgraph::storage::AnalyticsMode::ON ? 0 : 2;
+    size_t num_expected_deltas = storage_mode == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL ? 0 : 2;
     ASSERT_EQ(infos[0].second.num_deltas, num_expected_deltas);
 
     auto wal_files = GetFilesList();
     size_t num_expected_wal_files = 1;
     ASSERT_EQ(num_expected_wal_files, wal_files.size());
 
-    if (analytics_mode == memgraph::storage::AnalyticsMode::ON) {
-      DeltaGenerator gen_empty(storage_directory, true, 5, analytics_mode);
+    if (storage_mode == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+      DeltaGenerator gen_empty(storage_directory, true, 5, storage_mode);
       ASSERT_EQ(gen.GetPosition(), gen_empty.GetPosition());
     }
   }
 }
 
-INSTANTIATE_TEST_CASE_P(ParameterizedWalAnalyticsModeTests, AnalyticsWalFileTest, ::testing::ValuesIn(analytics_modes),
-                        StorageAnalyticsModeTest::PrintStringParamToName());
+INSTANTIATE_TEST_CASE_P(ParameterizedWalStorageModeTests, StorageModeWalFileTest, ::testing::ValuesIn(storage_modes),
+                        StorageModeTest::PrintStringParamToName());

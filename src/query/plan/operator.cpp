@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #include "query/plan/operator.hpp"
-#include <malloc.h>
 
 #include <algorithm>
 #include <cstdint>

@@ -2700,7 +2700,7 @@ class AuthQuery : public memgraph::query::Query {
     MODULE_READ,
     MODULE_WRITE,
     WEBSOCKET,
-    ANALYTICS,
+    STORAGE_MODE,
     TRANSACTION_MANAGEMENT
   };
 
@@ -2761,7 +2761,7 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
     AuthQuery::Privilege::READ_FILE,   AuthQuery::Privilege::DURABILITY,   AuthQuery::Privilege::FREE_MEMORY,
     AuthQuery::Privilege::TRIGGER,     AuthQuery::Privilege::CONFIG,       AuthQuery::Privilege::STREAM,
     AuthQuery::Privilege::MODULE_READ, AuthQuery::Privilege::MODULE_WRITE, AuthQuery::Privilege::WEBSOCKET,
-    AuthQuery::Privilege::ANALYTICS};
+    AuthQuery::Privilege::STORAGE_MODE};
 
 class InfoQuery : public memgraph::query::Query {
  public:
@@ -3030,22 +3030,22 @@ class IsolationLevelQuery : public memgraph::query::Query {
   friend class AstStorage;
 };
 
-class AnalyticsModeQuery : public memgraph::query::Query {
+class StorageModeQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class AnalyticsMode { ON, OFF };
+  enum class StorageMode { IN_MEMORY_TRANSACTIONAL, IN_MEMORY_ANALYTICAL };
 
-  AnalyticsModeQuery() = default;
+  StorageModeQuery() = default;
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  memgraph::query::AnalyticsModeQuery::AnalyticsMode analytics_mode_;
+  memgraph::query::StorageModeQuery::StorageMode storage_mode_;
 
-  AnalyticsModeQuery *Clone(AstStorage *storage) const override {
-    AnalyticsModeQuery *object = storage->Create<AnalyticsModeQuery>();
-    object->analytics_mode_ = analytics_mode_;
+  StorageModeQuery *Clone(AstStorage *storage) const override {
+    StorageModeQuery *object = storage->Create<StorageModeQuery>();
+    object->storage_mode_ = storage_mode_;
     return object;
   }
 

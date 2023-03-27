@@ -1,12 +1,3 @@
-
-
-// what do I want to test:
-// first I need to test that no deltas are created
-// second I need to test that transaction commits normally
-// third I need to test that no wals are created
-// forth I need to test that when I create snapshot it works normally
-// fifth I need to test that you can change mode
-// sixth I need to test that you can't change mode when there is other transaction active
 #include <gtest/gtest.h>
 #include <string_view>
 
@@ -24,38 +15,38 @@ int64_t VerticesCount(memgraph::storage::Storage::Accessor &accessor) {
   return count;
 }
 
-inline constexpr std::array analytics_modes{
-    memgraph::storage::AnalyticsMode::ON,
-    memgraph::storage::AnalyticsMode::OFF,
+inline constexpr std::array storage_modes{
+    memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL,
+    memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL,
 };
 
 }  // namespace
 
-std::string_view AnalyticsModeToString(memgraph::storage::AnalyticsMode analytics_mode) {
-  switch (analytics_mode) {
-    case memgraph::storage::AnalyticsMode::ON:
-      return "ON";
-    case memgraph::storage::AnalyticsMode::OFF:
-      return "OFF";
+std::string_view StorageModeToString(memgraph::storage::StorageMode storage_mode) {
+  switch (storage_mode) {
+    case memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL:
+      return "IN_MEMORY_ANALYTICAL";
+    case memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL:
+      return "IN_MEMORY_TRANSACTIONAL";
   }
 }
 
-class StorageAnalyticsModeTest : public ::testing::TestWithParam<memgraph::storage::AnalyticsMode> {
+class StorageModeTest : public ::testing::TestWithParam<memgraph::storage::StorageMode> {
  public:
   struct PrintStringParamToName {
-    std::string operator()(const testing::TestParamInfo<memgraph::storage::AnalyticsMode> &info) {
-      return std::string(AnalyticsModeToString(static_cast<memgraph::storage::AnalyticsMode>(info.param)));
+    std::string operator()(const testing::TestParamInfo<memgraph::storage::StorageMode> &info) {
+      return std::string(StorageModeToString(static_cast<memgraph::storage::StorageMode>(info.param)));
     }
   };
 };
 
 // you should be able to see nodes if there is analytics mode
-TEST_P(StorageAnalyticsModeTest, Mode) {
-  const memgraph::storage::AnalyticsMode analytics_mode = GetParam();
+TEST_P(StorageModeTest, Mode) {
+  const memgraph::storage::StorageMode storage_mode = GetParam();
 
   memgraph::storage::Storage storage{
       {.transaction{.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}}};
-  storage.SetAnalyticsMode(analytics_mode);
+  storage.SetStorageMode(storage_mode);
   auto creator = storage.Access();
   auto other_analytics_mode_reader = storage.Access();
 
@@ -67,7 +58,7 @@ TEST_P(StorageAnalyticsModeTest, Mode) {
     for (size_t i = 1; i <= vertex_creation_count; i++) {
       creator.CreateVertex();
 
-      int64_t expected_vertices_count = analytics_mode == memgraph::storage::AnalyticsMode::ON ? i : 0;
+      int64_t expected_vertices_count = storage_mode == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL ? i : 0;
       ASSERT_EQ(VerticesCount(creator), expected_vertices_count);
       ASSERT_EQ(VerticesCount(other_analytics_mode_reader), expected_vertices_count);
     }
@@ -76,5 +67,5 @@ TEST_P(StorageAnalyticsModeTest, Mode) {
   ASSERT_FALSE(creator.Commit().HasError());
 }
 
-INSTANTIATE_TEST_CASE_P(ParameterizedStorageAnalyticsModeTests, StorageAnalyticsModeTest,
-                        ::testing::ValuesIn(analytics_modes), StorageAnalyticsModeTest::PrintStringParamToName());
+INSTANTIATE_TEST_CASE_P(ParameterizedStorageModeTests, StorageModeTest, ::testing::ValuesIn(storage_modes),
+                        StorageModeTest::PrintStringParamToName());

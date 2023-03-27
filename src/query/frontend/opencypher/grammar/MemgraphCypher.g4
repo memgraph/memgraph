@@ -22,7 +22,6 @@ import Cypher ;
 memgraphCypherKeyword : cypherKeyword
                       | AFTER
                       | ALTER
-                      | ANALYTICS
                       | ASYNC
                       | AUTH
                       | BAD
@@ -58,6 +57,8 @@ memgraphCypherKeyword : cypherKeyword
                       | HEADER
                       | IDENTIFIED
                       | ISOLATION
+                      | IN_MEMORY_ANALYTICAL
+                      | IN_MEMORY_TRANSACTIONAL
                       | KAFKA
                       | LABELS
                       | LEVEL
@@ -68,8 +69,6 @@ memgraphCypherKeyword : cypherKeyword
                       | NEXT
                       | NO
                       | NOTHING
-                      | OFF
-                      | ON
                       | PASSWORD
                       | PULSAR
                       | PORT
@@ -89,6 +88,7 @@ memgraphCypherKeyword : cypherKeyword
                       | SNAPSHOT
                       | START
                       | STATS
+                      | STORAGE
                       | STREAM
                       | STREAMS
                       | SYNC
@@ -127,7 +127,7 @@ query : cypherQuery
       | freeMemoryQuery
       | triggerQuery
       | isolationLevelQuery
-      | analyticsModeQuery
+      | storageModeQuery
       | createSnapshotQuery
       | streamQuery
       | settingQuery
@@ -275,6 +275,7 @@ privilege : CREATE
           | MODULE_WRITE
           | WEBSOCKET
           | TRANSACTION_MANAGEMENT
+          | STORAGE_MODE
           ;
 
 granularPrivilege : NOTHING | READ | UPDATE | CREATE_DELETE ;
@@ -350,9 +351,9 @@ isolationLevelScope : GLOBAL | SESSION | NEXT ;
 
 isolationLevelQuery : SET isolationLevelScope TRANSACTION ISOLATION LEVEL isolationLevel ;
 
-analyticsMode : ON | OFF ;
+storageMode : IN_MEMORY_ANALYTICAL | IN_MEMORY_TRANSACTIONAL ;
 
-analyticsModeQuery : ANALYTICS MODE analyticsMode ;
+storageModeQuery : STORAGE MODE storageMode ;
 
 createSnapshotQuery : CREATE SNAPSHOT ;
 

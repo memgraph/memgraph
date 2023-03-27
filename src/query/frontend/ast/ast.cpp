@@ -243,8 +243,8 @@ constexpr utils::TypeInfo query::TriggerQuery::kType{utils::TypeId::AST_TRIGGER_
 constexpr utils::TypeInfo query::IsolationLevelQuery::kType{utils::TypeId::AST_ISOLATION_LEVEL_QUERY,
                                                             "IsolationLevelQuery", &query::Query::kType};
 
-constexpr utils::TypeInfo query::AnalyticsModeQuery::kType{utils::TypeId::AST_ANALYTICS_MODE_QUERY,
-                                                           "AnalyticsModeQuery", &query::Query::kType};
+constexpr utils::TypeInfo query::StorageModeQuery::kType{utils::TypeId::AST_STORAGE_MODE_QUERY, "StorageModeQuery",
+                                                         &query::Query::kType};
 
 constexpr utils::TypeInfo query::CreateSnapshotQuery::kType{utils::TypeId::AST_CREATE_SNAPSHOT_QUERY,
                                                             "CreateSnapshotQuery", &query::Query::kType};

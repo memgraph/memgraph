@@ -97,7 +97,7 @@ inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
 /// a `DELETE_OBJECT` delta).
 /// @throw std::bad_alloc
 inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
-  if (transaction->analytics_mode == AnalyticsMode::ON) {
+  if (transaction->storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
     return nullptr;
   }
   transaction->EnsureCommitTimestampExists();
@@ -110,7 +110,7 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
 /// @throw std::bad_alloc
 template <typename TObj, class... Args>
 inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&...args) {
-  if (transaction->analytics_mode == AnalyticsMode::ON) {
+  if (transaction->storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
     return;
   }
   transaction->EnsureCommitTimestampExists();

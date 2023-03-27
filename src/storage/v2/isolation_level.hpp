@@ -16,6 +16,6 @@
 namespace memgraph::storage {
 
 enum class IsolationLevel : std::uint8_t { SNAPSHOT_ISOLATION, READ_COMMITTED, READ_UNCOMMITTED };
-enum class AnalyticsMode : std::uint8_t { ON, OFF };
+enum class StorageMode : std::uint8_t { IN_MEMORY_ANALYTICAL, IN_MEMORY_TRANSACTIONAL };
 
 }  // namespace memgraph::storage
