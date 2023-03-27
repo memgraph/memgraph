@@ -15,7 +15,7 @@ Here are 4 steps you need to do to specify your workload:
 4. [Implement index generator method](#4-implement-the-index-generator)
 5. [Define the queries you want to benchmark](#4-define-the-queries-you-want-to-benchmark)
 
-Here is the basic [demo.py](https://github.com/memgraph/memgraph/blob/master/tests/mgbench/workloads/demo.py) example:
+Here is th simplified version of [demo.py](https://github.com/memgraph/memgraph/blob/master/tests/mgbench/workloads/demo.py) example:
 
 ```python
 import random
@@ -57,7 +57,7 @@ class Demo(Workload):
 
 ```
 
-The idea is to specify a simple Python class that contains your dataset generation queries and queries used for running a benchmark.
+The idea is to specify a simple Python class that contains your dataset generation queries, index generation queries and queries used for running a benchmark.
 
 Let's break this script down into smaller important elements:
 
@@ -142,8 +142,8 @@ From the workload setup perspective this is it.
 
 Here are two more samples of simple demo workloads that are being generated via workload generator:
 
-1.
-2.
+1. TODO
+2. TODO
 
 
 ## How to run your custom workload
