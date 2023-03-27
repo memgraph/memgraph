@@ -3,13 +3,13 @@ import random
 from workloads.base import Workload
 
 
-class DemoWorkload(Workload):
+class Demo(Workload):
 
     NAME = "demo"
 
     def indexes_generator(self):
         indexes = []
-        if "neo4j" in self._vendor:
+        if "neo4j" in self.benchmark_context.vendor_name:
             indexes.extend(
                 [
                     ("CREATE INDEX FOR (n:NodeA) ON (n.id);", {}),
