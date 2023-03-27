@@ -7,11 +7,15 @@
 //
 #include "auth/crypto.hpp"
 
+#include <iomanip>
+#include <sstream>
+
 #include <gflags/gflags.h>
 #include <libbcrypt/bcrypt.h>
 #include <openssl/sha.h>
 
 #include "auth/exceptions.hpp"
+#include "utils/flag_validation.hpp"
 
 inline constexpr std::string_view default_password_encryption = "bcrypt";
 inline constexpr std::string_view sha256_password_encryption = "sha256";
@@ -21,12 +25,27 @@ inline constexpr uint64_t ONE_SHA_ITERATION = 1;
 inline constexpr uint64_t MULTIPLE_SHA_ITERATIONS = 1;
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(password_encryption_algorithm, default_password_encryption.data(),
-              "The password encryption algorithm used for authentication");
+// NOLINTNEXTLINE(misc-unused-parameters)
+DEFINE_VALIDATED_string(password_encryption_algorithm, default_password_encryption.data(),
+                        "The password encryption algorithm used for authentication", {
+                          if (value.empty()) {
+                            return true;
+                          }
+                          if (value == default_password_encryption) {
+                            return true;
+                          }
+                          if (value == sha256_password_encryption) {
+                            return true;
+                          }
+                          if (value == sha256_1024_iterations_password_encryption) {
+                            return true;
+                          }
+                          return false;
+                        });
 
 namespace memgraph::auth {
 namespace BCrypt {
-const std::string EncryptPassword(const std::string &password) {
+std::string EncryptPassword(const std::string &password) {
   char salt[BCRYPT_HASHSIZE];
   char hash[BCRYPT_HASHSIZE];
 
@@ -41,7 +60,7 @@ const std::string EncryptPassword(const std::string &password) {
     throw AuthException("Couldn't hash password!");
   }
 
-  return std::string(hash);
+  return {hash};
 }
 
 bool VerifyPassword(const std::string &password, const std::string &hash) {
@@ -54,7 +73,7 @@ bool VerifyPassword(const std::string &password, const std::string &hash) {
 }  // namespace BCrypt
 
 namespace SHA {
-const std::string EncryptPassword(const std::string &password, const uint64_t number_of_iterations) {
+std::string EncryptPassword(const std::string &password, const uint64_t number_of_iterations) {
   unsigned char hash[SHA256_DIGEST_LENGTH];
 
   SHA256_CTX sha256;
@@ -64,9 +83,12 @@ const std::string EncryptPassword(const std::string &password, const uint64_t nu
   }
   SHA256_Final(hash, &sha256);
 
-  std::string s(reinterpret_cast<char *>(hash), SHA_DIGEST_LENGTH);
+  std::stringstream ss;
+  for (auto hash_char : hash) {
+    ss << std::hex << std::setw(2) << std::setfill('0') << (int)hash_char;
+  }
 
-  return s;
+  return ss.str();
 }
 
 bool VerifyPassword(const std::string &password, const std::string &hash, const uint64_t number_of_iterations) {
@@ -78,9 +100,11 @@ bool VerifyPassword(const std::string &password, const std::string &hash, const 
 bool VerifyPassword(const std::string &password, const std::string &hash) {
   if (FLAGS_password_encryption_algorithm == default_password_encryption) {
     return BCrypt::VerifyPassword(password, hash);
-  } else if (FLAGS_password_encryption_algorithm == sha256_password_encryption) {
+  }
+  if (FLAGS_password_encryption_algorithm == sha256_password_encryption) {
     return SHA::VerifyPassword(password, hash, ONE_SHA_ITERATION);
-  } else if (FLAGS_password_encryption_algorithm == sha256_1024_iterations_password_encryption) {
+  }
+  if (FLAGS_password_encryption_algorithm == sha256_1024_iterations_password_encryption) {
     return SHA::VerifyPassword(password, hash, MULTIPLE_SHA_ITERATIONS);
   }
 
@@ -90,9 +114,11 @@ bool VerifyPassword(const std::string &password, const std::string &hash) {
 const std::string EncryptPassword(const std::string &password) {
   if (FLAGS_password_encryption_algorithm == default_password_encryption) {
     return BCrypt::EncryptPassword(password);
-  } else if (FLAGS_password_encryption_algorithm == sha256_password_encryption) {
+  }
+  if (FLAGS_password_encryption_algorithm == sha256_password_encryption) {
     return SHA::EncryptPassword(password, ONE_SHA_ITERATION);
-  } else if (FLAGS_password_encryption_algorithm == sha256_1024_iterations_password_encryption) {
+  }
+  if (FLAGS_password_encryption_algorithm == sha256_1024_iterations_password_encryption) {
     return SHA::EncryptPassword(password, MULTIPLE_SHA_ITERATIONS);
   }
 
