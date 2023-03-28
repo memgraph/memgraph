@@ -1050,7 +1050,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   // Also, we want to throw only when the query engine requests more memory and not the storage
   // so we add the exception to the allocator.
   // TODO (mferencevic): Tune the parameters accordingly.
-  utils::PoolResource pool_memory(8, 1024, utils::NewDeleteResource(), utils::NewDeleteResource());
+  utils::PoolResource pool_memory(128, 1024, &monotonic_memory, utils::NewDeleteResource());
   std::optional<utils::LimitedMemoryResource> maybe_limited_resource;
 
   if (memory_limit_) {
