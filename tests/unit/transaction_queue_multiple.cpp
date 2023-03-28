@@ -22,7 +22,7 @@
 #include "interpreter_faker.hpp"
 #include "query/exceptions.hpp"
 
-constexpr int NUM_INTERPRETERS = 4, INSERTIONS = 8000;
+constexpr int NUM_INTERPRETERS = 4, INSERTIONS = 4000;
 
 /*
 Tests rely on the fact that interpreters are sequentially added to running_interpreters to get transaction_id of its
@@ -53,15 +53,15 @@ class TransactionQueueMultipleTest : public ::testing::Test {
 
 // Tests whether admin can see transaction of superadmin
 TEST_F(TransactionQueueMultipleTest, TerminateTransaction) {
-  auto thread_func = [this](int thread_index) {
+  std::vector<bool> started(NUM_INTERPRETERS, false);
+  auto thread_func = [this, &started](int thread_index) {
     try {
       running_interpreters[thread_index]->Interpret("BEGIN");
+      started[thread_index] = true;
       // add try-catch block
       for (int j = 0; j < INSERTIONS; ++j) {
         running_interpreters[thread_index]->Interpret("CREATE (:Person {prop: " + std::to_string(thread_index) + "})");
-        std::this_thread::sleep_for(std::chrono::milliseconds(2));
       }
-      running_interpreters[thread_index]->Interpret("COMMIT");
     } catch (memgraph::query::HintedAbortError &e) {
     }
   };
@@ -71,6 +71,10 @@ TEST_F(TransactionQueueMultipleTest, TerminateTransaction) {
     running_threads.reserve(NUM_INTERPRETERS);
     for (int i = 0; i < NUM_INTERPRETERS; ++i) {
       running_threads.emplace_back(thread_func, i);
+    }
+
+    while (!std::all_of(started.begin(), started.end(), [](const bool v) { return v; })) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
 
     auto show_stream = main_interpreter.Interpret("SHOW TRANSACTIONS");
@@ -98,6 +102,9 @@ TEST_F(TransactionQueueMultipleTest, TerminateTransaction) {
     }
     // test the state of the database
     for (int i = 0; i < NUM_INTERPRETERS; ++i) {
+      if (i != index_to_terminate) {
+        running_interpreters[i]->Interpret("COMMIT");
+      }
       std::string fetch_query = "MATCH (n:Person) WHERE n.prop=" + std::to_string(i) + " RETURN n";
       auto results_stream = main_interpreter.Interpret(fetch_query);
       if (i == index_to_terminate) {
