@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -490,6 +490,11 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
                             retry_interval = interpreter_context_->config.stream_transaction_retry_interval](
                                const std::vector<typename TStream::Message> &messages) mutable {
     auto accessor = interpreter_context->db->Access();
+    // register new interpreter into interpreter_context_
+    interpreter_context->interpreters->insert(interpreter.get());
+    utils::OnScopeExit interpreter_cleanup{
+        [interpreter_context, interpreter]() { interpreter_context->interpreters->erase(interpreter.get()); }};
+
     EventCounter::IncrementCounter(EventCounter::MessagesConsumed, messages.size());
     CallCustomTransformation(transformation_name, messages, result, accessor, *memory_resource, stream_name);
 
