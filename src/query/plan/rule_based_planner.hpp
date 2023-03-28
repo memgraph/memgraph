@@ -636,21 +636,20 @@ class RuleBasedPlanner {
   std::unique_ptr<LogicalOperator> HandleSubquery(std::unique_ptr<LogicalOperator> last_op,
                                                   std::shared_ptr<QueryParts> subquery, SymbolTable &symbol_table,
                                                   AstStorage &storage) {
-    auto bound_symbols =
-        impl::GetSubqueryBoundSymbols(subquery->query_parts[0].single_query_parts, symbol_table, storage);
-    std::unordered_set<Symbol> outer_scope_bound_symbols(context_->bound_symbols.begin(),
-                                                         context_->bound_symbols.end());
+    std::unordered_set<Symbol> outer_scope_bound_symbols;
+    outer_scope_bound_symbols.insert(std::make_move_iterator(context_->bound_symbols.begin()),
+                                     std::make_move_iterator(context_->bound_symbols.end()));
 
-    context_->bound_symbols.clear();
-    context_->bound_symbols.insert(bound_symbols.begin(), bound_symbols.end());
+    context_->bound_symbols =
+        impl::GetSubqueryBoundSymbols(subquery->query_parts[0].single_query_parts, symbol_table, storage);
 
     auto subquery_op = Plan(*subquery);
 
     context_->bound_symbols.clear();
-    context_->bound_symbols.insert(outer_scope_bound_symbols.begin(), outer_scope_bound_symbols.end());
+    context_->bound_symbols.insert(std::make_move_iterator(outer_scope_bound_symbols.begin()),
+                                   std::make_move_iterator(outer_scope_bound_symbols.end()));
 
     auto subquery_has_return = true;
-
     if (subquery_op->GetTypeInfo() == EmptyResult::kType) {
       subquery_has_return = false;
     }
