@@ -127,6 +127,7 @@ class LoadCsv;
 class Foreach;
 class EmptyResult;
 class EvaluatePatternFilter;
+class Apply;
 
 using LogicalOperatorCompositeVisitor =
     utils::CompositeVisitor<Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel, ScanAllByLabelPropertyRange,
@@ -134,7 +135,7 @@ using LogicalOperatorCompositeVisitor =
                             ConstructNamedPath, Filter, Produce, Delete, SetProperty, SetProperties, SetLabels,
                             RemoveProperty, RemoveLabels, EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit,
                             OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv,
-                            Foreach, EmptyResult, EvaluatePatternFilter>;
+                            Foreach, EmptyResult, EvaluatePatternFilter, Apply>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
