@@ -585,8 +585,9 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
         query_part->merge_matching.emplace_back(Matching{});
         AddMatching({merge->pattern_}, nullptr, symbol_table, storage, query_part->merge_matching.back());
       } else if (auto *call_subquery = utils::Downcast<query::CallSubquery>(clause)) {
-        query_part->subqueries.emplace_back(
-            std::make_shared<QueryParts>(CollectQueryParts(symbol_table, storage, call_subquery->cypher_query_)));
+        auto subquery =
+            std::make_shared<QueryParts>(CollectQueryParts(symbol_table, storage, call_subquery->cypher_query_));
+        query_part->subqueries.push_back(std::move(subquery));
       } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
         ParseForeach(*foreach, *query_part, storage, symbol_table);
       } else if (utils::IsSubtype(*clause, With::kType) || utils::IsSubtype(*clause, query::Unwind::kType) ||
@@ -603,21 +604,22 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
   return query_parts;
 }
 
-QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, CypherQuery *cypher_query) {
+QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, CypherQuery *query) {
   std::vector<QueryPart> query_parts;
 
-  MG_ASSERT(cypher_query->single_query_, "Expected at least a single query");
-  query_parts.emplace_back(CollectSingleQueryParts(symbol_table, storage, cypher_query->single_query_));
+  auto *single_query = query->single_query_;
+  MG_ASSERT(single_query, "Expected at least a single query");
+  query_parts.push_back(QueryPart{CollectSingleQueryParts(symbol_table, storage, single_query)});
 
   bool distinct = false;
-  for (auto *cypher_union : cypher_query->cypher_unions_) {
+  for (auto *cypher_union : query->cypher_unions_) {
     if (cypher_union->distinct_) {
       distinct = true;
     }
 
     auto *single_query = cypher_union->single_query_;
     MG_ASSERT(single_query, "Expected UNION to have a query");
-    query_parts.emplace_back(CollectSingleQueryParts(symbol_table, storage, single_query), cypher_union);
+    query_parts.push_back(QueryPart{CollectSingleQueryParts(symbol_table, storage, single_query), cypher_union});
   }
   return QueryParts{query_parts, distinct};
 }

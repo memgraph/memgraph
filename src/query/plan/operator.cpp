@@ -4816,7 +4816,7 @@ bool Apply::ApplyCursor::Pull(Frame &frame, ExecutionContext &context) {
 
   while (true) {
     if (pull_input_ && !input_->Pull(frame, context)) {
-      return false
+      return false;
     };
 
     if (subquery_->Pull(frame, context)) {
