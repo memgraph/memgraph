@@ -1616,6 +1616,8 @@ class NamedExpression : public memgraph::query::Tree,
   int32_t token_position_{-1};
   /// Symbol table position of the symbol this NamedExpression is mapped to.
   int32_t symbol_pos_{-1};
+  /// True if the variable is aliased
+  bool is_aliased_{false};
 
   NamedExpression *Clone(AstStorage *storage) const override {
     NamedExpression *object = storage->Create<NamedExpression>();
@@ -1623,6 +1625,7 @@ class NamedExpression : public memgraph::query::Tree,
     object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
     object->token_position_ = token_position_;
     object->symbol_pos_ = symbol_pos_;
+    object->is_aliased_ = is_aliased_;
     return object;
   }
 
@@ -1973,7 +1976,7 @@ class Query : public memgraph::query::Tree, public utils::Visitable<QueryVisitor
   friend class AstStorage;
 };
 
-class CypherQuery : public memgraph::query::Query {
+class CypherQuery : public memgraph::query::Query, public utils::Visitable<HierarchicalTreeVisitor> {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
@@ -1981,6 +1984,17 @@ class CypherQuery : public memgraph::query::Query {
   CypherQuery() = default;
 
   DEFVISITABLE(QueryVisitor<void>);
+
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      single_query_->Accept(visitor);
+      for (auto *cypher_union : cypher_unions_) {
+        cypher_union->Accept(visitor);
+      }
+    }
+
+    return visitor.PostVisit(*this);
+  }
 
   /// First and potentially only query.
   memgraph::query::SingleQuery *single_query_{nullptr};
@@ -3264,6 +3278,32 @@ class Exists : public memgraph::query::Expression {
 
  protected:
   Exists(Pattern *pattern) : pattern_(pattern) {}
+
+ private:
+  friend class AstStorage;
+};
+
+class CallSubquery : public memgraph::query::Clause {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  CallSubquery() = default;
+
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      cypher_query_->Accept(visitor);
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  memgraph::query::CypherQuery *cypher_query_;
+
+  CallSubquery *Clone(AstStorage *storage) const override {
+    CallSubquery *object = storage->Create<CallSubquery>();
+    object->cypher_query_ = cypher_query_ ? cypher_query_->Clone(storage) : nullptr;
+    return object;
+  }
 
  private:
   friend class AstStorage;
