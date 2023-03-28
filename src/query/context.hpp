@@ -96,4 +96,10 @@ inline bool MustAbort(const ExecutionContext &context) noexcept {
           context.transaction_status->load(std::memory_order_acquire) == TransactionStatus::TERMINATED) ||
          (context.is_shutting_down != nullptr && context.is_shutting_down->load(std::memory_order_acquire)) ||
          context.timer.IsExpired();
+}
+
+inline plan::ProfilingStatsWithTotalTime GetStatsWithTotalTime(const ExecutionContext &context) {
+  return plan::ProfilingStatsWithTotalTime{context.stats, context.profile_execution_time};
+}
+
 }  // namespace memgraph::query

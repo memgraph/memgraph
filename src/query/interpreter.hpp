@@ -325,8 +325,6 @@ class Interpreter final {
     utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
     utils::ResourceWithOutOfMemoryException execution_memory_with_exception{&execution_memory};
 
-    std::string query;
-
     std::map<std::string, TypedValue> summary;
     std::vector<Notification> notifications;
 

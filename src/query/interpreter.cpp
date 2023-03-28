@@ -1143,17 +1143,13 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
       if (in_explicit_transaction_) {
         throw ExplicitTransactionUsageException("Nested transactions are not supported.");
       }
-      // We just need to wait for the resolvement of CHECKING_KILL status. If the transactions is KILLED
-      // this doesn't prevent us of creating new transaction.
-      while (transaction_status_.load(std::memory_order_acquire) == TransactionStatus::CHECKING_STATUS)
-        ;
-      transaction_status_.store(TransactionStatus::ALIVE, std::memory_order_release);
       in_explicit_transaction_ = true;
       expect_rollback_ = false;
 
       db_accessor_ =
           std::make_unique<storage::Storage::Accessor>(interpreter_context_->db->Access(GetIsolationLevelOverride()));
       execution_db_accessor_.emplace(db_accessor_.get());
+      transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
 
       if (interpreter_context_->trigger_store.HasTriggers()) {
         trigger_context_collector_.emplace(interpreter_context_->trigger_store.GetEventTypes());
@@ -1897,7 +1893,7 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
   auto callback = [storage_mode, interpreter_context]() -> std::function<void()> {
     auto exists_active_transaction = interpreter_context->interpreters.WithLock([](const auto &interpreters_) {
       return std::any_of(interpreters_.begin(), interpreters_.end(), [](const auto &interpreter) {
-        return interpreter->transaction_status_.load() == TransactionStatus::ALIVE;
+        return interpreter->transaction_status_.load() == TransactionStatus::ACTIVE;
       });
     });
     if (exists_active_transaction) {
@@ -1971,19 +1967,21 @@ std::vector<std::vector<TypedValue>> TransactionQueueQueryHandler::ShowTransacti
   std::vector<std::vector<TypedValue>> results;
   results.reserve(interpreters.size());
   for (Interpreter *interpreter : interpreters) {
-    TransactionStatus alive_status = TransactionStatus::ALIVE;
+    TransactionStatus alive_status = TransactionStatus::ACTIVE;
     // if it is just checking status, commit and abort should wait for the end of the check
     // ignore interpreters that already started committing or rollback
-    if (!interpreter->transaction_status_.compare_exchange_strong(alive_status, TransactionStatus::CHECKING_STATUS)) {
+    if (!interpreter->transaction_status_.compare_exchange_strong(alive_status, TransactionStatus::VERIFYING)) {
       continue;
     }
+    utils::OnScopeExit clean_status([interpreter]() {
+      interpreter->transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
+    });
     std::optional<uint64_t> transaction_id = interpreter->GetTransactionId();
     if (transaction_id.has_value() && (interpreter->username_ == username || hasTransactionManagementPrivilege)) {
       const auto &typed_queries = interpreter->GetQueries();
       results.push_back({TypedValue(interpreter->username_.value_or("")),
                          TypedValue(std::to_string(transaction_id.value())), TypedValue(typed_queries)});
     }
-    interpreter->transaction_status_.store(TransactionStatus::ALIVE, std::memory_order_release);
   }
   return results;
 }
@@ -2550,15 +2548,10 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
          utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
          utils::Downcast<TriggerQuery>(parsed_query.query) ||
          utils::Downcast<TransactionQueueQuery>(parsed_query.query))) {
-      // Implicit transaction setup
-      // We just need to wait for the resolvement of CHECKING_KILL status. If the transaction is KILLED
-      // this doesn't prevent us of creating new transaction.
-      while (transaction_status_.load(std::memory_order_acquire) == TransactionStatus::CHECKING_STATUS)
-        ;
       db_accessor_ =
           std::make_unique<storage::Storage::Accessor>(interpreter_context_->db->Access(GetIsolationLevelOverride()));
       execution_db_accessor_.emplace(db_accessor_.get());
-      transaction_status_.store(TransactionStatus::ALIVE, std::memory_order_release);
+      transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
 
       if (utils::Downcast<CypherQuery>(parsed_query.query) && interpreter_context_->trigger_store.HasTriggers()) {
         trigger_context_collector_.emplace(interpreter_context_->trigger_store.GetEventTypes());
@@ -2868,10 +2861,6 @@ void Interpreter::Commit() {
   if (!commit_confirmed_by_all_sync_repplicas) {
     throw ReplicationException("At least one SYNC replica has not confirmed committing last transaction.");
   }
-
-  // Here we don't need to check any transaction status because if the killing thread noticed that this thread started
-  // committing, it will stop
-  transaction_status_.store(TransactionStatus::NO_TRANSACTION, std::memory_order_release);
 }
 
 void Interpreter::AdvanceCommand() {
