@@ -30,11 +30,11 @@ QUERY_COUNT_LOWER_BOUND = 30
 
 def parse_args():
 
-    parser = argparse.ArgumentParser(
-        description="Memgraph benchmark executor.",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-    parser.add_argument(
+    parser = argparse.ArgumentParser(description="Memgraph benchmark main parser.", add_help=False)
+
+    benchmark_parser = argparse.ArgumentParser(description="Benchmark arguments parser", add_help=False)
+
+    benchmark_parser.add_argument(
         "benchmarks",
         nargs="*",
         default=None,
@@ -48,80 +48,69 @@ def parse_args():
         "the default group is '*' which selects all groups; the"
         "default query is '*' which selects all queries",
     )
-    parser.add_argument(
-        "--vendor-binary",
-        help="Vendor binary used for benchmarking, by default it is memgraph",
-        default=helpers.get_binary_path("memgraph"),
-    )
 
-    parser.add_argument(
-        "--vendor-name",
-        default="memgraph",
-        choices=["memgraph", "neo4j", "memgraphDocker", "neo4jDocker"],
-        help="Input vendor binary name (memgraph, neo4j)",
-    )
-    parser.add_argument(
+    benchmark_parser.add_argument(
         "--client-binary",
         default=helpers.get_binary_path("tests/mgbench/client"),
         help="Client binary used for benchmarking",
     )
-    parser.add_argument(
+    benchmark_parser.add_argument(
         "--num-workers-for-import",
         type=int,
         default=multiprocessing.cpu_count() // 2,
         help="number of workers used to import the dataset",
     )
-    parser.add_argument(
+    benchmark_parser.add_argument(
         "--num-workers-for-benchmark",
         type=int,
         default=1,
         help="number of workers used to execute the benchmark",
     )
-    parser.add_argument(
+    benchmark_parser.add_argument(
         "--single-threaded-runtime-sec",
         type=int,
         default=10,
         help="single threaded duration of each query",
     )
-    parser.add_argument(
+    benchmark_parser.add_argument(
         "--no-load-query-counts",
         action="store_true",
         default=False,
         help="disable loading of cached query counts",
     )
-    parser.add_argument(
+    benchmark_parser.add_argument(
         "--no-save-query-counts",
         action="store_true",
         default=False,
         help="disable storing of cached query counts",
     )
 
-    parser.add_argument(
+    benchmark_parser.add_argument(
         "--export-results",
         default=None,
         help="file path into which results should be exported",
     )
-    parser.add_argument(
+    benchmark_parser.add_argument(
         "--temporary-directory",
         default="/tmp",
         help="directory path where temporary data should be stored",
     )
 
-    parser.add_argument(
+    benchmark_parser.add_argument(
         "--no-authorization",
         action="store_false",
         default=True,
         help="Run each query with authorization",
     )
 
-    parser.add_argument(
+    benchmark_parser.add_argument(
         "--warm-up",
         default="cold",
         choices=["cold", "hot", "vulcanic"],
         help="Run different warmups before benchmarks sample starts",
     )
 
-    parser.add_argument(
+    benchmark_parser.add_argument(
         "--workload-realistic",
         nargs="*",
         type=int,
@@ -134,7 +123,7 @@ def parse_args():
         70% read, 10% update and 0% analytical.""",
     )
 
-    parser.add_argument(
+    benchmark_parser.add_argument(
         "--workload-mixed",
         nargs="*",
         type=int,
@@ -147,27 +136,55 @@ def parse_args():
         with the presence of 300 write queries from write type or 30%""",
     )
 
-    parser.add_argument(
+    benchmark_parser.add_argument(
         "--time-depended-execution",
         type=int,
         default=0,
         help="Execute defined number of queries (based on single-threaded-runtime-sec) for a defined duration in of wall-clock time",
     )
 
-    parser.add_argument(
+    benchmark_parser.add_argument(
         "--performance-tracking",
         action="store_true",
         default=False,
         help="Flag for runners performance tracking, this logs RES through time and vendor specific performance tracking.",
     )
 
-    parser.add_argument("--customer-workloads", default=None, help="Path to customers workloads")
+    benchmark_parser.add_argument("--customer-workloads", default=None, help="Path to customers workloads")
 
-    parser.add_argument(
+    benchmark_parser.add_argument(
         "--vendor-specific",
         nargs="*",
         default=[],
         help="Vendor specific arguments that can be applied to each vendor, format: [key=value, key=value ...]",
+    )
+
+    subparsers = parser.add_subparsers(help="Vendor subparser", dest="run_option")
+    parser_vendor_native = subparsers.add_parser(
+        "vendor-native",
+        help="Running database in binary native form",
+        parents=[benchmark_parser],
+    )
+    parser_vendor_native.add_argument(
+        "--vendor-name",
+        default="memgraph",
+        choices=["memgraph", "neo4j"],
+        help="Input vendor binary name (memgraph, neo4j)",
+    )
+    parser_vendor_native.add_argument(
+        "--vendor-binary",
+        help="Vendor binary used for benchmarking, by default it is memgraph",
+        default=helpers.get_binary_path("memgraph"),
+    )
+
+    parser_vendor_docker = subparsers.add_parser(
+        "vendor-docker", help="Running database in docker", parents=[benchmark_parser]
+    )
+    parser_vendor_docker.add_argument(
+        "--vendor-name",
+        default="memgraph",
+        choices=["memgraph-docker", "neo4j-docker"],
+        help="Input vendor name to run in docker (memgraph-docker, neo4j-docker)",
     )
 
     return parser.parse_args()
@@ -420,8 +437,8 @@ if __name__ == "__main__":
 
     benchmark_context = BenchmarkContext(
         benchmark_target_workload=args.benchmarks,
-        vendor_binary=args.vendor_binary,
-        vendor_name=args.vendor_name,
+        vendor_binary=args.vendor_binary if args.run_option == "vendor-native" else None,
+        vendor_name=args.vendor_name.replace("-", ""),
         client_binary=args.client_binary,
         num_workers_for_import=args.num_workers_for_import,
         num_workers_for_benchmark=args.num_workers_for_benchmark,

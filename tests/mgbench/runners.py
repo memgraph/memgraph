@@ -150,10 +150,10 @@ class BaseRunner(ABC):
 
     @classmethod
     def create(cls, benchmark_context: BenchmarkContext):
-        if benchmark_context.vendor_name.lower() not in cls.subclasses:
+        if benchmark_context.vendor_name not in cls.subclasses:
             raise ValueError("Missing runner with name: {}".format(benchmark_context.vendor_name))
 
-        return cls.subclasses[benchmark_context.vendor_name.lower()](
+        return cls.subclasses[benchmark_context.vendor_name](
             benchmark_context=benchmark_context,
         )
 
@@ -605,7 +605,7 @@ class MemgraphDocker(BaseRunner):
             "docker",
             "cp",
             self._config_file.resolve(),
-            self._container_name + ":etc/memgraph/memgraph.conf",
+            self._container_name + ":/etc/memgraph/memgraph.conf",
         ]
         self._run_command(command)
 
