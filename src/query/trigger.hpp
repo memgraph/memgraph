@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,6 +31,8 @@
 #include "utils/spin_lock.hpp"
 
 namespace memgraph::query {
+
+enum class TransactionStatus;
 struct Trigger {
   explicit Trigger(std::string name, const std::string &query,
                    const std::map<std::string, storage::PropertyValue> &user_parameters, TriggerEventType event_type,
@@ -39,8 +41,8 @@ struct Trigger {
                    const query::AuthChecker *auth_checker);
 
   void Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory, double max_execution_time_sec,
-               std::atomic<bool> *is_shutting_down, const TriggerContext &context,
-               const AuthChecker *auth_checker) const;
+               std::atomic<bool> *is_shutting_down, std::atomic<TransactionStatus> *transaction_status,
+               const TriggerContext &context, const AuthChecker *auth_checker) const;
 
   bool operator==(const Trigger &other) const { return name_ == other.name_; }
   // NOLINTNEXTLINE (modernize-use-nullptr)
