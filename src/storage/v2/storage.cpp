@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -985,8 +985,8 @@ void Storage::Accessor::Abort() {
         auto vertex = prev.vertex;
         std::lock_guard<utils::SpinLock> guard(vertex->lock);
         Delta *current = vertex->delta;
-        while (current != nullptr &&
-               current->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id) {
+        while (current != nullptr && current->timestamp->load(std::memory_order_acquire) ==
+                                         transaction_.transaction_id.load(std::memory_order_acquire)) {
           switch (current->action) {
             case Delta::Action::REMOVE_LABEL: {
               auto it = std::find(vertex->labels.begin(), vertex->labels.end(), current->label);
@@ -1072,8 +1072,8 @@ void Storage::Accessor::Abort() {
         auto edge = prev.edge;
         std::lock_guard<utils::SpinLock> guard(edge->lock);
         Delta *current = edge->delta;
-        while (current != nullptr &&
-               current->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id) {
+        while (current != nullptr && current->timestamp->load(std::memory_order_acquire) ==
+                                         transaction_.transaction_id.load(std::memory_order_acquire)) {
           switch (current->action) {
             case Delta::Action::SET_PROPERTY: {
               edge->properties.SetProperty(current->property.key, current->property.value);
@@ -1142,6 +1142,13 @@ void Storage::Accessor::FinalizeTransaction() {
         [&](auto &committed_transactions) { committed_transactions.emplace_back(std::move(transaction_)); });
     commit_timestamp_.reset();
   }
+}
+
+std::optional<uint64_t> Storage::Accessor::GetTransactionId() const {
+  if (is_transaction_active_) {
+    return transaction_.transaction_id.load(std::memory_order_acquire);
+  }
+  return {};
 }
 
 const std::string &Storage::LabelToName(LabelId label) const { return name_id_mapper_.IdToName(label.AsUint()); }

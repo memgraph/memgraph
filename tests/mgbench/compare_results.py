@@ -77,10 +77,10 @@ def compare_results(results_from, results_to, fields, ignored, different_vendors
                                 recursive_get(summary_from, "database", key, value=None),
                                 summary_to["database"][key],
                             )
-                        elif summary_to.get("query_statistics") != None and key in summary_to["query_statistics"]:
+                        elif summary_to.get("latency_stats") != None and key in summary_to["latency_stats"]:
                             row[key] = compute_diff(
-                                recursive_get(summary_from, "query_statistics", key, value=None),
-                                summary_to["query_statistics"][key],
+                                recursive_get(summary_from, "latency_stats", key, value=None),
+                                summary_to["latency_stats"][key],
                             )
                         elif not different_vendors:
                             row[key] = compute_diff(
@@ -160,7 +160,10 @@ if __name__ == "__main__":
         help="Comparing different vendors, there is no need for metadata, duration, count check.",
     )
     parser.add_argument(
-        "--difference-threshold", type=float, help="Difference threshold for memory and throughput, 0.02 = 2% "
+        "--difference-threshold",
+        type=float,
+        default=0.02,
+        help="Difference threshold for memory and throughput, 0.02 = 2% ",
     )
 
     args = parser.parse_args()
