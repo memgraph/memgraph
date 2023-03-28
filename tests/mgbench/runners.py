@@ -140,6 +140,70 @@ class BoltClient(BaseClient):
             return list(map(json.loads, data))
 
 
+class BoltClientDocker(BaseClient):
+    def __init__(self, benchmark_context: BenchmarkContext):
+        self._client_binary = benchmark_context.client_binary
+        self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
+        self._username = ""
+        self._password = ""
+        self._bolt_port = (
+            benchmark_context.vendor_args["bolt-port"]
+            if "bolt-port" in benchmark_context.vendor_args.keys()
+            else "7687"
+        )
+        self._image_tag = "bolt_client_image"
+        self._container_name = "bolt_client_benchmark"
+
+    def _remove_container(self):
+        command = ["docker", "rm", "-f", self._container_name]
+        self._run_command(command)
+
+    def _build_container(self):
+        command = ["docker", "build", "-f", "Dockerfile.client", "-t", self._image_tag, "."]
+        self._run_command(command)
+
+    def _start_container(self):
+        command = [
+            "docker",
+            "run",
+            "--name",
+            self._container_name,
+            self._image_tag,
+        ]
+        ret = self._run_command(command)
+
+    def _get_logs(self):
+        command = [
+            "docker",
+            "logs",
+            self._container_name,
+        ]
+        ret = self._run_command(command)
+        print(ret.stderr)
+        print(ret.stdout)
+
+    def execute(
+        self,
+        queries=None,
+        file_path=None,
+        num_workers=1,
+        max_retries: int = 50,
+        validation: bool = False,
+        time_dependent_execution: int = 0,
+    ):
+
+        self._remove_container()
+        self._build_container()
+        self._start_container()
+        self._get_logs()
+
+    def _run_command(self, command):
+        print(command)
+        ret = subprocess.run(command, capture_output=True, check=True, text=True)
+        time.sleep(0.2)
+        return ret
+
+
 class BaseRunner(ABC):
     subclasses = {}
 
@@ -629,7 +693,7 @@ class MemgraphDocker(BaseRunner):
         self.remove_container(self._container_name)
 
     def fetch_client(self) -> BaseClient:
-        return BoltClient(benchmark_context=self.benchmark_context)
+        return BoltClientDocker(benchmark_context=self.benchmark_context)
 
     def remove_container(self, containerName):
         command = ["docker", "rm", "-f", containerName]
@@ -760,7 +824,7 @@ class Neo4jDocker(BaseRunner):
         self.remove_container(self._container_name)
 
     def fetch_client(self) -> BaseClient:
-        return BoltClient(benchmark_context=self.benchmark_context)
+        return BoltClientDocker(benchmark_context=self.benchmark_context)
 
     def remove_container(self, containerName):
         command = ["docker", "rm", "-f", containerName]
