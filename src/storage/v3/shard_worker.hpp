@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -100,7 +100,7 @@ class Queue {
 
       inner_->submitted++;
 
-      inner_->queue.emplace_back(std::forward<Message>(message));
+      inner_->queue.emplace_back(std::move(message));
     }  // lock dropped before notifying condition variable
 
     inner_->cv.notify_all();

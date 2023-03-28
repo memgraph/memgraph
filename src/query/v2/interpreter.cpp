@@ -64,7 +64,11 @@
 #include "utils/tsc.hpp"
 #include "utils/variant_helpers.hpp"
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(use_multi_frame, false, "Whether to use MultiFrame or not");
+
 namespace EventCounter {
+
 extern Event ReadQuery;
 extern Event WriteQuery;
 extern Event ReadWriteQuery;
@@ -74,6 +78,7 @@ extern const Event LabelPropertyIndexCreated;
 
 extern const Event StreamsCreated;
 extern const Event TriggersCreated;
+
 }  // namespace EventCounter
 
 namespace memgraph::query::v2 {
@@ -688,7 +693,7 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory)),
       frame_(plan->symbol_table().max_position(), execution_memory),
-      multi_frame_(plan->symbol_table().max_position(), kNumberOfFramesInMultiframe, execution_memory),
+      multi_frame_(plan->symbol_table().max_position(), FLAGS_default_multi_frame_size, execution_memory),
       memory_limit_(memory_limit) {
   ctx_.db_accessor = dba;
   ctx_.symbol_table = plan->symbol_table();
@@ -812,8 +817,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::PullMultiple(AnyStrea
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
                                                                 const std::vector<Symbol> &output_symbols,
                                                                 std::map<std::string, TypedValue> *summary) {
-  auto should_pull_multiple = false;  // TODO on the long term, we will only use PullMultiple
-  if (should_pull_multiple) {
+  if (FLAGS_use_multi_frame) {
     return PullMultiple(stream, n, output_symbols, summary);
   }
   // Set up temporary memory for a single Pull. Initial memory comes from the

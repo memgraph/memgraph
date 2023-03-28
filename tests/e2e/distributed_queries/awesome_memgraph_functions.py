@@ -36,7 +36,9 @@ def test_awesome_memgraph_functions(connection):
     assert len(results) == 1
     assert results[0][0] == 5
 
-    results = execute_and_fetch_all(cursor, "MATCH (n) WITH COLLECT(n.property) as nn RETURN ALL(i IN nn WHERE i > 0)")
+    results = execute_and_fetch_all(
+        cursor, "UNWIND [2, 1, 3] AS value WITH COLLECT(value) as nn RETURN ALL(i IN nn WHERE i > 0)"
+    )
     assert len(results) == 1
     assert results[0][0] == True
 

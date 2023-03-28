@@ -68,6 +68,15 @@ class Memgraph:
         self._cleanup()
         atexit.unregister(self._cleanup)
 
+    # Returns None if string_value is not true or false, casing doesn't matter
+    def _get_bool_value(self, string_value):
+        lower_string_value = string_value.lower()
+        if lower_string_value == "true":
+            return True
+        if lower_string_value == "false":
+            return False
+        return None
+
     def _get_args(self, **kwargs):
         data_directory = os.path.join(self._directory.name, "memgraph")
         if self._memgraph_version >= (0, 50, 0):
@@ -83,7 +92,13 @@ class Memgraph:
             args_list = self._extra_args.split(" ")
             assert len(args_list) % 2 == 0
             for i in range(0, len(args_list), 2):
-                kwargs[args_list[i]] = args_list[i + 1]
+                key = args_list[i]
+                value = args_list[i + 1]
+                maybe_bool_value = self._get_bool_value(value)
+                if maybe_bool_value is not None:
+                    kwargs[key] = maybe_bool_value
+                else:
+                    kwargs[key] = value
 
         return _convert_args_to_flags(self._memgraph_binary, **kwargs)
 

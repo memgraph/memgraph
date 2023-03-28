@@ -30,7 +30,8 @@
 #include "query/v2/plan/preprocess.hpp"
 #include "storage/v3/id_types.hpp"
 
-DECLARE_int64(query_vertex_count_to_expand_existing);
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_int64(query_v2_vertex_count_to_expand_existing);
 
 namespace memgraph::query::v2::plan {
 
@@ -100,7 +101,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       return true;
     }
     ScanAll dst_scan(expand.input(), expand.common_.node_symbol, expand.view_);
-    auto indexed_scan = GenScanByIndex(dst_scan, FLAGS_query_vertex_count_to_expand_existing);
+    auto indexed_scan = GenScanByIndex(dst_scan, FLAGS_query_v2_vertex_count_to_expand_existing);
     if (indexed_scan) {
       expand.set_input(std::move(indexed_scan));
       expand.common_.existing_node = true;
@@ -129,7 +130,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       // unconditionally creating an indexed scan.
       indexed_scan = GenScanByIndex(dst_scan);
     } else {
-      indexed_scan = GenScanByIndex(dst_scan, FLAGS_query_vertex_count_to_expand_existing);
+      indexed_scan = GenScanByIndex(dst_scan, FLAGS_query_v2_vertex_count_to_expand_existing);
     }
     if (indexed_scan) {
       expand.set_input(std::move(indexed_scan));
@@ -597,6 +598,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                      [](const auto &schema_elem) { return schema_elem.property_id; });
 
       for (const auto &property_filter : property_filters) {
+        if (property_filter.property_filter->type_ != PropertyFilter::Type::EQUAL) {
+          continue;
+        }
         const auto &property_id = db_->NameToProperty(property_filter.property_filter->property_.name);
         if (std::find(schema_properties.begin(), schema_properties.end(), property_id) != schema_properties.end()) {
           pk_temp.emplace_back(std::make_pair(property_filter.expression, property_filter));

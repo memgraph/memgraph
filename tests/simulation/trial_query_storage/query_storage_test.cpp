@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -44,7 +44,7 @@ void run_server(Io<SimulatorTransport> io) {
     for (auto index = start_index; index < start_index + req.count; ++index) {
       response.vertices.push_back({std::string("Vertex_") + std::to_string(index)});
     }
-    io.Send(request_envelope.from_address, request_envelope.request_id, response);
+    io.Send(request_envelope.from_address, request_envelope.request_id, std::move(response));
   }
 }
 
@@ -78,7 +78,7 @@ int main() {
 
   auto req = ScanVerticesRequest{2, std::nullopt};
 
-  auto res_f = cli_io.Request<ScanVerticesRequest, VerticesResponse>(srv_addr, req);
+  auto res_f = cli_io.Request<VerticesResponse, ScanVerticesRequest>(srv_addr, std::move(req));
   auto res_rez = std::move(res_f).Wait();
   simulator.ShutDown();
   return 0;
