@@ -162,16 +162,6 @@ class BoltClientDocker(BaseClient):
         command = ["docker", "build", "-f", "Dockerfile.client", "-t", self._image_tag, "."]
         self._run_command(command)
 
-    def _start_container(self):
-        command = [
-            "docker",
-            "run",
-            "--name",
-            self._container_name,
-            self._image_tag,
-        ]
-        ret = self._run_command(command)
-
     def _get_logs(self):
         command = [
             "docker",
@@ -194,7 +184,16 @@ class BoltClientDocker(BaseClient):
 
         self._remove_container()
         self._build_container()
-        self._start_container()
+
+        command = [
+            "docker",
+            "run",
+            "-e num_workers=12" "--name",
+            self._container_name,
+            self._image_tag,
+        ]
+        ret = self._run_command(command)
+
         self._get_logs()
 
     def _run_command(self, command):
