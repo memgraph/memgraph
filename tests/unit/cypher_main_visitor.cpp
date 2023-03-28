@@ -4384,7 +4384,7 @@ TEST_P(CypherMainVisitorTest, CallSubqueryThrow) {
   auto &ast_generator = *GetParam();
 
   TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) CALL { MATCH (m) RETURN m QUERY MEMORY UNLIMITED } RETURN n",
-                                               ast_generator, "Subqueries don't have a query memory limit!");
+                                               ast_generator, "Memory limit cannot be set on subqueries!");
 }
 
 TEST_P(CypherMainVisitorTest, CallSubquery) {

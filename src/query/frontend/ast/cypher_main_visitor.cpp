@@ -2526,7 +2526,7 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
   MG_ASSERT(ctx->cypherQuery(), "Expected query inside subquery clause");
 
   if (ctx->cypherQuery()->queryMemoryLimit()) {
-    throw SyntaxException("Subqueries don't have a query memory limit!");
+    throw SyntaxException("Memory limit cannot be set on subqueries!");
   }
 
   call_subquery->cypher_query_ = std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
