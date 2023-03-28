@@ -230,10 +230,10 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     double subquery_cost = EstimateCostOnBranch(&op.subquery_);
 
     // if the query is a unit subquery, we don't want the cost to be zero but 1xN
-    input_cost = input_cost < 1 ? 1 : input_cost;
-    subquery_cost = subquery_cost < 1 ? 1 : subquery_cost;
+    input_cost = input_cost == 0 ? 1 : input_cost;
+    subquery_cost = subquery_cost == 0 ? 1 : subquery_cost;
 
-    cardinality_ = cardinality_ * input_cost * subquery_cost;
+    cardinality_ *= input_cost * subquery_cost;
     IncrementCost(CostParam::kSubquery);
 
     return false;

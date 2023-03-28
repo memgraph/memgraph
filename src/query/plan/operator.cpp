@@ -4048,7 +4048,7 @@ class DistinctCursor : public Cursor {
       row.reserve(self_.value_symbols_.size());
 
       for (const auto &symbol : self_.value_symbols_) {
-        row.emplace_back(frame[symbol]);
+        row.emplace_back(frame.at(symbol));
       }
 
       if (seen_rows_.insert(std::move(row)).second) {
@@ -4815,9 +4815,9 @@ bool Apply::ApplyCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Apply");
 
   while (true) {
-    if (pull_input_) {
-      if (!input_->Pull(frame, context)) return false;
-    }
+    if (pull_input_ && !input_->Pull(frame, context)) {
+      return false
+    };
 
     if (subquery_->Pull(frame, context)) {
       // if successful, next Pull from this should not pull_input_

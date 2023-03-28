@@ -212,9 +212,7 @@ bool SymbolGenerator::PostVisit(CallProcedure &call_proc) {
 }
 
 bool SymbolGenerator::PreVisit(CallSubquery & /*call_sub*/) {
-  scopes_.emplace_back(Scope());
-  scopes_.back().in_call_subquery = true;
-  // create symbols?
+  scopes_.emplace_back(Scope{.in_call_subquery = true});
   return true;
 }
 
@@ -502,16 +500,11 @@ bool SymbolGenerator::PostVisit(Exists & /*exists*/) {
 }
 
 bool SymbolGenerator::PreVisit(NamedExpression &named_expression) {
-  auto &scope = scopes_.back();
-
-  if (scope.in_call_subquery && scope.in_return) {
-    auto *ident = utils::Downcast<Identifier>(named_expression.expression_);
-
-    if (!ident && !named_expression.is_aliased_) {
-      throw SemanticException("Expression returned from subquery must be aliased (use AS)!");
-    }
+  if (auto &scope = scopes_.back(); scope.in_call_subquery && scope.in_return &&
+                                    !utils::Downcast<Identifier>(named_expression.expression_) &&
+                                    !named_expression.is_aliased_) {
+    throw SemanticException("Expression returned from subquery must be aliased (use AS)!");
   }
-
   return true;
 }
 

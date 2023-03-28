@@ -87,6 +87,8 @@ Expression *ExtractFilters(const std::unordered_set<Symbol> &, Filters &, AstSto
 /// Checks if the filters has all the bound symbols to be included in the current part of the query
 bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, const FilterInfo &filter);
 
+// Returns the set of symbols for the subquery that are actually referenced from the outer scope and
+// used in the subquery.
 std::unordered_set<Symbol> GetSubqueryBoundSymbols(const std::vector<SingleQueryPart> &single_query_parts,
                                                    SymbolTable &symbol_table, AstStorage &storage);
 
