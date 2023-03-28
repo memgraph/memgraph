@@ -517,25 +517,18 @@ Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols, Filt
 
 std::unordered_set<Symbol> GetSubqueryBoundSymbols(const std::vector<SingleQueryPart> &single_query_parts,
                                                    SymbolTable &symbol_table, AstStorage &storage) {
-  std::unordered_set<Symbol> bound_symbols;
-
   const auto &query = single_query_parts[0];
 
-  if (!query.matching.expansions.empty()) {
-    return bound_symbols;
+  if (!query.matching.expansions.empty() || query.remaining_clauses.empty()) {
+    return {};
   }
 
-  if (query.remaining_clauses.empty()) {
-    return bound_symbols;
-  }
-
-  const auto &possible_with_clause = query.remaining_clauses[0];
-
-  if (auto *with = utils::Downcast<query::With>(possible_with_clause)) {
+  if (std::unordered_set<Symbol> bound_symbols; auto *with = utils::Downcast<query::With>(query.remaining_clauses[0])) {
     auto input_op = impl::GenWith(*with, nullptr, symbol_table, false, bound_symbols, storage);
+    return bound_symbols;
   }
 
-  return bound_symbols;
+  return {};
 }
 
 std::unique_ptr<LogicalOperator> GenNamedPaths(std::unique_ptr<LogicalOperator> last_op,

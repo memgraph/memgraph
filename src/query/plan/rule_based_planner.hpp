@@ -12,9 +12,7 @@
 /// @file
 #pragma once
 
-#include <memory>
 #include <optional>
-#include <queue>
 #include <variant>
 
 #include "gflags/gflags.h"
@@ -727,12 +725,11 @@ class RuleBasedPlanner {
       return impl::GenUnion(*union_, std::move(last_op), std::move(curr_op), *context_->symbol_table);
     }
 
-    throw utils::NotYetImplemented("query combinator");
+    throw utils::NotYetImplemented("This type of merging queries is not yet implemented!");
   }
 
   std::unique_ptr<LogicalOperator> MakeDistinct(std::unique_ptr<LogicalOperator> last_op) {
-    auto output_symbols = last_op->OutputSymbols(*context_->symbol_table);
-    return std::make_unique<Distinct>(std::move(last_op), output_symbols);
+    return std::make_unique<Distinct>(std::move(last_op), last_op->OutputSymbols(*context_->symbol_table));
   }
 };
 

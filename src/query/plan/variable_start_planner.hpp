@@ -319,7 +319,7 @@ class VariableStartPlanner {
     auto single_query_parts = ExtractSingleQueryParts(std::make_unique<QueryParts>(query_parts));
 
     for (const auto &single_query_part : single_query_parts) {
-      varying_query_matchings.emplace_back(impl::VaryQueryPartMatching(single_query_part, symbol_table));
+      varying_query_matchings.emplace_back(single_query_part, symbol_table);
     }
 
     return iter::slice(MakeCartesianProduct(std::move(varying_query_matchings)), 0UL, FLAGS_query_max_plans);
@@ -334,7 +334,8 @@ class VariableStartPlanner {
 
         for (const auto &subquery : single_query_part.subqueries) {
           const auto subquery_results = ExtractSingleQueryParts(subquery);
-          results.insert(results.end(), subquery_results.begin(), subquery_results.end());
+          results.insert(results.end(), std::make_move_iterator(subquery_results.begin()),
+                         std::make_move_iterator(subquery_results.end()));
         }
       }
     }
@@ -347,13 +348,13 @@ class VariableStartPlanner {
     auto reconstructed_query_parts = old_query_parts;
 
     for (auto i = 0; i < old_query_parts.query_parts.size(); i++) {
-      const auto &query_part = old_query_parts.query_parts[i];
-      for (auto j = 0; j < query_part.single_query_parts.size(); j++) {
-        const auto &single_query_part = query_part.single_query_parts[j];
+      const auto &old_query_part = old_query_parts.query_parts[i];
+      for (auto j = 0; j < old_query_part.single_query_parts.size(); j++) {
+        const auto &old_single_query_part = old_query_part.single_query_parts[j];
         reconstructed_query_parts.query_parts[i].single_query_parts[j] = single_query_parts_variation[index++];
 
-        for (auto k = 0; k < single_query_part.subqueries.size(); k++) {
-          const auto &subquery = single_query_part.subqueries[k];
+        for (auto k = 0; k < old_single_query_part.subqueries.size(); k++) {
+          const auto &subquery = old_single_query_part.subqueries[k];
           reconstructed_query_parts.query_parts[i].single_query_parts[j].subqueries[k] =
               std::make_shared<QueryParts>(ReconstructQueryParts(*subquery, single_query_parts_variation, index));
         }
