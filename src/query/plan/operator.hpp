@@ -1088,8 +1088,8 @@ class Produce : public memgraph::query::plan::LogicalOperator {
     auto object = std::make_unique<Produce>();
     object->input_ = input_ ? input_->Clone(storage) : nullptr;
     object->named_expressions_.resize(named_expressions_.size());
-    for (auto i1 = 0; i1 < named_expressions_.size(); ++i1) {
-      object->named_expressions_[i1] = named_expressions_[i1] ? named_expressions_[i1]->Clone(storage) : nullptr;
+    for (auto i2 = 0; i2 < named_expressions_.size(); ++i2) {
+      object->named_expressions_[i2] = named_expressions_[i2] ? named_expressions_[i2]->Clone(storage) : nullptr;
     }
     return object;
   }
@@ -1137,8 +1137,8 @@ class Delete : public memgraph::query::plan::LogicalOperator {
     auto object = std::make_unique<Delete>();
     object->input_ = input_ ? input_->Clone(storage) : nullptr;
     object->expressions_.resize(expressions_.size());
-    for (auto i2 = 0; i2 < expressions_.size(); ++i2) {
-      object->expressions_[i2] = expressions_[i2] ? expressions_[i2]->Clone(storage) : nullptr;
+    for (auto i3 = 0; i3 < expressions_.size(); ++i3) {
+      object->expressions_[i3] = expressions_[i3] ? expressions_[i3]->Clone(storage) : nullptr;
     }
     object->detach_ = detach_;
     return object;
@@ -1609,12 +1609,12 @@ class Aggregate : public memgraph::query::plan::LogicalOperator {
     auto object = std::make_unique<Aggregate>();
     object->input_ = input_ ? input_->Clone(storage) : nullptr;
     object->aggregations_.resize(aggregations_.size());
-    for (auto i3 = 0; i3 < aggregations_.size(); ++i3) {
-      object->aggregations_[i3] = aggregations_[i3].Clone(storage);
+    for (auto i4 = 0; i4 < aggregations_.size(); ++i4) {
+      object->aggregations_[i4] = aggregations_[i4].Clone(storage);
     }
     object->group_by_.resize(group_by_.size());
-    for (auto i4 = 0; i4 < group_by_.size(); ++i4) {
-      object->group_by_[i4] = group_by_[i4] ? group_by_[i4]->Clone(storage) : nullptr;
+    for (auto i5 = 0; i5 < group_by_.size(); ++i5) {
+      object->group_by_[i5] = group_by_[i5] ? group_by_[i5]->Clone(storage) : nullptr;
     }
     object->remember_ = remember_;
     return object;
@@ -1815,8 +1815,8 @@ class OrderBy : public memgraph::query::plan::LogicalOperator {
     object->input_ = input_ ? input_->Clone(storage) : nullptr;
     object->compare_ = compare_;
     object->order_by_.resize(order_by_.size());
-    for (auto i5 = 0; i5 < order_by_.size(); ++i5) {
-      object->order_by_[i5] = order_by_[i5] ? order_by_[i5]->Clone(storage) : nullptr;
+    for (auto i6 = 0; i6 < order_by_.size(); ++i6) {
+      object->order_by_[i6] = order_by_[i6] ? order_by_[i6]->Clone(storage) : nullptr;
     }
     object->output_symbols_ = output_symbols_;
     return object;
@@ -2205,8 +2205,8 @@ class CallProcedure : public memgraph::query::plan::LogicalOperator {
     object->input_ = input_ ? input_->Clone(storage) : nullptr;
     object->procedure_name_ = procedure_name_;
     object->arguments_.resize(arguments_.size());
-    for (auto i6 = 0; i6 < arguments_.size(); ++i6) {
-      object->arguments_[i6] = arguments_[i6] ? arguments_[i6]->Clone(storage) : nullptr;
+    for (auto i7 = 0; i7 < arguments_.size(); ++i7) {
+      object->arguments_[i7] = arguments_[i7] ? arguments_[i7]->Clone(storage) : nullptr;
     }
     object->result_fields_ = result_fields_;
     object->result_symbols_ = result_symbols_;
@@ -2290,6 +2290,53 @@ class Foreach : public memgraph::query::plan::LogicalOperator {
     object->loop_variable_symbol_ = loop_variable_symbol_;
     return object;
   }
+};
+
+/// Applies symbols from both output branches.
+class Apply : public memgraph::query::plan::LogicalOperator {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  Apply() {}
+
+  Apply(const std::shared_ptr<LogicalOperator> input, const std::shared_ptr<LogicalOperator> subquery,
+        bool subquery_has_return);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
+
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> subquery_;
+  bool subquery_has_return_;
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
+    auto object = std::make_unique<Apply>();
+    object->input_ = input_ ? input_->Clone(storage) : nullptr;
+    object->subquery_ = subquery_ ? subquery_->Clone(storage) : nullptr;
+    object->subquery_has_return_ = subquery_has_return_;
+    return object;
+  }
+
+ private:
+  class ApplyCursor : public Cursor {
+   public:
+    ApplyCursor(const Apply &, utils::MemoryResource *);
+    bool Pull(Frame &, ExecutionContext &) override;
+    void Shutdown() override;
+    void Reset() override;
+
+   private:
+    const Apply &self_;
+    UniqueCursorPtr input_;
+    UniqueCursorPtr subquery_;
+    bool pull_input_{true};
+    bool subquery_has_return_{true};
+  };
 };
 
 }  // namespace plan
