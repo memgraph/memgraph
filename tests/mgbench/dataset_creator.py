@@ -51,10 +51,22 @@ import helpers
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--number_of_identities", type=int, default=10)
-    parser.add_argument("--number_of_files", type=int, default=10)
-    parser.add_argument("--percentage_of_permissions", type=float, default=1.0)
-    parser.add_argument("--filename", default="dataset.cypher")
+    parser.add_argument(
+        "--number_of_identities",
+        type=int,
+        default=10,
+        help="Determines how many :Identity nodes will the dataset contain.",
+    )
+    parser.add_argument(
+        "--number_of_files", type=int, default=10, help="Determines how many :File nodes will the dataset contain."
+    )
+    parser.add_argument(
+        "--percentage_of_permissions",
+        type=float,
+        default=1.0,
+        help="Determines approximately what percentage of the all possible identity-permission-file connections will be created.",
+    )
+    parser.add_argument("--filename", default="dataset.cypher", help="The name of the output file.")
 
     args = parser.parse_args()
 
