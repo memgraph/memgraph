@@ -1837,7 +1837,7 @@ constexpr auto ToStorageIsolationLevel(const IsolationLevelQuery::IsolationLevel
   }
 }
 
-constexpr auto ToStorageStorageMode(const StorageModeQuery::StorageMode storage_mode) noexcept {
+constexpr auto ToStorageMode(const StorageModeQuery::StorageMode storage_mode) noexcept {
   switch (storage_mode) {
     case StorageModeQuery::StorageMode::IN_MEMORY_TRANSACTIONAL:
       return storage::StorageMode::IN_MEMORY_TRANSACTIONAL;
@@ -1850,6 +1850,10 @@ PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in
                                          InterpreterContext *interpreter_context, Interpreter *interpreter) {
   if (in_explicit_transaction) {
     throw IsolationLevelModificationInMulticommandTxException();
+  }
+
+  if (interpreter_context->db->GetStorageMode() == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+    throw IsolationLevelModificationInAnalyticsException();
   }
 
   auto *isolation_level_query = utils::Downcast<IsolationLevelQuery>(parsed_query.query);
@@ -1888,19 +1892,19 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
   auto *storage_mode_query = utils::Downcast<StorageModeQuery>(parsed_query.query);
   MG_ASSERT(storage_mode_query);
 
-  const auto storage_mode = ToStorageStorageMode(storage_mode_query->storage_mode_);
+  const auto storage_mode = ToStorageMode(storage_mode_query->storage_mode_);
 
   auto callback = [storage_mode, interpreter_context]() -> std::function<void()> {
-    auto exists_active_transaction = interpreter_context->interpreters.WithLock([](const auto &interpreters_) {
-      return std::any_of(interpreters_.begin(), interpreters_.end(), [](const auto &interpreter) {
-        return interpreter->transaction_status_.load() == TransactionStatus::ACTIVE;
-      });
+    interpreter_context->interpreters.WithLock([interpreter_context, storage_mode](const auto &interpreters_) {
+      auto exists_active_transaction = std::any_of(
+          interpreters_.begin(), interpreters_.end(),
+          [](const auto &interpreter) { return interpreter->transaction_status_.load() == TransactionStatus::ACTIVE; });
+      if (exists_active_transaction) {
+        throw StorageModeModificationInMultiTxException();
+      }
+      interpreter_context->db->SetStorageMode(storage_mode);
     });
-    if (exists_active_transaction) {
-      throw StorageModeModificationInMultiTxException();
-    }
-
-    return [interpreter_context, storage_mode] { interpreter_context->db->SetStorageMode(storage_mode); };
+    return []() {};
   }();
 
   return PreparedQuery{{},

@@ -13,7 +13,6 @@
 
 #include <atomic>
 
-#include "storage/v2/isolation_level.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/view.hpp"

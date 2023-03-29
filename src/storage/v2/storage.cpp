@@ -27,7 +27,6 @@
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/indices.hpp"
-#include "storage/v2/isolation_level.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
@@ -2138,6 +2137,8 @@ void Storage::SetIsolationLevel(IsolationLevel isolation_level) {
 }
 
 void Storage::SetStorageMode(StorageMode storage_mode) { storage_mode_ = storage_mode; }
+
+StorageMode Storage::GetStorageMode() { return storage_mode_; }
 
 void Storage::RestoreReplicas() {
   MG_ASSERT(memgraph::storage::ReplicationRole::MAIN == GetReplicationRole());

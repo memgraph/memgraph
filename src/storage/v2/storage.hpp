@@ -32,6 +32,7 @@
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/result.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -487,6 +488,8 @@ class Storage final {
   void SetIsolationLevel(IsolationLevel isolation_level);
 
   void SetStorageMode(StorageMode storage_mode);
+
+  StorageMode GetStorageMode();
 
   enum class CreateSnapshotError : uint8_t { DisabledForReplica };
 

@@ -265,11 +265,10 @@ class StdMemoryResource final : public MemoryResource {
     // implementation of _S_aligned_size, but we throw if it overflows.
     // Currently, this only concerns new_delete_resource as there are no other
     // memory_resource implementations available. This issue appears to persist
-    // in newer implementations, additionally pool_resource does no alignment of.
+    // in newer implementations, additionally pool_resource does no alignment of
     // allocated pointers whatsoever.
     size_t aligned_size = ((bytes - 1) | (alignment - 1)) + 1;
     if (aligned_size < bytes) throw BadAlloc("Allocation alignment overflow");
-
     return memory_->allocate(bytes, alignment);
   }
 
