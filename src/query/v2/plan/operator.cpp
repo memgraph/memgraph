@@ -2158,22 +2158,20 @@ class OptionalCursor : public Cursor {
         // if successful, next Pull from this should not pull_input_
         pull_input_ = false;
         return true;
-      } else {
-        // failed to Pull from the merge_match cursor
-        if (pull_input_) {
-          // if we have just now pulled from the input
-          // and failed to pull from optional_ so set the
-          // optional symbols to Null, ensure next time the
-          // input gets pulled and return true
-          for (const Symbol &sym : self_.optional_symbols_) frame[sym] = TypedValue(context.evaluation_context.memory);
-          pull_input_ = true;
-          return true;
-        }
-        // we have exhausted optional_cursor_ after 1 or more successful Pulls
-        // attempt next input_cursor_ pull
-        pull_input_ = true;
-        continue;
       }
+      // failed to Pull from the merge_match cursor
+      if (pull_input_) {
+        // if we have just now pulled from the input
+        // and failed to pull from optional_ so set the
+        // optional symbols to Null, ensure next time the
+        // input gets pulled and return true
+        for (const Symbol &sym : self_.optional_symbols_) frame[sym] = TypedValue(context.evaluation_context.memory);
+        pull_input_ = true;
+        return true;
+      }
+      // we have exhausted optional_cursor_ after 1 or more successful Pulls
+      // attempt next input_cursor_ pull
+      pull_input_ = true;
     }
   }
 
