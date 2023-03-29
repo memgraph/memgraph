@@ -175,8 +175,8 @@ bool SimulatorHandle::MaybeTickSimulator() {
     spdlog::trace("simulator adding message to can_receive_ from {} to {}", opaque_message.from_address.last_known_port,
                   opaque_message.to_address.last_known_port);
     const auto &[om_vec, inserted] =
-        can_receive_.try_emplace(to_address.ToPartialAddress(), std::vector<OpaqueMessage>());
-    om_vec->second.emplace_back(std::move(opaque_message));
+        can_receive_.try_emplace(to_address.ToPartialAddress(), std::deque<OpaqueMessage>());
+    om_vec->second.emplace_front(std::move(opaque_message));
   }
 
   return true;
