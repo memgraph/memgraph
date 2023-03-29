@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,6 +18,8 @@
 #include <utility>
 
 #include "storage/v3/config.hpp"
+#include "storage/v3/id_types.hpp"
+#include "storage/v3/key_store.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/transaction.hpp"
 #include "storage/v3/vertex_accessor.hpp"
@@ -40,11 +42,17 @@ class LabelIndex {
     bool operator==(const Entry &rhs) const { return vertex == rhs.vertex && timestamp == rhs.timestamp; }
   };
 
+  using IndexType = LabelId;
+
  public:
-  using LabelIndexContainer = std::set<Entry>;
+  using IndexContainer = std::set<Entry>;
 
   LabelIndex(Indices *indices, Config::Items config, const VertexValidator &vertex_validator)
       : indices_(indices), config_(config), vertex_validator_{&vertex_validator} {}
+
+  LabelIndex(Indices *indices, Config::Items config, const VertexValidator &vertex_validator,
+             std::map<LabelId, IndexContainer> &data)
+      : index_{std::move(data)}, indices_(indices), config_(config), vertex_validator_{&vertex_validator} {}
 
   /// @throw std::bad_alloc
   void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx);
@@ -63,12 +71,12 @@ class LabelIndex {
 
   class Iterable {
    public:
-    Iterable(LabelIndexContainer &index_container, LabelId label, View view, Transaction *transaction, Indices *indices,
+    Iterable(IndexContainer &index_container, LabelId label, View view, Transaction *transaction, Indices *indices,
              Config::Items config, const VertexValidator &vertex_validator);
 
     class Iterator {
      public:
-      Iterator(Iterable *self, LabelIndexContainer::iterator index_iterator);
+      Iterator(Iterable *self, IndexContainer::iterator index_iterator);
 
       VertexAccessor operator*() const { return current_vertex_accessor_; }
 
@@ -81,7 +89,7 @@ class LabelIndex {
       void AdvanceUntilValid();
 
       Iterable *self_;
-      LabelIndexContainer::iterator index_iterator_;
+      IndexContainer::iterator index_iterator_;
       VertexAccessor current_vertex_accessor_;
       Vertex *current_vertex_;
     };
@@ -90,7 +98,7 @@ class LabelIndex {
     Iterator end() { return {this, index_container_->end()}; }
 
    private:
-    LabelIndexContainer *index_container_;
+    IndexContainer *index_container_;
     LabelId label_;
     View view_;
     Transaction *transaction_;
@@ -114,8 +122,29 @@ class LabelIndex {
 
   void Clear() { index_.clear(); }
 
+  std::map<IndexType, IndexContainer> SplitIndexEntries(const PrimaryKey &split_key) {
+    std::map<IndexType, IndexContainer> cloned_indices;
+    for (auto &[index_type_val, index] : index_) {
+      auto entry_it = index.begin();
+      auto &cloned_indices_container = cloned_indices[index_type_val];
+      while (entry_it != index.end()) {
+        // We need to save the next iterator since the current one will be
+        // invalidated after extract
+        auto next_entry_it = std::next(entry_it);
+        if (entry_it->vertex->first > split_key) {
+          [[maybe_unused]] const auto &[inserted_entry_it, inserted, node] =
+              cloned_indices_container.insert(index.extract(entry_it));
+          MG_ASSERT(inserted, "Failed to extract index entry!");
+        }
+        entry_it = next_entry_it;
+      }
+    }
+
+    return cloned_indices;
+  }
+
  private:
-  std::map<LabelId, LabelIndexContainer> index_;
+  std::map<LabelId, IndexContainer> index_;
   Indices *indices_;
   Config::Items config_;
   const VertexValidator *vertex_validator_;
@@ -133,9 +162,10 @@ class LabelPropertyIndex {
     bool operator<(const PropertyValue &rhs) const;
     bool operator==(const PropertyValue &rhs) const;
   };
+  using IndexType = std::pair<LabelId, PropertyId>;
 
  public:
-  using LabelPropertyIndexContainer = std::set<Entry>;
+  using IndexContainer = std::set<Entry>;
 
   LabelPropertyIndex(Indices *indices, Config::Items config, const VertexValidator &vertex_validator)
       : indices_(indices), config_(config), vertex_validator_{&vertex_validator} {}
@@ -159,14 +189,14 @@ class LabelPropertyIndex {
 
   class Iterable {
    public:
-    Iterable(LabelPropertyIndexContainer &index_container, LabelId label, PropertyId property,
+    Iterable(IndexContainer &index_container, LabelId label, PropertyId property,
              const std::optional<utils::Bound<PropertyValue>> &lower_bound,
              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Transaction *transaction,
              Indices *indices, Config::Items config, const VertexValidator &vertex_validator);
 
     class Iterator {
      public:
-      Iterator(Iterable *self, LabelPropertyIndexContainer::iterator index_iterator);
+      Iterator(Iterable *self, IndexContainer::iterator index_iterator);
 
       VertexAccessor operator*() const { return current_vertex_accessor_; }
 
@@ -179,7 +209,7 @@ class LabelPropertyIndex {
       void AdvanceUntilValid();
 
       Iterable *self_;
-      LabelPropertyIndexContainer::iterator index_iterator_;
+      IndexContainer::iterator index_iterator_;
       VertexAccessor current_vertex_accessor_;
       Vertex *current_vertex_;
     };
@@ -188,7 +218,7 @@ class LabelPropertyIndex {
     Iterator end();
 
    private:
-    LabelPropertyIndexContainer *index_container_;
+    IndexContainer *index_container_;
     LabelId label_;
     PropertyId property_;
     std::optional<utils::Bound<PropertyValue>> lower_bound_;
@@ -229,8 +259,29 @@ class LabelPropertyIndex {
 
   void Clear() { index_.clear(); }
 
+  std::map<IndexType, IndexContainer> SplitIndexEntries(const PrimaryKey &split_key) {
+    std::map<IndexType, IndexContainer> cloned_indices;
+    for (auto &[index_type_val, index] : index_) {
+      auto entry_it = index.begin();
+      auto &cloned_index_container = cloned_indices[index_type_val];
+      while (entry_it != index.end()) {
+        // We need to save the next iterator since the current one will be
+        // invalidated after extract
+        auto next_entry_it = std::next(entry_it);
+        if (entry_it->vertex->first > split_key) {
+          [[maybe_unused]] const auto &[inserted_entry_it, inserted, node] =
+              cloned_index_container.insert(index.extract(entry_it));
+          MG_ASSERT(inserted, "Failed to extract index entry!");
+        }
+        entry_it = next_entry_it;
+      }
+    }
+
+    return cloned_indices;
+  }
+
  private:
-  std::map<std::pair<LabelId, PropertyId>, LabelPropertyIndexContainer> index_;
+  std::map<std::pair<LabelId, PropertyId>, IndexContainer> index_;
   Indices *indices_;
   Config::Items config_;
   const VertexValidator *vertex_validator_;

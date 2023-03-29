@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,12 +13,14 @@
 
 #include <cstdint>
 #include <memory>
+
 #include "storage/v3/edge_ref.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/vertex.hpp"
 #include "storage/v3/vertex_id.hpp"
 #include "utils/logging.hpp"
+#include "utils/synchronized.hpp"
 
 namespace memgraph::storage::v3 {
 
@@ -26,6 +28,11 @@ namespace memgraph::storage::v3 {
 struct Edge;
 struct Delta;
 struct CommitInfo;
+
+inline uint64_t GetNextDeltaId() {
+  static utils::Synchronized<uint64_t, utils::SpinLock> delta_id{0};
+  return delta_id.WithLock([](auto &id) { return id++; });
+}
 
 // This class stores one of three pointers (`Delta`, `Vertex` and `Edge`)
 // without using additional memory for storing the type. The type is stored in
@@ -158,46 +165,54 @@ struct Delta {
   struct RemoveInEdgeTag {};
   struct RemoveOutEdgeTag {};
 
-  Delta(DeleteObjectTag /*unused*/, CommitInfo *commit_info, uint64_t command_id)
-      : action(Action::DELETE_OBJECT), commit_info(commit_info), command_id(command_id) {}
+  Delta(DeleteObjectTag /*unused*/, CommitInfo *commit_info, uint64_t delta_id, uint64_t command_id)
+      : action(Action::DELETE_OBJECT), id(delta_id), commit_info(commit_info), command_id(command_id) {}
 
-  Delta(RecreateObjectTag /*unused*/, CommitInfo *commit_info, uint64_t command_id)
-      : action(Action::RECREATE_OBJECT), commit_info(commit_info), command_id(command_id) {}
+  Delta(RecreateObjectTag /*unused*/, CommitInfo *commit_info, uint64_t delta_id, uint64_t command_id)
+      : action(Action::RECREATE_OBJECT), id(delta_id), commit_info(commit_info), command_id(command_id) {}
 
-  Delta(AddLabelTag /*unused*/, LabelId label, CommitInfo *commit_info, uint64_t command_id)
-      : action(Action::ADD_LABEL), commit_info(commit_info), command_id(command_id), label(label) {}
+  Delta(AddLabelTag /*unused*/, LabelId label, CommitInfo *commit_info, uint64_t delta_id, uint64_t command_id)
+      : action(Action::ADD_LABEL), id(delta_id), commit_info(commit_info), command_id(command_id), label(label) {}
 
-  Delta(RemoveLabelTag /*unused*/, LabelId label, CommitInfo *commit_info, uint64_t command_id)
-      : action(Action::REMOVE_LABEL), commit_info(commit_info), command_id(command_id), label(label) {}
+  Delta(RemoveLabelTag /*unused*/, LabelId label, CommitInfo *commit_info, uint64_t delta_id, uint64_t command_id)
+      : action(Action::REMOVE_LABEL), id(delta_id), commit_info(commit_info), command_id(command_id), label(label) {}
 
   Delta(SetPropertyTag /*unused*/, PropertyId key, const PropertyValue &value, CommitInfo *commit_info,
-        uint64_t command_id)
-      : action(Action::SET_PROPERTY), commit_info(commit_info), command_id(command_id), property({key, value}) {}
+        uint64_t delta_id, uint64_t command_id)
+      : action(Action::SET_PROPERTY),
+        id(delta_id),
+        commit_info(commit_info),
+        command_id(command_id),
+        property({key, value}) {}
 
   Delta(AddInEdgeTag /*unused*/, EdgeTypeId edge_type, VertexId vertex_id, EdgeRef edge, CommitInfo *commit_info,
-        uint64_t command_id)
+        uint64_t delta_id, uint64_t command_id)
       : action(Action::ADD_IN_EDGE),
+        id(delta_id),
         commit_info(commit_info),
         command_id(command_id),
         vertex_edge({edge_type, std::move(vertex_id), edge}) {}
 
   Delta(AddOutEdgeTag /*unused*/, EdgeTypeId edge_type, VertexId vertex_id, EdgeRef edge, CommitInfo *commit_info,
-        uint64_t command_id)
+        uint64_t delta_id, uint64_t command_id)
       : action(Action::ADD_OUT_EDGE),
+        id(delta_id),
         commit_info(commit_info),
         command_id(command_id),
         vertex_edge({edge_type, std::move(vertex_id), edge}) {}
 
   Delta(RemoveInEdgeTag /*unused*/, EdgeTypeId edge_type, VertexId vertex_id, EdgeRef edge, CommitInfo *commit_info,
-        uint64_t command_id)
+        uint64_t delta_id, uint64_t command_id)
       : action(Action::REMOVE_IN_EDGE),
+        id(delta_id),
         commit_info(commit_info),
         command_id(command_id),
         vertex_edge({edge_type, std::move(vertex_id), edge}) {}
 
   Delta(RemoveOutEdgeTag /*unused*/, EdgeTypeId edge_type, VertexId vertex_id, EdgeRef edge, CommitInfo *commit_info,
-        uint64_t command_id)
+        uint64_t delta_id, uint64_t command_id)
       : action(Action::REMOVE_OUT_EDGE),
+        id(delta_id),
         commit_info(commit_info),
         command_id(command_id),
         vertex_edge({edge_type, std::move(vertex_id), edge}) {}
@@ -226,8 +241,10 @@ struct Delta {
     }
   }
 
-  Action action;
+  friend bool operator==(const Delta &lhs, const Delta &rhs) noexcept { return lhs.id == rhs.id; }
 
+  Action action;
+  uint64_t id;
   // TODO: optimize with in-place copy
   CommitInfo *commit_info;
   uint64_t command_id;
