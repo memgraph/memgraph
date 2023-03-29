@@ -88,6 +88,8 @@ class Cursor {
   /// @throws QueryRuntimeException if something went wrong with execution
   virtual bool PullMultiple(MultiFrame &, ExecutionContext &) {MG_ASSERT(false, "PullMultipleIsNotImplemented"); return false; }
 
+  virtual void PushDown(const MultiFrame&) { MG_ASSERT(false, "PushDownIsNotImplemented"); }
+
   /// Resets the Cursor to its initial state.
   virtual void Reset() = 0;
 
@@ -350,11 +352,13 @@ and false on every following Pull.")
     public:
      OnceCursor() {}
      bool PullMultiple(MultiFrame &, ExecutionContext &) override;
+     void PushDown(const MultiFrame&) override;
      bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
     private:
+     std::optional<MultiFrame> pushed_down_multi_frame_;
      bool did_pull_{false};
    };
    cpp<#)
@@ -1966,27 +1970,6 @@ and returns true, once.")
    void set_input(std::shared_ptr<LogicalOperator> input) override {
      input_ = input;
    }
-   cpp<#)
-  (:private
-   #>cpp
-   class OptionalCursor : public Cursor {
-    public:
-     OptionalCursor(const Optional &, utils::MemoryResource *);
-     bool Pull(Frame &, ExecutionContext &) override;
-     void Shutdown() override;
-     void Reset() override;
-
-    private:
-     const Optional &self_;
-     const UniqueCursorPtr input_cursor_;
-     const UniqueCursorPtr optional_cursor_;
-     // indicates if the next Pull from this cursor should
-     // perform a Pull from the input_cursor_
-     // this is true when:
-     //  - first pulling from this Cursor
-     //  - previous Pull from this cursor exhausted the optional_cursor_
-     bool pull_input_{true};
-   };
    cpp<#)
   (:serialize (:slk))
   (:clone))
