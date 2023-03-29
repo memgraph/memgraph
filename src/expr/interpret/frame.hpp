@@ -41,7 +41,7 @@ class Frame {
   utils::MemoryResource *GetMemoryResource() const { return elems_.get_allocator().GetMemoryResource(); }
 
  private:
-  uint64_t id_{0u};
+  uint64_t id_{0U};
   utils::pmr::vector<TypedValue> elems_;
 };
 
