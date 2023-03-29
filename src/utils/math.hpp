@@ -81,6 +81,18 @@ bool LessThanDecimal(T a, T b) {
   return (b - a) > std::numeric_limits<T>::epsilon();
 }
 
+/*
+ * return 0 if a == b
+ * return 1 if a > b
+ * return -1 if a < b
+ */
+template <FloatingPoint T>
+int CompareDecimal(T a, T b) {
+  if (ApproxEqualDecimal(a, b)) return 0;
+  if (LessThanDecimal(a, b)) return -1;
+  return 1;
+}
+
 constexpr double ChiSquaredValue(double observed, double expected) {
   if (utils::ApproxEqualDecimal(expected, 0.0)) {
     return std::numeric_limits<double>::max();

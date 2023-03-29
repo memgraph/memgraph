@@ -544,19 +544,20 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
      * Comparator function between two indices. If new index has >= 10x vertices than the existing, it cannot be better.
      * If it is <= 10x in number of vertices, check average group size of property values. The index with smaller
      * average group size is better. If the average group size is the same, choose the one closer to the uniform
-     * distribution.
+     * distribution
      * @param found: Current best label-property index.
      * @param new_stats: Label-property index candidate.
      * @param vertex_count: New index's number of vertices.
+     * @return -1 if the new index is better, 0 if they are equal and 1 if the existing one is better.
      */
     auto compare_indices = [](std::optional<LabelPropertyIndex> &found, std::optional<storage::IndexStats> &new_stats,
                               int vertex_count) {
       if (!new_stats.has_value() || !found->index_stats.has_value() || vertex_count / 10.0 > found->vertex_count) {
-        return false;
+        return 1;
       }
-      return utils::LessThanDecimal(new_stats->avg_group_size, found->index_stats->avg_group_size) ||
-             utils::ApproxEqualDecimal(new_stats->avg_group_size, found->index_stats->avg_group_size) &&
-                 utils::LessThanDecimal(new_stats->statistic, found->index_stats->statistic);
+      int cmp_avg_group = utils::CompareDecimal(new_stats->avg_group_size, found->index_stats->avg_group_size);
+      if (cmp_avg_group != 0) return cmp_avg_group;
+      return utils::CompareDecimal(new_stats->statistic, found->index_stats->statistic);
     };
 
     std::optional<LabelPropertyIndex> found;
@@ -592,9 +593,12 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         // the index with equal avg group size and distribution closer to the uniform is better.
         // the index with less vertices is better.
         // the index with same number of vertices but more optimized filter is better.
-        if (!found || vertex_count * 10 < found->vertex_count || compare_indices(found, new_stats, vertex_count) ||
-            found->vertex_count > vertex_count ||
-            found->vertex_count == vertex_count && is_better_type(filter.property_filter->type_)) {
+        int cmp_res = compare_indices(found, new_stats, vertex_count);
+        if (!found || vertex_count * 10 < found->vertex_count || cmp_res == -1) {
+          found = LabelPropertyIndex{label, filter, vertex_count, new_stats};
+        }
+        if (cmp_res == 0 && (found->vertex_count > vertex_count ||
+                             found->vertex_count == vertex_count && is_better_type(filter.property_filter->type_))) {
           found = LabelPropertyIndex{label, filter, vertex_count, new_stats};
         }
       }
