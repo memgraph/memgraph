@@ -181,7 +181,8 @@ class SimulatorHandle {
           MG_ASSERT(m_opt.has_value(), "Wrong message type received compared to the expected type");
 
           return std::move(m_opt).value();
-        } else if (contains_items) {
+        }
+        if (contains_items) {
           auto count = can_rx.back().deliverable_at.time_since_epoch().count();
           auto now_count = cluster_wide_time_microseconds_.time_since_epoch().count();
           spdlog::trace("can't receive message yet due to artificial latency. deliverable_at: {}, now: {}", count,
