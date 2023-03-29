@@ -26,5 +26,6 @@ struct SimulatorConfig {
   uint64_t rng_seed = 0;
   Time start_time = Time::min();
   Time abort_time = Time::max();
+  Duration message_delay = std::chrono::microseconds(100);
 };
 };  // namespace memgraph::io::simulator
