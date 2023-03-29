@@ -209,8 +209,9 @@ import_external_library(librdkafka STATIC
              -DCMAKE_INSTALL_LIBDIR=lib
              -DWITH_SSL=ON
              # If we want SASL, we need to install it on build machines
-             -DWITH_SASL=OFF)
-target_link_libraries(librdkafka INTERFACE ${OPENSSL_LIBRARIES} ZLIB::ZLIB)
+             -DWITH_SASL=ON)
+find_package(Sasl REQUIRED)
+target_link_libraries(librdkafka INTERFACE ${OPENSSL_LIBRARIES} ZLIB::ZLIB ${SASL_STATIC_LIB})
 
 import_library(librdkafka++ STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/lib/librdkafka++.a

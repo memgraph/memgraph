@@ -57,6 +57,7 @@ MEMGRAPH_BUILD_DEPS=(
     dotnet-sdk-6.0 golang nodejs npm
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
+    libsasl2-dev # for librdkafka client
 )
 
 list() {
