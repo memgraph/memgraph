@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,9 +26,11 @@ class AuthChecker : public query::AuthChecker {
 
   bool IsUserAuthorized(const std::optional<std::string> &username,
                         const std::vector<query::AuthQuery::Privilege> &privileges) const override;
+
 #ifdef MG_ENTERPRISE
   std::unique_ptr<memgraph::query::FineGrainedAuthChecker> GetFineGrainedAuthChecker(
       const std::string &username, const memgraph::query::DbAccessor *dba) const override;
+
 #endif
   [[nodiscard]] static bool IsUserAuthorized(const memgraph::auth::User &user,
                                              const std::vector<memgraph::query::AuthQuery::Privilege> &privileges);

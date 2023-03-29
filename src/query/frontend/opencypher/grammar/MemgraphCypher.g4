@@ -102,6 +102,8 @@ memgraphCypherKeyword : cypherKeyword
                       | USER
                       | USERS
                       | VERSION
+                      | TERMINATE
+                      | TRANSACTIONS
                       ;
 
 symbolicName : UnescapedSymbolicName
@@ -127,6 +129,7 @@ query : cypherQuery
       | settingQuery
       | versionQuery
       | showConfigQuery
+      | transactionQueueQuery
       ;
 
 authQuery : createRole
@@ -197,6 +200,14 @@ settingQuery : setSetting
              | showSettings
              ;
 
+transactionQueueQuery : showTransactions
+                      | terminateTransactions
+                      ;
+
+showTransactions : SHOW TRANSACTIONS ;
+
+terminateTransactions : TERMINATE TRANSACTIONS transactionIdList;
+
 loadCsv : LOAD CSV FROM csvFile ( WITH | NO ) HEADER
          ( IGNORE BAD ) ?
          ( DELIMITER delimiter ) ?
@@ -259,6 +270,7 @@ privilege : CREATE
           | MODULE_READ
           | MODULE_WRITE
           | WEBSOCKET
+          | TRANSACTION_MANAGEMENT
           ;
 
 granularPrivilege : NOTHING | READ | UPDATE | CREATE_DELETE ;
@@ -402,3 +414,7 @@ showSettings : SHOW DATABASE SETTINGS ;
 showConfigQuery : SHOW CONFIG ;
 
 versionQuery : SHOW VERSION ;
+
+transactionIdList : transactionId ( ',' transactionId )* ;
+
+transactionId : literal ;
