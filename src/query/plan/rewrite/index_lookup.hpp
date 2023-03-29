@@ -552,7 +552,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
      */
     auto compare_indices = [](std::optional<LabelPropertyIndex> &found, std::optional<storage::IndexStats> &new_stats,
                               int vertex_count) {
-      if (!new_stats.has_value() || !found->index_stats.has_value() || vertex_count / 10.0 > found->vertex_count) {
+      if (!new_stats.has_value() || vertex_count / 10.0 > found->vertex_count) {
         return 1;
       }
       int cmp_avg_group = utils::CompareDecimal(new_stats->avg_group_size, found->index_stats->avg_group_size);
@@ -584,7 +584,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         };
 
         int64_t vertex_count = db_->VerticesCount(GetLabel(label), GetProperty(property));
-
         std::optional<storage::IndexStats> new_stats = db_->GetIndexStats(GetLabel(label), GetProperty(property));
 
         // Conditions, from more to less important:
@@ -593,11 +592,14 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         // the index with equal avg group size and distribution closer to the uniform is better.
         // the index with less vertices is better.
         // the index with same number of vertices but more optimized filter is better.
-        int cmp_res = compare_indices(found, new_stats, vertex_count);
-        if (!found || vertex_count * 10 < found->vertex_count || cmp_res == -1) {
+        if (!found || vertex_count * 10 < found->vertex_count) {
           found = LabelPropertyIndex{label, filter, vertex_count, new_stats};
+          continue;
         }
-        if (cmp_res == 0 && (found->vertex_count > vertex_count ||
+
+        if (int cmp_res = compare_indices(found, new_stats, vertex_count);
+            cmp_res == -1 ||
+            cmp_res == 0 && (found->vertex_count > vertex_count ||
                              found->vertex_count == vertex_count && is_better_type(filter.property_filter->type_))) {
           found = LabelPropertyIndex{label, filter, vertex_count, new_stats};
         }
