@@ -22,6 +22,7 @@
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/name_id_mapper.hpp"
+#include "storage_test_utils.hpp"
 #include "utils/file.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/uuid.hpp"
@@ -634,27 +635,6 @@ TEST_P(WalFileTest, PartialData) {
   AssertWalInfoEqual(infos[infos.size() - 1].second, memgraph::storage::durability::ReadWalInfo(current_file));
 }
 
-std::string_view StorageModeToString(memgraph::storage::StorageMode storage_mode) {
-  switch (storage_mode) {
-    case memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL:
-      return "IN_MEMORY_ANALYTICAL";
-    case memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL:
-      return "IN_MEMORY_TRANSACTIONAL";
-  }
-}
-
-class StorageModeTest : public ::testing::TestWithParam<memgraph::storage::StorageMode> {
- public:
-  struct PrintStringParamToName {
-    std::string operator()(const testing::TestParamInfo<memgraph::storage::StorageMode> &info) {
-      return std::string(StorageModeToString(static_cast<memgraph::storage::StorageMode>(info.param)));
-    }
-  };
-};
-
-inline constexpr std::array storage_modes{memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL,
-                                          memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
-
 class StorageModeWalFileTest : public ::testing::TestWithParam<memgraph::storage::StorageMode> {
  public:
   StorageModeWalFileTest() {}
@@ -674,6 +654,11 @@ class StorageModeWalFileTest : public ::testing::TestWithParam<memgraph::storage
   }
 
   std::filesystem::path storage_directory{std::filesystem::temp_directory_path() / "MG_test_unit_storage_v2_wal_file"};
+  struct PrintStringParamToName {
+    std::string operator()(const testing::TestParamInfo<memgraph::storage::StorageMode> &info) {
+      return std::string(StorageModeToString(static_cast<memgraph::storage::StorageMode>(info.param)));
+    }
+  };
 
  private:
   void Clear() {
@@ -709,4 +694,4 @@ TEST_P(StorageModeWalFileTest, StorageModeData) {
 }
 
 INSTANTIATE_TEST_CASE_P(ParameterizedWalStorageModeTests, StorageModeWalFileTest, ::testing::ValuesIn(storage_modes),
-                        StorageModeTest::PrintStringParamToName());
+                        StorageModeWalFileTest::PrintStringParamToName());

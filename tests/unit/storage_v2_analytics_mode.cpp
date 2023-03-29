@@ -4,32 +4,7 @@
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/vertex_accessor.hpp"
-
-namespace {
-
-int64_t VerticesCount(memgraph::storage::Storage::Accessor &accessor) {
-  int64_t count{0};
-  for ([[maybe_unused]] const auto &vertex : accessor.Vertices(memgraph::storage::View::OLD)) {
-    ++count;
-  }
-  return count;
-}
-
-inline constexpr std::array storage_modes{
-    memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL,
-    memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL,
-};
-
-}  // namespace
-
-std::string_view StorageModeToString(memgraph::storage::StorageMode storage_mode) {
-  switch (storage_mode) {
-    case memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL:
-      return "IN_MEMORY_ANALYTICAL";
-    case memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL:
-      return "IN_MEMORY_TRANSACTIONAL";
-  }
-}
+#include "storage_test_utils.hpp"
 
 class StorageModeTest : public ::testing::TestWithParam<memgraph::storage::StorageMode> {
  public:
@@ -50,8 +25,8 @@ TEST_P(StorageModeTest, Mode) {
   auto creator = storage.Access();
   auto other_analytics_mode_reader = storage.Access();
 
-  ASSERT_EQ(VerticesCount(creator), 0);
-  ASSERT_EQ(VerticesCount(other_analytics_mode_reader), 0);
+  ASSERT_EQ(CountVertices(creator, memgraph::storage::View::OLD), 0);
+  ASSERT_EQ(CountVertices(other_analytics_mode_reader, memgraph::storage::View::OLD), 0);
 
   static constexpr int vertex_creation_count = 10;
   {
@@ -59,8 +34,8 @@ TEST_P(StorageModeTest, Mode) {
       creator.CreateVertex();
 
       int64_t expected_vertices_count = storage_mode == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL ? i : 0;
-      ASSERT_EQ(VerticesCount(creator), expected_vertices_count);
-      ASSERT_EQ(VerticesCount(other_analytics_mode_reader), expected_vertices_count);
+      ASSERT_EQ(CountVertices(creator, memgraph::storage::View::OLD), expected_vertices_count);
+      ASSERT_EQ(CountVertices(other_analytics_mode_reader, memgraph::storage::View::OLD), expected_vertices_count);
     }
   }
 
