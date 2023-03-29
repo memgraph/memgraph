@@ -1844,8 +1844,8 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::OLD);
-    auto create_state = [this](const VertexAccessor &vertex, int64_t depth) {
-      return std::make_pair(vertex, upper_bound_set_ ? depth : 0);
+    auto create_state = [upper_bound_set = upper_bound_set_](const VertexAccessor &vertex, int64_t depth) {
+      return std::make_pair(vertex, upper_bound_set ? depth : 0);
     };
 
     // For the given (edge, direction, weight, depth) tuple checks if they
