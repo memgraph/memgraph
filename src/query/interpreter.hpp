@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <unordered_set>
+
 #include <gflags/gflags.h>
 
 #include "query/auth_checker.hpp"
@@ -37,6 +39,7 @@
 #include "utils/settings.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
+#include "utils/synchronized.hpp"
 #include "utils/thread_pool.hpp"
 #include "utils/timer.hpp"
 #include "utils/tsc.hpp"
@@ -197,12 +200,12 @@ struct PreparedQuery {
   plan::ReadWriteTypeChecker::RWType rw_type;
 };
 
+class Interpreter;
+
 /**
  * Holds data shared between multiple `Interpreter` instances (which might be
  * running concurrently).
  *
- * Users should initialize the context but should not modify it after it has
- * been passed to an `Interpreter` instance.
  */
 struct InterpreterContext {
   explicit InterpreterContext(storage::Storage *db, InterpreterConfig config,
@@ -232,6 +235,7 @@ struct InterpreterContext {
   const InterpreterConfig config;
 
   query::stream::Streams streams;
+  utils::Synchronized<std::unordered_set<Interpreter *>, utils::SpinLock> interpreters;
 };
 
 /// Function that is used to tell all active interpreters that they should stop
@@ -252,6 +256,10 @@ class Interpreter final {
     std::vector<query::AuthQuery::Privilege> privileges;
     std::optional<int> qid;
   };
+
+  std::optional<std::string> username_;
+  bool in_explicit_transaction_{false};
+  bool expect_rollback_{false};
 
   /**
    * Prepare a query for execution.
@@ -308,6 +316,11 @@ class Interpreter final {
 
   void BeginTransaction();
 
+  /*
+  Returns transaction id or empty if the db_accessor is not initialized.
+  */
+  std::optional<uint64_t> GetTransactionId() const;
+
   void CommitTransaction();
 
   void RollbackTransaction();
@@ -315,10 +328,14 @@ class Interpreter final {
   void SetNextTransactionIsolationLevel(storage::IsolationLevel isolation_level);
   void SetSessionIsolationLevel(storage::IsolationLevel isolation_level);
 
+  std::vector<TypedValue> GetQueries();
+
   /**
    * Abort the current multicommand transaction.
    */
   void Abort();
+
+  std::atomic<TransactionStatus> transaction_status_{TransactionStatus::IDLE};
 
  private:
   struct QueryExecution {
@@ -356,6 +373,8 @@ class Interpreter final {
   // and deletion of a single query execution, i.e. when a query finishes,
   // we reset the corresponding unique_ptr.
   std::vector<std::unique_ptr<QueryExecution>> query_executions_;
+  // all queries that are run as part of the current transaction
+  utils::Synchronized<std::vector<std::string>, utils::SpinLock> transaction_queries_;
 
   InterpreterContext *interpreter_context_;
 
@@ -365,8 +384,6 @@ class Interpreter final {
   std::unique_ptr<storage::Storage::Accessor> db_accessor_;
   std::optional<DbAccessor> execution_db_accessor_;
   std::optional<TriggerContextCollector> trigger_context_collector_;
-  bool in_explicit_transaction_{false};
-  bool expect_rollback_{false};
 
   std::optional<storage::IsolationLevel> interpreter_isolation_level;
   std::optional<storage::IsolationLevel> next_transaction_isolation_level;
@@ -383,12 +400,32 @@ class Interpreter final {
   }
 };
 
+class TransactionQueueQueryHandler {
+ public:
+  TransactionQueueQueryHandler() = default;
+  virtual ~TransactionQueueQueryHandler() = default;
+
+  TransactionQueueQueryHandler(const TransactionQueueQueryHandler &) = default;
+  TransactionQueueQueryHandler &operator=(const TransactionQueueQueryHandler &) = default;
+
+  TransactionQueueQueryHandler(TransactionQueueQueryHandler &&) = default;
+  TransactionQueueQueryHandler &operator=(TransactionQueueQueryHandler &&) = default;
+
+  static std::vector<std::vector<TypedValue>> ShowTransactions(const std::unordered_set<Interpreter *> &interpreters,
+                                                               const std::optional<std::string> &username,
+                                                               bool hasTransactionManagementPrivilege);
+
+  static std::vector<std::vector<TypedValue>> KillTransactions(
+      InterpreterContext *interpreter_context, const std::vector<std::string> &maybe_kill_transaction_ids,
+      const std::optional<std::string> &username, bool hasTransactionManagementPrivilege);
+};
+
 template <typename TStream>
 std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std::optional<int> n,
                                                     std::optional<int> qid) {
   MG_ASSERT(in_explicit_transaction_ || !qid, "qid can be only used in explicit transaction!");
-  const int qid_value = qid ? *qid : static_cast<int>(query_executions_.size() - 1);
 
+  const int qid_value = qid ? *qid : static_cast<int>(query_executions_.size() - 1);
   if (qid_value < 0 || qid_value >= query_executions_.size()) {
     throw InvalidArgumentsException("qid", "Query with specified ID does not exist!");
   }
@@ -448,6 +485,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
         // methods as we will delete summary contained in them which we need
         // after our query finished executing.
         query_executions_.clear();
+        transaction_queries_->clear();
       } else {
         // We can only clear this execution as some of the queries
         // in the transaction can be in unfinished state

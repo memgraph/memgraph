@@ -263,5 +263,8 @@ constexpr utils::TypeInfo query::ShowConfigQuery::kType{utils::TypeId::AST_SHOW_
 constexpr utils::TypeInfo query::AnalyzeGraphQuery::kType{utils::TypeId::AST_ANALYZE_GRAPH_QUERY, "AnalyzeGraphQuery",
                                                           &query::Query::kType};
 
+constexpr utils::TypeInfo query::TransactionQueueQuery::kType{utils::TypeId::AST_TRANSACTION_QUEUE_QUERY,
+                                                              "TransactionQueueQuery", &query::Query::kType};
+
 constexpr utils::TypeInfo query::Exists::kType{utils::TypeId::AST_EXISTS, "Exists", &query::Expression::kType};
 }  // namespace memgraph

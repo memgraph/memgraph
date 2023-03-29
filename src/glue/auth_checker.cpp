@@ -85,6 +85,7 @@ bool AuthChecker::IsUserAuthorized(const std::optional<std::string> &username,
 
   return maybe_user.has_value() && IsUserAuthorized(*maybe_user, privileges);
 }
+
 #ifdef MG_ENTERPRISE
 std::unique_ptr<memgraph::query::FineGrainedAuthChecker> AuthChecker::GetFineGrainedAuthChecker(
     const std::string &username, const memgraph::query::DbAccessor *dba) const {

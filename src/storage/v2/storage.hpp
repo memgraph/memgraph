@@ -12,6 +12,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <shared_mutex>
@@ -348,6 +349,8 @@ class Storage final {
     void Abort();
 
     void FinalizeTransaction();
+
+    std::optional<uint64_t> GetTransactionId() const;
 
    private:
     /// @throw std::bad_alloc

@@ -2284,7 +2284,7 @@ cpp<#
     (lcp:define-enum privilege
         (create delete match merge set remove index stats auth constraint
          dump replication durability read_file free_memory trigger config stream module_read module_write
-         websocket)
+         websocket transaction_management)
       (:serialize))
     (lcp:define-enum fine-grained-privilege
         (nothing read update create_delete)
@@ -2333,7 +2333,7 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
     AuthQuery::Privilege::FREE_MEMORY, AuthQuery::Privilege::TRIGGER,
     AuthQuery::Privilege::CONFIG,      AuthQuery::Privilege::STREAM,
     AuthQuery::Privilege::MODULE_READ, AuthQuery::Privilege::MODULE_WRITE,
-    AuthQuery::Privilege::WEBSOCKET};
+    AuthQuery::Privilege::WEBSOCKET,   AuthQuery::Privilege::TRANSACTION_MANAGEMENT};
 cpp<#
 
 (lcp:define-class info-query (query)
@@ -2671,6 +2671,26 @@ cpp<#
       (:serialize))
     #>cpp
     SettingQuery() = default;
+
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class transaction-queue-query (query)
+  ((action "Action" :scope :public)
+  (transaction_id_list "std::vector<Expression*>" :scope :public))
+
+  (:public
+    (lcp:define-enum action
+        (show-transactions terminate-transactions)
+      (:serialize))
+    #>cpp
+    TransactionQueueQuery() = default;
 
     DEFVISITABLE(QueryVisitor<void>);
     cpp<#)
