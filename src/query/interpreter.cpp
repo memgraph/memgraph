@@ -1884,27 +1884,29 @@ PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in
 }
 
 PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
-                                      InterpreterContext *interpreter_context) {
+                                      InterpreterContext *interpreter_context,
+                                      std::vector<Notification> *notifications) {
   if (in_explicit_transaction) {
     throw StorageModeModificationInMulticommandTxException();
   }
 
   auto *storage_mode_query = utils::Downcast<StorageModeQuery>(parsed_query.query);
   MG_ASSERT(storage_mode_query);
-
   const auto storage_mode = ToStorageMode(storage_mode_query->storage_mode_);
 
-  auto callback = [storage_mode, interpreter_context]() -> std::function<void()> {
-    interpreter_context->interpreters.WithLock([interpreter_context, storage_mode](const auto &interpreters_) {
-      auto exists_active_transaction = std::any_of(
-          interpreters_.begin(), interpreters_.end(),
-          [](const auto &interpreter) { return interpreter->transaction_status_.load() == TransactionStatus::ACTIVE; });
-      if (exists_active_transaction) {
-        throw StorageModeModificationInMultiTxException();
-      }
-      interpreter_context->db->SetStorageMode(storage_mode);
+  auto exists_active_transaction = interpreter_context->interpreters.WithLock([](const auto &interpreters_) {
+    return std::any_of(interpreters_.begin(), interpreters_.end(), [](const auto &interpreter) {
+      return interpreter->transaction_status_.load() != TransactionStatus::IDLE;
     });
-    return []() {};
+  });
+  if (exists_active_transaction) {
+    spdlog::info(
+        "Storage mode will be modified when there are no other active transactions. Check the status of the "
+        "transactions using 'SHOW TRANSACTIONS' query and ensure no other transactions are active.");
+  }
+
+  auto callback = [storage_mode, interpreter_context]() -> std::function<void()> {
+    return [interpreter_context, storage_mode] { interpreter_context->db->SetStorageMode(storage_mode); };
   }();
 
   return PreparedQuery{{},
@@ -2624,7 +2626,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<VersionQuery>(parsed_query.query)) {
       prepared_query = PrepareVersionQuery(std::move(parsed_query), in_explicit_transaction_);
     } else if (utils::Downcast<StorageModeQuery>(parsed_query.query)) {
-      prepared_query = PrepareStorageModeQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
+      prepared_query = PrepareStorageModeQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
+                                               &query_execution->notifications);
     } else if (utils::Downcast<TransactionQueueQuery>(parsed_query.query)) {
       prepared_query = PrepareTransactionQueueQuery(std::move(parsed_query), username_, in_explicit_transaction_,
                                                     interpreter_context_, &*execution_db_accessor_);

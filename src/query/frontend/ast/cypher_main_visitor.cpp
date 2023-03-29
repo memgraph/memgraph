@@ -473,12 +473,12 @@ antlrcpp::Any CypherMainVisitor::visitIsolationLevelQuery(MemgraphCypher::Isolat
 antlrcpp::Any CypherMainVisitor::visitStorageModeQuery(MemgraphCypher::StorageModeQueryContext *ctx) {
   auto *storage_mode_query = storage_->Create<StorageModeQuery>();
 
-  storage_mode_query->storage_mode_ = [mode = ctx->storageMode()]() {
+  storage_mode_query->storage_mode_ = std::invoke([mode = ctx->storageMode()]() {
     if (mode->IN_MEMORY_ANALYTICAL()) {
       return StorageModeQuery::StorageMode::IN_MEMORY_ANALYTICAL;
     }
     return StorageModeQuery::StorageMode::IN_MEMORY_TRANSACTIONAL;
-  }();
+  });
 
   query_ = storage_mode_query;
   return storage_mode_query;

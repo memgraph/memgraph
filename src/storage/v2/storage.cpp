@@ -2136,7 +2136,10 @@ void Storage::SetIsolationLevel(IsolationLevel isolation_level) {
   isolation_level_ = isolation_level;
 }
 
-void Storage::SetStorageMode(StorageMode storage_mode) { storage_mode_ = storage_mode; }
+void Storage::SetStorageMode(StorageMode storage_mode) {
+  std::unique_lock main_guard{main_lock_};
+  storage_mode_ = storage_mode;
+}
 
 StorageMode Storage::GetStorageMode() { return storage_mode_; }
 
