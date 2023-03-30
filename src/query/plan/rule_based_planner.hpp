@@ -656,6 +656,10 @@ class RuleBasedPlanner {
 
     last_op = std::make_unique<Apply>(std::move(last_op), std::move(subquery_op), subquery_has_return);
 
+    if (context_->is_write_query) {
+      last_op = std::make_unique<Accumulate>(std::move(last_op), last_op->ModifiedSymbols(symbol_table), true);
+    }
+
     return last_op;
   }
 

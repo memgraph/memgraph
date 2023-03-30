@@ -349,7 +349,7 @@ Feature: Subqueries
             | 2    | 2    | 1    |
             | 2    | 2    | 2    |
 
-    Scenario:
+    Scenario: Counter inside subquery
         Given an empty graph
         And having executed
             """
@@ -372,3 +372,37 @@ Feature: Subqueries
             | 1          | 3          |
             | 2          | 3          |
             | 3          | 3          |
+
+    Scenario: Advance command on multiple subqueries
+        Given an empty graph
+        When executing query:
+            """
+            CALL {
+                CREATE (create_node:Movie {title: "Forrest Gump"})
+            }
+            CALL {
+                MATCH (n) RETURN n
+            }
+            RETURN n.title AS title;
+            """
+        Then the result should be:
+            | title          |
+            | 'Forrest Gump' |
+
+    Scenario: Advance command on multiple subqueries with manual accumulate
+        Given an empty graph
+        When executing query:
+            """
+            CALL {
+                CREATE (create_node:Movie {title: "Forrest Gump"})
+                RETURN create_node
+            }
+            WITH create_node
+            CALL {
+                MATCH (n) RETURN n
+            }
+            RETURN n.title AS title;
+            """
+        Then the result should be:
+            | title          |
+            | 'Forrest Gump' |
