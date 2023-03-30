@@ -172,6 +172,24 @@ class ReplicationQueryHandler {
   virtual std::vector<Replica> ShowReplicas() const = 0;
 };
 
+class AnalyzeGraphQueryHandler {
+ public:
+  AnalyzeGraphQueryHandler() = default;
+  virtual ~AnalyzeGraphQueryHandler() = default;
+
+  AnalyzeGraphQueryHandler(const AnalyzeGraphQueryHandler &) = default;
+  AnalyzeGraphQueryHandler &operator=(const AnalyzeGraphQueryHandler &) = default;
+
+  AnalyzeGraphQueryHandler(AnalyzeGraphQueryHandler &&) = default;
+  AnalyzeGraphQueryHandler &operator=(AnalyzeGraphQueryHandler &&) = default;
+
+  static std::vector<std::vector<TypedValue>> AnalyzeGraphCreateStatistics(const std::span<std::string> labels,
+                                                                           DbAccessor *execution_db_accessor);
+
+  static std::vector<std::vector<TypedValue>> AnalyzeGraphDeleteStatistics(const std::span<std::string> labels,
+                                                                           DbAccessor *execution_db_accessor);
+};
+
 /**
  * A container for data related to the preparation of a query.
  */
