@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,6 +18,7 @@
 #include "auth/models.hpp"
 #include "glue/auth.hpp"
 #include "license/license.hpp"
+#include "query/constants.hpp"
 
 namespace {
 
@@ -253,19 +254,18 @@ bool AuthQueryHandler::CreateUser(const std::string &username, const std::option
 
     if (first_user) {
       spdlog::info("{} is first created user. Granting all privileges.", username);
-      GrantPrivilege(username, memgraph::query::kPrivilegesAll
+      GrantPrivilege(
+          username, memgraph::query::kPrivilegesAll
 #ifdef MG_ENTERPRISE
-                     ,
-                     {{{memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {memgraph::auth::kAsterisk}}}},
-                     {
-                       {
-                         {
-                           memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {
-                             memgraph::auth::kAsterisk
-                           }
-                         }
-                       }
-                     }
+          ,
+          {{{memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {memgraph::query::kAsterisk}}}},
+          {
+            {
+              {
+                memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE, { memgraph::query::kAsterisk }
+              }
+            }
+          }
 #endif
       );
     }

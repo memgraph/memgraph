@@ -16,6 +16,7 @@
 #include <filesystem>
 #include <optional>
 #include <shared_mutex>
+#include <span>
 #include <variant>
 
 #include "io/network/endpoint.hpp"
@@ -263,6 +264,30 @@ class Storage final {
                                    const std::optional<utils::Bound<PropertyValue>> &lower,
                                    const std::optional<utils::Bound<PropertyValue>> &upper) const {
       return storage_->indices_.label_property_index.ApproximateVertexCount(label, property, lower, upper);
+    }
+
+    std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId &label,
+                                                     const storage::PropertyId &property) const {
+      return storage_->indices_.label_property_index.GetIndexStats(label, property);
+    }
+
+    std::vector<std::pair<LabelId, PropertyId>> ClearIndexStats() {
+      return storage_->indices_.label_property_index.ClearIndexStats();
+    }
+
+    std::vector<std::pair<LabelId, PropertyId>> DeleteIndexStatsForLabels(const std::span<std::string> labels) {
+      std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;
+      std::for_each(labels.begin(), labels.end(), [this, &deleted_indexes](const auto &label_str) {
+        std::vector<std::pair<LabelId, PropertyId>> loc_results =
+            storage_->indices_.label_property_index.DeleteIndexStatsForLabel(NameToLabel(label_str));
+        deleted_indexes.insert(deleted_indexes.end(), std::make_move_iterator(loc_results.begin()),
+                               std::make_move_iterator(loc_results.end()));
+      });
+      return deleted_indexes;
+    }
+
+    void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property, const IndexStats &stats) {
+      storage_->indices_.label_property_index.SetIndexStats(label, property, stats);
     }
 
     /// @return Accessor to the deleted vertex if a deletion took place, std::nullopt otherwise
