@@ -31,6 +31,7 @@
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/replication_persistence_helper.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/file.hpp"
@@ -1929,22 +1930,26 @@ utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot() {
 
   std::lock_guard snapshot_guard(snapshot_lock_);
 
-  // Take master RW lock (for reading).
-  std::shared_lock<utils::RWLock> storage_guard(main_lock_);
+  auto snapshot_creator = [this]() {
+    auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION, storage_mode_);
+    // Create snapshot.
+    durability::CreateSnapshot(&transaction, snapshot_directory_, wal_directory_,
+                               config_.durability.snapshot_retention_count, &vertices_, &edges_, &name_id_mapper_,
+                               &indices_, &constraints_, config_.items, uuid_, epoch_id_, epoch_history_,
+                               &file_retainer_);
+    // Finalize snapshot transaction.
+    commit_log_->MarkFinished(transaction.start_timestamp);
+  };
 
-  // Create the transaction used to create the snapshot.
-  // We don't care about storage mode level here, since snapshot only reads data
-  // We can only add log about potential dirty reads when creating snapshot
-  auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION, storage_mode_);
+  if (storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+    std::unique_lock main_guard{main_lock_};
+    snapshot_creator();
+  } else {
+    // Take master RW lock (for reading).
+    std::shared_lock<utils::RWLock> storage_guard(main_lock_);
+    snapshot_creator();
+  }
 
-  // Create snapshot.
-  durability::CreateSnapshot(&transaction, snapshot_directory_, wal_directory_,
-                             config_.durability.snapshot_retention_count, &vertices_, &edges_, &name_id_mapper_,
-                             &indices_, &constraints_, config_.items, uuid_, epoch_id_, epoch_history_,
-                             &file_retainer_);
-
-  // Finalize snapshot transaction.
-  commit_log_->MarkFinished(transaction.start_timestamp);
   return {};
 }
 
