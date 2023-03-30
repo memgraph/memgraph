@@ -90,7 +90,7 @@ TEST_F(StorageModeMulitTxTest, ActiveTransaction) {
   }
 }
 
-TEST_F(StorageModeMulitTxTest, InActiveTransaction) {
+TEST_F(StorageModeMulitTxTest, InactiveTransaction) {
   bool started = false;
   std::jthread running_thread = std::jthread(
       [this, &started](std::stop_token st, int thread_index) {
@@ -116,12 +116,8 @@ TEST_F(StorageModeMulitTxTest, InActiveTransaction) {
 
 TEST_F(StorageModeMulitTxTest, ErrorChangeIsolationLevel) {
   bool started = false;
-  std::jthread running_thread = std::jthread(
-      [this, &started](std::stop_token st, int thread_index) {
-        running_interpreter.Interpret("CREATE ();");
-        started = true;
-      },
-      0);
+  std::jthread running_thread =
+      std::jthread([this, &started](std::stop_token st, int thread_index) { started = true; }, 0);
 
   {
     while (!started) {
