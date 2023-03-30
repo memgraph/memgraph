@@ -10,13 +10,12 @@
 
 #include <string>
 
-#include "auth/exceptions.hpp"
-
 namespace memgraph::auth {
+enum class PasswordEncryptionAlgorithm : uint8_t { BCRYPT, SHA256, SHA256_MULTIPLE };
+
 /// @throw AuthException if unable to encrypt the password.
 std::string EncryptPassword(const std::string &password);
 
 /// @throw AuthException if unable to verify the password.
 bool VerifyPassword(const std::string &password, const std::string &hash);
-
 }  // namespace memgraph::auth

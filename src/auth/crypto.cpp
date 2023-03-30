@@ -15,31 +15,43 @@
 #include <openssl/sha.h>
 
 #include "auth/exceptions.hpp"
+#include "utils/enum.hpp"
 #include "utils/flag_validation.hpp"
 
-inline constexpr std::string_view default_password_encryption = "bcrypt";
-inline constexpr std::string_view sha256_password_encryption = "sha256";
-inline constexpr std::string_view sha256_1024_iterations_password_encryption = "sha256-1024";
+namespace {
+using namespace std::literals;
+inline constexpr std::array password_encryption_mappings{
+    std::pair{"bcrypt"sv, memgraph::auth::PasswordEncryptionAlgorithm::BCRYPT},
+    std::pair{"sha256"sv, memgraph::auth::PasswordEncryptionAlgorithm::SHA256},
+    std::pair{"sha256-multiple"sv, memgraph::auth::PasswordEncryptionAlgorithm::SHA256_MULTIPLE}};
 
 inline constexpr uint64_t ONE_SHA_ITERATION = 1;
-inline constexpr uint64_t MULTIPLE_SHA_ITERATIONS = 1;
+inline constexpr uint64_t MULTIPLE_SHA_ITERATIONS = 1024;
+}  // namespace
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-unused-parameters)
-DEFINE_VALIDATED_string(password_encryption_algorithm, default_password_encryption.data(),
+DEFINE_VALIDATED_string(password_encryption_algorithm, "bcrypt",
                         "The password encryption algorithm used for authentication.", {
-                          if (value.empty()) {
-                            return true;
+                          if (const auto result =
+                                  memgraph::utils::IsValidEnumValueString(value, password_encryption_mappings);
+                              result.HasError()) {
+                            const auto error = result.GetError();
+                            switch (error) {
+                              case memgraph::utils::ValidationError::EmptyValue: {
+                                std::cout << "Password encryption algorithm cannot be empty." << std::endl;
+                                break;
+                              }
+                              case memgraph::utils::ValidationError::InvalidValue: {
+                                std::cout << "Invalid value for password encryption algorithm. Allowed values: "
+                                          << memgraph::utils::GetAllowedEnumValuesString(password_encryption_mappings)
+                                          << std::endl;
+                                break;
+                              }
+                            }
+                            return false;
                           }
-                          if (value == default_password_encryption) {
-                            return true;
-                          }
-                          if (value == sha256_password_encryption) {
-                            return true;
-                          }
-                          if (value == sha256_1024_iterations_password_encryption) {
-                            return true;
-                          }
-                          return false;
+
+                          return true;
                         });
 
 namespace memgraph::auth {
@@ -97,31 +109,41 @@ bool VerifyPassword(const std::string &password, const std::string &hash, const 
 }  // namespace SHA
 
 bool VerifyPassword(const std::string &password, const std::string &hash) {
-  if (FLAGS_password_encryption_algorithm == default_password_encryption) {
-    return BCrypt::VerifyPassword(password, hash);
+  const auto password_encryption_algorithm = utils::StringToEnum<PasswordEncryptionAlgorithm>(
+      FLAGS_password_encryption_algorithm, password_encryption_mappings);
+
+  if (!password_encryption_algorithm.has_value()) {
+    throw AuthException("Invalid password encryption flag '{}'!", FLAGS_password_encryption_algorithm);
   }
-  if (FLAGS_password_encryption_algorithm == sha256_password_encryption) {
-    return SHA::VerifyPassword(password, hash, ONE_SHA_ITERATION);
-  }
-  if (FLAGS_password_encryption_algorithm == sha256_1024_iterations_password_encryption) {
-    return SHA::VerifyPassword(password, hash, MULTIPLE_SHA_ITERATIONS);
+
+  switch (password_encryption_algorithm.value()) {
+    case PasswordEncryptionAlgorithm::BCRYPT:
+      return BCrypt::VerifyPassword(password, hash);
+    case PasswordEncryptionAlgorithm::SHA256:
+      return SHA::VerifyPassword(password, hash, ONE_SHA_ITERATION);
+    case PasswordEncryptionAlgorithm::SHA256_MULTIPLE:
+      return SHA::VerifyPassword(password, hash, MULTIPLE_SHA_ITERATIONS);
   }
 
   throw AuthException("Invalid password encryption flag '{}'!", FLAGS_password_encryption_algorithm);
 }
 
 std::string EncryptPassword(const std::string &password) {
-  if (FLAGS_password_encryption_algorithm == default_password_encryption) {
-    return BCrypt::EncryptPassword(password);
-  }
-  if (FLAGS_password_encryption_algorithm == sha256_password_encryption) {
-    return SHA::EncryptPassword(password, ONE_SHA_ITERATION);
-  }
-  if (FLAGS_password_encryption_algorithm == sha256_1024_iterations_password_encryption) {
-    return SHA::EncryptPassword(password, MULTIPLE_SHA_ITERATIONS);
+  const auto password_encryption_algorithm = utils::StringToEnum<PasswordEncryptionAlgorithm>(
+      FLAGS_password_encryption_algorithm, password_encryption_mappings);
+
+  if (!password_encryption_algorithm.has_value()) {
+    throw AuthException("Invalid password encryption flag '{}'!", FLAGS_password_encryption_algorithm);
   }
 
-  throw AuthException("Invalid password encryption flag '{}'!", FLAGS_password_encryption_algorithm);
+  switch (password_encryption_algorithm.value()) {
+    case PasswordEncryptionAlgorithm::BCRYPT:
+      return BCrypt::EncryptPassword(password);
+    case PasswordEncryptionAlgorithm::SHA256:
+      return SHA::EncryptPassword(password, ONE_SHA_ITERATION);
+    case PasswordEncryptionAlgorithm::SHA256_MULTIPLE:
+      return SHA::EncryptPassword(password, MULTIPLE_SHA_ITERATIONS);
+  }
 }
 
 }  // namespace memgraph::auth

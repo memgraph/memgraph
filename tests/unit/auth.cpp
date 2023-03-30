@@ -946,7 +946,7 @@ TEST_F(AuthWithVariousEncryptionAlgorithms, VerifyPasswordSHA256) {
 }
 
 TEST_F(AuthWithVariousEncryptionAlgorithms, VerifyPasswordSHA256_1024) {
-  FLAGS_password_encryption_algorithm = "sha256-1024";
+  FLAGS_password_encryption_algorithm = "sha256-multiple";
   auto hash = EncryptPassword("hello");
   ASSERT_TRUE(VerifyPassword("hello", hash));
   ASSERT_FALSE(VerifyPassword("hello1", hash));
@@ -954,6 +954,11 @@ TEST_F(AuthWithVariousEncryptionAlgorithms, VerifyPasswordSHA256_1024) {
 
 TEST_F(AuthWithVariousEncryptionAlgorithms, VerifyPasswordThrow) {
   FLAGS_password_encryption_algorithm = "abcd";
+  ASSERT_THROW(EncryptPassword("hello"), AuthException);
+}
+
+TEST_F(AuthWithVariousEncryptionAlgorithms, VerifyPasswordEmptyEncryptionThrow) {
+  FLAGS_password_encryption_algorithm = "";
   ASSERT_THROW(EncryptPassword("hello"), AuthException);
 }
 
@@ -989,7 +994,7 @@ TEST_F(AuthWithStorageWithVariousEncryptionAlgorithms, AddUserSha256) {
 }
 
 TEST_F(AuthWithStorageWithVariousEncryptionAlgorithms, AddUserSha256_1024) {
-  FLAGS_password_encryption_algorithm = "sha256-1024";
+  FLAGS_password_encryption_algorithm = "sha256-multiple";
   auto user = auth.AddUser("Alice", "alice");
   ASSERT_TRUE(user);
   ASSERT_EQ(user->username(), "alice");
@@ -997,5 +1002,10 @@ TEST_F(AuthWithStorageWithVariousEncryptionAlgorithms, AddUserSha256_1024) {
 
 TEST_F(AuthWithStorageWithVariousEncryptionAlgorithms, AddUserThrow) {
   FLAGS_password_encryption_algorithm = "abcd";
+  ASSERT_THROW(auth.AddUser("Alice", "alice"), AuthException);
+}
+
+TEST_F(AuthWithStorageWithVariousEncryptionAlgorithms, AddUserEmptyPasswordEncryptionThrow) {
+  FLAGS_password_encryption_algorithm = "";
   ASSERT_THROW(auth.AddUser("Alice", "alice"), AuthException);
 }
