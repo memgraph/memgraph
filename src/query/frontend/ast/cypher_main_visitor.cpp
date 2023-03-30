@@ -11,8 +11,10 @@
 
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include <support/Any.h>
+#include <tree/ParseTreeVisitor.h>
 
 #include <algorithm>
+#include <any>
 #include <climits>
 #include <codecvt>
 #include <cstring>
@@ -237,6 +239,23 @@ antlrcpp::Any CypherMainVisitor::visitDumpQuery(MemgraphCypher::DumpQueryContext
   auto *dump_query = storage_->Create<DumpQuery>();
   query_ = dump_query;
   return dump_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitAnalyzeGraphQuery(MemgraphCypher::AnalyzeGraphQueryContext *ctx) {
+  auto *analyze_graph_query = storage_->Create<AnalyzeGraphQuery>();
+  if (ctx->listOfColonSymbolicNames()) {
+    analyze_graph_query->labels_ =
+        std::any_cast<std::vector<std::string>>(ctx->listOfColonSymbolicNames()->accept(this));
+  } else {
+    analyze_graph_query->labels_.emplace_back("*");
+  }
+  if (ctx->DELETE()) {
+    analyze_graph_query->action_ = AnalyzeGraphQuery::Action::DELETE;
+  } else {
+    analyze_graph_query->action_ = AnalyzeGraphQuery::Action::ANALYZE;
+  }
+  query_ = analyze_graph_query;
+  return analyze_graph_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitReplicationQuery(MemgraphCypher::ReplicationQueryContext *ctx) {
@@ -631,6 +650,7 @@ void GetTopicNames(auto &destination, MemgraphCypher::TopicNamesContext *topic_n
     destination = std::any_cast<Expression *>(topic_names_ctx->accept(&visitor));
   }
 }
+
 }  // namespace
 
 antlrcpp::Any CypherMainVisitor::visitKafkaCreateStreamConfig(MemgraphCypher::KafkaCreateStreamConfigContext *ctx) {
@@ -881,6 +901,34 @@ antlrcpp::Any CypherMainVisitor::visitShowSettings(MemgraphCypher::ShowSettingsC
   auto *setting_query = storage_->Create<SettingQuery>();
   setting_query->action_ = SettingQuery::Action::SHOW_ALL_SETTINGS;
   return setting_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitTransactionQueueQuery(MemgraphCypher::TransactionQueueQueryContext *ctx) {
+  MG_ASSERT(ctx->children.size() == 1, "TransactionQueueQuery should have exactly one child!");
+  auto *transaction_queue_query = std::any_cast<TransactionQueueQuery *>(ctx->children[0]->accept(this));
+  query_ = transaction_queue_query;
+  return transaction_queue_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowTransactions(MemgraphCypher::ShowTransactionsContext * /*ctx*/) {
+  auto *transaction_shower = storage_->Create<TransactionQueueQuery>();
+  transaction_shower->action_ = TransactionQueueQuery::Action::SHOW_TRANSACTIONS;
+  return transaction_shower;
+}
+
+antlrcpp::Any CypherMainVisitor::visitTerminateTransactions(MemgraphCypher::TerminateTransactionsContext *ctx) {
+  auto *terminator = storage_->Create<TransactionQueueQuery>();
+  terminator->action_ = TransactionQueueQuery::Action::TERMINATE_TRANSACTIONS;
+  terminator->transaction_id_list_ = std::any_cast<std::vector<Expression *>>(ctx->transactionIdList()->accept(this));
+  return terminator;
+}
+
+antlrcpp::Any CypherMainVisitor::visitTransactionIdList(MemgraphCypher::TransactionIdListContext *ctx) {
+  std::vector<Expression *> transaction_ids;
+  for (auto *transaction_id : ctx->transactionId()) {
+    transaction_ids.push_back(std::any_cast<Expression *>(transaction_id->accept(this)));
+  }
+  return transaction_ids;
 }
 
 antlrcpp::Any CypherMainVisitor::visitVersionQuery(MemgraphCypher::VersionQueryContext * /*ctx*/) {
@@ -1410,19 +1458,23 @@ antlrcpp::Any CypherMainVisitor::visitEntityPrivilegeList(MemgraphCypher::Entity
   return result;
 }
 
+antlrcpp::Any CypherMainVisitor::visitListOfColonSymbolicNames(MemgraphCypher::ListOfColonSymbolicNamesContext *ctx) {
+  std::vector<std::string> symbolic_names;
+  for (auto *symbolic_name : ctx->colonSymbolicName()) {
+    symbolic_names.push_back(std::any_cast<std::string>(symbolic_name->symbolicName()->accept(this)));
+  }
+  return symbolic_names;
+}
+
 /**
  * @return std::vector<std::string>
  */
 antlrcpp::Any CypherMainVisitor::visitEntitiesList(MemgraphCypher::EntitiesListContext *ctx) {
   std::vector<std::string> entities;
-  if (ctx->listOfEntities()) {
-    for (auto *entity : ctx->listOfEntities()->entity()) {
-      entities.push_back(std::any_cast<std::string>(entity->symbolicName()->accept(this)));
-    }
-  } else {
-    entities.emplace_back("*");
+  if (ctx->listOfColonSymbolicNames()) {
+    return ctx->listOfColonSymbolicNames()->accept(this);
   }
-
+  entities.emplace_back("*");
   return entities;
 }
 
@@ -1451,6 +1503,7 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
   if (ctx->MODULE_READ()) return AuthQuery::Privilege::MODULE_READ;
   if (ctx->MODULE_WRITE()) return AuthQuery::Privilege::MODULE_WRITE;
   if (ctx->WEBSOCKET()) return AuthQuery::Privilege::WEBSOCKET;
+  if (ctx->TRANSACTION_MANAGEMENT()) return AuthQuery::Privilege::TRANSACTION_MANAGEMENT;
   LOG_FATAL("Should not get here - unknown privilege!");
 }
 
