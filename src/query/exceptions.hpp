@@ -229,6 +229,12 @@ class VersionInfoInMulticommandTxException : public QueryException {
       : QueryException("Version info query not allowed in multicommand transactions.") {}
 };
 
+class AnalyzeGraphInMulticommandTxException : public QueryException {
+ public:
+  AnalyzeGraphInMulticommandTxException()
+      : QueryException("Analyze graph query not allowed in multicommand transactions.") {}
+};
+
 class ReplicationException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
