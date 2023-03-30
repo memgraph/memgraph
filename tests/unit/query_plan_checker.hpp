@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,6 +17,7 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/preprocess.hpp"
+#include "query/v2/plan/operator.hpp"
 
 namespace memgraph::query::plan {
 
@@ -90,7 +91,7 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   }
   PRE_VISIT(Unwind);
   PRE_VISIT(Distinct);
-  
+
   bool PreVisit(Foreach &op) override {
     CheckOp(op);
     return false;
@@ -334,6 +335,35 @@ class ExpectScanAllByLabelProperty : public OpChecker<ScanAllByLabelProperty> {
  private:
   memgraph::storage::LabelId label_;
   memgraph::storage::PropertyId property_;
+};
+
+class ExpectScanByPrimaryKey : public OpChecker<v2::plan::ScanByPrimaryKey> {
+ public:
+  ExpectScanByPrimaryKey(memgraph::storage::v3::LabelId label, const std::vector<Expression *> &properties)
+      : label_(label), properties_(properties) {}
+
+  void ExpectOp(v2::plan::ScanByPrimaryKey &scan_all, const SymbolTable &) override {
+    EXPECT_EQ(scan_all.label_, label_);
+
+    bool primary_property_match = true;
+    for (const auto &expected_prop : properties_) {
+      bool has_match = false;
+      for (const auto &prop : scan_all.primary_key_) {
+        if (typeid(prop).hash_code() == typeid(expected_prop).hash_code()) {
+          has_match = true;
+        }
+      }
+      if (!has_match) {
+        primary_property_match = false;
+      }
+    }
+
+    EXPECT_TRUE(primary_property_match);
+  }
+
+ private:
+  memgraph::storage::v3::LabelId label_;
+  std::vector<Expression *> properties_;
 };
 
 class ExpectCartesian : public OpChecker<Cartesian> {

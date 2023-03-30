@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -46,7 +46,6 @@ struct VertexIdCmpr {
 std::optional<std::map<PropertyId, Value>> PrimaryKeysFromAccessor(const VertexAccessor &acc, View view,
                                                                    const Schemas::Schema &schema) {
   std::map<PropertyId, Value> ret;
-  auto props = acc.Properties(view);
   auto maybe_pk = acc.PrimaryKey(view);
   if (maybe_pk.HasError()) {
     spdlog::debug("Encountered an error while trying to get vertex primary key.");
@@ -58,7 +57,7 @@ std::optional<std::map<PropertyId, Value>> PrimaryKeysFromAccessor(const VertexA
     ret.emplace(schema.second[i].property_id, FromPropertyValueToValue(std::move(pk[i])));
   }
 
-  return ret;
+  return {std::move(ret)};
 }
 
 ShardResult<std::vector<msgs::Label>> FillUpSourceVertexSecondaryLabels(const std::optional<VertexAccessor> &v_acc,
@@ -99,7 +98,7 @@ ShardResult<std::map<PropertyId, Value>> FillUpSourceVertexProperties(const std:
     }
     auto pks = PrimaryKeysFromAccessor(*v_acc, view, schema);
     if (pks) {
-      src_vertex_properties.merge(*pks);
+      src_vertex_properties.merge(std::move(*pks));
     }
 
   } else if (req.src_vertex_properties.value().empty()) {
@@ -321,12 +320,15 @@ EdgeFiller InitializeEdgeFillerFunction(const msgs::ExpandOneRequest &req) {
         value_properties.insert(std::make_pair(prop_key, FromPropertyValueToValue(std::move(prop_val))));
       }
       using EdgeWithAllProperties = msgs::ExpandOneResultRow::EdgeWithAllProperties;
-      EdgeWithAllProperties edges{ToMsgsVertexId(edge.From()), msgs::EdgeType{edge.EdgeType()}, edge.Gid().AsUint(),
-                                  std::move(value_properties)};
+
       if (is_in_edge) {
-        result_row.in_edges_with_all_properties.push_back(std::move(edges));
+        result_row.in_edges_with_all_properties.push_back(
+            EdgeWithAllProperties{ToMsgsVertexId(edge.From()), msgs::EdgeType{edge.EdgeType()}, edge.Gid().AsUint(),
+                                  std::move(value_properties)});
       } else {
-        result_row.out_edges_with_all_properties.push_back(std::move(edges));
+        result_row.out_edges_with_all_properties.push_back(
+            EdgeWithAllProperties{ToMsgsVertexId(edge.To()), msgs::EdgeType{edge.EdgeType()}, edge.Gid().AsUint(),
+                                  std::move(value_properties)});
       }
       return {};
     };
@@ -346,12 +348,15 @@ EdgeFiller InitializeEdgeFillerFunction(const msgs::ExpandOneRequest &req) {
         value_properties.emplace_back(FromPropertyValueToValue(std::move(property_result.GetValue())));
       }
       using EdgeWithSpecificProperties = msgs::ExpandOneResultRow::EdgeWithSpecificProperties;
-      EdgeWithSpecificProperties edges{ToMsgsVertexId(edge.From()), msgs::EdgeType{edge.EdgeType()},
-                                       edge.Gid().AsUint(), std::move(value_properties)};
+
       if (is_in_edge) {
-        result_row.in_edges_with_specific_properties.push_back(std::move(edges));
+        result_row.in_edges_with_specific_properties.push_back(
+            EdgeWithSpecificProperties{ToMsgsVertexId(edge.From()), msgs::EdgeType{edge.EdgeType()},
+                                       edge.Gid().AsUint(), std::move(value_properties)});
       } else {
-        result_row.out_edges_with_specific_properties.push_back(std::move(edges));
+        result_row.out_edges_with_specific_properties.push_back(
+            EdgeWithSpecificProperties{ToMsgsVertexId(edge.To()), msgs::EdgeType{edge.EdgeType()}, edge.Gid().AsUint(),
+                                       std::move(value_properties)});
       }
       return {};
     };
@@ -378,13 +383,10 @@ bool FilterOnEdge(DbAccessor &dba, const storage::v3::VertexAccessor &v_acc, con
 }
 
 ShardResult<msgs::ExpandOneResultRow> GetExpandOneResult(
-    Shard::Accessor &acc, msgs::VertexId src_vertex, const msgs::ExpandOneRequest &req,
+    VertexAccessor v_acc, msgs::VertexId src_vertex, const msgs::ExpandOneRequest &req,
     const EdgeUniquenessFunction &maybe_filter_based_on_edge_uniqueness, const EdgeFiller &edge_filler,
     const Schemas::Schema &schema) {
   /// Fill up source vertex
-  const auto primary_key = ConvertPropertyVector(src_vertex.second);
-  auto v_acc = acc.FindVertex(primary_key, View::NEW);
-
   msgs::Vertex source_vertex = {.id = src_vertex};
   auto maybe_secondary_labels = FillUpSourceVertexSecondaryLabels(v_acc, req);
   if (maybe_secondary_labels.HasError()) {

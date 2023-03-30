@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -46,7 +46,7 @@ class SimulatorHandle {
   std::map<PromiseKey, DeadlineAndOpaquePromise> promises_;
 
   // messages that are sent to servers that may later receive them
-  std::map<PartialAddress, std::vector<OpaqueMessage>> can_receive_;
+  std::map<PartialAddress, std::deque<OpaqueMessage>> can_receive_;
 
   Time cluster_wide_time_microseconds_;
   bool should_shut_down_ = false;
@@ -105,19 +105,19 @@ class SimulatorHandle {
 
   bool ShouldShutDown() const;
 
-  template <Message Request, Message Response>
-  ResponseFuture<Response> SubmitRequest(Address to_address, Address from_address, Request &&request, Duration timeout,
-                                         std::function<bool()> &&maybe_tick_simulator,
-                                         std::function<void()> &&fill_notifier) {
+  template <Message ResponseT, Message RequestT>
+  ResponseFuture<ResponseT> SubmitRequest(Address to_address, Address from_address, RValueRef<RequestT> request,
+                                          Duration timeout, std::function<bool()> &&maybe_tick_simulator,
+                                          std::function<void()> &&fill_notifier) {
     auto type_info = TypeInfoFor(request);
     std::string demangled_name = boost::core::demangle(type_info.get().name());
     spdlog::trace("simulator sending request {} to {}", demangled_name, to_address);
 
-    auto [future, promise] = memgraph::io::FuturePromisePairWithNotifications<ResponseResult<Response>>(
+    auto [future, promise] = memgraph::io::FuturePromisePairWithNotifications<ResponseResult<ResponseT>>(
         // set notifier for when the Future::Wait is called
-        std::forward<std::function<bool()>>(maybe_tick_simulator),
+        std::move(maybe_tick_simulator),
         // set notifier for when Promise::Fill is called
-        std::forward<std::function<void()>>(fill_notifier));
+        std::move(fill_notifier));
 
     {
       std::unique_lock<std::mutex> lock(mu_);
@@ -126,12 +126,13 @@ class SimulatorHandle {
 
       const Time deadline = cluster_wide_time_microseconds_ + timeout;
 
-      std::any message(request);
+      std::any message(std::move(request));
       OpaqueMessage om{.to_address = to_address,
                        .from_address = from_address,
                        .request_id = request_id,
                        .message = std::move(message),
-                       .type_info = type_info};
+                       .type_info = type_info,
+                       .deliverable_at = cluster_wide_time_microseconds_ + config_.message_delay};
       in_flight_.emplace_back(std::make_pair(to_address, std::move(om)));
 
       PromiseKey promise_key{.requester_address = from_address, .request_id = request_id};
@@ -165,8 +166,12 @@ class SimulatorHandle {
 
     while (!should_shut_down_ && (cluster_wide_time_microseconds_ < deadline)) {
       if (can_receive_.contains(partial_address)) {
-        std::vector<OpaqueMessage> &can_rx = can_receive_.at(partial_address);
-        if (!can_rx.empty()) {
+        std::deque<OpaqueMessage> &can_rx = can_receive_.at(partial_address);
+
+        bool contains_items = !can_rx.empty();
+        bool can_receive = contains_items && can_rx.back().deliverable_at <= cluster_wide_time_microseconds_;
+
+        if (can_receive) {
           OpaqueMessage message = std::move(can_rx.back());
           can_rx.pop_back();
 
@@ -176,6 +181,12 @@ class SimulatorHandle {
           MG_ASSERT(m_opt.has_value(), "Wrong message type received compared to the expected type");
 
           return std::move(m_opt).value();
+        }
+        if (contains_items) {
+          auto count = can_rx.back().deliverable_at.time_since_epoch().count();
+          auto now_count = cluster_wide_time_microseconds_.time_since_epoch().count();
+          spdlog::trace("can't receive message yet due to artificial latency. deliverable_at: {}, now: {}", count,
+                        now_count);
         }
       }
 
@@ -194,7 +205,7 @@ class SimulatorHandle {
   }
 
   template <Message M>
-  void Send(Address to_address, Address from_address, RequestId request_id, M message) {
+  void Send(Address to_address, Address from_address, RequestId request_id, RValueRef<M> message) {
     spdlog::trace("sending message from {} to {}", from_address.last_known_port, to_address.last_known_port);
     auto type_info = TypeInfoFor(message);
     {
@@ -204,7 +215,8 @@ class SimulatorHandle {
                        .from_address = from_address,
                        .request_id = request_id,
                        .message = std::move(message_any),
-                       .type_info = type_info};
+                       .type_info = type_info,
+                       .deliverable_at = cluster_wide_time_microseconds_ + config_.message_delay};
       in_flight_.emplace_back(std::make_pair(std::move(to_address), std::move(om)));
 
       stats_.total_messages++;

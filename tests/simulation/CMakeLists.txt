@@ -17,7 +17,7 @@ function(add_simulation_test test_cpp)
   # requires unique logical target names
   set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
 
-  target_link_libraries(${target_name} mg-storage-v3 mg-communication mg-utils mg-io mg-io-simulator mg-coordinator mg-query-v2)
+  target_link_libraries(${target_name} mg-communication mg-utils mg-io mg-io-simulator mg-coordinator mg-query-v2 mg-storage-v3)
   target_link_libraries(${target_name} Boost::headers)
   target_link_libraries(${target_name} gtest gtest_main gmock rapidcheck rapidcheck_gtest)
 
@@ -32,4 +32,5 @@ add_simulation_test(trial_query_storage/query_storage_test.cpp)
 add_simulation_test(sharded_map.cpp)
 add_simulation_test(shard_rsm.cpp)
 add_simulation_test(cluster_property_test.cpp)
+add_simulation_test(cluster_property_test_cypher_queries.cpp)
 add_simulation_test(request_router.cpp)

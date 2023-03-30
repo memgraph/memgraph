@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,7 @@
 #pragma once
 
 #include <chrono>
+#include <cstdint>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -25,6 +26,7 @@
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/result.hpp"
+#include "utils/fnv.hpp"
 
 namespace memgraph::msgs {
 
@@ -36,6 +38,7 @@ struct Value;
 struct Label {
   LabelId id;
   friend bool operator==(const Label &lhs, const Label &rhs) { return lhs.id == rhs.id; }
+  friend bool operator==(const Label &lhs, const LabelId &rhs) { return lhs.id == rhs; }
 };
 
 // TODO(kostasrim) update this with CompoundKey, same for the rest of the file.
@@ -569,6 +572,16 @@ struct CommitResponse {
   std::optional<ShardError> error;
 };
 
+struct SplitInfo {
+  PrimaryKey split_key;
+  uint64_t shard_version;
+};
+
+struct PerformSplitDataInfo {
+  PrimaryKey split_key;
+  uint64_t shard_version;
+};
+
 using ReadRequests = std::variant<ExpandOneRequest, GetPropertiesRequest, ScanVerticesRequest>;
 using ReadResponses = std::variant<ExpandOneResponse, GetPropertiesResponse, ScanVerticesResponse>;
 
@@ -578,3 +591,48 @@ using WriteResponses = std::variant<CreateVerticesResponse, DeleteVerticesRespon
                                     CreateExpandResponse, DeleteEdgesResponse, UpdateEdgesResponse, CommitResponse>;
 
 }  // namespace memgraph::msgs
+
+namespace std {
+
+template <>
+struct hash<memgraph::msgs::Value>;
+
+template <>
+struct hash<memgraph::msgs::VertexId> {
+  size_t operator()(const memgraph::msgs::VertexId &id) const {
+    using LabelId = memgraph::storage::v3::LabelId;
+    using Value = memgraph::msgs::Value;
+    return memgraph::utils::HashCombine<LabelId, std::vector<Value>, std::hash<LabelId>,
+                                        memgraph::utils::FnvCollection<std::vector<Value>, Value>>{}(id.first.id,
+                                                                                                     id.second);
+  }
+};
+
+template <>
+struct hash<memgraph::msgs::Value> {
+  size_t operator()(const memgraph::msgs::Value &value) const {
+    using Type = memgraph::msgs::Value::Type;
+    switch (value.type) {
+      case Type::Null:
+        return std::hash<size_t>{}(0U);
+      case Type::Bool:
+        return std::hash<bool>{}(value.bool_v);
+      case Type::Int64:
+        return std::hash<int64_t>{}(value.int_v);
+      case Type::Double:
+        return std::hash<double>{}(value.double_v);
+      case Type::String:
+        return std::hash<std::string>{}(value.string_v);
+      case Type::List:
+        LOG_FATAL("Add hash for lists");
+      case Type::Map:
+        LOG_FATAL("Add hash for maps");
+      case Type::Vertex:
+        LOG_FATAL("Add hash for vertices");
+      case Type::Edge:
+        LOG_FATAL("Add hash for edges");
+    }
+  }
+};
+
+}  // namespace std

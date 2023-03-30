@@ -9,6 +9,7 @@ function(add_manual_test test_cpp)
   get_filename_component(exec_name ${test_cpp} NAME_WE)
   set(target_name ${test_prefix}${exec_name})
   add_executable(${target_name} ${test_cpp} ${ARGN})
+
   # OUTPUT_NAME sets the real name of a target when it is built and can be
   # used to help create two targets of the same name even though CMake
   # requires unique logical target names
@@ -21,7 +22,7 @@ target_link_libraries(${test_prefix}antlr_parser antlr_opencypher_parser_lib)
 
 add_manual_test(antlr_sigsegv.cpp)
 target_link_libraries(${test_prefix}antlr_sigsegv gtest gtest_main
-                      antlr_opencypher_parser_lib mg-utils)
+  antlr_opencypher_parser_lib mg-utils)
 
 add_manual_test(antlr_tree_pretty_print.cpp)
 target_link_libraries(${test_prefix}antlr_tree_pretty_print antlr_opencypher_parser_lib)
@@ -37,13 +38,15 @@ target_link_libraries(${test_prefix}query_hash mg-query)
 
 add_manual_test(query_planner.cpp interactive/planning.cpp)
 target_link_libraries(${test_prefix}query_planner mg-query)
-if (READLINE_FOUND)
+
+if(READLINE_FOUND)
   target_link_libraries(${test_prefix}query_planner readline)
 endif()
 
 add_manual_test(query_execution_dummy.cpp)
 target_link_libraries(${test_prefix}query_execution_dummy mg-query)
-if (READLINE_FOUND)
+
+if(READLINE_FOUND)
   target_link_libraries(${test_prefix}query_execution_dummy readline)
 endif()
 
@@ -61,3 +64,6 @@ target_link_libraries(${test_prefix}ssl_client mg-communication)
 
 add_manual_test(ssl_server.cpp)
 target_link_libraries(${test_prefix}ssl_server mg-communication)
+
+add_manual_test(query_performance.cpp)
+target_link_libraries(${test_prefix}query_performance mg-communication mg-utils mg-io mg-io-simulator mg-coordinator mg-query-v2 mg-storage-v3 mg-query mg-storage-v2)

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -121,6 +121,17 @@ inline std::vector<Value> ConvertValueVector(const std::vector<v3::PropertyValue
 
   for (const auto &elem : vec) {
     ret.push_back(FromPropertyValueToValue(v3::PropertyValue{elem}));
+  }
+
+  return ret;
+}
+
+inline std::vector<Value> ConvertValueVector(std::vector<v3::PropertyValue> &&vec) {
+  std::vector<Value> ret;
+  ret.reserve(vec.size());
+
+  for (auto &&elem : vec) {
+    ret.push_back(FromPropertyValueToValue(std::move(elem)));
   }
 
   return ret;

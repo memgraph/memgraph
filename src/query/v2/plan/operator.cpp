@@ -34,9 +34,11 @@
 #include "query/v2/bindings/eval.hpp"
 #include "query/v2/bindings/symbol_table.hpp"
 #include "query/v2/context.hpp"
+#include "query/v2/conversions.hpp"
 #include "query/v2/db_accessor.hpp"
 #include "query/v2/exceptions.hpp"
 #include "query/v2/frontend/ast/ast.hpp"
+#include "query/v2/multiframe.hpp"
 #include "query/v2/path.hpp"
 #include "query/v2/plan/scoped_profile.hpp"
 #include "query/v2/request_router.hpp"
@@ -92,7 +94,7 @@ extern const Event ScanAllByLabelOperator;
 extern const Event ScanAllByLabelPropertyRangeOperator;
 extern const Event ScanAllByLabelPropertyValueOperator;
 extern const Event ScanAllByLabelPropertyOperator;
-extern const Event ScanAllByIdOperator;
+extern const Event ScanByPrimaryKeyOperator;
 extern const Event ExpandOperator;
 extern const Event ExpandVariableOperator;
 extern const Event ConstructNamedPathOperator;
@@ -170,9 +172,8 @@ uint64_t ComputeProfilingKey(const T *obj) {
 class DistributedCreateNodeCursor : public Cursor {
  public:
   using InputOperator = std::shared_ptr<memgraph::query::v2::plan::LogicalOperator>;
-  DistributedCreateNodeCursor(const InputOperator &op, utils::MemoryResource *mem,
-                              std::vector<const NodeCreationInfo *> nodes_info)
-      : input_cursor_(op->MakeCursor(mem)), nodes_info_(std::move(nodes_info)) {}
+  DistributedCreateNodeCursor(const InputOperator &op, utils::MemoryResource *mem, const NodeCreationInfo &node_info)
+      : input_cursor_(op->MakeCursor(mem)), node_info_(node_info) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("CreateNode");
@@ -189,67 +190,140 @@ class DistributedCreateNodeCursor : public Cursor {
     return false;
   }
 
+  bool PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("CreateNodeMF");
+
+    auto *request_router = context.request_router;
+    if (!input_cursor_->PullMultiple(multi_frame, context)) {
+      return false;
+    }
+    {
+      SCOPED_REQUEST_WAIT_PROFILE;
+      request_router->CreateVertices(NodeCreationInfoToRequests(context, multi_frame));
+    }
+    PlaceNodesOnTheMultiFrame(multi_frame, context);
+    return true;
+  }
+
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override {}
 
   void PlaceNodeOnTheFrame(Frame &frame, ExecutionContext &context) {
     // TODO(kostasrim) Make this work with batching
-    const auto primary_label = msgs::Label{.id = nodes_info_[0]->labels[0]};
+    const auto primary_label = msgs::Label{.id = node_info_.labels[0]};
     msgs::Vertex v{.id = std::make_pair(primary_label, primary_keys_[0])};
-    frame[nodes_info_.front()->symbol] =
+    frame[node_info_.symbol] =
         TypedValue(query::v2::accessors::VertexAccessor(std::move(v), src_vertex_props_[0], context.request_router));
   }
 
   std::vector<msgs::NewVertex> NodeCreationInfoToRequest(ExecutionContext &context, Frame &frame) {
+    primary_keys_.clear();
     std::vector<msgs::NewVertex> requests;
-    // TODO(kostasrim) this assertion should be removed once we support multiple vertex creation
-    MG_ASSERT(nodes_info_.size() == 1);
     msgs::PrimaryKey pk;
-    for (const auto &node_info : nodes_info_) {
+    msgs::NewVertex rqst;
+    MG_ASSERT(!node_info_.labels.empty(), "Cannot determine primary label");
+    const auto primary_label = node_info_.labels[0];
+    // TODO(jbajic) Send also the properties that are not part of primary key
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, nullptr,
+                                  storage::v3::View::NEW);
+    if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info_.properties)) {
+      for (const auto &[property, value_expression] : *node_info_properties) {
+        TypedValue val = value_expression->Accept(evaluator);
+        auto msgs_value = TypedValueToValue(val);
+        if (context.request_router->IsPrimaryProperty(primary_label, property)) {
+          rqst.primary_key.push_back(msgs_value);
+          pk.push_back(std::move(msgs_value));
+        } else {
+          rqst.properties.emplace_back(property, std::move(msgs_value));
+        }
+      }
+    } else {
+      auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info_.properties)).ValueMap();
+      for (const auto &[property, typed_value] : property_map) {
+        auto property_str = std::string(property);
+        auto property_id = context.request_router->NameToProperty(property_str);
+        auto msgs_value = TypedValueToValue(typed_value);
+        if (context.request_router->IsPrimaryProperty(primary_label, property_id)) {
+          rqst.primary_key.push_back(msgs_value);
+          pk.push_back(std::move(msgs_value));
+        } else
+          rqst.properties.emplace_back(property_id, std::move(msgs_value));
+      }
+    }
+
+    // TODO(kostasrim) Copy non primary labels as well
+    rqst.label_ids.push_back(msgs::Label{.id = primary_label});
+    src_vertex_props_.push_back(rqst.properties);
+    requests.push_back(std::move(rqst));
+
+    primary_keys_.push_back(std::move(pk));
+    return requests;
+  }
+
+  void PlaceNodesOnTheMultiFrame(MultiFrame &multi_frame, ExecutionContext &context) {
+    auto multi_frame_modifier = multi_frame.GetValidFramesModifier();
+    size_t i = 0;
+    MG_ASSERT(std::distance(multi_frame_modifier.begin(), multi_frame_modifier.end()));
+    for (auto &frame : multi_frame_modifier) {
+      const auto primary_label = msgs::Label{.id = node_info_.labels[0]};
+      msgs::Vertex v{.id = std::make_pair(primary_label, primary_keys_[i])};
+      frame[node_info_.symbol] = TypedValue(
+          query::v2::accessors::VertexAccessor(std::move(v), src_vertex_props_[i++], context.request_router));
+    }
+  }
+
+  std::vector<msgs::NewVertex> NodeCreationInfoToRequests(ExecutionContext &context, MultiFrame &multi_frame) {
+    primary_keys_.clear();
+    std::vector<msgs::NewVertex> requests;
+    auto multi_frame_modifier = multi_frame.GetValidFramesModifier();
+    for (auto &frame : multi_frame_modifier) {
+      msgs::PrimaryKey pk;
       msgs::NewVertex rqst;
-      MG_ASSERT(!node_info->labels.empty(), "Cannot determine primary label");
-      const auto primary_label = node_info->labels[0];
-      // TODO(jbajic) Fix properties not send,
-      // suggestion: ignore distinction between properties and primary keys
-      // since schema validation is done on storage side
+      MG_ASSERT(!node_info_.labels.empty(), "Cannot determine primary label");
+      const auto primary_label = node_info_.labels[0];
+      MG_ASSERT(context.request_router->IsPrimaryLabel(primary_label), "First label has to be a primary label!");
+      // TODO(jbajic) Send also the properties that are not part of primary key
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, nullptr,
                                     storage::v3::View::NEW);
-      if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info->properties)) {
-        for (const auto &[key, value_expression] : *node_info_properties) {
+      if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info_.properties)) {
+        for (const auto &[property, value_expression] : *node_info_properties) {
           TypedValue val = value_expression->Accept(evaluator);
-          if (context.request_router->IsPrimaryKey(primary_label, key)) {
-            rqst.primary_key.push_back(TypedValueToValue(val));
-            pk.push_back(TypedValueToValue(val));
+          auto msgs_value = TypedValueToValue(val);
+          if (context.request_router->IsPrimaryProperty(primary_label, property)) {
+            rqst.primary_key.push_back(msgs_value);
+            pk.push_back(std::move(msgs_value));
+          } else {
+            rqst.properties.emplace_back(property, std::move(msgs_value));
           }
         }
       } else {
-        auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info->properties)).ValueMap();
-        for (const auto &[key, value] : property_map) {
-          auto key_str = std::string(key);
-          auto property_id = context.request_router->NameToProperty(key_str);
-          if (context.request_router->IsPrimaryKey(primary_label, property_id)) {
-            rqst.primary_key.push_back(TypedValueToValue(value));
-            pk.push_back(TypedValueToValue(value));
-          }
+        auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info_.properties)).ValueMap();
+        for (const auto &[property, typed_value] : property_map) {
+          auto property_str = std::string(property);
+          auto property_id = context.request_router->NameToProperty(property_str);
+          auto msgs_value = TypedValueToValue(typed_value);
+          if (context.request_router->IsPrimaryProperty(primary_label, property_id)) {
+            rqst.primary_key.push_back(msgs_value);
+            pk.push_back(std::move(msgs_value));
+          } else
+            rqst.properties.emplace_back(property_id, std::move(msgs_value));
         }
       }
 
-      if (node_info->labels.empty()) {
-        throw QueryRuntimeException("Primary label must be defined!");
-      }
       // TODO(kostasrim) Copy non primary labels as well
       rqst.label_ids.push_back(msgs::Label{.id = primary_label});
       src_vertex_props_.push_back(rqst.properties);
       requests.push_back(std::move(rqst));
+      primary_keys_.push_back(std::move(pk));
     }
-    primary_keys_.push_back(std::move(pk));
+
     return requests;
   }
 
  private:
   const UniqueCursorPtr input_cursor_;
-  std::vector<const NodeCreationInfo *> nodes_info_;
+  NodeCreationInfo node_info_;
   std::vector<std::vector<std::pair<storage::v3::PropertyId, msgs::Value>>> src_vertex_props_;
   std::vector<msgs::PrimaryKey> primary_keys_;
 };
@@ -264,15 +338,30 @@ bool Once::OnceCursor::Pull(Frame &, ExecutionContext &context) {
   return false;
 }
 
-void Once::OnceCursor::PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) {
+bool Once::OnceCursor::PullMultiple(MultiFrame &output_multi_frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("OnceMF");
 
   if (!did_pull_) {
-    auto &first_frame = multi_frame.GetFirstFrame();
-    first_frame.MakeValid();
     did_pull_ = true;
+    if (pushed_down_multi_frame_.has_value()) {
+      auto pushed_down_consumer = pushed_down_multi_frame_->GetValidFramesConsumer();
+      auto output_populator = output_multi_frame.GetInvalidFramesPopulator();
+      auto consumer_it = pushed_down_consumer.begin();
+      auto populator_it = output_populator.begin();
+      for (; consumer_it != pushed_down_consumer.end(); ++consumer_it, ++populator_it) {
+        MG_ASSERT(populator_it != output_populator.end());
+        *populator_it = std::move(*consumer_it);
+      }
+    } else {
+      auto &first_frame = output_multi_frame.GetFirstFrame();
+      first_frame.MakeValid();
+    }
+    return true;
   }
+  return false;
 }
+
+void Once::OnceCursor::PushDown(const MultiFrame &multi_frame) { pushed_down_multi_frame_.emplace(multi_frame); }
 
 UniqueCursorPtr Once::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::OnceOperator);
@@ -294,7 +383,7 @@ ACCEPT_WITH_INPUT(CreateNode)
 UniqueCursorPtr CreateNode::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::CreateNodeOperator);
 
-  return MakeUniqueCursorPtr<DistributedCreateNodeCursor>(mem, input_, mem, std::vector{&this->node_info_});
+  return MakeUniqueCursorPtr<DistributedCreateNodeCursor>(mem, input_, mem, this->node_info_);
 }
 
 std::vector<Symbol> CreateNode::ModifiedSymbols(const SymbolTable &table) const {
@@ -392,57 +481,118 @@ class DistributedScanAllAndFilterCursor : public Cursor {
     ResetExecutionState();
   }
 
-  enum class State : int8_t { INITIALIZING, COMPLETED };
-
   using VertexAccessor = accessors::VertexAccessor;
 
-  bool MakeRequest(RequestRouterInterface &request_router, ExecutionContext &context) {
+  bool MakeRequest(ExecutionContext &context) {
     {
       SCOPED_REQUEST_WAIT_PROFILE;
       std::optional<std::string> request_label = std::nullopt;
       if (label_.has_value()) {
-        request_label = request_router.LabelToName(*label_);
+        request_label = context.request_router->LabelToName(*label_);
       }
-      current_batch = request_router.ScanVertices(request_label);
+      current_batch_ = context.request_router->ScanVertices(request_label);
     }
-    current_vertex_it = current_batch.begin();
-    request_state_ = State::COMPLETED;
-    return !current_batch.empty();
+    current_vertex_it_ = current_batch_.begin();
+    return !current_batch_.empty();
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP(op_name_);
 
-    auto &request_router = *context.request_router;
     while (true) {
       if (MustAbort(context)) {
         throw HintedAbortError();
       }
 
-      if (request_state_ == State::INITIALIZING) {
-        if (!input_cursor_->Pull(frame, context)) {
+      if (current_vertex_it_ == current_batch_.end()) {
+        ResetExecutionState();
+        if (!input_cursor_->Pull(frame, context) || !MakeRequest(context)) {
           return false;
         }
       }
 
-      if (current_vertex_it == current_batch.end() &&
-          (request_state_ == State::COMPLETED || !MakeRequest(request_router, context))) {
-        ResetExecutionState();
-        continue;
-      }
-
-      frame[output_symbol_] = TypedValue(std::move(*current_vertex_it));
-      ++current_vertex_it;
+      frame[output_symbol_] = TypedValue(std::move(*current_vertex_it_));
+      ++current_vertex_it_;
       return true;
     }
   }
 
+  bool PullMultiple(MultiFrame &output_multi_frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP(op_name_);
+
+    if (!own_multi_frame_.has_value()) {
+      own_multi_frame_.emplace(MultiFrame(output_multi_frame.GetFirstFrame().Elems().size(),
+                                          FLAGS_default_multi_frame_size, output_multi_frame.GetMemoryResource()));
+      own_frames_consumer_.emplace(own_multi_frame_->GetValidFramesConsumer());
+      own_frames_it_ = own_frames_consumer_->begin();
+    }
+
+    auto output_frames_populator = output_multi_frame.GetInvalidFramesPopulator();
+    auto populated_any = false;
+
+    while (true) {
+      switch (state_) {
+        case State::PullInput: {
+          if (!input_cursor_->PullMultiple(*own_multi_frame_, context)) {
+            state_ = State::Exhausted;
+            return populated_any;
+          }
+          own_frames_consumer_.emplace(own_multi_frame_->GetValidFramesConsumer());
+          own_frames_it_ = own_frames_consumer_->begin();
+          state_ = State::FetchVertices;
+          break;
+        }
+        case State::FetchVertices: {
+          if (own_frames_it_ == own_frames_consumer_->end()) {
+            state_ = State::PullInput;
+            continue;
+          }
+          if (!filter_expressions_->empty() || property_expression_pair_.has_value() || current_batch_.empty()) {
+            MakeRequest(context);
+          } else {
+            // We can reuse the vertices as they don't depend on any value from the frames
+            current_vertex_it_ = current_batch_.begin();
+          }
+          state_ = State::PopulateOutput;
+          break;
+        }
+        case State::PopulateOutput: {
+          if (!output_multi_frame.HasInvalidFrame()) {
+            return populated_any;
+          }
+          if (current_vertex_it_ == current_batch_.end()) {
+            own_frames_it_->MakeInvalid();
+            ++own_frames_it_;
+            state_ = State::FetchVertices;
+            continue;
+          }
+
+          for (auto output_frame_it = output_frames_populator.begin();
+               output_frame_it != output_frames_populator.end() && current_vertex_it_ != current_batch_.end();
+               ++output_frame_it) {
+            auto &output_frame = *output_frame_it;
+            output_frame = *own_frames_it_;
+            output_frame[output_symbol_] = TypedValue(*current_vertex_it_);
+            current_vertex_it_++;
+            populated_any = true;
+          }
+          break;
+        }
+        case State::Exhausted: {
+          return populated_any;
+        }
+      }
+    }
+    return populated_any;
+  };
+
+  void PushDown(const MultiFrame &multi_frame) override { input_cursor_->PushDown(multi_frame); }
+
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void ResetExecutionState() {
-    current_batch.clear();
-    current_vertex_it = current_batch.end();
-    request_state_ = State::INITIALIZING;
+    current_batch_.clear();
+    current_vertex_it_ = current_batch_.end();
   }
 
   void Reset() override {
@@ -451,23 +601,230 @@ class DistributedScanAllAndFilterCursor : public Cursor {
   }
 
  private:
+  enum class State { PullInput, FetchVertices, PopulateOutput, Exhausted };
+
+  State state_{State::PullInput};
   const Symbol output_symbol_;
   const UniqueCursorPtr input_cursor_;
   const char *op_name_;
-  std::vector<VertexAccessor> current_batch;
-  std::vector<VertexAccessor>::iterator current_vertex_it;
-  State request_state_ = State::INITIALIZING;
+  std::vector<VertexAccessor> current_batch_;
+  std::vector<VertexAccessor>::iterator current_vertex_it_{current_batch_.begin()};
   std::optional<storage::v3::LabelId> label_;
   std::optional<std::pair<storage::v3::PropertyId, Expression *>> property_expression_pair_;
   std::optional<std::vector<Expression *>> filter_expressions_;
+  std::optional<MultiFrame> own_multi_frame_;
+  std::optional<ValidFramesConsumer> own_frames_consumer_;
+  ValidFramesConsumer::Iterator own_frames_it_;
+};
+
+class DistributedScanByPrimaryKeyCursor : public Cursor {
+ public:
+  explicit DistributedScanByPrimaryKeyCursor(Symbol output_symbol, UniqueCursorPtr input_cursor, const char *op_name,
+                                             storage::v3::LabelId label,
+                                             std::optional<std::vector<Expression *>> filter_expressions,
+                                             std::vector<Expression *> primary_key)
+      : output_symbol_(output_symbol),
+        input_cursor_(std::move(input_cursor)),
+        op_name_(op_name),
+        label_(label),
+        filter_expressions_(filter_expressions),
+        primary_key_(primary_key) {}
+
+  using VertexAccessor = accessors::VertexAccessor;
+
+  std::optional<VertexAccessor> MakeRequestSingleFrame(Frame &frame, RequestRouterInterface &request_router,
+                                                       ExecutionContext &context) {
+    // Evaluate the expressions that hold the PrimaryKey.
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.request_router,
+                                  storage::v3::View::NEW);
+
+    std::vector<msgs::Value> pk;
+    for (auto *primary_property : primary_key_) {
+      pk.push_back(TypedValueToValue(primary_property->Accept(evaluator)));
+    }
+
+    msgs::Label label = {.id = msgs::LabelId::FromUint(label_.AsUint())};
+
+    msgs::GetPropertiesRequest req = {.vertex_ids = {std::make_pair(label, pk)}};
+    auto get_prop_result = std::invoke([&context, &request_router, &req]() mutable {
+      SCOPED_REQUEST_WAIT_PROFILE;
+      return request_router.GetProperties(req);
+    });
+    MG_ASSERT(get_prop_result.size() <= 1);
+
+    if (get_prop_result.empty()) {
+      return std::nullopt;
+    }
+    auto properties = get_prop_result[0].props;
+    // TODO (gvolfing) figure out labels when relevant.
+    msgs::Vertex vertex = {.id = get_prop_result[0].vertex, .labels = {}};
+
+    return VertexAccessor(vertex, properties, &request_router);
+  }
+
+  void MakeRequestMultiFrame(MultiFrame &multi_frame, RequestRouterInterface &request_router,
+                             ExecutionContext &context) {
+    msgs::GetPropertiesRequest req;
+    const msgs::Label label = {.id = msgs::LabelId::FromUint(label_.AsUint())};
+
+    std::unordered_set<msgs::VertexId> used_vertex_ids;
+
+    for (auto &frame : multi_frame.GetValidFramesModifier()) {
+      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.request_router,
+                                    storage::v3::View::NEW);
+
+      std::vector<msgs::Value> pk;
+      for (auto *primary_property : primary_key_) {
+        pk.push_back(TypedValueToValue(primary_property->Accept(evaluator)));
+      }
+
+      auto vertex_id = std::make_pair(label, std::move(pk));
+      auto [it, inserted] = used_vertex_ids.emplace(std::move(vertex_id));
+      if (inserted) {
+        req.vertex_ids.emplace_back(*it);
+      }
+    }
+
+    auto get_prop_result = std::invoke([&context, &request_router, &req]() mutable {
+      SCOPED_REQUEST_WAIT_PROFILE;
+      return request_router.GetProperties(req);
+    });
+
+    for (auto &result : get_prop_result) {
+      // TODO (gvolfing) figure out labels when relevant.
+      msgs::Vertex vertex = {.id = result.vertex, .labels = {}};
+
+      id_to_accessor_mapping_.emplace(result.vertex,
+                                      VertexAccessor(std::move(vertex), std::move(result.props), &request_router));
+    }
+  }
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP(op_name_);
+
+    if (MustAbort(context)) {
+      throw HintedAbortError();
+    }
+
+    while (input_cursor_->Pull(frame, context)) {
+      auto &request_router = *context.request_router;
+      auto vertex = MakeRequestSingleFrame(frame, request_router, context);
+      if (vertex) {
+        frame[output_symbol_] = TypedValue(std::move(*vertex));
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void EnsureOwnMultiFrameIsGood(MultiFrame &output_multi_frame) {
+    if (!own_multi_frame_.has_value()) {
+      own_multi_frame_.emplace(MultiFrame(output_multi_frame.GetFirstFrame().Elems().size(),
+                                          FLAGS_default_multi_frame_size, output_multi_frame.GetMemoryResource()));
+      own_frames_consumer_.emplace(own_multi_frame_->GetValidFramesConsumer());
+      own_frames_it_ = own_frames_consumer_->begin();
+    }
+    MG_ASSERT(output_multi_frame.GetFirstFrame().Elems().size() == own_multi_frame_->GetFirstFrame().Elems().size());
+  }
+
+  bool PullMultiple(MultiFrame &output_multi_frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP(op_name_);
+    EnsureOwnMultiFrameIsGood(output_multi_frame);
+
+    auto output_frames_populator = output_multi_frame.GetInvalidFramesPopulator();
+    auto populated_any = false;
+
+    while (true) {
+      switch (state_) {
+        case State::PullInput: {
+          id_to_accessor_mapping_.clear();
+          if (!input_cursor_->PullMultiple(*own_multi_frame_, context)) {
+            state_ = State::Exhausted;
+            return populated_any;
+          }
+          own_frames_consumer_.emplace(own_multi_frame_->GetValidFramesConsumer());
+          own_frames_it_ = own_frames_consumer_->begin();
+
+          if (own_frames_it_ == own_frames_consumer_->end()) {
+            continue;
+          }
+
+          MakeRequestMultiFrame(*own_multi_frame_, *context.request_router, context);
+
+          state_ = State::PopulateOutput;
+          break;
+        }
+        case State::PopulateOutput: {
+          if (!output_multi_frame.HasInvalidFrame()) {
+            if (own_frames_it_ == own_frames_consumer_->end()) {
+              id_to_accessor_mapping_.clear();
+            }
+            return populated_any;
+          }
+
+          if (own_frames_it_ == own_frames_consumer_->end()) {
+            state_ = State::PullInput;
+            continue;
+          }
+
+          for (auto output_frame_it = output_frames_populator.begin();
+               output_frame_it != output_frames_populator.end() && own_frames_it_ != own_frames_consumer_->end();
+               ++own_frames_it_) {
+            auto &output_frame = *output_frame_it;
+
+            ExpressionEvaluator evaluator(&*own_frames_it_, context.symbol_table, context.evaluation_context,
+                                          context.request_router, storage::v3::View::NEW);
+
+            std::vector<msgs::Value> pk;
+            for (auto *primary_property : primary_key_) {
+              pk.push_back(TypedValueToValue(primary_property->Accept(evaluator)));
+            }
+
+            const msgs::Label label = {.id = msgs::LabelId::FromUint(label_.AsUint())};
+            auto vertex_id = std::make_pair(label, std::move(pk));
+
+            if (const auto it = id_to_accessor_mapping_.find(vertex_id); it != id_to_accessor_mapping_.end()) {
+              output_frame = *own_frames_it_;
+              output_frame[output_symbol_] = TypedValue(it->second);
+              populated_any = true;
+              ++output_frame_it;
+            }
+            own_frames_it_->MakeInvalid();
+          }
+          break;
+        }
+        case State::Exhausted: {
+          return populated_any;
+        }
+      }
+    }
+    return populated_any;
+  };
+
+  void Reset() override { input_cursor_->Reset(); }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+ private:
+  enum class State { PullInput, PopulateOutput, Exhausted };
+
+  State state_{State::PullInput};
+  const Symbol output_symbol_;
+  const UniqueCursorPtr input_cursor_;
+  const char *op_name_;
+  storage::v3::LabelId label_;
+  std::optional<std::vector<Expression *>> filter_expressions_;
+  std::vector<Expression *> primary_key_;
+  std::optional<MultiFrame> own_multi_frame_;
+  std::optional<ValidFramesConsumer> own_frames_consumer_;
+  ValidFramesConsumer::Iterator own_frames_it_;
+  std::unordered_map<msgs::VertexId, VertexAccessor> id_to_accessor_mapping_;
 };
 
 ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::v3::View view)
     : input_(input ? input : std::make_shared<Once>()), output_symbol_(output_symbol), view_(view) {}
 
 ACCEPT_WITH_INPUT(ScanAll)
-
-class DistributedScanAllCursor;
 
 UniqueCursorPtr ScanAll::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllOperator);
@@ -558,22 +915,21 @@ UniqueCursorPtr ScanAllByLabelProperty::MakeCursor(utils::MemoryResource *mem) c
   throw QueryRuntimeException("ScanAllByLabelProperty is not supported");
 }
 
-ScanAllById::ScanAllById(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, Expression *expression,
-                         storage::v3::View view)
-    : ScanAll(input, output_symbol, view), expression_(expression) {
-  MG_ASSERT(expression);
+ScanByPrimaryKey::ScanByPrimaryKey(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
+                                   storage::v3::LabelId label, std::vector<query::v2::Expression *> primary_key,
+                                   storage::v3::View view)
+    : ScanAll(input, output_symbol, view), label_(label), primary_key_(primary_key) {
+  MG_ASSERT(primary_key.front());
 }
 
-ACCEPT_WITH_INPUT(ScanAllById)
+ACCEPT_WITH_INPUT(ScanByPrimaryKey)
 
-UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::ScanAllByIdOperator);
-  // TODO Reimplement when we have reliable conversion between hash value and pk
-  auto vertices = [](Frame & /*frame*/, ExecutionContext & /*context*/) -> std::optional<std::vector<VertexAccessor>> {
-    return std::nullopt;
-  };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
-                                                                std::move(vertices), "ScanAllById");
+UniqueCursorPtr ScanByPrimaryKey::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::ScanByPrimaryKeyOperator);
+
+  return MakeUniqueCursorPtr<DistributedScanByPrimaryKeyCursor>(mem, output_symbol_, input_->MakeCursor(mem),
+                                                                "ScanByPrimaryKey", label_,
+                                                                std::nullopt /*filter_expressions*/, primary_key_);
 }
 
 Expand::Expand(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol, Symbol node_symbol,
@@ -716,6 +1072,27 @@ bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   return false;
 }
 
+bool Filter::FilterCursor::PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) {
+  SCOPED_PROFILE_OP("Filter");
+  auto populated_any = false;
+
+  while (multi_frame.HasInvalidFrame()) {
+    if (!input_cursor_->PullMultiple(multi_frame, context)) {
+      return populated_any;
+    }
+    for (auto &frame : multi_frame.GetValidFramesConsumer()) {
+      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.request_router,
+                                    storage::v3::View::OLD);
+      if (!EvaluateFilter(evaluator, self_.expression_)) {
+        frame.MakeInvalid();
+      } else {
+        populated_any = true;
+      }
+    }
+  }
+  return populated_any;
+}
+
 void Filter::FilterCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void Filter::FilterCursor::Reset() { input_cursor_->Reset(); }
@@ -751,19 +1128,22 @@ bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
     // Produce should always yield the latest results.
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.request_router,
                                   storage::v3::View::NEW);
-    for (auto named_expr : self_.named_expressions_) named_expr->Accept(evaluator);
+    for (auto *named_expr : self_.named_expressions_) named_expr->Accept(evaluator);
 
     return true;
   }
   return false;
 }
 
-void Produce::ProduceCursor::PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) {
+bool Produce::ProduceCursor::PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("ProduceMF");
 
-  input_cursor_->PullMultiple(multi_frame, context);
+  if (!input_cursor_->PullMultiple(multi_frame, context)) {
+    return false;
+  }
 
   auto iterator_for_valid_frame_only = multi_frame.GetValidFramesModifier();
+
   for (auto &frame : iterator_for_valid_frame_only) {
     // Produce should always yield the latest results.
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.request_router,
@@ -773,7 +1153,9 @@ void Produce::ProduceCursor::PullMultiple(MultiFrame &multi_frame, ExecutionCont
       named_expr->Accept(evaluator);
     }
   }
-};
+
+  return true;
+}
 
 void Produce::ProduceCursor::Shutdown() { input_cursor_->Shutdown(); }
 
@@ -797,6 +1179,8 @@ Delete::DeleteCursor::DeleteCursor(const Delete &self, utils::MemoryResource *me
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
 
 bool Delete::DeleteCursor::Pull(Frame & /*frame*/, ExecutionContext & /*context*/) { return false; }
+
+bool Delete::DeleteCursor::PullMultiple(MultiFrame & /*multi_frame*/, ExecutionContext & /*context*/) { return false; }
 
 void Delete::DeleteCursor::Shutdown() { input_cursor_->Shutdown(); }
 
@@ -976,26 +1360,45 @@ bool ContainsSameEdge(const TypedValue &a, const TypedValue &b) {
 
   return a.ValueEdge() == b.ValueEdge();
 }
+
+bool IsExpansionOk(Frame &frame, const Symbol &expand_symbol, const std::vector<Symbol> &previous_symbols) {
+  // This shouldn't raise a TypedValueException, because the planner
+  // makes sure these are all of the expected type. In case they are not
+  // an error should be raised long before this code is executed.
+  return std::ranges::all_of(previous_symbols,
+                             [&frame, &expand_value = frame[expand_symbol]](const auto &previous_symbol) {
+                               const auto &previous_value = frame[previous_symbol];
+                               return !ContainsSameEdge(previous_value, expand_value);
+                             });
+}
+
 }  // namespace
 
 bool EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("EdgeUniquenessFilter");
-
-  auto expansion_ok = [&]() {
-    const auto &expand_value = frame[self_.expand_symbol_];
-    for (const auto &previous_symbol : self_.previous_symbols_) {
-      const auto &previous_value = frame[previous_symbol];
-      // This shouldn't raise a TypedValueException, because the planner
-      // makes sure these are all of the expected type. In case they are not
-      // an error should be raised long before this code is executed.
-      if (ContainsSameEdge(previous_value, expand_value)) return false;
-    }
-    return true;
-  };
-
   while (input_cursor_->Pull(frame, context))
-    if (expansion_ok()) return true;
+    if (IsExpansionOk(frame, self_.expand_symbol_, self_.previous_symbols_)) return true;
   return false;
+}
+
+bool EdgeUniquenessFilter::EdgeUniquenessFilterCursor::PullMultiple(MultiFrame &output_multi_frame,
+                                                                    ExecutionContext &context) {
+  SCOPED_PROFILE_OP("EdgeUniquenessFilterMF");
+  auto populated_any = false;
+
+  while (output_multi_frame.HasInvalidFrame()) {
+    if (!input_cursor_->PullMultiple(output_multi_frame, context)) {
+      return populated_any;
+    }
+    for (auto &frame : output_multi_frame.GetValidFramesConsumer()) {
+      if (IsExpansionOk(frame, self_.expand_symbol_, self_.previous_symbols_)) {
+        populated_any = true;
+      } else {
+        frame.MakeInvalid();
+      }
+    }
+  }
+  return populated_any;
 }
 
 void EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Shutdown() { input_cursor_->Shutdown(); }
@@ -1089,6 +1492,55 @@ class AggregateCursor : public Cursor {
     auto remember_values_it = aggregation_it_->second.remember_.begin();
     for (const Symbol &remember_sym : self_.remember_) frame[remember_sym] = *remember_values_it++;
 
+    ++aggregation_it_;
+    return true;
+  }
+
+  bool PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("AggregateMF");
+
+    if (!pulled_all_input_) {
+      ProcessAll(multi_frame, &context);
+      pulled_all_input_ = true;
+      MG_ASSERT(!multi_frame.HasValidFrame(), "ProcessAll didn't consumed all input frames!");
+      aggregation_it_ = aggregation_.begin();
+
+      // in case there is no input and no group_bys we need to return true
+      // just this once
+      if (aggregation_.empty() && self_.group_by_.empty()) {
+        auto frame = multi_frame.GetFirstFrame();
+        frame.MakeValid();
+        auto *pull_memory = context.evaluation_context.memory;
+        // place default aggregation values on the frame
+        for (const auto &elem : self_.aggregations_) {
+          frame[elem.output_sym] = DefaultAggregationOpValue(elem, pull_memory);
+        }
+        // place null as remember values on the frame
+        for (const Symbol &remember_sym : self_.remember_) {
+          frame[remember_sym] = TypedValue(pull_memory);
+        }
+        return true;
+      }
+    }
+
+    if (aggregation_it_ == aggregation_.end()) {
+      return false;
+    }
+
+    // place aggregation values on the frame
+    auto &frame = multi_frame.GetFirstFrame();
+    frame.MakeValid();
+    auto aggregation_values_it = aggregation_it_->second.values_.begin();
+    for (const auto &aggregation_elem : self_.aggregations_) {
+      frame[aggregation_elem.output_sym] = *aggregation_values_it++;
+    }
+
+    // place remember values on the frame
+    auto remember_values_it = aggregation_it_->second.remember_.begin();
+    for (const Symbol &remember_sym : self_.remember_) {
+      frame[remember_sym] = *remember_values_it++;
+    }
+
     aggregation_it_++;
     return true;
   }
@@ -1157,18 +1609,23 @@ class AggregateCursor : public Cursor {
       ProcessOne(*frame, &evaluator);
     }
 
-    // calculate AVG aggregations (so far they have only been summed)
-    for (size_t pos = 0; pos < self_.aggregations_.size(); ++pos) {
-      if (self_.aggregations_[pos].op != Aggregation::Op::AVG) continue;
-      for (auto &kv : aggregation_) {
-        AggregationValue &agg_value = kv.second;
-        auto count = agg_value.counts_[pos];
-        auto *pull_memory = context->evaluation_context.memory;
-        if (count > 0) {
-          agg_value.values_[pos] = agg_value.values_[pos] / TypedValue(static_cast<double>(count), pull_memory);
-        }
+    CalculateAverages(*context);
+  }
+
+  void ProcessAll(MultiFrame &multi_frame, ExecutionContext *context) {
+    while (input_cursor_->PullMultiple(multi_frame, *context)) {
+      auto valid_frames_modifier =
+          multi_frame.GetValidFramesConsumer();  // consumer is needed i.o. reader because of the evaluator
+
+      for (auto &frame : valid_frames_modifier) {
+        ExpressionEvaluator evaluator(&frame, context->symbol_table, context->evaluation_context,
+                                      context->request_router, storage::v3::View::NEW);
+        ProcessOne(frame, &evaluator);
+        frame.MakeInvalid();
       }
     }
+
+    CalculateAverages(*context);
   }
 
   /**
@@ -1184,6 +1641,20 @@ class AggregateCursor : public Cursor {
     auto &agg_value = aggregation_.try_emplace(std::move(group_by), mem).first->second;
     EnsureInitialized(frame, &agg_value);
     Update(evaluator, &agg_value);
+  }
+
+  void CalculateAverages(ExecutionContext &context) {
+    for (size_t pos = 0; pos < self_.aggregations_.size(); ++pos) {
+      if (self_.aggregations_[pos].op != Aggregation::Op::AVG) continue;
+      for (auto &kv : aggregation_) {
+        AggregationValue &agg_value = kv.second;
+        auto count = agg_value.counts_[pos];
+        auto *pull_memory = context.evaluation_context.memory;
+        if (count > 0) {
+          agg_value.values_[pos] = agg_value.values_[pos] / TypedValue(static_cast<double>(count), pull_memory);
+        }
+      }
+    }
   }
 
   /** Ensures the new AggregationValue has been initialized. This means
@@ -1219,7 +1690,7 @@ class AggregateCursor : public Cursor {
     for (; count_it < agg_value->counts_.end(); count_it++, value_it++, agg_elem_it++) {
       // COUNT(*) is the only case where input expression is optional
       // handle it here
-      auto input_expr_ptr = agg_elem_it->value;
+      auto *input_expr_ptr = agg_elem_it->value;
       if (!input_expr_ptr) {
         *count_it += 1;
         *value_it = *count_it;
@@ -1310,7 +1781,7 @@ class AggregateCursor : public Cursor {
 
   /** Checks if the given TypedValue is legal in MIN and MAX. If not
    * an appropriate exception is thrown. */
-  void EnsureOkForMinMax(const TypedValue &value) const {
+  static void EnsureOkForMinMax(const TypedValue &value) {
     switch (value.type()) {
       case TypedValue::Type::Bool:
       case TypedValue::Type::Int:
@@ -1326,7 +1797,7 @@ class AggregateCursor : public Cursor {
 
   /** Checks if the given TypedValue is legal in AVG and SUM. If not
    * an appropriate exception is thrown. */
-  void EnsureOkForAvgSum(const TypedValue &value) const {
+  static void EnsureOkForAvgSum(const TypedValue &value) {
     switch (value.type()) {
       case TypedValue::Type::Int:
       case TypedValue::Type::Double:
@@ -1648,6 +2119,8 @@ bool Optional::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   return visitor.PostVisit(*this);
 }
 
+class OptionalCursor;
+
 UniqueCursorPtr Optional::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::OptionalOperator);
 
@@ -1661,29 +2134,31 @@ std::vector<Symbol> Optional::ModifiedSymbols(const SymbolTable &table) const {
   return symbols;
 }
 
-Optional::OptionalCursor::OptionalCursor(const Optional &self, utils::MemoryResource *mem)
-    : self_(self), input_cursor_(self.input_->MakeCursor(mem)), optional_cursor_(self.optional_->MakeCursor(mem)) {}
+class OptionalCursor : public Cursor {
+ public:
+  OptionalCursor(const Optional &self, utils::MemoryResource *mem)
+      : self_(self), input_cursor_(self.input_->MakeCursor(mem)), optional_cursor_(self.optional_->MakeCursor(mem)) {}
 
-bool Optional::OptionalCursor::Pull(Frame &frame, ExecutionContext &context) {
-  SCOPED_PROFILE_OP("Optional");
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("Optional");
 
-  while (true) {
-    if (pull_input_) {
-      if (input_cursor_->Pull(frame, context)) {
-        // after a successful input from the input
-        // reset optional_ (it's expand iterators maintain state)
-        optional_cursor_->Reset();
-      } else
-        // input is exhausted, we're done
-        return false;
-    }
+    while (true) {
+      if (pull_input_) {
+        if (input_cursor_->Pull(frame, context)) {
+          // after a successful pull from the input
+          // reset optional_ (it's expand iterators maintain state)
+          optional_cursor_->Reset();
+        } else
+          // input is exhausted, we're done
+          return false;
+      }
 
-    // pull from the optional_ cursor
-    if (optional_cursor_->Pull(frame, context)) {
-      // if successful, next Pull from this should not pull_input_
-      pull_input_ = false;
-      return true;
-    } else {
+      // pull from the optional_ cursor
+      if (optional_cursor_->Pull(frame, context)) {
+        // if successful, next Pull from this should not pull_input_
+        pull_input_ = false;
+        return true;
+      }
       // failed to Pull from the merge_match cursor
       if (pull_input_) {
         // if we have just now pulled from the input
@@ -1697,21 +2172,180 @@ bool Optional::OptionalCursor::Pull(Frame &frame, ExecutionContext &context) {
       // we have exhausted optional_cursor_ after 1 or more successful Pulls
       // attempt next input_cursor_ pull
       pull_input_ = true;
-      continue;
     }
   }
-}
 
-void Optional::OptionalCursor::Shutdown() {
-  input_cursor_->Shutdown();
-  optional_cursor_->Shutdown();
-}
+  bool HandleReadyInput(InvalidFramesPopulator &output_populator, InvalidFramesPopulator::Iterator &output_frames_it,
+                        ExecutionContext &context) {
+    bool populated_any = false;
+    while (true) {
+      switch (optional_state_) {
+        case State::Pull: {
+          if (!optional_cursor_->PullMultiple(*optional_multi_frame_, context)) {
+            optional_state_ = State::Exhausted;
+            optional_frames_consumer_.reset();
+            optional_frames_it_ = {};
+            if (populated_any) {
+              ++own_frames_it_;
+            }
+          } else {
+            optional_frames_consumer_ = optional_multi_frame_->GetValidFramesConsumer();
+            optional_frames_it_ = optional_frames_consumer_->begin();
+            optional_state_ = State::Ready;
+          }
+          break;
+        }
+        case State::Ready: {
+          while (optional_frames_it_ != optional_frames_consumer_->end()) {
+            if (output_frames_it == output_populator.end()) {
+              return populated_any;
+            }
+            populated_any = true;
+            if (optional_frames_it_->Id() == own_frames_it_->Id()) {
+              // This might be a move, but then in we have to have special logic is EnsureOwnMultiFramesAreGood
+              *output_frames_it = *optional_frames_it_;
+              last_matched_frame_ = optional_frames_it_->Id();
+              optional_frames_it_->MakeInvalid();
+              ++optional_frames_it_;
+              ++output_frames_it;
+              if (optional_frames_it_ == optional_frames_consumer_->end()) {
+                optional_state_ = State::Pull;
+              }
+            } else if (last_matched_frame_ == own_frames_it_->Id()) {
+              ++own_frames_it_;
+            } else {
+              // TODO(antaljanosbenjamin): Remove (or improve the message of) this assert
+              MG_ASSERT(optional_frames_it_->Id() > own_frames_it_->Id(), "This should be the case DELETE ME");
+              for (const auto &symbol : self_.optional_symbols_) {
+                spdlog::error("{}", symbol.name());
+                (*own_frames_it_)[symbol] = TypedValue(context.evaluation_context.memory);
+              }
+              // This might be a move, but then in we have to have special logic is EnsureOwnMultiFramesAreGood
+              *output_frames_it = *own_frames_it_;
+              last_matched_frame_ = own_frames_it_->Id();
+              own_frames_it_->MakeInvalid();
+              ++own_frames_it_;
+            }
+          }
+          break;
+        }
+        case State::Exhausted: {
+          while (own_frames_it_ != own_frames_consumer_->end() && output_frames_it != output_populator.end()) {
+            MG_ASSERT(!optional_frames_consumer_.has_value(), "This should be the case DELETE ME");
+            for (const auto &symbol : self_.optional_symbols_) {
+              spdlog::error("{}", symbol.name());
+              (*own_frames_it_)[symbol] = TypedValue(context.evaluation_context.memory);
+            }
+            // This might be a move, but then in we have to have special logic is EnsureOwnMultiFramesAreGood
+            *output_frames_it = *own_frames_it_;
+            ++own_frames_it_;
 
-void Optional::OptionalCursor::Reset() {
-  input_cursor_->Reset();
-  optional_cursor_->Reset();
-  pull_input_ = true;
-}
+            populated_any = true;
+            own_frames_it_->MakeInvalid();
+            ++output_frames_it;
+          }
+          return populated_any;
+        }
+      }
+    }
+    return populated_any;
+  }
+
+  bool PullMultiple(MultiFrame &output_multi_frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("OptionalMF");
+
+    EnsureOwnMultiFramesAreGood(output_multi_frame);
+    auto populated_any{false};
+
+    auto output_frames_populator = output_multi_frame.GetInvalidFramesPopulator();
+    auto output_frames_it = output_frames_populator.begin();
+    while (true) {
+      switch (input_state_) {
+        case State::Pull: {
+          MG_ASSERT(optional_state_ != State::Ready, "Unexpected state");
+          if (!input_cursor_->PullMultiple(*own_multi_frame_, context)) {
+            input_state_ = State::Exhausted;
+            optional_state_ = State::Exhausted;
+          } else {
+            input_state_ = State::Ready;
+            optional_state_ = State::Pull;
+            uint64_t frame_id{0U};
+            for (auto &frame : own_multi_frame_->GetValidFramesModifier()) {
+              frame.SetId(frame_id++);
+            }
+            last_matched_frame_ = 0U;
+            optional_cursor_->Reset();
+            optional_cursor_->PushDown(*own_multi_frame_);
+            own_frames_consumer_ = own_multi_frame_->GetValidFramesConsumer();
+            own_frames_it_ = own_frames_consumer_->begin();
+          }
+          break;
+        }
+        case State::Ready: {
+          populated_any |= HandleReadyInput(output_frames_populator, output_frames_it, context);
+          if (output_frames_it == output_frames_populator.end()) {
+            return populated_any;
+          }
+          if (own_frames_it_ == own_frames_consumer_->end()) {
+            input_state_ = State::Pull;
+          }
+          break;
+        }
+        case State::Exhausted: {
+          MG_ASSERT(optional_state_ == State::Exhausted);
+          return populated_any;
+        }
+      }
+    }
+  }
+
+  void Shutdown() override {
+    input_cursor_->Shutdown();
+    optional_cursor_->Shutdown();
+  }
+
+  void Reset() override {
+    // TODO(antaljanosbenjamin)
+    input_cursor_->Reset();
+    optional_cursor_->Reset();
+    pull_input_ = true;
+  }
+
+ private:
+  enum class State { Pull, Ready, Exhausted };
+
+  void EnsureOwnMultiFramesAreGood(MultiFrame &output_multi_frame) {
+    if (!own_multi_frame_.has_value()) {
+      own_multi_frame_.emplace(MultiFrame(output_multi_frame.GetFirstFrame().Elems().size(),
+                                          FLAGS_default_multi_frame_size, output_multi_frame.GetMemoryResource()));
+      own_frames_consumer_.emplace(own_multi_frame_->GetValidFramesConsumer());
+      own_frames_it_ = own_frames_consumer_->begin();
+      optional_multi_frame_.emplace(MultiFrame(output_multi_frame.GetFirstFrame().Elems().size(),
+                                               FLAGS_default_multi_frame_size, output_multi_frame.GetMemoryResource()));
+    }
+    MG_ASSERT(output_multi_frame.GetFirstFrame().Elems().size() == own_multi_frame_->GetFirstFrame().Elems().size());
+  }
+
+  const Optional &self_;
+  const UniqueCursorPtr input_cursor_;
+  const UniqueCursorPtr optional_cursor_;
+
+  State input_state_{State::Pull};
+  State optional_state_{State::Pull};
+  std::optional<MultiFrame> own_multi_frame_;
+  std::optional<ValidFramesConsumer> own_frames_consumer_;
+  ValidFramesConsumer::Iterator own_frames_it_;
+  std::optional<MultiFrame> optional_multi_frame_;
+  std::optional<ValidFramesConsumer> optional_frames_consumer_;
+  ValidFramesConsumer::Iterator optional_frames_it_;
+  uint64_t last_matched_frame_{0U};
+  // indicates if the next Pull from this cursor should
+  // perform a Pull from the input_cursor_
+  // this is true when:
+  //  - first pulling from this Cursor
+  //  - previous Pull from this cursor exhausted the optional_cursor_
+  bool pull_input_{true};
+};
 
 Unwind::Unwind(const std::shared_ptr<LogicalOperator> &input, Expression *input_expression, Symbol output_symbol)
     : input_(input ? input : std::make_shared<Once>()),
@@ -1741,14 +2375,7 @@ class UnwindCursor : public Cursor {
         if (!input_cursor_->Pull(frame, context)) return false;
 
         // successful pull from input, initialize value and iterator
-        ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.request_router,
-                                      storage::v3::View::OLD);
-        TypedValue input_value = self_.input_expression_->Accept(evaluator);
-        if (input_value.type() != TypedValue::Type::List)
-          throw QueryRuntimeException("Argument of UNWIND must be a list, but '{}' was provided.", input_value.type());
-        // Copy the evaluted input_value_list to our vector.
-        input_value_ = input_value.ValueList();
-        input_value_it_ = input_value_.begin();
+        SetInputValue(frame, context);
       }
 
       // if we reached the end of our list of values goto back to top
@@ -1759,6 +2386,70 @@ class UnwindCursor : public Cursor {
     }
   }
 
+  bool PullMultiple(MultiFrame &output_multi_frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("UnwindMF");
+
+    if (!own_multi_frame_.has_value()) {
+      own_multi_frame_.emplace(MultiFrame(output_multi_frame.GetFirstFrame().Elems().size(),
+                                          FLAGS_default_multi_frame_size, output_multi_frame.GetMemoryResource()));
+      own_frames_consumer_.emplace(own_multi_frame_->GetValidFramesConsumer());
+      own_frames_it_ = own_frames_consumer_->begin();
+    }
+
+    auto output_frames_populator = output_multi_frame.GetInvalidFramesPopulator();
+    auto populated_any = false;
+
+    while (true) {
+      switch (state_) {
+        case State::PullInput: {
+          if (!input_cursor_->PullMultiple(*own_multi_frame_, context)) {
+            state_ = State::Exhausted;
+            return populated_any;
+          }
+          own_frames_consumer_.emplace(own_multi_frame_->GetValidFramesConsumer());
+          own_frames_it_ = own_frames_consumer_->begin();
+          state_ = State::InitializeInputValue;
+          break;
+        }
+        case State::InitializeInputValue: {
+          if (own_frames_it_ == own_frames_consumer_->end()) {
+            state_ = State::PullInput;
+            continue;
+          }
+          SetInputValue(*own_frames_it_, context);
+          state_ = State::PopulateOutput;
+          break;
+        }
+        case State::PopulateOutput: {
+          if (!output_multi_frame.HasInvalidFrame()) {
+            return populated_any;
+          }
+          if (input_value_it_ == input_value_.end()) {
+            own_frames_it_->MakeInvalid();
+            ++own_frames_it_;
+            state_ = State::InitializeInputValue;
+            continue;
+          }
+
+          for (auto output_frame_it = output_frames_populator.begin();
+               output_frame_it != output_frames_populator.end() && input_value_it_ != input_value_.end();
+               ++output_frame_it) {
+            auto &output_frame = *output_frame_it;
+            output_frame = *own_frames_it_;
+            output_frame[self_.output_symbol_] = std::move(*input_value_it_);
+            input_value_it_++;
+            populated_any = true;
+          }
+          break;
+        }
+        case State::Exhausted: {
+          return populated_any;
+        }
+      }
+    }
+    return populated_any;
+  }
+
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override {
@@ -1767,13 +2458,36 @@ class UnwindCursor : public Cursor {
     input_value_it_ = input_value_.end();
   }
 
+  void SetInputValue(Frame &frame, ExecutionContext &context) {
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.request_router,
+                                  storage::v3::View::OLD);
+    TypedValue input_value = self_.input_expression_->Accept(evaluator);
+    if (input_value.type() != TypedValue::Type::List) {
+      throw QueryRuntimeException("Argument of UNWIND must be a list, but '{}' was provided.", input_value.type());
+    }
+    // It would be nice if we could move it, however it can be tricky to make it work because of allocators and
+    // different memory resources, be careful.
+    input_value_ = std::move(input_value.ValueList());
+    input_value_it_ = input_value_.begin();
+  }
+
  private:
+  using InputVector = utils::pmr::vector<TypedValue>;
+  using InputIterator = InputVector::iterator;
+
   const Unwind &self_;
   const UniqueCursorPtr input_cursor_;
   // typed values we are unwinding and yielding
-  utils::pmr::vector<TypedValue> input_value_;
+  InputVector input_value_;
   // current position in input_value_
-  decltype(input_value_)::iterator input_value_it_ = input_value_.end();
+  InputIterator input_value_it_ = input_value_.end();
+
+  enum class State { PullInput, InitializeInputValue, PopulateOutput, Exhausted };
+
+  State state_{State::PullInput};
+  std::optional<MultiFrame> own_multi_frame_;
+  std::optional<ValidFramesConsumer> own_frames_consumer_;
+  ValidFramesConsumer::Iterator own_frames_it_;
 };
 
 UniqueCursorPtr Unwind::MakeCursor(utils::MemoryResource *mem) const {
@@ -1941,7 +2655,7 @@ class CartesianCursor : public Cursor {
     if (!cartesian_pull_initialized_) {
       // Pull all left_op frames.
       while (left_op_cursor_->Pull(frame, context)) {
-        left_op_frames_.emplace_back(frame.elems().begin(), frame.elems().end());
+        left_op_frames_.emplace_back(frame.Elems().begin(), frame.Elems().end());
       }
 
       // We're setting the iterator to 'end' here so it pulls the right
@@ -1965,7 +2679,7 @@ class CartesianCursor : public Cursor {
       // Advance right_op_cursor_.
       if (!right_op_cursor_->Pull(frame, context)) return false;
 
-      right_op_frame_.assign(frame.elems().begin(), frame.elems().end());
+      right_op_frame_.assign(frame.Elems().begin(), frame.Elems().end());
       left_op_frames_it_ = left_op_frames_.begin();
     } else {
       // Make sure right_op_cursor last pulled results are on frame.
@@ -2376,9 +3090,11 @@ class DistributedCreateExpandCursor : public Cursor {
     return true;
   }
 
-  void PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) override {
+  bool PullMultiple(MultiFrame &multi_frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("CreateExpandMF");
-    input_cursor_->PullMultiple(multi_frame, context);
+    if (!input_cursor_->PullMultiple(multi_frame, context)) {
+      return false;
+    }
     auto request_vertices = ExpandCreationInfoToRequests(multi_frame, context);
     {
       SCOPED_REQUEST_WAIT_PROFILE;
@@ -2390,6 +3106,7 @@ class DistributedCreateExpandCursor : public Cursor {
         }
       }
     }
+    return true;
   }
 
   void Shutdown() override { input_cursor_->Shutdown(); }
@@ -2433,27 +3150,16 @@ class DistributedCreateExpandCursor : public Cursor {
       const auto &v1 = v1_value.ValueVertex();
       const auto &v2 = OtherVertex(frame);
 
-      // Set src and dest vertices
-      // TODO(jbajic) Currently we are only handling scenario where vertices
-      // are matched
-      const auto set_vertex = [&context](const auto &vertex, auto &vertex_id) {
-        vertex_id.first = vertex.PrimaryLabel();
-        for (const auto &[key, val] : vertex.Properties()) {
-          if (context.request_router->IsPrimaryKey(vertex_id.first.id, key)) {
-            vertex_id.second.push_back(val);
-          }
-        }
-      };
       std::invoke([&]() {
         switch (edge_info.direction) {
           case EdgeAtom::Direction::IN: {
-            set_vertex(v2, request.src_vertex);
-            set_vertex(v1, request.dest_vertex);
+            request.src_vertex = v2.Id();
+            request.dest_vertex = v1.Id();
             break;
           }
           case EdgeAtom::Direction::OUT: {
-            set_vertex(v1, request.src_vertex);
-            set_vertex(v2, request.dest_vertex);
+            request.src_vertex = v1.Id();
+            request.dest_vertex = v2.Id();
             break;
           }
           case EdgeAtom::Direction::BOTH:
@@ -2532,7 +3238,7 @@ class DistributedCreateExpandCursor : public Cursor {
 
 class DistributedExpandCursor : public Cursor {
  public:
-  explicit DistributedExpandCursor(const Expand &self, utils::MemoryResource *mem)
+  DistributedExpandCursor(const Expand &self, utils::MemoryResource *mem)
       : self_(self),
         input_cursor_(self.input_->MakeCursor(mem)),
         current_in_edge_it_(current_in_edges_.begin()),
@@ -2559,26 +3265,18 @@ class DistributedExpandCursor : public Cursor {
     MG_ASSERT(direction != EdgeAtom::Direction::BOTH);
     const auto &edge = frame[self_.common_.edge_symbol].ValueEdge();
     static constexpr auto get_dst_vertex = [](const EdgeAccessor &edge,
-                                              const EdgeAtom::Direction direction) -> msgs::VertexId {
+                                              const EdgeAtom::Direction direction) -> accessors::VertexAccessor {
       switch (direction) {
         case EdgeAtom::Direction::IN:
-          return edge.From().Id();
+          return edge.From();
         case EdgeAtom::Direction::OUT:
-          return edge.To().Id();
+          return edge.To();
         case EdgeAtom::Direction::BOTH:
           throw std::runtime_error("EdgeDirection Both not implemented");
       }
     };
-    msgs::ExpandOneRequest request;
-    // to not fetch any properties of the edges
-    request.edge_properties.emplace();
-    request.src_vertices.push_back(get_dst_vertex(edge, direction));
-    request.direction = (direction == EdgeAtom::Direction::IN) ? msgs::EdgeDirection::OUT : msgs::EdgeDirection::IN;
-    auto result_rows = context.request_router->ExpandOne(std::move(request));
-    MG_ASSERT(result_rows.size() == 1);
-    auto &result_row = result_rows.front();
-    frame[self_.common_.node_symbol] = accessors::VertexAccessor(
-        msgs::Vertex{result_row.src_vertex}, result_row.src_vertex_properties, context.request_router);
+
+    frame[self_.common_.node_symbol] = get_dst_vertex(edge, direction);
   }
 
   bool InitEdges(Frame &frame, ExecutionContext &context) {
@@ -2596,9 +3294,14 @@ class DistributedExpandCursor : public Cursor {
       auto &vertex = vertex_value.ValueVertex();
       msgs::ExpandOneRequest request;
       request.direction = DirectionToMsgsDirection(self_.common_.direction);
+      std::transform(self_.common_.edge_types.begin(), self_.common_.edge_types.end(),
+                     std::back_inserter(request.edge_types),
+                     [](const storage::v3::EdgeTypeId edge_type_id) { return msgs::EdgeType{edge_type_id}; });
       // to not fetch any properties of the edges
       request.edge_properties.emplace();
       request.src_vertices.push_back(vertex.Id());
+      request.edge_properties.emplace();
+      request.src_vertex_properties.emplace();
       auto result_rows = std::invoke([&context, &request]() mutable {
         SCOPED_REQUEST_WAIT_PROFILE;
         return context.request_router->ExpandOne(std::move(request));
@@ -2687,19 +3390,254 @@ class DistributedExpandCursor : public Cursor {
     }
   }
 
+  void InitEdgesMultiple() {
+    // This function won't work if any vertex id is duplicated in the input, because:
+    //  1. vertex_id_to_result_row is not a multimap
+    //  2. if self_.common_.existing_node is true, then we erase edges that might be necessary for the input
+    //  vertex on a
+    //     later frame
+    const auto &frame = (*own_frames_it_);
+    const auto &vertex_value = frame[self_.input_symbol_];
+
+    if (vertex_value.IsNull()) {
+      ResetMultiFrameEdgeIts();
+      return;
+    }
+
+    ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
+    const auto &vertex = vertex_value.ValueVertex();
+
+    current_vertex_ = &vertex;
+
+    auto &ref_counted_result_row = vertex_id_to_result_row.at(vertex.Id());
+    auto &result_row = *ref_counted_result_row.result_row;
+
+    current_in_edge_mf_it_ = result_row.in_edges_with_specific_properties.begin();
+    in_edges_end_it_ = result_row.in_edges_with_specific_properties.end();
+    AdvanceUntilSuitableEdge(current_in_edge_mf_it_, in_edges_end_it_);
+    current_out_edge_mf_it_ = result_row.out_edges_with_specific_properties.begin();
+    out_edges_end_it_ = result_row.out_edges_with_specific_properties.end();
+    AdvanceUntilSuitableEdge(current_out_edge_mf_it_, out_edges_end_it_);
+
+    if (ref_counted_result_row.ref_count == 1) {
+      vertex_id_to_result_row.erase(vertex.Id());
+    } else {
+      ref_counted_result_row.ref_count--;
+    }
+  }
+
+  bool PullInputFrames(ExecutionContext &context) {
+    const auto pulled_any = input_cursor_->PullMultiple(*own_multi_frame_, context);
+    // These needs to be updated regardless of the result of the pull, otherwise the consumer and iterator might
+    // get corrupted because of the operations done on our MultiFrame.
+    own_frames_consumer_ = own_multi_frame_->GetValidFramesConsumer();
+    own_frames_it_ = own_frames_consumer_->begin();
+    if (!pulled_any) {
+      return false;
+    }
+
+    vertex_id_to_result_row.clear();
+
+    msgs::ExpandOneRequest request;
+    request.direction = DirectionToMsgsDirection(self_.common_.direction);
+    std::transform(self_.common_.edge_types.begin(), self_.common_.edge_types.end(),
+                   std::back_inserter(request.edge_types),
+                   [](const storage::v3::EdgeTypeId edge_type_id) { return msgs::EdgeType{edge_type_id}; });
+    // to not fetch any properties of the edges
+    request.edge_properties.emplace();
+    request.src_vertex_properties.emplace();
+    for (const auto &frame : own_multi_frame_->GetValidFramesReader()) {
+      const auto &vertex_value = frame[self_.input_symbol_];
+
+      // Null check due to possible failed optional match.
+      MG_ASSERT(!vertex_value.IsNull());
+
+      ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
+      const auto &vertex = vertex_value.ValueVertex();
+      auto [it, inserted] = vertex_id_to_result_row.try_emplace(vertex.Id(), RefCountedResultRow{1U, nullptr});
+
+      if (inserted) {
+        request.src_vertices.push_back(vertex.Id());
+      } else {
+        it->second.ref_count++;
+      }
+    }
+
+    result_rows_ = std::invoke([&context, &request]() mutable {
+      SCOPED_REQUEST_WAIT_PROFILE;
+      return context.request_router->ExpandOne(std::move(request));
+    });
+    for (auto &row : result_rows_) {
+      vertex_id_to_result_row[row.src_vertex.id].result_row = &row;
+    }
+
+    return true;
+  }
+
+  bool PullMultiple(MultiFrame &output_multi_frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("DistributedExpandMF");
+    EnsureOwnMultiFrameIsGood(output_multi_frame);
+    // A helper function for expanding a node from an edge.
+
+    auto output_frames_populator = output_multi_frame.GetInvalidFramesPopulator();
+    auto populated_any = false;
+
+    while (true) {
+      switch (state_) {
+        case State::PullInputAndEdges: {
+          if (!PullInputFrames(context)) {
+            state_ = State::Exhausted;
+            return populated_any;
+          }
+          state_ = State::InitInOutEdgesIt;
+          break;
+        }
+        case State::InitInOutEdgesIt: {
+          if (own_frames_it_ == own_frames_consumer_->end()) {
+            state_ = State::PullInputAndEdges;
+          } else {
+            InitEdgesMultiple();
+            state_ = State::PopulateOutput;
+          }
+          break;
+        }
+        case State::PopulateOutput: {
+          if (!output_multi_frame.HasInvalidFrame()) {
+            return populated_any;
+          }
+          if (current_in_edge_mf_it_ == in_edges_end_it_ && current_out_edge_mf_it_ == out_edges_end_it_) {
+            own_frames_it_->MakeInvalid();
+            ++own_frames_it_;
+            state_ = State::InitInOutEdgesIt;
+            continue;
+          }
+          auto populate_edges = [this, &context, &output_frames_populator, &populated_any](
+                                    const EdgeAtom::Direction direction, EdgesIterator &current,
+                                    const EdgesIterator &end) {
+            for (auto output_frame_it = output_frames_populator.begin();
+                 output_frame_it != output_frames_populator.end() && current != end; ++output_frame_it) {
+              auto &edge = *current;
+              auto &output_frame = *output_frame_it;
+              output_frame = *own_frames_it_;
+              switch (direction) {
+                case EdgeAtom::Direction::IN: {
+                  output_frame[self_.common_.edge_symbol] =
+                      EdgeAccessor{msgs::Edge{edge.other_end, current_vertex_->Id(), {}, {edge.gid}, edge.type},
+                                   context.request_router};
+                  break;
+                }
+                case EdgeAtom::Direction::OUT: {
+                  output_frame[self_.common_.edge_symbol] =
+                      EdgeAccessor{msgs::Edge{current_vertex_->Id(), edge.other_end, {}, {edge.gid}, edge.type},
+                                   context.request_router};
+                  break;
+                }
+                case EdgeAtom::Direction::BOTH: {
+                  LOG_FATAL("Must indicate exact expansion direction here");
+                }
+              };
+              PullDstVertex(output_frame, context, direction);
+              ++current;
+              AdvanceUntilSuitableEdge(current, end);
+              populated_any = true;
+            }
+          };
+          populate_edges(EdgeAtom::Direction::IN, current_in_edge_mf_it_, in_edges_end_it_);
+          populate_edges(EdgeAtom::Direction::OUT, current_out_edge_mf_it_, out_edges_end_it_);
+          break;
+        }
+        case State::Exhausted: {
+          return populated_any;
+        }
+      }
+    }
+    return populated_any;
+  }
+
+  void PushDown(const MultiFrame &multi_frame) override { input_cursor_->PushDown(multi_frame); }
+
+  void EnsureOwnMultiFrameIsGood(MultiFrame &output_multi_frame) {
+    if (!own_multi_frame_.has_value()) {
+      own_multi_frame_.emplace(MultiFrame(output_multi_frame.GetFirstFrame().Elems().size(),
+                                          FLAGS_default_multi_frame_size, output_multi_frame.GetMemoryResource()));
+      own_frames_consumer_.emplace(own_multi_frame_->GetValidFramesConsumer());
+      own_frames_it_ = own_frames_consumer_->begin();
+    }
+    MG_ASSERT(output_multi_frame.GetFirstFrame().Elems().size() == own_multi_frame_->GetFirstFrame().Elems().size());
+  }
+
   void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override {
     input_cursor_->Reset();
+    vertex_id_to_result_row.clear();
+    result_rows_.clear();
+    own_frames_it_ = ValidFramesConsumer::Iterator{};
+    own_frames_consumer_.reset();
+    if (own_multi_frame_.has_value()) {
+      own_multi_frame_->MakeAllFramesInvalid();
+    }
+    state_ = State::PullInputAndEdges;
+
     current_in_edges_.clear();
     current_out_edges_.clear();
     current_in_edge_it_ = current_in_edges_.end();
     current_out_edge_it_ = current_out_edges_.end();
+
+    ResetMultiFrameEdgeIts();
   }
 
  private:
+  enum class State { PullInputAndEdges, InitInOutEdgesIt, PopulateOutput, Exhausted };
+
+  struct RefCountedResultRow {
+    size_t ref_count{0U};
+    msgs::ExpandOneResultRow *result_row{nullptr};
+  };
+
+  using EdgeWithSpecificProperties = msgs::ExpandOneResultRow::EdgeWithSpecificProperties;
+  using EdgesVector = std::vector<EdgeWithSpecificProperties>;
+  using EdgesIterator = EdgesVector::iterator;
+
+  void ResetMultiFrameEdgeIts() {
+    in_edges_end_it_ = EdgesIterator{};
+    current_in_edge_mf_it_ = in_edges_end_it_;
+    out_edges_end_it_ = EdgesIterator{};
+    current_out_edge_mf_it_ = out_edges_end_it_;
+  }
+
+  void AdvanceUntilSuitableEdge(EdgesIterator &current, const EdgesIterator &end) {
+    if (!self_.common_.existing_node) {
+      return;
+    }
+
+    const auto &existing_node_value = (*own_frames_it_)[self_.common_.node_symbol];
+    if (existing_node_value.IsNull()) {
+      current = end;
+      return;
+    }
+    const auto &existing_node = existing_node_value.ValueVertex();
+    current = std::find_if(current, end, [&existing_node](const EdgeWithSpecificProperties &edge) {
+      return edge.other_end == existing_node.Id();
+    });
+  }
+
   const Expand &self_;
   const UniqueCursorPtr input_cursor_;
+  EdgesIterator current_in_edge_mf_it_;
+  EdgesIterator in_edges_end_it_;
+  EdgesIterator current_out_edge_mf_it_;
+  EdgesIterator out_edges_end_it_;
+  State state_{State::PullInputAndEdges};
+  std::optional<MultiFrame> own_multi_frame_;
+  std::optional<ValidFramesConsumer> own_frames_consumer_;
+  const VertexAccessor *current_vertex_{nullptr};
+  ValidFramesConsumer::Iterator own_frames_it_;
+  std::vector<msgs::ExpandOneResultRow> result_rows_;
+  // This won't work if any vertex id is duplicated in the input
+  std::unordered_map<msgs::VertexId, RefCountedResultRow> vertex_id_to_result_row;
+
+  // TODO(antaljanosbenjamin): Remove when single frame approach is removed
   std::vector<EdgeAccessor> current_in_edges_;
   std::vector<EdgeAccessor> current_out_edges_;
   std::vector<EdgeAccessor>::iterator current_in_edge_it_;

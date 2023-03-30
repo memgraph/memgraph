@@ -31,8 +31,8 @@ MultiFrame CreateMultiFrame(const size_t max_pos, const Symbol &src, const Symbo
   auto frames_populator = multi_frame.GetInvalidFramesPopulator();
   size_t i = 0;
   for (auto &frame : frames_populator) {
-    auto &src_acc = frame.at(src);
-    auto &dst_acc = frame.at(dst);
+    auto &src_acc = frame.At(src);
+    auto &dst_acc = frame.At(dst);
     auto v1 = msgs::Vertex{.id = {{msgs::LabelId::FromUint(1)}, {msgs::Value(static_cast<int64_t>(i++))}}};
     auto v2 = msgs::Vertex{.id = {{msgs::LabelId::FromUint(1)}, {msgs::Value(static_cast<int64_t>(i++))}}};
     std::map<msgs::PropertyId, msgs::Value> mp;
@@ -63,7 +63,6 @@ TEST(CreateExpandTest, Cursor) {
   node.symbol = symbol_table.CreateSymbol("u", true);
 
   auto once_op = std::make_shared<plan::Once>();
-  auto once_cur = once_op->MakeCursor(utils::NewDeleteResource());
 
   auto create_expand = plan::CreateExpand(node, edge, once_op, src, true);
   auto cursor = create_expand.MakeCursor(utils::NewDeleteResource());

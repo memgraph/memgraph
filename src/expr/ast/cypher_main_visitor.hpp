@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -51,7 +51,7 @@ constexpr char kId[] = "ID";
 
 namespace MG_INJECTED_NAMESPACE_NAME {
 namespace detail {
-using antlropencypher::MemgraphCypher;
+using antlropencypher::v2::MemgraphCypher;
 
 template <typename TVisitor>
 std::optional<std::pair<Expression *, size_t>> VisitMemoryLimit(MemgraphCypher::MemoryLimitContext *memory_limit_ctx,
@@ -211,13 +211,13 @@ inline std::string_view ToString(const PulsarConfigKey key) {
 }
 }  // namespace detail
 
-using antlropencypher::MemgraphCypher;
+using antlropencypher::v2::MemgraphCypher;
 
 struct ParsingContext {
   bool is_query_cached = false;
 };
 
-class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
+class CypherMainVisitor : public antlropencypher::v2::MemgraphCypherBaseVisitor {
  public:
   explicit CypherMainVisitor(ParsingContext context, AstStorage *storage) : context_(context), storage_(storage) {}
 

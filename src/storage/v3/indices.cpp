@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -325,7 +325,7 @@ void LabelIndex::RemoveObsoleteEntries(const uint64_t clean_up_before_timestamp)
   }
 }
 
-LabelIndex::Iterable::Iterator::Iterator(Iterable *self, LabelIndexContainer::iterator index_iterator)
+LabelIndex::Iterable::Iterator::Iterator(Iterable *self, IndexContainer::iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
       current_vertex_accessor_(nullptr, nullptr, nullptr, self_->config_, *self_->vertex_validator_),
@@ -353,7 +353,7 @@ void LabelIndex::Iterable::Iterator::AdvanceUntilValid() {
   }
 }
 
-LabelIndex::Iterable::Iterable(LabelIndexContainer &index_container, LabelId label, View view, Transaction *transaction,
+LabelIndex::Iterable::Iterable(IndexContainer &index_container, LabelId label, View view, Transaction *transaction,
                                Indices *indices, Config::Items config, const VertexValidator &vertex_validator)
     : index_container_(&index_container),
       label_(label),
@@ -465,7 +465,7 @@ void LabelPropertyIndex::RemoveObsoleteEntries(const uint64_t clean_up_before_ti
   }
 }
 
-LabelPropertyIndex::Iterable::Iterator::Iterator(Iterable *self, LabelPropertyIndexContainer::iterator index_iterator)
+LabelPropertyIndex::Iterable::Iterator::Iterator(Iterable *self, IndexContainer::iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
       current_vertex_accessor_(nullptr, nullptr, nullptr, self_->config_, *self_->vertex_validator_),
@@ -526,7 +526,7 @@ const PropertyValue kSmallestMap = PropertyValue(std::map<std::string, PropertyV
 const PropertyValue kSmallestTemporalData =
     PropertyValue(TemporalData{static_cast<TemporalType>(0), std::numeric_limits<int64_t>::min()});
 
-LabelPropertyIndex::Iterable::Iterable(LabelPropertyIndexContainer &index_container, LabelId label, PropertyId property,
+LabelPropertyIndex::Iterable::Iterable(IndexContainer &index_container, LabelId label, PropertyId property,
                                        const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                        const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
                                        Transaction *transaction, Indices *indices, Config::Items config,

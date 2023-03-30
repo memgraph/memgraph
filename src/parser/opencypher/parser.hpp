@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,10 +14,10 @@
 #include <string>
 
 #include "antlr4-runtime.h"
-#include "utils/exceptions.hpp"
 #include "parser/opencypher/generated/MemgraphCypher.h"
 #include "parser/opencypher/generated/MemgraphCypherLexer.h"
 #include "utils/concepts.hpp"
+#include "utils/exceptions.hpp"
 
 namespace memgraph::frontend::opencypher {
 
@@ -32,11 +32,9 @@ class SyntaxException : public utils::BasicException {
  * This thing must me a class since parser.cypher() returns pointer and there is
  * no way for us to get ownership over the object.
  */
-enum class ParserOpTag : uint8_t {
-  CYPHER, EXPRESSION
-};
+enum class ParserOpTag : uint8_t { CYPHER, EXPRESSION };
 
-template<ParserOpTag Tag = ParserOpTag::CYPHER>
+template <ParserOpTag Tag = ParserOpTag::CYPHER>
 class Parser {
  public:
   /**
@@ -46,10 +44,9 @@ class Parser {
   Parser(const std::string query) : query_(std::move(query)) {
     parser_.removeErrorListeners();
     parser_.addErrorListener(&error_listener_);
-    if constexpr(Tag == ParserOpTag::CYPHER) {
+    if constexpr (Tag == ParserOpTag::CYPHER) {
       tree_ = parser_.cypher();
-    }
-    else {
+    } else {
       tree_ = parser_.expression();
     }
     if (parser_.getNumberOfSyntaxErrors()) {
@@ -75,11 +72,11 @@ class Parser {
   FirstMessageErrorListener error_listener_;
   std::string query_;
   antlr4::ANTLRInputStream input_{query_};
-  antlropencypher::MemgraphCypherLexer lexer_{&input_};
+  antlropencypher::v2::MemgraphCypherLexer lexer_{&input_};
   antlr4::CommonTokenStream tokens_{&lexer_};
 
   // generate ast
-  antlropencypher::MemgraphCypher parser_{&tokens_};
+  antlropencypher::v2::MemgraphCypher parser_{&tokens_};
   antlr4::tree::ParseTree *tree_ = nullptr;
 };
 }  // namespace memgraph::frontend::opencypher
