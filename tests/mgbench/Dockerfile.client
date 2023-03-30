@@ -1,18 +1,7 @@
 FROM ubuntu:latest
 
-ENV address = "127.0.0.1"
-ENV port = "7687"
-ENV username = ""
-ENV password = ""
-ENV use_ssl = false
-ENV num_workers = 1
-ENV max_retries = 50
-ENV queries_json = false
-ENV input = ""
-ENV output = ""
-ENV validation = false
-ENV time_dependent_execution = 0
+RUN apt-get update && apt-get install -y wget libcurl4
+
 COPY client /bin/
 
-
-CMD ["bin/client"]
+ENTRYPOINT ["bin/client"]
