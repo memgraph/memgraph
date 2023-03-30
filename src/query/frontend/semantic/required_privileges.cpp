@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,9 +25,11 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   std::vector<AuthQuery::Privilege> privileges() { return privileges_; }
 
-  void Visit(IndexQuery &) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
+  void Visit(IndexQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
 
-  void Visit(AuthQuery &) override { AddPrivilege(AuthQuery::Privilege::AUTH); }
+  void Visit(AnalyzeGraphQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
+
+  void Visit(AuthQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::AUTH); }
 
   void Visit(ExplainQuery &query) override { query.cypher_query_->Accept(*this); }
 
@@ -79,6 +81,8 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
   void Visit(CreateSnapshotQuery &create_snapshot_query) override { AddPrivilege(AuthQuery::Privilege::DURABILITY); }
 
   void Visit(SettingQuery & /*setting_query*/) override { AddPrivilege(AuthQuery::Privilege::CONFIG); }
+
+  void Visit(TransactionQueueQuery & /*transaction_queue_query*/) override {}
 
   void Visit(VersionQuery & /*version_query*/) override { AddPrivilege(AuthQuery::Privilege::STATS); }
 

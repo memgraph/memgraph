@@ -95,6 +95,8 @@ class SettingQuery;
 class VersionQuery;
 class Foreach;
 class ShowConfigQuery;
+class AnalyzeGraphQuery;
+class TransactionQueueQuery;
 class Exists;
 
 using TreeCompositeVisitor = utils::CompositeVisitor<
@@ -127,9 +129,10 @@ class ExpressionVisitor
           None, ParameterLookup, Identifier, PrimitiveLiteral, RegexMatch, Exists> {};
 
 template <class TResult>
-class QueryVisitor : public utils::Visitor<TResult, CypherQuery, ExplainQuery, ProfileQuery, IndexQuery, AuthQuery,
-                                           InfoQuery, ConstraintQuery, DumpQuery, ReplicationQuery, LockPathQuery,
-                                           FreeMemoryQuery, TriggerQuery, IsolationLevelQuery, CreateSnapshotQuery,
-                                           StreamQuery, SettingQuery, VersionQuery, ShowConfigQuery> {};
+class QueryVisitor
+    : public utils::Visitor<TResult, CypherQuery, ExplainQuery, ProfileQuery, IndexQuery, AuthQuery, InfoQuery,
+                            ConstraintQuery, DumpQuery, ReplicationQuery, LockPathQuery, FreeMemoryQuery, TriggerQuery,
+                            IsolationLevelQuery, CreateSnapshotQuery, StreamQuery, SettingQuery, VersionQuery,
+                            ShowConfigQuery, TransactionQueueQuery, AnalyzeGraphQuery> {};
 
 }  // namespace memgraph::query
