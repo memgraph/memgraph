@@ -18,32 +18,33 @@ namespace memgraph::auth {
 const std::string kAsterisk = "*";
 // These permissions must have values that are applicable for usage in a
 // bitmask.
-
+// clang-format off
 enum class Permission : uint64_t {
-  MATCH = 1,
-  CREATE = 1U << 1U,
-  MERGE = 1U << 2U,
-  DELETE = 1U << 3U,
-  SET = 1U << 4U,
-  REMOVE = 1U << 5U,
-  INDEX = 1U << 6U,
-  STATS = 1U << 7U,
-  CONSTRAINT = 1U << 8U,
-  DUMP = 1U << 9U,
-  REPLICATION = 1U << 10U,
-  DURABILITY = 1U << 11U,
-  READ_FILE = 1U << 12U,
-  FREE_MEMORY = 1U << 13U,
-  TRIGGER = 1U << 14U,
-  CONFIG = 1U << 15U,
-  AUTH = 1U << 16U,
-  STREAM = 1U << 17U,
-  MODULE_READ = 1U << 18U,
+  MATCH        = 1,
+  CREATE       = 1U << 1U,
+  MERGE        = 1U << 2U,
+  DELETE       = 1U << 3U,
+  SET          = 1U << 4U,
+  REMOVE       = 1U << 5U,
+  INDEX        = 1U << 6U,
+  STATS        = 1U << 7U,
+  CONSTRAINT   = 1U << 8U,
+  DUMP         = 1U << 9U,
+  REPLICATION  = 1U << 10U,
+  DURABILITY   = 1U << 11U,
+  READ_FILE    = 1U << 12U,
+  FREE_MEMORY  = 1U << 13U,
+  TRIGGER      = 1U << 14U,
+  CONFIG       = 1U << 15U,
+  AUTH         = 1U << 16U,
+  STREAM       = 1U << 17U,
+  MODULE_READ  = 1U << 18U,
   MODULE_WRITE = 1U << 19U,
-  WEBSOCKET = 1U << 20U,
+  WEBSOCKET    = 1U << 20U,
   TRANSACTION_MANAGEMENT = 1U << 21U,
-  STORAGE_MODE = 1U << 22U
+  STORAGE_MODE    = 1U << 22U
 };
+// clang-format on
 
 #ifdef MG_ENTERPRISE
 // clang-format off
