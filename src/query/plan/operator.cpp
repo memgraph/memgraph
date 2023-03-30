@@ -4804,10 +4804,11 @@ Apply::ApplyCursor::ApplyCursor(const Apply &self, utils::MemoryResource *mem)
       subquery_has_return_(self.subquery_has_return_) {}
 
 std::vector<Symbol> Apply::ModifiedSymbols(const SymbolTable &table) const {
+  // Since Apply is the Cartesian product, modified symbols are combined from
+  // both execution branches.
   auto symbols = input_->ModifiedSymbols(table);
   auto subquery_symbols = subquery_->ModifiedSymbols(table);
   symbols.insert(symbols.end(), subquery_symbols.begin(), subquery_symbols.end());
-
   return symbols;
 }
 
