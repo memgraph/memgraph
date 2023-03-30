@@ -8,6 +8,7 @@
 #include <thread>
 
 #include "interpreter_faker.hpp"
+#include "query/exceptions.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
@@ -53,7 +54,7 @@ TEST_P(StorageModeTest, Mode) {
 INSTANTIATE_TEST_CASE_P(ParameterizedStorageModeTests, StorageModeTest, ::testing::ValuesIn(storage_modes),
                         StorageModeTest::PrintStringParamToName());
 
-class StorageModeMulitTxTest : public ::testing::Test {
+class StorageModeMultiTxTest : public ::testing::Test {
  protected:
   memgraph::storage::Storage db_;
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_storage_mode"};
@@ -61,36 +62,7 @@ class StorageModeMulitTxTest : public ::testing::Test {
   InterpreterFaker running_interpreter{&interpreter_context}, main_interpreter{&interpreter_context};
 };
 
-TEST_F(StorageModeMulitTxTest, ActiveTransaction) {
-  bool started = false;
-  std::jthread running_thread = std::jthread(
-      [this, &started](std::stop_token st, int thread_index) {
-        running_interpreter.Interpret("BEGIN");
-        started = true;
-      },
-      0);
-
-  {
-    while (!started) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    }
-    ASSERT_EQ(db_.GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
-    main_interpreter.Interpret("STORAGE MODE IN_MEMORY_ANALYTICAL");
-
-    // should not change still
-    ASSERT_EQ(db_.GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
-
-    running_interpreter.Interpret("COMMIT");
-
-    // should change state
-    ASSERT_EQ(db_.GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
-
-    // finish thread
-    running_thread.request_stop();
-  }
-}
-
-TEST_F(StorageModeMulitTxTest, InactiveTransaction) {
+TEST_F(StorageModeMultiTxTest, ModeSwitchInactiveTransaction) {
   bool started = false;
   std::jthread running_thread = std::jthread(
       [this, &started](std::stop_token st, int thread_index) {
@@ -114,25 +86,49 @@ TEST_F(StorageModeMulitTxTest, InactiveTransaction) {
   }
 }
 
-TEST_F(StorageModeMulitTxTest, ErrorChangeIsolationLevel) {
+TEST_F(StorageModeMultiTxTest, ModeSwitchActiveTransaction) {
+  // transactional state
+  ASSERT_EQ(db_.GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
+  main_interpreter.Interpret("BEGIN");
+
   bool started = false;
-  std::jthread running_thread =
-      std::jthread([this, &started](std::stop_token st, int thread_index) { started = true; }, 0);
+  bool finished = false;
+  std::jthread running_thread = std::jthread(
+      [this, &started, &finished](std::stop_token st, int thread_index) {
+        started = true;
+        // running interpreter try to change
+        running_interpreter.Interpret("STORAGE MODE IN_MEMORY_ANALYTICAL");
+        finished = true;
+      },
+      0);
 
   {
     while (!started) {
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
+    // should not change still
     ASSERT_EQ(db_.GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
-    main_interpreter.Interpret("STORAGE MODE IN_MEMORY_ANALYTICAL");
 
+    main_interpreter.Interpret("COMMIT");
+
+    while (!finished) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
     // should change state
     ASSERT_EQ(db_.GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
-
-    ASSERT_THROW(running_interpreter.Interpret("SET GLOBAL TRANSACTION ISOLATION LEVEL READ COMMITED;"),
-                 memgraph::query::IsolationLevelModificationInAnalyticsException);
 
     // finish thread
     running_thread.request_stop();
   }
+}
+
+TEST_F(StorageModeMultiTxTest, ErrorChangeIsolationLevel) {
+  ASSERT_EQ(db_.GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
+  main_interpreter.Interpret("STORAGE MODE IN_MEMORY_ANALYTICAL");
+
+  // should change state
+  ASSERT_EQ(db_.GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
+
+  ASSERT_THROW(running_interpreter.Interpret("SET GLOBAL TRANSACTION ISOLATION LEVEL READ COMMITTED;"),
+               memgraph::query::IsolationLevelModificationInAnalyticsException);
 }
