@@ -37,7 +37,7 @@ class ShardSplitBenchmark : public ::benchmark::Fixture {
   using Gid = storage::v3::Gid;
 
   void SetUp(const ::benchmark::State &state) override {
-    storage.emplace(primary_label, min_pk, std::nullopt, schema_property_vector, last_hlc);
+    storage.emplace(primary_label, min_pk, std::nullopt, schema_property_vector);
     storage->StoreMapping(
         {{1, "label"}, {2, "property"}, {3, "edge_property"}, {4, "secondary_label"}, {5, "secondary_prop"}});
   }
@@ -87,7 +87,7 @@ BENCHMARK_DEFINE_F(ShardSplitBenchmark, BigDataSplit)(::benchmark::State &state)
     acc.Commit(GetNextHlc());
   }
   for (auto _ : state) {
-    auto data = storage->PerformSplit(PrimaryKey{PropertyValue{number_of_vertices / 2}}, last_hlc, GetNextHlc());
+    auto data = storage->PerformSplit(PrimaryKey{PropertyValue{number_of_vertices / 2}}, 2);
   }
 }
 
@@ -116,7 +116,7 @@ BENCHMARK_DEFINE_F(ShardSplitBenchmark, BigDataSplitWithGc)(::benchmark::State &
   }
   storage->CollectGarbage(GetNextHlc().coordinator_wall_clock);
   for (auto _ : state) {
-    auto data = storage->PerformSplit(PrimaryKey{PropertyValue{number_of_vertices / 2}}, last_hlc, GetNextHlc());
+    auto data = storage->PerformSplit(PrimaryKey{PropertyValue{number_of_vertices / 2}}, 2);
   }
 }
 
@@ -166,7 +166,7 @@ BENCHMARK_DEFINE_F(ShardSplitBenchmark, BigDataSplitWithFewTransactionsOnVertice
 
   for (auto _ : state) {
     // Don't create shard since shard deallocation can take some time as well
-    auto data = storage->PerformSplit(PrimaryKey{PropertyValue{number_of_vertices / 2}}, last_hlc, GetNextHlc());
+    auto data = storage->PerformSplit(PrimaryKey{PropertyValue{number_of_vertices / 2}}, 2);
   }
 }
 
@@ -191,58 +191,79 @@ BENCHMARK_DEFINE_F(ShardSplitBenchmark, BigDataSplitWithFewTransactionsOnVertice
 // Number of edges
 // Number of transaction
 BENCHMARK_REGISTER_F(ShardSplitBenchmark, BigDataSplitWithFewTransactionsOnVertices)
-    ->Args({100'000, 100'000, 100})
-    ->Args({200'000, 100'000, 100})
-    ->Args({300'000, 100'000, 100})
-    ->Args({400'000, 100'000, 100})
-    ->Args({500'000, 100'000, 100})
-    ->Args({600'000, 100'000, 100})
-    ->Args({700'000, 100'000, 100})
-    ->Args({800'000, 100'000, 100})
-    ->Args({900'000, 100'000, 100})
+    // ->Args({100'000, 100'000, 100})
+    // ->Args({200'000, 100'000, 100})
+    // ->Args({300'000, 100'000, 100})
+    // ->Args({400'000, 100'000, 100})
+    // ->Args({500'000, 100'000, 100})
+    // ->Args({600'000, 100'000, 100})
+    // ->Args({700'000, 100'000, 100})
+    // ->Args({800'000, 100'000, 100})
+    // ->Args({900'000, 100'000, 100})
     ->Args({1'000'000, 100'000, 100})
-    ->Args({2'000'000, 100'000, 100})
-    ->Args({3'000'000, 100'000, 100})
-    ->Args({4'000'000, 100'000, 100})
-    ->Args({5'000'000, 100'000, 100})
-    ->Args({6'000'000, 100'000, 100})
-    ->Args({7'000'000, 100'000, 100})
-    ->Args({8'000'000, 100'000, 100})
-    ->Args({9'000'000, 100'000, 100})
-    ->Args({10'000'000, 100'000, 100})
+    // ->Args({2'000'000, 100'000, 100})
+    // ->Args({3'000'000, 100'000, 100})
+    // ->Args({4'000'000, 100'000, 100})
+    // ->Args({6'000'000, 100'000, 100})
+    // ->Args({7'000'000, 100'000, 100})
+    // ->Args({8'000'000, 100'000, 100})
+    // ->Args({9'000'000, 100'000, 100})
+    // ->Args({10'000'000, 100'000, 100})
     ->Unit(::benchmark::kMillisecond)
     ->Name("IncreaseVertices");
 
-BENCHMARK_REGISTER_F(ShardSplitBenchmark, BigDataSplitWithFewTransactionsOnVertices)
-    ->Args({100'000, 100'000, 100})
-    ->Args({100'000, 200'000, 100})
-    ->Args({100'000, 300'000, 100})
-    ->Args({100'000, 400'000, 100})
-    ->Args({100'000, 500'000, 100})
-    ->Args({100'000, 600'000, 100})
-    ->Args({100'000, 700'000, 100})
-    ->Args({100'000, 800'000, 100})
-    ->Args({100'000, 900'000, 100})
-    ->Args({100'000, 1'000'000, 100})
-    ->Args({100'000, 2'000'000, 100})
-    ->Args({100'000, 3'000'000, 100})
-    ->Args({100'000, 4'000'000, 100})
-    ->Args({100'000, 5'000'000, 100})
-    ->Args({100'000, 6'000'000, 100})
-    ->Args({100'000, 7'000'000, 100})
-    ->Args({100'000, 8'000'000, 100})
-    ->Args({100'000, 9'000'000, 100})
-    ->Args({100'000, 10'000'000, 100})
-    ->Unit(::benchmark::kMillisecond)
-    ->Name("IncreaseEdges");
+// BENCHMARK_REGISTER_F(ShardSplitBenchmark, BigDataSplitWithFewTransactionsOnVertices)
+//     ->Args({100'000, 100'000, 100})
+//     ->Args({200'000, 100'000, 100})
+//     ->Args({300'000, 100'000, 100})
+//     ->Args({400'000, 100'000, 100})
+//     ->Args({500'000, 100'000, 100})
+//     ->Args({600'000, 100'000, 100})
+//     ->Args({700'000, 100'000, 100})
+//     ->Args({800'000, 100'000, 100})
+//     ->Args({900'000, 100'000, 100})
+//     ->Args({1'000'000, 100'000, 100})
+//     ->Args({2'000'000, 100'000, 100})
+//     ->Args({3'000'000, 100'000, 100})
+//     ->Args({4'000'000, 100'000, 100})
+//     ->Args({6'000'000, 100'000, 100})
+//     ->Args({7'000'000, 100'000, 100})
+//     ->Args({8'000'000, 100'000, 100})
+//     ->Args({9'000'000, 100'000, 100})
+//     ->Args({10'000'000, 100'000, 100})
+//     ->Unit(::benchmark::kMillisecond)
+//     ->Name("IncreaseVertices");
 
-BENCHMARK_REGISTER_F(ShardSplitBenchmark, BigDataSplitWithFewTransactionsOnVertices)
-    ->Args({100'000, 100'000, 100})
-    ->Args({100'000, 100'000, 1'000})
-    ->Args({100'000, 100'000, 10'000})
-    ->Args({100'000, 100'000, 100'000})
-    ->Unit(::benchmark::kMillisecond)
-    ->Name("IncreaseTransactions");
+// BENCHMARK_REGISTER_F(ShardSplitBenchmark, BigDataSplitWithFewTransactionsOnVertices)
+//     ->Args({100'000, 100'000, 100})
+//     ->Args({100'000, 200'000, 100})
+//     ->Args({100'000, 300'000, 100})
+//     ->Args({100'000, 400'000, 100})
+//     ->Args({100'000, 500'000, 100})
+//     ->Args({100'000, 600'000, 100})
+//     ->Args({100'000, 700'000, 100})
+//     ->Args({100'000, 800'000, 100})
+//     ->Args({100'000, 900'000, 100})
+//     ->Args({100'000, 1'000'000, 100})
+//     ->Args({100'000, 2'000'000, 100})
+//     ->Args({100'000, 3'000'000, 100})
+//     ->Args({100'000, 4'000'000, 100})
+//     ->Args({100'000, 5'000'000, 100})
+//     ->Args({100'000, 6'000'000, 100})
+//     ->Args({100'000, 7'000'000, 100})
+//     ->Args({100'000, 8'000'000, 100})
+//     ->Args({100'000, 9'000'000, 100})
+//     ->Args({100'000, 10'000'000, 100})
+//     ->Unit(::benchmark::kMillisecond)
+//     ->Name("IncreaseEdges");
+
+// BENCHMARK_REGISTER_F(ShardSplitBenchmark, BigDataSplitWithFewTransactionsOnVertices)
+//     ->Args({100'000, 100'000, 100})
+//     ->Args({100'000, 100'000, 1'000})
+//     ->Args({100'000, 100'000, 10'000})
+//     ->Args({100'000, 100'000, 100'000})
+//     ->Unit(::benchmark::kMillisecond)
+//     ->Name("IncreaseTransactions");
 
 }  // namespace memgraph::benchmark
 

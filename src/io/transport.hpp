@@ -22,13 +22,13 @@
 #include "io/message_histogram_collector.hpp"
 #include "io/notifier.hpp"
 #include "io/time.hpp"
+#include "utils/concepts.hpp"
 #include "utils/concrete_msg_sender.hpp"
 #include "utils/result.hpp"
 
 namespace memgraph::io {
 
-using memgraph::utils::BasicResult;
-
+using utils::BasicResult;
 using RequestId = uint64_t;
 
 template <utils::Message M>
@@ -81,8 +81,8 @@ class Io {
   ResponseFuture<ResponseT> RequestWithTimeout(Address address, RequestT request, Duration timeout) {
     const Address from_address = address_;
     std::function<void()> fill_notifier = nullptr;
-    return implementation_.template Request<RequestT, ResponseT>(address, from_address, request, fill_notifier,
-                                                                 timeout);
+    return implementation_.template Request<RequestT, ResponseT>(address, from_address, std::move(request),
+                                                                 fill_notifier, timeout);
   }
 
   /// Issue a request that times out after the default timeout. This tends
@@ -113,8 +113,8 @@ class Io {
                                                               ReadinessToken readiness_token, Duration timeout) {
     const Address from_address = address_;
     std::function<void()> fill_notifier = [notifier, readiness_token]() { notifier.Notify(readiness_token); };
-    return implementation_.template Request<RequestT, ResponseT>(to_address, from_address, std::move(request),
-                                                                 fill_notifier, timeout);
+    return implementation_.template Request<ResponseT>(to_address, from_address, std::forward<RequestT>(request),
+                                                       fill_notifier, timeout);
   }
 
   /// Wait for an explicit number of microseconds for a request of one of the
@@ -138,7 +138,7 @@ class Io {
   template <utils::Message M>
   void Send(Address to_address, RequestId request_id, M message) {
     Address from_address = address_;
-    return implementation_.template Send<M>(to_address, from_address, request_id, std::move(message));
+    return implementation_.template Send<M>(to_address, from_address, request_id, std::forward<M>(message));
   }
 
   /// The current system time. This time source should be preferred over any other,

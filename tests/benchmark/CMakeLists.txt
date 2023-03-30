@@ -82,3 +82,9 @@ target_link_libraries(${test_prefix}data_structures_remove mg-utils mg-storage-v
 
 add_benchmark(storage_v3_split.cpp)
 target_link_libraries(${test_prefix}storage_v3_split mg-storage-v3 mg-query-v2)
+
+add_benchmark(storage_v3_split_1.cpp)
+target_link_libraries(${test_prefix}storage_v3_split_1 mg-storage-v3 mg-query-v2)
+
+add_benchmark(storage_v3_split_2.cpp)
+target_link_libraries(${test_prefix}storage_v3_split_2 mg-storage-v3 mg-query-v2)

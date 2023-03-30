@@ -73,19 +73,20 @@ class Splitter final {
                                             const VertexContainer &split_vertices, const PrimaryKey &split_key);
 
   std::map<uint64_t, std::unique_ptr<Transaction>> CollectTransactions(
-      const std::set<uint64_t> &collected_transactions_start_id, VertexContainer &cloned_vertices,
-      EdgeContainer &cloned_edges, const PrimaryKey &split_key);
+      const std::set<uint64_t> &collected_transactions_start_id, EdgeContainer &cloned_edges,
+      const PrimaryKey &split_key);
 
   static void ScanDeltas(std::set<uint64_t> &collected_transactions_start_id, const Delta *delta);
 
+  void PruneOriginalDeltas(Transaction &transaction, std::map<uint64_t, std::unique_ptr<Transaction>> &transactions,
+                           const PrimaryKey &split_key);
+
   void AdjustClonedTransaction(Transaction &cloned_transaction, const Transaction &transaction,
                                std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions,
-                               VertexContainer &cloned_vertices, EdgeContainer &cloned_edges,
-                               const PrimaryKey &split_key);
+                               EdgeContainer &cloned_edges);
 
   void AdjustClonedTransactions(std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions,
-                                VertexContainer &cloned_vertices, EdgeContainer &cloned_edges,
-                                const PrimaryKey &split_key);
+                                EdgeContainer &cloned_edges, const PrimaryKey &split_key);
 
   void AdjustEdgeRef(Delta &cloned_delta, EdgeContainer &cloned_edges) const;
 

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -95,7 +95,7 @@ class RsmClient {
   BasicResult<TimedOut, WriteResponseT> SendWriteRequest(WriteRequestT req) {
     Notifier notifier;
     const ReadinessToken readiness_token{0};
-    SendAsyncWriteRequest(req, notifier, readiness_token);
+    SendAsyncWriteRequest(std::move(req), notifier, readiness_token);
     auto poll_result = AwaitAsyncWriteRequest(readiness_token);
     while (!poll_result) {
       poll_result = AwaitAsyncWriteRequest(readiness_token);
@@ -106,7 +106,7 @@ class RsmClient {
   BasicResult<TimedOut, ReadResponseT> SendReadRequest(ReadRequestT req) {
     Notifier notifier;
     const ReadinessToken readiness_token{0};
-    SendAsyncReadRequest(req, notifier, readiness_token);
+    SendAsyncReadRequest(std::move(req), notifier, readiness_token);
     auto poll_result = AwaitAsyncReadRequest(readiness_token);
     while (!poll_result) {
       poll_result = AwaitAsyncReadRequest(readiness_token);
@@ -115,7 +115,7 @@ class RsmClient {
   }
 
   /// AsyncRead methods
-  void SendAsyncReadRequest(const ReadRequestT &req, Notifier notifier, ReadinessToken readiness_token) {
+  void SendAsyncReadRequest(ReadRequestT &&req, Notifier notifier, ReadinessToken readiness_token) {
     ReadRequest<ReadRequestT> read_req = {.operation = req};
 
     AsyncRequest<ReadRequestT, ReadResponse<ReadResponseT>> async_request{
@@ -123,7 +123,7 @@ class RsmClient {
         .request = std::move(req),
         .notifier = notifier,
         .future = io_.template RequestWithNotification<ReadRequest<ReadRequestT>, ReadResponse<ReadResponseT>>(
-            leader_, read_req, notifier, readiness_token),
+            leader_, std::move(read_req), notifier, readiness_token),
     };
 
     async_reads_.emplace(readiness_token.GetId(), std::move(async_request));
@@ -135,7 +135,7 @@ class RsmClient {
     ReadRequest<ReadRequestT> read_req = {.operation = async_request.request};
 
     async_request.future = io_.template RequestWithNotification<ReadRequest<ReadRequestT>, ReadResponse<ReadResponseT>>(
-        leader_, read_req, async_request.notifier, readiness_token);
+        leader_, std::move(read_req), async_request.notifier, readiness_token);
   }
 
   std::optional<BasicResult<TimedOut, ReadResponseT>> PollAsyncReadRequest(const ReadinessToken &readiness_token) {
@@ -189,7 +189,7 @@ class RsmClient {
   }
 
   /// AsyncWrite methods
-  void SendAsyncWriteRequest(const WriteRequestT &req, Notifier notifier, ReadinessToken readiness_token) {
+  void SendAsyncWriteRequest(WriteRequestT &&req, Notifier notifier, ReadinessToken readiness_token) {
     WriteRequest<WriteRequestT> write_req = {.operation = req};
 
     AsyncRequest<WriteRequestT, WriteResponse<WriteResponseT>> async_request{
@@ -197,7 +197,7 @@ class RsmClient {
         .request = std::move(req),
         .notifier = notifier,
         .future = io_.template RequestWithNotification<WriteRequest<WriteRequestT>, WriteResponse<WriteResponseT>>(
-            leader_, write_req, notifier, readiness_token),
+            leader_, std::move(write_req), notifier, readiness_token),
     };
 
     async_writes_.emplace(readiness_token.GetId(), std::move(async_request));
@@ -210,7 +210,7 @@ class RsmClient {
 
     async_request.future =
         io_.template RequestWithNotification<WriteRequest<WriteRequestT>, WriteResponse<WriteResponseT>>(
-            leader_, write_req, async_request.notifier, readiness_token);
+            leader_, std::move(write_req), async_request.notifier, readiness_token);
   }
 
   std::optional<BasicResult<TimedOut, WriteResponseT>> PollAsyncWriteRequest(const ReadinessToken &readiness_token) {

@@ -252,7 +252,7 @@ to a CAS operation.
 template <typename WriteOperation, typename ReadOperation, typename ReplicatedState, typename WriteResponseValue,
           typename ReadResponseValue>
 concept Rsm = requires(ReplicatedState state, WriteOperation w, ReadOperation r) {
-  { state.Read(r) } -> std::same_as<ReadResponseValue>;
+  { state.Read(std::move(r)) } -> std::same_as<ReadResponseValue>;
   { state.Apply(w) } -> std::same_as<WriteResponseValue>;
 };
 
@@ -570,7 +570,7 @@ class Raft {
       for (const auto &peer : peers_) {
         // request_id not necessary to set because it's not a Future-backed Request.
         static constexpr auto request_id = 0;
-        io_.template Send<VoteRequest>(peer, request_id, request);
+        io_.template Send(peer, request_id, VoteRequest{request});
         outstanding_votes.insert(peer);
       }
 
@@ -734,6 +734,10 @@ class Raft {
         .log_size = state_.log.size(),
     };
 
+    static_assert(std::is_trivially_copyable_v<AppendResponse>,
+                  "This function copies this message, therefore it is important to be trivially copyable. Otherwise it "
+                  "should be moved");
+
     if constexpr (std::is_same<ALL, Leader>()) {
       MG_ASSERT(req.term != state_.term, "Multiple leaders are acting under the term ", req.term);
     }
@@ -752,7 +756,7 @@ class Raft {
       // become follower of this leader, reply with our log status
       state_.term = req.term;
 
-      io_.Send(from_address, request_id, res);
+      io_.Send(from_address, request_id, AppendResponse{res});
 
       Log("becoming Follower of Leader ", from_address.last_known_port, " at term ", req.term);
       return Follower{
@@ -763,7 +767,7 @@ class Raft {
 
     if (req.term < state_.term) {
       // nack this request from an old leader
-      io_.Send(from_address, request_id, res);
+      io_.Send(from_address, request_id, AppendResponse{res});
 
       return std::nullopt;
     }
@@ -824,7 +828,7 @@ class Raft {
 
     Log("returning log_size of ", res.log_size);
 
-    io_.Send(from_address, request_id, res);
+    io_.Send(from_address, request_id, AppendResponse{res});
 
     return std::nullopt;
   }
@@ -875,17 +879,17 @@ class Raft {
     auto type_info = TypeInfoFor(req);
     std::string demangled_name = boost::core::demangle(type_info.get().name());
     Log("handling ReadOperation<" + demangled_name + ">");
-    ReadOperation read_operation = req.operation;
+    ReadOperation &read_operation = req.operation;
 
-    ReadResponseValue read_return = replicated_state_.Read(read_operation);
+    ReadResponseValue read_return = replicated_state_.Read(std::move(read_operation));
 
-    const ReadResponse<ReadResponseValue> resp{
+    ReadResponse<ReadResponseValue> resp{
         .success = true,
         .read_return = std::move(read_return),
         .retry_leader = std::nullopt,
     };
 
-    io_.Send(from_address, request_id, resp);
+    io_.Send(from_address, request_id, std::move(resp));
 
     return std::nullopt;
   }
@@ -894,11 +898,11 @@ class Raft {
   std::optional<Role> Handle(Candidate & /* variable */, ReadRequest<ReadOperation> && /* variable */,
                              RequestId request_id, Address from_address) {
     Log("received ReadOperation - not redirecting because no Leader is known");
-    const ReadResponse<ReadResponseValue> res{
+    ReadResponse<ReadResponseValue> res{
         .success = false,
     };
 
-    io_.Send(from_address, request_id, res);
+    io_.Send(from_address, request_id, std::move(res));
 
     Cron();
 
@@ -910,12 +914,12 @@ class Raft {
                              Address from_address) {
     Log("redirecting client to known Leader with port ", follower.leader_address.last_known_port);
 
-    const ReadResponse<ReadResponseValue> res{
+    ReadResponse<ReadResponseValue> res{
         .success = false,
         .retry_leader = follower.leader_address,
     };
 
-    io_.Send(from_address, request_id, res);
+    io_.Send(from_address, request_id, std::move(res));
 
     return std::nullopt;
   }
@@ -929,12 +933,12 @@ class Raft {
                              Address from_address) {
     Log("redirecting client to known Leader with port ", follower.leader_address.last_known_port);
 
-    const WriteResponse<WriteResponseValue> res{
+    WriteResponse<WriteResponseValue> res{
         .success = false,
         .retry_leader = follower.leader_address,
     };
 
-    io_.Send(from_address, request_id, res);
+    io_.Send(from_address, request_id, std::move(res));
 
     return std::nullopt;
   }
@@ -943,11 +947,11 @@ class Raft {
                              RequestId request_id, Address from_address) {
     Log("received WriteRequest - not redirecting because no Leader is known");
 
-    const WriteResponse<WriteResponseValue> res{
+    WriteResponse<WriteResponseValue> res{
         .success = false,
     };
 
-    io_.Send(from_address, request_id, res);
+    io_.Send(from_address, request_id, std::move(res));
 
     Cron();
 

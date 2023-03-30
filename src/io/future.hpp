@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -120,7 +120,7 @@ class Shared {
       MG_ASSERT(!consumed_, "Promise filled after it was already consumed!");
       MG_ASSERT(!filled_, "Promise filled twice!");
 
-      item_ = item;
+      item_ = std::move(item);
       filled_ = true;
     }  // lock released before condition variable notification
 
@@ -235,7 +235,7 @@ class Promise {
   // Fill the expected item into the Future.
   void Fill(T item) {
     MG_ASSERT(!filled_or_moved_, "Promise::Fill called on a promise that is already filled or moved!");
-    shared_->Fill(item);
+    shared_->Fill(std::move(item));
     filled_or_moved_ = true;
   }
 

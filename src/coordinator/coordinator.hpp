@@ -196,6 +196,8 @@ class Coordinator {
   CoordinatorWriteResponses ApplyWrite(InitializeLabelRequest &&initialize_label_request);
 
   CoordinatorWriteResponses ApplyWrite(AllocatePropertyIdsRequest &&allocate_property_ids_request);
+
+  CoordinatorWriteResponses ApplyWrite(AllocateHlcBatchRequest &&allocate_hlc_batch_request);
 };
 
 }  // namespace memgraph::coordinator

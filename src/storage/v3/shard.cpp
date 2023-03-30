@@ -334,9 +334,7 @@ Shard::Shard(const LabelId primary_label, const PrimaryKey min_primary_key,
       vertex_validator_{schema_validator_, primary_label},
       indices_{config.items, vertex_validator_},
       isolation_level_{config.transaction.isolation_level},
-      config_{config},
-      shard_splitter_(primary_label, vertices_, edges_, start_logical_id_to_transaction_, indices_, config_, schema,
-                      name_id_mapper_) {
+      config_{config} {
   spdlog::trace("Shard constructed with low key {} (path 1)", min_primary_key_.back());
 
   CreateSchema(primary_label_, schema);
@@ -358,9 +356,7 @@ Shard::Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<Pr
       indices_{config.items, vertex_validator_},
       isolation_level_{config.transaction.isolation_level},
       config_{config},
-      start_logical_id_to_transaction_(std::move(start_logical_id_to_transaction)),
-      shard_splitter_(primary_label, vertices_, edges_, start_logical_id_to_transaction_, indices_, config_, schema,
-                      name_id_mapper_) {
+      start_logical_id_to_transaction_(std::move(start_logical_id_to_transaction)) {
   spdlog::trace("Shard constructed with low key {} (path 2)", min_primary_key_.back());
 
   CreateSchema(primary_label_, schema);
@@ -381,9 +377,7 @@ Shard::Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<Pr
       indices_{config.items, vertex_validator_},
       isolation_level_{config.transaction.isolation_level},
       config_{config},
-      start_logical_id_to_transaction_(std::move(start_logical_id_to_transaction)),
-      shard_splitter_(primary_label, vertices_, edges_, start_logical_id_to_transaction_, indices_, config_, schema,
-                      name_id_mapper_) {
+      start_logical_id_to_transaction_(std::move(start_logical_id_to_transaction)) {
   spdlog::trace("Shard constructed with low key {} (path 3)", min_primary_key_.back());
 
   CreateSchema(primary_label_, schema);
@@ -1171,8 +1165,7 @@ std::optional<SplitData> Shard::PerformSplit(const PrimaryKey &split_key, const 
   MG_ASSERT(schema, "Shard must know about schema of primary label!");
   Splitter shard_splitter(primary_label_, vertices_, edges_, start_logical_id_to_transaction_, indices_, config_,
                           schema->second, name_id_mapper_);
-  return shard_splitter.SplitShard(split_key, old_max_key, shard_version);
-
+  return shard_splitter.SplitShard(split_key, old_max_key, new_rhs_shard_version);
 }
 
 bool Shard::IsVertexBelongToShard(const VertexId &vertex_id) const {

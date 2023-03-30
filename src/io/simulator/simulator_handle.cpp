@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -198,8 +198,8 @@ bool SimulatorHandle::MaybeTickSimulator() {
     spdlog::trace("simulator adding message to can_receive_ from {} to {}", opaque_message.from_address.last_known_port,
                   opaque_message.to_address.last_known_port);
     const auto &[om_vec, inserted] =
-        can_receive_.try_emplace(to_address.ToPartialAddress(), std::vector<OpaqueMessage>());
-    om_vec->second.emplace_back(std::move(opaque_message));
+        can_receive_.try_emplace(to_address.ToPartialAddress(), std::deque<OpaqueMessage>());
+    om_vec->second.emplace_front(std::move(opaque_message));
   }
 
   return true;

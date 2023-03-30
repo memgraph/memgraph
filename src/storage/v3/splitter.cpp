@@ -57,7 +57,7 @@ SplitData Splitter::SplitShard(const PrimaryKey &split_key, const std::optional<
   std::set<uint64_t> collected_transactions_;
   data.vertices = CollectVertices(data, collected_transactions_, split_key);
   data.edges = CollectEdges(collected_transactions_, data.vertices, split_key);
-  data.transactions = CollectTransactions(collected_transactions_, data.vertices, *data.edges, split_key);
+  data.transactions = CollectTransactions(collected_transactions_, *data.edges, split_key);
 
   return data;
 }
@@ -82,8 +82,8 @@ VertexContainer Splitter::CollectVertices(SplitData &data, std::set<uint64_t> &c
 
     auto next_it = std::next(split_key_it);
 
-    const auto &[splitted_vertex_it, inserted, node] = splitted_data.insert(vertices_.extract(split_key_it->first));
-    MG_ASSERT(inserted, "Failed to extract vertex!");
+    const auto new_it = splitted_data.insert(splitted_data.end(), vertices_.extract(split_key_it));
+    MG_ASSERT(new_it != splitted_data.end(), "Failed to extract vertex!");
 
     split_key_it = next_it;
   }
@@ -122,8 +122,7 @@ std::optional<EdgeContainer> Splitter::CollectEdges(std::set<uint64_t> &collecte
 }
 
 std::map<uint64_t, std::unique_ptr<Transaction>> Splitter::CollectTransactions(
-    const std::set<uint64_t> &collected_transactions_, VertexContainer &cloned_vertices, EdgeContainer &cloned_edges,
-    const PrimaryKey &split_key) {
+    const std::set<uint64_t> &collected_transactions_, EdgeContainer &cloned_edges, const PrimaryKey &split_key) {
   std::map<uint64_t, std::unique_ptr<Transaction>> transactions;
 
   for (const auto &[commit_start, transaction] : start_logical_id_to_transaction_) {
@@ -136,37 +135,48 @@ std::map<uint64_t, std::unique_ptr<Transaction>> Splitter::CollectTransactions(
 
   // It is necessary to clone all the transactions first so we have new addresses
   // for deltas, before doing alignment of deltas and prev_ptr
-  AdjustClonedTransactions(transactions, cloned_vertices, cloned_edges, split_key);
+  AdjustClonedTransactions(transactions, cloned_edges, split_key);
   return transactions;
+}
+
+void EraseDeltaChain(auto &transaction, auto &transactions, auto &delta_head_it) {
+  auto *current_next_delta = delta_head_it->next;
+  // We need to keep track of delta_head_it in the delta list of current transaction
+  delta_head_it = transaction.deltas.erase(delta_head_it);
+
+  while (current_next_delta != nullptr) {
+    auto *next_delta = current_next_delta->next;
+    // Find next delta transaction delta list
+    auto current_transaction_it = std::ranges::find_if(
+        transactions, [&start_or_commit_timestamp =
+                           current_next_delta->commit_info->start_or_commit_timestamp](const auto &transaction) {
+          return transaction.second->start_timestamp == start_or_commit_timestamp ||
+                 transaction.second->commit_info->start_or_commit_timestamp == start_or_commit_timestamp;
+        });
+    MG_ASSERT(current_transaction_it != transactions.end(), "Error when pruning deltas!");
+    // Remove the delta
+    const auto delta_it =
+        std::ranges::find_if(current_transaction_it->second->deltas,
+                             [current_next_delta](const auto &elem) { return elem.id == current_next_delta->id; });
+    if (delta_it != current_transaction_it->second->deltas.end()) {
+      // If the next delta is next in transaction list replace current_transaction_it
+      // with the next one
+      if (current_transaction_it->second->start_timestamp == transaction.start_timestamp &&
+          current_transaction_it == std::next(current_transaction_it)) {
+        delta_head_it = current_transaction_it->second->deltas.erase(delta_it);
+      } else {
+        current_transaction_it->second->deltas.erase(delta_it);
+      }
+    }
+
+    current_next_delta = next_delta;
+  }
 }
 
 void PruneDeltas(Transaction &cloned_transaction, std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions,
                  const PrimaryKey &split_key, EdgeContainer &cloned_edges) {
   // Remove delta chains that don't point to objects on splitted shard
   auto cloned_delta_it = cloned_transaction.deltas.begin();
-
-  const auto remove_from_delta_chain = [&cloned_transaction, &cloned_transactions](auto &cloned_delta_it) {
-    auto *current_next_delta = cloned_delta_it->next;
-    cloned_delta_it = cloned_transaction.deltas.erase(cloned_delta_it);
-
-    while (current_next_delta != nullptr) {
-      auto *next_delta = current_next_delta->next;
-      // Find next delta transaction delta list
-      auto current_transaction_it = std::ranges::find_if(
-          cloned_transactions,
-          [&start_or_commit_timestamp =
-               current_next_delta->commit_info->start_or_commit_timestamp](const auto &transaction) {
-            return transaction.second->start_timestamp == start_or_commit_timestamp ||
-                   transaction.second->commit_info->start_or_commit_timestamp == start_or_commit_timestamp;
-          });
-      MG_ASSERT(current_transaction_it != cloned_transactions.end(), "Error when pruning deltas!");
-      // Remove it
-      current_transaction_it->second->deltas.remove_if(
-          [&current_next_delta = *current_next_delta](const auto &delta) { return delta == current_next_delta; });
-
-      current_next_delta = next_delta;
-    }
-  };
 
   while (cloned_delta_it != cloned_transaction.deltas.end()) {
     const auto prev = cloned_delta_it->prev.Get();
@@ -178,7 +188,7 @@ void PruneDeltas(Transaction &cloned_transaction, std::map<uint64_t, std::unique
       case PreviousPtr::Type::VERTEX: {
         if (prev.vertex->first < split_key) {
           // We can remove this delta chain
-          remove_from_delta_chain(cloned_delta_it);
+          EraseDeltaChain(cloned_transaction, cloned_transactions, cloned_delta_it);
         } else {
           ++cloned_delta_it;
         }
@@ -187,27 +197,65 @@ void PruneDeltas(Transaction &cloned_transaction, std::map<uint64_t, std::unique
       case PreviousPtr::Type::EDGE: {
         if (const auto edge_gid = prev.edge->gid; !cloned_edges.contains(edge_gid)) {
           // We can remove this delta chain
-          remove_from_delta_chain(cloned_delta_it);
+          EraseDeltaChain(cloned_transaction, cloned_transactions, cloned_delta_it);
         } else {
           ++cloned_delta_it;
-          break;
         }
+        break;
+      }
+    }
+  }
+}
+
+void Splitter::PruneOriginalDeltas(Transaction &transaction,
+                                   std::map<uint64_t, std::unique_ptr<Transaction>> &transactions,
+                                   const PrimaryKey &split_key) {
+  // Remove delta chains that don't point to objects on splitted shard
+  auto delta_it = transaction.deltas.begin();
+
+  while (delta_it != transaction.deltas.end()) {
+    const auto prev = delta_it->prev.Get();
+    switch (prev.type) {
+      case PreviousPtr::Type::DELTA:
+      case PreviousPtr::Type::NULLPTR:
+        ++delta_it;
+        break;
+      case PreviousPtr::Type::VERTEX: {
+        if (prev.vertex->first >= split_key) {
+          // We can remove this delta chain
+          EraseDeltaChain(transaction, transactions, delta_it);
+        } else {
+          ++delta_it;
+        }
+        break;
+      }
+      case PreviousPtr::Type::EDGE: {
+        if (const auto edge_gid = prev.edge->gid; !edges_.contains(edge_gid)) {
+          // We can remove this delta chain
+          EraseDeltaChain(transaction, transactions, delta_it);
+        } else {
+          ++delta_it;
+        }
+        break;
       }
     }
   }
 }
 
 void Splitter::AdjustClonedTransactions(std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions,
-                                        VertexContainer &cloned_vertices, EdgeContainer &cloned_edges,
-                                        const PrimaryKey &split_key) {
-  for (auto &[commit_start, cloned_transaction] : cloned_transactions) {
-    AdjustClonedTransaction(*cloned_transaction, *start_logical_id_to_transaction_[commit_start], cloned_transactions,
-                            cloned_vertices, cloned_edges, split_key);
+                                        EdgeContainer &cloned_edges, const PrimaryKey &split_key) {
+  for (auto &[start_id, cloned_transaction] : cloned_transactions) {
+    AdjustClonedTransaction(*cloned_transaction, *start_logical_id_to_transaction_[start_id], cloned_transactions,
+                            cloned_edges);
   }
   // Prune deltas whose delta chain points to vertex/edge that should not belong on that shard
   // Prune must be after adjust, since next, and prev are not set and we cannot follow the chain
-  for (auto &[commit_start, cloned_transaction] : cloned_transactions) {
+  for (auto &[start_id, cloned_transaction] : cloned_transactions) {
     PruneDeltas(*cloned_transaction, cloned_transactions, split_key, cloned_edges);
+  }
+  // Also we need to remove deltas from original transactions
+  for (auto &[start_id, original_transaction] : start_logical_id_to_transaction_) {
+    PruneOriginalDeltas(*original_transaction, start_logical_id_to_transaction_, split_key);
   }
 }
 
@@ -221,8 +269,7 @@ bool DoesPrevPtrPointsToSplittedData(const PreviousPtr::Pointer &prev_ptr, const
 
 void Splitter::AdjustClonedTransaction(Transaction &cloned_transaction, const Transaction &transaction,
                                        std::map<uint64_t, std::unique_ptr<Transaction>> &cloned_transactions,
-                                       VertexContainer &cloned_vertices, EdgeContainer &cloned_edges,
-                                       const PrimaryKey & /*split_key*/) {
+                                       EdgeContainer &cloned_edges) {
   auto delta_it = transaction.deltas.begin();
   auto cloned_delta_it = cloned_transaction.deltas.begin();
 
@@ -248,7 +295,7 @@ void Splitter::AdjustClonedTransaction(Transaction &cloned_transaction, const Tr
       // Align next ptr and prev ptr
       AdjustDeltaNextAndPrev(*delta, *cloned_delta, cloned_transactions);
 
-      // TODO Next delta might not belong to the cloned transaction and thats
+      // Next delta might not belong to the cloned transaction and thats
       // why we skip this delta of the delta chain
       if (cloned_delta->next != nullptr) {
         cloned_delta = cloned_delta->next;
@@ -278,8 +325,6 @@ void Splitter::AdjustEdgeRef(Delta &cloned_delta, EdgeContainer &cloned_edges) c
     case Delta::Action::REMOVE_OUT_EDGE: {
       // Find edge
       if (config_.items.properties_on_edges) {
-        // Only case when not finding is when the edge is not on splitted shard
-        // TODO Do this after prune an move condition into assert
         if (const auto cloned_edge_it = cloned_edges.find(cloned_delta.vertex_edge.edge.ptr->gid);
             cloned_edge_it != cloned_edges.end()) {
           cloned_delta.vertex_edge.edge = EdgeRef{&cloned_edge_it->second};
@@ -350,11 +395,13 @@ void Splitter::AdjustDeltaPrevPtr(const Delta &original, Delta &cloned,
     case PreviousPtr::Type::VERTEX: {
       // The vertex was extracted and it is safe to reuse address
       cloned.prev.Set(ptr.vertex);
+      ptr.vertex->second.delta = &cloned;
       break;
     }
     case PreviousPtr::Type::EDGE: {
       // We can never be here if we have properties on edge disabled
       auto *cloned_edge = &*cloned_edges.find(ptr.edge->gid);
+      ptr.edge->delta = &cloned;
       cloned.prev.Set(&cloned_edge->second);
       break;
     }

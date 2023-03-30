@@ -13,6 +13,7 @@
 
 #include <boost/core/demangle.hpp>
 
+#include "io/time.hpp"
 #include "io/transport.hpp"
 #include "utils/concrete_msg_sender.hpp"
 #include "utils/type_info_ref.hpp"
@@ -39,6 +40,7 @@ struct OpaqueMessage {
   uint64_t request_id;
   std::any message;
   utils::TypeInfoRef type_info;
+  Time deliverable_at;
 
   /// Recursively tries to match a specific type from the outer
   /// variant's parameter pack against the type of the std::any,

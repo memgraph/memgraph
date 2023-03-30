@@ -574,7 +574,8 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
       if (req.order_by_edges.empty()) {
         const auto *schema = shard_->GetSchema(shard_->PrimaryLabel());
         MG_ASSERT(schema);
-        return GetExpandOneResult(acc, src_vertex, req, maybe_filter_based_on_edge_uniqueness, edge_filler, *schema);
+        return GetExpandOneResult(src_vertex_acc, std::move(src_vertex), req, maybe_filter_based_on_edge_uniqueness,
+                                  edge_filler, *schema);
       }
       auto [in_edge_accessors, out_edge_accessors] = GetEdgesFromVertex(src_vertex_acc, req.direction);
       const auto in_ordered_edges = OrderByEdges(dba, in_edge_accessors, req.order_by_edges, src_vertex_acc);
@@ -589,12 +590,13 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
                      [](const auto &edge_element) { return edge_element.object_acc; });
       const auto *schema = shard_->GetSchema(shard_->PrimaryLabel());
       MG_ASSERT(schema);
-      return GetExpandOneResult(src_vertex_acc, src_vertex, req, in_edge_ordered_accessors, out_edge_ordered_accessors,
-                                maybe_filter_based_on_edge_uniqueness, edge_filler, *schema);
+      return GetExpandOneResult(src_vertex_acc, std::move(src_vertex), req, std::move(in_edge_ordered_accessors),
+                                std::move(out_edge_ordered_accessors), maybe_filter_based_on_edge_uniqueness,
+                                edge_filler, *schema);
     });
 
     if (maybe_result.HasError()) {
-      shard_error.emplace(CreateErrorResponse(primary_key.GetError(), req.transaction_id, "getting primary key"));
+      shard_error.emplace(CreateErrorResponse(maybe_result.GetError(), req.transaction_id, "getting expand result"));
       break;
     }
 
@@ -701,12 +703,12 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::GetPropertiesRequest &&req) {
     if (maybe_id.HasError()) {
       return {maybe_id.GetError()};
     }
-    const auto &id = maybe_id.GetValue();
+    auto &vertex_id = maybe_id.GetValue();
     std::optional<msgs::EdgeId> e_id;
     if (e_acc) {
       e_id = msgs::EdgeId{e_acc->Gid().AsUint()};
     }
-    msgs::VertexId v_id{msgs::Label{id.primary_label}, ConvertValueVector(id.primary_key)};
+    msgs::VertexId v_id{msgs::Label{vertex_id.primary_label}, ConvertValueVector(std::move(vertex_id.primary_key))};
     auto maybe_props = collect_props(v_acc, e_acc);
     if (maybe_props.HasError()) {
       return {maybe_props.GetError()};

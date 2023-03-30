@@ -86,7 +86,7 @@ struct ShardRequestState {
 
 // maps from ReadinessToken's internal size_t to the associated state
 template <typename TRequest>
-using RunningRequests = std::unordered_map<size_t, ShardRequestState<TRequest>>;
+using RunningRequests = std::map<size_t, ShardRequestState<TRequest>>;
 
 class RequestRouterInterface {
  public:
@@ -274,7 +274,6 @@ class RequestRouter : public RequestRouterInterface {
 
       // begin all requests in parallel
       RunningRequests<msgs::ScanVerticesRequest> running_requests = {};
-      running_requests.reserve(requests_to_be_sent.size());
       for (size_t i = 0; i < requests_to_be_sent.size(); i++) {
         auto &request = requests_to_be_sent[i];
         io::ReadinessToken readiness_token{i};
@@ -328,7 +327,6 @@ class RequestRouter : public RequestRouterInterface {
 
       // begin all requests in parallel
       RunningRequests<msgs::CreateVerticesRequest> running_requests = {};
-      running_requests.reserve(requests_to_be_sent.size());
       for (size_t i = 0; i < requests_to_be_sent.size(); i++) {
         auto &request = requests_to_be_sent[i];
         io::ReadinessToken readiness_token{i};
@@ -346,10 +344,9 @@ class RequestRouter : public RequestRouterInterface {
 
       if (result.HasValue()) {
         return result.GetValue();
-      } else {
-        // retry request that failed due to outdated ShardMap
-        RefreshShardMap();
       }
+      // retry request that failed due to outdated ShardMap
+      RefreshShardMap();
     }
   }
 
@@ -368,13 +365,12 @@ class RequestRouter : public RequestRouterInterface {
 
       // begin all requests in parallel
       RunningRequests<msgs::CreateExpandRequest> running_requests = {};
-      running_requests.reserve(requests_to_be_sent.size());
       for (size_t i = 0; i < requests_to_be_sent.size(); i++) {
         auto &request = requests_to_be_sent[i];
         io::ReadinessToken readiness_token{i};
         auto &storage_client = GetStorageClientForShard(request.shard);
         msgs::WriteRequests req = request.request;
-        storage_client.SendAsyncWriteRequest(req, notifier_, readiness_token);
+        storage_client.SendAsyncWriteRequest(std::move(req), notifier_, readiness_token);
         running_requests.emplace(readiness_token.GetId(), request);
       }
 
@@ -383,10 +379,8 @@ class RequestRouter : public RequestRouterInterface {
 
       if (result.HasValue()) {
         return result.GetValue();
-      } else {
-        // retry request that failed due to outdated ShardMap
-        RefreshShardMap();
-      }
+      }  // retry request that failed due to outdated ShardMap
+      RefreshShardMap();
     }
   }
 
@@ -400,18 +394,18 @@ class RequestRouter : public RequestRouterInterface {
     // TODO(tyler) enforce max commit retries here when we go distributed
     while (true) {
       // create requests
-      std::vector<ShardRequestState<msgs::ExpandOneRequest>> requests_to_be_sent = RequestsForExpandOne(request);
+      std::vector<ShardRequestState<msgs::ExpandOneRequest>> requests_to_be_sent =
+          RequestsForExpandOne(std::move(request));
 
       // begin all requests in parallel
       RunningRequests<msgs::ExpandOneRequest> running_requests = {};
-      running_requests.reserve(requests_to_be_sent.size());
       for (size_t i = 0; i < requests_to_be_sent.size(); i++) {
-        auto &request = requests_to_be_sent[i];
+        auto &local_request = requests_to_be_sent[i];
         io::ReadinessToken readiness_token{i};
-        auto &storage_client = GetStorageClientForShard(request.shard);
-        msgs::ReadRequests req = request.request;
-        storage_client.SendAsyncReadRequest(req, notifier_, readiness_token);
-        running_requests.emplace(readiness_token.GetId(), request);
+        auto &storage_client = GetStorageClientForShard(local_request.shard);
+        msgs::ReadRequests req = local_request.request;
+        storage_client.SendAsyncReadRequest(std::move(req), notifier_, readiness_token);
+        running_requests.emplace(readiness_token.GetId(), local_request);
       }
 
       // drive requests to completion
@@ -445,22 +439,37 @@ class RequestRouter : public RequestRouterInterface {
 
   std::vector<msgs::GetPropertiesResultRow> GetProperties(msgs::GetPropertiesRequest requests) override {
     requests.transaction_id = transaction_id_;
+    // create requests
+    std::vector<ShardRequestState<msgs::GetPropertiesRequest>> requests_to_be_sent =
+        RequestsForGetProperties(std::move(requests));
+
+    // begin all requests in parallel
+    RunningRequests<msgs::GetPropertiesRequest> running_requests = {};
+    // running_requests.reserve(requests_to_be_sent.size());
+    for (size_t i = 0; i < requests_to_be_sent.size(); i++) {
+      auto &request = requests_to_be_sent[i];
+      io::ReadinessToken readiness_token{i};
+      auto &storage_client = GetStorageClientForShard(request.shard);
+      msgs::ReadRequests req = request.request;
+      storage_client.SendAsyncReadRequest(std::move(req), notifier_, readiness_token);
+      running_requests.emplace(readiness_token.GetId(), std::move(request));
+    }
 
     // TODO(tyler) enforce max commit retries here when we go distributed
     while (true) {
       // create requests
       std::vector<ShardRequestState<msgs::GetPropertiesRequest>> requests_to_be_sent =
-          RequestsForGetProperties(requests);
+          RequestsForGetProperties(std::move(requests));
 
       // begin all requests in parallel
       RunningRequests<msgs::GetPropertiesRequest> running_requests = {};
-      running_requests.reserve(requests_to_be_sent.size());
+      // running_requests.reserve(requests_to_be_sent.size());
       for (size_t i = 0; i < requests_to_be_sent.size(); i++) {
         auto &request = requests_to_be_sent[i];
         io::ReadinessToken readiness_token{i};
         auto &storage_client = GetStorageClientForShard(request.shard);
         msgs::ReadRequests req = request.request;
-        storage_client.SendAsyncReadRequest(req, notifier_, readiness_token);
+        storage_client.SendAsyncReadRequest(std::move(req), notifier_, readiness_token);
         running_requests.emplace(readiness_token.GetId(), request);
       }
 
@@ -591,6 +600,7 @@ class RequestRouter : public RequestRouterInterface {
         msgs::ScanVerticesRequest request;
         request.transaction_id = transaction_id_;
         request.expected_shard_version = shard.version;
+        request.props_to_return.emplace();
         request.start_id.second = storage::conversions::ConvertValueVector(key);
 
         ShardRequestState<msgs::ScanVerticesRequest> shard_request_state{
@@ -605,7 +615,7 @@ class RequestRouter : public RequestRouterInterface {
     return requests;
   }
 
-  std::vector<ShardRequestState<msgs::ExpandOneRequest>> RequestsForExpandOne(const msgs::ExpandOneRequest &request) {
+  std::vector<ShardRequestState<msgs::ExpandOneRequest>> RequestsForExpandOne(msgs::ExpandOneRequest &&request) {
     std::map<ShardMetadata, msgs::ExpandOneRequest> per_shard_request_table;
     msgs::ExpandOneRequest top_level_rqst_template = request;
     top_level_rqst_template.transaction_id = transaction_id_;
@@ -617,7 +627,7 @@ class RequestRouter : public RequestRouterInterface {
       if (!per_shard_request_table.contains(shard)) {
         per_shard_request_table.insert(std::pair(shard, top_level_rqst_template));
       }
-      per_shard_request_table[shard].src_vertices.push_back(vertex);
+      per_shard_request_table[shard].src_vertices.push_back(std::move(vertex));
     }
 
     std::vector<ShardRequestState<msgs::ExpandOneRequest>> requests = {};
@@ -849,14 +859,14 @@ class RequestRouter : public RequestRouterInterface {
   }
 
   std::optional<std::pair<uint64_t, uint64_t>> AllocateInitialEdgeIds(io::Address coordinator_address) override {
-    coordinator::CoordinatorWriteRequests requests{coordinator::AllocateEdgeIdBatchRequest{.batch_size = 1000000}};
+    coordinator::CoordinatorWriteRequests request{coordinator::AllocateEdgeIdBatchRequest{.batch_size = 1000000}};
 
     io::rsm::WriteRequest<coordinator::CoordinatorWriteRequests> ww;
-    ww.operation = requests;
-    auto resp =
-        io_.template Request<io::rsm::WriteRequest<coordinator::CoordinatorWriteRequests>,
-                             io::rsm::WriteResponse<coordinator::CoordinatorWriteResponses>>(coordinator_address, ww)
-            .Wait();
+    ww.operation = std::move(request);
+    auto resp = io_.template Request<io::rsm::WriteRequest<coordinator::CoordinatorWriteRequests>,
+                                     io::rsm::WriteResponse<coordinator::CoordinatorWriteResponses>>(
+                       coordinator_address, std::move(ww))
+                    .Wait();
     if (resp.HasValue()) {
       const auto alloc_edge_id_reps =
           std::get<coordinator::AllocateEdgeIdBatchResponse>(resp.GetValue().message.write_return);

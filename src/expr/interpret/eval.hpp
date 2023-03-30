@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -47,12 +47,12 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   TypedValue Visit(NamedExpression &named_expression) override {
     const auto &symbol = symbol_table_->at(named_expression);
     auto value = named_expression.expression_->Accept(*this);
-    frame_->at(symbol) = value;
+    frame_->At(symbol) = value;
     return value;
   }
 
   TypedValue Visit(Identifier &ident) override {
-    return TypedValue(frame_->at(symbol_table_->at(ident)), ctx_->memory);
+    return TypedValue(frame_->At(symbol_table_->at(ident)), ctx_->memory);
   }
 
   // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -474,7 +474,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(Aggregation &aggregation) override {
-    return TypedValue(frame_->at(symbol_table_->at(aggregation)), ctx_->memory);
+    return TypedValue(frame_->At(symbol_table_->at(aggregation)), ctx_->memory);
   }
 
   TypedValue Visit(Coalesce &coalesce) override {
@@ -532,8 +532,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     const auto &accumulator_symbol = symbol_table_->at(*reduce.accumulator_);
     auto accumulator = reduce.initializer_->Accept(*this);
     for (const auto &element : list) {
-      frame_->at(accumulator_symbol) = accumulator;
-      frame_->at(element_symbol) = element;
+      frame_->At(accumulator_symbol) = accumulator;
+      frame_->At(element_symbol) = element;
       accumulator = reduce.expression_->Accept(*this);
     }
     return accumulator;
@@ -555,7 +555,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       if (element.IsNull()) {
         result.emplace_back();
       } else {
-        frame_->at(element_symbol) = element;
+        frame_->At(element_symbol) = element;
         result.emplace_back(extract.expression_->Accept(*this));
       }
     }
@@ -575,7 +575,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     bool has_null_elements = false;
     bool has_value = false;
     for (const auto &element : list) {
-      frame_->at(symbol) = element;
+      frame_->At(symbol) = element;
       auto result = all.where_->expression_->Accept(*this);
       if (!result.IsNull() && result.type() != TypedValue::Type::Bool) {
         throw ExpressionRuntimeException("Predicate of ALL must evaluate to boolean, got {}.", result.type());
@@ -612,7 +612,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     bool has_value = false;
     bool predicate_satisfied = false;
     for (const auto &element : list) {
-      frame_->at(symbol) = element;
+      frame_->At(symbol) = element;
       auto result = single.where_->expression_->Accept(*this);
       if (!result.IsNull() && result.type() != TypedValue::Type::Bool) {
         throw ExpressionRuntimeException("Predicate of SINGLE must evaluate to boolean, got {}.", result.type());
@@ -649,7 +649,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     const auto &symbol = symbol_table_->at(*any.identifier_);
     bool has_value = false;
     for (const auto &element : list) {
-      frame_->at(symbol) = element;
+      frame_->At(symbol) = element;
       auto result = any.where_->expression_->Accept(*this);
       if (!result.IsNull() && result.type() != TypedValue::Type::Bool) {
         throw ExpressionRuntimeException("Predicate of ANY must evaluate to boolean, got {}.", result.type());
@@ -681,7 +681,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     const auto &symbol = symbol_table_->at(*none.identifier_);
     bool has_value = false;
     for (const auto &element : list) {
-      frame_->at(symbol) = element;
+      frame_->At(symbol) = element;
       auto result = none.where_->expression_->Accept(*this);
       if (!result.IsNull() && result.type() != TypedValue::Type::Bool) {
         throw ExpressionRuntimeException("Predicate of NONE must evaluate to boolean, got {}.", result.type());

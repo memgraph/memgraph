@@ -103,7 +103,7 @@ class Queue {
 
       inner_->submitted++;
 
-      inner_->queue.emplace_back(std::forward<Message>(message));
+      inner_->queue.emplace_back(std::move(message));
     }  // lock dropped before notifying condition variable
 
     inner_->cv.notify_all();

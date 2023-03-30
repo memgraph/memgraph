@@ -289,8 +289,8 @@ class ShardManager {
                  coordinator_leader_.ToString(), initialized_but_not_confirmed_rsm_.size());
     heartbeat_res_.emplace(std::move(
         io_.template Request<WriteRequest<CoordinatorWriteRequests>, WriteResponse<CoordinatorWriteResponses>>(
-            coordinator_leader_, ww)));
-    spdlog::info("ShardManager sent heartbeat");
+            coordinator_leader_, std::move(ww))));
+    spdlog::info("SM sent heartbeat");
   }
 
   void EnsureShardsInitialized(HeartbeatResponse hr) {
