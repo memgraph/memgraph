@@ -11,6 +11,7 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <climits>
 
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
@@ -497,6 +498,11 @@ class FakeDbAccessor {
       }
     }
     return false;
+  }
+
+  memgraph::storage::IndexStats GetIndexStats(memgraph::storage::LabelId label,
+                                              memgraph::storage::PropertyId property) const {
+    return memgraph::storage::IndexStats{.statistic = 0, .avg_group_size = 1};  // unique id
   }
 
   void SetIndexCount(memgraph::storage::LabelId label, int64_t count) { label_index_[label] = count; }

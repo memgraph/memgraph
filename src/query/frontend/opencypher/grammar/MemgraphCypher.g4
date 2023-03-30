@@ -22,6 +22,7 @@ import Cypher ;
 memgraphCypherKeyword : cypherKeyword
                       | AFTER
                       | ALTER
+                      | ANALYZE
                       | ASYNC
                       | AUTH
                       | BAD
@@ -53,6 +54,7 @@ memgraphCypherKeyword : cypherKeyword
                       | FREE
                       | FROM
                       | GLOBAL
+                      | GRAPH
                       | GRANT
                       | HEADER
                       | IDENTIFIED
@@ -119,6 +121,7 @@ query : cypherQuery
       | constraintQuery
       | authQuery
       | dumpQuery
+      | analyzeGraphQuery
       | replicationQuery
       | lockPathQuery
       | freeMemoryQuery
@@ -294,11 +297,11 @@ revokePrivilegesList : privilegeOrEntities ( ',' privilegeOrEntities )* ;
 
 privilegesList : privilege ( ',' privilege )* ;
 
-entitiesList : ASTERISK | listOfEntities ;
+entitiesList : ASTERISK | listOfColonSymbolicNames ;
 
-listOfEntities : entity ( ',' entity )* ;
+listOfColonSymbolicNames : colonSymbolicName ( ',' colonSymbolicName )* ;
 
-entity : COLON symbolicName ;
+colonSymbolicName : COLON symbolicName ;
 
 showPrivileges : SHOW PRIVILEGES FOR userOrRole=userOrRoleName ;
 
@@ -307,6 +310,8 @@ showRoleForUser : SHOW ROLE FOR user=userOrRoleName ;
 showUsersForRole : SHOW USERS FOR role=userOrRoleName ;
 
 dumpQuery: DUMP DATABASE ;
+
+analyzeGraphQuery: ANALYZE GRAPH ( ON LABELS ( listOfColonSymbolicNames | ASTERISK ) ) ? ( DELETE STATISTICS ) ? ;
 
 setReplicationRole  : SET REPLICATION ROLE TO ( MAIN | REPLICA )
                       ( WITH PORT port=literal ) ? ;

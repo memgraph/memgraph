@@ -96,6 +96,7 @@ class VersionQuery;
 class Foreach;
 class ShowConfigQuery;
 class CallSubquery;
+class AnalyzeGraphQuery;
 class TransactionQueueQuery;
 class Exists;
 
@@ -132,7 +133,7 @@ template <class TResult>
 class QueryVisitor
     : public utils::Visitor<TResult, CypherQuery, ExplainQuery, ProfileQuery, IndexQuery, AuthQuery, InfoQuery,
                             ConstraintQuery, DumpQuery, ReplicationQuery, LockPathQuery, FreeMemoryQuery, TriggerQuery,
-                            IsolationLevelQuery, CreateSnapshotQuery, StreamQuery, SettingQuery, TransactionQueueQuery,
-                            VersionQuery, ShowConfigQuery> {};
+                            IsolationLevelQuery, CreateSnapshotQuery, StreamQuery, SettingQuery, VersionQuery,
+                            ShowConfigQuery, TransactionQueueQuery, AnalyzeGraphQuery> {};
 
 }  // namespace memgraph::query

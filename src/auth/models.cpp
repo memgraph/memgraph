@@ -16,6 +16,7 @@
 #include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
 #include "license/license.hpp"
+#include "query/constants.hpp"
 #include "utils/cast.hpp"
 #include "utils/logging.hpp"
 #include "utils/settings.hpp"
@@ -270,7 +271,7 @@ PermissionLevel FineGrainedAccessPermissions::Has(const std::string &permission,
 
 void FineGrainedAccessPermissions::Grant(const std::string &permission,
                                          const FineGrainedPermission fine_grained_permission) {
-  if (permission == kAsterisk) {
+  if (permission == query::kAsterisk) {
     global_permission_ = CalculateGrant(fine_grained_permission);
   } else {
     permissions_[permission] = CalculateGrant(fine_grained_permission);
@@ -278,7 +279,7 @@ void FineGrainedAccessPermissions::Grant(const std::string &permission,
 }
 
 void FineGrainedAccessPermissions::Revoke(const std::string &permission) {
-  if (permission == kAsterisk) {
+  if (permission == query::kAsterisk) {
     permissions_.clear();
     global_permission_ = std::nullopt;
   } else {

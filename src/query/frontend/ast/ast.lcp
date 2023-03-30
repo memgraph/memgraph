@@ -2417,6 +2417,26 @@ cpp<#
   (:serialize (:slk))
   (:clone))
 
+(lcp:define-class analyze-graph-query (query)
+  ((action "Action" :scope :public)
+  (labels "std::vector<std::string>" :scope :public))
+
+  (:public
+    (lcp:define-enum action
+        (analyze delete)
+      (:serialize))
+    #>cpp
+    AnalyzeGraphQuery() = default;
+
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
 (lcp:define-class replication-query (query)
   ((action "Action" :scope :public)
    (role "ReplicationRole" :scope :public)
