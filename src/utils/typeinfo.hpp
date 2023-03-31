@@ -64,6 +64,7 @@ enum class TypeId : uint64_t {
   CALL_PROCEDURE,
   LOAD_CSV,
   FOREACH,
+  APPLY,
 
   // Replication
   REP_APPEND_DELTAS_REQ,
@@ -179,6 +180,8 @@ enum class TypeId : uint64_t {
   AST_ANALYZE_GRAPH_QUERY,
   AST_TRANSACTION_QUEUE_QUERY,
   AST_EXISTS,
+  AST_CALL_SUBQUERY,
+  // Symbol
   SYMBOL,
 };
 
