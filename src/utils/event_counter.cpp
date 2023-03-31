@@ -52,6 +52,7 @@
   M(CallProcedureOperator, "Number of times CallProcedure operator was used.")                             \
   M(ForeachOperator, "Number of times Foreach operator was used.")                                         \
   M(EvaluatePatternFilterOperator, "Number of times EvaluatePatternFilter operator was used.")             \
+  M(ApplyOperator, "Number of times ApplyOperator operator was used.")                                     \
                                                                                                            \
   M(FailedQuery, "Number of times executing a query failed.")                                              \
   M(LabelIndexCreated, "Number of times a label index was created.")                                       \
