@@ -12,7 +12,12 @@
 
 #include <gflags/gflags.h>
 #include <libbcrypt/bcrypt.h>
+
+#ifdef OPENSSL_NO_DEPRECATED_3_0
+#include <openssl/evp.h>
+#else
 #include <openssl/sha.h>
+#endif
 
 #include "auth/exceptions.hpp"
 #include "utils/enum.hpp"
@@ -84,7 +89,26 @@ bool VerifyPassword(const std::string &password, const std::string &hash) {
 }  // namespace BCrypt
 
 namespace SHA {
-std::string EncryptPassword(const std::string &password, const uint64_t number_of_iterations) {
+#ifdef OPENSSL_NO_DEPRECATED_3_0
+std::string EncryptPasswordOpenSSL3(const std::string &password, const uint64_t number_of_iterations) {
+  unsigned char hash[SHA256_DIGEST_LENGTH];
+
+  SHA256_CTX sha256;
+  EVP_DigestInit_ex(&sha256);
+  for (auto i = 0; i < number_of_iterations; i++) {
+    EVP_DigestUpdate(&sha256, password.c_str(), password.size());
+  }
+  EVP_DigestFinal(hash, &sha256);
+
+  std::stringstream ss;
+  for (auto hash_char : hash) {
+    ss << std::hex << std::setw(2) << std::setfill('0') << (int)hash_char;
+  }
+
+  return ss.str();
+}
+#else
+std::string EncryptPasswordOpenSSL1_1(const std::string &password, const uint64_t number_of_iterations) {
   unsigned char hash[SHA256_DIGEST_LENGTH];
 
   SHA256_CTX sha256;
@@ -100,6 +124,15 @@ std::string EncryptPassword(const std::string &password, const uint64_t number_o
   }
 
   return ss.str();
+}
+#endif
+
+std::string EncryptPassword(const std::string &password, const uint64_t number_of_iterations) {
+#ifdef OPENSSL_NO_DEPRECATED_3_0
+  return EncryptPasswordOpenSSL3(password, number_of_iterations);
+#else
+  return EncryptPasswordOpenSSL1_1(password, number_of_iterations);
+#endif
 }
 
 bool VerifyPassword(const std::string &password, const std::string &hash, const uint64_t number_of_iterations) {
