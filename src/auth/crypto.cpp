@@ -89,10 +89,9 @@ namespace SHA {
 #if OPENSSL_VERSION_MAJOR >= 3
 std::string EncryptPasswordOpenSSL3(const std::string &password, const uint64_t number_of_iterations) {
   unsigned char hash[SHA256_DIGEST_LENGTH];
-  const unsigned char *password_repr = reinterpret_cast<const unsigned char *>(password.c_str());
 
   EVP_MD_CTX *ctx = EVP_MD_CTX_new();
-  EVP_MD *md = EVP_MD_fetch(NULL, "SHA2-256", NULL);
+  EVP_MD *md = EVP_MD_fetch(nullptr, "SHA2-256", nullptr);
 
   EVP_DigestInit_ex(ctx, md, nullptr);
   for (auto i = 0; i < number_of_iterations; i++) {
