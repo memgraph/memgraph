@@ -408,7 +408,7 @@ Storage::Storage(Config config)
             break;
           case CreateSnapshotError::DisabledForAnalyticsPeriodicCommit:
             spdlog::warn(utils::MessageWithLink("Periodic snapshots are disabled for analytical mode.",
-                                                "https://memgr.ph/replication"));
+                                                "https://memgr.ph/durability"));
             break;
         }
       }
@@ -2166,13 +2166,6 @@ void Storage::SetIsolationLevel(IsolationLevel isolation_level) {
 void Storage::SetStorageMode(StorageMode storage_mode) {
   std::unique_lock main_guard{main_lock_};
   storage_mode_ = storage_mode;
-
-  // storage_mode_.WithLock([this, new_storage_mode](auto &storage_mode){
-  //   std::unique_lock main_guard{main_lock_};
-  //   storage_mode = new_storage_mode;
-  // });
-
-  // cancel periodic
 }
 
 StorageMode Storage::GetStorageMode() { return storage_mode_; }
