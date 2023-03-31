@@ -153,14 +153,27 @@ class BoltClientDocker(BaseClient):
         )
         self._image_tag = "bolt_client_image"
         self._container_name = "bolt_client_benchmark"
+        self._target_db_container = (
+            "memgraph_benchmark" if "memgraph" in benchmark_context.vendor_name else "neo4j_benchmark"
+        )
 
     def _remove_container(self):
         command = ["docker", "rm", "-f", self._container_name]
         self._run_command(command)
 
-    def _build_container(self):
+    def _build_image(self):
         command = ["docker", "build", "-f", "Dockerfile.client", "-t", self._image_tag, "."]
         self._run_command(command)
+
+    def _create_container(self, *args):
+        command = ["docker", "create", "--name", self._container_name, self._image_tag, *args]
+        self._run_command(command)
+
+    def _get_target_ip(self):
+        command = ["docker", "inspect", "--format", "{{ .NetworkSettings.IPAddress }}", self._target_db_container]
+        ret = self._run_command(command)
+        ip_address = ret.stdout.strip("\n")
+        return ip_address
 
     def _get_logs(self):
         command = [
@@ -169,8 +182,10 @@ class BoltClientDocker(BaseClient):
             self._container_name,
         ]
         ret = self._run_command(command)
-        print(ret.stderr)
-        print(ret.stdout)
+        return ret
+
+    def _get_args(self, **kwargs):
+        return _convert_args_to_flags(**kwargs)
 
     def execute(
         self,
@@ -181,20 +196,66 @@ class BoltClientDocker(BaseClient):
         validation: bool = False,
         time_dependent_execution: int = 0,
     ):
+        if (queries is None and file_path is None) or (queries is not None and file_path is not None):
+            raise ValueError("Either queries or input_path must be specified!")
+
+        queries_json = False
+        if queries is not None:
+            queries_json = True
+            file_path = os.path.join(self._directory.name, "queries.json")
+            with open(file_path, "w") as f:
+                for query in queries:
+                    json.dump(query, f)
+                    f.write("\n")
 
         self._remove_container()
-        self._build_container()
+        self._build_image()
+        ip = self._get_target_ip()
+
+        # Query file JSON or Cypher
+        file = Path(file_path)
+
+        args = self._get_args(
+            address=ip,
+            input="/bin/" + file.name,
+            num_workers=num_workers,
+            max_retries=max_retries,
+            queries_json=queries_json,
+            username=self._username,
+            password=self._password,
+            port=self._bolt_port,
+            validation=validation,
+            time_dependent_execution=time_dependent_execution,
+        )
+
+        self._create_container(*args)
 
         command = [
             "docker",
-            "run",
-            "-e num_workers=12" "--name",
-            self._container_name,
-            self._image_tag,
+            "cp",
+            file.resolve().as_posix(),
+            self._container_name + ":/bin/" + file.name,
         ]
-        ret = self._run_command(command)
+        self._run_command(command)
+        command = [
+            "docker",
+            "start",
+            "-i",
+            self._container_name,
+        ]
 
-        self._get_logs()
+        ret = None
+
+        self._run_command(command)
+
+        ret = self._get_logs()
+        error = ret.stderr.strip().split("\n")
+        if error and error[0] != "":
+            log.warning("Reported errors from client:")
+            log.warning("There is a possibility that query from: {} is not executed properly".format(file_path))
+        data = ret.stdout.strip().split("\n")
+        data = [x for x in data if not x.startswith("[")]
+        return list(map(json.loads, data))
 
     def _run_command(self, command):
         print(command)
