@@ -400,11 +400,15 @@ Storage::Storage(Config config)
   }
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED) {
     snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval, [this] {
-      if (auto maybe_error = this->CreateSnapshot(); maybe_error.HasError()) {
+      if (auto maybe_error = this->CreateSnapshot({true}); maybe_error.HasError()) {
         switch (maybe_error.GetError()) {
           case CreateSnapshotError::DisabledForReplica:
             spdlog::warn(
                 utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
+            break;
+          case CreateSnapshotError::DisabledForAnalyticsPeriodicCommit:
+            spdlog::warn(utils::MessageWithLink("Periodic snapshots are disabled for analytical mode.",
+                                                "https://memgr.ph/replication"));
             break;
         }
       }
@@ -448,10 +452,14 @@ Storage::~Storage() {
     snapshot_runner_.Stop();
   }
   if (config_.durability.snapshot_on_exit) {
-    if (auto maybe_error = this->CreateSnapshot(); maybe_error.HasError()) {
+    if (auto maybe_error = this->CreateSnapshot({false}); maybe_error.HasError()) {
       switch (maybe_error.GetError()) {
         case CreateSnapshotError::DisabledForReplica:
           spdlog::warn(utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
+          break;
+        case CreateSnapshotError::DisabledForAnalyticsPeriodicCommit:
+          spdlog::warn(utils::MessageWithLink("Periodic snapshots are disabled for analytical mode.",
+                                              "https://memgr.ph/replication"));
           break;
       }
     }
@@ -1923,9 +1931,13 @@ bool Storage::AppendToWalDataDefinition(durability::StorageGlobalOperation opera
   return finalized_on_all_replicas;
 }
 
-utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot() {
+utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot(std::optional<bool> is_periodic) {
   if (replication_role_.load() != ReplicationRole::MAIN) {
     return CreateSnapshotError::DisabledForReplica;
+  }
+
+  if (is_periodic && *is_periodic && storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+    return CreateSnapshotError::DisabledForAnalyticsPeriodicCommit;
   }
 
   std::lock_guard snapshot_guard(snapshot_lock_);
@@ -1942,11 +1954,21 @@ utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot() {
   };
 
   if (storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+    // Take unique lock
     std::unique_lock main_guard{main_lock_};
     snapshot_creator();
   } else {
     // Take master RW lock (for reading).
     std::shared_lock<utils::RWLock> storage_guard(main_lock_);
+
+    // It could happen that that above check for in memory analytical didn't make early reutrn
+    // but we ended up in else branch with changed storage mode state.
+    // After taking RW lock, storage mode can't be changed any more, now we are certain
+    // that state won't change, and this is only race condition which can happen
+    if (storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+      return CreateSnapshotError::DisabledForAnalyticsPeriodicCommit;
+    }
+
     snapshot_creator();
   }
 
@@ -2144,6 +2166,13 @@ void Storage::SetIsolationLevel(IsolationLevel isolation_level) {
 void Storage::SetStorageMode(StorageMode storage_mode) {
   std::unique_lock main_guard{main_lock_};
   storage_mode_ = storage_mode;
+
+  // storage_mode_.WithLock([this, new_storage_mode](auto &storage_mode){
+  //   std::unique_lock main_guard{main_lock_};
+  //   storage_mode = new_storage_mode;
+  // });
+
+  // cancel periodic
 }
 
 StorageMode Storage::GetStorageMode() { return storage_mode_; }

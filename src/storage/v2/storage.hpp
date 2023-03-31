@@ -491,9 +491,9 @@ class Storage final {
 
   StorageMode GetStorageMode();
 
-  enum class CreateSnapshotError : uint8_t { DisabledForReplica };
+  enum class CreateSnapshotError : uint8_t { DisabledForReplica, DisabledForAnalyticsPeriodicCommit };
 
-  utils::BasicResult<CreateSnapshotError> CreateSnapshot();
+  utils::BasicResult<CreateSnapshotError> CreateSnapshot(std::optional<bool> is_periodic);
 
  private:
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode);

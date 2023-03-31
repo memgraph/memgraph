@@ -1929,11 +1929,15 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
       {},
       std::move(parsed_query.required_privileges),
       [interpreter_context](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-        if (auto maybe_error = interpreter_context->db->CreateSnapshot(); maybe_error.HasError()) {
+        if (auto maybe_error = interpreter_context->db->CreateSnapshot({}); maybe_error.HasError()) {
           switch (maybe_error.GetError()) {
             case storage::Storage::CreateSnapshotError::DisabledForReplica:
               throw utils::BasicException(
                   "Failed to create a snapshot. Replica instances are not allowed to create them.");
+            case storage::Storage::CreateSnapshotError::DisabledForAnalyticsPeriodicCommit:
+              spdlog::warn(utils::MessageWithLink("Periodic snapshots are disabled for analytical mode.",
+                                                  "https://memgr.ph/replication"));
+              break;
           }
         }
         return QueryHandlerResult::COMMIT;
