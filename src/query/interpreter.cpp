@@ -978,7 +978,7 @@ struct PullPlan {
   explicit PullPlan(std::shared_ptr<CachedPlan> plan, const Parameters &parameters, bool is_profile_query,
                     DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                     std::optional<std::string> username, TriggerContextCollector *trigger_context_collector = nullptr,
-                    std::optional<size_t> memory_limit = {}, bool use_monotonic_memory = false);
+                    std::optional<size_t> memory_limit = {}, bool use_monotonic_memory = true);
   std::optional<plan::ProfilingStatsWithTotalTime> Pull(AnyStream *stream, std::optional<int> n,
                                                         const std::vector<Symbol> &output_symbols,
                                                         std::map<std::string, TypedValue> *summary);
@@ -1047,7 +1047,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   utils::MonotonicBufferResource monotonic_memory{&stack_data[0], stack_size, &resource_with_exception};
   std::optional<utils::PoolResource> pool_memory;
 
-  if (use_monotonic_memory_) {
+  if (!use_monotonic_memory_) {
     pool_memory.emplace(1, kExecutionPoolMaxBlockSize, utils::NewDeleteResource(), utils::NewDeleteResource());
   } else {
     // We can throw on every query because a simple queries for deleting will use only
@@ -1232,7 +1232,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
         "conversion functions such as ToInteger, ToFloat, ToBoolean etc.");
     contains_csv = true;
   }
-
+  // If this is LOAD CSV query, use PoolResource without MonotonicMemoryResource as it doesn't reuse memory
+  auto use_monotonic_memory = !contains_csv;
   auto plan = CypherQueryToPlan(parsed_query.stripped_query.hash(), std::move(parsed_query.ast_storage), cypher_query,
                                 parsed_query.parameters,
                                 parsed_query.is_cacheable ? &interpreter_context->plan_cache : nullptr, dba);
@@ -1255,7 +1256,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   }
   auto pull_plan = std::make_shared<PullPlan>(plan, parsed_query.parameters, false, dba, interpreter_context,
                                               execution_memory, StringPointerToOptional(username),
-                                              trigger_context_collector, memory_limit, contains_csv);
+                                              trigger_context_collector, memory_limit, use_monotonic_memory);
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
                        [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary](
                            AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
