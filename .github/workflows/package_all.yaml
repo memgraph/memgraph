@@ -40,8 +40,6 @@ jobs:
                   # and put in directories named after each one.
           path: build/output/release
       - name: Get release version
-        run: |
-          echo "RELEASE_VERSION=${{ github.event.inputs.memgraph_version }}"
       - name: Upload to S3
         uses: jakejarvis/s3-sync-action@v0.5.1
         env:
@@ -50,4 +48,4 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: "eu-west-1"
           SOURCE_DIR: "build/output/release"
-          DEST_DIR: "memgraph/release/${{ env.RELEASE_VERSION  }}/"
+          DEST_DIR: "memgraph/release/${{ github.event.inputs.memgraph_version }}/"
