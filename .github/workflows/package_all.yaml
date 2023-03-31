@@ -253,4 +253,4 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: "eu-west-1"
           SOURCE_DIR: "build/output/release"
-          DEST_DIR: "memgraph/release/${{ github.event.inputs.memgraph_version }}/"
+          DEST_DIR: "memgraph/${{ github.event.inputs.memgraph_version }}/"
