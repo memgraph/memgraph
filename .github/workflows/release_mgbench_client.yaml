@@ -1,0 +1,36 @@
+name: "Mgbench client release"
+
+on:
+  workflow_dispatch:
+
+
+jobs:
+mgbench_build:
+    name: "mgbench build"
+    runs-on: [self-hosted, Linux, X64, Ubuntu20.04]
+    env:
+      THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+    timeout-minutes: 960
+
+steps:
+      - name: Set up repository
+        uses: actions/checkout@v3
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Build community binaries
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
+
+          # Initialize dependencies.
+          ./init
+
+          # Build community binaries.
+          cd build
+          cmake -DCMAKE_BUILD_TYPE=release -DMG_ENTERPRISE=OFF ..
+          make -j$THREADS
