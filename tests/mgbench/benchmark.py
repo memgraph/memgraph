@@ -20,6 +20,7 @@ import random
 import helpers
 import log
 import runners
+import setup
 from benchmark_context import BenchmarkContext
 from workloads import *
 
@@ -459,6 +460,9 @@ if __name__ == "__main__":
     log.init("Executing benchmark with following arguments: ")
     for key, value in benchmark_context.__dict__.items():
         log.log(str(key) + " : " + str(value))
+
+    log.init("Check requirements for running benchmark")
+    setup.check_requirements(benchmark_context=benchmark_context)
 
     log.log("Creating cache folder for: dataset, configurations, indexes, results etc. ")
     # Create cache, config and results objects.
