@@ -98,6 +98,9 @@
 #ifdef MG_ENTERPRISE
 #include "audit/log.hpp"
 #endif
+// Disk storage includes
+#include "storage/rocks/serialization.hpp"
+#include "storage/rocks/storage.hpp"
 
 constexpr const char *kMgUser = "MEMGRAPH_USER";
 constexpr const char *kMgPassword = "MEMGRAPH_PASSWORD";
@@ -907,10 +910,15 @@ int main(int argc, char **argv) {
     }
     db_config.durability.snapshot_interval = std::chrono::seconds(FLAGS_storage_snapshot_interval_sec);
   }
+  // here in the future, a specific instantiation of storage type will be created
   memgraph::storage::Storage db(db_config);
+  // for experiments, I will first bind together both storages to make sure we solve serialization correctly
+  // if we decide to use dynamic polymorphism, the concrete storage object should care about RocksDB details
+  memgraph::storage::rocks::RocksDBStorage disk_db;
 
   memgraph::query::InterpreterContext interpreter_context{
       &db,
+      &disk_db,
       {.query = {.allow_load_csv = FLAGS_allow_load_csv},
        .execution_timeout_sec = FLAGS_query_execution_timeout_sec,
        .replication_replica_check_frequency = std::chrono::seconds(FLAGS_replication_replica_check_frequency_sec),

@@ -20,6 +20,7 @@
 #include "query/parameters.hpp"
 #include "query/plan/profile.hpp"
 #include "query/trigger.hpp"
+#include "storage/rocks/storage.hpp"
 #include "utils/async_timer.hpp"
 
 namespace memgraph::query {
@@ -86,6 +87,7 @@ struct ExecutionContext {
 #ifdef MG_ENTERPRISE
   std::unique_ptr<FineGrainedAuthChecker> auth_checker{nullptr};
 #endif
+  storage::rocks::RocksDBStorage *disk_db;
 };
 
 static_assert(std::is_move_assignable_v<ExecutionContext>, "ExecutionContext must be move assignable!");

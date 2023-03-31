@@ -491,7 +491,12 @@ UniqueCursorPtr ScanAll::MakeCursor(utils::MemoryResource *mem) const {
 
   auto vertices = [this](Frame &, ExecutionContext &context) {
     auto *db = context.db_accessor;
-    return std::make_optional(db->Vertices(view_));
+    // const storage::Vertex disk_vertex = context.disk_db->Vertices();
+    auto vertices = std::make_optional(db->Vertices(view_));
+    std::for_each(vertices->begin(), vertices->end(),
+                  [disk_db = context.disk_db](const auto &vertex) { disk_db->StoreVertex(vertex); });
+    // spdlog::debug("Vertex loaded in the RocksDB {}", disk_vertex.gid.AsUint());
+    return vertices;
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem), view_,
                                                                 std::move(vertices), "ScanAll");
