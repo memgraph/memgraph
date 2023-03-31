@@ -145,4 +145,7 @@ constexpr utils::TypeInfo query::plan::LoadCsv::kType{utils::TypeId::LOAD_CSV, "
 
 constexpr utils::TypeInfo query::plan::Foreach::kType{utils::TypeId::FOREACH, "Foreach",
                                                       &query::plan::LogicalOperator::kType};
+
+constexpr utils::TypeInfo query::plan::Apply::kType{utils::TypeId::APPLY, "Apply",
+                                                    &query::plan::LogicalOperator::kType};
 }  // namespace memgraph

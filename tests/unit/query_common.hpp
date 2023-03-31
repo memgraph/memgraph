@@ -464,6 +464,24 @@ auto GetCallProcedure(AstStorage &storage, std::string procedure_name,
   return call_procedure;
 }
 
+auto GetCallSubquery(AstStorage &storage, SingleQuery *subquery) {
+  auto *call_subquery = storage.Create<memgraph::query::CallSubquery>();
+
+  auto *query = storage.Create<CypherQuery>();
+  query->single_query_ = std::move(subquery);
+
+  call_subquery->cypher_query_ = std::move(query);
+
+  return call_subquery;
+}
+
+auto GetCallSubquery(AstStorage &storage, CypherQuery *subquery) {
+  auto *call_subquery = storage.Create<memgraph::query::CallSubquery>();
+  call_subquery->cypher_query_ = std::move(subquery);
+
+  return call_subquery;
+}
+
 /// Create the FOREACH clause with given named expression.
 auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vector<query::Clause *> &clauses) {
   return storage.Create<query::Foreach>(named_expr, clauses);
@@ -593,3 +611,4 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
                                              (labels), (edgeTypes))
 #define DROP_USER(usernames) storage.Create<memgraph::query::DropUser>((usernames))
 #define CALL_PROCEDURE(...) memgraph::query::test_common::GetCallProcedure(storage, __VA_ARGS__)
+#define CALL_SUBQUERY(...) memgraph::query::test_common::GetCallSubquery(storage, __VA_ARGS__)
