@@ -86,18 +86,26 @@ bool VerifyPassword(const std::string &password, const std::string &hash) {
 }  // namespace BCrypt
 
 namespace SHA {
-#if OPENSSL_VERSION_MAJOR == 3
+#if OPENSSL_VERSION_MAJOR >= 3
 std::string EncryptPasswordOpenSSL3(const std::string &password, const uint64_t number_of_iterations) {
   unsigned char hash[SHA256_DIGEST_LENGTH];
   const unsigned char *password_repr = reinterpret_cast<const unsigned char *>(password.c_str());
+
+  EVP_MD_CTX *ctx = EVP_MD_CTX_new();
+  EVP_MD *md = EVP_MD_fetch(NULL, "SHA2-256", NULL);
+
+  EVP_DigestInit_ex(ctx, md, nullptr);
+  for (auto i = 0; i < number_of_iterations; i++) {
+    EVP_DigestUpdate(ctx, password.c_str(), password.size());
+  }
+  EVP_DigestFinal_ex(ctx, hash, nullptr);
+
+  EVP_MD_free(md);
+  EVP_MD_CTX_free(ctx);
+
   std::stringstream result_stream;
-
-  if (number_of_iterations == ONE_SHA_ITERATION) {
-    SHA256(password_repr, password.size(), hash);
-
-    for (auto hash_char : hash) {
-      result_stream << std::hex << std::setw(2) << std::setfill('0') << (int)hash_char;
-    }
+  for (auto hash_char : hash) {
+    result_stream << std::hex << std::setw(2) << std::setfill('0') << (int)hash_char;
   }
 
   return result_stream.str();
@@ -123,7 +131,7 @@ std::string EncryptPasswordOpenSSL1_1(const std::string &password, const uint64_
 #endif
 
 std::string EncryptPassword(const std::string &password, const uint64_t number_of_iterations) {
-#if OPENSSL_VERSION_MAJOR == 3
+#if OPENSSL_VERSION_MAJOR >= 3
   return EncryptPasswordOpenSSL3(password, number_of_iterations);
 #else
   return EncryptPasswordOpenSSL1_1(password, number_of_iterations);
