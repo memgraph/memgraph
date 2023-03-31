@@ -39,7 +39,6 @@ jobs:
           # name: # if name input parameter is not provided, all artifacts are downloaded
                   # and put in directories named after each one.
           path: build/output/release
-      - name: Get release version
       - name: Upload to S3
         uses: jakejarvis/s3-sync-action@v0.5.1
         env:
