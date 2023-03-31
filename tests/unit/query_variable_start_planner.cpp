@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -75,8 +75,7 @@ void CheckPlansProduce(size_t expected_plan_count, memgraph::query::CypherQuery 
   auto planning_context = MakePlanningContext(&storage, &symbol_table, query, dba);
   auto query_parts = CollectQueryParts(symbol_table, storage, query);
   EXPECT_TRUE(query_parts.query_parts.size() > 0);
-  auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
-  auto plans = MakeLogicalPlanForSingleQuery<VariableStartPlanner>(single_query_parts, &planning_context);
+  auto plans = MakeLogicalPlanForSingleQuery<VariableStartPlanner>(query_parts, &planning_context);
   EXPECT_EQ(std::distance(plans.begin(), plans.end()), expected_plan_count);
   for (const auto &plan : plans) {
     auto *produce = dynamic_cast<Produce *>(plan.get());
@@ -330,4 +329,114 @@ TEST(TestVariableStartPlanner, MatchBfs) {
   CheckPlansProduce(2, query, storage, &dba, [&](const auto &results) { AssertRows(results, {{r1_list}}, dba); });
 }
 
+TEST(TestVariableStartPlanner, TestBasicSubquery) {
+  memgraph::storage::Storage db;
+  auto storage_dba = db.Access();
+  memgraph::query::DbAccessor dba(&storage_dba);
+  AstStorage storage;
+
+  auto v1 = dba.InsertVertex();
+  auto v2 = dba.InsertVertex();
+  dba.AdvanceCommand();
+
+  auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), RETURN("m"));
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CALL_SUBQUERY(subquery), RETURN("n", "m")));
+
+  CheckPlansProduce(1, query, storage, &dba, [&](const auto &results) {
+    AssertRows(results,
+               {{TypedValue(v1), TypedValue(v1)},
+                {TypedValue(v1), TypedValue(v2)},
+                {TypedValue(v2), TypedValue(v1)},
+                {TypedValue(v2), TypedValue(v2)}},
+               dba);
+  });
+}
+
+TEST(TestVariableStartPlanner, TestBasicSubqueryWithMatching) {
+  memgraph::storage::Storage db;
+  auto storage_dba = db.Access();
+  memgraph::query::DbAccessor dba(&storage_dba);
+  AstStorage storage;
+
+  auto v1 = dba.InsertVertex();
+  auto v2 = dba.InsertVertex();
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r1")).HasValue());
+
+  dba.AdvanceCommand();
+
+  auto *subquery =
+      SINGLE_QUERY(MATCH(PATTERN(NODE("m2"), EDGE("r2", EdgeAtom::Direction::OUT), NODE("n2"))), RETURN("m2"));
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m1"), EDGE("r1", EdgeAtom::Direction::OUT), NODE("n1"))),
+                                   CALL_SUBQUERY(subquery), RETURN("m1", "m2")));
+
+  CheckPlansProduce(4, query, storage, &dba, [&](const auto &results) {
+    AssertRows(results, {{TypedValue(v1), TypedValue(v1)}}, dba);
+  });
+}
+
+TEST(TestVariableStartPlanner, TestSubqueryWithUnion) {
+  memgraph::storage::Storage db;
+  auto storage_dba = db.Access();
+  memgraph::query::DbAccessor dba(&storage_dba);
+  AstStorage storage;
+  auto id = dba.NameToProperty("id");
+
+  auto v1 = dba.InsertVertex();
+  ASSERT_TRUE(v1.SetProperty(id, memgraph::storage::PropertyValue(1)).HasValue());
+
+  auto v2 = dba.InsertVertex();
+  ASSERT_TRUE(v2.SetProperty(id, memgraph::storage::PropertyValue(2)).HasValue());
+
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r1")).HasValue());
+
+  dba.AdvanceCommand();
+
+  auto *subquery =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m2"), EDGE("r2", EdgeAtom::Direction::OUT), NODE("n2"))), RETURN("n2")),
+            UNION_ALL(SINGLE_QUERY(MATCH(PATTERN(NODE("m2"), EDGE("r2", EdgeAtom::Direction::OUT), NODE("n2"))),
+                                   RETURN("n2"))));
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m1"), EDGE("r1", EdgeAtom::Direction::OUT), NODE("n1"))),
+                                   CALL_SUBQUERY(subquery), RETURN("m1", "n2")));
+
+  CheckPlansProduce(8, query, storage, &dba, [&](const auto &results) {
+    AssertRows(results, {{TypedValue(v1), TypedValue(v2)}, {TypedValue(v1), TypedValue(v2)}}, dba);
+  });
+}
+
+TEST(TestVariableStartPlanner, TestSubqueryWithTripleUnion) {
+  memgraph::storage::Storage db;
+  auto storage_dba = db.Access();
+  memgraph::query::DbAccessor dba(&storage_dba);
+  AstStorage storage;
+  auto id = dba.NameToProperty("id");
+
+  auto v1 = dba.InsertVertex();
+  ASSERT_TRUE(v1.SetProperty(id, memgraph::storage::PropertyValue(1)).HasValue());
+
+  auto v2 = dba.InsertVertex();
+  ASSERT_TRUE(v2.SetProperty(id, memgraph::storage::PropertyValue(2)).HasValue());
+
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r1")).HasValue());
+
+  dba.AdvanceCommand();
+
+  auto *subquery =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m2"), EDGE("r2", EdgeAtom::Direction::OUT), NODE("n2"))), RETURN("n2")),
+            UNION_ALL(SINGLE_QUERY(MATCH(PATTERN(NODE("m2"), EDGE("r2", EdgeAtom::Direction::OUT), NODE("n2"))),
+                                   RETURN("n2"))),
+            UNION_ALL(SINGLE_QUERY(MATCH(PATTERN(NODE("m2"), EDGE("r2", EdgeAtom::Direction::OUT), NODE("n2"))),
+                                   RETURN("n2"))));
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m1"), EDGE("r1", EdgeAtom::Direction::OUT), NODE("n1"))),
+                                   CALL_SUBQUERY(subquery), RETURN("m1", "n2")));
+
+  CheckPlansProduce(16, query, storage, &dba, [&](const auto &results) {
+    AssertRows(results,
+               {{TypedValue(v1), TypedValue(v2)}, {TypedValue(v1), TypedValue(v2)}, {TypedValue(v1), TypedValue(v2)}},
+               dba);
+  });
+}
 }  // namespace

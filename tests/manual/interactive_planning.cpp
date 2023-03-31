@@ -453,7 +453,7 @@ auto MakeLogicalPlans(memgraph::query::CypherQuery *query, memgraph::query::AstS
   memgraph::query::Parameters parameters;
   memgraph::query::plan::PostProcessor post_process(parameters);
   auto plans = memgraph::query::plan::MakeLogicalPlanForSingleQuery<memgraph::query::plan::VariableStartPlanner>(
-      query_parts.query_parts.at(0).single_query_parts, &ctx);
+      query_parts, &ctx);
   for (auto plan : plans) {
     memgraph::query::AstStorage ast_copy;
     auto unoptimized_plan = plan->Clone(&ast_copy);
