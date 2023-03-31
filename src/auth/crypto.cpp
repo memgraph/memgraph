@@ -12,11 +12,15 @@
 
 #include <gflags/gflags.h>
 #include <libbcrypt/bcrypt.h>
-
-#if OPENSSL_API_LEVEL >= 30000
+#include <openssl/opensslv.h>
+#ifndef OPENSSL_VERSION_MAJOR
+#include <openssl/sha.h>
+#else
+#if OPENSSL_VERSION_MAJOR == 3
 #include <openssl/evp.h>
 #else
 #include <openssl/sha.h>
+#endif
 #endif
 
 #include "auth/exceptions.hpp"
@@ -89,18 +93,19 @@ bool VerifyPassword(const std::string &password, const std::string &hash) {
 }  // namespace BCrypt
 
 namespace SHA {
-#if OPENSSL_API_LEVEL >= 30000
+#if OPENSSL_VERSION_MAJOR == 3
 std::string EncryptPasswordOpenSSL3(const std::string &password, const uint64_t number_of_iterations) {
-  unsigned char hash[SHA256_DIGEST_LENGTH];
-  const unsigned char *password_repr = reinterpret_cast<const unsigned char *>(password.c_str());
-  auto something = SHA256(password_repr, password.size(), hash);
+  // unsigned char hash[SHA256_DIGEST_LENGTH];
+  // const unsigned char *password_repr = reinterpret_cast<const unsigned char *>(password.c_str());
+  // auto something = SHA256(password_repr, password.size(), hash);
 
-  std::stringstream ss;
-  for (auto hash_char : hash) {
-    ss << std::hex << std::setw(2) << std::setfill('0') << (int)hash_char;
-  }
+  // std::stringstream ss;
+  // for (auto hash_char : hash) {
+  //   ss << std::hex << std::setw(2) << std::setfill('0') << (int)hash_char;
+  // }
 
-  return ss.str();
+  // return ss.str();
+  return "";
 }
 #else
 std::string EncryptPasswordOpenSSL1_1(const std::string &password, const uint64_t number_of_iterations) {
@@ -123,7 +128,7 @@ std::string EncryptPasswordOpenSSL1_1(const std::string &password, const uint64_
 #endif
 
 std::string EncryptPassword(const std::string &password, const uint64_t number_of_iterations) {
-#if OPENSSL_API_LEVEL >= 30000
+#if OPENSSL_VERSION_MAJOR == 3
   return EncryptPasswordOpenSSL3(password, number_of_iterations);
 #else
   return EncryptPasswordOpenSSL1_1(password, number_of_iterations);
