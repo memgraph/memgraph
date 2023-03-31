@@ -263,6 +263,9 @@ constexpr utils::TypeInfo query::Foreach::kType{utils::TypeId::AST_FOREACH, "For
 constexpr utils::TypeInfo query::ShowConfigQuery::kType{utils::TypeId::AST_SHOW_CONFIG_QUERY, "ShowConfigQuery",
                                                         &query::Query::kType};
 
+constexpr utils::TypeInfo query::AnalyzeGraphQuery::kType{utils::TypeId::AST_ANALYZE_GRAPH_QUERY, "AnalyzeGraphQuery",
+                                                          &query::Query::kType};
+
 constexpr utils::TypeInfo query::TransactionQueueQuery::kType{utils::TypeId::AST_TRANSACTION_QUEUE_QUERY,
                                                               "TransactionQueueQuery", &query::Query::kType};
 

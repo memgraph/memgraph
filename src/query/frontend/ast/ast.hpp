@@ -3255,6 +3255,26 @@ class TransactionQueueQuery : public memgraph::query::Query {
   }
 };
 
+class AnalyzeGraphQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  enum class Action { ANALYZE, DELETE };
+
+  memgraph::query::AnalyzeGraphQuery::Action action_;
+  std::vector<std::string> labels_;
+
+  AnalyzeGraphQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<AnalyzeGraphQuery>();
+    object->action_ = action_;
+    object->labels_ = labels_;
+    return object;
+  }
+};
+
 class Exists : public memgraph::query::Expression {
  public:
   static const utils::TypeInfo kType;

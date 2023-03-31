@@ -184,6 +184,16 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitDumpQuery(MemgraphCypher::DumpQueryContext *ctx) override;
 
   /**
+  @return std::vector<std::string>
+  */
+  antlrcpp::Any visitListOfColonSymbolicNames(MemgraphCypher::ListOfColonSymbolicNamesContext *ctx) override;
+
+  /**
+   * @return AnalyzeGraphQuery*
+   */
+  antlrcpp::Any visitAnalyzeGraphQuery(MemgraphCypher::AnalyzeGraphQueryContext *ctx) override;
+
+  /**
    * @return ReplicationQuery*
    */
   antlrcpp::Any visitReplicationQuery(MemgraphCypher::ReplicationQueryContext *ctx) override;

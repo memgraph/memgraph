@@ -15,7 +15,6 @@
 #include <json/json.hpp>
 
 namespace memgraph::auth {
-const std::string kAsterisk = "*";
 // These permissions must have values that are applicable for usage in a
 // bitmask.
 // clang-format off
