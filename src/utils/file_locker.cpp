@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,7 +17,7 @@ namespace memgraph::utils {
 namespace {
 void DeleteFromSystem(const std::filesystem::path &path) {
   if (!utils::DeleteFile(path)) {
-    spdlog::warn("Couldn't delete file {}!", path);
+    spdlog::warn("Couldn't delete file {}!", path.string());
   }
 }
 }  // namespace
@@ -25,7 +25,7 @@ void DeleteFromSystem(const std::filesystem::path &path) {
 ////// FileRetainer //////
 void FileRetainer::DeleteFile(const std::filesystem::path &path) {
   if (!std::filesystem::exists(path)) {
-    spdlog::info("File {} doesn't exist.", path);
+    spdlog::info("File {} doesn't exist.", path.string());
     return;
   }
 

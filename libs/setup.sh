@@ -191,10 +191,10 @@ cd json
 file_get_try_double "${primary_urls[nlohmann]}" "${secondary_urls[nlohmann]}"
 cd ..
 
-rocksdb_tag="v7.7.2" # 2022-10-05
+rocksdb_tag="v8.0.0" # 2023-02-19
 repo_clone_try_double "${primary_urls[rocksdb]}" "${secondary_urls[rocksdb]}" "rocksdb" "$rocksdb_tag" true
 pushd rocksdb
-git apply ../rocksdb.patch
+git apply ../rocksdb-8.0.0.patch
 popd
 
 # mgclient

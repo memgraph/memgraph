@@ -6,3 +6,5 @@
 !__main.cpp
 !pulsar.patch
 !antlr4.10.1.patch
+!rocksdb.patch
+!rocksdb-8.0.0.patch

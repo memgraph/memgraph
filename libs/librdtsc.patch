@@ -5,7 +5,7 @@ index ee9b58c..31359a9 100644
 @@ -48,7 +48,7 @@ option(LIBRDTSC_USE_PMU     "Enables PMU usage on ARM platforms"        OFF)
  # |          Library Build and Install Properties          |
  # +--------------------------------------------------------+
- 
+
 -add_library(rdtsc SHARED
 +add_library(rdtsc
      src/cycles.c
@@ -14,7 +14,7 @@ index ee9b58c..31359a9 100644
 @@ -72,15 +72,6 @@ target_include_directories(rdtsc
    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
  )
- 
+
 -# Install directory changes depending on build mode
 -if (CMAKE_BUILD_TYPE MATCHES "^[Dd]ebug")
 -    # During debug, the library will be installed into a local directory
@@ -27,3 +27,15 @@ index ee9b58c..31359a9 100644
  # Specifying what to export when installing (GNUInstallDirs required)
  install(TARGETS rdtsc
          EXPORT librstsc-config
+diff --git a/include/librdtsc/common_timer.h b/include/librdtsc/common_timer.h
+index a6922d8..080dc77 100644
+--- a/include/librdtsc/common_timer.h
++++ b/include/librdtsc/common_timer.h
+@@ -2,6 +2,7 @@
+ #define LIBRDTSC_COMMON_TIMER_H
+
+ #include <librdtsc/common.h>
++#include <librdtsc/cycles.h>
+
+ extern uint64_t rdtsc_get_tsc_freq_arch();
+ extern uint64_t rdtsc_get_tsc_freq();
