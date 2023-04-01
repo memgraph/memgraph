@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -74,12 +74,14 @@ class PlanPrinter : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ConstructNamedPath &) override;
 
   bool PreVisit(Filter &) override;
+  bool PreVisit(EvaluatePatternFilter & /*unused*/) override;
   bool PreVisit(EdgeUniquenessFilter &) override;
 
   bool PreVisit(Merge &) override;
   bool PreVisit(Optional &) override;
   bool PreVisit(Cartesian &) override;
 
+  bool PreVisit(EmptyResult &) override;
   bool PreVisit(Produce &) override;
   bool PreVisit(Accumulate &) override;
   bool PreVisit(Aggregate &) override;
@@ -93,6 +95,7 @@ class PlanPrinter : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(CallProcedure &) override;
   bool PreVisit(LoadCsv &) override;
   bool PreVisit(Foreach &) override;
+  bool PreVisit(Apply & /*unused*/) override;
 
   bool Visit(Once &) override;
 
@@ -185,8 +188,10 @@ class PlanToJsonVisitor : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(Optional &) override;
 
   bool PreVisit(Filter &) override;
+  bool PreVisit(EvaluatePatternFilter & /*op*/) override;
   bool PreVisit(EdgeUniquenessFilter &) override;
   bool PreVisit(Cartesian &) override;
+  bool PreVisit(Apply & /*unused*/) override;
 
   bool PreVisit(ScanAll &) override;
   bool PreVisit(ScanAllByLabel &) override;
@@ -195,6 +200,7 @@ class PlanToJsonVisitor : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanAllByLabelProperty &) override;
   bool PreVisit(ScanAllById &) override;
 
+  bool PreVisit(EmptyResult &) override;
   bool PreVisit(Produce &) override;
   bool PreVisit(Accumulate &) override;
   bool PreVisit(Aggregate &) override;

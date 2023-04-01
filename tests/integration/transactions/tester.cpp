@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -36,6 +36,21 @@ class BoltClient : public ::testing::Test {
   bool Execute(const std::string &query, const std::string &message = "") {
     try {
       auto ret = client_.Execute(query, {});
+    } catch (const ClientQueryException &e) {
+      if (message != "") {
+        EXPECT_EQ(e.what(), message);
+      }
+      throw;
+    }
+    return true;
+  }
+
+  bool ExecuteAndCheckQid(const std::string &query, int qid, const std::string &message = "") {
+    try {
+      auto ret = client_.Execute(query, {});
+      if (ret.metadata["qid"].ValueInt() != qid) {
+        return false;
+      }
     } catch (const ClientQueryException &e) {
       if (message != "") {
         EXPECT_EQ(e.what(), message);
@@ -458,6 +473,18 @@ TEST_F(BoltClient, MixedCaseAndWhitespace) {
   ASSERT_EQ(GetCount(), count + 1);
   EXPECT_TRUE(Execute("    COMmit  "));
   EXPECT_EQ(GetCount(), count + 1);
+  EXPECT_FALSE(TransactionActive());
+}
+
+TEST_F(BoltClient, TestQid) {
+  for (int i = 0; i < 3; ++i) {
+    EXPECT_TRUE(Execute("match (n) return count(n)"));
+  }
+  EXPECT_TRUE(Execute("begin"));
+  for (int i = 0; i < 3; ++i) {
+    EXPECT_TRUE(ExecuteAndCheckQid("match (n) return count(n)", i + 1));
+  }
+  EXPECT_TRUE(Execute("commit"));
   EXPECT_FALSE(TransactionActive());
 }
 

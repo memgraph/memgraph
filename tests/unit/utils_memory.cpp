@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -252,20 +252,21 @@ TEST(PoolResource, MultipleSmallBlockAllocations) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PoolResource, BigBlockAllocations) {
   TestMemory test_mem;
+  TestMemory test_mem_unpooled;
   const size_t max_blocks_per_chunk = 3U;
   const size_t max_block_size = 64U;
-  memgraph::utils::PoolResource mem(max_blocks_per_chunk, max_block_size, &test_mem);
+  memgraph::utils::PoolResource mem(max_blocks_per_chunk, max_block_size, &test_mem, &test_mem_unpooled);
   CheckAllocation(&mem, max_block_size + 1, 1U);
   // May allocate more than once per block due to bookkeeping.
-  EXPECT_GE(test_mem.new_count_, 1U);
+  EXPECT_GE(test_mem_unpooled.new_count_, 1U);
   CheckAllocation(&mem, max_block_size + 1, 1U);
-  EXPECT_GE(test_mem.new_count_, 2U);
+  EXPECT_GE(test_mem_unpooled.new_count_, 2U);
   auto *ptr = CheckAllocation(&mem, max_block_size * 2, 1U);
-  EXPECT_GE(test_mem.new_count_, 3U);
+  EXPECT_GE(test_mem_unpooled.new_count_, 3U);
   mem.Deallocate(ptr, max_block_size * 2, 1U);
-  EXPECT_GE(test_mem.delete_count_, 1U);
+  EXPECT_GE(test_mem_unpooled.delete_count_, 1U);
   mem.Release();
-  EXPECT_GE(test_mem.delete_count_, 3U);
+  EXPECT_GE(test_mem_unpooled.delete_count_, 3U);
   CheckAllocation(&mem, max_block_size + 1, 1U);
 }
 

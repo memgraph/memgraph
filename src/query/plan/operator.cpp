@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,8 +25,10 @@
 
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
+#include "query/common.hpp"
 #include "spdlog/spdlog.h"
 
+#include "license/license.hpp"
 #include "query/auth_checker.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
@@ -40,6 +42,7 @@
 #include "query/procedure/cypher_types.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
+#include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/algorithm.hpp"
@@ -47,7 +50,6 @@
 #include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
-#include "utils/license.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
@@ -113,6 +115,9 @@ extern const Event UnionOperator;
 extern const Event CartesianOperator;
 extern const Event CallProcedureOperator;
 extern const Event ForeachOperator;
+extern const Event EmptyResultOperator;
+extern const Event EvaluatePatternFilterOperator;
+extern const Event ApplyOperator;
 }  // namespace EventCounter
 
 namespace memgraph::query::plan {
@@ -206,17 +211,18 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
                                 storage::View::NEW);
   // TODO: PropsSetChecked allocates a PropertyValue, make it use context.memory
   // when we update PropertyValue with custom allocator.
+  std::map<storage::PropertyId, storage::PropertyValue> properties;
   if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info.properties)) {
     for (const auto &[key, value_expression] : *node_info_properties) {
-      PropsSetChecked(&new_node, key, value_expression->Accept(evaluator));
+      properties.emplace(key, value_expression->Accept(evaluator));
     }
   } else {
     auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info.properties));
     for (const auto &[key, value] : property_map.ValueMap()) {
-      auto property_id = dba.NameToProperty(key);
-      PropsSetChecked(&new_node, property_id, value);
+      properties.emplace(dba.NameToProperty(key), value);
     }
   }
+  MultiPropsInitChecked(&new_node, properties);
 
   (*frame)[node_info.symbol] = new_node;
   return (*frame)[node_info.symbol].ValueVertex();
@@ -242,7 +248,7 @@ CreateNode::CreateNodeCursor::CreateNodeCursor(const CreateNode &self, utils::Me
 bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("CreateNode");
 #ifdef MG_ENTERPRISE
-  if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+  if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
       !context.auth_checker->Has(self_.node_info_.labels,
                                  memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
     throw QueryRuntimeException("Vertex not created due to not having enough permission!");
@@ -297,17 +303,18 @@ EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, Vert
   auto maybe_edge = dba->InsertEdge(from, to, edge_info.edge_type);
   if (maybe_edge.HasValue()) {
     auto &edge = *maybe_edge;
-    if (const auto *properties = std::get_if<PropertiesMapList>(&edge_info.properties)) {
-      for (const auto &[key, value_expression] : *properties) {
-        PropsSetChecked(&edge, key, value_expression->Accept(*evaluator));
+    std::map<storage::PropertyId, storage::PropertyValue> properties;
+    if (const auto *edge_info_properties = std::get_if<PropertiesMapList>(&edge_info.properties)) {
+      for (const auto &[key, value_expression] : *edge_info_properties) {
+        properties.emplace(key, value_expression->Accept(*evaluator));
       }
     } else {
       auto property_map = evaluator->Visit(*std::get<ParameterLookup *>(edge_info.properties));
       for (const auto &[key, value] : property_map.ValueMap()) {
-        auto property_id = dba->NameToProperty(key);
-        PropsSetChecked(&edge, property_id, value);
+        properties.emplace(dba->NameToProperty(key), value);
       }
     }
+    if (!properties.empty()) MultiPropsInitChecked(&edge, properties);
 
     (*frame)[edge_info.symbol] = edge;
   } else {
@@ -334,7 +341,7 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
   if (!input_cursor_->Pull(frame, context)) return false;
 
 #ifdef MG_ENTERPRISE
-  if (utils::license::global_license_checker.IsValidLicenseFast()) {
+  if (license::global_license_checker.IsEnterpriseValidFast()) {
     const auto fine_grained_permission = self_.existing_node_
                                              ? memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE
 
@@ -408,10 +415,11 @@ VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(Frame &frame, Exec
 template <class TVerticesFun>
 class ScanAllCursor : public Cursor {
  public:
-  explicit ScanAllCursor(Symbol output_symbol, UniqueCursorPtr input_cursor, TVerticesFun get_vertices,
-                         const char *op_name)
+  explicit ScanAllCursor(Symbol output_symbol, UniqueCursorPtr input_cursor, storage::View view,
+                         TVerticesFun get_vertices, const char *op_name)
       : output_symbol_(output_symbol),
         input_cursor_(std::move(input_cursor)),
+        view_(view),
         get_vertices_(std::move(get_vertices)),
         op_name_(op_name) {}
 
@@ -433,8 +441,7 @@ class ScanAllCursor : public Cursor {
       vertices_it_.emplace(vertices_.value().begin());
     }
 #ifdef MG_ENTERPRISE
-    if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
-        !FindNextVertex(context)) {
+    if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker && !FindNextVertex(context)) {
       return false;
     }
 #endif
@@ -447,7 +454,7 @@ class ScanAllCursor : public Cursor {
 #ifdef MG_ENTERPRISE
   bool FindNextVertex(const ExecutionContext &context) {
     while (vertices_it_.value() != vertices_.value().end()) {
-      if (context.auth_checker->Has(*vertices_it_.value(), memgraph::storage::View::OLD,
+      if (context.auth_checker->Has(*vertices_it_.value(), view_,
                                     memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
         return true;
       }
@@ -468,6 +475,7 @@ class ScanAllCursor : public Cursor {
  private:
   const Symbol output_symbol_;
   const UniqueCursorPtr input_cursor_;
+  storage::View view_;
   TVerticesFun get_vertices_;
   std::optional<typename std::result_of<TVerticesFun(Frame &, ExecutionContext &)>::type::value_type> vertices_;
   std::optional<decltype(vertices_.value().begin())> vertices_it_;
@@ -486,7 +494,7 @@ UniqueCursorPtr ScanAll::MakeCursor(utils::MemoryResource *mem) const {
     auto *db = context.db_accessor;
     return std::make_optional(db->Vertices(view_));
   };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem), view_,
                                                                 std::move(vertices), "ScanAll");
 }
 
@@ -509,7 +517,7 @@ UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem) const {
     auto *db = context.db_accessor;
     return std::make_optional(db->Vertices(view_, label_));
   };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem), view_,
                                                                 std::move(vertices), "ScanAllByLabel");
 }
 
@@ -574,7 +582,7 @@ UniqueCursorPtr ScanAllByLabelPropertyRange::MakeCursor(utils::MemoryResource *m
     if (maybe_upper && maybe_upper->value().IsNull()) return std::nullopt;
     return std::make_optional(db->Vertices(view_, label_, property_, maybe_lower, maybe_upper));
   };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem), view_,
                                                                 std::move(vertices), "ScanAllByLabelPropertyRange");
 }
 
@@ -606,7 +614,7 @@ UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(utils::MemoryResource *m
     }
     return std::make_optional(db->Vertices(view_, label_, property_, storage::PropertyValue(value)));
   };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem), view_,
                                                                 std::move(vertices), "ScanAllByLabelPropertyValue");
 }
 
@@ -624,7 +632,7 @@ UniqueCursorPtr ScanAllByLabelProperty::MakeCursor(utils::MemoryResource *mem) c
     auto *db = context.db_accessor;
     return std::make_optional(db->Vertices(view_, label_, property_));
   };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem), view_,
                                                                 std::move(vertices), "ScanAllByLabelProperty");
 }
 
@@ -650,7 +658,7 @@ UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
     if (!maybe_vertex) return std::nullopt;
     return std::vector<VertexAccessor>{*maybe_vertex};
   };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem), view_,
                                                                 std::move(vertices), "ScanAllById");
 }
 
@@ -731,7 +739,7 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
     if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
       auto edge = *(*in_edges_it_)++;
 #ifdef MG_ENTERPRISE
-      if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
             context.auth_checker->Has(edge.From(), self_.view_,
                                       memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
@@ -752,7 +760,7 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
       // already done in the block above
       if (self_.common_.direction == EdgeAtom::Direction::BOTH && edge.IsCycle()) continue;
 #ifdef MG_ENTERPRISE
-      if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
             context.auth_checker->Has(edge.To(), self_.view_,
                                       memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
@@ -1089,7 +1097,7 @@ class ExpandVariableCursor : public Cursor {
       VertexAccessor current_vertex =
           current_edge.second == EdgeAtom::Direction::IN ? current_edge.first.From() : current_edge.first.To();
 #ifdef MG_ENTERPRISE
-      if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !(context.auth_checker->Has(current_edge.first, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
             context.auth_checker->Has(current_vertex, storage::View::OLD,
                                       memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
@@ -1258,7 +1266,7 @@ class STShortestPathCursor : public query::plan::Cursor {
           auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
           for (const auto &edge : out_edges) {
 #ifdef MG_ENTERPRISE
-            if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+            if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
                 !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
                   context.auth_checker->Has(edge.To(), storage::View::OLD,
                                             memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
@@ -1284,7 +1292,7 @@ class STShortestPathCursor : public query::plan::Cursor {
           auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
           for (const auto &edge : in_edges) {
 #ifdef MG_ENTERPRISE
-            if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+            if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
                 !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
                   context.auth_checker->Has(edge.From(), storage::View::OLD,
                                             memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
@@ -1324,7 +1332,7 @@ class STShortestPathCursor : public query::plan::Cursor {
           auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
           for (const auto &edge : out_edges) {
 #ifdef MG_ENTERPRISE
-            if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+            if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
                 !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
                   context.auth_checker->Has(edge.To(), storage::View::OLD,
                                             memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
@@ -1349,7 +1357,7 @@ class STShortestPathCursor : public query::plan::Cursor {
           auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
           for (const auto &edge : in_edges) {
 #ifdef MG_ENTERPRISE
-            if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+            if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
                 !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
                   context.auth_checker->Has(edge.From(), storage::View::OLD,
                                             memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
@@ -1406,7 +1414,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       // if we already processed the given vertex it doesn't get expanded
       if (processed_.find(vertex) != processed_.end()) return;
 #ifdef MG_ENTERPRISE
-      if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !(context.auth_checker->Has(vertex, storage::View::OLD,
                                       memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
             context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
@@ -1592,7 +1600,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
                            int64_t depth) {
       auto *memory = evaluator.GetMemoryResource();
 #ifdef MG_ENTERPRISE
-      if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !(context.auth_checker->Has(vertex, storage::View::OLD,
                                       memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
             context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
@@ -1827,7 +1835,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       : self_(self),
         input_cursor_(self_.input_->MakeCursor(mem)),
         visited_cost_(mem),
-        expanded_(mem),
+        total_cost_(mem),
         next_edges_(mem),
         traversal_stack_(mem),
         pq_(mem) {}
@@ -1837,6 +1845,9 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::OLD);
+    auto create_state = [this](const VertexAccessor &vertex, int64_t depth) {
+      return std::make_pair(vertex, upper_bound_set_ ? depth : 0);
+    };
 
     // For the given (edge, direction, weight, depth) tuple checks if they
     // satisfy the "where" condition. if so, places them in the priority
@@ -1902,7 +1913,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
         for (const auto &edge : out_edges) {
 #ifdef MG_ENTERPRISE
-          if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+          if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
               !(context.auth_checker->Has(edge.To(), storage::View::OLD,
                                           memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
                 context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
@@ -1916,7 +1927,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
         for (const auto &edge : in_edges) {
 #ifdef MG_ENTERPRISE
-          if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+          if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
               !(context.auth_checker->Has(edge.From(), storage::View::OLD,
                                           memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
                 context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
@@ -1928,65 +1939,118 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       }
     };
 
-    // Check if upper bound exists
-    upper_bound_ = self_.upper_bound_
-                       ? EvaluateInt(&evaluator, self_.upper_bound_, "Max depth in all shortest paths expansion")
-                       : std::numeric_limits<int64_t>::max();
+    std::optional<VertexAccessor> start_vertex;
+    auto *memory = context.evaluation_context.memory;
+
+    auto create_path = [this, &frame, &memory]() {
+      auto &current_level = traversal_stack_.back();
+      auto &edges_on_frame = frame[self_.common_.edge_symbol].ValueList();
+
+      // Clean out the current stack
+      if (current_level.empty()) {
+        if (!edges_on_frame.empty()) {
+          if (!self_.is_reverse_)
+            edges_on_frame.erase(edges_on_frame.end());
+          else
+            edges_on_frame.erase(edges_on_frame.begin());
+        }
+        traversal_stack_.pop_back();
+        return false;
+      }
+
+      auto [current_edge, current_edge_direction, current_weight] = current_level.back();
+      current_level.pop_back();
+
+      // Edges order depends on direction of expansion
+      if (!self_.is_reverse_)
+        edges_on_frame.emplace_back(current_edge);
+      else
+        edges_on_frame.emplace(edges_on_frame.begin(), current_edge);
+
+      auto next_vertex = current_edge_direction == EdgeAtom::Direction::IN ? current_edge.From() : current_edge.To();
+      frame[self_.total_weight_.value()] = current_weight;
+
+      if (next_edges_.find({next_vertex, traversal_stack_.size()}) != next_edges_.end()) {
+        auto next_vertex_edges = next_edges_[{next_vertex, traversal_stack_.size()}];
+        traversal_stack_.emplace_back(std::move(next_vertex_edges));
+      } else {
+        // Signal the end of iteration
+        utils::pmr::list<DirectedEdge> empty(memory);
+        traversal_stack_.emplace_back(std::move(empty));
+      }
+
+      if ((current_weight > visited_cost_.at(next_vertex)).ValueBool()) return false;
+
+      // Place destination node on the frame, handle existence flag
+      if (self_.common_.existing_node) {
+        const auto &node = frame[self_.common_.node_symbol];
+        ExpectType(self_.common_.node_symbol, node, TypedValue::Type::Vertex);
+        if (node.ValueVertex() != next_vertex) return false;
+      } else {
+        frame[self_.common_.node_symbol] = next_vertex;
+      }
+      return true;
+    };
+
+    auto create_DFS_traversal_tree = [this, &context, &memory, &create_state, &expand_from_vertex]() {
+      while (!pq_.empty()) {
+        if (MustAbort(context)) throw HintedAbortError();
+
+        const auto [current_weight, current_depth, current_vertex, directed_edge] = pq_.top();
+        pq_.pop();
+
+        const auto &[current_edge, direction, weight] = directed_edge;
+        auto current_state = create_state(current_vertex, current_depth);
+
+        auto position = total_cost_.find(current_state);
+        if (position != total_cost_.end()) {
+          if ((position->second < current_weight).ValueBool()) continue;
+        } else {
+          total_cost_.emplace(current_state, current_weight);
+          if (current_depth < upper_bound_) {
+            expand_from_vertex(current_vertex, current_weight, current_depth);
+          }
+        }
+
+        // Searching for a previous vertex in the expansion
+        auto prev_vertex = direction == EdgeAtom::Direction::IN ? current_edge.To() : current_edge.From();
+
+        // Update the parent
+        if (next_edges_.find({prev_vertex, current_depth - 1}) == next_edges_.end()) {
+          utils::pmr::list<DirectedEdge> empty(memory);
+          next_edges_[{prev_vertex, current_depth - 1}] = std::move(empty);
+        }
+        next_edges_.at({prev_vertex, current_depth - 1}).emplace_back(directed_edge);
+      }
+    };
+
+    // upper_bound_set is used when storing visited edges, because with an upper bound we also consider suboptimal paths
+    // if they are shorter in depth
+    if (self_.upper_bound_) {
+      upper_bound_ = EvaluateInt(&evaluator, self_.upper_bound_, "Max depth in all shortest path expansion");
+      upper_bound_set_ = true;
+    } else {
+      upper_bound_ = std::numeric_limits<int64_t>::max();
+      upper_bound_set_ = false;
+    }
 
     // Check if upper bound is valid
     if (upper_bound_ < 1) {
       throw QueryRuntimeException("Maximum depth in all shortest paths expansion must be at least 1.");
     }
 
-    std::optional<VertexAccessor> start_vertex;
-    auto *memory = context.evaluation_context.memory;
-
+    // On first Pull run, traversal stack and priority queue are empty, so we start a pulling stream
+    // and create a DFS traversal tree (main part of algorithm). Then we return the first path
+    // created from the DFS traversal tree (basically a DFS algorithm).
+    // On each subsequent Pull run, paths are created from the traversal stack and returned.
     while (true) {
       // Check if there is an external error.
       if (MustAbort(context)) throw HintedAbortError();
 
-      // If traversal stack if filled, the DFS traversal tree is created. Traverse the tree iteratively by
-      // preserving the traversal state on stack.
+      // The algorithm is run all at once by create_DFS_traversal_tree, after which we
+      // traverse the tree iteratively by preserving the traversal state on stack.
       while (!traversal_stack_.empty()) {
-        auto &current_level = traversal_stack_.back();
-        auto &edges_on_frame = frame[self_.common_.edge_symbol].ValueList();
-
-        // Clean out the current stack
-        if (current_level.empty()) {
-          if (!edges_on_frame.empty()) {
-            if (!self_.is_reverse_)
-              edges_on_frame.erase(edges_on_frame.end());
-            else
-              edges_on_frame.erase(edges_on_frame.begin());
-          }
-          traversal_stack_.pop_back();
-          continue;
-        }
-
-        auto [current_edge, current_edge_direction, current_weight] = current_level.back();
-        current_level.pop_back();
-
-        // Edges order depends on direction of expansion
-        if (!self_.is_reverse_)
-          edges_on_frame.emplace_back(current_edge);
-        else
-          edges_on_frame.emplace(edges_on_frame.begin(), current_edge);
-
-        auto next_vertex = current_edge_direction == EdgeAtom::Direction::IN ? current_edge.From() : current_edge.To();
-        frame[self_.common_.node_symbol] = next_vertex;
-        frame[self_.total_weight_.value()] = current_weight;
-
-        if (next_edges_.find({next_vertex, traversal_stack_.size()}) != next_edges_.end()) {
-          auto next_vertex_edges = next_edges_[{next_vertex, traversal_stack_.size()}];
-          traversal_stack_.emplace_back(std::move(next_vertex_edges));
-        } else {
-          // Signal the end of iteration
-          utils::pmr::list<DirectedEdge> empty(memory);
-          traversal_stack_.emplace_back(std::move(empty));
-        }
-
-        if ((current_weight > visited_cost_.at(next_vertex)).ValueBool()) continue;
-        return true;
+        if (create_path()) return true;
       }
 
       // If priority queue is empty start new pulling stream.
@@ -2007,48 +2071,19 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
         // Clear existing data structures.
         visited_cost_.clear();
-        expanded_.clear();
         next_edges_.clear();
         traversal_stack_.clear();
+        total_cost_.clear();
 
-        pq_.push({TypedValue(), 0, *start_vertex, std::nullopt});
+        expand_from_vertex(*start_vertex, TypedValue(), 0);
         visited_cost_.emplace(*start_vertex, 0);
         frame[self_.common_.edge_symbol] = TypedValue::TVector(memory);
       }
 
       // Create a DFS traversal tree from the start node
-      while (!pq_.empty()) {
-        if (MustAbort(context)) throw HintedAbortError();
+      create_DFS_traversal_tree();
 
-        auto [current_weight, current_depth, current_vertex, maybe_directed_edge] = pq_.top();
-        pq_.pop();
-
-        // Expand only if what we've just expanded is less than max depth.
-        if (current_depth < upper_bound_) {
-          if (maybe_directed_edge) {
-            auto &[current_edge, direction, weight] = *maybe_directed_edge;
-            if (expanded_.find(current_edge) != expanded_.end()) continue;
-            expanded_.emplace(current_edge);
-          }
-          expand_from_vertex(current_vertex, current_weight, current_depth);
-        }
-
-        // if current vertex is not starting vertex, maybe_directed_edge will not be nullopt
-        if (maybe_directed_edge) {
-          auto &[current_edge, direction, weight] = *maybe_directed_edge;
-          // Searching for a previous vertex in the expansion
-          auto prev_vertex = direction == EdgeAtom::Direction::IN ? current_edge.To() : current_edge.From();
-
-          // Update the parent
-          if (next_edges_.find({prev_vertex, current_depth - 1}) == next_edges_.end()) {
-            utils::pmr::list<DirectedEdge> empty(memory);
-            next_edges_[{prev_vertex, current_depth - 1}] = std::move(empty);
-          }
-
-          next_edges_.at({prev_vertex, current_depth - 1}).emplace_back(*maybe_directed_edge);
-        }
-      }
-
+      // DFS traversal tree is create,
       if (start_vertex && next_edges_.find({*start_vertex, 0}) != next_edges_.end()) {
         auto start_vertex_edges = next_edges_[{*start_vertex, 0}];
         traversal_stack_.emplace_back(std::move(start_vertex_edges));
@@ -2061,9 +2096,9 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
   void Reset() override {
     input_cursor_->Reset();
     visited_cost_.clear();
-    expanded_.clear();
     next_edges_.clear();
     traversal_stack_.clear();
+    total_cost_.clear();
     ClearQueue();
   }
 
@@ -2073,6 +2108,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
   // Upper bound on the path length.
   int64_t upper_bound_{-1};
+  bool upper_bound_set_{false};
 
   struct AspStateHash {
     size_t operator()(const std::pair<VertexAccessor, int64_t> &key) const {
@@ -2084,8 +2120,8 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
   using NextEdgesState = std::pair<VertexAccessor, int64_t>;
   // Maps vertices to minimum weights they got in expansion.
   utils::pmr::unordered_map<VertexAccessor, TypedValue> visited_cost_;
-  // Marking the expanded edges to prevent multiple visits.
-  utils::pmr::unordered_set<EdgeAccessor> expanded_;
+  // Maps vertices to weights they got in expansion.
+  utils::pmr::unordered_map<NextEdgesState, TypedValue, AspStateHash> total_cost_;
   // Maps the vertex with the potential expansion edge.
   utils::pmr::unordered_map<NextEdgesState, utils::pmr::list<DirectedEdge>, AspStateHash> next_edges_;
   // Stack indicating the traversal level.
@@ -2103,8 +2139,8 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
   // Priority queue comparator. Keep lowest weight on top of the queue.
   class PriorityQueueComparator {
    public:
-    bool operator()(const std::tuple<TypedValue, int64_t, VertexAccessor, std::optional<DirectedEdge>> &lhs,
-                    const std::tuple<TypedValue, int64_t, VertexAccessor, std::optional<DirectedEdge>> &rhs) {
+    bool operator()(const std::tuple<TypedValue, int64_t, VertexAccessor, DirectedEdge> &lhs,
+                    const std::tuple<TypedValue, int64_t, VertexAccessor, DirectedEdge> &rhs) {
       const auto &lhs_weight = std::get<0>(lhs);
       const auto &rhs_weight = std::get<0>(rhs);
       // Null defines minimum value for all types
@@ -2123,8 +2159,8 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
   // Priority queue - core element of the algorithm.
   // Stores: {weight, depth, next vertex, edge and direction}
-  std::priority_queue<std::tuple<TypedValue, int64_t, VertexAccessor, std::optional<DirectedEdge>>,
-                      utils::pmr::vector<std::tuple<TypedValue, int64_t, VertexAccessor, std::optional<DirectedEdge>>>,
+  std::priority_queue<std::tuple<TypedValue, int64_t, VertexAccessor, DirectedEdge>,
+                      utils::pmr::vector<std::tuple<TypedValue, int64_t, VertexAccessor, DirectedEdge>>,
                       PriorityQueueComparator>
       pq_;
 
@@ -2248,10 +2284,19 @@ std::vector<Symbol> ConstructNamedPath::ModifiedSymbols(const SymbolTable &table
   return symbols;
 }
 
-Filter::Filter(const std::shared_ptr<LogicalOperator> &input, Expression *expression)
-    : input_(input ? input : std::make_shared<Once>()), expression_(expression) {}
+Filter::Filter(const std::shared_ptr<LogicalOperator> &input,
+               const std::vector<std::shared_ptr<LogicalOperator>> &pattern_filters, Expression *expression)
+    : input_(input ? input : std::make_shared<Once>()), pattern_filters_(pattern_filters), expression_(expression) {}
 
-ACCEPT_WITH_INPUT(Filter)
+bool Filter::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    input_->Accept(visitor);
+    for (const auto &pattern_filter : pattern_filters_) {
+      pattern_filter->Accept(visitor);
+    }
+  }
+  return visitor.PostVisit(*this);
+}
 
 UniqueCursorPtr Filter::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::FilterOperator);
@@ -2261,8 +2306,24 @@ UniqueCursorPtr Filter::MakeCursor(utils::MemoryResource *mem) const {
 
 std::vector<Symbol> Filter::ModifiedSymbols(const SymbolTable &table) const { return input_->ModifiedSymbols(table); }
 
+static std::vector<UniqueCursorPtr> MakeCursorVector(const std::vector<std::shared_ptr<LogicalOperator>> &ops,
+                                                     utils::MemoryResource *mem) {
+  std::vector<UniqueCursorPtr> cursors;
+  cursors.reserve(ops.size());
+
+  if (!ops.empty()) {
+    for (const auto &op : ops) {
+      cursors.push_back(op->MakeCursor(mem));
+    }
+  }
+
+  return cursors;
+}
+
 Filter::FilterCursor::FilterCursor(const Filter &self, utils::MemoryResource *mem)
-    : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
+    : self_(self),
+      input_cursor_(self_.input_->MakeCursor(mem)),
+      pattern_filter_cursors_(MakeCursorVector(self_.pattern_filters_, mem)) {}
 
 bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Filter");
@@ -2272,6 +2333,10 @@ bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::OLD);
   while (input_cursor_->Pull(frame, context)) {
+    for (const auto &pattern_filter_cursor : pattern_filter_cursors_) {
+      pattern_filter_cursor->Pull(frame, context);
+    }
+
     if (EvaluateFilter(evaluator, self_.expression_)) return true;
   }
   return false;
@@ -2280,6 +2345,39 @@ bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
 void Filter::FilterCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void Filter::FilterCursor::Reset() { input_cursor_->Reset(); }
+
+EvaluatePatternFilter::EvaluatePatternFilter(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol)
+    : input_(input), output_symbol_(output_symbol) {}
+
+ACCEPT_WITH_INPUT(EvaluatePatternFilter);
+
+UniqueCursorPtr EvaluatePatternFilter::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::EvaluatePatternFilterOperator);
+
+  return MakeUniqueCursorPtr<EvaluatePatternFilterCursor>(mem, *this, mem);
+}
+
+EvaluatePatternFilter::EvaluatePatternFilterCursor::EvaluatePatternFilterCursor(const EvaluatePatternFilter &self,
+                                                                                utils::MemoryResource *mem)
+    : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
+
+std::vector<Symbol> EvaluatePatternFilter::ModifiedSymbols(const SymbolTable &table) const {
+  return input_->ModifiedSymbols(table);
+}
+
+bool EvaluatePatternFilter::EvaluatePatternFilterCursor::Pull(Frame &frame, ExecutionContext &context) {
+  SCOPED_PROFILE_OP("EvaluatePatternFilter");
+
+  input_cursor_->Reset();
+
+  frame[self_.output_symbol_] = TypedValue(input_cursor_->Pull(frame, context), context.evaluation_context.memory);
+
+  return true;
+}
+
+void EvaluatePatternFilter::EvaluatePatternFilterCursor::Shutdown() { input_cursor_->Shutdown(); }
+
+void EvaluatePatternFilter::EvaluatePatternFilterCursor::Reset() { input_cursor_->Reset(); }
 
 Produce::Produce(const std::shared_ptr<LogicalOperator> &input, const std::vector<NamedExpression *> &named_expressions)
     : input_(input ? input : std::make_shared<Once>()), named_expressions_(named_expressions) {}
@@ -2366,7 +2464,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
     if (expression_result.type() == TypedValue::Type::Edge) {
       auto &ea = expression_result.ValueEdge();
 #ifdef MG_ENTERPRISE
-      if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !(context.auth_checker->Has(ea, query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
             context.auth_checker->Has(ea.To(), storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::UPDATE) &&
             context.auth_checker->Has(ea.From(), storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::UPDATE))) {
@@ -2399,7 +2497,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
       case TypedValue::Type::Vertex: {
         auto &va = expression_result.ValueVertex();
 #ifdef MG_ENTERPRISE
-        if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+        if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
             !context.auth_checker->Has(va, storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
           throw QueryRuntimeException("Vertex not deleted due to not having enough permission!");
         }
@@ -2508,7 +2606,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
   switch (lhs.type()) {
     case TypedValue::Type::Vertex: {
 #ifdef MG_ENTERPRISE
-      if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueVertex(), storage::View::NEW,
                                      memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
         throw QueryRuntimeException("Vertex property not set due to not having enough permission!");
@@ -2525,7 +2623,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
     }
     case TypedValue::Type::Edge: {
 #ifdef MG_ENTERPRISE
-      if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
         throw QueryRuntimeException("Edge property not set due to not having enough permission!");
       }
@@ -2724,7 +2822,7 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
   switch (lhs.type()) {
     case TypedValue::Type::Vertex:
 #ifdef MG_ENTERPRISE
-      if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueVertex(), storage::View::NEW,
                                      memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
         throw QueryRuntimeException("Vertex properties not set due to not having enough permission!");
@@ -2735,7 +2833,7 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
       break;
     case TypedValue::Type::Edge:
 #ifdef MG_ENTERPRISE
-      if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
         throw QueryRuntimeException("Edge properties not set due to not having enough permission!");
       }
@@ -2778,7 +2876,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("SetLabels");
 
 #ifdef MG_ENTERPRISE
-  if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+  if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
       !context.auth_checker->Has(self_.labels_, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
     throw QueryRuntimeException("Couldn't set label due to not having enough permission!");
   }
@@ -2793,7 +2891,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   auto &vertex = vertex_value.ValueVertex();
 
 #ifdef MG_ENTERPRISE
-  if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+  if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
       !context.auth_checker->Has(vertex, storage::View::OLD,
                                  memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
     throw QueryRuntimeException("Couldn't set label due to not having enough permission!");
@@ -2883,7 +2981,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
   switch (lhs.type()) {
     case TypedValue::Type::Vertex:
 #ifdef MG_ENTERPRISE
-      if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueVertex(), storage::View::NEW,
                                      memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
         throw QueryRuntimeException("Vertex property not removed due to not having enough permission!");
@@ -2893,7 +2991,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
       break;
     case TypedValue::Type::Edge:
 #ifdef MG_ENTERPRISE
-      if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
         throw QueryRuntimeException("Edge property not removed due to not having enough permission!");
       }
@@ -2936,7 +3034,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
   SCOPED_PROFILE_OP("RemoveLabels");
 
 #ifdef MG_ENTERPRISE
-  if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+  if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
       !context.auth_checker->Has(self_.labels_, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
     throw QueryRuntimeException("Couldn't remove label due to not having enough permission!");
   }
@@ -2951,7 +3049,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
   auto &vertex = vertex_value.ValueVertex();
 
 #ifdef MG_ENTERPRISE
-  if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+  if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
       !context.auth_checker->Has(vertex, storage::View::OLD,
                                  memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
     throw QueryRuntimeException("Couldn't remove label due to not having enough permission!");
@@ -3049,6 +3147,56 @@ bool EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Pull(Frame &frame, Execut
 void EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Reset() { input_cursor_->Reset(); }
+
+EmptyResult::EmptyResult(const std::shared_ptr<LogicalOperator> &input)
+    : input_(input ? input : std::make_shared<Once>()) {}
+
+ACCEPT_WITH_INPUT(EmptyResult)
+
+std::vector<Symbol> EmptyResult::OutputSymbols(const SymbolTable &) const {  // NOLINT(hicpp-named-parameter)
+  return {};
+}
+
+std::vector<Symbol> EmptyResult::ModifiedSymbols(const SymbolTable &) const {  // NOLINT(hicpp-named-parameter)
+  return {};
+}
+
+class EmptyResultCursor : public Cursor {
+ public:
+  EmptyResultCursor(const EmptyResult &self, utils::MemoryResource *mem)
+      : input_cursor_(self.input_->MakeCursor(mem)) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("EmptyResult");
+
+    if (!pulled_all_input_) {
+      while (input_cursor_->Pull(frame, context)) {
+        if (MustAbort(context)) {
+          throw HintedAbortError();
+        }
+      }
+      pulled_all_input_ = true;
+    }
+    return false;
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    pulled_all_input_ = false;
+  }
+
+ private:
+  const UniqueCursorPtr input_cursor_;
+  bool pulled_all_input_{false};
+};
+
+UniqueCursorPtr EmptyResult::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::EmptyResultOperator);
+
+  return MakeUniqueCursorPtr<EmptyResultCursor>(mem, *this, mem);
+}
 
 Accumulate::Accumulate(const std::shared_ptr<LogicalOperator> &input, const std::vector<Symbol> &symbols,
                        bool advance_command)
@@ -3204,7 +3352,8 @@ class AggregateCursor : public Cursor {
   // aggregation map. The vectors in an AggregationValue contain one element for
   // each aggregation in this LogicalOp.
   struct AggregationValue {
-    explicit AggregationValue(utils::MemoryResource *mem) : counts_(mem), values_(mem), remember_(mem) {}
+    explicit AggregationValue(utils::MemoryResource *mem)
+        : counts_(mem), values_(mem), remember_(mem), unique_values_(mem) {}
 
     // how many input rows have been aggregated in respective values_ element so
     // far
@@ -3217,6 +3366,10 @@ class AggregateCursor : public Cursor {
     utils::pmr::vector<TypedValue> values_;
     // remember values.
     utils::pmr::vector<TypedValue> remember_;
+
+    using TSet = utils::pmr::unordered_set<TypedValue, TypedValue::Hash, TypedValue::BoolEqual>;
+
+    utils::pmr::vector<TSet> unique_values_;
   };
 
   const Aggregate &self_;
@@ -3292,6 +3445,7 @@ class AggregateCursor : public Cursor {
     for (const auto &agg_elem : self_.aggregations_) {
       auto *mem = agg_value->values_.get_allocator().GetMemoryResource();
       agg_value->values_.emplace_back(DefaultAggregationOpValue(agg_elem, mem));
+      agg_value->unique_values_.emplace_back(AggregationValue::TSet(mem));
     }
     agg_value->counts_.resize(self_.aggregations_.size(), 0);
 
@@ -3310,8 +3464,9 @@ class AggregateCursor : public Cursor {
 
     auto count_it = agg_value->counts_.begin();
     auto value_it = agg_value->values_.begin();
+    auto unique_values_it = agg_value->unique_values_.begin();
     auto agg_elem_it = self_.aggregations_.begin();
-    for (; count_it < agg_value->counts_.end(); count_it++, value_it++, agg_elem_it++) {
+    for (; count_it < agg_value->counts_.end(); count_it++, value_it++, unique_values_it++, agg_elem_it++) {
       // COUNT(*) is the only case where input expression is optional
       // handle it here
       auto input_expr_ptr = agg_elem_it->value;
@@ -3326,6 +3481,12 @@ class AggregateCursor : public Cursor {
       // Aggregations skip Null input values.
       if (input_value.IsNull()) continue;
       const auto &agg_op = agg_elem_it->op;
+      if (agg_elem_it->distinct) {
+        auto insert_result = unique_values_it->insert(input_value);
+        if (!insert_result.second) {
+          break;
+        }
+      }
       *count_it += 1;
       if (*count_it == 1) {
         // first value, nothing to aggregate. check type, set and continue.
@@ -3910,8 +4071,14 @@ class DistinctCursor : public Cursor {
 
       utils::pmr::vector<TypedValue> row(seen_rows_.get_allocator().GetMemoryResource());
       row.reserve(self_.value_symbols_.size());
-      for (const auto &symbol : self_.value_symbols_) row.emplace_back(frame[symbol]);
-      if (seen_rows_.insert(std::move(row)).second) return true;
+
+      for (const auto &symbol : self_.value_symbols_) {
+        row.emplace_back(frame.at(symbol));
+      }
+
+      if (seen_rows_.insert(std::move(row)).second) {
+        return true;
+      }
     }
   }
 
@@ -4456,24 +4623,24 @@ auto ToOptionalString(ExpressionEvaluator *evaluator, Expression *expression) ->
   return std::nullopt;
 };
 
-TypedValue CsvRowToTypedList(csv::Reader::Row row) {
+TypedValue CsvRowToTypedList(csv::Reader::Row &row) {
   auto *mem = row.get_allocator().GetMemoryResource();
   auto typed_columns = utils::pmr::vector<TypedValue>(mem);
   typed_columns.reserve(row.size());
   for (auto &column : row) {
     typed_columns.emplace_back(std::move(column));
   }
-  return TypedValue(typed_columns, mem);
+  return {std::move(typed_columns), mem};
 }
 
-TypedValue CsvRowToTypedMap(csv::Reader::Row row, csv::Reader::Header header) {
+TypedValue CsvRowToTypedMap(csv::Reader::Row &row, csv::Reader::Header header) {
   // a valid row has the same number of elements as the header
   auto *mem = row.get_allocator().GetMemoryResource();
   utils::pmr::map<utils::pmr::string, TypedValue> m(mem);
   for (auto i = 0; i < row.size(); ++i) {
     m.emplace(std::move(header[i]), std::move(row[i]));
   }
-  return TypedValue(m, mem);
+  return {std::move(m), mem};
 }
 
 }  // namespace
@@ -4512,18 +4679,17 @@ class LoadCsvCursor : public Cursor {
     // have to read at most cardinality(n) rows (but we can read less and stop
     // pulling MATCH).
     if (!input_is_once_ && !input_pulled) return false;
-
-    if (auto row = reader_->GetNextRow(context.evaluation_context.memory)) {
-      if (!reader_->HasHeader()) {
-        frame[self_->row_var_] = CsvRowToTypedList(std::move(*row));
-      } else {
-        frame[self_->row_var_] = CsvRowToTypedMap(
-            std::move(*row), csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory));
-      }
-      return true;
+    auto row = reader_->GetNextRow(context.evaluation_context.memory);
+    if (!row) {
+      return false;
     }
-
-    return false;
+    if (!reader_->HasHeader()) {
+      frame[self_->row_var_] = CsvRowToTypedList(*row);
+    } else {
+      frame[self_->row_var_] =
+          CsvRowToTypedMap(*row, csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory));
+    }
+    return true;
   }
 
   void Reset() override { input_cursor_->Reset(); }
@@ -4635,6 +4801,74 @@ bool Foreach::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
     update_clauses_->Accept(visitor);
   }
   return visitor.PostVisit(*this);
+}
+
+Apply::Apply(const std::shared_ptr<LogicalOperator> input, const std::shared_ptr<LogicalOperator> subquery,
+             bool subquery_has_return)
+    : input_(input ? input : std::make_shared<Once>()),
+      subquery_(subquery),
+      subquery_has_return_(subquery_has_return) {}
+
+bool Apply::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    input_->Accept(visitor) && subquery_->Accept(visitor);
+  }
+  return visitor.PostVisit(*this);
+}
+
+UniqueCursorPtr Apply::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::ApplyOperator);
+
+  return MakeUniqueCursorPtr<ApplyCursor>(mem, *this, mem);
+}
+
+Apply::ApplyCursor::ApplyCursor(const Apply &self, utils::MemoryResource *mem)
+    : self_(self),
+      input_(self.input_->MakeCursor(mem)),
+      subquery_(self.subquery_->MakeCursor(mem)),
+      subquery_has_return_(self.subquery_has_return_) {}
+
+std::vector<Symbol> Apply::ModifiedSymbols(const SymbolTable &table) const {
+  // Since Apply is the Cartesian product, modified symbols are combined from
+  // both execution branches.
+  auto symbols = input_->ModifiedSymbols(table);
+  auto subquery_symbols = subquery_->ModifiedSymbols(table);
+  symbols.insert(symbols.end(), subquery_symbols.begin(), subquery_symbols.end());
+  return symbols;
+}
+
+bool Apply::ApplyCursor::Pull(Frame &frame, ExecutionContext &context) {
+  SCOPED_PROFILE_OP("Apply");
+
+  while (true) {
+    if (pull_input_ && !input_->Pull(frame, context)) {
+      return false;
+    };
+
+    if (subquery_->Pull(frame, context)) {
+      // if successful, next Pull from this should not pull_input_
+      pull_input_ = false;
+      return true;
+    }
+    // failed to pull from subquery cursor
+    // skip that row
+    pull_input_ = true;
+    subquery_->Reset();
+
+    // don't skip row if no rows are returned from subquery, return input_ rows
+    if (!subquery_has_return_) return true;
+  }
+}
+
+void Apply::ApplyCursor::Shutdown() {
+  input_->Shutdown();
+  subquery_->Shutdown();
+}
+
+void Apply::ApplyCursor::Reset() {
+  input_->Reset();
+  subquery_->Reset();
+  pull_input_ = true;
 }
 
 }  // namespace memgraph::query::plan

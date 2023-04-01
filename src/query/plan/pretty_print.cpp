@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,6 +14,7 @@
 
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/pretty_print.hpp"
+#include "query/plan/operator.hpp"
 #include "utils/string.hpp"
 
 namespace memgraph::query::plan {
@@ -148,7 +149,6 @@ bool PlanPrinter::PreVisit(query::plan::Produce &op) {
 }
 
 PRE_VISIT(ConstructNamedPath);
-PRE_VISIT(Filter);
 PRE_VISIT(SetProperty);
 PRE_VISIT(SetProperties);
 PRE_VISIT(SetLabels);
@@ -156,6 +156,8 @@ PRE_VISIT(RemoveProperty);
 PRE_VISIT(RemoveLabels);
 PRE_VISIT(EdgeUniquenessFilter);
 PRE_VISIT(Accumulate);
+PRE_VISIT(EmptyResult);
+PRE_VISIT(EvaluatePatternFilter);
 
 bool PlanPrinter::PreVisit(query::plan::Aggregate &op) {
   WithPrintLn([&](auto &out) {
@@ -247,6 +249,22 @@ bool PlanPrinter::PreVisit(query::plan::Cartesian &op) {
 bool PlanPrinter::PreVisit(query::plan::Foreach &op) {
   WithPrintLn([](auto &out) { out << "* Foreach"; });
   Branch(*op.update_clauses_);
+  op.input_->Accept(*this);
+  return false;
+}
+
+bool PlanPrinter::PreVisit(query::plan::Filter &op) {
+  WithPrintLn([](auto &out) { out << "* Filter"; });
+  for (const auto &pattern_filter : op.pattern_filters_) {
+    Branch(*pattern_filter);
+  }
+  op.input_->Accept(*this);
+  return false;
+}
+
+bool PlanPrinter::PreVisit(query::plan::Apply &op) {
+  WithPrintLn([](auto &out) { out << "* Apply"; });
+  Branch(*op.subquery_);
   op.input_->Accept(*this);
   return false;
 }
@@ -401,6 +419,8 @@ json ToJson(const Aggregate::Element &elem) {
   }
   json["op"] = utils::ToLowerCase(Aggregation::OpToString(elem.op));
   json["output_symbol"] = ToJson(elem.output_sym);
+  json["distinct"] = elem.distinct;
+
   return json;
 }
 ////////////////////////// END HELPER FUNCTIONS ////////////////////////////////
@@ -586,6 +606,13 @@ bool PlanToJsonVisitor::PreVisit(Filter &op) {
   op.input_->Accept(*this);
   self["input"] = PopOutput();
 
+  for (auto pattern_idx = 0; pattern_idx < op.pattern_filters_.size(); pattern_idx++) {
+    auto pattern_filter_key = "pattern_filter" + std::to_string(pattern_idx + 1);
+
+    op.pattern_filters_[pattern_idx]->Accept(*this);
+    self[pattern_filter_key] = PopOutput();
+  }
+
   output_ = std::move(self);
   return false;
 }
@@ -695,6 +722,17 @@ bool PlanToJsonVisitor::PreVisit(EdgeUniquenessFilter &op) {
   self["name"] = "EdgeUniquenessFilter";
   self["expand_symbol"] = ToJson(op.expand_symbol_);
   self["previous_symbols"] = ToJson(op.previous_symbols_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(EmptyResult &op) {
+  json self;
+  self["name"] = "EmptyResult";
 
   op.input_->Accept(*this);
   self["input"] = PopOutput();
@@ -894,6 +932,7 @@ bool PlanToJsonVisitor::PreVisit(Cartesian &op) {
   output_ = std::move(self);
   return false;
 }
+
 bool PlanToJsonVisitor::PreVisit(Foreach &op) {
   json self;
   self["name"] = "Foreach";
@@ -905,6 +944,32 @@ bool PlanToJsonVisitor::PreVisit(Foreach &op) {
 
   op.update_clauses_->Accept(*this);
   self["update_clauses"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(EvaluatePatternFilter &op) {
+  json self;
+  self["name"] = "EvaluatePatternFilter";
+  self["output_symbol"] = ToJson(op.output_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(Apply &op) {
+  json self;
+  self["name"] = "Apply";
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  op.subquery_->Accept(*this);
+  self["subquery"] = PopOutput();
 
   output_ = std::move(self);
   return false;

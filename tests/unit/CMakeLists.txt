@@ -130,6 +130,12 @@ target_link_libraries(${test_prefix}query_serialization_property_value mg-query)
 add_unit_test(query_streams.cpp)
 target_link_libraries(${test_prefix}query_streams mg-query kafka-mock)
 
+add_unit_test(transaction_queue.cpp)
+target_link_libraries(${test_prefix}transaction_queue mg-communication mg-query mg-glue)
+
+add_unit_test(transaction_queue_multiple.cpp)
+target_link_libraries(${test_prefix}transaction_queue_multiple mg-communication mg-query mg-glue)
+
 # Test query functions
 add_unit_test(query_function_mgp_module.cpp)
 target_link_libraries(${test_prefix}query_function_mgp_module mg-query)
@@ -269,8 +275,8 @@ target_link_libraries(${test_prefix}utils_csv_parsing mg-utils fmt)
 add_unit_test(utils_async_timer.cpp)
 target_link_libraries(${test_prefix}utils_async_timer mg-utils)
 
-add_unit_test(utils_license.cpp)
-target_link_libraries(${test_prefix}utils_license mg-utils mg-license)
+add_unit_test(license.cpp)
+target_link_libraries(${test_prefix}license mg-utils mg-license)
 
 add_unit_test(utils_settings.cpp)
 target_link_libraries(${test_prefix}utils_settings mg-utils mg-settings)
@@ -359,15 +365,6 @@ if(MG_ENTERPRISE)
   add_unit_test(rpc.cpp)
   target_link_libraries(${test_prefix}rpc mg-rpc)
 endif()
-
-# Test LCP
-add_custom_command(
-  OUTPUT test_lcp
-  DEPENDS ${lcp_src_files} lcp test_lcp.lisp
-  COMMAND sbcl --script ${CMAKE_CURRENT_SOURCE_DIR}/test_lcp.lisp)
-add_custom_target(test_lcp ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/test_lcp)
-add_test(test_lcp ${CMAKE_CURRENT_BINARY_DIR}/test_lcp)
-add_dependencies(memgraph__unit test_lcp)
 
 # Test websocket
 find_package(Boost REQUIRED)

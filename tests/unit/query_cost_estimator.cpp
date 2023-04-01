@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -194,6 +194,37 @@ TEST_F(QueryCostEstimator, Foreach) {
   MakeOp<memgraph::query::plan::Foreach>(last_op_, create, storage_.Create<Identifier>(), NextSymbol());
   EXPECT_COST(CostParam::kForeach * MiscParam::kForeachNoLiteral);
 }
+
+TEST_F(QueryCostEstimator, SubqueryCartesian) {
+  auto no_vertices = 4;
+  AddVertices(no_vertices, 0, 0);
+  std::shared_ptr<LogicalOperator> input = std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol());
+  std::shared_ptr<LogicalOperator> subquery = std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol());
+  MakeOp<memgraph::query::plan::Apply>(input, subquery, true);
+  EXPECT_COST(CostParam::kSubquery * no_vertices * no_vertices);
+}
+
+TEST_F(QueryCostEstimator, UnitSubquery) {
+  auto no_vertices = 4;
+  AddVertices(no_vertices, 0, 0);
+  std::shared_ptr<LogicalOperator> input = std::make_shared<Once>();
+  std::shared_ptr<LogicalOperator> subquery = std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol());
+  MakeOp<memgraph::query::plan::Apply>(input, subquery, true);
+  EXPECT_COST(CostParam::kSubquery * no_vertices);
+}
+
+TEST_F(QueryCostEstimator, Union) {
+  auto no_vertices = 4;
+  AddVertices(no_vertices, 0, 0);
+
+  std::vector<Symbol> union_symbols{NextSymbol()};
+  std::shared_ptr<LogicalOperator> left_op = std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol());
+  std::shared_ptr<LogicalOperator> right_op = std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol());
+  MakeOp<memgraph::query::plan::Union>(left_op, right_op, union_symbols, left_op->OutputSymbols(symbol_table_),
+                                       right_op->OutputSymbols(symbol_table_));
+  EXPECT_COST(CostParam::kUnion * (no_vertices + no_vertices));
+}
+
 // Helper for testing an operations cost and cardinality.
 // Only for operations that first increment cost, then modify cardinality.
 // Intentially a macro (instead of function) for better test feedback.
@@ -204,7 +235,8 @@ TEST_F(QueryCostEstimator, Foreach) {
   EXPECT_COST(OP_COST_PARAM + OP_CARD_PARAM * OP_COST_PARAM);
 
 TEST_F(QueryCostEstimator, Filter) {
-  TEST_OP(MakeOp<Filter>(last_op_, Literal(true)), CostParam::kFilter, CardParam::kFilter);
+  TEST_OP(MakeOp<Filter>(last_op_, std::vector<std::shared_ptr<LogicalOperator>>{}, Literal(true)), CostParam::kFilter,
+          CardParam::kFilter);
 }
 
 TEST_F(QueryCostEstimator, EdgeUniquenessFilter) {

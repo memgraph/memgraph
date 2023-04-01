@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,6 +23,7 @@
 #include "slk/streams.hpp"
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/typeinfo.hpp"
 
 namespace memgraph::rpc {
 
@@ -84,11 +85,11 @@ class Client {
       slk::Reader res_reader(self_->client_->GetData(), response_data_size);
       utils::OnScopeExit res_cleanup([&, response_data_size] { self_->client_->ShiftData(response_data_size); });
 
-      uint64_t res_id = 0;
+      utils::TypeId res_id{utils::TypeId::UNKNOWN};
       slk::Load(&res_id, &res_reader);
 
       // Check the response ID.
-      if (res_id != res_type.id) {
+      if (res_id != res_type.id && res_id != utils::TypeId::UNKNOWN) {
         spdlog::error("Message response was of unexpected type");
         self_->client_ = std::nullopt;
         throw RpcFailedException(self_->endpoint_);

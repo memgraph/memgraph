@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -95,6 +95,10 @@ class SettingQuery;
 class VersionQuery;
 class Foreach;
 class ShowConfigQuery;
+class CallSubquery;
+class AnalyzeGraphQuery;
+class TransactionQueueQuery;
+class Exists;
 
 using TreeCompositeVisitor = utils::CompositeVisitor<
     SingleQuery, CypherUnion, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator, AdditionOperator,
@@ -103,7 +107,7 @@ using TreeCompositeVisitor = utils::CompositeVisitor<
     ListSlicingOperator, IfOperator, UnaryPlusOperator, UnaryMinusOperator, IsNullOperator, ListLiteral, MapLiteral,
     PropertyLookup, LabelsTest, Aggregation, Function, Reduce, Coalesce, Extract, All, Single, Any, None, CallProcedure,
     Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom, Delete, Where, SetProperty, SetProperties, SetLabels,
-    RemoveProperty, RemoveLabels, Merge, Unwind, RegexMatch, LoadCsv, Foreach>;
+    RemoveProperty, RemoveLabels, Merge, Unwind, RegexMatch, LoadCsv, Foreach, Exists, CallSubquery, CypherQuery>;
 
 using TreeLeafVisitor = utils::LeafVisitor<Identifier, PrimitiveLiteral, ParameterLookup>;
 
@@ -123,12 +127,13 @@ class ExpressionVisitor
           LessOperator, GreaterOperator, LessEqualOperator, GreaterEqualOperator, InListOperator, SubscriptOperator,
           ListSlicingOperator, IfOperator, UnaryPlusOperator, UnaryMinusOperator, IsNullOperator, ListLiteral,
           MapLiteral, PropertyLookup, LabelsTest, Aggregation, Function, Reduce, Coalesce, Extract, All, Single, Any,
-          None, ParameterLookup, Identifier, PrimitiveLiteral, RegexMatch> {};
+          None, ParameterLookup, Identifier, PrimitiveLiteral, RegexMatch, Exists> {};
 
 template <class TResult>
-class QueryVisitor : public utils::Visitor<TResult, CypherQuery, ExplainQuery, ProfileQuery, IndexQuery, AuthQuery,
-                                           InfoQuery, ConstraintQuery, DumpQuery, ReplicationQuery, LockPathQuery,
-                                           FreeMemoryQuery, TriggerQuery, IsolationLevelQuery, CreateSnapshotQuery,
-                                           StreamQuery, SettingQuery, VersionQuery, ShowConfigQuery> {};
+class QueryVisitor
+    : public utils::Visitor<TResult, CypherQuery, ExplainQuery, ProfileQuery, IndexQuery, AuthQuery, InfoQuery,
+                            ConstraintQuery, DumpQuery, ReplicationQuery, LockPathQuery, FreeMemoryQuery, TriggerQuery,
+                            IsolationLevelQuery, CreateSnapshotQuery, StreamQuery, SettingQuery, VersionQuery,
+                            ShowConfigQuery, TransactionQueueQuery, AnalyzeGraphQuery> {};
 
 }  // namespace memgraph::query

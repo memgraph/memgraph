@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -15,8 +15,9 @@
 
 #include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
+#include "license/license.hpp"
+#include "query/constants.hpp"
 #include "utils/cast.hpp"
-#include "utils/license.hpp"
 #include "utils/logging.hpp"
 #include "utils/settings.hpp"
 #include "utils/string.hpp"
@@ -34,13 +35,17 @@ namespace memgraph::auth {
 namespace {
 
 // Constant list of all available permissions.
-const std::vector<Permission> kPermissionsAll = {
-    Permission::MATCH,      Permission::CREATE,    Permission::MERGE,       Permission::DELETE,
-    Permission::SET,        Permission::REMOVE,    Permission::INDEX,       Permission::STATS,
-    Permission::CONSTRAINT, Permission::DUMP,      Permission::AUTH,        Permission::REPLICATION,
-    Permission::DURABILITY, Permission::READ_FILE, Permission::FREE_MEMORY, Permission::TRIGGER,
-    Permission::CONFIG,     Permission::STREAM,    Permission::MODULE_READ, Permission::MODULE_WRITE,
-    Permission::WEBSOCKET};
+const std::vector<Permission> kPermissionsAll = {Permission::MATCH,       Permission::CREATE,
+                                                 Permission::MERGE,       Permission::DELETE,
+                                                 Permission::SET,         Permission::REMOVE,
+                                                 Permission::INDEX,       Permission::STATS,
+                                                 Permission::CONSTRAINT,  Permission::DUMP,
+                                                 Permission::AUTH,        Permission::REPLICATION,
+                                                 Permission::DURABILITY,  Permission::READ_FILE,
+                                                 Permission::FREE_MEMORY, Permission::TRIGGER,
+                                                 Permission::CONFIG,      Permission::STREAM,
+                                                 Permission::MODULE_READ, Permission::MODULE_WRITE,
+                                                 Permission::WEBSOCKET,   Permission::TRANSACTION_MANAGEMENT};
 }  // namespace
 
 std::string PermissionToString(Permission permission) {
@@ -87,6 +92,8 @@ std::string PermissionToString(Permission permission) {
       return "MODULE_WRITE";
     case Permission::WEBSOCKET:
       return "WEBSOCKET";
+    case Permission::TRANSACTION_MANAGEMENT:
+      return "TRANSACTION_MANAGEMENT";
   }
 }
 
@@ -242,7 +249,7 @@ FineGrainedAccessPermissions::FineGrainedAccessPermissions(const std::unordered_
 
 PermissionLevel FineGrainedAccessPermissions::Has(const std::string &permission,
                                                   const FineGrainedPermission fine_grained_permission) const {
-  if (!memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return PermissionLevel::GRANT;
   }
   const auto concrete_permission = std::invoke([&]() -> uint64_t {
@@ -264,7 +271,7 @@ PermissionLevel FineGrainedAccessPermissions::Has(const std::string &permission,
 
 void FineGrainedAccessPermissions::Grant(const std::string &permission,
                                          const FineGrainedPermission fine_grained_permission) {
-  if (permission == kAsterisk) {
+  if (permission == query::kAsterisk) {
     global_permission_ = CalculateGrant(fine_grained_permission);
   } else {
     permissions_[permission] = CalculateGrant(fine_grained_permission);
@@ -272,7 +279,7 @@ void FineGrainedAccessPermissions::Grant(const std::string &permission,
 }
 
 void FineGrainedAccessPermissions::Revoke(const std::string &permission) {
-  if (permission == kAsterisk) {
+  if (permission == query::kAsterisk) {
     permissions_.clear();
     global_permission_ = std::nullopt;
   } else {
@@ -281,7 +288,7 @@ void FineGrainedAccessPermissions::Revoke(const std::string &permission) {
 }
 
 nlohmann::json FineGrainedAccessPermissions::Serialize() const {
-  if (!memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return {};
   }
   nlohmann::json data = nlohmann::json::object();
@@ -294,7 +301,7 @@ FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlo
   if (!data.is_object()) {
     throw AuthException("Couldn't load permissions data!");
   }
-  if (!memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return FineGrainedAccessPermissions{};
   }
   std::optional<uint64_t> global_permission;
@@ -347,7 +354,7 @@ const FineGrainedAccessPermissions &FineGrainedAccessHandler::edge_type_permissi
 FineGrainedAccessPermissions &FineGrainedAccessHandler::edge_type_permissions() { return edge_type_permissions_; }
 
 nlohmann::json FineGrainedAccessHandler::Serialize() const {
-  if (!memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return {};
   }
   nlohmann::json data = nlohmann::json::object();
@@ -363,7 +370,7 @@ FineGrainedAccessHandler FineGrainedAccessHandler::Deserialize(const nlohmann::j
   if (!data["label_permissions"].is_object() || !data["edge_type_permissions"].is_object()) {
     throw AuthException("Couldn't load label_permissions or edge_type_permissions data!");
   }
-  if (!memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return FineGrainedAccessHandler{};
   }
   auto label_permissions = FineGrainedAccessPermissions::Deserialize(data["label_permissions"]);
@@ -414,7 +421,7 @@ nlohmann::json Role::Serialize() const {
   data["rolename"] = rolename_;
   data["permissions"] = permissions_.Serialize();
 #ifdef MG_ENTERPRISE
-  if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     data["fine_grained_access_handler"] = fine_grained_access_handler_.Serialize();
   } else {
     data["fine_grained_access_handler"] = {};
@@ -432,7 +439,7 @@ Role Role::Deserialize(const nlohmann::json &data) {
   }
   auto permissions = Permissions::Deserialize(data["permissions"]);
 #ifdef MG_ENTERPRISE
-  if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     if (!data["fine_grained_access_handler"].is_object()) {
       throw AuthException("Couldn't load user data!");
     }
@@ -445,7 +452,7 @@ Role Role::Deserialize(const nlohmann::json &data) {
 
 bool operator==(const Role &first, const Role &second) {
 #ifdef MG_ENTERPRISE
-  if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return first.rolename_ == second.rolename_ && first.permissions_ == second.permissions_ &&
            first.fine_grained_access_handler_ == second.fine_grained_access_handler_;
   }
@@ -483,13 +490,13 @@ void User::UpdatePassword(const std::optional<std::string> &password) {
   }
 
   if (FLAGS_auth_password_strength_regex != default_password_regex) {
-    if (const auto license_check_result = utils::license::global_license_checker.IsValidLicense(utils::global_settings);
+    if (const auto license_check_result = license::global_license_checker.IsEnterpriseValid(utils::global_settings);
         license_check_result.HasError()) {
       throw AuthException(
           "Custom password regex is a Memgraph Enterprise feature. Please set the config "
           "(\"--auth-password-strength-regex\") to its default value (\"{}\") or remove the flag.\n{}",
           default_password_regex,
-          utils::license::LicenseCheckErrorToString(license_check_result.GetError(), "password regex"));
+          license::LicenseCheckErrorToString(license_check_result.GetError(), "password regex"));
     }
   }
   std::regex re(FLAGS_auth_password_strength_regex);
@@ -517,7 +524,7 @@ Permissions User::GetPermissions() const {
 
 #ifdef MG_ENTERPRISE
 FineGrainedAccessPermissions User::GetFineGrainedAccessLabelPermissions() const {
-  if (!memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return FineGrainedAccessPermissions{};
   }
 
@@ -530,7 +537,7 @@ FineGrainedAccessPermissions User::GetFineGrainedAccessLabelPermissions() const 
 }
 
 FineGrainedAccessPermissions User::GetFineGrainedAccessEdgeTypePermissions() const {
-  if (!memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return FineGrainedAccessPermissions{};
   }
   if (role_) {
@@ -563,7 +570,7 @@ nlohmann::json User::Serialize() const {
   data["password_hash"] = password_hash_;
   data["permissions"] = permissions_.Serialize();
 #ifdef MG_ENTERPRISE
-  if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     data["fine_grained_access_handler"] = fine_grained_access_handler_.Serialize();
   } else {
     data["fine_grained_access_handler"] = {};
@@ -582,7 +589,7 @@ User User::Deserialize(const nlohmann::json &data) {
   }
   auto permissions = Permissions::Deserialize(data["permissions"]);
 #ifdef MG_ENTERPRISE
-  if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     if (!data["fine_grained_access_handler"].is_object()) {
       throw AuthException("Couldn't load user data!");
     }
@@ -595,7 +602,7 @@ User User::Deserialize(const nlohmann::json &data) {
 
 bool operator==(const User &first, const User &second) {
 #ifdef MG_ENTERPRISE
-  if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return first.username_ == second.username_ && first.password_hash_ == second.password_hash_ &&
            first.permissions_ == second.permissions_ && first.role_ == second.role_ &&
            first.fine_grained_access_handler_ == second.fine_grained_access_handler_;

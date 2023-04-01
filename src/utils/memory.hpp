@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -469,7 +469,8 @@ class PoolResource final : public MemoryResource {
   /// impl::Pool::MaxBlocksInChunk()) as the real maximum number of blocks per
   /// chunk. Allocation requests exceeding max_block_size are simply forwarded
   /// to upstream memory.
-  PoolResource(size_t max_blocks_per_chunk, size_t max_block_size, MemoryResource *memory = NewDeleteResource());
+  PoolResource(size_t max_blocks_per_chunk, size_t max_block_size, MemoryResource *memory_pools = NewDeleteResource(),
+               MemoryResource *memory_unpooled = NewDeleteResource());
 
   PoolResource(const PoolResource &) = delete;
   PoolResource &operator=(const PoolResource &) = delete;
@@ -480,6 +481,7 @@ class PoolResource final : public MemoryResource {
   ~PoolResource() override { Release(); }
 
   MemoryResource *GetUpstreamResource() const { return pools_.get_allocator().GetMemoryResource(); }
+  MemoryResource *GetUpstreamResourceBlocks() const { return unpooled_.get_allocator().GetMemoryResource(); }
 
   /// Release all allocated memory.
   void Release();

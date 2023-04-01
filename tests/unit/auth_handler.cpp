@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -37,7 +37,7 @@ class AuthQueryHandlerFixture : public testing::Test {
 #endif
   virtual void SetUp() {
     memgraph::utils::EnsureDir(test_folder_);
-    memgraph::utils::license::global_license_checker.EnableTesting();
+    memgraph::license::global_license_checker.EnableTesting();
   }
 
   virtual void TearDown() {

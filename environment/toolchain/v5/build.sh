@@ -37,25 +37,29 @@ TOOLCHAIN_VERSION=5
 
 # package versions used
 GCC_VERSION=12.2.0
-BINUTILS_VERSION=2.39
+BINUTILS_VERSION=2.40
 case "$DISTRO" in
     centos-7) # because GDB >= 9 does NOT compile with readline6.
         GDB_VERSION=8.3
     ;;
     *)
-        GDB_VERSION=12.1
+        GDB_VERSION=13.1
     ;;
 esac
-CMAKE_VERSION=3.24.2
-CPPCHECK_VERSION=2.9
-LLVM_VERSION=15.0.3
-SWIG_VERSION=4.0.2 # used only for LLVM compilation
+CMAKE_VERSION=3.26.2
+CPPCHECK_VERSION=2.10
+LLVM_VERSION=16.0.0
+SWIG_VERSION=4.1.1 # used only for LLVM compilation
 
-# Check for the dependencies.
-echo "ALL BUILD PACKAGES: $($DIR/../../os/$DISTRO.sh list TOOLCHAIN_BUILD_DEPS)"
-$DIR/../../os/$DISTRO.sh check TOOLCHAIN_BUILD_DEPS
-echo "ALL RUN PACKAGES: $($DIR/../../os/$DISTRO.sh list TOOLCHAIN_RUN_DEPS)"
-$DIR/../../os/$DISTRO.sh check TOOLCHAIN_RUN_DEPS
+# Set the right operating system setup script.
+ENV_SCRIPT="$DIR/../../os/$DISTRO.sh"
+if [[ "$for_arm" = true ]]; then
+    ENV_SCRIPT="$DIR/../../os/$DISTRO-arm.sh"
+fi
+echo "ALL BUILD PACKAGES: $(${ENV_SCRIPT} list TOOLCHAIN_BUILD_DEPS)"
+${ENV_SCRIPT} check TOOLCHAIN_BUILD_DEPS
+echo "ALL RUN PACKAGES: $(${ENV_SCRIPT} list TOOLCHAIN_RUN_DEPS)"
+${ENV_SCRIPT} check TOOLCHAIN_RUN_DEPS
 
 # check installation directory
 NAME=toolchain-v$TOOLCHAIN_VERSION
@@ -555,8 +559,8 @@ In order to be able to run all of these tools you should install the following
 packages:
 
 \`\`\`
-$($DIR/../../os/$DISTRO.sh list TOOLCHAIN_RUN_DEPS)
-$($DIR/../../os/$DISTRO.sh install TOOLCHAIN_RUN_DEPS)
+$($DIR/../../os/$ENV_SCRIPT.sh list TOOLCHAIN_RUN_DEPS)
+$($DIR/../../os/$ENV_SCRIPT.sh install TOOLCHAIN_RUN_DEPS)
 \`\`\`
 
 ## Usage
