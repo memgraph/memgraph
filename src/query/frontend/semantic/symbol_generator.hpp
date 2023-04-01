@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -50,6 +50,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PostVisit(Create &) override;
   bool PreVisit(CallProcedure &) override;
   bool PostVisit(CallProcedure &) override;
+  bool PreVisit(CallSubquery & /*unused*/) override;
+  bool PostVisit(CallSubquery & /*unused*/) override;
   bool PreVisit(LoadCsv &) override;
   bool PostVisit(LoadCsv &) override;
   bool PreVisit(Return &) override;
@@ -64,6 +66,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PostVisit(Match &) override;
   bool PreVisit(Foreach &) override;
   bool PostVisit(Foreach &) override;
+  bool PreVisit(SetProperty & /*set_property*/) override;
+  bool PostVisit(SetProperty & /*set_property*/) override;
 
   // Expressions
   ReturnType Visit(Identifier &) override;
@@ -79,6 +83,9 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PreVisit(None &) override;
   bool PreVisit(Reduce &) override;
   bool PreVisit(Extract &) override;
+  bool PreVisit(Exists & /*exists*/) override;
+  bool PostVisit(Exists & /*exists*/) override;
+  bool PreVisit(NamedExpression & /*unused*/) override;
 
   // Pattern and its subparts.
   bool PreVisit(Pattern &) override;
@@ -113,6 +120,10 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     bool in_where{false};
     bool in_match{false};
     bool in_foreach{false};
+    bool in_exists{false};
+    bool in_set_property{false};
+    bool in_call_subquery{false};
+    bool has_return{false};
     // True when visiting a pattern atom (node or edge) identifier, which can be
     // reused or created in the pattern itself.
     bool in_pattern_atom_identifier{false};
@@ -134,7 +145,6 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   static std::optional<Symbol> FindSymbolInScope(const std::string &name, const Scope &scope, Symbol::Type type);
 
   bool HasSymbol(const std::string &name) const;
-  bool HasSymbolLocalScope(const std::string &name) const;
 
   // @return true if it added a predefined identifier with that name
   bool ConsumePredefinedIdentifier(const std::string &name);
@@ -144,10 +154,12 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   auto CreateSymbol(const std::string &name, bool user_declared, Symbol::Type type = Symbol::Type::ANY,
                     int token_position = -1);
 
+  // Returns a freshly generated anonymous symbol.
+  auto CreateAnonymousSymbol(Symbol::Type type = Symbol::Type::ANY);
+
   auto GetOrCreateSymbol(const std::string &name, bool user_declared, Symbol::Type type = Symbol::Type::ANY);
   // Returns the symbol by name. If the mapping already exists, checks if the
   // types match. Otherwise, returns a new symbol.
-  auto GetOrCreateSymbolLocalScope(const std::string &name, bool user_declared, Symbol::Type type = Symbol::Type::ANY);
 
   void VisitReturnBody(ReturnBody &body, Where *where = nullptr);
 

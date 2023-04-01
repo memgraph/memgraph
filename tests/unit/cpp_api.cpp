@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -58,7 +58,7 @@ TEST_F(CppApiTestFixture, TestGraph) {
   ASSERT_EQ(graph.Order(), 2);
   ASSERT_EQ(graph.Size(), 0);
 
-  auto relationship = graph.CreateRelationship(node_1, node_2, "edge_type");
+  auto relationship_1 = graph.CreateRelationship(node_1, node_2, "edge_type");
 
   ASSERT_EQ(graph.Order(), 2);
   ASSERT_EQ(graph.Size(), 1);
@@ -66,7 +66,23 @@ TEST_F(CppApiTestFixture, TestGraph) {
   ASSERT_EQ(graph.ContainsNode(node_1), true);
   ASSERT_EQ(graph.ContainsNode(node_2), true);
 
-  ASSERT_EQ(graph.ContainsRelationship(relationship), true);
+  ASSERT_EQ(graph.ContainsRelationship(relationship_1), true);
+
+  auto node_3 = graph.CreateNode();
+  auto relationship_2 = graph.CreateRelationship(node_1, node_3, "edge_type");
+  auto relationship_3 = graph.CreateRelationship(node_2, node_3, "edge_type");
+
+  for (const auto &n : graph.Nodes()) {
+    ASSERT_EQ(graph.ContainsNode(n), true);
+  }
+
+  std::uint64_t n_rels = 0;
+  for (const auto &r : graph.Relationships()) {
+    ASSERT_EQ(graph.ContainsRelationship(r), true);
+    n_rels++;
+  }
+
+  ASSERT_EQ(n_rels, 3);
 }
 
 TEST_F(CppApiTestFixture, TestId) {
@@ -113,8 +129,9 @@ TEST_F(CppApiTestFixture, TestList) {
   auto a = mgp::Value("a");
   list_2.Append(a);
   list_2.AppendExtend(a);
+  list_2.AppendExtend(mgp::Value("b"));
 
-  ASSERT_EQ(list_2.Size(), 2);
+  ASSERT_EQ(list_2.Size(), 3);
 
   std::vector<mgp::Value> values{mgp::Value("a"), mgp::Value("b"), mgp::Value("c")};
   auto list_3 = mgp::List(values);
@@ -123,6 +140,18 @@ TEST_F(CppApiTestFixture, TestList) {
 
   auto list_4 = mgp::List({mgp::Value("d"), mgp::Value("e"), mgp::Value("f")});
   ASSERT_EQ(list_4.Size(), 3);
+
+  // Use copy assignment
+  auto list_x = list_1;
+
+  // Use move assignment
+  std::vector<mgp::List> vector_x;
+  vector_x.push_back(mgp::List());
+
+  // Use Value copy constructor
+  auto value_x = mgp::Value(list_1);
+  // Use Value move constructor
+  auto value_y = mgp::Value(mgp::List());
 }
 
 TEST_F(CppApiTestFixture, TestMap) {
@@ -151,6 +180,20 @@ TEST_F(CppApiTestFixture, TestMap) {
   auto map_3 = mgp::Map({p_1, p_2});
 
   ASSERT_EQ(map_3.Size(), 2);
+
+  // Use copy assignment
+  auto map_x = map_1;
+
+  // Use move assignment
+  std::vector<mgp::Map> vector_x;
+  vector_x.push_back(mgp::Map());
+
+  // Use Value copy constructor
+  auto value_x = mgp::Value(map_1);
+  // Use Value move constructor
+  auto value_y = mgp::Value(mgp::Map());
+
+  auto value_z = value_x;
 }
 
 TEST_F(CppApiTestFixture, TestNode) {
@@ -168,7 +211,7 @@ TEST_F(CppApiTestFixture, TestNode) {
   ASSERT_EQ(node_1.HasLabel("L1"), true);
   ASSERT_EQ(node_1.HasLabel("L2"), true);
 
-  ASSERT_EQ(node_1.Properties().Size(), 0);
+  ASSERT_EQ(node_1.Properties().size(), 0);
 
   auto node_2 = graph.GetNodeById(node_1.Id());
 
@@ -186,6 +229,18 @@ TEST_F(CppApiTestFixture, TestNode) {
   }
 
   ASSERT_EQ(count_in_relationships, 0);
+
+  // Use copy assignment
+  auto node_x = node_1;
+
+  // Use move assignment
+  std::vector<mgp::Node> vector_x;
+  vector_x.push_back(graph.CreateNode());
+
+  // Use Value copy constructor
+  auto value_x = mgp::Value(node_1);
+  // Use Value move constructor
+  auto value_y = mgp::Value(graph.CreateNode());
 }
 
 TEST_F(CppApiTestFixture, TestNodeWithNeighbors) {
@@ -194,8 +249,10 @@ TEST_F(CppApiTestFixture, TestNodeWithNeighbors) {
 
   auto node_1 = graph.CreateNode();
   auto node_2 = graph.CreateNode();
+  auto node_3 = graph.CreateNode();
 
-  auto relationship = graph.CreateRelationship(node_1, node_2, "edge_type");
+  auto relationship_1 = graph.CreateRelationship(node_1, node_2, "edge_type");
+  auto relationship_2 = graph.CreateRelationship(node_1, node_3, "edge_type");
 
   int count_out_relationships = 0;
   int count_in_relationships = 0;
@@ -204,13 +261,13 @@ TEST_F(CppApiTestFixture, TestNodeWithNeighbors) {
       count_out_relationships++;
     }
 
-    for (const auto _ : node.OutRelationships()) {
+    for (const auto _ : node.InRelationships()) {
       count_in_relationships++;
     }
   }
 
-  ASSERT_EQ(count_out_relationships, 1);
-  ASSERT_EQ(count_in_relationships, 1);
+  ASSERT_EQ(count_out_relationships, 2);
+  ASSERT_EQ(count_in_relationships, 2);
 }
 
 TEST_F(CppApiTestFixture, TestRelationship) {
@@ -223,9 +280,21 @@ TEST_F(CppApiTestFixture, TestRelationship) {
   auto relationship = graph.CreateRelationship(node_1, node_2, "edge_type");
 
   ASSERT_EQ(relationship.Type(), "edge_type");
-  ASSERT_EQ(relationship.Properties().Size(), 0);
+  ASSERT_EQ(relationship.Properties().size(), 0);
   ASSERT_EQ(relationship.From().Id(), node_1.Id());
   ASSERT_EQ(relationship.To().Id(), node_2.Id());
+
+  // Use copy assignment
+  auto relationship_x = relationship;
+
+  // Use move assignment
+  std::vector<mgp::Relationship> vector_x;
+  vector_x.push_back(graph.CreateRelationship(node_2, node_1, "relationship_x"));
+
+  // Use Value copy constructor
+  auto value_x = mgp::Value(relationship);
+  // Use Value move constructor
+  auto value_y = mgp::Value(graph.CreateRelationship(node_2, node_1, "edge_type"));
 }
 
 TEST_F(CppApiTestFixture, TestPath) {
@@ -247,6 +316,18 @@ TEST_F(CppApiTestFixture, TestPath) {
   ASSERT_EQ(path.Length(), 1);
   ASSERT_EQ(path.GetNodeAt(0).Id(), node_0.Id());
   ASSERT_EQ(path.GetRelationshipAt(0).Id(), relationship.Id());
+
+  // Use copy assignment
+  auto path_x = path;
+
+  // Use move assignment
+  std::vector<mgp::Path> vector_x;
+  vector_x.push_back(mgp::Path(node_0));
+
+  // Use Value copy constructor
+  auto value_x = mgp::Value(path);
+  // Use Value move constructor
+  auto value_y = mgp::Value(mgp::Path(node_0));
 }
 
 TEST_F(CppApiTestFixture, TestDate) {
@@ -262,6 +343,18 @@ TEST_F(CppApiTestFixture, TestDate) {
 
   ASSERT_EQ(date_1, date_2);
   ASSERT_NE(date_2, date_3);
+
+  // Use copy assignment
+  auto date_x = date_1;
+
+  // Use move assignment
+  std::vector<mgp::Date> vector_x;
+  vector_x.push_back(mgp::Date("2022-04-09"));
+
+  // Use Value copy constructor
+  auto value_x = mgp::Value(date_1);
+  // Use Value move constructor
+  auto value_y = mgp::Value(mgp::Date("2022-04-09"));
 }
 
 TEST_F(CppApiTestFixture, TestLocalTime) {
@@ -278,11 +371,27 @@ TEST_F(CppApiTestFixture, TestLocalTime) {
 
   ASSERT_EQ(lt_1, lt_2);
   ASSERT_NE(lt_2, lt_3);
+
+  // Use copy assignment
+  auto lt_x = lt_1;
+
+  // Use move assignment
+  std::vector<mgp::LocalTime> vector_x;
+  vector_x.push_back(mgp::LocalTime("09:15:00"));
+
+  // Use Value copy constructor
+  auto value_x = mgp::Value(lt_1);
+  // Use Value move constructor
+  auto value_y = mgp::Value(mgp::LocalTime("09:15:00"));
 }
 
 TEST_F(CppApiTestFixture, TestLocalDateTime) {
   auto ldt_1 = mgp::LocalDateTime("2021-10-05T14:15:00");
   auto ldt_2 = mgp::LocalDateTime(2021, 10, 5, 14, 15, 0, 0, 0);
+
+  ASSERT_ANY_THROW(mgp::LocalDateTime(
+      2021, 10, 0, 14, 15, 0, 0,
+      0));  // ...10, 0, 14... <- 0 is an illegal value for the `day` parameter; must throw an exception
 
   ASSERT_EQ(ldt_1.Year(), 2021);
   ASSERT_EQ(ldt_1.Month(), 10);
@@ -295,14 +404,54 @@ TEST_F(CppApiTestFixture, TestLocalDateTime) {
   ASSERT_EQ(ldt_1.Timestamp() >= 0, true);
 
   ASSERT_EQ(ldt_1, ldt_2);
+
+  // Use copy assignment
+  auto ldt_x = ldt_1;
+
+  // Use move assignment
+  std::vector<mgp::LocalDateTime> vector_x;
+  vector_x.push_back(mgp::LocalDateTime("2021-10-05T14:15:00"));
+
+  // Use Value copy constructor
+  auto value_x = mgp::Value(ldt_1);
+  // Use Value move constructor
+  auto value_y = mgp::Value(mgp::LocalDateTime("2021-10-05T14:15:00"));
 }
 
 TEST_F(CppApiTestFixture, TestDuration) {
-  auto duration_2 = mgp::Duration("PT2M2.33S");
-  auto duration_3 = mgp::Duration(1465355);
-  auto duration_4 = mgp::Duration(5, 14, 15, 0, 0, 0);
+  auto duration_1 = mgp::Duration("PT2M2.33S");
+  auto duration_2 = mgp::Duration(1465355);
+  auto duration_3 = mgp::Duration(5, 14, 15, 0, 0, 0);
 
-  ASSERT_EQ(duration_3.Microseconds(), 1465355);
+  ASSERT_EQ(duration_2.Microseconds(), 1465355);
+  ASSERT_NE(duration_1, duration_2);
   ASSERT_NE(duration_2, duration_3);
-  ASSERT_NE(duration_3, duration_4);
+
+  // Use copy assignment
+  auto duration_x = duration_1;
+
+  // Use move assignment
+  std::vector<mgp::Duration> vector_x;
+  vector_x.push_back(mgp::Duration("PT2M2.33S"));
+
+  // Use Value copy constructor
+  auto value_x = mgp::Value(duration_1);
+  // Use Value move constructor
+  auto value_y = mgp::Value(mgp::Duration("PT2M2.33S"));
+}
+
+TEST_F(CppApiTestFixture, TestNodeProperties) {
+  mgp_graph raw_graph = CreateGraph(memgraph::storage::View::NEW);
+  auto graph = mgp::Graph(&raw_graph);
+
+  auto node_1 = graph.CreateNode();
+
+  ASSERT_EQ(node_1.Properties().size(), 0);
+
+  std::map<std::string, mgp::Value> node1_prop = node_1.Properties();
+  node_1.SetProperty("b", mgp::Value("b"));
+
+  ASSERT_EQ(node_1.Properties().size(), 1);
+  ASSERT_EQ(node_1.Properties()["b"].ValueString(), "b");
+  ASSERT_EQ(node_1.GetProperty("b").ValueString(), "b");
 }

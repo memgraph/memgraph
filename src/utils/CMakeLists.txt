@@ -14,6 +14,7 @@ set(utils_src_files
     thread.cpp
     thread_pool.cpp
     tsc.cpp
+    system_info.cpp
     uuid.cpp)
 
 find_package(Boost REQUIRED)
@@ -23,16 +24,10 @@ find_package(Threads REQUIRED)
 
 add_library(mg-utils STATIC ${utils_src_files})
 target_link_libraries(mg-utils PUBLIC Boost::headers fmt::fmt spdlog::spdlog)
-target_link_libraries(mg-utils PRIVATE librdtsc stdc++fs Threads::Threads gflags uuid rt)
+target_link_libraries(mg-utils PRIVATE librdtsc stdc++fs Threads::Threads gflags json uuid rt)
 
 set(settings_src_files
     settings.cpp)
 
 add_library(mg-settings STATIC ${settings_src_files})
 target_link_libraries(mg-settings mg-kvstore mg-slk mg-utils)
-
-set(license_src_files
-    license.cpp)
-add_library(mg-license STATIC ${license_src_files})
-target_link_libraries(mg-license mg-settings mg-utils)
-

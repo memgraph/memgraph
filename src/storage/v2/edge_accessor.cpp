@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,7 @@
 #include "storage/v2/edge_accessor.hpp"
 
 #include <memory>
+#include <tuple>
 
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
@@ -21,8 +22,47 @@
 namespace memgraph::storage {
 
 bool EdgeAccessor::IsVisible(const View view) const {
-  bool deleted = true;
   bool exists = true;
+  bool deleted = true;
+  // When edges don't have properties, their isolation level is still dictated by MVCC ->
+  // iterate over the deltas of the from_vertex_ and see which deltas can be applied on edges.
+  if (!config_.properties_on_edges) {
+    Delta *delta = nullptr;
+    {
+      std::lock_guard<utils::SpinLock> guard(from_vertex_->lock);
+      // Initialize deleted by checking if out edges contain edge_
+      deleted = std::find_if(from_vertex_->out_edges.begin(), from_vertex_->out_edges.end(), [&](const auto &out_edge) {
+                  return std::get<2>(out_edge) == edge_;
+                }) == from_vertex_->out_edges.end();
+      delta = from_vertex_->delta;
+    }
+    ApplyDeltasForRead(transaction_, delta, view, [&](const Delta &delta) {
+      switch (delta.action) {
+        case Delta::Action::ADD_LABEL:
+        case Delta::Action::REMOVE_LABEL:
+        case Delta::Action::SET_PROPERTY:
+        case Delta::Action::REMOVE_IN_EDGE:
+        case Delta::Action::ADD_IN_EDGE:
+        case Delta::Action::RECREATE_OBJECT:
+        case Delta::Action::DELETE_OBJECT:
+          break;
+        case Delta::Action::ADD_OUT_EDGE: {  // relevant for the from_vertex_ -> we just deleted the edge
+          if (delta.vertex_edge.edge == edge_) {
+            deleted = false;
+          }
+          break;
+        }
+        case Delta::Action::REMOVE_OUT_EDGE: {  // also relevant for the from_vertex_ -> we just added the edge
+          if (delta.vertex_edge.edge == edge_) {
+            exists = false;
+          }
+          break;
+        }
+      }
+    });
+    return exists && (for_deleted_ || !deleted);
+  }
+
   Delta *delta = nullptr;
   {
     std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
@@ -49,7 +89,6 @@ bool EdgeAccessor::IsVisible(const View view) const {
       }
     }
   });
-
   return exists && (for_deleted_ || !deleted);
 }
 
@@ -82,6 +121,24 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
   edge_.ptr->properties.SetProperty(property, value);
 
   return std::move(current_value);
+}
+
+Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  if (!config_.properties_on_edges) return Error::PROPERTIES_DISABLED;
+
+  std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
+
+  if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
+
+  if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
+
+  if (!edge_.ptr->properties.InitProperties(properties)) return false;
+  for (const auto &[property, _] : properties) {
+    CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, PropertyValue());
+  }
+
+  return true;
 }
 
 Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {

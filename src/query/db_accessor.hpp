@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -71,6 +71,10 @@ class EdgeAccessor final {
     return impl_.SetProperty(key, value);
   }
 
+  storage::Result<bool> InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+    return impl_.InitProperties(properties);
+  }
+
   storage::Result<storage::PropertyValue> RemoveProperty(storage::PropertyId key) {
     return SetProperty(key, storage::PropertyValue());
   }
@@ -123,6 +127,10 @@ class VertexAccessor final {
 
   storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
     return impl_.SetProperty(key, value);
+  }
+
+  storage::Result<bool> InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+    return impl_.InitProperties(properties);
   }
 
   storage::Result<storage::PropertyValue> RemoveProperty(storage::PropertyId key) {
@@ -200,7 +208,7 @@ class SubgraphVertexAccessor final {
     return impl_ == v.impl_;
   }
 
-  auto InEdges(storage::View view) const -> decltype(impl_.OutEdges(view));
+  auto InEdges(storage::View view) const -> decltype(impl_.InEdges(view));
 
   auto OutEdges(storage::View view) const -> decltype(impl_.OutEdges(view));
 
@@ -420,6 +428,25 @@ class DbAccessor final {
 
   bool LabelPropertyIndexExists(storage::LabelId label, storage::PropertyId prop) const {
     return accessor_->LabelPropertyIndexExists(label, prop);
+  }
+
+  std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId &label,
+                                                   const storage::PropertyId &property) const {
+    return accessor_->GetIndexStats(label, property);
+  }
+
+  std::vector<std::pair<storage::LabelId, storage::PropertyId>> ClearIndexStats() {
+    return accessor_->ClearIndexStats();
+  }
+
+  std::vector<std::pair<storage::LabelId, storage::PropertyId>> DeleteIndexStatsForLabels(
+      const std::span<std::string> labels) {
+    return accessor_->DeleteIndexStatsForLabels(labels);
+  }
+
+  void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
+                     const storage::IndexStats &stats) {
+    accessor_->SetIndexStats(label, property, stats);
   }
 
   int64_t VerticesCount() const { return accessor_->ApproximateVertexCount(); }

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,18 +9,10 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+#include "query/frontend/semantic/symbol.hpp"
+#include "utils/typeinfo.hpp"
 
-#include <json/json.hpp>
+namespace memgraph {
 
-namespace memgraph::telemetry {
-
-// TODO (mferencevic): merge with `utils/sysinfo`
-
-/**
- * This function returs a dictionary containing some basic system information
- * (eg. operating system name, cpu information, memory information, etc.).
- */
-const nlohmann::json GetSystemInfo();
-
-}  // namespace memgraph::telemetry
+constexpr utils::TypeInfo query::Symbol::kType{utils::TypeId::SYMBOL, "Symbol", nullptr};
+}  // namespace memgraph

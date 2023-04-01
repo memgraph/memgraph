@@ -15,9 +15,9 @@
 #include "auth/models.hpp"
 #include "glue/auth_checker.hpp"
 
+#include "license/license.hpp"
 #include "query_plan_common.hpp"
 #include "storage/v2/view.hpp"
-#include "utils/license.hpp"
 
 #ifdef MG_ENTERPRISE
 class FineGrainedAuthCheckerFixture : public testing::Test {
@@ -39,7 +39,7 @@ class FineGrainedAuthCheckerFixture : public testing::Test {
   memgraph::query::EdgeAccessor r4{*dba.InsertEdge(&v1, &v3, edge_type_two)};
 
   void SetUp() override {
-    memgraph::utils::license::global_license_checker.EnableTesting();
+    memgraph::license::global_license_checker.EnableTesting();
     ASSERT_TRUE(v1.AddLabel(dba.NameToLabel("l1")).HasValue());
     ASSERT_TRUE(v2.AddLabel(dba.NameToLabel("l2")).HasValue());
     ASSERT_TRUE(v3.AddLabel(dba.NameToLabel("l3")).HasValue());

@@ -90,7 +90,7 @@ QueryData Client::Execute(const std::string &query, const std::map<std::string, 
   // It is super critical from performance point of view to send the pull message right after the run message. Otherwise
   // the performance will degrade multiple magnitudes.
   encoder_.MessageRun(query, parameters, {});
-  encoder_.MessagePull({});
+  encoder_.MessagePull({{"n", Value(-1)}});
 
   spdlog::debug("Reading run message response");
   Signature signature{};
@@ -146,9 +146,10 @@ QueryData Client::Execute(const std::string &query, const std::map<std::string, 
     throw ServerMalformedDataException();
   }
 
+  auto &header = fields.ValueMap();
+
   QueryData ret{{}, std::move(records), std::move(metadata.ValueMap())};
 
-  auto &header = fields.ValueMap();
   if (header.find("fields") == header.end()) {
     throw ServerMalformedDataException();
   }
@@ -162,6 +163,10 @@ QueryData Client::Execute(const std::string &query, const std::map<std::string, 
       throw ServerMalformedDataException();
     }
     ret.fields.emplace_back(std::move(field_item.ValueString()));
+  }
+
+  if (header.contains("qid")) {
+    ret.metadata["qid"] = header["qid"];
   }
 
   return ret;

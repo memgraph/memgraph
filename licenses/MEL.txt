@@ -2,8 +2,8 @@ MEMGRAPH
 ENTERPRISE LICENCE AGREEMENT
 
 
-Memgraph Limited is registered in England under registration 10195084 and has its registered office at Suite 4,
-Ironstone House, Ironstone Way, Brixworth, Northampton, NN6 9UD (“Memgraph”).
+Memgraph Limited is registered in England under registration 10195084 and has its registered office at 90a High Street,
+Hertfordshire, Berkhamsted, HP4 2BL United Kingdom ("Memgraph").
 
 
 Memgraph agrees to license and/or grant you (the “Customer”) access to the Software ( as defined below) and provide

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,6 +26,7 @@
 #include "query/interpret/eval.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/path.hpp"
+#include "query/typed_value.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/string.hpp"
@@ -426,6 +427,47 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
   }
 }
 
+TEST_F(ExpressionEvaluatorTest, TypedValueListIndexing) {
+  auto list_vector = memgraph::utils::pmr::vector<TypedValue>(ctx.memory);
+  list_vector.emplace_back("string1");
+  list_vector.emplace_back(TypedValue("string2"));
+
+  auto *identifier = storage.Create<Identifier>("n");
+  auto node_symbol = symbol_table.CreateSymbol("n", true);
+  identifier->MapTo(node_symbol);
+  frame[node_symbol] = TypedValue(list_vector, ctx.memory);
+
+  {
+    // Legal indexing.
+    auto *op = storage.Create<SubscriptOperator>(identifier, storage.Create<PrimitiveLiteral>(0));
+    auto value = Eval(op);
+    EXPECT_EQ(value.ValueString(), "string1");
+  }
+  {
+    // Out of bounds indexing
+    auto *op = storage.Create<SubscriptOperator>(identifier, storage.Create<PrimitiveLiteral>(3));
+    auto value = Eval(op);
+    EXPECT_TRUE(value.IsNull());
+  }
+  {
+    // Out of bounds indexing with negative bound.
+    auto *op = storage.Create<SubscriptOperator>(identifier, storage.Create<PrimitiveLiteral>(-100));
+    auto value = Eval(op);
+    EXPECT_TRUE(value.IsNull());
+  }
+  {
+    // Legal indexing with negative index.
+    auto *op = storage.Create<SubscriptOperator>(identifier, storage.Create<PrimitiveLiteral>(-2));
+    auto value = Eval(op);
+    EXPECT_EQ(value.ValueString(), "string1");
+  }
+  {
+    // Indexing with incompatible type.
+    auto *op = storage.Create<SubscriptOperator>(identifier, storage.Create<PrimitiveLiteral>("bla"));
+    EXPECT_THROW(Eval(op), QueryRuntimeException);
+  }
+}
+
 TEST_F(ExpressionEvaluatorTest, ListSlicingOperator) {
   auto *list_literal = storage.Create<ListLiteral>(
       std::vector<Expression *>{storage.Create<PrimitiveLiteral>(1), storage.Create<PrimitiveLiteral>(2),
@@ -596,7 +638,7 @@ TEST_F(ExpressionEvaluatorTest, LabelsTest) {
 }
 
 TEST_F(ExpressionEvaluatorTest, Aggregation) {
-  auto aggr = storage.Create<Aggregation>(storage.Create<PrimitiveLiteral>(42), nullptr, Aggregation::Op::COUNT);
+  auto aggr = storage.Create<Aggregation>(storage.Create<PrimitiveLiteral>(42), nullptr, Aggregation::Op::COUNT, false);
   auto aggr_sym = symbol_table.CreateSymbol("aggr", true);
   aggr->MapTo(aggr_sym);
   frame[aggr_sym] = TypedValue(1);

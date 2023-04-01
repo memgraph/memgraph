@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,6 +19,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
+#include "query/plan/preprocess.hpp"
 
 #include "query_common.hpp"
 
@@ -253,7 +254,7 @@ TEST_F(TestSymbolGenerator, MatchWithWhere) {
 TEST_F(TestSymbolGenerator, MatchWithWhereUnbound) {
   // Test MATCH (old) WITH COUNT(old) AS c WHERE old.prop < 42
   auto prop = dba.NameToProperty("prop");
-  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))), WITH(COUNT(IDENT("old")), AS("c")),
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))), WITH(COUNT(IDENT("old"), false), AS("c")),
                                   WHERE(LESS(PROPERTY_LOOKUP("old", prop), LITERAL(42)))));
   EXPECT_THROW(memgraph::query::MakeSymbolTable(query), UnboundVariableError);
 }
@@ -313,7 +314,7 @@ TEST_F(TestSymbolGenerator, MatchReturnSum) {
   // Test MATCH (n) RETURN SUM(n.prop) + 42 AS result
   auto prop = dba.NameToProperty("prop");
   auto node = NODE("n");
-  auto sum = SUM(PROPERTY_LOOKUP("n", prop));
+  auto sum = SUM(PROPERTY_LOOKUP("n", prop), false);
   auto as_result = AS("result");
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), RETURN(ADD(sum, LITERAL(42)), as_result)));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
@@ -330,8 +331,9 @@ TEST_F(TestSymbolGenerator, MatchReturnSum) {
 TEST_F(TestSymbolGenerator, NestedAggregation) {
   // Test MATCH (n) RETURN SUM(42 + SUM(n.prop)) AS s
   auto prop = dba.NameToProperty("prop");
-  auto query = QUERY(
-      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(SUM(ADD(LITERAL(42), SUM(PROPERTY_LOOKUP("n", prop)))), AS("s"))));
+  auto query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                         RETURN(SUM(ADD(LITERAL(42), SUM(PROPERTY_LOOKUP("n", prop), false)), false), AS("s"))));
   EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
 
@@ -339,7 +341,7 @@ TEST_F(TestSymbolGenerator, WrongAggregationContext) {
   // Test MATCH (n) WITH n.prop AS prop WHERE SUM(prop) < 42
   auto prop = dba.NameToProperty("prop");
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH(PROPERTY_LOOKUP("n", prop), AS("prop")),
-                                  WHERE(LESS(SUM(IDENT("prop")), LITERAL(42)))));
+                                  WHERE(LESS(SUM(IDENT("prop"), false), LITERAL(42)))));
   EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
 
@@ -429,14 +431,15 @@ TEST_F(TestSymbolGenerator, LimitUsingIdentifier) {
 
 TEST_F(TestSymbolGenerator, OrderByAggregation) {
   // Test MATCH (old) RETURN old AS new ORDER BY COUNT(1)
-  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))), RETURN("old", AS("new"), ORDER_BY(COUNT(LITERAL(1))))));
+  auto query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))), RETURN("old", AS("new"), ORDER_BY(COUNT(LITERAL(1), false)))));
   EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
 
 TEST_F(TestSymbolGenerator, OrderByUnboundVariable) {
   // Test MATCH (old) RETURN COUNT(old) AS new ORDER BY old
-  auto query =
-      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))), RETURN(COUNT(IDENT("old")), AS("new"), ORDER_BY(IDENT("old")))));
+  auto query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("old"))), RETURN(COUNT(IDENT("old"), false), AS("new"), ORDER_BY(IDENT("old")))));
   EXPECT_THROW(memgraph::query::MakeSymbolTable(query), UnboundVariableError);
 }
 
@@ -446,7 +449,7 @@ TEST_F(TestSymbolGenerator, AggregationOrderBy) {
   auto ident_old = IDENT("old");
   auto as_new = AS("new");
   auto ident_new = IDENT("new");
-  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), RETURN(COUNT(ident_old), as_new, ORDER_BY(ident_new))));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), RETURN(COUNT(ident_old, false), as_new, ORDER_BY(ident_new))));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   // Symbols for pattern, `old`, `count(old)` and `new`
   EXPECT_EQ(symbol_table.max_position(), 4);
@@ -1176,4 +1179,77 @@ TEST_F(TestSymbolGenerator, Foreach) {
 
   query = QUERY(SINGLE_QUERY(FOREACH(i, {CREATE(PATTERN(NODE("n")))}), RETURN("i")));
   EXPECT_THROW(memgraph::query::MakeSymbolTable(query), UnboundVariableError);
+}
+
+TEST_F(TestSymbolGenerator, Exists) {
+  auto query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      WHERE(EXISTS(PATTERN(NODE("n"), EDGE("", EdgeAtom::Direction::BOTH, {}, false), NODE("m")))), RETURN("n")));
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+
+  query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                             WHERE(EXISTS(PATTERN(NODE("n"), EDGE("r"), NODE("", std::nullopt, false)))), RETURN("n")));
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+
+  query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EXISTS(PATTERN(NODE("n"), EDGE("r"), NODE("m")))), RETURN("n")));
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+
+  // Symbols for match pattern, node symbol, exists pattern, exists edge, exists second node, named expression in return
+  query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                             WHERE(EXISTS(PATTERN(NODE("n"), EDGE("edge", EdgeAtom::Direction::BOTH, {}, false),
+                                                  NODE("node", std::nullopt, false)))),
+                             RETURN("n")));
+  auto symbol_table = MakeSymbolTable(query);
+  ASSERT_EQ(symbol_table.max_position(), 7);
+
+  memgraph::query::plan::UsedSymbolsCollector collector(symbol_table);
+  auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+  auto *expression = dynamic_cast<Expression *>(match->where_->expression_);
+
+  expression->Accept(collector);
+
+  ASSERT_EQ(collector.symbols_.size(), 1);
+
+  auto symbol = *collector.symbols_.begin();
+  ASSERT_EQ(symbol.name_, "n");
+}
+
+TEST_F(TestSymbolGenerator, Subqueries) {
+  // MATCH (n) CALL { MATCH (n) RETURN n } RETURN n
+  // Yields exception because n in subquery is referenced in outer scope
+  auto subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n")));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CALL_SUBQUERY(subquery), RETURN("n")));
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+
+  // MATCH (n) CALL { MATCH (m) RETURN m.prop } RETURN n
+  // Yields exception because m.prop must be aliased before returning
+  subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), RETURN("m.prop")));
+  query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CALL_SUBQUERY(subquery), RETURN("n")));
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+
+  // MATCH (n) CALL { MATCH (m) RETURN m, m.prop } RETURN n
+  // Yields exception because m.prop must be aliased before returning
+  subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), RETURN("m", "m.prop")));
+  query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CALL_SUBQUERY(subquery), RETURN("n")));
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+
+  // MATCH (n) CALL { MATCH (m) RETURN m.prop, m } RETURN n
+  // Yields exception because m.prop must be aliased before returning
+  subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), RETURN("m.prop", "m")));
+  query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CALL_SUBQUERY(subquery), RETURN("n")));
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+
+  // MATCH (n) CALL { MATCH (m) RETURN m } RETURN n, m
+  subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), RETURN("m")));
+  query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CALL_SUBQUERY(subquery), RETURN("n", "m")));
+  auto symbol_table = MakeSymbolTable(query);
+  ASSERT_EQ(symbol_table.max_position(), 7);
+
+  // MATCH (n) CALL { MATCH (m) RETURN m UNION MATCH (m) RETURN m } RETURN n, m
+  subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), RETURN("m")),
+                   UNION(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), RETURN("m"))));
+  query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CALL_SUBQUERY(subquery), RETURN("n", "m")));
+  symbol_table = MakeSymbolTable(query);
+  ASSERT_EQ(symbol_table.max_position(), 11);
 }

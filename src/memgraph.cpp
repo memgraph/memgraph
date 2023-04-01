@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,6 +26,7 @@
 #include <string_view>
 #include <thread>
 
+#include <fmt/core.h>
 #include <fmt/format.h>
 #include <gflags/gflags.h>
 #include <spdlog/common.h>
@@ -40,6 +41,8 @@
 #include "glue/auth_checker.hpp"
 #include "glue/auth_handler.hpp"
 #include "helpers.hpp"
+#include "license/license.hpp"
+#include "license/license_sender.hpp"
 #include "py/py.hpp"
 #include "query/auth_checker.hpp"
 #include "query/discard_value_stream.hpp"
@@ -57,7 +60,6 @@
 #include "utils/event_counter.hpp"
 #include "utils/file.hpp"
 #include "utils/flag_validation.hpp"
-#include "utils/license.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
@@ -68,6 +70,7 @@
 #include "utils/string.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/sysinfo/memory.hpp"
+#include "utils/system_info.hpp"
 #include "utils/terminate_handler.hpp"
 #include "version.hpp"
 
@@ -95,6 +98,10 @@
 #ifdef MG_ENTERPRISE
 #include "audit/log.hpp"
 #endif
+
+constexpr const char *kMgUser = "MEMGRAPH_USER";
+constexpr const char *kMgPassword = "MEMGRAPH_PASSWORD";
+constexpr const char *kMgPassfile = "MEMGRAPH_PASSFILE";
 
 namespace {
 std::string GetAllowedEnumValuesString(const auto &mappings) {
@@ -132,6 +139,10 @@ std::optional<Enum> StringToEnum(const auto &value, const auto &mappings) {
 }
 }  // namespace
 
+// Short help flag.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_HIDDEN_bool(h, false, "Print usage and exit.");
+
 // Bolt server flags.
 DEFINE_string(bolt_address, "0.0.0.0", "IP address on which the Bolt server should listen.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -161,6 +172,11 @@ DEFINE_string(bolt_key_file, "", "Key file which should be used for the Bolt ser
 DEFINE_string(bolt_server_name_for_init, "",
               "Server name which the database should send to the client in the "
               "Bolt INIT message.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(init_file, "",
+              "Path to cypherl file that is used for configuring users and database schema before server starts.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(init_data_file, "", "Path to cypherl file that is used for creating data after server starts.");
 
 // General purpose flags.
 // NOTE: The `data_directory` flag must be the same here and in
@@ -470,6 +486,33 @@ struct SessionData {
 DEFINE_string(auth_user_or_role_name_regex, memgraph::glue::kDefaultUserRoleRegex.data(),
               "Set to the regular expression that each user or role name must fulfill.");
 
+void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, std::string cypherl_file_path
+#ifdef MG_ENTERPRISE
+                         ,
+                         memgraph::audit::Log *audit_log
+#endif
+) {
+  memgraph::query::Interpreter interpreter(&ctx);
+  std::ifstream file(cypherl_file_path);
+  if (file.is_open()) {
+    std::string line;
+    while (std::getline(file, line)) {
+      if (!line.empty()) {
+        auto results = interpreter.Prepare(line, {}, {});
+        memgraph::query::DiscardValueResultStream stream;
+        interpreter.Pull(&stream, {}, results.qid);
+
+#ifdef MG_ENTERPRISE
+        if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+          audit_log->Record("", "", line, {});
+        }
+#endif
+      }
+    }
+    file.close();
+  }
+}
+
 class BoltSession final : public memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                                         memgraph::communication::v2::OutputStream> {
  public:
@@ -479,6 +522,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
       : memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                memgraph::communication::v2::OutputStream>(input_stream, output_stream),
         db_(data->db),
+        interpreter_context_(data->interpreter_context),
         interpreter_(data->interpreter_context),
         auth_(data->auth),
 #if MG_ENTERPRISE
@@ -486,6 +530,11 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 #endif
         endpoint_(endpoint),
         run_id_(data->run_id) {
+    interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.insert(&interpreter_); });
+  }
+
+  ~BoltSession() override {
+    interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.erase(&interpreter_); });
   }
 
   using memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
@@ -506,7 +555,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
       username = &user_->username();
     }
 #ifdef MG_ENTERPRISE
-    if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+    if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
       audit_log_->Record(endpoint_.address().to_string(), user_ ? *username : "", query,
                          memgraph::storage::PropertyValue(params_pv));
     }
@@ -631,6 +680,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 
   // NOTE: Needed only for ToBoltValue conversions
   const memgraph::storage::Storage *db_;
+  memgraph::query::InterpreterContext *interpreter_context_;
   memgraph::query::Interpreter interpreter_;
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth_;
   std::optional<memgraph::auth::User> user_;
@@ -684,6 +734,11 @@ int main(int argc, char **argv) {
   // overwrite the config.
   LoadConfig("memgraph");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
+
+  if (FLAGS_h) {
+    gflags::ShowUsageWithFlags(argv[0]);
+    exit(1);
+  }
 
   InitializeLogger();
 
@@ -779,15 +834,15 @@ int main(int argc, char **argv) {
   memgraph::utils::OnScopeExit settings_finalizer([&] { memgraph::utils::global_settings.Finalize(); });
 
   // register all runtime settings
-  memgraph::utils::license::RegisterLicenseSettings(memgraph::utils::license::global_license_checker,
-                                                    memgraph::utils::global_settings);
+  memgraph::license::RegisterLicenseSettings(memgraph::license::global_license_checker,
+                                             memgraph::utils::global_settings);
 
-  memgraph::utils::license::global_license_checker.CheckEnvLicense();
+  memgraph::license::global_license_checker.CheckEnvLicense();
   if (!FLAGS_organization_name.empty() && !FLAGS_license_key.empty()) {
-    memgraph::utils::license::global_license_checker.SetLicenseInfoOverride(FLAGS_license_key, FLAGS_organization_name);
+    memgraph::license::global_license_checker.SetLicenseInfoOverride(FLAGS_license_key, FLAGS_organization_name);
   }
 
-  memgraph::utils::license::global_license_checker.StartBackgroundLicenseChecker(memgraph::utils::global_settings);
+  memgraph::license::global_license_checker.StartBackgroundLicenseChecker(memgraph::utils::global_settings);
 
   // All enterprise features should be constructed before the main database
   // storage. This will cause them to be destructed *after* the main database
@@ -878,6 +933,29 @@ int main(int argc, char **argv) {
   interpreter_context.auth = &auth_handler;
   interpreter_context.auth_checker = &auth_checker;
 
+  if (!FLAGS_init_file.empty()) {
+    spdlog::info("Running init file.");
+#ifdef MG_ENTERPRISE
+    if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+      InitFromCypherlFile(interpreter_context, FLAGS_init_file, &audit_log);
+    }
+#else
+    InitFromCypherlFile(interpreter_context, FLAGS_init_file);
+#endif
+  }
+
+  auto *maybe_username = std::getenv(kMgUser);
+  auto *maybe_password = std::getenv(kMgPassword);
+  auto *maybe_pass_file = std::getenv(kMgPassfile);
+  if (maybe_username && maybe_password) {
+    auth_handler.CreateUser(maybe_username, maybe_password);
+  } else if (maybe_pass_file) {
+    const auto [username, password] = LoadUsernameAndPassword(maybe_pass_file);
+    if (!username.empty() && !password.empty()) {
+      auth_handler.CreateUser(username, password);
+    }
+  }
+
   {
     // Triggers can execute query procedures, so we need to reload the modules first and then
     // the triggers
@@ -906,12 +984,15 @@ int main(int argc, char **argv) {
   ServerT server(server_endpoint, &session_data, &context, FLAGS_bolt_session_inactivity_timeout, service_name,
                  FLAGS_bolt_num_workers);
 
+  const auto run_id = memgraph::utils::GenerateUUID();
+  const auto machine_id = memgraph::utils::GetMachineId();
+  session_data.run_id = run_id;
+
   // Setup telemetry
+  static constexpr auto telemetry_server{"https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/"};
   std::optional<memgraph::telemetry::Telemetry> telemetry;
   if (FLAGS_telemetry_enabled) {
-    telemetry.emplace("https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/",
-                      data_directory / "telemetry", std::chrono::minutes(10));
-    session_data.run_id = telemetry->GetRunId();
+    telemetry.emplace(telemetry_server, data_directory / "telemetry", run_id, machine_id, std::chrono::minutes(10));
     telemetry->AddCollector("storage", [&db]() -> nlohmann::json {
       auto info = db.GetInfo();
       return {{"vertices", info.vertex_count}, {"edges", info.edge_count}};
@@ -927,6 +1008,8 @@ int main(int argc, char **argv) {
       return memgraph::query::plan::CallProcedure::GetAndResetCounters();
     });
   }
+  memgraph::license::LicenseInfoSender license_info_sender(telemetry_server, run_id, machine_id, memory_limit,
+                                                           memgraph::license::global_license_checker.GetLicenseInfo());
 
   memgraph::communication::websocket::SafeAuth websocket_auth{&auth};
   memgraph::communication::websocket::Server websocket_server{
@@ -949,6 +1032,17 @@ int main(int argc, char **argv) {
 
   MG_ASSERT(server.Start(), "Couldn't start the Bolt server!");
   websocket_server.Start();
+
+  if (!FLAGS_init_data_file.empty()) {
+    spdlog::info("Running init data file.");
+#ifdef MG_ENTERPRISE
+    if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+      InitFromCypherlFile(interpreter_context, FLAGS_init_data_file, &audit_log);
+    }
+#else
+    InitFromCypherlFile(interpreter_context, FLAGS_init_data_file);
+#endif
+  }
 
   server.AwaitShutdown();
   websocket_server.AwaitShutdown();

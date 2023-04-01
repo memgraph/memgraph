@@ -26,7 +26,7 @@ namespace memgraph::telemetry {
  * This class implements the telemetry collector service. It periodically scapes
  * all registered collectors and stores their data. With periodically scraping
  * the collectors the service collects machine information in the constructor
- * and stores it. Also, it calles all collectors once more in the destructor so
+ * and stores it. Also, it calls all collectors once more in the destructor so
  * that final stats can be collected. All data is stored persistently. If there
  * is no internet connection the data will be sent when the internet connection
  * is reestablished. If there is an issue with the internet connection that
@@ -34,13 +34,10 @@ namespace memgraph::telemetry {
  */
 class Telemetry final {
  public:
-  Telemetry(std::string url, std::filesystem::path storage_directory,
+  Telemetry(std::string url, std::filesystem::path storage_directory, std::string uuid, std::string machine_id,
             std::chrono::duration<int64_t> refresh_interval = std::chrono::minutes(10), uint64_t send_every_n = 10);
 
   void AddCollector(const std::string &name, const std::function<const nlohmann::json(void)> &func);
-
-  /// Required to expose run_id to Bolt server.
-  std::string GetRunId() const;
 
   ~Telemetry();
 

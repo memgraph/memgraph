@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,11 +20,11 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
+#include "license/license.hpp"
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
-#include "utils/license.hpp"
 
 #include "query_plan_common.hpp"
 #include "storage/v2/id_types.hpp"
@@ -80,7 +80,7 @@ TEST(QueryPlan, CreateNodeWithAttributes) {
 
 #ifdef MG_ENTERPRISE
 TEST(QueryPlan, FineGrainedCreateNodeWithAttributes) {
-  memgraph::utils::license::global_license_checker.EnableTesting();
+  memgraph::license::global_license_checker.EnableTesting();
   memgraph::query::AstStorage ast;
   memgraph::query::SymbolTable symbol_table;
   memgraph::storage::Storage db;
@@ -164,7 +164,7 @@ TEST(QueryPlan, CreateReturn) {
 
 #ifdef MG_ENTERPRISE
 TEST(QueryPlan, FineGrainedCreateReturn) {
-  memgraph::utils::license::global_license_checker.EnableTesting();
+  memgraph::license::global_license_checker.EnableTesting();
 
   // test CREATE (n:Person {age: 42}) RETURN n, n.age
   memgraph::storage::Storage db;
@@ -310,7 +310,7 @@ class CreateExpandWithAuthFixture : public testing::Test {
   AstStorage storage;
   SymbolTable symbol_table;
 
-  void SetUp() override { memgraph::utils::license::global_license_checker.EnableTesting(); }
+  void SetUp() override { memgraph::license::global_license_checker.EnableTesting(); }
 
   void ExecuteCreateExpand(bool cycle, memgraph::auth::User &user) {
     const auto label_node_1 = dba.NameToLabel("Node1");
@@ -470,7 +470,7 @@ class MatchCreateNodeWithAuthFixture : public testing::Test {
   AstStorage storage;
   SymbolTable symbol_table;
 
-  void SetUp() override { memgraph::utils::license::global_license_checker.EnableTesting(); }
+  void SetUp() override { memgraph::license::global_license_checker.EnableTesting(); }
 
   void InitGraph() {
     // add three nodes we'll match and expand-create from
@@ -600,7 +600,7 @@ class MatchCreateExpandWithAuthFixture : public testing::Test {
   AstStorage storage;
   SymbolTable symbol_table;
 
-  void SetUp() override { memgraph::utils::license::global_license_checker.EnableTesting(); }
+  void SetUp() override { memgraph::license::global_license_checker.EnableTesting(); }
 
   void InitGraph() {
     // add three nodes we'll match and expand-create from
@@ -818,7 +818,7 @@ class DeleteOperatorWithAuthFixture : public testing::Test {
   AstStorage storage;
   SymbolTable symbol_table;
 
-  void SetUp() override { memgraph::utils::license::global_license_checker.EnableTesting(); }
+  void SetUp() override { memgraph::license::global_license_checker.EnableTesting(); }
 
   void InitGraph() {
     std::vector<memgraph::query::VertexAccessor> vertices;
@@ -1253,7 +1253,7 @@ TEST(QueryPlan, SetLabels) {
 
 #ifdef MG_ENTERPRISE
 TEST(QueryPlan, SetLabelsWithFineGrained) {
-  memgraph::utils::license::global_license_checker.EnableTesting();
+  memgraph::license::global_license_checker.EnableTesting();
   auto set_labels = [&](memgraph::auth::User user, memgraph::query::DbAccessor dba,
                         std::vector<memgraph::storage::LabelId> labels) {
     ASSERT_TRUE(dba.InsertVertex().AddLabel(labels[0]).HasValue());
@@ -1426,7 +1426,7 @@ TEST(QueryPlan, RemoveLabels) {
 
 #ifdef MG_ENTERPRISE
 TEST(QueryPlan, RemoveLabelsFineGrainedFiltering) {
-  memgraph::utils::license::global_license_checker.EnableTesting();
+  memgraph::license::global_license_checker.EnableTesting();
   auto remove_labels = [&](memgraph::auth::User user, memgraph::query::DbAccessor dba,
                            std::vector<memgraph::storage::LabelId> labels) {
     auto v1 = dba.InsertVertex();
@@ -1532,7 +1532,7 @@ TEST(QueryPlan, NodeFilterSet) {
                            false, memgraph::storage::View::OLD);
   auto *filter_expr =
       EQ(storage.Create<PropertyLookup>(scan_all.node_->identifier_, storage.GetPropertyIx(prop.first)), LITERAL(42));
-  auto node_filter = std::make_shared<Filter>(expand.op_, filter_expr);
+  auto node_filter = std::make_shared<Filter>(expand.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
   // SET n.prop = n.prop + 1
   auto set_prop = PROPERTY_LOOKUP(IDENT("n")->MapTo(scan_all.sym_), prop);
   auto add = ADD(set_prop, LITERAL(1));
@@ -1569,7 +1569,8 @@ TEST(QueryPlan, FilterRemove) {
   auto expand = MakeExpand(storage, symbol_table, scan_all.op_, scan_all.sym_, "r", EdgeAtom::Direction::BOTH, {}, "m",
                            false, memgraph::storage::View::OLD);
   auto filter_prop = PROPERTY_LOOKUP(IDENT("n")->MapTo(scan_all.sym_), prop);
-  auto filter = std::make_shared<Filter>(expand.op_, LESS(filter_prop, LITERAL(43)));
+  auto filter = std::make_shared<Filter>(expand.op_, std::vector<std::shared_ptr<LogicalOperator>>{},
+                                         LESS(filter_prop, LITERAL(43)));
   // REMOVE n.prop
   auto rem_prop = PROPERTY_LOOKUP(IDENT("n")->MapTo(scan_all.sym_), prop);
   auto rem = std::make_shared<plan::RemoveProperty>(filter, prop.second, rem_prop);
@@ -1896,7 +1897,7 @@ class UpdatePropertiesWithAuthFixture : public testing::Test {
   const memgraph::storage::PropertyId edge_prop{dba.NameToProperty(edge_prop_name)};
   const memgraph::storage::PropertyValue edge_prop_value{1};
 
-  void SetUp() override { memgraph::utils::license::global_license_checker.EnableTesting(); }
+  void SetUp() override { memgraph::license::global_license_checker.EnableTesting(); }
 
   void SetVertexProperty(memgraph::query::VertexAccessor vertex) {
     static_cast<void>(vertex.SetProperty(entity_prop, entity_prop_value));

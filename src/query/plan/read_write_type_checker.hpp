@@ -15,7 +15,7 @@
 
 namespace memgraph::query::plan {
 
-class ReadWriteTypeChecker : public virtual HierarchicalLogicalOperatorVisitor {
+struct ReadWriteTypeChecker : public virtual HierarchicalLogicalOperatorVisitor {
  public:
   ReadWriteTypeChecker() = default;
 
@@ -73,6 +73,7 @@ class ReadWriteTypeChecker : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(Optional &) override;
   bool PreVisit(Cartesian &) override;
 
+  bool PreVisit(EmptyResult &) override;
   bool PreVisit(Produce &) override;
   bool PreVisit(Accumulate &) override;
   bool PreVisit(Aggregate &) override;
@@ -88,7 +89,6 @@ class ReadWriteTypeChecker : public virtual HierarchicalLogicalOperatorVisitor {
 
   bool Visit(Once &) override;
 
- private:
   void UpdateType(RWType op_type);
 };
 

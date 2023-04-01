@@ -17,38 +17,24 @@
 
 #include "requests/requests.hpp"
 #include "telemetry/collectors.hpp"
-#include "telemetry/system_info.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
+#include "utils/system_info.hpp"
 #include "utils/timestamp.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::telemetry {
-namespace {
-std::string GetMachineId() {
-#ifdef MG_TELEMETRY_ID_OVERRIDE
-  return MG_TELEMETRY_ID_OVERRIDE;
-#else
-  // We assume we're on linux and we need to read the machine id from /etc/machine-id
-  const auto machine_id_lines = utils::ReadLines("/etc/machine-id");
-  if (machine_id_lines.size() != 1) {
-    return "UNKNOWN";
-  }
-  return machine_id_lines[0];
-#endif
-}
-}  // namespace
 
-const int kMaxBatchSize = 100;
+constexpr auto kMaxBatchSize{100};
 
-Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory,
+Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory, std::string uuid, std::string machine_id,
                      std::chrono::duration<int64_t> refresh_interval, const uint64_t send_every_n)
     : url_(std::move(url)),
-      uuid_(utils::GenerateUUID()),
-      machine_id_(GetMachineId()),
+      uuid_(uuid),
+      machine_id_(machine_id),
       send_every_n_(send_every_n),
       storage_(std::move(storage_directory)) {
-  StoreData("startup", GetSystemInfo());
+  StoreData("startup", utils::GetSystemInfo());
   AddCollector("resources", GetResourceUsage);
   AddCollector("uptime", [&]() -> nlohmann::json { return GetUptime(); });
   scheduler_.Run("Telemetry", refresh_interval, [&] { CollectData(); });
@@ -59,19 +45,15 @@ void Telemetry::AddCollector(const std::string &name, const std::function<const 
   collectors_.emplace_back(name, func);
 }
 
-std::string Telemetry::GetRunId() const { return uuid_; }
-
 Telemetry::~Telemetry() {
   scheduler_.Stop();
   CollectData("shutdown");
 }
 
 void Telemetry::StoreData(const nlohmann::json &event, const nlohmann::json &data) {
-  nlohmann::json payload = {{"run_id", uuid_},
-                            {"machine_id", machine_id_},
-                            {"event", event},
-                            {"data", data},
-                            {"timestamp", utils::Timestamp::Now().SecWithNsecSinceTheEpoch()}};
+  nlohmann::json payload = {
+      {"run_id", uuid_}, {"type", "telemetry"}, {"machine_id", machine_id_},
+      {"event", event},  {"data", data},        {"timestamp", utils::Timestamp::Now().SecWithNsecSinceTheEpoch()}};
   storage_.Put(fmt::format("{}:{}", uuid_, event.dump()), payload.dump());
 }
 
