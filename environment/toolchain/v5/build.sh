@@ -111,7 +111,7 @@ if [ ! -f pahole-gdb-master.zip ]; then
     wget https://github.com/PhilArmstrong/pahole-gdb/archive/master.zip -O pahole-gdb-master.zip
 fi
 if [ ! -f swig-$SWIG_VERSION.tar.gz ]; then
-    wget https://github.com/swig/swig/archive/rel-$SWIG_VERSION.tar.gz -O swig-$SWIG_VERSION.tar.gz
+    wget https://github.com/swig/swig/archive/refs/tags/v$SWIG_VERSION.tar.gz -O swig-$SWIG_VERSION.tar.gz
 fi
 
 # verify all archives
@@ -121,42 +121,10 @@ fi
 # signed the archive and download their public key instead.
 GPG="gpg --homedir .gnupg"
 KEYSERVER="hkp://keyserver.ubuntu.com"
-
 mkdir -p .gnupg
 chmod 700 .gnupg
-# verify gcc
-if [ ! -f gcc-$GCC_VERSION.tar.gz.sig ]; then
-    wget https://ftp.gnu.org/gnu/gcc/gcc-$GCC_VERSION/gcc-$GCC_VERSION.tar.gz.sig
-fi
-# list of valid gcc gnupg keys: https://gcc.gnu.org/mirrors.html
-$GPG --keyserver $KEYSERVER --recv-keys FC26A641
-$GPG --verify gcc-$GCC_VERSION.tar.gz.sig gcc-$GCC_VERSION.tar.gz
-# verify binutils
-if [ ! -f binutils-$BINUTILS_VERSION.tar.gz.sig ]; then
-    wget https://ftp.gnu.org/gnu/binutils/binutils-$BINUTILS_VERSION.tar.gz.sig
-fi
-$GPG --keyserver $KEYSERVER --recv-keys 0xDD9E3C4F
-$GPG --verify binutils-$BINUTILS_VERSION.tar.gz.sig binutils-$BINUTILS_VERSION.tar.gz
-# verify gdb
-if [ ! -f gdb-$GDB_VERSION.tar.gz.sig ]; then
-    wget https://ftp.gnu.org/gnu/gdb/gdb-$GDB_VERSION.tar.gz.sig
-fi
-$GPG --keyserver $KEYSERVER --recv-keys 0xFF325CF3
-$GPG --verify gdb-$GDB_VERSION.tar.gz.sig gdb-$GDB_VERSION.tar.gz
-# verify cmake
-if [ ! -f cmake-$CMAKE_VERSION-SHA-256.txt ] || [ ! -f cmake-$CMAKE_VERSION-SHA-256.txt.asc ]; then
-    wget https://github.com/Kitware/CMake/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION-SHA-256.txt
-    wget https://github.com/Kitware/CMake/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION-SHA-256.txt.asc
-    # Because CentOS 7 doesn't have the `--ignore-missing` flag for `sha256sum`
-    # we filter out the missing files from the sums here manually.
-    cat cmake-$CMAKE_VERSION-SHA-256.txt | grep "cmake-$CMAKE_VERSION.tar.gz" > cmake-$CMAKE_VERSION-SHA-256-filtered.txt
-fi
-$GPG --keyserver $KEYSERVER --recv-keys 0xC6C265324BBEBDC350B513D02D2CEF1034921684
-sha256sum -c cmake-$CMAKE_VERSION-SHA-256-filtered.txt
-$GPG --verify cmake-$CMAKE_VERSION-SHA-256.txt.asc cmake-$CMAKE_VERSION-SHA-256.txt
 
 popd
-
 # create build directory
 mkdir -p build
 pushd build
@@ -475,7 +443,6 @@ if [ ! -d swig-$SWIG_VERSION/install ]; then
         rm -rf swig-$SWIG_VERSION
     fi
     tar -xvf ../archives/swig-$SWIG_VERSION.tar.gz
-    mv swig-rel-$SWIG_VERSION swig-$SWIG_VERSION
     pushd swig-$SWIG_VERSION
     ./autogen.sh
     mkdir build && pushd build
@@ -494,10 +461,10 @@ if [ ! -f $PREFIX/bin/clang ]; then
 
     # NOTE: Go under llvmorg-$LLVM_VERSION/llvm/CMakeLists.txt to see all
     #       options, docs pages are not up to date.
-    TOOLCHAIN_LLVM_ENABLE_PROJECTS="clang;clang-tools-extra;compiler-rt;libunwind;lldb"
+    TOOLCHAIN_LLVM_ENABLE_PROJECTS="clang;clang-tools-extra;compiler-rt;lldb"
+    TOOLCHAIN_LLVM_ENABLE_RUNTIMES="libunwind"
     if [ "$TOOLCHAIN_STDCXX" = "libc++" ]; then
-        # NOTE: LLVM_ENABLE_PROJECTS and LLVM_ENABLE_RUNTIMES don't work together.
-        TOOLCHAIN_LLVM_ENABLE_PROJECTS="$TOOLCHAIN_LLVM_ENABLE_PROJECTS;libcxx;libcxxabi"
+        TOOLCHAIN_LLVM_ENABLE_RUNTIMES="$TOOLCHAIN_LLVM_ENABLE_RUNTIMES;libcxx;libcxxabi"
     fi
 
     pushd llvmorg-$LLVM_VERSION
@@ -515,6 +482,7 @@ if [ ! -f $PREFIX/bin/clang ]; then
         -DCMAKE_CXX_FLAGS=' -fuse-ld=gold -fPIC -Wno-unused-command-line-argument -Wno-unknown-warning-option' \
         -DCMAKE_C_FLAGS=' -fuse-ld=gold -fPIC -Wno-unused-command-line-argument -Wno-unknown-warning-option' \
         -DLLVM_ENABLE_PROJECTS="$TOOLCHAIN_LLVM_ENABLE_PROJECTS" \
+        -DLLVM_ENABLE_RUNTIMES="$TOOLCHAIN_LLVM_ENABLE_RUNTIMES" \
         -DLLVM_LINK_LLVM_DYLIB=ON \
         -DLLVM_INSTALL_UTILS=ON \
         -DLLVM_VERSION_SUFFIX= \
@@ -676,7 +644,6 @@ ZSTD_VERSION=1.5.0
 WANGLE_SHA256=c88f9f010ef90d42ae160b65ba114dddb67a2d5a2a64c87ee40acead263577d2
 
 pushd archives
-
 if [ ! -f boost_$BOOST_VERSION_UNDERSCORES.tar.gz ]; then
     # do not redirect the download into a file, because it will download the file into a ".1" postfixed file
     # I am not sure why this is happening, but I think because of some redirects that happens during the download
@@ -806,13 +773,10 @@ $GPG --keyserver $KEYSERVER --recv-keys 0xEF8FE99528B52FFD
 $GPG --verify zstd-$ZSTD_VERSION.tar.gz.sig zstd-$ZSTD_VERSION.tar.gz
 # verify wangle
 echo "$WANGLE_SHA256 wangle-$FBLIBS_VERSION.tar.gz" | sha256sum -c
-
 popd
 
 pushd build
-
 source $PREFIX/activate
-
 export CC=$PREFIX/bin/clang
 export CXX=$PREFIX/bin/clang++
 export CFLAGS="$CFLAGS -fPIC"
