@@ -52,10 +52,11 @@ LLVM_VERSION=15.0.7
 SWIG_VERSION=4.1.1 # used only for LLVM compilation
 
 # Set the right operating system setup script.
-ENV_SCRIPT="$DIR/../../os/$DISTRO.sh"
+ENV_SCRIPT_RELATIVE="environment/os/$DISTRO.sh"
 if [[ "$for_arm" = true ]]; then
-    ENV_SCRIPT="$DIR/../../os/$DISTRO-arm.sh"
+    ENV_SCRIPT_RELATIVE="environment/os/$DISTRO-arm.sh"
 fi
+ENV_SCRIPT="$DIR/../$ENV_SCRIPT_RELATIVE"
 echo "ALL BUILD PACKAGES: $(${ENV_SCRIPT} list TOOLCHAIN_BUILD_DEPS)"
 ${ENV_SCRIPT} check TOOLCHAIN_BUILD_DEPS
 echo "ALL RUN PACKAGES: $(${ENV_SCRIPT} list TOOLCHAIN_RUN_DEPS)"
@@ -532,10 +533,12 @@ if [ ! -f $PREFIX/README.md ]; then
 
 In order to be able to run all of these tools you should install the following
 packages:
-
 \`\`\`
-$($DIR/../../os/$ENV_SCRIPT.sh list TOOLCHAIN_RUN_DEPS)
-$($DIR/../../os/$ENV_SCRIPT.sh install TOOLCHAIN_RUN_DEPS)
+./$ENV_SCRIPT_RELATIVE list TOOLCHAIN_RUN_DEPS)
+\`\`\`
+by executing:
+\`\`\`
+./$ENV_SCRIPT_RELATIVE install TOOLCHAIN_RUN_DEPS)
 \`\`\`
 
 ## Usage
