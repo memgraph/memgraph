@@ -2074,6 +2074,11 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
               spdlog::warn(utils::MessageWithLink("Periodic snapshots are disabled for analytical mode.",
                                                   "https://memgr.ph/replication"));
               break;
+            case storage::Storage::CreateSnapshotError::ReachedMaxNumTries:
+              spdlog::warn(utils::MessageWithLink(
+                  "Failed to create snapshot. Reached max number of tries. Please contact support",
+                  "https://memgr.ph/replication"));
+              break;
           }
         }
         return QueryHandlerResult::COMMIT;

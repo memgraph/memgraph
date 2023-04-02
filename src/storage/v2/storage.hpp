@@ -518,7 +518,11 @@ class Storage final {
 
   StorageMode GetStorageMode();
 
-  enum class CreateSnapshotError : uint8_t { DisabledForReplica, DisabledForAnalyticsPeriodicCommit };
+  enum class CreateSnapshotError : uint8_t {
+    DisabledForReplica,
+    DisabledForAnalyticsPeriodicCommit,
+    ReachedMaxNumTries
+  };
 
   utils::BasicResult<CreateSnapshotError> CreateSnapshot(std::optional<bool> is_periodic);
 

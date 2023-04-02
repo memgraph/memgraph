@@ -410,6 +410,11 @@ Storage::Storage(Config config)
             spdlog::warn(utils::MessageWithLink("Periodic snapshots are disabled for analytical mode.",
                                                 "https://memgr.ph/durability"));
             break;
+          case storage::Storage::CreateSnapshotError::ReachedMaxNumTries:
+            spdlog::warn(
+                utils::MessageWithLink("Failed to create snapshot. Reached max number of tries. Please contact support",
+                                       "https://memgr.ph/replication"));
+            break;
         }
       }
     });
@@ -460,6 +465,11 @@ Storage::~Storage() {
         case CreateSnapshotError::DisabledForAnalyticsPeriodicCommit:
           spdlog::warn(utils::MessageWithLink("Periodic snapshots are disabled for analytical mode.",
                                               "https://memgr.ph/replication"));
+          break;
+        case storage::Storage::CreateSnapshotError::ReachedMaxNumTries:
+          spdlog::warn(
+              utils::MessageWithLink("Failed to create snapshot. Reached max number of tries. Please contact support",
+                                     "https://memgr.ph/replication"));
           break;
       }
     }
@@ -1936,12 +1946,6 @@ utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot(std::op
     return CreateSnapshotError::DisabledForReplica;
   }
 
-  if (is_periodic && *is_periodic && storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL) {
-    return CreateSnapshotError::DisabledForAnalyticsPeriodicCommit;
-  }
-
-  std::lock_guard snapshot_guard(snapshot_lock_);
-
   auto snapshot_creator = [this]() {
     auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION, storage_mode_);
     // Create snapshot.
@@ -1953,26 +1957,33 @@ utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot(std::op
     commit_log_->MarkFinished(transaction.start_timestamp);
   };
 
-  if (storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL) {
-    // Take unique lock
-    std::unique_lock main_guard{main_lock_};
-    snapshot_creator();
-  } else {
-    // Take master RW lock (for reading).
-    std::shared_lock<utils::RWLock> storage_guard(main_lock_);
+  std::lock_guard snapshot_guard(snapshot_lock_);
 
-    // It could happen that that above check for in memory analytical didn't make early reutrn
-    // but we ended up in else branch with changed storage mode state.
-    // After taking RW lock, storage mode can't be changed any more, now we are certain
-    // that state won't change, and this is only race condition which can happen
-    if (storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL) {
-      return CreateSnapshotError::DisabledForAnalyticsPeriodicCommit;
+  auto should_try_shared{true};
+  auto max_num_tries{10};
+  while (max_num_tries) {
+    if (should_try_shared) {
+      std::shared_lock<utils::RWLock> storage_guard(main_lock_);
+      if (storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
+        snapshot_creator();
+        return {};
+      }
+    } else {
+      std::unique_lock main_guard{main_lock_};
+      if (storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+        if (is_periodic && *is_periodic) {
+          return CreateSnapshotError::DisabledForAnalyticsPeriodicCommit;
+        }
+        snapshot_creator();
+        return {};
+      }
     }
-
-    snapshot_creator();
+    should_try_shared = !should_try_shared;
+    max_num_tries--;
   }
 
-  return {};
+  return CreateSnapshotError::ReachedMaxNumTries;
+  ;
 }
 
 bool Storage::LockPath() {
