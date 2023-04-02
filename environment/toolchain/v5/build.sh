@@ -48,7 +48,7 @@ case "$DISTRO" in
 esac
 CMAKE_VERSION=3.26.2
 CPPCHECK_VERSION=2.10
-LLVM_VERSION=16.0.0
+LLVM_VERSION=15.0.7
 SWIG_VERSION=4.1.1 # used only for LLVM compilation
 
 # Set the right operating system setup script.
@@ -461,11 +461,19 @@ if [ ! -f $PREFIX/bin/clang ]; then
 
     # NOTE: Go under llvmorg-$LLVM_VERSION/llvm/CMakeLists.txt to see all
     #       options, docs pages are not up to date.
-    TOOLCHAIN_LLVM_ENABLE_PROJECTS="clang;clang-tools-extra;compiler-rt;lldb"
-    TOOLCHAIN_LLVM_ENABLE_RUNTIMES="libunwind"
+    # Clang 15
+    TOOLCHAIN_LLVM_ENABLE_PROJECTS="clang;clang-tools-extra;compiler-rt;libunwind;lldb"
     if [ "$TOOLCHAIN_STDCXX" = "libc++" ]; then
-        TOOLCHAIN_LLVM_ENABLE_RUNTIMES="$TOOLCHAIN_LLVM_ENABLE_RUNTIMES;libcxx;libcxxabi"
+        # NOTE: LLVM_ENABLE_PROJECTS and LLVM_ENABLE_RUNTIMES don't work together.
+        TOOLCHAIN_LLVM_ENABLE_PROJECTS="$TOOLCHAIN_LLVM_ENABLE_PROJECTS;libcxx;libcxxabi"
     fi
+    # FUTURE: Clang 16+ has a different structure
+    # TOOLCHAIN_LLVM_ENABLE_PROJECTS="clang;clang-tools-extra;compiler-rt;lldb"
+    # TOOLCHAIN_LLVM_ENABLE_RUNTIMES="libunwind"
+    # if [ "$TOOLCHAIN_STDCXX" = "libc++" ]; then
+    #     TOOLCHAIN_LLVM_ENABLE_RUNTIMES="$TOOLCHAIN_LLVM_ENABLE_RUNTIMES;libcxx;libcxxabi"
+    # fi
+    # -DLLVM_ENABLE_RUNTIMES="$TOOLCHAIN_LLVM_ENABLE_RUNTIMES" \ # Clang 16+
 
     pushd llvmorg-$LLVM_VERSION
     # activate swig
@@ -482,7 +490,6 @@ if [ ! -f $PREFIX/bin/clang ]; then
         -DCMAKE_CXX_FLAGS=' -fuse-ld=gold -fPIC -Wno-unused-command-line-argument -Wno-unknown-warning-option' \
         -DCMAKE_C_FLAGS=' -fuse-ld=gold -fPIC -Wno-unused-command-line-argument -Wno-unknown-warning-option' \
         -DLLVM_ENABLE_PROJECTS="$TOOLCHAIN_LLVM_ENABLE_PROJECTS" \
-        -DLLVM_ENABLE_RUNTIMES="$TOOLCHAIN_LLVM_ENABLE_RUNTIMES" \
         -DLLVM_LINK_LLVM_DYLIB=ON \
         -DLLVM_INSTALL_UTILS=ON \
         -DLLVM_VERSION_SUFFIX= \
@@ -612,6 +619,19 @@ function deactivate() {
 EOF
 fi
 
+###################################
+#                                 #
+# Third-party library compilation #
+#                                 #
+###################################
+# variable:
+#   * architecture    : ARM, x86
+#   * operating system: Lin, Mac, Win (many distros and versions)
+#   * compiler        : clang, gcc
+#   * standard lib    : libstdc++, libc++
+# options:
+#   * extreme 1 -> move all libs + Memgraph compilation here, have one giant script
+#   * extreme 2 -> build a granular package manager, each lib (for all variable) separated
 BOOST_SHA256=205666dea9f6a7cfed87c7a6dfbeb52a2c1b9de55712c9c1a87735d7181452b6
 BOOST_VERSION=1.81.0
 BOOST_VERSION_UNDERSCORES=`echo "${BOOST_VERSION//./_}"`
