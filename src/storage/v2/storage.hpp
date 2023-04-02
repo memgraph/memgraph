@@ -510,7 +510,9 @@ class Storage final {
 
   void FreeMemory();
 
-  void SetIsolationLevel(IsolationLevel isolation_level);
+  enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };
+
+  utils::BasicResult<SetIsolationLevelError> SetIsolationLevel(IsolationLevel isolation_level);
 
   void SetStorageMode(StorageMode storage_mode);
 

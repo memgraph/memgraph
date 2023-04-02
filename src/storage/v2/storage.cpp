@@ -2158,9 +2158,14 @@ std::vector<Storage::ReplicaInfo> Storage::ReplicasInfo() {
   });
 }
 
-void Storage::SetIsolationLevel(IsolationLevel isolation_level) {
+utils::BasicResult<Storage::SetIsolationLevelError> Storage::SetIsolationLevel(IsolationLevel isolation_level) {
   std::unique_lock main_guard{main_lock_};
+  if (storage_mode_ == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+    return Storage::SetIsolationLevelError::DisabledForAnalyticalMode;
+  }
+
   isolation_level_ = isolation_level;
+  return {};
 }
 
 void Storage::SetStorageMode(StorageMode storage_mode) {

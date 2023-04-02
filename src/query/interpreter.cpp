@@ -1985,10 +1985,6 @@ PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in
     throw IsolationLevelModificationInMulticommandTxException();
   }
 
-  if (interpreter_context->db->GetStorageMode() == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
-    throw IsolationLevelModificationInAnalyticsException();
-  }
-
   auto *isolation_level_query = utils::Downcast<IsolationLevelQuery>(parsed_query.query);
   MG_ASSERT(isolation_level_query);
 
@@ -1998,7 +1994,15 @@ PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in
                    interpreter]() -> std::function<void()> {
     switch (isolation_level_query->isolation_level_scope_) {
       case IsolationLevelQuery::IsolationLevelScope::GLOBAL:
-        return [interpreter_context, isolation_level] { interpreter_context->db->SetIsolationLevel(isolation_level); };
+        return [interpreter_context, isolation_level] {
+          if (auto maybe_error = interpreter_context->db->SetIsolationLevel(isolation_level); maybe_error.HasError()) {
+            switch (maybe_error.GetError()) {
+              case storage::Storage::SetIsolationLevelError::DisabledForAnalyticalMode:
+                throw IsolationLevelModificationInAnalyticsException();
+                break;
+            }
+          }
+        };
       case IsolationLevelQuery::IsolationLevelScope::SESSION:
         return [interpreter, isolation_level] { interpreter->SetSessionIsolationLevel(isolation_level); };
       case IsolationLevelQuery::IsolationLevelScope::NEXT:
