@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,7 +26,7 @@ Client::Client(communication::ClientContext &context) : client_{&context} {}
 void Client::Connect(const io::network::Endpoint &endpoint, const std::string &username, const std::string &password,
                      const std::string &client_name) {
   if (!client_.Connect(endpoint)) {
-    throw ClientFatalException("Couldn't connect to {}!", endpoint);
+    throw ClientFatalException("Couldn't connect to {}!", endpoint.SocketAddress());
   }
 
   if (!client_.Write(kPreamble, sizeof(kPreamble), true)) {
@@ -205,6 +205,7 @@ std::optional<std::map<std::string, Value>> Client::Route(const std::map<std::st
     throw ClientFatalException("You must first connect to the server before using the client!");
   }
 
+  // TODO(gitbuda): Format map<string, bolt::Value> routing
   spdlog::debug("Sending route message with routing: {}; bookmarks: {}; db: {}", routing, bookmarks,
                 db.has_value() ? *db : Value());
 
