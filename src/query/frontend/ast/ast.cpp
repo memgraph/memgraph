@@ -267,4 +267,7 @@ constexpr utils::TypeInfo query::TransactionQueueQuery::kType{utils::TypeId::AST
                                                               "TransactionQueueQuery", &query::Query::kType};
 
 constexpr utils::TypeInfo query::Exists::kType{utils::TypeId::AST_EXISTS, "Exists", &query::Expression::kType};
+
+constexpr utils::TypeInfo query::CallSubquery::kType{utils::TypeId::AST_CALL_SUBQUERY, "CallSubquery",
+                                                     &query::Clause::kType};
 }  // namespace memgraph

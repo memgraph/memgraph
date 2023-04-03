@@ -4379,3 +4379,77 @@ TEST_P(CypherMainVisitorTest, Exists) {
     ASSERT_TRUE(node);
   }
 }
+
+TEST_P(CypherMainVisitorTest, CallSubqueryThrow) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) CALL { MATCH (m) RETURN m QUERY MEMORY UNLIMITED } RETURN n",
+                                               ast_generator, "Memory limit cannot be set on subqueries!");
+}
+
+TEST_P(CypherMainVisitorTest, CallSubquery) {
+  auto &ast_generator = *GetParam();
+
+  {
+    const auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) CALL { MATCH (m) RETURN m } RETURN n, m"));
+    const auto *call_subquery = dynamic_cast<CallSubquery *>(query->single_query_->clauses_[1]);
+
+    const auto *subquery = dynamic_cast<CypherQuery *>(call_subquery->cypher_query_);
+    ASSERT_TRUE(subquery);
+
+    const auto *match = dynamic_cast<Match *>(subquery->single_query_->clauses_[0]);
+    ASSERT_TRUE(match);
+  }
+
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("MATCH (n) CALL { MATCH (m) RETURN (m) UNION MATCH (m) RETURN m } RETURN n, m"));
+    const auto *call_subquery = dynamic_cast<CallSubquery *>(query->single_query_->clauses_[1]);
+
+    const auto *subquery = dynamic_cast<CypherQuery *>(call_subquery->cypher_query_);
+    ASSERT_TRUE(subquery);
+
+    const auto *match = dynamic_cast<Match *>(subquery->single_query_->clauses_[0]);
+    ASSERT_TRUE(match);
+
+    const auto unions = subquery->cypher_unions_;
+    ASSERT_TRUE(unions.size() == 1);
+  }
+
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("MATCH (n) CALL { MATCH (m) RETURN (m) UNION ALL MATCH (m) RETURN m } RETURN n, m"));
+    const auto *call_subquery = dynamic_cast<CallSubquery *>(query->single_query_->clauses_[1]);
+
+    const auto *subquery = dynamic_cast<CypherQuery *>(call_subquery->cypher_query_);
+    ASSERT_TRUE(subquery);
+
+    const auto *match = dynamic_cast<Match *>(subquery->single_query_->clauses_[0]);
+    ASSERT_TRUE(match);
+
+    const auto unions = subquery->cypher_unions_;
+    ASSERT_TRUE(unions.size() == 1);
+  }
+
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("MATCH (n) CALL { MATCH (m) CALL { MATCH (o) RETURN o} RETURN m, o } RETURN n, m, o"));
+    const auto *call_subquery = dynamic_cast<CallSubquery *>(query->single_query_->clauses_[1]);
+
+    const auto *subquery = dynamic_cast<CypherQuery *>(call_subquery->cypher_query_);
+    ASSERT_TRUE(subquery);
+
+    const auto *match = dynamic_cast<Match *>(subquery->single_query_->clauses_[0]);
+    ASSERT_TRUE(match);
+
+    const auto *nested_subquery = dynamic_cast<CallSubquery *>(subquery->single_query_->clauses_[1]);
+    ASSERT_TRUE(nested_subquery);
+
+    const auto *nested_cypher = dynamic_cast<CypherQuery *>(nested_subquery->cypher_query_);
+    ASSERT_TRUE(nested_cypher);
+
+    const auto *nested_match = dynamic_cast<Match *>(nested_cypher->single_query_->clauses_[0]);
+    ASSERT_TRUE(nested_match);
+  }
+}

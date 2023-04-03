@@ -3676,3 +3676,273 @@ TEST_F(ExistsFixture, DoubleFilters) {
   EXPECT_EQ(1, TestDoubleExists("l1", EdgeAtom::Direction::BOTH, {}, {}, true));
   EXPECT_EQ(1, TestDoubleExists("l1", EdgeAtom::Direction::BOTH, {}, {}, false));
 }
+
+class SubqueriesFeature : public testing::Test {
+ protected:
+  memgraph::storage::Storage db;
+  memgraph::storage::Storage::Accessor storage_dba{db.Access()};
+  memgraph::query::DbAccessor dba{&storage_dba};
+  AstStorage storage;
+  SymbolTable symbol_table;
+
+  std::pair<std::string, memgraph::storage::PropertyId> prop = PROPERTY_PAIR("property");
+
+  memgraph::query::VertexAccessor v1{dba.InsertVertex()};
+  memgraph::query::VertexAccessor v2{dba.InsertVertex()};
+  memgraph::storage::EdgeTypeId edge_type{db.NameToEdgeType("Edge")};
+  memgraph::query::EdgeAccessor r1{*dba.InsertEdge(&v1, &v2, edge_type)};
+
+  void SetUp() override {
+    // (:l1)-[:Edge]->(:l2)
+    ASSERT_TRUE(v1.AddLabel(dba.NameToLabel("l1")).HasValue());
+    ASSERT_TRUE(v2.AddLabel(dba.NameToLabel("l2")).HasValue());
+
+    ASSERT_TRUE(v1.SetProperty(prop.second, memgraph::storage::PropertyValue(1)).HasValue());
+    ASSERT_TRUE(v2.SetProperty(prop.second, memgraph::storage::PropertyValue(2)).HasValue());
+
+    ASSERT_TRUE(r1.SetProperty(prop.second, memgraph::storage::PropertyValue(1)).HasValue());
+    memgraph::license::global_license_checker.EnableTesting();
+
+    dba.AdvanceCommand();
+  }
+};
+
+TEST_F(SubqueriesFeature, BasicCartesian) {
+  // MATCH (n) CALL { MATCH (m) RETURN m } RETURN n, m
+
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+
+  auto m = MakeScanAll(storage, symbol_table, "m");
+  auto return_m = NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
+  auto produce_subquery = MakeProduce(m.op_, return_m);
+
+  auto apply = std::make_shared<Apply>(n.op_, produce_subquery, true);
+
+  auto produce = MakeProduce(apply, return_n, return_m);
+
+  auto context = MakeContext(storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
+  EXPECT_EQ(results.size(), 4);
+}
+
+TEST_F(SubqueriesFeature, BasicCartesianWithFilter) {
+  // MATCH (n) WHERE n.prop = 2 CALL { MATCH (m) RETURN m } RETURN n, m
+
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto *filter_expr = AND(storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_),
+                          EQ(PROPERTY_LOOKUP(n.node_->identifier_, prop), LITERAL(2)));
+  auto filter = std::make_shared<Filter>(n.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
+
+  auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+
+  auto m = MakeScanAll(storage, symbol_table, "m");
+  auto return_m = NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
+  auto produce_subquery = MakeProduce(m.op_, return_m);
+
+  auto apply = std::make_shared<Apply>(filter, produce_subquery, true);
+
+  auto produce = MakeProduce(apply, return_n, return_m);
+
+  auto context = MakeContext(storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
+  EXPECT_EQ(results.size(), 2);
+}
+
+TEST_F(SubqueriesFeature, BasicCartesianWithFilterInsideSubquery) {
+  // MATCH (n) CALL { MATCH (m) WHERE m.prop = 2 RETURN m } RETURN n, m
+
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+
+  auto m = MakeScanAll(storage, symbol_table, "m");
+  auto *filter_expr = AND(storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_),
+                          EQ(PROPERTY_LOOKUP(n.node_->identifier_, prop), LITERAL(2)));
+  auto filter = std::make_shared<Filter>(m.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
+
+  auto return_m = NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
+  auto produce_subquery = MakeProduce(filter, return_m);
+
+  auto apply = std::make_shared<Apply>(n.op_, produce_subquery, true);
+
+  auto produce = MakeProduce(apply, return_n, return_m);
+
+  auto context = MakeContext(storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
+  EXPECT_EQ(results.size(), 2);
+}
+
+TEST_F(SubqueriesFeature, BasicCartesianWithFilterNoResults) {
+  // MATCH (n) WHERE n.prop = 3 CALL { MATCH (m) RETURN m } RETURN n, m
+
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto *filter_expr = AND(storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_),
+                          EQ(PROPERTY_LOOKUP(n.node_->identifier_, prop), LITERAL(3)));
+  auto filter = std::make_shared<Filter>(n.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
+
+  auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+
+  auto m = MakeScanAll(storage, symbol_table, "m");
+  auto return_m = NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
+  auto produce_subquery = MakeProduce(m.op_, return_m);
+
+  auto apply = std::make_shared<Apply>(filter, produce_subquery, true);
+
+  auto produce = MakeProduce(apply, return_n, return_m);
+
+  auto context = MakeContext(storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
+  EXPECT_EQ(results.size(), 0);
+}
+
+TEST_F(SubqueriesFeature, SubqueryInsideSubqueryCartesian) {
+  // MATCH (n) CALL { MATCH (m) CALL { MATCH (o) RETURN o} RETURN m, o } RETURN n, m, o
+
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+
+  auto m = MakeScanAll(storage, symbol_table, "m");
+  auto return_m = NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
+
+  auto o = MakeScanAll(storage, symbol_table, "o");
+  auto return_o = NEXPR("o", IDENT("o")->MapTo(o.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_3", true));
+  auto produce_nested_subquery = MakeProduce(o.op_, return_o);
+
+  auto inner_apply = std::make_shared<Apply>(m.op_, produce_nested_subquery, true);
+  auto produce_subquery = MakeProduce(inner_apply, return_o, return_m);
+
+  auto outer_apply = std::make_shared<Apply>(n.op_, produce_subquery, true);
+  auto produce = MakeProduce(outer_apply, return_n, return_m, return_o);
+
+  auto context = MakeContext(storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
+
+  EXPECT_EQ(results.size(), 8);
+}
+
+TEST_F(SubqueriesFeature, UnitSubquery) {
+  // CALL { MATCH (m) RETURN m } RETURN m
+
+  auto once = std::make_shared<Once>();
+
+  auto o = MakeScanAll(storage, symbol_table, "o");
+  auto return_o = NEXPR("o", IDENT("o")->MapTo(o.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_3", true));
+  auto produce_subquery = MakeProduce(o.op_, return_o);
+
+  auto apply = std::make_shared<Apply>(once, produce_subquery, true);
+  auto produce = MakeProduce(apply, return_o);
+
+  auto context = MakeContext(storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
+
+  EXPECT_EQ(results.size(), 2);
+}
+
+TEST_F(SubqueriesFeature, SubqueryWithBoundedSymbol) {
+  // MATCH (n) CALL { WITH n MATCH (n)-[]->(m) RETURN m } RETURN n, m
+
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+
+  auto once = std::make_shared<Once>();
+  auto produce_with = MakeProduce(once, return_n);
+  auto expand = MakeExpand(storage, symbol_table, produce_with, n.sym_, "r", EdgeAtom::Direction::OUT, {}, "m", false,
+                           memgraph::storage::View::OLD);
+  auto return_m =
+      NEXPR("m", IDENT("m")->MapTo(expand.node_sym_))->MapTo(symbol_table.CreateSymbol("named_expression_3", true));
+  auto produce_subquery = MakeProduce(expand.op_, return_m);
+
+  auto apply = std::make_shared<Apply>(n.op_, produce_subquery, true);
+  auto produce = MakeProduce(apply, return_n, return_m);
+
+  auto context = MakeContext(storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
+
+  EXPECT_EQ(results.size(), 1);
+}
+
+TEST_F(SubqueriesFeature, SubqueryWithUnionAll) {
+  // MATCH (n) CALL { MATCH (m) RETURN m UNION ALL MATCH (m) RETURN m } RETURN n, m
+
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+
+  auto m1 = MakeScanAll(storage, symbol_table, "m");
+  auto return_m = NEXPR("m", IDENT("m")->MapTo(m1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
+  auto produce_left_union_subquery = MakeProduce(m1.op_, return_m);
+
+  auto m2 = MakeScanAll(storage, symbol_table, "m");
+  auto produce_right_union_subquery = MakeProduce(m2.op_, return_m);
+
+  auto union_operator =
+      std::make_shared<Union>(produce_left_union_subquery, produce_right_union_subquery, std::vector<Symbol>{m1.sym_},
+                              produce_left_union_subquery->OutputSymbols(symbol_table),
+                              produce_right_union_subquery->OutputSymbols(symbol_table));
+
+  auto apply = std::make_shared<Apply>(n.op_, union_operator, true);
+
+  auto produce = MakeProduce(apply, return_n, return_m);
+
+  auto context = MakeContext(storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
+  EXPECT_EQ(results.size(), 8);
+}
+
+TEST_F(SubqueriesFeature, SubqueryWithUnion) {
+  // MATCH (n) CALL { MATCH (m) RETURN m UNION MATCH (m) RETURN m } RETURN n, m
+
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+
+  auto m1 = MakeScanAll(storage, symbol_table, "m");
+
+  auto subquery_return_symbol = symbol_table.CreateSymbol("named_expression_2", true);
+  auto return_m = NEXPR("m", IDENT("m")->MapTo(m1.sym_))->MapTo(subquery_return_symbol);
+
+  auto produce_left_union_subquery = MakeProduce(m1.op_, return_m);
+
+  auto m2 = MakeScanAll(storage, symbol_table, "m");
+  auto produce_right_union_subquery = MakeProduce(m2.op_, return_m);
+
+  auto union_operator = std::make_shared<Union>(produce_left_union_subquery, produce_right_union_subquery,
+                                                std::vector<Symbol>{subquery_return_symbol},
+                                                produce_left_union_subquery->OutputSymbols(symbol_table),
+                                                produce_right_union_subquery->OutputSymbols(symbol_table));
+
+  auto union_output_symbols = union_operator->OutputSymbols(symbol_table);
+  auto distinct = std::make_shared<Distinct>(union_operator, std::vector<Symbol>{union_output_symbols});
+
+  auto apply = std::make_shared<Apply>(n.op_, distinct, true);
+
+  auto produce = MakeProduce(apply, return_n);
+
+  auto context = MakeContext(storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
+  EXPECT_EQ(results.size(), 4);
+}
+
+TEST_F(SubqueriesFeature, SubqueriesWithForeach) {
+  // MATCH (n) CALL { FOREACH (i in range(1, 5) | CREATE (n)) } RETURN n
+
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+
+  auto once_create = std::make_shared<Once>();
+  NodeCreationInfo node_creation_info;
+  node_creation_info.symbol = symbol_table.CreateSymbol("n", true);
+  auto create = std::make_shared<plan::CreateNode>(once_create, node_creation_info);
+
+  auto once_foreach = std::make_shared<Once>();
+  auto iteration_symbol = symbol_table.CreateSymbol("i", true);
+  auto iterating_list = LIST(LITERAL(1), LITERAL(2), LITERAL(3), LITERAL(4), LITERAL(5));
+  auto foreach = std::make_shared<plan::Foreach>(once_foreach, create, iterating_list, iteration_symbol);
+  auto empty_result = std::make_shared<EmptyResult>(foreach);
+
+  auto apply = std::make_shared<Apply>(n.op_, empty_result, false);
+
+  auto produce = MakeProduce(apply, return_n);
+
+  auto context = MakeContext(storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
+  EXPECT_EQ(results.size(), 2);
+}
