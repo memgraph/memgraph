@@ -1,13 +1,13 @@
 # How to use mgBench
 
-Running your workloads that includes custom queries and dataset is the best way to evaluate system performance on your use-case. Each workload has special requirements that are imposed from the queries or dataset side. An basic difference would be a workload that needs to write a lot or it is just executing read queries from database.
+Running your workloads that includes custom queries and dataset is the best way to evaluate system performance on your use-case. Each workload has special requirements that are imposed from use-case. This can be related to write, analytical or read heavy workload. Since your use-case queries and dataset will be used in the production, it is best to use those.
 We worked on cleaning MgBench architecture so it is easier for users to add theirs custom workloads and queries to evaluate performance on supported systems.
 
 ## How to add your custom workload
 
-If you want to run your custom workload on Memgraph na Neo4j, you can start by writing a simple Python class.
+If you want to run your custom workload on supported systems (Currently, Memgraph na Neo4j), you can start by writing a simple Python class. The idea is to specify a simple Python class that contains your dataset generation queries, index generation queries and queries used for running a benchmark.
 
-Here are 4 steps you need to do to specify your workload:
+Here are 5 steps you need to do to specify your **workload**:
 
 1. [Inherit the workload class](#1-inherit-the-workload-class)
 2. [Define a workload name](#2-define-the-workload-name)
@@ -20,7 +20,6 @@ Here is th simplified version of [demo.py](https://github.com/memgraph/memgraph/
 ```python
 import random
 from workloads.base import Workload
-
 
 class Demo(Workload):
 
@@ -57,8 +56,6 @@ class Demo(Workload):
 
 ```
 
-The idea is to specify a simple Python class that contains your dataset generation queries, index generation queries and queries used for running a benchmark.
-
 Let's break this script down into smaller important elements:
 
 ### 1. Inherit the `workload` class
@@ -71,12 +68,11 @@ class Demo(Workload):
 ```
 
 ### 2. Define the workload name
-The class should specify the `NAME` property, this is used to describe what workload class you want to execute. When calling benchmark, this property will be important.
+The class should specify the `NAME` property, this is used to describe what workload class you want to execute. When calling `benchmark.py`, this property will be used to differentiate different workloads.
 
 ```python
 NAME = "demo"
 ```
-
 
 ### 3. Implement dataset generator method
 The class should implement the `dataset_generator()` method. The method is used for generating a dataset which returns the ***list of tuples***.  Each tuple contains string of the Cypher query and dictionary that contains optional arguments, so the structure is following [(str, dict), (str, dict)...]. Let's take a look at the how the example list could look like what could method return:
@@ -100,7 +96,6 @@ Or you can specified parameters inside a dictionary, the variables next to `$` s
 ("CREATE (:NodeB {id: $id, foo: $property});", {"id" : 123, "property": "foo" })
 ```
 
-
 Back to our `demo.py` example, here is the `dataset_generator()` method, here you actually want to specify queries for generating a dataset. In the first for loop the queries for creating 100 nodes with label `NodeA` and 100 nodes with label `NodeB` are prepared. Each node has `id` between 0 and 99. In the second for loop, queries for connecting nodes randomly are generated. There is total of 300 edges, each connected to random `NodeA` and `NodeB`.
 
 ```python
@@ -119,7 +114,17 @@ def dataset_generator(self):
 
 ### 4. Implement the index generator
 
-The class should implement the `indexes_generator()` method. This is implemented the same way as `dataset_generator` class, instead of queries for dataset, `indexes_generator()` should return the list of indexes that will be used.
+The class should also implement the `indexes_generator()` method. This is implemented the same way as `dataset_generator` class, instead of queries for dataset, `indexes_generator()` should return the list of indexes that will be used. The returning structure again is the list of tuples that contains query string and dictonary of parameters
+Here is the example:
+
+```python
+def indexes_generator(self):
+    indexes = [
+                ("CREATE INDEX ON :NodeA(id);", {}),
+                ("CREATE INDEX ON :NodeB(id);", {}),
+            ]
+    return indexes
+```
 
 
 ### 5. Define the queries you want to benchmark
@@ -127,10 +132,10 @@ The class should implement the `indexes_generator()` method. This is implemented
 Now that your dataset will be imported from dataset generator queries, you can specify what queries you wish to benchmark on the given dataset. Here are two queries that `demo.py` workload specifies, they are written as Python methods that returns a single tuple with query and dictionary, the same way as in data generator method.
 
 ```python
-def benchmark__test__demo_query_get_nodes(self):
+def benchmark__test__get_nodes(self):
     return ("MATCH (n) RETURN n;", {})
 
-def benchmark__test__demo_query_get_node_by_id(self):
+def benchmark__test__get_node_by_id(self):
     return ("MATCH (n:NodeA{id: $id}) RETURN n;", {"id": random.randint(0, 99)})
 
 ```

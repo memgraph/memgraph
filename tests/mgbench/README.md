@@ -2,9 +2,11 @@
 
 ## :clipboard: Benchmark Overview
 
-mgBench is primarily designed to benchmark graph databases (Currently, Neo4j and Memgraph). To test graph database performance, this benchmark executes Cypher queries that can write, read, update, aggregate, and analyze dataset present in database. There are some predefined queries and dataset in mgbench. Those present represent a typical workload queries that would be used to analyze any graph dataset and are pure Cypher based. [BenchGraph](https://memgraph.com/benchgraph/) platform shows the results of running these queries. It shows the overall performance of each system under test relative to other, best in test being the baseline.
+mgBench is primarily designed to benchmark graph databases (Currently, Neo4j and Memgraph). To test graph database performance, this benchmark executes Cypher queries that can write, read, update, aggregate, and analyze dataset present in database. There are some predefined queries and dataset in mgbench. The present datasets and queries represent a typical workload that would be used to analyze any graph dataset and are pure Cypher based. [BenchGraph](https://memgraph.com/benchgraph/) platform shows the results of running these queries on specified hardware and under certain conditions. It shows the overall performance of each system under test relative to other, best in test being the baseline.
 
-Three workload types can be executed:
+There is also a [tutorial on how to use mgbench](how_to_use_mgbench.md) to define your own workload and run workloads on supported vendors.
+
+Mgbench supports three workload types can be executed:
 - Isolated - Concurrent execution of a single type of query,
 - Mixed - Concurrent execution of a single type of query mixed with a certain percentage of queries from a designated query group,
 - Realistic - Concurrent execution of queries from write, read, update and analyze groups.
