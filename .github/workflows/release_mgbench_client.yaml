@@ -58,5 +58,5 @@ steps:
           --build-arg TOOLCHAIN_VERSION=toolchain-v4 \
           --tag $DOCKER_ORGANIZATION_NAME/$DOCKER_REPOSITORY_NAME:${{ github.event.inputs.version }} \
           --tag $DOCKER_ORGANIZATION_NAME/$DOCKER_REPOSITORY_NAME:latest \
-          --file memgraph_deb.dockerfile \
+          --file /memgraph/tests/mgbench/Dockerfile.mgbench_bolt_client
           --push .
