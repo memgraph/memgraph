@@ -36,6 +36,7 @@ BATCH_LIMIT             : B A T C H UNDERSCORE L I M I T ;
 BATCH_SIZE              : B A T C H UNDERSCORE S I Z E ;
 BEFORE                  : B E F O R E ;
 BOOTSTRAP_SERVERS       : B O O T S T R A P UNDERSCORE S E R V E R S ;
+CALL                    : C A L L ;
 CHECK                   : C H E C K ;
 CLEAR                   : C L E A R ;
 COMMIT                  : C O M M I T ;

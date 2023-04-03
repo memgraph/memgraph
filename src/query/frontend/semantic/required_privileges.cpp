@@ -31,9 +31,9 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(AuthQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::AUTH); }
 
-  void Visit(ExplainQuery &query) override { query.cypher_query_->Accept(*this); }
+  void Visit(ExplainQuery &query) override { query.cypher_query_->Accept(dynamic_cast<QueryVisitor &>(*this)); }
 
-  void Visit(ProfileQuery &query) override { query.cypher_query_->Accept(*this); }
+  void Visit(ProfileQuery &query) override { query.cypher_query_->Accept(dynamic_cast<QueryVisitor &>(*this)); }
 
   void Visit(InfoQuery &info_query) override {
     switch (info_query.info_type_) {

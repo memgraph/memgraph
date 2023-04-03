@@ -96,6 +96,7 @@ class SettingQuery;
 class VersionQuery;
 class Foreach;
 class ShowConfigQuery;
+class CallSubquery;
 class AnalyzeGraphQuery;
 class TransactionQueueQuery;
 class Exists;
@@ -107,7 +108,7 @@ using TreeCompositeVisitor = utils::CompositeVisitor<
     ListSlicingOperator, IfOperator, UnaryPlusOperator, UnaryMinusOperator, IsNullOperator, ListLiteral, MapLiteral,
     PropertyLookup, LabelsTest, Aggregation, Function, Reduce, Coalesce, Extract, All, Single, Any, None, CallProcedure,
     Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom, Delete, Where, SetProperty, SetProperties, SetLabels,
-    RemoveProperty, RemoveLabels, Merge, Unwind, RegexMatch, LoadCsv, Foreach, Exists>;
+    RemoveProperty, RemoveLabels, Merge, Unwind, RegexMatch, LoadCsv, Foreach, Exists, CallSubquery, CypherQuery>;
 
 using TreeLeafVisitor = utils::LeafVisitor<Identifier, PrimitiveLiteral, ParameterLookup>;
 

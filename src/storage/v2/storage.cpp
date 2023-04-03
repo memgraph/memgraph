@@ -1983,7 +1983,6 @@ utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot(std::op
   }
 
   return CreateSnapshotError::ReachedMaxNumTries;
-  ;
 }
 
 bool Storage::LockPath() {
