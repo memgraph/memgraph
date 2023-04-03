@@ -1214,3 +1214,42 @@ TEST_F(TestSymbolGenerator, Exists) {
   auto symbol = *collector.symbols_.begin();
   ASSERT_EQ(symbol.name_, "n");
 }
+
+TEST_F(TestSymbolGenerator, Subqueries) {
+  // MATCH (n) CALL { MATCH (n) RETURN n } RETURN n
+  // Yields exception because n in subquery is referenced in outer scope
+  auto subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n")));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CALL_SUBQUERY(subquery), RETURN("n")));
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+
+  // MATCH (n) CALL { MATCH (m) RETURN m.prop } RETURN n
+  // Yields exception because m.prop must be aliased before returning
+  subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), RETURN("m.prop")));
+  query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CALL_SUBQUERY(subquery), RETURN("n")));
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+
+  // MATCH (n) CALL { MATCH (m) RETURN m, m.prop } RETURN n
+  // Yields exception because m.prop must be aliased before returning
+  subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), RETURN("m", "m.prop")));
+  query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CALL_SUBQUERY(subquery), RETURN("n")));
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+
+  // MATCH (n) CALL { MATCH (m) RETURN m.prop, m } RETURN n
+  // Yields exception because m.prop must be aliased before returning
+  subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), RETURN("m.prop", "m")));
+  query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CALL_SUBQUERY(subquery), RETURN("n")));
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+
+  // MATCH (n) CALL { MATCH (m) RETURN m } RETURN n, m
+  subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), RETURN("m")));
+  query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CALL_SUBQUERY(subquery), RETURN("n", "m")));
+  auto symbol_table = MakeSymbolTable(query);
+  ASSERT_EQ(symbol_table.max_position(), 7);
+
+  // MATCH (n) CALL { MATCH (m) RETURN m UNION MATCH (m) RETURN m } RETURN n, m
+  subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), RETURN("m")),
+                   UNION(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), RETURN("m"))));
+  query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CALL_SUBQUERY(subquery), RETURN("n", "m")));
+  symbol_table = MakeSymbolTable(query);
+  ASSERT_EQ(symbol_table.max_position(), 11);
+}

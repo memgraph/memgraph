@@ -117,6 +117,7 @@ extern const Event CallProcedureOperator;
 extern const Event ForeachOperator;
 extern const Event EmptyResultOperator;
 extern const Event EvaluatePatternFilterOperator;
+extern const Event ApplyOperator;
 }  // namespace EventCounter
 
 namespace memgraph::query::plan {
@@ -4072,8 +4073,14 @@ class DistinctCursor : public Cursor {
 
       utils::pmr::vector<TypedValue> row(seen_rows_.get_allocator().GetMemoryResource());
       row.reserve(self_.value_symbols_.size());
-      for (const auto &symbol : self_.value_symbols_) row.emplace_back(frame[symbol]);
-      if (seen_rows_.insert(std::move(row)).second) return true;
+
+      for (const auto &symbol : self_.value_symbols_) {
+        row.emplace_back(frame.at(symbol));
+      }
+
+      if (seen_rows_.insert(std::move(row)).second) {
+        return true;
+      }
     }
   }
 
@@ -4796,6 +4803,74 @@ bool Foreach::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
     update_clauses_->Accept(visitor);
   }
   return visitor.PostVisit(*this);
+}
+
+Apply::Apply(const std::shared_ptr<LogicalOperator> input, const std::shared_ptr<LogicalOperator> subquery,
+             bool subquery_has_return)
+    : input_(input ? input : std::make_shared<Once>()),
+      subquery_(subquery),
+      subquery_has_return_(subquery_has_return) {}
+
+bool Apply::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    input_->Accept(visitor) && subquery_->Accept(visitor);
+  }
+  return visitor.PostVisit(*this);
+}
+
+UniqueCursorPtr Apply::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::ApplyOperator);
+
+  return MakeUniqueCursorPtr<ApplyCursor>(mem, *this, mem);
+}
+
+Apply::ApplyCursor::ApplyCursor(const Apply &self, utils::MemoryResource *mem)
+    : self_(self),
+      input_(self.input_->MakeCursor(mem)),
+      subquery_(self.subquery_->MakeCursor(mem)),
+      subquery_has_return_(self.subquery_has_return_) {}
+
+std::vector<Symbol> Apply::ModifiedSymbols(const SymbolTable &table) const {
+  // Since Apply is the Cartesian product, modified symbols are combined from
+  // both execution branches.
+  auto symbols = input_->ModifiedSymbols(table);
+  auto subquery_symbols = subquery_->ModifiedSymbols(table);
+  symbols.insert(symbols.end(), subquery_symbols.begin(), subquery_symbols.end());
+  return symbols;
+}
+
+bool Apply::ApplyCursor::Pull(Frame &frame, ExecutionContext &context) {
+  SCOPED_PROFILE_OP("Apply");
+
+  while (true) {
+    if (pull_input_ && !input_->Pull(frame, context)) {
+      return false;
+    };
+
+    if (subquery_->Pull(frame, context)) {
+      // if successful, next Pull from this should not pull_input_
+      pull_input_ = false;
+      return true;
+    }
+    // failed to pull from subquery cursor
+    // skip that row
+    pull_input_ = true;
+    subquery_->Reset();
+
+    // don't skip row if no rows are returned from subquery, return input_ rows
+    if (!subquery_has_return_) return true;
+  }
+}
+
+void Apply::ApplyCursor::Shutdown() {
+  input_->Shutdown();
+  subquery_->Shutdown();
+}
+
+void Apply::ApplyCursor::Reset() {
+  input_->Reset();
+  subquery_->Reset();
+  pull_input_ = true;
 }
 
 }  // namespace memgraph::query::plan
