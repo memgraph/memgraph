@@ -227,7 +227,6 @@ def warmup(condition: str, client: runners.BaseRunner, queries: list = None):
 def mixed_workload(
     vendor: runners.BaseRunner, client: runners.BaseClient, dataset, group, queries, benchmark_context: BenchmarkContext
 ):
-
     num_of_queries = benchmark_context.mode_config[0]
     percentage_distribution = benchmark_context.mode_config[1:]
     if sum(percentage_distribution) != 100:
@@ -274,8 +273,7 @@ def mixed_workload(
             full_workload = []
 
             log.info(
-                "Running query in mixed workload:",
-                "{}/{}/{}".format(
+                "Running query in mixed workload: {}/{}/{}".format(
                     group,
                     query,
                     funcname,

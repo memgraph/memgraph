@@ -3,6 +3,15 @@
 Running your workloads that includes custom queries and dataset is the best way to evaluate system performance on your use-case. Each workload has special requirements that are imposed from use-case. This can be related to write, analytical or read heavy workload. Since your use-case queries and dataset will be used in the production, it is best to use those.
 We worked on cleaning MgBench architecture so it is easier for users to add theirs custom workloads and queries to evaluate performance on supported systems.
 
+This tutorial contains following content:
+
+- [How to add your custom workload](#how-to-add-your-custom-workload)
+- [How to run benchmarks on your custom workload](#how-to-run-benchmarks-on-your-custom-workload)
+- [How to configure benchmark run](#how-to-configure-benchmark-run)
+- [How to compare results](#how-to-compare-results)
+- [Customizing workload generator](#customizing-workload-generator)
+
+
 ## How to add your custom workload
 
 If you want to run your custom workload on supported systems (Currently, Memgraph na Neo4j), you can start by writing a simple Python class. The idea is to specify a simple Python class that contains your dataset generation queries, index generation queries and queries used for running a benchmark.
@@ -112,10 +121,9 @@ def dataset_generator(self):
     return queries
 ```
 
-### 4. Implement the index generator
+### 4. Implement the index generator method
 
-The class should also implement the `indexes_generator()` method. This is implemented the same way as `dataset_generator` class, instead of queries for dataset, `indexes_generator()` should return the list of indexes that will be used. The returning structure again is the list of tuples that contains query string and dictonary of parameters
-Here is the example:
+The class should also implement the `indexes_generator()` method. This is implemented the same way as `dataset_generator` class, instead of queries for dataset, `indexes_generator()` should return the list of indexes that will be used. The returning structure again is the list of tuples that contains query string and dictionary of parameters. Here is the example:
 
 ```python
 def indexes_generator(self):
@@ -125,7 +133,6 @@ def indexes_generator(self):
             ]
     return indexes
 ```
-
 
 ### 5. Define the queries you want to benchmark
 
@@ -142,16 +149,9 @@ def benchmark__test__get_node_by_id(self):
 
 The important details here are that each of the methods you wish to use in benchmark test needs to start with `benchmark__` in the name, otherwise it will be ignored.  The full method name has the following structure `benchmark__group__name`. Group can be used to execute specific tests, but more on that later.
 
+From the workload setup this is all you need to do, next step is how to run your workload. If you wish to improve workload generator, take a look at customizing workload generator.
 
-From the workload setup perspective this is it.
-
-Here are two more samples of simple demo workloads that are being generated via workload generator:
-
-1. TODO
-2. TODO
-
-
-## How to run your custom workload
+## How to run benchmarks on your custom workload
 
 When running benchmarks, duration, query variety, number of workers play an important role next to the queries and parameters. MgBench provides several options on how to run benchmarks. Let's start with the simplest run of demo workload from above.
 
@@ -164,6 +164,8 @@ To start the benchmark you need to run the following command with your paths and
 To run this on memgraph the command looks like this:
 
 ```python3 benchmark.py benchmarks demo/*/*/* --vendor-name memgraphDocker --export-results results.json --no-authorization```
+
+## How to configure benchmark run
 
 Hopefully you should get a logs from `benchmark.py` process managing the benchmark. The script takes a lot of arguments, some used in the run above are self explanatory. But lets break down the most important ones:
 
@@ -214,3 +216,5 @@ Once the benchmark has been run, the results are saved in file specified by `--e
 ```python compare_results.py --compare path_to/run_1.json path_to/run_2.json --output run_1_vs_run_2.html --different-vendors```
 
 The output is an HTML file with the visual representation of the performance differences between two compared vendors. The first passed summary JSON file is the reference point. Feel free to open and HTML file in any browser at hand.
+
+## Customizing workload generator
