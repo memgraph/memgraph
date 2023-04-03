@@ -31,7 +31,7 @@ QUERY_COUNT_LOWER_BOUND = 30
 
 def parse_args():
 
-    parser = argparse.ArgumentParser(description="Memgraph benchmark main parser.", add_help=False)
+    parser = argparse.ArgumentParser(description="Main parser.", add_help=False)
 
     benchmark_parser = argparse.ArgumentParser(description="Benchmark arguments parser", add_help=False)
 
@@ -50,11 +50,6 @@ def parse_args():
         "default query is '*' which selects all queries",
     )
 
-    benchmark_parser.add_argument(
-        "--client-binary",
-        default=helpers.get_binary_path("tests/mgbench/client"),
-        help="Client binary used for benchmarking",
-    )
     benchmark_parser.add_argument(
         "--num-workers-for-import",
         type=int,
@@ -160,7 +155,9 @@ def parse_args():
         help="Vendor specific arguments that can be applied to each vendor, format: [key=value, key=value ...]",
     )
 
-    subparsers = parser.add_subparsers(help="Vendor subparser", dest="run_option")
+    subparsers = parser.add_subparsers(help="Subparsers", dest="run_option")
+
+    # Vendor native parser starts here
     parser_vendor_native = subparsers.add_parser(
         "vendor-native",
         help="Running database in binary native form",
@@ -178,6 +175,13 @@ def parse_args():
         default=helpers.get_binary_path("memgraph"),
     )
 
+    parser_vendor_native.add_argument(
+        "--client-binary",
+        default=helpers.get_binary_path("tests/mgbench/client"),
+        help="Client binary used for benchmarking",
+    )
+
+    # Vendor docker parsers starts here
     parser_vendor_docker = subparsers.add_parser(
         "vendor-docker", help="Running database in docker", parents=[benchmark_parser]
     )
@@ -440,7 +444,7 @@ if __name__ == "__main__":
         benchmark_target_workload=args.benchmarks,
         vendor_binary=args.vendor_binary if args.run_option == "vendor-native" else None,
         vendor_name=args.vendor_name.replace("-", ""),
-        client_binary=args.client_binary,
+        client_binary=args.client_binary if args.run_option == "vendor-native" else None,
         num_workers_for_import=args.num_workers_for_import,
         num_workers_for_benchmark=args.num_workers_for_benchmark,
         single_threaded_runtime_sec=args.single_threaded_runtime_sec,
