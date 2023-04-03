@@ -1,12 +1,12 @@
 
-FROM ubuntu:22.04
+FROM ubuntu:22.04 AS mg_bench_client_build_base
 
+SHELL ["/bin/bash", "-c"]
 ARG TOOLCHAIN_VERSION
 
 ENV DEBIAN_FRONTEND=noninteractive
 
 USER root
-
 
 RUN apt update && apt install -y \
     ca-certificates wget git
@@ -17,9 +17,21 @@ RUN wget -q https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/${TOOLCHAIN_VERS
 
 RUN git clone https://github.com/memgraph/memgraph.git
 
+WORKDIR memgraph
 
-RUN /memgraph/environment/os/ubuntu-22.04.sh install TOOLCHAIN_RUN_DEPS
-RUN /memgraph/environment/os/ubuntu-22.04.sh install MEMGRAPH_BUILD_DEPS
+RUN ./environment/os/ubuntu-22.04.sh install TOOLCHAIN_RUN_DEPS
+RUN ./environment/os/ubuntu-22.04.sh install MEMGRAPH_BUILD_DEPS
+
+RUN source /opt/toolchain-v4/activate && \
+    ./init  && \
+    rm -r build && \
+    mkdir build && \
+    cd build && \
+    cmake -DCMAKE_BUILD_TYPE=release .. && \
+    make -j$(nproc) memgraph__mgbench__client && \
+    make .
+
+
 
 # FROM ubuntu:latest
 
