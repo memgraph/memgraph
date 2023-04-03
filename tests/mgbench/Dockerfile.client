@@ -1,4 +1,3 @@
-
 FROM ubuntu:22.04 AS mg_bench_client_build_base
 
 SHELL ["/bin/bash", "-c"]
@@ -32,11 +31,11 @@ RUN source /opt/toolchain-v4/activate && \
     make .
 
 
+FROM ubuntu:22.04
 
-# FROM ubuntu:latest
+RUN apt-get update && apt-get install -y wget libcurl4
 
-# RUN apt-get update && apt-get install -y wget libcurl4
+# Copy mgbench client to clean image
+COPY --from=mg_bench_client_build_base /memgraph/build/tests/mgbench/client /bin/
 
-# COPY client /bin/
-
-# ENTRYPOINT ["bin/client"]
+ENTRYPOINT ["bin/client"]
