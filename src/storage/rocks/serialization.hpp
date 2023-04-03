@@ -11,10 +11,12 @@
 
 #pragma once
 
+#include <numeric>
 #include <optional>
 
 #include "query/db_accessor.hpp"
 #include "slk/serialization.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/view.hpp"
@@ -25,11 +27,12 @@ class Encoder final {
  public:
   explicit Encoder(slk::Builder *builder) : builder_(builder) {}
 
-  void WriteVertex(const query::VertexAccessor &vertex_acc) {
-    storage::LabelId label = vertex_acc.Labels(storage::View::OLD)->at(0);
-    int num_in_edges = *vertex_acc.InDegree(storage::View::OLD);
-    int num_out_edges = *vertex_acc.OutDegree(storage::View::OLD);
-    slk::Save(vertex_acc.Gid().AsUint(), builder_);
+  // too serious, will be used later in the future probably
+  void SerializeVertex(const query::VertexAccessor &vertex_acc) {
+    // storage::LabelId label = vertex_acc.Labels(storage::View::OLD)->at(0);
+    // int num_in_edges = *vertex_acc.InDegree(storage::View::OLD);
+    // int num_out_edges = *vertex_acc.OutDegree(storage::View::OLD);
+    // slk::Save(vertex_acc.Gid().AsUint(), builder_);
   }
 
  private:
