@@ -1003,6 +1003,11 @@ struct PullPlan {
   // manually by using this flag.
   bool has_unsent_results_ = false;
 
+  // In the case of LOAD CSV, we want to use only PoolResource without MonotonicMemoryResource
+  // to reuse allocated memory. As LOAD CSV is processing row by row
+  // it is possible to reduce memory usage significantly if MemoryResource deals with memory allocation
+  // can reuse memory that was allocated on processing the first row on all subsequent rows.
+  // This flag signals to `PullPlan::Pull` which MemoryResource to use
   bool use_monotonic_memory_;
 };
 
@@ -1048,7 +1053,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   std::optional<utils::PoolResource> pool_memory;
 
   if (!use_monotonic_memory_) {
-    pool_memory.emplace(1, kExecutionPoolMaxBlockSize, utils::NewDeleteResource(), utils::NewDeleteResource());
+    pool_memory.emplace(8, kExecutionPoolMaxBlockSize, utils::NewDeleteResource(), utils::NewDeleteResource());
   } else {
     // We can throw on every query because a simple queries for deleting will use only
     // the stack allocated buffer.
@@ -1232,7 +1237,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
         "conversion functions such as ToInteger, ToFloat, ToBoolean etc.");
     contains_csv = true;
   }
-  // If this is LOAD CSV query, use PoolResource without MonotonicMemoryResource as it doesn't reuse memory
+  // If this is LOAD CSV query, use PoolResource without MonotonicMemoryResource as we want to reuse allocated memory
   auto use_monotonic_memory = !contains_csv;
   auto plan = CypherQueryToPlan(parsed_query.stripped_query.hash(), std::move(parsed_query.ast_storage), cypher_query,
                                 parsed_query.parameters,
@@ -2345,6 +2350,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       if (const auto &clauses = cypher_query->single_query_->clauses_;
           std::any_of(clauses.begin(), clauses.end(),
                       [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
+        // Using PoolResource without MonotonicMemoryResouce for LOAD CSV reduces memory usage.
+        // QueryExecution MemoryResource is mostly used for allocations done on Frame and storing `row`s
         query_executions_[query_executions_.size() - 1] = std::make_unique<QueryExecution>(
             utils::PoolResource(1, kExecutionPoolMaxBlockSize, utils::NewDeleteResource(), utils::NewDeleteResource()));
         query_execution_ptr = &query_executions_.back();

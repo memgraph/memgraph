@@ -48,7 +48,7 @@ extern const Event FailedQuery;
 namespace memgraph::query {
 
 inline constexpr size_t kExecutionMemoryBlockSize = 1UL * 1024UL * 1024UL;
-inline constexpr size_t kExecutionPoolMaxBlockSize = 256UL;  // 2 ^ 15
+inline constexpr size_t kExecutionPoolMaxBlockSize = 32768UL;  // 2 ^ 15
 
 class AuthQueryHandler {
  public:
