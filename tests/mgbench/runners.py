@@ -161,9 +161,9 @@ class BoltClientDocker(BaseClient):
         command = ["docker", "rm", "-f", self._container_name]
         self._run_command(command)
 
-    def _build_image(self):
-        command = ["docker", "build", "-f", "Dockerfile.client", "-t", self._image_tag, "."]
-        self._run_command(command)
+    # def _build_image(self):
+    #     command = ["docker", "build", "-f", "Dockerfile.mgbench_bolt_client", "-t", self._image_tag, "."]
+    #     self._run_command(command)
 
     def _create_container(self, *args):
         command = ["docker", "create", "--name", self._container_name, self._image_tag, *args]
@@ -209,7 +209,7 @@ class BoltClientDocker(BaseClient):
                     f.write("\n")
 
         self._remove_container()
-        self._build_image()
+        # self._build_image()
         ip = self._get_target_ip()
 
         # Query file JSON or Cypher
