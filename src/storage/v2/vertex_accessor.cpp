@@ -222,6 +222,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   // current code always follows the logical pattern of "create a delta" and
   // "modify in-place". Additionally, the created delta will make other
   // transactions get a SERIALIZATION_ERROR.
+
   CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, current_value);
   vertex_->properties.SetProperty(property, value);
 
