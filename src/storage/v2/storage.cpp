@@ -411,9 +411,7 @@ Storage::Storage(Config config)
                                                 "https://memgr.ph/durability"));
             break;
           case storage::Storage::CreateSnapshotError::ReachedMaxNumTries:
-            spdlog::warn(
-                utils::MessageWithLink("Failed to create snapshot. Reached max number of tries. Please contact support",
-                                       "https://memgr.ph/replication"));
+            spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
             break;
         }
       }
@@ -467,9 +465,7 @@ Storage::~Storage() {
                                               "https://memgr.ph/replication"));
           break;
         case storage::Storage::CreateSnapshotError::ReachedMaxNumTries:
-          spdlog::warn(
-              utils::MessageWithLink("Failed to create snapshot. Reached max number of tries. Please contact support",
-                                     "https://memgr.ph/replication"));
+          spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
           break;
       }
     }
