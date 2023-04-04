@@ -1023,7 +1023,7 @@ int main(int argc, char **argv) {
       {FLAGS_monitoring_address, static_cast<uint16_t>(FLAGS_monitoring_port)}, &context, websocket_auth};
   AddLoggerSink(websocket_server.GetLoggingSink());
 
-  memgraph::communication::http::Server metrics_server{
+  memgraph::communication::http::Server<memgraph::communication::http::MetricsHandler> metrics_server{
       {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, &context};
 
   // Handler for regular termination signals

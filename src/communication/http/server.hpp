@@ -21,31 +21,45 @@
 
 namespace memgraph::communication::http {
 
+template <class TRequestHandler>
 class Server final {
   using tcp = boost::asio::ip::tcp;
 
  public:
   explicit Server(io::network::Endpoint endpoint, ServerContext *context)
-      : listener_{Listener::Create(ioc_, context,
-                                   tcp::endpoint{boost::asio::ip::make_address(endpoint.address), endpoint.port})} {}
+      : listener_{Listener<TRequestHandler>::Create(
+            ioc_, context, tcp::endpoint{boost::asio::ip::make_address(endpoint.address), endpoint.port})} {}
 
   Server(const Server &) = delete;
   Server(Server &&) = delete;
   Server &operator=(const Server &) = delete;
   Server &operator=(Server &&) = delete;
 
-  ~Server();
+  ~Server() {
+    MG_ASSERT(!background_thread_ || (ioc_.stopped() && !background_thread_->joinable()),
+              "Server wasn't shutdown properly");
+  }
 
-  void Start();
-  void Shutdown();
-  void AwaitShutdown();
-  bool IsRunning() const;
-  tcp::endpoint GetEndpoint() const;
+  void Start() {
+    MG_ASSERT(!background_thread_, "The server was already started!");
+    listener_->Run();
+    background_thread_.emplace([this] { ioc_.run(); });
+  }
+
+  void Shutdown() { ioc_.stop(); }
+
+  void AwaitShutdown() {
+    if (background_thread_ && background_thread_->joinable()) {
+      background_thread_->join();
+    }
+  }
+  bool IsRunning() const { return background_thread_ && !ioc_.stopped(); }
+  tcp::endpoint GetEndpoint() const { return listener_->GetEndpoint(); }
 
  private:
   boost::asio::io_context ioc_;
 
-  std::shared_ptr<Listener> listener_;
+  std::shared_ptr<Listener<TRequestHandler>> listener_;
   std::optional<std::thread> background_thread_;
 };
 }  // namespace memgraph::communication::http

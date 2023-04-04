@@ -26,28 +26,82 @@
 #include "utils/synchronized.hpp"
 
 namespace memgraph::communication::http {
-class Listener : public std::enable_shared_from_this<Listener> {
+
+template <class TRequestHandler>
+class Listener final : public std::enable_shared_from_this<Listener<TRequestHandler>> {
   using tcp = boost::asio::ip::tcp;
+  using SessionHandler = Session<TRequestHandler>;
+  using std::enable_shared_from_this<Listener<TRequestHandler>>::shared_from_this;
 
  public:
+  Listener(const Listener &) = delete;
+  Listener(Listener &&) = delete;
+  Listener &operator=(const Listener &) = delete;
+  Listener &operator=(Listener &&) = delete;
+  ~Listener() {}
+
   template <typename... Args>
   static std::shared_ptr<Listener> Create(Args &&...args) {
     return std::shared_ptr<Listener>{new Listener(std::forward<Args>(args)...)};
   }
 
   // Start accepting incoming connections
-  void Run();
-  tcp::endpoint GetEndpoint() const;
+  void Run() { DoAccept(); }
+  tcp::endpoint GetEndpoint() const { return acceptor_.local_endpoint(); }
 
  private:
-  Listener(boost::asio::io_context &ioc, ServerContext *context, tcp::endpoint endpoint);
+  Listener(boost::asio::io_context &ioc, ServerContext *context, tcp::endpoint endpoint)
+      : ioc_(ioc), context_(context), acceptor_(ioc) {
+    boost::beast::error_code ec;
 
-  void DoAccept();
-  void OnAccept(boost::beast::error_code ec, tcp::socket socket);
+    // Open the acceptor
+    acceptor_.open(endpoint.protocol(), ec);
+    if (ec) {
+      LogError(ec, "open");
+      return;
+    }
+
+    // Allow address reuse
+    acceptor_.set_option(boost::asio::socket_base::reuse_address(true), ec);
+    if (ec) {
+      LogError(ec, "set_option");
+      return;
+    }
+
+    // Bind to the server address
+    acceptor_.bind(endpoint, ec);
+    if (ec) {
+      LogError(ec, "bind");
+      return;
+    }
+
+    acceptor_.listen(boost::asio::socket_base::max_listen_connections, ec);
+    if (ec) {
+      LogError(ec, "listen");
+      return;
+    }
+
+    spdlog::info("HTTP server is listening on {}:{}", endpoint.address(), endpoint.port());
+  }
+
+  void DoAccept() {
+    acceptor_.async_accept(ioc_, [shared_this = shared_from_this()](auto ec, auto socket) {
+      shared_this->OnAccept(ec, std::move(socket));
+    });
+  }
+
+  void OnAccept(boost::beast::error_code ec, tcp::socket socket) {
+    if (ec) {
+      return LogError(ec, "accept");
+    }
+
+    SessionHandler::Create(std::move(socket), *context_)->Run();
+
+    DoAccept();
+  }
 
   boost::asio::io_context &ioc_;
   ServerContext *context_;
   tcp::acceptor acceptor_;
-  utils::Synchronized<std::list<std::shared_ptr<Session>>, utils::SpinLock> sessions_;
 };
 }  // namespace memgraph::communication::http

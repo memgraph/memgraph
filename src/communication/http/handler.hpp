@@ -20,6 +20,8 @@ namespace memgraph::communication::http {
 namespace beast = boost::beast;
 namespace http = beast::http;
 
+class MetricsHandler {};
+
 template <class Body, class Allocator>
 void HandleRequest(http::request<Body, http::basic_fields<Allocator>> &&req,
                    std::function<void(http::response<http::string_body>)> &&send) {

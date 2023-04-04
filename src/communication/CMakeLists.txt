@@ -2,9 +2,6 @@ find_package(fmt REQUIRED)
 find_package(gflags REQUIRED)
 
 set(communication_src_files
-    http/server.cpp
-    http/listener.cpp
-    http/session.cpp
     websocket/auth.cpp
     websocket/server.cpp
     websocket/listener.cpp
