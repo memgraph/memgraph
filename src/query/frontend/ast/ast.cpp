@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/ast_visitor.hpp"
 #include "utils/typeinfo.hpp"
 
 namespace memgraph {
@@ -259,5 +260,14 @@ constexpr utils::TypeInfo query::Foreach::kType{utils::TypeId::AST_FOREACH, "For
 constexpr utils::TypeInfo query::ShowConfigQuery::kType{utils::TypeId::AST_SHOW_CONFIG_QUERY, "ShowConfigQuery",
                                                         &query::Query::kType};
 
+constexpr utils::TypeInfo query::AnalyzeGraphQuery::kType{utils::TypeId::AST_ANALYZE_GRAPH_QUERY, "AnalyzeGraphQuery",
+                                                          &query::Query::kType};
+
+constexpr utils::TypeInfo query::TransactionQueueQuery::kType{utils::TypeId::AST_TRANSACTION_QUEUE_QUERY,
+                                                              "TransactionQueueQuery", &query::Query::kType};
+
 constexpr utils::TypeInfo query::Exists::kType{utils::TypeId::AST_EXISTS, "Exists", &query::Expression::kType};
+
+constexpr utils::TypeInfo query::CallSubquery::kType{utils::TypeId::AST_CALL_SUBQUERY, "CallSubquery",
+                                                     &query::Clause::kType};
 }  // namespace memgraph

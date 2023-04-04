@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,9 +12,11 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <shared_mutex>
+#include <span>
 #include <variant>
 
 #include "io/network/endpoint.hpp"
@@ -264,6 +266,30 @@ class Storage final {
       return storage_->indices_.label_property_index.ApproximateVertexCount(label, property, lower, upper);
     }
 
+    std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId &label,
+                                                     const storage::PropertyId &property) const {
+      return storage_->indices_.label_property_index.GetIndexStats(label, property);
+    }
+
+    std::vector<std::pair<LabelId, PropertyId>> ClearIndexStats() {
+      return storage_->indices_.label_property_index.ClearIndexStats();
+    }
+
+    std::vector<std::pair<LabelId, PropertyId>> DeleteIndexStatsForLabels(const std::span<std::string> labels) {
+      std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;
+      std::for_each(labels.begin(), labels.end(), [this, &deleted_indexes](const auto &label_str) {
+        std::vector<std::pair<LabelId, PropertyId>> loc_results =
+            storage_->indices_.label_property_index.DeleteIndexStatsForLabel(NameToLabel(label_str));
+        deleted_indexes.insert(deleted_indexes.end(), std::make_move_iterator(loc_results.begin()),
+                               std::make_move_iterator(loc_results.end()));
+      });
+      return deleted_indexes;
+    }
+
+    void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property, const IndexStats &stats) {
+      storage_->indices_.label_property_index.SetIndexStats(label, property, stats);
+    }
+
     /// @return Accessor to the deleted vertex if a deletion took place, std::nullopt otherwise
     /// @throw std::bad_alloc
     Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex);
@@ -323,6 +349,8 @@ class Storage final {
     void Abort();
 
     void FinalizeTransaction();
+
+    std::optional<uint64_t> GetTransactionId() const;
 
    private:
     /// @throw std::bad_alloc

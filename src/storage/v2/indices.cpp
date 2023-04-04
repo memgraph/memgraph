@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #include "indices.hpp"
+#include <algorithm>
+#include <iterator>
 #include <limits>
 
 #include "storage/v2/mvcc.hpp"
@@ -686,6 +688,45 @@ int64_t LabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId pro
   MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
   auto acc = it->second.access();
   return acc.estimate_range_count(lower, upper, utils::SkipListLayerForCountEstimation(acc.size()));
+}
+
+/*
+Iterate over all property-label pairs and deletes if label from the index is equal to label parameter.
+*/
+std::vector<std::pair<LabelId, PropertyId>> LabelPropertyIndex::DeleteIndexStatsForLabel(
+    const storage::LabelId &label) {
+  std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;
+  for (auto it = stats_.cbegin(); it != stats_.cend();) {
+    if (it->first.first == label) {
+      deleted_indexes.push_back(it->first);
+      it = stats_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+  return deleted_indexes;
+}
+
+std::vector<std::pair<LabelId, PropertyId>> LabelPropertyIndex::ClearIndexStats() {
+  std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;
+  deleted_indexes.reserve(stats_.size());
+  std::transform(stats_.begin(), stats_.end(), std::back_inserter(deleted_indexes),
+                 [](const auto &elem) { return elem.first; });
+  stats_.clear();
+  return deleted_indexes;
+}
+
+void LabelPropertyIndex::SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
+                                       const IndexStats &stats) {
+  stats_[{label, property}] = stats;
+}
+
+std::optional<IndexStats> LabelPropertyIndex::GetIndexStats(const storage::LabelId &label,
+                                                            const storage::PropertyId &property) const {
+  if (auto it = stats_.find({label, property}); it != stats_.end()) {
+    return it->second;
+  }
+  return {};
 }
 
 void LabelPropertyIndex::RunGC() {

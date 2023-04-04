@@ -27,6 +27,7 @@
 
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
+#include "storage/v2/indices.hpp"
 
 DECLARE_int64(query_vertex_count_to_expand_existing);
 
@@ -464,6 +465,18 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(Apply &op) override {
+    prev_ops_.push_back(&op);
+    op.input()->Accept(*this);
+    RewriteBranch(&op.subquery_);
+    return false;
+  }
+
+  bool PostVisit(Apply & /*op*/) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
   std::shared_ptr<LogicalOperator> new_root_;
 
  private:
@@ -482,6 +495,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     // FilterInfo with PropertyFilter.
     FilterInfo filter;
     int64_t vertex_count;
+    std::optional<storage::IndexStats> index_stats;
   };
 
   bool DefaultPreVisit() override { throw utils::NotYetImplemented("optimizing index lookup"); }
@@ -522,8 +536,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return best_label;
   }
 
-  // Finds the label-property combination which has indexed the lowest amount of
-  // vertices. If the index cannot be found, nullopt is returned.
+  // Finds the label-property combination. The first criteria based on number of vertices indexed -> if one index has
+  // 10x less than the other one, always choose the smaller one. Otherwise, choose the index with smallest average group
+  // size based on key distribution. If average group size is equal, choose the index that has distribution closer to
+  // uniform distribution. Conditions based on average group size and key distribution can be only taken into account if
+  // the user has run `ANALYZE GRAPH` query before If the index cannot be found, nullopt is returned.
   std::optional<LabelPropertyIndex> FindBestLabelPropertyIndex(const Symbol &symbol,
                                                                const std::unordered_set<Symbol> &bound_symbols) {
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
@@ -534,6 +551,27 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       }
       return true;
     };
+
+    /*
+     * Comparator function between two indices. If new index has >= 10x vertices than the existing, it cannot be better.
+     * If it is <= 10x in number of vertices, check average group size of property values. The index with smaller
+     * average group size is better. If the average group size is the same, choose the one closer to the uniform
+     * distribution
+     * @param found: Current best label-property index.
+     * @param new_stats: Label-property index candidate.
+     * @param vertex_count: New index's number of vertices.
+     * @return -1 if the new index is better, 0 if they are equal and 1 if the existing one is better.
+     */
+    auto compare_indices = [](std::optional<LabelPropertyIndex> &found, std::optional<storage::IndexStats> &new_stats,
+                              int vertex_count) {
+      if (!new_stats.has_value() || vertex_count / 10.0 > found->vertex_count) {
+        return 1;
+      }
+      int cmp_avg_group = utils::CompareDecimal(new_stats->avg_group_size, found->index_stats->avg_group_size);
+      if (cmp_avg_group != 0) return cmp_avg_group;
+      return utils::CompareDecimal(new_stats->statistic, found->index_stats->statistic);
+    };
+
     std::optional<LabelPropertyIndex> found;
     for (const auto &label : filters_.FilteredLabels(symbol)) {
       for (const auto &filter : filters_.PropertyFilters(symbol)) {
@@ -548,7 +586,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         if (!db_->LabelPropertyIndexExists(GetLabel(label), GetProperty(property))) {
           continue;
         }
-        int64_t vertex_count = db_->VerticesCount(GetLabel(label), GetProperty(property));
         auto is_better_type = [&found](PropertyFilter::Type type) {
           // Order the types by the most preferred index lookup type.
           static const PropertyFilter::Type kFilterTypeOrder[] = {
@@ -557,17 +594,32 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           auto *type_sort_ix = std::find(kFilterTypeOrder, kFilterTypeOrder + 3, type);
           return type_sort_ix < found_sort_ix;
         };
-        if (!found || vertex_count < found->vertex_count ||
-            (vertex_count == found->vertex_count && is_better_type(filter.property_filter->type_))) {
-          found = LabelPropertyIndex{label, filter, vertex_count};
+
+        int64_t vertex_count = db_->VerticesCount(GetLabel(label), GetProperty(property));
+        std::optional<storage::IndexStats> new_stats = db_->GetIndexStats(GetLabel(label), GetProperty(property));
+
+        // Conditions, from more to less important:
+        // the index with 10x less vertices is better.
+        // the index with smaller average group size is better.
+        // the index with equal avg group size and distribution closer to the uniform is better.
+        // the index with less vertices is better.
+        // the index with same number of vertices but more optimized filter is better.
+        if (!found || vertex_count * 10 < found->vertex_count) {
+          found = LabelPropertyIndex{label, filter, vertex_count, new_stats};
+          continue;
+        }
+
+        if (int cmp_res = compare_indices(found, new_stats, vertex_count);
+            cmp_res == -1 ||
+            cmp_res == 0 && (found->vertex_count > vertex_count ||
+                             found->vertex_count == vertex_count && is_better_type(filter.property_filter->type_))) {
+          found = LabelPropertyIndex{label, filter, vertex_count, new_stats};
         }
       }
     }
     return found;
   }
-
-  // Creates a ScanAll by the best possible index for the `node_symbol`. Best
-  // index is defined as the index with least number of vertices. If the node
+  // Creates a ScanAll by the best possible index for the `node_symbol`. If the node
   // does not have at least a label, no indexed lookup can be created and
   // `nullptr` is returned. The operator is chained after `input`. Optional
   // `max_vertex_count` controls, whether no operator should be created if the

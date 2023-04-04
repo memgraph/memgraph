@@ -22,6 +22,7 @@ import Cypher ;
 memgraphCypherKeyword : cypherKeyword
                       | AFTER
                       | ALTER
+                      | ANALYZE
                       | ASYNC
                       | AUTH
                       | BAD
@@ -53,6 +54,7 @@ memgraphCypherKeyword : cypherKeyword
                       | FREE
                       | FROM
                       | GLOBAL
+                      | GRAPH
                       | GRANT
                       | HEADER
                       | IDENTIFIED
@@ -102,6 +104,8 @@ memgraphCypherKeyword : cypherKeyword
                       | USER
                       | USERS
                       | VERSION
+                      | TERMINATE
+                      | TRANSACTIONS
                       ;
 
 symbolicName : UnescapedSymbolicName
@@ -117,6 +121,7 @@ query : cypherQuery
       | constraintQuery
       | authQuery
       | dumpQuery
+      | analyzeGraphQuery
       | replicationQuery
       | lockPathQuery
       | freeMemoryQuery
@@ -127,6 +132,7 @@ query : cypherQuery
       | settingQuery
       | versionQuery
       | showConfigQuery
+      | transactionQueueQuery
       ;
 
 authQuery : createRole
@@ -170,6 +176,7 @@ clause : cypherMatch
        | callProcedure
        | loadCsv
        | foreach
+       | callSubquery
        ;
 
 updateClause : set
@@ -181,6 +188,8 @@ updateClause : set
              ;
 
 foreach :  FOREACH '(' variable IN expression '|' updateClause+  ')' ;
+
+callSubquery : CALL '{' cypherQuery '}' ;
 
 streamQuery : checkStream
             | createStream
@@ -196,6 +205,14 @@ settingQuery : setSetting
              | showSetting
              | showSettings
              ;
+
+transactionQueueQuery : showTransactions
+                      | terminateTransactions
+                      ;
+
+showTransactions : SHOW TRANSACTIONS ;
+
+terminateTransactions : TERMINATE TRANSACTIONS transactionIdList;
 
 loadCsv : LOAD CSV FROM csvFile ( WITH | NO ) HEADER
          ( IGNORE BAD ) ?
@@ -259,6 +276,7 @@ privilege : CREATE
           | MODULE_READ
           | MODULE_WRITE
           | WEBSOCKET
+          | TRANSACTION_MANAGEMENT
           ;
 
 granularPrivilege : NOTHING | READ | UPDATE | CREATE_DELETE ;
@@ -279,11 +297,11 @@ revokePrivilegesList : privilegeOrEntities ( ',' privilegeOrEntities )* ;
 
 privilegesList : privilege ( ',' privilege )* ;
 
-entitiesList : ASTERISK | listOfEntities ;
+entitiesList : ASTERISK | listOfColonSymbolicNames ;
 
-listOfEntities : entity ( ',' entity )* ;
+listOfColonSymbolicNames : colonSymbolicName ( ',' colonSymbolicName )* ;
 
-entity : COLON symbolicName ;
+colonSymbolicName : COLON symbolicName ;
 
 showPrivileges : SHOW PRIVILEGES FOR userOrRole=userOrRoleName ;
 
@@ -292,6 +310,8 @@ showRoleForUser : SHOW ROLE FOR user=userOrRoleName ;
 showUsersForRole : SHOW USERS FOR role=userOrRoleName ;
 
 dumpQuery: DUMP DATABASE ;
+
+analyzeGraphQuery: ANALYZE GRAPH ( ON LABELS ( listOfColonSymbolicNames | ASTERISK ) ) ? ( DELETE STATISTICS ) ? ;
 
 setReplicationRole  : SET REPLICATION ROLE TO ( MAIN | REPLICA )
                       ( WITH PORT port=literal ) ? ;
@@ -402,3 +422,7 @@ showSettings : SHOW DATABASE SETTINGS ;
 showConfigQuery : SHOW CONFIG ;
 
 versionQuery : SHOW VERSION ;
+
+transactionIdList : transactionId ( ',' transactionId )* ;
+
+transactionId : literal ;
