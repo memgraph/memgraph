@@ -16,6 +16,7 @@ import json
 import multiprocessing
 import platform
 import random
+import sys
 
 import helpers
 import log
@@ -464,7 +465,11 @@ if __name__ == "__main__":
         log.log(str(key) + " : " + str(value))
 
     log.init("Check requirements for running benchmark")
-    setup.check_requirements(benchmark_context=benchmark_context)
+    if setup.check_requirements(benchmark_context=benchmark_context):
+        log.success("Requirements satisfied... ")
+    else:
+        log.warning("Requirements not satisfied...")
+        sys.exit(1)
 
     log.log("Creating cache folder for: dataset, configurations, indexes, results etc. ")
     # Create cache, config and results objects.

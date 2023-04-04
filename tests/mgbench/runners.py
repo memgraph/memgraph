@@ -151,7 +151,6 @@ class BoltClientDocker(BaseClient):
             if "bolt-port" in benchmark_context.vendor_args.keys()
             else "7687"
         )
-        self._image_tag = "bolt_client_image"
         self._container_name = "bolt_client_benchmark"
         self._target_db_container = (
             "memgraph_benchmark" if "memgraph" in benchmark_context.vendor_name else "neo4j_benchmark"
@@ -161,12 +160,8 @@ class BoltClientDocker(BaseClient):
         command = ["docker", "rm", "-f", self._container_name]
         self._run_command(command)
 
-    # def _build_image(self):
-    #     command = ["docker", "build", "-f", "Dockerfile.mgbench_bolt_client", "-t", self._image_tag, "."]
-    #     self._run_command(command)
-
     def _create_container(self, *args):
-        command = ["docker", "create", "--name", self._container_name, self._image_tag, *args]
+        command = ["docker", "create", "--name", self._container_name, "memgraph/mgbench", *args]
         self._run_command(command)
 
     def _get_target_ip(self):
@@ -209,7 +204,6 @@ class BoltClientDocker(BaseClient):
                     f.write("\n")
 
         self._remove_container()
-        # self._build_image()
         ip = self._get_target_ip()
 
         # Query file JSON or Cypher
