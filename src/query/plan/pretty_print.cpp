@@ -261,6 +261,13 @@ bool PlanPrinter::PreVisit(query::plan::Filter &op) {
   op.input_->Accept(*this);
   return false;
 }
+
+bool PlanPrinter::PreVisit(query::plan::Apply &op) {
+  WithPrintLn([](auto &out) { out << "* Apply"; });
+  Branch(*op.subquery_);
+  op.input_->Accept(*this);
+  return false;
+}
 #undef PRE_VISIT
 
 bool PlanPrinter::DefaultPreVisit() {
@@ -949,6 +956,20 @@ bool PlanToJsonVisitor::PreVisit(EvaluatePatternFilter &op) {
 
   op.input_->Accept(*this);
   self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(Apply &op) {
+  json self;
+  self["name"] = "Apply";
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  op.subquery_->Accept(*this);
+  self["subquery"] = PopOutput();
 
   output_ = std::move(self);
   return false;

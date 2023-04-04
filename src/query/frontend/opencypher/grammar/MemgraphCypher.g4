@@ -59,6 +59,8 @@ memgraphCypherKeyword : cypherKeyword
                       | HEADER
                       | IDENTIFIED
                       | ISOLATION
+                      | IN_MEMORY_ANALYTICAL
+                      | IN_MEMORY_TRANSACTIONAL
                       | KAFKA
                       | LABELS
                       | LEVEL
@@ -88,6 +90,7 @@ memgraphCypherKeyword : cypherKeyword
                       | SNAPSHOT
                       | START
                       | STATS
+                      | STORAGE
                       | STREAM
                       | STREAMS
                       | SYNC
@@ -127,6 +130,7 @@ query : cypherQuery
       | freeMemoryQuery
       | triggerQuery
       | isolationLevelQuery
+      | storageModeQuery
       | createSnapshotQuery
       | streamQuery
       | settingQuery
@@ -176,6 +180,7 @@ clause : cypherMatch
        | callProcedure
        | loadCsv
        | foreach
+       | callSubquery
        ;
 
 updateClause : set
@@ -187,6 +192,8 @@ updateClause : set
              ;
 
 foreach :  FOREACH '(' variable IN expression '|' updateClause+  ')' ;
+
+callSubquery : CALL '{' cypherQuery '}' ;
 
 streamQuery : checkStream
             | createStream
@@ -274,6 +281,7 @@ privilege : CREATE
           | MODULE_WRITE
           | WEBSOCKET
           | TRANSACTION_MANAGEMENT
+          | STORAGE_MODE
           ;
 
 granularPrivilege : NOTHING | READ | UPDATE | CREATE_DELETE ;
@@ -350,6 +358,10 @@ isolationLevel : SNAPSHOT ISOLATION | READ COMMITTED | READ UNCOMMITTED ;
 isolationLevelScope : GLOBAL | SESSION | NEXT ;
 
 isolationLevelQuery : SET isolationLevelScope TRANSACTION ISOLATION LEVEL isolationLevel ;
+
+storageMode : IN_MEMORY_ANALYTICAL | IN_MEMORY_TRANSACTIONAL ;
+
+storageModeQuery : STORAGE MODE storageMode ;
 
 createSnapshotQuery : CREATE SNAPSHOT ;
 

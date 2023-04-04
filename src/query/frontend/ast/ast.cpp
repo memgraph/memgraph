@@ -243,6 +243,9 @@ constexpr utils::TypeInfo query::TriggerQuery::kType{utils::TypeId::AST_TRIGGER_
 constexpr utils::TypeInfo query::IsolationLevelQuery::kType{utils::TypeId::AST_ISOLATION_LEVEL_QUERY,
                                                             "IsolationLevelQuery", &query::Query::kType};
 
+constexpr utils::TypeInfo query::StorageModeQuery::kType{utils::TypeId::AST_STORAGE_MODE_QUERY, "StorageModeQuery",
+                                                         &query::Query::kType};
+
 constexpr utils::TypeInfo query::CreateSnapshotQuery::kType{utils::TypeId::AST_CREATE_SNAPSHOT_QUERY,
                                                             "CreateSnapshotQuery", &query::Query::kType};
 
@@ -267,4 +270,7 @@ constexpr utils::TypeInfo query::TransactionQueueQuery::kType{utils::TypeId::AST
                                                               "TransactionQueueQuery", &query::Query::kType};
 
 constexpr utils::TypeInfo query::Exists::kType{utils::TypeId::AST_EXISTS, "Exists", &query::Expression::kType};
+
+constexpr utils::TypeInfo query::CallSubquery::kType{utils::TypeId::AST_CALL_SUBQUERY, "CallSubquery",
+                                                     &query::Clause::kType};
 }  // namespace memgraph
