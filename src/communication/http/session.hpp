@@ -32,7 +32,6 @@
 
 namespace memgraph::communication::http {
 using tcp = boost::asio::ip::tcp;
-namespace http = boost::beast::http;
 
 class Session : public std::enable_shared_from_this<Session> {
  public:

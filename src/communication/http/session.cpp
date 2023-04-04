@@ -84,21 +84,23 @@ void Session::OnRead(const boost::beast::error_code ec, const size_t bytes_trans
     return LogError(ec, "read");
   }
 
+  auto async_write = [this](http::response<http::string_body> msg) {
+    // The lifetime of the message has to extend
+    // for the duration of the async operation so
+    // we use a shared_ptr to manage it.
+    auto sp = std::make_shared<http::response<http::string_body>>(std::move(msg));
+
+    // Store a type-erased version of the shared
+    // pointer in the class to keep it alive.
+    res_ = sp;
+
+    // Write the response
+    boost::beast::http::async_write(
+        stream_, *sp, boost::asio::bind_executor(strand_, std::bind_front(&Session::OnWrite, shared_from_this())));
+  };
+
   // handle request
-  // handle_request(std::move(req_), [this](auto msg) {
-  //   // The lifetime of the message has to extend
-  //   // for the duration of the async operation so
-  //   // we use a shared_ptr to manage it.
-  //   auto sp = std::make_shared<http::message<isRequest, Body, Fields>>(std::move(msg));
-
-  //   // Store a type-erased version of the shared
-  //   // pointer in the class to keep it alive.
-  //   res_ = sp;
-
-  //   // Write the response
-  //   boost::beast::http::async_write(
-  //       stream_, *sp, boost::asio::bind_executor(strand_, std::bind_front(&Session::OnWrite, shared_from_this())));
-  // });
+  HandleRequest(std::move(req_), async_write);
 }
 
 void Session::DoClose() {
