@@ -34,15 +34,33 @@ void LogError(const boost::beast::error_code ec, const std::string_view what) {
 }
 }  // namespace
 
+std::variant<Session::PlainSocket, Session::SSLSocket> Session::CreateSocket(tcp::socket &&socket,
+                                                                             ServerContext &context) {
+  if (context.use_ssl()) {
+    ssl_context_.emplace(context.context_clone());
+    return Session::SSLSocket{std::move(socket), *ssl_context_};
+  }
+
+  return Session::PlainSocket{std::move(socket)};
+}
+
 Session::Session(tcp::socket &&socket, ServerContext &context)
-    : stream_(std::move(socket)), strand_{boost::asio::make_strand(GetExecutor())} {}
+    : stream_(CreateSocket(std::move(socket), context)), strand_{boost::asio::make_strand(GetExecutor())} {}
 
 void Session::Run() {
+  if (auto *ssl = std::get_if<SSLSocket>(&stream_); ssl != nullptr) {
+    try {
+      boost::beast::get_lowest_layer(*ssl).expires_after(std::chrono::seconds(30));
+      ssl->handshake(boost::asio::ssl::stream_base::server);
+    } catch (const boost::system::system_error &e) {
+      spdlog::warn("Failed on SSL handshake: {}", e.what());
+      return;
+    }
+  }
+
   // run on the strand
   boost::asio::dispatch(strand_, [shared_this = shared_from_this()] { shared_this->DoRead(); });
 }
-
-bool Session::IsConnected() const { return connected_.load(std::memory_order_relaxed); }
 
 void Session::OnWrite(boost::beast::error_code ec, size_t bytes_transferred) {
   boost::ignore_unused(bytes_transferred);
@@ -65,11 +83,13 @@ void Session::OnWrite(boost::beast::error_code ec, size_t bytes_transferred) {
 void Session::DoRead() {
   req_ = {};
 
-  stream_.expires_after(std::chrono::seconds(30));
+  ExecuteForStream([this](auto &&stream) {
+    beast::get_lowest_layer(stream).expires_after(std::chrono::seconds(30));
 
-  boost::beast::http::async_read(
-      stream_, buffer_, req_,
-      boost::asio::bind_executor(strand_, std::bind_front(&Session::OnRead, shared_from_this())));
+    boost::beast::http::async_read(
+        stream, buffer_, req_,
+        boost::asio::bind_executor(strand_, std::bind_front(&Session::OnRead, shared_from_this())));
+  });
 }
 
 void Session::OnRead(const boost::beast::error_code ec, const size_t bytes_transferred) {
@@ -85,18 +105,19 @@ void Session::OnRead(const boost::beast::error_code ec, const size_t bytes_trans
   }
 
   auto async_write = [this](http::response<http::string_body> msg) {
-    // The lifetime of the message has to extend
-    // for the duration of the async operation so
-    // we use a shared_ptr to manage it.
-    auto sp = std::make_shared<http::response<http::string_body>>(std::move(msg));
+    ExecuteForStream([this, &msg](auto &&stream) {
+      // The lifetime of the message has to extend
+      // for the duration of the async operation so
+      // we use a shared_ptr to manage it.
+      auto sp = std::make_shared<http::response<http::string_body>>(std::move(msg));
 
-    // Store a type-erased version of the shared
-    // pointer in the class to keep it alive.
-    res_ = sp;
-
-    // Write the response
-    boost::beast::http::async_write(
-        stream_, *sp, boost::asio::bind_executor(strand_, std::bind_front(&Session::OnWrite, shared_from_this())));
+      // Store a type-erased version of the shared
+      // pointer in the class to keep it alive.
+      res_ = sp;
+      // Write the response
+      boost::beast::http::async_write(
+          stream, *sp, boost::asio::bind_executor(strand_, std::bind_front(&Session::OnWrite, shared_from_this())));
+    });
   };
 
   // handle request
@@ -104,8 +125,24 @@ void Session::OnRead(const boost::beast::error_code ec, const size_t bytes_trans
 }
 
 void Session::DoClose() {
-  boost::beast::error_code ec;
-  stream_.socket().shutdown(tcp::socket::shutdown_send, ec);
+  std::visit(
+      utils::Overloaded{[this](SSLSocket &stream) {
+                          boost::beast::get_lowest_layer(stream).expires_after(std::chrono::seconds(30));
+
+                          // Perform the SSL shutdown
+                          stream.async_shutdown(beast::bind_front_handler(&Session::OnClose, shared_from_this()));
+                        },
+                        [](PlainSocket &stream) {
+                          boost::beast::error_code ec;
+                          stream.socket().shutdown(tcp::socket::shutdown_send, ec);
+                        }},
+      stream_);
+}
+
+void Session::OnClose(boost::beast::error_code ec) {
+  if (ec) {
+    LogError(ec, "close");
+  }
 
   // At this point the connection is closed gracefully
 }

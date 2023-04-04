@@ -26,14 +26,13 @@
 #include <json/json.hpp>
 
 #include "communication/context.hpp"
-#include "utils/result.hpp"
-#include "utils/synchronized.hpp"
 #include "utils/variant_helpers.hpp"
 
 namespace memgraph::communication::http {
-using tcp = boost::asio::ip::tcp;
 
 class Session : public std::enable_shared_from_this<Session> {
+  using tcp = boost::asio::ip::tcp;
+
  public:
   template <typename... Args>
   static std::shared_ptr<Session> Create(Args &&...args) {
@@ -41,10 +40,14 @@ class Session : public std::enable_shared_from_this<Session> {
   }
 
   void Run();
-  bool IsConnected() const;
 
  private:
+  using PlainSocket = boost::beast::tcp_stream;
+  using SSLSocket = boost::beast::ssl_stream<boost::beast::tcp_stream>;
+
   explicit Session(tcp::socket &&socket, ServerContext &context);
+
+  std::variant<PlainSocket, SSLSocket> CreateSocket(tcp::socket &&socket, ServerContext &context);
 
   void OnWrite(boost::beast::error_code ec, size_t bytes_transferred);
 
@@ -52,17 +55,23 @@ class Session : public std::enable_shared_from_this<Session> {
   void OnRead(boost::beast::error_code ec, size_t bytes_transferred);
 
   void DoClose();
+  void OnClose(boost::beast::error_code ec);
 
-  auto GetExecutor() { return stream_.get_executor(); }
+  auto GetExecutor() {
+    return std::visit(utils::Overloaded{[](auto &&stream) { return stream.get_executor(); }}, stream_);
+  }
 
-  boost::beast::tcp_stream stream_;
+  template <typename F>
+  decltype(auto) ExecuteForStream(F &&fn) {
+    return std::visit(utils::Overloaded{std::forward<F>(fn)}, stream_);
+  }
 
+  std::optional<std::reference_wrapper<boost::asio::ssl::context>> ssl_context_;
+  std::variant<PlainSocket, SSLSocket> stream_;
   boost::beast::flat_buffer buffer_;
   boost::beast::http::request<boost::beast::http::string_body> req_;
   std::shared_ptr<void> res_;
-
   boost::asio::strand<boost::beast::tcp_stream::executor_type> strand_;
-  std::atomic<bool> connected_{false};
   bool close_{false};
 };
 }  // namespace memgraph::communication::http
