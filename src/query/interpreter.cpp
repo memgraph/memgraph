@@ -2082,7 +2082,7 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
                                                   "https://memgr.ph/replication"));
               break;
             case storage::Storage::CreateSnapshotError::ReachedMaxNumTries:
-              spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support", );
+              spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
               break;
           }
         }
