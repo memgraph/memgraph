@@ -1,10 +1,10 @@
-name: "Mgbench bolt client docker image release"
+name: "Mgbench Bolt Client Publish Docker Image"
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Mgbench bolt client docker image"
+        description: "Mgbench bolt client version to publish on Dockerhub."
         required: true
       force_release:
         type: boolean
@@ -12,13 +12,13 @@ on:
         default: false
 
 jobs:
-  docker_mgbench_publish:
+  mgbench_docker_publish:
     runs-on: ubuntu-latest
     env:
       DOCKER_ORGANIZATION_NAME: memgraph
       DOCKER_REPOSITORY_NAME: mgbench
 
-steps:
+    steps:
       - name: Checkout
         uses: actions/checkout@v3
 
