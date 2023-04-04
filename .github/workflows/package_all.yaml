@@ -111,7 +111,7 @@ jobs:
       - name: "Upload package"
         uses: actions/upload-artifact@v3
         with:
-          name: ubuntu-1804
+          name: ubuntu-18.04
           path: build/output/ubuntu-18.04/memgraph*.deb
 
   ubuntu-2004:
@@ -128,7 +128,7 @@ jobs:
       - name: "Upload package"
         uses: actions/upload-artifact@v3
         with:
-          name: ubuntu-2004
+          name: ubuntu-20.04
           path: build/output/ubuntu-20.04/memgraph*.deb
 
   ubuntu-2204:
@@ -145,7 +145,7 @@ jobs:
       - name: "Upload package"
         uses: actions/upload-artifact@v3
         with:
-          name: ubuntu-2204
+          name: ubuntu-22.04
           path: build/output/ubuntu-22.04/memgraph*.deb
 
   debian-11-platform:
@@ -201,7 +201,7 @@ jobs:
 
   debian-11-arm:
     runs-on: [self-hosted, DockerMgBuild, ARM64, strange]
-    timeout-minutes: 240
+    timeout-minutes: 60
     steps:
       - name: "Set up repository"
         uses: actions/checkout@v3
@@ -218,7 +218,7 @@ jobs:
 
   ubuntu-2204-arm:
     runs-on: [self-hosted, DockerMgBuild, ARM64, strange]
-    timeout-minutes: 240
+    timeout-minutes: 60
     steps:
       - name: "Set up repository"
         uses: actions/checkout@v3
