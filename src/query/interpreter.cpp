@@ -1169,7 +1169,6 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
       if (in_explicit_transaction_) {
         throw ExplicitTransactionUsageException("Nested transactions are not supported.");
       }
-
       in_explicit_transaction_ = true;
       expect_rollback_ = false;
 
@@ -2000,7 +1999,16 @@ constexpr auto ToStorageIsolationLevel(const IsolationLevelQuery::IsolationLevel
   }
 }
 
-PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+constexpr auto ToStorageMode(const StorageModeQuery::StorageMode storage_mode) noexcept {
+  switch (storage_mode) {
+    case StorageModeQuery::StorageMode::IN_MEMORY_TRANSACTIONAL:
+      return storage::StorageMode::IN_MEMORY_TRANSACTIONAL;
+    case StorageModeQuery::StorageMode::IN_MEMORY_ANALYTICAL:
+      return storage::StorageMode::IN_MEMORY_ANALYTICAL;
+  }
+}
+
+PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
                                          InterpreterContext *interpreter_context, Interpreter *interpreter) {
   if (in_explicit_transaction) {
     throw IsolationLevelModificationInMulticommandTxException();
@@ -2015,7 +2023,15 @@ PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, bool in_expli
                    interpreter]() -> std::function<void()> {
     switch (isolation_level_query->isolation_level_scope_) {
       case IsolationLevelQuery::IsolationLevelScope::GLOBAL:
-        return [interpreter_context, isolation_level] { interpreter_context->db->SetIsolationLevel(isolation_level); };
+        return [interpreter_context, isolation_level] {
+          if (auto maybe_error = interpreter_context->db->SetIsolationLevel(isolation_level); maybe_error.HasError()) {
+            switch (maybe_error.GetError()) {
+              case storage::Storage::SetIsolationLevelError::DisabledForAnalyticalMode:
+                throw IsolationLevelModificationInAnalyticsException();
+                break;
+            }
+          }
+        };
       case IsolationLevelQuery::IsolationLevelScope::SESSION:
         return [interpreter, isolation_level] { interpreter->SetSessionIsolationLevel(isolation_level); };
       case IsolationLevelQuery::IsolationLevelScope::NEXT:
@@ -2033,6 +2049,41 @@ PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, bool in_expli
       RWType::NONE};
 }
 
+PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
+                                      InterpreterContext *interpreter_context) {
+  if (in_explicit_transaction) {
+    throw StorageModeModificationInMulticommandTxException();
+  }
+
+  auto *storage_mode_query = utils::Downcast<StorageModeQuery>(parsed_query.query);
+  MG_ASSERT(storage_mode_query);
+  const auto storage_mode = ToStorageMode(storage_mode_query->storage_mode_);
+
+  auto exists_active_transaction = interpreter_context->interpreters.WithLock([](const auto &interpreters_) {
+    return std::any_of(interpreters_.begin(), interpreters_.end(), [](const auto &interpreter) {
+      return interpreter->transaction_status_.load() != TransactionStatus::IDLE;
+    });
+  });
+  if (exists_active_transaction) {
+    spdlog::info(
+        "Storage mode will be modified when there are no other active transactions. Check the status of the "
+        "transactions using 'SHOW TRANSACTIONS' query and ensure no other transactions are active.");
+  }
+
+  auto callback = [storage_mode, interpreter_context]() -> std::function<void()> {
+    return [interpreter_context, storage_mode] { interpreter_context->db->SetStorageMode(storage_mode); };
+  }();
+
+  return PreparedQuery{{},
+                       std::move(parsed_query.required_privileges),
+                       [callback = std::move(callback)](AnyStream * /*stream*/,
+                                                        std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
+                         callback();
+                         return QueryHandlerResult::COMMIT;
+                       },
+                       RWType::NONE};
+}
+
 PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                          InterpreterContext *interpreter_context) {
   if (in_explicit_transaction) {
@@ -2043,11 +2094,18 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
       {},
       std::move(parsed_query.required_privileges),
       [interpreter_context](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-        if (auto maybe_error = interpreter_context->db->CreateSnapshot(); maybe_error.HasError()) {
+        if (auto maybe_error = interpreter_context->db->CreateSnapshot({}); maybe_error.HasError()) {
           switch (maybe_error.GetError()) {
             case storage::Storage::CreateSnapshotError::DisabledForReplica:
               throw utils::BasicException(
                   "Failed to create a snapshot. Replica instances are not allowed to create them.");
+            case storage::Storage::CreateSnapshotError::DisabledForAnalyticsPeriodicCommit:
+              spdlog::warn(utils::MessageWithLink("Periodic snapshots are disabled for analytical mode.",
+                                                  "https://memgr.ph/replication"));
+              break;
+            case storage::Storage::CreateSnapshotError::ReachedMaxNumTries:
+              spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
+              break;
           }
         }
         return QueryHandlerResult::COMMIT;
@@ -2769,6 +2827,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_, &*execution_db_accessor_);
     } else if (utils::Downcast<VersionQuery>(parsed_query.query)) {
       prepared_query = PrepareVersionQuery(std::move(parsed_query), in_explicit_transaction_);
+    } else if (utils::Downcast<StorageModeQuery>(parsed_query.query)) {
+      prepared_query = PrepareStorageModeQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
     } else if (utils::Downcast<TransactionQueueQuery>(parsed_query.query)) {
       prepared_query = PrepareTransactionQueueQuery(std::move(parsed_query), username_, in_explicit_transaction_,
                                                     interpreter_context_, &*execution_db_accessor_);

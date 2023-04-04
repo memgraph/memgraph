@@ -30,3 +30,6 @@ add_subdirectory(env_variable_check)
 
 #flag check binaries
 add_subdirectory(flag_check)
+
+#flag check binaries
+add_subdirectory(storage_mode)
