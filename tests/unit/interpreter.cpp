@@ -49,8 +49,9 @@ auto ToEdgeList(const memgraph::communication::bolt::Value &v) {
 class InterpreterTest : public ::testing::Test {
  public:
   memgraph::storage::Storage db_;
+  memgraph::storage::rocks::RocksDBStorage disk_db;
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_interpreter"};
-  memgraph::query::InterpreterContext interpreter_context{&db_, {}, data_directory};
+  memgraph::query::InterpreterContext interpreter_context{&db_, &disk_db, {}, data_directory};
 
   InterpreterFaker default_interpreter{&interpreter_context};
 
@@ -1066,7 +1067,7 @@ TEST_F(InterpreterTest, AllowLoadCsvConfig) {
         "row"};
 
     memgraph::query::InterpreterContext csv_interpreter_context{
-        &db_, {.query = {.allow_load_csv = allow_load_csv}}, directory_manager.Path()};
+        &db_, &disk_db, {.query = {.allow_load_csv = allow_load_csv}}, directory_manager.Path()};
     InterpreterFaker interpreter_faker{&csv_interpreter_context};
     for (const auto &query : queries) {
       if (allow_load_csv) {

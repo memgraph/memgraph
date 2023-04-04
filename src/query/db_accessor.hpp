@@ -182,6 +182,8 @@ class VertexAccessor final {
 
   storage::Gid Gid() const noexcept { return impl_.Gid(); }
 
+  void SetGid(storage::Gid gid) { impl_.SetGid(gid); }
+
   bool operator==(const VertexAccessor &v) const noexcept {
     static_assert(noexcept(impl_ == v.impl_));
     return impl_ == v.impl_;

@@ -169,7 +169,8 @@ Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
     labels = vertex_->labels;
     delta = vertex_->delta;
   }
-  ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &labels](const Delta &delta) {
+  return std::move(labels);
+  /*ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &labels](const Delta &delta) {
     switch (delta.action) {
       case Delta::Action::REMOVE_LABEL: {
         // Remove the label because we don't see the addition.
@@ -205,6 +206,7 @@ Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
   if (!exists) return Error::NONEXISTENT_OBJECT;
   if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return std::move(labels);
+  */
 }
 
 Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const PropertyValue &value) {

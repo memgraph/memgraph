@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,6 +28,7 @@ DECLARE_bool(query_cost_planner);
 class QueryExecution : public testing::Test {
  protected:
   std::optional<memgraph::storage::Storage> db_;
+  std::optional<memgraph::storage::rocks::RocksDBStorage> disk_db_;
   std::optional<memgraph::query::InterpreterContext> interpreter_context_;
   std::optional<memgraph::query::Interpreter> interpreter_;
 
@@ -35,7 +36,8 @@ class QueryExecution : public testing::Test {
 
   void SetUp() {
     db_.emplace();
-    interpreter_context_.emplace(&*db_, memgraph::query::InterpreterConfig{}, data_directory);
+    disk_db_.emplace();
+    interpreter_context_.emplace(&*db_, &*disk_db_, memgraph::query::InterpreterConfig{}, data_directory);
     interpreter_.emplace(&*interpreter_context_);
   }
 

@@ -13,6 +13,7 @@
 
 #include <optional>
 
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/vertex.hpp"
 
 #include "storage/v2/config.hpp"
@@ -100,6 +101,8 @@ class VertexAccessor final {
   Result<size_t> OutDegree(View view) const;
 
   Gid Gid() const noexcept { return vertex_->gid; }
+
+  void SetGid(storage::Gid gid_) { vertex_->gid = storage::Gid::FromUint(gid_.AsUint()); }
 
   bool operator==(const VertexAccessor &other) const noexcept {
     return vertex_ == other.vertex_ && transaction_ == other.transaction_;

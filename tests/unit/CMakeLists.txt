@@ -303,6 +303,9 @@ target_link_libraries(${test_prefix}storage_v2_decoder_encoder mg-storage-v2)
 add_unit_test(storage_v2_durability.cpp)
 target_link_libraries(${test_prefix}storage_v2_durability mg-storage-v2)
 
+add_unit_test(storage_rocks.cpp)
+target_link_libraries(${test_prefix}storage_rocks mg-storage-v2)
+
 add_unit_test(storage_v2_edge.cpp)
 target_link_libraries(${test_prefix}storage_v2_edge mg-storage-v2)
 

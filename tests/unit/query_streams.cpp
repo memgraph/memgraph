@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,6 +22,7 @@
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
 #include "query/stream/streams.hpp"
+#include "storage/rocks/storage.hpp"
 #include "storage/v2/storage.hpp"
 #include "test_utils.hpp"
 
@@ -55,6 +56,7 @@ class StreamsTest : public ::testing::Test {
 
  protected:
   memgraph::storage::Storage db_;
+  memgraph::storage::rocks::RocksDBStorage disk_db_;
   std::filesystem::path data_directory_{GetCleanDataDirectory()};
   KafkaClusterMock mock_cluster_{std::vector<std::string>{kTopicName}};
   // Though there is a Streams object in interpreter context, it makes more sense to use a separate object to test,
@@ -62,7 +64,8 @@ class StreamsTest : public ::testing::Test {
   // Streams constructor.
   // InterpreterContext::auth_checker_ is used in the Streams object, but only in the message processing part. Because
   // these tests don't send any messages, the auth_checker_ pointer can be left as nullptr.
-  memgraph::query::InterpreterContext interpreter_context_{&db_, memgraph::query::InterpreterConfig{}, data_directory_};
+  memgraph::query::InterpreterContext interpreter_context_{&db_, &disk_db_, memgraph::query::InterpreterConfig{},
+                                                           data_directory_};
   std::filesystem::path streams_data_directory_{data_directory_ / "separate-dir-for-test"};
   std::optional<Streams> streams_;
 

@@ -493,7 +493,6 @@ UniqueCursorPtr ScanAll::MakeCursor(utils::MemoryResource *mem) const {
   auto vertices = [this](Frame &, ExecutionContext &context) {
     auto *db = context.db_accessor;
     auto vertices = std::make_optional(db->Vertices(view_));
-    const std::vector<storage::Vertex> disk_vertices = context.disk_db->Vertices();
     return vertices;
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem), view_,
