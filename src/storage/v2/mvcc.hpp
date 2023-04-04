@@ -12,6 +12,7 @@
 #pragma once
 
 #include <atomic>
+
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/view.hpp"
@@ -95,6 +96,9 @@ inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
 /// a `DELETE_OBJECT` delta).
 /// @throw std::bad_alloc
 inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
+  if (transaction->storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
+    return nullptr;
+  }
   transaction->EnsureCommitTimestampExists();
   return &transaction->deltas.emplace_back(Delta::DeleteObjectTag(), transaction->commit_timestamp.get(),
                                            transaction->command_id);
@@ -105,6 +109,9 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
 /// @throw std::bad_alloc
 template <typename TObj, class... Args>
 inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&...args) {
+  if (transaction->storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
+    return;
+  }
   transaction->EnsureCommitTimestampExists();
   auto delta = &transaction->deltas.emplace_back(std::forward<Args>(args)..., transaction->commit_timestamp.get(),
                                                  transaction->command_id);
