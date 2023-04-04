@@ -564,7 +564,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
      */
     auto compare_indices = [](std::optional<LabelPropertyIndex> &found, std::optional<storage::IndexStats> &new_stats,
                               int vertex_count) {
-      if (!new_stats.has_value() || vertex_count / 10.0 > found->vertex_count) {
+      if (!new_stats.has_value()) {
+        return 0;
+      }
+
+      if (vertex_count / 10.0 > found->vertex_count) {
         return 1;
       }
       int cmp_avg_group = utils::CompareDecimal(new_stats->avg_group_size, found->index_stats->avg_group_size);
