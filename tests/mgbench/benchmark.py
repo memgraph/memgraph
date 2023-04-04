@@ -30,8 +30,10 @@ WITHOUT_FINE_GRAINED_AUTHORIZATION = "without_fine_grained_authorization"
 QUERY_COUNT_LOWER_BOUND = 30
 
 
+# Some random change
+# other chanfe
+# test
 def parse_args():
-
     parser = argparse.ArgumentParser(description="Main parser.", add_help=False)
 
     benchmark_parser = argparse.ArgumentParser(description="Benchmark arguments parser", add_help=False)
@@ -255,7 +257,7 @@ def mixed_workload(
         "analytical": [],
     }
 
-    for (_, funcname) in queries[group]:
+    for _, funcname in queries[group]:
         for key in queries_by_type.keys():
             if key in funcname:
                 queries_by_type[key].append(funcname)
@@ -370,7 +372,6 @@ def get_query_cache_count(
     config_key: list,
     benchmark_context: BenchmarkContext,
 ):
-
     cached_count = config.get_value(*config_key)
     if cached_count is None:
         log.info(
@@ -424,7 +425,6 @@ def get_query_cache_count(
 
 
 if __name__ == "__main__":
-
     args = parse_args()
     vendor_specific_args = helpers.parse_kwargs(args.vendor_specific)
 
@@ -677,7 +677,6 @@ if __name__ == "__main__":
                 vendor_runner.stop_db("authorization")
 
                 for query, funcname in queries[group]:
-
                     log.init(
                         "Running query:" + "{}/{}/{}/{}".format(group, query, funcname, WITH_FINE_GRAINED_AUTHORIZATION)
                     )
