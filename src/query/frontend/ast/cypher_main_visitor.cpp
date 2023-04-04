@@ -11,8 +11,10 @@
 
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include <support/Any.h>
+#include <tree/ParseTreeVisitor.h>
 
 #include <algorithm>
+#include <any>
 #include <climits>
 #include <codecvt>
 #include <cstring>
@@ -237,6 +239,23 @@ antlrcpp::Any CypherMainVisitor::visitDumpQuery(MemgraphCypher::DumpQueryContext
   auto *dump_query = storage_->Create<DumpQuery>();
   query_ = dump_query;
   return dump_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitAnalyzeGraphQuery(MemgraphCypher::AnalyzeGraphQueryContext *ctx) {
+  auto *analyze_graph_query = storage_->Create<AnalyzeGraphQuery>();
+  if (ctx->listOfColonSymbolicNames()) {
+    analyze_graph_query->labels_ =
+        std::any_cast<std::vector<std::string>>(ctx->listOfColonSymbolicNames()->accept(this));
+  } else {
+    analyze_graph_query->labels_.emplace_back("*");
+  }
+  if (ctx->DELETE()) {
+    analyze_graph_query->action_ = AnalyzeGraphQuery::Action::DELETE;
+  } else {
+    analyze_graph_query->action_ = AnalyzeGraphQuery::Action::ANALYZE;
+  }
+  query_ = analyze_graph_query;
+  return analyze_graph_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitReplicationQuery(MemgraphCypher::ReplicationQueryContext *ctx) {
@@ -631,6 +650,7 @@ void GetTopicNames(auto &destination, MemgraphCypher::TopicNamesContext *topic_n
     destination = std::any_cast<Expression *>(topic_names_ctx->accept(&visitor));
   }
 }
+
 }  // namespace
 
 antlrcpp::Any CypherMainVisitor::visitKafkaCreateStreamConfig(MemgraphCypher::KafkaCreateStreamConfigContext *ctx) {
@@ -883,6 +903,34 @@ antlrcpp::Any CypherMainVisitor::visitShowSettings(MemgraphCypher::ShowSettingsC
   return setting_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitTransactionQueueQuery(MemgraphCypher::TransactionQueueQueryContext *ctx) {
+  MG_ASSERT(ctx->children.size() == 1, "TransactionQueueQuery should have exactly one child!");
+  auto *transaction_queue_query = std::any_cast<TransactionQueueQuery *>(ctx->children[0]->accept(this));
+  query_ = transaction_queue_query;
+  return transaction_queue_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowTransactions(MemgraphCypher::ShowTransactionsContext * /*ctx*/) {
+  auto *transaction_shower = storage_->Create<TransactionQueueQuery>();
+  transaction_shower->action_ = TransactionQueueQuery::Action::SHOW_TRANSACTIONS;
+  return transaction_shower;
+}
+
+antlrcpp::Any CypherMainVisitor::visitTerminateTransactions(MemgraphCypher::TerminateTransactionsContext *ctx) {
+  auto *terminator = storage_->Create<TransactionQueueQuery>();
+  terminator->action_ = TransactionQueueQuery::Action::TERMINATE_TRANSACTIONS;
+  terminator->transaction_id_list_ = std::any_cast<std::vector<Expression *>>(ctx->transactionIdList()->accept(this));
+  return terminator;
+}
+
+antlrcpp::Any CypherMainVisitor::visitTransactionIdList(MemgraphCypher::TransactionIdListContext *ctx) {
+  std::vector<Expression *> transaction_ids;
+  for (auto *transaction_id : ctx->transactionId()) {
+    transaction_ids.push_back(std::any_cast<Expression *>(transaction_id->accept(this)));
+  }
+  return transaction_ids;
+}
+
 antlrcpp::Any CypherMainVisitor::visitVersionQuery(MemgraphCypher::VersionQueryContext * /*ctx*/) {
   auto *version_query = storage_->Create<VersionQuery>();
   query_ = version_query;
@@ -940,6 +988,10 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
       if (call_procedure->is_write_) {
         calls_write_procedure = true;
         has_update = true;
+      }
+    } else if (const auto *call_subquery = utils::Downcast<CallSubquery>(clause); call_subquery != nullptr) {
+      if (has_return) {
+        throw SemanticException("CALL can't be put after RETURN clause.");
       }
     } else if (utils::IsSubtype(clause_type, Unwind::kType)) {
       check_write_procedure("UNWIND");
@@ -1052,6 +1104,9 @@ antlrcpp::Any CypherMainVisitor::visitClause(MemgraphCypher::ClauseContext *ctx)
   }
   if (ctx->foreach ()) {
     return static_cast<Clause *>(std::any_cast<Foreach *>(ctx->foreach ()->accept(this)));
+  }
+  if (ctx->callSubquery()) {
+    return static_cast<Clause *>(std::any_cast<CallSubquery *>(ctx->callSubquery()->accept(this)));
   }
   // TODO: implement other clauses.
   throw utils::NotYetImplemented("clause '{}'", ctx->getText());
@@ -1410,19 +1465,23 @@ antlrcpp::Any CypherMainVisitor::visitEntityPrivilegeList(MemgraphCypher::Entity
   return result;
 }
 
+antlrcpp::Any CypherMainVisitor::visitListOfColonSymbolicNames(MemgraphCypher::ListOfColonSymbolicNamesContext *ctx) {
+  std::vector<std::string> symbolic_names;
+  for (auto *symbolic_name : ctx->colonSymbolicName()) {
+    symbolic_names.push_back(std::any_cast<std::string>(symbolic_name->symbolicName()->accept(this)));
+  }
+  return symbolic_names;
+}
+
 /**
  * @return std::vector<std::string>
  */
 antlrcpp::Any CypherMainVisitor::visitEntitiesList(MemgraphCypher::EntitiesListContext *ctx) {
   std::vector<std::string> entities;
-  if (ctx->listOfEntities()) {
-    for (auto *entity : ctx->listOfEntities()->entity()) {
-      entities.push_back(std::any_cast<std::string>(entity->symbolicName()->accept(this)));
-    }
-  } else {
-    entities.emplace_back("*");
+  if (ctx->listOfColonSymbolicNames()) {
+    return ctx->listOfColonSymbolicNames()->accept(this);
   }
-
+  entities.emplace_back("*");
   return entities;
 }
 
@@ -1451,6 +1510,7 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
   if (ctx->MODULE_READ()) return AuthQuery::Privilege::MODULE_READ;
   if (ctx->MODULE_WRITE()) return AuthQuery::Privilege::MODULE_WRITE;
   if (ctx->WEBSOCKET()) return AuthQuery::Privilege::WEBSOCKET;
+  if (ctx->TRANSACTION_MANAGEMENT()) return AuthQuery::Privilege::TRANSACTION_MANAGEMENT;
   LOG_FATAL("Should not get here - unknown privilege!");
 }
 
@@ -1543,6 +1603,7 @@ antlrcpp::Any CypherMainVisitor::visitReturnItem(MemgraphCypher::ReturnItemConte
   named_expr->expression_ = std::any_cast<Expression *>(ctx->expression()->accept(this));
   MG_ASSERT(named_expr->expression_);
   if (ctx->variable()) {
+    named_expr->is_aliased_ = true;
     named_expr->name_ = std::string(std::any_cast<std::string>(ctx->variable()->accept(this)));
     users_identifiers.insert(named_expr->name_);
   } else {
@@ -2510,6 +2571,20 @@ antlrcpp::Any CypherMainVisitor::visitForeach(MemgraphCypher::ForeachContext *ct
 antlrcpp::Any CypherMainVisitor::visitShowConfigQuery(MemgraphCypher::ShowConfigQueryContext * /*ctx*/) {
   query_ = storage_->Create<ShowConfigQuery>();
   return query_;
+}
+
+antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryContext *ctx) {
+  auto *call_subquery = storage_->Create<CallSubquery>();
+
+  MG_ASSERT(ctx->cypherQuery(), "Expected query inside subquery clause");
+
+  if (ctx->cypherQuery()->queryMemoryLimit()) {
+    throw SyntaxException("Memory limit cannot be set on subqueries!");
+  }
+
+  call_subquery->cypher_query_ = std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
+
+  return call_subquery;
 }
 
 LabelIx CypherMainVisitor::AddLabel(const std::string &name) { return storage_->GetLabelIx(name); }

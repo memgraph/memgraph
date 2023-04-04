@@ -184,6 +184,16 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitDumpQuery(MemgraphCypher::DumpQueryContext *ctx) override;
 
   /**
+  @return std::vector<std::string>
+  */
+  antlrcpp::Any visitListOfColonSymbolicNames(MemgraphCypher::ListOfColonSymbolicNamesContext *ctx) override;
+
+  /**
+   * @return AnalyzeGraphQuery*
+   */
+  antlrcpp::Any visitAnalyzeGraphQuery(MemgraphCypher::AnalyzeGraphQueryContext *ctx) override;
+
+  /**
    * @return ReplicationQuery*
    */
   antlrcpp::Any visitReplicationQuery(MemgraphCypher::ReplicationQueryContext *ctx) override;
@@ -357,6 +367,26 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return ShowSettings*
    */
   antlrcpp::Any visitShowSettings(MemgraphCypher::ShowSettingsContext *ctx) override;
+
+  /**
+   * @return TransactionQueueQuery*
+   */
+  antlrcpp::Any visitTransactionQueueQuery(MemgraphCypher::TransactionQueueQueryContext *ctx) override;
+
+  /**
+   * @return ShowTransactions*
+   */
+  antlrcpp::Any visitShowTransactions(MemgraphCypher::ShowTransactionsContext *ctx) override;
+
+  /**
+   * @return TerminateTransactions*
+   */
+  antlrcpp::Any visitTerminateTransactions(MemgraphCypher::TerminateTransactionsContext *ctx) override;
+
+  /**
+   * @return TransactionIdList*
+   */
+  antlrcpp::Any visitTransactionIdList(MemgraphCypher::TransactionIdListContext *ctx) override;
 
   /**
    * @return VersionQuery*
@@ -891,6 +921,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return ShowConfigQuery*
    */
   antlrcpp::Any visitShowConfigQuery(MemgraphCypher::ShowConfigQueryContext *ctx) override;
+
+  /**
+   * @return CallSubquery*
+   */
+  antlrcpp::Any visitCallSubquery(MemgraphCypher::CallSubqueryContext *ctx) override;
 
  public:
   Query *query() { return query_; }

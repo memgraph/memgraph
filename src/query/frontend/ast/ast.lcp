@@ -1237,7 +1237,9 @@ cpp<#
    (token-position :int32_t :initval -1 :scope :public
                    :documentation "This field contains token position of first token in named expression used to create name_. If NamedExpression object is not created from query or it is aliased leave this value at -1.")
    (symbol-pos :int32_t :initval -1 :scope :public
-               :documentation "Symbol table position of the symbol this NamedExpression is mapped to."))
+               :documentation "Symbol table position of the symbol this NamedExpression is mapped to.")
+   (is-aliased :bool :initval "false" :scope :public
+               :documentation "True if the variable is aliased"))
   (:public
     #>cpp
     using utils::Visitable<ExpressionVisitor<TypedValue>>::Accept;
@@ -1620,7 +1622,7 @@ cpp<#
   (:clone :ignore-other-base-classes t)
   (:type-info :ignore-other-base-classes t))
 
-(lcp:define-class cypher-query (query)
+(lcp:define-class cypher-query (query "::utils::Visitable<HierarchicalTreeVisitor>")
   ((single-query "SingleQuery *" :initval "nullptr" :scope :public
                  :slk-save #'slk-save-ast-pointer
                  :slk-load (slk-load-ast-pointer "SingleQuery")
@@ -1639,13 +1641,25 @@ cpp<#
     CypherQuery() = default;
 
     DEFVISITABLE(QueryVisitor<void>);
+
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        single_query_->Accept(visitor);
+        for (auto *cypher_union : cypher_unions_) {
+          cypher_union->Accept(visitor);
+        }
+      }
+
+      return visitor.PostVisit(*this);
+    }
     cpp<#)
   (:private
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk))
-  (:clone))
+  (:serialize (:slk :ignore-other-base-classes t))
+  (:clone :ignore-other-base-classes t)
+  (:type-info :ignore-other-base-classes t))
 
 (lcp:define-class explain-query (query)
   ((cypher-query "CypherQuery *" :initval "nullptr" :scope :public
@@ -2284,7 +2298,7 @@ cpp<#
     (lcp:define-enum privilege
         (create delete match merge set remove index stats auth constraint
          dump replication durability read_file free_memory trigger config stream module_read module_write
-         websocket)
+         websocket transaction_management)
       (:serialize))
     (lcp:define-enum fine-grained-privilege
         (nothing read update create_delete)
@@ -2333,7 +2347,7 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
     AuthQuery::Privilege::FREE_MEMORY, AuthQuery::Privilege::TRIGGER,
     AuthQuery::Privilege::CONFIG,      AuthQuery::Privilege::STREAM,
     AuthQuery::Privilege::MODULE_READ, AuthQuery::Privilege::MODULE_WRITE,
-    AuthQuery::Privilege::WEBSOCKET};
+    AuthQuery::Privilege::WEBSOCKET,   AuthQuery::Privilege::TRANSACTION_MANAGEMENT};
 cpp<#
 
 (lcp:define-class info-query (query)
@@ -2399,6 +2413,26 @@ cpp<#
   (:public
     #>cpp
     DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class analyze-graph-query (query)
+  ((action "Action" :scope :public)
+  (labels "std::vector<std::string>" :scope :public))
+
+  (:public
+    (lcp:define-enum action
+        (analyze delete)
+      (:serialize))
+    #>cpp
+    AnalyzeGraphQuery() = default;
+
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
     cpp<#)
   (:serialize (:slk))
   (:clone))
@@ -2661,6 +2695,26 @@ cpp<#
   (:serialize (:slk))
   (:clone))
 
+(lcp:define-class transaction-queue-query (query)
+  ((action "Action" :scope :public)
+  (transaction_id_list "std::vector<Expression*>" :scope :public))
+
+  (:public
+    (lcp:define-enum action
+        (show-transactions terminate-transactions)
+      (:serialize))
+    #>cpp
+    TransactionQueueQuery() = default;
+
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
 (lcp:define-class version-query (query) ()
   (:public
     #>cpp
@@ -2739,6 +2793,29 @@ cpp<#
   (:protected
     #>cpp
     Exists(Pattern * pattern) : pattern_(pattern) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class call-subquery (clause)
+  ((cypher-query "CypherQuery *" :scope :public
+          :slk-save #'slk-save-ast-pointer
+          :slk-load (slk-load-ast-pointer "CypherQuery")))
+  (:public
+    #>cpp
+    CallSubquery() = default;
+
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        cypher_query_->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
+
     cpp<#)
   (:private
     #>cpp

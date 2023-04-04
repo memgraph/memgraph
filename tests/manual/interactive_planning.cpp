@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -211,6 +211,11 @@ class InteractiveDbAccessor {
       label_property_index_[key] = resp;
     }
     return label_property_index_.at(key);
+  }
+
+  std::optional<memgraph::storage::IndexStats> GetIndexStats(memgraph::storage::LabelId label,
+                                                             memgraph::storage::PropertyId property) const {
+    return dba_->GetIndexStats(label, property);
   }
 
   // Save the cached vertex counts to a stream.
@@ -448,7 +453,7 @@ auto MakeLogicalPlans(memgraph::query::CypherQuery *query, memgraph::query::AstS
   memgraph::query::Parameters parameters;
   memgraph::query::plan::PostProcessor post_process(parameters);
   auto plans = memgraph::query::plan::MakeLogicalPlanForSingleQuery<memgraph::query::plan::VariableStartPlanner>(
-      query_parts.query_parts.at(0).single_query_parts, &ctx);
+      query_parts, &ctx);
   for (auto plan : plans) {
     memgraph::query::AstStorage ast_copy;
     auto unoptimized_plan = plan->Clone(&ast_copy);
