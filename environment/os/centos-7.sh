@@ -61,6 +61,10 @@ MEMGRAPH_BUILD_DEPS=(
     libtool  # for protobuf code generation
 )
 
+MEMGRAPH_RUN_DEPS=(
+    logrorate openssl python3 libseccomp libstdc++ # TODO(gitbuda): libstdc++ is not the right one.
+)
+
 list() {
     echo "$1"
 }
