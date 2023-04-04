@@ -62,7 +62,7 @@ MEMGRAPH_BUILD_DEPS=(
 )
 
 MEMGRAPH_RUN_DEPS=(
-    logrorate openssl python3 libseccomp libstdc++ # TODO(gitbuda): libstdc++ is not the right one.
+    logrotate openssl python3 libseccomp libstdc++ # TODO(gitbuda): libstdc++ is not the right one.
 )
 
 list() {
