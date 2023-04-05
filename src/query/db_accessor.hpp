@@ -63,6 +63,10 @@ class EdgeAccessor final {
 
   auto Properties(storage::View view) const { return impl_.Properties(view); }
 
+  auto PropertyStore() const { return impl_.PropertyStore(); }
+
+  void SetPropertyStore(const std::string_view buffer) const { impl_.SetPropertyStore(buffer); }
+
   storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const {
     return impl_.GetProperty(key, view);
   }
@@ -93,6 +97,8 @@ class EdgeAccessor final {
 
   storage::Gid Gid() const noexcept { return impl_.Gid(); }
 
+  void SetGid(storage::Gid gid_) { impl_.SetGid(gid_); }
+
   bool operator==(const EdgeAccessor &e) const noexcept { return impl_ == e.impl_; }
 
   bool operator!=(const EdgeAccessor &e) const noexcept { return !(*this == e); }
@@ -121,9 +127,9 @@ class VertexAccessor final {
 
   auto Properties(storage::View view) const { return impl_.Properties(view); }
 
-  auto PropertyStore(storage::View view) const { return impl_.PropertyStore(view); }
+  auto PropertyStore() const { return impl_.PropertyStore(); }
 
-  void SetPropertyStore(const std::string_view buffer) { impl_.SetPropertyStore(buffer); }
+  void SetPropertyStore(const std::string_view buffer) const { impl_.SetPropertyStore(buffer); }
 
   storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const {
     return impl_.GetProperty(key, view);

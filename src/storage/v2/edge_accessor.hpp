@@ -73,11 +73,23 @@ class EdgeAccessor final {
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
 
+  Result<std::string> PropertyStore() const;
+
+  void SetPropertyStore(std::string_view buffer) const;
+
   Gid Gid() const noexcept {
     if (config_.properties_on_edges) {
       return edge_.ptr->gid;
     } else {
       return edge_.gid;
+    }
+  }
+
+  void SetGid(storage::Gid gid_) {
+    if (config_.properties_on_edges) {
+      edge_.ptr->gid = storage::Gid::FromUint(gid_.AsUint());
+    } else {
+      edge_.gid = storage::Gid::FromUint(gid_.AsUint());
     }
   }
 

@@ -214,7 +214,8 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
     properties = edge_.ptr->properties.Properties();
     delta = edge_.ptr->delta;
   }
-  ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &properties](const Delta &delta) {
+  return std::move(properties);
+  /*ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &properties](const Delta &delta) {
     switch (delta.action) {
       case Delta::Action::SET_PROPERTY: {
         auto it = properties.find(delta.property.key);
@@ -251,6 +252,14 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
   if (!exists) return Error::NONEXISTENT_OBJECT;
   if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return std::move(properties);
+  */
 }
+
+Result<std::string> EdgeAccessor::PropertyStore() const {
+  // TODO: needs changing where there are no properties on edges
+  return edge_.ptr->properties.StringBuffer();
+}
+
+void EdgeAccessor::SetPropertyStore(std::string_view buffer) const { edge_.ptr->properties.SetBuffer(buffer); }
 
 }  // namespace memgraph::storage

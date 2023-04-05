@@ -19,12 +19,14 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include "query/common.hpp"
 #include "query/db_accessor.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/rocks/loopback.hpp"
 #include "storage/rocks/serialization.hpp"
 #include "storage/v2/delta.hpp"
+#include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
@@ -60,18 +62,38 @@ class RocksDBStorage {
     delete db_;
   }
 
-  /*
-  Serialize and store in-memory vertex to the disk.
-  */
+  // STORING PART
+  // -----------------------------------------------------------
+
+  // Serialize and store in-memory vertex to the disk.
+  // TODO: write the exact format
+  // Properties are serialized as the value
   bool StoreVertex(const query::VertexAccessor &vertex_acc) {
-    const std::string key = SerializeVertex(vertex_acc);
-    rocksdb::Status status = db_->Put(rocksdb::WriteOptions(), key, "properties");
+    auto status =
+        db_->Put(rocksdb::WriteOptions(), SerializeVertex(vertex_acc), SerializeProperties(vertex_acc.PropertyStore()));
+    // TODO: we need a better status check
     return status.ok();
   }
 
-  /*
-  Clear all entries from the database.
-  */
+  // TODO: remove config being sent as the parameter. Later will be added as the part of the storage accessor as in the
+  // memory version. for now assume that we always operate with edges having properties
+  bool StoreEdge(const query::EdgeAccessor &edge_acc) {
+    // This can be improved with IIFE initialization lambda concept
+    std::string src_dest_key;
+    std::string dest_src_key;
+    std::tie(src_dest_key, dest_src_key) = SerializeEdge(edge_acc);
+    const std::string value = SerializeProperties(edge_acc.PropertyStore());
+    // const std::string value;
+    auto src_dest_status = db_->Put(rocksdb::WriteOptions(), src_dest_key, value);
+    auto dest_src_status = db_->Put(rocksdb::WriteOptions(), dest_src_key, value);
+    // TODO: improve a status check
+    return src_dest_status.ok() && dest_src_status.ok();
+  }
+
+  // UPDATE PART
+  // -----------------------------------------------------------
+
+  // Clear all entries from the database.
   void Clear() {
     rocksdb::Iterator *it = db_->NewIterator(rocksdb::ReadOptions());
     for (it->SeekToFirst(); it->Valid(); it->Next()) {
@@ -79,41 +101,41 @@ class RocksDBStorage {
     }
   }
 
-  /*
-  Read all vertices stored in the database.
-  */
-  std::vector<std::unique_ptr<query::VertexAccessor>> Vertices(query::DbAccessor &dba) {
-    std::vector<std::unique_ptr<query::VertexAccessor>> vertices;
+  // READ PART
+  // -----------------------------------------------------------
+
+  // TODO: change it to std::optional if the value doesn't exist
+  // TODO: if the need comes for using also a GID object, use std::variant
+  query::VertexAccessor Vertex(const std::string_view gid, query::DbAccessor &dba) {
+    std::string value;
+    auto status = db_->Get(rocksdb::ReadOptions(), gid, &value);
+    MG_ASSERT(status.ok());
+    return DeserializeVertex(gid, value, dba);
+  }
+
+  // Read all vertices stored in the database.
+  // TODO: remove the semantics of unique pointers
+  std::vector<query::VertexAccessor> Vertices(query::DbAccessor &dba) {
+    std::vector<query::VertexAccessor> vertices;
     rocksdb::Iterator *it = db_->NewIterator(rocksdb::ReadOptions());
     for (it->SeekToFirst(); it->Valid(); it->Next()) {
       std::string key = it->key().ToString();
       std::string value = it->value().ToString();
       spdlog::debug("Key: {} Value: {}", key, value);
-      auto res = DeserializeVertex(key, dba);
-      vertices.push_back(std::move(res));
+      vertices.push_back(DeserializeVertex(key, value, dba));
     }
     return vertices;
   }
 
- protected:
-  // std::string SerializeProperties(const auto &&properties) {
-  //   if (properties.HasError() || (*properties).empty()) {
-  //     return "";
-  //   }
-  //   const auto &properties_iter = (*properties).begin();
-  //   auto SerializeEntry = [](const auto &property_entry) {
-  //     std::stringstream prop_value;
-  //     prop_value << property_entry.second;  // PropertyValue has an overload for serialization
-  //     return std::to_string(property_entry.first.AsUint()) + ":" + prop_value.str();
-  //   };
-  //   std::string result = SerializeEntry(*properties_iter);
-  //   std::string ser_props = std::accumulate(std::next((*properties).begin()), (*properties).end(), result,
-  //                                           [&SerializeEntry](const std::string &join, const auto &prop_entry) {
-  //                                             return join + "," + SerializeEntry(prop_entry);
-  //                                           });
-  //   return ser_props;
-  // }
+  // This method is used only for testing. Receives explicit key from which the edge accessor should be loaded
+  query::EdgeAccessor LoadEdge(const std::string_view key, query::DbAccessor &dba) {
+    std::string value;
+    auto status = db_->Get(rocksdb::ReadOptions(), key, &value);
+    MG_ASSERT(status.ok());
+    return DeserializeEdge(key, value, dba);
+  }
 
+ protected:
   std::string SerializeProperties(const auto &&properties) {
     if (properties.HasError()) {
       return "";
@@ -132,24 +154,21 @@ class RocksDBStorage {
     return ser_labels;
   }
 
-  std::string SerializeGid(const storage::Gid &gid) { return std::to_string(gid.AsUint()); }
+  // TODO: write a documentation for the method
+  // TODO: add deserialization equivalent method
+  inline std::string SerializeIdType(const auto &id) { return std::to_string(id.AsUint()); }
 
   std::string SerializeVertex(const query::VertexAccessor &vertex_acc) {
     // don't put before serialize labels delimiter
-    // don't put at the end delimiter
-    // Serialize labels
     std::string result = SerializeLabels(vertex_acc.Labels(storage::View::OLD)) + "|";
-    // Serialize gid
-    result += SerializeGid(vertex_acc.Gid()) + "|";
-    // result += SerializeProperties(vertex_acc.Properties(storage::View::OLD));
-    result += SerializeProperties(vertex_acc.PropertyStore(storage::View::OLD));
-    spdlog::info("Serialized vertex: {}", result);
+    result += SerializeIdType(vertex_acc.Gid()) + "|";
     return result;
   }
 
-  std::unique_ptr<query::VertexAccessor> DeserializeVertex(const std::string_view key, query::DbAccessor &dba) {
+  query::VertexAccessor DeserializeVertex(const std::string_view key, const std::string_view value,
+                                          query::DbAccessor &dba) {
     // Create vertex
-    auto impl = std::make_unique<query::VertexAccessor>(dba.InsertVertex());
+    auto impl = query::VertexAccessor(dba.InsertVertex());
     spdlog::info("Key to deserialize: {}", key);
     const auto vertex_parts = utils::Split(key, "|");
     // Deserialize labels
@@ -157,7 +176,7 @@ class RocksDBStorage {
       const auto labels = utils::Split(vertex_parts[0], ",");
       for (const auto &label : labels) {
         const storage::LabelId label_id = storage::LabelId::FromUint(std::stoull(label));
-        auto maybe_error = impl->AddLabel(label_id);
+        auto maybe_error = impl.AddLabel(label_id);
         if (maybe_error.HasError()) {
           switch (maybe_error.GetError()) {
             case storage::Error::SERIALIZATION_ERROR:
@@ -173,22 +192,63 @@ class RocksDBStorage {
       }
     }
     // deserialize gid
-    const storage::Gid gid = storage::Gid::FromUint(std::stoull(vertex_parts[1]));
-    impl->SetGid(gid);
+    impl.SetGid(storage::Gid::FromUint(std::stoull(vertex_parts[1])));
     // deserialize properties
-    impl->SetPropertyStore(vertex_parts[2]);
-
-    // const auto ser_properties = utils::Split(vertex_parts[2], ",");
-    // std::map<storage::PropertyId, storage::PropertyValue> vec_properties;
-    // for (const auto &prop_entry : ser_properties) {
-    //   const auto &split_prop_entry = utils::Split(prop_entry, ":");
-    //   // this is a problem since the value will always contain a string
-    //   vec_properties.emplace(storage::PropertyId::FromUint(std::stoull(split_prop_entry[0])),
-    //                          storage::PropertyValue(split_prop_entry[1]));
-    // }
-    // query::MultiPropsInitChecked(impl.get(), vec_properties);
-
+    impl.SetPropertyStore(value);
     return impl;
+  }
+
+  // Serializes edge accessor to obtain a key for the key-value store
+  // returns two string because there will be two keys since edge is stored in both directions
+  std::pair<std::string, std::string> SerializeEdge(const query::EdgeAccessor &edge_acc) {
+    // Serialized objects
+    auto from_gid = SerializeIdType(edge_acc.From().Gid());
+    auto to_gid = SerializeIdType(edge_acc.To().Gid());
+    auto edge_type = SerializeIdType(edge_acc.EdgeType());
+    auto edge_gid = SerializeIdType(edge_acc.Gid());
+    // source->destination key
+    std::string src_dest_key = from_gid + "|";
+    src_dest_key += to_gid + "|";
+    src_dest_key += "0|";
+    src_dest_key += edge_type + "|";
+    src_dest_key += edge_gid + "|";
+    // destination->source key
+    std::string dest_src_key = to_gid + "|";
+    dest_src_key += from_gid + "|";
+    dest_src_key += "1|";
+    dest_src_key += edge_type + "|";
+    dest_src_key += edge_gid + "|";
+    return {src_dest_key, dest_src_key};
+  }
+
+  // deserialize edge from the given key-value
+  query::EdgeAccessor DeserializeEdge(const std::string_view key, const std::string_view value,
+                                      query::DbAccessor &dba) {
+    // first you need to deserialize vertices
+    const auto edge_parts = utils::Split(key, "|");
+    std::string from_gid;
+    std::string to_gid;
+    // TODO: Use IIFE to load
+    if (edge_parts[2] == "0") {  // out edge
+      from_gid = edge_parts[0];
+      to_gid = edge_parts[1];
+    } else {  // in edge
+      from_gid = edge_parts[1];
+      to_gid = edge_parts[0];
+    }
+    // load vertex accessors
+    auto from_acc = Vertex(from_gid, dba);
+    auto to_acc = Vertex(to_gid, dba);
+    // TODO: remove to deserialization edge type id method
+    const auto edge_type_id = storage::EdgeTypeId::FromUint(std::stoull(edge_parts[3]));
+    // TODO: remove to deserialization edge type id method
+    const auto edge_gid = storage::Gid::FromUint(std::stoull(edge_parts[4]));
+    const auto maybe_edge = dba.InsertEdge(&from_acc, &to_acc, edge_type_id);
+    MG_ASSERT(maybe_edge.HasValue());
+    auto edge_impl = query::EdgeAccessor(*maybe_edge);
+    // in the new storage API, setting gid must be done atomically
+    edge_impl.SetGid(edge_gid);
+    return edge_impl;
   }
 
  private:
