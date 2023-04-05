@@ -19,12 +19,14 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include "query/common.hpp"
 #include "query/db_accessor.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/rocks/loopback.hpp"
 #include "storage/rocks/serialization.hpp"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -42,7 +44,7 @@ class RocksDBStorage {
     options_.create_if_missing = true;
     options_.OptimizeLevelStyleCompaction();
     std::filesystem::path rocksdb_path = "./rocks_experiment_test";
-    if (!memgraph::utils::EnsureDir(rocksdb_path)) {
+    if (!utils::EnsureDir(rocksdb_path)) {
       SPDLOG_ERROR("Unable to create storage folder on disk.");
       // TODO: throw some error
     }
@@ -80,7 +82,7 @@ class RocksDBStorage {
   /*
   Read all vertices stored in the database.
   */
-  std::vector<std::unique_ptr<query::VertexAccessor>> Vertices(memgraph::query::DbAccessor &dba) {
+  std::vector<std::unique_ptr<query::VertexAccessor>> Vertices(query::DbAccessor &dba) {
     std::vector<std::unique_ptr<query::VertexAccessor>> vertices;
     rocksdb::Iterator *it = db_->NewIterator(rocksdb::ReadOptions());
     for (it->SeekToFirst(); it->Valid(); it->Next()) {
@@ -94,7 +96,25 @@ class RocksDBStorage {
   }
 
  protected:
-  std::string SerializeLabels(auto &&labels) {
+  std::string SerializeProperties(const auto &&properties) {
+    if (properties.HasError() || (*properties).empty()) {
+      return "";
+    }
+    const auto &properties_iter = (*properties).begin();
+    auto SerializeEntry = [](const auto &property_entry) {
+      std::stringstream prop_value;
+      prop_value << property_entry.second;  // PropertyValue has an overload for serialization
+      return std::to_string(property_entry.first.AsUint()) + ":" + prop_value.str();
+    };
+    std::string result = SerializeEntry(*properties_iter);
+    std::string ser_props = std::accumulate(std::next((*properties).begin()), (*properties).end(), result,
+                                            [&SerializeEntry](const std::string &join, const auto &prop_entry) {
+                                              return join + "," + SerializeEntry(prop_entry);
+                                            });
+    return ser_props;
+  }
+
+  std::string SerializeLabels(const auto &&labels) {
     if (labels.HasError() || (*labels).empty()) {
       return "";
     }
@@ -105,26 +125,26 @@ class RocksDBStorage {
     return ser_labels;
   }
 
-  std::string SerializeGid(const memgraph::storage::Gid &gid) { return std::to_string(gid.AsUint()); }
+  std::string SerializeGid(const storage::Gid &gid) { return std::to_string(gid.AsUint()); }
 
   std::string SerializeVertex(const query::VertexAccessor &vertex_acc) {
+    // don't put before serialize labels delimiter
+    // don't put at the end delimiter
     // Serialize labels
-    std::string result = SerializeLabels(vertex_acc.Labels(storage::View::OLD));
-    result += "|";
+    std::string result = SerializeLabels(vertex_acc.Labels(storage::View::OLD)) + "|";
     // Serialize gid
-    result += SerializeGid(vertex_acc.Gid());
+    result += SerializeGid(vertex_acc.Gid()) + "|";
+    result += SerializeProperties(vertex_acc.Properties(storage::View::OLD));
     spdlog::info("Serialized vertex: {}", result);
     return result;
   }
 
-  std::unique_ptr<query::VertexAccessor> DeserializeVertex(const std::string_view key,
-                                                           memgraph::query::DbAccessor &dba) {
+  std::unique_ptr<query::VertexAccessor> DeserializeVertex(const std::string_view key, query::DbAccessor &dba) {
     // Create vertex
-    auto impl = std::make_unique<memgraph::query::VertexAccessor>(dba.InsertVertex());
+    auto impl = std::make_unique<query::VertexAccessor>(dba.InsertVertex());
     spdlog::info("Key to deserialize: {}", key);
     const auto vertex_parts = utils::Split(key, "|");
-    const storage::Gid gid = storage::Gid::FromUint(std::stoull(vertex_parts[1]));
-    impl->SetGid(gid);
+    // Deserialize labels
     if (!vertex_parts[0].empty()) {
       const auto labels = utils::Split(vertex_parts[0], ",");
       for (const auto &label : labels) {
@@ -144,6 +164,20 @@ class RocksDBStorage {
         }
       }
     }
+    // deserialize gid
+    const storage::Gid gid = storage::Gid::FromUint(std::stoull(vertex_parts[1]));
+    impl->SetGid(gid);
+    // deserialize properties
+    const auto ser_properties = utils::Split(vertex_parts[2], ",");
+    std::map<storage::PropertyId, storage::PropertyValue> vec_properties;
+    for (const auto &prop_entry : ser_properties) {
+      const auto &split_prop_entry = utils::Split(prop_entry, ":");
+      // this is a problem since the value will always contain a string
+      vec_properties.emplace(storage::PropertyId::FromUint(std::stoull(split_prop_entry[0])),
+                             storage::PropertyValue(split_prop_entry[1]));
+    }
+    query::MultiPropsInitChecked(impl.get(), vec_properties);
+
     return impl;
   }
 
