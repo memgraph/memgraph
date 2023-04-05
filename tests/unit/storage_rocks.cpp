@@ -185,10 +185,9 @@ TEST(RocksDBStorageTest, SerializeVertexGIDProperties) {
         ASSERT_EQ(prop_name->ValueString(), "disk");
         ASSERT_TRUE(prop_memory->IsString());
         ASSERT_EQ(prop_memory->ValueString(), "1TB");
-        ASSERT_TRUE(prop_price->IsString());
         // TODO: needs to be solved
-        // ASSERT_TRUE(prop_price->IsDouble());
-        // ASSERT_DOUBLE_EQ(prop_price->ValueDouble(), 1000.21);
+        ASSERT_TRUE(prop_price->IsDouble());
+        ASSERT_DOUBLE_EQ(prop_price->ValueDouble(), 1000.21);
         ASSERT_TRUE(prop_unexisting->IsNull());
       }
     }

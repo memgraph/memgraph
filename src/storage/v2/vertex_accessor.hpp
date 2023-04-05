@@ -12,6 +12,8 @@
 #pragma once
 
 #include <optional>
+#include <string>
+#include <string_view>
 
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/vertex.hpp"
@@ -83,6 +85,10 @@ class VertexAccessor final {
 
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
+
+  Result<std::string> PropertyStore(View view) const;
+
+  void SetPropertyStore(const std::string_view buffer);
 
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds

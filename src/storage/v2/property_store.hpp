@@ -71,6 +71,12 @@ class PropertyStore {
   /// @throw std::bad_alloc
   bool ClearProperties();
 
+  /// Return property buffer as a string
+  std::string StringBuffer() const;
+
+  /// Sets buffer
+  void SetBuffer(std::string_view buffer);
+
  private:
   uint8_t buffer_[sizeof(uint64_t) + sizeof(uint8_t *)];
 };

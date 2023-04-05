@@ -96,22 +96,29 @@ class RocksDBStorage {
   }
 
  protected:
+  // std::string SerializeProperties(const auto &&properties) {
+  //   if (properties.HasError() || (*properties).empty()) {
+  //     return "";
+  //   }
+  //   const auto &properties_iter = (*properties).begin();
+  //   auto SerializeEntry = [](const auto &property_entry) {
+  //     std::stringstream prop_value;
+  //     prop_value << property_entry.second;  // PropertyValue has an overload for serialization
+  //     return std::to_string(property_entry.first.AsUint()) + ":" + prop_value.str();
+  //   };
+  //   std::string result = SerializeEntry(*properties_iter);
+  //   std::string ser_props = std::accumulate(std::next((*properties).begin()), (*properties).end(), result,
+  //                                           [&SerializeEntry](const std::string &join, const auto &prop_entry) {
+  //                                             return join + "," + SerializeEntry(prop_entry);
+  //                                           });
+  //   return ser_props;
+  // }
+
   std::string SerializeProperties(const auto &&properties) {
-    if (properties.HasError() || (*properties).empty()) {
+    if (properties.HasError()) {
       return "";
     }
-    const auto &properties_iter = (*properties).begin();
-    auto SerializeEntry = [](const auto &property_entry) {
-      std::stringstream prop_value;
-      prop_value << property_entry.second;  // PropertyValue has an overload for serialization
-      return std::to_string(property_entry.first.AsUint()) + ":" + prop_value.str();
-    };
-    std::string result = SerializeEntry(*properties_iter);
-    std::string ser_props = std::accumulate(std::next((*properties).begin()), (*properties).end(), result,
-                                            [&SerializeEntry](const std::string &join, const auto &prop_entry) {
-                                              return join + "," + SerializeEntry(prop_entry);
-                                            });
-    return ser_props;
+    return *properties;
   }
 
   std::string SerializeLabels(const auto &&labels) {
@@ -134,7 +141,8 @@ class RocksDBStorage {
     std::string result = SerializeLabels(vertex_acc.Labels(storage::View::OLD)) + "|";
     // Serialize gid
     result += SerializeGid(vertex_acc.Gid()) + "|";
-    result += SerializeProperties(vertex_acc.Properties(storage::View::OLD));
+    // result += SerializeProperties(vertex_acc.Properties(storage::View::OLD));
+    result += SerializeProperties(vertex_acc.PropertyStore(storage::View::OLD));
     spdlog::info("Serialized vertex: {}", result);
     return result;
   }
@@ -168,15 +176,17 @@ class RocksDBStorage {
     const storage::Gid gid = storage::Gid::FromUint(std::stoull(vertex_parts[1]));
     impl->SetGid(gid);
     // deserialize properties
-    const auto ser_properties = utils::Split(vertex_parts[2], ",");
-    std::map<storage::PropertyId, storage::PropertyValue> vec_properties;
-    for (const auto &prop_entry : ser_properties) {
-      const auto &split_prop_entry = utils::Split(prop_entry, ":");
-      // this is a problem since the value will always contain a string
-      vec_properties.emplace(storage::PropertyId::FromUint(std::stoull(split_prop_entry[0])),
-                             storage::PropertyValue(split_prop_entry[1]));
-    }
-    query::MultiPropsInitChecked(impl.get(), vec_properties);
+    impl->SetPropertyStore(vertex_parts[2]);
+
+    // const auto ser_properties = utils::Split(vertex_parts[2], ",");
+    // std::map<storage::PropertyId, storage::PropertyValue> vec_properties;
+    // for (const auto &prop_entry : ser_properties) {
+    //   const auto &split_prop_entry = utils::Split(prop_entry, ":");
+    //   // this is a problem since the value will always contain a string
+    //   vec_properties.emplace(storage::PropertyId::FromUint(std::stoull(split_prop_entry[0])),
+    //                          storage::PropertyValue(split_prop_entry[1]));
+    // }
+    // query::MultiPropsInitChecked(impl.get(), vec_properties);
 
     return impl;
   }

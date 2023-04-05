@@ -308,6 +308,10 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
   return std::move(value);
 }
 
+Result<std::string> VertexAccessor::PropertyStore(View /*unused*/) const { return vertex_->properties.StringBuffer(); }
+
+void VertexAccessor::SetPropertyStore(const std::string_view buffer) { vertex_->properties.SetBuffer(buffer); }
+
 Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view) const {
   bool exists = true;
   bool deleted = false;

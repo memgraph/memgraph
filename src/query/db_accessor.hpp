@@ -121,6 +121,10 @@ class VertexAccessor final {
 
   auto Properties(storage::View view) const { return impl_.Properties(view); }
 
+  auto PropertyStore(storage::View view) const { return impl_.PropertyStore(view); }
+
+  void SetPropertyStore(const std::string_view buffer) { impl_.SetPropertyStore(buffer); }
+
   storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const {
     return impl_.GetProperty(key, view);
   }

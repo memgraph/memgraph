@@ -11,9 +11,12 @@
 
 #include "storage/v2/property_store.hpp"
 
+#include <cstdint>
 #include <cstring>
+#include <iterator>
 #include <limits>
 #include <optional>
+#include <sstream>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -1217,6 +1220,21 @@ bool PropertyStore::ClearProperties() {
   if (!in_local_buffer) delete[] data;
   SetSizeData(buffer_, 0, nullptr);
   return true;
+}
+
+std::string PropertyStore::StringBuffer() const {
+  std::string arr(sizeof(buffer_), ' ');
+  for (uint i = 0; i < sizeof(buffer_); ++i) {
+    arr[i] = static_cast<char>(buffer_[i]);
+  }
+  return arr;
+}
+
+void PropertyStore::SetBuffer(const std::string_view buffer) {
+  MG_ASSERT(buffer.size() == sizeof(buffer_));
+  for (uint i = 0; i < sizeof(buffer_); ++i) {
+    buffer_[i] = static_cast<uint8_t>(buffer[i]);
+  }
 }
 
 }  // namespace memgraph::storage
