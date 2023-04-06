@@ -19,6 +19,7 @@ def zip_mgbench():
     zip.write(parent / "graph_bench.py", "mgbench/graph_bench.py")
     zip.write(parent / "README.md", "mgbench/README.md")
     zip.write(parent / "how_to_use_mgbench.md", "mgbench/how_to_use_mgbench.md")
+    zip.write(parent / "workloads/__init__.py", "mgbench/workloads/__init__.py")
     zip.write(parent / "workloads/base.py", "mgbench/workloads/base.py")
     zip.write(parent / "workloads/demo.py", "mgbench/workloads/demo.py")
     zip.write(parent / "workloads/ldbc_bi.py", "mgbench/workloads/ldbc_bi.py")
