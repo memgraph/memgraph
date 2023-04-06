@@ -429,7 +429,7 @@ void LoadPartialConnectivity(const std::filesystem::path &path, utils::SkipList<
   if (vertex_it == vertex_acc.end()) {
     throw RecoveryFailure("Invalid snapshot data!");
   }
-  spdlog::info("Recovering {} vertices.", vertices_count);
+  spdlog::info("Recovering connectivity for {} vertices.", vertices_count);
 
   for (uint64_t i = 0; i < vertices_count; ++i) {
     auto &vertex = *vertex_it;
@@ -534,7 +534,7 @@ void LoadPartialConnectivity(const std::filesystem::path &path, utils::SkipList<
     }
     ++vertex_it;
   }
-  spdlog::info("Partial vertices are recovered.");
+  spdlog::info("Partial connectivities are recovered.");
 }
 
 RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
