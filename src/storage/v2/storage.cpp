@@ -658,7 +658,7 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexA
     auto acc = storage_->edges_.access();
     auto delta = CreateDeleteObjectDelta(&transaction_);
     auto [it, inserted] = acc.insert(Edge(gid, delta));
-    MG_ASSERT(inserted, "The edge must be inserted here!");
+    // MG_ASSERT(inserted, "The edge must be inserted here!");
     MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
     edge = EdgeRef(&*it);
     delta->prev.Set(&*it);

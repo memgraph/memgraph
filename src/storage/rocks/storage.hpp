@@ -27,6 +27,7 @@
 #include "storage/rocks/serialization.hpp"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/edge.hpp"
+#include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
@@ -44,8 +45,8 @@ class RocksDBStorage {
  public:
   explicit RocksDBStorage() {
     options_.create_if_missing = true;
-    options_.OptimizeLevelStyleCompaction();
-    std::filesystem::path rocksdb_path = "./rocks_experiment_test";
+    // options_.OptimizeLevelStyleCompaction();
+    std::filesystem::path rocksdb_path = "./rocks_experiment_unit_test";
     if (!utils::EnsureDir(rocksdb_path)) {
       SPDLOG_ERROR("Unable to create storage folder on disk.");
       // TODO: throw some error
@@ -106,33 +107,126 @@ class RocksDBStorage {
 
   // TODO: change it to std::optional if the value doesn't exist
   // TODO: if the need comes for using also a GID object, use std::variant
-  query::VertexAccessor Vertex(const std::string_view gid, query::DbAccessor &dba) {
-    std::string value;
-    auto status = db_->Get(rocksdb::ReadOptions(), gid, &value);
-    MG_ASSERT(status.ok());
-    return DeserializeVertex(gid, value, dba);
+  // This should be part of edge accessor since it should be impossible to search vertex by a gid
+  // This should again be changed when we have mulitple same vertices
+  std::optional<query::VertexAccessor> Vertex(const std::string_view gid, query::DbAccessor &dba) {
+    rocksdb::Iterator *it = db_->NewIterator(rocksdb::ReadOptions());
+    for (it->SeekToFirst(); it->Valid(); it->Next()) {
+      const std::string_view key = it->key().ToStringView();
+      const auto entry_parts = utils::Split(key, "|");
+      if (entry_parts.size() == 2 && entry_parts[0] == gid) {
+        return DeserializeVertex(key, it->value().ToStringView(), dba);
+      }
+    }
+    return std::nullopt;
+  }
+
+  // TODO: currently search in the same database instance vertices and edges but change later to column families
+  // Out edges of one vertex_acc with gid src_gid have following format in the RocksDB:
+  // src_gid | other_vertex_gid | 0 | ...
+  // other_vertex_gid | src_gid | 1 | ...
+  // we use the firt way since this should be possible to optimize using Bloom filters and prefix search
+  std::vector<query::EdgeAccessor> OutEdges(const query::VertexAccessor &vertex_acc, query::DbAccessor &dba) {
+    std::vector<query::EdgeAccessor> out_edges;
+    rocksdb::Iterator *it = db_->NewIterator(rocksdb::ReadOptions());
+    for (it->SeekToFirst(); it->Valid(); it->Next()) {
+      std::string key = it->key().ToString();
+      const auto vertex_parts = utils::Split(key, "|");
+      // When logical partitioning will be introduced we will know exactly in which logical partition are we searching
+      // But nothing should break now also since we are checking number of vertex parts
+      // if there are more than two vertex parts, it must be an edge entry
+      // ATM check one would suffice, even without checking number of vertex parts since as the first entry in vertex
+      // serialization, vertex labels are being saved. This might change since this is the direct trade-off between
+      // finding fast vertices by labels and finding fast "the other vertex" from an edg
+      if (vertex_parts[0] == SerializeIdType(vertex_acc.Gid()) && vertex_parts.size() > 2 && vertex_parts[2] == "0") {
+        std::string value = it->value().ToString();
+        out_edges.push_back(DeserializeEdge(key, value, dba));
+      }
+    }
+    return out_edges;
+  }
+
+  // TODO: currently search in the same database instance vertices and edges but change later to column families
+  // In edges of one vertex_acc with gid dest_gid have following format in the RocksDB:
+  // other_vertex_gid | dest_gid | 0 | ...
+  // dest_gid | other_verte_gid | 1 | ...
+  // we use the second way since this should be possible to optimize using Bloom filters and prefix search.
+  std::vector<query::EdgeAccessor> InEdges(const query::VertexAccessor &vertex_acc, query::DbAccessor &dba) {
+    std::vector<query::EdgeAccessor> in_edges;
+    rocksdb::Iterator *it = db_->NewIterator(rocksdb::ReadOptions());
+    for (it->SeekToFirst(); it->Valid(); it->Next()) {
+      std::string key = it->key().ToString();
+      const auto vertex_parts = utils::Split(key, "|");
+      // When logical partitioning will be introduced we will know exactly in which logical partition are we searching
+      // But nothing should break now also since we are checking number of vertex parts
+      // if there are more than two vertex parts, it must be an edge entry
+      // ATM check one would suffice, even without checking number of vertex parts since as the first entry in vertex
+      // serialization, vertex labels are being saved. This might change since this is the direct trade-off between
+      // finding fast vertices by labels and finding fast "the other vertex" from an edg
+      if (vertex_parts[0] == SerializeIdType(vertex_acc.Gid()) && vertex_parts.size() > 2 && vertex_parts[2] == "1") {
+        std::string value = it->value().ToString();
+        in_edges.push_back(DeserializeEdge(key, value, dba));
+      }
+    }
+    return in_edges;
+  }
+
+  // Read all vertices stored in the database by a label
+  // TODO: rewrite the code with some lambda operations
+  // certainly can be a bit optimized so that new object isn't created if can be discarded
+  std::vector<query::VertexAccessor> Vertices(query::DbAccessor &dba, const storage::LabelId &label_id) {
+    std::vector<query::VertexAccessor> vertices;
+    rocksdb::Iterator *it = db_->NewIterator(rocksdb::ReadOptions());
+    for (it->SeekToFirst(); it->Valid(); it->Next()) {
+      std::string key = it->key().ToString();
+      std::string value = it->value().ToString();
+      if (utils::Split(key, "|").size() > 2) {
+        continue;
+      }
+      spdlog::debug("Key: {} Value: {}", key, value);
+      auto vertex = DeserializeVertex(key, value, dba);
+      if (const auto res = vertex.HasLabel(storage::View::OLD, label_id); !res.HasError() && *res) {
+        vertices.push_back(vertex);
+      }
+    }
+    return vertices;
+  }
+
+  // TODO: rewrite the code with means of lambda operation
+  // TODO: we need to this, otherwise we will have to change a lot of things as we are dealing on the low level
+  // certainly can be a bit optimized so that new object isn't created if can be discarded
+  std::vector<query::VertexAccessor> Vertices(query::DbAccessor &dba, const storage::PropertyId &property_id,
+                                              const storage::PropertyValue &prop_value) {
+    std::vector<query::VertexAccessor> vertices;
+    rocksdb::Iterator *it = db_->NewIterator(rocksdb::ReadOptions());
+    for (it->SeekToFirst(); it->Valid(); it->Next()) {
+      std::string key = it->key().ToString();
+      std::string value = it->value().ToString();
+      if (utils::Split(key, "|").size() > 2) {
+        continue;
+      }
+      auto vertex = DeserializeVertex(key, value, dba);
+      if (const auto res = vertex.GetProperty(storage::View::OLD, property_id); !res.HasError() && *res == prop_value) {
+        vertices.push_back(vertex);
+      }
+    }
+    return vertices;
   }
 
   // Read all vertices stored in the database.
-  // TODO: remove the semantics of unique pointers
   std::vector<query::VertexAccessor> Vertices(query::DbAccessor &dba) {
     std::vector<query::VertexAccessor> vertices;
     rocksdb::Iterator *it = db_->NewIterator(rocksdb::ReadOptions());
     for (it->SeekToFirst(); it->Valid(); it->Next()) {
       std::string key = it->key().ToString();
       std::string value = it->value().ToString();
+      if (utils::Split(key, "|").size() > 2) {
+        continue;
+      }
       spdlog::debug("Key: {} Value: {}", key, value);
       vertices.push_back(DeserializeVertex(key, value, dba));
     }
     return vertices;
-  }
-
-  // This method is used only for testing. Receives explicit key from which the edge accessor should be loaded
-  query::EdgeAccessor LoadEdge(const std::string_view key, query::DbAccessor &dba) {
-    std::string value;
-    auto status = db_->Get(rocksdb::ReadOptions(), key, &value);
-    MG_ASSERT(status.ok());
-    return DeserializeEdge(key, value, dba);
   }
 
  protected:
@@ -161,7 +255,7 @@ class RocksDBStorage {
   std::string SerializeVertex(const query::VertexAccessor &vertex_acc) {
     // don't put before serialize labels delimiter
     std::string result = SerializeLabels(vertex_acc.Labels(storage::View::OLD)) + "|";
-    result += SerializeIdType(vertex_acc.Gid()) + "|";
+    result += SerializeIdType(vertex_acc.Gid());
     return result;
   }
 
@@ -211,13 +305,13 @@ class RocksDBStorage {
     src_dest_key += to_gid + "|";
     src_dest_key += "0|";
     src_dest_key += edge_type + "|";
-    src_dest_key += edge_gid + "|";
+    src_dest_key += edge_gid;
     // destination->source key
     std::string dest_src_key = to_gid + "|";
     dest_src_key += from_gid + "|";
     dest_src_key += "1|";
     dest_src_key += edge_type + "|";
-    dest_src_key += edge_gid + "|";
+    dest_src_key += edge_gid;
     return {src_dest_key, dest_src_key};
   }
 
@@ -239,15 +333,19 @@ class RocksDBStorage {
     // load vertex accessors
     auto from_acc = Vertex(from_gid, dba);
     auto to_acc = Vertex(to_gid, dba);
+    if (!from_acc.has_value() || !to_acc.has_value()) {
+      throw utils::BasicException("Non-existing vertices during edge deserialization");
+    }
     // TODO: remove to deserialization edge type id method
     const auto edge_type_id = storage::EdgeTypeId::FromUint(std::stoull(edge_parts[3]));
     // TODO: remove to deserialization edge type id method
     const auto edge_gid = storage::Gid::FromUint(std::stoull(edge_parts[4]));
-    const auto maybe_edge = dba.InsertEdge(&from_acc, &to_acc, edge_type_id);
+    const auto maybe_edge = dba.InsertEdge(&*from_acc, &*to_acc, edge_type_id);
     MG_ASSERT(maybe_edge.HasValue());
     auto edge_impl = query::EdgeAccessor(*maybe_edge);
     // in the new storage API, setting gid must be done atomically
     edge_impl.SetGid(edge_gid);
+    edge_impl.SetPropertyStore(value);
     return edge_impl;
   }
 
