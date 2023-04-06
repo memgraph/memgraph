@@ -695,24 +695,29 @@ class MemgraphDocker(BaseRunner):
         return _convert_args_to_flags(**kwargs)
 
     def start_db_init(self, message):
-        command = [
-            "docker",
-            "run",
-            "--detach",
-            "--name",
-            self._container_name,
-            "-it",
-            "-p",
-            self._bolt_port + ":" + self._bolt_port,
-            "memgraph/memgraph",
-            "--telemetry_enabled=false",
-            "--storage_wal_enabled=false",
-            "--storage_recover_on_startup=true",
-            "--storage_snapshot_interval_sec",
-            "0",
-        ]
-        command.extend(self._set_args(**self._vendor_args))
-        ret = self._run_command(command)
+        try:
+            command = [
+                "docker",
+                "run",
+                "--detach",
+                "--name",
+                self._container_name,
+                "-it",
+                "-p",
+                self._bolt_port + ":" + self._bolt_port,
+                "memgraph/memgraph",
+                "--telemetry_enabled=false",
+                "--storage_wal_enabled=false",
+                "--storage_recover_on_startup=true",
+                "--storage_snapshot_interval_sec",
+                "0",
+            ]
+            command.extend(self._set_args(**self._vendor_args))
+            ret = self._run_command(command)
+        except subprocess.CalledProcessError as e:
+            log.error("Failed to start Memgraph docker container.")
+            log.error("There is probably database running on that port!")
+            raise e
 
         command = [
             "docker",
@@ -845,21 +850,26 @@ class Neo4jDocker(BaseRunner):
         return _convert_args_to_flags(**kwargs)
 
     def start_db_init(self, message):
-        command = [
-            "docker",
-            "run",
-            "--detach",
-            "--name",
-            self._container_name,
-            "-it",
-            "-p",
-            self._bolt_port + ":" + self._bolt_port,
-            "--env",
-            "NEO4J_AUTH=none",
-            "neo4j:5.6.0",
-        ]
-        command.extend(self._set_args(**self._vendor_args))
-        ret = self._run_command(command)
+        try:
+            command = [
+                "docker",
+                "run",
+                "--detach",
+                "--name",
+                self._container_name,
+                "-it",
+                "-p",
+                self._bolt_port + ":" + self._bolt_port,
+                "--env",
+                "NEO4J_AUTH=none",
+                "neo4j:5.6.0",
+            ]
+            command.extend(self._set_args(**self._vendor_args))
+            ret = self._run_command(command)
+        except subprocess.CalledProcessError as e:
+            log.error("There was an error starting the Neo4j container")
+            log.error("There is probably a database running on that port!")
+            raise e
 
         command = ["docker", "inspect", "--format", "{{ .NetworkSettings.IPAddress }}", self._container_name]
         ret = subprocess.run(command, check=True, capture_output=True, text=True)
