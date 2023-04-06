@@ -491,8 +491,6 @@ void LoadPartialConnectivity(const std::filesystem::path &path, utils::SkipList<
           auto [edge, inserted] = edge_acc.insert(Edge{Gid::FromUint(*edge_gid), nullptr});
           edge_ref = EdgeRef(&*edge);
         }
-        SPDLOG_TRACE("Recovered inbound edge {} with label \"{}\" from vertex {}.", *edge_gid,
-                     name_id_mapper->IdToName(snapshot_id_map.at(*edge_type)), from_vertex->gid.AsUint());
         vertex.in_edges.emplace_back(get_edge_type_from_id(*edge_type), &*from_vertex, edge_ref);
       }
     }
@@ -524,8 +522,6 @@ void LoadPartialConnectivity(const std::filesystem::path &path, utils::SkipList<
           auto [edge, inserted] = edge_acc.insert(Edge{Gid::FromUint(*edge_gid), nullptr});
           edge_ref = EdgeRef(&*edge);
         }
-        SPDLOG_TRACE("Recovered outbound edge {} with label \"{}\" to vertex {}.", *edge_gid,
-                     name_id_mapper->IdToName(snapshot_id_map.at(*edge_type)), to_vertex->gid.AsUint());
         vertex.out_edges.emplace_back(get_edge_type_from_id(*edge_type), &*to_vertex, edge_ref);
       }
       // Increment edge count. We only increment the count here because the
