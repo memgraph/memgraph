@@ -365,8 +365,6 @@ void LoadPartialVertices(const std::filesystem::path &path, utils::SkipList<Vert
       for (uint64_t j = 0; j < *labels_size; ++j) {
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Invalid snapshot data!");
-        SPDLOG_TRACE("Recovered label \"{}\" for vertex {}.", name_id_mapper.IdToName(snapshot_id_map.at(*label)),
-                     *gid);
         labels.emplace_back(get_label_from_id(*label));
       }
     }
@@ -382,8 +380,6 @@ void LoadPartialVertices(const std::filesystem::path &path, utils::SkipList<Vert
         if (!key) throw RecoveryFailure("Invalid snapshot data!");
         auto value = snapshot.ReadPropertyValue();
         if (!value) throw RecoveryFailure("Invalid snapshot data!");
-        SPDLOG_TRACE("Recovered property \"{}\" with value \"{}\" for vertex {}.",
-                     name_id_mapper.IdToName(snapshot_id_map.at(*key)), *value, *gid);
         props.SetProperty(get_property_from_id(*key), *value);
       }
     }
