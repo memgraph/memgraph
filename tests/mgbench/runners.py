@@ -13,6 +13,7 @@ import atexit
 import json
 import os
 import re
+import socket
 import subprocess
 import tempfile
 import threading
@@ -22,6 +23,13 @@ from pathlib import Path
 
 import log
 from benchmark_context import BenchmarkContext
+
+
+def _wait_for_server_socket(port, ip="127.0.0.1", delay=0.1):
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    while s.connect_ex((ip, int(port))) != 0:
+        time.sleep(0.01)
+    time.sleep(delay)
 
 
 def _wait_for_server(port, ip="127.0.0.1", delay=0.1):
@@ -731,7 +739,7 @@ class MemgraphDocker(BaseRunner):
         command = ["docker", "inspect", "--format", "{{ .NetworkSettings.IPAddress }}", self._container_name]
         ret = subprocess.run(command, check=True, capture_output=True, text=True)
         ip_address = ret.stdout.strip("\n")
-        _wait_for_server(self._bolt_port, ip=ip_address)
+        _wait_for_server_socket(self._bolt_port, ip=ip_address)
 
     def stop_db_init(self, message):
         usage = self._get_cpu_memory_usage()
@@ -759,7 +767,7 @@ class MemgraphDocker(BaseRunner):
         command = ["docker", "inspect", "--format", "{{ .NetworkSettings.IPAddress }}", self._container_name]
         ret = subprocess.run(command, check=True, capture_output=True, text=True)
         ip_address = ret.stdout.strip("\n")
-        _wait_for_server(self._bolt_port, ip=ip_address)
+        _wait_for_server_socket(self._bolt_port, ip=ip_address)
 
     def stop_db(self, message):
         usage = self._get_cpu_memory_usage()
@@ -874,7 +882,7 @@ class Neo4jDocker(BaseRunner):
         command = ["docker", "inspect", "--format", "{{ .NetworkSettings.IPAddress }}", self._container_name]
         ret = subprocess.run(command, check=True, capture_output=True, text=True)
         ip_address = ret.stdout.strip("\n")
-        _wait_for_server(self._bolt_port, ip=ip_address)
+        _wait_for_server_socket(self._bolt_port, ip=ip_address)
 
     def stop_db_init(self, message):
         usage = self._get_cpu_memory_usage()
@@ -890,7 +898,7 @@ class Neo4jDocker(BaseRunner):
         command = ["docker", "inspect", "--format", "{{ .NetworkSettings.IPAddress }}", self._container_name]
         ret = subprocess.run(command, check=True, capture_output=True, text=True)
         ip_address = ret.stdout.strip("\n")
-        _wait_for_server(self._bolt_port, ip=ip_address)
+        _wait_for_server_socket(self._bolt_port, ip=ip_address)
 
     def stop_db(self, message):
         usage = self._get_cpu_memory_usage()
