@@ -479,12 +479,6 @@ if __name__ == "__main__":
         config = helpers.RecursiveDict()
     results = helpers.RecursiveDict()
 
-    log.init("Creating vendor runner for DB: " + benchmark_context.vendor_name)
-    vendor_runner = runners.BaseRunner.create(
-        benchmark_context=benchmark_context,
-    )
-    log.log("Class in use: " + str(vendor_runner))
-
     run_config = {
         "vendor": benchmark_context.vendor_name,
         "condition": benchmark_context.warm_up,
@@ -511,7 +505,13 @@ if __name__ == "__main__":
 
         benchmark_context.set_active_workload(workload.NAME)
         benchmark_context.set_active_variant(workload.get_variant())
-        
+
+        log.init("Creating vendor runner for DB: " + benchmark_context.vendor_name)
+        vendor_runner = runners.BaseRunner.create(
+            benchmark_context=benchmark_context,
+        )
+        log.log("Class in use: " + str(vendor_runner))
+
         log.info("Cleaning the database from any previous data")
         vendor_runner.clean_db()
 

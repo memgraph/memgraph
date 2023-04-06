@@ -579,7 +579,7 @@ class Neo4j(BaseRunner):
                     self._neo4j_admin,
                     "database",
                     "dump",
-                    "--overwrite-destination=false",
+                    "--overwrite-destination=true",
                     "--to-path",
                     path,
                     "neo4j",
@@ -861,7 +861,6 @@ class Neo4jDocker(BaseRunner):
         command = ["docker", "stop", self._container_name]
         self._run_command(command)
 
-        # TODO Generate database dump
         return usage
 
     def start_db(self, message):
