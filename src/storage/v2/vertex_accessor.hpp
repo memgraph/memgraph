@@ -86,7 +86,7 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
 
-  Result<std::string> PropertyStore() const;
+  std::string PropertyStore() const;
 
   void SetPropertyStore(std::string_view buffer) const;
 

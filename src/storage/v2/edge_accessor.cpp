@@ -255,10 +255,7 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
   */
 }
 
-Result<std::string> EdgeAccessor::PropertyStore() const {
-  // TODO: needs changing where there are no properties on edges
-  return edge_.ptr->properties.StringBuffer();
-}
+std::string EdgeAccessor::PropertyStore() const { return edge_.ptr->properties.StringBuffer(); }
 
 void EdgeAccessor::SetPropertyStore(std::string_view buffer) const { edge_.ptr->properties.SetBuffer(buffer); }
 

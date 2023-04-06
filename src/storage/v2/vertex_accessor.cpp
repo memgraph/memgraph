@@ -308,7 +308,7 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
   return std::move(value);
 }
 
-Result<std::string> VertexAccessor::PropertyStore() const { return vertex_->properties.StringBuffer(); }
+std::string VertexAccessor::PropertyStore() const { return vertex_->properties.StringBuffer(); }
 
 void VertexAccessor::SetPropertyStore(const std::string_view buffer) const { vertex_->properties.SetBuffer(buffer); }
 
