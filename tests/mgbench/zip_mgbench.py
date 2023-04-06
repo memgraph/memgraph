@@ -22,15 +22,11 @@ def zip_mgbench():
     zip.write(parent / "workloads/__init__.py", "mgbench/workloads/__init__.py")
     zip.write(parent / "workloads/base.py", "mgbench/workloads/base.py")
     zip.write(parent / "workloads/demo.py", "mgbench/workloads/demo.py")
-    zip.write(parent / "workloads/ldbc_bi.py", "mgbench/workloads/ldbc_bi.py")
-    zip.write(parent / "workloads/ldbc_interactive.py", "mgbench/workloads/ldbc_interactive.py")
-    zip.write(parent / "workloads/pokec.py", "mgbench/workloads/pokec.py")
 
     zip.close()
 
 
 if __name__ == "__main__":
-
     zip_mgbench()
 
     if Path("./mgbench.zip").is_file():

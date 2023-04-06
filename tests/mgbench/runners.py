@@ -151,7 +151,7 @@ class BoltClientDocker(BaseClient):
             if "bolt-port" in benchmark_context.vendor_args.keys()
             else "7687"
         )
-        self._container_name = "bolt_client_benchmark"
+        self._container_name = "mgbench-bolt-client"
         self._target_db_container = (
             "memgraph_benchmark" if "memgraph" in benchmark_context.vendor_name else "neo4j_benchmark"
         )
@@ -161,7 +161,7 @@ class BoltClientDocker(BaseClient):
         self._run_command(command)
 
     def _create_container(self, *args):
-        command = ["docker", "create", "--name", self._container_name, "memgraph/mgbench", *args]
+        command = ["docker", "create", "--name", self._container_name, "memgraph/mgbench-client", *args]
         self._run_command(command)
 
     def _get_target_ip(self):
@@ -247,6 +247,7 @@ class BoltClientDocker(BaseClient):
         if error and error[0] != "":
             log.warning("Reported errors from client:")
             log.warning("There is a possibility that query from: {} is not executed properly".format(file_path))
+            log.warning(*error)
         data = ret.stdout.strip().split("\n")
         data = [x for x in data if not x.startswith("[")]
         return list(map(json.loads, data))
@@ -433,7 +434,14 @@ class Neo4j(BaseRunner):
         self._neo4j_config = self._neo4j_path / "conf" / "neo4j.conf"
         self._neo4j_pid = self._neo4j_path / "run" / "neo4j.pid"
         self._neo4j_admin = self._neo4j_path / "bin" / "neo4j-admin"
-        self._neo4j_dump = Path() / ".cache" / "datasets" / self.benchmark_context.get_active_workload() / self.benchmark_context.get_active_variant() / "neo4j.dump"
+        self._neo4j_dump = (
+            Path()
+            / ".cache"
+            / "datasets"
+            / self.benchmark_context.get_active_workload()
+            / self.benchmark_context.get_active_variant()
+            / "neo4j.dump"
+        )
         self._performance_tracking = benchmark_context.performance_tracking
         self._vendor_args = benchmark_context.vendor_args
         self._stop_event = threading.Event()
@@ -550,8 +558,15 @@ class Neo4j(BaseRunner):
             self._stop_event.clear()
             self._rss.clear()
             p.start()
-        
-        neo4j_dump = Path() / ".cache" / "datasets" / self.benchmark_context.get_active_workload() / self.benchmark_context.get_active_variant() / "neo4j.dump"
+
+        neo4j_dump = (
+            Path()
+            / ".cache"
+            / "datasets"
+            / self.benchmark_context.get_active_workload()
+            / self.benchmark_context.get_active_variant()
+            / "neo4j.dump"
+        )
         if neo4j_dump.exists():
             self.load_db_from_dump(path=neo4j_dump.parent)
         # Start DB
@@ -631,7 +646,6 @@ class Neo4j(BaseRunner):
     def is_stopped(self):
         pid_file = self._neo4j_path / "run" / "neo4j.pid"
         if pid_file.exists():
-
             return False
         else:
             return True
@@ -715,7 +729,6 @@ class MemgraphDocker(BaseRunner):
         _wait_for_server(self._bolt_port, ip=ip_address)
 
     def stop_db_init(self, message):
-
         usage = self._get_cpu_memory_usage()
 
         # Stop to save the snapshot
@@ -766,7 +779,6 @@ class MemgraphDocker(BaseRunner):
             file.close()
             key, value = argument.split("=")
             for line in lines:
-
                 if line[0] == "#" or line.strip("\n") == "":
                     config_lines.append(line)
                 else:
@@ -855,7 +867,6 @@ class Neo4jDocker(BaseRunner):
         _wait_for_server(self._bolt_port, ip=ip_address)
 
     def stop_db_init(self, message):
-
         usage = self._get_cpu_memory_usage()
 
         command = ["docker", "stop", self._container_name]
@@ -872,7 +883,6 @@ class Neo4jDocker(BaseRunner):
         _wait_for_server(self._bolt_port, ip=ip_address)
 
     def stop_db(self, message):
-
         usage = self._get_cpu_memory_usage()
 
         command = ["docker", "stop", self._container_name]
@@ -935,5 +945,5 @@ class Neo4jDocker(BaseRunner):
     def _run_command(self, command):
         print(command)
         ret = subprocess.run(command, capture_output=True, check=True, text=True)
-        time.sleep(0.2)
+        time.sleep(0.1)
         return ret
