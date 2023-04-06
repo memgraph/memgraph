@@ -51,11 +51,12 @@ jobs:
               echo 'All good the specified version has not been release to DockerHub.'
           fi
 
-      - name: Build & push docker image
+      - name: Build & push docker images
         run: |
           cd tests/mgbench
           docker buildx build \
           --build-arg TOOLCHAIN_VERSION=toolchain-v4 \
+          --platform linux/amd64,linux/arm64 \
           --tag $DOCKER_ORGANIZATION_NAME/$DOCKER_REPOSITORY_NAME:${{ github.event.inputs.version }} \
           --tag $DOCKER_ORGANIZATION_NAME/$DOCKER_REPOSITORY_NAME:latest \
           --file Dockerfile.mgbench_bolt_client \
