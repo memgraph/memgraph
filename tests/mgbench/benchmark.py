@@ -30,9 +30,6 @@ WITHOUT_FINE_GRAINED_AUTHORIZATION = "without_fine_grained_authorization"
 QUERY_COUNT_LOWER_BOUND = 30
 
 
-# Some random change
-# other chanfe
-# test
 def parse_args():
     parser = argparse.ArgumentParser(description="Main parser.", add_help=False)
 
@@ -512,6 +509,9 @@ if __name__ == "__main__":
     for workload, queries in target_workloads:
         log.info("Started running following workload: " + str(workload.NAME))
 
+        benchmark_context.set_active_workload(workload.NAME)
+        benchmark_context.set_active_variant(workload.get_variant())
+        
         log.info("Cleaning the database from any previous data")
         vendor_runner.clean_db()
 
@@ -521,24 +521,20 @@ if __name__ == "__main__":
         ret = None
         usage = None
 
-        log.init("Preparing workload: " + workload.NAME + "/" + workload.get_variant())
-        workload.prepare(cache.cache_directory("datasets", workload.NAME, workload.get_variant()))
         generated_queries = workload.dataset_generator()
         if generated_queries:
             vendor_runner.start_db_init("import")
             log.info("Using workload as dataset generator...")
-            if workload.get_index():
-                log.info("Using index from specified file: {}".format(workload.get_index()))
-                client.execute(file_path=workload.get_index(), num_workers=benchmark_context.num_workers_for_import)
-            else:
-                log.warning("Using following indexes...")
-                log.info(workload.indexes_generator())
-                client.execute(
-                    queries=workload.indexes_generator(), num_workers=benchmark_context.num_workers_for_import
-                )
+            log.warning("Using following indexes...")
+            log.info(workload.indexes_generator())
+            client.execute(
+                queries=workload.indexes_generator(), num_workers=benchmark_context.num_workers_for_import
+            )
             ret = client.execute(queries=generated_queries, num_workers=benchmark_context.num_workers_for_import)
             usage = vendor_runner.stop_db_init("import")
         else:
+            log.init("Preparing workload: " + workload.NAME + "/" + workload.get_variant())
+            workload.prepare(cache.cache_directory("datasets", workload.NAME, workload.get_variant()))
             log.info("Using workload dataset information for import...")
             imported = workload.custom_import()
             if not imported:

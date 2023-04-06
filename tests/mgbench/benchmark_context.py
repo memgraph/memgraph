@@ -55,3 +55,17 @@ class BenchmarkContext:
         self.no_authorization = no_authorization
         self.customer_workloads = customer_workloads
         self.vendor_args = vendor_args
+        self.active_workload = None
+        self.active_variant = None
+        
+    def set_active_workload(self, workload: str) -> None:
+        self.active_workload = workload
+    def get_active_workload(self) -> str:
+        return self.active_workload
+
+    def set_active_variant(self, variant: str) -> None:
+        self.active_variant = variant
+    def get_active_variant(self) -> str:
+        return self.active_variant
+    
+    

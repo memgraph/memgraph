@@ -433,6 +433,7 @@ class Neo4j(BaseRunner):
         self._neo4j_config = self._neo4j_path / "conf" / "neo4j.conf"
         self._neo4j_pid = self._neo4j_path / "run" / "neo4j.pid"
         self._neo4j_admin = self._neo4j_path / "bin" / "neo4j-admin"
+        self._neo4j_dump = Path() / ".cache" / "datasets" / self.benchmark_context.get_active_workload() / self.benchmark_context.get_active_variant() / "neo4j.dump"
         self._performance_tracking = benchmark_context.performance_tracking
         self._vendor_args = benchmark_context.vendor_args
         self._stop_event = threading.Event()
@@ -539,6 +540,7 @@ class Neo4j(BaseRunner):
             self.get_memory_usage("stop_" + workload)
             self.dump_rss(workload)
         ret, usage = self._cleanup()
+        self.dump_db(path=self._neo4j_dump.parent)
         assert ret == 0, "The database process exited with a non-zero " "status ({})!".format(ret)
         return usage
 
@@ -548,6 +550,10 @@ class Neo4j(BaseRunner):
             self._stop_event.clear()
             self._rss.clear()
             p.start()
+        
+        neo4j_dump = Path() / ".cache" / "datasets" / self.benchmark_context.get_active_workload() / self.benchmark_context.get_active_variant() / "neo4j.dump"
+        if neo4j_dump.exists():
+            self.load_db_from_dump(path=neo4j_dump.parent)
         # Start DB
         self._start()
 
