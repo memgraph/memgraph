@@ -7,7 +7,7 @@ class BenchmarkContext:
     def __init__(
         self,
         benchmark_target_workload: str = None,  # Workload that needs to be executed (dataset/variant/group/query)
-        vendor_binary: str = None,  # Benchmark vendor binary
+        vendor_binary: str = None,
         vendor_name: str = None,
         client_binary: str = None,
         num_workers_for_import: int = None,
@@ -26,7 +26,6 @@ class BenchmarkContext:
         customer_workloads: str = None,
         vendor_args: dict = {},
     ) -> None:
-
         self.benchmark_target_workload = benchmark_target_workload
         self.vendor_binary = vendor_binary
         self.vendor_name = vendor_name
@@ -57,15 +56,15 @@ class BenchmarkContext:
         self.vendor_args = vendor_args
         self.active_workload = None
         self.active_variant = None
-        
+
     def set_active_workload(self, workload: str) -> None:
         self.active_workload = workload
+
     def get_active_workload(self) -> str:
         return self.active_workload
 
     def set_active_variant(self, variant: str) -> None:
         self.active_variant = variant
+
     def get_active_variant(self) -> str:
         return self.active_variant
-    
-    
