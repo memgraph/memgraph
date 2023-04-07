@@ -845,7 +845,8 @@ bool SharedLibraryModule::Load(const std::filesystem::path &file_path) {
   file_path_ = file_path;
   dlerror();  // Clear any existing error.
   // NOLINTNEXTLINE(hicpp-signed-bitwise)
-  handle_ = dlopen(file_path.c_str(), RTLD_NOW | RTLD_LOCAL | RTLD_DEEPBIND);
+  // handle_ = dlopen(file_path.c_str(), RTLD_NOW | RTLD_LOCAL | RTLD_DEEPBIND);
+  handle_ = dlopen(file_path.c_str(), RTLD_NOW | RTLD_LOCAL);
   if (!handle_) {
     spdlog::error(
         utils::MessageWithLink("Unable to load module {}; {}.", file_path, dlerror(), "https://memgr.ph/modules"));

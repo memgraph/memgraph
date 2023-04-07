@@ -1222,18 +1222,36 @@ bool PropertyStore::ClearProperties() {
   return true;
 }
 
-std::string PropertyStore::StringBuffer() const {
-  std::string arr(sizeof(buffer_), ' ');
-  for (uint i = 0; i < sizeof(buffer_); ++i) {
-    arr[i] = static_cast<char>(buffer_[i]);
+std::string PropertyStore::StringBuffer() {
+  uint64_t size = 0;
+  uint8_t *data = nullptr;
+  std::tie(size, data) = GetSizeData(buffer_);
+  if (size % 8 != 0) {  // We are storing the data in the local buffer.
+    size = sizeof(buffer_) - 1;
+    data = &buffer_[1];
+  }
+  std::string arr(size, ' ');
+  for (uint i = 0; i < size; ++i) {
+    arr[i] = static_cast<char>(data[i]);
   }
   return arr;
 }
 
 void PropertyStore::SetBuffer(const std::string_view buffer) {
-  MG_ASSERT(buffer.size() == sizeof(buffer_));
-  for (uint i = 0; i < sizeof(buffer_); ++i) {
-    buffer_[i] = static_cast<uint8_t>(buffer[i]);
+  uint64_t size = 0;
+  uint8_t *data = nullptr;
+  if (buffer.size() == sizeof(buffer_) - 1) {  // use local buffer
+    buffer_[0] = kUseLocalBuffer;
+    size = buffer.size() - 1;
+    data = &buffer_[1];
+  } else {
+    size = buffer.size();
+    data = new uint8_t[size];
+    SetSizeData(buffer_, size, data);
+  }
+
+  for (uint i = 0; i < size; ++i) {
+    data[i] = static_cast<uint8_t>(buffer[i]);
   }
 }
 

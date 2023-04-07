@@ -15,6 +15,7 @@
 #include <rocksdb/iterator.h>
 #include <rocksdb/options.h>
 #include <rocksdb/status.h>
+#include <boost/filesystem.hpp>
 #include <iterator>
 #include <numeric>
 #include <optional>
@@ -32,6 +33,7 @@
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/storage.hpp"
@@ -40,6 +42,7 @@
 #include "storage/v2/view.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
 
@@ -62,7 +65,7 @@ class RocksDBStorage {
   explicit RocksDBStorage() {
     options_.create_if_missing = true;
     // options_.OptimizeLevelStyleCompaction();
-    std::filesystem::path rocksdb_path = "./rocks_experiment_unit_test";
+    std::filesystem::path rocksdb_path = "./rocks_experiment_unit";
     MG_ASSERT(utils::EnsureDir(rocksdb_path), "Unable to create storage folder on the disk.");
     AssertRocksDBStatus(rocksdb::DB::Open(options_, rocksdb_path, &db_));
     AssertRocksDBStatus(db_->CreateColumnFamily(rocksdb::ColumnFamilyOptions(), "vertex", &vertex_chandle));
@@ -74,6 +77,8 @@ class RocksDBStorage {
   ~RocksDBStorage() {
     AssertRocksDBStatus(db_->DropColumnFamily(vertex_chandle));
     AssertRocksDBStatus(db_->DropColumnFamily(edge_chandle));
+    AssertRocksDBStatus(db_->DestroyColumnFamilyHandle(vertex_chandle));
+    AssertRocksDBStatus(db_->DestroyColumnFamilyHandle(edge_chandle));
     AssertRocksDBStatus(db_->Close());
     delete db_;
   }
@@ -234,14 +239,16 @@ class RocksDBStorage {
   /// This should again be changed when we have mulitple same vertices
   std::optional<query::VertexAccessor> FindVertex(const std::string_view gid, query::DbAccessor &dba) {
     rocksdb::Iterator *it = db_->NewIterator(rocksdb::ReadOptions(), vertex_chandle);
+    std::optional<query::VertexAccessor> result = {};
     for (it->SeekToFirst(); it->Valid(); it->Next()) {
-      const std::string_view key = it->key().ToStringView();
+      const auto &key = it->key().ToString();
       if (const auto vertex_parts = utils::Split(key, "|"); vertex_parts[1] == gid) {
-        return DeserializeVertex(key, it->value().ToStringView(), dba);
+        result = DeserializeVertex(key, it->value().ToStringView(), dba);
+        break;
       }
     }
     delete it;
-    return std::nullopt;
+    return result;
   }
 
   /// Read all vertices stored in the database by a label
@@ -260,6 +267,7 @@ class RocksDBStorage {
     return vertices;
   }
 
+  /// TODO: unique ptr on iterators
   /// TODO: rewrite the code with means of lambda operation
   /// TODO: we need to this, otherwise we will have to change a lot of things as we are dealing on the low level
   /// certainly can be a bit optimized so that new object isn't created if can be discarded
@@ -315,7 +323,7 @@ class RocksDBStorage {
   query::VertexAccessor DeserializeVertex(const std::string_view key, const std::string_view value,
                                           query::DbAccessor &dba) {
     // Create vertex
-    auto impl = query::VertexAccessor(dba.InsertVertex());
+    auto impl = dba.InsertVertex();
     spdlog::info("Key to deserialize: {}", key);
     const auto vertex_parts = utils::Split(key, "|");
     // Deserialize labels
@@ -391,13 +399,12 @@ class RocksDBStorage {
     const auto edge_type_id = storage::EdgeTypeId::FromUint(std::stoull(edge_parts[3]));
     // TODO: remove to deserialization edge type id method
     const auto edge_gid = storage::Gid::FromUint(std::stoull(edge_parts[4]));
-    const auto maybe_edge = dba.InsertEdge(&*from_acc, &*to_acc, edge_type_id);
+    auto maybe_edge = dba.InsertEdge(&*from_acc, &*to_acc, edge_type_id);
     MG_ASSERT(maybe_edge.HasValue());
-    auto edge_impl = query::EdgeAccessor(*maybe_edge);
     // in the new storage API, setting gid must be done atomically
-    edge_impl.SetGid(edge_gid);
-    edge_impl.SetPropertyStore(value);
-    return edge_impl;
+    maybe_edge->SetGid(edge_gid);
+    maybe_edge->SetPropertyStore(value);
+    return *maybe_edge;
   }
 
  private:
