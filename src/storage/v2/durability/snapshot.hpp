@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -37,6 +37,8 @@ struct SnapshotInfo {
   uint64_t offset_mapper;
   uint64_t offset_epoch_history;
   uint64_t offset_metadata;
+  uint64_t offset_edge_batches;
+  uint64_t offset_vertex_batches;
 
   std::string uuid;
   std::string epoch_id;
