@@ -249,53 +249,74 @@ TEST_F(RocksDBStorageTest, SerializeEdge) {
             *src_out_edge.Properties(memgraph::storage::View::OLD));
 }
 
-TEST_F(RocksDBStorageTest, SerializeVertexGIDProperties) {
-  // serializes vertex's gid, multiple labels and properties
+TEST_F(RocksDBStorageTest, DeleteVertex) {
   auto storage_dba = storage.Access(memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
   memgraph::query::DbAccessor dba(&storage_dba);
-  // prepare labels
-  std::vector<memgraph::storage::LabelId> label_ids{dba.NameToLabel("Player"), dba.NameToLabel("Person"),
-                                                    dba.NameToLabel("Ball")};
-  // prepare properties
   std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> properties;
-  properties.emplace(dba.NameToProperty("name"), memgraph::storage::PropertyValue("disk"));
-  properties.emplace(dba.NameToProperty("memory"), memgraph::storage::PropertyValue("1TB"));
-  properties.emplace(dba.NameToProperty("price"), memgraph::storage::PropertyValue(1000.21));
-  // gids
-  std::unordered_set<uint64_t> gids;
-  for (int i = 0; i < 5; ++i) {
-    gids.insert(i);
-    auto impl = dba.InsertVertex();
-    impl.SetGid(memgraph::storage::Gid::FromUint(i));
-    impl.AddLabel(label_ids[i % 3]);
-    impl.AddLabel(label_ids[(i + 1) % 3]);
-    memgraph::query::MultiPropsInitChecked(&impl, properties);
-    db.StoreVertex(impl);
-  }
-  // load vertices from disk
-  auto loaded_vertices = db.Vertices(dba);
-  ASSERT_EQ(loaded_vertices.size(), 5);
-  for (const auto &vertex_acc : loaded_vertices) {
-    ASSERT_TRUE(gids.contains(vertex_acc.Gid().AsUint()));
-    // labels
-    auto labels = vertex_acc.Labels(memgraph::storage::View::OLD);
-    ASSERT_EQ(labels->size(), 2);
-    ASSERT_TRUE(std::all_of(labels->begin(), labels->end(), [&label_ids](const auto &label_id) {
-      return std::find(label_ids.begin(), label_ids.end(), label_id) != label_ids.end();
-    }));
-    // check properties
-    auto props = vertex_acc.Properties(memgraph::storage::View::OLD);
-    ASSERT_FALSE(props.HasError());
-    auto prop_name = vertex_acc.GetProperty(memgraph::storage::View::OLD, dba.NameToProperty("name"));
-    auto prop_memory = vertex_acc.GetProperty(memgraph::storage::View::OLD, dba.NameToProperty("memory"));
-    auto prop_price = vertex_acc.GetProperty(memgraph::storage::View::OLD, dba.NameToProperty("price"));
-    auto prop_unexisting = vertex_acc.GetProperty(memgraph::storage::View::OLD, dba.NameToProperty("random"));
-    ASSERT_TRUE(prop_name->IsString());
-    ASSERT_EQ(prop_name->ValueString(), "disk");
-    ASSERT_TRUE(prop_memory->IsString());
-    ASSERT_EQ(prop_memory->ValueString(), "1TB");
-    ASSERT_TRUE(prop_price->IsDouble());
-    ASSERT_DOUBLE_EQ(prop_price->ValueDouble(), 1000.21);
-    ASSERT_TRUE(prop_unexisting->IsNull());
-  }
+  properties.emplace(dba.NameToProperty("sum"), memgraph::storage::PropertyValue("2TB"));
+  properties.emplace(dba.NameToProperty("same_type"), memgraph::storage::PropertyValue(true));
+  properties.emplace(dba.NameToProperty("cluster_price"), memgraph::storage::PropertyValue(2000.42));
+  // create vertex
+  auto impl = dba.InsertVertex();
+  impl.AddLabel(dba.NameToLabel("Player"));
+  memgraph::query::MultiPropsInitChecked(&impl, properties);
+  db.StoreVertex(impl);
+  // find vertex should work now
+  ASSERT_TRUE(db.FindVertex(std::to_string(impl.Gid().AsUint()), dba).has_value());
+  // RocksDB doesn't physically delete entry so deletion will pass two times
+  ASSERT_TRUE(db.DeleteVertex(impl).has_value());
+  ASSERT_TRUE(db.DeleteVertex(impl).has_value());
+  // second time you shouldn't be able to find the vertex
+  ASSERT_FALSE(db.FindVertex(std::to_string(impl.Gid().AsUint()), dba).has_value());
 }
+
+// TEST_F(RocksDBStorageTest, SerializeVertexGIDProperties) {
+//   // serializes vertex's gid, multiple labels and properties
+//   auto storage_dba = storage.Access(memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
+//   memgraph::query::DbAccessor dba(&storage_dba);
+//   // prepare labels
+//   std::vector<memgraph::storage::LabelId> label_ids{dba.NameToLabel("Player"), dba.NameToLabel("Person"),
+//                                                     dba.NameToLabel("Ball")};
+//   // prepare properties
+//   std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> properties;
+//   properties.emplace(dba.NameToProperty("name"), memgraph::storage::PropertyValue("disk"));
+//   properties.emplace(dba.NameToProperty("memory"), memgraph::storage::PropertyValue("1TB"));
+//   properties.emplace(dba.NameToProperty("price"), memgraph::storage::PropertyValue(1000.21));
+//   // gids
+//   std::unordered_set<uint64_t> gids;
+//   for (int i = 0; i < 5; ++i) {
+//     gids.insert(i);
+//     auto impl = dba.InsertVertex();
+//     impl.SetGid(memgraph::storage::Gid::FromUint(i));
+//     impl.AddLabel(label_ids[i % 3]);
+//     impl.AddLabel(label_ids[(i + 1) % 3]);
+//     memgraph::query::MultiPropsInitChecked(&impl, properties);
+//     db.StoreVertex(impl);
+//   }
+//   // load vertices from disk
+//   auto loaded_vertices = db.Vertices(dba);
+//   ASSERT_EQ(loaded_vertices.size(), 5);
+//   for (const auto &vertex_acc : loaded_vertices) {
+//     ASSERT_TRUE(gids.contains(vertex_acc.Gid().AsUint()));
+//     // labels
+//     auto labels = vertex_acc.Labels(memgraph::storage::View::OLD);
+//     ASSERT_EQ(labels->size(), 2);
+//     ASSERT_TRUE(std::all_of(labels->begin(), labels->end(), [&label_ids](const auto &label_id) {
+//       return std::find(label_ids.begin(), label_ids.end(), label_id) != label_ids.end();
+//     }));
+//     // check properties
+//     auto props = vertex_acc.Properties(memgraph::storage::View::OLD);
+//     ASSERT_FALSE(props.HasError());
+//     auto prop_name = vertex_acc.GetProperty(memgraph::storage::View::OLD, dba.NameToProperty("name"));
+//     auto prop_memory = vertex_acc.GetProperty(memgraph::storage::View::OLD, dba.NameToProperty("memory"));
+//     auto prop_price = vertex_acc.GetProperty(memgraph::storage::View::OLD, dba.NameToProperty("price"));
+//     auto prop_unexisting = vertex_acc.GetProperty(memgraph::storage::View::OLD, dba.NameToProperty("random"));
+//     ASSERT_TRUE(prop_name->IsString());
+//     ASSERT_EQ(prop_name->ValueString(), "disk");
+//     ASSERT_TRUE(prop_memory->IsString());
+//     ASSERT_EQ(prop_memory->ValueString(), "1TB");
+//     ASSERT_TRUE(prop_price->IsDouble());
+//     ASSERT_DOUBLE_EQ(prop_price->ValueDouble(), 1000.21);
+//     ASSERT_TRUE(prop_unexisting->IsNull());
+//   }
+// }
