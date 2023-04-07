@@ -87,11 +87,6 @@ def parse_args():
         default=None,
         help="file path into which results should be exported",
     )
-    benchmark_parser.add_argument(
-        "--temporary-directory",
-        default=(pathlib.Path().absolute() / ".cache" / "tmp").mkdir(parents=True, exist_ok=True),
-        help="directory path where temporary data should be stored",
-    )
 
     benchmark_parser.add_argument(
         "--no-authorization",
@@ -437,6 +432,9 @@ if __name__ == "__main__":
         args.workload_realistic == None or args.workload_mixed == None
     ), "Cannot run both realistic and mixed workload, only one mode run at the time"
 
+    temp_dir = pathlib.Path.cwd() / ".temp"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+
     benchmark_context = BenchmarkContext(
         benchmark_target_workload=args.benchmarks,
         vendor_binary=args.vendor_binary if args.run_option == "vendor-native" else None,
@@ -447,7 +445,7 @@ if __name__ == "__main__":
         single_threaded_runtime_sec=args.single_threaded_runtime_sec,
         no_load_query_counts=args.no_load_query_counts,
         export_results=args.export_results,
-        temporary_directory=args.temporary_directory,
+        temporary_directory=temp_dir.absolute(),
         workload_mixed=args.workload_mixed,
         workload_realistic=args.workload_realistic,
         time_dependent_execution=args.time_depended_execution,
