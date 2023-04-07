@@ -848,9 +848,20 @@ class MemgraphDocker(BaseRunner):
             "-c",
             "cat /proc/1/stat",
         ]
-        ret = self._run_command(command)
-        stat = ret.stdout.strip("\n")
-        cpu_time = sum(map(int, stat.split(")")[1].split()[11:15])) / os.sysconf(os.sysconf_names["SC_CLK_TCK"])
+        stat = self._run_command(command).stdout.strip("\n")
+
+        command = [
+            "docker",
+            "exec",
+            "-it",
+            self._container_name,
+            "bash",
+            "-c",
+            "getconf CLK_TCK",
+        ]
+        CLK_TCK = int(self._run_command(command).stdout.strip("\n"))
+
+        cpu_time = sum(map(int, stat.split(")")[1].split()[11:15])) / CLK_TCK
         usage["cpu"] = cpu_time
 
         return usage
@@ -970,9 +981,20 @@ class Neo4jDocker(BaseRunner):
             "-c",
             "cat /proc/{}/stat".format(pid),
         ]
-        ret = self._run_command(command)
-        stat = ret.stdout.strip("\n")
-        cpu_time = sum(map(int, stat.split(")")[1].split()[11:15])) / os.sysconf(os.sysconf_names["SC_CLK_TCK"])
+        stat = self._run_command(command).stdout.strip("\n")
+
+        command = [
+            "docker",
+            "exec",
+            "-it",
+            self._container_name,
+            "bash",
+            "-c",
+            "getconf CLK_TCK",
+        ]
+        CLK_TCK = int(self._run_command(command).stdout.strip("\n"))
+
+        cpu_time = sum(map(int, stat.split(")")[1].split()[11:15])) / CLK_TCK
         usage["cpu"] = cpu_time
 
         return usage

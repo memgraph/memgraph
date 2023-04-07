@@ -11,7 +11,6 @@ from workloads import base
 
 
 def pars_args():
-
     parser = argparse.ArgumentParser(
         prog="Validator for individual query checking",
         description="""Validates that query is running, and validates output between different vendors""",
@@ -90,7 +89,6 @@ def get_queries(gen, count):
 
 
 if __name__ == "__main__":
-
     args = pars_args()
 
     benchmark_context_db_1 = BenchmarkContext(
@@ -120,7 +118,6 @@ if __name__ == "__main__":
     results_db_1 = {}
 
     for workload, queries in workloads:
-
         vendor_runner.clean_db()
 
         generated_queries = workload.dataset_generator()
@@ -182,7 +179,6 @@ if __name__ == "__main__":
     results_db_2 = {}
 
     for workload, queries in workloads:
-
         vendor_runner.clean_db()
 
         generated_queries = workload.dataset_generator()

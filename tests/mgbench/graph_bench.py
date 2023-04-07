@@ -60,7 +60,6 @@ def parse_arguments():
 
 
 def run_full_benchmarks(vendor, binary, dataset, dataset_size, dataset_group, realistic, mixed):
-
     configurations = [
         # Basic isolated test cold
         [
