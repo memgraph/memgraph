@@ -171,9 +171,7 @@ class BoltClientDocker(BaseClient):
         self._username = ""
         self._password = ""
         self._bolt_port = (
-            benchmark_context.vendor_args["bolt-port"]
-            if "bolt-port" in benchmark_context.vendor_args.keys()
-            else "7687"
+            benchmark_context.vendor_args["bolt-port"] if "bolt-port" in benchmark_context.vendor_args.keys() else 7687
         )
         self._container_name = "mgbench-bolt-client"
         self._target_db_container = (
@@ -258,16 +256,19 @@ class BoltClientDocker(BaseClient):
             self._container_name + ":/bin/" + file.name,
         ]
         self._run_command(command)
-        command = [
-            "docker",
-            "start",
-            "-i",
-            self._container_name,
-        ]
+        try:
+            command = [
+                "docker",
+                "start",
+                "-i",
+                self._container_name,
+            ]
 
-        ret = None
+            ret = None
 
-        self._run_command(command)
+            self._run_command(command)
+        except:
+            log.warning("Reported errors from client:")
 
         ret = self._get_logs()
         error = ret.stderr.strip().split("\n")
@@ -759,8 +760,7 @@ class MemgraphDocker(BaseRunner):
         ]
         self._run_command(command)
         self._config_file = Path(self._directory.name + "/memgraph.conf")
-        ip_address = _get_docker_container_ip(self._container_name)
-        _wait_for_server_socket(self._bolt_port, ip=ip_address)
+        _wait_for_server_socket(self._bolt_port, delay=0.5)
 
     def stop_db_init(self, message):
         usage = self._get_cpu_memory_usage()
@@ -786,7 +786,7 @@ class MemgraphDocker(BaseRunner):
         command = ["docker", "start", self._container_name]
         self._run_command(command)
         ip_address = _get_docker_container_ip(self._container_name)
-        _wait_for_server_socket(self._bolt_port, ip=ip_address)
+        _wait_for_server_socket(self._bolt_port, delay=0.5)
 
     def stop_db(self, message):
         usage = self._get_cpu_memory_usage()
@@ -902,17 +902,7 @@ class Neo4jDocker(BaseRunner):
                 "There is probably a database running on that port, please stop the running container and try again."
             )
             raise e
-
-        command = [
-            "docker",
-            "inspect",
-            "--format",
-            "{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
-            self._container_name,
-        ]
-        ret = subprocess.run(command, check=True, capture_output=True, text=True)
-        ip_address = ret.stdout.strip("\n")
-        _wait_for_server_socket(self._bolt_port, ip=ip_address)
+        _wait_for_server_socket(self._bolt_port, delay=5)
 
     def stop_db_init(self, message):
         usage = self._get_cpu_memory_usage()
@@ -925,16 +915,7 @@ class Neo4jDocker(BaseRunner):
     def start_db(self, message):
         command = ["docker", "start", self._container_name]
         self._run_command(command)
-        command = [
-            "docker",
-            "inspect",
-            "--format",
-            "{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
-            self._container_name,
-        ]
-        ret = subprocess.run(command, check=True, capture_output=True, text=True)
-        ip_address = _get_docker_container_ip(self._container_name)
-        _wait_for_server_socket(self._bolt_port, ip=ip_address)
+        _wait_for_server_socket(self._bolt_port, delay=5)
 
     def stop_db(self, message):
         usage = self._get_cpu_memory_usage()
