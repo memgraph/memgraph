@@ -24,17 +24,12 @@ from pathlib import Path
 import log
 from benchmark_context import BenchmarkContext
 
+DOCKER_NETWORK_NAME = "mgbench_network"
+
 
 def _wait_for_server_socket(port, ip="127.0.0.1", delay=0.1):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     while s.connect_ex((ip, int(port))) != 0:
-        time.sleep(0.01)
-    time.sleep(delay)
-
-
-def _wait_for_server(port, ip="127.0.0.1", delay=0.1):
-    cmd = ["nc", "-z", "-w", "1", ip, str(port)]
-    while subprocess.call(cmd) != 0:
         time.sleep(0.01)
     time.sleep(delay)
 
@@ -72,6 +67,27 @@ def _get_current_usage(pid):
             if tmp[0] == "VmRSS:":
                 rss = int(tmp[1])
     return rss / 1024
+
+
+def _setup_docker_benchmark_network(network_name):
+    command = ["docker", "network", "ls", "--format", "{{.Name}}"]
+    networks = subprocess.run(command, check=True, capture_output=True, text=True).stdout.split("\n")
+    if network_name in networks:
+        return
+    else:
+        command = ["docker", "network", "create", network_name]
+        subprocess.run(command, check=True, capture_output=True, text=True)
+
+
+def _get_docker_container_ip(container_name):
+    command = [
+        "docker",
+        "inspect",
+        "--format",
+        "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
+        container_name,
+    ]
+    return subprocess.run(command, check=True, capture_output=True, text=True).stdout.strip()
 
 
 class BaseClient(ABC):
@@ -169,14 +185,17 @@ class BoltClientDocker(BaseClient):
         self._run_command(command)
 
     def _create_container(self, *args):
-        command = ["docker", "create", "--name", self._container_name, "memgraph/mgbench-client", *args]
+        command = [
+            "docker",
+            "create",
+            "--name",
+            self._container_name,
+            "--network",
+            DOCKER_NETWORK_NAME,
+            "memgraph/mgbench-client",
+            *args,
+        ]
         self._run_command(command)
-
-    def _get_target_ip(self):
-        command = ["docker", "inspect", "--format", "{{ .NetworkSettings.IPAddress }}", self._target_db_container]
-        ret = self._run_command(command)
-        ip_address = ret.stdout.strip("\n")
-        return ip_address
 
     def _get_logs(self):
         command = [
@@ -212,7 +231,7 @@ class BoltClientDocker(BaseClient):
                     f.write("\n")
 
         self._remove_container()
-        ip = self._get_target_ip()
+        ip = _get_docker_container_ip(self._target_db_container)
 
         # Query file JSON or Cypher
         file = Path(file_path)
@@ -353,7 +372,7 @@ class Memgraph(BaseRunner):
         if self._proc_mg.poll() is not None:
             self._proc_mg = None
             raise Exception("The database process died prematurely!")
-        _wait_for_server(self._bolt_port)
+        _wait_for_server_socket(self._bolt_port)
         ret = self._proc_mg.poll()
         assert ret is None, "The database process died prematurely " "({})!".format(ret)
 
@@ -518,13 +537,13 @@ class Neo4j(BaseRunner):
             raise Exception("The database process is already running!")
         args = _convert_args_to_flags(self._neo4j_binary, "start", **kwargs)
         start_proc = subprocess.run(args, check=True)
-        time.sleep(5)
+        time.sleep(0.5)
         if self._neo4j_pid.exists():
             print("Neo4j started!")
         else:
             raise Exception("The database process died prematurely!")
         print("Run server check:")
-        _wait_for_server(self._bolt_port)
+        _wait_for_server_socket(self._bolt_port)
 
     def _cleanup(self):
         if self._neo4j_pid.exists():
@@ -698,6 +717,7 @@ class MemgraphDocker(BaseRunner):
         self._container_name = "memgraph_benchmark"
         self._container_ip = None
         self._config_file = None
+        _setup_docker_benchmark_network(network_name=DOCKER_NETWORK_NAME)
 
     def _set_args(self, **kwargs):
         return _convert_args_to_flags(**kwargs)
@@ -708,6 +728,8 @@ class MemgraphDocker(BaseRunner):
                 "docker",
                 "run",
                 "--detach",
+                "--network",
+                DOCKER_NETWORK_NAME,
                 "--name",
                 self._container_name,
                 "-it",
@@ -724,7 +746,9 @@ class MemgraphDocker(BaseRunner):
             ret = self._run_command(command)
         except subprocess.CalledProcessError as e:
             log.error("Failed to start Memgraph docker container.")
-            log.error("There is probably database running on that port!")
+            log.error(
+                "There is probably a database running on that port, please stop the running container and try again."
+            )
             raise e
 
         command = [
@@ -735,10 +759,7 @@ class MemgraphDocker(BaseRunner):
         ]
         self._run_command(command)
         self._config_file = Path(self._directory.name + "/memgraph.conf")
-
-        command = ["docker", "inspect", "--format", "{{ .NetworkSettings.IPAddress }}", self._container_name]
-        ret = subprocess.run(command, check=True, capture_output=True, text=True)
-        ip_address = ret.stdout.strip("\n")
+        ip_address = _get_docker_container_ip(self._container_name)
         _wait_for_server_socket(self._bolt_port, ip=ip_address)
 
     def stop_db_init(self, message):
@@ -764,9 +785,7 @@ class MemgraphDocker(BaseRunner):
     def start_db(self, message):
         command = ["docker", "start", self._container_name]
         self._run_command(command)
-        command = ["docker", "inspect", "--format", "{{ .NetworkSettings.IPAddress }}", self._container_name]
-        ret = subprocess.run(command, check=True, capture_output=True, text=True)
-        ip_address = ret.stdout.strip("\n")
+        ip_address = _get_docker_container_ip(self._container_name)
         _wait_for_server_socket(self._bolt_port, ip=ip_address)
 
     def stop_db(self, message):
@@ -853,6 +872,7 @@ class Neo4jDocker(BaseRunner):
         self._container_name = "neo4j_benchmark"
         self._container_ip = None
         self._config_file = None
+        _setup_docker_benchmark_network(DOCKER_NETWORK_NAME)
 
     def _set_args(self, **kwargs):
         return _convert_args_to_flags(**kwargs)
@@ -863,6 +883,8 @@ class Neo4jDocker(BaseRunner):
                 "docker",
                 "run",
                 "--detach",
+                "--network",
+                DOCKER_NETWORK_NAME,
                 "--name",
                 self._container_name,
                 "-it",
@@ -875,11 +897,19 @@ class Neo4jDocker(BaseRunner):
             command.extend(self._set_args(**self._vendor_args))
             ret = self._run_command(command)
         except subprocess.CalledProcessError as e:
-            log.error("There was an error starting the Neo4j container")
-            log.error("There is probably a database running on that port!")
+            log.error("There was an error starting the Neo4j container!")
+            log.error(
+                "There is probably a database running on that port, please stop the running container and try again."
+            )
             raise e
 
-        command = ["docker", "inspect", "--format", "{{ .NetworkSettings.IPAddress }}", self._container_name]
+        command = [
+            "docker",
+            "inspect",
+            "--format",
+            "{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
+            self._container_name,
+        ]
         ret = subprocess.run(command, check=True, capture_output=True, text=True)
         ip_address = ret.stdout.strip("\n")
         _wait_for_server_socket(self._bolt_port, ip=ip_address)
@@ -895,9 +925,15 @@ class Neo4jDocker(BaseRunner):
     def start_db(self, message):
         command = ["docker", "start", self._container_name]
         self._run_command(command)
-        command = ["docker", "inspect", "--format", "{{ .NetworkSettings.IPAddress }}", self._container_name]
+        command = [
+            "docker",
+            "inspect",
+            "--format",
+            "{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
+            self._container_name,
+        ]
         ret = subprocess.run(command, check=True, capture_output=True, text=True)
-        ip_address = ret.stdout.strip("\n")
+        ip_address = _get_docker_container_ip(self._container_name)
         _wait_for_server_socket(self._bolt_port, ip=ip_address)
 
     def stop_db(self, message):

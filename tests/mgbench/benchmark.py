@@ -14,6 +14,7 @@
 import argparse
 import json
 import multiprocessing
+import pathlib
 import platform
 import random
 import sys
@@ -88,7 +89,7 @@ def parse_args():
     )
     benchmark_parser.add_argument(
         "--temporary-directory",
-        default="/tmp",
+        default=(pathlib.Path().absolute() / ".cache" / "tmp").mkdir(parents=True, exist_ok=True),
         help="directory path where temporary data should be stored",
     )
 
@@ -527,9 +528,7 @@ if __name__ == "__main__":
             log.info("Using workload as dataset generator...")
             log.warning("Using following indexes...")
             log.info(workload.indexes_generator())
-            client.execute(
-                queries=workload.indexes_generator(), num_workers=benchmark_context.num_workers_for_import
-            )
+            client.execute(queries=workload.indexes_generator(), num_workers=benchmark_context.num_workers_for_import)
             ret = client.execute(queries=generated_queries, num_workers=benchmark_context.num_workers_for_import)
             usage = vendor_runner.stop_db_init("import")
         else:
