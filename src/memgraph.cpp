@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -718,6 +718,7 @@ int main(int argc, char **argv) {
         auto gil = memgraph::py::EnsureGIL();
         // NOLINTNEXTLINE(hicpp-signed-bitwise)
         auto *flag = PyLong_FromLong(RTLD_NOW | RTLD_DEEPBIND);
+        // TODO(gitbuda): This is Unix specific -> https://docs.python.org/3/library/sys.html#sys.setdlopenflags
         auto *setdl = PySys_GetObject("setdlopenflags");
         MG_ASSERT(setdl);
         auto *arg = PyTuple_New(1);
