@@ -13,17 +13,23 @@
 
 #include "utils/shared_library_handle.hpp"
 
+// APPLE CLANG 14: clang++ -I../../src -std=c++20 -o a.out shared_library_handle.cpp
+
 using namespace memgraph::utils;
 
 int main(int argc, char *argv[]) {
-#if defined(__linux__)
+
+#if defined(__APPLE__)
+  std::cout << "Apple" << std::endl;
   LinuxDLHandle handle("test", 0);
-#elif defined(__APPLE__)
+#elif defined(__linux__)
+  std::cout << "Linux" << std::endl;
   LinuxDLHandle handle("test", 0);
 #elif defined(_WIN32)
+  std::cout << "Windows" << std::endl;
   WindowsDLLHandle handle("test", 0);
 #else
-  std::cout << "Unsupportd platform" << std::end;
+  std::cout << "Unsupportd platform" << std::endl;
 #endif
 
   return 0;
