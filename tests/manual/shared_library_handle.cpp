@@ -27,7 +27,7 @@ int main(int argc, char *argv[]) {
   LinuxDLHandle handle("test", 0);
 #elif defined(_WIN32)
   std::cout << "Windows" << std::endl;
-  WindowsDLLHandle handle("test", 0);
+  WindowsDLLHandle handle;
 #else
   std::cout << "Unsupportd platform" << std::endl;
 #endif
