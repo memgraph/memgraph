@@ -58,6 +58,10 @@ MEMGRAPH_BUILD_DEPS=(
     libtool  # for protobuf code generation
 )
 
+MEMGRAPH_RUN_DEPS=(
+    logrotate openssl python3 libseccomp
+)
+
 list() {
     echo "$1"
 }

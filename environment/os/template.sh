@@ -19,6 +19,10 @@ MEMGRAPH_BUILD_DEPS=(
     pkg
 )
 
+MEMGRAPH_RUN_DEPS=(
+    pkg
+)
+
 list() {
     echo "$1"
 }
