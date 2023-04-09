@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -126,7 +126,8 @@ class Listener final {
             std::lock_guard<utils::SpinLock> guard(lock_);
             for (auto &session : sessions_) {
               if (session->TimedOut()) {
-                spdlog::warn("{} session associated with {} timed out", service_name, session->socket().endpoint());
+                spdlog::warn("{} session associated with {} timed out", service_name,
+                             session->socket().endpoint().SocketAddress());
                 // Here we shutdown the socket to terminate any leftover
                 // blocking `Write` calls and to signal an event that the
                 // session is closed. Session cleanup will be done in the event
@@ -199,16 +200,17 @@ class Listener final {
         ;
     } else if (event.events & EPOLLRDHUP) {
       // The client closed the connection.
-      spdlog::info("{} client {} closed the connection.", service_name_, session.socket().endpoint());
+      spdlog::info("{} client {} closed the connection.", service_name_, session.socket().endpoint().SocketAddress());
       CloseSession(session);
     } else if (!(event.events & EPOLLIN) || event.events & (EPOLLHUP | EPOLLERR)) {
       // There was an error on the server side.
-      spdlog::error("Error occured in {} session associated with {}", service_name_, session.socket().endpoint());
+      spdlog::error("Error occured in {} session associated with {}", service_name_,
+                    session.socket().endpoint().SocketAddress());
       CloseSession(session);
     } else {
       // Unhandled epoll event.
       spdlog::error("Unhandled event occured in {} session associated with {} events: {}", service_name_,
-                    session.socket().endpoint(), event.events);
+                    session.socket().endpoint().SocketAddress(), event.events);
       CloseSession(session);
     }
   }
@@ -222,7 +224,7 @@ class Listener final {
         return false;
       }
     } catch (const SessionClosedException &e) {
-      spdlog::info("{} client {} closed the connection.", service_name_, session.socket().endpoint());
+      spdlog::info("{} client {} closed the connection.", service_name_, session.socket().endpoint().SocketAddress());
       CloseSession(session);
       return false;
     } catch (const std::exception &e) {
@@ -230,7 +232,7 @@ class Listener final {
       spdlog::error(
           "Exception was thrown while processing event in {} session "
           "associated with {}",
-          service_name_, session.socket().endpoint());
+          service_name_, session.socket().endpoint().SocketAddress());
       spdlog::debug("Exception message: {}", e.what());
       CloseSession(session);
       return false;

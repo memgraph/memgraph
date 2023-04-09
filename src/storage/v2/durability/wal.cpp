@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -622,7 +622,7 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
                      const std::optional<uint64_t> last_loaded_timestamp, utils::SkipList<Vertex> *vertices,
                      utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                      Config::Items items) {
-  spdlog::info("Trying to load WAL file {}.", path);
+  spdlog::info("Trying to load WAL file {}.", path.string());
   RecoveryInfo ret;
 
   Decoder wal;

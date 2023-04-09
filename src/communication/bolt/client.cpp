@@ -12,6 +12,7 @@
 #include "communication/bolt/client.hpp"
 
 #include "communication/bolt/v1/codes.hpp"
+#include "communication/bolt/v1/fmt.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "utils/logging.hpp"
 

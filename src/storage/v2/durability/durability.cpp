@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -44,7 +44,8 @@ void VerifyStorageDirectoryOwnerAndProcessUserOrDie(const std::filesystem::path 
     // The directory doesn't currently exist.
     return;
   }
-  MG_ASSERT(ret == 0, "Couldn't get stat for '{}' because of: {} ({})", storage_directory, strerror(errno), errno);
+  MG_ASSERT(ret == 0, "Couldn't get stat for '{}' because of: {} ({})", storage_directory.string(), strerror(errno),
+            errno);
   auto directory_owner = statbuf.st_uid;
 
   auto get_username = [](auto uid) {
@@ -98,7 +99,7 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
         wal_files.emplace_back(info.seq_num, info.from_timestamp, info.to_timestamp, std::move(info.uuid),
                                std::move(info.epoch_id), item.path());
     } catch (const RecoveryFailure &e) {
-      spdlog::warn("Failed to read {}", item.path());
+      spdlog::warn("Failed to read {}", item.path().string());
       continue;
     }
   }
@@ -166,8 +167,8 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
                                         Indices *indices, Constraints *constraints, Config::Items items,
                                         uint64_t *wal_seq_num) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-  spdlog::info("Recovering persisted data using snapshot ({}) and WAL directory ({}).", snapshot_directory,
-               wal_directory);
+  spdlog::info("Recovering persisted data using snapshot ({}) and WAL directory ({}).", snapshot_directory.string(),
+               wal_directory.string());
   if (!utils::DirExists(snapshot_directory) && !utils::DirExists(wal_directory)) {
     spdlog::warn(utils::MessageWithLink("Snapshot or WAL directory don't exist, there is nothing to recover.",
                                         "https://memgr.ph/durability"));
@@ -180,7 +181,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
   RecoveredIndicesAndConstraints indices_constraints;
   std::optional<uint64_t> snapshot_timestamp;
   if (!snapshot_files.empty()) {
-    spdlog::info("Try recovering from snapshot directory {}.", snapshot_directory);
+    spdlog::info("Try recovering from snapshot directory {}.", snapshot_directory.string());
     // Order the files by name
     std::sort(snapshot_files.begin(), snapshot_files.end());
 
@@ -190,16 +191,16 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
     for (auto it = snapshot_files.rbegin(); it != snapshot_files.rend(); ++it) {
       const auto &[path, file_uuid, _] = *it;
       if (file_uuid != *uuid) {
-        spdlog::warn("The snapshot file {} isn't related to the latest snapshot file!", path);
+        spdlog::warn("The snapshot file {} isn't related to the latest snapshot file!", path.string());
         continue;
       }
-      spdlog::info("Starting snapshot recovery from {}.", path);
+      spdlog::info("Starting snapshot recovery from {}.", path.string());
       try {
         recovered_snapshot = LoadSnapshot(path, vertices, edges, epoch_history, name_id_mapper, edge_count, items);
         spdlog::info("Snapshot recovery successful!");
         break;
       } catch (const RecoveryFailure &e) {
-        spdlog::warn("Couldn't recover snapshot from {} because of: {}.", path, e.what());
+        spdlog::warn("Couldn't recover snapshot from {} because of: {}.", path.string(), e.what());
         continue;
       }
     }
@@ -217,7 +218,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
       return recovered_snapshot->recovery_info;
     }
   } else {
-    spdlog::info("No snapshot file was found, collecting information from WAL directory {}.", wal_directory);
+    spdlog::info("No snapshot file was found, collecting information from WAL directory {}.", wal_directory.string());
     std::error_code error_code;
     if (!utils::DirExists(wal_directory)) return std::nullopt;
     // We use this smaller struct that contains only a subset of information
@@ -326,7 +327,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
 
         recovery_info.last_commit_timestamp = info.last_commit_timestamp;
       } catch (const RecoveryFailure &e) {
-        LOG_FATAL("Couldn't recover WAL deltas from {} because of: {}", wal_file.path, e.what());
+        LOG_FATAL("Couldn't recover WAL deltas from {} because of: {}", wal_file.path.string(), e.what());
       }
 
       if (recovery_info.next_timestamp != 0) {

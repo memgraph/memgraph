@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,6 +19,7 @@
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/durability/wal.hpp"
+#include "storage/v2/fmt.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/exceptions.hpp"
@@ -158,7 +159,7 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::B
 
   const auto maybe_snapshot_path = decoder.ReadFile(storage_->snapshot_directory_);
   MG_ASSERT(maybe_snapshot_path, "Failed to load snapshot!");
-  spdlog::info("Received snapshot saved to {}", *maybe_snapshot_path);
+  spdlog::info("Received snapshot saved to {}", maybe_snapshot_path->string());
 
   std::unique_lock<utils::RWLock> storage_guard(storage_->main_lock_);
   // Clear the database
@@ -250,7 +251,7 @@ void Storage::ReplicationServer::LoadWal(replication::Decoder *decoder) {
   utils::EnsureDir(temp_wal_directory);
   auto maybe_wal_path = decoder->ReadFile(temp_wal_directory);
   MG_ASSERT(maybe_wal_path, "Failed to load WAL!");
-  spdlog::trace("Received WAL saved to {}", *maybe_wal_path);
+  spdlog::trace("Received WAL saved to {}", maybe_wal_path->string());
   try {
     auto wal_info = durability::ReadWalInfo(*maybe_wal_path);
     if (wal_info.seq_num == 0) {
@@ -282,9 +283,9 @@ void Storage::ReplicationServer::LoadWal(replication::Decoder *decoder) {
       i += ReadAndApplyDelta(&wal);
     }
 
-    spdlog::debug("{} loaded successfully", *maybe_wal_path);
+    spdlog::debug("{} loaded successfully", maybe_wal_path->string());
   } catch (const durability::RecoveryFailure &e) {
-    LOG_FATAL("Couldn't recover WAL deltas from {} because of: {}", *maybe_wal_path, e.what());
+    LOG_FATAL("Couldn't recover WAL deltas from {} because of: {}", maybe_wal_path->string(), e.what());
   }
 }
 

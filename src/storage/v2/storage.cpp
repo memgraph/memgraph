@@ -353,7 +353,7 @@ Storage::Storage(Config config)
               "!\nAnother Memgraph process is currently running with the same "
               "storage directory, please stop it first before starting this "
               "process!",
-              config_.durability.storage_directory);
+              config_.durability.storage_directory.string());
   }
   if (config_.durability.recover_on_startup) {
     auto info = durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, &epoch_id_, &epoch_history_,
@@ -382,7 +382,7 @@ Storage::Storage(Config config)
         utils::EnsureDirOrDie(backup_curr);
         std::error_code item_error_code;
         std::filesystem::rename(item.path(), backup_curr / item.path().filename(), item_error_code);
-        MG_ASSERT(!item_error_code, "Couldn't move {} file {} because of: {}", what, item.path(),
+        MG_ASSERT(!item_error_code, "Couldn't move {} file {} because of: {}", what, item.path().string(),
                   item_error_code.message());
         files_moved = true;
       }

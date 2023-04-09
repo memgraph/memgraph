@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -55,7 +55,7 @@ void Encoder::WriteFileData(utils::InputFile *file) {
 
 void Encoder::WriteFile(const std::filesystem::path &path) {
   utils::InputFile file;
-  MG_ASSERT(file.Open(path), "Failed to open file {}", path);
+  MG_ASSERT(file.Open(path), "Failed to open file {}", path.string());
   MG_ASSERT(path.has_filename(), "Path does not have a filename!");
   const auto &filename = path.filename().generic_string();
   WriteString(filename);

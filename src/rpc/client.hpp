@@ -151,7 +151,7 @@ class Client {
     if (!client_) {
       client_.emplace(context_);
       if (!client_->Connect(endpoint_)) {
-        SPDLOG_ERROR("Couldn't connect to remote address {}", endpoint_);
+        SPDLOG_ERROR("Couldn't connect to remote address {}", endpoint_.SocketAddress());
         client_ = std::nullopt;
         throw RpcFailedException(endpoint_);
       }

@@ -141,7 +141,7 @@ void Storage::ReplicationClient::TryInitializeClientSync() {
     std::unique_lock client_guarde{client_lock_};
     replica_state_.store(replication::ReplicaState::INVALID);
     spdlog::error(utils::MessageWithLink("Failed to connect to replica {} at the endpoint {}.", name_,
-                                         rpc_client_->Endpoint(), "https://memgr.ph/replication"));
+                                         rpc_client_->Endpoint().SocketAddress(), "https://memgr.ph/replication"));
   }
 }
 
@@ -163,7 +163,7 @@ replication::WalFilesRes Storage::ReplicationClient::TransferWalFiles(
   auto stream{rpc_client_->Stream<replication::WalFilesRpc>(wal_files.size())};
   replication::Encoder encoder(stream.GetBuilder());
   for (const auto &wal : wal_files) {
-    spdlog::debug("Sending wal file: {}", wal);
+    spdlog::debug("Sending wal file: {}", wal.string());
     encoder.WriteFile(wal);
   }
 
@@ -276,7 +276,7 @@ void Storage::ReplicationClient::RecoverReplica(uint64_t replica_commit) {
             [&, this]<typename T>(T &&arg) {
               using StepType = std::remove_cvref_t<T>;
               if constexpr (std::is_same_v<StepType, RecoverySnapshot>) {
-                spdlog::debug("Sending the latest snapshot file: {}", arg);
+                spdlog::debug("Sending the latest snapshot file: {}", arg.string());
                 auto response = TransferSnapshot(arg);
                 replica_commit = response.current_commit_timestamp;
               } else if constexpr (std::is_same_v<StepType, RecoveryWals>) {

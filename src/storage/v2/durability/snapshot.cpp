@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,6 +18,7 @@
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edge_ref.hpp"
+#include "storage/v2/fmt.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/file_locker.hpp"
@@ -636,7 +637,7 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
 
   // Create snapshot file.
   auto path = snapshot_directory / MakeSnapshotName(transaction->start_timestamp);
-  spdlog::info("Starting snapshot creation to {}", path);
+  spdlog::info("Starting snapshot creation to {}", path.string());
   Encoder snapshot;
   snapshot.Initialize(path, kSnapshotMagic, kVersion);
 
@@ -907,7 +908,7 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
         if (info.uuid != uuid) continue;
         old_snapshot_files.emplace_back(info.start_timestamp, item.path());
       } catch (const RecoveryFailure &e) {
-        spdlog::warn("Found a corrupt snapshot file {} becuase of: {}", item.path(), e.what());
+        spdlog::warn("Found a corrupt snapshot file {} becuase of: {}", item.path().string(), e.what());
         continue;
       }
     }
