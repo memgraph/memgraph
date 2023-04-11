@@ -53,7 +53,6 @@ class ImporterLDBCInteractive:
         self._csv_dict = csv_dict
 
     def execute_import(self):
-
         vendor_runner = BaseRunner.create(
             benchmark_context=self._benchmark_context,
         )
@@ -63,8 +62,8 @@ class ImporterLDBCInteractive:
             print("Runnning Neo4j import")
             dump_dir = Path() / ".cache" / "datasets" / self._dataset_name / self._variant / "dump"
             dump_dir.mkdir(parents=True, exist_ok=True)
-            dir_name = self._csv_dict[self._variant].split("/")[-1:][0].removesuffix(".tar.zst")
-            if (dump_dir / dir_name).exists():
+            dir_name = self._csv_dict[self._variant].split("/")[-1:][0].replace(".tar.zst", "")
+            if (dump_dir / dir_name).exists() and any((dump_dir / dir_name).iterdir()):
                 print("Files downloaded")
                 dump_dir = dump_dir / dir_name
             else:
