@@ -642,6 +642,14 @@ if __name__ == "__main__":
                             "{name:>30}: {minimum:>20.06f} {average:>20.06f} "
                             "{maximum:>20.06f}".format(name=key, **metadata[key])
                         )
+
+                    log.success("Latency stats:")
+                    for key, value in ret["latency_stats"].items():
+                        if key == "iterations":
+                            log.success("{:<20} {:>20}".format(key, value))
+                        else:
+                            log.success("{:<20} {:>20.06f} ms".format(key, value))
+
                     log.success("Throughput: {:02f} QPS".format(ret["throughput"]))
 
                     # Save results.
