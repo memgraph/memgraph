@@ -359,11 +359,12 @@ uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipList<
   return last_vertex_gid;
 }
 
+// Returns the number of edges recovered
 template <typename TEdgeTypeFromIdFunc>
-void LoadPartialConnectivity(const std::filesystem::path &path, utils::SkipList<Vertex> &vertices,
-                             utils::SkipList<Edge> &edges, std::atomic<uint64_t> &edge_count,
-                             const uint64_t from_offset, const uint64_t vertices_count, const Config::Items items,
-                             TEdgeTypeFromIdFunc get_edge_type_from_id) {
+uint64_t LoadPartialConnectivity(const std::filesystem::path &path, utils::SkipList<Vertex> &vertices,
+                                 utils::SkipList<Edge> &edges, const uint64_t from_offset,
+                                 const uint64_t vertices_count, const Config::Items items,
+                                 TEdgeTypeFromIdFunc get_edge_type_from_id) {
   Decoder snapshot;
   snapshot.Initialize(path, kSnapshotMagic);
   if (!snapshot.SetPosition(from_offset)) throw RecoveryFailure("Couldn't read data from snapshot!");
@@ -383,6 +384,7 @@ void LoadPartialConnectivity(const std::filesystem::path &path, utils::SkipList<
     return Gid::FromUint(*gid);
   });
 
+  uint64_t edge_count{0};
   auto vertex_it = vertex_acc.find(start_vertex_gid);
   if (vertex_it == vertex_acc.end()) {
     throw RecoveryFailure("Invalid snapshot data!");
@@ -487,11 +489,12 @@ void LoadPartialConnectivity(const std::filesystem::path &path, utils::SkipList<
       }
       // Increment edge count. We only increment the count here because the
       // information is duplicated in in_edges.
-      edge_count.fetch_add(*out_size, std::memory_order_acq_rel);
+      edge_count++;
     }
     ++vertex_it;
   }
   spdlog::info("Partial connectivities are recovered.");
+  return edge_count;
 }
 
 RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
@@ -1119,8 +1122,9 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
               return;
             }
             const auto &batch = vertex_batches[batch_index];
-            LoadPartialConnectivity(path, *vertices, *edges, *edge_count, batch.offset, batch.count, items,
-                                    get_edge_type_from_id);
+            const auto number_of_recovered_edges = LoadPartialConnectivity(path, *vertices, *edges, batch.offset,
+                                                                           batch.count, items, get_edge_type_from_id);
+            edge_count->fetch_add(number_of_recovered_edges);
           }
         });
       }
