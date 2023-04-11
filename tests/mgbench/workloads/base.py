@@ -1,4 +1,4 @@
-# Copyright 2022 Memgraph Ltd.
+# Copyright 2023 Memgraph Ltd.
 #
 # Use of this software is governed by the Business Source License
 # included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,7 +19,6 @@ from benchmark_context import BenchmarkContext
 # Base dataset class used as a template to create each individual dataset. All
 # common logic is handled here.
 class Workload(ABC):
-
     # Name of the workload/dataset.
     NAME = ""
     # List of all variants of the workload/dataset that exist.
