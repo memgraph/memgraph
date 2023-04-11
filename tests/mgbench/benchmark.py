@@ -613,6 +613,7 @@ if __name__ == "__main__":
                     )
 
                     warmup(condition=benchmark_context.warm_up, client=client, queries=get_queries(func, count))
+                    log.info("Executing queries after warmup...")
                     if benchmark_context.time_dependent_execution != 0:
                         ret = client.execute(
                             queries=get_queries(func, count),
@@ -624,7 +625,7 @@ if __name__ == "__main__":
                             queries=get_queries(func, count),
                             num_workers=benchmark_context.num_workers_for_benchmark,
                         )[0]
-
+                    log.info("Workload execution finished...")
                     usage = vendor_runner.stop_db(
                         workload.NAME + workload.get_variant() + "_" + benchmark_context.mode + "_" + query
                     )
@@ -697,6 +698,7 @@ if __name__ == "__main__":
 
                     vendor_runner.start_db("authorization")
                     warmup(condition=benchmark_context.warm_up, client=client, queries=get_queries(func, count))
+
                     ret = client.execute(
                         queries=get_queries(func, count),
                         num_workers=benchmark_context.num_workers_for_benchmark,

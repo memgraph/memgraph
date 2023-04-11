@@ -71,7 +71,7 @@ class LDBC_BI(Workload):
         parameters = {}
         for file in self._parameters_dir.glob("bi-*.csv"):
             file_name_query_id = file.name.split("-")[1][0:-4]
-            func_name_id = func_name.split("_")[-1]
+            func_name_id = func_name.split("_")[-2]
             if file_name_query_id == func_name_id or file_name_query_id == func_name_id + "a":
                 with file.open("r") as input:
                     lines = input.readlines()
@@ -103,7 +103,6 @@ class LDBC_BI(Workload):
         self._parameters_dir = self._prepare_parameters_directory()
 
     def benchmark__bi__query_1_analytical(self):
-
         memgraph = (
             """
             MATCH (message:Message)
@@ -197,7 +196,6 @@ class LDBC_BI(Workload):
             return neo4j
 
     def benchmark__bi__query_2_analytical(self):
-
         memgraph = (
             """
             MATCH (tag:Tag)-[:HAS_TYPE]->(:TagClass {name: $tagClass})
@@ -327,7 +325,6 @@ class LDBC_BI(Workload):
         )
 
     def benchmark__bi__query_7_analytical(self):
-
         memgraph = (
             """
             MATCH
@@ -623,7 +620,6 @@ class LDBC_BI(Workload):
         )
 
     def benchmark__bi__query_17_analytical(self):
-
         memgraph = (
             """
             MATCH
@@ -674,7 +670,6 @@ class LDBC_BI(Workload):
             return neo4j
 
     def benchmark__bi__query_18_analytical(self):
-
         memgraph = (
             """
             MATCH (tag:Tag {name: $tag})<-[:HAS_INTEREST]-(person1:Person)-[:KNOWS]-(mutualFriend:Person)-[:KNOWS]-(person2:Person)-[:HAS_INTEREST]->(tag)
