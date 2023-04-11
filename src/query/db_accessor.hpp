@@ -52,27 +52,27 @@ class VertexAccessor;
 
 class EdgeAccessor final {
  public:
-  storage::EdgeAccessor impl_;
+  storage::EdgeAccessor *impl_;
 
  public:
-  explicit EdgeAccessor(storage::EdgeAccessor impl) : impl_(std::move(impl)) {}
+  explicit EdgeAccessor(storage::EdgeAccessor *impl) : impl_(impl) {}
 
-  bool IsVisible(storage::View view) const { return impl_.IsVisible(view); }
+  bool IsVisible(storage::View view) const { return impl_->IsVisible(view); }
 
-  storage::EdgeTypeId EdgeType() const { return impl_.EdgeType(); }
+  storage::EdgeTypeId EdgeType() const { return impl_->EdgeType(); }
 
-  auto Properties(storage::View view) const { return impl_.Properties(view); }
+  auto Properties(storage::View view) const { return impl_->Properties(view); }
 
   storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const {
-    return impl_.GetProperty(key, view);
+    return impl_->GetProperty(key, view);
   }
 
   storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
-    return impl_.SetProperty(key, value);
+    return impl_->SetProperty(key, value);
   }
 
   storage::Result<bool> InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
-    return impl_.InitProperties(properties);
+    return impl_->InitProperties(properties);
   }
 
   storage::Result<storage::PropertyValue> RemoveProperty(storage::PropertyId key) {
@@ -80,7 +80,7 @@ class EdgeAccessor final {
   }
 
   storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> ClearProperties() {
-    return impl_.ClearProperties();
+    return impl_->ClearProperties();
   }
 
   VertexAccessor To() const;
@@ -89,9 +89,9 @@ class EdgeAccessor final {
 
   bool IsCycle() const;
 
-  int64_t CypherId() const { return impl_.Gid().AsInt(); }
+  int64_t CypherId() const { return impl_->Gid().AsInt(); }
 
-  storage::Gid Gid() const noexcept { return impl_.Gid(); }
+  storage::Gid Gid() const noexcept { return impl_->Gid(); }
 
   bool operator==(const EdgeAccessor &e) const noexcept { return impl_ == e.impl_; }
 
@@ -100,37 +100,37 @@ class EdgeAccessor final {
 
 class VertexAccessor final {
  public:
-  storage::VertexAccessor impl_;
+  storage::VertexAccessor *impl_;
 
   static EdgeAccessor MakeEdgeAccessor(const storage::EdgeAccessor impl) { return EdgeAccessor(impl); }
 
  public:
-  explicit VertexAccessor(storage::VertexAccessor impl) : impl_(impl) {}
+  explicit VertexAccessor(storage::VertexAccessor *impl) : impl_(impl) {}
 
-  bool IsVisible(storage::View view) const { return impl_.IsVisible(view); }
+  bool IsVisible(storage::View view) const { return impl_->IsVisible(view); }
 
-  auto Labels(storage::View view) const { return impl_.Labels(view); }
+  auto Labels(storage::View view) const { return impl_->Labels(view); }
 
-  storage::Result<bool> AddLabel(storage::LabelId label) { return impl_.AddLabel(label); }
+  storage::Result<bool> AddLabel(storage::LabelId label) { return impl_->AddLabel(label); }
 
-  storage::Result<bool> RemoveLabel(storage::LabelId label) { return impl_.RemoveLabel(label); }
+  storage::Result<bool> RemoveLabel(storage::LabelId label) { return impl_->RemoveLabel(label); }
 
   storage::Result<bool> HasLabel(storage::View view, storage::LabelId label) const {
-    return impl_.HasLabel(label, view);
+    return impl_->HasLabel(label, view);
   }
 
-  auto Properties(storage::View view) const { return impl_.Properties(view); }
+  auto Properties(storage::View view) const { return impl_->Properties(view); }
 
   storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const {
-    return impl_.GetProperty(key, view);
+    return impl_->GetProperty(key, view);
   }
 
   storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
-    return impl_.SetProperty(key, value);
+    return impl_->SetProperty(key, value);
   }
 
   storage::Result<bool> InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
-    return impl_.InitProperties(properties);
+    return impl_->InitProperties(properties);
   }
 
   storage::Result<storage::PropertyValue> RemoveProperty(storage::PropertyId key) {
@@ -138,12 +138,12 @@ class VertexAccessor final {
   }
 
   storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> ClearProperties() {
-    return impl_.ClearProperties();
+    return impl_->ClearProperties();
   }
 
   auto InEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types) const
-      -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.InEdges(view)))> {
-    auto maybe_edges = impl_.InEdges(view, edge_types);
+      -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_->InEdges(view)))> {
+    auto maybe_edges = impl_->InEdges(view, edge_types);
     if (maybe_edges.HasError()) return maybe_edges.GetError();
     return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
   }
@@ -151,15 +151,15 @@ class VertexAccessor final {
   auto InEdges(storage::View view) const { return InEdges(view, {}); }
 
   auto InEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types, const VertexAccessor &dest) const
-      -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.InEdges(view)))> {
-    auto maybe_edges = impl_.InEdges(view, edge_types, &dest.impl_);
+      -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *(impl_->InEdges(view))))> {
+    auto maybe_edges = impl_->InEdges(view, edge_types, dest.impl_);
     if (maybe_edges.HasError()) return maybe_edges.GetError();
     return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
   }
 
   auto OutEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types) const
-      -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.OutEdges(view)))> {
-    auto maybe_edges = impl_.OutEdges(view, edge_types);
+      -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *(impl_->OutEdges(view))))> {
+    auto maybe_edges = impl_->OutEdges(view, edge_types);
     if (maybe_edges.HasError()) return maybe_edges.GetError();
     return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
   }
@@ -169,18 +169,18 @@ class VertexAccessor final {
   auto OutEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types,
                 const VertexAccessor &dest) const
       -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.OutEdges(view)))> {
-    auto maybe_edges = impl_.OutEdges(view, edge_types, &dest.impl_);
+    auto maybe_edges = impl_->OutEdges(view, edge_types, dest.impl_);
     if (maybe_edges.HasError()) return maybe_edges.GetError();
     return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
   }
 
-  storage::Result<size_t> InDegree(storage::View view) const { return impl_.InDegree(view); }
+  storage::Result<size_t> InDegree(storage::View view) const { return impl_->InDegree(view); }
 
-  storage::Result<size_t> OutDegree(storage::View view) const { return impl_.OutDegree(view); }
+  storage::Result<size_t> OutDegree(storage::View view) const { return impl_->OutDegree(view); }
 
-  int64_t CypherId() const { return impl_.Gid().AsInt(); }
+  int64_t CypherId() const { return impl_->Gid().AsInt(); }
 
-  storage::Gid Gid() const noexcept { return impl_.Gid(); }
+  storage::Gid Gid() const noexcept { return impl_->Gid(); }
 
   bool operator==(const VertexAccessor &v) const noexcept {
     static_assert(noexcept(impl_ == v.impl_));
@@ -190,9 +190,9 @@ class VertexAccessor final {
   bool operator!=(const VertexAccessor &v) const noexcept { return !(*this == v); }
 };
 
-inline VertexAccessor EdgeAccessor::To() const { return VertexAccessor(impl_.ToVertex()); }
+inline VertexAccessor EdgeAccessor::To() const { return VertexAccessor(impl_->ToVertex()); }
 
-inline VertexAccessor EdgeAccessor::From() const { return VertexAccessor(impl_.FromVertex()); }
+inline VertexAccessor EdgeAccessor::From() const { return VertexAccessor(impl_->FromVertex()); }
 
 inline bool EdgeAccessor::IsCycle() const { return To() == From(); }
 
@@ -241,12 +241,14 @@ namespace std {
 
 template <>
 struct hash<memgraph::query::VertexAccessor> {
-  size_t operator()(const memgraph::query::VertexAccessor &v) const { return std::hash<decltype(v.impl_)>{}(v.impl_); }
+  size_t operator()(const memgraph::query::VertexAccessor &v) const {
+    return std::hash<decltype(*v.impl_)>{}(*v.impl_);
+  }
 };
 
 template <>
 struct hash<memgraph::query::EdgeAccessor> {
-  size_t operator()(const memgraph::query::EdgeAccessor &e) const { return std::hash<decltype(e.impl_)>{}(e.impl_); }
+  size_t operator()(const memgraph::query::EdgeAccessor &e) const { return std::hash<decltype(*e.impl_)>{}(*e.impl_); }
 };
 
 }  // namespace std

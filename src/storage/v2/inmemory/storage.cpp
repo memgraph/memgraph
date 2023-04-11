@@ -70,11 +70,11 @@ std::string RegisterReplicaErrorToString(Storage::RegisterReplicaError error) {
 }  // namespace
 
 auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it, utils::SkipList<Vertex>::Iterator end,
-                            std::optional<VertexAccessor> *vertex, Transaction *tx, View view, Indices *indices,
+                            VertexAccessor *vertex, Transaction *tx, View view, Indices *indices,
                             Constraints *constraints, Config::Items config) {
   while (it != end) {
-    *vertex = VertexAccessor::Create(&*it, tx, indices, constraints, config, view);
-    if (!*vertex) {
+    vertex = VertexAccessor::Create(&*it, tx, indices, constraints, config, view).get();
+    if (!vertex) {
       ++it;
       continue;
     }

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,7 @@
 
 namespace memgraph::storage {
 
-class Storage::ReplicationServer {
+class InMemoryStorage::ReplicationServer {
  public:
   explicit ReplicationServer(Storage *storage, io::network::Endpoint endpoint,
                              const replication::ReplicationServerConfig &config);
@@ -42,7 +42,7 @@ class Storage::ReplicationServer {
   std::optional<communication::ServerContext> rpc_server_context_;
   std::optional<rpc::Server> rpc_server_;
 
-  Storage *storage_;
+  InMemoryStorage *storage_;
 };
 
 }  // namespace memgraph::storage

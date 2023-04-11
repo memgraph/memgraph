@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,6 +19,7 @@
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/mvcc.hpp"
+#include "storage/v2/storage.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/logging.hpp"
@@ -713,11 +714,11 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
       // type and invalid from/to pointers because we don't know them here,
       // but that isn't an issue because we won't use that part of the API
       // here.
-      auto ea =
-          EdgeAccessor{edge_ref, EdgeTypeId::FromUint(0UL), nullptr, nullptr, transaction, indices, constraints, items};
+      auto ea = EdgeAccessor::Create(edge_ref, EdgeTypeId::FromUint(0UL), nullptr, nullptr, transaction, indices,
+                                     constraints, items);
 
       // Get edge data.
-      auto maybe_props = ea.Properties(View::OLD);
+      auto maybe_props = ea->Properties(View::OLD);
       MG_ASSERT(maybe_props.HasValue(), "Invalid database state!");
 
       // Store the edge.
@@ -776,14 +777,14 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
         snapshot.WriteUint(in_edges.size());
         for (const auto &item : in_edges) {
           snapshot.WriteUint(item.Gid().AsUint());
-          snapshot.WriteUint(item.FromVertex().Gid().AsUint());
+          snapshot.WriteUint(item.FromVertex()->Gid().AsUint());
           write_mapping(item.EdgeType());
         }
         const auto &out_edges = maybe_out_edges.GetValue();
         snapshot.WriteUint(out_edges.size());
         for (const auto &item : out_edges) {
           snapshot.WriteUint(item.Gid().AsUint());
-          snapshot.WriteUint(item.ToVertex().Gid().AsUint());
+          snapshot.WriteUint(item.ToVertex()->Gid().AsUint());
           write_mapping(item.EdgeType());
         }
       }
