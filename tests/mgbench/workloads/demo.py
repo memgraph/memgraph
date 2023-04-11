@@ -4,7 +4,6 @@ from workloads.base import Workload
 
 
 class Demo(Workload):
-
     NAME = "demo"
 
     def indexes_generator(self):
@@ -26,7 +25,6 @@ class Demo(Workload):
         return indexes
 
     def dataset_generator(self):
-
         queries = []
         for i in range(0, 100):
             queries.append(("CREATE (:NodeA {id: $id});", {"id": i}))

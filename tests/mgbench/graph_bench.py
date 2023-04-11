@@ -54,29 +54,36 @@ def parse_arguments():
         help="Forward config for query",
     )
 
+    parser.add_argument(
+        "--num-workers-for-benchmark",
+        type=int,
+        default=12,
+        help="number of workers used to execute the benchmark",
+    )
+
     args = parser.parse_args()
 
     return args
 
 
-def run_full_benchmarks(vendor, binary, dataset, dataset_size, dataset_group, realistic, mixed):
+def run_full_benchmarks(vendor, binary, dataset, dataset_size, dataset_group, realistic, mixed, workers):
     configurations = [
         # Basic isolated test cold
         [
             "--export-results",
-            vendor + "_" + dataset + "_" + dataset_size + "_cold_isolated.json",
+            vendor + "_" + str(workers) + "_" + dataset + "_" + dataset_size + "_cold_isolated.json",
         ],
         # Basic isolated test hot
         [
             "--export-results",
-            vendor + "_" + dataset + "_" + dataset_size + "_hot_isolated.json",
+            vendor + "_" + str(workers) + "_" + dataset + "_" + dataset_size + "_hot_isolated.json",
             "--warm-up",
             "hot",
         ],
         # Basic isolated test vulcanic
         [
             "--export-results",
-            vendor + "_" + dataset + "_" + dataset_size + "_vulcanic_isolated.json",
+            vendor + "_" + str(workers) + "_" + dataset + "_" + dataset_size + "_vulcanic_isolated.json",
             "--warm-up",
             "vulcanic",
         ],
@@ -88,6 +95,8 @@ def run_full_benchmarks(vendor, binary, dataset, dataset_size, dataset_group, re
             cold = [
                 "--export-results",
                 vendor
+                + "_"
+                + str(workers)
                 + "_"
                 + dataset
                 + "_"
@@ -104,6 +113,8 @@ def run_full_benchmarks(vendor, binary, dataset, dataset_size, dataset_group, re
             hot = [
                 "--export-results",
                 vendor
+                + "_"
+                + str(workers)
                 + "_"
                 + dataset
                 + "_"
@@ -129,6 +140,8 @@ def run_full_benchmarks(vendor, binary, dataset, dataset_size, dataset_group, re
                 "--export-results",
                 vendor
                 + "_"
+                + str(workers)
+                + "_"
                 + dataset
                 + "_"
                 + dataset_size
@@ -144,6 +157,8 @@ def run_full_benchmarks(vendor, binary, dataset, dataset_size, dataset_group, re
             hot = [
                 "--export-results",
                 vendor
+                + "_"
+                + str(workers)
                 + "_"
                 + dataset
                 + "_"
@@ -172,7 +187,7 @@ def run_full_benchmarks(vendor, binary, dataset, dataset_size, dataset_group, re
         "--vendor-name",
         vendor,
         "--num-workers-for-benchmark",
-        "12",
+        str(workers),
         "--single-threaded-runtime-sec",
         "10",
         "--no-authorization",
@@ -185,10 +200,12 @@ def run_full_benchmarks(vendor, binary, dataset, dataset_size, dataset_group, re
         subprocess.run(args=full_config, check=True)
 
 
-def collect_all_results(vendor_name, dataset, dataset_size, dataset_group):
+def collect_all_results(vendor_name, dataset, dataset_size, dataset_group, workers):
     working_directory = Path().absolute()
     print(working_directory)
-    results = sorted(working_directory.glob(vendor_name + "_" + dataset + "_" + dataset_size + "_*.json"))
+    results = sorted(
+        working_directory.glob(vendor_name + "_" + str(workers) + "_" + dataset + "_" + dataset_size + "_*.json")
+    )
     summary = {dataset: {dataset_size: {dataset_group: {}}}}
 
     for file in results:
@@ -212,7 +229,7 @@ def collect_all_results(vendor_name, dataset, dataset_size, dataset_group):
 
     json_object = json.dumps(summary, indent=4)
     print(json_object)
-    with open(vendor_name + "_" + dataset + "_" + dataset_size + "_summary.json", "w") as f:
+    with open(vendor_name + "_" + str(workers) + "_" + dataset + "_" + dataset_size + "_summary.json", "w") as f:
         json.dump(summary, f)
 
 
@@ -234,8 +251,11 @@ if __name__ == "__main__":
                 args.dataset_group,
                 realistic,
                 mixed,
+                args.num_workers_for_benchmark,
             )
-            collect_all_results(vendor_name, args.dataset_name, args.dataset_size, args.dataset_group)
+            collect_all_results(
+                vendor_name, args.dataset_name, args.dataset_size, args.dataset_group, args.num_workers_for_benchmark
+            )
         else:
             raise Exception(
                 "Check that vendor: {} is supported and you are passing right path: {} to binary.".format(
