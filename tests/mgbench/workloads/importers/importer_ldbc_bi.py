@@ -41,7 +41,7 @@ class ImporterLDBCBI:
 
             headers_dir = Path() / ".cache" / "datasets" / self._dataset_name / self._variant / "headers_neo4j"
             headers_dir.mkdir(parents=True, exist_ok=True)
-            headers = HEADERS_URL.split("/")[-1:][0].removesuffix(".tar.gz")
+            headers = HEADERS_URL.split("/")[-1:][0].replace(".tar.gz", "")
             if (headers_dir / headers).exists():
                 print("Header files downloaded.")
             else:
