@@ -358,7 +358,7 @@ Storage::Storage(Config config)
   if (config_.durability.recover_on_startup) {
     auto info = durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, &epoch_id_, &epoch_history_,
                                         &vertices_, &edges_, &edge_count_, &name_id_mapper_, &indices_, &constraints_,
-                                        config_.items, &wal_seq_num_);
+                                        config_, &wal_seq_num_);
     if (info) {
       vertex_id_ = info->next_vertex_id;
       edge_id_ = info->next_edge_id;
@@ -1923,8 +1923,7 @@ utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot() {
   // Create snapshot.
   durability::CreateSnapshot(&transaction, snapshot_directory_, wal_directory_,
                              config_.durability.snapshot_retention_count, &vertices_, &edges_, &name_id_mapper_,
-                             &indices_, &constraints_, config_.items, uuid_, epoch_id_, epoch_history_,
-                             &file_retainer_);
+                             &indices_, &constraints_, config_, uuid_, epoch_id_, epoch_history_, &file_retainer_);
 
   // Finalize snapshot transaction.
   commit_log_->MarkFinished(transaction.start_timestamp);

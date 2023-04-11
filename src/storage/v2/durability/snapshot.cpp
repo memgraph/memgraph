@@ -10,9 +10,9 @@
 // licenses/APL.txt.
 
 #include "storage/v2/durability/snapshot.hpp"
+
 #include <thread>
 
-#include "spdlog/spdlog.h"
 #include "storage/v2/durability/exceptions.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/serialization.hpp"
@@ -489,7 +489,7 @@ void LoadPartialConnectivity(const std::filesystem::path &path, utils::SkipList<
 RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
                                utils::SkipList<Edge> *edges,
                                std::deque<std::pair<std::string, uint64_t>> *epoch_history,
-                               NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, Config::Items items) {
+                               NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, const Config &config) {
   RecoveryInfo ret;
   RecoveredIndicesAndConstraints indices_constraints;
 
@@ -555,30 +555,30 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
   // Reset current edge count.
   edge_count->store(0, std::memory_order_release);
 
-  static constexpr auto kThreadCount = 2U;
   {
     spdlog::info("Recovering edges.");
     // Recover edges.
     if (snapshot_has_edges) {
       std::vector<std::jthread> threads;
-      threads.reserve(kThreadCount);
+      threads.reserve(config.durability.recovery_thread_count);
       if (!snapshot.SetPosition(info.offset_edge_batches)) {
         throw RecoveryFailure("Couldn't read data from snapshot!");
       }
       const auto edge_batches = ReadBatchInfos<EdgeBatchInfo>(snapshot);
       std::atomic<uint64_t> batch_counter = 0;
 
-      for (auto i{0U}; i < kThreadCount; ++i) {
-        threads.emplace_back([path, edges, &edge_batches, &batch_counter, items, &get_property_from_id]() mutable {
-          while (true) {
-            const auto batch_index = batch_counter++;
-            if (batch_index >= edge_batches.size()) {
-              return;
-            }
-            const auto &batch = edge_batches[batch_index];
-            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id);
-          }
-        });
+      for (auto i{0U}; i < config.durability.recovery_thread_count; ++i) {
+        threads.emplace_back(
+            [path, edges, &edge_batches, &batch_counter, items = config.items, &get_property_from_id]() mutable {
+              while (true) {
+                const auto batch_index = batch_counter++;
+                if (batch_index >= edge_batches.size()) {
+                  return;
+                }
+                const auto &batch = edge_batches[batch_index];
+                LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id);
+              }
+            });
       }
     }
     spdlog::info("Edges are recovered.");
@@ -591,10 +591,10 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     const auto vertex_batches = ReadBatchInfos<VertexBatchInfo>(snapshot);
     {
       std::vector<std::jthread> threads;
-      threads.reserve(kThreadCount);
+      threads.reserve(config.durability.recovery_thread_count);
       std::atomic<uint64_t> batch_counter = 0;
 
-      for (auto i{0U}; i < kThreadCount; ++i) {
+      for (auto i{0U}; i < config.durability.recovery_thread_count; ++i) {
         threads.emplace_back([path, vertices, &vertex_batches, &batch_counter, name_id_mapper, &get_label_from_id,
                               &get_property_from_id]() mutable {
           while (true) {
@@ -615,11 +615,11 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     spdlog::info("Recover connectivity.");
     {
       std::vector<std::jthread> threads;
-      threads.reserve(kThreadCount);
+      threads.reserve(config.durability.recovery_thread_count);
       std::atomic<uint64_t> batch_counter = 0;
 
-      for (auto i{0U}; i < kThreadCount; ++i) {
-        threads.emplace_back([path, vertices, edges, edge_count, &vertex_batches, &batch_counter, items,
+      for (auto i{0U}; i < config.durability.recovery_thread_count; ++i) {
+        threads.emplace_back([path, vertices, edges, edge_count, &vertex_batches, &batch_counter, items = config.items,
                               &get_edge_type_from_id]() mutable {
           while (true) {
             const auto batch_index = batch_counter++;
@@ -781,7 +781,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
 void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snapshot_directory,
                     const std::filesystem::path &wal_directory, uint64_t snapshot_retention_count,
                     utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper,
-                    Indices *indices, Constraints *constraints, Config::Items items, const std::string &uuid,
+                    Indices *indices, Constraints *constraints, const Config &config, const std::string &uuid,
                     const std::string_view epoch_id, const std::deque<std::pair<std::string, uint64_t>> &epoch_history,
                     utils::FileRetainer *file_retainer) {
   // Ensure that the storage directory exists.
@@ -830,12 +830,11 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
   };
 
   std::vector<EdgeBatchInfo> edge_batch_infos;
-  static constexpr auto kDesiredEdgeCountPerBatch{1'000'000ULL};
   auto items_in_current_batch{0UL};
   offset_edges = snapshot.GetPosition();
   auto batch_start_offset{offset_edges};
   // Store all edges.
-  if (items.properties_on_edges) {
+  if (config.items.properties_on_edges) {
     auto acc = edges->access();
     for (auto &edge : acc) {
       // The edge visibility check must be done here manually because we don't
@@ -874,8 +873,8 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
       // type and invalid from/to pointers because we don't know them here,
       // but that isn't an issue because we won't use that part of the API
       // here.
-      auto ea =
-          EdgeAccessor{edge_ref, EdgeTypeId::FromUint(0UL), nullptr, nullptr, transaction, indices, constraints, items};
+      auto ea = EdgeAccessor{
+          edge_ref, EdgeTypeId::FromUint(0UL), nullptr, nullptr, transaction, indices, constraints, config.items};
 
       // Get edge data.
       auto maybe_props = ea.Properties(View::OLD);
@@ -895,7 +894,7 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
 
       ++edges_count;
       ++items_in_current_batch;
-      if (items_in_current_batch == kDesiredEdgeCountPerBatch) {
+      if (items_in_current_batch == config.durability.items_per_batch) {
         edge_batch_infos.push_back(EdgeBatchInfo{batch_start_offset, items_in_current_batch});
         batch_start_offset = snapshot.GetPosition();
         items_in_current_batch = 0;
@@ -910,7 +909,6 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
   std::vector<VertexBatchInfo> vertex_batch_infos;
   // Store all vertices.
   {
-    static constexpr auto kDesiredVertexCountPerBatch{1'000'000ULL};
     items_in_current_batch = 0;
     offset_vertices = snapshot.GetPosition();
     batch_start_offset = offset_vertices;
@@ -921,7 +919,7 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
         first_vertex_gid = vertex.gid.AsUint();
       }
       // The visibility check is implemented for vertices so we use it here.
-      auto va = VertexAccessor::Create(&vertex, transaction, indices, constraints, items, View::OLD);
+      auto va = VertexAccessor::Create(&vertex, transaction, indices, constraints, config.items, View::OLD);
       if (!va) continue;
 
       // Get vertex data.
@@ -969,7 +967,7 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
 
       ++vertices_count;
       ++items_in_current_batch;
-      if (items_in_current_batch == kDesiredVertexCountPerBatch) {
+      if (items_in_current_batch == config.durability.items_per_batch) {
         vertex_batch_infos.push_back(VertexBatchInfo{batch_start_offset, items_in_current_batch, *first_vertex_gid});
         batch_start_offset = snapshot.GetPosition();
         items_in_current_batch = 0;
