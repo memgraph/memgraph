@@ -364,7 +364,7 @@ template <typename TEdgeTypeFromIdFunc>
 uint64_t LoadPartialConnectivity(const std::filesystem::path &path, utils::SkipList<Vertex> &vertices,
                                  utils::SkipList<Edge> &edges, const uint64_t from_offset,
                                  const uint64_t vertices_count, const Config::Items items,
-                                 TEdgeTypeFromIdFunc get_edge_type_from_id) {
+                                 const bool snapshot_has_edges, TEdgeTypeFromIdFunc get_edge_type_from_id) {
   Decoder snapshot;
   snapshot.Initialize(path, kSnapshotMagic);
   if (!snapshot.SetPosition(from_offset)) throw RecoveryFailure("Couldn't read data from snapshot!");
@@ -447,12 +447,16 @@ uint64_t LoadPartialConnectivity(const std::filesystem::path &path, utils::SkipL
 
         EdgeRef edge_ref(Gid::FromUint(*edge_gid));
         if (items.properties_on_edges) {
-          auto edge = edge_acc.find(Gid::FromUint(*edge_gid));
-          if (edge == edge_acc.end()) throw RecoveryFailure("Invalid edge!");
-          edge_ref = EdgeRef(&*edge);
-        } else {
-          auto [edge, inserted] = edge_acc.insert(Edge{Gid::FromUint(*edge_gid), nullptr});
-          edge_ref = EdgeRef(&*edge);
+          // If the snapshot was created with a config where properties are not allowed on edges, then the edges has to
+          // be created here
+          if (snapshot_has_edges) {
+            auto edge = edge_acc.find(Gid::FromUint(*edge_gid));
+            if (edge == edge_acc.end()) throw RecoveryFailure("Invalid edge!");
+            edge_ref = EdgeRef(&*edge);
+          } else {
+            auto [edge, inserted] = edge_acc.insert(Edge{Gid::FromUint(*edge_gid), nullptr});
+            edge_ref = EdgeRef(&*edge);
+          }
         }
         vertex.in_edges.emplace_back(get_edge_type_from_id(*edge_type), &*from_vertex, edge_ref);
       }
@@ -478,12 +482,16 @@ uint64_t LoadPartialConnectivity(const std::filesystem::path &path, utils::SkipL
 
         EdgeRef edge_ref(Gid::FromUint(*edge_gid));
         if (items.properties_on_edges) {
-          auto edge = edge_acc.find(Gid::FromUint(*edge_gid));
-          if (edge == edge_acc.end()) throw RecoveryFailure("Invalid edge!");
-          edge_ref = EdgeRef(&*edge);
-        } else {
-          auto [edge, inserted] = edge_acc.insert(Edge{Gid::FromUint(*edge_gid), nullptr});
-          edge_ref = EdgeRef(&*edge);
+          // If the snapshot was created with a config where properties are not allowed on edges, then the edges has to
+          // be created here
+          if (snapshot_has_edges) {
+            auto edge = edge_acc.find(Gid::FromUint(*edge_gid));
+            if (edge == edge_acc.end()) throw RecoveryFailure("Invalid edge!");
+            edge_ref = EdgeRef(&*edge);
+          } else {
+            auto [edge, inserted] = edge_acc.insert(Edge{Gid::FromUint(*edge_gid), nullptr});
+            edge_ref = EdgeRef(&*edge);
+          }
         }
         vertex.out_edges.emplace_back(get_edge_type_from_id(*edge_type), &*to_vertex, edge_ref);
       }
@@ -1115,15 +1123,15 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
 
       for (auto i{0U}; i < config.durability.recovery_thread_count; ++i) {
         threads.emplace_back([path, vertices, edges, edge_count, &vertex_batches, &batch_counter, items = config.items,
-                              &get_edge_type_from_id]() mutable {
+                              snapshot_has_edges, &get_edge_type_from_id]() mutable {
           while (true) {
             const auto batch_index = batch_counter++;
             if (batch_index >= vertex_batches.size()) {
               return;
             }
             const auto &batch = vertex_batches[batch_index];
-            const auto number_of_recovered_edges = LoadPartialConnectivity(path, *vertices, *edges, batch.offset,
-                                                                           batch.count, items, get_edge_type_from_id);
+            const auto number_of_recovered_edges = LoadPartialConnectivity(
+                path, *vertices, *edges, batch.offset, batch.count, items, snapshot_has_edges, get_edge_type_from_id);
             edge_count->fetch_add(number_of_recovered_edges);
           }
         });
@@ -1326,10 +1334,11 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
 
   std::vector<BatchInfo> edge_batch_infos;
   auto items_in_current_batch{0UL};
-  offset_edges = snapshot.GetPosition();
-  auto batch_start_offset{offset_edges};
+  auto batch_start_offset{0UL};
   // Store all edges.
   if (config.items.properties_on_edges) {
+    offset_edges = snapshot.GetPosition();
+    batch_start_offset = offset_edges;
     auto acc = edges->access();
     for (auto &edge : acc) {
       // The edge visibility check must be done here manually because we don't
