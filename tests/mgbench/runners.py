@@ -122,7 +122,7 @@ class BoltClient(BaseClient):
         queries=None,
         file_path=None,
         num_workers=1,
-        max_retries: int = 50,
+        max_retries: int = 1000,
         validation: bool = False,
         time_dependent_execution: int = 0,
     ):
@@ -360,6 +360,7 @@ class Memgraph(BaseRunner):
         data_directory = os.path.join(self._directory.name, "memgraph")
         kwargs["bolt_port"] = self._bolt_port
         kwargs["data_directory"] = data_directory
+        kwargs["storage_properties_on_edges"] = True
         for key, value in self._vendor_args.items():
             kwargs[key] = value
         return _convert_args_to_flags(self._memgraph_binary, **kwargs)

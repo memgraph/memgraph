@@ -166,12 +166,15 @@ def run_full_benchmarks(vendor, binary, dataset, dataset_size, dataset_group, re
     default_args = [
         "python3",
         "benchmark.py",
+        "vendor-native",
         "--vendor-binary",
         binary,
         "--vendor-name",
         vendor,
         "--num-workers-for-benchmark",
         "12",
+        "--single-threaded-runtime-sec",
+        "10",
         "--no-authorization",
         dataset + "/" + dataset_size + "/" + dataset_group + "/*",
     ]

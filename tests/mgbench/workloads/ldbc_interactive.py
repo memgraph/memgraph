@@ -10,7 +10,6 @@ from workloads.importers.importer_ldbc_interactive import *
 
 
 class LDBC_Interactive(Workload):
-
     NAME = "ldbc_interactive"
     VARIANTS = ["sf0.1", "sf1", "sf3", "sf10"]
     DEFAULT_VARIANT = "sf1"
@@ -44,8 +43,8 @@ class LDBC_Interactive(Workload):
 
     QUERY_PARAMETERS = {
         "sf0.1": "https://repository.surfsara.nl/datasets/cwi/snb/files/substitution_parameters/substitution_parameters-sf0.1.tar.zst",
-        "sf1": "https://repository.surfsara.nl/datasets/cwi/snb/files/substitution_parameters/substitution_parameters-sf0.1.tar.zst",
-        "sf3": "https://repository.surfsara.nl/datasets/cwi/snb/files/substitution_parameters/substitution_parameters-sf0.1.tar.zst",
+        "sf1": "https://repository.surfsara.nl/datasets/cwi/snb/files/substitution_parameters/substitution_parameters-sf1.tar.zst",
+        "sf3": "https://repository.surfsara.nl/datasets/cwi/snb/files/substitution_parameters/substitution_parameters-sf3.tar.zst",
     }
 
     def custom_import(self) -> bool:
@@ -230,7 +229,6 @@ class LDBC_Interactive(Workload):
         )
 
     def benchmark__interactive__complex_query_3_analytical(self):
-
         memgraph = (
             """
             MATCH (countryX:Country {name: $countryXName }),
@@ -327,8 +325,9 @@ class LDBC_Interactive(Workload):
             RETURN tag.name AS tagName, postCount
             ORDER BY postCount DESC, tagName ASC
             LIMIT 10
-
-            """,
+            """.replace(
+                "\n", ""
+            ),
             self._get_query_parameters(),
         )
 
@@ -351,8 +350,9 @@ class LDBC_Interactive(Workload):
             RETURN tag.name AS tagName, postCount
             ORDER BY postCount DESC, tagName ASC
             LIMIT 10
-
-            """,
+            """.replace(
+                "\n", ""
+            ),
             self._get_query_parameters(),
         )
 

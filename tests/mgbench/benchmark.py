@@ -294,7 +294,7 @@ def mixed_workload(
                     additional_query = getattr(dataset, funcname)
                     full_workload.append(additional_query())
 
-            vendor.start_benchmark(
+            vendor.start_db(
                 dataset.NAME + dataset.get_variant() + "_" + "mixed" + "_" + query + "_" + config_distribution
             )
             warmup(benchmark_context.warm_up, client=client)
@@ -329,7 +329,7 @@ def mixed_workload(
             additional_query = getattr(dataset, funcname)
             full_workload.append(additional_query())
 
-        vendor.start_benchmark(dataset.NAME + dataset.get_variant() + "_" + "realistic" + "_" + config_distribution)
+        vendor.start_db(dataset.NAME + dataset.get_variant() + "_" + "realistic" + "_" + config_distribution)
         warmup(benchmark_context.warm_up, client=client)
         ret = client.execute(
             queries=full_workload,
@@ -481,6 +481,8 @@ if __name__ == "__main__":
     run_config = {
         "vendor": benchmark_context.vendor_name,
         "condition": benchmark_context.warm_up,
+        "num_workers_for_benchmark": benchmark_context.num_workers_for_benchmark,
+        "single_threaded_runtime_sec": benchmark_context.single_threaded_runtime_sec,
         "benchmark_mode": benchmark_context.mode,
         "benchmark_mode_config": benchmark_context.mode_config,
         "platform": platform.platform(),
