@@ -95,7 +95,16 @@ namespace memgraph::storage::durability {
 //       applied)
 //     * number of edges
 //     * number of vertices
-// TODO(antaljanosbenjamin): extend with batch infos
+//
+// 10) Batch infos
+//     * number of edge batch infos
+//     * edge batch infos
+//        * starting offset of the batch
+//        * number of edges in the batch
+//     * vertex batch infos
+//        * starting offset of the batch
+//        * number of vertices in the batch
+//        * global id of the first vertex in the batch
 //
 // IMPORTANT: When changing snapshot encoding/decoding bump the snapshot/WAL
 // version in `version.hpp`.
