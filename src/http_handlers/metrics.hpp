@@ -19,7 +19,7 @@
 #include "query/interpreter.hpp"
 #include "storage/v2/storage.hpp"
 
-namespace memgraph::communication::http {
+namespace memgraph::http {
 
 namespace beast = boost::beast;
 namespace http = beast::http;
@@ -28,11 +28,19 @@ struct MetricsResponse {
  public:
   nlohmann::json AsJson() {
     auto metrics_response = nlohmann::json();
-    metrics_response["size"] = size;
+    metrics_response["vertex_count"] = vertex_count;
+    metrics_response["edge_count"] = edge_count;
+    metrics_response["average_degree"] = average_degree;
+    metrics_response["memory_usage"] = memory_usage;
+    metrics_response["disk_usage"] = disk_usage;
     return metrics_response;
   }
 
-  uint64_t size;
+  uint64_t vertex_count;
+  uint64_t edge_count;
+  double average_degree;
+  uint64_t memory_usage;
+  uint64_t disk_usage;
 };
 
 template <typename TSessionData>
@@ -40,12 +48,19 @@ class MetricsService {
  public:
   explicit MetricsService(TSessionData *data)
       : db_(data->db), interpreter_context_(data->interpreter_context), interpreter_(data->interpreter_context) {}
-  MetricsResponse GetMetrics() { return MetricsResponse{.size = 5}; }
+  MetricsResponse GetMetrics() {
+    auto info = db_->GetInfo();
+    return MetricsResponse{.vertex_count = info.vertex_count,
+                           .edge_count = info.edge_count,
+                           .average_degree = info.average_degree,
+                           .memory_usage = info.memory_usage,
+                           .disk_usage = info.disk_usage};
+  }
 
  private:
-  const memgraph::storage::Storage *db_;
-  memgraph::query::InterpreterContext *interpreter_context_;
-  memgraph::query::Interpreter interpreter_;
+  const storage::Storage *db_;
+  query::InterpreterContext *interpreter_context_;
+  query::Interpreter interpreter_;
 };
 
 template <typename TSessionData>
@@ -109,4 +124,4 @@ class MetricsRequestHandler final {
  private:
   MetricsService<TSessionData> service_;
 };
-}  // namespace memgraph::communication::http
+}  // namespace memgraph::http

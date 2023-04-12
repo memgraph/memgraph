@@ -42,7 +42,7 @@
 #include "glue/auth_checker.hpp"
 #include "glue/auth_handler.hpp"
 #include "helpers.hpp"
-#include "http_handlers/handler.hpp"
+#include "http_handlers/metrics.hpp"
 #include "license/license.hpp"
 #include "license/license_sender.hpp"
 #include "py/py.hpp"
@@ -702,8 +702,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 
 using ServerT = memgraph::communication::v2::Server<BoltSession, SessionData>;
 using MonitoringServerT =
-    memgraph::communication::http::Server<memgraph::communication::http::MetricsRequestHandler<SessionData>,
-                                          SessionData>;
+    memgraph::communication::http::Server<memgraph::http::MetricsRequestHandler<SessionData>, SessionData>;
 using memgraph::communication::ServerContext;
 
 // Needed to correctly handle memgraph destruction from a signal handler.
