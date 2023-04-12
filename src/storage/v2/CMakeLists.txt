@@ -6,11 +6,13 @@ set(storage_v2_src_files
     durability/serialization.cpp
     durability/snapshot.cpp
     durability/wal.cpp
+    edge_accessor.cpp
     indices.cpp
     inmemory/edge_accessor.cpp
     inmemory/storage.cpp
     inmemory/vertex_accessor.cpp
     property_store.cpp
+    storage.cpp
     vertex_accessor.cpp)
 
 

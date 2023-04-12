@@ -15,16 +15,30 @@
 
 namespace memgraph::storage {
 
+auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it, utils::SkipList<Vertex>::Iterator end,
+                            std::unique_ptr<VertexAccessor> &vertex, Transaction *tx, View view, Indices *indices,
+                            Constraints *constraints, Config::Items config) {
+  while (it != end) {
+    vertex = VertexAccessor::Create(&*it, tx, indices, constraints, config, view);
+    if (!vertex) {
+      ++it;
+      continue;
+    }
+    break;
+  }
+  return it;
+}
+
 AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, utils::SkipList<Vertex>::Iterator it)
     : self_(self),
-      it_(AdvanceToVisibleVertex(it, self->vertices_accessor_.end(), &self->vertex_, self->transaction_, self->view_,
+      it_(AdvanceToVisibleVertex(it, self->vertices_accessor_.end(), self->vertex_, self->transaction_, self->view_,
                                  self->indices_, self_->constraints_, self->config_)) {}
 
 VertexAccessor *AllVerticesIterable::Iterator::operator*() const { return self_->vertex_.get(); }
 
 AllVerticesIterable::Iterator &AllVerticesIterable::Iterator::operator++() {
   ++it_;
-  it_ = AdvanceToVisibleVertex(it_, self_->vertices_accessor_.end(), &self_->vertex_, self_->transaction_, self_->view_,
+  it_ = AdvanceToVisibleVertex(it_, self_->vertices_accessor_.end(), self_->vertex_, self_->transaction_, self_->view_,
                                self_->indices_, self_->constraints_, self_->config_);
   return *this;
 }
@@ -136,10 +150,12 @@ VerticesIterable::Iterator::Iterator(const VerticesIterable::Iterator &other) : 
       new (&all_it_) AllVerticesIterable::Iterator(other.all_it_);
       break;
     case Type::BY_LABEL:
-      new (&by_label_it_) LabelIndex::Iterable::Iterator(other.by_label_it_);
+      MG_ASSERT(false, "Cannot copy-construct iterator of type BY_LABEL");
+      // new (&by_label_it_) LabelIndex::Iterable::Iterator(other.by_label_it_);
       break;
     case Type::BY_LABEL_PROPERTY:
-      new (&by_label_property_it_) LabelPropertyIndex::Iterable::Iterator(other.by_label_property_it_);
+      MG_ASSERT(false, "Cannot copy-construct iterator of type BY_LABEL_PROPERTY");
+      // new (&by_label_property_it_) LabelPropertyIndex::Iterable::Iterator(std::move(other.by_label_property_it_));
       break;
   }
 }
@@ -152,10 +168,12 @@ VerticesIterable::Iterator &VerticesIterable::Iterator::operator=(const Vertices
       new (&all_it_) AllVerticesIterable::Iterator(other.all_it_);
       break;
     case Type::BY_LABEL:
-      new (&by_label_it_) LabelIndex::Iterable::Iterator(other.by_label_it_);
+      MG_ASSERT(false, "Cannot copy-assign iterator of type BY_LABEL");
+      // new (&by_label_it_) LabelIndex::Iterable::Iterator(other.by_label_it_);
       break;
     case Type::BY_LABEL_PROPERTY:
-      new (&by_label_property_it_) LabelPropertyIndex::Iterable::Iterator(other.by_label_property_it_);
+      MG_ASSERT(false, "Cannot copy-assign iterator of type BY_LABEL_PROPERTY");
+      // new (&by_label_property_it_) LabelPropertyIndex::Iterable::Iterator(other.by_label_property_it_);
       break;
   }
   return *this;
@@ -208,7 +226,7 @@ void VerticesIterable::Iterator::Destroy() noexcept {
   }
 }
 
-VertexAccessor VerticesIterable::Iterator::operator*() const {
+VertexAccessor *VerticesIterable::Iterator::operator*() const {
   switch (type_) {
     case Type::ALL:
       return *all_it_;

@@ -18,8 +18,7 @@ namespace memgraph::storage {
 
 std::unique_ptr<EdgeAccessor> EdgeAccessor::Create(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex,
                                                    Vertex *to_vertex, Transaction *transaction, Indices *indices,
-                                                   Constraints *constraints, Config::Items config,
-                                                   bool for_deleted = false) {
+                                                   Constraints *constraints, Config::Items config, bool for_deleted) {
   return std::make_unique<InMemoryEdgeAccessor>(edge, edge_type, from_vertex, to_vertex, transaction, indices,
                                                 constraints, config, for_deleted);
 }

@@ -71,33 +71,34 @@ std::string RegisterReplicaErrorToString(InMemoryStorage::RegisterReplicaError e
 }
 }  // namespace
 
-auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it, utils::SkipList<Vertex>::Iterator end,
-                            std::unique_ptr<VertexAccessor> &vertex, Transaction *tx, View view, Indices *indices,
-                            Constraints *constraints, Config::Items config) {
-  while (it != end) {
-    vertex = VertexAccessor::Create(&*it, tx, indices, constraints, config, view);
-    if (!vertex) {
-      ++it;
-      continue;
-    }
-    break;
-  }
-  return it;
-}
+// auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it, utils::SkipList<Vertex>::Iterator end,
+//                             std::unique_ptr<VertexAccessor> &vertex, Transaction *tx, View view, Indices *indices,
+//                             Constraints *constraints, Config::Items config) {
+//   while (it != end) {
+//     vertex = VertexAccessor::Create(&*it, tx, indices, constraints, config, view);
+//     if (!vertex) {
+//       ++it;
+//       continue;
+//     }
+//     break;
+//   }
+//   return it;
+// }
 
-AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, utils::SkipList<Vertex>::Iterator it)
-    : self_(self),
-      it_(AdvanceToVisibleVertex(it, self->vertices_accessor_.end(), self->vertex_, self->transaction_, self->view_,
-                                 self->indices_, self_->constraints_, self->config_)) {}
+// AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, utils::SkipList<Vertex>::Iterator it)
+//     : self_(self),
+//       it_(AdvanceToVisibleVertex(it, self->vertices_accessor_.end(), self->vertex_, self->transaction_, self->view_,
+//                                  self->indices_, self_->constraints_, self->config_)) {}
 
-VertexAccessor *AllVerticesIterable::Iterator::operator*() const { return self_->vertex_.get(); }
+// VertexAccessor *AllVerticesIterable::Iterator::operator*() const { return self_->vertex_.get(); }
 
-AllVerticesIterable::Iterator &AllVerticesIterable::Iterator::operator++() {
-  ++it_;
-  it_ = AdvanceToVisibleVertex(it_, self_->vertices_accessor_.end(), self_->vertex_, self_->transaction_, self_->view_,
-                               self_->indices_, self_->constraints_, self_->config_);
-  return *this;
-}
+// AllVerticesIterable::Iterator &AllVerticesIterable::Iterator::operator++() {
+//   ++it_;
+//   it_ = AdvanceToVisibleVertex(it_, self_->vertices_accessor_.end(), self_->vertex_, self_->transaction_,
+//   self_->view_,
+//                                self_->indices_, self_->constraints_, self_->config_);
+//   return *this;
+// }
 
 InMemoryStorage::InMemoryStorage(Config config)
     : indices_(&constraints_, config.items),
@@ -243,8 +244,7 @@ InMemoryStorage::~InMemoryStorage() {
 }
 
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryStorage *storage, IsolationLevel isolation_level)
-    : Accessor(),
-      storage_(storage),
+    : storage_(storage),
       // The lock must be acquired before creating the transaction object to
       // prevent freshly created transactions from dangling in an active state
       // during exclusive operations.
@@ -254,8 +254,7 @@ InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryStorage *storage, Is
       config_(storage->config_.items) {}
 
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
-    : Accessor(),
-      storage_(other.storage_),
+    : storage_(other.storage_),
       storage_guard_(std::move(other.storage_guard_)),
       transaction_(std::move(other.transaction_)),
       commit_timestamp_(other.commit_timestamp_),

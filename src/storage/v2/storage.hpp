@@ -124,7 +124,7 @@ class VerticesIterable final {
 
     ~Iterator();
 
-    VertexAccessor operator*() const;
+    VertexAccessor *operator*() const;
 
     Iterator &operator++();
 
@@ -160,7 +160,7 @@ class Accessor {
   // and iterators) are *invalid*. You have to get all derived objects again.
   Accessor(Accessor &&other) noexcept;
 
-  virtual ~Accessor();
+  virtual ~Accessor() {}
 
   /// @throw std::bad_alloc
   virtual std::unique_ptr<VertexAccessor> CreateVertex() = 0;
