@@ -36,6 +36,7 @@
 
 #include "auth/models.hpp"
 #include "communication/bolt/v1/constants.hpp"
+#include "communication/http/handler.hpp"
 #include "communication/http/server.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"

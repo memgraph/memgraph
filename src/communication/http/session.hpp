@@ -32,7 +32,6 @@
 #include <json/json.hpp>
 
 #include "communication/context.hpp"
-#include "communication/http/handler.hpp"
 #include "utils/logging.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -147,7 +146,6 @@ class Session : public std::enable_shared_from_this<Session<TRequestHandler, TSe
 
     // handle request
     handler_.HandleRequest(std::move(req_), async_write);
-    // TRequestHandler::Create()->HandleRequest(std::move(req_), async_write);
   }
 
   void DoClose() {
