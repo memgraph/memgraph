@@ -16,7 +16,6 @@ class ImporterPokec:
 
     def execute_import(self):
         if self._benchmark_context.vendor_name == "neo4j":
-
             vendor_runner = BaseRunner.create(
                 benchmark_context=self._benchmark_context,
             )
