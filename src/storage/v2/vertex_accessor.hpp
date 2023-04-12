@@ -85,6 +85,9 @@ class VertexAccessor {
                                                                      const std::vector<EdgeTypeId> &edge_types,
                                                                      const VertexAccessor *destination) const = 0;
 
+  Result<std::vector<std::unique_ptr<EdgeAccessor>>> InEdges(View view,
+                                                             const std::vector<EdgeTypeId> &edge_types) const;
+
   Result<std::vector<std::unique_ptr<EdgeAccessor>>> InEdges(View view) const;
 
   /// @throw std::bad_alloc
@@ -94,6 +97,8 @@ class VertexAccessor {
                                                                       const std::vector<EdgeTypeId> &edge_types,
                                                                       const VertexAccessor *destination) const = 0;
 
+  Result<std::vector<std::unique_ptr<EdgeAccessor>>> OutEdges(View view,
+                                                              const std::vector<EdgeTypeId> &edge_types) const;
   Result<std::vector<std::unique_ptr<EdgeAccessor>>> OutEdges(View view) const;
 
   virtual Result<size_t> InDegree(View view) const = 0;

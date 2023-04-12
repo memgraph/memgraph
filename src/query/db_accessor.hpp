@@ -35,6 +35,7 @@
 // This cannot be avoided by simple include orderings so we
 // simply undefine those macros as we're sure that libkrb5
 // won't and can't be used anywhere in the query engine.
+#include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/storage.hpp"
 
 #undef FALSE
@@ -83,9 +84,9 @@ class EdgeAccessor final {
     return impl_->ClearProperties();
   }
 
-  VertexAccessor To() const;
+  std::unique_ptr<VertexAccessor> To() const;
 
-  VertexAccessor From() const;
+  std::unique_ptr<VertexAccessor> From() const;
 
   bool IsCycle() const;
 
@@ -102,7 +103,9 @@ class VertexAccessor final {
  public:
   storage::VertexAccessor *impl_;
 
-  static EdgeAccessor MakeEdgeAccessor(const storage::EdgeAccessor impl) { return EdgeAccessor(impl); }
+  static std::unique_ptr<EdgeAccessor> MakeEdgeAccessor(const std::unique_ptr<storage::EdgeAccessor> &impl) {
+    return std::make_unique<EdgeAccessor>(std::move(impl));
+  }
 
  public:
   explicit VertexAccessor(storage::VertexAccessor *impl) : impl_(impl) {}
@@ -168,7 +171,7 @@ class VertexAccessor final {
 
   auto OutEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types,
                 const VertexAccessor &dest) const
-      -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.OutEdges(view)))> {
+      -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_->OutEdges(view)))> {
     auto maybe_edges = impl_->OutEdges(view, edge_types, dest.impl_);
     if (maybe_edges.HasError()) return maybe_edges.GetError();
     return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
@@ -190,9 +193,13 @@ class VertexAccessor final {
   bool operator!=(const VertexAccessor &v) const noexcept { return !(*this == v); }
 };
 
-inline VertexAccessor EdgeAccessor::To() const { return VertexAccessor(impl_->ToVertex()); }
+inline std::unique_ptr<VertexAccessor> EdgeAccessor::To() const {
+  return std::make_unique<VertexAccessor>(impl_->ToVertex());
+}
 
-inline VertexAccessor EdgeAccessor::From() const { return VertexAccessor(impl_->FromVertex()); }
+inline std::unique_ptr<VertexAccessor> EdgeAccessor::From() const {
+  return std::make_unique<VertexAccessor>(impl_->FromVertex());
+}
 
 inline bool EdgeAccessor::IsCycle() const { return To() == From(); }
 
@@ -318,10 +325,10 @@ class DbAccessor final {
  public:
   explicit DbAccessor(storage::Storage::Accessor *accessor) : accessor_(accessor) {}
 
-  std::optional<VertexAccessor> FindVertex(storage::Gid gid, storage::View view) {
+  std::unique_ptr<VertexAccessor> FindVertex(storage::Gid gid, storage::View view) {
     auto maybe_vertex = accessor_->FindVertex(gid, view);
-    if (maybe_vertex) return VertexAccessor(*maybe_vertex);
-    return std::nullopt;
+    if (maybe_vertex) return std::make_unique<VertexAccessor>(std::move(maybe_vertex));
+    return {};
   }
 
   void FinalizeTransaction() { accessor_->FinalizeTransaction(); }
@@ -347,27 +354,27 @@ class DbAccessor final {
     return VerticesIterable(accessor_->Vertices(label, property, lower, upper, view));
   }
 
-  VertexAccessor InsertVertex() { return VertexAccessor(accessor_->CreateVertex()); }
+  std::unique_ptr<VertexAccessor> InsertVertex() { return std::make_unique<VertexAccessor>(accessor_->CreateVertex()); }
 
-  storage::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
-                                           const storage::EdgeTypeId &edge_type) {
-    auto maybe_edge = accessor_->CreateEdge(&from->impl_, &to->impl_, edge_type);
+  storage::Result<std::unique_ptr<EdgeAccessor>> InsertEdge(VertexAccessor *from, VertexAccessor *to,
+                                                            const storage::EdgeTypeId &edge_type) {
+    auto maybe_edge = accessor_->CreateEdge(from->impl_, to->impl_, edge_type);
     if (maybe_edge.HasError()) return storage::Result<EdgeAccessor>(maybe_edge.GetError());
-    return EdgeAccessor(*maybe_edge);
+    return std::make_unique<EdgeAccessor>(std::move(maybe_edge));
   }
 
   storage::Result<std::unique_ptr<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge) {
-    auto res = accessor_->DeleteEdge(&edge->impl_);
+    auto res = accessor_->DeleteEdge(edge->impl_);
     if (res.HasError()) {
       return res.GetError();
     }
 
     const auto &value = res.GetValue();
     if (!value) {
-      return std::optional<EdgeAccessor>{};
+      return storage::Result<std::unique_ptr<EdgeAccessor>>{std::unique_ptr<EdgeAccessor>()};
     }
 
-    return std::make_optional<EdgeAccessor>(*value);
+    return std::make_unique<EdgeAccessor>(std::move(value));
   }
 
   storage::Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachRemoveVertex(

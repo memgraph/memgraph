@@ -309,7 +309,7 @@ std::unique_ptr<VertexAccessor> InMemoryStorage::InMemoryAccessor::CreateVertex(
 std::unique_ptr<VertexAccessor> InMemoryStorage::InMemoryAccessor::FindVertex(storage::Gid gid, View view) {
   auto acc = storage_->vertices_.access();
   auto it = acc.find(gid);
-  if (it == acc.end()) return std::unique_ptr<VertexAccessor>();
+  if (it == acc.end()) return {};
   return VertexAccessor::Create(&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_, view);
 }
 

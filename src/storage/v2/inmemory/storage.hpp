@@ -79,7 +79,7 @@ class InMemoryStorage final {
 
   ~InMemoryStorage();
 
-  class InMemoryAccessor final : public Accessor {
+  class InMemoryAccessor final : public Storage::Accessor {
    private:
     friend class InMemoryStorage;
 
