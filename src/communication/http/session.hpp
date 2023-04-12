@@ -43,10 +43,10 @@ void LogError(boost::beast::error_code ec, const std::string_view what) {
 }
 }  // namespace
 
-template <class TRequestHandler>
-class Session : public std::enable_shared_from_this<Session<TRequestHandler>> {
+template <class TRequestHandler, typename TSessionData>
+class Session : public std::enable_shared_from_this<Session<TRequestHandler, TSessionData>> {
   using tcp = boost::asio::ip::tcp;
-  using std::enable_shared_from_this<Session<TRequestHandler>>::shared_from_this;
+  using std::enable_shared_from_this<Session<TRequestHandler, TSessionData>>::shared_from_this;
 
  public:
   template <typename... Args>
@@ -73,8 +73,10 @@ class Session : public std::enable_shared_from_this<Session<TRequestHandler>> {
   using PlainSocket = boost::beast::tcp_stream;
   using SSLSocket = boost::beast::ssl_stream<boost::beast::tcp_stream>;
 
-  explicit Session(tcp::socket &&socket, ServerContext &context)
-      : stream_(CreateSocket(std::move(socket), context)), strand_{boost::asio::make_strand(GetExecutor())} {}
+  explicit Session(tcp::socket &&socket, TSessionData *data, ServerContext &context)
+      : stream_(CreateSocket(std::move(socket), context)),
+        handler_(data),
+        strand_{boost::asio::make_strand(GetExecutor())} {}
 
   std::variant<PlainSocket, SSLSocket> CreateSocket(tcp::socket &&socket, ServerContext &context) {
     if (context.use_ssl()) {
@@ -144,7 +146,8 @@ class Session : public std::enable_shared_from_this<Session<TRequestHandler>> {
     };
 
     // handle request
-    TRequestHandler::Create()->HandleRequest(std::move(req_), async_write);
+    handler_.HandleRequest(std::move(req_), async_write);
+    // TRequestHandler::Create()->HandleRequest(std::move(req_), async_write);
   }
 
   void DoClose() {
@@ -181,8 +184,11 @@ class Session : public std::enable_shared_from_this<Session<TRequestHandler>> {
   std::optional<std::reference_wrapper<boost::asio::ssl::context>> ssl_context_;
   std::variant<PlainSocket, SSLSocket> stream_;
   boost::beast::flat_buffer buffer_;
+
+  TRequestHandler handler_;
   boost::beast::http::request<boost::beast::http::string_body> req_;
   std::shared_ptr<void> res_;
+
   boost::asio::strand<boost::beast::tcp_stream::executor_type> strand_;
   bool close_{false};
 };

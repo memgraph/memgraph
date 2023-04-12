@@ -27,11 +27,11 @@
 
 namespace memgraph::communication::http {
 
-template <class TRequestHandler>
-class Listener final : public std::enable_shared_from_this<Listener<TRequestHandler>> {
+template <class TRequestHandler, typename TSessionData>
+class Listener final : public std::enable_shared_from_this<Listener<TRequestHandler, TSessionData>> {
   using tcp = boost::asio::ip::tcp;
-  using SessionHandler = Session<TRequestHandler>;
-  using std::enable_shared_from_this<Listener<TRequestHandler>>::shared_from_this;
+  using SessionHandler = Session<TRequestHandler, TSessionData>;
+  using std::enable_shared_from_this<Listener<TRequestHandler, TSessionData>>::shared_from_this;
 
  public:
   Listener(const Listener &) = delete;
@@ -50,8 +50,8 @@ class Listener final : public std::enable_shared_from_this<Listener<TRequestHand
   tcp::endpoint GetEndpoint() const { return acceptor_.local_endpoint(); }
 
  private:
-  Listener(boost::asio::io_context &ioc, ServerContext *context, tcp::endpoint endpoint)
-      : ioc_(ioc), context_(context), acceptor_(ioc) {
+  Listener(boost::asio::io_context &ioc, TSessionData *data, ServerContext *context, tcp::endpoint endpoint)
+      : ioc_(ioc), data_(data), context_(context), acceptor_(ioc) {
     boost::beast::error_code ec;
 
     // Open the acceptor
@@ -95,12 +95,13 @@ class Listener final : public std::enable_shared_from_this<Listener<TRequestHand
       return LogError(ec, "accept");
     }
 
-    SessionHandler::Create(std::move(socket), *context_)->Run();
+    SessionHandler::Create(std::move(socket), data_, *context_)->Run();
 
     DoAccept();
   }
 
   boost::asio::io_context &ioc_;
+  TSessionData *data_;
   ServerContext *context_;
   tcp::acceptor acceptor_;
 };

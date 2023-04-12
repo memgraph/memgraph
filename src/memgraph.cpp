@@ -700,6 +700,9 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 };
 
 using ServerT = memgraph::communication::v2::Server<BoltSession, SessionData>;
+using MonitoringServerT =
+    memgraph::communication::http::Server<memgraph::communication::http::MetricsRequestHandler<SessionData>,
+                                          SessionData>;
 using memgraph::communication::ServerContext;
 
 // Needed to correctly handle memgraph destruction from a signal handler.
@@ -1023,8 +1026,8 @@ int main(int argc, char **argv) {
       {FLAGS_monitoring_address, static_cast<uint16_t>(FLAGS_monitoring_port)}, &context, websocket_auth};
   AddLoggerSink(websocket_server.GetLoggingSink());
 
-  memgraph::communication::http::Server<memgraph::communication::http::MetricsRequestHandler> metrics_server{
-      {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, &context};
+  MonitoringServerT metrics_server{
+      {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, &session_data, &context};
 
   // Handler for regular termination signals
   auto shutdown = [&metrics_server, &websocket_server, &server, &interpreter_context] {

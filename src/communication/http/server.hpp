@@ -21,14 +21,14 @@
 
 namespace memgraph::communication::http {
 
-template <class TRequestHandler>
+template <class TRequestHandler, typename TSessionData>
 class Server final {
   using tcp = boost::asio::ip::tcp;
 
  public:
-  explicit Server(io::network::Endpoint endpoint, ServerContext *context)
-      : listener_{Listener<TRequestHandler>::Create(
-            ioc_, context, tcp::endpoint{boost::asio::ip::make_address(endpoint.address), endpoint.port})} {}
+  explicit Server(io::network::Endpoint endpoint, TSessionData *data, ServerContext *context)
+      : listener_{Listener<TRequestHandler, TSessionData>::Create(
+            ioc_, data, context, tcp::endpoint{boost::asio::ip::make_address(endpoint.address), endpoint.port})} {}
 
   Server(const Server &) = delete;
   Server(Server &&) = delete;
@@ -59,7 +59,7 @@ class Server final {
  private:
   boost::asio::io_context ioc_;
 
-  std::shared_ptr<Listener<TRequestHandler>> listener_;
+  std::shared_ptr<Listener<TRequestHandler, TSessionData>> listener_;
   std::optional<std::thread> background_thread_;
 };
 }  // namespace memgraph::communication::http

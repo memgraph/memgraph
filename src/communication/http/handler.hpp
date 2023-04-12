@@ -37,11 +37,11 @@ class MetricsService {
   MetricsResponse GetMetrics() { return MetricsResponse{.size = 5}; }
 };
 
+template <typename TSessionData>
 class MetricsRequestHandler final {
  public:
-  template <typename... Args>
-  static std::shared_ptr<MetricsRequestHandler> Create(Args &&...args) {
-    return std::shared_ptr<MetricsRequestHandler>(new MetricsRequestHandler(std::forward<Args>(args)...));
+  explicit MetricsRequestHandler(TSessionData *data) : service_(std::make_unique<MetricsService>()), data_(data) {
+    spdlog::info("Basic request handler started!");
   }
 
   MetricsRequestHandler(const MetricsRequestHandler &) = delete;
@@ -96,10 +96,7 @@ class MetricsRequestHandler final {
   }
 
  private:
-  explicit MetricsRequestHandler() : service_(std::make_unique<MetricsService>()) {
-    spdlog::info("Basic request handler started!");
-  }
-
   std::unique_ptr<MetricsService> service_;
+  TSessionData *data_;
 };
 }  // namespace memgraph::communication::http
