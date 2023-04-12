@@ -520,60 +520,6 @@ void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, std::string c
   }
 }
 
-class RequestHandler {
-  template <class Body, class Allocator>
-  void HandleRequest(boost::beast::http::request<Body, boost::beast::http::basic_fields<Allocator>> &&req,
-                     std::function<void(boost::beast::http::response<boost::beast::http::string_body>)> &&send) {
-    // Returns a bad request response
-    auto const bad_request = [&req](boost::beast::string_view why) {
-      boost::beast::http::response<http::string_body> res{boost::beast::http::status::bad_request, req.version()};
-      res.set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
-      res.set(boost::beast::http::field::content_type, "text/html");
-      res.keep_alive(req.keep_alive());
-      res.body() = std::string(why);
-      res.prepare_payload();
-      return res;
-    };
-
-    // Make sure we can handle the method
-    if (req.method() != boost::beast::http::verb::get && req.method() != http::verb::head) {
-      return send(bad_request("Unknown HTTP-method"));
-    }
-
-    // Request path must be absolute and not contain "..".
-    if (req.target().empty() || req.target()[0] != '/' || req.target().find("..") != boost::beast::string_view::npos) {
-      return send(bad_request("Illegal request-target"));
-    }
-
-    http::string_body::value_type body;
-    auto response = nlohmann::json();
-    response["size"] = 5;
-    body.append(response.dump());
-
-    // Cache the size since we need it after the move
-    auto const size = body.size();
-
-    // Respond to HEAD request
-    if (req.method() == http::verb::head) {
-      http::response<http::string_body> res{http::status::ok, req.version()};
-      res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
-      res.set(http::field::content_type, "application/json");
-      res.content_length(size);
-      res.keep_alive(req.keep_alive());
-      return send(std::move(res));
-    }
-
-    // Respond to GET request
-    http::response<http::string_body> res{std::piecewise_construct, std::make_tuple(std::move(body)),
-                                          std::make_tuple(http::status::ok, req.version())};
-    res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
-    res.set(http::field::content_type, "application/json");
-    res.content_length(size);
-    res.keep_alive(req.keep_alive());
-    return send(std::move(res));
-  }
-}
-
 class BoltSession final : public memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                                         memgraph::communication::v2::OutputStream> {
  public:

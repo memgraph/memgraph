@@ -20,57 +20,57 @@ namespace memgraph::communication::http {
 namespace beast = boost::beast;
 namespace http = beast::http;
 
-class RequestHandler {
-  template <class Body, class Allocator>
-  void HandleRequest(http::request<Body, http::basic_fields<Allocator>> &&req,
-                     std::function<void(http::response<http::string_body>)> &&send) {
-    // Returns a bad request response
-    auto const bad_request = [&req](beast::string_view why) {
-      http::response<http::string_body> res{http::status::bad_request, req.version()};
-      res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
-      res.set(http::field::content_type, "text/html");
-      res.keep_alive(req.keep_alive());
-      res.body() = std::string(why);
-      res.prepare_payload();
-      return res;
-    };
+class MetricsHandler {};
 
-    // Make sure we can handle the method
-    if (req.method() != http::verb::get && req.method() != http::verb::head) {
-      return send(bad_request("Unknown HTTP-method"));
-    }
+template <class Body, class Allocator>
+void HandleRequest(http::request<Body, http::basic_fields<Allocator>> &&req,
+                   std::function<void(http::response<http::string_body>)> &&send) {
+  // Returns a bad request response
+  auto const bad_request = [&req](beast::string_view why) {
+    http::response<http::string_body> res{http::status::bad_request, req.version()};
+    res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
+    res.set(http::field::content_type, "text/html");
+    res.keep_alive(req.keep_alive());
+    res.body() = std::string(why);
+    res.prepare_payload();
+    return res;
+  };
 
-    // Request path must be absolute and not contain "..".
-    if (req.target().empty() || req.target()[0] != '/' || req.target().find("..") != beast::string_view::npos) {
-      return send(bad_request("Illegal request-target"));
-    }
+  // Make sure we can handle the method
+  if (req.method() != http::verb::get && req.method() != http::verb::head) {
+    return send(bad_request("Unknown HTTP-method"));
+  }
 
-    http::string_body::value_type body;
-    auto response = nlohmann::json();
-    response["size"] = 5;
-    body.append(response.dump());
+  // Request path must be absolute and not contain "..".
+  if (req.target().empty() || req.target()[0] != '/' || req.target().find("..") != beast::string_view::npos) {
+    return send(bad_request("Illegal request-target"));
+  }
 
-    // Cache the size since we need it after the move
-    auto const size = body.size();
+  http::string_body::value_type body;
+  auto response = nlohmann::json();
+  response["size"] = 5;
+  body.append(response.dump());
 
-    // Respond to HEAD request
-    if (req.method() == http::verb::head) {
-      http::response<http::string_body> res{http::status::ok, req.version()};
-      res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
-      res.set(http::field::content_type, "application/json");
-      res.content_length(size);
-      res.keep_alive(req.keep_alive());
-      return send(std::move(res));
-    }
+  // Cache the size since we need it after the move
+  auto const size = body.size();
 
-    // Respond to GET request
-    http::response<http::string_body> res{std::piecewise_construct, std::make_tuple(std::move(body)),
-                                          std::make_tuple(http::status::ok, req.version())};
+  // Respond to HEAD request
+  if (req.method() == http::verb::head) {
+    http::response<http::string_body> res{http::status::ok, req.version()};
     res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
     res.set(http::field::content_type, "application/json");
     res.content_length(size);
     res.keep_alive(req.keep_alive());
     return send(std::move(res));
   }
-};
+
+  // Respond to GET request
+  http::response<http::string_body> res{std::piecewise_construct, std::make_tuple(std::move(body)),
+                                        std::make_tuple(http::status::ok, req.version())};
+  res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
+  res.set(http::field::content_type, "application/json");
+  res.content_length(size);
+  res.keep_alive(req.keep_alive());
+  return send(std::move(res));
+}
 }  // namespace memgraph::communication::http
