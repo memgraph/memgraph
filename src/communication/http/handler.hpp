@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <spdlog/spdlog.h>
 #include <boost/beast/http.hpp>
 #include <boost/beast/version.hpp>
 #include <json/json.hpp>
@@ -20,43 +21,73 @@ namespace memgraph::communication::http {
 namespace beast = boost::beast;
 namespace http = beast::http;
 
-class MetricsHandler {};
-
-template <class Body, class Allocator>
-void HandleRequest(http::request<Body, http::basic_fields<Allocator>> &&req,
-                   std::function<void(http::response<http::string_body>)> &&send) {
-  // Returns a bad request response
-  auto const bad_request = [&req](beast::string_view why) {
-    http::response<http::string_body> res{http::status::bad_request, req.version()};
-    res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
-    res.set(http::field::content_type, "text/html");
-    res.keep_alive(req.keep_alive());
-    res.body() = std::string(why);
-    res.prepare_payload();
-    return res;
-  };
-
-  // Make sure we can handle the method
-  if (req.method() != http::verb::get && req.method() != http::verb::head) {
-    return send(bad_request("Unknown HTTP-method"));
+struct MetricsResponse {
+ public:
+  nlohmann::json AsJson() {
+    auto metrics_response = nlohmann::json();
+    metrics_response["size"] = size;
+    return metrics_response;
   }
 
-  // Request path must be absolute and not contain "..".
-  if (req.target().empty() || req.target()[0] != '/' || req.target().find("..") != beast::string_view::npos) {
-    return send(bad_request("Illegal request-target"));
+  uint64_t size;
+};
+
+class MetricsService {
+ public:
+  MetricsResponse GetMetrics() { return MetricsResponse{.size = 5}; }
+};
+
+class MetricsRequestHandler final {
+ public:
+  template <typename... Args>
+  static std::shared_ptr<MetricsRequestHandler> Create(Args &&...args) {
+    return std::shared_ptr<MetricsRequestHandler>(new MetricsRequestHandler(std::forward<Args>(args)...));
   }
 
-  http::string_body::value_type body;
-  auto response = nlohmann::json();
-  response["size"] = 5;
-  body.append(response.dump());
+  MetricsRequestHandler(const MetricsRequestHandler &) = delete;
+  MetricsRequestHandler(MetricsRequestHandler &&) = delete;
+  MetricsRequestHandler &operator=(const MetricsRequestHandler &) = delete;
+  MetricsRequestHandler &operator=(MetricsRequestHandler &&) = delete;
+  ~MetricsRequestHandler() = default;
 
-  // Cache the size since we need it after the move
-  auto const size = body.size();
+  template <class Body, class Allocator>
+  void HandleRequest(http::request<Body, http::basic_fields<Allocator>> &&req,
+                     std::function<void(http::response<http::string_body>)> &&send) {
+    auto response_json = nlohmann::json();
+    // Returns a bad request response
+    auto const bad_request = [&req, &response_json](beast::string_view why) {
+      response_json["error"] = std::string(why);
 
-  // Respond to HEAD request
-  if (req.method() == http::verb::head) {
-    http::response<http::string_body> res{http::status::ok, req.version()};
+      http::response<http::string_body> res{http::status::bad_request, req.version()};
+      res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
+      res.set(http::field::content_type, "application/json");
+      res.keep_alive(req.keep_alive());
+      res.body() = response_json.dump();
+      res.prepare_payload();
+      return res;
+    };
+
+    // Make sure we can handle the method
+    if (req.method() != http::verb::get) {
+      return send(bad_request("Unknown HTTP-method"));
+    }
+
+    // Request path must be absolute and not contain "..".
+    if (req.target().empty() || req.target()[0] != '/' || req.target().find("..") != beast::string_view::npos) {
+      return send(bad_request("Illegal request-target"));
+    }
+
+    http::string_body::value_type body;
+
+    auto service_response = service_->GetMetrics().AsJson();
+    body.append(service_response.dump());
+
+    // Cache the size since we need it after the move
+    auto const size = body.size();
+
+    // Respond to GET request
+    http::response<http::string_body> res{std::piecewise_construct, std::make_tuple(std::move(body)),
+                                          std::make_tuple(http::status::ok, req.version())};
     res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
     res.set(http::field::content_type, "application/json");
     res.content_length(size);
@@ -64,13 +95,11 @@ void HandleRequest(http::request<Body, http::basic_fields<Allocator>> &&req,
     return send(std::move(res));
   }
 
-  // Respond to GET request
-  http::response<http::string_body> res{std::piecewise_construct, std::make_tuple(std::move(body)),
-                                        std::make_tuple(http::status::ok, req.version())};
-  res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
-  res.set(http::field::content_type, "application/json");
-  res.content_length(size);
-  res.keep_alive(req.keep_alive());
-  return send(std::move(res));
-}
+ private:
+  explicit MetricsRequestHandler() : service_(std::make_unique<MetricsService>()) {
+    spdlog::info("Basic request handler started!");
+  }
+
+  std::unique_ptr<MetricsService> service_;
+};
 }  // namespace memgraph::communication::http

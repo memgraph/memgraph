@@ -37,7 +37,6 @@
 #include "utils/variant_helpers.hpp"
 
 namespace memgraph::communication::http {
-
 namespace {
 void LogError(boost::beast::error_code ec, const std::string_view what) {
   spdlog::warn("HTTP session failed on {}: {}", what, ec.message());
@@ -115,6 +114,7 @@ class Session : public std::enable_shared_from_this<Session<TRequestHandler>> {
           boost::asio::bind_executor(strand_, std::bind_front(&Session::OnRead, shared_from_this())));
     });
   }
+
   void OnRead(boost::beast::error_code ec, size_t bytes_transferred) {
     boost::ignore_unused(bytes_transferred);
 
@@ -144,7 +144,7 @@ class Session : public std::enable_shared_from_this<Session<TRequestHandler>> {
     };
 
     // handle request
-    HandleRequest(std::move(req_), async_write);
+    TRequestHandler::Create()->HandleRequest(std::move(req_), async_write);
   }
 
   void DoClose() {
@@ -183,7 +183,6 @@ class Session : public std::enable_shared_from_this<Session<TRequestHandler>> {
   boost::beast::flat_buffer buffer_;
   boost::beast::http::request<boost::beast::http::string_body> req_;
   std::shared_ptr<void> res_;
-  TRequestHandler handler;
   boost::asio::strand<boost::beast::tcp_stream::executor_type> strand_;
   bool close_{false};
 };
