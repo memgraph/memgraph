@@ -57,6 +57,7 @@
 #include "storage/v2/storage.hpp"
 #include "storage/v2/view.hpp"
 #include "telemetry/telemetry.hpp"
+#include "utils/enum.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/file.hpp"
 #include "utils/flag_validation.hpp"
@@ -102,42 +103,6 @@
 constexpr const char *kMgUser = "MEMGRAPH_USER";
 constexpr const char *kMgPassword = "MEMGRAPH_PASSWORD";
 constexpr const char *kMgPassfile = "MEMGRAPH_PASSFILE";
-
-namespace {
-std::string GetAllowedEnumValuesString(const auto &mappings) {
-  std::vector<std::string> allowed_values;
-  allowed_values.reserve(mappings.size());
-  std::transform(mappings.begin(), mappings.end(), std::back_inserter(allowed_values),
-                 [](const auto &mapping) { return std::string(mapping.first); });
-  return memgraph::utils::Join(allowed_values, ", ");
-}
-
-enum class ValidationError : uint8_t { EmptyValue, InvalidValue };
-
-memgraph::utils::BasicResult<ValidationError> IsValidEnumValueString(const auto &value, const auto &mappings) {
-  if (value.empty()) {
-    return ValidationError::EmptyValue;
-  }
-
-  if (std::find_if(mappings.begin(), mappings.end(), [&](const auto &mapping) { return mapping.first == value; }) ==
-      mappings.cend()) {
-    return ValidationError::InvalidValue;
-  }
-
-  return {};
-}
-
-template <typename Enum>
-std::optional<Enum> StringToEnum(const auto &value, const auto &mappings) {
-  const auto mapping_iter =
-      std::find_if(mappings.begin(), mappings.end(), [&](const auto &mapping) { return mapping.first == value; });
-  if (mapping_iter == mappings.cend()) {
-    return std::nullopt;
-  }
-
-  return mapping_iter->second;
-}
-}  // namespace
 
 // Short help flag.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -300,21 +265,21 @@ inline constexpr std::array isolation_level_mappings{
 
 const std::string isolation_level_help_string =
     fmt::format("Default isolation level used for the transactions. Allowed values: {}",
-                GetAllowedEnumValuesString(isolation_level_mappings));
+                memgraph::utils::GetAllowedEnumValuesString(isolation_level_mappings));
 }  // namespace
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_string(isolation_level, "SNAPSHOT_ISOLATION", isolation_level_help_string.c_str(), {
-  if (const auto result = IsValidEnumValueString(value, isolation_level_mappings); result.HasError()) {
+  if (const auto result = memgraph::utils::IsValidEnumValueString(value, isolation_level_mappings); result.HasError()) {
     const auto error = result.GetError();
     switch (error) {
-      case ValidationError::EmptyValue: {
+      case memgraph::utils::ValidationError::EmptyValue: {
         std::cout << "Isolation level cannot be empty." << std::endl;
         break;
       }
-      case ValidationError::InvalidValue: {
+      case memgraph::utils::ValidationError::InvalidValue: {
         std::cout << "Invalid value for isolation level. Allowed values: "
-                  << GetAllowedEnumValuesString(isolation_level_mappings) << std::endl;
+                  << memgraph::utils::GetAllowedEnumValuesString(isolation_level_mappings) << std::endl;
         break;
       }
     }
@@ -327,7 +292,7 @@ DEFINE_VALIDATED_string(isolation_level, "SNAPSHOT_ISOLATION", isolation_level_h
 namespace {
 memgraph::storage::IsolationLevel ParseIsolationLevel() {
   const auto isolation_level =
-      StringToEnum<memgraph::storage::IsolationLevel>(FLAGS_isolation_level, isolation_level_mappings);
+      memgraph::utils::StringToEnum<memgraph::storage::IsolationLevel>(FLAGS_isolation_level, isolation_level_mappings);
   MG_ASSERT(isolation_level, "Invalid isolation level");
   return *isolation_level;
 }
@@ -387,21 +352,21 @@ inline constexpr std::array log_level_mappings{
     std::pair{"INFO"sv, spdlog::level::info},   std::pair{"WARNING"sv, spdlog::level::warn},
     std::pair{"ERROR"sv, spdlog::level::err},   std::pair{"CRITICAL"sv, spdlog::level::critical}};
 
-const std::string log_level_help_string =
-    fmt::format("Minimum log level. Allowed values: {}", GetAllowedEnumValuesString(log_level_mappings));
+const std::string log_level_help_string = fmt::format("Minimum log level. Allowed values: {}",
+                                                      memgraph::utils::GetAllowedEnumValuesString(log_level_mappings));
 }  // namespace
 
 DEFINE_VALIDATED_string(log_level, "WARNING", log_level_help_string.c_str(), {
-  if (const auto result = IsValidEnumValueString(value, log_level_mappings); result.HasError()) {
+  if (const auto result = memgraph::utils::IsValidEnumValueString(value, log_level_mappings); result.HasError()) {
     const auto error = result.GetError();
     switch (error) {
-      case ValidationError::EmptyValue: {
+      case memgraph::utils::ValidationError::EmptyValue: {
         std::cout << "Log level cannot be empty." << std::endl;
         break;
       }
-      case ValidationError::InvalidValue: {
-        std::cout << "Invalid value for log level. Allowed values: " << GetAllowedEnumValuesString(log_level_mappings)
-                  << std::endl;
+      case memgraph::utils::ValidationError::InvalidValue: {
+        std::cout << "Invalid value for log level. Allowed values: "
+                  << memgraph::utils::GetAllowedEnumValuesString(log_level_mappings) << std::endl;
         break;
       }
     }
@@ -413,7 +378,7 @@ DEFINE_VALIDATED_string(log_level, "WARNING", log_level_help_string.c_str(), {
 
 namespace {
 spdlog::level::level_enum ParseLogLevel() {
-  const auto log_level = StringToEnum<spdlog::level::level_enum>(FLAGS_log_level, log_level_mappings);
+  const auto log_level = memgraph::utils::StringToEnum<spdlog::level::level_enum>(FLAGS_log_level, log_level_mappings);
   MG_ASSERT(log_level, "Invalid log level");
   return *log_level;
 }

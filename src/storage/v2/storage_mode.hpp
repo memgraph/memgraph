@@ -11,12 +11,10 @@
 
 #pragma once
 
-#include "storage/v2/storage.hpp"
-#include "storage/v2/view.hpp"
+#include <cstdint>
 
-size_t CountVertices(memgraph::storage::Storage::Accessor &storage_accessor, memgraph::storage::View view);
+namespace memgraph::storage {
 
-std::string_view StorageModeToString(memgraph::storage::StorageMode storage_mode);
+enum class StorageMode : std::uint8_t { IN_MEMORY_ANALYTICAL, IN_MEMORY_TRANSACTIONAL };
 
-inline constexpr std::array storage_modes{memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL,
-                                          memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
+}  // namespace memgraph::storage

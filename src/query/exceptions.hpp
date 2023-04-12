@@ -211,6 +211,21 @@ class IsolationLevelModificationInMulticommandTxException : public QueryExceptio
       : QueryException("Isolation level cannot be modified in multicommand transactions.") {}
 };
 
+class IsolationLevelModificationInAnalyticsException : public QueryException {
+ public:
+  IsolationLevelModificationInAnalyticsException()
+      : QueryException(
+            "Isolation level cannot be modified when storage mode is set to IN_MEMORY_ANALYTICAL."
+            "IN_MEMORY_ANALYTICAL mode doesn't provide any isolation guarantees, "
+            "you can think about it as an equivalent to READ_UNCOMMITED.") {}
+};
+
+class StorageModeModificationInMulticommandTxException : public QueryException {
+ public:
+  StorageModeModificationInMulticommandTxException()
+      : QueryException("Storage mode cannot be modified in multicommand transactions.") {}
+};
+
 class CreateSnapshotInMulticommandTxException final : public QueryException {
  public:
   CreateSnapshotInMulticommandTxException()
