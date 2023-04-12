@@ -1,6 +1,5 @@
 set(storage_rocks_src_files
-    loopback.hpp
-    serialization.hpp)
+    storage.hpp)
 
 find_package(Threads REQUIRED)
 find_package(gflags REQUIRED)

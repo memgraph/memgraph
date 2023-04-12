@@ -323,8 +323,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
     properties = vertex_->properties.Properties();
     delta = vertex_->delta;
   }
-  return std::move(properties);
-  /*
+  // return std::move(properties);
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &properties](const Delta &delta) {
     switch (delta.action) {
       case Delta::Action::SET_PROPERTY: {
@@ -362,7 +361,6 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
   if (!exists) return Error::NONEXISTENT_OBJECT;
   if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return std::move(properties);
-  */
 }
 
 Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, const std::vector<EdgeTypeId> &edge_types,
