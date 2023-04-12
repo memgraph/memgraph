@@ -362,8 +362,8 @@ Result<std::map<PropertyId, PropertyValue>> InMemoryVertexAccessor::Properties(V
 Result<std::vector<std::unique_ptr<EdgeAccessor>>> InMemoryVertexAccessor::InEdges(
     View view, const std::vector<EdgeTypeId> &edge_types, const VertexAccessor *destination) const {
   auto *destVA = dynamic_cast<const InMemoryVertexAccessor *>(destination);
-  MG_ASSERT(destVA, "Target VertexAccessor must be from the same storage as the storage accessor!");
-  MG_ASSERT(!destination || destVA->transaction_ == transaction_, "Invalid accessor!");
+  MG_ASSERT(!destination || destVA, "Target VertexAccessor must be from the same storage as the storage accessor!");
+  MG_ASSERT(!destVA || destVA->transaction_ == transaction_, "Invalid accessor!");
   bool exists = true;
   bool deleted = false;
   std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
@@ -445,7 +445,7 @@ Result<std::vector<std::unique_ptr<EdgeAccessor>>> InMemoryVertexAccessor::InEdg
 Result<std::vector<std::unique_ptr<EdgeAccessor>>> InMemoryVertexAccessor::OutEdges(
     View view, const std::vector<EdgeTypeId> &edge_types, const VertexAccessor *destination) const {
   auto *destVA = dynamic_cast<const InMemoryVertexAccessor *>(destination);
-  MG_ASSERT(destVA, "Target VertexAccessor must be from the same storage as the storage accessor!");
+  MG_ASSERT(!destination || destVA, "Target VertexAccessor must be from the same storage as the storage accessor!");
   MG_ASSERT(!destVA || destVA->transaction_ == transaction_, "Invalid accessor!");
   bool exists = true;
   bool deleted = false;
