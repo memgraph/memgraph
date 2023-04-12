@@ -21,7 +21,11 @@ std::unique_ptr<VertexAccessor> VertexAccessor::Create(Vertex *vertex, Transacti
   return InMemoryVertexAccessor::Create(vertex, transaction, indices, constraints, config, view);
 }
 
-Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view) const { return InEdges(view, {}, nullptr); }
-Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(View view) const { return OutEdges(view, {}, nullptr); }
+Result<std::vector<std::unique_ptr<EdgeAccessor>>> VertexAccessor::InEdges(View view) const {
+  return InEdges(view, {}, nullptr);
+}
+Result<std::vector<std::unique_ptr<EdgeAccessor>>> VertexAccessor::OutEdges(View view) const {
+  return OutEdges(view, {}, nullptr);
+}
 
 }  // namespace memgraph::storage

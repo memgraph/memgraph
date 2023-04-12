@@ -356,7 +356,7 @@ class DbAccessor final {
     return EdgeAccessor(*maybe_edge);
   }
 
-  storage::Result<std::optional<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge) {
+  storage::Result<std::unique_ptr<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge) {
     auto res = accessor_->DeleteEdge(&edge->impl_);
     if (res.HasError()) {
       return res.GetError();

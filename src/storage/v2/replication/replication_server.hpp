@@ -11,13 +11,13 @@
 
 #pragma once
 
-#include "storage/v2/storage.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 
 namespace memgraph::storage {
 
 class InMemoryStorage::ReplicationServer {
  public:
-  explicit ReplicationServer(Storage *storage, io::network::Endpoint endpoint,
+  explicit ReplicationServer(InMemoryStorage *storage, io::network::Endpoint endpoint,
                              const replication::ReplicationServerConfig &config);
   ReplicationServer(const ReplicationServer &) = delete;
   ReplicationServer(ReplicationServer &&) = delete;

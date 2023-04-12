@@ -27,6 +27,8 @@
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/indices.hpp"
+#include "storage/v2/inmemory/edge_accessor.hpp"
+#include "storage/v2/inmemory/vertex_accessor.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
@@ -55,25 +57,25 @@ using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 namespace {
 inline constexpr uint16_t kEpochHistoryRetention = 1000;
 
-std::string RegisterReplicaErrorToString(Storage::RegisterReplicaError error) {
+std::string RegisterReplicaErrorToString(InMemoryStorage::RegisterReplicaError error) {
   switch (error) {
-    case Storage::RegisterReplicaError::NAME_EXISTS:
+    case InMemoryStorage::RegisterReplicaError::NAME_EXISTS:
       return "NAME_EXISTS";
-    case Storage::RegisterReplicaError::END_POINT_EXISTS:
+    case InMemoryStorage::RegisterReplicaError::END_POINT_EXISTS:
       return "END_POINT_EXISTS";
-    case Storage::RegisterReplicaError::CONNECTION_FAILED:
+    case InMemoryStorage::RegisterReplicaError::CONNECTION_FAILED:
       return "CONNECTION_FAILED";
-    case Storage::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
+    case InMemoryStorage::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
       return "COULD_NOT_BE_PERSISTED";
   }
 }
 }  // namespace
 
 auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it, utils::SkipList<Vertex>::Iterator end,
-                            VertexAccessor *vertex, Transaction *tx, View view, Indices *indices,
+                            std::unique_ptr<VertexAccessor> &vertex, Transaction *tx, View view, Indices *indices,
                             Constraints *constraints, Config::Items config) {
   while (it != end) {
-    vertex = VertexAccessor::Create(&*it, tx, indices, constraints, config, view).get();
+    vertex = VertexAccessor::Create(&*it, tx, indices, constraints, config, view);
     if (!vertex) {
       ++it;
       continue;
@@ -85,235 +87,19 @@ auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it, utils::SkipLis
 
 AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, utils::SkipList<Vertex>::Iterator it)
     : self_(self),
-      it_(AdvanceToVisibleVertex(it, self->vertices_accessor_.end(), &self->vertex_, self->transaction_, self->view_,
+      it_(AdvanceToVisibleVertex(it, self->vertices_accessor_.end(), self->vertex_, self->transaction_, self->view_,
                                  self->indices_, self_->constraints_, self->config_)) {}
 
-VertexAccessor AllVerticesIterable::Iterator::operator*() const { return *self_->vertex_; }
+VertexAccessor *AllVerticesIterable::Iterator::operator*() const { return self_->vertex_.get(); }
 
 AllVerticesIterable::Iterator &AllVerticesIterable::Iterator::operator++() {
   ++it_;
-  it_ = AdvanceToVisibleVertex(it_, self_->vertices_accessor_.end(), &self_->vertex_, self_->transaction_, self_->view_,
+  it_ = AdvanceToVisibleVertex(it_, self_->vertices_accessor_.end(), self_->vertex_, self_->transaction_, self_->view_,
                                self_->indices_, self_->constraints_, self_->config_);
   return *this;
 }
 
-VerticesIterable::VerticesIterable(AllVerticesIterable vertices) : type_(Type::ALL) {
-  new (&all_vertices_) AllVerticesIterable(std::move(vertices));
-}
-
-VerticesIterable::VerticesIterable(LabelIndex::Iterable vertices) : type_(Type::BY_LABEL) {
-  new (&vertices_by_label_) LabelIndex::Iterable(std::move(vertices));
-}
-
-VerticesIterable::VerticesIterable(LabelPropertyIndex::Iterable vertices) : type_(Type::BY_LABEL_PROPERTY) {
-  new (&vertices_by_label_property_) LabelPropertyIndex::Iterable(std::move(vertices));
-}
-
-VerticesIterable::VerticesIterable(VerticesIterable &&other) noexcept : type_(other.type_) {
-  switch (other.type_) {
-    case Type::ALL:
-      new (&all_vertices_) AllVerticesIterable(std::move(other.all_vertices_));
-      break;
-    case Type::BY_LABEL:
-      new (&vertices_by_label_) LabelIndex::Iterable(std::move(other.vertices_by_label_));
-      break;
-    case Type::BY_LABEL_PROPERTY:
-      new (&vertices_by_label_property_) LabelPropertyIndex::Iterable(std::move(other.vertices_by_label_property_));
-      break;
-  }
-}
-
-VerticesIterable &VerticesIterable::operator=(VerticesIterable &&other) noexcept {
-  switch (type_) {
-    case Type::ALL:
-      all_vertices_.AllVerticesIterable::~AllVerticesIterable();
-      break;
-    case Type::BY_LABEL:
-      vertices_by_label_.LabelIndex::Iterable::~Iterable();
-      break;
-    case Type::BY_LABEL_PROPERTY:
-      vertices_by_label_property_.LabelPropertyIndex::Iterable::~Iterable();
-      break;
-  }
-  type_ = other.type_;
-  switch (other.type_) {
-    case Type::ALL:
-      new (&all_vertices_) AllVerticesIterable(std::move(other.all_vertices_));
-      break;
-    case Type::BY_LABEL:
-      new (&vertices_by_label_) LabelIndex::Iterable(std::move(other.vertices_by_label_));
-      break;
-    case Type::BY_LABEL_PROPERTY:
-      new (&vertices_by_label_property_) LabelPropertyIndex::Iterable(std::move(other.vertices_by_label_property_));
-      break;
-  }
-  return *this;
-}
-
-VerticesIterable::~VerticesIterable() {
-  switch (type_) {
-    case Type::ALL:
-      all_vertices_.AllVerticesIterable::~AllVerticesIterable();
-      break;
-    case Type::BY_LABEL:
-      vertices_by_label_.LabelIndex::Iterable::~Iterable();
-      break;
-    case Type::BY_LABEL_PROPERTY:
-      vertices_by_label_property_.LabelPropertyIndex::Iterable::~Iterable();
-      break;
-  }
-}
-
-VerticesIterable::Iterator VerticesIterable::begin() {
-  switch (type_) {
-    case Type::ALL:
-      return Iterator(all_vertices_.begin());
-    case Type::BY_LABEL:
-      return Iterator(vertices_by_label_.begin());
-    case Type::BY_LABEL_PROPERTY:
-      return Iterator(vertices_by_label_property_.begin());
-  }
-}
-
-VerticesIterable::Iterator VerticesIterable::end() {
-  switch (type_) {
-    case Type::ALL:
-      return Iterator(all_vertices_.end());
-    case Type::BY_LABEL:
-      return Iterator(vertices_by_label_.end());
-    case Type::BY_LABEL_PROPERTY:
-      return Iterator(vertices_by_label_property_.end());
-  }
-}
-
-VerticesIterable::Iterator::Iterator(AllVerticesIterable::Iterator it) : type_(Type::ALL) {
-  new (&all_it_) AllVerticesIterable::Iterator(std::move(it));
-}
-
-VerticesIterable::Iterator::Iterator(LabelIndex::Iterable::Iterator it) : type_(Type::BY_LABEL) {
-  new (&by_label_it_) LabelIndex::Iterable::Iterator(std::move(it));
-}
-
-VerticesIterable::Iterator::Iterator(LabelPropertyIndex::Iterable::Iterator it) : type_(Type::BY_LABEL_PROPERTY) {
-  new (&by_label_property_it_) LabelPropertyIndex::Iterable::Iterator(std::move(it));
-}
-
-VerticesIterable::Iterator::Iterator(const VerticesIterable::Iterator &other) : type_(other.type_) {
-  switch (other.type_) {
-    case Type::ALL:
-      new (&all_it_) AllVerticesIterable::Iterator(other.all_it_);
-      break;
-    case Type::BY_LABEL:
-      new (&by_label_it_) LabelIndex::Iterable::Iterator(other.by_label_it_);
-      break;
-    case Type::BY_LABEL_PROPERTY:
-      new (&by_label_property_it_) LabelPropertyIndex::Iterable::Iterator(other.by_label_property_it_);
-      break;
-  }
-}
-
-VerticesIterable::Iterator &VerticesIterable::Iterator::operator=(const VerticesIterable::Iterator &other) {
-  Destroy();
-  type_ = other.type_;
-  switch (other.type_) {
-    case Type::ALL:
-      new (&all_it_) AllVerticesIterable::Iterator(other.all_it_);
-      break;
-    case Type::BY_LABEL:
-      new (&by_label_it_) LabelIndex::Iterable::Iterator(other.by_label_it_);
-      break;
-    case Type::BY_LABEL_PROPERTY:
-      new (&by_label_property_it_) LabelPropertyIndex::Iterable::Iterator(other.by_label_property_it_);
-      break;
-  }
-  return *this;
-}
-
-VerticesIterable::Iterator::Iterator(VerticesIterable::Iterator &&other) noexcept : type_(other.type_) {
-  switch (other.type_) {
-    case Type::ALL:
-      new (&all_it_) AllVerticesIterable::Iterator(std::move(other.all_it_));
-      break;
-    case Type::BY_LABEL:
-      new (&by_label_it_) LabelIndex::Iterable::Iterator(std::move(other.by_label_it_));
-      break;
-    case Type::BY_LABEL_PROPERTY:
-      new (&by_label_property_it_) LabelPropertyIndex::Iterable::Iterator(std::move(other.by_label_property_it_));
-      break;
-  }
-}
-
-VerticesIterable::Iterator &VerticesIterable::Iterator::operator=(VerticesIterable::Iterator &&other) noexcept {
-  Destroy();
-  type_ = other.type_;
-  switch (other.type_) {
-    case Type::ALL:
-      new (&all_it_) AllVerticesIterable::Iterator(std::move(other.all_it_));
-      break;
-    case Type::BY_LABEL:
-      new (&by_label_it_) LabelIndex::Iterable::Iterator(std::move(other.by_label_it_));
-      break;
-    case Type::BY_LABEL_PROPERTY:
-      new (&by_label_property_it_) LabelPropertyIndex::Iterable::Iterator(std::move(other.by_label_property_it_));
-      break;
-  }
-  return *this;
-}
-
-VerticesIterable::Iterator::~Iterator() { Destroy(); }
-
-void VerticesIterable::Iterator::Destroy() noexcept {
-  switch (type_) {
-    case Type::ALL:
-      all_it_.AllVerticesIterable::Iterator::~Iterator();
-      break;
-    case Type::BY_LABEL:
-      by_label_it_.LabelIndex::Iterable::Iterator::~Iterator();
-      break;
-    case Type::BY_LABEL_PROPERTY:
-      by_label_property_it_.LabelPropertyIndex::Iterable::Iterator::~Iterator();
-      break;
-  }
-}
-
-VertexAccessor VerticesIterable::Iterator::operator*() const {
-  switch (type_) {
-    case Type::ALL:
-      return *all_it_;
-    case Type::BY_LABEL:
-      return *by_label_it_;
-    case Type::BY_LABEL_PROPERTY:
-      return *by_label_property_it_;
-  }
-}
-
-VerticesIterable::Iterator &VerticesIterable::Iterator::operator++() {
-  switch (type_) {
-    case Type::ALL:
-      ++all_it_;
-      break;
-    case Type::BY_LABEL:
-      ++by_label_it_;
-      break;
-    case Type::BY_LABEL_PROPERTY:
-      ++by_label_property_it_;
-      break;
-  }
-  return *this;
-}
-
-bool VerticesIterable::Iterator::operator==(const Iterator &other) const {
-  switch (type_) {
-    case Type::ALL:
-      return all_it_ == other.all_it_;
-    case Type::BY_LABEL:
-      return by_label_it_ == other.by_label_it_;
-    case Type::BY_LABEL_PROPERTY:
-      return by_label_property_it_ == other.by_label_property_it_;
-  }
-}
-
-Storage::Storage(Config config)
+InMemoryStorage::InMemoryStorage(Config config)
     : indices_(&constraints_, config.items),
       isolation_level_(config.transaction.isolation_level),
       config_(config),
@@ -429,7 +215,7 @@ Storage::Storage(Config config)
   }
 }
 
-Storage::~Storage() {
+InMemoryStorage::~InMemoryStorage() {
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
     gc_runner_.Stop();
   }
@@ -456,8 +242,9 @@ Storage::~Storage() {
   }
 }
 
-Storage::Accessor::Accessor(Storage *storage, IsolationLevel isolation_level)
-    : storage_(storage),
+InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryStorage *storage, IsolationLevel isolation_level)
+    : Accessor(),
+      storage_(storage),
       // The lock must be acquired before creating the transaction object to
       // prevent freshly created transactions from dangling in an active state
       // during exclusive operations.
@@ -466,8 +253,9 @@ Storage::Accessor::Accessor(Storage *storage, IsolationLevel isolation_level)
       is_transaction_active_(true),
       config_(storage->config_.items) {}
 
-Storage::Accessor::Accessor(Accessor &&other) noexcept
-    : storage_(other.storage_),
+InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
+    : Accessor(),
+      storage_(other.storage_),
       storage_guard_(std::move(other.storage_guard_)),
       transaction_(std::move(other.transaction_)),
       commit_timestamp_(other.commit_timestamp_),
@@ -478,7 +266,7 @@ Storage::Accessor::Accessor(Accessor &&other) noexcept
   other.commit_timestamp_.reset();
 }
 
-Storage::Accessor::~Accessor() {
+InMemoryStorage::InMemoryAccessor::~InMemoryAccessor() {
   if (is_transaction_active_) {
     Abort();
   }
@@ -486,7 +274,7 @@ Storage::Accessor::~Accessor() {
   FinalizeTransaction();
 }
 
-VertexAccessor Storage::Accessor::CreateVertex() {
+std::unique_ptr<VertexAccessor> InMemoryStorage::InMemoryAccessor::CreateVertex() {
   OOMExceptionEnabler oom_exception;
   auto gid = storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
   auto acc = storage_->vertices_.access();
@@ -495,10 +283,11 @@ VertexAccessor Storage::Accessor::CreateVertex() {
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
   delta->prev.Set(&*it);
-  return VertexAccessor(&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_);
+  return std::make_unique<InMemoryVertexAccessor>(&*it, &transaction_, &storage_->indices_, &storage_->constraints_,
+                                                  config_);
 }
 
-VertexAccessor Storage::Accessor::CreateVertex(storage::Gid gid) {
+std::unique_ptr<VertexAccessor> InMemoryStorage::InMemoryAccessor::CreateVertex(storage::Gid gid) {
   OOMExceptionEnabler oom_exception;
   // NOTE: When we update the next `vertex_id_` here we perform a RMW
   // (read-modify-write) operation that ISN'T atomic! But, that isn't an issue
@@ -514,28 +303,31 @@ VertexAccessor Storage::Accessor::CreateVertex(storage::Gid gid) {
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
   delta->prev.Set(&*it);
-  return VertexAccessor(&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_);
+  return std::make_unique<InMemoryVertexAccessor>(&*it, &transaction_, &storage_->indices_, &storage_->constraints_,
+                                                  config_);
 }
 
-std::optional<VertexAccessor> Storage::Accessor::FindVertex(Gid gid, View view) {
+std::unique_ptr<VertexAccessor> InMemoryStorage::InMemoryAccessor::FindVertex(storage::Gid gid, View view) {
   auto acc = storage_->vertices_.access();
   auto it = acc.find(gid);
-  if (it == acc.end()) return std::nullopt;
+  if (it == acc.end()) return std::unique_ptr<VertexAccessor>();
   return VertexAccessor::Create(&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_, view);
 }
 
-Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAccessor *vertex) {
-  MG_ASSERT(vertex->transaction_ == &transaction_,
+Result<std::unique_ptr<VertexAccessor>> InMemoryStorage::InMemoryAccessor::DeleteVertex(VertexAccessor *vertex) {
+  auto *inMemoryVA = dynamic_cast<InMemoryVertexAccessor *>(vertex);
+  MG_ASSERT(inMemoryVA, "VertexAccessor must be from the same storage as the storage accessor when deleting a vertex!");
+  MG_ASSERT(inMemoryVA->transaction_ == &transaction_,
             "VertexAccessor must be from the same transaction as the storage "
             "accessor when deleting a vertex!");
-  auto *vertex_ptr = vertex->vertex_;
+  auto *vertex_ptr = inMemoryVA->vertex_;
 
   std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
 
   if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
 
   if (vertex_ptr->deleted) {
-    return std::optional<VertexAccessor>{};
+    return Result<std::unique_ptr<VertexAccessor>>{std::unique_ptr<InMemoryVertexAccessor>()};
   }
 
   if (!vertex_ptr->in_edges.empty() || !vertex_ptr->out_edges.empty()) return Error::VERTEX_HAS_EDGES;
@@ -543,18 +335,19 @@ Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAcce
   CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
   vertex_ptr->deleted = true;
 
-  return std::make_optional<VertexAccessor>(vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_,
-                                            config_, true);
+  return Result<std::unique_ptr<VertexAccessor>>{std::make_unique<InMemoryVertexAccessor>(
+      vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_, config_, true)};
 }
 
-Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Storage::Accessor::DetachDeleteVertex(
-    VertexAccessor *vertex) {
-  using ReturnType = std::pair<VertexAccessor, std::vector<EdgeAccessor>>;
-
-  MG_ASSERT(vertex->transaction_ == &transaction_,
+Result<std::optional<std::pair<std::unique_ptr<VertexAccessor>, std::vector<std::unique_ptr<EdgeAccessor>>>>>
+InMemoryStorage::InMemoryAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
+  using ReturnType = std::pair<std::unique_ptr<VertexAccessor>, std::vector<std::unique_ptr<EdgeAccessor>>>;
+  auto *inMemoryVA = dynamic_cast<InMemoryVertexAccessor *>(vertex);
+  MG_ASSERT(inMemoryVA, "VertexAccessor must be from the same storage as the storage accessor when deleting a vertex!");
+  MG_ASSERT(inMemoryVA->transaction_ == &transaction_,
             "VertexAccessor must be from the same transaction as the storage "
             "accessor when deleting a vertex!");
-  auto *vertex_ptr = vertex->vertex_;
+  auto *vertex_ptr = inMemoryVA->vertex_;
 
   std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
   std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
@@ -570,11 +363,11 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Stor
     out_edges = vertex_ptr->out_edges;
   }
 
-  std::vector<EdgeAccessor> deleted_edges;
+  std::vector<std::unique_ptr<EdgeAccessor>> deleted_edges;
   for (const auto &item : in_edges) {
     auto [edge_type, from_vertex, edge] = item;
-    EdgeAccessor e(edge, edge_type, from_vertex, vertex_ptr, &transaction_, &storage_->indices_,
-                   &storage_->constraints_, config_);
+    InMemoryEdgeAccessor e(edge, edge_type, from_vertex, vertex_ptr, &transaction_, &storage_->indices_,
+                           &storage_->constraints_, config_);
     auto ret = DeleteEdge(&e);
     if (ret.HasError()) {
       MG_ASSERT(ret.GetError() == Error::SERIALIZATION_ERROR, "Invalid database state!");
@@ -582,13 +375,13 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Stor
     }
 
     if (ret.GetValue()) {
-      deleted_edges.push_back(*ret.GetValue());
+      deleted_edges.emplace_back(std::move(ret.GetValue()));
     }
   }
   for (const auto &item : out_edges) {
     auto [edge_type, to_vertex, edge] = item;
-    EdgeAccessor e(edge, edge_type, vertex_ptr, to_vertex, &transaction_, &storage_->indices_, &storage_->constraints_,
-                   config_);
+    InMemoryEdgeAccessor e(edge, edge_type, vertex_ptr, to_vertex, &transaction_, &storage_->indices_,
+                           &storage_->constraints_, config_);
     auto ret = DeleteEdge(&e);
     if (ret.HasError()) {
       MG_ASSERT(ret.GetError() == Error::SERIALIZATION_ERROR, "Invalid database state!");
@@ -596,7 +389,7 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Stor
     }
 
     if (ret.GetValue()) {
-      deleted_edges.push_back(*ret.GetValue());
+      deleted_edges.emplace_back(std::move(ret.GetValue()));
     }
   }
 
@@ -614,21 +407,30 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Stor
   vertex_ptr->deleted = true;
 
   return std::make_optional<ReturnType>(
-      VertexAccessor{vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_, config_, true},
+      std::make_unique<InMemoryVertexAccessor>(vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_,
+                                               config_, true),
       std::move(deleted_edges));
 }
 
-Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) {
+Result<std::unique_ptr<EdgeAccessor>> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccessor *from,
+                                                                                    VertexAccessor *to,
+                                                                                    EdgeTypeId edge_type) {
+  auto *inMemoryVAFrom = dynamic_cast<InMemoryVertexAccessor *>(from);
+  auto *inMemoryVATo = dynamic_cast<InMemoryVertexAccessor *>(to);
+  MG_ASSERT(inMemoryVAFrom,
+            "Source VertexAccessor must be from the same storage as the storage accessor when creating an edge!");
+  MG_ASSERT(inMemoryVATo,
+            "Target VertexAccessor must be from the same storage as the storage accessor when creating an edge!");
   OOMExceptionEnabler oom_exception;
-  MG_ASSERT(from->transaction_ == to->transaction_,
+  MG_ASSERT(inMemoryVAFrom->transaction_ == inMemoryVATo->transaction_,
             "VertexAccessors must be from the same transaction when creating "
             "an edge!");
-  MG_ASSERT(from->transaction_ == &transaction_,
+  MG_ASSERT(inMemoryVAFrom->transaction_ == &transaction_,
             "VertexAccessors must be from the same transaction in when "
             "creating an edge!");
 
-  auto from_vertex = from->vertex_;
-  auto to_vertex = to->vertex_;
+  auto from_vertex = inMemoryVAFrom->vertex_;
+  auto to_vertex = inMemoryVATo->vertex_;
 
   // Obtain the locks by `gid` order to avoid lock cycles.
   std::unique_lock<utils::SpinLock> guard_from(from_vertex->lock, std::defer_lock);
@@ -673,22 +475,31 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexA
   // Increment edge count.
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
-  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
-                      &storage_->constraints_, config_);
+  return Result<std::unique_ptr<EdgeAccessor>>{std::make_unique<InMemoryEdgeAccessor>(
+      edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_, &storage_->constraints_, config_)};
 }
 
-Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type,
-                                                   storage::Gid gid) {
+Result<std::unique_ptr<EdgeAccessor>> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccessor *from,
+                                                                                    VertexAccessor *to,
+                                                                                    EdgeTypeId edge_type,
+                                                                                    storage::Gid gid) {
+  auto *inMemoryVAFrom = dynamic_cast<InMemoryVertexAccessor *>(from);
+  auto *inMemoryVATo = dynamic_cast<InMemoryVertexAccessor *>(to);
+  MG_ASSERT(inMemoryVAFrom,
+            "Source VertexAccessor must be from the same storage as the storage accessor when creating an edge!");
+  MG_ASSERT(inMemoryVATo,
+            "Target VertexAccessor must be from the same storage as the storage accessor when creating an edge!");
+
   OOMExceptionEnabler oom_exception;
-  MG_ASSERT(from->transaction_ == to->transaction_,
+  MG_ASSERT(inMemoryVAFrom->transaction_ == inMemoryVATo->transaction_,
             "VertexAccessors must be from the same transaction when creating "
             "an edge!");
-  MG_ASSERT(from->transaction_ == &transaction_,
+  MG_ASSERT(inMemoryVAFrom->transaction_ == &transaction_,
             "VertexAccessors must be from the same transaction in when "
             "creating an edge!");
 
-  auto from_vertex = from->vertex_;
-  auto to_vertex = to->vertex_;
+  auto from_vertex = inMemoryVAFrom->vertex_;
+  auto to_vertex = inMemoryVATo->vertex_;
 
   // Obtain the locks by `gid` order to avoid lock cycles.
   std::unique_lock<utils::SpinLock> guard_from(from_vertex->lock, std::defer_lock);
@@ -741,29 +552,31 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexA
   // Increment edge count.
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
-  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
-                      &storage_->constraints_, config_);
+  return Result<std::unique_ptr<EdgeAccessor>>{std::make_unique<InMemoryEdgeAccessor>(
+      edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_, &storage_->constraints_, config_)};
 }
 
-Result<std::optional<EdgeAccessor>> Storage::Accessor::DeleteEdge(EdgeAccessor *edge) {
-  MG_ASSERT(edge->transaction_ == &transaction_,
+Result<std::unique_ptr<EdgeAccessor>> InMemoryStorage::InMemoryAccessor::DeleteEdge(EdgeAccessor *edge) {
+  auto *inMemoryEA = dynamic_cast<InMemoryEdgeAccessor *>(edge);
+  MG_ASSERT(inMemoryEA, "EdgeAccessor must be from the same storage as the storage accessor when deleting an edge!");
+  MG_ASSERT(inMemoryEA->transaction_ == &transaction_,
             "EdgeAccessor must be from the same transaction as the storage "
             "accessor when deleting an edge!");
-  auto edge_ref = edge->edge_;
-  auto edge_type = edge->edge_type_;
+  auto edge_ref = inMemoryEA->edge_;
+  auto edge_type = inMemoryEA->edge_type_;
 
   std::unique_lock<utils::SpinLock> guard;
   if (config_.properties_on_edges) {
-    auto edge_ptr = edge_ref.ptr;
+    auto *edge_ptr = edge_ref.ptr;
     guard = std::unique_lock<utils::SpinLock>(edge_ptr->lock);
 
     if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
 
-    if (edge_ptr->deleted) return std::optional<EdgeAccessor>{};
+    if (edge_ptr->deleted) return Result<std::unique_ptr<EdgeAccessor>>{std::unique_ptr<InMemoryEdgeAccessor>()};
   }
 
-  auto *from_vertex = edge->from_vertex_;
-  auto *to_vertex = edge->to_vertex_;
+  auto *from_vertex = inMemoryEA->from_vertex_;
+  auto *to_vertex = inMemoryEA->to_vertex_;
 
   // Obtain the locks by `gid` order to avoid lock cycles.
   std::unique_lock<utils::SpinLock> guard_from(from_vertex->lock, std::defer_lock);
@@ -809,7 +622,7 @@ Result<std::optional<EdgeAccessor>> Storage::Accessor::DeleteEdge(EdgeAccessor *
     MG_ASSERT((op1 && op2) || (!op1 && !op2), "Invalid database state!");
     if (!op1 && !op2) {
       // The edge is already deleted.
-      return std::optional<EdgeAccessor>{};
+      return Result<std::unique_ptr<EdgeAccessor>>{std::unique_ptr<InMemoryEdgeAccessor>()};
     }
   }
 
@@ -825,29 +638,38 @@ Result<std::optional<EdgeAccessor>> Storage::Accessor::DeleteEdge(EdgeAccessor *
   // Decrement edge count.
   storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
 
-  return std::make_optional<EdgeAccessor>(edge_ref, edge_type, from_vertex, to_vertex, &transaction_,
-                                          &storage_->indices_, &storage_->constraints_, config_, true);
+  return Result<std::unique_ptr<EdgeAccessor>>{
+      std::make_unique<InMemoryEdgeAccessor>(edge_ref, edge_type, from_vertex, to_vertex, &transaction_,
+                                             &storage_->indices_, &storage_->constraints_, config_, true)};
 }
 
-const std::string &Storage::Accessor::LabelToName(LabelId label) const { return storage_->LabelToName(label); }
+const std::string &InMemoryStorage::InMemoryAccessor::LabelToName(LabelId label) const {
+  return storage_->LabelToName(label);
+}
 
-const std::string &Storage::Accessor::PropertyToName(PropertyId property) const {
+const std::string &InMemoryStorage::InMemoryAccessor::PropertyToName(PropertyId property) const {
   return storage_->PropertyToName(property);
 }
 
-const std::string &Storage::Accessor::EdgeTypeToName(EdgeTypeId edge_type) const {
+const std::string &InMemoryStorage::InMemoryAccessor::EdgeTypeToName(EdgeTypeId edge_type) const {
   return storage_->EdgeTypeToName(edge_type);
 }
 
-LabelId Storage::Accessor::NameToLabel(const std::string_view name) { return storage_->NameToLabel(name); }
+LabelId InMemoryStorage::InMemoryAccessor::NameToLabel(const std::string_view name) {
+  return storage_->NameToLabel(name);
+}
 
-PropertyId Storage::Accessor::NameToProperty(const std::string_view name) { return storage_->NameToProperty(name); }
+PropertyId InMemoryStorage::InMemoryAccessor::NameToProperty(const std::string_view name) {
+  return storage_->NameToProperty(name);
+}
 
-EdgeTypeId Storage::Accessor::NameToEdgeType(const std::string_view name) { return storage_->NameToEdgeType(name); }
+EdgeTypeId InMemoryStorage::InMemoryAccessor::NameToEdgeType(const std::string_view name) {
+  return storage_->NameToEdgeType(name);
+}
 
-void Storage::Accessor::AdvanceCommand() { ++transaction_.command_id; }
+void InMemoryStorage::InMemoryAccessor::AdvanceCommand() { ++transaction_.command_id; }
 
-utils::BasicResult<StorageDataManipulationError, void> Storage::Accessor::Commit(
+utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemoryAccessor::Commit(
     const std::optional<uint64_t> desired_commit_timestamp) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
   MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
@@ -969,7 +791,7 @@ utils::BasicResult<StorageDataManipulationError, void> Storage::Accessor::Commit
   return {};
 }
 
-void Storage::Accessor::Abort() {
+void InMemoryStorage::InMemoryAccessor::Abort() {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
 
   // We collect vertices and edges we've created here and then splice them into
@@ -1135,7 +957,7 @@ void Storage::Accessor::Abort() {
   is_transaction_active_ = false;
 }
 
-void Storage::Accessor::FinalizeTransaction() {
+void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
   if (commit_timestamp_) {
     storage_->commit_log_->MarkFinished(*commit_timestamp_);
     storage_->committed_transactions_.WithLock(
@@ -1144,34 +966,38 @@ void Storage::Accessor::FinalizeTransaction() {
   }
 }
 
-std::optional<uint64_t> Storage::Accessor::GetTransactionId() const {
+std::optional<uint64_t> InMemoryStorage::InMemoryAccessor::GetTransactionId() const {
   if (is_transaction_active_) {
     return transaction_.transaction_id.load(std::memory_order_acquire);
   }
   return {};
 }
 
-const std::string &Storage::LabelToName(LabelId label) const { return name_id_mapper_.IdToName(label.AsUint()); }
+const std::string &InMemoryStorage::LabelToName(LabelId label) const {
+  return name_id_mapper_.IdToName(label.AsUint());
+}
 
-const std::string &Storage::PropertyToName(PropertyId property) const {
+const std::string &InMemoryStorage::PropertyToName(PropertyId property) const {
   return name_id_mapper_.IdToName(property.AsUint());
 }
 
-const std::string &Storage::EdgeTypeToName(EdgeTypeId edge_type) const {
+const std::string &InMemoryStorage::EdgeTypeToName(EdgeTypeId edge_type) const {
   return name_id_mapper_.IdToName(edge_type.AsUint());
 }
 
-LabelId Storage::NameToLabel(const std::string_view name) { return LabelId::FromUint(name_id_mapper_.NameToId(name)); }
+LabelId InMemoryStorage::NameToLabel(const std::string_view name) {
+  return LabelId::FromUint(name_id_mapper_.NameToId(name));
+}
 
-PropertyId Storage::NameToProperty(const std::string_view name) {
+PropertyId InMemoryStorage::NameToProperty(const std::string_view name) {
   return PropertyId::FromUint(name_id_mapper_.NameToId(name));
 }
 
-EdgeTypeId Storage::NameToEdgeType(const std::string_view name) {
+EdgeTypeId InMemoryStorage::NameToEdgeType(const std::string_view name) {
   return EdgeTypeId::FromUint(name_id_mapper_.NameToId(name));
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> Storage::CreateIndex(
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::CreateIndex(
     LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   if (!indices_.label_index.CreateIndex(label, vertices_.access())) {
@@ -1190,7 +1016,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> Storage::CreateIndex(
   return StorageIndexDefinitionError{ReplicationError{}};
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> Storage::CreateIndex(
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::CreateIndex(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   if (!indices_.label_property_index.CreateIndex(label, property, vertices_.access())) {
@@ -1209,7 +1035,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> Storage::CreateIndex(
   return StorageIndexDefinitionError{ReplicationError{}};
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> Storage::DropIndex(
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::DropIndex(
     LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   if (!indices_.label_index.DropIndex(label)) {
@@ -1228,7 +1054,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> Storage::DropIndex(
   return StorageIndexDefinitionError{ReplicationError{}};
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> Storage::DropIndex(
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::DropIndex(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   if (!indices_.label_property_index.DropIndex(label, property)) {
@@ -1249,12 +1075,12 @@ utils::BasicResult<StorageIndexDefinitionError, void> Storage::DropIndex(
   return StorageIndexDefinitionError{ReplicationError{}};
 }
 
-IndicesInfo Storage::ListAllIndices() const {
+IndicesInfo InMemoryStorage::ListAllIndices() const {
   std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
   return {indices_.label_index.ListIndices(), indices_.label_property_index.ListIndices()};
 }
 
-utils::BasicResult<StorageExistenceConstraintDefinitionError, void> Storage::CreateExistenceConstraint(
+utils::BasicResult<StorageExistenceConstraintDefinitionError, void> InMemoryStorage::CreateExistenceConstraint(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   auto ret = storage::CreateExistenceConstraint(&constraints_, label, property, vertices_.access());
@@ -1278,7 +1104,7 @@ utils::BasicResult<StorageExistenceConstraintDefinitionError, void> Storage::Cre
   return StorageExistenceConstraintDefinitionError{ReplicationError{}};
 }
 
-utils::BasicResult<StorageExistenceConstraintDroppingError, void> Storage::DropExistenceConstraint(
+utils::BasicResult<StorageExistenceConstraintDroppingError, void> InMemoryStorage::DropExistenceConstraint(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   if (!storage::DropExistenceConstraint(&constraints_, label, property)) {
@@ -1298,8 +1124,8 @@ utils::BasicResult<StorageExistenceConstraintDroppingError, void> Storage::DropE
 }
 
 utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
-Storage::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
-                                const std::optional<uint64_t> desired_commit_timestamp) {
+InMemoryStorage::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
+                                        const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   auto ret = constraints_.unique_constraints.CreateConstraint(label, properties, vertices_.access());
   if (ret.HasError()) {
@@ -1322,8 +1148,8 @@ Storage::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &prope
 }
 
 utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus>
-Storage::DropUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
-                              const std::optional<uint64_t> desired_commit_timestamp) {
+InMemoryStorage::DropUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
+                                      const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   auto ret = constraints_.unique_constraints.DropConstraint(label, properties);
   if (ret != UniqueConstraints::DeletionStatus::SUCCESS) {
@@ -1342,12 +1168,12 @@ Storage::DropUniqueConstraint(LabelId label, const std::set<PropertyId> &propert
   return StorageUniqueConstraintDroppingError{ReplicationError{}};
 }
 
-ConstraintsInfo Storage::ListAllConstraints() const {
+ConstraintsInfo InMemoryStorage::ListAllConstraints() const {
   std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
   return {ListExistenceConstraints(constraints_), constraints_.unique_constraints.ListConstraints()};
 }
 
-StorageInfo Storage::GetInfo() const {
+StorageInfo InMemoryStorage::GetInfo() const {
   auto vertex_count = vertices_.size();
   auto edge_count = edge_count_.load(std::memory_order_acquire);
   double average_degree = 0.0;
@@ -1358,29 +1184,29 @@ StorageInfo Storage::GetInfo() const {
           utils::GetDirDiskUsage(config_.durability.storage_directory)};
 }
 
-VerticesIterable Storage::Accessor::Vertices(LabelId label, View view) {
+VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, View view) {
   return VerticesIterable(storage_->indices_.label_index.Vertices(label, view, &transaction_));
 }
 
-VerticesIterable Storage::Accessor::Vertices(LabelId label, PropertyId property, View view) {
+VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, PropertyId property, View view) {
   return VerticesIterable(storage_->indices_.label_property_index.Vertices(label, property, std::nullopt, std::nullopt,
                                                                            view, &transaction_));
 }
 
-VerticesIterable Storage::Accessor::Vertices(LabelId label, PropertyId property, const PropertyValue &value,
-                                             View view) {
+VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, PropertyId property,
+                                                             const PropertyValue &value, View view) {
   return VerticesIterable(storage_->indices_.label_property_index.Vertices(
       label, property, utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value), view, &transaction_));
 }
 
-VerticesIterable Storage::Accessor::Vertices(LabelId label, PropertyId property,
-                                             const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                                             const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) {
+VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
+    LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) {
   return VerticesIterable(
       storage_->indices_.label_property_index.Vertices(label, property, lower_bound, upper_bound, view, &transaction_));
 }
 
-Transaction Storage::CreateTransaction(IsolationLevel isolation_level) {
+Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level) {
   // We acquire the transaction engine lock here because we access (and
   // modify) the transaction engine variables (`transaction_id` and
   // `timestamp`) below.
@@ -1405,7 +1231,7 @@ Transaction Storage::CreateTransaction(IsolationLevel isolation_level) {
 }
 
 template <bool force>
-void Storage::CollectGarbage() {
+void InMemoryStorage::CollectGarbage() {
   if constexpr (force) {
     // We take the unique lock on the main storage lock so we can forcefully clean
     // everything we can
@@ -1660,10 +1486,10 @@ void Storage::CollectGarbage() {
 }
 
 // tell the linker he can find the CollectGarbage definitions here
-template void Storage::CollectGarbage<true>();
-template void Storage::CollectGarbage<false>();
+template void InMemoryStorage::CollectGarbage<true>();
+template void InMemoryStorage::CollectGarbage<false>();
 
-bool Storage::InitializeWalFile() {
+bool InMemoryStorage::InitializeWalFile() {
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL)
     return false;
   if (!wal_file_) {
@@ -1673,7 +1499,7 @@ bool Storage::InitializeWalFile() {
   return true;
 }
 
-void Storage::FinalizeWalFile() {
+void InMemoryStorage::FinalizeWalFile() {
   ++wal_unsynced_transactions_;
   if (wal_unsynced_transactions_ >= config_.durability.wal_file_flush_every_n_tx) {
     wal_file_->Sync();
@@ -1692,7 +1518,7 @@ void Storage::FinalizeWalFile() {
   }
 }
 
-bool Storage::AppendToWalDataManipulation(const Transaction &transaction, uint64_t final_commit_timestamp) {
+bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction, uint64_t final_commit_timestamp) {
   if (!InitializeWalFile()) {
     return true;
   }
@@ -1879,8 +1705,9 @@ bool Storage::AppendToWalDataManipulation(const Transaction &transaction, uint64
   return finalized_on_all_replicas;
 }
 
-bool Storage::AppendToWalDataDefinition(durability::StorageGlobalOperation operation, LabelId label,
-                                        const std::set<PropertyId> &properties, uint64_t final_commit_timestamp) {
+bool InMemoryStorage::AppendToWalDataDefinition(durability::StorageGlobalOperation operation, LabelId label,
+                                                const std::set<PropertyId> &properties,
+                                                uint64_t final_commit_timestamp) {
   if (!InitializeWalFile()) {
     return true;
   }
@@ -1907,7 +1734,7 @@ bool Storage::AppendToWalDataDefinition(durability::StorageGlobalOperation opera
   return finalized_on_all_replicas;
 }
 
-utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot() {
+utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot() {
   if (replication_role_.load() != ReplicationRole::MAIN) {
     return CreateSnapshotError::DisabledForReplica;
   }
@@ -1931,12 +1758,12 @@ utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot() {
   return {};
 }
 
-bool Storage::LockPath() {
+bool InMemoryStorage::LockPath() {
   auto locker_accessor = global_locker_.Access();
   return locker_accessor.AddPath(config_.durability.storage_directory);
 }
 
-bool Storage::UnlockPath() {
+bool InMemoryStorage::UnlockPath() {
   {
     auto locker_accessor = global_locker_.Access();
     if (!locker_accessor.RemovePath(config_.durability.storage_directory)) {
@@ -1950,7 +1777,7 @@ bool Storage::UnlockPath() {
   return true;
 }
 
-void Storage::FreeMemory() {
+void InMemoryStorage::FreeMemory() {
   CollectGarbage<true>();
 
   // SkipList is already threadsafe
@@ -1960,7 +1787,7 @@ void Storage::FreeMemory() {
   indices_.label_property_index.RunGC();
 }
 
-uint64_t Storage::CommitTimestamp(const std::optional<uint64_t> desired_commit_timestamp) {
+uint64_t InMemoryStorage::CommitTimestamp(const std::optional<uint64_t> desired_commit_timestamp) {
   if (!desired_commit_timestamp) {
     return timestamp_++;
   } else {
@@ -1969,7 +1796,8 @@ uint64_t Storage::CommitTimestamp(const std::optional<uint64_t> desired_commit_t
   }
 }
 
-bool Storage::SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config) {
+bool InMemoryStorage::SetReplicaRole(io::network::Endpoint endpoint,
+                                     const replication::ReplicationServerConfig &config) {
   // We don't want to restart the server if we're already a REPLICA
   if (replication_role_ == ReplicationRole::REPLICA) {
     return false;
@@ -1981,7 +1809,7 @@ bool Storage::SetReplicaRole(io::network::Endpoint endpoint, const replication::
   return true;
 }
 
-bool Storage::SetMainReplicationRole() {
+bool InMemoryStorage::SetMainReplicationRole() {
   // We don't want to generate new epoch_id and do the
   // cleanup if we're already a MAIN
   if (replication_role_ == ReplicationRole::MAIN) {
@@ -2011,7 +1839,7 @@ bool Storage::SetMainReplicationRole() {
   return true;
 }
 
-utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
+utils::BasicResult<InMemoryStorage::RegisterReplicaError> InMemoryStorage::RegisterReplica(
     std::string name, io::network::Endpoint endpoint, const replication::ReplicationMode replication_mode,
     const replication::RegistrationMode registration_mode, const replication::ReplicationClientConfig &config) {
   MG_ASSERT(replication_role_.load() == ReplicationRole::MAIN, "Only main instance can register a replica!");
@@ -2057,7 +1885,7 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
     spdlog::warn("Connection failed when registering replica {}. Replica will still be registered.", client->Name());
   }
 
-  return replication_clients_.WithLock([&](auto &clients) -> utils::BasicResult<Storage::RegisterReplicaError> {
+  return replication_clients_.WithLock([&](auto &clients) -> utils::BasicResult<InMemoryStorage::RegisterReplicaError> {
     // Another thread could have added a client with same name while
     // we were connecting to this client.
     if (std::any_of(clients.begin(), clients.end(),
@@ -2075,7 +1903,7 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
   });
 }
 
-bool Storage::UnregisterReplica(const std::string &name) {
+bool InMemoryStorage::UnregisterReplica(const std::string &name) {
   MG_ASSERT(replication_role_.load() == ReplicationRole::MAIN, "Only main instance can unregister a replica!");
   if (ShouldStoreAndRestoreReplicas()) {
     if (!storage_->Delete(name)) {
@@ -2089,7 +1917,7 @@ bool Storage::UnregisterReplica(const std::string &name) {
   });
 }
 
-std::optional<replication::ReplicaState> Storage::GetReplicaState(const std::string_view name) {
+std::optional<replication::ReplicaState> InMemoryStorage::GetReplicaState(const std::string_view name) {
   return replication_clients_.WithLock([&](auto &clients) -> std::optional<replication::ReplicaState> {
     const auto client_it =
         std::find_if(clients.cbegin(), clients.cend(), [name](auto &client) { return client->Name() == name; });
@@ -2100,11 +1928,11 @@ std::optional<replication::ReplicaState> Storage::GetReplicaState(const std::str
   });
 }
 
-ReplicationRole Storage::GetReplicationRole() const { return replication_role_; }
+ReplicationRole InMemoryStorage::GetReplicationRole() const { return replication_role_; }
 
-std::vector<Storage::ReplicaInfo> Storage::ReplicasInfo() {
+std::vector<InMemoryStorage::ReplicaInfo> InMemoryStorage::ReplicasInfo() {
   return replication_clients_.WithLock([](auto &clients) {
-    std::vector<Storage::ReplicaInfo> replica_info;
+    std::vector<InMemoryStorage::ReplicaInfo> replica_info;
     replica_info.reserve(clients.size());
     std::transform(
         clients.begin(), clients.end(), std::back_inserter(replica_info), [](const auto &client) -> ReplicaInfo {
@@ -2114,12 +1942,12 @@ std::vector<Storage::ReplicaInfo> Storage::ReplicasInfo() {
   });
 }
 
-void Storage::SetIsolationLevel(IsolationLevel isolation_level) {
+void InMemoryStorage::SetIsolationLevel(IsolationLevel isolation_level) {
   std::unique_lock main_guard{main_lock_};
   isolation_level_ = isolation_level;
 }
 
-void Storage::RestoreReplicas() {
+void InMemoryStorage::RestoreReplicas() {
   MG_ASSERT(memgraph::storage::ReplicationRole::MAIN == GetReplicationRole());
   if (!ShouldStoreAndRestoreReplicas()) {
     return;
@@ -2154,6 +1982,6 @@ void Storage::RestoreReplicas() {
   }
 }
 
-bool Storage::ShouldStoreAndRestoreReplicas() const { return nullptr != storage_; }
+bool InMemoryStorage::ShouldStoreAndRestoreReplicas() const { return nullptr != storage_; }
 
 }  // namespace memgraph::storage

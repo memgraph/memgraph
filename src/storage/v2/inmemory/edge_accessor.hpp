@@ -30,9 +30,9 @@ class VertexAccessor;
 struct Indices;
 struct Constraints;
 
-class InMemoryEdgeAccessor : public EdgeAccessor {
+class InMemoryEdgeAccessor final : public EdgeAccessor {
  private:
-  friend class Storage;
+  friend class InMemoryStorage;
 
  public:
   InMemoryEdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex,
@@ -73,7 +73,7 @@ class InMemoryEdgeAccessor : public EdgeAccessor {
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> Properties(View view) const override;
 
-  class Gid Gid() const noexcept override {
+  storage::Gid Gid() const noexcept override {
     if (config_.properties_on_edges) {
       return edge_.ptr->gid;
     } else {
@@ -83,10 +83,12 @@ class InMemoryEdgeAccessor : public EdgeAccessor {
 
   bool IsCycle() const override { return from_vertex_ == to_vertex_; }
 
-  bool operator==(const InMemoryEdgeAccessor &other) const noexcept {
-    return edge_ == other.edge_ && transaction_ == other.transaction_;
+  bool operator==(const EdgeAccessor &other) const noexcept override {
+    const auto *otherEdge = dynamic_cast<const InMemoryEdgeAccessor *>(&other);
+    if (otherEdge == nullptr) return false;
+    return edge_ == otherEdge->edge_ && transaction_ == otherEdge->transaction_;
   }
-  bool operator!=(const InMemoryEdgeAccessor &other) const noexcept { return !(*this == other); }
+  bool operator!=(const EdgeAccessor &other) const noexcept { return !(*this == other); }
 
  private:
   EdgeRef edge_;

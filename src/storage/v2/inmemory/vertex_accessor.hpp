@@ -28,9 +28,9 @@ class Storage;
 struct Indices;
 struct Constraints;
 
-class InMemoryVertexAccessor : public VertexAccessor {
+class InMemoryVertexAccessor final : public VertexAccessor {
  private:
-  friend class Storage;
+  friend class InMemoryStorage;
 
  public:
   InMemoryVertexAccessor(Vertex *vertex, Transaction *transaction, Indices *indices, Constraints *constraints,
@@ -85,22 +85,20 @@ class InMemoryVertexAccessor : public VertexAccessor {
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().
-  Result<std::vector<EdgeAccessor>> InEdges(View view, const std::vector<EdgeTypeId> &edge_types,
-                                            const VertexAccessor *destination) const override;
+  Result<std::vector<std::unique_ptr<EdgeAccessor>>> InEdges(View view, const std::vector<EdgeTypeId> &edge_types,
+                                                             const VertexAccessor *destination) const override;
 
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().
-  Result<std::vector<EdgeAccessor>> OutEdges(View view, const std::vector<EdgeTypeId> &edge_types,
-                                             const VertexAccessor *destination) const override;
+  Result<std::vector<std::unique_ptr<EdgeAccessor>>> OutEdges(View view, const std::vector<EdgeTypeId> &edge_types,
+                                                              const VertexAccessor *destination) const override;
 
   Result<size_t> InDegree(View view) const override;
 
   Result<size_t> OutDegree(View view) const override;
 
-  class Gid Gid() const noexcept override {
-    return vertex_->gid;
-  }
+  storage::Gid Gid() const noexcept override { return vertex_->gid; }
 
   bool operator==(const VertexAccessor &other) const noexcept override {
     const auto *otherVertex = dynamic_cast<const InMemoryVertexAccessor *>(&other);

@@ -16,6 +16,7 @@
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices.hpp"
+#include "storage/v2/inmemory/edge_accessor.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
@@ -358,9 +359,11 @@ Result<std::map<PropertyId, PropertyValue>> InMemoryVertexAccessor::Properties(V
   return std::move(properties);
 }
 
-Result<std::vector<EdgeAccessor>> InMemoryVertexAccessor::InEdges(View view, const std::vector<EdgeTypeId> &edge_types,
-                                                                  const InMemoryVertexAccessor *destination) const {
-  MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
+Result<std::vector<std::unique_ptr<EdgeAccessor>>> InMemoryVertexAccessor::InEdges(
+    View view, const std::vector<EdgeTypeId> &edge_types, const VertexAccessor *destination) const {
+  auto *destVA = dynamic_cast<const InMemoryVertexAccessor *>(destination);
+  MG_ASSERT(destVA, "Target VertexAccessor must be from the same storage as the storage accessor!");
+  MG_ASSERT(!destination || destVA->transaction_ == transaction_, "Invalid accessor!");
   bool exists = true;
   bool deleted = false;
   std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
@@ -368,12 +371,12 @@ Result<std::vector<EdgeAccessor>> InMemoryVertexAccessor::InEdges(View view, con
   {
     std::lock_guard<utils::SpinLock> guard(vertex_->lock);
     deleted = vertex_->deleted;
-    if (edge_types.empty() && !destination) {
+    if (edge_types.empty() && !destVA) {
       in_edges = vertex_->in_edges;
     } else {
       for (const auto &item : vertex_->in_edges) {
         const auto &[edge_type, from_vertex, edge] = item;
-        if (destination && from_vertex != destination->vertex_) continue;
+        if (destVA && from_vertex != destVA->vertex_) continue;
         if (!edge_types.empty() && std::find(edge_types.begin(), edge_types.end(), edge_type) == edge_types.end())
           continue;
         in_edges.push_back(item);
@@ -382,10 +385,10 @@ Result<std::vector<EdgeAccessor>> InMemoryVertexAccessor::InEdges(View view, con
     delta = vertex_->delta;
   }
   ApplyDeltasForRead(
-      transaction_, delta, view, [&exists, &deleted, &in_edges, &edge_types, &destination](const Delta &delta) {
+      transaction_, delta, view, [&exists, &deleted, &in_edges, &edge_types, &destVA](const Delta &delta) {
         switch (delta.action) {
           case Delta::Action::ADD_IN_EDGE: {
-            if (destination && delta.vertex_edge.vertex != destination->vertex_) break;
+            if (destVA && delta.vertex_edge.vertex != destVA->vertex_) break;
             if (!edge_types.empty() &&
                 std::find(edge_types.begin(), edge_types.end(), delta.vertex_edge.edge_type) == edge_types.end())
               break;
@@ -398,7 +401,7 @@ Result<std::vector<EdgeAccessor>> InMemoryVertexAccessor::InEdges(View view, con
             break;
           }
           case Delta::Action::REMOVE_IN_EDGE: {
-            if (destination && delta.vertex_edge.vertex != destination->vertex_) break;
+            if (destVA && delta.vertex_edge.vertex != destVA->vertex_) break;
             if (!edge_types.empty() &&
                 std::find(edge_types.begin(), edge_types.end(), delta.vertex_edge.edge_type) == edge_types.end())
               break;
@@ -429,18 +432,21 @@ Result<std::vector<EdgeAccessor>> InMemoryVertexAccessor::InEdges(View view, con
       });
   if (!exists) return Error::NONEXISTENT_OBJECT;
   if (deleted) return Error::DELETED_OBJECT;
-  std::vector<EdgeAccessor> ret;
+  std::vector<std::unique_ptr<EdgeAccessor>> ret;
   ret.reserve(in_edges.size());
   for (const auto &item : in_edges) {
     const auto &[edge_type, from_vertex, edge] = item;
-    ret.emplace_back(edge, edge_type, from_vertex, vertex_, transaction_, indices_, constraints_, config_);
+    ret.emplace_back(std::make_unique<InMemoryEdgeAccessor>(edge, edge_type, from_vertex, vertex_, transaction_,
+                                                            indices_, constraints_, config_));
   }
   return std::move(ret);
 }
 
-Result<std::vector<EdgeAccessor>> InMemoryVertexAccessor::OutEdges(View view, const std::vector<EdgeTypeId> &edge_types,
-                                                                   const InMemoryVertexAccessor *destination) const {
-  MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
+Result<std::vector<std::unique_ptr<EdgeAccessor>>> InMemoryVertexAccessor::OutEdges(
+    View view, const std::vector<EdgeTypeId> &edge_types, const VertexAccessor *destination) const {
+  auto *destVA = dynamic_cast<const InMemoryVertexAccessor *>(destination);
+  MG_ASSERT(destVA, "Target VertexAccessor must be from the same storage as the storage accessor!");
+  MG_ASSERT(!destVA || destVA->transaction_ == transaction_, "Invalid accessor!");
   bool exists = true;
   bool deleted = false;
   std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
@@ -448,12 +454,12 @@ Result<std::vector<EdgeAccessor>> InMemoryVertexAccessor::OutEdges(View view, co
   {
     std::lock_guard<utils::SpinLock> guard(vertex_->lock);
     deleted = vertex_->deleted;
-    if (edge_types.empty() && !destination) {
+    if (edge_types.empty() && !destVA) {
       out_edges = vertex_->out_edges;
     } else {
       for (const auto &item : vertex_->out_edges) {
         const auto &[edge_type, to_vertex, edge] = item;
-        if (destination && to_vertex != destination->vertex_) continue;
+        if (destVA && to_vertex != destVA->vertex_) continue;
         if (!edge_types.empty() && std::find(edge_types.begin(), edge_types.end(), edge_type) == edge_types.end())
           continue;
         out_edges.push_back(item);
@@ -462,10 +468,10 @@ Result<std::vector<EdgeAccessor>> InMemoryVertexAccessor::OutEdges(View view, co
     delta = vertex_->delta;
   }
   ApplyDeltasForRead(
-      transaction_, delta, view, [&exists, &deleted, &out_edges, &edge_types, &destination](const Delta &delta) {
+      transaction_, delta, view, [&exists, &deleted, &out_edges, &edge_types, &destVA](const Delta &delta) {
         switch (delta.action) {
           case Delta::Action::ADD_OUT_EDGE: {
-            if (destination && delta.vertex_edge.vertex != destination->vertex_) break;
+            if (destVA && delta.vertex_edge.vertex != destVA->vertex_) break;
             if (!edge_types.empty() &&
                 std::find(edge_types.begin(), edge_types.end(), delta.vertex_edge.edge_type) == edge_types.end())
               break;
@@ -478,7 +484,7 @@ Result<std::vector<EdgeAccessor>> InMemoryVertexAccessor::OutEdges(View view, co
             break;
           }
           case Delta::Action::REMOVE_OUT_EDGE: {
-            if (destination && delta.vertex_edge.vertex != destination->vertex_) break;
+            if (destVA && delta.vertex_edge.vertex != destVA->vertex_) break;
             if (!edge_types.empty() &&
                 std::find(edge_types.begin(), edge_types.end(), delta.vertex_edge.edge_type) == edge_types.end())
               break;
@@ -509,11 +515,12 @@ Result<std::vector<EdgeAccessor>> InMemoryVertexAccessor::OutEdges(View view, co
       });
   if (!exists) return Error::NONEXISTENT_OBJECT;
   if (deleted) return Error::DELETED_OBJECT;
-  std::vector<EdgeAccessor> ret;
+  std::vector<std::unique_ptr<EdgeAccessor>> ret;
   ret.reserve(out_edges.size());
   for (const auto &item : out_edges) {
     const auto &[edge_type, to_vertex, edge] = item;
-    ret.emplace_back(edge, edge_type, vertex_, to_vertex, transaction_, indices_, constraints_, config_);
+    ret.emplace_back(std::make_unique<InMemoryEdgeAccessor>(edge, edge_type, vertex_, to_vertex, transaction_, indices_,
+                                                            constraints_, config_));
   }
   return std::move(ret);
 }

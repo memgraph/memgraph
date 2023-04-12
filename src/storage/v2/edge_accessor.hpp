@@ -68,7 +68,7 @@ class EdgeAccessor {
   /// @throw std::bad_alloc
   virtual Result<std::map<PropertyId, PropertyValue>> Properties(View view) const = 0;
 
-  virtual class Gid Gid() const noexcept = 0;
+  virtual storage::Gid Gid() const noexcept = 0;
 
   virtual bool IsCycle() const = 0;
 

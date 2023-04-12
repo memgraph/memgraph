@@ -23,21 +23,55 @@
 
 namespace memgraph::storage {
 
-class VerticesIterableImpl;
 struct Transaction;
 class EdgeAccessor;
 
-/// Structure used to return information about existing indices in the storage.
-struct IndicesInfo {
-  std::vector<LabelId> label;
-  std::vector<std::pair<LabelId, PropertyId>> label_property;
-};
+// The storage is based on this paper:
+// https://db.in.tum.de/~muehlbau/papers/mvcc.pdf
+// The paper implements a fully serializable storage, in our implementation we
+// only implement snapshot isolation for transactions.
 
-/// Structure used to return information about existing constraints in the
-/// storage.
-struct ConstraintsInfo {
-  std::vector<std::pair<LabelId, PropertyId>> existence;
-  std::vector<std::pair<LabelId, std::set<PropertyId>>> unique;
+/// Iterable for iterating through all vertices of a Storage.
+///
+/// An instance of this will be usually be wrapped inside VerticesIterable for
+/// generic, public use.
+class AllVerticesIterable final {
+  utils::SkipList<Vertex>::Accessor vertices_accessor_;
+  Transaction *transaction_;
+  View view_;
+  Indices *indices_;
+  Constraints *constraints_;
+  Config::Items config_;
+  std::unique_ptr<VertexAccessor> vertex_;
+
+ public:
+  class Iterator final {
+    AllVerticesIterable *self_;
+    utils::SkipList<Vertex>::Iterator it_;
+
+   public:
+    Iterator(AllVerticesIterable *self, utils::SkipList<Vertex>::Iterator it);
+
+    VertexAccessor *operator*() const;
+
+    Iterator &operator++();
+
+    bool operator==(const Iterator &other) const { return self_ == other.self_ && it_ == other.it_; }
+
+    bool operator!=(const Iterator &other) const { return !(*this == other); }
+  };
+
+  AllVerticesIterable(utils::SkipList<Vertex>::Accessor vertices_accessor, Transaction *transaction, View view,
+                      Indices *indices, Constraints *constraints, Config::Items config)
+      : vertices_accessor_(std::move(vertices_accessor)),
+        transaction_(transaction),
+        view_(view),
+        indices_(indices),
+        constraints_(constraints),
+        config_(config) {}
+
+  Iterator begin() { return Iterator(this, vertices_accessor_.begin()); }
+  Iterator end() { return Iterator(this, vertices_accessor_.end()); }
 };
 
 /// Generic access to different kinds of vertex iterations.
@@ -48,10 +82,16 @@ class VerticesIterable final {
   enum class Type { ALL, BY_LABEL, BY_LABEL_PROPERTY };
 
   Type type_;
-  VerticesIterableImpl *impl_;
+  union {
+    AllVerticesIterable all_vertices_;
+    LabelIndex::Iterable vertices_by_label_;
+    LabelPropertyIndex::Iterable vertices_by_label_property_;
+  };
 
  public:
-  explicit VerticesIterable(VerticesIterableImpl *);
+  explicit VerticesIterable(AllVerticesIterable);
+  explicit VerticesIterable(LabelIndex::Iterable);
+  explicit VerticesIterable(LabelPropertyIndex::Iterable);
 
   VerticesIterable(const VerticesIterable &) = delete;
   VerticesIterable &operator=(const VerticesIterable &) = delete;
@@ -63,12 +103,18 @@ class VerticesIterable final {
 
   class Iterator final {
     Type type_;
-    VerticesIterable::Iterator *impl_;
+    union {
+      AllVerticesIterable::Iterator all_it_;
+      LabelIndex::Iterable::Iterator by_label_it_;
+      LabelPropertyIndex::Iterable::Iterator by_label_property_it_;
+    };
 
     void Destroy() noexcept;
 
    public:
-    explicit Iterator(VerticesIterable::Iterator *);
+    explicit Iterator(AllVerticesIterable::Iterator);
+    explicit Iterator(LabelIndex::Iterable::Iterator);
+    explicit Iterator(LabelPropertyIndex::Iterable::Iterator);
 
     Iterator(const Iterator &);
     Iterator &operator=(const Iterator &);
@@ -90,8 +136,22 @@ class VerticesIterable final {
   Iterator end();
 };
 
+/// Structure used to return information about existing indices in the storage.
+struct IndicesInfo {
+  std::vector<LabelId> label;
+  std::vector<std::pair<LabelId, PropertyId>> label_property;
+};
+
+/// Structure used to return information about existing constraints in the
+/// storage.
+struct ConstraintsInfo {
+  std::vector<std::pair<LabelId, PropertyId>> existence;
+  std::vector<std::pair<LabelId, std::set<PropertyId>>> unique;
+};
+
 class Accessor {
  public:
+  Accessor() {}
   Accessor(const Accessor &) = delete;
   Accessor &operator=(const Accessor &) = delete;
   Accessor &operator=(Accessor &&other) = delete;
@@ -103,9 +163,9 @@ class Accessor {
   virtual ~Accessor();
 
   /// @throw std::bad_alloc
-  virtual VertexAccessor CreateVertex() = 0;
+  virtual std::unique_ptr<VertexAccessor> CreateVertex() = 0;
 
-  virtual std::optional<VertexAccessor> FindVertex(Gid gid, View view) = 0;
+  virtual std::unique_ptr<VertexAccessor> FindVertex(Gid gid, View view) = 0;
 
   virtual VerticesIterable Vertices(View view) = 0;
 
@@ -156,19 +216,20 @@ class Accessor {
 
   /// @return Accessor to the deleted vertex if a deletion took place, std::nullopt otherwise
   /// @throw std::bad_alloc
-  virtual Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex) = 0;
+  virtual Result<std::unique_ptr<VertexAccessor>> DeleteVertex(VertexAccessor *vertex) = 0;
 
   /// @return Accessor to the deleted vertex and deleted edges if a deletion took place, std::nullopt otherwise
   /// @throw std::bad_alloc
-  virtual Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachDeleteVertex(
-      VertexAccessor *vertex) = 0;
+  virtual Result<std::optional<std::pair<std::unique_ptr<VertexAccessor>, std::vector<std::unique_ptr<EdgeAccessor>>>>>
+  DetachDeleteVertex(VertexAccessor *vertex) = 0;
 
   /// @throw std::bad_alloc
-  virtual Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) = 0;
+  virtual Result<std::unique_ptr<EdgeAccessor>> CreateEdge(VertexAccessor *from, VertexAccessor *to,
+                                                           EdgeTypeId edge_type) = 0;
 
   /// Accessor to the deleted edge if a deletion took place, std::nullopt otherwise
   /// @throw std::bad_alloc
-  virtual Result<std::optional<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge) = 0;
+  virtual Result<std::unique_ptr<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge) = 0;
 
   virtual const std::string &LabelToName(LabelId label) const = 0;
   virtual const std::string &PropertyToName(PropertyId property) const = 0;

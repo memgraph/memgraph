@@ -71,49 +71,6 @@ enum class ReplicationRole : uint8_t { MAIN, REPLICA };
 // The paper implements a fully serializable storage, in our implementation we
 // only implement snapshot isolation for transactions.
 
-/// Iterable for iterating through all vertices of a Storage.
-///
-/// An instance of this will be usually be wrapped inside VerticesIterable for
-/// generic, public use.
-class AllVerticesIterable final {
-  utils::SkipList<Vertex>::Accessor vertices_accessor_;
-  Transaction *transaction_;
-  View view_;
-  Indices *indices_;
-  Constraints *constraints_;
-  Config::Items config_;
-  VertexAccessor *vertex_;
-
- public:
-  class Iterator final {
-    AllVerticesIterable *self_;
-    utils::SkipList<Vertex>::Iterator it_;
-
-   public:
-    Iterator(AllVerticesIterable *self, utils::SkipList<Vertex>::Iterator it);
-
-    VertexAccessor *operator*() const;
-
-    Iterator &operator++();
-
-    bool operator==(const Iterator &other) const { return self_ == other.self_ && it_ == other.it_; }
-
-    bool operator!=(const Iterator &other) const { return !(*this == other); }
-  };
-
-  AllVerticesIterable(utils::SkipList<Vertex>::Accessor vertices_accessor, Transaction *transaction, View view,
-                      Indices *indices, Constraints *constraints, Config::Items config)
-      : vertices_accessor_(std::move(vertices_accessor)),
-        transaction_(transaction),
-        view_(view),
-        indices_(indices),
-        constraints_(constraints),
-        config_(config) {}
-
-  Iterator begin() { return Iterator(this, vertices_accessor_.begin()); }
-  Iterator end() { return Iterator(this, vertices_accessor_.end()); }
-};
-
 class InMemoryStorage final {
  public:
   /// @throw std::system_error
@@ -122,64 +79,64 @@ class InMemoryStorage final {
 
   ~InMemoryStorage();
 
-  class Accessor final {
+  class InMemoryAccessor final : public Accessor {
    private:
     friend class InMemoryStorage;
 
-    explicit Accessor(InMemoryStorage *storage, IsolationLevel isolation_level);
+    explicit InMemoryAccessor(InMemoryStorage *storage, IsolationLevel isolation_level);
 
    public:
-    Accessor(const Accessor &) = delete;
-    Accessor &operator=(const Accessor &) = delete;
-    Accessor &operator=(Accessor &&other) = delete;
+    InMemoryAccessor(const InMemoryAccessor &) = delete;
+    InMemoryAccessor &operator=(const InMemoryAccessor &) = delete;
+    InMemoryAccessor &operator=(InMemoryAccessor &&other) = delete;
 
     // NOTE: After the accessor is moved, all objects derived from it (accessors
     // and iterators) are *invalid*. You have to get all derived objects again.
-    Accessor(Accessor &&other) noexcept;
+    InMemoryAccessor(InMemoryAccessor &&other) noexcept;
 
-    ~Accessor();
+    ~InMemoryAccessor() override;
 
     /// @throw std::bad_alloc
-    VertexAccessor CreateVertex();
+    std::unique_ptr<VertexAccessor> CreateVertex() override;
 
-    std::optional<VertexAccessor> FindVertex(Gid gid, View view);
+    std::unique_ptr<VertexAccessor> FindVertex(Gid gid, View view) override;
 
-    VerticesIterable Vertices(View view) {
+    VerticesIterable Vertices(View view) override {
       return VerticesIterable(AllVerticesIterable(storage_->vertices_.access(), &transaction_, view,
                                                   &storage_->indices_, &storage_->constraints_,
                                                   storage_->config_.items));
     }
 
-    VerticesIterable Vertices(LabelId label, View view);
+    VerticesIterable Vertices(LabelId label, View view) override;
 
-    VerticesIterable Vertices(LabelId label, PropertyId property, View view);
+    VerticesIterable Vertices(LabelId label, PropertyId property, View view) override;
 
-    VerticesIterable Vertices(LabelId label, PropertyId property, const PropertyValue &value, View view);
+    VerticesIterable Vertices(LabelId label, PropertyId property, const PropertyValue &value, View view) override;
 
     VerticesIterable Vertices(LabelId label, PropertyId property,
                               const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view);
+                              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
 
     /// Return approximate number of all vertices in the database.
     /// Note that this is always an over-estimate and never an under-estimate.
-    int64_t ApproximateVertexCount() const { return storage_->vertices_.size(); }
+    int64_t ApproximateVertexCount() const override { return storage_->vertices_.size(); }
 
     /// Return approximate number of vertices with the given label.
     /// Note that this is always an over-estimate and never an under-estimate.
-    int64_t ApproximateVertexCount(LabelId label) const {
+    int64_t ApproximateVertexCount(LabelId label) const override {
       return storage_->indices_.label_index.ApproximateVertexCount(label);
     }
 
     /// Return approximate number of vertices with the given label and property.
     /// Note that this is always an over-estimate and never an under-estimate.
-    int64_t ApproximateVertexCount(LabelId label, PropertyId property) const {
+    int64_t ApproximateVertexCount(LabelId label, PropertyId property) const override {
       return storage_->indices_.label_property_index.ApproximateVertexCount(label, property);
     }
 
     /// Return approximate number of vertices with the given label and the given
     /// value for the given property. Note that this is always an over-estimate
     /// and never an under-estimate.
-    int64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const {
+    int64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const override {
       return storage_->indices_.label_property_index.ApproximateVertexCount(label, property, value);
     }
 
@@ -188,20 +145,21 @@ class InMemoryStorage final {
     /// bounds.
     int64_t ApproximateVertexCount(LabelId label, PropertyId property,
                                    const std::optional<utils::Bound<PropertyValue>> &lower,
-                                   const std::optional<utils::Bound<PropertyValue>> &upper) const {
+                                   const std::optional<utils::Bound<PropertyValue>> &upper) const override {
       return storage_->indices_.label_property_index.ApproximateVertexCount(label, property, lower, upper);
     }
 
     std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId &label,
-                                                     const storage::PropertyId &property) const {
+                                                     const storage::PropertyId &property) const override {
       return storage_->indices_.label_property_index.GetIndexStats(label, property);
     }
 
-    std::vector<std::pair<LabelId, PropertyId>> ClearIndexStats() {
+    std::vector<std::pair<LabelId, PropertyId>> ClearIndexStats() override {
       return storage_->indices_.label_property_index.ClearIndexStats();
     }
 
-    std::vector<std::pair<LabelId, PropertyId>> DeleteIndexStatsForLabels(const std::span<std::string> labels) {
+    std::vector<std::pair<LabelId, PropertyId>> DeleteIndexStatsForLabels(
+        const std::span<std::string> labels) override {
       std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;
       std::for_each(labels.begin(), labels.end(), [this, &deleted_indexes](const auto &label_str) {
         std::vector<std::pair<LabelId, PropertyId>> loc_results =
@@ -212,55 +170,57 @@ class InMemoryStorage final {
       return deleted_indexes;
     }
 
-    void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property, const IndexStats &stats) {
+    void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
+                       const IndexStats &stats) override {
       storage_->indices_.label_property_index.SetIndexStats(label, property, stats);
     }
 
     /// @return Accessor to the deleted vertex if a deletion took place, std::nullopt otherwise
     /// @throw std::bad_alloc
-    Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex);
+    Result<std::unique_ptr<VertexAccessor>> DeleteVertex(VertexAccessor *vertex) override;
 
     /// @return Accessor to the deleted vertex and deleted edges if a deletion took place, std::nullopt otherwise
     /// @throw std::bad_alloc
-    Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachDeleteVertex(
-        VertexAccessor *vertex);
+    Result<std::optional<std::pair<std::unique_ptr<VertexAccessor>, std::vector<std::unique_ptr<EdgeAccessor>>>>>
+    DetachDeleteVertex(VertexAccessor *vertex) override;
 
     /// @throw std::bad_alloc
-    Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type);
+    Result<std::unique_ptr<EdgeAccessor>> CreateEdge(VertexAccessor *from, VertexAccessor *to,
+                                                     EdgeTypeId edge_type) override;
 
     /// Accessor to the deleted edge if a deletion took place, std::nullopt otherwise
     /// @throw std::bad_alloc
-    Result<std::optional<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge);
+    Result<std::unique_ptr<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge) override;
 
-    const std::string &LabelToName(LabelId label) const;
-    const std::string &PropertyToName(PropertyId property) const;
-    const std::string &EdgeTypeToName(EdgeTypeId edge_type) const;
-
-    /// @throw std::bad_alloc if unable to insert a new mapping
-    LabelId NameToLabel(std::string_view name);
+    const std::string &LabelToName(LabelId label) const override;
+    const std::string &PropertyToName(PropertyId property) const override;
+    const std::string &EdgeTypeToName(EdgeTypeId edge_type) const override;
 
     /// @throw std::bad_alloc if unable to insert a new mapping
-    PropertyId NameToProperty(std::string_view name);
+    LabelId NameToLabel(std::string_view name) override;
 
     /// @throw std::bad_alloc if unable to insert a new mapping
-    EdgeTypeId NameToEdgeType(std::string_view name);
+    PropertyId NameToProperty(std::string_view name) override;
 
-    bool LabelIndexExists(LabelId label) const { return storage_->indices_.label_index.IndexExists(label); }
+    /// @throw std::bad_alloc if unable to insert a new mapping
+    EdgeTypeId NameToEdgeType(std::string_view name) override;
 
-    bool LabelPropertyIndexExists(LabelId label, PropertyId property) const {
+    bool LabelIndexExists(LabelId label) const override { return storage_->indices_.label_index.IndexExists(label); }
+
+    bool LabelPropertyIndexExists(LabelId label, PropertyId property) const override {
       return storage_->indices_.label_property_index.IndexExists(label, property);
     }
 
-    IndicesInfo ListAllIndices() const {
+    IndicesInfo ListAllIndices() const override {
       return {storage_->indices_.label_index.ListIndices(), storage_->indices_.label_property_index.ListIndices()};
     }
 
-    ConstraintsInfo ListAllConstraints() const {
+    ConstraintsInfo ListAllConstraints() const override {
       return {ListExistenceConstraints(storage_->constraints_),
               storage_->constraints_.unique_constraints.ListConstraints()};
     }
 
-    void AdvanceCommand();
+    void AdvanceCommand() override;
 
     /// Returns void if the transaction has been committed.
     /// Returns `StorageDataManipulationError` if an error occures. Error can be:
@@ -269,21 +229,22 @@ class InMemoryStorage final {
     /// case the transaction is automatically aborted.
     /// @throw std::bad_alloc
     utils::BasicResult<StorageDataManipulationError, void> Commit(
-        std::optional<uint64_t> desired_commit_timestamp = {});
+        std::optional<uint64_t> desired_commit_timestamp = {}) override;
 
     /// @throw std::bad_alloc
-    void Abort();
+    void Abort() override;
 
-    void FinalizeTransaction();
+    void FinalizeTransaction() override;
 
-    std::optional<uint64_t> GetTransactionId() const;
+    std::optional<uint64_t> GetTransactionId() const override;
 
    private:
     /// @throw std::bad_alloc
-    VertexAccessor CreateVertex(storage::Gid gid);
+    std::unique_ptr<VertexAccessor> CreateVertex(storage::Gid gid);
 
     /// @throw std::bad_alloc
-    Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid);
+    Result<std::unique_ptr<EdgeAccessor>> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type,
+                                                     storage::Gid gid);
 
     InMemoryStorage *storage_;
     std::shared_lock<utils::RWLock> storage_guard_;
@@ -293,8 +254,8 @@ class InMemoryStorage final {
     Config::Items config_;
   };
 
-  Accessor Access(std::optional<IsolationLevel> override_isolation_level = {}) {
-    return Accessor{this, override_isolation_level.value_or(isolation_level_)};
+  InMemoryAccessor Access(std::optional<IsolationLevel> override_isolation_level = {}) {
+    return InMemoryAccessor{this, override_isolation_level.value_or(isolation_level_)};
   }
 
   const std::string &LabelToName(LabelId label) const;
