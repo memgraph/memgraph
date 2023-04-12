@@ -16,6 +16,9 @@
 #include <boost/beast/version.hpp>
 #include <json/json.hpp>
 
+#include "query/interpreter.hpp"
+#include "storage/v2/storage.hpp"
+
 namespace memgraph::communication::http {
 
 namespace beast = boost::beast;
@@ -32,15 +35,23 @@ struct MetricsResponse {
   uint64_t size;
 };
 
+template <typename TSessionData>
 class MetricsService {
  public:
+  explicit MetricsService(TSessionData *data)
+      : db_(data->db), interpreter_context_(data->interpreter_context), interpreter_(data->interpreter_context) {}
   MetricsResponse GetMetrics() { return MetricsResponse{.size = 5}; }
+
+ private:
+  const memgraph::storage::Storage *db_;
+  memgraph::query::InterpreterContext *interpreter_context_;
+  memgraph::query::Interpreter interpreter_;
 };
 
 template <typename TSessionData>
 class MetricsRequestHandler final {
  public:
-  explicit MetricsRequestHandler(TSessionData *data) : service_(std::make_unique<MetricsService>()), data_(data) {
+  explicit MetricsRequestHandler(TSessionData *data) : service_(data) {
     spdlog::info("Basic request handler started!");
   }
 
@@ -79,7 +90,7 @@ class MetricsRequestHandler final {
 
     http::string_body::value_type body;
 
-    auto service_response = service_->GetMetrics().AsJson();
+    auto service_response = service_.GetMetrics().AsJson();
     body.append(service_response.dump());
 
     // Cache the size since we need it after the move
@@ -96,7 +107,6 @@ class MetricsRequestHandler final {
   }
 
  private:
-  std::unique_ptr<MetricsService> service_;
-  TSessionData *data_;
+  MetricsService<TSessionData> service_;
 };
 }  // namespace memgraph::communication::http
