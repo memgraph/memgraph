@@ -30,7 +30,7 @@ class LDBC_Interactive(Workload):
     SIZES = {
         "sf0.1": {"vertices": 327588, "edges": 1477965},
         "sf1": {"vertices": 3181724, "edges": 17256038},
-        "sf3": {"vertices": 9281922, "edges": 1},
+        "sf3": {"vertices": 9281922, "edges": 52695735},
         "sf10": {"vertices": 1, "edges": 1},
     }
 
@@ -527,72 +527,6 @@ class LDBC_Interactive(Workload):
             ),
             self._get_query_parameters(),
         )
-
-    # def benchmark__interactive__complex_query_10_analytical(self):
-    #     memgraph = (
-    #         """
-    #         MATCH (person:Person {id: $personId})-[:KNOWS*2..2]-(friend),
-    #             (friend)-[:IS_LOCATED_IN]->(city:City)
-    #         WHERE NOT friend=person AND
-    #             NOT (friend)-[:KNOWS]-(person)
-    #         WITH person, city, friend, datetime({epochMillis: friend.birthday}) as birthday
-    #         WHERE  (birthday.month=$month AND birthday.day>=21) OR
-    #                 (birthday.month=($month%12)+1 AND birthday.day<22)
-    #         WITH DISTINCT friend, city, person
-    #         OPTIONAL MATCH (friend)<-[:HAS_CREATOR]-(post:Post)
-    #         WITH friend, city, collect(post) AS posts, person
-    #         WITH friend,
-    #             city,
-    #             size(posts) AS postCount,
-    #             size([p IN posts WHERE (p)-[:HAS_TAG]->()<-[:HAS_INTEREST]-(person)]) AS commonPostCount
-    #         RETURN friend.id AS personId,
-    #             friend.firstName AS personFirstName,
-    #             friend.lastName AS personLastName,
-    #             commonPostCount - (postCount - commonPostCount) AS commonInterestScore,
-    #             friend.gender AS personGender,
-    #             city.name AS personCityName
-    #         ORDER BY commonInterestScore DESC, personId ASC
-    #         LIMIT 10
-    #         """.replace(
-    #             "\n", ""
-    #         ),
-    #         self._get_query_parameters(),
-    #     )
-
-    #     neo4j = (
-    #         """
-    #         MATCH (person:Person {id: $personId})-[:KNOWS*2..2]-(friend),
-    #             (friend)-[:IS_LOCATED_IN]->(city:City)
-    #         WHERE NOT friend=person AND
-    #             NOT (friend)-[:KNOWS]-(person)
-    #         WITH person, city, friend, datetime({epochMillis: friend.birthday}) as birthday
-    #         WHERE  (birthday.month=$month AND birthday.day>=21) OR
-    #                 (birthday.month=($month%12)+1 AND birthday.day<22)
-    #         WITH DISTINCT friend, city, person
-    #         OPTIONAL MATCH (friend)<-[:HAS_CREATOR]-(post:Post)
-    #         WITH friend, city, collect(post) AS posts, person
-    #         WITH friend,
-    #             city,
-    #             size(posts) AS postCount,
-    #             size([p IN posts WHERE (p)-[:HAS_TAG]->()<-[:HAS_INTEREST]-(person)]) AS commonPostCount
-    #         RETURN friend.id AS personId,
-    #             friend.firstName AS personFirstName,
-    #             friend.lastName AS personLastName,
-    #             commonPostCount - (postCount - commonPostCount) AS commonInterestScore,
-    #             friend.gender AS personGender,
-    #             city.name AS personCityName
-    #         ORDER BY commonInterestScore DESC, personId ASC
-    #         LIMIT 10
-    #         """.replace(
-    #             "\n", ""
-    #         ),
-    #         self._get_query_parameters(),
-    #     )
-
-    #     if self._vendor == "memgraph":
-    #         return memgraph
-    #     else:
-    #         return neo4j
 
     def benchmark__interactive__complex_query_11_analytical(self):
         return (
