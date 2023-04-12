@@ -30,7 +30,7 @@ class LDBC_Interactive(Workload):
     SIZES = {
         "sf0.1": {"vertices": 327588, "edges": 1477965},
         "sf1": {"vertices": 3181724, "edges": 17256038},
-        "sf3": {"vertices": 1, "edges": 1},
+        "sf3": {"vertices": 9281922, "edges": 1},
         "sf10": {"vertices": 1, "edges": 1},
     }
 

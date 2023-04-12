@@ -63,7 +63,7 @@ class LDBC_BI(Workload):
             print("Downloading files")
             downloaded_file = helpers.download_file(self.QUERY_PARAMETERS[self._variant], parameters.parent.absolute())
             print("Unpacking the file..." + downloaded_file)
-            parameters = helpers.unpack_zip(Path(downloaded_file))
+            helpers.unpack_zip(Path(downloaded_file))
         return parameters / ("parameters-" + self._variant)
 
     def _get_query_parameters(self) -> dict:
@@ -618,56 +618,6 @@ class LDBC_BI(Workload):
             ),
             self._get_query_parameters(),
         )
-
-    def benchmark__bi__query_17_analytical(self):
-        memgraph = (
-            """
-            MATCH
-                (tag:Tag {name: $tag}),
-                (person1:Person)<-[:HAS_CREATOR]-(message1:Message)-[:REPLY_OF*0..]->(post1:Post)<-[:CONTAINER_OF]-(forum1:Forum),
-                (message1)-[:HAS_TAG]->(tag),
-                (forum1)<-[:HAS_MEMBER]->(person2:Person)<-[:HAS_CREATOR]-(comment:Comment)-[:HAS_TAG]->(tag),
-                (forum1)<-[:HAS_MEMBER]->(person3:Person)<-[:HAS_CREATOR]-(message2:Message),
-                (comment)-[:REPLY_OF]->(message2)-[:REPLY_OF*0..]->(post2:Post)<-[:CONTAINER_OF]-(forum2:Forum)
-            MATCH (comment)-[:HAS_TAG]->(tag)
-            MATCH (message2)-[:HAS_TAG]->(tag)
-            OPTIONAL MATCH (forum2)-[:HAS_MEMBER]->(person1)
-            WHERE forum1 <> forum2 AND message2.creationDate > message1.creationDate + duration({hours: $delta}) AND person1 IS NULL
-            RETURN person1, count(DISTINCT message2) AS messageCount
-            ORDER BY messageCount DESC, person1.id ASC
-            LIMIT 10
-            """.replace(
-                "\n", ""
-            ),
-            self._get_query_parameters(),
-        )
-
-        neo4j = (
-            """
-            MATCH
-                (tag:Tag {name: $tag}),
-                (person1:Person)<-[:HAS_CREATOR]-(message1:Message)-[:REPLY_OF*0..]->(post1:Post)<-[:CONTAINER_OF]-(forum1:Forum),
-                (message1)-[:HAS_TAG]->(tag),
-                (forum1)<-[:HAS_MEMBER]->(person2:Person)<-[:HAS_CREATOR]-(comment:Comment)-[:HAS_TAG]->(tag),
-                (forum1)<-[:HAS_MEMBER]->(person3:Person)<-[:HAS_CREATOR]-(message2:Message),
-                (comment)-[:REPLY_OF]->(message2)-[:REPLY_OF*0..]->(post2:Post)<-[:CONTAINER_OF]-(forum2:Forum)
-            MATCH (comment)-[:HAS_TAG]->(tag)
-            MATCH (message2)-[:HAS_TAG]->(tag)
-            WHERE forum1 <> forum2
-                AND message2.creationDate > message1.creationDate + duration({hours: $delta})
-                AND NOT (forum2)-[:HAS_MEMBER]->(person1)
-            RETURN person1, count(DISTINCT message2) AS messageCount
-            ORDER BY messageCount DESC, person1.id ASC
-            LIMIT 10
-            """.replace(
-                "\n", ""
-            ),
-            self._get_query_parameters(),
-        )
-        if self._vendor == "memgraph":
-            return memgraph
-        else:
-            return neo4j
 
     def benchmark__bi__query_18_analytical(self):
         memgraph = (
