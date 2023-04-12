@@ -189,7 +189,7 @@ def run_full_benchmarks(vendor, binary, dataset, dataset_size, dataset_group, re
         "--num-workers-for-benchmark",
         str(workers),
         "--single-threaded-runtime-sec",
-        "10",
+        "30",
         "--no-authorization",
         dataset + "/" + dataset_size + "/" + dataset_group + "/*",
     ]
