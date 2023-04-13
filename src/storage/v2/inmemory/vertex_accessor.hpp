@@ -115,10 +115,3 @@ class InMemoryVertexAccessor final : public VertexAccessor {
 };
 
 }  // namespace memgraph::storage
-
-namespace std {
-template <>
-struct hash<memgraph::storage::InMemoryVertexAccessor> {
-  size_t operator()(const memgraph::storage::InMemoryVertexAccessor &v) const noexcept { return v.Gid().AsUint(); }
-};
-}  // namespace std

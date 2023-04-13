@@ -12,6 +12,7 @@
 #pragma once
 
 #include <optional>
+#include <type_traits>
 
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
@@ -84,9 +85,9 @@ class EdgeAccessor final {
     return impl_->ClearProperties();
   }
 
-  std::unique_ptr<VertexAccessor> To() const;
+  VertexAccessor To() const;
 
-  std::unique_ptr<VertexAccessor> From() const;
+  VertexAccessor From() const;
 
   bool IsCycle() const;
 
@@ -103,8 +104,8 @@ class VertexAccessor final {
  public:
   storage::VertexAccessor *impl_;
 
-  static std::unique_ptr<EdgeAccessor> MakeEdgeAccessor(const std::unique_ptr<storage::EdgeAccessor> &impl) {
-    return std::make_unique<EdgeAccessor>(std::move(impl));
+  static EdgeAccessor MakeEdgeAccessor(const std::unique_ptr<storage::EdgeAccessor> &impl) {
+    return EdgeAccessor(impl.get());
   }
 
  public:
@@ -193,13 +194,9 @@ class VertexAccessor final {
   bool operator!=(const VertexAccessor &v) const noexcept { return !(*this == v); }
 };
 
-inline std::unique_ptr<VertexAccessor> EdgeAccessor::To() const {
-  return std::make_unique<VertexAccessor>(impl_->ToVertex());
-}
+inline VertexAccessor EdgeAccessor::To() const { return VertexAccessor(impl_->ToVertex().get()); }
 
-inline std::unique_ptr<VertexAccessor> EdgeAccessor::From() const {
-  return std::make_unique<VertexAccessor>(impl_->FromVertex());
-}
+inline VertexAccessor EdgeAccessor::From() const { return VertexAccessor(impl_->FromVertex().get()); }
 
 inline bool EdgeAccessor::IsCycle() const { return To() == From(); }
 
@@ -249,13 +246,15 @@ namespace std {
 template <>
 struct hash<memgraph::query::VertexAccessor> {
   size_t operator()(const memgraph::query::VertexAccessor &v) const {
-    return std::hash<decltype(*v.impl_)>{}(*v.impl_);
+    return std::hash<std::remove_pointer<decltype(v.impl_)>::type>{}(*v.impl_);
   }
 };
 
 template <>
 struct hash<memgraph::query::EdgeAccessor> {
-  size_t operator()(const memgraph::query::EdgeAccessor &e) const { return std::hash<decltype(*e.impl_)>{}(*e.impl_); }
+  size_t operator()(const memgraph::query::EdgeAccessor &e) const {
+    return std::hash<std::remove_pointer<decltype(e.impl_)>::type>{}(*e.impl_);
+  }
 };
 
 }  // namespace std
@@ -325,10 +324,10 @@ class DbAccessor final {
  public:
   explicit DbAccessor(storage::Storage::Accessor *accessor) : accessor_(accessor) {}
 
-  std::unique_ptr<VertexAccessor> FindVertex(storage::Gid gid, storage::View view) {
+  std::optional<VertexAccessor> FindVertex(storage::Gid gid, storage::View view) {
     auto maybe_vertex = accessor_->FindVertex(gid, view);
-    if (maybe_vertex) return std::make_unique<VertexAccessor>(std::move(maybe_vertex));
-    return {};
+    if (maybe_vertex) return VertexAccessor(maybe_vertex.get());
+    return std::nullopt;
   }
 
   void FinalizeTransaction() { accessor_->FinalizeTransaction(); }
@@ -354,16 +353,16 @@ class DbAccessor final {
     return VerticesIterable(accessor_->Vertices(label, property, lower, upper, view));
   }
 
-  std::unique_ptr<VertexAccessor> InsertVertex() { return std::make_unique<VertexAccessor>(accessor_->CreateVertex()); }
+  VertexAccessor InsertVertex() { return VertexAccessor(accessor_->CreateVertex().get()); }
 
-  storage::Result<std::unique_ptr<EdgeAccessor>> InsertEdge(VertexAccessor *from, VertexAccessor *to,
-                                                            const storage::EdgeTypeId &edge_type) {
+  storage::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
+                                           const storage::EdgeTypeId &edge_type) {
     auto maybe_edge = accessor_->CreateEdge(from->impl_, to->impl_, edge_type);
     if (maybe_edge.HasError()) return storage::Result<EdgeAccessor>(maybe_edge.GetError());
-    return std::make_unique<EdgeAccessor>(std::move(maybe_edge));
+    return EdgeAccessor((*maybe_edge).get());
   }
 
-  storage::Result<std::unique_ptr<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge) {
+  storage::Result<std::optional<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge) {
     auto res = accessor_->DeleteEdge(edge->impl_);
     if (res.HasError()) {
       return res.GetError();
@@ -371,17 +370,17 @@ class DbAccessor final {
 
     const auto &value = res.GetValue();
     if (!value) {
-      return storage::Result<std::unique_ptr<EdgeAccessor>>{std::unique_ptr<EdgeAccessor>()};
+      return std::optional<EdgeAccessor>{};
     }
 
-    return std::make_unique<EdgeAccessor>(std::move(value));
+    return std::make_optional<EdgeAccessor>(value.get());
   }
 
   storage::Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachRemoveVertex(
       VertexAccessor *vertex_accessor) {
     using ReturnType = std::pair<VertexAccessor, std::vector<EdgeAccessor>>;
 
-    auto res = accessor_->DetachDeleteVertex(&vertex_accessor->impl_);
+    auto res = accessor_->DetachDeleteVertex(vertex_accessor->impl_);
     if (res.HasError()) {
       return res.GetError();
     }
@@ -396,13 +395,13 @@ class DbAccessor final {
     std::vector<EdgeAccessor> deleted_edges;
     deleted_edges.reserve(edges.size());
     std::transform(edges.begin(), edges.end(), std::back_inserter(deleted_edges),
-                   [](const auto &deleted_edge) { return EdgeAccessor{deleted_edge}; });
+                   [](const auto &deleted_edge) { return EdgeAccessor{deleted_edge.get()}; });
 
-    return std::make_optional<ReturnType>(vertex, std::move(deleted_edges));
+    return std::make_optional<ReturnType>(vertex.get(), std::move(deleted_edges));
   }
 
   storage::Result<std::optional<VertexAccessor>> RemoveVertex(VertexAccessor *vertex_accessor) {
-    auto res = accessor_->DeleteVertex(&vertex_accessor->impl_);
+    auto res = accessor_->DeleteVertex(vertex_accessor->impl_);
     if (res.HasError()) {
       return res.GetError();
     }
@@ -412,7 +411,7 @@ class DbAccessor final {
       return std::optional<VertexAccessor>{};
     }
 
-    return std::make_optional<VertexAccessor>(*value);
+    return std::make_optional<VertexAccessor>(value.get());
   }
 
   storage::PropertyId NameToProperty(const std::string_view name) { return accessor_->NameToProperty(name); }

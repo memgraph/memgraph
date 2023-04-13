@@ -125,3 +125,10 @@ class VertexAccessor {
 };
 
 }  // namespace memgraph::storage
+
+namespace std {
+template <>
+struct hash<memgraph::storage::VertexAccessor> {
+  size_t operator()(const memgraph::storage::VertexAccessor &v) const noexcept { return v.Gid().AsUint(); }
+};
+}  // namespace std

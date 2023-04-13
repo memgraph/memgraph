@@ -99,10 +99,3 @@ class InMemoryEdgeAccessor final : public EdgeAccessor {
 };
 
 }  // namespace memgraph::storage
-
-namespace std {
-template <>
-struct hash<memgraph::storage::InMemoryEdgeAccessor> {
-  size_t operator()(const memgraph::storage::InMemoryEdgeAccessor &e) const { return e.Gid().AsUint(); }
-};
-}  // namespace std
