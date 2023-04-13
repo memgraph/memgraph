@@ -307,14 +307,16 @@ uint64_t InMemoryStorage::ReplicationServer::ReadAndApplyDelta(durability::BaseD
   auto edge_acc = storage_->edges_.access();
   auto vertex_acc = storage_->vertices_.access();
 
-  std::optional<std::pair<uint64_t, storage::InMemoryStorage::InMemoryAccessor>> commit_timestamp_and_accessor;
+  std::optional<std::pair<uint64_t, storage::InMemoryStorage::InMemoryAccessor *>> commit_timestamp_and_accessor;
   auto get_transaction = [this, &commit_timestamp_and_accessor](uint64_t commit_timestamp) {
     if (!commit_timestamp_and_accessor) {
-      commit_timestamp_and_accessor.emplace(commit_timestamp, storage_->Access());
+      commit_timestamp_and_accessor.emplace(commit_timestamp,
+                                            dynamic_cast<storage::InMemoryStorage::InMemoryAccessor *>(
+                                                storage_->Access(std::optional<IsolationLevel>{}).get()));
     } else if (commit_timestamp_and_accessor->first != commit_timestamp) {
       throw utils::BasicException("Received more than one transaction!");
     }
-    return &commit_timestamp_and_accessor->second;
+    return commit_timestamp_and_accessor->second;
   };
 
   uint64_t applied_deltas = 0;
@@ -486,7 +488,7 @@ uint64_t InMemoryStorage::ReplicationServer::ReadAndApplyDelta(durability::BaseD
         spdlog::trace("       Transaction end");
         if (!commit_timestamp_and_accessor || commit_timestamp_and_accessor->first != timestamp)
           throw utils::BasicException("Invalid data!");
-        auto ret = commit_timestamp_and_accessor->second.Commit(commit_timestamp_and_accessor->first);
+        auto ret = commit_timestamp_and_accessor->second->Commit(commit_timestamp_and_accessor->first);
         if (ret.HasError()) throw utils::BasicException("Invalid transaction!");
         commit_timestamp_and_accessor = std::nullopt;
         break;

@@ -496,7 +496,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
         [interpreter_context, interpreter]() { interpreter_context->interpreters->erase(interpreter.get()); }};
 
     EventCounter::IncrementCounter(EventCounter::MessagesConsumed, messages.size());
-    CallCustomTransformation(transformation_name, messages, result, accessor, *memory_resource, stream_name);
+    CallCustomTransformation(transformation_name, messages, result, *accessor, *memory_resource, stream_name);
 
     DiscardValueResultStream stream;
 
@@ -743,7 +743,7 @@ TransformationResult Streams::Check(const std::string &stream_name, std::optiona
                                   &transformation_name = transformation_name, &result,
                                   &test_result]<typename T>(const std::vector<T> &messages) mutable {
           auto accessor = interpreter_context->db->Access();
-          CallCustomTransformation(transformation_name, messages, result, accessor, *memory_resource, stream_name);
+          CallCustomTransformation(transformation_name, messages, result, *accessor, *memory_resource, stream_name);
 
           auto result_row = std::vector<TypedValue>();
           result_row.reserve(kCheckStreamResultSize);

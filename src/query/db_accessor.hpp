@@ -57,6 +57,7 @@ class EdgeAccessor final {
   storage::EdgeAccessor *impl_;
 
  public:
+  explicit EdgeAccessor(std::unique_ptr<storage::EdgeAccessor> &impl) : impl_(impl.get()) {}
   explicit EdgeAccessor(storage::EdgeAccessor *impl) : impl_(impl) {}
 
   bool IsVisible(storage::View view) const { return impl_->IsVisible(view); }
@@ -104,9 +105,7 @@ class VertexAccessor final {
  public:
   storage::VertexAccessor *impl_;
 
-  static EdgeAccessor MakeEdgeAccessor(const std::unique_ptr<storage::EdgeAccessor> &impl) {
-    return EdgeAccessor(impl.get());
-  }
+  static EdgeAccessor MakeEdgeAccessor(std::unique_ptr<storage::EdgeAccessor> &impl) { return EdgeAccessor(impl); }
 
  public:
   explicit VertexAccessor(storage::VertexAccessor *impl) : impl_(impl) {}
@@ -146,7 +145,7 @@ class VertexAccessor final {
   }
 
   auto InEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types) const
-      -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_->InEdges(view)))> {
+      -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *(impl_->InEdges(view))))> {
     auto maybe_edges = impl_->InEdges(view, edge_types);
     if (maybe_edges.HasError()) return maybe_edges.GetError();
     return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
@@ -172,7 +171,7 @@ class VertexAccessor final {
 
   auto OutEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types,
                 const VertexAccessor &dest) const
-      -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_->OutEdges(view)))> {
+      -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *(impl_->OutEdges(view))))> {
     auto maybe_edges = impl_->OutEdges(view, edge_types, dest.impl_);
     if (maybe_edges.HasError()) return maybe_edges.GetError();
     return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));

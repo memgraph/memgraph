@@ -55,23 +55,12 @@
 
 namespace memgraph::storage {
 
-/// Structure used to return information about the storage.
-struct StorageInfo {
-  uint64_t vertex_count;
-  uint64_t edge_count;
-  double average_degree;
-  uint64_t memory_usage;
-  uint64_t disk_usage;
-};
-
-enum class ReplicationRole : uint8_t { MAIN, REPLICA };
-
 // The storage is based on this paper:
 // https://db.in.tum.de/~muehlbau/papers/mvcc.pdf
 // The paper implements a fully serializable storage, in our implementation we
 // only implement snapshot isolation for transactions.
 
-class InMemoryStorage final {
+class InMemoryStorage final : public Storage {
  public:
   /// @throw std::system_error
   /// @throw std::bad_alloc
@@ -254,22 +243,23 @@ class InMemoryStorage final {
     Config::Items config_;
   };
 
-  InMemoryAccessor Access(std::optional<IsolationLevel> override_isolation_level = {}) {
-    return InMemoryAccessor{this, override_isolation_level.value_or(isolation_level_)};
+  std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override {
+    return std::unique_ptr<InMemoryAccessor>(
+        new InMemoryAccessor{this, override_isolation_level.value_or(isolation_level_)});
   }
 
-  const std::string &LabelToName(LabelId label) const;
-  const std::string &PropertyToName(PropertyId property) const;
-  const std::string &EdgeTypeToName(EdgeTypeId edge_type) const;
+  const std::string &LabelToName(LabelId label) const override;
+  const std::string &PropertyToName(PropertyId property) const override;
+  const std::string &EdgeTypeToName(EdgeTypeId edge_type) const override;
 
   /// @throw std::bad_alloc if unable to insert a new mapping
-  LabelId NameToLabel(std::string_view name);
+  LabelId NameToLabel(std::string_view name) override;
 
   /// @throw std::bad_alloc if unable to insert a new mapping
-  PropertyId NameToProperty(std::string_view name);
+  PropertyId NameToProperty(std::string_view name) override;
 
   /// @throw std::bad_alloc if unable to insert a new mapping
-  EdgeTypeId NameToEdgeType(std::string_view name);
+  EdgeTypeId NameToEdgeType(std::string_view name) override;
 
   /// Create an index.
   /// Returns void if the index has been created.
@@ -278,7 +268,7 @@ class InMemoryStorage final {
   /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
   /// @throw std::bad_alloc
   utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-      LabelId label, std::optional<uint64_t> desired_commit_timestamp = {});
+      LabelId label, std::optional<uint64_t> desired_commit_timestamp) override;
 
   /// Create an index.
   /// Returns void if the index has been created.
@@ -287,7 +277,7 @@ class InMemoryStorage final {
   /// * `IndexDefinitionError`: the index already exists.
   /// @throw std::bad_alloc
   utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp = {});
+      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
 
   /// Drop an existing index.
   /// Returns void if the index has been dropped.
@@ -295,7 +285,7 @@ class InMemoryStorage final {
   /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
   /// * `IndexDefinitionError`: the index does not exist.
   utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
-      LabelId label, std::optional<uint64_t> desired_commit_timestamp = {});
+      LabelId label, std::optional<uint64_t> desired_commit_timestamp) override;
 
   /// Drop an existing index.
   /// Returns void if the index has been dropped.
@@ -303,9 +293,9 @@ class InMemoryStorage final {
   /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
   /// * `IndexDefinitionError`: the index does not exist.
   utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
-      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp = {});
+      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
 
-  IndicesInfo ListAllIndices() const;
+  IndicesInfo ListAllIndices() const override;
 
   /// Returns void if the existence constraint has been created.
   /// Returns `StorageExistenceConstraintDefinitionError` if an error occures. Error can be:
@@ -315,7 +305,7 @@ class InMemoryStorage final {
   /// @throw std::bad_alloc
   /// @throw std::length_error
   utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
-      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp = {});
+      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
 
   /// Drop an existing existence constraint.
   /// Returns void if the existence constraint has been dropped.
@@ -323,7 +313,7 @@ class InMemoryStorage final {
   /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
   /// * `ConstraintDefinitionError`: the constraint did not exists.
   utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropExistenceConstraint(
-      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp = {});
+      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
 
   /// Create an unique constraint.
   /// Returns `StorageUniqueConstraintDefinitionError` if an error occures. Error can be:
@@ -336,7 +326,7 @@ class InMemoryStorage final {
   /// * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the limit of maximum number of properties.
   /// @throw std::bad_alloc
   utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus> CreateUniqueConstraint(
-      LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp = {});
+      LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp) override;
 
   /// Removes an existing unique constraint.
   /// Returns `StorageUniqueConstraintDroppingError` if an error occures. Error can be:
@@ -347,60 +337,38 @@ class InMemoryStorage final {
   /// * `EMPTY_PROPERTIES` if the property set is empty, or
   /// * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the limit of maximum number of properties.
   utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus> DropUniqueConstraint(
-      LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp = {});
+      LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp) override;
 
-  ConstraintsInfo ListAllConstraints() const;
+  ConstraintsInfo ListAllConstraints() const override;
 
-  StorageInfo GetInfo() const;
+  StorageInfo GetInfo() const override;
 
-  bool LockPath();
-  bool UnlockPath();
+  bool LockPath() override;
+  bool UnlockPath() override;
 
-  bool SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config = {});
+  bool SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config) override;
 
-  bool SetMainReplicationRole();
-
-  enum class RegisterReplicaError : uint8_t {
-    NAME_EXISTS,
-    END_POINT_EXISTS,
-    CONNECTION_FAILED,
-    COULD_NOT_BE_PERSISTED
-  };
+  bool SetMainReplicationRole() override;
 
   /// @pre The instance should have a MAIN role
   /// @pre Timeout can only be set for SYNC replication
   utils::BasicResult<RegisterReplicaError, void> RegisterReplica(
       std::string name, io::network::Endpoint endpoint, replication::ReplicationMode replication_mode,
-      replication::RegistrationMode registration_mode, const replication::ReplicationClientConfig &config = {});
+      replication::RegistrationMode registration_mode, const replication::ReplicationClientConfig &config) override;
   /// @pre The instance should have a MAIN role
-  bool UnregisterReplica(const std::string &name);
+  bool UnregisterReplica(const std::string &name) override;
 
-  std::optional<replication::ReplicaState> GetReplicaState(std::string_view name);
+  std::optional<replication::ReplicaState> GetReplicaState(std::string_view name) override;
 
-  ReplicationRole GetReplicationRole() const;
+  ReplicationRole GetReplicationRole() const override;
 
-  struct TimestampInfo {
-    uint64_t current_timestamp_of_replica;
-    uint64_t current_number_of_timestamp_behind_master;
-  };
+  std::vector<ReplicaInfo> ReplicasInfo() override;
 
-  struct ReplicaInfo {
-    std::string name;
-    replication::ReplicationMode mode;
-    io::network::Endpoint endpoint;
-    replication::ReplicaState state;
-    TimestampInfo timestamp_info;
-  };
+  void FreeMemory() override;
 
-  std::vector<ReplicaInfo> ReplicasInfo();
+  void SetIsolationLevel(IsolationLevel isolation_level) override;
 
-  void FreeMemory();
-
-  void SetIsolationLevel(IsolationLevel isolation_level);
-
-  enum class CreateSnapshotError : uint8_t { DisabledForReplica };
-
-  utils::BasicResult<CreateSnapshotError> CreateSnapshot();
+  utils::BasicResult<CreateSnapshotError> CreateSnapshot() override;
 
  private:
   Transaction CreateTransaction(IsolationLevel isolation_level);
