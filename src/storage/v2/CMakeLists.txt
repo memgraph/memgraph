@@ -8,11 +8,20 @@ set(storage_v2_src_files
     durability/wal.cpp
     edge_accessor.cpp
     indices.cpp
+    inmemory/edge_accessor.cpp
+    inmemory/storage.cpp
+    inmemory/vertex_accessor.cpp
     property_store.cpp
-    vertex_accessor.cpp
-    storage.cpp
     disk/compaction_filter.cpp
-    disk/storage.hpp)
+    disk/old_storage.hpp
+    disk/old_storage.cpp
+    disk/new_storage.hpp
+    disk/vertex_accessor.cpp
+    disk/vertex_accessor.hpp
+    disk/edge_accessor.cpp
+    disk/edge_accessor.hpp
+    storage.cpp
+    vertex_accessor.cpp)
 
 
 set(storage_v2_src_files
