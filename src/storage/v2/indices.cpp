@@ -327,10 +327,7 @@ void LabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) {
 }
 
 LabelIndex::Iterable::Iterator::Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator)
-    : self_(self),
-      index_iterator_(index_iterator),
-      current_vertex_accessor_(nullptr, nullptr, nullptr, nullptr, self_->config_),
-      current_vertex_(nullptr) {
+    : self_(self), index_iterator_(index_iterator), current_vertex_accessor_(nullptr), current_vertex_(nullptr) {
   AdvanceUntilValid();
 }
 
@@ -347,8 +344,8 @@ void LabelIndex::Iterable::Iterator::AdvanceUntilValid() {
     }
     if (CurrentVersionHasLabel(*index_iterator_->vertex, self_->label_, self_->transaction_, self_->view_)) {
       current_vertex_ = index_iterator_->vertex;
-      current_vertex_accessor_ =
-          VertexAccessor{current_vertex_, self_->transaction_, self_->indices_, self_->constraints_, self_->config_};
+      current_vertex_accessor_ = VertexAccessor::Create(current_vertex_, self_->transaction_, self_->indices_,
+                                                        self_->constraints_, self_->config_, self_->view_);
       break;
     }
   }
@@ -478,10 +475,7 @@ void LabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_time
 }
 
 LabelPropertyIndex::Iterable::Iterator::Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator)
-    : self_(self),
-      index_iterator_(index_iterator),
-      current_vertex_accessor_(nullptr, nullptr, nullptr, nullptr, self_->config_),
-      current_vertex_(nullptr) {
+    : self_(self), index_iterator_(index_iterator), current_vertex_accessor_(nullptr), current_vertex_(nullptr) {
   AdvanceUntilValid();
 }
 
@@ -519,8 +513,8 @@ void LabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
     if (CurrentVersionHasLabelProperty(*index_iterator_->vertex, self_->label_, self_->property_,
                                        index_iterator_->value, self_->transaction_, self_->view_)) {
       current_vertex_ = index_iterator_->vertex;
-      current_vertex_accessor_ =
-          VertexAccessor(current_vertex_, self_->transaction_, self_->indices_, self_->constraints_, self_->config_);
+      current_vertex_accessor_ = VertexAccessor::Create(current_vertex_, self_->transaction_, self_->indices_,
+                                                        self_->constraints_, self_->config_, self_->view_);
       break;
     }
   }

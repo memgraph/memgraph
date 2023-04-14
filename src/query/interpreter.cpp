@@ -1153,8 +1153,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
       in_explicit_transaction_ = true;
       expect_rollback_ = false;
 
-      db_accessor_ =
-          std::make_unique<storage::Storage::Accessor>(interpreter_context_->db->Access(GetIsolationLevelOverride()));
+      db_accessor_ = interpreter_context_->db->Access(GetIsolationLevelOverride());
       execution_db_accessor_.emplace(db_accessor_.get());
       transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
 
@@ -2645,8 +2644,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
          utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
          utils::Downcast<TriggerQuery>(parsed_query.query) || utils::Downcast<AnalyzeGraphQuery>(parsed_query.query) ||
          utils::Downcast<TransactionQueueQuery>(parsed_query.query))) {
-      db_accessor_ =
-          std::make_unique<storage::Storage::Accessor>(interpreter_context_->db->Access(GetIsolationLevelOverride()));
+      db_accessor_ = interpreter_context_->db->Access(GetIsolationLevelOverride());
       execution_db_accessor_.emplace(db_accessor_.get());
       transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
 
@@ -2790,7 +2788,7 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
 
     // create a new transaction for each trigger
     auto storage_acc = interpreter_context->db->Access();
-    DbAccessor db_accessor{&storage_acc};
+    DbAccessor db_accessor{storage_acc.get()};
 
     trigger_context.AdaptForAccessor(&db_accessor);
     try {
