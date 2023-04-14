@@ -260,7 +260,7 @@ class BoltClientDocker(BaseClient):
         ]
         while True:
             try:
-                log.info("Checking if database is up and running")
+                log.log("Checking if database is up and running")
                 self._run_command(command)
                 break
             except subprocess.CalledProcessError as e:
@@ -269,7 +269,7 @@ class BoltClientDocker(BaseClient):
                 log.warning("Database is not up yet, waiting 3 second")
                 time.sleep(3)
 
-        log.info("Database is up and running, check passed! ")
+        log.log("Database is up and running, check query passed!")
         self._remove_container()
 
         queries_json = False
@@ -309,6 +309,7 @@ class BoltClientDocker(BaseClient):
             self._container_name + ":/bin/" + file.name,
         ]
         self._run_command(command)
+        log.log("Starting query execution...")
         try:
             command = [
                 "docker",
@@ -331,7 +332,6 @@ class BoltClientDocker(BaseClient):
         return list(map(json.loads, data))
 
     def _run_command(self, command):
-        print(command)
         ret = subprocess.run(command, capture_output=True, check=True, text=True)
         time.sleep(0.2)
         return ret
@@ -775,6 +775,7 @@ class MemgraphDocker(BaseRunner):
         return _convert_args_to_flags(**kwargs)
 
     def start_db_init(self, message):
+        log.init("Starting database for import...")
         try:
             command = [
                 "docker",
@@ -812,8 +813,10 @@ class MemgraphDocker(BaseRunner):
         self._run_command(command)
         self._config_file = Path(self._directory.name + "/memgraph.conf")
         _wait_for_server_socket(self._bolt_port, delay=0.5)
+        log.log("Database started.")
 
     def stop_db_init(self, message):
+        log.init("Stopping database...")
         usage = self._get_cpu_memory_usage()
 
         # Stop to save the snapshot
@@ -830,19 +833,23 @@ class MemgraphDocker(BaseRunner):
             self._container_name + ":/etc/memgraph/memgraph.conf",
         ]
         self._run_command(command)
-
+        log.log("Database stopped.")
         return usage
 
     def start_db(self, message):
+        log.init("Starting database for benchmark...")
         command = ["docker", "start", self._container_name]
         self._run_command(command)
         ip_address = _get_docker_container_ip(self._container_name)
         _wait_for_server_socket(self._bolt_port, delay=0.5)
+        log.log("Database started.")
 
     def stop_db(self, message):
+        log.init("Stopping database...")
         usage = self._get_cpu_memory_usage()
         command = ["docker", "stop", self._container_name]
         self._run_command(command)
+        log.log("Database stopped.")
         return usage
 
     def clean_db(self):
@@ -918,7 +925,6 @@ class MemgraphDocker(BaseRunner):
         return usage
 
     def _run_command(self, command):
-        print(command)
         ret = subprocess.run(command, check=True, capture_output=True, text=True)
 
         time.sleep(0.2)
@@ -940,6 +946,7 @@ class Neo4jDocker(BaseRunner):
         return _convert_args_to_flags(**kwargs)
 
     def start_db_init(self, message):
+        log.init("Starting database for initialization...")
         try:
             command = [
                 "docker",
@@ -965,25 +972,32 @@ class Neo4jDocker(BaseRunner):
             )
             raise e
         _wait_for_server_socket(self._bolt_port, delay=5)
+        log.log("Database started.")
 
     def stop_db_init(self, message):
+        log.init("Stopping database...")
         usage = self._get_cpu_memory_usage()
 
         command = ["docker", "stop", self._container_name]
         self._run_command(command)
+        log.log("Database stopped.")
 
         return usage
 
     def start_db(self, message):
+        log.init("Starting database...")
         command = ["docker", "start", self._container_name]
         self._run_command(command)
         _wait_for_server_socket(self._bolt_port, delay=5)
+        log.log("Database started.")
 
     def stop_db(self, message):
+        log.init("Stopping database...")
         usage = self._get_cpu_memory_usage()
 
         command = ["docker", "stop", self._container_name]
         self._run_command(command)
+        log.log("Database stopped.")
         return usage
 
     def clean_db(self):
@@ -1051,7 +1065,6 @@ class Neo4jDocker(BaseRunner):
         return usage
 
     def _run_command(self, command):
-        print(command)
         ret = subprocess.run(command, capture_output=True, check=True, text=True)
         time.sleep(0.2)
         return ret

@@ -202,9 +202,9 @@ def get_queries(gen, count):
 
 
 def warmup(condition: str, client: runners.BaseRunner, queries: list = None):
-    log.log("Database condition {} ".format(condition))
+    log.init("Started warm-up procedure to match database condition: {} ".format(condition))
     if condition == "hot":
-        log.log("Execute warm-up to match condition {} ".format(condition))
+        log.log("Execute warm-up to match condition: {} ".format(condition))
         client.execute(
             queries=[
                 ("CREATE ();", {}),
@@ -214,10 +214,11 @@ def warmup(condition: str, client: runners.BaseRunner, queries: list = None):
             num_workers=1,
         )
     elif condition == "vulcanic":
-        log.log("Execute warm-up to match condition {} ".format(condition))
+        log.log("Execute warm-up to match condition: {} ".format(condition))
         client.execute(queries=queries)
     else:
-        log.log("No warm-up on condition {} ".format(condition))
+        log.log("No warm-up on condition: {} ".format(condition))
+    log.log("Finished warm-up procedure to match database condition: {} ".format(condition))
 
 
 def mixed_workload(
@@ -372,6 +373,7 @@ def get_query_cache_count(
                 benchmark_context.single_threaded_runtime_sec
             )
         )
+        log.log("Running query to prime the query cache...")
         # First run to prime the query caches.
         vendor.start_db("cache")
         client.execute(queries=queries, num_workers=1)
@@ -409,7 +411,7 @@ def get_query_cache_count(
         )
     else:
         log.log(
-            "Using cached query count of {} queries for {} seconds of single-threaded runtime.".format(
+            "Using cached query count of {} queries for {} seconds of single-threaded runtime to extrapolate .".format(
                 cached_count["count"], cached_count["duration"]
             ),
         )
@@ -458,9 +460,9 @@ if __name__ == "__main__":
 
     log.init("Executing benchmark with following arguments: ")
     for key, value in benchmark_context.__dict__.items():
-        log.log(str(key) + " : " + str(value))
+        log.log("{:<30} : {:<30}".format(str(key), str(value)))
 
-    log.init("Check requirements for running benchmark")
+    log.init("\tCheck requirements for running benchmark")
     if setup.check_requirements(benchmark_context=benchmark_context):
         log.success("Requirements satisfied... ")
     else:
@@ -468,7 +470,6 @@ if __name__ == "__main__":
         sys.exit(1)
 
     log.log("Creating cache folder for: dataset, configurations, indexes, results etc. ")
-    # Create cache, config and results objects.
     cache = helpers.Cache()
     log.init("Folder in use: " + cache.get_default_cache_directory())
     if not benchmark_context.no_load_query_counts:
@@ -511,25 +512,32 @@ if __name__ == "__main__":
         vendor_runner = runners.BaseRunner.create(
             benchmark_context=benchmark_context,
         )
-        log.log("Class in use: " + str(vendor_runner))
+        log.log("Class in use: " + str(vendor_runner.__class__.__name__))
 
         log.info("Cleaning the database from any previous data")
         vendor_runner.clean_db()
 
         client = vendor_runner.fetch_client()
-        log.log("Get appropriate client for vendor " + str(client))
+        log.log("Get appropriate client for vendor " + str(client.__class__.__name__))
 
         ret = None
         usage = None
 
         generated_queries = workload.dataset_generator()
         if generated_queries:
-            vendor_runner.start_db_init("import")
             log.info("Using workload as dataset generator...")
+
+            vendor_runner.start_db_init("import")
+
             log.warning("Using following indexes...")
             log.info(workload.indexes_generator())
+            log.info("Executing database index setup...")
             client.execute(queries=workload.indexes_generator(), num_workers=1)
+            log.log("Finished setting up indexes...")
+
+            log.info("Importing dataset...")
             ret = client.execute(queries=generated_queries, num_workers=benchmark_context.num_workers_for_import)
+            log.log("Finished importing dataset...")
             usage = vendor_runner.stop_db_init("import")
         else:
             log.init("Preparing workload: " + workload.NAME + "/" + workload.get_variant())
@@ -592,10 +600,10 @@ if __name__ == "__main__":
                         group,
                         query,
                     ]
+                    log.init("Determining query count for benchmark based on --single-threaded-runtime argument")
                     count = get_query_cache_count(
                         vendor_runner, client, get_queries(func, 1), config_key, benchmark_context
                     )
-
                     # Benchmark run.
                     log.info("Sample query:{}".format(get_queries(func, 1)[0][0]))
                     log.log(
@@ -611,9 +619,8 @@ if __name__ == "__main__":
                     vendor_runner.start_db(
                         workload.NAME + workload.get_variant() + "_" + "_" + benchmark_context.mode + "_" + query
                     )
-
                     warmup(condition=benchmark_context.warm_up, client=client, queries=get_queries(func, count))
-                    log.info("Executing queries after warmup...")
+                    log.init("Executing benchmark queries...")
                     if benchmark_context.time_dependent_execution != 0:
                         ret = client.execute(
                             queries=get_queries(func, count),
@@ -625,7 +632,7 @@ if __name__ == "__main__":
                             queries=get_queries(func, count),
                             num_workers=benchmark_context.num_workers_for_benchmark,
                         )[0]
-                    log.info("Workload execution finished...")
+                    log.info("Benchmark execution finished...")
                     usage = vendor_runner.stop_db(
                         workload.NAME + workload.get_variant() + "_" + benchmark_context.mode + "_" + query
                     )
@@ -644,12 +651,12 @@ if __name__ == "__main__":
                             "{maximum:>20.06f}".format(name=key, **metadata[key])
                         )
 
-                    log.success("Latency stats:")
+                    log.success("Latency statistics:")
                     for key, value in ret["latency_stats"].items():
                         if key == "iterations":
-                            log.success("{:<20} {:>20}".format(key, value))
+                            log.success("{:<10} {:>10}".format(key, value))
                         else:
-                            log.success("{:<20} {:>20.06f} ms".format(key, value))
+                            log.success("{:<10} {:>10.06f} seconds".format(key, value))
 
                     log.success("Throughput: {:02f} QPS".format(ret["throughput"]))
 

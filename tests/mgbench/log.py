@@ -33,7 +33,7 @@ def _log(color, *args):
 
 
 def log(msg):
-    print(msg)
+    print(str(msg))
     logger.info(msg=msg)
 
 
