@@ -493,13 +493,17 @@ if __name__ == "__main__":
 
     available_workloads = helpers.get_available_workloads(benchmark_context.customer_workloads)
 
-    log.init("Currently available workloads: ")
-    log.log(helpers.list_available_workloads(benchmark_context.customer_workloads))
-
     # Filter out the workloads based on the pattern
     target_workloads = helpers.filter_workloads(
         available_workloads=available_workloads, benchmark_context=benchmark_context
     )
+
+    if len(target_workloads) == 0:
+        log.error("No workloads matched the pattern: " + str(benchmark_context.benchmark_target_workload))
+        log.error("Please check the pattern and workload NAME property, query group and query name.")
+        log.info("Currently available workloads: ")
+        log.log(helpers.list_available_workloads(benchmark_context.customer_workloads))
+        sys.exit(1)
 
     # Run all target workloads.
     for workload, queries in target_workloads:
