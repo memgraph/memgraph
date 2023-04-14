@@ -20,7 +20,7 @@
 #include "query/parameters.hpp"
 #include "query/plan/profile.hpp"
 #include "query/trigger.hpp"
-#include "storage/rocks/storage.hpp"
+#include "storage/v2/disk/storage.hpp"
 #include "utils/async_timer.hpp"
 
 namespace memgraph::query {

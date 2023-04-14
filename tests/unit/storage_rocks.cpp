@@ -16,8 +16,8 @@
 
 #include "query/common.hpp"
 #include "query/db_accessor.hpp"
-#include "storage/rocks/storage.hpp"
 #include "storage/v2/delta.hpp"
+#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/property_value.hpp"

@@ -10,7 +10,9 @@ set(storage_v2_src_files
     indices.cpp
     property_store.cpp
     vertex_accessor.cpp
-    storage.cpp)
+    storage.cpp
+    disk/compaction_filter.cpp
+    disk/storage.hpp)
 
 
 set(storage_v2_src_files

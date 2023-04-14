@@ -22,7 +22,7 @@
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
 #include "query/stream/streams.hpp"
-#include "storage/rocks/storage.hpp"
+#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/storage.hpp"
 #include "test_utils.hpp"
 

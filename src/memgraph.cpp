@@ -99,7 +99,7 @@
 #include "audit/log.hpp"
 #endif
 // Disk storage includes
-#include "storage/rocks/storage.hpp"
+#include "storage/v2/disk/storage.hpp"
 
 constexpr const char *kMgUser = "MEMGRAPH_USER";
 constexpr const char *kMgPassword = "MEMGRAPH_PASSWORD";

@@ -50,7 +50,7 @@
 #include "query/stream/common.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
-#include "storage/rocks/storage.hpp"
+#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"

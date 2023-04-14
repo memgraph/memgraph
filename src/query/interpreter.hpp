@@ -32,7 +32,7 @@
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
-#include "storage/rocks/storage.hpp"
+#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
