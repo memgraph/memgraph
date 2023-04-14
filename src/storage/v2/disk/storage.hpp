@@ -353,6 +353,7 @@ class RocksDBStorage {
 
   //   /// Deserialize edge from the given key-value.
   //   /// Properties are read from value and set to the edge later.
+  //   ///
   //   query::EdgeAccessor DeserializeEdge(const std::string_view key, const std::string_view value,
   //                                       query::DbAccessor &dba) {
   //     const auto edge_parts = utils::Split(key, "|");

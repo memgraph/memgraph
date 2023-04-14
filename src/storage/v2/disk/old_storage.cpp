@@ -16,6 +16,7 @@
 #include <memory>
 #include <mutex>
 #include <variant>
+#include <vector>
 #include "storage/v2/result.hpp"
 #include "storage/v2/storage.hpp"
 
@@ -190,9 +191,29 @@ Result<std::unique_ptr<VertexAccessor>> DiskStorage::DiskAccessor::DeleteVertex(
   return Result<std::unique_ptr<VertexAccessor>>{std::unique_ptr<VertexAccessor>(vertex)};
 }
 
+Result<std::vector<std::unique_ptr<EdgeAccessor>>> DeleteEdges(const auto &edge_accessors) {
+  using ReturnType = std::vector<std::unique_ptr<EdgeAccessor>>;
+  ReturnType edge_accs;
+  for (auto &&it : edge_accessors) {
+    if (const auto deleted_edge_res = DeleteEdge(it); !deleted_edge_res.HasError()) {
+      return deleted_edge_res.GetError();
+    }
+    // edge_accs.push_back(std::make_unique<DiskEdgeAccessor>(std::move(it), nullptr, nullptr, nullptr));
+  }
+  return edge_accs;
+}
+
 Result<std::optional<std::pair<std::unique_ptr<VertexAccessor>, std::vector<std::unique_ptr<EdgeAccessor>>>>>
 DiskStorage::DiskAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
   using ReturnType = std::pair<std::unique_ptr<VertexAccessor>, std::vector<std::unique_ptr<EdgeAccessor>>>;
+  auto *disk_vertex_acc = dynamic_cast<DiskVertexAccessor *>(vertex);
+  MG_ASSERT(disk_vertex_acc,
+            "VertexAccessor must be from the same storage as the storage accessor when deleting a vertex!");
+  MG_ASSERT(disk_vertex_acc->transaction_ == &transaction_,
+            "VertexAccessor must be from the same transaction as the storage "
+            "accessor when deleting a vertex!");
+  auto *vertex_ptr = disk_vertex_acc->vertex_;
+
   auto del_vertex = DeleteVertex(vertex);
   if (del_vertex.HasError()) {
     return del_vertex.GetError();
@@ -203,134 +224,244 @@ DiskStorage::DiskAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
   if (out_edges.HasError() || in_edges.HasError()) {
     return out_edges.GetError();
   }
-  // if (auto del_edges = DeleteEdges(*out_edges), del_in_edges = DeleteEdges(*in_edges);
-  //     del_edges.has_value() && del_in_edges.has_value()) {
-  //   del_edges->insert(del_in_edges->end(), std::make_move_iterator(del_in_edges->begin()),
-  //                     std::make_move_iterator(del_in_edges->end()));
-  //   return std::make_pair(*del_vertex, *del_edges);
-  // }
+
+  if (auto del_edges = DeleteEdges(*out_edges), del_in_edges = DeleteEdges(*in_edges);
+      del_edges.HasError() && del_in_edges.HasError()) {
+    // TODO: optimize this using splice
+    del_edges->insert(del_in_edges->end(), std::make_move_iterator(del_in_edges->begin()),
+                      std::make_move_iterator(del_in_edges->end()));
+    return std::make_optional<ReturnType>(
+        std::make_unique<DiskVertexAccessor>(vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_,
+                                             config_, true),
+        del_edges.GetValue());
+  }
   return Error::SERIALIZATION_ERROR;
 }
 
+// again no need to be here, we should create it at one place
 Result<std::unique_ptr<EdgeAccessor>> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from, VertexAccessor *to,
                                                                             EdgeTypeId edge_type) {
-  throw utils::NotYetImplemented("CreateEdge");
-}
+  auto *from_disk_vertex_acc = dynamic_cast<DiskVertexAccessor *>(from);
+  MG_ASSERT(from_disk_vertex_acc,
+            "VertexAccessor must be from the same storage as the storage accessor when deleting a vertex!");
+  MG_ASSERT(from_disk_vertex_acc->transaction_ == &transaction_,
+            "VertexAccessor must be from the same transaction as the storage "
+            "accessor when deleting a vertex!");
+  auto *to_disk_vertex_acc = dynamic_cast<DiskVertexAccessor *>(to);
+  MG_ASSERT(to_disk_vertex_acc,
+            "VertexAccessor must be from the same storage as the storage accessor when deleting a vertex!");
+  MG_ASSERT(to_disk_vertex_acc->transaction_ == &transaction_,
+            "VertexAccessor must be from the same transaction as the storage "
+            "accessor when deleting a vertex!");
 
-Result<std::unique_ptr<EdgeAccessor>> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from, VertexAccessor *to,
-                                                                            EdgeTypeId edge_type, storage::Gid gid) {
-  throw utils::NotYetImplemented("CreateEdge");
+  auto from_vertex = from_disk_vertex_acc->vertex_;
+  auto to_vertex = to_disk_vertex_acc->vertex_;
+
+  // Obtain the locks by `gid` order to avoid lock cycles.
+  std::unique_lock<utils::SpinLock> guard_from(from_vertex->lock, std::defer_lock);
+  std::unique_lock<utils::SpinLock> guard_to(to_vertex->lock, std::defer_lock);
+  if (from_vertex->gid < to_vertex->gid) {
+    guard_from.lock();
+    guard_to.lock();
+  } else if (from_vertex->gid > to_vertex->gid) {
+    guard_to.lock();
+    guard_from.lock();
+  } else {
+    // The vertices are the same vertex, only lock one.
+    guard_from.lock();
+  }
+
+  if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
+  if (from_vertex->deleted) return Error::DELETED_OBJECT;
+
+  if (to_vertex != from_vertex) {
+    if (!PrepareForWrite(&transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
+    if (to_vertex->deleted) return Error::DELETED_OBJECT;
+  }
+
+  auto gid = storage::Gid::FromUint(storage_->edge_id_.fetch_add(1, std::memory_order_acq_rel));
+  EdgeRef edge(gid);
+  if (config_.properties_on_edges) {
+    auto acc = storage_->edges_.access();
+    auto delta = CreateDeleteObjectDelta(&transaction_);
+    auto [it, inserted] = acc.insert(Edge(gid, delta));
+    MG_ASSERT(inserted, "The edge must be inserted here!");
+    MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
+    edge = EdgeRef(&*it);
+    delta->prev.Set(&*it);
+  }
+
+  CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
+  from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
+
+  CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
+  to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
+
+  // Increment edge count.
+  storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
+
+  return Result<std::unique_ptr<EdgeAccessor>>{std::make_unique<DiskEdgeAccessor>(
+      edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_, &storage_->constraints_, config_)};
 }
 
 Result<std::unique_ptr<EdgeAccessor>> DiskStorage::DiskAccessor::DeleteEdge(EdgeAccessor *edge) {
-  throw utils::NotYetImplemented("DeleteEdge");
+  auto *disk_edge_acc = dynamic_cast<DiskEdgeAccessor *>(edge);
+  MG_ASSERT(disk_edge_acc, "EdgeAccessor must be from the same storage as the storage accessor when deleting an edge!");
+  MG_ASSERT(disk_edge_acc->transaction_ == &transaction_,
+            "EdgeAccessor must be from the same transaction as the storage "
+            "accessor when deleting an edge!");
+  auto edge_ref = disk_edge_acc->edge_;
+  auto edge_type = disk_edge_acc->edge_type_;
+
+  auto *from_vertex = disk_edge_acc->from_vertex_;
+  auto *to_vertex = disk_edge_acc->to_vertex_;
+
+  auto [src_dest_key, dest_src_key] = SerializeEdge(edge);
+  if (!CheckRocksDBStatus(storage_->db_->Delete(rocksdb::WriteOptions(), storage_->edge_chandle, src_dest_key)) ||
+      !CheckRocksDBStatus(storage_->db_->Delete(rocksdb::WriteOptions(), storage_->edge_chandle, dest_src_key))) {
+    return Error::SERIALIZATION_ERROR;
+  }
+
+  return Result<std::unique_ptr<EdgeAccessor>>{
+      std::make_unique<DiskEdgeAccessor>(edge_ref, edge_type, from_vertex, to_vertex, &transaction_,
+                                         &storage_->indices_, &storage_->constraints_, config_, true)};
 }
 
+// this should be handled on an above level of abstraction
 const std::string &DiskStorage::DiskAccessor::LabelToName(LabelId label) const { return storage_->LabelToName(label); }
 
+// this should be handled on an above level of abstraction
 const std::string &DiskStorage::DiskAccessor::PropertyToName(PropertyId property) const {
   return storage_->PropertyToName(property);
 }
 
+// this should be handled on an above level of abstraction
 const std::string &DiskStorage::DiskAccessor::EdgeTypeToName(EdgeTypeId edge_type) const {
   return storage_->EdgeTypeToName(edge_type);
 }
 
+// this should be handled on an above level of abstraction
 LabelId DiskStorage::DiskAccessor::NameToLabel(const std::string_view name) { return storage_->NameToLabel(name); }
 
+// this should be handled on an above level of abstraction
 PropertyId DiskStorage::DiskAccessor::NameToProperty(const std::string_view name) {
   return storage_->NameToProperty(name);
 }
 
+// this should be handled on an above level of abstraction
 EdgeTypeId DiskStorage::DiskAccessor::NameToEdgeType(const std::string_view name) {
   return storage_->NameToEdgeType(name);
 }
 
+// this should be handled on an above level of abstraction
 void DiskStorage::DiskAccessor::AdvanceCommand() { ++transaction_.command_id; }
 
+// this will be modified here for a disk-based storage
 utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor::Commit(
     const std::optional<uint64_t> desired_commit_timestamp) {
   throw utils::NotYetImplemented("Commit");
 }
 
+// probably will need some usages here
 void DiskStorage::DiskAccessor::Abort() { throw utils::NotYetImplemented("Abort"); }
 
+// maybe will need some usages here
 void DiskStorage::DiskAccessor::FinalizeTransaction() { throw utils::NotYetImplemented("FinalizeTransaction"); }
 
+// this should be handled on an above level of abstraction
 std::optional<uint64_t> DiskStorage::DiskAccessor::GetTransactionId() const {
   throw utils::NotYetImplemented("GetTransactionId");
 }
 
+// this should be handled on an above level of abstraction
 const std::string &DiskStorage::LabelToName(LabelId label) const { return name_id_mapper_.IdToName(label.AsUint()); }
 
+// this should be handled on an above level of abstraction
 const std::string &DiskStorage::PropertyToName(PropertyId property) const {
   return name_id_mapper_.IdToName(property.AsUint());
 }
 
+// this should be handled on an above level of abstraction
 const std::string &DiskStorage::EdgeTypeToName(EdgeTypeId edge_type) const {
   return name_id_mapper_.IdToName(edge_type.AsUint());
 }
 
+// this should be handled on an above level of abstraction
 LabelId DiskStorage::NameToLabel(const std::string_view name) {
   return LabelId::FromUint(name_id_mapper_.NameToId(name));
 }
 
+// this should be handled on an above level of abstraction
 PropertyId DiskStorage::NameToProperty(const std::string_view name) {
   return PropertyId::FromUint(name_id_mapper_.NameToId(name));
 }
 
+// this should be handled on an above level of abstraction
 EdgeTypeId DiskStorage::NameToEdgeType(const std::string_view name) {
   return EdgeTypeId::FromUint(name_id_mapper_.NameToId(name));
 }
 
+// this should be handled on an above level of abstraction
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
     LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
   throw utils::NotYetImplemented("CreateIndex");
 }
 
+// this should be handled on an above level of abstraction
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   throw utils::NotYetImplemented("CreateIndex");
 }
 
+// this should be handled on an above level of abstraction
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DropIndex(
     LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
   throw utils::NotYetImplemented("DropIndex");
 }
 
+// this should be handled on an above level of abstraction
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DropIndex(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   throw utils::NotYetImplemented("DropIndex");
 }
 
+// this should be handled on an above level of abstraction
 IndicesInfo DiskStorage::ListAllIndices() const { throw utils::NotYetImplemented("ListAllIndices"); }
 
+// this should be handled on an above level of abstraction
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void> DiskStorage::CreateExistenceConstraint(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   throw utils::NotYetImplemented("CreateExistenceConstraint");
 }
 
+// this should be handled on an above level of abstraction
 utils::BasicResult<StorageExistenceConstraintDroppingError, void> DiskStorage::DropExistenceConstraint(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   throw utils::NotYetImplemented("DropExistenceConstraint");
 }
 
+// this should be handled on an above level of abstraction
 utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
 DiskStorage::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
                                     const std::optional<uint64_t> desired_commit_timestamp) {
   throw utils::NotYetImplemented("CreateUniqueConstraint");
 }
 
+// this should be handled on an above level of abstraction
 utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus>
 DiskStorage::DropUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
                                   const std::optional<uint64_t> desired_commit_timestamp) {
   throw utils::NotYetImplemented("DropUniqueConstraint");
 }
 
+// this should be handled on an above level of abstraction
 ConstraintsInfo DiskStorage::ListAllConstraints() const { throw utils::NotYetImplemented("ListAllConstraints"); }
 
+// this should be handled on an above level of abstraction
 StorageInfo DiskStorage::GetInfo() const { throw utils::NotYetImplemented("GetInfo"); }
 
+// How to operate with this?
+// Do we want to return here vertices from the cache or from the disk?
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
   throw utils::NotYetImplemented("Vertices");
 }

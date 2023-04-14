@@ -183,6 +183,8 @@ class DiskStorage final : public Storage {
     /// @throw std::bad_alloc
     Result<std::unique_ptr<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge) override;
 
+    Result<std::vector<std::unique_ptr<EdgeAccessor>>> DeleteEdges(const auto &edge_accessors);
+
     const std::string &LabelToName(LabelId label) const override;
     const std::string &PropertyToName(PropertyId property) const override;
     const std::string &EdgeTypeToName(EdgeTypeId edge_type) const override;
@@ -258,7 +260,11 @@ class DiskStorage final : public Storage {
       return result;
     }
 
+    std::pair<std::string, std::string> SerializeEdge(EdgeAccessor *edge_acc);
+
     std::unique_ptr<VertexAccessor> DeserializeVertex(std::string_view key, std::string_view value);
+
+    std::unique_ptr<EdgeAccessor> DeserializeEdge(std::string_view key, std::string_view value);
 
     DiskStorage *storage_;
     std::shared_lock<utils::RWLock> storage_guard_;
