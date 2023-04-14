@@ -219,6 +219,59 @@ class BoltClientDocker(BaseClient):
         if (queries is None and file_path is None) or (queries is not None and file_path is not None):
             raise ValueError("Either queries or input_path must be specified!")
 
+        self._remove_container()
+        ip = _get_docker_container_ip(self._target_db_container)
+
+        # Perform a check to make sure the database is up and running
+        args = self._get_args(
+            address=ip,
+            input="/bin/check.json",
+            num_workers=1,
+            max_retries=max_retries,
+            queries_json=True,
+            username=self._username,
+            password=self._password,
+            port=self._bolt_port,
+            validation=False,
+            time_dependent_execution=0,
+        )
+
+        self._create_container(*args)
+
+        check_file = Path(self._directory.name) / "check.json"
+        with open(check_file, "w") as f:
+            query = ["RETURN 0;", {}]
+            json.dump(query, f)
+            f.write("\n")
+
+        command = [
+            "docker",
+            "cp",
+            check_file.resolve().as_posix(),
+            self._container_name + ":/bin/" + check_file.name,
+        ]
+        self._run_command(command)
+
+        command = [
+            "docker",
+            "start",
+            "-i",
+            self._container_name,
+        ]
+        while True:
+            try:
+                log.info("Checking if database is up and running")
+                self._run_command(command)
+                break
+            except subprocess.CalledProcessError as e:
+                log.warning("Reported errors from client:")
+                log.warning("Error: {}".format(e.stderr))
+                log.warning("Database is not up yet, waiting 3 second")
+                time.sleep(3)
+
+        log.info("Database is up and running, check passed! ")
+        self._remove_container()
+
         queries_json = False
         if queries is not None:
             queries_json = True
@@ -263,17 +316,14 @@ class BoltClientDocker(BaseClient):
                 "-i",
                 self._container_name,
             ]
-
-            ret = None
-
             self._run_command(command)
-        except:
+        except subprocess.CalledProcessError as e:
             log.warning("Reported errors from client:")
+            log.warning("Error: {}".format(e.stderr))
 
         ret = self._get_logs()
         error = ret.stderr.strip().split("\n")
         if error and error[0] != "":
-            log.warning("Reported errors from client:")
             log.warning("There is a possibility that query from: {} is not executed properly".format(file_path))
             log.warning(*error)
         data = ret.stdout.strip().split("\n")
@@ -1003,5 +1053,5 @@ class Neo4jDocker(BaseRunner):
     def _run_command(self, command):
         print(command)
         ret = subprocess.run(command, capture_output=True, check=True, text=True)
-        time.sleep(0.1)
+        time.sleep(0.2)
         return ret

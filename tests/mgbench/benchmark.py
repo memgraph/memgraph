@@ -528,7 +528,7 @@ if __name__ == "__main__":
             log.info("Using workload as dataset generator...")
             log.warning("Using following indexes...")
             log.info(workload.indexes_generator())
-            client.execute(queries=workload.indexes_generator(), num_workers=benchmark_context.num_workers_for_import)
+            client.execute(queries=workload.indexes_generator(), num_workers=1)
             ret = client.execute(queries=generated_queries, num_workers=benchmark_context.num_workers_for_import)
             usage = vendor_runner.stop_db_init("import")
         else:
@@ -540,7 +540,7 @@ if __name__ == "__main__":
                 log.log("Basic import execution")
                 vendor_runner.start_db_init("import")
                 log.log("Executing database index setup...")
-                client.execute(file_path=workload.get_index(), num_workers=benchmark_context.num_workers_for_import)
+                client.execute(file_path=workload.get_index(), num_workers=1)
                 log.log("Importing dataset...")
                 ret = client.execute(
                     file_path=workload.get_file(), num_workers=benchmark_context.num_workers_for_import

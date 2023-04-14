@@ -26,12 +26,12 @@ class Demo(Workload):
 
     def dataset_generator(self):
         queries = []
-        for i in range(0, 100):
+        for i in range(0, 10000):
             queries.append(("CREATE (:NodeA {id: $id});", {"id": i}))
             queries.append(("CREATE (:NodeB {id: $id});", {"id": i}))
-        for i in range(0, 300):
-            a = random.randint(0, 99)
-            b = random.randint(0, 99)
+        for i in range(0, 50000):
+            a = random.randint(0, 9999)
+            b = random.randint(0, 9999)
             queries.append(
                 (("MATCH(a:NodeA {id: $A_id}),(b:NodeB{id: $B_id}) CREATE (a)-[:EDGE]->(b)"), {"A_id": a, "B_id": b})
             )
