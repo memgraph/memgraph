@@ -11,7 +11,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-# ---    IMPORTANT NOTE: This is NOT an official LDBC Benchmark result.  ---
+# ---  This is not an implementation of an LDBC Benchmark  ---
 import argparse
 import csv
 import sys
