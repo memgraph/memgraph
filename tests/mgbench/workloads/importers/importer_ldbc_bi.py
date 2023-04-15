@@ -8,6 +8,8 @@
 # the Business Source License, use of this software will be governed
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
+
+# ---    IMPORTANT NOTE: This is NOT an official LDBC Benchmark.  ---
 import csv
 import subprocess
 from collections import defaultdict

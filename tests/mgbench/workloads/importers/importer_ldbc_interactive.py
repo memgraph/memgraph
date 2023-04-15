@@ -9,6 +9,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+# ---    IMPORTANT NOTE: This is NOT an official LDBC Benchmark.  ---
 import csv
 import subprocess
 from pathlib import Path
