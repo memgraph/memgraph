@@ -60,6 +60,11 @@ class LabelIndex {
   /// @throw std::bad_alloc
   bool CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor vertices);
 
+  using RecoveryVertexInfo = std::vector<std::pair<Gid, uint64_t>>;
+  /// @throw std::bad_alloc
+  bool CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor vertices, const RecoveryVertexInfo &vertex_batches,
+                   uint64_t thread_count);
+
   /// Returns false if there was no index to drop
   bool DropIndex(LabelId label) { return index_.erase(label) > 0; }
 

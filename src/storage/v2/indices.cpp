@@ -13,12 +13,14 @@
 #include <algorithm>
 #include <iterator>
 #include <limits>
+#include <thread>
 
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/bound.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
+#include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
 
@@ -292,6 +294,80 @@ bool LabelIndex::CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor ve
     index_.erase(it);
     throw;
   }
+  return true;
+}
+
+bool LabelIndex::CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor vertices,
+                             const RecoveryVertexInfo &vertex_batches, uint64_t thread_count) {
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  auto emplace_result = index_.emplace(std::piecewise_construct, std::forward_as_tuple(label), std::forward_as_tuple());
+
+  auto label_it = emplace_result.first;
+  const bool emplaced = emplace_result.second;
+  if (!emplaced) {
+    // Index already exists.
+    return false;
+  }
+
+  std::vector<std::jthread> threads;
+  threads.reserve(thread_count);
+
+  std::atomic<uint64_t> batch_counter = 0;
+
+  utils::Synchronized<std::optional<utils::OutOfMemoryException>, utils::SpinLock> maybe_error{};
+  {
+    for (auto i{0U}; i < thread_count; ++i) {
+      threads.emplace_back([this, &label_it, &vertex_batches, &maybe_error, &batch_counter, &label, &vertices]() {
+        while (!maybe_error.Lock()->has_value()) {
+          const auto batch_index = batch_counter++;
+          if (batch_index >= vertex_batches.size()) {
+            return;
+          }
+          const auto &batch = vertex_batches[batch_index];
+          auto label_index_accessor = index_[label].access();
+          auto it = vertices.find(batch.first);
+
+          try {
+            // TODO(gvolfing) does this need to be a lambda?
+            std::invoke([&it, &label_index_accessor, vertex_count = batch.second, &label]() {
+              for (auto i{0U}; i < vertex_count; ++i, ++it) {
+                auto &vertex = *it;
+                if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
+                  continue;
+                }
+
+                label_index_accessor.insert(Entry{&vertex, 0});
+              }
+            });
+
+          } catch (utils::OutOfMemoryException &failure) {
+            utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
+            index_.erase(label_it);
+            *maybe_error.Lock() = std::move(failure);
+          }
+        }
+      });
+    }
+  }
+  if (maybe_error.Lock()->has_value()) {
+    throw utils::OutOfMemoryException((*maybe_error.Lock())->what());
+  }
+
+  //////////////////////////
+
+  // try {
+  //   auto acc = it->second.access();
+  //   for (Vertex &vertex : vertices) {
+  //     if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
+  //       continue;
+  //     }
+  //     acc.insert(Entry{&vertex, 0});
+  //   }
+  // } catch (const utils::OutOfMemoryException &) {
+  //   utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
+  //   index_.erase(it);
+  //   throw;
+  // }
   return true;
 }
 
