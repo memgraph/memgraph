@@ -126,6 +126,37 @@ class BoltClient(BaseClient):
         validation: bool = False,
         time_dependent_execution: int = 0,
     ):
+        check_db_query = Path(self._directory.name) / "check_db_query.json"
+        with open(check_db_query, "w") as f:
+            query = ["RETURN 0;", {}]
+            json.dump(query, f)
+            f.write("\n")
+
+        check_db_args = self._get_args(
+            input=check_db_query,
+            num_workers=1,
+            max_retries=max_retries,
+            queries_json=True,
+            username=self._username,
+            password=self._password,
+            port=self._bolt_port,
+            validation=False,
+            time_dependent_execution=time_dependent_execution,
+        )
+
+        while True:
+            try:
+                log.log("Checking if database is up and running...")
+                subprocess.run(check_db_args, capture_output=True, text=True, check=True)
+                break
+            except subprocess.CalledProcessError as e:
+                log.warning("Reported errors from client:")
+                log.warning("Error: {}".format(e.stderr))
+                log.warning("Database is not up yet, waiting 3 seconds.")
+                time.sleep(3)
+
+        log.log("Database is up and running, check query passed!")
+
         if (queries is None and file_path is None) or (queries is not None and file_path is not None):
             raise ValueError("Either queries or input_path must be specified!")
 
@@ -137,6 +168,7 @@ class BoltClient(BaseClient):
                 for query in queries:
                     json.dump(query, f)
                     f.write("\n")
+
         args = self._get_args(
             input=file_path,
             num_workers=num_workers,

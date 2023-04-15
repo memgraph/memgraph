@@ -209,7 +209,7 @@ def warmup(condition: str, client: runners.BaseRunner, queries: list = None):
             queries=[
                 ("CREATE ();", {}),
                 ("CREATE ()-[:TempEdge]->();", {}),
-                ("MATCH (n) RETURN n LIMIT 1;", {}),
+                ("MATCH (n) RETURN count(n.prop) LIMIT 1;", {}),
             ],
             num_workers=1,
         )
