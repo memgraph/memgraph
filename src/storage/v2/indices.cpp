@@ -274,63 +274,68 @@ void LabelIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transacti
   acc.insert(Entry{vertex, tx.start_timestamp});
 }
 
-bool LabelIndex::CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor vertices) {
-  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-  auto [it, emplaced] = index_.emplace(std::piecewise_construct, std::forward_as_tuple(label), std::forward_as_tuple());
-  if (!emplaced) {
-    // Index already exists.
-    return false;
-  }
-  try {
-    auto acc = it->second.access();
-    for (Vertex &vertex : vertices) {
-      if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
-        continue;
-      }
-      acc.insert(Entry{&vertex, 0});
-    }
-  } catch (const utils::OutOfMemoryException &) {
-    utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
-    index_.erase(it);
-    throw;
-  }
-  return true;
-}
-
 bool LabelIndex::CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor vertices,
-                             const RecoveryVertexInfo &vertex_batches, uint64_t thread_count) {
-  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-  auto emplace_result = index_.emplace(std::piecewise_construct, std::forward_as_tuple(label), std::forward_as_tuple());
+                             const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info) {
+  auto create_index_seq = [this](LabelId label, utils::SkipList<Vertex>::Accessor &vertices) {
+    utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+    auto [it, emplaced] =
+        index_.emplace(std::piecewise_construct, std::forward_as_tuple(label), std::forward_as_tuple());
+    if (!emplaced) {
+      // Index already exists.
+      return false;
+    }
+    try {
+      auto acc = it->second.access();
+      for (Vertex &vertex : vertices) {
+        if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
+          continue;
+        }
+        acc.insert(Entry{&vertex, 0});
+      }
+    } catch (const utils::OutOfMemoryException &) {
+      utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
+      index_.erase(it);
+      throw;
+    }
+    return true;
+  };
 
-  auto label_it = emplace_result.first;
-  const bool emplaced = emplace_result.second;
-  if (!emplaced) {
-    // Index already exists.
-    return false;
-  }
+  auto create_index_par = [this](LabelId label, utils::SkipList<Vertex>::Accessor &vertices,
+                                 const ParalellizedIndexCreationInfo &paralell_exec_info) {
+    utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+    auto emplace_result =
+        index_.emplace(std::piecewise_construct, std::forward_as_tuple(label), std::forward_as_tuple());
 
-  std::vector<std::jthread> threads;
-  threads.reserve(thread_count);
+    auto label_it = emplace_result.first;
+    const bool emplaced = emplace_result.second;
+    if (!emplaced) {
+      // Index already exists.
+      return false;
+    }
 
-  std::atomic<uint64_t> batch_counter = 0;
+    const auto &vertex_batches = paralell_exec_info.first;
+    const auto thread_count = paralell_exec_info.second;
 
-  utils::Synchronized<std::optional<utils::OutOfMemoryException>, utils::SpinLock> maybe_error{};
-  {
-    for (auto i{0U}; i < thread_count; ++i) {
-      threads.emplace_back([this, &label_it, &vertex_batches, &maybe_error, &batch_counter, &label, &vertices]() {
-        while (!maybe_error.Lock()->has_value()) {
-          const auto batch_index = batch_counter++;
-          if (batch_index >= vertex_batches.size()) {
-            return;
-          }
-          const auto &batch = vertex_batches[batch_index];
-          auto label_index_accessor = index_[label].access();
-          auto it = vertices.find(batch.first);
+    std::vector<std::jthread> threads;
+    threads.reserve(thread_count);
 
-          try {
-            // TODO(gvolfing) does this need to be a lambda?
-            std::invoke([&it, &label_index_accessor, vertex_count = batch.second, &label]() {
-              for (auto i{0U}; i < vertex_count; ++i, ++it) {
+    std::atomic<uint64_t> batch_counter = 0;
+
+    utils::Synchronized<std::optional<utils::OutOfMemoryException>, utils::SpinLock> maybe_error{};
+    {
+      for (auto i{0U}; i < thread_count; ++i) {
+        threads.emplace_back([this, &label_it, &vertex_batches, &maybe_error, &batch_counter, &label, &vertices]() {
+          while (!maybe_error.Lock()->has_value()) {
+            const auto batch_index = batch_counter++;
+            if (batch_index >= vertex_batches.size()) {
+              return;
+            }
+            const auto &batch = vertex_batches[batch_index];
+            auto label_index_accessor = index_[label].access();
+            auto it = vertices.find(batch.first);
+
+            try {
+              for (auto i{0U}; i < batch.second; ++i, ++it) {
                 auto &vertex = *it;
                 if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
                   continue;
@@ -338,37 +343,28 @@ bool LabelIndex::CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor ve
 
                 label_index_accessor.insert(Entry{&vertex, 0});
               }
-            });
 
-          } catch (utils::OutOfMemoryException &failure) {
-            utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
-            index_.erase(label_it);
-            *maybe_error.Lock() = std::move(failure);
+            } catch (utils::OutOfMemoryException &failure) {
+              utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
+              index_.erase(label_it);
+              *maybe_error.Lock() = std::move(failure);
+            }
           }
-        }
-      });
+        });
+      }
     }
-  }
-  if (maybe_error.Lock()->has_value()) {
-    throw utils::OutOfMemoryException((*maybe_error.Lock())->what());
+    if (maybe_error.Lock()->has_value()) {
+      throw utils::OutOfMemoryException((*maybe_error.Lock())->what());
+    }
+
+    return true;
+  };
+
+  if (paralell_exec_info) {
+    return create_index_par(label, vertices, *paralell_exec_info);
   }
 
-  //////////////////////////
-
-  // try {
-  //   auto acc = it->second.access();
-  //   for (Vertex &vertex : vertices) {
-  //     if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
-  //       continue;
-  //     }
-  //     acc.insert(Entry{&vertex, 0});
-  //   }
-  // } catch (const utils::OutOfMemoryException &) {
-  //   utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
-  //   index_.erase(it);
-  //   throw;
-  // }
-  return true;
+  return create_index_seq(label, vertices);
 }
 
 std::vector<LabelId> LabelIndex::ListIndices() const {

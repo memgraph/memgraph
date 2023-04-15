@@ -119,14 +119,9 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
   // Recover label indices.
   spdlog::info("Recreating {} label indices from metadata.", indices_constraints.indices.label.size());
   for (const auto &item : indices_constraints.indices.label) {
-    if (paralell_exec_info) {
-      if (!indices->label_index.CreateIndex(item, vertices->access(), paralell_exec_info->first,
-                                            paralell_exec_info->second))
-        throw RecoveryFailure("The label index must be created here!");
-    } else {
-      if (!indices->label_index.CreateIndex(item, vertices->access()))
-        throw RecoveryFailure("The label index must be created here!");
-    }
+    if (!indices->label_index.CreateIndex(item, vertices->access(), paralell_exec_info))
+      throw RecoveryFailure("The label index must be created here!");
+
     spdlog::info("A label index is recreated from metadata.");
   }
   spdlog::info("Label indices are recreated.");
@@ -220,6 +215,9 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
     *epoch_id = std::move(recovered_snapshot->snapshot_info.epoch_id);
 
     if (!utils::DirExists(wal_directory)) {
+      // const auto par_exec_info = std::make_pair(recovery_info.vertex_batches,
+      // config.durability.recovery_thread_count); RecoverIndicesAndConstraints(indices_constraints, indices,
+      // constraints, vertices, par_exec_info);
       RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices);
       return recovered_snapshot->recovery_info;
     }
@@ -347,7 +345,8 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
     spdlog::info("All necessary WAL files are loaded successfully.");
   }
 
-  RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices);
+  const auto par_exec_info = std::make_pair(recovery_info.vertex_batches, config.durability.recovery_thread_count);
+  RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices, par_exec_info);
   return recovery_info;
 }
 
