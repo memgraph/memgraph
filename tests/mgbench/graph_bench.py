@@ -74,12 +74,37 @@ def parse_arguments():
         help="number of workers used to execute the benchmark",
     )
 
+    parser.add_argument(
+        "--query-count-lower-bound",
+        type=int,
+        default=300,
+        help="number of workers used to execute the benchmark (works only for isolated run)",
+    )
+
+    parser.add_argument(
+        "--single-threaded-runtime-sec",
+        type=int,
+        default=30,
+        help="Duration of single threaded benchmark per query (works only for isolated run)",
+    )
+
     args = parser.parse_args()
 
     return args
 
 
-def run_full_benchmarks(vendor, binary, dataset, dataset_size, dataset_group, realistic, mixed, workers):
+def run_full_benchmarks(
+    vendor,
+    binary,
+    dataset,
+    dataset_size,
+    dataset_group,
+    realistic,
+    mixed,
+    workers,
+    query_count_lower_bound,
+    single_threaded_runtime_sec,
+):
     configurations = [
         # Basic isolated test cold
         [
@@ -202,7 +227,9 @@ def run_full_benchmarks(vendor, binary, dataset, dataset_size, dataset_group, re
         "--num-workers-for-benchmark",
         str(workers),
         "--single-threaded-runtime-sec",
-        "30",
+        str(single_threaded_runtime_sec),
+        "--query-count-lower-bound",
+        str(query_count_lower_bound),
         "--no-authorization",
         dataset + "/" + dataset_size + "/" + dataset_group + "/*",
     ]
@@ -265,6 +292,8 @@ if __name__ == "__main__":
                 realistic,
                 mixed,
                 args.num_workers_for_benchmark,
+                args.query_count_lower_bound,
+                args.single_threaded_runtime_sec,
             )
             collect_all_results(
                 vendor_name, args.dataset_name, args.dataset_size, args.dataset_group, args.num_workers_for_benchmark

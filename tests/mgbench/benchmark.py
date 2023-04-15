@@ -28,7 +28,6 @@ from workloads import *
 
 WITH_FINE_GRAINED_AUTHORIZATION = "with_fine_grained_authorization"
 WITHOUT_FINE_GRAINED_AUTHORIZATION = "without_fine_grained_authorization"
-QUERY_COUNT_LOWER_BOUND = 30
 
 
 def parse_args():
@@ -68,6 +67,12 @@ def parse_args():
         type=int,
         default=10,
         help="single threaded duration of each query",
+    )
+    benchmark_parser.add_argument(
+        "--query-count-lower-bound",
+        type=int,
+        default=30,
+        help="Lower bound for query count, minimum number of queries that will be executed. If approximated --single-threaded-runtime-sec query count is lower than this value, lower bound is used.",
     )
     benchmark_parser.add_argument(
         "--no-load-query-counts",
@@ -398,9 +403,8 @@ def get_query_cache_count(
                 count = count * 10
         vendor.stop_db("cache")
 
-        QUERY_COUNT_LOWER_BOUND = 30
-        if count < QUERY_COUNT_LOWER_BOUND:
-            count = QUERY_COUNT_LOWER_BOUND
+        if count < benchmark_context.query_count_lower_bound:
+            count = benchmark_context.query_count_lower_bound
 
         config.set_value(
             *config_key,
@@ -445,6 +449,7 @@ if __name__ == "__main__":
         num_workers_for_import=args.num_workers_for_import,
         num_workers_for_benchmark=args.num_workers_for_benchmark,
         single_threaded_runtime_sec=args.single_threaded_runtime_sec,
+        query_count_lower_bound=args.query_count_lower_bound,
         no_load_query_counts=args.no_load_query_counts,
         export_results=args.export_results,
         temporary_directory=temp_dir.absolute(),

@@ -25,6 +25,7 @@ class BenchmarkContext:
         num_workers_for_import: int = None,
         num_workers_for_benchmark: int = None,
         single_threaded_runtime_sec: int = 0,
+        query_count_lower_bound: int = 0,
         no_load_query_counts: bool = False,
         no_save_query_counts: bool = False,
         export_results: str = None,
@@ -45,6 +46,7 @@ class BenchmarkContext:
         self.num_workers_for_import = num_workers_for_import
         self.num_workers_for_benchmark = num_workers_for_benchmark
         self.single_threaded_runtime_sec = single_threaded_runtime_sec
+        self.query_count_lower_bound = query_count_lower_bound
         self.no_load_query_counts = no_load_query_counts
         self.no_save_query_counts = no_save_query_counts
         self.export_results = export_results
