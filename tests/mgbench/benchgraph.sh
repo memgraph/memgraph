@@ -34,6 +34,7 @@ WORKLOADS=(
   # ldbc_interactive_sf3
   # ldbc_bi_sf3
 )
+# TODO(gitbuda): If we want to add multiple number of workers (we want xD), we just add another variable and add another for loop down below.
 
 pokec_small () {
   echo "${FUNCNAME[0]}"
