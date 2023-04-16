@@ -164,7 +164,8 @@ class LabelPropertyIndex {
   void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, const Transaction &tx);
 
   /// @throw std::bad_alloc
-  bool CreateIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices);
+  bool CreateIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
+                   const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info = std::nullopt);
 
   bool DropIndex(LabelId label, PropertyId property) { return index_.erase({label, property}) > 0; }
 

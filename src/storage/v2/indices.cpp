@@ -494,32 +494,109 @@ void LabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const Property
   }
 }
 
-bool LabelPropertyIndex::CreateIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices) {
-  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-  auto [it, emplaced] =
-      index_.emplace(std::piecewise_construct, std::forward_as_tuple(label, property), std::forward_as_tuple());
-  if (!emplaced) {
-    // Index already exists.
-    return false;
-  }
-  try {
-    auto acc = it->second.access();
-    for (Vertex &vertex : vertices) {
-      if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
-        continue;
-      }
-      auto value = vertex.properties.GetProperty(property);
-      if (value.IsNull()) {
-        continue;
-      }
-      acc.insert(Entry{std::move(value), &vertex, 0});
+bool LabelPropertyIndex::CreateIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
+                                     const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info) {
+  auto create_index_seq = [this](LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor &vertices) {
+    utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+    auto [it, emplaced] =
+        index_.emplace(std::piecewise_construct, std::forward_as_tuple(label, property), std::forward_as_tuple());
+    if (!emplaced) {
+      // Index already exists.
+      return false;
     }
-  } catch (const utils::OutOfMemoryException &) {
-    utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
-    index_.erase(it);
-    throw;
+    try {
+      auto acc = it->second.access();
+      for (Vertex &vertex : vertices) {
+        if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
+          continue;
+        }
+        auto value = vertex.properties.GetProperty(property);
+        if (value.IsNull()) {
+          continue;
+        }
+        acc.insert(Entry{std::move(value), &vertex, 0});
+      }
+    } catch (const utils::OutOfMemoryException &) {
+      utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
+      index_.erase(it);
+      throw;
+    }
+    return true;
+  };
+
+  auto create_index_par = [this](LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor &vertices,
+                                 const ParalellizedIndexCreationInfo &paralell_exec_info) {
+    utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+    auto emplace_result =
+        index_.emplace(std::piecewise_construct, std::forward_as_tuple(label, property), std::forward_as_tuple());
+
+    auto label_property_it = emplace_result.first;
+    const bool emplaced = emplace_result.second;
+    if (!emplaced) {
+      // Index already exists.
+      return false;
+    }
+
+    const auto &vertex_batches = paralell_exec_info.first;
+    const auto thread_count = paralell_exec_info.second;
+
+    MG_ASSERT(!vertex_batches.empty(),
+              "The size of batches should always be greater than zero if you want to use the parallel version of index "
+              "creation!");
+
+    std::vector<std::jthread> threads;
+    threads.reserve(thread_count);
+
+    std::atomic<uint64_t> batch_counter = 0;
+
+    utils::Synchronized<std::optional<utils::OutOfMemoryException>, utils::SpinLock> maybe_error{};
+    {
+      for (auto i{0U}; i < thread_count; ++i) {
+        threads.emplace_back(
+            [this, &label_property_it, &vertex_batches, &maybe_error, &batch_counter, &label, &property, &vertices]() {
+              while (!maybe_error.Lock()->has_value()) {
+                const auto batch_index = batch_counter++;
+                if (batch_index >= vertex_batches.size()) {
+                  return;
+                }
+                const auto &batch = vertex_batches[batch_index];
+                auto label_property_index_accessor = index_[std::make_pair(label, property)].access();
+                auto it = vertices.find(batch.first);
+
+                try {
+                  for (auto i{0U}; i < batch.second; ++i, ++it) {
+                    auto &vertex = *it;
+                    if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
+                      continue;
+                    }
+
+                    auto value = vertex.properties.GetProperty(property);
+                    if (value.IsNull()) {
+                      continue;
+                    }
+                    label_property_index_accessor.insert(Entry{std::move(value), &vertex, 0});
+                  }
+
+                } catch (utils::OutOfMemoryException &failure) {
+                  utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
+                  index_.erase(label_property_it);
+                  *maybe_error.Lock() = std::move(failure);
+                }
+              }
+            });
+      }
+    }
+    if (maybe_error.Lock()->has_value()) {
+      throw utils::OutOfMemoryException((*maybe_error.Lock())->what());
+    }
+
+    return true;
+  };
+
+  if (paralell_exec_info) {
+    return create_index_par(label, property, vertices, *paralell_exec_info);
   }
-  return true;
+  return create_index_seq(label, property, vertices);
 }
 
 std::vector<std::pair<LabelId, PropertyId>> LabelPropertyIndex::ListIndices() const {
