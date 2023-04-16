@@ -147,8 +147,13 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
     info.offset_mapper = read_offset();
     info.offset_epoch_history = read_offset();
     info.offset_metadata = read_offset();
-    info.offset_edge_batches = read_offset();
-    info.offset_vertex_batches = read_offset();
+    if (*version >= 15U) {
+      info.offset_edge_batches = read_offset();
+      info.offset_vertex_batches = read_offset();
+    } else {
+      info.offset_edge_batches = 0U;
+      info.offset_vertex_batches = 0U;
+    }
   }
 
   // Read metadata.
