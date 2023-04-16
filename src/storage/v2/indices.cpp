@@ -316,6 +316,10 @@ bool LabelIndex::CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor ve
     const auto &vertex_batches = paralell_exec_info.first;
     const auto thread_count = paralell_exec_info.second;
 
+    MG_ASSERT(!vertex_batches.empty(),
+              "The size of batches should always be greater than zero if you want to use the parallel version of index "
+              "creation!");
+
     std::vector<std::jthread> threads;
     threads.reserve(thread_count);
 

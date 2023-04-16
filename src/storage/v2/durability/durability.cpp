@@ -215,10 +215,8 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
     *epoch_id = std::move(recovered_snapshot->snapshot_info.epoch_id);
 
     if (!utils::DirExists(wal_directory)) {
-      // const auto par_exec_info = std::make_pair(recovery_info.vertex_batches,
-      // config.durability.recovery_thread_count); RecoverIndicesAndConstraints(indices_constraints, indices,
-      // constraints, vertices, par_exec_info);
-      RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices);
+      const auto par_exec_info = std::make_pair(recovery_info.vertex_batches, config.durability.recovery_thread_count);
+      RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices, par_exec_info);
       return recovered_snapshot->recovery_info;
     }
   } else {
@@ -345,8 +343,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
     spdlog::info("All necessary WAL files are loaded successfully.");
   }
 
-  const auto par_exec_info = std::make_pair(recovery_info.vertex_batches, config.durability.recovery_thread_count);
-  RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices, par_exec_info);
+  RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices);
   return recovery_info;
 }
 
