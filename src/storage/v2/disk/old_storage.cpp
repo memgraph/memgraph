@@ -115,7 +115,13 @@ DiskStorage::DiskAccessor::~DiskAccessor() {
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
-  throw utils::NotYetImplemented("DiskStorage::DiskAccessor::Vertices");
+  auto it =
+      std::unique_ptr<rocksdb::Iterator>(storage_->db_->NewIterator(rocksdb::ReadOptions(), storage_->vertex_chandle));
+  for (it->SeekToFirst(); it->Valid(); it->Next()) {
+    DeserializeVertex(it->key().ToStringView(), it->value().ToStringView());
+  }
+  return VerticesIterable(AllVerticesIterable(vertices_.access(), &transaction_, view, &storage_->indices_,
+                                              &storage_->constraints_, storage_->config_.items));
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
@@ -178,8 +184,7 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex(storage:
 std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(const std::string_view key,
                                                                              const std::string_view value) {
   /// Create vertex
-  spdlog::info("Key to deserialize: {}", key);
-  const auto vertex_parts = utils::Split(key, "|");
+  const std::vector<std::string> vertex_parts = utils::Split(key, "|");
   auto impl = CreateVertex(storage::Gid::FromUint(std::stoull(vertex_parts[1])));
   // Deserialize labels
   if (!vertex_parts[0].empty()) {

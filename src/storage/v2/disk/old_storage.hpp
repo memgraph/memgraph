@@ -93,8 +93,10 @@ class DiskStorage final : public Storage {
 
     std::unique_ptr<VertexAccessor> FindVertex(Gid gid, View view) override;
 
+    /// Utility method to load all vertices from the underlying KV storage.
     VerticesIterable Vertices(View view) override;
 
+    /// Utility method to load all vertices from the underlying KV storage with label `label`.
     VerticesIterable Vertices(LabelId label, View view) override;
 
     VerticesIterable Vertices(LabelId label, PropertyId property, View view) override;
@@ -232,7 +234,8 @@ class DiskStorage final : public Storage {
 
     std::pair<std::string, std::string> SerializeEdge(EdgeAccessor *edge_acc);
 
-    std::unique_ptr<VertexAccessor> DeserializeVertex(std::string_view key, std::string_view value);
+    /// Deserializes vertex from the string and stores it into the skip list
+    std::unique_ptr<VertexAccessor> DeserializeVertex(std::string_view vertex_parts, std::string_view value);
 
     std::unique_ptr<EdgeAccessor> DeserializeEdge(std::string_view key, std::string_view value);
 
