@@ -435,10 +435,6 @@ struct mgp_vertex {
   /// the allocator which was used to allocate `this`.
   using allocator_type = memgraph::utils::Allocator<mgp_vertex>;
 
-  // Hopefully VertexAccessor copy constructor remains noexcept, so that we can
-  // have everything noexcept here.
-  static_assert(std::is_nothrow_copy_constructible_v<memgraph::query::VertexAccessor>);
-
   mgp_vertex(memgraph::query::VertexAccessor v, mgp_graph *graph, memgraph::utils::MemoryResource *memory) noexcept
       : memory(memory), impl(v), graph(graph) {}
 
@@ -456,7 +452,7 @@ struct mgp_vertex {
 
   memgraph::query::VertexAccessor getImpl() const {
     return std::visit(
-        memgraph::utils::Overloaded{[](memgraph::query::VertexAccessor impl) { return impl; },
+        memgraph::utils::Overloaded{[](const memgraph::query::VertexAccessor &impl) { return impl; },
                                     [](memgraph::query::SubgraphVertexAccessor impl) { return impl.impl_; }},
         this->impl);
   }
@@ -485,10 +481,6 @@ struct mgp_edge {
   /// We don't actually need this, but it simplifies the C API, because we store
   /// the allocator which was used to allocate `this`.
   using allocator_type = memgraph::utils::Allocator<mgp_edge>;
-
-  // Hopefully EdgeAccessor copy constructor remains noexcept, so that we can
-  // have everything noexcept here.
-  static_assert(std::is_nothrow_copy_constructible_v<memgraph::query::EdgeAccessor>);
 
   static mgp_edge *Copy(const mgp_edge &edge, mgp_memory &memory);
 
