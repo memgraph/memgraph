@@ -66,7 +66,7 @@ class InMemoryStorage final : public Storage {
   /// @throw std::bad_alloc
   explicit InMemoryStorage(Config config = Config());
 
-  ~InMemoryStorage();
+  ~InMemoryStorage() override;
 
   class InMemoryAccessor final : public Storage::Accessor {
    private:
