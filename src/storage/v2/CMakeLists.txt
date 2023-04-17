@@ -10,7 +10,8 @@ set(storage_v2_src_files
     indices.cpp
     property_store.cpp
     vertex_accessor.cpp
-    storage.cpp)
+    storage.cpp
+    storage_mode.cpp)
 
 
 set(storage_v2_src_files

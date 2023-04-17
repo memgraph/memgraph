@@ -54,6 +54,7 @@
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
@@ -2319,7 +2320,8 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
   switch (info_query->info_type_) {
     case InfoQuery::InfoType::STORAGE:
       header = {"storage info", "value"};
-      handler = [db] {
+
+      handler = [db, interpreter_context] {
         auto info = db->GetInfo();
         std::vector<std::vector<TypedValue>> results{
             {TypedValue("vertex_count"), TypedValue(static_cast<int64_t>(info.vertex_count))},
@@ -2328,8 +2330,8 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
             {TypedValue("memory_usage"), TypedValue(static_cast<int64_t>(info.memory_usage))},
             {TypedValue("disk_usage"), TypedValue(static_cast<int64_t>(info.disk_usage))},
             {TypedValue("memory_allocated"), TypedValue(static_cast<int64_t>(utils::total_memory_tracker.Amount()))},
-            {TypedValue("allocation_limit"),
-             TypedValue(static_cast<int64_t>(utils::total_memory_tracker.HardLimit()))}};
+            {TypedValue("allocation_limit"), TypedValue(static_cast<int64_t>(utils::total_memory_tracker.HardLimit()))},
+            {TypedValue("storage_mode"), TypedValue(StorageModeToString(interpreter_context->db->GetStorageMode()))}};
         return std::pair{results, QueryHandlerResult::COMMIT};
       };
       break;
