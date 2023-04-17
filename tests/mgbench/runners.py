@@ -160,10 +160,10 @@ class BoltClient(BaseClient):
         if (queries is None and file_path is None) or (queries is not None and file_path is not None):
             raise ValueError("Either queries or input_path must be specified!")
 
-        queries_json = False
+        queries_and_args_json = False
         if queries is not None:
-            queries_json = True
-            file_path = os.path.join(self._directory.name, "queries.json")
+            queries_and_args_json = True
+            file_path = os.path.join(self._directory.name, "queries_and_args_json.json")
             with open(file_path, "w") as f:
                 for query in queries:
                     json.dump(query, f)
@@ -173,7 +173,7 @@ class BoltClient(BaseClient):
             input=file_path,
             num_workers=num_workers,
             max_retries=max_retries,
-            queries_json=queries_json,
+            queries_json=queries_and_args_json,
             username=self._username,
             password=self._password,
             port=self._bolt_port,
@@ -304,9 +304,9 @@ class BoltClientDocker(BaseClient):
         log.log("Database is up and running, check query passed!")
         self._remove_container()
 
-        queries_json = False
+        queries_and_args_json = False
         if queries is not None:
-            queries_json = True
+            queries_and_args_json = True
             file_path = os.path.join(self._directory.name, "queries.json")
             with open(file_path, "w") as f:
                 for query in queries:
@@ -324,7 +324,7 @@ class BoltClientDocker(BaseClient):
             input="/bin/" + file.name,
             num_workers=num_workers,
             max_retries=max_retries,
-            queries_json=queries_json,
+            queries_json=queries_and_args_json,
             username=self._username,
             password=self._password,
             port=self._bolt_port,
@@ -820,7 +820,7 @@ class MemgraphDocker(BaseRunner):
                 "-it",
                 "-p",
                 self._bolt_port + ":" + self._bolt_port,
-                "memgraph/memgraph",
+                "memgraph/memgraph:2.7.0",
                 "--telemetry_enabled=false",
                 "--storage_wal_enabled=false",
                 "--storage_recover_on_startup=true",
