@@ -8,6 +8,7 @@ pushd "$SCRIPT_DIR"
 mg_path="/home/buda/Workspace/code/memgraph/memgraph/build/memgraph"
 neo_path="/home/buda/Downloads/neo4j-community-5.6.0/bin/neo4j"
 workers="12"
+# TODO(gitbuda): Collect info about the hardware -> add to the zip as well.
 
 check_binary () {
   binary_path=$1
@@ -22,6 +23,10 @@ check_binary () {
 check_binary "$mg_path"
 check_binary "$neo_path"
 echo "WORKERS: $workers"
+cat /proc/cpuinfo > cpu.sysinfo
+cat /proc/meminfo > mem.sysinfo
+zip data.zip *.json *.report *.log *.sysinfo
+exit 1
 
 # If you want to skip some of the workloads, just comment lines under the
 # WORKLOADS variable.
