@@ -763,3 +763,29 @@ if __name__ == "__main__":
     if benchmark_context.export_results:
         with open(benchmark_context.export_results, "w") as f:
             json.dump(results.get_data(), f)
+
+    # Results summary.
+    log.init("~" * 45)
+    log.info("Benchmark finished.")
+    log.init("~" * 45)
+    log.log("\n")
+    log.summary("Benchmark summary")
+    log.log("-" * 90)
+    log.summary("{:<20} {:>30} {:>30}".format("Query name", "Throughput", "Peak Memory usage"))
+    with open(benchmark_context.export_results, "r") as f:
+        results = json.load(f)
+        for dataset, variants in results.items():
+            if dataset == "__run_configuration__":
+                continue
+            for variant, groups in variants.items():
+                for group, queries in groups.items():
+                    if group == "__import__":
+                        continue
+                    for query, auth in queries.items():
+                        for key, value in auth.items():
+                            log.log("-" * 90)
+                            log.summary(
+                                "{:<20} {:>26.2f} QPS {:>27.2f} MB".format(
+                                    query, value["throughput"], value["database"]["memory"] / 1024.0 / 1024.0
+                                )
+                            )

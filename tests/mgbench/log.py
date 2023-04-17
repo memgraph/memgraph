@@ -60,3 +60,8 @@ def warning(*args):
 def error(*args):
     _log(COLOR_RED, *args)
     logger.critical(*args)
+
+
+def summary(*args):
+    _log(COLOR_CYAN, *args)
+    logger.info(*args)
