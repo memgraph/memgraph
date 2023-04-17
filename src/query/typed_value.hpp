@@ -269,7 +269,7 @@ class TypedValue {
 
   explicit TypedValue(const EdgeAccessor &edge, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Edge) {
-    new (&edge_v) EdgeAccessor(std::move(edge));
+    new (&edge_v) EdgeAccessor(edge);
   }
 
   explicit TypedValue(const Path &path, utils::MemoryResource *memory = utils::NewDeleteResource())

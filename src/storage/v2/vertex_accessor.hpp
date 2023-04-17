@@ -34,6 +34,8 @@ class VertexAccessor {
   VertexAccessor(Transaction *transaction, Config::Items config, bool for_deleted = false)
       : transaction_(transaction), config_(config), for_deleted_(for_deleted) {}
 
+  VertexAccessor(const VertexAccessor &) = default;
+
   virtual ~VertexAccessor() {}
 
   static std::unique_ptr<VertexAccessor> Create(Vertex *vertex, Transaction *transaction, Indices *indices,
@@ -106,6 +108,8 @@ class VertexAccessor {
   virtual Result<size_t> OutDegree(View view) const = 0;
 
   virtual Gid Gid() const noexcept = 0;
+
+  virtual std::unique_ptr<VertexAccessor> Copy() const = 0;
 
   virtual bool operator==(const VertexAccessor &other) const noexcept = 0;
   bool operator!=(const VertexAccessor &other) const noexcept { return !(*this == other); }
