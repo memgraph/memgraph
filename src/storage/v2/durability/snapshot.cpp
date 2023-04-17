@@ -521,9 +521,9 @@ template <typename TFunc>
 void RecoverOnMultipleThreads(const size_t thread_count, const TFunc &func, const std::vector<BatchInfo> &batches) {
   utils::Synchronized<std::optional<RecoveryFailure>, utils::SpinLock> maybe_error{};
   {
+    std::atomic<uint64_t> batch_counter = 0;
     std::vector<std::jthread> threads;
     threads.reserve(thread_count);
-    std::atomic<uint64_t> batch_counter = 0;
 
     for (auto i{0U}; i < thread_count; ++i) {
       threads.emplace_back([&func, &batches, &maybe_error, &batch_counter]() {
