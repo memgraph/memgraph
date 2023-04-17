@@ -83,6 +83,8 @@ class InMemoryEdgeAccessor final : public EdgeAccessor {
 
   bool IsCycle() const override { return from_vertex_ == to_vertex_; }
 
+  std::unique_ptr<EdgeAccessor> Copy() const override { return std::make_unique<InMemoryEdgeAccessor>(*this); }
+
   bool operator==(const EdgeAccessor &other) const noexcept override {
     const auto *otherEdge = dynamic_cast<const InMemoryEdgeAccessor *>(&other);
     if (otherEdge == nullptr) return false;

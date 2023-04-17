@@ -54,11 +54,12 @@ class VertexAccessor;
 
 class EdgeAccessor final {
  public:
-  storage::EdgeAccessor *impl_;
+  std::unique_ptr<storage::EdgeAccessor> impl_;
 
  public:
-  explicit EdgeAccessor(std::unique_ptr<storage::EdgeAccessor> &impl) : impl_(impl.get()) {}
+  explicit EdgeAccessor(std::unique_ptr<storage::EdgeAccessor> &impl) : impl_(std::move(impl)) {}
   explicit EdgeAccessor(storage::EdgeAccessor *impl) : impl_(impl) {}
+  explicit EdgeAccessor(const EdgeAccessor &impl) : impl_(impl.impl_->Copy()){};
 
   bool IsVisible(storage::View view) const { return impl_->IsVisible(view); }
 
@@ -103,12 +104,16 @@ class EdgeAccessor final {
 
 class VertexAccessor final {
  public:
-  storage::VertexAccessor *impl_;
+  // It can affect performance if we use std::unique_ptr here.
+  std::unique_ptr<storage::VertexAccessor> impl_;
 
   static EdgeAccessor MakeEdgeAccessor(std::unique_ptr<storage::EdgeAccessor> &impl) { return EdgeAccessor(impl); }
 
  public:
   explicit VertexAccessor(storage::VertexAccessor *impl) : impl_(impl) {}
+  explicit VertexAccessor(VertexAccessor &&impl) = default;
+  explicit VertexAccessor(const VertexAccessor &impl) : impl_(impl.impl_->Copy()){};
+  explicit VertexAccessor(VertexAccessor *impl) : VertexAccessor(*impl) {}
 
   bool IsVisible(storage::View view) const { return impl_->IsVisible(view); }
 
@@ -155,7 +160,7 @@ class VertexAccessor final {
 
   auto InEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types, const VertexAccessor &dest) const
       -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *(impl_->InEdges(view))))> {
-    auto maybe_edges = impl_->InEdges(view, edge_types, dest.impl_);
+    auto maybe_edges = impl_->InEdges(view, edge_types, dest.impl_.get());
     if (maybe_edges.HasError()) return maybe_edges.GetError();
     return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
   }
@@ -172,7 +177,7 @@ class VertexAccessor final {
   auto OutEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types,
                 const VertexAccessor &dest) const
       -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *(impl_->OutEdges(view))))> {
-    auto maybe_edges = impl_->OutEdges(view, edge_types, dest.impl_);
+    auto maybe_edges = impl_->OutEdges(view, edge_types, dest.impl_.get());
     if (maybe_edges.HasError()) return maybe_edges.GetError();
     return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
   }
@@ -185,12 +190,9 @@ class VertexAccessor final {
 
   storage::Gid Gid() const noexcept { return impl_->Gid(); }
 
-  bool operator==(const VertexAccessor &v) const noexcept {
-    static_assert(noexcept(impl_ == v.impl_));
-    return impl_ == v.impl_;
-  }
+  bool operator==(const VertexAccessor &v) const { return impl_ == v.impl_; }
 
-  bool operator!=(const VertexAccessor &v) const noexcept { return !(*this == v); }
+  bool operator!=(const VertexAccessor &v) const { return !(*this == v); }
 };
 
 inline VertexAccessor EdgeAccessor::To() const { return VertexAccessor(impl_->ToVertex().get()); }
@@ -206,10 +208,7 @@ class SubgraphVertexAccessor final {
 
   explicit SubgraphVertexAccessor(query::VertexAccessor impl, query::Graph *graph_) : impl_(impl), graph_(graph_) {}
 
-  bool operator==(const SubgraphVertexAccessor &v) const noexcept {
-    static_assert(noexcept(impl_ == v.impl_));
-    return impl_ == v.impl_;
-  }
+  bool operator==(const SubgraphVertexAccessor &v) const { return impl_ == v.impl_; }
 
   auto InEdges(storage::View view) const -> decltype(impl_.InEdges(view));
 
@@ -245,14 +244,14 @@ namespace std {
 template <>
 struct hash<memgraph::query::VertexAccessor> {
   size_t operator()(const memgraph::query::VertexAccessor &v) const {
-    return std::hash<std::remove_pointer<decltype(v.impl_)>::type>{}(*v.impl_);
+    return std::hash<std::remove_pointer<decltype(v.impl_.get())>::type>{}(*v.impl_);
   }
 };
 
 template <>
 struct hash<memgraph::query::EdgeAccessor> {
   size_t operator()(const memgraph::query::EdgeAccessor &e) const {
-    return std::hash<std::remove_pointer<decltype(e.impl_)>::type>{}(*e.impl_);
+    return std::hash<std::remove_pointer<decltype(e.impl_.get())>::type>{}(*e.impl_);
   }
 };
 
@@ -279,7 +278,7 @@ class VerticesIterable final {
         : it_(it) {}
 
     VertexAccessor operator*() const {
-      return std::visit([](auto it_) { return VertexAccessor(*it_); }, it_);
+      return std::visit([](auto it_) { return VertexAccessor{*it_}; }, it_);
     }
 
     Iterator &operator++() {
@@ -325,7 +324,7 @@ class DbAccessor final {
 
   std::optional<VertexAccessor> FindVertex(storage::Gid gid, storage::View view) {
     auto maybe_vertex = accessor_->FindVertex(gid, view);
-    if (maybe_vertex) return VertexAccessor(maybe_vertex.get());
+    if (maybe_vertex) return std::make_optional(VertexAccessor(maybe_vertex.get()));
     return std::nullopt;
   }
 
@@ -356,13 +355,13 @@ class DbAccessor final {
 
   storage::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
                                            const storage::EdgeTypeId &edge_type) {
-    auto maybe_edge = accessor_->CreateEdge(from->impl_, to->impl_, edge_type);
+    auto maybe_edge = accessor_->CreateEdge(from->impl_.get(), to->impl_.get(), edge_type);
     if (maybe_edge.HasError()) return storage::Result<EdgeAccessor>(maybe_edge.GetError());
     return EdgeAccessor((*maybe_edge).get());
   }
 
   storage::Result<std::optional<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge) {
-    auto res = accessor_->DeleteEdge(edge->impl_);
+    auto res = accessor_->DeleteEdge(edge->impl_.get());
     if (res.HasError()) {
       return res.GetError();
     }
@@ -379,7 +378,7 @@ class DbAccessor final {
       VertexAccessor *vertex_accessor) {
     using ReturnType = std::pair<VertexAccessor, std::vector<EdgeAccessor>>;
 
-    auto res = accessor_->DetachDeleteVertex(vertex_accessor->impl_);
+    auto res = accessor_->DetachDeleteVertex(vertex_accessor->impl_.get());
     if (res.HasError()) {
       return res.GetError();
     }
@@ -400,7 +399,7 @@ class DbAccessor final {
   }
 
   storage::Result<std::optional<VertexAccessor>> RemoveVertex(VertexAccessor *vertex_accessor) {
-    auto res = accessor_->DeleteVertex(vertex_accessor->impl_);
+    auto res = accessor_->DeleteVertex(vertex_accessor->impl_.get());
     if (res.HasError()) {
       return res.GetError();
     }

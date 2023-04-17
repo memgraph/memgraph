@@ -72,6 +72,8 @@ class EdgeAccessor {
 
   virtual bool IsCycle() const = 0;
 
+  virtual std::unique_ptr<EdgeAccessor> Copy() const = 0;
+
   virtual bool operator==(const EdgeAccessor &other) const noexcept = 0;
   bool operator!=(const EdgeAccessor &other) const noexcept { return !(*this == other); }
 
