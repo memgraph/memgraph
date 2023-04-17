@@ -38,6 +38,7 @@
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/rw_lock.hpp"
@@ -92,11 +93,7 @@ class DiskStorage final : public Storage {
 
     std::unique_ptr<VertexAccessor> FindVertex(Gid gid, View view) override;
 
-    VerticesIterable Vertices(View view) override {
-      return VerticesIterable(AllVerticesIterable(storage_->vertices_.access(), &transaction_, view,
-                                                  &storage_->indices_, &storage_->constraints_,
-                                                  storage_->config_.items));
-    }
+    VerticesIterable Vertices(View view) override;
 
     VerticesIterable Vertices(LabelId label, View view) override;
 
@@ -108,79 +105,57 @@ class DiskStorage final : public Storage {
                               const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                               const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
 
-    /// Return approximate number of all vertices in the database.
-    /// Note that this is always an over-estimate and never an under-estimate.
-    int64_t ApproximateVertexCount() const override { return storage_->vertices_.size(); }
+    int64_t ApproximateVertexCount() const override {
+      throw utils::NotYetImplemented("ApproximateVertexCount() is not implemented for DiskStorage.");
+    }
 
-    /// Return approximate number of vertices with the given label.
-    /// Note that this is always an over-estimate and never an under-estimate.
     int64_t ApproximateVertexCount(LabelId label) const override {
-      return storage_->indices_.label_index.ApproximateVertexCount(label);
+      throw utils::NotYetImplemented("ApproximateVertexCount(label) is not implemented for DiskStorage.");
     }
 
-    /// Return approximate number of vertices with the given label and property.
-    /// Note that this is always an over-estimate and never an under-estimate.
     int64_t ApproximateVertexCount(LabelId label, PropertyId property) const override {
-      return storage_->indices_.label_property_index.ApproximateVertexCount(label, property);
+      throw utils::NotYetImplemented("ApproximateVertexCount(label, property) is not implemented for DiskStorage.");
     }
 
-    /// Return approximate number of vertices with the given label and the given
-    /// value for the given property. Note that this is always an over-estimate
-    /// and never an under-estimate.
     int64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const override {
-      return storage_->indices_.label_property_index.ApproximateVertexCount(label, property, value);
+      throw utils::NotYetImplemented(
+          "ApproximateVertexCount(label, property, value) is not implemented for DiskStorage.");
     }
 
-    /// Return approximate number of vertices with the given label and value for
-    /// the given property in the range defined by provided upper and lower
-    /// bounds.
     int64_t ApproximateVertexCount(LabelId label, PropertyId property,
                                    const std::optional<utils::Bound<PropertyValue>> &lower,
                                    const std::optional<utils::Bound<PropertyValue>> &upper) const override {
-      return storage_->indices_.label_property_index.ApproximateVertexCount(label, property, lower, upper);
+      throw utils::NotYetImplemented(
+          "ApproximateVertexCount(label, property, lower, upper) is not implemented for DiskStorage.");
     }
 
     std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId &label,
                                                      const storage::PropertyId &property) const override {
-      return storage_->indices_.label_property_index.GetIndexStats(label, property);
+      throw utils::NotYetImplemented("GetIndexStats() is not implemented for DiskStorage.");
     }
 
     std::vector<std::pair<LabelId, PropertyId>> ClearIndexStats() override {
-      return storage_->indices_.label_property_index.ClearIndexStats();
+      throw utils::NotYetImplemented("ClearIndexStats() is not implemented for DiskStorage.");
     }
 
     std::vector<std::pair<LabelId, PropertyId>> DeleteIndexStatsForLabels(
         const std::span<std::string> labels) override {
-      std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;
-      std::for_each(labels.begin(), labels.end(), [this, &deleted_indexes](const auto &label_str) {
-        std::vector<std::pair<LabelId, PropertyId>> loc_results =
-            storage_->indices_.label_property_index.DeleteIndexStatsForLabel(NameToLabel(label_str));
-        deleted_indexes.insert(deleted_indexes.end(), std::make_move_iterator(loc_results.begin()),
-                               std::make_move_iterator(loc_results.end()));
-      });
-      return deleted_indexes;
+      throw utils::NotYetImplemented("DeleteIndexStatsForLabels(labels) is not implemented for DiskStorage.");
     }
 
     void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
                        const IndexStats &stats) override {
-      storage_->indices_.label_property_index.SetIndexStats(label, property, stats);
+      throw utils::NotYetImplemented("SetIndexStats(stats) is not implemented for DiskStorage.");
     }
 
-    /// @return Accessor to the deleted vertex if a deletion took place, std::nullopt otherwise
-    /// @throw std::bad_alloc
     Result<std::unique_ptr<VertexAccessor>> DeleteVertex(VertexAccessor *vertex) override;
 
-    /// @return Accessor to the deleted vertex and deleted edges if a deletion took place, std::nullopt otherwise
-    /// @throw std::bad_alloc
     Result<std::optional<std::pair<std::unique_ptr<VertexAccessor>, std::vector<std::unique_ptr<EdgeAccessor>>>>>
     DetachDeleteVertex(VertexAccessor *vertex) override;
 
-    /// @throw std::bad_alloc
     Result<std::unique_ptr<EdgeAccessor>> CreateEdge(VertexAccessor *from, VertexAccessor *to,
                                                      EdgeTypeId edge_type) override;
 
-    /// Accessor to the deleted edge if a deletion took place, std::nullopt otherwise
-    /// @throw std::bad_alloc
     Result<std::unique_ptr<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge) override;
 
     Result<std::vector<std::unique_ptr<EdgeAccessor>>> DeleteEdges(const auto &edge_accessors);
@@ -198,29 +173,24 @@ class DiskStorage final : public Storage {
     /// @throw std::bad_alloc if unable to insert a new mapping
     EdgeTypeId NameToEdgeType(std::string_view name) override;
 
-    bool LabelIndexExists(LabelId label) const override { return storage_->indices_.label_index.IndexExists(label); }
+    bool LabelIndexExists(LabelId label) const override {
+      throw utils::NotYetImplemented("LabelIndexExists() is not implemented for DiskStorage.");
+    }
 
     bool LabelPropertyIndexExists(LabelId label, PropertyId property) const override {
-      return storage_->indices_.label_property_index.IndexExists(label, property);
+      throw utils::NotYetImplemented("LabelPropertyIndexExists() is not implemented for DiskStorage.");
     }
 
     IndicesInfo ListAllIndices() const override {
-      return {storage_->indices_.label_index.ListIndices(), storage_->indices_.label_property_index.ListIndices()};
+      throw utils::NotYetImplemented("ListAllIndices() is not implemented for DiskStorage.");
     }
 
     ConstraintsInfo ListAllConstraints() const override {
-      return {ListExistenceConstraints(storage_->constraints_),
-              storage_->constraints_.unique_constraints.ListConstraints()};
+      throw utils::NotYetImplemented("ListAllConstraints() is not implemented for DiskStorage.");
     }
 
     void AdvanceCommand() override;
 
-    /// Returns void if the transaction has been committed.
-    /// Returns `StorageDataManipulationError` if an error occures. Error can be:
-    /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
-    /// * `ConstraintViolation`: the changes made by this transaction violate an existence or unique constraint. In this
-    /// case the transaction is automatically aborted.
-    /// @throw std::bad_alloc
     utils::BasicResult<StorageDataManipulationError, void> Commit(
         std::optional<uint64_t> desired_commit_timestamp = {}) override;
 
@@ -267,6 +237,11 @@ class DiskStorage final : public Storage {
     std::unique_ptr<EdgeAccessor> DeserializeEdge(std::string_view key, std::string_view value);
 
     DiskStorage *storage_;
+    /// Accessor is tighly coupled with the transaction and we store read/write set per transaction. That's why objects
+    /// need to be stored here.
+    utils::SkipList<storage::Vertex> vertices_;
+    utils::SkipList<storage::Edge> edges_;
+
     std::shared_lock<utils::RWLock> storage_guard_;
     Transaction transaction_;
     std::optional<uint64_t> commit_timestamp_;
@@ -440,9 +415,6 @@ class DiskStorage final : public Storage {
   // creation.
   mutable utils::RWLock main_lock_{utils::RWLock::Priority::WRITE};
 
-  // Main object storage
-  utils::SkipList<storage::Vertex> vertices_;
-  utils::SkipList<storage::Edge> edges_;
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};
   // Even though the edge count is already kept in the `edges_` SkipList, the
@@ -533,10 +505,10 @@ class DiskStorage final : public Storage {
   // Last commited timestamp
   std::atomic<uint64_t> last_commit_timestamp_{kTimestampInitialId};
 
-  class ReplicationServer;
-  std::unique_ptr<ReplicationServer> replication_server_{nullptr};
+  // class ReplicationServer;
+  // std::unique_ptr<ReplicationServer> replication_server_{nullptr};
 
-  class ReplicationClient;
+  // class ReplicationClient;
   // We create ReplicationClient using unique_ptr so we can move
   // newly created client into the vector.
   // We cannot move the client directly because it contains ThreadPool
@@ -547,10 +519,10 @@ class DiskStorage final : public Storage {
   // This way we can initialize client in main thread which means
   // that we can immediately notify the user if the initialization
   // failed.
-  using ReplicationClientList = utils::Synchronized<std::vector<std::unique_ptr<ReplicationClient>>, utils::SpinLock>;
-  ReplicationClientList replication_clients_;
+  // using ReplicationClientList = utils::Synchronized<std::vector<std::unique_ptr<ReplicationClient>>,
+  // utils::SpinLock>; ReplicationClientList replication_clients_;
 
-  std::atomic<ReplicationRole> replication_role_{ReplicationRole::MAIN};
+  // std::atomic<ReplicationRole> replication_role_{ReplicationRole::MAIN};
 
   rocksdb::Options options_;
   rocksdb::DB *db_;

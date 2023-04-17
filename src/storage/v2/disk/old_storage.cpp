@@ -17,6 +17,7 @@
 #include <mutex>
 #include <variant>
 #include <vector>
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/storage.hpp"
 
@@ -113,13 +114,35 @@ DiskStorage::DiskAccessor::~DiskAccessor() {
   FinalizeTransaction();
 }
 
+VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
+  throw utils::NotYetImplemented("DiskStorage::DiskAccessor::Vertices");
+}
+
+VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
+  throw utils::NotYetImplemented("DiskStorage::DiskAccessor::Vertices(label)");
+}
+
+VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, View view) {
+  throw utils::NotYetImplemented("DiskStorage::DiskAccessor::Vertices(label, property)");
+}
+
+VerticesIterable Vertices(LabelId label, PropertyId property, const PropertyValue &value, View view) {
+  throw utils::NotYetImplemented("DiskStorage::DiskAccessor::Vertices(label, property, value)");
+}
+
+VerticesIterable Vertices(LabelId label, PropertyId property,
+                          const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                          const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) {
+  throw utils::NotYetImplemented("DiskStorage::DiskAccessor::Vertices(label, property, lower_bound, upper_bound)");
+}
+
 /*
 This function will be the same for both storage modes. We can move it on a different place later.
 */
 std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex() {
   OOMExceptionEnabler oom_exception;
   auto gid = storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
-  auto acc = storage_->vertices_.access();
+  auto acc = vertices_.access();
   auto delta = CreateDeleteObjectDelta(&transaction_);
   auto [it, inserted] = acc.insert(Vertex{storage::Gid::FromUint(gid), delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
@@ -142,7 +165,7 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex(storage:
   // possible.
   storage_->vertex_id_.store(std::max(storage_->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
                              std::memory_order_release);
-  auto acc = storage_->vertices_.access();
+  auto acc = vertices_.access();
   auto delta = CreateDeleteObjectDelta(&transaction_);
   auto [it, inserted] = acc.insert(Vertex{gid, delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
@@ -282,7 +305,7 @@ Result<std::unique_ptr<EdgeAccessor>> DiskStorage::DiskAccessor::CreateEdge(Vert
   auto gid = storage::Gid::FromUint(storage_->edge_id_.fetch_add(1, std::memory_order_acq_rel));
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
-    auto acc = storage_->edges_.access();
+    auto acc = edges_.access();
     auto delta = CreateDeleteObjectDelta(&transaction_);
     auto [it, inserted] = acc.insert(Edge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
@@ -459,28 +482,6 @@ ConstraintsInfo DiskStorage::ListAllConstraints() const { throw utils::NotYetImp
 
 // this should be handled on an above level of abstraction
 StorageInfo DiskStorage::GetInfo() const { throw utils::NotYetImplemented("GetInfo"); }
-
-// How to operate with this?
-// Do we want to return here vertices from the cache or from the disk?
-VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
-  throw utils::NotYetImplemented("Vertices");
-}
-
-VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, View view) {
-  throw utils::NotYetImplemented("Vertices");
-}
-
-VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, const PropertyValue &value,
-                                                     View view) {
-  throw utils::NotYetImplemented("Vertices");
-}
-
-VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property,
-                                                     const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                                                     const std::optional<utils::Bound<PropertyValue>> &upper_bound,
-                                                     View view) {
-  throw utils::NotYetImplemented("Vertices");
-}
 
 Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level) {
   throw utils::NotYetImplemented("CreateTransaction");
