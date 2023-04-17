@@ -27,12 +27,11 @@ WORKLOADS=(
   ldbc_interactive_sf0_1
   ldbc_interactive_sf1
   ldbc_bi_sf1
-  # ldbc_interactive_sf3
-  # ldbc_bi_sf3
+  ldbc_interactive_sf3
+  ldbc_bi_sf3
 )
 WORKERS=(
-  # 12
-  # 24
+  24
   48
 )
 
