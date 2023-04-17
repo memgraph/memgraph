@@ -136,7 +136,6 @@ package_all () {
 if [ "$#" -eq 0 ]; then
   check_all_binaries
   read -p "Run all benchmarks? y|Y for YES, anything else NO " -n 1 -r
-  echo    # (optional) move to a new line
   if [[ $REPLY =~ ^[Yy]$ ]]; then
     run_all
   fi
