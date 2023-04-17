@@ -1,14 +1,40 @@
 #!/bin/bash -e
 
+pushd () { command pushd "$@" > /dev/null; }
+popd () { command popd "$@" > /dev/null; }
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 pushd "$SCRIPT_DIR"
 
-# TODO(gitbuda): Add relative path to the memgraph build repo and memgraph/libs/neo path (update the neo version there).
-# TODO(gitbuda): Read vars from the env -> FOO="${VARIABLE:-default}".
-mg_path="/home/buda/Workspace/code/memgraph/memgraph/build/memgraph"
-neo_path="/home/buda/Downloads/neo4j-community-5.6.0/bin/neo4j"
-workers="12"
-# TODO(gitbuda): Collect info about the hardware -> add to the zip as well.
+print_help () {
+  echo -e "$0\t\t => runs all available benchmarks with the prompt"
+  echo -e "$0 run_all\t => runs all available benchmarks"
+  echo -e "$0 zip\t => packages all result files and info about the system"
+  echo -e "$0 -h\t => prints help"
+  echo ""
+  echo "  env vars:"
+  echo "    MGBENCH_MEMGRAPH_BIN_PATH -> path to the memgraph binary in the release mode"
+  echo "    MGBENCH_NEO_BIN_PATH -> path to the neo4j binary"
+  exit 0
+}
+
+MG_PATH="${MGBENCH_MEMGRAPH_BIN_PATH:-$SCRIPT_DIR/../../build/memgraph}"
+NEO_PATH="${MGBENCH_NEO_BIN_PATH:-$SCRIPT_DIR/../../libs/neo4j/bin/neo4j}"
+# If you want to skip some of the workloads or workers, just comment lines
+# under the WORKLOADS or WORKERS variables.
+WORKLOADS=(
+  pokec_small
+  pokec_medium
+  ldbc_interactive_sf0_1
+  ldbc_interactive_sf1
+  ldbc_bi_sf1
+  # ldbc_interactive_sf3
+  # ldbc_bi_sf3
+)
+WORKERS=(
+  # 12
+  # 24
+  48
+)
 
 check_binary () {
   binary_path=$1
@@ -19,31 +45,15 @@ check_binary () {
     exit 1
   fi
 }
-
-check_binary "$mg_path"
-check_binary "$neo_path"
-echo "WORKERS: $workers"
-cat /proc/cpuinfo > cpu.sysinfo
-cat /proc/meminfo > mem.sysinfo
-zip data.zip *.json *.report *.log *.sysinfo
-exit 1
-
-# If you want to skip some of the workloads, just comment lines under the
-# WORKLOADS variable.
-WORKLOADS=(
-  pokec_small
-  pokec_medium
-  ldbc_interactive_sf0_1
-  ldbc_interactive_sf1
-  ldbc_bi_sf1
-  # ldbc_interactive_sf3
-  # ldbc_bi_sf3
-)
-# TODO(gitbuda): If we want to add multiple number of workers (we want xD), we just add another variable and add another for loop down below.
+check_all_binaries () {
+  check_binary "$MG_PATH"
+  check_binary "$NEO_PATH"
+}
 
 pokec_small () {
-  echo "${FUNCNAME[0]}"
-  python3 graph_bench.py --vendor memgraph $mg_path --vendor neo4j $neo_path \
+  workers=$1
+  echo "running ${FUNCNAME[0]} with $workers client workers"
+  python3 graph_bench.py --vendor memgraph $MG_PATH --vendor neo4j $NEO_PATH \
     --dataset-name pokec --dataset-group basic  --dataset-size small \
     --realistic 500 30 70 0 0 \
     --realistic 500 30 70 0 0 \
@@ -55,8 +65,9 @@ pokec_small () {
 }
 
 pokec_medium () {
-  echo "${FUNCNAME[0]}"
-  python3 graph_bench.py --vendor memgraph $mg_path --vendor neo4j $neo_path \
+  workers=$1
+  echo "running ${FUNCNAME[0]} with $workers client workers"
+  python3 graph_bench.py --vendor memgraph $MG_PATH --vendor neo4j $NEO_PATH \
     --dataset-name pokec --dataset-group basic  --dataset-size medium \
     --realistic 500 30 70 0 0 \
     --realistic 500 30 70 0 0 \
@@ -68,44 +79,82 @@ pokec_medium () {
 }
 
 ldbc_interactive_sf0_1 () {
-  echo "${FUNCNAME[0]}"
-  python3 graph_bench.py --vendor memgraph $mg_path --vendor neo4j $neo_path \
+  workers=$1
+  echo "running ${FUNCNAME[0]} with $workers client workers"
+  python3 graph_bench.py --vendor memgraph $MG_PATH --vendor neo4j $NEO_PATH \
     --dataset-name ldbc_interactive --dataset-group interactive  --dataset-size sf0.1 \
     --num-workers-for-benchmark $workers
 }
 
 ldbc_interactive_sf1 () {
-  echo "${FUNCNAME[0]}"
-  python3 graph_bench.py --vendor memgraph $mg_path --vendor neo4j $neo_path \
+  workers=$1
+  echo "running ${FUNCNAME[0]} with $workers client workers"
+  python3 graph_bench.py --vendor memgraph $MG_PATH --vendor neo4j $NEO_PATH \
     --dataset-name ldbc_interactive --dataset-group interactive  --dataset-size sf1 \
     --num-workers-for-benchmark $workers
 }
 
 ldbc_bi_sf1 () {
-  echo "${FUNCNAME[0]}"
-  python3 graph_bench.py --vendor memgraph $mg_path --vendor neo4j $neo_path \
+  workers=$1
+  echo "running ${FUNCNAME[0]} with $workers client workers"
+  python3 graph_bench.py --vendor memgraph $MG_PATH --vendor neo4j $NEO_PATH \
     --dataset-name ldbc_bi --dataset-group bi  --dataset-size sf1 \
     --num-workers-for-benchmark $workers
 }
 
 ldbc_interactive_sf3 () {
-  echo "${FUNCNAME[0]}"
-  python3 graph_bench.py --vendor memgraph $mg_path --vendor neo4j $neo_path \
+  workers=$1
+  echo "running ${FUNCNAME[0]} with $workers client workers"
+  python3 graph_bench.py --vendor memgraph $MG_PATH --vendor neo4j $NEO_PATH \
     --dataset-name ldbc_interactive --dataset-group interactive  --dataset-size sf3 \
     --num-workers-for-benchmark $workers
 }
 
 ldbc_bi_sf3 () {
-  echo "${FUNCNAME[0]}"
-  python3 graph_bench.py --vendor memgraph $mg_path --vendor neo4j $neo_path \
+  workers=$1
+  echo "running ${FUNCNAME[0]} with $workers client workers"
+  python3 graph_bench.py --vendor memgraph $MG_PATH --vendor neo4j $NEO_PATH \
     --dataset-name ldbc_bi --dataset-group bi  --dataset-size sf3 \
     --num-workers-for-benchmark $workers
 }
 
-for workload in "${WORKLOADS[@]}"; do
-  $workload
-  sleep 1
-done
+run_all () {
+  for workload in "${WORKLOADS[@]}"; do
+    for workers in "${WORKERS[@]}"; do
+      $workload $workers
+      sleep 1
+    done
+  done
+}
 
-# TODO(gitbuda): Add zip of all result files.
-# TODO(gitbuda): Optionally clean the cache files because a lot of data stays under the system after run of this.
+package_all () {
+  cat /proc/cpuinfo > cpu.sysinfo
+  cat /proc/meminfo > mem.sysinfo
+  zip data.zip *.json *.report *.log *.sysinfo
+}
+
+if [ "$#" -eq 0 ]; then
+  check_all_binaries
+  read -p "Run all benchmarks? y|Y for YES, anything else NO " -n 1 -r
+  echo    # (optional) move to a new line
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    run_all
+  fi
+elif [ "$#" -eq 1 ]; then
+  case $1 in
+    -h | --help)
+      print_help
+    ;;
+    run_all)
+      run_all
+    ;;
+    zip)
+      package_all
+    ;;
+    *)
+      print_help
+    ;;
+  esac
+else
+  print_help
+fi
