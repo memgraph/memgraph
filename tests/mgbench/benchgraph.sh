@@ -7,7 +7,7 @@ pushd "$SCRIPT_DIR"
 # TODO(gitbuda): Read vars from the env -> FOO="${VARIABLE:-default}".
 mg_path="/home/buda/Workspace/code/memgraph/memgraph/build/memgraph"
 neo_path="/home/buda/Downloads/neo4j-community-5.6.0/bin/neo4j"
-workers="48"
+workers="12"
 
 check_binary () {
   binary_path=$1
@@ -38,7 +38,6 @@ WORKLOADS=(
 
 pokec_small () {
   echo "${FUNCNAME[0]}"
-  return # TODO(gitbuda): tmp, remove this line
   python3 graph_bench.py --vendor memgraph $mg_path --vendor neo4j $neo_path \
     --dataset-name pokec --dataset-group basic  --dataset-size small \
     --realistic 500 30 70 0 0 \
@@ -52,7 +51,6 @@ pokec_small () {
 
 pokec_medium () {
   echo "${FUNCNAME[0]}"
-  return # TODO(gitbuda): tmp, remove this line
   python3 graph_bench.py --vendor memgraph $mg_path --vendor neo4j $neo_path \
     --dataset-name pokec --dataset-group basic  --dataset-size medium \
     --realistic 500 30 70 0 0 \
@@ -66,7 +64,6 @@ pokec_medium () {
 
 ldbc_interactive_sf0_1 () {
   echo "${FUNCNAME[0]}"
-  return # TODO(gitbuda): tmp, remove this line
   python3 graph_bench.py --vendor memgraph $mg_path --vendor neo4j $neo_path \
     --dataset-name ldbc_interactive --dataset-group interactive  --dataset-size sf0.1 \
     --num-workers-for-benchmark $workers
@@ -74,7 +71,6 @@ ldbc_interactive_sf0_1 () {
 
 ldbc_interactive_sf1 () {
   echo "${FUNCNAME[0]}"
-  return # TODO(gitbuda): tmp, remove this line
   python3 graph_bench.py --vendor memgraph $mg_path --vendor neo4j $neo_path \
     --dataset-name ldbc_interactive --dataset-group interactive  --dataset-size sf1 \
     --num-workers-for-benchmark $workers
@@ -82,7 +78,6 @@ ldbc_interactive_sf1 () {
 
 ldbc_bi_sf1 () {
   echo "${FUNCNAME[0]}"
-  return # TODO(gitbuda): tmp, remove this line
   python3 graph_bench.py --vendor memgraph $mg_path --vendor neo4j $neo_path \
     --dataset-name ldbc_bi --dataset-group bi  --dataset-size sf1 \
     --num-workers-for-benchmark $workers
@@ -90,7 +85,6 @@ ldbc_bi_sf1 () {
 
 ldbc_interactive_sf3 () {
   echo "${FUNCNAME[0]}"
-  return # TODO(gitbuda): tmp, remove this line
   python3 graph_bench.py --vendor memgraph $mg_path --vendor neo4j $neo_path \
     --dataset-name ldbc_interactive --dataset-group interactive  --dataset-size sf3 \
     --num-workers-for-benchmark $workers
@@ -98,7 +92,6 @@ ldbc_interactive_sf3 () {
 
 ldbc_bi_sf3 () {
   echo "${FUNCNAME[0]}"
-  return # TODO(gitbuda): tmp, remove this line
   python3 graph_bench.py --vendor memgraph $mg_path --vendor neo4j $neo_path \
     --dataset-name ldbc_bi --dataset-group bi  --dataset-size sf3 \
     --num-workers-for-benchmark $workers
