@@ -1135,7 +1135,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     spdlog::info("Recover connectivity.");
     ret.vertex_batches.reserve(vertex_batches.size());
     for (const auto batch : vertex_batches) {
-      ret.vertex_batches.push_back(std::make_pair(Gid::FromUint(0), batch.count));
+      ret.vertex_batches.emplace_back(std::make_pair(Gid::FromUint(0), batch.count));
     }
     std::atomic<uint64_t> highest_edge_gid{0};
 
