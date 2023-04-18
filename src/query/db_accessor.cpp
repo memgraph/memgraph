@@ -119,7 +119,7 @@ auto SubgraphVertexAccessor::OutEdges(storage::View view) const -> decltype(impl
 
   std::vector<std::unique_ptr<storage::EdgeAccessor>> filteredOutEdges;
   for (auto &edge : edges) {
-    auto edge_q = EdgeAccessor(edge);
+    auto edge_q = EdgeAccessor(std::move(edge));
     if (graph_edges.contains(edge_q)) {
       filteredOutEdges.push_back(std::move(edge));
     }
@@ -136,7 +136,7 @@ auto SubgraphVertexAccessor::InEdges(storage::View view) const -> decltype(impl_
 
   std::vector<std::unique_ptr<storage::EdgeAccessor>> filteredOutEdges;
   for (auto &edge : edges) {
-    auto edge_q = EdgeAccessor(edge);
+    auto edge_q = EdgeAccessor(std::move(edge));
     if (graph_edges.contains(edge_q)) {
       filteredOutEdges.push_back(std::move(edge));
     }
