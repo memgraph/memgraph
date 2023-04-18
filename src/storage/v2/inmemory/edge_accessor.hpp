@@ -83,6 +83,10 @@ class InMemoryEdgeAccessor final : public EdgeAccessor {
 
   bool IsCycle() const override { return from_vertex_ == to_vertex_; }
 
+  std::optional<std::string> PropertyStore() const override;
+
+  bool SetPropertyStore(std::string_view buffer) const override;
+
   std::unique_ptr<EdgeAccessor> Copy() const override { return std::make_unique<InMemoryEdgeAccessor>(*this); }
 
   bool operator==(const EdgeAccessor &other) const noexcept override {

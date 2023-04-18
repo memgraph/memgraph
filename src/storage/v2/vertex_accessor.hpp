@@ -83,9 +83,9 @@ class VertexAccessor {
   /// @throw std::bad_alloc
   virtual Result<std::map<PropertyId, PropertyValue>> Properties(View view) const = 0;
 
-  std::string PropertyStore() const;
+  virtual std::string PropertyStore() const = 0;
 
-  void SetPropertyStore(std::string_view buffer) const;
+  virtual void SetPropertyStore(std::string_view buffer) const = 0;
 
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds

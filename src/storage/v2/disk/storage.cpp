@@ -41,6 +41,7 @@
 #include "storage/v2/replication/replication_persistence_helper.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_accessor.hpp"
+#include "storage/v2/view.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
@@ -68,6 +69,10 @@ namespace memgraph::storage {
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 namespace {
+
+constexpr const char *outEdgeDirection = "0";
+constexpr const char *inEdgeDirection = "1";
+
 inline constexpr uint16_t kEpochHistoryRetention = 1000;
 
 // /// Use it for operations that must successfully finish.
@@ -114,6 +119,107 @@ DiskStorage::DiskAccessor::~DiskAccessor() {
   FinalizeTransaction();
 }
 
+/// (De)serialization utilities
+
+inline std::string DiskStorage::DiskAccessor::SerializeIdType(const auto &id) const {
+  return std::to_string(id.AsUint());
+}
+
+inline auto DiskStorage::DiskAccessor::DeserializeIdType(const std::string &str) {
+  return Gid::FromUint(std::stoull(str));
+}
+
+inline std::string DiskStorage::DiskAccessor::SerializeTimestamp(const uint64_t ts) { return std::to_string(ts); }
+
+std::string DiskStorage::DiskAccessor::SerializeLabels(const auto &&labels) const {
+  if (labels.HasError() || (*labels).empty()) {
+    return "";
+  }
+  std::string result = std::to_string((*labels)[0].AsUint());
+  std::string ser_labels = std::accumulate(
+      std::next((*labels).begin()), (*labels).end(), result,
+      [](const std::string &join, const auto &label_id) { return join + "," + std::to_string(label_id.AsUint()); });
+  return ser_labels;
+}
+
+std::string DiskStorage::DiskAccessor::SerializeVertex(const VertexAccessor *vertex_acc) const {
+  MG_ASSERT(commit_timestamp_.has_value(), "Transaction must be committed to serialize vertex.");
+  std::string result = SerializeLabels(vertex_acc->Labels(storage::View::OLD)) + "|";
+  result += SerializeIdType(vertex_acc->Gid()) + "|";
+  result += SerializeTimestamp(*commit_timestamp_);
+  return result;
+}
+
+std::pair<std::string, std::string> DiskStorage::DiskAccessor::SerializeEdge(EdgeAccessor *edge_acc) const {
+  MG_ASSERT(commit_timestamp_.has_value(), "Transaction must be committed to serialize edge.");
+  // Serialized objects
+  auto from_gid = SerializeIdType(edge_acc->FromVertex()->Gid());
+  auto to_gid = SerializeIdType(edge_acc->ToVertex()->Gid());
+  auto edge_type = SerializeIdType(edge_acc->EdgeType());
+  auto edge_gid = SerializeIdType(edge_acc->Gid());
+  // source->destination key
+  std::string src_dest_key = from_gid + "|";
+  src_dest_key += to_gid + "|";
+  src_dest_key += outEdgeDirection;
+  src_dest_key += "|" + edge_type + "|";
+  src_dest_key += edge_gid + "|";
+  src_dest_key += SerializeTimestamp(*commit_timestamp_);
+  // destination->source key
+  std::string dest_src_key = to_gid + "|";
+  dest_src_key += from_gid + "|";
+  dest_src_key += inEdgeDirection;
+  dest_src_key += "|" + edge_type + "|";
+  dest_src_key += edge_gid + "|";
+  dest_src_key += SerializeTimestamp(*commit_timestamp_);
+  return {src_dest_key, dest_src_key};
+}
+
+std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(const std::string_view key,
+                                                                             const std::string_view value) {
+  /// Create vertex
+  const std::vector<std::string> vertex_parts = utils::Split(key, "|");
+  auto impl = CreateVertex(storage::Gid::FromUint(std::stoull(vertex_parts[1])));
+  // Deserialize labels
+  if (!vertex_parts[0].empty()) {
+    const auto labels = utils::Split(vertex_parts[0], ",");
+    std::for_each(labels.begin(), labels.end(), [impl = std::move(impl)](auto &label) {
+      // TODO(andi): Introduce error handling of adding labels
+      impl->AddLabel(storage::LabelId::FromUint(std::stoull(label)));
+    });
+  }
+  impl->SetPropertyStore(value);
+  /// Completely ignored for now
+  // bool is_valid_entry = std::stoull(vertex_parts[2]) < transaction_.start_timestamp;
+  return impl;
+}
+
+std::unique_ptr<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const std::string_view key,
+                                                                         const std::string_view value) {
+  const auto edge_parts = utils::Split(key, "|");
+  auto [from_gid, to_gid] = std::invoke(
+      [&](const auto &edge_parts) {
+        if (edge_parts[2] == "0") {  // out edge
+          return std::make_pair(edge_parts[0], edge_parts[1]);
+        }
+        // in edge
+        return std::make_pair(edge_parts[1], edge_parts[0]);
+      },
+      edge_parts);
+  // load vertex accessors
+  auto from_acc = FindVertex(DeserializeIdType(from_gid), View::OLD);
+  auto to_acc = FindVertex(DeserializeIdType(to_gid), View::OLD);
+  if (!from_acc || !to_acc) {
+    throw utils::BasicException("Non-existing vertices found during edge deserialization");
+  }
+  const auto edge_type_id = storage::EdgeTypeId::FromUint(std::stoull(edge_parts[3]));
+  auto maybe_edge = CreateEdge(&*from_acc, &*to_acc, edge_type_id, DeserializeIdType(edge_parts[4]));
+  // bool is_valid_entry = std::stoull(vertex_parts[5]) < transaction_.start_timestamp;
+  MG_ASSERT(maybe_edge.HasValue());
+  (*maybe_edge)->SetPropertyStore(value);
+  // TODO: why is here explicitly deleted constructor and not in DeserializeVertex?
+  return std::move(*maybe_edge);
+}
+
 VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
   auto it =
       std::unique_ptr<rocksdb::Iterator>(storage_->db_->NewIterator(rocksdb::ReadOptions(), storage_->vertex_chandle));
@@ -158,9 +264,6 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex() {
                                               config_, storage::Gid::FromUint(gid));
 }
 
-/*
-Same as function above, but with a given GID.
-*/
 std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex(storage::Gid gid) {
   OOMExceptionEnabler oom_exception;
   // NOTE: When we update the next `vertex_id_` here we perform a RMW
@@ -181,24 +284,6 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex(storage:
                                               config_, gid);
 }
 
-std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(const std::string_view key,
-                                                                             const std::string_view value) {
-  /// Create vertex
-  const std::vector<std::string> vertex_parts = utils::Split(key, "|");
-  auto impl = CreateVertex(storage::Gid::FromUint(std::stoull(vertex_parts[1])));
-  // Deserialize labels
-  if (!vertex_parts[0].empty()) {
-    const auto labels = utils::Split(vertex_parts[0], ",");
-    for (const auto &label : labels) {
-      const storage::LabelId label_id = storage::LabelId::FromUint(std::stoull(label));
-      // TODO: introduce error handling
-      impl->AddLabel(label_id);
-    }
-  }
-  impl->SetPropertyStore(value);
-  return impl;
-}
-
 std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid gid, View /*view*/) {
   auto it =
       std::unique_ptr<rocksdb::Iterator>(storage_->db_->NewIterator(rocksdb::ReadOptions(), storage_->vertex_chandle));
@@ -208,7 +293,7 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::G
       return DeserializeVertex(key, it->value().ToStringView());
     }
   }
-  return {};
+  return nullptr;
 }
 
 Result<std::unique_ptr<VertexAccessor>> DiskStorage::DiskAccessor::DeleteVertex(VertexAccessor *vertex) {
@@ -266,7 +351,82 @@ DiskStorage::DiskAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
   return Error::SERIALIZATION_ERROR;
 }
 
-// again no need to be here, we should create it at one place
+Result<std::unique_ptr<EdgeAccessor>> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from, VertexAccessor *to,
+                                                                            EdgeTypeId edge_type, storage::Gid gid) {
+  auto *inMemoryVAFrom = dynamic_cast<DiskVertexAccessor *>(from);
+  auto *inMemoryVATo = dynamic_cast<DiskVertexAccessor *>(to);
+  MG_ASSERT(inMemoryVAFrom,
+            "Source VertexAccessor must be from the same storage as the storage accessor when creating an edge!");
+  MG_ASSERT(inMemoryVATo,
+            "Target VertexAccessor must be from the same storage as the storage accessor when creating an edge!");
+
+  OOMExceptionEnabler oom_exception;
+  MG_ASSERT(inMemoryVAFrom->transaction_ == inMemoryVATo->transaction_,
+            "VertexAccessors must be from the same transaction when creating "
+            "an edge!");
+  MG_ASSERT(inMemoryVAFrom->transaction_ == &transaction_,
+            "VertexAccessors must be from the same transaction in when "
+            "creating an edge!");
+
+  auto from_vertex = inMemoryVAFrom->vertex_;
+  auto to_vertex = inMemoryVATo->vertex_;
+
+  // Obtain the locks by `gid` order to avoid lock cycles.
+  std::unique_lock<utils::SpinLock> guard_from(from_vertex->lock, std::defer_lock);
+  std::unique_lock<utils::SpinLock> guard_to(to_vertex->lock, std::defer_lock);
+  if (from_vertex->gid < to_vertex->gid) {
+    guard_from.lock();
+    guard_to.lock();
+  } else if (from_vertex->gid > to_vertex->gid) {
+    guard_to.lock();
+    guard_from.lock();
+  } else {
+    // The vertices are the same vertex, only lock one.
+    guard_from.lock();
+  }
+
+  if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
+  if (from_vertex->deleted) return Error::DELETED_OBJECT;
+
+  if (to_vertex != from_vertex) {
+    if (!PrepareForWrite(&transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
+    if (to_vertex->deleted) return Error::DELETED_OBJECT;
+  }
+
+  // NOTE: When we update the next `edge_id_` here we perform a RMW
+  // (read-modify-write) operation that ISN'T atomic! But, that isn't an issue
+  // because this function is only called from the replication delta applier
+  // that runs single-threadedly and while this instance is set-up to apply
+  // threads (it is the replica), it is guaranteed that no other writes are
+  // possible.
+  storage_->edge_id_.store(std::max(storage_->edge_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
+                           std::memory_order_release);
+
+  EdgeRef edge(gid);
+  if (config_.properties_on_edges) {
+    auto acc = edges_.access();
+    auto delta = CreateDeleteObjectDelta(&transaction_);
+    auto [it, inserted] = acc.insert(Edge(gid, delta));
+    MG_ASSERT(inserted, "The edge must be inserted here!");
+    MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
+    edge = EdgeRef(&*it);
+    delta->prev.Set(&*it);
+  }
+
+  CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
+  from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
+
+  CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
+  to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
+
+  // Increment edge count.
+  storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
+
+  return Result<std::unique_ptr<EdgeAccessor>>{
+      std::make_unique<DiskEdgeAccessor>(edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
+                                         &storage_->constraints_, config_, gid)};
+}
+
 Result<std::unique_ptr<EdgeAccessor>> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from, VertexAccessor *to,
                                                                             EdgeTypeId edge_type) {
   auto *from_disk_vertex_acc = dynamic_cast<DiskVertexAccessor *>(from);
@@ -388,7 +548,126 @@ void DiskStorage::DiskAccessor::AdvanceCommand() { ++transaction_.command_id; }
 // this will be modified here for a disk-based storage
 utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor::Commit(
     const std::optional<uint64_t> desired_commit_timestamp) {
-  throw utils::NotYetImplemented("Commit");
+  MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
+  MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
+
+  auto could_replicate_all_sync_replicas = true;
+
+  if (transaction_.deltas.empty()) {
+    // We don't have to update the commit timestamp here because no one reads
+    // it.
+    storage_->commit_log_->MarkFinished(transaction_.start_timestamp);
+  } else {
+    // Validate that existence constraints are satisfied for all modified
+    // vertices.
+    for (const auto &delta : transaction_.deltas) {
+      auto prev = delta.prev.Get();
+      MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
+      if (prev.type != PreviousPtr::Type::VERTEX) {
+        continue;
+      }
+      // No need to take any locks here because we modified this vertex and no
+      // one else can touch it until we commit.
+      auto validation_result = ValidateExistenceConstraints(*prev.vertex, storage_->constraints_);
+      if (validation_result) {
+        Abort();
+        return StorageDataManipulationError{*validation_result};
+      }
+    }
+
+    // Result of validating the vertex against unqiue constraints. It has to be
+    // declared outside of the critical section scope because its value is
+    // tested for Abort call which has to be done out of the scope.
+    std::optional<ConstraintViolation> unique_constraint_violation;
+
+    // Save these so we can mark them used in the commit log.
+    uint64_t start_timestamp = transaction_.start_timestamp;
+
+    {
+      std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
+      commit_timestamp_.emplace(storage_->CommitTimestamp(desired_commit_timestamp));
+
+      // Before committing and validating vertices against unique constraints,
+      // we have to update unique constraints with the vertices that are going
+      // to be validated/committed.
+      for (const auto &delta : transaction_.deltas) {
+        auto prev = delta.prev.Get();
+        MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
+        if (prev.type != PreviousPtr::Type::VERTEX) {
+          continue;
+        }
+        storage_->constraints_.unique_constraints.UpdateBeforeCommit(prev.vertex, transaction_);
+      }
+
+      // Validate that unique constraints are satisfied for all modified
+      // vertices.
+      for (const auto &delta : transaction_.deltas) {
+        auto prev = delta.prev.Get();
+        MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
+        if (prev.type != PreviousPtr::Type::VERTEX) {
+          continue;
+        }
+
+        // No need to take any locks here because we modified this vertex and no
+        // one else can touch it until we commit.
+        unique_constraint_violation =
+            storage_->constraints_.unique_constraints.Validate(*prev.vertex, transaction_, *commit_timestamp_);
+        if (unique_constraint_violation) {
+          break;
+        }
+      }
+
+      if (!unique_constraint_violation) {
+        // Write transaction to WAL while holding the engine lock to make sure
+        // that committed transactions are sorted by the commit timestamp in the
+        // WAL files. We supply the new commit timestamp to the function so that
+        // it knows what will be the final commit timestamp. The WAL must be
+        // written before actually committing the transaction (before setting
+        // the commit timestamp) so that no other transaction can see the
+        // modifications before they are written to disk.
+        // Replica can log only the write transaction received from Main
+        // so the Wal files are consistent
+        if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
+          could_replicate_all_sync_replicas = storage_->AppendToWalDataManipulation(transaction_, *commit_timestamp_);
+        }
+
+        // Take committed_transactions lock while holding the engine lock to
+        // make sure that committed transactions are sorted by the commit
+        // timestamp in the list.
+        storage_->committed_transactions_.WithLock([&](auto &committed_transactions) {
+          // TODO: release lock, and update all deltas to have a local copy
+          // of the commit timestamp
+          MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
+          transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
+          // Replica can only update the last commit timestamp with
+          // the commits received from main.
+          if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
+            // Update the last commit timestamp
+            storage_->last_commit_timestamp_.store(*commit_timestamp_);
+          }
+          // Release engine lock because we don't have to hold it anymore
+          // and emplace back could take a long time.
+          engine_guard.unlock();
+        });
+
+        storage_->commit_log_->MarkFinished(start_timestamp);
+      }
+      // Write cache to the disk
+      FlushCache();
+    }
+
+    if (unique_constraint_violation) {
+      Abort();
+      return StorageDataManipulationError{*unique_constraint_violation};
+    }
+  }
+  is_transaction_active_ = false;
+
+  if (!could_replicate_all_sync_replicas) {
+    return StorageDataManipulationError{ReplicationError{}};
+  }
+
+  return {};
 }
 
 // probably will need some usages here

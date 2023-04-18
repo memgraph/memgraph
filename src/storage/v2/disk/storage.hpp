@@ -213,31 +213,38 @@ class DiskStorage final : public Storage {
 
     // (De)serialization utility methods
 
-    inline std::string SerializeIdType(const auto &id) { return std::to_string(id.AsUint()); }
+    /// Serialize types defined with STORAGE_DEFINE_ID_TYPE
+    std::string SerializeIdType(const auto &id) const;
 
-    std::string SerializeLabels(const auto &&labels) {
-      if (labels.HasError() || (*labels).empty()) {
-        return "";
-      }
-      std::string result = std::to_string((*labels)[0].AsUint());
-      std::string ser_labels = std::accumulate(
-          std::next((*labels).begin()), (*labels).end(), result,
-          [](const std::string &join, const auto &label_id) { return join + "," + std::to_string(label_id.AsUint()); });
-      return ser_labels;
-    }
+    /// Deserialize types defined with STORAGE_DEFINE_ID_TYPE
+    static auto DeserializeIdType(const std::string &str);
 
-    std::string SerializeVertex(VertexAccessor *vertex_acc) {
-      std::string result = SerializeLabels(vertex_acc->Labels(storage::View::OLD)) + "|";
-      result += SerializeIdType(vertex_acc->Gid());
-      return result;
-    }
+    /// Serialize timestamp to string
+    static std::string SerializeTimestamp(uint64_t ts);
 
-    std::pair<std::string, std::string> SerializeEdge(EdgeAccessor *edge_acc);
+    /// Serialize labels to string
+    std::string SerializeLabels(const auto &&labels) const;
 
-    /// Deserializes vertex from the string and stores it into the skip list
-    std::unique_ptr<VertexAccessor> DeserializeVertex(std::string_view vertex_parts, std::string_view value);
+    /// Serialize vertex to string as a key in KV store
+    /// label1, label2 | GID | commit_timestamp
+    std::string SerializeVertex(const VertexAccessor *vertex_acc) const;
 
+    /// Serialize edge to string as a key in KV store
+    /// vertex_gid_1 | vertex_gid_2 | direction | edge_type | GID | commit_timestamp
+    std::pair<std::string, std::string> SerializeEdge(EdgeAccessor *edge_acc) const;
+
+    /// Deserializes vertex from the string key and stores it into the vertices_ cache.
+    /// Properties are deserialized from the value.
+    std::unique_ptr<VertexAccessor> DeserializeVertex(std::string_view key, std::string_view value);
+
+    /// Deserializes edge from the string key and stores it into the edges_ cache.
+    /// Properties are deserialized from the value.
     std::unique_ptr<EdgeAccessor> DeserializeEdge(std::string_view key, std::string_view value);
+
+    /// Flushes vertices and edges to the disk with the commit timestamp.
+    /// At the time of calling, the commit_timestamp_ must already exist.
+    /// After this method, the vertex and edge caches are cleared.
+    void FlushCache();
 
     DiskStorage *storage_;
     /// Accessor is tighly coupled with the transaction and we store read/write set per transaction. That's why objects
@@ -508,10 +515,10 @@ class DiskStorage final : public Storage {
   // Last commited timestamp
   std::atomic<uint64_t> last_commit_timestamp_{kTimestampInitialId};
 
-  // class ReplicationServer;
-  // std::unique_ptr<ReplicationServer> replication_server_{nullptr};
+  class ReplicationServer;
+  std::unique_ptr<ReplicationServer> replication_server_{nullptr};
 
-  // class ReplicationClient;
+  class ReplicationClient;
   // We create ReplicationClient using unique_ptr so we can move
   // newly created client into the vector.
   // We cannot move the client directly because it contains ThreadPool
@@ -522,10 +529,10 @@ class DiskStorage final : public Storage {
   // This way we can initialize client in main thread which means
   // that we can immediately notify the user if the initialization
   // failed.
-  // using ReplicationClientList = utils::Synchronized<std::vector<std::unique_ptr<ReplicationClient>>,
-  // utils::SpinLock>; ReplicationClientList replication_clients_;
+  using ReplicationClientList = utils::Synchronized<std::vector<std::unique_ptr<ReplicationClient>>, utils::SpinLock>;
+  ReplicationClientList replication_clients_;
 
-  // std::atomic<ReplicationRole> replication_role_{ReplicationRole::MAIN};
+  std::atomic<ReplicationRole> replication_role_{ReplicationRole::MAIN};
 
   rocksdb::Options options_;
   rocksdb::DB *db_;

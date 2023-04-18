@@ -618,4 +618,8 @@ Result<size_t> DiskVertexAccessor::OutDegree(View view) const {
   throw utils::NotYetImplemented("DiskVertexAccessor::OutDegree");
 }
 
+std::string DiskVertexAccessor::PropertyStore() const { return vertex_->properties.StringBuffer(); }
+
+void DiskVertexAccessor::SetPropertyStore(std::string_view buffer) const { vertex_->properties.SetBuffer(buffer); }
+
 }  // namespace memgraph::storage

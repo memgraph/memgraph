@@ -17,6 +17,7 @@
 #include "storage/v2/inmemory/vertex_accessor.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/result.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/memory_tracker.hpp"
 
@@ -253,6 +254,21 @@ Result<std::map<PropertyId, PropertyValue>> InMemoryEdgeAccessor::Properties(Vie
   if (!exists) return Error::NONEXISTENT_OBJECT;
   if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return std::move(properties);
+}
+
+bool InMemoryEdgeAccessor::SetPropertyStore(std::string_view buffer) const {
+  if (config_.properties_on_edges) {
+    edge_.ptr->properties.SetBuffer(buffer);
+    return true;
+  }
+  return false;
+}
+
+std::optional<std::string> InMemoryEdgeAccessor::PropertyStore() const {
+  if (config_.properties_on_edges) {
+    return edge_.ptr->properties.StringBuffer();
+  }
+  return std::nullopt;
 }
 
 }  // namespace memgraph::storage

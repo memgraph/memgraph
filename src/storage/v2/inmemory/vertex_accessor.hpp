@@ -100,6 +100,10 @@ class InMemoryVertexAccessor final : public VertexAccessor {
 
   storage::Gid Gid() const noexcept override { return vertex_->gid; }
 
+  std::string PropertyStore() const override;
+
+  void SetPropertyStore(std::string_view buffer) const override;
+
   std::unique_ptr<VertexAccessor> Copy() const override { return std::make_unique<InMemoryVertexAccessor>(*this); }
 
   bool operator==(const VertexAccessor &other) const noexcept override {

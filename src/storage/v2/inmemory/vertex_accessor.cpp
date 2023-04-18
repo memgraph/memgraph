@@ -601,4 +601,8 @@ Result<size_t> InMemoryVertexAccessor::OutDegree(View view) const {
   return degree;
 }
 
+std::string InMemoryVertexAccessor::PropertyStore() const { return vertex_->properties.StringBuffer(); }
+
+void InMemoryVertexAccessor::SetPropertyStore(std::string_view buffer) const { vertex_->properties.SetBuffer(buffer); }
+
 }  // namespace memgraph::storage

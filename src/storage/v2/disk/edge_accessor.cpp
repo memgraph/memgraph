@@ -270,4 +270,19 @@ Result<std::map<PropertyId, PropertyValue>> DiskEdgeAccessor::Properties(View vi
   throw utils::NotYetImplemented("Properties is not implemented yet.");
 }
 
+bool DiskEdgeAccessor::SetPropertyStore(std::string_view buffer) const {
+  if (config_.properties_on_edges) {
+    edge_.ptr->properties.SetBuffer(buffer);
+    return true;
+  }
+  return false;
+}
+
+std::optional<std::string> DiskEdgeAccessor::PropertyStore() const {
+  if (config_.properties_on_edges) {
+    return edge_.ptr->properties.StringBuffer();
+  }
+  return std::nullopt;
+}
+
 }  // namespace memgraph::storage

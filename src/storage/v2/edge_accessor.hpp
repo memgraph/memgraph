@@ -74,6 +74,10 @@ class EdgeAccessor {
 
   virtual std::unique_ptr<EdgeAccessor> Copy() const = 0;
 
+  virtual std::optional<std::string> PropertyStore() const = 0;
+
+  virtual bool SetPropertyStore(std::string_view buffer) const = 0;
+
   virtual bool operator==(const EdgeAccessor &other) const noexcept = 0;
   bool operator!=(const EdgeAccessor &other) const noexcept { return !(*this == other); }
 
