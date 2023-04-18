@@ -9,6 +9,7 @@ print_help () {
   echo -e "$0\t\t => runs all available benchmarks with the prompt"
   echo -e "$0 run_all\t => runs all available benchmarks"
   echo -e "$0 zip\t => packages all result files and info about the system"
+  echo -e "$0 clean\t => removes all result files including the zip"
   echo -e "$0 -h\t => prints help"
   echo ""
   echo "  env vars:"
@@ -52,7 +53,7 @@ check_all_binaries () {
 pokec_small () {
   workers=$1
   echo "running ${FUNCNAME[0]} with $workers client workers"
-  python3 graph_bench.py --vendor memgraph $MG_PATH --vendor neo4j $NEO_PATH \
+  python3 graph_bench.py --vendor memgraph "$MG_PATH" --vendor neo4j "$NEO_PATH" \
     --dataset-name pokec --dataset-group basic  --dataset-size small \
     --realistic 500 30 70 0 0 \
     --realistic 500 30 70 0 0 \
@@ -60,13 +61,13 @@ pokec_small () {
     --realistic 500 70 30 0 0 \
     --realistic 500 30 40 10 20 \
     --mixed 500 30 0 0 0 70 \
-    --num-workers-for-benchmark $workers
+    --num-workers-for-benchmark "$workers"
 }
 
 pokec_medium () {
   workers=$1
   echo "running ${FUNCNAME[0]} with $workers client workers"
-  python3 graph_bench.py --vendor memgraph $MG_PATH --vendor neo4j $NEO_PATH \
+  python3 graph_bench.py --vendor memgraph "$MG_PATH" --vendor neo4j "$NEO_PATH" \
     --dataset-name pokec --dataset-group basic  --dataset-size medium \
     --realistic 500 30 70 0 0 \
     --realistic 500 30 70 0 0 \
@@ -74,62 +75,67 @@ pokec_medium () {
     --realistic 500 70 30 0 0 \
     --realistic 500 30 40 10 20 \
     --mixed 500 30 0 0 0 70 \
-    --num-workers-for-benchmark $workers
+    --num-workers-for-benchmark "$workers"
 }
 
 ldbc_interactive_sf0_1 () {
   workers=$1
   echo "running ${FUNCNAME[0]} with $workers client workers"
-  python3 graph_bench.py --vendor memgraph $MG_PATH --vendor neo4j $NEO_PATH \
+  python3 graph_bench.py --vendor memgraph "$MG_PATH" --vendor neo4j "$NEO_PATH" \
     --dataset-name ldbc_interactive --dataset-group interactive  --dataset-size sf0.1 \
-    --num-workers-for-benchmark $workers
+    --num-workers-for-benchmark "$workers"
 }
 
 ldbc_interactive_sf1 () {
   workers=$1
   echo "running ${FUNCNAME[0]} with $workers client workers"
-  python3 graph_bench.py --vendor memgraph $MG_PATH --vendor neo4j $NEO_PATH \
+  python3 graph_bench.py --vendor memgraph "$MG_PATH" --vendor neo4j "$NEO_PATH" \
     --dataset-name ldbc_interactive --dataset-group interactive  --dataset-size sf1 \
-    --num-workers-for-benchmark $workers
+    --num-workers-for-benchmark "$workers"
 }
 
 ldbc_bi_sf1 () {
   workers=$1
   echo "running ${FUNCNAME[0]} with $workers client workers"
-  python3 graph_bench.py --vendor memgraph $MG_PATH --vendor neo4j $NEO_PATH \
+  python3 graph_bench.py --vendor memgraph "$MG_PATH" --vendor neo4j "$NEO_PATH" \
     --dataset-name ldbc_bi --dataset-group bi  --dataset-size sf1 \
-    --num-workers-for-benchmark $workers
+    --num-workers-for-benchmark "$workers"
 }
 
 ldbc_interactive_sf3 () {
   workers=$1
   echo "running ${FUNCNAME[0]} with $workers client workers"
-  python3 graph_bench.py --vendor memgraph $MG_PATH --vendor neo4j $NEO_PATH \
+  python3 graph_bench.py --vendor memgraph "$MG_PATH" --vendor neo4j "$NEO_PATH" \
     --dataset-name ldbc_interactive --dataset-group interactive  --dataset-size sf3 \
-    --num-workers-for-benchmark $workers
+    --num-workers-for-benchmark "$workers"
 }
 
 ldbc_bi_sf3 () {
   workers=$1
   echo "running ${FUNCNAME[0]} with $workers client workers"
-  python3 graph_bench.py --vendor memgraph $MG_PATH --vendor neo4j $NEO_PATH \
+  python3 graph_bench.py --vendor memgraph "$MG_PATH" --vendor neo4j "$NEO_PATH" \
     --dataset-name ldbc_bi --dataset-group bi  --dataset-size sf3 \
-    --num-workers-for-benchmark $workers
+    --num-workers-for-benchmark "$workers"
 }
 
 run_all () {
   for workload in "${WORKLOADS[@]}"; do
     for workers in "${WORKERS[@]}"; do
-      $workload $workers
+      $workload "$workers"
       sleep 1
     done
   done
 }
 
-package_all () {
+package_all_results () {
   cat /proc/cpuinfo > cpu.sysinfo
   cat /proc/meminfo > mem.sysinfo
-  zip data.zip *.json *.report *.log *.sysinfo
+  zip data.zip ./*.json ./*.report ./*.log ./*.sysinfo
+}
+
+clean_all_results () {
+  rm data.zip ./*.json ./*.report ./*.log ./*.sysinfo
+
 }
 
 if [ "$#" -eq 0 ]; then
@@ -140,14 +146,14 @@ if [ "$#" -eq 0 ]; then
   fi
 elif [ "$#" -eq 1 ]; then
   case $1 in
-    -h | --help)
-      print_help
-    ;;
     run_all)
       run_all
     ;;
     zip)
-      package_all
+      package_all_results
+    ;;
+    clean)
+      clean_all_results
     ;;
     *)
       print_help
