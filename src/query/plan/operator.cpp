@@ -3209,7 +3209,7 @@ std::vector<Symbol> Accumulate::ModifiedSymbols(const SymbolTable &) const { ret
 class AccumulateCursor : public Cursor {
  public:
   AccumulateCursor(const Accumulate &self, utils::MemoryResource *mem)
-      : self_(self), input_cursor_(self.input_->MakeCursor(mem)), cache_(mem) {}
+      : self_(self), input_cursor_(self.input_->MakeCursor(mem)), cache_(&monotonic_memory) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("Accumulate");
@@ -3251,6 +3251,7 @@ class AccumulateCursor : public Cursor {
   utils::pmr::vector<utils::pmr::vector<TypedValue>> cache_;
   decltype(cache_.begin()) cache_it_ = cache_.begin();
   bool pulled_all_input_{false};
+  utils::MonotonicBufferResource monotonic_memory{1024UL * 1024UL};
 };
 
 UniqueCursorPtr Accumulate::MakeCursor(utils::MemoryResource *mem) const {
@@ -4544,7 +4545,7 @@ class CallProcedureCursor : public Cursor {
       result_row_it_ = result_.rows.begin();
     }
 
-    const auto &values = result_row_it_->values;
+    auto &values = result_row_it_->values;
     // Check that the row has all fields as required by the result signature.
     // C API guarantees that it's impossible to set fields which are not part of
     // the result record, but it does not gurantee that some may be missing. See
@@ -4562,7 +4563,7 @@ class CallProcedureCursor : public Cursor {
         throw QueryRuntimeException("Procedure '{}' did not yield a record with '{}' field.", self_->procedure_name_,
                                     field_name);
       }
-      frame[self_->result_symbols_[i]] = result_it->second;
+      frame[self_->result_symbols_[i]] = std::move(result_it->second);
     }
     ++result_row_it_;
 
