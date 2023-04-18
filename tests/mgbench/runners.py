@@ -818,7 +818,6 @@ class MemgraphDocker(BaseRunner):
                 "-p",
                 self._bolt_port + ":" + self._bolt_port,
                 "memgraph/memgraph:2.7.0",
-                "--telemetry_enabled=false",
                 "--storage_wal_enabled=false",
                 "--storage_recover_on_startup=true",
                 "--storage_snapshot_interval_sec",
