@@ -59,7 +59,12 @@ class EdgeAccessor final {
  public:
   explicit EdgeAccessor(std::unique_ptr<storage::EdgeAccessor> &impl) : impl_(std::move(impl)) {}
   explicit EdgeAccessor(storage::EdgeAccessor *impl) : impl_(impl) {}
-  explicit EdgeAccessor(const EdgeAccessor &impl) : impl_(impl.impl_->Copy()){};
+  EdgeAccessor(const EdgeAccessor &impl) : impl_(impl.impl_->Copy()){};
+
+  EdgeAccessor &operator=(EdgeAccessor other) {
+    impl_ = other.impl_->Copy();
+    return *this;
+  }
 
   bool IsVisible(storage::View view) const { return impl_->IsVisible(view); }
 
@@ -111,9 +116,14 @@ class VertexAccessor final {
 
  public:
   explicit VertexAccessor(storage::VertexAccessor *impl) : impl_(impl) {}
-  explicit VertexAccessor(VertexAccessor &&impl) = default;
-  explicit VertexAccessor(const VertexAccessor &impl) : impl_(impl.impl_->Copy()){};
+  VertexAccessor(VertexAccessor &&impl) = default;
+  VertexAccessor(const VertexAccessor &impl) : impl_(impl.impl_->Copy()){};
   explicit VertexAccessor(VertexAccessor *impl) : VertexAccessor(*impl) {}
+
+  VertexAccessor &operator=(VertexAccessor other) {
+    impl_ = other.impl_->Copy();
+    return *this;
+  }
 
   bool IsVisible(storage::View view) const { return impl_->IsVisible(view); }
 
