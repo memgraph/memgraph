@@ -107,6 +107,8 @@ class DiskVertexAccessor final : public VertexAccessor {
 
   void SetPropertyStore(std::string_view buffer) const override;
 
+  void UpdateModificationTimestamp(uint64_t modification_ts);
+
   std::unique_ptr<VertexAccessor> Copy() const override { return std::make_unique<DiskVertexAccessor>(*this); }
 
   bool operator==(const VertexAccessor &other) const noexcept override {

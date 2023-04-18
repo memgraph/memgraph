@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <optional>
 
 #include "storage/v2/edge.hpp"
@@ -85,6 +86,8 @@ class DiskEdgeAccessor final : public EdgeAccessor {
 
   bool SetPropertyStore(std::string_view buffer) const override;
 
+  void UpdateModificationTimestamp(uint64_t modification_ts);
+
   std::unique_ptr<EdgeAccessor> Copy() const override { return std::make_unique<DiskEdgeAccessor>(*this); }
 
   bool IsCycle() const override { return from_vertex_ == to_vertex_; }
@@ -103,6 +106,7 @@ class DiskEdgeAccessor final : public EdgeAccessor {
   Indices *indices_;
   Constraints *constraints_;
   storage::Gid gid_;
+  uint64_t modification_ts_;
 };
 
 }  // namespace memgraph::storage

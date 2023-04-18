@@ -285,4 +285,6 @@ std::optional<std::string> DiskEdgeAccessor::PropertyStore() const {
   return std::nullopt;
 }
 
+void DiskEdgeAccessor::UpdateModificationTimestamp(uint64_t modification_ts) { modification_ts_ = modification_ts; }
+
 }  // namespace memgraph::storage

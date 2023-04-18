@@ -622,4 +622,6 @@ std::string DiskVertexAccessor::PropertyStore() const { return vertex_->properti
 
 void DiskVertexAccessor::SetPropertyStore(std::string_view buffer) const { vertex_->properties.SetBuffer(buffer); }
 
+void DiskVertexAccessor::UpdateModificationTimestamp(uint64_t modification_ts) { modification_ts_ = modification_ts; }
+
 }  // namespace memgraph::storage
