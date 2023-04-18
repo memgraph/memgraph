@@ -116,12 +116,18 @@ startup_config_dict = {
         "The time duration between two replica checks/pings. If < 1, replicas will NOT be checked at all. NOTE: The MAIN instance allocates a new thread for each REPLICA.",
     ),
     "storage_gc_cycle_sec": ("30", "30", "Storage garbage collector interval (in seconds)."),
+    "storage_items_per_batch": (
+        "1000000",
+        "1000000",
+        "The number of edges and vertices stored in a batch in a snapshot file.",
+    ),
     "storage_properties_on_edges": ("false", "true", "Controls whether edges have properties."),
     "storage_recover_on_startup": (
         "false",
         "false",
         "Controls whether the storage recovers persisted data on startup.",
     ),
+    "storage_recovery_thread_count": ("12", "12", "The number of threads used to recover persisted data from disk."),
     "storage_snapshot_interval_sec": (
         "0",
         "300",
