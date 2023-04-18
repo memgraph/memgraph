@@ -166,6 +166,7 @@ struct StorageInfo {
 
 class Storage {
  public:
+  virtual ~Storage(){};
   class Accessor {
    public:
     Accessor() {}

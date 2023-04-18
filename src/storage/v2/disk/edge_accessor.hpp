@@ -80,6 +80,8 @@ class DiskEdgeAccessor final : public EdgeAccessor {
     }
   }
 
+  std::unique_ptr<EdgeAccessor> Copy() const override { return std::make_unique<DiskEdgeAccessor>(*this); }
+
   bool IsCycle() const override { return from_vertex_ == to_vertex_; }
 
   bool operator==(const EdgeAccessor &other) const noexcept override {

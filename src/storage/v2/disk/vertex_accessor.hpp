@@ -100,6 +100,8 @@ class DiskVertexAccessor final : public VertexAccessor {
 
   storage::Gid Gid() const noexcept override { return vertex_->gid; }
 
+  std::unique_ptr<VertexAccessor> Copy() const override { return std::make_unique<DiskVertexAccessor>(*this); }
+
   bool operator==(const VertexAccessor &other) const noexcept override {
     const auto *otherVertex = dynamic_cast<const DiskVertexAccessor *>(&other);
     if (otherVertex == nullptr) return false;
