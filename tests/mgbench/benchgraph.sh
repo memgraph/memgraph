@@ -135,7 +135,6 @@ package_all_results () {
 
 clean_all_results () {
   rm data.zip ./*.json ./*.report ./*.log ./*.sysinfo
-
 }
 
 if [ "$#" -eq 0 ]; then
