@@ -24,6 +24,7 @@
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints.hpp"
+#include "storage/v2/disk/disk_edge.hpp"
 #include "storage/v2/disk/vertex_accessor.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/wal.hpp"
@@ -411,7 +412,7 @@ class DiskStorage final : public Storage {
   [[nodiscard]] bool AppendToWalDataDefinition(durability::StorageGlobalOperation operation, LabelId label,
                                                const std::set<PropertyId> &properties, uint64_t final_commit_timestamp);
 
-  uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
+  uint64_t commitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
   void RestoreReplicas();
 
@@ -445,7 +446,7 @@ class DiskStorage final : public Storage {
   // transaction commited or aborted. We could probably combine this with
   // `timestamp_` in a sensible unit, something like TransactionClock or
   // whatever.
-  std::optional<CommitLog> commit_log_;
+  std::optional<CommitLog> commit_log;
 
   utils::Synchronized<std::list<Transaction>, utils::SpinLock> committed_transactions_;
   IsolationLevel isolation_level_;

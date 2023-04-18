@@ -11,10 +11,11 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
 
+#include "storage/v2/disk/disk_vertex.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/vertex.hpp"
 
 #include "storage/v2/config.hpp"
 #include "storage/v2/result.hpp"
@@ -34,7 +35,7 @@ class DiskVertexAccessor final : public VertexAccessor {
   friend class DiskStorage;
 
  public:
-  DiskVertexAccessor(Vertex *vertex, Transaction *transaction, Indices *indices, Constraints *constraints,
+  DiskVertexAccessor(DiskVertex *vertex, Transaction *transaction, Indices *indices, Constraints *constraints,
                      Config::Items config, storage::Gid gid, bool for_deleted = false)
       : VertexAccessor(transaction, config, for_deleted),
         vertex_(vertex),
@@ -117,10 +118,12 @@ class DiskVertexAccessor final : public VertexAccessor {
   bool operator!=(const VertexAccessor &other) const noexcept { return !(*this == other); }
 
  private:
-  Vertex *vertex_;
+  DiskVertex *vertex_;
   Indices *indices_;
   Constraints *constraints_;
+  // cached from DiskVertex
   storage::Gid gid_;
+  uint64_t modification_ts_;
 };
 
 }  // namespace memgraph::storage

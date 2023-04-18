@@ -18,6 +18,8 @@
 #include <mutex>
 #include <variant>
 #include <vector>
+#include "storage/v2/disk/disk_edge.hpp"
+#include "storage/v2/disk/disk_vertex.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/result.hpp"
 
@@ -256,12 +258,13 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex() {
   auto gid = storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
   auto acc = vertices_.access();
   auto delta = CreateDeleteObjectDelta(&transaction_);
-  auto [it, inserted] = acc.insert(Vertex{storage::Gid::FromUint(gid), delta});
+  auto [it, inserted] = acc.insert(DiskVertex{storage::Gid::FromUint(gid), delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
   delta->prev.Set(&*it);
-  return std::make_unique<DiskVertexAccessor>(&*it, &transaction_, &storage_->indices_, &storage_->constraints_,
-                                              config_, storage::Gid::FromUint(gid));
+  // it shoud be safe to do static_cast here since the resolvement can be done at compile time
+  return std::make_unique<DiskVertexAccessor>(static_cast<DiskVertex *>(&*it), &transaction_, &storage_->indices_,
+                                              &storage_->constraints_, config_, storage::Gid::FromUint(gid));
 }
 
 std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex(storage::Gid gid) {
@@ -276,12 +279,13 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex(storage:
                              std::memory_order_release);
   auto acc = vertices_.access();
   auto delta = CreateDeleteObjectDelta(&transaction_);
-  auto [it, inserted] = acc.insert(Vertex{gid, delta});
+  auto [it, inserted] = acc.insert(DiskVertex{gid, delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
   delta->prev.Set(&*it);
-  return std::make_unique<DiskVertexAccessor>(&*it, &transaction_, &storage_->indices_, &storage_->constraints_,
-                                              config_, gid);
+  // it shoud be safe to do static_cast here since the resolvement can be done at compile time
+  return std::make_unique<DiskVertexAccessor>(static_cast<DiskVertex *>(&*it), &transaction_, &storage_->indices_,
+                                              &storage_->constraints_, config_, gid);
 }
 
 std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid gid, View /*view*/) {
@@ -406,7 +410,7 @@ Result<std::unique_ptr<EdgeAccessor>> DiskStorage::DiskAccessor::CreateEdge(Vert
   if (config_.properties_on_edges) {
     auto acc = edges_.access();
     auto delta = CreateDeleteObjectDelta(&transaction_);
-    auto [it, inserted] = acc.insert(Edge(gid, delta));
+    auto [it, inserted] = acc.insert(DiskEdge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
     MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
     edge = EdgeRef(&*it);
@@ -556,7 +560,7 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
   if (transaction_.deltas.empty()) {
     // We don't have to update the commit timestamp here because no one reads
     // it.
-    storage_->commit_log_->MarkFinished(transaction_.start_timestamp);
+    storage_->commit_log->MarkFinished(transaction_.start_timestamp);
   } else {
     // Validate that existence constraints are satisfied for all modified
     // vertices.
@@ -585,7 +589,7 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
 
     {
       std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
-      commit_timestamp_.emplace(storage_->CommitTimestamp(desired_commit_timestamp));
+      commit_timestamp_.emplace(storage_->commitTimestamp(desired_commit_timestamp));
 
       // Before committing and validating vertices against unique constraints,
       // we have to update unique constraints with the vertices that are going
@@ -624,7 +628,7 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
         // it knows what will be the final commit timestamp. The WAL must be
         // written before actually committing the transaction (before setting
         // the commit timestamp) so that no other transaction can see the
-        // modifications before they are written to disk.
+        // commits before they are written to disk.
         // Replica can log only the write transaction received from Main
         // so the Wal files are consistent
         if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
@@ -650,7 +654,7 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
           engine_guard.unlock();
         });
 
-        storage_->commit_log_->MarkFinished(start_timestamp);
+        storage_->commit_log->MarkFinished(start_timestamp);
       }
       // Write cache to the disk
       FlushCache();

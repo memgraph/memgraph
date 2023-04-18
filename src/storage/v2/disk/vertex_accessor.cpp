@@ -27,7 +27,7 @@ namespace memgraph::storage {
 
 namespace detail {
 namespace {
-std::pair<bool, bool> IsVisible(Vertex *vertex, Transaction *transaction, View view) {
+std::pair<bool, bool> IsVisible(DiskVertex *vertex, Transaction *transaction, View view) {
   bool exists = true;
   bool deleted = false;
   Delta *delta = nullptr;

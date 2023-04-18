@@ -25,7 +25,7 @@
 
 namespace memgraph::storage {
 
-struct Vertex;
+struct DiskVertex;
 class VertexAccessor;
 struct Indices;
 struct Constraints;
@@ -35,9 +35,9 @@ class DiskEdgeAccessor final : public EdgeAccessor {
   friend class DiskStorage;
 
  public:
-  DiskEdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Transaction *transaction,
-                   Indices *indices, Constraints *constraints, Config::Items config, storage::Gid gid,
-                   bool for_deleted = false)
+  DiskEdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, DiskVertex *from_vertex, DiskVertex *to_vertex,
+                   Transaction *transaction, Indices *indices, Constraints *constraints, Config::Items config,
+                   storage::Gid gid, bool for_deleted = false)
       : EdgeAccessor(edge_type, transaction, config, for_deleted),
         edge_(edge),
         from_vertex_(from_vertex),
@@ -77,9 +77,8 @@ class DiskEdgeAccessor final : public EdgeAccessor {
   storage::Gid Gid() const noexcept override {
     if (config_.properties_on_edges) {
       return edge_.ptr->gid;
-    } else {
-      return edge_.gid;
     }
+    return edge_.gid;
   }
 
   std::optional<std::string> PropertyStore() const override;
@@ -99,8 +98,8 @@ class DiskEdgeAccessor final : public EdgeAccessor {
 
  private:
   EdgeRef edge_;
-  Vertex *from_vertex_;
-  Vertex *to_vertex_;
+  DiskVertex *from_vertex_;
+  DiskVertex *to_vertex_;
   Indices *indices_;
   Constraints *constraints_;
   storage::Gid gid_;
