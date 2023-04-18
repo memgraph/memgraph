@@ -26,7 +26,7 @@
 
 #include "io/network/endpoint.hpp"
 #include "storage/v2/disk/edge_accessor.hpp"
-#include "storage/v2/disk/old_storage.hpp"
+#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/disk/vertex_accessor.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/metadata.hpp"
@@ -155,7 +155,7 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex() {
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
   delta->prev.Set(&*it);
   return std::make_unique<DiskVertexAccessor>(&*it, &transaction_, &storage_->indices_, &storage_->constraints_,
-                                              config_);
+                                              config_, storage::Gid::FromUint(gid));
 }
 
 /*
@@ -178,7 +178,7 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex(storage:
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
   delta->prev.Set(&*it);
   return std::make_unique<DiskVertexAccessor>(&*it, &transaction_, &storage_->indices_, &storage_->constraints_,
-                                              config_);
+                                              config_, gid);
 }
 
 std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(const std::string_view key,
@@ -260,7 +260,7 @@ DiskStorage::DiskAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
                       std::make_move_iterator(del_in_edges->end()));
     return std::make_optional<ReturnType>(
         std::make_unique<DiskVertexAccessor>(vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_,
-                                             config_, true),
+                                             config_, vertex_ptr->gid, true),
         del_edges.GetValue());
   }
   return Error::SERIALIZATION_ERROR;
@@ -328,8 +328,9 @@ Result<std::unique_ptr<EdgeAccessor>> DiskStorage::DiskAccessor::CreateEdge(Vert
   // Increment edge count.
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
-  return Result<std::unique_ptr<EdgeAccessor>>{std::make_unique<DiskEdgeAccessor>(
-      edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_, &storage_->constraints_, config_)};
+  return Result<std::unique_ptr<EdgeAccessor>>{
+      std::make_unique<DiskEdgeAccessor>(edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
+                                         &storage_->constraints_, config_, gid)};
 }
 
 Result<std::unique_ptr<EdgeAccessor>> DiskStorage::DiskAccessor::DeleteEdge(EdgeAccessor *edge) {
@@ -352,7 +353,7 @@ Result<std::unique_ptr<EdgeAccessor>> DiskStorage::DiskAccessor::DeleteEdge(Edge
 
   return Result<std::unique_ptr<EdgeAccessor>>{
       std::make_unique<DiskEdgeAccessor>(edge_ref, edge_type, from_vertex, to_vertex, &transaction_,
-                                         &storage_->indices_, &storage_->constraints_, config_, true)};
+                                         &storage_->indices_, &storage_->constraints_, config_, edge->Gid(), true)};
 }
 
 // this should be handled on an above level of abstraction

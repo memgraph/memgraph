@@ -36,13 +36,15 @@ class DiskEdgeAccessor final : public EdgeAccessor {
 
  public:
   DiskEdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Transaction *transaction,
-                   Indices *indices, Constraints *constraints, Config::Items config, bool for_deleted = false)
+                   Indices *indices, Constraints *constraints, Config::Items config, storage::Gid gid,
+                   bool for_deleted = false)
       : EdgeAccessor(edge_type, transaction, config, for_deleted),
         edge_(edge),
         from_vertex_(from_vertex),
         to_vertex_(to_vertex),
         indices_(indices),
-        constraints_(constraints) {}
+        constraints_(constraints),
+        gid_(gid) {}
 
   /// @return true if the object is visible from the current transaction
   bool IsVisible(View view) const override;
@@ -97,6 +99,7 @@ class DiskEdgeAccessor final : public EdgeAccessor {
   Vertex *to_vertex_;
   Indices *indices_;
   Constraints *constraints_;
+  storage::Gid gid_;
 };
 
 }  // namespace memgraph::storage

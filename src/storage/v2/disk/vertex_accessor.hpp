@@ -13,6 +13,7 @@
 
 #include <memory>
 
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/vertex.hpp"
 
 #include "storage/v2/config.hpp"
@@ -34,11 +35,12 @@ class DiskVertexAccessor final : public VertexAccessor {
 
  public:
   DiskVertexAccessor(Vertex *vertex, Transaction *transaction, Indices *indices, Constraints *constraints,
-                     Config::Items config, bool for_deleted = false)
+                     Config::Items config, storage::Gid gid, bool for_deleted = false)
       : VertexAccessor(transaction, config, for_deleted),
         vertex_(vertex),
         indices_(indices),
-        constraints_(constraints) {}
+        constraints_(constraints),
+        gid_(gid) {}
 
   static std::unique_ptr<DiskVertexAccessor> Create(Vertex *vertex, Transaction *transaction, Indices *indices,
                                                     Constraints *constraints, Config::Items config, View view);
@@ -114,6 +116,7 @@ class DiskVertexAccessor final : public VertexAccessor {
   Vertex *vertex_;
   Indices *indices_;
   Constraints *constraints_;
+  storage::Gid gid_;
 };
 
 }  // namespace memgraph::storage
