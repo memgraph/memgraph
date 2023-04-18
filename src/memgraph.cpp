@@ -53,8 +53,8 @@
 #include "query/procedure/module.hpp"
 #include "query/procedure/py_module.hpp"
 #include "requests/requests.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
-#include "storage/v2/storage.hpp"
 #include "storage/v2/view.hpp"
 #include "telemetry/telemetry.hpp"
 #include "utils/event_counter.hpp"
@@ -459,11 +459,11 @@ struct SessionData {
   // supplied.
 #if MG_ENTERPRISE
 
-  SessionData(memgraph::storage::Storage *db, memgraph::query::InterpreterContext *interpreter_context,
+  SessionData(memgraph::storage::InMemoryStorage *db, memgraph::query::InterpreterContext *interpreter_context,
               memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
               memgraph::audit::Log *audit_log)
       : db(db), interpreter_context(interpreter_context), auth(auth), audit_log(audit_log) {}
-  memgraph::storage::Storage *db;
+  memgraph::storage::InMemoryStorage *db;
   memgraph::query::InterpreterContext *interpreter_context;
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth;
   memgraph::audit::Log *audit_log;
@@ -907,11 +907,10 @@ int main(int argc, char **argv) {
     }
     db_config.durability.snapshot_interval = std::chrono::seconds(FLAGS_storage_snapshot_interval_sec);
   }
-  memgraph::storage::Storage db(db_config);
+  memgraph::storage::InMemoryStorage db(db_config);
 
   memgraph::query::InterpreterContext interpreter_context{
       &db,
-      nullptr,
       {.query = {.allow_load_csv = FLAGS_allow_load_csv},
        .execution_timeout_sec = FLAGS_query_execution_timeout_sec,
        .replication_replica_check_frequency = std::chrono::seconds(FLAGS_replication_replica_check_frequency_sec),

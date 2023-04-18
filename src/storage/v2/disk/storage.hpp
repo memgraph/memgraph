@@ -11,375 +11,521 @@
 
 #pragma once
 
+#include <atomic>
+#include <cstdint>
+#include <filesystem>
+#include <optional>
+#include <shared_mutex>
+#include <span>
+#include <variant>
+
+#include "io/network/endpoint.hpp"
+#include "kvstore/kvstore.hpp"
+#include "storage/v2/commit_log.hpp"
+#include "storage/v2/config.hpp"
+#include "storage/v2/constraints.hpp"
+#include "storage/v2/disk/vertex_accessor.hpp"
+#include "storage/v2/durability/metadata.hpp"
+#include "storage/v2/durability/wal.hpp"
+#include "storage/v2/edge.hpp"
+#include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/indices.hpp"
+#include "storage/v2/isolation_level.hpp"
+#include "storage/v2/mvcc.hpp"
+#include "storage/v2/name_id_mapper.hpp"
+#include "storage/v2/result.hpp"
+#include "storage/v2/storage.hpp"
+#include "storage/v2/transaction.hpp"
+#include "storage/v2/vertex.hpp"
+#include "storage/v2/vertex_accessor.hpp"
+#include "utils/exceptions.hpp"
+#include "utils/file_locker.hpp"
+#include "utils/on_scope_exit.hpp"
+#include "utils/rw_lock.hpp"
+#include "utils/scheduler.hpp"
+#include "utils/skip_list.hpp"
+#include "utils/synchronized.hpp"
+#include "utils/uuid.hpp"
+
+/// REPLICATION ///
+#include "rpc/server.hpp"
+#include "storage/v2/replication/config.hpp"
+#include "storage/v2/replication/enums.hpp"
+#include "storage/v2/replication/rpc.hpp"
+#include "storage/v2/replication/serialization.hpp"
+#include "storage/v2/storage_error.hpp"
+
+/// ROCKSDB
 #include <rocksdb/db.h>
 #include <rocksdb/iterator.h>
 #include <rocksdb/options.h>
 #include <rocksdb/status.h>
 
-#include "query/db_accessor.hpp"
-#include "utils/file.hpp"
-#include "utils/string.hpp"
+namespace memgraph::storage {
 
-namespace memgraph::storage::rocks {
-
-constexpr const char *vertexHandle = "vertex";
-constexpr const char *edgeHandle = "edge";
-constexpr const char *outEdgeDirection = "0";
-constexpr const char *inEdgeDirection = "1";
-
-// /// Use it for operations that must successfully finish.
-inline void AssertRocksDBStatus(const rocksdb::Status &status) {
-  MG_ASSERT(status.ok(), "rocksdb: {}", status.ToString());
-}
-
-// inline bool CheckRocksDBStatus(const rocksdb::Status &status) {
-//   if (!status.ok()) [[unlikely]] {
-//     spdlog::error("rocksdb: {}", status.ToString());
-//   }
-//   return status.ok();
-// }
-
-class RocksDBStorage {
+class DiskStorage final : public Storage {
  public:
-  explicit RocksDBStorage() {
-    options_.create_if_missing = true;
-    // options_.OptimizeLevelStyleCompaction();
-    std::filesystem::path rocksdb_path = "./rocks_experiment_unit";
-    MG_ASSERT(utils::EnsureDir(rocksdb_path), "Unable to create storage folder on the disk.");
-    AssertRocksDBStatus(rocksdb::DB::Open(options_, rocksdb_path, &db_));
-    AssertRocksDBStatus(db_->CreateColumnFamily(rocksdb::ColumnFamilyOptions(), vertexHandle, &vertex_chandle));
-    AssertRocksDBStatus(db_->CreateColumnFamily(rocksdb::ColumnFamilyOptions(), edgeHandle, &edge_chandle));
+  /// @throw std::system_error
+  /// @throw std::bad_alloc
+  explicit DiskStorage();
+
+  ~DiskStorage();
+
+  class DiskAccessor final : public Storage::Accessor {
+   private:
+    friend class DiskStorage;
+
+    explicit DiskAccessor(DiskStorage *storage, IsolationLevel isolation_level);
+
+   public:
+    DiskAccessor(const DiskAccessor &) = delete;
+    DiskAccessor &operator=(const DiskAccessor &) = delete;
+    DiskAccessor &operator=(DiskAccessor &&other) = delete;
+
+    // NOTE: After the accessor is moved, all objects derived from it (accessors
+    // and iterators) are *invalid*. You have to get all derived objects again.
+    DiskAccessor(DiskAccessor &&other) noexcept;
+
+    ~DiskAccessor() override;
+
+    /// @throw std::alloc
+    std::unique_ptr<VertexAccessor> CreateVertex() override;
+
+    std::unique_ptr<VertexAccessor> FindVertex(Gid gid, View view) override;
+
+    /// Utility method to load all vertices from the underlying KV storage.
+    VerticesIterable Vertices(View view) override;
+
+    /// Utility method to load all vertices from the underlying KV storage with label `label`.
+    VerticesIterable Vertices(LabelId label, View view) override;
+
+    VerticesIterable Vertices(LabelId label, PropertyId property, View view) override;
+
+    VerticesIterable Vertices(LabelId label, PropertyId property, const PropertyValue &value, View view) override;
+
+    VerticesIterable Vertices(LabelId label, PropertyId property,
+                              const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
+
+    int64_t ApproximateVertexCount() const override {
+      throw utils::NotYetImplemented("ApproximateVertexCount() is not implemented for DiskStorage.");
+    }
+
+    int64_t ApproximateVertexCount(LabelId label) const override {
+      throw utils::NotYetImplemented("ApproximateVertexCount(label) is not implemented for DiskStorage.");
+    }
+
+    int64_t ApproximateVertexCount(LabelId label, PropertyId property) const override {
+      throw utils::NotYetImplemented("ApproximateVertexCount(label, property) is not implemented for DiskStorage.");
+    }
+
+    int64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const override {
+      throw utils::NotYetImplemented(
+          "ApproximateVertexCount(label, property, value) is not implemented for DiskStorage.");
+    }
+
+    int64_t ApproximateVertexCount(LabelId label, PropertyId property,
+                                   const std::optional<utils::Bound<PropertyValue>> &lower,
+                                   const std::optional<utils::Bound<PropertyValue>> &upper) const override {
+      throw utils::NotYetImplemented(
+          "ApproximateVertexCount(label, property, lower, upper) is not implemented for DiskStorage.");
+    }
+
+    std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId &label,
+                                                     const storage::PropertyId &property) const override {
+      throw utils::NotYetImplemented("GetIndexStats() is not implemented for DiskStorage.");
+    }
+
+    std::vector<std::pair<LabelId, PropertyId>> ClearIndexStats() override {
+      throw utils::NotYetImplemented("ClearIndexStats() is not implemented for DiskStorage.");
+    }
+
+    std::vector<std::pair<LabelId, PropertyId>> DeleteIndexStatsForLabels(
+        const std::span<std::string> labels) override {
+      throw utils::NotYetImplemented("DeleteIndexStatsForLabels(labels) is not implemented for DiskStorage.");
+    }
+
+    void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
+                       const IndexStats &stats) override {
+      throw utils::NotYetImplemented("SetIndexStats(stats) is not implemented for DiskStorage.");
+    }
+
+    Result<std::unique_ptr<VertexAccessor>> DeleteVertex(VertexAccessor *vertex) override;
+
+    Result<std::optional<std::pair<std::unique_ptr<VertexAccessor>, std::vector<std::unique_ptr<EdgeAccessor>>>>>
+    DetachDeleteVertex(VertexAccessor *vertex) override;
+
+    Result<std::unique_ptr<EdgeAccessor>> CreateEdge(VertexAccessor *from, VertexAccessor *to,
+                                                     EdgeTypeId edge_type) override;
+
+    Result<std::unique_ptr<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge) override;
+
+    Result<std::vector<std::unique_ptr<EdgeAccessor>>> DeleteEdges(const auto &edge_accessors);
+
+    const std::string &LabelToName(LabelId label) const override;
+    const std::string &PropertyToName(PropertyId property) const override;
+    const std::string &EdgeTypeToName(EdgeTypeId edge_type) const override;
+
+    /// @throw std::bad_alloc if unable to insert a new mapping
+    LabelId NameToLabel(std::string_view name) override;
+
+    /// @throw std::bad_alloc if unable to insert a new mapping
+    PropertyId NameToProperty(std::string_view name) override;
+
+    /// @throw std::bad_alloc if unable to insert a new mapping
+    EdgeTypeId NameToEdgeType(std::string_view name) override;
+
+    bool LabelIndexExists(LabelId label) const override {
+      throw utils::NotYetImplemented("LabelIndexExists() is not implemented for DiskStorage.");
+    }
+
+    bool LabelPropertyIndexExists(LabelId label, PropertyId property) const override {
+      throw utils::NotYetImplemented("LabelPropertyIndexExists() is not implemented for DiskStorage.");
+    }
+
+    IndicesInfo ListAllIndices() const override {
+      throw utils::NotYetImplemented("ListAllIndices() is not implemented for DiskStorage.");
+    }
+
+    ConstraintsInfo ListAllConstraints() const override {
+      throw utils::NotYetImplemented("ListAllConstraints() is not implemented for DiskStorage.");
+    }
+
+    void AdvanceCommand() override;
+
+    utils::BasicResult<StorageDataManipulationError, void> Commit(
+        std::optional<uint64_t> desired_commit_timestamp = {}) override;
+
+    /// @throw std::bad_alloc
+    void Abort() override;
+
+    void FinalizeTransaction() override;
+
+    std::optional<uint64_t> GetTransactionId() const override;
+
+   private:
+    /// @throw std::bad_alloc
+    std::unique_ptr<VertexAccessor> CreateVertex(storage::Gid gid);
+
+    /// @throw std::bad_alloc
+    Result<std::unique_ptr<EdgeAccessor>> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type,
+                                                     storage::Gid gid);
+
+    // (De)serialization utility methods
+
+    inline std::string SerializeIdType(const auto &id) { return std::to_string(id.AsUint()); }
+
+    std::string SerializeLabels(const auto &&labels) {
+      if (labels.HasError() || (*labels).empty()) {
+        return "";
+      }
+      std::string result = std::to_string((*labels)[0].AsUint());
+      std::string ser_labels = std::accumulate(
+          std::next((*labels).begin()), (*labels).end(), result,
+          [](const std::string &join, const auto &label_id) { return join + "," + std::to_string(label_id.AsUint()); });
+      return ser_labels;
+    }
+
+    std::string SerializeVertex(VertexAccessor *vertex_acc) {
+      std::string result = SerializeLabels(vertex_acc->Labels(storage::View::OLD)) + "|";
+      result += SerializeIdType(vertex_acc->Gid());
+      return result;
+    }
+
+    std::pair<std::string, std::string> SerializeEdge(EdgeAccessor *edge_acc);
+
+    /// Deserializes vertex from the string and stores it into the skip list
+    std::unique_ptr<VertexAccessor> DeserializeVertex(std::string_view vertex_parts, std::string_view value);
+
+    std::unique_ptr<EdgeAccessor> DeserializeEdge(std::string_view key, std::string_view value);
+
+    DiskStorage *storage_;
+    /// Accessor is tighly coupled with the transaction and we store read/write set per transaction. That's why objects
+    /// need to be stored here.
+    utils::SkipList<storage::Vertex> vertices_;
+    utils::SkipList<storage::Edge> edges_;
+
+    std::shared_lock<utils::RWLock> storage_guard_;
+    Transaction transaction_;
+    std::optional<uint64_t> commit_timestamp_;
+    bool is_transaction_active_;
+    Config::Items config_;
+  };
+
+  std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override {
+    return std::unique_ptr<DiskAccessor>(new DiskAccessor{this, override_isolation_level.value_or(isolation_level_)});
   }
 
-  RocksDBStorage(const RocksDBStorage &) = delete;
-  RocksDBStorage &operator=(const RocksDBStorage &) = delete;
-  RocksDBStorage &operator=(RocksDBStorage &&) = delete;
-  RocksDBStorage(RocksDBStorage &&) = delete;
+  const std::string &LabelToName(LabelId label) const override;
+  const std::string &PropertyToName(PropertyId property) const override;
+  const std::string &EdgeTypeToName(EdgeTypeId edge_type) const override;
 
-  ~RocksDBStorage() {
-    AssertRocksDBStatus(db_->DropColumnFamily(vertex_chandle));
-    AssertRocksDBStatus(db_->DropColumnFamily(edge_chandle));
-    AssertRocksDBStatus(db_->DestroyColumnFamilyHandle(vertex_chandle));
-    AssertRocksDBStatus(db_->DestroyColumnFamilyHandle(edge_chandle));
-    AssertRocksDBStatus(db_->Close());
-    delete db_;
-  }
+  /// @throw std::bad_alloc if unable to insert a new mapping
+  LabelId NameToLabel(std::string_view name) override;
 
-  //   // EDGE ACCESSOR FUNCTIONALITIES
-  //   // -----------------------------------------------------------
+  /// @throw std::bad_alloc if unable to insert a new mapping
+  PropertyId NameToProperty(std::string_view name) override;
 
-  //   /// fetch the edge's source vertex by its GID
-  //   std::optional<query::VertexAccessor> FromVertex(const query::EdgeAccessor &edge_acc, query::DbAccessor &dba) {
-  //     return FindVertex(SerializeIdType(edge_acc.From().Gid()), dba);
-  //   }
+  /// @throw std::bad_alloc if unable to insert a new mapping
+  EdgeTypeId NameToEdgeType(std::string_view name) override;
 
-  //   /// fetch the edge's destination vertex by its GID
-  //   std::optional<query::VertexAccessor> ToVertex(const query::EdgeAccessor &edge_acc, query::DbAccessor &dba) {
-  //     return FindVertex(SerializeIdType(edge_acc.To().Gid()), dba);
-  //   }
+  /// Create an index.
+  /// Returns void if the index has been created.
+  /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
+  /// * `IndexDefinitionError`: the index already exists.
+  /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
+  /// @throw std::bad_alloc
+  utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+      LabelId label, std::optional<uint64_t> desired_commit_timestamp) override;
 
-  //   /// VERTEX ACCESSOR FUNCTIONALITIES
-  //   /// ------------------------------------------------------------
+  /// Create an index.
+  /// Returns void if the index has been created.
+  /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
+  /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
+  /// * `IndexDefinitionError`: the index already exists.
+  /// @throw std::bad_alloc
+  utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
 
-  //   /// The VertexAccessor's out edge with gid src_gid has the following format in the RocksDB:
-  //   /// src_gid | other_vertex_gid | 0 | ...
-  //   /// other_vertex_gid | src_gid | 1 | ...
-  //   /// We use the firt way since this should be possible to optimize using Bloom filters and prefix search
-  //   std::vector<query::EdgeAccessor> OutEdges(const query::VertexAccessor &vertex_acc, query::DbAccessor &dba) {
-  //     const auto vertex_acc_gid = SerializeIdType(vertex_acc.Gid());
-  //     std::vector<query::EdgeAccessor> out_edges;
-  //     auto it = std::unique_ptr<rocksdb::Iterator>(db_->NewIterator(rocksdb::ReadOptions(), edge_chandle));
-  //     for (it->SeekToFirst(); it->Valid(); it->Next()) {
-  //       const std::string_view key = it->key().ToStringView();
-  //       const auto vertex_parts = utils::Split(key, "|");
-  //       if (vertex_parts[0] == vertex_acc_gid && vertex_parts[2] == outEdgeDirection) {
-  //         out_edges.push_back(DeserializeEdge(key, it->value().ToStringView(), dba));
-  //       }
-  //     }
-  //     return out_edges;
-  //   }
+  /// Drop an existing index.
+  /// Returns void if the index has been dropped.
+  /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
+  /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
+  /// * `IndexDefinitionError`: the index does not exist.
+  utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
+      LabelId label, std::optional<uint64_t> desired_commit_timestamp) override;
 
-  //   /// The VertexAccessor's out edge with gid src_gid has the following format in the RocksDB:
-  //   /// other_vertex_gid | dest_gid | 0 | ...
-  //   /// dest_gid | other_verte_gid | 1 | ...
-  //   /// we use the second way since this should be possible to optimize using Bloom filters and prefix search.
-  //   std::vector<query::EdgeAccessor> InEdges(const query::VertexAccessor &vertex_acc, query::DbAccessor &dba) {
-  //     const auto vertex_acc_gid = SerializeIdType(vertex_acc.Gid());
-  //     std::vector<query::EdgeAccessor> in_edges;
-  //     auto it = std::unique_ptr<rocksdb::Iterator>(db_->NewIterator(rocksdb::ReadOptions(), edge_chandle));
-  //     for (it->SeekToFirst(); it->Valid(); it->Next()) {
-  //       const std::string_view key = it->key().ToStringView();
-  //       const auto vertex_parts = utils::Split(key, "|");
-  //       if (vertex_parts[0] == vertex_acc_gid && vertex_parts[2] == inEdgeDirection) {
-  //         in_edges.push_back(DeserializeEdge(key, it->value().ToStringView(), dba));
-  //       }
-  //     }
-  //     return in_edges;
-  //   }
+  /// Drop an existing index.
+  /// Returns void if the index has been dropped.
+  /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
+  /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
+  /// * `IndexDefinitionError`: the index does not exist.
+  utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
+      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
 
-  //   /// TODO: how will we handle new vertex creation
+  IndicesInfo ListAllIndices() const override;
 
-  //   /// STORAGE ACCESSOR FUNCTIONALITIES
-  //   /// -----------------------------------------------------------
+  /// Returns void if the existence constraint has been created.
+  /// Returns `StorageExistenceConstraintDefinitionError` if an error occures. Error can be:
+  /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
+  /// * `ConstraintViolation`: there is already a vertex existing that would break this new constraint.
+  /// * `ConstraintDefinitionError`: the constraint already exists.
+  /// @throw std::bad_alloc
+  /// @throw std::length_error
+  utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
+      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
 
-  //   /// TODO: how will we handle new edge creation
+  /// Drop an existing existence constraint.
+  /// Returns void if the existence constraint has been dropped.
+  /// Returns `StorageExistenceConstraintDroppingError` if an error occures. Error can be:
+  /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
+  /// * `ConstraintDefinitionError`: the constraint did not exists.
+  utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropExistenceConstraint(
+      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp) override;
 
-  //   /// @return Accessor to the deleted edge if a deletion took place, std::nullopt otherwise.
-  //   /// Delete two edge entries since on edge is represented on a two-fold level.
-  //   /// Edges are deleted from logical partition containing edges.
-  //   std::optional<query::EdgeAccessor> DeleteEdge(const query::EdgeAccessor &edge_acc) {
-  //     auto [src_dest_key, dest_src_key] = SerializeEdge(edge_acc);
-  //     if (!CheckRocksDBStatus(db_->Delete(rocksdb::WriteOptions(), edge_chandle, src_dest_key)) ||
-  //         !CheckRocksDBStatus(db_->Delete(rocksdb::WriteOptions(), edge_chandle, dest_src_key))) {
-  //       return std::nullopt;
-  //     }
-  //     return edge_acc;
-  //   }
+  /// Create an unique constraint.
+  /// Returns `StorageUniqueConstraintDefinitionError` if an error occures. Error can be:
+  /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
+  /// * `ConstraintViolation`: there are already vertices violating the constraint.
+  /// Returns `UniqueConstraints::CreationStatus` otherwise. Value can be:
+  /// * `SUCCESS` if the constraint was successfully created,
+  /// * `ALREADY_EXISTS` if the constraint already existed,
+  /// * `EMPTY_PROPERTIES` if the property set is empty, or
+  /// * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the limit of maximum number of properties.
+  /// @throw std::bad_alloc
+  utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus> CreateUniqueConstraint(
+      LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp) override;
 
-  //   /// Helper function, not used in the real accessor.
-  //   std::optional<std::vector<query::EdgeAccessor>> DeleteEdges(const auto &edge_accessors) {
-  //     std::vector<query::EdgeAccessor> edge_accs;
-  //     for (auto &&it : edge_accessors) {
-  //       if (const auto deleted_edge_res = DeleteEdge(it); !deleted_edge_res.has_value()) {
-  //         return std::nullopt;
-  //       }
-  //       edge_accs.push_back(it);
-  //     }
-  //     return edge_accs;
-  //   }
+  /// Removes an existing unique constraint.
+  /// Returns `StorageUniqueConstraintDroppingError` if an error occures. Error can be:
+  /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
+  /// Returns `UniqueConstraints::DeletionStatus` otherwise. Value can be:
+  /// * `SUCCESS` if constraint was successfully removed,
+  /// * `NOT_FOUND` if the specified constraint was not found,
+  /// * `EMPTY_PROPERTIES` if the property set is empty, or
+  /// * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the limit of maximum number of properties.
+  utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus> DropUniqueConstraint(
+      LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp) override;
 
-  //   /// @return A reference to the deleted vertex accessor if deleted, otherwise std::nullopt.
-  //   /// Delete vertex from logical partition containing vertices.
-  //   std::optional<query::VertexAccessor> DeleteVertex(const query::VertexAccessor &vertex_acc) {
-  //     if (!CheckRocksDBStatus(db_->Delete(rocksdb::WriteOptions(), vertex_chandle, SerializeVertex(vertex_acc)))) {
-  //       return std::nullopt;
-  //     }
-  //     return vertex_acc;
-  //   }
+  ConstraintsInfo ListAllConstraints() const override;
 
-  //   /// @return Accessor to the deleted vertex and deleted edges if a deletion took place, std::nullopt otherwise.
-  //   /// Delete vertex from logical partition containing vertices.
-  //   /// For each edge delete two key-value entries from logical partition containing edges.
-  //   std::optional<std::pair<query::VertexAccessor, std::vector<query::EdgeAccessor>>> DetachDeleteVertex(
-  //       const query::VertexAccessor &vertex_acc) {
-  //     auto del_vertex = DeleteVertex(vertex_acc);
-  //     if (!del_vertex.has_value()) {
-  //       return std::nullopt;
-  //     }
-  //     auto out_edges = vertex_acc.OutEdges(storage::View::OLD);
-  //     auto in_edges = vertex_acc.InEdges(storage::View::OLD);
-  //     if (out_edges.HasError() || in_edges.HasError()) {
-  //       return std::nullopt;
-  //     }
-  //     if (auto del_edges = DeleteEdges(*out_edges), del_in_edges = DeleteEdges(*in_edges);
-  //         del_edges.has_value() && del_in_edges.has_value()) {
-  //       del_edges->insert(del_in_edges->end(), std::make_move_iterator(del_in_edges->begin()),
-  //                         std::make_move_iterator(del_in_edges->end()));
-  //       return std::make_pair(*del_vertex, *del_edges);
-  //     }
-  //     return std::nullopt;
-  //   }
+  StorageInfo GetInfo() const override;
 
-  //   /// STORING
-  //   /// -----------------------------------------------------------
+  bool LockPath() override;
+  bool UnlockPath() override;
 
-  //   /// Serialize and store in-memory vertex to the disk.
-  //   /// Properties are serialized as the value
-  //   void StoreVertex(const query::VertexAccessor &vertex_acc) {
-  //     AssertRocksDBStatus(db_->Put(rocksdb::WriteOptions(), vertex_chandle, SerializeVertex(vertex_acc),
-  //                                  SerializeProperties(vertex_acc.PropertyStore())));
-  //   }
+  bool SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config) override;
 
-  //   /// Store edge as two key-value entries in the RocksDB.
-  //   void StoreEdge(const query::EdgeAccessor &edge_acc) {
-  //     auto [src_dest_key, dest_src_key] = SerializeEdge(edge_acc);
-  //     const std::string value = SerializeProperties(edge_acc.PropertyStore());
-  //     AssertRocksDBStatus(db_->Put(rocksdb::WriteOptions(), edge_chandle, src_dest_key, value));
-  //     AssertRocksDBStatus(db_->Put(rocksdb::WriteOptions(), edge_chandle, dest_src_key, value));
-  //   }
+  bool SetMainReplicationRole() override;
 
-  //   /// UPDATE PART
-  //   /// -----------------------------------------------------------
+  /// @pre The instance should have a MAIN role
+  /// @pre Timeout can only be set for SYNC replication
+  utils::BasicResult<RegisterReplicaError, void> RegisterReplica(
+      std::string name, io::network::Endpoint endpoint, replication::ReplicationMode replication_mode,
+      replication::RegistrationMode registration_mode, const replication::ReplicationClientConfig &config) override;
+  /// @pre The instance should have a MAIN role
+  bool UnregisterReplica(const std::string &name) override;
 
-  //   /// Clear all entries from the database.
-  //   /// TODO: check if this deletes all entries, or you also need to specify handle here
-  //   /// TODO: This will not be needed in the production code and can possibly removed in testing
-  //   void Clear() {
-  //     auto it = std::unique_ptr<rocksdb::Iterator>(db_->NewIterator(rocksdb::ReadOptions()));
-  //     for (it->SeekToFirst(); it->Valid(); it->Next()) {
-  //       db_->Delete(rocksdb::WriteOptions(), it->key().ToString());
-  //     }
-  //   }
+  std::optional<replication::ReplicaState> GetReplicaState(std::string_view name) override;
 
-  //   /// READ PART
-  //   /// -----------------------------------------------------------
+  ReplicationRole GetReplicationRole() const override;
 
-  //   /// TODO: if the need comes for using also a GID object, use std::variant
-  //   /// This should again be changed when we have mulitple same vertices
-  //   std::optional<query::VertexAccessor> FindVertex(const std::string_view gid, query::DbAccessor &dba) {
-  //     auto it = std::unique_ptr<rocksdb::Iterator>(db_->NewIterator(rocksdb::ReadOptions(), vertex_chandle));
-  //     std::optional<query::VertexAccessor> result = {};
-  //     for (it->SeekToFirst(); it->Valid(); it->Next()) {
-  //       const auto &key = it->key().ToString();
-  //       if (const auto vertex_parts = utils::Split(key, "|"); vertex_parts[1] == gid) {
-  //         result = DeserializeVertex(key, it->value().ToStringView(), dba);
-  //         break;
-  //       }
-  //     }
-  //     return result;
-  //   }
+  std::vector<ReplicaInfo> ReplicasInfo() override;
 
-  //   /// Get all vertices by a label.
-  //   std::vector<query::VertexAccessor> Vertices(query::DbAccessor &dba, const storage::LabelId &label_id) {
-  //     return Vertices(dba, [label_id](const auto &vertex) {
-  //       const auto res = vertex.HasLabel(storage::View::OLD, label_id);
-  //       return !res.HasError() && *res;
-  //     });
-  //   }
+  void FreeMemory() override;
 
-  //   /// Read all vertices stored in the database by a property
-  //   std::vector<query::VertexAccessor> Vertices(query::DbAccessor &dba, const storage::PropertyId &property_id,
-  //                                               const storage::PropertyValue &property_value) {
-  //     return Vertices(dba, [property_id, property_value](const auto &vertex) {
-  //       const auto res = vertex.GetProperty(storage::View::OLD, property_id);
-  //       return !res.HasError() && *res == property_value;
-  //     });
-  //   }
+  void SetIsolationLevel(IsolationLevel isolation_level) override;
 
-  //   /// Get all vertices.
-  //   std::vector<query::VertexAccessor> Vertices(query::DbAccessor &dba) {
-  //     return Vertices(dba, [](const auto & /*vertex*/) { return true; });
-  //   }
+  utils::BasicResult<CreateSnapshotError> CreateSnapshot() override;
 
-  //   /// Read all vertices stored in the database and filter them by a lambda function.
-  //   std::vector<query::VertexAccessor> Vertices(query::DbAccessor &dba, const auto &vertex_filter) {
-  //     std::vector<query::VertexAccessor> vertices;
-  //     auto it = std::unique_ptr<rocksdb::Iterator>(db_->NewIterator(rocksdb::ReadOptions(), vertex_chandle));
-  //     for (it->SeekToFirst(); it->Valid(); it->Next()) {
-  //       auto vertex = DeserializeVertex(it->key().ToStringView(), it->value().ToStringView(), dba);
-  //       if (vertex_filter(vertex)) {
-  //         vertices.push_back(vertex);
-  //       }
-  //     }
-  //     return vertices;
-  //   }
+ private:
+  Transaction CreateTransaction(IsolationLevel isolation_level);
 
-  //  private:
-  //   /// Serialization of properties is done by saving the property store buffer
-  //   /// If the data is stored in the local buffer of the property store, data from the buffer is copied to the string
-  //   /// If the data is stored in some external buffer, the data is read from that location and copied to the string
-  //   inline std::string SerializeProperties(const auto &&properties) { return properties; }
+  /// The force parameter determines the behaviour of the garbage collector.
+  /// If it's set to true, it will behave as a global operation, i.e. it can't
+  /// be part of a transaction, and no other transaction can be active at the same time.
+  /// This allows it to delete immediately vertices without worrying that some other
+  /// transaction is possibly using it. If there are active transactions when this method
+  /// is called with force set to true, it will fallback to the same method with the force
+  /// set to false.
+  /// If it's set to false, it will execute in parallel with other transactions, ensuring
+  /// that no object in use can be deleted.
+  /// @throw std::system_error
+  /// @throw std::bad_alloc
+  template <bool force>
+  void CollectGarbage();
 
-  //   /// Serialize labels delimitied by | to string
-  //   std::string SerializeLabels(const auto &&labels) {
-  //     if (labels.HasError() || (*labels).empty()) {
-  //       return "";
-  //     }
-  //     std::string result = std::to_string((*labels)[0].AsUint());
-  //     std::string ser_labels = std::accumulate(
-  //         std::next((*labels).begin()), (*labels).end(), result,
-  //         [](const std::string &join, const auto &label_id) { return join + "," + std::to_string(label_id.AsUint());
-  //         });
-  //     return ser_labels;
-  //   }
+  bool InitializeWalFile();
+  void FinalizeWalFile();
 
-  //   /// Serializes id type to string
-  //   inline std::string SerializeIdType(const auto &id) { return std::to_string(id.AsUint()); }
+  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
+  [[nodiscard]] bool AppendToWalDataManipulation(const Transaction &transaction, uint64_t final_commit_timestamp);
+  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
+  [[nodiscard]] bool AppendToWalDataDefinition(durability::StorageGlobalOperation operation, LabelId label,
+                                               const std::set<PropertyId> &properties, uint64_t final_commit_timestamp);
 
-  //   /// Serialize vertex to string
-  //   /// The format: | label1,label2,label3 | gid
-  //   std::string SerializeVertex(const query::VertexAccessor &vertex_acc) {
-  //     std::string result = SerializeLabels(vertex_acc.Labels(storage::View::OLD)) + "|";
-  //     result += SerializeIdType(vertex_acc.Gid());
-  //     return result;
-  //   }
+  uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
-  //   /// Deserialize vertex from string
-  //   /// Properties are read from value and set to the vertex later
-  //   query::VertexAccessor DeserializeVertex(const std::string_view key, const std::string_view value,
-  //       query::DbAccessor &dba) {
-  //     /// Create vertex
-  //     auto impl = dba.InsertVertex();
-  //     spdlog::info("Key to deserialize: {}", key);
-  //     const auto vertex_parts = utils::Split(key, "|");
-  //     // Deserialize labels
-  //     if (!vertex_parts[0].empty()) {
-  //       const auto labels = utils::Split(vertex_parts[0], ",");
-  //       for (const auto &label : labels) {
-  //         const storage::LabelId label_id = storage::LabelId::FromUint(std::stoull(label));
-  //         auto maybe_error = impl.AddLabel(label_id);
-  //         if (maybe_error.HasError()) {
-  //           switch (maybe_error.GetError()) {
-  //             case storage::Error::SERIALIZATION_ERROR:
-  //               throw utils::BasicException("Serialization");
-  //             case storage::Error::DELETED_OBJECT:
-  //               throw utils::BasicException("Trying to set a label on a deleted node.");
-  //             case storage::Error::VERTEX_HAS_EDGES:
-  //             case storage::Error::PROPERTIES_DISABLED:
-  //             case storage::Error::NONEXISTENT_OBJECT:
-  //               throw utils::BasicException("Unexpected error when setting a label.");
-  //           }
-  //         }
-  //       }
-  //     }
-  //     impl.SetGid(storage::Gid::FromUint(std::stoull(vertex_parts[1])));
-  //     impl.SetPropertyStore(value);
-  //     return impl;
-  //   }
+  void RestoreReplicas();
 
-  //   /// Serializes edge accessor to obtain a key for the key-value store.
-  //   /// @return two strings because there will be two keys since edge is stored in both directions.
-  //   // | from_gid | to_gid | direction | edge_type | edge_gid
-  //   std::pair<std::string, std::string> SerializeEdge(const query::EdgeAccessor &edge_acc) {
-  //     // Serialized objects
-  //     auto from_gid = SerializeIdType(edge_acc.From().Gid());
-  //     auto to_gid = SerializeIdType(edge_acc.To().Gid());
-  //     auto edge_type = SerializeIdType(edge_acc.EdgeType());
-  //     auto edge_gid = SerializeIdType(edge_acc.Gid());
-  //     // source->destination key
-  //     std::string src_dest_key = from_gid + "|";
-  //     src_dest_key += to_gid + "|";
-  //     src_dest_key += outEdgeDirection;
-  //     src_dest_key += "|" + edge_type + "|";
-  //     src_dest_key += edge_gid;
-  //     // destination->source key
-  //     std::string dest_src_key = to_gid + "|";
-  //     dest_src_key += from_gid + "|";
-  //     dest_src_key += inEdgeDirection;
-  //     dest_src_key += "|" + edge_type + "|";
-  //     dest_src_key += edge_gid;
-  //     return {src_dest_key, dest_src_key};
-  //   }
+  bool ShouldStoreAndRestoreReplicas() const;
 
-  //   /// Deserialize edge from the given key-value.
-  //   /// Properties are read from value and set to the edge later.
-  //   ///
-  //   query::EdgeAccessor DeserializeEdge(const std::string_view key, const std::string_view value,
-  //                                       query::DbAccessor &dba) {
-  //     const auto edge_parts = utils::Split(key, "|");
-  //     auto [from_gid, to_gid] = std::invoke(
-  //         [&](const auto &edge_parts) {
-  //           if (edge_parts[2] == "0") {  // out edge
-  //             return std::make_pair(edge_parts[0], edge_parts[1]);
-  //           }
-  //           // in edge
-  //           return std::make_pair(edge_parts[1], edge_parts[0]);
-  //         },
-  //         edge_parts);
-  //     // load vertex accessors
-  //     auto from_acc = FindVertex(from_gid, dba);
-  //     auto to_acc = FindVertex(to_gid, dba);
-  //     if (!from_acc.has_value() || !to_acc.has_value()) {
-  //       throw utils::BasicException("Non-existing vertices during edge deserialization");
-  //     }
-  //     const auto edge_type_id = storage::EdgeTypeId::FromUint(std::stoull(edge_parts[3]));
-  //     auto maybe_edge = dba.InsertEdge(&*from_acc, &*to_acc, edge_type_id);
-  //     MG_ASSERT(maybe_edge.HasValue());
-  //     // in the new storage API, setting gid must be done atomically
-  //     maybe_edge->SetGid(storage::Gid::FromUint(std::stoull(edge_parts[4])));
-  //     maybe_edge->SetPropertyStore(value);
-  //     return *maybe_edge;
-  //   }
+  // Main storage lock.
+  //
+  // Accessors take a shared lock when starting, so it is possible to block
+  // creation of new accessors by taking a unique lock. This is used when doing
+  // operations on storage that affect the global state, for example index
+  // creation.
+  mutable utils::RWLock main_lock_{utils::RWLock::Priority::WRITE};
+
+  std::atomic<uint64_t> vertex_id_{0};
+  std::atomic<uint64_t> edge_id_{0};
+  // Even though the edge count is already kept in the `edges_` SkipList, the
+  // list is used only when properties are enabled for edges. Because of that we
+  // keep a separate count of edges that is always updated.
+  std::atomic<uint64_t> edge_count_{0};
+
+  NameIdMapper name_id_mapper_;
+
+  Constraints constraints_;
+  Indices indices_;
+
+  // Transaction engine
+  utils::SpinLock engine_lock_;
+  uint64_t timestamp_{kTimestampInitialId};
+  uint64_t transaction_id_{kTransactionInitialId};
+  // TODO: This isn't really a commit log, it doesn't even care if a
+  // transaction commited or aborted. We could probably combine this with
+  // `timestamp_` in a sensible unit, something like TransactionClock or
+  // whatever.
+  std::optional<CommitLog> commit_log_;
+
+  utils::Synchronized<std::list<Transaction>, utils::SpinLock> committed_transactions_;
+  IsolationLevel isolation_level_;
+
+  Config config_;
+  utils::Scheduler gc_runner_;
+  std::mutex gc_lock_;
+
+  // Undo buffers that were unlinked and now are waiting to be freed.
+  utils::Synchronized<std::list<std::pair<uint64_t, std::list<Delta>>>, utils::SpinLock> garbage_undo_buffers_;
+
+  // Vertices that are logically deleted but still have to be removed from
+  // indices before removing them from the main storage.
+  utils::Synchronized<std::list<Gid>, utils::SpinLock> deleted_vertices_;
+
+  // Vertices that are logically deleted and removed from indices and now wait
+  // to be removed from the main storage.
+  std::list<std::pair<uint64_t, Gid>> garbage_vertices_;
+
+  // Edges that are logically deleted and wait to be removed from the main
+  // storage.
+  utils::Synchronized<std::list<Gid>, utils::SpinLock> deleted_edges_;
+
+  // Durability
+  std::filesystem::path snapshot_directory_;
+  std::filesystem::path wal_directory_;
+  std::filesystem::path lock_file_path_;
+  utils::OutputFile lock_file_handle_;
+  std::unique_ptr<kvstore::KVStore> storage_;
+
+  utils::Scheduler snapshot_runner_;
+  utils::SpinLock snapshot_lock_;
+
+  // UUID used to distinguish snapshots and to link snapshots to WALs
+  std::string uuid_;
+  // Sequence number used to keep track of the chain of WALs.
+  uint64_t wal_seq_num_{0};
+
+  // UUID to distinguish different main instance runs for replication process
+  // on SAME storage.
+  // Multiple instances can have same storage UUID and be MAIN at the same time.
+  // We cannot compare commit timestamps of those instances if one of them
+  // becomes the replica of the other so we use epoch_id_ as additional
+  // discriminating property.
+  // Example of this:
+  // We have 2 instances of the same storage, S1 and S2.
+  // S1 and S2 are MAIN and accept their own commits and write them to the WAL.
+  // At the moment when S1 commited a transaction with timestamp 20, and S2
+  // a different transaction with timestamp 15, we change S2's role to REPLICA
+  // and register it on S1.
+  // Without using the epoch_id, we don't know that S1 and S2 have completely
+  // different transactions, we think that the S2 is behind only by 5 commits.
+  std::string epoch_id_;
+  // History of the previous epoch ids.
+  // Each value consists of the epoch id along the last commit belonging to that
+  // epoch.
+  std::deque<std::pair<std::string, uint64_t>> epoch_history_;
+
+  std::optional<durability::WalFile> wal_file_;
+  uint64_t wal_unsynced_transactions_{0};
+
+  utils::FileRetainer file_retainer_;
+
+  // Global locker that is used for clients file locking
+  utils::FileRetainer::FileLocker global_locker_;
+
+  // Last commited timestamp
+  std::atomic<uint64_t> last_commit_timestamp_{kTimestampInitialId};
+
+  // class ReplicationServer;
+  // std::unique_ptr<ReplicationServer> replication_server_{nullptr};
+
+  // class ReplicationClient;
+  // We create ReplicationClient using unique_ptr so we can move
+  // newly created client into the vector.
+  // We cannot move the client directly because it contains ThreadPool
+  // which cannot be moved. Also, the move is necessary because
+  // we don't want to create the client directly inside the vector
+  // because that would require the lock on the list putting all
+  // commits (they iterate list of clients) to halt.
+  // This way we can initialize client in main thread which means
+  // that we can immediately notify the user if the initialization
+  // failed.
+  // using ReplicationClientList = utils::Synchronized<std::vector<std::unique_ptr<ReplicationClient>>,
+  // utils::SpinLock>; ReplicationClientList replication_clients_;
+
+  // std::atomic<ReplicationRole> replication_role_{ReplicationRole::MAIN};
 
   rocksdb::Options options_;
   rocksdb::DB *db_;
@@ -387,4 +533,4 @@ class RocksDBStorage {
   rocksdb::ColumnFamilyHandle *edge_chandle = nullptr;
 };
 
-}  // namespace memgraph::storage::rocks
+}  // namespace memgraph::storage

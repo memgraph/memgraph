@@ -202,9 +202,8 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
 }
 
 auto Execute(memgraph::storage::Storage *db, const std::string &query) {
-  memgraph::storage::rocks::RocksDBStorage disk_db;
   auto data_directory = std::filesystem::temp_directory_path() / "MG_tests_unit_query_dump";
-  memgraph::query::InterpreterContext context(db, &disk_db, memgraph::query::InterpreterConfig{}, data_directory);
+  memgraph::query::InterpreterContext context(db, memgraph::query::InterpreterConfig{}, data_directory);
   memgraph::query::Interpreter interpreter(&context);
   ResultStreamFaker stream(db);
 
@@ -758,10 +757,8 @@ TEST(DumpTest, ExecuteDumpDatabase) {
 
 class StatefulInterpreter {
  public:
-  explicit StatefulInterpreter(memgraph::storage::Storage *db, memgraph::storage::rocks::RocksDBStorage *disk_db)
-      : db_(db),
-        context_(db_, disk_db, memgraph::query::InterpreterConfig{}, data_directory_),
-        interpreter_(&context_) {}
+  explicit StatefulInterpreter(memgraph::storage::Storage *db)
+      : db_(db), context_(db_, memgraph::query::InterpreterConfig{}, data_directory_), interpreter_(&context_) {}
 
   auto Execute(const std::string &query) {
     ResultStreamFaker stream(db_);
@@ -788,8 +785,7 @@ const std::filesystem::path StatefulInterpreter::data_directory_{std::filesystem
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(DumpTest, ExecuteDumpDatabaseInMulticommandTransaction) {
   memgraph::storage::Storage db;
-  memgraph::storage::rocks::RocksDBStorage disk_db;
-  StatefulInterpreter interpreter(&db, &disk_db);
+  StatefulInterpreter interpreter(&db);
 
   // Begin the transaction before the vertex is created.
   interpreter.Execute("BEGIN");

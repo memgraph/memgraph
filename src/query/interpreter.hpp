@@ -209,11 +209,10 @@ class Interpreter;
  *
  */
 struct InterpreterContext {
-  explicit InterpreterContext(storage::Storage *db, storage::rocks::RocksDBStorage *disk_db, InterpreterConfig config,
+  explicit InterpreterContext(storage::Storage *db, InterpreterConfig config,
                               const std::filesystem::path &data_directory);
 
   storage::Storage *db;
-  storage::rocks::RocksDBStorage *disk_db;
 
   // ANTLR has singleton instance that is shared between threads. It is
   // protected by locks inside of ANTLR. Unfortunately, they are not protected

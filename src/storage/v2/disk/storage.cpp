@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "storage/v2/storage.hpp"
 #include <algorithm>
 #include <atomic>
 #include <memory>
@@ -19,7 +20,6 @@
 #include <vector>
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/result.hpp"
-#include "storage/v2/storage.hpp"
 
 #include <gflags/gflags.h>
 #include <spdlog/spdlog.h>
