@@ -53,4 +53,4 @@ class Demo(Workload):
         return ("MATCH (n) RETURN n;", {})
 
     def benchmark__test__get_node_by_id(self):
-        return ("MATCH (n:NodeA{id: $id}) RETURN n;", {"id": random.randint(0, 99)})
+        return ("MATCH (n:NodeA{id: $id}) RETURN n;", {"id": random.randint(0, 9999)})

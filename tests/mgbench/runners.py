@@ -146,16 +146,14 @@ class BoltClient(BaseClient):
 
         while True:
             try:
-                log.log("Checking if database is up and running...")
                 subprocess.run(check_db_args, capture_output=True, text=True, check=True)
                 break
             except subprocess.CalledProcessError as e:
+                log.log("Checking if database is up and running failed...")
                 log.warning("Reported errors from client:")
                 log.warning("Error: {}".format(e.stderr))
-                log.warning("Database is not up yet, waiting 3 seconds.")
+                log.warning("Database is not up yet, waiting 3 seconds...")
                 time.sleep(3)
-
-        log.log("Database is up and running, check query passed!")
 
         if (queries is None and file_path is None) or (queries is not None and file_path is not None):
             raise ValueError("Either queries or input_path must be specified!")
@@ -292,16 +290,15 @@ class BoltClientDocker(BaseClient):
         ]
         while True:
             try:
-                log.log("Checking if database is up and running")
                 self._run_command(command)
                 break
             except subprocess.CalledProcessError as e:
+                log.log("Checking if database is up and running failed!")
                 log.warning("Reported errors from client:")
                 log.warning("Error: {}".format(e.stderr))
                 log.warning("Database is not up yet, waiting 3 second")
                 time.sleep(3)
 
-        log.log("Database is up and running, check query passed!")
         self._remove_container()
 
         queries_and_args_json = False
@@ -906,7 +903,6 @@ class MemgraphDocker(BaseRunner):
                 else:
                     key_file, value_file = line.split("=")
                     if key_file == key and value != value_file:
-                        print("replacing: " + key_file + value_file + "with " + argument)
                         line = argument + "\n"
                     config_lines.append(line)
 

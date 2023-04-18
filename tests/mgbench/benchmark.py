@@ -467,7 +467,7 @@ if __name__ == "__main__":
     for key, value in benchmark_context.__dict__.items():
         log.log("{:<30} : {:<30}".format(str(key), str(value)))
 
-    log.init("\tCheck requirements for running benchmark")
+    log.init("Check requirements for running benchmark")
     if setup.check_requirements(benchmark_context=benchmark_context):
         log.success("Requirements satisfied... ")
     else:
@@ -534,6 +534,7 @@ if __name__ == "__main__":
 
         generated_queries = workload.dataset_generator()
         if generated_queries:
+            print("\n")
             log.info("Using workload as dataset generator...")
 
             vendor_runner.start_db_init("import")
@@ -541,8 +542,14 @@ if __name__ == "__main__":
             log.warning("Using following indexes...")
             log.info(workload.indexes_generator())
             log.info("Executing database index setup...")
-            client.execute(queries=workload.indexes_generator(), num_workers=1)
+            ret = client.execute(queries=workload.indexes_generator(), num_workers=1)
             log.log("Finished setting up indexes...")
+            for row in ret:
+                log.success(
+                    "Executed {} queries in {} seconds using {} workers with a total throughput of {} Q/S.".format(
+                        row["count"], row["duration"], row["num_workers"], row["throughput"]
+                    )
+                )
 
             log.info("Importing dataset...")
             ret = client.execute(queries=generated_queries, num_workers=benchmark_context.num_workers_for_import)
@@ -589,6 +596,7 @@ if __name__ == "__main__":
 
         # Run all benchmarks in all available groups.
         for group in sorted(queries.keys()):
+            print("\n")
             log.init("Running benchmark in " + benchmark_context.mode)
             if benchmark_context.mode == "Mixed":
                 mixed_workload(vendor_runner, client, workload, group, queries, benchmark_context)
@@ -614,7 +622,8 @@ if __name__ == "__main__":
                         vendor_runner, client, get_queries(func, 1), config_key, benchmark_context
                     )
                     # Benchmark run.
-                    log.info("Sample query:{}".format(get_queries(func, 1)[0][0]))
+                    sample_query = get_queries(func, 1)[0][0]
+                    log.info("Sample query:{}".format(sample_query))
                     log.log(
                         "Executing benchmark with {} queries that should yield a single-threaded runtime of {} seconds.".format(
                             count, benchmark_context.single_threaded_runtime_sec
@@ -651,15 +660,19 @@ if __name__ == "__main__":
                     log.log("Executed  {} queries in {} seconds.".format(ret["count"], ret["duration"]))
                     log.log("Queries have been retried {} times".format(ret["retries"]))
                     log.log("Database used {:.3f} seconds of CPU time.".format(usage["cpu"]))
-                    log.log("Database peaked at {:.3f} MiB of memory.".format(usage["memory"] / 1024.0 / 1024.0))
-                    log.log("{:<31} {:>20} {:>20} {:>20}".format("Metadata:", "min", "avg", "max"))
-                    metadata = ret["metadata"]
-                    for key in sorted(metadata.keys()):
-                        log.log(
-                            "{name:>30}: {minimum:>20.06f} {average:>20.06f} "
-                            "{maximum:>20.06f}".format(name=key, **metadata[key])
-                        )
-
+                    log.info("Database peaked at {:.3f} MiB of memory.".format(usage["memory"] / 1024.0 / 1024.0))
+                    if "docker" not in benchmark_context.vendor_name:
+                        log.log("{:<31} {:>20} {:>20} {:>20}".format("Metadata:", "min", "avg", "max"))
+                        metadata = ret["metadata"]
+                        for key in sorted(metadata.keys()):
+                            log.log(
+                                "{name:>30}: {minimum:>20.06f} {average:>20.06f} "
+                                "{maximum:>20.06f}".format(name=key, **metadata[key])
+                            )
+                    print("\n")
+                    log.info("Result:")
+                    log.info(funcname)
+                    log.info(sample_query)
                     log.success("Latency statistics:")
                     for key, value in ret["latency_stats"].items():
                         if key == "iterations":
@@ -668,6 +681,7 @@ if __name__ == "__main__":
                             log.success("{:<10} {:>10.06f} seconds".format(key, value))
 
                     log.success("Throughput: {:02f} QPS".format(ret["throughput"]))
+                    print("\n\n")
 
                     # Save results.
                     results_key = [
@@ -789,3 +803,4 @@ if __name__ == "__main__":
                                     query, value["throughput"], value["database"]["memory"] / 1024.0 / 1024.0
                                 )
                             )
+    log.log("-" * 90)
