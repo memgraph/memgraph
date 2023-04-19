@@ -30,10 +30,12 @@
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/indices.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/name_id_mapper.hpp"
+#include "storage/v2/property_store.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/transaction.hpp"
@@ -224,15 +226,30 @@ class DiskStorage final : public Storage {
     static std::string SerializeTimestamp(uint64_t ts);
 
     /// Serialize labels to string
-    std::string SerializeLabels(const auto &&labels) const;
+    static std::string SerializeLabels(const std::vector<LabelId> &labels);
+
+    /// Uses the PropertyStore buffer to serialize properties to string.
+    static std::string SerializeProperties(PropertyStore &properties);
 
     /// Serialize vertex to string as a key in KV store
     /// label1, label2 | GID | commit_timestamp
     std::string SerializeVertex(const VertexAccessor *vertex_acc) const;
 
-    /// Serialize edge to string as a key in KV store
+    /// Serialize vertex to string as a key in KV store
+    /// label1, label2 | GID | commit_timestamp
+    std::string SerializeVertex(const Vertex &vertex) const;
+
+    /// Serialize edge as two KV entries
     /// vertex_gid_1 | vertex_gid_2 | direction | edge_type | GID | commit_timestamp
     std::pair<std::string, std::string> SerializeEdge(EdgeAccessor *edge_acc) const;
+
+    /// Serialize edge as two KV entries
+    /// vertex_gid_1 | vertex_gid_2 | direction | edge_type | GID | commit_timestamp
+    /// @tparam src_vertex_gid, dest_vertex_gid: Gid of the source and destination vertices
+    /// @tparam edge: Edge to be serialized
+    /// @tparam edge_type_id: EdgeTypeId of the edge
+    std::pair<std::string, std::string> SerializeEdge(Gid src_vertex_gid, Gid dest_vertex_gid, EdgeTypeId edge_type_id,
+                                                      const Edge *edge) const;
 
     /// Deserializes vertex from the string key and stores it into the vertices_ cache.
     /// Properties are deserialized from the value.

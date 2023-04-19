@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include "storage/v2/vertex.hpp"
 
 namespace memgraph::storage {
@@ -27,5 +28,14 @@ struct DiskVertex : Vertex {
   /// Modification timestamp of the last transaction that modified this vertex.
   uint64_t modification_ts;
 };
+
+inline bool operator==(const DiskVertex &first, const DiskVertex &second) {
+  return first.modification_ts == second.modification_ts;
+}
+inline bool operator<(const DiskVertex &first, const DiskVertex &second) {
+  return first.modification_ts < second.modification_ts;
+}
+inline bool operator==(const DiskVertex &first, const uint64_t &second) { return first.modification_ts == second; }
+inline bool operator<(const DiskVertex &first, const uint64_t &second) { return first.modification_ts < second; }
 
 }  // namespace memgraph::storage

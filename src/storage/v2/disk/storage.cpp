@@ -20,6 +20,7 @@
 #include <vector>
 #include "storage/v2/disk/disk_edge.hpp"
 #include "storage/v2/disk/disk_vertex.hpp"
+#include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/result.hpp"
 
@@ -133,21 +134,31 @@ inline auto DiskStorage::DiskAccessor::DeserializeIdType(const std::string &str)
 
 inline std::string DiskStorage::DiskAccessor::SerializeTimestamp(const uint64_t ts) { return std::to_string(ts); }
 
-std::string DiskStorage::DiskAccessor::SerializeLabels(const auto &&labels) const {
-  if (labels.HasError() || (*labels).empty()) {
-    return "";
-  }
-  std::string result = std::to_string((*labels)[0].AsUint());
+std::string DiskStorage::DiskAccessor::SerializeLabels(const std::vector<LabelId> &labels) {
+  std::string result = std::to_string(labels[0].AsUint());
   std::string ser_labels = std::accumulate(
-      std::next((*labels).begin()), (*labels).end(), result,
+      std::next(labels.begin()), labels.end(), result,
       [](const std::string &join, const auto &label_id) { return join + "," + std::to_string(label_id.AsUint()); });
   return ser_labels;
 }
 
+std::string DiskStorage::DiskAccessor::SerializeProperties(PropertyStore &properties) {
+  return properties.StringBuffer();
+}
+
 std::string DiskStorage::DiskAccessor::SerializeVertex(const VertexAccessor *vertex_acc) const {
   MG_ASSERT(commit_timestamp_.has_value(), "Transaction must be committed to serialize vertex.");
-  std::string result = SerializeLabels(vertex_acc->Labels(storage::View::OLD)) + "|";
+  auto labels = vertex_acc->Labels(storage::View::OLD);
+  std::string result = labels.HasError() || (*labels).empty() ? "" : SerializeLabels(*labels) + "|";
   result += SerializeIdType(vertex_acc->Gid()) + "|";
+  result += SerializeTimestamp(*commit_timestamp_);
+  return result;
+}
+
+std::string DiskStorage::DiskAccessor::SerializeVertex(const Vertex &vertex) const {
+  MG_ASSERT(commit_timestamp_.has_value(), "Transaction must be committed to serialize vertex.");
+  std::string result = SerializeLabels(vertex.labels) + "|";
+  result += SerializeIdType(vertex.gid) + "|";
   result += SerializeTimestamp(*commit_timestamp_);
   return result;
 }
@@ -159,6 +170,33 @@ std::pair<std::string, std::string> DiskStorage::DiskAccessor::SerializeEdge(Edg
   auto to_gid = SerializeIdType(edge_acc->ToVertex()->Gid());
   auto edge_type = SerializeIdType(edge_acc->EdgeType());
   auto edge_gid = SerializeIdType(edge_acc->Gid());
+  // source->destination key
+  std::string src_dest_key = from_gid + "|";
+  src_dest_key += to_gid + "|";
+  src_dest_key += outEdgeDirection;
+  src_dest_key += "|" + edge_type + "|";
+  src_dest_key += edge_gid + "|";
+  src_dest_key += SerializeTimestamp(*commit_timestamp_);
+  // destination->source key
+  std::string dest_src_key = to_gid + "|";
+  dest_src_key += from_gid + "|";
+  dest_src_key += inEdgeDirection;
+  dest_src_key += "|" + edge_type + "|";
+  dest_src_key += edge_gid + "|";
+  dest_src_key += SerializeTimestamp(*commit_timestamp_);
+  return {src_dest_key, dest_src_key};
+}
+
+std::pair<std::string, std::string> DiskStorage::DiskAccessor::SerializeEdge(const Gid src_vertex_gid,
+                                                                             const Gid dest_vertex_gid,
+                                                                             EdgeTypeId edge_type_id,
+                                                                             const Edge *edge) const {
+  MG_ASSERT(commit_timestamp_.has_value(), "Transaction must be committed to serialize edge.");
+  // Serialized objects
+  auto from_gid = SerializeIdType(src_vertex_gid);
+  auto to_gid = SerializeIdType(dest_vertex_gid);
+  auto edge_type = SerializeIdType(edge_type_id);
+  auto edge_gid = SerializeIdType(edge->gid);
   // source->destination key
   std::string src_dest_key = from_gid + "|";
   src_dest_key += to_gid + "|";
@@ -548,6 +586,34 @@ EdgeTypeId DiskStorage::DiskAccessor::NameToEdgeType(const std::string_view name
 
 // this should be handled on an above level of abstraction
 void DiskStorage::DiskAccessor::AdvanceCommand() { ++transaction_.command_id; }
+
+void DiskStorage::DiskAccessor::FlushCache() {
+  /// Flush vertex cache.
+  auto vertex_acc = vertices_.access();
+  uint64_t num_ser_edges = 0;
+  std::for_each(vertex_acc.begin(), vertex_acc.end(), [this, &num_ser_edges](Vertex &vertex) {
+    // if in the cache, serialize it.
+    AssertRocksDBStatus(storage_->db_->Put(rocksdb::WriteOptions(), storage_->vertex_chandle, SerializeVertex(vertex),
+                                           SerializeProperties(vertex.properties)));
+    std::for_each(vertex.out_edges.begin(), vertex.out_edges.end(),
+                  [this, &vertex, &num_ser_edges](std::tuple<EdgeTypeId, Vertex *, EdgeRef> &edge_entry) {
+                    Edge *edge_ptr = std::get<2>(edge_entry).ptr;
+                    auto [src_dest_key, dest_src_key] =
+                        SerializeEdge(vertex.gid, std::get<1>(edge_entry)->gid, std::get<0>(edge_entry), edge_ptr);
+                    AssertRocksDBStatus(storage_->db_->Put(rocksdb::WriteOptions(), storage_->edge_chandle,
+                                                           src_dest_key, SerializeProperties(edge_ptr->properties)));
+                    AssertRocksDBStatus(storage_->db_->Put(rocksdb::WriteOptions(), storage_->edge_chandle,
+                                                           dest_src_key, SerializeProperties(edge_ptr->properties)));
+                    num_ser_edges++;
+                  });
+  });
+  vertices_.clear();
+  MG_ASSERT(vertices_.size() == 0, "The vertex cache must be empty after flushing!");
+  MG_ASSERT(num_ser_edges == edges_.size(),
+            "The number of serialized edges must match the number of edges in the cache!");
+  edges_.clear();
+  MG_ASSERT(edges_.size() == 0, "The edge cache must be empty after flushing!");
+}
 
 // this will be modified here for a disk-based storage
 utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor::Commit(
