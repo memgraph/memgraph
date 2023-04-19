@@ -73,7 +73,7 @@ class DiskStorage final : public Storage {
   /// @throw std::bad_alloc
   explicit DiskStorage(Config config = Config());
 
-  ~DiskStorage();
+  ~DiskStorage() override;
 
   class DiskAccessor final : public Storage::Accessor {
    private:
@@ -440,7 +440,7 @@ class DiskStorage final : public Storage {
   [[nodiscard]] bool AppendToWalDataDefinition(durability::StorageGlobalOperation operation, LabelId label,
                                                const std::set<PropertyId> &properties, uint64_t final_commit_timestamp);
 
-  uint64_t commitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
+  uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
   void RestoreReplicas();
 
@@ -544,10 +544,10 @@ class DiskStorage final : public Storage {
   // Last commited timestamp
   std::atomic<uint64_t> last_commit_timestamp_{kTimestampInitialId};
 
-  class ReplicationServer;
-  std::unique_ptr<ReplicationServer> replication_server_{nullptr};
+  // class ReplicationServer;
+  // std::unique_ptr<ReplicationServer> replication_server_{nullptr};
 
-  class ReplicationClient;
+  // class ReplicationClient;
   // We create ReplicationClient using unique_ptr so we can move
   // newly created client into the vector.
   // We cannot move the client directly because it contains ThreadPool
@@ -558,10 +558,10 @@ class DiskStorage final : public Storage {
   // This way we can initialize client in main thread which means
   // that we can immediately notify the user if the initialization
   // failed.
-  using ReplicationClientList = utils::Synchronized<std::vector<std::unique_ptr<ReplicationClient>>, utils::SpinLock>;
-  ReplicationClientList replication_clients_;
+  // using ReplicationClientList = utils::Synchronized<std::vector<std::unique_ptr<ReplicationClient>>,
+  // utils::SpinLock>; ReplicationClientList replication_clients_;
 
-  std::atomic<ReplicationRole> replication_role_{ReplicationRole::MAIN};
+  // std::atomic<ReplicationRole> replication_role_{ReplicationRole::MAIN};
 
   rocksdb::Options options_;
   rocksdb::DB *db_;

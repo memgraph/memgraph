@@ -103,6 +103,8 @@ DiskStorage::DiskStorage(Config config)
       epoch_id_(utils::GenerateUUID()),
       global_locker_(file_retainer_.AddLocker()) {}
 
+DiskStorage::~DiskStorage() {}
+
 DiskStorage::DiskAccessor::DiskAccessor(DiskStorage *storage, IsolationLevel isolation_level)
     : storage_(storage),
       // The lock must be acquired before creating the transaction object to
@@ -135,15 +137,11 @@ DiskStorage::DiskAccessor::~DiskAccessor() {
 
 /// (De)serialization utilities
 
-inline std::string DiskStorage::DiskAccessor::SerializeIdType(const auto &id) const {
-  return std::to_string(id.AsUint());
-}
+std::string DiskStorage::DiskAccessor::SerializeIdType(const auto &id) const { return std::to_string(id.AsUint()); }
 
-inline auto DiskStorage::DiskAccessor::DeserializeIdType(const std::string &str) {
-  return Gid::FromUint(std::stoull(str));
-}
+auto DiskStorage::DiskAccessor::DeserializeIdType(const std::string &str) { return Gid::FromUint(std::stoull(str)); }
 
-inline std::string DiskStorage::DiskAccessor::SerializeTimestamp(const uint64_t ts) { return std::to_string(ts); }
+std::string DiskStorage::DiskAccessor::SerializeTimestamp(const uint64_t ts) { return std::to_string(ts); }
 
 std::string DiskStorage::DiskAccessor::SerializeLabels(const std::vector<LabelId> &labels) {
   std::string result = std::to_string(labels[0].AsUint());
@@ -232,11 +230,11 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(con
   auto impl = CreateVertex(storage::Gid::FromUint(std::stoull(vertex_parts[1])));
   // Deserialize labels
   if (!vertex_parts[0].empty()) {
-    const auto labels = utils::Split(vertex_parts[0], ",");
-    std::for_each(labels.begin(), labels.end(), [impl = std::move(impl)](auto &label) {
+    auto labels = utils::Split(vertex_parts[0], ",");
+    for (auto it = labels.begin(); it != labels.end(); it++) {
       // TODO(andi): Introduce error handling of adding labels
-      impl->AddLabel(storage::LabelId::FromUint(std::stoull(label)));
-    });
+      impl->AddLabel(storage::LabelId::FromUint(std::stoull(*it)));
+    }
   }
   impl->SetPropertyStore(value);
   /// Completely ignored for now
@@ -289,13 +287,15 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   throw utils::NotYetImplemented("DiskStorage::DiskAccessor::Vertices(label, property)");
 }
 
-VerticesIterable Vertices(LabelId label, PropertyId property, const PropertyValue &value, View view) {
+VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, const PropertyValue &value,
+                                                     View view) {
   throw utils::NotYetImplemented("DiskStorage::DiskAccessor::Vertices(label, property, value)");
 }
 
-VerticesIterable Vertices(LabelId label, PropertyId property,
-                          const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                          const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) {
+VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property,
+                                                     const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                                                     const std::optional<utils::Bound<PropertyValue>> &upper_bound,
+                                                     View view) {
   throw utils::NotYetImplemented("DiskStorage::DiskAccessor::Vertices(label, property, lower_bound, upper_bound)");
 }
 
@@ -369,50 +369,52 @@ Result<std::unique_ptr<VertexAccessor>> DiskStorage::DiskAccessor::DeleteVertex(
 }
 
 Result<std::vector<std::unique_ptr<EdgeAccessor>>> DeleteEdges(const auto &edge_accessors) {
-  using ReturnType = std::vector<std::unique_ptr<EdgeAccessor>>;
-  ReturnType edge_accs;
-  for (auto &&it : edge_accessors) {
-    if (const auto deleted_edge_res = DeleteEdge(it); !deleted_edge_res.HasError()) {
-      return deleted_edge_res.GetError();
-    }
-    // edge_accs.push_back(std::make_unique<DiskEdgeAccessor>(std::move(it), nullptr, nullptr, nullptr));
-  }
-  return edge_accs;
+  // using ReturnType = std::vector<std::unique_ptr<EdgeAccessor>>;
+  // ReturnType edge_accs;
+  // for (auto &&it : edge_accessors) {
+  //   if (const auto deleted_edge_res = DeleteEdge(it); !deleted_edge_res.HasError()) {
+  //     return deleted_edge_res.GetError();
+  //   }
+  //   // edge_accs.push_back(std::make_unique<DiskEdgeAccessor>(std::move(it), nullptr, nullptr, nullptr));
+  // }
+  // return edge_accs;
+  throw utils::NotYetImplemented("DiskStorage::DiskAccessor::DeleteEdges");
 }
 
 Result<std::optional<std::pair<std::unique_ptr<VertexAccessor>, std::vector<std::unique_ptr<EdgeAccessor>>>>>
 DiskStorage::DiskAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
-  using ReturnType = std::pair<std::unique_ptr<VertexAccessor>, std::vector<std::unique_ptr<EdgeAccessor>>>;
-  auto *disk_vertex_acc = dynamic_cast<DiskVertexAccessor *>(vertex);
-  MG_ASSERT(disk_vertex_acc,
-            "VertexAccessor must be from the same storage as the storage accessor when deleting a vertex!");
-  MG_ASSERT(disk_vertex_acc->transaction_ == &transaction_,
-            "VertexAccessor must be from the same transaction as the storage "
-            "accessor when deleting a vertex!");
-  auto *vertex_ptr = disk_vertex_acc->vertex_;
+  // using ReturnType = std::pair<std::unique_ptr<VertexAccessor>, std::vector<std::unique_ptr<EdgeAccessor>>>;
+  // auto *disk_vertex_acc = dynamic_cast<DiskVertexAccessor *>(vertex);
+  // MG_ASSERT(disk_vertex_acc,
+  //           "VertexAccessor must be from the same storage as the storage accessor when deleting a vertex!");
+  // MG_ASSERT(disk_vertex_acc->transaction_ == &transaction_,
+  //           "VertexAccessor must be from the same transaction as the storage "
+  //           "accessor when deleting a vertex!");
+  // auto *vertex_ptr = disk_vertex_acc->vertex_;
 
-  auto del_vertex = DeleteVertex(vertex);
-  if (del_vertex.HasError()) {
-    return del_vertex.GetError();
-  }
+  // auto del_vertex = DeleteVertex(vertex);
+  // if (del_vertex.HasError()) {
+  //   return del_vertex.GetError();
+  // }
 
-  auto out_edges = vertex->OutEdges(storage::View::OLD);
-  auto in_edges = vertex->InEdges(storage::View::OLD);
-  if (out_edges.HasError() || in_edges.HasError()) {
-    return out_edges.GetError();
-  }
+  // auto out_edges = vertex->OutEdges(storage::View::OLD);
+  // auto in_edges = vertex->InEdges(storage::View::OLD);
+  // if (out_edges.HasError() || in_edges.HasError()) {
+  //   return out_edges.GetError();
+  // }
 
-  if (auto del_edges = DeleteEdges(*out_edges), del_in_edges = DeleteEdges(*in_edges);
-      del_edges.HasError() && del_in_edges.HasError()) {
-    // TODO: optimize this using splice
-    del_edges->insert(del_in_edges->end(), std::make_move_iterator(del_in_edges->begin()),
-                      std::make_move_iterator(del_in_edges->end()));
-    return std::make_optional<ReturnType>(
-        std::make_unique<DiskVertexAccessor>(vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_,
-                                             config_, vertex_ptr->gid, true),
-        del_edges.GetValue());
-  }
-  return Error::SERIALIZATION_ERROR;
+  // if (auto del_edges = DeleteEdges(*out_edges), del_in_edges = DeleteEdges(*in_edges);
+  //     del_edges.HasError() && del_in_edges.HasError()) {
+  //   // TODO: optimize this using splice
+  //   del_edges->insert(del_in_edges->end(), std::make_move_iterator(del_in_edges->begin()),
+  //                     std::make_move_iterator(del_in_edges->end()));
+  //   return std::make_optional<ReturnType>(
+  //       std::make_unique<DiskVertexAccessor>(vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_,
+  //                                            config_, vertex_ptr->gid, true),
+  //       del_edges.GetValue());
+  // }
+  // return Error::SERIALIZATION_ERROR;
+  throw utils::NotYetImplemented("DiskStorage::DiskAccessor::DetachDeleteVertex");
 }
 
 Result<std::unique_ptr<EdgeAccessor>> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from, VertexAccessor *to,
@@ -685,7 +687,7 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
 
     {
       std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
-      commit_timestamp_.emplace(storage_->commitTimestamp(desired_commit_timestamp));
+      commit_timestamp_.emplace(storage_->CommitTimestamp(desired_commit_timestamp));
 
       // Before committing and validating vertices against unique constraints,
       // we have to update unique constraints with the vertices that are going
@@ -727,7 +729,8 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
         // commits before they are written to disk.
         // Replica can log only the write transaction received from Main
         // so the Wal files are consistent
-        if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
+        // if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
+        if (desired_commit_timestamp.has_value()) {
           could_replicate_all_sync_replicas = storage_->AppendToWalDataManipulation(transaction_, *commit_timestamp_);
         }
 
@@ -741,7 +744,8 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
           transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
           // Replica can only update the last commit timestamp with
           // the commits received from main.
-          if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
+          // if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
+          if (desired_commit_timestamp.has_value()) {
             // Update the last commit timestamp
             storage_->last_commit_timestamp_.store(*commit_timestamp_);
           }
@@ -870,6 +874,104 @@ StorageInfo DiskStorage::GetInfo() const { throw utils::NotYetImplemented("GetIn
 
 Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level) {
   throw utils::NotYetImplemented("CreateTransaction");
+}
+
+template <bool force>
+void DiskStorage::CollectGarbage() {
+  throw utils::NotYetImplemented("CollectGarbage");
+}
+
+// tell the linker he can find the CollectGarbage definitions here
+template void DiskStorage::CollectGarbage<true>();
+template void DiskStorage::CollectGarbage<false>();
+
+bool DiskStorage::InitializeWalFile() {
+  if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL)
+    return false;
+  if (!wal_file_) {
+    wal_file_.emplace(wal_directory_, uuid_, epoch_id_, config_.items, &name_id_mapper_, wal_seq_num_++,
+                      &file_retainer_);
+  }
+  return true;
+}
+
+void DiskStorage::FinalizeWalFile() {
+  ++wal_unsynced_transactions_;
+  if (wal_unsynced_transactions_ >= config_.durability.wal_file_flush_every_n_tx) {
+    wal_file_->Sync();
+    wal_unsynced_transactions_ = 0;
+  }
+  if (wal_file_->GetSize() / 1024 >= config_.durability.wal_file_size_kibibytes) {
+    wal_file_->FinalizeWal();
+    wal_file_ = std::nullopt;
+    wal_unsynced_transactions_ = 0;
+  } else {
+    // Try writing the internal buffer if possible, if not
+    // the data should be written as soon as it's possible
+    // (triggered by the new transaction commit, or some
+    // reading thread EnabledFlushing)
+    wal_file_->TryFlushing();
+  }
+}
+
+bool DiskStorage::AppendToWalDataManipulation(const Transaction &transaction, uint64_t final_commit_timestamp) {
+  throw utils::NotYetImplemented("AppendToWalDataManipulation");
+}
+
+bool DiskStorage::AppendToWalDataDefinition(durability::StorageGlobalOperation operation, LabelId label,
+                                            const std::set<PropertyId> &properties, uint64_t final_commit_timestamp) {
+  throw utils::NotYetImplemented("AppendToWalDataDefinition");
+}
+
+utils::BasicResult<DiskStorage::CreateSnapshotError> DiskStorage::CreateSnapshot() {
+  throw utils::NotYetImplemented("CreateSnapshot");
+}
+
+bool DiskStorage::LockPath() { throw utils::NotYetImplemented("LockPath"); }
+
+bool DiskStorage::UnlockPath() { throw utils::NotYetImplemented("UnlockPath"); }
+
+void DiskStorage::FreeMemory() { throw utils::NotYetImplemented("FreeMemory"); }
+
+uint64_t DiskStorage::CommitTimestamp(const std::optional<uint64_t> desired_commit_timestamp) {
+  if (!desired_commit_timestamp) {
+    return timestamp_++;
+  }
+  timestamp_ = std::max(timestamp_, *desired_commit_timestamp + 1);
+  return *desired_commit_timestamp;
+}
+
+bool DiskStorage::SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config) {
+  throw utils::NotYetImplemented("SetReplicaRole");
+}
+
+bool DiskStorage::SetMainReplicationRole() { throw utils::NotYetImplemented("SetMainReplicationRole"); }
+
+utils::BasicResult<DiskStorage::RegisterReplicaError> DiskStorage::RegisterReplica(
+    std::string name, io::network::Endpoint endpoint, const replication::ReplicationMode replication_mode,
+    const replication::RegistrationMode registration_mode, const replication::ReplicationClientConfig &config) {
+  throw utils::NotYetImplemented("RegisterReplica");
+}
+
+bool DiskStorage::UnregisterReplica(const std::string &name) { throw utils::NotYetImplemented("UnregisterReplica"); }
+
+std::optional<replication::ReplicaState> DiskStorage::GetReplicaState(const std::string_view name) {
+  throw utils::NotYetImplemented("GetReplicaState");
+}
+
+ReplicationRole DiskStorage::GetReplicationRole() const { throw utils::NotYetImplemented("GetReplicationRole"); }
+
+std::vector<DiskStorage::ReplicaInfo> DiskStorage::ReplicasInfo() { throw utils::NotYetImplemented("ReplicasInfo"); }
+
+void DiskStorage::SetIsolationLevel(IsolationLevel isolation_level) {
+  std::unique_lock main_guard{main_lock_};
+  isolation_level_ = isolation_level;
+}
+
+void DiskStorage::RestoreReplicas() { throw utils::NotYetImplemented("RestoreReplicas"); }
+
+bool DiskStorage::ShouldStoreAndRestoreReplicas() const {
+  throw utils::NotYetImplemented("ShouldStoreAndRestoreReplicas");
 }
 
 }  // namespace memgraph::storage

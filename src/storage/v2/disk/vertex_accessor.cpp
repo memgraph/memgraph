@@ -577,6 +577,8 @@ Result<size_t> DiskVertexAccessor::InDegree(View view) const {
   if (!exists) return Error::NONEXISTENT_OBJECT;
   if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return degree;
+  */
+  throw utils::NotYetImplemented("DiskVertexAccessor::InDegree");
 }
 
 Result<size_t> DiskVertexAccessor::OutDegree(View view) const {
@@ -615,7 +617,6 @@ Result<size_t> DiskVertexAccessor::OutDegree(View view) const {
   if (!exists) return Error::NONEXISTENT_OBJECT;
   if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return degree;
-  */
   throw utils::NotYetImplemented("DiskVertexAccessor::OutDegree");
 }
 
