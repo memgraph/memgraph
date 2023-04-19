@@ -15,6 +15,8 @@
 #include <limits>
 #include <thread>
 
+#include <gflags/gflags.h>
+
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/bound.hpp"
@@ -288,6 +290,10 @@ void TryInsertLabelPropertyIndex(Vertex &vertex, LabelId label, PropertyId prope
 
 }  // namespace
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(parallel_index_creation_enabled, true,
+            "Controls whether the index creation can be done in a multithreaded fashion.");
+
 void LabelIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) {
   auto it = index_.find(label);
   if (it == index_.end()) return;
@@ -370,7 +376,7 @@ bool LabelIndex::CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor ve
     return false;
   }
 
-  if (paralell_exec_info) {
+  if (paralell_exec_info && FLAGS_parallel_index_creation_enabled) {
     return create_index_par(label, vertices, it, *paralell_exec_info);
   }
 
@@ -579,7 +585,7 @@ bool LabelPropertyIndex::CreateIndex(LabelId label, PropertyId property, utils::
     return false;
   }
 
-  if (paralell_exec_info) {
+  if (paralell_exec_info && FLAGS_parallel_index_creation_enabled) {
     return create_index_par(label, property, vertices, it, *paralell_exec_info);
   }
   return create_index_seq(label, property, vertices, it);
