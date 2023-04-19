@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -65,12 +65,12 @@ query::TypedValue ToTypedValue(const Value &value) {
 
 storage::Result<communication::bolt::Vertex> ToBoltVertex(const query::VertexAccessor &vertex,
                                                           const storage::Storage &db, storage::View view) {
-  return ToBoltVertex(vertex.impl_, db, view);
+  return ToBoltVertex(*vertex.impl_, db, view);
 }
 
 storage::Result<communication::bolt::Edge> ToBoltEdge(const query::EdgeAccessor &edge, const storage::Storage &db,
                                                       storage::View view) {
-  return ToBoltEdge(edge.impl_, db, view);
+  return ToBoltEdge(*edge.impl_, db, view);
 }
 
 storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage::Storage &db, storage::View view) {
@@ -156,8 +156,8 @@ storage::Result<communication::bolt::Vertex> ToBoltVertex(const storage::VertexA
 storage::Result<communication::bolt::Edge> ToBoltEdge(const storage::EdgeAccessor &edge, const storage::Storage &db,
                                                       storage::View view) {
   auto id = communication::bolt::Id::FromUint(edge.Gid().AsUint());
-  auto from = communication::bolt::Id::FromUint(edge.FromVertex().Gid().AsUint());
-  auto to = communication::bolt::Id::FromUint(edge.ToVertex().Gid().AsUint());
+  auto from = communication::bolt::Id::FromUint(edge.FromVertex()->Gid().AsUint());
+  auto to = communication::bolt::Id::FromUint(edge.ToVertex()->Gid().AsUint());
   auto type = db.EdgeTypeToName(edge.EdgeType());
   auto maybe_properties = edge.Properties(view);
   if (maybe_properties.HasError()) return maybe_properties.GetError();
