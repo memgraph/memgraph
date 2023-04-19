@@ -207,8 +207,10 @@ class DiskStorage final : public Storage {
         std::optional<uint64_t> desired_commit_timestamp = {}) override;
 
     /// @throw std::bad_alloc
+    /// Currently, it does everything the same as in-memory version.
     void Abort() override;
 
+    /// Currently, it does everything the same as in-memory version.
     void FinalizeTransaction() override;
 
     std::optional<uint64_t> GetTransactionId() const override;
@@ -474,7 +476,7 @@ class DiskStorage final : public Storage {
   // transaction commited or aborted. We could probably combine this with
   // `timestamp_` in a sensible unit, something like TransactionClock or
   // whatever.
-  std::optional<CommitLog> commit_log;
+  std::optional<CommitLog> commit_log_;
 
   utils::Synchronized<std::list<Transaction>, utils::SpinLock> committed_transactions_;
   IsolationLevel isolation_level_;
