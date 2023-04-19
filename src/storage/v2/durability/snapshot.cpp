@@ -1015,7 +1015,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                utils::SkipList<Edge> *edges,
                                std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, const Config &config) {
-  RecoveryInfo ret;
+  RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
 
   Decoder snapshot;
@@ -1128,16 +1128,16 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
 
     // Recover vertices (in/out edges).
     spdlog::info("Recover connectivity.");
-    ret.vertex_batches.reserve(vertex_batches.size());
+    recovery_info.vertex_batches.reserve(vertex_batches.size());
     for (const auto batch : vertex_batches) {
-      ret.vertex_batches.emplace_back(std::make_pair(Gid::FromUint(0), batch.count));
+      recovery_info.vertex_batches.emplace_back(std::make_pair(Gid::FromUint(0), batch.count));
     }
     std::atomic<uint64_t> highest_edge_gid{0};
 
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
         [path, vertices, edges, edge_count, items = config.items, snapshot_has_edges, &get_edge_type_from_id,
-         &highest_edge_gid, &ret](const size_t batch_index, const BatchInfo &batch) {
+         &highest_edge_gid, &recovery_info](const size_t batch_index, const BatchInfo &batch) {
           const auto result = LoadPartialConnectivity(path, *vertices, *edges, batch.offset, batch.count, items,
                                                       snapshot_has_edges, get_edge_type_from_id);
           edge_count->fetch_add(result.edge_count);
@@ -1145,15 +1145,15 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
           while (known_highest_edge_gid < result.highest_edge_id) {
             highest_edge_gid.compare_exchange_weak(known_highest_edge_gid, result.highest_edge_id);
           }
-          ret.vertex_batches[batch_index].first = result.first_vertex_gid;
+          recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
         },
         vertex_batches);
 
     spdlog::info("Connectivity is recovered.");
 
     // Set initial values for edge/vertex ID generators.
-    ret.next_edge_id = highest_edge_gid + 1;
-    ret.next_vertex_id = last_vertex_gid + 1;
+    recovery_info.next_edge_id = highest_edge_gid + 1;
+    recovery_info.next_vertex_id = last_vertex_gid + 1;
   }
 
   // Recover indices.
@@ -1285,12 +1285,12 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
 
   spdlog::info("Metadata recovered.");
   // Recover timestamp.
-  ret.next_timestamp = info.start_timestamp + 1;
+  recovery_info.next_timestamp = info.start_timestamp + 1;
 
   // Set success flag (to disable cleanup).
   success = true;
 
-  return {info, ret, std::move(indices_constraints)};
+  return {info, recovery_info, std::move(indices_constraints)};
 }
 
 void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snapshot_directory,
