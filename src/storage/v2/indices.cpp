@@ -277,15 +277,83 @@ void TryInsertLabelIndex(Vertex &vertex, LabelId label, TIndexAccessor &index_ac
 }
 
 template <typename TIndexAccessor>
-void TryInsertLabelPropertyIndex(Vertex &vertex, LabelId label, PropertyId property, TIndexAccessor &index_accessor) {
-  if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
+void TryInsertLabelPropertyIndex(Vertex &vertex, std::pair<LabelId, PropertyId> label_property_pair,
+                                 TIndexAccessor &index_accessor) {
+  if (vertex.deleted || !utils::Contains(vertex.labels, label_property_pair.first)) {
     return;
   }
-  auto value = vertex.properties.GetProperty(property);
+  auto value = vertex.properties.GetProperty(label_property_pair.second);
   if (value.IsNull()) {
     return;
   }
   index_accessor.insert({std::move(value), &vertex, 0});
+}
+
+template <typename TSkiplistIter, typename TIndex, typename TIndexKey, typename TFunc>
+void CreateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &vertices, TSkiplistIter it, TIndex &index,
+                               TIndexKey key, const TFunc &func) {
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  try {
+    auto acc = it->second.access();
+    for (Vertex &vertex : vertices) {
+      func(vertex, key, acc);
+    }
+  } catch (const utils::OutOfMemoryException &) {
+    utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
+    index.erase(it);
+    throw;
+  }
+}
+
+template <typename TIndex, typename TIndexKey, typename TSKiplistIter, typename TFunc>
+void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vertices, TSKiplistIter skiplist_iter,
+                                  TIndex &index, TIndexKey key, const ParalellizedIndexCreationInfo &paralell_exec_info,
+                                  const TFunc &func) {
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+
+  const auto &vertex_batches = paralell_exec_info.first;
+  const auto thread_count = paralell_exec_info.second;
+
+  MG_ASSERT(!vertex_batches.empty(),
+            "The size of batches should always be greater than zero if you want to use the parallel version of index "
+            "creation!");
+
+  std::atomic<uint64_t> batch_counter = 0;
+
+  utils::Synchronized<std::optional<utils::OutOfMemoryException>, utils::SpinLock> maybe_error{};
+  {
+    std::vector<std::jthread> threads;
+    threads.reserve(thread_count);
+
+    for (auto i{0U}; i < thread_count; ++i) {
+      threads.emplace_back(
+          [&skiplist_iter, &func, &index, &vertex_batches, &maybe_error, &batch_counter, &key, &vertices]() {
+            while (!maybe_error.Lock()->has_value()) {
+              const auto batch_index = batch_counter++;
+              if (batch_index >= vertex_batches.size()) {
+                return;
+              }
+              const auto &batch = vertex_batches[batch_index];
+              auto index_accessor = index.at(key).access();
+              auto it = vertices.find(batch.first);
+
+              try {
+                for (auto i{0U}; i < batch.second; ++i, ++it) {
+                  func(*it, key, index_accessor);
+                }
+
+              } catch (utils::OutOfMemoryException &failure) {
+                utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
+                index.erase(skiplist_iter);
+                *maybe_error.Lock() = std::move(failure);
+              }
+            }
+          });
+    }
+  }
+  if (maybe_error.Lock()->has_value()) {
+    throw utils::OutOfMemoryException((*maybe_error.Lock())->what());
+  }
 }
 
 }  // namespace
@@ -305,67 +373,25 @@ bool LabelIndex::CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor ve
                              const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info) {
   auto create_index_seq = [this](LabelId label, utils::SkipList<Vertex>::Accessor &vertices,
                                  std::map<LabelId, utils::SkipList<Entry>>::iterator it) {
-    utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-    try {
-      auto acc = it->second.access();
-      for (Vertex &vertex : vertices) {
-        TryInsertLabelIndex(vertex, label, acc);
-      }
-    } catch (const utils::OutOfMemoryException &) {
-      utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
-      index_.erase(it);
-      throw;
-    }
+    using IndexAccessor = decltype(it->second.access());
+
+    CreateIndexOnSingleThread(vertices, it, index_, label,
+                              [](Vertex &vertex, LabelId label, IndexAccessor &index_accessor) {
+                                TryInsertLabelIndex(vertex, label, index_accessor);
+                              });
+
     return true;
   };
 
   auto create_index_par = [this](LabelId label, utils::SkipList<Vertex>::Accessor &vertices,
                                  std::map<LabelId, utils::SkipList<Entry>>::iterator label_it,
                                  const ParalellizedIndexCreationInfo &paralell_exec_info) {
-    utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+    using IndexAccessor = decltype(label_it->second.access());
 
-    const auto &vertex_batches = paralell_exec_info.first;
-    const auto thread_count = paralell_exec_info.second;
-
-    MG_ASSERT(!vertex_batches.empty(),
-              "The size of batches should always be greater than zero if you want to use the parallel version of index "
-              "creation!");
-
-    std::atomic<uint64_t> batch_counter = 0;
-
-    utils::Synchronized<std::optional<utils::OutOfMemoryException>, utils::SpinLock> maybe_error{};
-    {
-      std::vector<std::jthread> threads;
-      threads.reserve(thread_count);
-
-      for (auto i{0U}; i < thread_count; ++i) {
-        threads.emplace_back([this, &label_it, &vertex_batches, &maybe_error, &batch_counter, &label, &vertices]() {
-          while (!maybe_error.Lock()->has_value()) {
-            const auto batch_index = batch_counter++;
-            if (batch_index >= vertex_batches.size()) {
-              return;
-            }
-            const auto &batch = vertex_batches[batch_index];
-            auto label_index_accessor = index_.at(label).access();
-            auto it = vertices.find(batch.first);
-
-            try {
-              for (auto i{0U}; i < batch.second; ++i, ++it) {
-                TryInsertLabelIndex(*it, label, label_index_accessor);
-              }
-
-            } catch (utils::OutOfMemoryException &failure) {
-              utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
-              index_.erase(label_it);
-              *maybe_error.Lock() = std::move(failure);
-            }
-          }
-        });
-      }
-    }
-    if (maybe_error.Lock()->has_value()) {
-      throw utils::OutOfMemoryException((*maybe_error.Lock())->what());
-    }
+    CreateIndexOnMultipleThreads(vertices, label_it, index_, label, paralell_exec_info,
+                                 [](Vertex &vertex, LabelId label, IndexAccessor &index_accessor) {
+                                   TryInsertLabelIndex(vertex, label, index_accessor);
+                                 });
 
     return true;
   };
@@ -379,7 +405,6 @@ bool LabelIndex::CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor ve
   if (paralell_exec_info && FLAGS_parallel_index_creation_enabled) {
     return create_index_par(label, vertices, it, *paralell_exec_info);
   }
-
   return create_index_seq(label, vertices, it);
 }
 
@@ -510,17 +535,13 @@ bool LabelPropertyIndex::CreateIndex(LabelId label, PropertyId property, utils::
                                      const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info) {
   auto create_index_seq = [this](LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor &vertices,
                                  std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>>::iterator it) {
-    utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-    try {
-      auto acc = it->second.access();
-      for (Vertex &vertex : vertices) {
-        TryInsertLabelPropertyIndex(vertex, label, property, acc);
-      }
-    } catch (const utils::OutOfMemoryException &) {
-      utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
-      index_.erase(it);
-      throw;
-    }
+    using IndexAccessor = decltype(it->second.access());
+
+    CreateIndexOnSingleThread(vertices, it, index_, std::make_pair(label, property),
+                              [](Vertex &vertex, std::pair<LabelId, PropertyId> key, IndexAccessor &index_accessor) {
+                                TryInsertLabelPropertyIndex(vertex, key, index_accessor);
+                              });
+
     return true;
   };
 
@@ -528,52 +549,13 @@ bool LabelPropertyIndex::CreateIndex(LabelId label, PropertyId property, utils::
       [this](LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor &vertices,
              std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>>::iterator label_property_it,
              const ParalellizedIndexCreationInfo &paralell_exec_info) {
-        utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+        using IndexAccessor = decltype(label_property_it->second.access());
 
-        const auto &vertex_batches = paralell_exec_info.first;
-        const auto thread_count = paralell_exec_info.second;
-
-        MG_ASSERT(
-            !vertex_batches.empty(),
-            "The size of batches should always be greater than zero if you want to use the parallel version of index "
-            "creation!");
-
-        std::atomic<uint64_t> batch_counter = 0;
-
-        utils::Synchronized<std::optional<utils::OutOfMemoryException>, utils::SpinLock> maybe_error{};
-        {
-          std::vector<std::jthread> threads;
-          threads.reserve(thread_count);
-
-          for (auto i{0U}; i < thread_count; ++i) {
-            threads.emplace_back([this, &label_property_it, &vertex_batches, &maybe_error, &batch_counter, &label,
-                                  &property, &vertices]() {
-              while (!maybe_error.Lock()->has_value()) {
-                const auto batch_index = batch_counter++;
-                if (batch_index >= vertex_batches.size()) {
-                  return;
-                }
-                const auto &batch = vertex_batches[batch_index];
-                auto label_property_index_accessor = index_.at(std::make_pair(label, property)).access();
-                auto it = vertices.find(batch.first);
-
-                try {
-                  for (auto i{0U}; i < batch.second; ++i, ++it) {
-                    TryInsertLabelPropertyIndex(*it, label, property, label_property_index_accessor);
-                  }
-
-                } catch (utils::OutOfMemoryException &failure) {
-                  utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
-                  index_.erase(label_property_it);
-                  *maybe_error.Lock() = std::move(failure);
-                }
-              }
+        CreateIndexOnMultipleThreads(
+            vertices, label_property_it, index_, std::make_pair(label, property), paralell_exec_info,
+            [](Vertex &vertex, std::pair<LabelId, PropertyId> key, IndexAccessor &index_accessor) {
+              TryInsertLabelPropertyIndex(vertex, key, index_accessor);
             });
-          }
-        }
-        if (maybe_error.Lock()->has_value()) {
-          throw utils::OutOfMemoryException((*maybe_error.Lock())->what());
-        }
 
         return true;
       };
