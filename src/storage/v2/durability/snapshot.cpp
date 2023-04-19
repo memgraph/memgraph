@@ -227,12 +227,13 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &
       if (!marker || *marker != Marker::SECTION_EDGE) throw RecoveryFailure("Invalid snapshot data!");
     }
 
+    // Read edge GID.
+    auto gid = snapshot.ReadUint();
+    if (!gid) throw RecoveryFailure("Invalid snapshot data!");
+    if (i > 0 && *gid <= last_edge_gid) throw RecoveryFailure("Invalid snapshot data!");
+    last_edge_gid = *gid;
+
     if (items.properties_on_edges) {
-      // Insert edge.
-      auto gid = snapshot.ReadUint();
-      if (!gid) throw RecoveryFailure("Invalid snapshot data!");
-      if (i > 0 && *gid <= last_edge_gid) throw RecoveryFailure("Invalid snapshot data!");
-      last_edge_gid = *gid;
       spdlog::debug("Recovering edge {} with properties.", *gid);
       auto [it, inserted] = edge_acc.insert(Edge{Gid::FromUint(*gid), nullptr});
       if (!inserted) throw RecoveryFailure("The edge must be inserted here!");
@@ -251,12 +252,6 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &
         }
       }
     } else {
-      // Read edge GID.
-      auto gid = snapshot.ReadUint();
-      if (!gid) throw RecoveryFailure("Invalid snapshot data!");
-      if (i > 0 && *gid <= last_edge_gid) throw RecoveryFailure("Invalid snapshot data!");
-      last_edge_gid = *gid;
-
       spdlog::debug("Ensuring edge {} doesn't have any properties.", *gid);
       // Read properties.
       {
@@ -459,8 +454,9 @@ LoadPartialConnectivityResult LoadPartialConnectivity(const std::filesystem::pat
 
         EdgeRef edge_ref(Gid::FromUint(*edge_gid));
         if (items.properties_on_edges) {
-          // If the snapshot was created with a config where properties are not allowed on edges, then the edges has to
-          // be created here
+          // The snapshot contains the individiual edges only if it was created with a config where properties are
+          // allowed on edges. That means the snapshots that were created without edge properties will only contain the
+          // edges in the in/out edges list of vertices, therefore the edges has to be created here.
           if (snapshot_has_edges) {
             auto edge = edge_acc.find(Gid::FromUint(*edge_gid));
             if (edge == edge_acc.end()) throw RecoveryFailure("Invalid edge!");
@@ -494,8 +490,9 @@ LoadPartialConnectivityResult LoadPartialConnectivity(const std::filesystem::pat
 
         EdgeRef edge_ref(Gid::FromUint(*edge_gid));
         if (items.properties_on_edges) {
-          // If the snapshot was created with a config where properties are not allowed on edges, then the edges has to
-          // be created here
+          // The snapshot contains the individiual edges only if it was created with a config where properties are
+          // allowed on edges. That means the snapshots that were created without edge properties will only contain the
+          // edges in the in/out edges list of vertices, therefore the edges has to be created here.
           if (snapshot_has_edges) {
             auto edge = edge_acc.find(Gid::FromUint(*edge_gid));
             if (edge == edge_acc.end()) throw RecoveryFailure("Invalid edge!");
@@ -518,10 +515,11 @@ LoadPartialConnectivityResult LoadPartialConnectivity(const std::filesystem::pat
 }
 
 template <typename TFunc>
-void RecoverOnMultipleThreads(const size_t thread_count, const TFunc &func, const std::vector<BatchInfo> &batches) {
+void RecoverOnMultipleThreads(size_t thread_count, const TFunc &func, const std::vector<BatchInfo> &batches) {
   utils::Synchronized<std::optional<RecoveryFailure>, utils::SpinLock> maybe_error{};
   {
     std::atomic<uint64_t> batch_counter = 0;
+    thread_count = std::min(thread_count, batches.size());
     std::vector<std::jthread> threads;
     threads.reserve(thread_count);
 
@@ -1020,7 +1018,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                utils::SkipList<Edge> *edges,
                                std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, const Config &config) {
-  RecoveryInfo ret;
+  RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
 
   Decoder snapshot;
@@ -1093,6 +1091,11 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     spdlog::info("Recovering edges.");
     // Recover edges.
     if (snapshot_has_edges) {
+      // We don't need to check whether we store properties on edge or not, because `LoadPartialEdges` will always
+      // iterate over the edges in the snapshot (if they exist) and the current configuration of properties on edge only
+      // affect what it does:
+      // 1. If properties are allowed on edges, then it loads the edges.
+      // 2. If properties are not allowed on edges, then it checks that none of the edges have any properties.
       if (!snapshot.SetPosition(info.offset_edge_batches)) {
         throw RecoveryFailure("Couldn't read data from snapshot!");
       }
@@ -1133,16 +1136,16 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
 
     // Recover vertices (in/out edges).
     spdlog::info("Recover connectivity.");
-    ret.vertex_batches.reserve(vertex_batches.size());
+    recovery_info.vertex_batches.reserve(vertex_batches.size());
     for (const auto batch : vertex_batches) {
-      ret.vertex_batches.emplace_back(std::make_pair(Gid::FromUint(0), batch.count));
+      recovery_info.vertex_batches.emplace_back(std::make_pair(Gid::FromUint(0), batch.count));
     }
     std::atomic<uint64_t> highest_edge_gid{0};
 
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
         [path, vertices, edges, edge_count, items = config.items, snapshot_has_edges, &get_edge_type_from_id,
-         &highest_edge_gid, &ret](const size_t batch_index, const BatchInfo &batch) {
+         &highest_edge_gid, &recovery_info](const size_t batch_index, const BatchInfo &batch) {
           const auto result = LoadPartialConnectivity(path, *vertices, *edges, batch.offset, batch.count, items,
                                                       snapshot_has_edges, get_edge_type_from_id);
           edge_count->fetch_add(result.edge_count);
@@ -1150,15 +1153,15 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
           while (known_highest_edge_gid < result.highest_edge_id) {
             highest_edge_gid.compare_exchange_weak(known_highest_edge_gid, result.highest_edge_id);
           }
-          ret.vertex_batches[batch_index].first = result.first_vertex_gid;
+          recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
         },
         vertex_batches);
 
     spdlog::info("Connectivity is recovered.");
 
     // Set initial values for edge/vertex ID generators.
-    ret.next_edge_id = highest_edge_gid + 1;
-    ret.next_vertex_id = last_vertex_gid + 1;
+    recovery_info.next_edge_id = highest_edge_gid + 1;
+    recovery_info.next_vertex_id = last_vertex_gid + 1;
   }
 
   // Recover indices.
@@ -1290,12 +1293,12 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
 
   spdlog::info("Metadata recovered.");
   // Recover timestamp.
-  ret.next_timestamp = info.start_timestamp + 1;
+  recovery_info.next_timestamp = info.start_timestamp + 1;
 
   // Set success flag (to disable cleanup).
   success = true;
 
-  return {info, ret, std::move(indices_constraints)};
+  return {info, recovery_info, std::move(indices_constraints)};
 }
 
 void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snapshot_directory,
