@@ -15,8 +15,6 @@
 #include <limits>
 #include <thread>
 
-#include <gflags/gflags.h>
-
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/bound.hpp"
