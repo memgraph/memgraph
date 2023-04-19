@@ -55,6 +55,7 @@
 #include "requests/requests.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
+#include "storage/v2/storage.hpp"
 #include "storage/v2/view.hpp"
 #include "telemetry/telemetry.hpp"
 #include "utils/event_counter.hpp"
@@ -459,11 +460,11 @@ struct SessionData {
   // supplied.
 #if MG_ENTERPRISE
 
-  SessionData(memgraph::storage::InMemoryStorage *db, memgraph::query::InterpreterContext *interpreter_context,
+  SessionData(memgraph::storage::Storage *db, memgraph::query::InterpreterContext *interpreter_context,
               memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
               memgraph::audit::Log *audit_log)
       : db(db), interpreter_context(interpreter_context), auth(auth), audit_log(audit_log) {}
-  memgraph::storage::InMemoryStorage *db;
+  memgraph::storage::Storage *db;
   memgraph::query::InterpreterContext *interpreter_context;
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth;
   memgraph::audit::Log *audit_log;
