@@ -53,6 +53,7 @@
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
+#include "utils/pmr/deque.hpp"
 #include "utils/pmr/list.hpp"
 #include "utils/pmr/unordered_map.hpp"
 #include "utils/pmr/unordered_set.hpp"
@@ -3248,7 +3249,7 @@ class AccumulateCursor : public Cursor {
  private:
   const Accumulate &self_;
   const UniqueCursorPtr input_cursor_;
-  utils::pmr::vector<utils::pmr::vector<TypedValue>> cache_;
+  utils::pmr::deque<utils::pmr::vector<TypedValue>> cache_;
   decltype(cache_.begin()) cache_it_ = cache_.begin();
   bool pulled_all_input_{false};
 };
