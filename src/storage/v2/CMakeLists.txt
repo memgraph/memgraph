@@ -15,7 +15,9 @@ set(storage_v2_src_files
     vertex_accessor.cpp
     storage.cpp
     disk/compaction_filter.cpp
-    disk/storage.hpp)
+    disk/storage.cpp
+    disk/vertex_accessor.cpp
+    disk/edge_accessor.cpp)
 
 
 set(storage_v2_src_files

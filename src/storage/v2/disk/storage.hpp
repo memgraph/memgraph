@@ -71,7 +71,7 @@ class DiskStorage final : public Storage {
  public:
   /// @throw std::system_error
   /// @throw std::bad_alloc
-  explicit DiskStorage();
+  explicit DiskStorage(Config config = Config());
 
   ~DiskStorage();
 

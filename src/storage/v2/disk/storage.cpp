@@ -9,8 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
-
 #include "storage/v2/storage.hpp"
 #include <algorithm>
 #include <atomic>
@@ -22,6 +20,7 @@
 #include "storage/v2/disk/disk_vertex.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/isolation_level.hpp"
 #include "storage/v2/result.hpp"
 
 #include <gflags/gflags.h>
@@ -91,6 +90,18 @@ inline bool CheckRocksDBStatus(const rocksdb::Status &status) {
 }
 
 }  // namespace
+
+/// TODO: indices should be initialized at some point after
+DiskStorage::DiskStorage(Config config)
+    : indices_(&constraints_, config.items),
+      isolation_level_(IsolationLevel::SNAPSHOT_ISOLATION),
+      config_(config),
+      snapshot_directory_(config_.durability.storage_directory / durability::kSnapshotDirectory),
+      wal_directory_(config_.durability.storage_directory / durability::kWalDirectory),
+      lock_file_path_(config_.durability.storage_directory / durability::kLockFile),
+      uuid_(utils::GenerateUUID()),
+      epoch_id_(utils::GenerateUUID()),
+      global_locker_(file_retainer_.AddLocker()) {}
 
 DiskStorage::DiskAccessor::DiskAccessor(DiskStorage *storage, IsolationLevel isolation_level)
     : storage_(storage),

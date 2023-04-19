@@ -29,8 +29,8 @@ struct DiskVertex : Vertex {
   uint64_t modification_ts;
 };
 
-auto disk_vertex_cmp = [](const DiskVertex &first, const DiskVertex &second) {
-  return first.modification_ts < second.modification_ts;
+const auto disk_vertex_cmp = [](DiskVertex *first, DiskVertex *second) {
+  return first->modification_ts < second->modification_ts;
 };
 
 }  // namespace memgraph::storage
