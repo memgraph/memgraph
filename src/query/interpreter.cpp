@@ -2321,7 +2321,7 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
     case InfoQuery::InfoType::STORAGE:
       header = {"storage info", "value"};
 
-      handler = [db, interpreter_context] {
+      handler = [db] {
         auto info = db->GetInfo();
         std::vector<std::vector<TypedValue>> results{
             {TypedValue("vertex_count"), TypedValue(static_cast<int64_t>(info.vertex_count))},
@@ -2331,7 +2331,7 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
             {TypedValue("disk_usage"), TypedValue(static_cast<int64_t>(info.disk_usage))},
             {TypedValue("memory_allocated"), TypedValue(static_cast<int64_t>(utils::total_memory_tracker.Amount()))},
             {TypedValue("allocation_limit"), TypedValue(static_cast<int64_t>(utils::total_memory_tracker.HardLimit()))},
-            {TypedValue("storage_mode"), TypedValue(StorageModeToString(interpreter_context->db->GetStorageMode()))}};
+            {TypedValue("storage_mode"), TypedValue(StorageModeToString(db->GetStorageMode()))}};
         return std::pair{results, QueryHandlerResult::COMMIT};
       };
       break;
