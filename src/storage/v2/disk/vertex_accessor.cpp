@@ -65,12 +65,13 @@ std::pair<bool, bool> IsVisible(DiskVertex *vertex, Transaction *transaction, Vi
 std::unique_ptr<DiskVertexAccessor> DiskVertexAccessor::Create(Vertex *vertex, Transaction *transaction,
                                                                Indices *indices, Constraints *constraints,
                                                                Config::Items config, View view) {
-  // if (const auto [exists, deleted] = detail::IsVisible(vertex, transaction, view); !exists || deleted) {
-  // return {};
-  // }
-  //
-  // return std::make_unique<DiskVertexAccessor>(vertex, transaction, indices, constraints, config);
-  throw utils::NotYetImplemented("DiskVertexAccessor::Create");
+  /// TODO: What do we do here? Do we continue with vertex object and cast it. We cannot change the method's
+  /// declaration. if (const auto [exists, deleted] = detail::IsVisible(vertex, transaction, view); !exists || deleted)
+  /// { return {};
+  /// }
+
+  return std::make_unique<DiskVertexAccessor>(static_cast<DiskVertex *>(vertex), transaction, indices, constraints,
+                                              config, vertex->gid);
 }
 
 bool DiskVertexAccessor::IsVisible(View view) const {

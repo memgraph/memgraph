@@ -29,13 +29,8 @@ struct DiskVertex : Vertex {
   uint64_t modification_ts;
 };
 
-inline bool operator==(const DiskVertex &first, const DiskVertex &second) {
-  return first.modification_ts == second.modification_ts;
-}
-inline bool operator<(const DiskVertex &first, const DiskVertex &second) {
+auto disk_vertex_cmp = [](const DiskVertex &first, const DiskVertex &second) {
   return first.modification_ts < second.modification_ts;
-}
-inline bool operator==(const DiskVertex &first, const uint64_t &second) { return first.modification_ts == second; }
-inline bool operator<(const DiskVertex &first, const uint64_t &second) { return first.modification_ts < second; }
+};
 
 }  // namespace memgraph::storage

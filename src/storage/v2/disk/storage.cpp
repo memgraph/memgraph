@@ -288,9 +288,6 @@ VerticesIterable Vertices(LabelId label, PropertyId property,
   throw utils::NotYetImplemented("DiskStorage::DiskAccessor::Vertices(label, property, lower_bound, upper_bound)");
 }
 
-/*
-This function will be the same for both storage modes. We can move it on a different place later.
-*/
 std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex() {
   OOMExceptionEnabler oom_exception;
   auto gid = storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
@@ -300,7 +297,10 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex() {
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
   delta->prev.Set(&*it);
-  // it shoud be safe to do static_cast here since the resolvement can be done at compile time
+  lru_vertices_.insert(static_cast<DiskVertex *>(&*it));
+  /// TODO(andi): it shoud be safe to do static_cast here since the resolvement can be done at compile time. But maybe,
+  /// std::variant of vertices on query engine level is better? If we use std::variant, we can remove the static_cast
+  /// here and for inserting into the lru cache also.
   return std::make_unique<DiskVertexAccessor>(static_cast<DiskVertex *>(&*it), &transaction_, &storage_->indices_,
                                               &storage_->constraints_, config_, storage::Gid::FromUint(gid));
 }
@@ -321,12 +321,23 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex(storage:
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
   delta->prev.Set(&*it);
-  // it shoud be safe to do static_cast here since the resolvement can be done at compile time
+  lru_vertices_.insert(static_cast<DiskVertex *>(&*it));
+  /// TODO(andi): it shoud be safe to do static_cast here since the resolvement can be done at compile time. But maybe,
+  /// std::variant of vertices on query engine level is better? If we use std::variant, we can remove the static_cast
+  /// here and for inserting into the lru cache also.
   return std::make_unique<DiskVertexAccessor>(static_cast<DiskVertex *>(&*it), &transaction_, &storage_->indices_,
                                               &storage_->constraints_, config_, gid);
 }
 
-std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid gid, View /*view*/) {
+std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid gid, View view) {
+  /// Check if the vertex is in the cache.
+  auto acc = vertices_.access();
+  auto vertex_it = acc.find(gid);
+  if (vertex_it != acc.end()) {
+    return DiskVertexAccessor::Create(&*vertex_it, &transaction_, &storage_->indices_, &storage_->constraints_, config_,
+                                      view);
+  }
+  /// If not in the memory, check whether it exists in RocksDB.
   auto it =
       std::unique_ptr<rocksdb::Iterator>(storage_->db_->NewIterator(rocksdb::ReadOptions(), storage_->vertex_chandle));
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
@@ -395,23 +406,23 @@ DiskStorage::DiskAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
 
 Result<std::unique_ptr<EdgeAccessor>> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from, VertexAccessor *to,
                                                                             EdgeTypeId edge_type, storage::Gid gid) {
-  auto *inMemoryVAFrom = dynamic_cast<DiskVertexAccessor *>(from);
-  auto *inMemoryVATo = dynamic_cast<DiskVertexAccessor *>(to);
-  MG_ASSERT(inMemoryVAFrom,
+  auto *disk_va_from = dynamic_cast<DiskVertexAccessor *>(from);
+  auto *disk_va_to = dynamic_cast<DiskVertexAccessor *>(to);
+  MG_ASSERT(disk_va_from,
             "Source VertexAccessor must be from the same storage as the storage accessor when creating an edge!");
-  MG_ASSERT(inMemoryVATo,
+  MG_ASSERT(disk_va_to,
             "Target VertexAccessor must be from the same storage as the storage accessor when creating an edge!");
 
   OOMExceptionEnabler oom_exception;
-  MG_ASSERT(inMemoryVAFrom->transaction_ == inMemoryVATo->transaction_,
+  MG_ASSERT(disk_va_from->transaction_ == disk_va_to->transaction_,
             "VertexAccessors must be from the same transaction when creating "
             "an edge!");
-  MG_ASSERT(inMemoryVAFrom->transaction_ == &transaction_,
+  MG_ASSERT(disk_va_from->transaction_ == &transaction_,
             "VertexAccessors must be from the same transaction in when "
             "creating an edge!");
 
-  auto from_vertex = inMemoryVAFrom->vertex_;
-  auto to_vertex = inMemoryVATo->vertex_;
+  auto from_vertex = disk_va_from->vertex_;
+  auto to_vertex = disk_va_to->vertex_;
 
   // Obtain the locks by `gid` order to avoid lock cycles.
   std::unique_lock<utils::SpinLock> guard_from(from_vertex->lock, std::defer_lock);
@@ -444,16 +455,20 @@ Result<std::unique_ptr<EdgeAccessor>> DiskStorage::DiskAccessor::CreateEdge(Vert
   storage_->edge_id_.store(std::max(storage_->edge_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
                            std::memory_order_release);
 
-  EdgeRef edge(gid);
-  if (config_.properties_on_edges) {
-    auto acc = edges_.access();
-    auto delta = CreateDeleteObjectDelta(&transaction_);
-    auto [it, inserted] = acc.insert(DiskEdge(gid, delta));
-    MG_ASSERT(inserted, "The edge must be inserted here!");
-    MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
-    edge = EdgeRef(&*it);
-    delta->prev.Set(&*it);
-  }
+  /// TODO(andi): Remove this once we add full support for edges.
+  MG_ASSERT(config_.properties_on_edges, "Properties on edges must be enabled currently for Disk version!");
+  // if (config_.properties_on_edges) {
+  auto acc = edges_.access();
+  auto delta = CreateDeleteObjectDelta(&transaction_);
+  auto [it, inserted] = acc.insert(DiskEdge(gid, delta));
+  MG_ASSERT(inserted, "The edge must be inserted here!");
+  MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
+  auto edge = EdgeRef(&*it);
+  delta->prev.Set(&*it);
+  // }
+  lru_edges_.insert(static_cast<DiskEdge *>(&*it));
+  /// TODO(andi): it shoud be safe to do static_cast here since the resolvement can be done at compile time. But same as
+  /// for the vertices, we should change query engine code to handle that properly.
 
   CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
   from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
@@ -510,16 +525,20 @@ Result<std::unique_ptr<EdgeAccessor>> DiskStorage::DiskAccessor::CreateEdge(Vert
   }
 
   auto gid = storage::Gid::FromUint(storage_->edge_id_.fetch_add(1, std::memory_order_acq_rel));
-  EdgeRef edge(gid);
-  if (config_.properties_on_edges) {
-    auto acc = edges_.access();
-    auto delta = CreateDeleteObjectDelta(&transaction_);
-    auto [it, inserted] = acc.insert(Edge(gid, delta));
-    MG_ASSERT(inserted, "The edge must be inserted here!");
-    MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
-    edge = EdgeRef(&*it);
-    delta->prev.Set(&*it);
-  }
+  /// TODO(andi): Remove this once we add full support for edges.
+  MG_ASSERT(config_.properties_on_edges, "Properties on edges must be enabled currently for Disk version!");
+  // if (config_.properties_on_edges) {
+  auto acc = edges_.access();
+  auto delta = CreateDeleteObjectDelta(&transaction_);
+  auto [it, inserted] = acc.insert(Edge(gid, delta));
+  MG_ASSERT(inserted, "The edge must be inserted here!");
+  MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
+  auto edge = EdgeRef(&*it);
+  delta->prev.Set(&*it);
+  lru_edges_.insert(static_cast<DiskEdge *>(&*it));
+  /// TODO(andi): it shoud be safe to do static_cast here since the resolvement can be done at compile time. But same
+  /// as for the vertices, we should change query engine code to handle that properly.
+  // }
 
   CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
   from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);

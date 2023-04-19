@@ -28,4 +28,7 @@ struct DiskEdge : public Edge {
   uint64_t modification_ts;
 };
 
+auto disk_edge_cmp = [](const DiskEdge &first, const DiskEdge &second) {
+  return first.modification_ts < second.modification_ts;
+};
 }  // namespace memgraph::storage

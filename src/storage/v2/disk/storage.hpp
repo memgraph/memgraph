@@ -25,6 +25,7 @@
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints.hpp"
 #include "storage/v2/disk/disk_edge.hpp"
+#include "storage/v2/disk/disk_vertex.hpp"
 #include "storage/v2/disk/vertex_accessor.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/wal.hpp"
@@ -91,9 +92,15 @@ class DiskStorage final : public Storage {
 
     ~DiskAccessor() override;
 
+    /// Create and insert vertex into vertices_ and lru_vertices_.
     /// @throw std::alloc
     std::unique_ptr<VertexAccessor> CreateVertex() override;
 
+    /// Checks whether the vertex with the given `gid` exists in the vertices_. If it does, it returns a
+    /// VertexAccessor to it. If it doesn't, it fetches vertex from the RocksDB. If it doesn't exist in the RocksDB
+    /// either, it returns nullptr. If the vertex is fetched from the RocksDB, it is inserted into the vertices_ and
+    /// lru_vertices_. Check whether the vertex is in the memory cache (vertices_) is done in O(logK) where K is the
+    /// size of the cache.
     std::unique_ptr<VertexAccessor> FindVertex(Gid gid, View view) override;
 
     /// Utility method to load all vertices from the underlying KV storage.
@@ -251,12 +258,14 @@ class DiskStorage final : public Storage {
     std::pair<std::string, std::string> SerializeEdge(Gid src_vertex_gid, Gid dest_vertex_gid, EdgeTypeId edge_type_id,
                                                       const Edge *edge) const;
 
-    /// Deserializes vertex from the string key and stores it into the vertices_ cache.
+    /// Deserializes vertex from the string key and stores it into the vertices_ and lru_vertices_.
     /// Properties are deserialized from the value.
+    /// The method should be called only when the vertex is not in the cache.
     std::unique_ptr<VertexAccessor> DeserializeVertex(std::string_view key, std::string_view value);
 
     /// Deserializes edge from the string key and stores it into the edges_ cache.
     /// Properties are deserialized from the value.
+    /// The method should be called only when the edge is not in the cache.
     std::unique_ptr<EdgeAccessor> DeserializeEdge(std::string_view key, std::string_view value);
 
     /// Flushes vertices and edges to the disk with the commit timestamp.
@@ -269,6 +278,8 @@ class DiskStorage final : public Storage {
     /// need to be stored here.
     utils::SkipList<storage::Vertex> vertices_;
     utils::SkipList<storage::Edge> edges_;
+    std::set<storage::DiskVertex *, decltype(storage::disk_vertex_cmp)> lru_vertices_;
+    std::set<storage::DiskEdge *, decltype(storage::disk_edge_cmp)> lru_edges_;
 
     std::shared_lock<utils::RWLock> storage_guard_;
     Transaction transaction_;

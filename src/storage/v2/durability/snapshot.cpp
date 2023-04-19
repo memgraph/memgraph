@@ -743,6 +743,7 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
     auto acc = vertices->access();
     for (auto &vertex : acc) {
       // The visibility check is implemented for vertices so we use it here.
+      /// TODO: Here we need to create a vertex accessor dependent on the storage.
       auto va = VertexAccessor::Create(&vertex, transaction, indices, constraints, items, View::OLD);
       if (!va) continue;
 
