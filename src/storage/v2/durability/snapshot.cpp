@@ -454,8 +454,9 @@ LoadPartialConnectivityResult LoadPartialConnectivity(const std::filesystem::pat
 
         EdgeRef edge_ref(Gid::FromUint(*edge_gid));
         if (items.properties_on_edges) {
-          // If the snapshot was created with a config where properties are not allowed on edges, then the edges has to
-          // be created here
+          // The snapshot contains the individiual edges only if it was created with a config where properties are
+          // allowed on edges. That means the snapshots that were created without edge properties will only contain the
+          // edges in the in/out edges list of vertices, therefore the edges has to be created here.
           if (snapshot_has_edges) {
             auto edge = edge_acc.find(Gid::FromUint(*edge_gid));
             if (edge == edge_acc.end()) throw RecoveryFailure("Invalid edge!");
@@ -489,8 +490,9 @@ LoadPartialConnectivityResult LoadPartialConnectivity(const std::filesystem::pat
 
         EdgeRef edge_ref(Gid::FromUint(*edge_gid));
         if (items.properties_on_edges) {
-          // If the snapshot was created with a config where properties are not allowed on edges, then the edges has to
-          // be created here
+          // The snapshot contains the individiual edges only if it was created with a config where properties are
+          // allowed on edges. That means the snapshots that were created without edge properties will only contain the
+          // edges in the in/out edges list of vertices, therefore the edges has to be created here.
           if (snapshot_has_edges) {
             auto edge = edge_acc.find(Gid::FromUint(*edge_gid));
             if (edge == edge_acc.end()) throw RecoveryFailure("Invalid edge!");
@@ -1088,6 +1090,11 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     spdlog::info("Recovering edges.");
     // Recover edges.
     if (snapshot_has_edges) {
+      // We don't need to check whether we store properties on edge or not, because `LoadPartialEdges` will always
+      // iterate over the edges in the snapshot (if they exist) and the current configuration of properties on edge only
+      // affect what it does:
+      // 1. If properties are allowed on edges, then it loads the edges.
+      // 2. If properties are not allowed on edges, then it checks that none of the edges have any properties.
       if (!snapshot.SetPosition(info.offset_edge_batches)) {
         throw RecoveryFailure("Couldn't read data from snapshot!");
       }
