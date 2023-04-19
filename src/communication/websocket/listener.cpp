@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -65,10 +65,9 @@ Listener::Listener(boost::asio::io_context &ioc, ServerContext *context, tcp::en
 }
 
 void Listener::DoAccept() {
-  // TODO(gitbuda): GCC throws and error here can't convert context to executor
-  // acceptor_.async_accept(
-  //     ioc_, [shared_this = shared_from_this()](auto ec, auto socket) { shared_this->OnAccept(ec, std::move(socket));
-  //     });
+  acceptor_.async_accept(ioc_, [shared_this = shared_from_this()](boost::beast::error_code ec, tcp::socket socket) {
+    shared_this->OnAccept(ec, std::move(socket));
+  });
 }
 
 void Listener::OnAccept(boost::beast::error_code ec, tcp::socket socket) {
