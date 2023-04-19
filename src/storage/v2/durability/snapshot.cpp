@@ -515,10 +515,11 @@ LoadPartialConnectivityResult LoadPartialConnectivity(const std::filesystem::pat
 }
 
 template <typename TFunc>
-void RecoverOnMultipleThreads(const size_t thread_count, const TFunc &func, const std::vector<BatchInfo> &batches) {
+void RecoverOnMultipleThreads(size_t thread_count, const TFunc &func, const std::vector<BatchInfo> &batches) {
   utils::Synchronized<std::optional<RecoveryFailure>, utils::SpinLock> maybe_error{};
   {
     std::atomic<uint64_t> batch_counter = 0;
+    thread_count = std::min(thread_count, batches.size());
     std::vector<std::jthread> threads;
     threads.reserve(thread_count);
 
