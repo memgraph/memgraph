@@ -358,10 +358,6 @@ void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vertices, T
 
 }  // namespace
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(parallel_index_creation_enabled, true,
-            "Controls whether the index creation can be done in a multithreaded fashion.");
-
 void LabelIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) {
   auto it = index_.find(label);
   if (it == index_.end()) return;
@@ -402,7 +398,7 @@ bool LabelIndex::CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor ve
     return false;
   }
 
-  if (paralell_exec_info && FLAGS_parallel_index_creation_enabled) {
+  if (paralell_exec_info) {
     return create_index_par(label, vertices, it, *paralell_exec_info);
   }
   return create_index_seq(label, vertices, it);
@@ -567,7 +563,7 @@ bool LabelPropertyIndex::CreateIndex(LabelId label, PropertyId property, utils::
     return false;
   }
 
-  if (paralell_exec_info && FLAGS_parallel_index_creation_enabled) {
+  if (paralell_exec_info) {
     return create_index_par(label, property, vertices, it, *paralell_exec_info);
   }
   return create_index_seq(label, property, vertices, it);

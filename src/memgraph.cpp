@@ -197,6 +197,10 @@ DEFINE_uint64(storage_items_per_batch, memgraph::storage::Config::Durability().i
               "The number of edges and vertices stored in a batch in a snapshot file.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(parallel_index_creation_enabled, true,
+            "Controls whether the index creation can be done in a multithreaded fashion.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(storage_recovery_thread_count,
               std::max(static_cast<uint64_t>(std::thread::hardware_concurrency()),
                        memgraph::storage::Config::Durability().recovery_thread_count),
@@ -864,7 +868,8 @@ int main(int argc, char **argv) {
                      .snapshot_on_exit = FLAGS_storage_snapshot_on_exit,
                      .restore_replicas_on_startup = true,
                      .items_per_batch = FLAGS_storage_items_per_batch,
-                     .recovery_thread_count = FLAGS_storage_recovery_thread_count},
+                     .recovery_thread_count = FLAGS_storage_recovery_thread_count,
+                     .allow_parallel_index_creation = FLAGS_parallel_index_creation_enabled},
       .transaction = {.isolation_level = ParseIsolationLevel()}};
   if (FLAGS_storage_snapshot_interval_sec == 0) {
     if (FLAGS_storage_wal_enabled) {

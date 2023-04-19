@@ -215,7 +215,10 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
     *epoch_id = std::move(recovered_snapshot->snapshot_info.epoch_id);
 
     if (!utils::DirExists(wal_directory)) {
-      const auto par_exec_info = std::make_pair(recovery_info.vertex_batches, config.durability.recovery_thread_count);
+      const auto par_exec_info = config.durability.allow_parallel_index_creation
+                                     ? std::make_optional(std::make_pair(recovery_info.vertex_batches,
+                                                                         config.durability.recovery_thread_count))
+                                     : std::nullopt;
       RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices, par_exec_info);
       return recovered_snapshot->recovery_info;
     }
