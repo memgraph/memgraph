@@ -57,7 +57,7 @@ class EdgeAccessor final {
   std::unique_ptr<storage::EdgeAccessor> impl_;
 
  public:
-  explicit EdgeAccessor(std::unique_ptr<storage::EdgeAccessor> &impl) : impl_(std::move(impl)) {}
+  explicit EdgeAccessor(std::unique_ptr<storage::EdgeAccessor> impl) : impl_(std::move(impl)) {}
   explicit EdgeAccessor(storage::EdgeAccessor *impl) : impl_(impl) {}
   EdgeAccessor(const EdgeAccessor &impl) : impl_(impl.impl_->Copy()){};
 
@@ -108,19 +108,26 @@ class EdgeAccessor final {
 };
 
 class VertexAccessor final {
+ private:
+  // We make this class a friend so that we can access the private MakeEdgeAccessor function.
+  friend class SubgraphVertexAccessor;
+
+  // IMPLICIT MOVE! This is a workaround for iter::imap
+  static EdgeAccessor MakeEdgeAccessor(std::unique_ptr<storage::EdgeAccessor> &impl) {
+    return EdgeAccessor(std::move(impl));
+  }
+
  public:
   // It can affect performance if we use std::unique_ptr here.
   std::unique_ptr<storage::VertexAccessor> impl_;
 
-  static EdgeAccessor MakeEdgeAccessor(std::unique_ptr<storage::EdgeAccessor> &impl) { return EdgeAccessor(impl); }
-
- public:
-  explicit VertexAccessor(storage::VertexAccessor *impl) : impl_(impl) {}
-  VertexAccessor(VertexAccessor &&impl) = default;
+  explicit VertexAccessor(std::unique_ptr<storage::VertexAccessor> impl) : impl_(std::move(impl)) {}
   VertexAccessor(const VertexAccessor &impl) : impl_(impl.impl_->Copy()){};
   explicit VertexAccessor(VertexAccessor *impl) : VertexAccessor(*impl) {}
 
-  VertexAccessor &operator=(VertexAccessor other) {
+  ~VertexAccessor() = default;
+
+  VertexAccessor &operator=(const VertexAccessor &other) {
     impl_ = other.impl_->Copy();
     return *this;
   }
@@ -205,9 +212,9 @@ class VertexAccessor final {
   bool operator!=(const VertexAccessor &v) const { return !(*this == v); }
 };
 
-inline VertexAccessor EdgeAccessor::To() const { return VertexAccessor(impl_->ToVertex().get()); }
+inline VertexAccessor EdgeAccessor::To() const { return VertexAccessor(impl_->ToVertex()); }
 
-inline VertexAccessor EdgeAccessor::From() const { return VertexAccessor(impl_->FromVertex().get()); }
+inline VertexAccessor EdgeAccessor::From() const { return VertexAccessor(impl_->FromVertex()); }
 
 inline bool EdgeAccessor::IsCycle() const { return To() == From(); }
 
@@ -288,7 +295,12 @@ class VerticesIterable final {
         : it_(it) {}
 
     VertexAccessor operator*() const {
-      return std::visit([](auto it_) { return VertexAccessor{*it_}; }, it_);
+      return std::visit(
+          memgraph::utils::Overloaded{
+              [](storage::VerticesIterable::Iterator it_) { return VertexAccessor((*it_)->Copy()); },
+              [](std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
+                                    utils::Allocator<VertexAccessor>>::iterator it_) { return VertexAccessor(*it_); }},
+          it_);
     }
 
     Iterator &operator++() {
@@ -334,7 +346,7 @@ class DbAccessor final {
 
   std::optional<VertexAccessor> FindVertex(storage::Gid gid, storage::View view) {
     auto maybe_vertex = accessor_->FindVertex(gid, view);
-    if (maybe_vertex) return std::make_optional(VertexAccessor(maybe_vertex.get()));
+    if (maybe_vertex) return std::make_optional(VertexAccessor(std::move(maybe_vertex)));
     return std::nullopt;
   }
 
@@ -361,7 +373,7 @@ class DbAccessor final {
     return VerticesIterable(accessor_->Vertices(label, property, lower, upper, view));
   }
 
-  VertexAccessor InsertVertex() { return VertexAccessor(accessor_->CreateVertex().get()); }
+  VertexAccessor InsertVertex() { return VertexAccessor(accessor_->CreateVertex()); }
 
   storage::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
                                            const storage::EdgeTypeId &edge_type) {
@@ -393,19 +405,19 @@ class DbAccessor final {
       return res.GetError();
     }
 
-    const auto &value = res.GetValue();
+    auto &value = res.GetValue();
     if (!value) {
       return std::optional<ReturnType>{};
     }
 
-    const auto &[vertex, edges] = *value;
+    auto &[vertex, edges] = *value;
 
     std::vector<EdgeAccessor> deleted_edges;
     deleted_edges.reserve(edges.size());
     std::transform(edges.begin(), edges.end(), std::back_inserter(deleted_edges),
                    [](const auto &deleted_edge) { return EdgeAccessor{deleted_edge.get()}; });
 
-    return std::make_optional<ReturnType>(vertex.get(), std::move(deleted_edges));
+    return std::make_optional<ReturnType>(std::move(vertex), std::move(deleted_edges));
   }
 
   storage::Result<std::optional<VertexAccessor>> RemoveVertex(VertexAccessor *vertex_accessor) {
@@ -414,12 +426,12 @@ class DbAccessor final {
       return res.GetError();
     }
 
-    const auto &value = res.GetValue();
+    auto &value = res.GetValue();
     if (!value) {
       return std::optional<VertexAccessor>{};
     }
 
-    return std::make_optional<VertexAccessor>(value.get());
+    return std::make_optional<VertexAccessor>(std::move(value));
   }
 
   storage::PropertyId NameToProperty(const std::string_view name) { return accessor_->NameToProperty(name); }

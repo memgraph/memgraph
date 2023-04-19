@@ -166,7 +166,7 @@ struct StorageInfo {
 
 class Storage {
  public:
-  virtual ~Storage(){};
+  virtual ~Storage() {}
   class Accessor {
    public:
     Accessor() {}
@@ -356,7 +356,7 @@ class Storage {
     return DropIndex(label, property, std::optional<uint64_t>{});
   }
 
-  virtual IndicesInfo ListAllIndices() const;
+  virtual IndicesInfo ListAllIndices() const = 0;
 
   /// Returns void if the existence constraint has been created.
   /// Returns `StorageExistenceConstraintDefinitionError` if an error occures. Error can be:
