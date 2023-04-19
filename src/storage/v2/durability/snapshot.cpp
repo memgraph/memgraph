@@ -227,12 +227,13 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &
       if (!marker || *marker != Marker::SECTION_EDGE) throw RecoveryFailure("Invalid snapshot data!");
     }
 
+    // Read edge GID.
+    auto gid = snapshot.ReadUint();
+    if (!gid) throw RecoveryFailure("Invalid snapshot data!");
+    if (i > 0 && *gid <= last_edge_gid) throw RecoveryFailure("Invalid snapshot data!");
+    last_edge_gid = *gid;
+
     if (items.properties_on_edges) {
-      // Insert edge.
-      auto gid = snapshot.ReadUint();
-      if (!gid) throw RecoveryFailure("Invalid snapshot data!");
-      if (i > 0 && *gid <= last_edge_gid) throw RecoveryFailure("Invalid snapshot data!");
-      last_edge_gid = *gid;
       spdlog::debug("Recovering edge {} with properties.", *gid);
       auto [it, inserted] = edge_acc.insert(Edge{Gid::FromUint(*gid), nullptr});
       if (!inserted) throw RecoveryFailure("The edge must be inserted here!");
@@ -251,12 +252,6 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &
         }
       }
     } else {
-      // Read edge GID.
-      auto gid = snapshot.ReadUint();
-      if (!gid) throw RecoveryFailure("Invalid snapshot data!");
-      if (i > 0 && *gid <= last_edge_gid) throw RecoveryFailure("Invalid snapshot data!");
-      last_edge_gid = *gid;
-
       spdlog::debug("Ensuring edge {} doesn't have any properties.", *gid);
       // Read properties.
       {
