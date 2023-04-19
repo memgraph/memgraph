@@ -11,7 +11,8 @@ set(storage_v2_src_files
     property_store.cpp
     vertex_accessor.cpp
     storage.cpp
-    storage_mode.cpp)
+    storage_mode.cpp
+    isolation_level.cpp)
 
 
 set(storage_v2_src_files

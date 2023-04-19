@@ -314,17 +314,6 @@ bool VerticesIterable::Iterator::operator==(const Iterator &other) const {
   }
 }
 
-std::string_view IsolationLevelToString(IsolationLevel isolation_level) {
-  switch (isolation_level) {
-    case IsolationLevel::READ_COMMITTED:
-      return "READ_COMMITTED";
-    case IsolationLevel::READ_UNCOMMITTED:
-      return "READ_UNCOMMITTED";
-    case IsolationLevel::SNAPSHOT_ISOLATION:
-      return "SNAPSHOT_ISOLATION";
-  }
-}
-
 Storage::Storage(Config config)
     : indices_(&constraints_, config.items),
       isolation_level_(config.transaction.isolation_level),
