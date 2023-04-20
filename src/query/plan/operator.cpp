@@ -4586,11 +4586,12 @@ UniqueCursorPtr CallProcedure::MakeCursor(utils::MemoryResource *mem) const {
 }
 
 LoadCsv::LoadCsv(std::shared_ptr<LogicalOperator> input, Expression *file, bool with_header, bool ignore_bad,
-                 Expression *delimiter, Expression *quote, Symbol row_var)
+                 bool ignore_empty_strings, Expression *delimiter, Expression *quote, Symbol row_var)
     : input_(input ? input : (std::make_shared<Once>())),
       file_(file),
       with_header_(with_header),
       ignore_bad_(ignore_bad),
+      ignore_empty_strings_(ignore_empty_strings),
       delimiter_(delimiter),
       quote_(quote),
       row_var_(row_var) {
@@ -4633,12 +4634,16 @@ TypedValue CsvRowToTypedList(csv::Reader::Row &row) {
   return {std::move(typed_columns), mem};
 }
 
-TypedValue CsvRowToTypedMap(csv::Reader::Row &row, csv::Reader::Header header) {
+TypedValue CsvRowToTypedMap(csv::Reader::Row &row, csv::Reader::Header header, bool ignore_empty_strings = false) {
   // a valid row has the same number of elements as the header
   auto *mem = row.get_allocator().GetMemoryResource();
   utils::pmr::map<utils::pmr::string, TypedValue> m(mem);
   for (auto i = 0; i < row.size(); ++i) {
-    m.emplace(std::move(header[i]), std::move(row[i]));
+    if (!ignore_empty_strings || !row[i].empty()) {
+      m.emplace(std::move(header[i]), std::move(row[i]));
+    } else {
+      m.emplace(std::move(header[i]), TypedValue(mem));
+    }
   }
   return {std::move(m), mem};
 }
@@ -4648,14 +4653,12 @@ TypedValue CsvRowToTypedMap(csv::Reader::Row &row, csv::Reader::Header header) {
 class LoadCsvCursor : public Cursor {
   const LoadCsv *self_;
   const UniqueCursorPtr input_cursor_;
-  bool input_is_once_;
+  bool did_pull_;
   std::optional<csv::Reader> reader_{};
 
  public:
   LoadCsvCursor(const LoadCsv *self, utils::MemoryResource *mem)
-      : self_(self), input_cursor_(self_->input_->MakeCursor(mem)) {
-    input_is_once_ = dynamic_cast<Once *>(self_->input_.get());
-  }
+      : self_(self), input_cursor_(self_->input_->MakeCursor(mem)), did_pull_{false} {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("LoadCsv");
@@ -4673,12 +4676,14 @@ class LoadCsvCursor : public Cursor {
 
     bool input_pulled = input_cursor_->Pull(frame, context);
 
-    // If the input is Once, we have to keep going until we read all the rows,
-    // regardless of whether the pull on Once returned false.
-    // If we have e.g. MATCH(n) LOAD CSV ... AS x SET n.name = x.name, then we
-    // have to read at most cardinality(n) rows (but we can read less and stop
-    // pulling MATCH).
-    if (!input_is_once_ && !input_pulled) return false;
+    if (input_pulled) {
+      if (did_pull_) {
+        throw QueryRuntimeException(
+            "LOAD CSV can be executed only once, please check if the cardinality of the operator before LOAD CSV is 1");
+      }
+      did_pull_ = true;
+    }
+
     auto row = reader_->GetNextRow(context.evaluation_context.memory);
     if (!row) {
       return false;
@@ -4687,7 +4692,8 @@ class LoadCsvCursor : public Cursor {
       frame[self_->row_var_] = CsvRowToTypedList(*row);
     } else {
       frame[self_->row_var_] =
-          CsvRowToTypedMap(*row, csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory));
+          CsvRowToTypedMap(*row, csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory),
+                           self_->ignore_empty_strings_);
     }
     return true;
   }
@@ -4711,10 +4717,10 @@ class LoadCsvCursor : public Cursor {
     // Note that the reader has to be given its own memory resource, as it
     // persists between pulls, so it can't use the evalutation context memory
     // resource.
-    return csv::Reader(
-        *maybe_file,
-        csv::Reader::Config(self_->with_header_, self_->ignore_bad_, std::move(maybe_delim), std::move(maybe_quote)),
-        utils::NewDeleteResource());
+    return csv::Reader(*maybe_file,
+                       csv::Reader::Config(self_->with_header_, self_->ignore_bad_, self_->ignore_empty_strings_,
+                                           std::move(maybe_delim), std::move(maybe_quote)),
+                       utils::NewDeleteResource());
   }
 };
 
