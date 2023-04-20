@@ -274,12 +274,6 @@ class DiskStorage final : public Storage {
     void FlushCache();
 
     DiskStorage *storage_;
-    /// Accessor is tighly coupled with the transaction and we store read/write set per transaction. That's why objects
-    /// need to be stored here.
-    utils::SkipList<storage::Vertex> vertices_;
-    utils::SkipList<storage::Edge> edges_;
-    std::set<storage::DiskVertex *, decltype(storage::disk_vertex_cmp)> lru_vertices_;
-    std::set<storage::DiskEdge *, decltype(storage::disk_edge_cmp)> lru_edges_;
 
     std::shared_lock<utils::RWLock> storage_guard_;
     Transaction transaction_;
@@ -454,6 +448,10 @@ class DiskStorage final : public Storage {
   // creation.
   mutable utils::RWLock main_lock_{utils::RWLock::Priority::WRITE};
 
+  utils::SkipList<storage::Vertex> vertices_;
+  utils::SkipList<storage::Edge> edges_;
+  std::set<storage::DiskVertex *, decltype(storage::disk_vertex_cmp)> lru_vertices_;
+  std::set<storage::DiskEdge *, decltype(storage::disk_edge_cmp)> lru_edges_;
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};
   // Even though the edge count is already kept in the `edges_` SkipList, the

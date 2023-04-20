@@ -404,7 +404,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     DeserializeVertex(it->key().ToStringView(), it->value().ToStringView());
   }
-  return VerticesIterable(AllVerticesIterable(vertices_.access(), &transaction_, view, &storage_->indices_,
+  return VerticesIterable(AllVerticesIterable(storage_->vertices_.access(), &transaction_, view, &storage_->indices_,
                                               &storage_->constraints_, storage_->config_.items));
 }
 
@@ -437,13 +437,13 @@ int64_t DiskStorage::DiskAccessor::ApproximateVertexCount() const {
 std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex() {
   OOMExceptionEnabler oom_exception;
   auto gid = storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
-  auto acc = vertices_.access();
+  auto acc = storage_->vertices_.access();
   auto delta = CreateDeleteObjectDelta(&transaction_);
   auto [it, inserted] = acc.insert(DiskVertex{storage::Gid::FromUint(gid), delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
   delta->prev.Set(&*it);
-  lru_vertices_.insert(static_cast<DiskVertex *>(&*it));
+  storage_->lru_vertices_.insert(static_cast<DiskVertex *>(&*it));
   /// TODO(andi): it shoud be safe to do static_cast here since the resolvement can be done at compile time. But maybe,
   /// std::variant of vertices on query engine level is better? If we use std::variant, we can remove the static_cast
   /// here and for inserting into the lru cache also.
@@ -461,13 +461,13 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex(storage:
   // possible.
   storage_->vertex_id_.store(std::max(storage_->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
                              std::memory_order_release);
-  auto acc = vertices_.access();
+  auto acc = storage_->vertices_.access();
   auto delta = CreateDeleteObjectDelta(&transaction_);
   auto [it, inserted] = acc.insert(DiskVertex{gid, delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
   delta->prev.Set(&*it);
-  lru_vertices_.insert(static_cast<DiskVertex *>(&*it));
+  storage_->lru_vertices_.insert(static_cast<DiskVertex *>(&*it));
   /// TODO(andi): it shoud be safe to do static_cast here since the resolvement can be done at compile time. But maybe,
   /// std::variant of vertices on query engine level is better? If we use std::variant, we can remove the static_cast
   /// here and for inserting into the lru cache also.
@@ -477,7 +477,7 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex(storage:
 
 std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid gid, View view) {
   /// Check if the vertex is in the cache.
-  auto acc = vertices_.access();
+  auto acc = storage_->vertices_.access();
   auto vertex_it = acc.find(gid);
   if (vertex_it != acc.end()) {
     return DiskVertexAccessor::Create(&*vertex_it, &transaction_, &storage_->indices_, &storage_->constraints_, config_,
@@ -606,7 +606,7 @@ Result<std::unique_ptr<EdgeAccessor>> DiskStorage::DiskAccessor::CreateEdge(Vert
   /// TODO(andi): Remove this once we add full support for edges.
   MG_ASSERT(config_.properties_on_edges, "Properties on edges must be enabled currently for Disk version!");
   // if (config_.properties_on_edges) {
-  auto acc = edges_.access();
+  auto acc = storage_->edges_.access();
   auto delta = CreateDeleteObjectDelta(&transaction_);
   auto [it, inserted] = acc.insert(DiskEdge(gid, delta));
   MG_ASSERT(inserted, "The edge must be inserted here!");
@@ -614,7 +614,7 @@ Result<std::unique_ptr<EdgeAccessor>> DiskStorage::DiskAccessor::CreateEdge(Vert
   auto edge = EdgeRef(&*it);
   delta->prev.Set(&*it);
   // }
-  lru_edges_.insert(static_cast<DiskEdge *>(&*it));
+  storage_->lru_edges_.insert(static_cast<DiskEdge *>(&*it));
   /// TODO(andi): it shoud be safe to do static_cast here since the resolvement can be done at compile time. But same as
   /// for the vertices, we should change query engine code to handle that properly.
 
@@ -676,14 +676,14 @@ Result<std::unique_ptr<EdgeAccessor>> DiskStorage::DiskAccessor::CreateEdge(Vert
   /// TODO(andi): Remove this once we add full support for edges.
   MG_ASSERT(config_.properties_on_edges, "Properties on edges must be enabled currently for Disk version!");
   // if (config_.properties_on_edges) {
-  auto acc = edges_.access();
+  auto acc = storage_->edges_.access();
   auto delta = CreateDeleteObjectDelta(&transaction_);
   auto [it, inserted] = acc.insert(Edge(gid, delta));
   MG_ASSERT(inserted, "The edge must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
   auto edge = EdgeRef(&*it);
   delta->prev.Set(&*it);
-  lru_edges_.insert(static_cast<DiskEdge *>(&*it));
+  storage_->lru_edges_.insert(static_cast<DiskEdge *>(&*it));
   /// TODO(andi): it shoud be safe to do static_cast here since the resolvement can be done at compile time. But same
   /// as for the vertices, we should change query engine code to handle that properly.
   // }
@@ -755,31 +755,29 @@ EdgeTypeId DiskStorage::DiskAccessor::NameToEdgeType(const std::string_view name
 void DiskStorage::DiskAccessor::AdvanceCommand() { ++transaction_.command_id; }
 
 void DiskStorage::DiskAccessor::FlushCache() {
+  /// TODO(andi): Find correct versions of vertices and edges using Deltas to flush.
+  /// I think the perfect method for this is AdvanceToVisibleVertex and is visible.
   /// Flush vertex cache.
-  auto vertex_acc = vertices_.access();
+  auto vertex_acc = storage_->vertices_.access();
   uint64_t num_ser_edges = 0;
-  std::for_each(vertex_acc.begin(), vertex_acc.end(), [this, &num_ser_edges](Vertex &vertex) {
+  for (auto &vertex : vertex_acc) {
     // if in the cache, serialize it.
     AssertRocksDBStatus(storage_->db_->Put(rocksdb::WriteOptions(), storage_->vertex_chandle, SerializeVertex(vertex),
                                            SerializeProperties(vertex.properties)));
-    std::for_each(vertex.out_edges.begin(), vertex.out_edges.end(),
-                  [this, &vertex, &num_ser_edges](std::tuple<EdgeTypeId, Vertex *, EdgeRef> &edge_entry) {
-                    Edge *edge_ptr = std::get<2>(edge_entry).ptr;
-                    auto [src_dest_key, dest_src_key] =
-                        SerializeEdge(vertex.gid, std::get<1>(edge_entry)->gid, std::get<0>(edge_entry), edge_ptr);
-                    AssertRocksDBStatus(storage_->db_->Put(rocksdb::WriteOptions(), storage_->edge_chandle,
-                                                           src_dest_key, SerializeProperties(edge_ptr->properties)));
-                    AssertRocksDBStatus(storage_->db_->Put(rocksdb::WriteOptions(), storage_->edge_chandle,
-                                                           dest_src_key, SerializeProperties(edge_ptr->properties)));
-                    num_ser_edges++;
-                  });
-  });
-  vertices_.clear();
-  MG_ASSERT(vertices_.size() == 0, "The vertex cache must be empty after flushing!");
-  MG_ASSERT(num_ser_edges == edges_.size(),
-            "The number of serialized edges must match the number of edges in the cache!");
-  edges_.clear();
-  MG_ASSERT(edges_.size() == 0, "The edge cache must be empty after flushing!");
+    for (auto &edge_entry : vertex.out_edges) {
+      Edge *edge_ptr = std::get<2>(edge_entry).ptr;
+      auto [src_dest_key, dest_src_key] =
+          SerializeEdge(vertex.gid, std::get<1>(edge_entry)->gid, std::get<0>(edge_entry), edge_ptr);
+      AssertRocksDBStatus(storage_->db_->Put(rocksdb::WriteOptions(), storage_->edge_chandle, src_dest_key,
+                                             SerializeProperties(edge_ptr->properties)));
+      AssertRocksDBStatus(storage_->db_->Put(rocksdb::WriteOptions(), storage_->edge_chandle, dest_src_key,
+                                             SerializeProperties(edge_ptr->properties)));
+      num_ser_edges++;
+    }
+    // MG_ASSERT(num_ser_edges == storage_->edges_.size(),
+    // "The number of serialized edges must match the number of edges in the cache!");
+  }
+  spdlog::debug("Flushed vertex and edge caches.");
 }
 
 // this will be modified here for a disk-based storage
@@ -891,8 +889,6 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
 
         storage_->commit_log_->MarkFinished(start_timestamp);
       }
-      // Write cache to the disk
-      FlushCache();
     }
 
     if (unique_constraint_violation) {
@@ -905,6 +901,10 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
   if (!could_replicate_all_sync_replicas) {
     return StorageDataManipulationError{ReplicationError{}};
   }
+
+  /// Write cache to the disk
+  /// TODO: Maybe this is a problem because of transaction properties being changed in a flush cache.
+  FlushCache();
 
   return {};
 }
@@ -1197,7 +1197,258 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level) {
 
 template <bool force>
 void DiskStorage::CollectGarbage() {
-  throw utils::NotYetImplemented("CollectGarbage");
+  if constexpr (force) {
+    // We take the unique lock on the main storage lock so we can forcefully clean
+    // everything we can
+    if (!main_lock_.try_lock()) {
+      CollectGarbage<false>();
+      return;
+    }
+  } else {
+    // Because the garbage collector iterates through the indices and constraints
+    // to clean them up, it must take the main lock for reading to make sure that
+    // the indices and constraints aren't concurrently being modified.
+    main_lock_.lock_shared();
+  }
+
+  utils::OnScopeExit lock_releaser{[&] {
+    if constexpr (force) {
+      main_lock_.unlock();
+    } else {
+      main_lock_.unlock_shared();
+    }
+  }};
+
+  // Garbage collection must be performed in two phases. In the first phase,
+  // deltas that won't be applied by any transaction anymore are unlinked from
+  // the version chains. They cannot be deleted immediately, because there
+  // might be a transaction that still needs them to terminate the version
+  // chain traversal. They are instead marked for deletion and will be deleted
+  // in the second GC phase in this GC iteration or some of the following
+  // ones.
+  std::unique_lock<std::mutex> gc_guard(gc_lock_, std::try_to_lock);
+  if (!gc_guard.owns_lock()) {
+    return;
+  }
+
+  uint64_t oldest_active_start_timestamp = commit_log_->OldestActive();
+  // We don't move undo buffers of unlinked transactions to garbage_undo_buffers
+  // list immediately, because we would have to repeatedly take
+  // garbage_undo_buffers lock.
+  std::list<std::pair<uint64_t, std::list<Delta>>> unlinked_undo_buffers;
+
+  // We will only free vertices deleted up until now in this GC cycle, and we
+  // will do it after cleaning-up the indices. That way we are sure that all
+  // vertices that appear in an index also exist in main storage.
+  std::list<Gid> current_deleted_edges;
+  std::list<Gid> current_deleted_vertices;
+  deleted_vertices_->swap(current_deleted_vertices);
+  deleted_edges_->swap(current_deleted_edges);
+
+  // Flag that will be used to determine whether the Index GC should be run. It
+  // should be run when there were any items that were cleaned up (there were
+  // updates between this run of the GC and the previous run of the GC). This
+  // eliminates high CPU usage when the GC doesn't have to clean up anything.
+  bool run_index_cleanup = !committed_transactions_->empty() || !garbage_undo_buffers_->empty();
+
+  while (true) {
+    // We don't want to hold the lock on commited transactions for too long,
+    // because that prevents other transactions from committing.
+    Transaction *transaction;
+    {
+      auto committed_transactions_ptr = committed_transactions_.Lock();
+      if (committed_transactions_ptr->empty()) {
+        break;
+      }
+      transaction = &committed_transactions_ptr->front();
+    }
+
+    auto commit_timestamp = transaction->commit_timestamp->load(std::memory_order_acquire);
+    if (commit_timestamp >= oldest_active_start_timestamp) {
+      break;
+    }
+
+    // When unlinking a delta which is the first delta in its version chain,
+    // special care has to be taken to avoid the following race condition:
+    //
+    // [Vertex] --> [Delta A]
+    //
+    //    GC thread: Delta A is the first in its chain, it must be unlinked from
+    //               vertex and marked for deletion
+    //    TX thread: Update vertex and add Delta B with Delta A as next
+    //
+    // [Vertex] --> [Delta B] <--> [Delta A]
+    //
+    //    GC thread: Unlink delta from Vertex
+    //
+    // [Vertex] --> (nullptr)
+    //
+    // When processing a delta that is the first one in its chain, we
+    // obtain the corresponding vertex or edge lock, and then verify that this
+    // delta still is the first in its chain.
+    // When processing a delta that is in the middle of the chain we only
+    // process the final delta of the given transaction in that chain. We
+    // determine the owner of the chain (either a vertex or an edge), obtain the
+    // corresponding lock, and then verify that this delta is still in the same
+    // position as it was before taking the lock.
+    //
+    // Even though the delta chain is lock-free (both `next` and `prev`) the
+    // chain should not be modified without taking the lock from the object that
+    // owns the chain (either a vertex or an edge). Modifying the chain without
+    // taking the lock will cause subtle race conditions that will leave the
+    // chain in a broken state.
+    // The chain can be only read without taking any locks.
+
+    for (Delta &delta : transaction->deltas) {
+      while (true) {
+        auto prev = delta.prev.Get();
+        switch (prev.type) {
+          case PreviousPtr::Type::VERTEX: {
+            Vertex *vertex = prev.vertex;
+            std::lock_guard<utils::SpinLock> vertex_guard(vertex->lock);
+            if (vertex->delta != &delta) {
+              // Something changed, we're not the first delta in the chain
+              // anymore.
+              continue;
+            }
+            vertex->delta = nullptr;
+            if (vertex->deleted) {
+              current_deleted_vertices.push_back(vertex->gid);
+            }
+            break;
+          }
+          case PreviousPtr::Type::EDGE: {
+            Edge *edge = prev.edge;
+            std::lock_guard<utils::SpinLock> edge_guard(edge->lock);
+            if (edge->delta != &delta) {
+              // Something changed, we're not the first delta in the chain
+              // anymore.
+              continue;
+            }
+            edge->delta = nullptr;
+            if (edge->deleted) {
+              current_deleted_edges.push_back(edge->gid);
+            }
+            break;
+          }
+          case PreviousPtr::Type::DELTA: {
+            if (prev.delta->timestamp->load(std::memory_order_acquire) == commit_timestamp) {
+              // The delta that is newer than this one is also a delta from this
+              // transaction. We skip the current delta and will remove it as a
+              // part of the suffix later.
+              break;
+            }
+            std::unique_lock<utils::SpinLock> guard;
+            {
+              // We need to find the parent object in order to be able to use
+              // its lock.
+              auto parent = prev;
+              while (parent.type == PreviousPtr::Type::DELTA) {
+                parent = parent.delta->prev.Get();
+              }
+              switch (parent.type) {
+                case PreviousPtr::Type::VERTEX:
+                  guard = std::unique_lock<utils::SpinLock>(parent.vertex->lock);
+                  break;
+                case PreviousPtr::Type::EDGE:
+                  guard = std::unique_lock<utils::SpinLock>(parent.edge->lock);
+                  break;
+                case PreviousPtr::Type::DELTA:
+                case PreviousPtr::Type::NULLPTR:
+                  LOG_FATAL("Invalid database state!");
+              }
+            }
+            if (delta.prev.Get() != prev) {
+              // Something changed, we could now be the first delta in the
+              // chain.
+              continue;
+            }
+            Delta *prev_delta = prev.delta;
+            prev_delta->next.store(nullptr, std::memory_order_release);
+            break;
+          }
+          case PreviousPtr::Type::NULLPTR: {
+            LOG_FATAL("Invalid pointer!");
+          }
+        }
+        break;
+      }
+    }
+
+    committed_transactions_.WithLock([&](auto &committed_transactions) {
+      unlinked_undo_buffers.emplace_back(0, std::move(transaction->deltas));
+      committed_transactions.pop_front();
+    });
+  }
+
+  // After unlinking deltas from vertices, we refresh the indices. That way
+  // we're sure that none of the vertices from `current_deleted_vertices`
+  // appears in an index, and we can safely remove the from the main storage
+  // after the last currently active transaction is finished.
+  if (run_index_cleanup) {
+    // This operation is very expensive as it traverses through all of the items
+    // in every index every time.
+    RemoveObsoleteEntries(&indices_, oldest_active_start_timestamp);
+    constraints_.unique_constraints.RemoveObsoleteEntries(oldest_active_start_timestamp);
+  }
+
+  {
+    std::unique_lock<utils::SpinLock> guard(engine_lock_);
+    uint64_t mark_timestamp = timestamp_;
+    // Take garbage_undo_buffers lock while holding the engine lock to make
+    // sure that entries are sorted by mark timestamp in the list.
+    garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
+      // Release engine lock because we don't have to hold it anymore and
+      // this could take a long time.
+      guard.unlock();
+      // TODO(mtomic): holding garbage_undo_buffers_ lock here prevents
+      // transactions from aborting until we're done marking, maybe we should
+      // add them one-by-one or something
+      for (auto &[timestamp, undo_buffer] : unlinked_undo_buffers) {
+        timestamp = mark_timestamp;
+      }
+      garbage_undo_buffers.splice(garbage_undo_buffers.end(), unlinked_undo_buffers);
+    });
+    for (auto vertex : current_deleted_vertices) {
+      garbage_vertices_.emplace_back(mark_timestamp, vertex);
+    }
+  }
+
+  garbage_undo_buffers_.WithLock([&](auto &undo_buffers) {
+    // if force is set to true we can simply delete all the leftover undos because
+    // no transaction is active
+    if constexpr (force) {
+      undo_buffers.clear();
+    } else {
+      while (!undo_buffers.empty() && undo_buffers.front().first <= oldest_active_start_timestamp) {
+        undo_buffers.pop_front();
+      }
+    }
+  });
+
+  {
+    auto vertex_acc = vertices_.access();
+    if constexpr (force) {
+      // if force is set to true, then we have unique_lock and no transactions are active
+      // so we can clean all of the deleted vertices
+      while (!garbage_vertices_.empty()) {
+        MG_ASSERT(vertex_acc.remove(garbage_vertices_.front().second), "Invalid database state!");
+        garbage_vertices_.pop_front();
+      }
+    } else {
+      while (!garbage_vertices_.empty() && garbage_vertices_.front().first < oldest_active_start_timestamp) {
+        MG_ASSERT(vertex_acc.remove(garbage_vertices_.front().second), "Invalid database state!");
+        garbage_vertices_.pop_front();
+      }
+    }
+  }
+
+  {
+    auto edge_acc = edges_.access();
+    for (auto edge : current_deleted_edges) {
+      MG_ASSERT(edge_acc.remove(edge), "Invalid database state!");
+    }
+  }
 }
 
 // tell the linker he can find the CollectGarbage definitions here
@@ -1279,7 +1530,8 @@ std::optional<replication::ReplicaState> DiskStorage::GetReplicaState(const std:
 }
 
 ReplicationRole DiskStorage::GetReplicationRole() const {
-  /// TODO(andi): Since we won't support replication for the beginning don't crash with this, rather just log a message
+  /// TODO(andi): Since we won't support replication for the beginning don't crash with this, rather just log a
+  /// message
   spdlog::debug("GetReplicationRole called, but we don't support replication yet");
   return {};
 }
