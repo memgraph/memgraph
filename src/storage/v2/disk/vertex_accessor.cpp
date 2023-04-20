@@ -11,6 +11,7 @@
 
 #include "storage/v2/disk/vertex_accessor.hpp"
 
+#include <algorithm>
 #include <memory>
 
 #include "storage/v2/disk/edge_accessor.hpp"
@@ -50,6 +51,7 @@ std::pair<bool, bool> IsVisible(DiskVertex *vertex, Transaction *transaction, Vi
         deleted = false;
         break;
       }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT: {
         exists = false;
         break;
@@ -61,6 +63,17 @@ std::pair<bool, bool> IsVisible(DiskVertex *vertex, Transaction *transaction, Vi
 }
 }  // namespace
 }  // namespace detail
+
+bool DiskVertexAccessor::InitializeDeserializedVertex(std::vector<LabelId> &label_ids, std::string_view property_store,
+                                                      uint64_t commit_ts) {
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+
+  std::for_each(label_ids.begin(), label_ids.end(), [this](LabelId &label_id) { vertex_->labels.push_back(label_id); });
+  SetPropertyStore(property_store);
+
+  return true;
+}
 
 std::unique_ptr<DiskVertexAccessor> DiskVertexAccessor::Create(Vertex *vertex, Transaction *transaction,
                                                                Indices *indices, Constraints *constraints,
@@ -598,6 +611,7 @@ Result<size_t> DiskVertexAccessor::OutDegree(View view) const {
       case Delta::Action::REMOVE_OUT_EDGE:
         --degree;
         break;
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT:
         exists = false;
         break;

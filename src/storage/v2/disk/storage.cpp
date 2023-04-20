@@ -12,10 +12,12 @@
 #include "storage/v2/storage.hpp"
 #include <algorithm>
 #include <atomic>
+#include <iterator>
 #include <memory>
 #include <mutex>
 #include <variant>
 #include <vector>
+#include "storage/v2/delta.hpp"
 #include "storage/v2/disk/disk_edge.hpp"
 #include "storage/v2/disk/disk_vertex.hpp"
 #include "storage/v2/edge.hpp"
@@ -357,22 +359,24 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(con
   /// Create vertex
   const std::vector<std::string> vertex_parts = utils::Split(key, "|");
   auto gid = storage::Gid::FromUint(std::stoull(vertex_parts[1]));
-  auto impl = CreateVertex(gid);
-  /// if it already exists in the cache, we don't need to deserialize it
-  if (impl == nullptr) {
+  auto acc = storage_->vertices_.access();
+  /// In situations when the vertex wasn't evicted from the cache, it will be found in the cache.
+  if (acc.find(gid) != acc.end()) {
+    spdlog::debug("Vertex with gid {} already exists in the cache!", gid.AsUint());
     return nullptr;
   }
-  // Deserialize labels
-  if (!vertex_parts[0].empty()) {
-    auto labels = utils::Split(vertex_parts[0], ",");
-    for (auto it = labels.begin(); it != labels.end(); it++) {
-      // TODO(andi): Introduce error handling of adding labels
-      impl->AddLabel(storage::LabelId::FromUint(std::stoull(*it)));
-    }
-  }
-  impl->SetPropertyStore(value);
+  uint64_t vertex_commit_ts = std::stoull(vertex_parts[2]);
   /// Completely ignored for now
   // bool is_valid_entry = std::stoull(vertex_parts[2]) < transaction_.start_timestamp;
+  auto impl = CreateVertex(gid, vertex_commit_ts);
+  // Deserialize labels
+  std::vector<LabelId> label_ids;
+  if (!vertex_parts[0].empty()) {
+    auto labels = utils::Split(vertex_parts[0], ",");
+    std::transform(labels.begin(), labels.end(), std::back_inserter(label_ids),
+                   [](const auto &label) { return storage::LabelId::FromUint(std::stoull(label)); });
+  }
+  static_cast<DiskVertexAccessor *>(impl.get())->InitializeDeserializedVertex(label_ids, value, vertex_commit_ts);
   return impl;
 }
 
@@ -456,6 +460,8 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex() {
                                               &storage_->constraints_, config_, storage::Gid::FromUint(gid));
 }
 
+/// TODO(andi): Currently used only for deserialization but in the in-memory version, replication depends on it
+/// so it should be addressed in the future
 std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex(storage::Gid gid) {
   OOMExceptionEnabler oom_exception;
   // NOTE: When we update the next `vertex_id_` here we perform a RMW
@@ -464,14 +470,38 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex(storage:
   // that runs single-threadedly and while this instance is set-up to apply
   // threads (it is the replica), it is guaranteed that no other writes are
   // possible.
+  spdlog::debug("Vertex with gid {} doesn't exist in the cache, creating it!", gid.AsUint());
   auto acc = storage_->vertices_.access();
-  /// In situations when the vertex wasn't evicted from the cache, it will be found in the cache.
-  if (acc.find(gid) != acc.end()) {
-    return nullptr;
-  }
   storage_->vertex_id_.store(std::max(storage_->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
                              std::memory_order_release);
   auto delta = CreateDeleteObjectDelta(&transaction_);
+  auto [it, inserted] = acc.insert(DiskVertex{gid, delta});
+  /// if the vertex with the given gid doesn't exist on the disk, it must be inserted here.
+  MG_ASSERT(inserted, "The vertex must be inserted here!");
+  MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
+  delta->prev.Set(&*it);
+  storage_->lru_vertices_.insert(static_cast<DiskVertex *>(&*it));
+  /// TODO(andi): it shoud be safe to do static_cast here since the resolvement can be done at compile time. But maybe,
+  /// std::variant of vertices on query engine level is better? If we use std::variant, we can remove the static_cast
+  /// here and for inserting into the lru cache also.
+  return std::make_unique<DiskVertexAccessor>(static_cast<DiskVertex *>(&*it), &transaction_, &storage_->indices_,
+                                              &storage_->constraints_, config_, gid);
+}
+
+std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex(storage::Gid gid, uint64_t vertex_commit_ts) {
+  OOMExceptionEnabler oom_exception;
+  // NOTE: When we update the next `vertex_id_` here we perform a RMW
+  // (read-modify-write) operation that ISN'T atomic! But, that isn't an issue
+  // because this function is only called from the replication delta applier
+  // that runs single-threadedly and while this instance is set-up to apply
+  // threads (it is the replica), it is guaranteed that no other writes are
+  // possible.
+  spdlog::debug("Vertex with gid {} doesn't exist in the cache, creating it!", gid.AsUint());
+  auto acc = storage_->vertices_.access();
+  storage_->vertex_id_.store(std::max(storage_->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
+                             std::memory_order_release);
+  // auto delta = CreateDeleteObjectDelta(&transaction_);
+  auto delta = CreateDeleteDeserializedObjectDelta(&transaction_, vertex_commit_ts);
   auto [it, inserted] = acc.insert(DiskVertex{gid, delta});
   /// if the vertex with the given gid doesn't exist on the disk, it must be inserted here.
   MG_ASSERT(inserted, "The vertex must be inserted here!");
@@ -787,9 +817,6 @@ void DiskStorage::DiskAccessor::FlushCache() {
     // MG_ASSERT(num_ser_edges == storage_->edges_.size(),
     // "The number of serialized edges must match the number of edges in the cache!");
   }
-  // TODO(andi): Remove this after we are assured that deserialization works
-  // storage_->vertices_.clear();
-  // storage_->edges_.clear();
   spdlog::debug("Flushed vertex and edge caches.");
 }
 
@@ -801,7 +828,9 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
 
   auto could_replicate_all_sync_replicas = true;
 
-  if (transaction_.deltas.empty()) {
+  if (transaction_.deltas.empty() ||
+      std::all_of(transaction_.deltas.begin(), transaction_.deltas.end(),
+                  [](const Delta &delta) { return delta.action == Delta::Action::DELETE_DESERIALIZED_OBJECT; })) {
     // We don't have to update the commit timestamp here because no one reads
     // it.
     // If there are no deltas, then we don't have to serialize anything on the disk.
@@ -1001,6 +1030,7 @@ void DiskStorage::DiskAccessor::Abort() {
               storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
               break;
             }
+            case Delta::Action::DELETE_DESERIALIZED_OBJECT:
             case Delta::Action::DELETE_OBJECT: {
               vertex->deleted = true;
               my_deleted_vertices.push_back(vertex->gid);
@@ -1031,6 +1061,7 @@ void DiskStorage::DiskAccessor::Abort() {
               edge->properties.SetProperty(current->property.key, current->property.value);
               break;
             }
+            case Delta::Action::DELETE_DESERIALIZED_OBJECT:
             case Delta::Action::DELETE_OBJECT: {
               edge->deleted = true;
               my_deleted_edges.push_back(edge->gid);
@@ -1460,6 +1491,11 @@ void DiskStorage::CollectGarbage() {
       MG_ASSERT(edge_acc.remove(edge), "Invalid database state!");
     }
   }
+
+  // TODO(andi): Remove this after we are assured that deserialization works
+  vertices_.clear();
+  edges_.clear();
+  spdlog::debug("Cleared caches");
 }
 
 // tell the linker he can find the CollectGarbage definitions here

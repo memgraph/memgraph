@@ -46,6 +46,7 @@ bool InMemoryEdgeAccessor::IsVisible(const View view) const {
         case Delta::Action::REMOVE_IN_EDGE:
         case Delta::Action::ADD_IN_EDGE:
         case Delta::Action::RECREATE_OBJECT:
+        case Delta::Action::DELETE_DESERIALIZED_OBJECT:
         case Delta::Action::DELETE_OBJECT:
           break;
         case Delta::Action::ADD_OUT_EDGE: {  // relevant for the from_vertex_ -> we just deleted the edge
@@ -85,6 +86,7 @@ bool InMemoryEdgeAccessor::IsVisible(const View view) const {
         deleted = false;
         break;
       }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT: {
         exists = false;
         break;
@@ -183,6 +185,7 @@ Result<PropertyValue> InMemoryEdgeAccessor::GetProperty(PropertyId property, Vie
         }
         break;
       }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT: {
         exists = false;
         break;
@@ -234,6 +237,7 @@ Result<std::map<PropertyId, PropertyValue>> InMemoryEdgeAccessor::Properties(Vie
         }
         break;
       }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT: {
         exists = false;
         break;

@@ -701,6 +701,7 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
             is_visible = true;
             break;
           }
+          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
           case Delta::Action::DELETE_OBJECT: {
             is_visible = false;
             break;

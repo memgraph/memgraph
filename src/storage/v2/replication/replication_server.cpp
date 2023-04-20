@@ -455,6 +455,7 @@ uint64_t InMemoryStorage::ReplicationServer::ReadAndApplyDelta(durability::BaseD
                 is_visible = true;
                 break;
               }
+              case Delta::Action::DELETE_DESERIALIZED_OBJECT:
               case Delta::Action::DELETE_OBJECT: {
                 is_visible = false;
                 break;

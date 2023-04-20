@@ -49,6 +49,7 @@ std::pair<bool, bool> IsVisible(Vertex *vertex, Transaction *transaction, View v
         deleted = false;
         break;
       }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT: {
         exists = false;
         break;
@@ -139,6 +140,7 @@ Result<bool> InMemoryVertexAccessor::HasLabel(LabelId label, View view) const {
         }
         break;
       }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT: {
         exists = false;
         break;
@@ -188,6 +190,7 @@ Result<std::vector<LabelId>> InMemoryVertexAccessor::Labels(View view) const {
         labels.push_back(delta.label);
         break;
       }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT: {
         exists = false;
         break;
@@ -287,6 +290,7 @@ Result<PropertyValue> InMemoryVertexAccessor::GetProperty(PropertyId property, V
         }
         break;
       }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT: {
         exists = false;
         break;
@@ -337,6 +341,7 @@ Result<std::map<PropertyId, PropertyValue>> InMemoryVertexAccessor::Properties(V
         }
         break;
       }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT: {
         exists = false;
         break;
@@ -414,6 +419,7 @@ Result<std::vector<std::unique_ptr<EdgeAccessor>>> InMemoryVertexAccessor::InEdg
             in_edges.pop_back();
             break;
           }
+          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
           case Delta::Action::DELETE_OBJECT: {
             exists = false;
             break;
@@ -497,6 +503,7 @@ Result<std::vector<std::unique_ptr<EdgeAccessor>>> InMemoryVertexAccessor::OutEd
             out_edges.pop_back();
             break;
           }
+          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
           case Delta::Action::DELETE_OBJECT: {
             exists = false;
             break;
@@ -544,6 +551,7 @@ Result<size_t> InMemoryVertexAccessor::InDegree(View view) const {
       case Delta::Action::REMOVE_IN_EDGE:
         --degree;
         break;
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT:
         exists = false;
         break;
@@ -582,6 +590,7 @@ Result<size_t> InMemoryVertexAccessor::OutDegree(View view) const {
       case Delta::Action::REMOVE_OUT_EDGE:
         --degree;
         break;
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT:
         exists = false;
         break;

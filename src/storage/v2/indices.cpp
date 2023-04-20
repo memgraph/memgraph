@@ -79,6 +79,7 @@ bool AnyVersionHasLabel(const Vertex &vertex, LabelId label, uint64_t timestamp)
         deleted = false;
         break;
       }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT: {
         MG_ASSERT(!deleted, "Invalid database state!");
         deleted = true;
@@ -141,6 +142,7 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, PropertyId 
             deleted = false;
             break;
           }
+          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
           case Delta::Action::DELETE_OBJECT: {
             MG_ASSERT(!deleted, "Invalid database state!");
             deleted = true;
@@ -185,6 +187,7 @@ bool CurrentVersionHasLabel(const Vertex &vertex, LabelId label, Transaction *tr
         }
         break;
       }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT: {
         MG_ASSERT(!deleted, "Invalid database state!");
         deleted = true;
@@ -231,6 +234,7 @@ bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label, Propert
                            }
                            break;
                          }
+                         case Delta::Action::DELETE_DESERIALIZED_OBJECT:
                          case Delta::Action::DELETE_OBJECT: {
                            MG_ASSERT(!deleted, "Invalid database state!");
                            deleted = true;

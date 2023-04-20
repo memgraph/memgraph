@@ -100,6 +100,13 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
                                            transaction->command_id);
 }
 
+/// TODO(andi): Add docs for this function.
+/// Command id will be ignored in the case of dealing with deserialized deltas since on the disk, we are operating
+/// in SnapshotIsolation mode.
+inline Delta *CreateDeleteDeserializedObjectDelta(Transaction *transaction, uint64_t timestamp) {
+  return &transaction->deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), timestamp);
+}
+
 /// This function creates a delta in the transaction for the object and links
 /// the delta into the object's delta list.
 /// @throw std::bad_alloc

@@ -841,6 +841,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
               storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
               break;
             }
+            case Delta::Action::DELETE_DESERIALIZED_OBJECT:
             case Delta::Action::DELETE_OBJECT: {
               vertex->deleted = true;
               my_deleted_vertices.push_back(vertex->gid);
@@ -871,6 +872,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
               edge->properties.SetProperty(current->property.key, current->property.value);
               break;
             }
+            case Delta::Action::DELETE_DESERIALIZED_OBJECT:
             case Delta::Action::DELETE_OBJECT: {
               edge->deleted = true;
               my_deleted_edges.push_back(edge->gid);
@@ -1550,6 +1552,7 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
     if (prev.type != PreviousPtr::Type::VERTEX) continue;
     find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
       switch (action) {
+        case Delta::Action::DELETE_DESERIALIZED_OBJECT:
         case Delta::Action::DELETE_OBJECT:
         case Delta::Action::SET_PROPERTY:
         case Delta::Action::ADD_LABEL:
@@ -1575,6 +1578,7 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
         case Delta::Action::REMOVE_OUT_EDGE:
           return true;
 
+        case Delta::Action::DELETE_DESERIALIZED_OBJECT:
         case Delta::Action::DELETE_OBJECT:
         case Delta::Action::RECREATE_OBJECT:
         case Delta::Action::SET_PROPERTY:
@@ -1597,6 +1601,7 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
         case Delta::Action::SET_PROPERTY:
           return true;
 
+        case Delta::Action::DELETE_DESERIALIZED_OBJECT:
         case Delta::Action::DELETE_OBJECT:
         case Delta::Action::RECREATE_OBJECT:
         case Delta::Action::ADD_LABEL:
@@ -1619,6 +1624,7 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
         case Delta::Action::ADD_OUT_EDGE:
           return true;
 
+        case Delta::Action::DELETE_DESERIALIZED_OBJECT:
         case Delta::Action::DELETE_OBJECT:
         case Delta::Action::RECREATE_OBJECT:
         case Delta::Action::SET_PROPERTY:
@@ -1641,6 +1647,7 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
         case Delta::Action::RECREATE_OBJECT:
           return true;
 
+        case Delta::Action::DELETE_DESERIALIZED_OBJECT:
         case Delta::Action::DELETE_OBJECT:
         case Delta::Action::SET_PROPERTY:
         case Delta::Action::ADD_LABEL:

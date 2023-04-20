@@ -21,10 +21,6 @@ struct DiskVertex : Vertex {
   /// Use this constructor when creating a new vertex in the transaction.
   DiskVertex(Gid gid, Delta *delta) : Vertex(gid, delta) {}
 
-  /// Create a new vertex with the given GID, delta and modification timestamp.
-  /// Use this constructor when loading a vertex from disk.
-  DiskVertex(Gid gid, Delta *delta, uint64_t modification_ts) : Vertex(gid, delta), modification_ts(modification_ts) {}
-
   /// Modification timestamp of the last transaction that modified this vertex.
   uint64_t modification_ts;
 };

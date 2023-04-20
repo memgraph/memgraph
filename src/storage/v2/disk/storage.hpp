@@ -218,6 +218,8 @@ class DiskStorage final : public Storage {
     /// @throw std::bad_alloc
     std::unique_ptr<VertexAccessor> CreateVertex(storage::Gid gid);
 
+    std::unique_ptr<VertexAccessor> CreateVertex(storage::Gid gid, uint64_t vertex_commit_ts);
+
     /// @throw std::bad_alloc
     Result<std::unique_ptr<EdgeAccessor>> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type,
                                                      storage::Gid gid);
