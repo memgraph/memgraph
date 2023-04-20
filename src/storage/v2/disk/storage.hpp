@@ -214,6 +214,7 @@ class DiskStorage final : public Storage {
     std::optional<uint64_t> GetTransactionId() const override;
 
    private:
+    /// Used for deserialization of vertices and edges from KV store.
     /// @throw std::bad_alloc
     std::unique_ptr<VertexAccessor> CreateVertex(storage::Gid gid);
 

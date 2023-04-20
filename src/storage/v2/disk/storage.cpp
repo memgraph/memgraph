@@ -356,7 +356,12 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(con
                                                                              const std::string_view value) {
   /// Create vertex
   const std::vector<std::string> vertex_parts = utils::Split(key, "|");
-  auto impl = CreateVertex(storage::Gid::FromUint(std::stoull(vertex_parts[1])));
+  auto gid = storage::Gid::FromUint(std::stoull(vertex_parts[1]));
+  auto impl = CreateVertex(gid);
+  /// if it already exists in the cache, we don't need to deserialize it
+  if (impl == nullptr) {
+    return nullptr;
+  }
   // Deserialize labels
   if (!vertex_parts[0].empty()) {
     auto labels = utils::Split(vertex_parts[0], ",");
@@ -459,11 +464,16 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex(storage:
   // that runs single-threadedly and while this instance is set-up to apply
   // threads (it is the replica), it is guaranteed that no other writes are
   // possible.
+  auto acc = storage_->vertices_.access();
+  /// In situations when the vertex wasn't evicted from the cache, it will be found in the cache.
+  if (acc.find(gid) != acc.end()) {
+    return nullptr;
+  }
   storage_->vertex_id_.store(std::max(storage_->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
                              std::memory_order_release);
-  auto acc = storage_->vertices_.access();
   auto delta = CreateDeleteObjectDelta(&transaction_);
   auto [it, inserted] = acc.insert(DiskVertex{gid, delta});
+  /// if the vertex with the given gid doesn't exist on the disk, it must be inserted here.
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
   delta->prev.Set(&*it);
@@ -777,6 +787,9 @@ void DiskStorage::DiskAccessor::FlushCache() {
     // MG_ASSERT(num_ser_edges == storage_->edges_.size(),
     // "The number of serialized edges must match the number of edges in the cache!");
   }
+  // TODO(andi): Remove this after we are assured that deserialization works
+  // storage_->vertices_.clear();
+  // storage_->edges_.clear();
   spdlog::debug("Flushed vertex and edge caches.");
 }
 
@@ -791,6 +804,7 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
   if (transaction_.deltas.empty()) {
     // We don't have to update the commit timestamp here because no one reads
     // it.
+    // If there are no deltas, then we don't have to serialize anything on the disk.
     storage_->commit_log_->MarkFinished(transaction_.start_timestamp);
   } else {
     // Validate that existence constraints are satisfied for all modified
@@ -895,16 +909,13 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
       Abort();
       return StorageDataManipulationError{*unique_constraint_violation};
     }
+    FlushCache();
   }
   is_transaction_active_ = false;
 
   if (!could_replicate_all_sync_replicas) {
     return StorageDataManipulationError{ReplicationError{}};
   }
-
-  /// Write cache to the disk
-  /// TODO: Maybe this is a problem because of transaction properties being changed in a flush cache.
-  FlushCache();
 
   return {};
 }

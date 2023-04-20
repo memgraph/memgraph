@@ -81,23 +81,22 @@ bool DiskVertexAccessor::IsVisible(View view) const {
 }
 
 Result<bool> DiskVertexAccessor::AddLabel(LabelId label) {
-  // utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-  // std::lock_guard<utils::SpinLock> guard(vertex_->lock);
-  //
-  // if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
-  //
-  // if (vertex_->deleted) return Error::DELETED_OBJECT;
-  //
-  // if (std::find(vertex_->labels.begin(), vertex_->labels.end(), label) != vertex_->labels.end()) return false;
-  //
-  // CreateAndLinkDelta(transaction_, vertex_, Delta::RemoveLabelTag(), label);
-  //
-  // vertex_->labels.push_back(label);
-  //
-  // UpdateOnAddLabel(indices_, label, vertex_, *transaction_);
-  //
-  // return true;
-  throw utils::NotYetImplemented("DiskVertexAccessor::AddLabel");
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+
+  if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
+
+  if (vertex_->deleted) return Error::DELETED_OBJECT;
+
+  if (std::find(vertex_->labels.begin(), vertex_->labels.end(), label) != vertex_->labels.end()) return false;
+
+  CreateAndLinkDelta(transaction_, vertex_, Delta::RemoveLabelTag(), label);
+
+  vertex_->labels.push_back(label);
+
+  UpdateOnAddLabel(indices_, label, vertex_, *transaction_);
+
+  return true;
 }
 
 Result<bool> DiskVertexAccessor::RemoveLabel(LabelId label) {
@@ -243,21 +242,20 @@ Result<PropertyValue> DiskVertexAccessor::SetProperty(PropertyId property, const
 
 Result<bool> DiskVertexAccessor::InitProperties(
     const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
-  // utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-  // std::lock_guard<utils::SpinLock> guard(vertex_->lock);
-  //
-  // if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
-  //
-  // if (vertex_->deleted) return Error::DELETED_OBJECT;
-  //
-  // if (!vertex_->properties.InitProperties(properties)) return false;
-  // for (const auto &[property, value] : properties) {
-  //   CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, PropertyValue());
-  //   UpdateOnSetProperty(indices_, property, value, vertex_, *transaction_);
-  // }
-  //
-  // return true;
-  throw utils::NotYetImplemented("DiskVertexAccessor::InitProperties");
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+
+  if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
+
+  if (vertex_->deleted) return Error::DELETED_OBJECT;
+
+  if (!vertex_->properties.InitProperties(properties)) return false;
+  for (const auto &[property, value] : properties) {
+    CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, PropertyValue());
+    UpdateOnSetProperty(indices_, property, value, vertex_, *transaction_);
+  }
+
+  return true;
 }
 
 Result<std::map<PropertyId, PropertyValue>> DiskVertexAccessor::ClearProperties() {
