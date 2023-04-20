@@ -117,9 +117,7 @@ class DiskStorage final : public Storage {
                               const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                               const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
 
-    int64_t ApproximateVertexCount() const override {
-      throw utils::NotYetImplemented("ApproximateVertexCount() is not implemented for DiskStorage.");
-    }
+    int64_t ApproximateVertexCount() const override;
 
     int64_t ApproximateVertexCount(LabelId label) const override {
       throw utils::NotYetImplemented("ApproximateVertexCount(label) is not implemented for DiskStorage.");

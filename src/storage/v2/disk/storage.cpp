@@ -74,6 +74,8 @@ namespace {
 
 constexpr const char *outEdgeDirection = "0";
 constexpr const char *inEdgeDirection = "1";
+constexpr const char *vertexHandle = "vertex";
+constexpr const char *edgeHandle = "edge";
 
 inline constexpr uint16_t kEpochHistoryRetention = 1000;
 
@@ -211,9 +213,26 @@ DiskStorage::DiskStorage(Config config)
   //   spdlog::warn("Replicas' configuration will NOT be stored. When the server restarts, replicas will be
   //   forgotten.");
   // }
+
+  /// Create RocksDB object
+  options_.create_if_missing = true;
+  // options_.OptimizeLevelStyleCompaction();
+  std::filesystem::path rocksdb_path = "./rocks_experiment";
+  MG_ASSERT(utils::EnsureDir(rocksdb_path), "Unable to create storage folder on the disk.");
+  AssertRocksDBStatus(rocksdb::DB::Open(options_, rocksdb_path, &db_));
+  AssertRocksDBStatus(db_->CreateColumnFamily(rocksdb::ColumnFamilyOptions(), vertexHandle, &vertex_chandle));
+  AssertRocksDBStatus(db_->CreateColumnFamily(rocksdb::ColumnFamilyOptions(), edgeHandle, &edge_chandle));
 }
 
-DiskStorage::~DiskStorage() {}
+DiskStorage::~DiskStorage() {
+  /// TODO(andi): I think that without destroy column family handle, there are memory leaks
+  /// But I also think that DestroyColumnFamilyHandle deletes all data in its handle.
+  AssertRocksDBStatus(db_->DropColumnFamily(vertex_chandle));
+  AssertRocksDBStatus(db_->DropColumnFamily(edge_chandle));
+  AssertRocksDBStatus(db_->DestroyColumnFamilyHandle(vertex_chandle));
+  AssertRocksDBStatus(db_->DestroyColumnFamilyHandle(edge_chandle));
+  AssertRocksDBStatus(db_->Close());
+}
 
 DiskStorage::DiskAccessor::DiskAccessor(DiskStorage *storage, IsolationLevel isolation_level)
     : storage_(storage),
@@ -407,6 +426,12 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
                                                      const std::optional<utils::Bound<PropertyValue>> &upper_bound,
                                                      View view) {
   throw utils::NotYetImplemented("DiskStorage::DiskAccessor::Vertices(label, property, lower_bound, upper_bound)");
+}
+
+int64_t DiskStorage::DiskAccessor::ApproximateVertexCount() const {
+  uint64_t estimate_num_keys = 0;
+  storage_->db_->GetIntProperty(storage_->vertex_chandle, "rocksdb.estimate-num-keys", &estimate_num_keys);
+  return static_cast<int64_t>(estimate_num_keys);
 }
 
 std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex() {
@@ -1253,7 +1278,11 @@ std::optional<replication::ReplicaState> DiskStorage::GetReplicaState(const std:
   throw utils::NotYetImplemented("GetReplicaState");
 }
 
-ReplicationRole DiskStorage::GetReplicationRole() const { throw utils::NotYetImplemented("GetReplicationRole"); }
+ReplicationRole DiskStorage::GetReplicationRole() const {
+  /// TODO(andi): Since we won't support replication for the beginning don't crash with this, rather just log a message
+  spdlog::debug("GetReplicationRole called, but we don't support replication yet");
+  return {};
+}
 
 std::vector<DiskStorage::ReplicaInfo> DiskStorage::ReplicasInfo() { throw utils::NotYetImplemented("ReplicasInfo"); }
 
