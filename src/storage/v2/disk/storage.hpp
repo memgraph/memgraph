@@ -244,7 +244,7 @@ class DiskStorage final : public Storage {
 
     /// Serialize vertex to string as a key in KV store
     /// label1, label2 | GID | commit_timestamp
-    std::string SerializeVertex(const VertexAccessor *vertex_acc) const;
+    std::string SerializeVertex(const Result<std::vector<LabelId>> &labels, Gid gid) const;
 
     /// Serialize vertex to string as a key in KV store
     /// label1, label2 | GID | commit_timestamp

@@ -286,10 +286,9 @@ std::string DiskStorage::DiskAccessor::SerializeProperties(PropertyStore &proper
   return properties.StringBuffer();
 }
 
-std::string DiskStorage::DiskAccessor::SerializeVertex(const VertexAccessor *vertex_acc) const {
-  auto labels = vertex_acc->Labels(storage::View::OLD);
+std::string DiskStorage::DiskAccessor::SerializeVertex(const Result<std::vector<LabelId>> &labels, Gid gid) const {
   std::string result = labels.HasError() || (*labels).empty() ? "" : SerializeLabels(*labels) + "|";
-  result += SerializeIdType(vertex_acc->Gid()) + "|";
+  result += SerializeIdType(gid) + "|";
   result += SerializeTimestamp(*commit_timestamp_);
   return result;
 }
@@ -366,6 +365,9 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(con
   }
   uint64_t vertex_commit_ts = std::stoull(vertex_parts[2]);
   /// Completely ignored for now
+  if (vertex_commit_ts < transaction_.start_timestamp) {
+    spdlog::debug("Ignoring vertex with gid {} because");
+  }
   // bool is_valid_entry = std::stoull(vertex_parts[2]) < transaction_.start_timestamp;
   auto impl = CreateVertex(gid, vertex_commit_ts);
   // Deserialize labels
@@ -374,6 +376,10 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(con
     auto labels = utils::Split(vertex_parts[0], ",");
     std::transform(labels.begin(), labels.end(), std::back_inserter(label_ids),
                    [](const auto &label) { return storage::LabelId::FromUint(std::stoull(label)); });
+  }
+  auto prop = impl->GetProperty(NameToProperty("id"), View::NEW);
+  if (prop->ValueInt() == 1) {
+    spdlog::debug("ID: {} SerKey: {}", prop->ValueInt(), key);
   }
   static_cast<DiskVertexAccessor *>(impl.get())->InitializeDeserializedVertex(label_ids, value, vertex_commit_ts);
   return impl;
@@ -556,9 +562,6 @@ Result<std::unique_ptr<VertexAccessor>> DiskStorage::DiskAccessor::DeleteVertex(
 
   CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
   vertex_ptr->deleted = true;
-
-  AssertRocksDBStatus(
-      storage_->db_->Delete(rocksdb::WriteOptions(), storage_->vertex_chandle, SerializeVertex(vertex)));
 
   return Result<std::unique_ptr<VertexAccessor>>{std::make_unique<DiskVertexAccessor>(
       vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_, config_, vertex->Gid(), true)};
@@ -821,10 +824,20 @@ void DiskStorage::DiskAccessor::FlushCache() {
   /// Flush vertex cache.
   auto vertex_acc = storage_->vertices_.access();
   uint64_t num_ser_edges = 0;
-  for (auto &vertex : vertex_acc) {
-    // if in the cache, serialize it.
-    AssertRocksDBStatus(storage_->db_->Put(rocksdb::WriteOptions(), storage_->vertex_chandle, SerializeVertex(vertex),
-                                           SerializeProperties(vertex.properties)));
+  for (Vertex &vertex : vertex_acc) {
+    // We must mark entry as deleted only at the end of the transaction since otherwise other transactions
+    // couldn't read this entry from RocksDB.
+    auto prop = vertex.properties.GetProperty(NameToProperty("id"));
+    if (prop.ValueInt() == 1) {
+      spdlog::debug("ID: {} Deleted: {} SerKey: {}", prop.ValueInt(), vertex.deleted, SerializeVertex(vertex));
+    }
+    if (vertex.deleted) {
+      AssertRocksDBStatus(
+          storage_->db_->Delete(rocksdb::WriteOptions(), storage_->vertex_chandle, SerializeVertex(vertex)));
+    } else {
+      AssertRocksDBStatus(storage_->db_->Put(rocksdb::WriteOptions(), storage_->vertex_chandle, SerializeVertex(vertex),
+                                             SerializeProperties(vertex.properties)));
+    }
     for (auto &edge_entry : vertex.out_edges) {
       Edge *edge_ptr = std::get<2>(edge_entry).ptr;
       auto [src_dest_key, dest_src_key] =

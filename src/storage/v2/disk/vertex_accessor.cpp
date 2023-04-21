@@ -28,7 +28,7 @@ namespace memgraph::storage {
 
 namespace detail {
 namespace {
-std::pair<bool, bool> IsVisible(DiskVertex *vertex, Transaction *transaction, View view) {
+std::pair<bool, bool> IsVisible(Vertex *vertex, Transaction *transaction, View view) {
   bool exists = true;
   bool deleted = false;
   Delta *delta = nullptr;
@@ -78,10 +78,9 @@ bool DiskVertexAccessor::InitializeDeserializedVertex(std::vector<LabelId> &labe
 std::unique_ptr<DiskVertexAccessor> DiskVertexAccessor::Create(Vertex *vertex, Transaction *transaction,
                                                                Indices *indices, Constraints *constraints,
                                                                Config::Items config, View view) {
-  /// TODO: What do we do here? Do we continue with vertex object and cast it. We cannot change the method's
-  /// declaration. if (const auto [exists, deleted] = detail::IsVisible(vertex, transaction, view); !exists || deleted)
-  /// { return {};
-  /// }
+  if (const auto [exists, deleted] = detail::IsVisible(vertex, transaction, view); !exists || deleted) {
+    return {};
+  }
 
   return std::make_unique<DiskVertexAccessor>(static_cast<DiskVertex *>(vertex), transaction, indices, constraints,
                                               config, vertex->gid);
@@ -131,102 +130,102 @@ Result<bool> DiskVertexAccessor::RemoveLabel(LabelId label) {
 }
 
 Result<bool> DiskVertexAccessor::HasLabel(LabelId label, View view) const {
-  // bool exists = true;
-  // bool deleted = false;
-  // bool has_label = false;
-  // Delta *delta = nullptr;
-  // {
-  //   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
-  //   deleted = vertex_->deleted;
-  //   has_label = std::find(vertex_->labels.begin(), vertex_->labels.end(), label) != vertex_->labels.end();
-  //   delta = vertex_->delta;
-  // }
-  // ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &has_label, label](const Delta &delta) {
-  //   switch (delta.action) {
-  //     case Delta::Action::REMOVE_LABEL: {
-  //       if (delta.label == label) {
-  //         MG_ASSERT(has_label, "Invalid database state!");
-  //         has_label = false;
-  //       }
-  //       break;
-  //     }
-  //     case Delta::Action::ADD_LABEL: {
-  //       if (delta.label == label) {
-  //         MG_ASSERT(!has_label, "Invalid database state!");
-  //         has_label = true;
-  //       }
-  //       break;
-  //     }
-  //     case Delta::Action::DELETE_OBJECT: {
-  //       exists = false;
-  //       break;
-  //     }
-  //     case Delta::Action::RECREATE_OBJECT: {
-  //       deleted = false;
-  //       break;
-  //     }
-  //     case Delta::Action::SET_PROPERTY:
-  //     case Delta::Action::ADD_IN_EDGE:
-  //     case Delta::Action::ADD_OUT_EDGE:
-  //     case Delta::Action::REMOVE_IN_EDGE:
-  //     case Delta::Action::REMOVE_OUT_EDGE:
-  //       break;
-  //   }
-  // });
-  // if (!exists) return Error::NONEXISTENT_OBJECT;
-  // if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
-  // return has_label;
-  throw utils::NotYetImplemented("DiskVertexAccessor::HasLabel");
+  bool exists = true;
+  bool deleted = false;
+  bool has_label = false;
+  Delta *delta = nullptr;
+  {
+    std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+    deleted = vertex_->deleted;
+    has_label = std::find(vertex_->labels.begin(), vertex_->labels.end(), label) != vertex_->labels.end();
+    delta = vertex_->delta;
+  }
+  ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &has_label, label](const Delta &delta) {
+    switch (delta.action) {
+      case Delta::Action::REMOVE_LABEL: {
+        if (delta.label == label) {
+          MG_ASSERT(has_label, "Invalid database state!");
+          has_label = false;
+        }
+        break;
+      }
+      case Delta::Action::ADD_LABEL: {
+        if (delta.label == label) {
+          MG_ASSERT(!has_label, "Invalid database state!");
+          has_label = true;
+        }
+        break;
+      }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+      case Delta::Action::DELETE_OBJECT: {
+        exists = false;
+        break;
+      }
+      case Delta::Action::RECREATE_OBJECT: {
+        deleted = false;
+        break;
+      }
+      case Delta::Action::SET_PROPERTY:
+      case Delta::Action::ADD_IN_EDGE:
+      case Delta::Action::ADD_OUT_EDGE:
+      case Delta::Action::REMOVE_IN_EDGE:
+      case Delta::Action::REMOVE_OUT_EDGE:
+        break;
+    }
+  });
+  if (!exists) return Error::NONEXISTENT_OBJECT;
+  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
+  return has_label;
 }
 
 Result<std::vector<LabelId>> DiskVertexAccessor::Labels(View view) const {
-  // bool exists = true;
-  // bool deleted = false;
-  // std::vector<LabelId> labels;
-  // Delta *delta = nullptr;
-  // {
-  //   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
-  //   deleted = vertex_->deleted;
-  //   labels = vertex_->labels;
-  //   delta = vertex_->delta;
-  // }
-  // ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &labels](const Delta &delta) {
-  //   switch (delta.action) {
-  //     case Delta::Action::REMOVE_LABEL: {
-  //       // Remove the label because we don't see the addition.
-  //       auto it = std::find(labels.begin(), labels.end(), delta.label);
-  //       MG_ASSERT(it != labels.end(), "Invalid database state!");
-  //       std::swap(*it, *labels.rbegin());
-  //       labels.pop_back();
-  //       break;
-  //     }
-  //     case Delta::Action::ADD_LABEL: {
-  //       // Add the label because we don't see the removal.
-  //       auto it = std::find(labels.begin(), labels.end(), delta.label);
-  //       MG_ASSERT(it == labels.end(), "Invalid database state!");
-  //       labels.push_back(delta.label);
-  //       break;
-  //     }
-  //     case Delta::Action::DELETE_OBJECT: {
-  //       exists = false;
-  //       break;
-  //     }
-  //     case Delta::Action::RECREATE_OBJECT: {
-  //       deleted = false;
-  //       break;
-  //     }
-  //     case Delta::Action::SET_PROPERTY:
-  //     case Delta::Action::ADD_IN_EDGE:
-  //     case Delta::Action::ADD_OUT_EDGE:
-  //     case Delta::Action::REMOVE_IN_EDGE:
-  //     case Delta::Action::REMOVE_OUT_EDGE:
-  //       break;
-  //   }
-  // });
-  // if (!exists) return Error::NONEXISTENT_OBJECT;
-  // if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
-  // return std::move(labels);
-  throw utils::NotYetImplemented("DiskVertexAccessor::Labels");
+  bool exists = true;
+  bool deleted = false;
+  std::vector<LabelId> labels;
+  Delta *delta = nullptr;
+  {
+    std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+    deleted = vertex_->deleted;
+    labels = vertex_->labels;
+    delta = vertex_->delta;
+  }
+  ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &labels](const Delta &delta) {
+    switch (delta.action) {
+      case Delta::Action::REMOVE_LABEL: {
+        // Remove the label because we don't see the addition.
+        auto it = std::find(labels.begin(), labels.end(), delta.label);
+        MG_ASSERT(it != labels.end(), "Invalid database state!");
+        std::swap(*it, *labels.rbegin());
+        labels.pop_back();
+        break;
+      }
+      case Delta::Action::ADD_LABEL: {
+        // Add the label because we don't see the removal.
+        auto it = std::find(labels.begin(), labels.end(), delta.label);
+        MG_ASSERT(it == labels.end(), "Invalid database state!");
+        labels.push_back(delta.label);
+        break;
+      }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+      case Delta::Action::DELETE_OBJECT: {
+        exists = false;
+        break;
+      }
+      case Delta::Action::RECREATE_OBJECT: {
+        deleted = false;
+        break;
+      }
+      case Delta::Action::SET_PROPERTY:
+      case Delta::Action::ADD_IN_EDGE:
+      case Delta::Action::ADD_OUT_EDGE:
+      case Delta::Action::REMOVE_IN_EDGE:
+      case Delta::Action::REMOVE_OUT_EDGE:
+        break;
+    }
+  });
+  if (!exists) return Error::NONEXISTENT_OBJECT;
+  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
+  return std::move(labels);
 }
 
 Result<PropertyValue> DiskVertexAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
@@ -291,96 +290,96 @@ Result<std::map<PropertyId, PropertyValue>> DiskVertexAccessor::ClearProperties(
 }
 
 Result<PropertyValue> DiskVertexAccessor::GetProperty(PropertyId property, View view) const {
-  // bool exists = true;
-  // bool deleted = false;
-  // PropertyValue value;
-  // Delta *delta = nullptr;
-  // {
-  //   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
-  //   deleted = vertex_->deleted;
-  //   value = vertex_->properties.GetProperty(property);
-  //   delta = vertex_->delta;
-  // }
-  // ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &value, property](const Delta &delta) {
-  //   switch (delta.action) {
-  //     case Delta::Action::SET_PROPERTY: {
-  //       if (delta.property.key == property) {
-  //         value = delta.property.value;
-  //       }
-  //       break;
-  //     }
-  //     case Delta::Action::DELETE_OBJECT: {
-  //       exists = false;
-  //       break;
-  //     }
-  //     case Delta::Action::RECREATE_OBJECT: {
-  //       deleted = false;
-  //       break;
-  //     }
-  //     case Delta::Action::ADD_LABEL:
-  //     case Delta::Action::REMOVE_LABEL:
-  //     case Delta::Action::ADD_IN_EDGE:
-  //     case Delta::Action::ADD_OUT_EDGE:
-  //     case Delta::Action::REMOVE_IN_EDGE:
-  //     case Delta::Action::REMOVE_OUT_EDGE:
-  //       break;
-  //   }
-  // });
-  // if (!exists) return Error::NONEXISTENT_OBJECT;
-  // if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
-  // return std::move(value);
-  throw utils::NotYetImplemented("DiskVertexAccessor::GetProperty");
+  bool exists = true;
+  bool deleted = false;
+  PropertyValue value;
+  Delta *delta = nullptr;
+  {
+    std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+    deleted = vertex_->deleted;
+    value = vertex_->properties.GetProperty(property);
+    delta = vertex_->delta;
+  }
+  ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &value, property](const Delta &delta) {
+    switch (delta.action) {
+      case Delta::Action::SET_PROPERTY: {
+        if (delta.property.key == property) {
+          value = delta.property.value;
+        }
+        break;
+      }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+      case Delta::Action::DELETE_OBJECT: {
+        exists = false;
+        break;
+      }
+      case Delta::Action::RECREATE_OBJECT: {
+        deleted = false;
+        break;
+      }
+      case Delta::Action::ADD_LABEL:
+      case Delta::Action::REMOVE_LABEL:
+      case Delta::Action::ADD_IN_EDGE:
+      case Delta::Action::ADD_OUT_EDGE:
+      case Delta::Action::REMOVE_IN_EDGE:
+      case Delta::Action::REMOVE_OUT_EDGE:
+        break;
+    }
+  });
+  if (!exists) return Error::NONEXISTENT_OBJECT;
+  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
+  return std::move(value);
 }
 
 Result<std::map<PropertyId, PropertyValue>> DiskVertexAccessor::Properties(View view) const {
-  // bool exists = true;
-  // bool deleted = false;
-  // std::map<PropertyId, PropertyValue> properties;
-  // Delta *delta = nullptr;
-  // {
-  //   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
-  //   deleted = vertex_->deleted;
-  //   properties = vertex_->properties.Properties();
-  //   delta = vertex_->delta;
-  // }
-  // ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &properties](const Delta &delta) {
-  //   switch (delta.action) {
-  //     case Delta::Action::SET_PROPERTY: {
-  //       auto it = properties.find(delta.property.key);
-  //       if (it != properties.end()) {
-  //         if (delta.property.value.IsNull()) {
-  //           // remove the property
-  //           properties.erase(it);
-  //         } else {
-  //           // set the value
-  //           it->second = delta.property.value;
-  //         }
-  //       } else if (!delta.property.value.IsNull()) {
-  //         properties.emplace(delta.property.key, delta.property.value);
-  //       }
-  //       break;
-  //     }
-  //     case Delta::Action::DELETE_OBJECT: {
-  //       exists = false;
-  //       break;
-  //     }
-  //     case Delta::Action::RECREATE_OBJECT: {
-  //       deleted = false;
-  //       break;
-  //     }
-  //     case Delta::Action::ADD_LABEL:
-  //     case Delta::Action::REMOVE_LABEL:
-  //     case Delta::Action::ADD_IN_EDGE:
-  //     case Delta::Action::ADD_OUT_EDGE:
-  //     case Delta::Action::REMOVE_IN_EDGE:
-  //     case Delta::Action::REMOVE_OUT_EDGE:
-  //       break;
-  //   }
-  // });
-  // if (!exists) return Error::NONEXISTENT_OBJECT;
-  // if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
-  // return std::move(properties);
-  throw utils::NotYetImplemented("DiskVertexAccessor::Properties");
+  bool exists = true;
+  bool deleted = false;
+  std::map<PropertyId, PropertyValue> properties;
+  Delta *delta = nullptr;
+  {
+    std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+    deleted = vertex_->deleted;
+    properties = vertex_->properties.Properties();
+    delta = vertex_->delta;
+  }
+  ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &properties](const Delta &delta) {
+    switch (delta.action) {
+      case Delta::Action::SET_PROPERTY: {
+        auto it = properties.find(delta.property.key);
+        if (it != properties.end()) {
+          if (delta.property.value.IsNull()) {
+            // remove the property
+            properties.erase(it);
+          } else {
+            // set the value
+            it->second = delta.property.value;
+          }
+        } else if (!delta.property.value.IsNull()) {
+          properties.emplace(delta.property.key, delta.property.value);
+        }
+        break;
+      }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+      case Delta::Action::DELETE_OBJECT: {
+        exists = false;
+        break;
+      }
+      case Delta::Action::RECREATE_OBJECT: {
+        deleted = false;
+        break;
+      }
+      case Delta::Action::ADD_LABEL:
+      case Delta::Action::REMOVE_LABEL:
+      case Delta::Action::ADD_IN_EDGE:
+      case Delta::Action::ADD_OUT_EDGE:
+      case Delta::Action::REMOVE_IN_EDGE:
+      case Delta::Action::REMOVE_OUT_EDGE:
+        break;
+    }
+  });
+  if (!exists) return Error::NONEXISTENT_OBJECT;
+  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
+  return std::move(properties);
 }
 
 Result<std::vector<std::unique_ptr<EdgeAccessor>>> DiskVertexAccessor::InEdges(
