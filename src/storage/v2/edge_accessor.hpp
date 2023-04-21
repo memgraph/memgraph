@@ -38,7 +38,7 @@ class EdgeAccessor {
 
   static std::unique_ptr<EdgeAccessor> Create(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex,
                                               Vertex *to_vertex, Transaction *transaction, Indices *indices,
-                                              Constraints *constraints, Config::Items config, bool for_deleted = false);
+                                              Constraints *constraints, Config config, bool for_deleted = false);
 
   /// @return true if the object is visible from the current transaction
   virtual bool IsVisible(View view) const = 0;

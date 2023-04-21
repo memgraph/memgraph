@@ -47,7 +47,7 @@ class AllVerticesIterable final {
   View view_;
   Indices *indices_;
   Constraints *constraints_;
-  Config::Items config_;
+  Config config_;
   std::unique_ptr<VertexAccessor> vertex_;
 
  public:
@@ -68,7 +68,7 @@ class AllVerticesIterable final {
   };
 
   AllVerticesIterable(utils::SkipList<Vertex>::Accessor vertices_accessor, Transaction *transaction, View view,
-                      Indices *indices, Constraints *constraints, Config::Items config)
+                      Indices *indices, Constraints *constraints, Config config)
       : vertices_accessor_(std::move(vertices_accessor)),
         transaction_(transaction),
         view_(view),

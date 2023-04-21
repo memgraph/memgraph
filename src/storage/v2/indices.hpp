@@ -51,7 +51,7 @@ class LabelIndex {
   };
 
  public:
-  LabelIndex(Indices *indices, Constraints *constraints, Config::Items config)
+  LabelIndex(Indices *indices, Constraints *constraints, Config config)
       : indices_(indices), constraints_(constraints), config_(config) {}
 
   /// @throw std::bad_alloc
@@ -72,7 +72,7 @@ class LabelIndex {
   class Iterable {
    public:
     Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, View view, Transaction *transaction,
-             Indices *indices, Constraints *constraints, Config::Items config);
+             Indices *indices, Constraints *constraints, Config config);
 
     class Iterator {
      public:
@@ -104,7 +104,7 @@ class LabelIndex {
     Transaction *transaction_;
     Indices *indices_;
     Constraints *constraints_;
-    Config::Items config_;
+    Config config_;
   };
 
   /// Returns an self with vertices visible from the given transaction.
@@ -128,7 +128,7 @@ class LabelIndex {
   std::map<LabelId, utils::SkipList<Entry>> index_;
   Indices *indices_;
   Constraints *constraints_;
-  Config::Items config_;
+  Config config_;
 };
 
 struct IndexStats {
@@ -150,7 +150,7 @@ class LabelPropertyIndex {
   };
 
  public:
-  LabelPropertyIndex(Indices *indices, Constraints *constraints, Config::Items config)
+  LabelPropertyIndex(Indices *indices, Constraints *constraints, Config config)
       : indices_(indices), constraints_(constraints), config_(config) {}
 
   /// @throw std::bad_alloc
@@ -175,7 +175,7 @@ class LabelPropertyIndex {
     Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, PropertyId property,
              const std::optional<utils::Bound<PropertyValue>> &lower_bound,
              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Transaction *transaction,
-             Indices *indices, Constraints *constraints, Config::Items config);
+             Indices *indices, Constraints *constraints, Config config);
 
     class Iterator {
      public:
@@ -211,7 +211,7 @@ class LabelPropertyIndex {
     Transaction *transaction_;
     Indices *indices_;
     Constraints *constraints_;
-    Config::Items config_;
+    Config config_;
   };
 
   Iterable Vertices(LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
@@ -260,11 +260,11 @@ class LabelPropertyIndex {
   std::map<std::pair<LabelId, PropertyId>, storage::IndexStats> stats_;
   Indices *indices_;
   Constraints *constraints_;
-  Config::Items config_;
+  Config config_;
 };
 
 struct Indices {
-  Indices(Constraints *constraints, Config::Items config)
+  Indices(Constraints *constraints, Config config)
       : label_index(this, constraints, config), label_property_index(this, constraints, config) {}
 
   // Disable copy and move because members hold pointer to `this`.

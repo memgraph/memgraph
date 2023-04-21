@@ -11,14 +11,17 @@
 
 #include "storage/v2/vertex_accessor.hpp"
 
+#include "storage/v2/disk/vertex_accessor.hpp"
 #include "storage/v2/inmemory/edge_accessor.hpp"
 #include "storage/v2/inmemory/vertex_accessor.hpp"
 
 namespace memgraph::storage {
 
 std::unique_ptr<VertexAccessor> VertexAccessor::Create(Vertex *vertex, Transaction *transaction, Indices *indices,
-                                                       Constraints *constraints, Config::Items config, View view) {
-  return InMemoryVertexAccessor::Create(vertex, transaction, indices, constraints, config, view);
+                                                       Constraints *constraints, Config config, View view) {
+  if (config.storage_mode.type == Config::StorageMode::Type::IN_MEMORY)
+    return InMemoryVertexAccessor::Create(vertex, transaction, indices, constraints, config.items, view);
+  return DiskVertexAccessor::Create(vertex, transaction, indices, constraints, config.items, view);
 }
 
 Result<std::vector<std::unique_ptr<EdgeAccessor>>> VertexAccessor::InEdges(

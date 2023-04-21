@@ -53,6 +53,7 @@
 #include "query/procedure/module.hpp"
 #include "query/procedure/py_module.hpp"
 #include "requests/requests.hpp"
+#include "storage/v2/config.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
@@ -878,6 +879,9 @@ int main(int argc, char **argv) {
   // End enterprise features initialization
 #endif
 
+  // auto type = memgraph::storage::Config::StorageMode::Type::IN_MEMORY;
+  auto type = memgraph::storage::Config::StorageMode::Type::PERSISTENT;
+
   // Main storage and execution engines initialization
   memgraph::storage::Config db_config{
       .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC,
@@ -890,7 +894,8 @@ int main(int argc, char **argv) {
                      .wal_file_flush_every_n_tx = FLAGS_storage_wal_file_flush_every_n_tx,
                      .snapshot_on_exit = FLAGS_storage_snapshot_on_exit,
                      .restore_replicas_on_startup = true},
-      .transaction = {.isolation_level = ParseIsolationLevel()}};
+      .transaction = {.isolation_level = ParseIsolationLevel()},
+      .storage_mode = {.type = type}};
   if (FLAGS_storage_snapshot_interval_sec == 0) {
     if (FLAGS_storage_wal_enabled) {
       LOG_FATAL(

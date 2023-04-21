@@ -92,8 +92,7 @@ class InMemoryStorage final : public Storage {
 
     VerticesIterable Vertices(View view) override {
       return VerticesIterable(AllVerticesIterable(storage_->vertices_.access(), &transaction_, view,
-                                                  &storage_->indices_, &storage_->constraints_,
-                                                  storage_->config_.items));
+                                                  &storage_->indices_, &storage_->constraints_, storage_->config_));
     }
 
     VerticesIterable Vertices(LabelId label, View view) override;

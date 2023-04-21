@@ -42,7 +42,7 @@ class VertexAccessor {
   virtual ~VertexAccessor() {}
 
   static std::unique_ptr<VertexAccessor> Create(Vertex *vertex, Transaction *transaction, Indices *indices,
-                                                Constraints *constraints, Config::Items config, View view);
+                                                Constraints *constraints, Config config, View view);
 
   /// @return true if the object is visible from the current transaction
   virtual bool IsVisible(View view) const = 0;

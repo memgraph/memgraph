@@ -17,7 +17,7 @@ namespace memgraph::storage {
 
 auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it, utils::SkipList<Vertex>::Iterator end,
                             std::unique_ptr<VertexAccessor> &vertex, Transaction *tx, View view, Indices *indices,
-                            Constraints *constraints, Config::Items config) {
+                            Constraints *constraints, Config config) {
   while (it != end) {
     /// TODO: Here we need to create a vertex accessor dependent on the storage.
     vertex = VertexAccessor::Create(&*it, tx, indices, constraints, config, view);

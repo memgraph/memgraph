@@ -97,7 +97,7 @@ inline bool CheckRocksDBStatus(const rocksdb::Status &status) {
 
 /// TODO: indices should be initialized at some point after
 DiskStorage::DiskStorage(Config config)
-    : indices_(&constraints_, config.items),
+    : indices_(&constraints_, config),
       isolation_level_(IsolationLevel::SNAPSHOT_ISOLATION),
       config_(config),
       snapshot_directory_(config_.durability.storage_directory / durability::kSnapshotDirectory),
@@ -287,7 +287,6 @@ std::string DiskStorage::DiskAccessor::SerializeProperties(PropertyStore &proper
 }
 
 std::string DiskStorage::DiskAccessor::SerializeVertex(const VertexAccessor *vertex_acc) const {
-  MG_ASSERT(commit_timestamp_.has_value(), "Transaction must be committed to serialize vertex.");
   auto labels = vertex_acc->Labels(storage::View::OLD);
   std::string result = labels.HasError() || (*labels).empty() ? "" : SerializeLabels(*labels) + "|";
   result += SerializeIdType(vertex_acc->Gid()) + "|";
@@ -414,7 +413,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
     DeserializeVertex(it->key().ToStringView(), it->value().ToStringView());
   }
   return VerticesIterable(AllVerticesIterable(storage_->vertices_.access(), &transaction_, view, &storage_->indices_,
-                                              &storage_->constraints_, storage_->config_.items));
+                                              &storage_->constraints_, storage_->config_));
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
@@ -536,11 +535,33 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::G
 }
 
 Result<std::unique_ptr<VertexAccessor>> DiskStorage::DiskAccessor::DeleteVertex(VertexAccessor *vertex) {
-  if (!CheckRocksDBStatus(
-          storage_->db_->Delete(rocksdb::WriteOptions(), storage_->vertex_chandle, SerializeVertex(vertex)))) {
-    return Error::SERIALIZATION_ERROR;
+  // Deletes in the same way as in in-memory version.
+  auto *disk_vertex_acc = static_cast<DiskVertexAccessor *>(vertex);
+  MG_ASSERT(disk_vertex_acc,
+            "VertexAccessor must be from the same storage as the storage accessor when deleting a vertex!");
+  MG_ASSERT(disk_vertex_acc->transaction_ == &transaction_,
+            "VertexAccessor must be from the same transaction as the storage "
+            "accessor when deleting a vertex!");
+  auto *vertex_ptr = disk_vertex_acc->vertex_;
+
+  std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
+
+  if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
+
+  if (vertex_ptr->deleted) {
+    return Result<std::unique_ptr<VertexAccessor>>{std::unique_ptr<DiskVertexAccessor>()};
   }
-  return Result<std::unique_ptr<VertexAccessor>>{std::unique_ptr<VertexAccessor>(vertex)};
+
+  if (!vertex_ptr->in_edges.empty() || !vertex_ptr->out_edges.empty()) return Error::VERTEX_HAS_EDGES;
+
+  CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
+  vertex_ptr->deleted = true;
+
+  AssertRocksDBStatus(
+      storage_->db_->Delete(rocksdb::WriteOptions(), storage_->vertex_chandle, SerializeVertex(vertex)));
+
+  return Result<std::unique_ptr<VertexAccessor>>{std::make_unique<DiskVertexAccessor>(
+      vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_, config_, vertex->Gid(), true)};
 }
 
 Result<std::vector<std::unique_ptr<EdgeAccessor>>> DeleteEdges(const auto &edge_accessors) {

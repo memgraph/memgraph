@@ -158,6 +158,9 @@ class DiskStorage final : public Storage {
       throw utils::NotYetImplemented("SetIndexStats(stats) is not implemented for DiskStorage.");
     }
 
+    /// Deletes vertex only from the cache if it was created in the same transaction.
+    /// If the vertex was fetched from the RocksDB, it is deleted from the RocksDB.
+    /// It is impossible that the object isn't in the cache because of generated query plan.
     Result<std::unique_ptr<VertexAccessor>> DeleteVertex(VertexAccessor *vertex) override;
 
     Result<std::optional<std::pair<std::unique_ptr<VertexAccessor>, std::vector<std::unique_ptr<EdgeAccessor>>>>>
@@ -183,16 +186,14 @@ class DiskStorage final : public Storage {
     /// @throw std::bad_alloc if unable to insert a new mapping
     EdgeTypeId NameToEdgeType(std::string_view name) override;
 
-    bool LabelIndexExists(LabelId label) const override {
-      throw utils::NotYetImplemented("LabelIndexExists() is not implemented for DiskStorage.");
-    }
+    bool LabelIndexExists(LabelId label) const override { return storage_->indices_.label_index.IndexExists(label); }
 
     bool LabelPropertyIndexExists(LabelId label, PropertyId property) const override {
-      throw utils::NotYetImplemented("LabelPropertyIndexExists() is not implemented for DiskStorage.");
+      return storage_->indices_.label_property_index.IndexExists(label, property);
     }
 
     IndicesInfo ListAllIndices() const override {
-      throw utils::NotYetImplemented("ListAllIndices() is not implemented for DiskStorage.");
+      return {storage_->indices_.label_index.ListIndices(), storage_->indices_.label_property_index.ListIndices()};
     }
 
     ConstraintsInfo ListAllConstraints() const override {
