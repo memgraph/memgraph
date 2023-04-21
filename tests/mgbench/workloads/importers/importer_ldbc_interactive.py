@@ -1,3 +1,15 @@
+# Copyright 2023 Memgraph Ltd.
+#
+# Use of this software is governed by the Business Source License
+# included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+# License, and you may not use this file except in compliance with the Business Source License.
+#
+# As of the Change Date specified in that file, in accordance with
+# the Business Source License, use of this software will be governed
+# by the Apache License, Version 2.0, included in the file
+# licenses/APL.txt.
+
+# --- DISCLAIMER: This is NOT an official implementation of an LDBC Benchmark.  ---
 import csv
 import subprocess
 from pathlib import Path
@@ -53,7 +65,6 @@ class ImporterLDBCInteractive:
         self._csv_dict = csv_dict
 
     def execute_import(self):
-
         vendor_runner = BaseRunner.create(
             benchmark_context=self._benchmark_context,
         )
@@ -63,8 +74,8 @@ class ImporterLDBCInteractive:
             print("Runnning Neo4j import")
             dump_dir = Path() / ".cache" / "datasets" / self._dataset_name / self._variant / "dump"
             dump_dir.mkdir(parents=True, exist_ok=True)
-            dir_name = self._csv_dict[self._variant].split("/")[-1:][0].removesuffix(".tar.zst")
-            if (dump_dir / dir_name).exists():
+            dir_name = self._csv_dict[self._variant].split("/")[-1:][0].replace(".tar.zst", "")
+            if (dump_dir / dir_name).exists() and any((dump_dir / dir_name).iterdir()):
                 print("Files downloaded")
                 dump_dir = dump_dir / dir_name
             else:
@@ -153,10 +164,10 @@ class ImporterLDBCInteractive:
                 check=True,
             )
 
-            vendor_runner.start_preparation("Index preparation")
+            vendor_runner.start_db_init("Index preparation")
             print("Executing database index setup")
             client.execute(file_path=self._index_file, num_workers=1)
-            vendor_runner.stop("Stop index preparation")
+            vendor_runner.stop_db_init("Stop index preparation")
 
             return True
         else:
