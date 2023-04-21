@@ -77,6 +77,14 @@ class LabelIndex {
     class Iterator {
      public:
       Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator);
+      Iterator(const Iterator &other)
+          : self_(other.self_),
+            index_iterator_(other.index_iterator_),
+            current_vertex_accessor_(other.current_vertex_accessor_ ? other.current_vertex_accessor_->Copy() : nullptr),
+            current_vertex_(other.current_vertex_) {}
+
+      Iterator(Iterator &&other) = default;
+      ~Iterator() = default;
 
       VertexAccessor *operator*() const { return current_vertex_accessor_.get(); }
 
@@ -180,6 +188,14 @@ class LabelPropertyIndex {
     class Iterator {
      public:
       Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator);
+      Iterator(const Iterator &other)
+          : self_(other.self_),
+            index_iterator_(other.index_iterator_),
+            current_vertex_accessor_(other.current_vertex_accessor_ ? other.current_vertex_accessor_->Copy() : nullptr),
+            current_vertex_(other.current_vertex_) {}
+
+      Iterator(Iterator &&other) = default;
+      ~Iterator() = default;
 
       VertexAccessor *operator*() const { return current_vertex_accessor_.get(); }
 

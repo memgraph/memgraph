@@ -150,12 +150,10 @@ VerticesIterable::Iterator::Iterator(const VerticesIterable::Iterator &other) : 
       new (&all_it_) AllVerticesIterable::Iterator(other.all_it_);
       break;
     case Type::BY_LABEL:
-      MG_ASSERT(false, "Cannot copy-construct iterator of type BY_LABEL");
-      // new (&by_label_it_) LabelIndex::Iterable::Iterator(other.by_label_it_);
+      new (&by_label_it_) LabelIndex::Iterable::Iterator(other.by_label_it_);
       break;
     case Type::BY_LABEL_PROPERTY:
-      MG_ASSERT(false, "Cannot copy-construct iterator of type BY_LABEL_PROPERTY");
-      // new (&by_label_property_it_) LabelPropertyIndex::Iterable::Iterator(std::move(other.by_label_property_it_));
+      new (&by_label_property_it_) LabelPropertyIndex::Iterable::Iterator(other.by_label_property_it_);
       break;
   }
 }
@@ -168,12 +166,10 @@ VerticesIterable::Iterator &VerticesIterable::Iterator::operator=(const Vertices
       new (&all_it_) AllVerticesIterable::Iterator(other.all_it_);
       break;
     case Type::BY_LABEL:
-      MG_ASSERT(false, "Cannot copy-assign iterator of type BY_LABEL");
-      // new (&by_label_it_) LabelIndex::Iterable::Iterator(other.by_label_it_);
+      new (&by_label_it_) LabelIndex::Iterable::Iterator(other.by_label_it_);
       break;
     case Type::BY_LABEL_PROPERTY:
-      MG_ASSERT(false, "Cannot copy-assign iterator of type BY_LABEL_PROPERTY");
-      // new (&by_label_property_it_) LabelPropertyIndex::Iterable::Iterator(other.by_label_property_it_);
+      new (&by_label_property_it_) LabelPropertyIndex::Iterable::Iterator(other.by_label_property_it_);
       break;
   }
   return *this;

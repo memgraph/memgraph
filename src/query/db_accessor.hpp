@@ -66,6 +66,8 @@ class EdgeAccessor final {
     return *this;
   }
 
+  ~EdgeAccessor() = default;
+
   bool IsVisible(storage::View view) const { return impl_->IsVisible(view); }
 
   storage::EdgeTypeId EdgeType() const { return impl_->EdgeType(); }
@@ -379,7 +381,7 @@ class DbAccessor final {
                                            const storage::EdgeTypeId &edge_type) {
     auto maybe_edge = accessor_->CreateEdge(from->impl_.get(), to->impl_.get(), edge_type);
     if (maybe_edge.HasError()) return storage::Result<EdgeAccessor>(maybe_edge.GetError());
-    return EdgeAccessor((*maybe_edge).get());
+    return EdgeAccessor(std::move(*maybe_edge));
   }
 
   storage::Result<std::optional<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge) {
