@@ -21,6 +21,7 @@
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edge_ref.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -221,6 +222,8 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &
   uint64_t last_edge_gid = 0;
   spdlog::info("Recovering {} edges.", edges_count);
   if (!snapshot.SetPosition(from_offset)) throw RecoveryFailure("Couldn't read data from snapshot!");
+
+  std::vector<std::pair<PropertyId, PropertyValue>> read_properties;
   for (uint64_t i = 0; i < edges_count; ++i) {
     {
       const auto marker = snapshot.ReadMarker();
@@ -243,13 +246,16 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &
         auto props_size = snapshot.ReadUint();
         if (!props_size) throw RecoveryFailure("Invalid snapshot data!");
         auto &props = it->properties;
+        read_properties.clear();
+        read_properties.reserve(*props_size);
         for (uint64_t j = 0; j < *props_size; ++j) {
           auto key = snapshot.ReadUint();
           if (!key) throw RecoveryFailure("Invalid snapshot data!");
           auto value = snapshot.ReadPropertyValue();
           if (!value) throw RecoveryFailure("Invalid snapshot data!");
-          props.SetProperty(get_property_from_id(*key), *value);
+          read_properties.emplace_back(get_property_from_id(*key), std::move(*value));
         }
+        props.InitProperties(std::move(read_properties));
       }
     } else {
       spdlog::debug("Ensuring edge {} doesn't have any properties.", *gid);
@@ -279,6 +285,7 @@ uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipList<
   auto vertex_acc = vertices.access();
   uint64_t last_vertex_gid = 0;
   spdlog::info("Recovering {} vertices.", vertices_count);
+  std::vector<std::pair<PropertyId, PropertyValue>> read_properties;
   for (uint64_t i = 0; i < vertices_count; ++i) {
     {
       auto marker = snapshot.ReadMarker();
@@ -316,13 +323,16 @@ uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipList<
       auto props_size = snapshot.ReadUint();
       if (!props_size) throw RecoveryFailure("Invalid snapshot data!");
       auto &props = it->properties;
+      read_properties.clear();
+      read_properties.reserve(*props_size);
       for (uint64_t j = 0; j < *props_size; ++j) {
         auto key = snapshot.ReadUint();
         if (!key) throw RecoveryFailure("Invalid snapshot data!");
         auto value = snapshot.ReadPropertyValue();
         if (!value) throw RecoveryFailure("Invalid snapshot data!");
-        props.SetProperty(get_property_from_id(*key), *value);
+        read_properties.emplace_back(get_property_from_id(*key), std::move(*value));
       }
+      props.InitProperties(std::move(read_properties));
     }
 
     // Skip in edges.
