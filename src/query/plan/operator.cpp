@@ -4624,12 +4624,16 @@ auto ToOptionalString(ExpressionEvaluator *evaluator, Expression *expression) ->
   return std::nullopt;
 };
 
-TypedValue CsvRowToTypedList(csv::Reader::Row &row) {
+TypedValue CsvRowToTypedList(csv::Reader::Row &row, bool ignore_empty_strings = false) {
   auto *mem = row.get_allocator().GetMemoryResource();
   auto typed_columns = utils::pmr::vector<TypedValue>(mem);
   typed_columns.reserve(row.size());
   for (auto &column : row) {
-    typed_columns.emplace_back(std::move(column));
+    if (!ignore_empty_strings || column.empty()) {
+      typed_columns.emplace_back(std::move(column));
+    } else {
+      typed_columns.emplace_back(mem);
+    }
   }
   return {std::move(typed_columns), mem};
 }
@@ -4642,7 +4646,7 @@ TypedValue CsvRowToTypedMap(csv::Reader::Row &row, csv::Reader::Header header, b
     if (!ignore_empty_strings || !row[i].empty()) {
       m.emplace(std::move(header[i]), std::move(row[i]));
     } else {
-      m.emplace(std::move(header[i]), TypedValue(mem));
+      m.emplace(std::move(header[i]), mem);
     }
   }
   return {std::move(m), mem};
