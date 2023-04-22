@@ -27,6 +27,7 @@
 #include "query/interpret/frame.hpp"
 #include "query/path.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/string.hpp"
@@ -43,9 +44,10 @@ namespace {
 
 class ExpressionEvaluatorTest : public ::testing::Test {
  protected:
-  memgraph::storage::Storage db;
-  memgraph::storage::Storage::Accessor storage_dba{db.Access()};
-  memgraph::query::DbAccessor dba{&storage_dba};
+  std::unique_ptr<memgraph::storage::Storage> db =
+      std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
+  memgraph::query::DbAccessor dba{storage_dba.get()};
 
   AstStorage storage;
   memgraph::utils::MonotonicBufferResource mem{1024};

@@ -104,7 +104,7 @@ class EdgeAccessor final {
 
   storage::Gid Gid() const noexcept { return impl_->Gid(); }
 
-  bool operator==(const EdgeAccessor &e) const noexcept { return impl_ == e.impl_; }
+  bool operator==(const EdgeAccessor &e) const noexcept { return *impl_ == *e.impl_; }
 
   bool operator!=(const EdgeAccessor &e) const noexcept { return !(*this == e); }
 };
@@ -209,7 +209,7 @@ class VertexAccessor final {
 
   storage::Gid Gid() const noexcept { return impl_->Gid(); }
 
-  bool operator==(const VertexAccessor &v) const { return impl_ == v.impl_; }
+  bool operator==(const VertexAccessor &v) const { return *impl_ == *v.impl_; }
 
   bool operator!=(const VertexAccessor &v) const { return !(*this == v); }
 };
