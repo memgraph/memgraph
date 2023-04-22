@@ -28,6 +28,7 @@
 
 #include "query_plan_common.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 
@@ -35,9 +36,9 @@ using namespace memgraph::query;
 using namespace memgraph::query::plan;
 
 TEST(QueryPlan, CreateNodeWithAttributes) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
 
   memgraph::storage::LabelId label = dba.NameToLabel("Person");
   auto property = PROPERTY_PAIR("prop");
@@ -83,10 +84,10 @@ TEST(QueryPlan, FineGrainedCreateNodeWithAttributes) {
   memgraph::license::global_license_checker.EnableTesting();
   memgraph::query::AstStorage ast;
   memgraph::query::SymbolTable symbol_table;
-  memgraph::storage::Storage db;
-  auto dba = db.Access();
-  DbAccessor execution_dba(&dba);
-  const auto label = dba.NameToLabel("label1");
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto dba = db->Access();
+  DbAccessor execution_dba(dba.get());
+  const auto label = dba->NameToLabel("label1");
   const auto property = memgraph::storage::PropertyId::FromInt(1);
 
   memgraph::query::plan::NodeCreationInfo node;
@@ -124,9 +125,9 @@ TEST(QueryPlan, FineGrainedCreateNodeWithAttributes) {
 
 TEST(QueryPlan, CreateReturn) {
   // test CREATE (n:Person {age: 42}) RETURN n, n.age
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
 
   memgraph::storage::LabelId label = dba.NameToLabel("Person");
   auto property = PROPERTY_PAIR("property");
@@ -167,9 +168,9 @@ TEST(QueryPlan, FineGrainedCreateReturn) {
   memgraph::license::global_license_checker.EnableTesting();
 
   // test CREATE (n:Person {age: 42}) RETURN n, n.age
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
 
   const auto label = dba.NameToLabel("label");
   const auto property = PROPERTY_PAIR("property");
@@ -225,9 +226,9 @@ TEST(QueryPlan, FineGrainedCreateReturn) {
 #endif
 
 TEST(QueryPlan, CreateExpand) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
 
   memgraph::storage::LabelId label_node_1 = dba.NameToLabel("Node1");
   memgraph::storage::LabelId label_node_2 = dba.NameToLabel("Node2");
@@ -304,9 +305,9 @@ TEST(QueryPlan, CreateExpand) {
 #ifdef MG_ENTERPRISE
 class CreateExpandWithAuthFixture : public testing::Test {
  protected:
-  memgraph::storage::Storage db;
-  memgraph::storage::Storage::Accessor storage_dba{db.Access()};
-  memgraph::query::DbAccessor dba{&storage_dba};
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
+  memgraph::query::DbAccessor dba{storage_dba.get()};
   AstStorage storage;
   SymbolTable symbol_table;
 
@@ -434,9 +435,9 @@ TEST_F(CreateExpandWithAuthFixture, CreateExpandWithCycleWithEverythingGranted) 
 }
 
 TEST(QueryPlan, MatchCreateNode) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
 
   // add three nodes we'll match and expand-create from
   dba.InsertVertex();
@@ -464,9 +465,9 @@ TEST(QueryPlan, MatchCreateNode) {
 
 class MatchCreateNodeWithAuthFixture : public testing::Test {
  protected:
-  memgraph::storage::Storage db;
-  memgraph::storage::Storage::Accessor storage_dba{db.Access()};
-  memgraph::query::DbAccessor dba{&storage_dba};
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
+  memgraph::query::DbAccessor dba{storage_dba.get()};
   AstStorage storage;
   SymbolTable symbol_table;
 
@@ -544,9 +545,9 @@ TEST_F(MatchCreateNodeWithAuthFixture, MatchCreateWithOneLabelDeniedThrows) {
 #endif
 
 TEST(QueryPlan, MatchCreateExpand) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
 
   // add three nodes we'll match and expand-create from
   dba.InsertVertex();
@@ -594,9 +595,9 @@ TEST(QueryPlan, MatchCreateExpand) {
 #ifdef MG_ENTERPRISE
 class MatchCreateExpandWithAuthFixture : public testing::Test {
  protected:
-  memgraph::storage::Storage db;
-  memgraph::storage::Storage::Accessor storage_dba{db.Access()};
-  memgraph::query::DbAccessor dba{&storage_dba};
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
+  memgraph::query::DbAccessor dba{storage_dba.get()};
   AstStorage storage;
   SymbolTable symbol_table;
 
@@ -739,9 +740,9 @@ TEST_F(MatchCreateExpandWithAuthFixture, MatchCreateExpandWithCycleExecutesWhenG
 #endif
 
 TEST(QueryPlan, Delete) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
 
   // make a fully-connected (one-direction, no cycles) with 4 nodes
   std::vector<memgraph::query::VertexAccessor> vertices;
@@ -812,9 +813,9 @@ TEST(QueryPlan, Delete) {
 #ifdef MG_ENTERPRISE
 class DeleteOperatorWithAuthFixture : public testing::Test {
  protected:
-  memgraph::storage::Storage db;
-  memgraph::storage::Storage::Accessor storage_dba{db.Access()};
-  memgraph::query::DbAccessor dba{&storage_dba};
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
+  memgraph::query::DbAccessor dba{storage_dba.get()};
   AstStorage storage;
   SymbolTable symbol_table;
 
@@ -972,9 +973,9 @@ TEST(QueryPlan, DeleteTwiceDeleteBlockingEdge) {
   // MATCH (n)-[r]-(m) [DETACH] DELETE n, r, m
 
   auto test_delete = [](bool detach) {
-    memgraph::storage::Storage db;
-    auto storage_dba = db.Access();
-    memgraph::query::DbAccessor dba(&storage_dba);
+    auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
 
     auto v1 = dba.InsertVertex();
     auto v2 = dba.InsertVertex();
@@ -1008,9 +1009,9 @@ TEST(QueryPlan, DeleteTwiceDeleteBlockingEdge) {
 }
 
 TEST(QueryPlan, DeleteReturn) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
 
   // make a fully-connected (one-direction, no cycles) with 4 nodes
   auto prop = PROPERTY_PAIR("property");
@@ -1041,9 +1042,9 @@ TEST(QueryPlan, DeleteReturn) {
 
 TEST(QueryPlan, DeleteNull) {
   // test (simplified) WITH Null as x delete x
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   AstStorage storage;
   SymbolTable symbol_table;
 
@@ -1059,7 +1060,7 @@ TEST(QueryPlan, DeleteAdvance) {
   // MATCH (n) DELETE n WITH n ...
   // this fails only if the deleted record `n` is actually used in subsequent
   // clauses, which is compatible with Neo's behavior.
-  memgraph::storage::Storage db;
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -1070,8 +1071,8 @@ TEST(QueryPlan, DeleteAdvance) {
   auto advance = std::make_shared<Accumulate>(delete_op, std::vector<Symbol>{n.sym_}, true);
   auto res_sym = symbol_table.CreateSymbol("res", true);
   {
-    auto storage_dba = db.Access();
-    memgraph::query::DbAccessor dba(&storage_dba);
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
     dba.InsertVertex();
     dba.AdvanceCommand();
     auto produce = MakeProduce(advance, NEXPR("res", LITERAL(42))->MapTo(res_sym));
@@ -1079,8 +1080,8 @@ TEST(QueryPlan, DeleteAdvance) {
     EXPECT_EQ(1, PullAll(*produce, &context));
   }
   {
-    auto storage_dba = db.Access();
-    memgraph::query::DbAccessor dba(&storage_dba);
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
     dba.InsertVertex();
     dba.AdvanceCommand();
     auto n_prop = PROPERTY_LOOKUP(n_get, dba.NameToProperty("prop"));
@@ -1091,9 +1092,9 @@ TEST(QueryPlan, DeleteAdvance) {
 }
 
 TEST(QueryPlan, SetProperty) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
 
   // graph with 4 vertices in connected pairs
   // the origin vertex in each par and both edges
@@ -1149,9 +1150,9 @@ TEST(QueryPlan, SetProperty) {
 
 TEST(QueryPlan, SetProperties) {
   auto test_set_properties = [](bool update) {
-    memgraph::storage::Storage db;
-    auto storage_dba = db.Access();
-    memgraph::query::DbAccessor dba(&storage_dba);
+    auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
 
     // graph: ({a: 0})-[:R {b:1}]->({c:2})
     auto prop_a = dba.NameToProperty("a");
@@ -1224,9 +1225,9 @@ TEST(QueryPlan, SetProperties) {
 }
 
 TEST(QueryPlan, SetLabels) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto label1 = dba.NameToLabel("label1");
   auto label2 = dba.NameToLabel("label2");
@@ -1277,9 +1278,9 @@ TEST(QueryPlan, SetLabelsWithFineGrained) {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().label_permissions().Grant("*",
                                                                  memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-    memgraph::storage::Storage db;
-    auto storage_dba = db.Access();
-    memgraph::query::DbAccessor dba(&storage_dba);
+    auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
     auto label1 = dba.NameToLabel("label1");
     auto label2 = dba.NameToLabel("label2");
     auto label3 = dba.NameToLabel("label3");
@@ -1295,9 +1296,9 @@ TEST(QueryPlan, SetLabelsWithFineGrained) {
   {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
-    memgraph::storage::Storage db;
-    auto storage_dba = db.Access();
-    memgraph::query::DbAccessor dba(&storage_dba);
+    auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
     auto label1 = dba.NameToLabel("label1");
     auto label2 = dba.NameToLabel("label2");
     auto label3 = dba.NameToLabel("label3");
@@ -1315,9 +1316,9 @@ TEST(QueryPlan, SetLabelsWithFineGrained) {
     user.fine_grained_access_handler().label_permissions().Grant("label3",
                                                                  memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
-    memgraph::storage::Storage db;
-    auto storage_dba = db.Access();
-    memgraph::query::DbAccessor dba(&storage_dba);
+    auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
     auto label1 = dba.NameToLabel("label1");
     auto label2 = dba.NameToLabel("label2");
     auto label3 = dba.NameToLabel("label3");
@@ -1328,9 +1329,9 @@ TEST(QueryPlan, SetLabelsWithFineGrained) {
 #endif
 
 TEST(QueryPlan, RemoveProperty) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
 
   // graph with 4 vertices in connected pairs
   // the origin vertex in each par and both edges
@@ -1392,9 +1393,9 @@ TEST(QueryPlan, RemoveProperty) {
 }
 
 TEST(QueryPlan, RemoveLabels) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto label1 = dba.NameToLabel("label1");
   auto label2 = dba.NameToLabel("label2");
@@ -1456,9 +1457,9 @@ TEST(QueryPlan, RemoveLabelsFineGrainedFiltering) {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().label_permissions().Grant("*",
                                                                  memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-    memgraph::storage::Storage db;
-    auto storage_dba = db.Access();
-    memgraph::query::DbAccessor dba(&storage_dba);
+    auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
     auto label1 = dba.NameToLabel("label1");
     auto label2 = dba.NameToLabel("label2");
     auto label3 = dba.NameToLabel("label3");
@@ -1474,9 +1475,9 @@ TEST(QueryPlan, RemoveLabelsFineGrainedFiltering) {
   {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
-    memgraph::storage::Storage db;
-    auto storage_dba = db.Access();
-    memgraph::query::DbAccessor dba(&storage_dba);
+    auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
     auto label1 = dba.NameToLabel("label1");
     auto label2 = dba.NameToLabel("label2");
     auto label3 = dba.NameToLabel("label3");
@@ -1494,9 +1495,9 @@ TEST(QueryPlan, RemoveLabelsFineGrainedFiltering) {
     user.fine_grained_access_handler().label_permissions().Grant("label3",
                                                                  memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
-    memgraph::storage::Storage db;
-    auto storage_dba = db.Access();
-    memgraph::query::DbAccessor dba(&storage_dba);
+    auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
     auto label1 = dba.NameToLabel("label1");
     auto label2 = dba.NameToLabel("label2");
     auto label3 = dba.NameToLabel("label3");
@@ -1507,9 +1508,9 @@ TEST(QueryPlan, RemoveLabelsFineGrainedFiltering) {
 #endif
 
 TEST(QueryPlan, NodeFilterSet) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   // Create a graph such that (v1 {prop: 42}) is connected to v2 and v3.
   auto v1 = dba.InsertVertex();
   auto prop = PROPERTY_PAIR("property");
@@ -1546,9 +1547,9 @@ TEST(QueryPlan, NodeFilterSet) {
 }
 
 TEST(QueryPlan, FilterRemove) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   // Create a graph such that (v1 {prop: 42}) is connected to v2 and v3.
   auto v1 = dba.InsertVertex();
   auto prop = PROPERTY_PAIR("property");
@@ -1582,9 +1583,9 @@ TEST(QueryPlan, FilterRemove) {
 }
 
 TEST(QueryPlan, SetRemove) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   auto v = dba.InsertVertex();
   auto label1 = dba.NameToLabel("label1");
   auto label2 = dba.NameToLabel("label2");
@@ -1613,9 +1614,9 @@ TEST(QueryPlan, Merge) {
   //  - merge_match branch looks for an expansion (any direction)
   //    and sets some property (for result validation)
   //  - merge_create branch just sets some other property
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
   ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("Type")).HasValue());
@@ -1657,9 +1658,9 @@ TEST(QueryPlan, Merge) {
 TEST(QueryPlan, MergeNoInput) {
   // merge with no input, creates a single node
 
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   AstStorage storage;
   SymbolTable symbol_table;
 
@@ -1677,9 +1678,9 @@ TEST(QueryPlan, MergeNoInput) {
 
 TEST(QueryPlan, SetPropertyOnNull) {
   // SET (Null).prop = 42
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   AstStorage storage;
   SymbolTable symbol_table;
   auto prop = PROPERTY_PAIR("property");
@@ -1694,9 +1695,9 @@ TEST(QueryPlan, SetPropertyOnNull) {
 
 TEST(QueryPlan, SetPropertiesOnNull) {
   // OPTIONAL MATCH (n) SET n = n
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   AstStorage storage;
   SymbolTable symbol_table;
   auto n = MakeScanAll(storage, symbol_table, "n");
@@ -1710,9 +1711,9 @@ TEST(QueryPlan, SetPropertiesOnNull) {
 
 TEST(QueryPlan, SetLabelsOnNull) {
   // OPTIONAL MATCH (n) SET n :label
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   auto label = dba.NameToLabel("label");
   AstStorage storage;
   SymbolTable symbol_table;
@@ -1726,9 +1727,9 @@ TEST(QueryPlan, SetLabelsOnNull) {
 
 TEST(QueryPlan, RemovePropertyOnNull) {
   // REMOVE (Null).prop
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   AstStorage storage;
   SymbolTable symbol_table;
   auto prop = PROPERTY_PAIR("property");
@@ -1742,9 +1743,9 @@ TEST(QueryPlan, RemovePropertyOnNull) {
 
 TEST(QueryPlan, RemoveLabelsOnNull) {
   // OPTIONAL MATCH (n) REMOVE n :label
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   auto label = dba.NameToLabel("label");
   AstStorage storage;
   SymbolTable symbol_table;
@@ -1758,9 +1759,9 @@ TEST(QueryPlan, RemoveLabelsOnNull) {
 }
 
 TEST(QueryPlan, DeleteSetProperty) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   // Add a single vertex.
   dba.InsertVertex();
   dba.AdvanceCommand();
@@ -1779,9 +1780,9 @@ TEST(QueryPlan, DeleteSetProperty) {
 }
 
 TEST(QueryPlan, DeleteSetPropertiesFromMap) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   // Add a single vertex.
   dba.InsertVertex();
   dba.AdvanceCommand();
@@ -1804,9 +1805,9 @@ TEST(QueryPlan, DeleteSetPropertiesFromMap) {
 }
 
 TEST(QueryPlan, DeleteSetPropertiesFrom) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   // Add a single vertex.
   {
     auto v = dba.InsertVertex();
@@ -1829,9 +1830,9 @@ TEST(QueryPlan, DeleteSetPropertiesFrom) {
 }
 
 TEST(QueryPlan, DeleteRemoveLabels) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   // Add a single vertex.
   dba.InsertVertex();
   dba.AdvanceCommand();
@@ -1849,9 +1850,9 @@ TEST(QueryPlan, DeleteRemoveLabels) {
 }
 
 TEST(QueryPlan, DeleteRemoveProperty) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   // Add a single vertex.
   dba.InsertVertex();
   dba.AdvanceCommand();
@@ -1875,9 +1876,9 @@ TEST(QueryPlan, DeleteRemoveProperty) {
 #ifdef MG_ENTERPRISE
 class UpdatePropertiesWithAuthFixture : public testing::Test {
  protected:
-  memgraph::storage::Storage db;
-  memgraph::storage::Storage::Accessor storage_dba{db.Access()};
-  memgraph::query::DbAccessor dba{&storage_dba};
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
+  memgraph::query::DbAccessor dba{storage_dba.get()};
   AstStorage storage;
   SymbolTable symbol_table;
 
