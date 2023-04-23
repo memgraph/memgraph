@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,6 +25,7 @@
 #include "license/license.hpp"
 #include "mg_procedure.h"
 #include "module.hpp"
+#include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/procedure/cypher_types.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
@@ -2047,19 +2048,21 @@ mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges
 #endif
 
         if (*it->out_it != it->out->end()) {
-          std::visit(memgraph::utils::Overloaded{
-                         [&](memgraph::query::DbAccessor *) {
-                           it->current_e.emplace(**it->out_it, (**it->out_it).From(), (**it->out_it).To(), v->graph,
-                                                 it->GetMemoryResource());
-                         },
-                         [&](memgraph::query::SubgraphDbAccessor *impl) {
-                           it->current_e.emplace(
-                               **it->out_it,
-                               memgraph::query::SubgraphVertexAccessor((**it->out_it).From(), impl->getGraph()),
-                               memgraph::query::SubgraphVertexAccessor((**it->out_it).To(), impl->getGraph()), v->graph,
-                               it->GetMemoryResource());
-                         }},
-                     v->graph->impl);
+          std::visit(
+              memgraph::utils::Overloaded{
+                  [&](memgraph::query::DbAccessor *) {
+                    // Dereference iterator implicitly call MakeEdgeAccessor which moves EdgeAccessor.
+                    memgraph::query::EdgeAccessor edgeAcc = **it->out_it;
+                    it->current_e.emplace(edgeAcc, edgeAcc.From(), edgeAcc.To(), v->graph, it->GetMemoryResource());
+                  },
+                  [&](memgraph::query::SubgraphDbAccessor *impl) {
+                    auto edgeAcc = **it->out_it;
+                    it->current_e.emplace(edgeAcc,
+                                          memgraph::query::SubgraphVertexAccessor(edgeAcc.From(), impl->getGraph()),
+                                          memgraph::query::SubgraphVertexAccessor(edgeAcc.To(), impl->getGraph()),
+                                          v->graph, it->GetMemoryResource());
+                  }},
+              v->graph->impl);
         }
 
         return it.release();
