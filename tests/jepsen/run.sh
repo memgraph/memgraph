@@ -3,6 +3,23 @@
 set -Eeuo pipefail
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
+MEMGRAPH_BINARY_PATH="../../build/memgraph"
+# NOTE: On Ubuntu 22.04 0.3.2 uses non-existing docker compose --compatibility flag.
+# NOTE: On Ubuntu 22.04 0.3.1 seems to be working.
+JEPSEN_VERSION="${JEPSEN_VERSION:-0.2.5}"
+JEPSEN_ACTIVE_NODES_NO=5
+CONTROL_LEIN_RUN_ARGS="test-all --node-configs resources/node-config.edn"
+CONTROL_LEIN_RUN_STDOUT_LOGS=1
+CONTROL_LEIN_RUN_STDERR_LOGS=1
+PRINT_CONTEXT() {
+    echo -e "MEMGRAPH_BINARY_PATH:\t\t $MEMGRAPH_BINARY_PATH"
+    echo -e "JEPSEN_VERSION:\t\t\t $JEPSEN_VERSION"
+    echo -e "JEPSEN_ACTIVE_NODES_NO:\t\t $JEPSEN_ACTIVE_NODES_NO"
+    echo -e "CONTROL_LEIN_RUN_ARGS:\t\t $JEPSEN_VERSION"
+    echo -e "CONTROL_LEIN_RUN_STDOUT_LOGS:\t $JEPSEN_VERSION"
+    echo -e "CONTROL_LEIN_RUN_STDERR_LOGS:\t $JEPSEN_VERSION"
+}
+
 HELP_EXIT() {
     echo ""
     echo "HELP: $0 help|cluster-up|test [args]"
@@ -28,15 +45,10 @@ if ! command -v docker > /dev/null 2>&1 || ! command -v docker-compose > /dev/nu
   ERROR "docker and docker-compose have to be installed."
   exit 1
 fi
-
-MEMGRAPH_BINARY_PATH="../../build/memgraph"
-JEPSEN_ACTIVE_NODES_NO=5
-CONTROL_LEIN_RUN_ARGS="test-all --node-configs resources/node-config.edn"
-CONTROL_LEIN_RUN_STDOUT_LOGS=1
-CONTROL_LEIN_RUN_STDERR_LOGS=1
+PRINT_CONTEXT
 
 if [ ! -d "$script_dir/jepsen" ]; then
-    git clone https://github.com/jepsen-io/jepsen.git -b "0.2.1" "$script_dir/jepsen"
+    git clone https://github.com/jepsen-io/jepsen.git -b "$JEPSEN_VERSION" "$script_dir/jepsen"
 fi
 
 if [ "$#" -lt 1 ]; then
@@ -110,6 +122,7 @@ case $1 in
             docker exec "$jepsen_node_name" rm -rf /opt/memgraph/
             docker exec "$jepsen_node_name" mkdir -p /opt/memgraph
             docker cp "$binary_path" "$jepsen_node_name":/opt/memgraph/"$binary_name"
+            # TODO(gitbuda): This doesn't work if the pure binary is linked called memgraph
             docker exec "$jepsen_node_name" bash -c "rm -f /opt/memgraph/memgraph && ln -s /opt/memgraph/$binary_name /opt/memgraph/memgraph"
             INFO "Copying $binary_name to $jepsen_node_name DONE."
         done
