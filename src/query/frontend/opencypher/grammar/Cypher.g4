@@ -290,6 +290,8 @@ patternComprehension : '[' ( variable '=' )? relationshipsPattern ( WHERE expres
 
 propertyLookup : '.' ( propertyKeyName ) ;
 
+allPropertyLookup : '.' '*' ;
+
 caseExpression : ( ( CASE ( caseAlternatives )+ ) | ( CASE test=expression ( caseAlternatives )+ ) ) ( ELSE else_expression=expression )? END ;
 
 caseAlternatives : WHEN when_expression=expression THEN then_expression=expression ;
@@ -302,11 +304,23 @@ numberLiteral : doubleLiteral
 
 mapLiteral : '{' ( propertyKeyName ':' expression ( ',' propertyKeyName ':' expression )* )? '}' ;
 
+mapProjectionLiteral : mapVariable '{' ( mapElement ( ',' mapElement )* )? '}' ;
+
+mapVariable : variable ;
+
+mapElement : propertyLookup
+           | allPropertyLookup
+           | expression
+           | propertyPair
+           ;
+
 parameter : '$' ( symbolicName | DecimalLiteral ) ;
 
 propertyExpression : atom ( propertyLookup )+ ;
 
 propertyKeyName : symbolicName ;
+
+propertyPair : propertyKeyName ':' expression ;
 
 integerLiteral : DecimalLiteral
                | OctalLiteral
