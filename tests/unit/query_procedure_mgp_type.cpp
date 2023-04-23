@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,6 +17,7 @@
 
 #include "query/procedure/cypher_types.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 
 #include "test_utils.hpp"
 
@@ -224,9 +225,9 @@ TEST(CypherType, MapSatisfiesType) {
 }
 
 TEST(CypherType, VertexSatisfiesType) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   auto vertex = dba.InsertVertex();
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
   memgraph::utils::Allocator<mgp_vertex> alloc(memory.impl);
@@ -248,9 +249,9 @@ TEST(CypherType, VertexSatisfiesType) {
 }
 
 TEST(CypherType, EdgeSatisfiesType) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
   auto edge = *dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("edge_type"));
@@ -273,9 +274,9 @@ TEST(CypherType, EdgeSatisfiesType) {
 }
 
 TEST(CypherType, PathSatisfiesType) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
   auto edge = *dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("edge_type"));
