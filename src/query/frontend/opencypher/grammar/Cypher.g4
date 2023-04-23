@@ -248,6 +248,7 @@ literal : numberLiteral
         | booleanLiteral
         | CYPHERNULL
         | mapLiteral
+        | mapProjectionLiteral
         | listLiteral
         ;
 
