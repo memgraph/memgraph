@@ -390,12 +390,12 @@ class DbAccessor final {
       return res.GetError();
     }
 
-    const auto &value = res.GetValue();
+    auto &value = res.GetValue();
     if (!value) {
       return std::optional<EdgeAccessor>{};
     }
 
-    return std::make_optional<EdgeAccessor>(value.get());
+    return std::make_optional<EdgeAccessor>(std::move(value));
   }
 
   storage::Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachRemoveVertex(
@@ -417,7 +417,7 @@ class DbAccessor final {
     std::vector<EdgeAccessor> deleted_edges;
     deleted_edges.reserve(edges.size());
     std::transform(edges.begin(), edges.end(), std::back_inserter(deleted_edges),
-                   [](const auto &deleted_edge) { return EdgeAccessor{deleted_edge.get()}; });
+                   [](auto &deleted_edge) { return EdgeAccessor{std::move(deleted_edge)}; });
 
     return std::make_optional<ReturnType>(std::move(vertex), std::move(deleted_edges));
   }
