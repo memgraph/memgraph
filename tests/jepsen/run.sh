@@ -108,23 +108,25 @@ case $1 in
             esac
         done
 
-        # Resolve binary path if it is a link.
+        # Copy Memgraph binary, handles both cases, when binary is a sym link
+        # or a regular file.
         binary_path="$MEMGRAPH_BINARY_PATH"
         if [ -L "$binary_path" ]; then
             binary_path=$(readlink "$binary_path")
         fi
         binary_name=$(basename -- "$binary_path")
-
-        # Copy Memgraph binary.
         for iter in $(seq 1 "$JEPSEN_ACTIVE_NODES_NO"); do
             jepsen_node_name="jepsen-n$iter"
-            # Cleanup the node folder with previous binaries.
-            docker exec "$jepsen_node_name" rm -rf /opt/memgraph/
-            docker exec "$jepsen_node_name" mkdir -p /opt/memgraph
-            docker cp "$binary_path" "$jepsen_node_name":/opt/memgraph/"$binary_name"
-            # TODO(gitbuda): This doesn't work if the pure binary is linked called memgraph
-            docker exec "$jepsen_node_name" bash -c "rm -f /opt/memgraph/memgraph && ln -s /opt/memgraph/$binary_name /opt/memgraph/memgraph"
-            docker exec "$jepsen_node_name" bash -c "touch /opt/memgraph/memgraph.log"
+            docker_exec="docker exec $jepsen_node_name bash -c"
+            if [ "$binary_name" == "memgraph" ]; then
+              _binary_name="memgraph_tmp"
+            else
+              _binary_name="$binary_name"
+            fi
+            $docker_exec "rm -rf /opt/memgraph/ && mkdir -p /opt/memgraph"
+            docker cp "$binary_path" "$jepsen_node_name":/opt/memgraph/"$_binary_name"
+            $docker_exec "ln -s /opt/memgraph/$_binary_name /opt/memgraph/memgraph"
+            $docker_exec "touch /opt/memgraph/memgraph.log"
             INFO "Copying $binary_name to $jepsen_node_name DONE."
         done
 
