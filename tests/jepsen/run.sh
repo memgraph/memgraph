@@ -46,7 +46,6 @@ if ! command -v docker > /dev/null 2>&1 || ! command -v docker-compose > /dev/nu
   exit 1
 fi
 PRINT_CONTEXT
-exit 1
 
 if [ ! -d "$script_dir/jepsen" ]; then
     git clone https://github.com/jepsen-io/jepsen.git -b "$JEPSEN_VERSION" "$script_dir/jepsen"
