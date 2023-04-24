@@ -54,6 +54,7 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
   void Visit(IfOperator &op) override;
   void Visit(ListLiteral &op) override;
   void Visit(MapLiteral &op) override;
+  void Visit(MapProjectionLiteral &op) override;  // TODO ante
   void Visit(LabelsTest &op) override;
   void Visit(Aggregation &op) override;
   void Visit(Function &op) override;
@@ -68,6 +69,7 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
   void Visit(Identifier &op) override;
   void Visit(PrimitiveLiteral &op) override;
   void Visit(PropertyLookup &op) override;
+  void Visit(AllPropertyLookup &op) override;  // TODO ante
   void Visit(ParameterLookup &op) override;
   void Visit(NamedExpression &op) override;
   void Visit(RegexMatch &op) override;
@@ -177,6 +179,20 @@ void PrintObject(std::ostream *out, const std::map<K, V> &map) {
   *out << "}";
 }
 
+// template <typename P, typename K, typename V>
+template <typename P, typename E>
+void PrintObject(std::ostream *out, const std::pair<P, std::vector<E>> &map) {
+  // TODO ante
+  *out << "{";
+  *out << "map_projection";
+  // utils::PrintIterable(*out, map, ", ", [](auto &stream, const auto &item) {
+  //   PrintObject(&stream, item.first);
+  //   stream << ": ";
+  //   PrintObject(&stream, item.second);
+  // });
+  *out << "}";
+}
+
 template <typename T>
 void PrintOperatorArgs(std::ostream *out, const T &arg) {
   *out << " ";
@@ -249,6 +265,16 @@ void ExpressionPrettyPrinter::Visit(MapLiteral &op) {
   PrintObject(out_, map);
 }
 
+void ExpressionPrettyPrinter::Visit(MapProjectionLiteral &op) {
+  // TODO ante
+  // std::map<std::string, Expression *> map;
+  std::map<Expression *, std::vector<Expression *>> map;
+  // for (const auto &kv : op.elements_) {
+  //   map[kv.first.name] = kv.second;
+  // }
+  PrintObject(out_, map);
+}
+
 void ExpressionPrettyPrinter::Visit(LabelsTest &op) { PrintOperator(out_, "LabelsTest", op.expression_); }
 
 void ExpressionPrettyPrinter::Visit(Aggregation &op) { PrintOperator(out_, "Aggregation", op.op_); }
@@ -289,6 +315,11 @@ void ExpressionPrettyPrinter::Visit(PrimitiveLiteral &op) { PrintObject(out_, op
 
 void ExpressionPrettyPrinter::Visit(PropertyLookup &op) {
   PrintOperator(out_, "PropertyLookup", op.expression_, op.property_.name);
+}
+
+// TODO ante
+void ExpressionPrettyPrinter::Visit(AllPropertyLookup &op) {
+  PrintOperator(out_, "AllPropertyLookup", op.expression_, "*");
 }
 
 void ExpressionPrettyPrinter::Visit(ParameterLookup &op) { PrintOperator(out_, "ParameterLookup", op.token_position_); }

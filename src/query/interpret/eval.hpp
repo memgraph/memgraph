@@ -73,11 +73,13 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue *> {
   UNSUCCESSFUL_VISIT(ListSlicingOperator);
   UNSUCCESSFUL_VISIT(IsNullOperator);
   UNSUCCESSFUL_VISIT(PropertyLookup);
+  UNSUCCESSFUL_VISIT(AllPropertyLookup);  // TODO ante
   UNSUCCESSFUL_VISIT(LabelsTest);
 
   UNSUCCESSFUL_VISIT(PrimitiveLiteral);
   UNSUCCESSFUL_VISIT(ListLiteral);
   UNSUCCESSFUL_VISIT(MapLiteral);
+  UNSUCCESSFUL_VISIT(MapProjectionLiteral);  // TODO ante
   UNSUCCESSFUL_VISIT(Aggregation);
   UNSUCCESSFUL_VISIT(Coalesce);
   UNSUCCESSFUL_VISIT(Function);
@@ -470,6 +472,23 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
   }
 
+  // TODO ante
+  TypedValue Visit(AllPropertyLookup &all_property_lookup) override {
+    throw QueryRuntimeException("Map projection functionality not yet implemented!");
+
+    // ReferenceExpressionEvaluator referenceExpressionEvaluator(frame_, symbol_table_, ctx_);
+
+    // TypedValue *expression_result_ptr = all_property_lookup.expression_->Accept(referenceExpressionEvaluator);
+    // TypedValue expression_result;
+
+    // if (nullptr == expression_result_ptr) {
+    //   expression_result = all_property_lookup.expression_->Accept(*this);
+    //   expression_result_ptr = &expression_result;
+    // }
+
+    // return TypedValue(ctx_->memory);
+  }
+
   TypedValue Visit(LabelsTest &labels_test) override {
     auto expression_result = labels_test.expression_->Accept(*this);
     switch (expression_result.type()) {
@@ -529,6 +548,15 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     TypedValue::TMap result(ctx_->memory);
     for (const auto &pair : literal.elements_) result.emplace(pair.first.name, pair.second->Accept(*this));
     return TypedValue(result, ctx_->memory);
+  }
+
+  // TODO ante
+  TypedValue Visit(MapProjectionLiteral &literal) override {
+    throw QueryRuntimeException("Map projection functionality not yet implemented!");
+
+    // TypedValue::TMap result(ctx_->memory);
+    // // for (const auto &pair : literal.elements_) result.emplace(pair.first.name, pair.second->Accept(*this));
+    // return TypedValue(result, ctx_->memory);
   }
 
   TypedValue Visit(Aggregation &aggregation) override {

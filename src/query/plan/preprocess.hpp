@@ -180,6 +180,7 @@ class PatternFilterVisitor : public ExpressionVisitor<void> {
   void Visit(IfOperator &op) override{};
   void Visit(ListLiteral &op) override{};
   void Visit(MapLiteral &op) override{};
+  void Visit(MapProjectionLiteral &op) override{};  // TODO ante
   void Visit(LabelsTest &op) override{};
   void Visit(Aggregation &op) override{};
   void Visit(Function &op) override{};
@@ -194,6 +195,7 @@ class PatternFilterVisitor : public ExpressionVisitor<void> {
   void Visit(Identifier &op) override{};
   void Visit(PrimitiveLiteral &op) override{};
   void Visit(PropertyLookup &op) override{};
+  void Visit(AllPropertyLookup &op) override{};  // TODO ante
   void Visit(ParameterLookup &op) override{};
   void Visit(NamedExpression &op) override{};
   void Visit(RegexMatch &op) override{};

@@ -117,6 +117,15 @@ constexpr utils::TypeInfo query::MapLiteral::kType{utils::TypeId::AST_MAP_LITERA
 constexpr utils::TypeInfo query::MapProjectionLiteral::kType{utils::TypeId::AST_MAP_PROJECTION_LITERAL,
                                                              "MapProjectionLiteral", &query::BaseLiteral::kType};
 
+// constexpr utils::TypeInfo query::MapVariable::kType{utils::TypeId::AST_MAP_VARIABLE, "MapVariable",
+//                                                     &query::Expression::kType};
+
+// constexpr utils::TypeInfo query::MapElement::kType{utils::TypeId::AST_MAP_ELEMENT, "MapElement",
+//                                                    &query::Expression::kType};
+
+// constexpr utils::TypeInfo query::PropertyPair::kType{utils::TypeId::AST_PROPERTY_PAIR, "PropertyPair",
+//                                                      &query::Expression::kType};
+
 constexpr utils::TypeInfo query::Identifier::kType{utils::TypeId::AST_IDENTIFIER, "Identifier",
                                                    &query::Expression::kType};
 
