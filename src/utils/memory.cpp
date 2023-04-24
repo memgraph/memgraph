@@ -242,7 +242,6 @@ void Pool::Deallocate(void *p) {
   last_alloc_chunk_ = &*it;
   last_dealloc_chunk_ = &*it;
   deallocate_block_from_chunk(last_dealloc_chunk_);
-  return;
   // TODO: We could release the Chunk to upstream memory
 }
 
