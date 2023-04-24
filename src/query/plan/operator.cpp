@@ -53,6 +53,7 @@
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/pmr/list.hpp"
 #include "utils/pmr/unordered_map.hpp"
 #include "utils/pmr/unordered_set.hpp"
@@ -4472,6 +4473,7 @@ class CallProcedureCursor : public Cursor {
   mgp_result result_;
   decltype(result_.rows.end()) result_row_it_{result_.rows.end()};
   size_t result_signature_size_{0};
+  utils::PoolResource poolResource_{8, 2048, utils::NewDeleteResource(), utils::NewDeleteResource()};
 
  public:
   CallProcedureCursor(const CallProcedure *self, utils::MemoryResource *mem)
@@ -4480,7 +4482,7 @@ class CallProcedureCursor : public Cursor {
         // result_ needs to live throughout multiple Pull evaluations, until all
         // rows are produced. Therefore, we use the memory dedicated for the
         // whole execution.
-        result_(nullptr, mem) {
+        result_(nullptr, &poolResource_) {
     MG_ASSERT(self_->result_fields_.size() == self_->result_symbols_.size(), "Incorrectly constructed CallProcedure");
   }
 
@@ -4499,6 +4501,7 @@ class CallProcedureCursor : public Cursor {
       result_.signature = nullptr;
       result_.rows.clear();
       result_.error_msg.reset();
+      poolResource_.Release();
       // It might be a good idea to resolve the procedure name once, at the
       // start. Unfortunately, this could deadlock if we tried to invoke a
       // procedure from a module (read lock) and reload a module (write lock)
@@ -4527,7 +4530,14 @@ class CallProcedureCursor : public Cursor {
       // evaluation of an expression.
       // TODO: This will probably need to be changed when we add support for
       // generator like procedures which yield a new result on each invocation.
-      auto *memory = context.evaluation_context.memory;
+
+      // 1. problem je sto se koristi ova memorija
+      // 2. problem je sto je to memorija od EvalContexta
+      // 3. problem je sto se koristi i neka memorija od QueryExecutiona
+
+      utils::PoolResource poolResource{8, 2048, utils::NewDeleteResource(), utils::NewDeleteResource()};
+      auto *memory = &poolResource;
+      utils::OnScopeExit scope_exit([&poolResource] { poolResource.Release(); });
       auto memory_limit = EvaluateMemoryLimit(&evaluator, self_->memory_limit_, self_->memory_scale_);
       auto graph = mgp_graph::WritableGraph(*context.db_accessor, graph_view, context);
       CallCustomProcedure(self_->procedure_name_, *proc, self_->arguments_, graph, &evaluator, memory, memory_limit,
