@@ -444,8 +444,8 @@ std::pair<std::string, std::string> DiskStorage::DiskAccessor::SerializeEdge(con
   return {src_dest_key, dest_src_key};
 }
 
-std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(const rocksdb::Slice &&key,
-                                                                             const rocksdb::Slice &&value) {
+std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(const rocksdb::Slice &key,
+                                                                             const rocksdb::Slice &value) {
   /// Create vertex
 
   const std::vector<std::string> vertex_parts = utils::Split(key.ToStringView(), "|");
@@ -498,9 +498,8 @@ std::unique_ptr<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const s
   }
   const auto edge_type_id = storage::EdgeTypeId::FromUint(std::stoull(edge_parts[3]));
   auto maybe_edge = CreateEdge(&*from_acc, &*to_acc, edge_type_id, DeserializeIdType(edge_parts[4]));
-  // bool is_valid_entry = std::stoull(vertex_parts[5]) < transaction_.start_timestamp;
   MG_ASSERT(maybe_edge.HasValue());
-  (*maybe_edge)->SetPropertyStore(value);
+  static_cast<DiskEdgeAccessor *>(maybe_edge->get())->InitializeDeserializedEdge(edge_type_id, value);
   // TODO: why is here explicitly deleted constructor and not in DeserializeVertex?
   return std::move(*maybe_edge);
 }
@@ -631,9 +630,10 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::G
   auto it =
       std::unique_ptr<rocksdb::Iterator>(storage_->db_->NewIterator(rocksdb::ReadOptions(), storage_->vertex_chandle));
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
-    const auto &key = it->key().ToString();
-    if (const auto vertex_parts = utils::Split(key, "|"); vertex_parts[1] == SerializeIdType(gid)) {
-      // return DeserializeVertex(key, it->value().ToStringView());
+    const auto &key = it->key();
+    // TODO(andi): If we change format of vertex serialization, change vertex_parts[1] to vertex_parts[0].
+    if (const auto vertex_parts = utils::Split(key.ToString(), "|"); vertex_parts[1] == SerializeIdType(gid)) {
+      return DeserializeVertex(key, it->value());
     }
   }
   return nullptr;
@@ -770,7 +770,8 @@ Result<std::unique_ptr<EdgeAccessor>> DiskStorage::DiskAccessor::CreateEdge(Vert
   MG_ASSERT(config_.properties_on_edges, "Properties on edges must be enabled currently for Disk version!");
   // if (config_.properties_on_edges) {
   auto acc = storage_->edges_.access();
-  auto delta = CreateDeleteObjectDelta(&transaction_);
+  uint64_t edge_commit_ts = 0;
+  auto delta = CreateDeleteDeserializedObjectDelta(&transaction_, edge_commit_ts);
   auto [it, inserted] = acc.insert(DiskEdge(gid, delta));
   MG_ASSERT(inserted, "The edge must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
@@ -840,7 +841,8 @@ Result<std::unique_ptr<EdgeAccessor>> DiskStorage::DiskAccessor::CreateEdge(Vert
   MG_ASSERT(config_.properties_on_edges, "Properties on edges must be enabled currently for Disk version!");
   // if (config_.properties_on_edges) {
   auto acc = storage_->edges_.access();
-  auto delta = CreateDeleteObjectDelta(&transaction_);
+  uint64_t edge_commit_ts = 0;
+  auto delta = CreateDeleteDeserializedObjectDelta(&transaction_, edge_commit_ts);
   auto [it, inserted] = acc.insert(Edge(gid, delta));
   MG_ASSERT(inserted, "The edge must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
@@ -1629,9 +1631,9 @@ void DiskStorage::CollectGarbage() {
   }
 
   // TODO(andi): Remove this after we are assured that deserialization works
-  vertices_.clear();
-  edges_.clear();
-  spdlog::debug("Cleared caches");
+  // vertices_.clear();
+  // edges_.clear();
+  // spdlog::debug("Cleared caches");
 }
 
 // tell the linker he can find the CollectGarbage definitions here

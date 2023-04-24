@@ -97,6 +97,14 @@ bool DiskEdgeAccessor::IsVisible(const View view) const {
   throw utils::NotYetImplemented("IsVisible for edges without properties is not implemented yet.");
 }
 
+void DiskEdgeAccessor::InitializeDeserializedEdge(EdgeTypeId edge_type_id, std::string_view property_store) {
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  // TODO(andi): What if config properties on edges are disablesd and can we make it work without lock?
+  std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
+  edge_type_ = edge_type_id;
+  SetPropertyStore(property_store);
+}
+
 std::unique_ptr<VertexAccessor> DiskEdgeAccessor::FromVertex() const {
   // return std::make_unique<DiskVertexAccessor>(from_vertex_, transaction_, indices_, constraints_, config_);
   throw utils::NotYetImplemented("FromVertex is not implemented yet.");
@@ -133,7 +141,7 @@ Result<storage::PropertyValue> DiskEdgeAccessor::SetProperty(PropertyId property
 }
 
 Result<bool> DiskEdgeAccessor::InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
-  /*utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   if (!config_.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
   std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
@@ -148,8 +156,6 @@ Result<bool> DiskEdgeAccessor::InitProperties(const std::map<storage::PropertyId
   }
 
   return true;
-  */
-  throw utils::NotYetImplemented("InitProperties is not implemented yet.");
 }
 
 Result<std::map<PropertyId, PropertyValue>> DiskEdgeAccessor::ClearProperties() {

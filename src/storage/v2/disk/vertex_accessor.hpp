@@ -46,9 +46,8 @@ class DiskVertexAccessor final : public VertexAccessor {
   static std::unique_ptr<DiskVertexAccessor> Create(Vertex *vertex, Transaction *transaction, Indices *indices,
                                                     Constraints *constraints, Config::Items config, View view);
 
-  /// The method initializes the vertex from the disk. It add only one CreateDeleteObjectDelete
-  /// with timestamp being set to vertex's commit timestamp
-  bool InitializeDeserializedVertex(std::vector<LabelId> &label_ids, std::string_view property_store);
+  /// The method initializes the vertex from the disk.
+  void InitializeDeserializedVertex(const std::vector<LabelId> &label_ids, std::string_view property_store);
 
   /// @return true if the object is visible from the current transaction
   bool IsVisible(View view) const override;

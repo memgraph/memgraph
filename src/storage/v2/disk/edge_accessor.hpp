@@ -50,6 +50,9 @@ class DiskEdgeAccessor final : public EdgeAccessor {
   /// @return true if the object is visible from the current transaction
   bool IsVisible(View view) const override;
 
+  /// Initializes deserialized edge from the disk.
+  void InitializeDeserializedEdge(EdgeTypeId edge_type_id, std::string_view property_store);
+
   std::unique_ptr<VertexAccessor> FromVertex() const override;
 
   std::unique_ptr<VertexAccessor> ToVertex() const override;

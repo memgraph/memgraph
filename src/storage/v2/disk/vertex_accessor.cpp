@@ -64,15 +64,14 @@ std::pair<bool, bool> IsVisible(Vertex *vertex, Transaction *transaction, View v
 }  // namespace
 }  // namespace detail
 
-bool DiskVertexAccessor::InitializeDeserializedVertex(std::vector<LabelId> &label_ids,
-                                                      std::string_view property_store) {
+void DiskVertexAccessor::InitializeDeserializedVertex(const std::vector<LabelId> &label_ids,
+                                                      const std::string_view property_store) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
-  std::for_each(label_ids.begin(), label_ids.end(), [this](LabelId &label_id) { vertex_->labels.push_back(label_id); });
+  std::for_each(label_ids.begin(), label_ids.end(),
+                [this](const LabelId &label_id) { vertex_->labels.push_back(label_id); });
   SetPropertyStore(property_store);
-
-  return true;
 }
 
 std::unique_ptr<DiskVertexAccessor> DiskVertexAccessor::Create(Vertex *vertex, Transaction *transaction,
