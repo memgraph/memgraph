@@ -22,8 +22,7 @@
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
 #include "query/stream/streams.hpp"
-#include "storage/v2/disk/storage.hpp"
-#include "storage/v2/storage.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "test_utils.hpp"
 
 using Streams = memgraph::query::stream::Streams;
@@ -55,7 +54,7 @@ class StreamsTest : public ::testing::Test {
   StreamsTest() { ResetStreamsObject(); }
 
  protected:
-  memgraph::storage::Storage db_;
+  std::unique_ptr<memgraph::storage::Storage> db_{new memgraph::storage::InMemoryStorage()};
   std::filesystem::path data_directory_{GetCleanDataDirectory()};
   KafkaClusterMock mock_cluster_{std::vector<std::string>{kTopicName}};
   // Though there is a Streams object in interpreter context, it makes more sense to use a separate object to test,
@@ -63,7 +62,8 @@ class StreamsTest : public ::testing::Test {
   // Streams constructor.
   // InterpreterContext::auth_checker_ is used in the Streams object, but only in the message processing part. Because
   // these tests don't send any messages, the auth_checker_ pointer can be left as nullptr.
-  memgraph::query::InterpreterContext interpreter_context_{&db_, memgraph::query::InterpreterConfig{}, data_directory_};
+  memgraph::query::InterpreterContext interpreter_context_{db_.get(), memgraph::query::InterpreterConfig{},
+                                                           data_directory_};
   std::filesystem::path streams_data_directory_{data_directory_ / "separate-dir-for-test"};
   std::optional<Streams> streams_;
 

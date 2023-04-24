@@ -11,6 +11,10 @@
 
 #include <gtest/gtest.h>
 
+#include <memory>
+
+#include "storage/v2/inmemory/storage.hpp"
+
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/read_write_type_checker.hpp"
@@ -23,13 +27,12 @@ using RWType = ReadWriteTypeChecker::RWType;
 
 class ReadWriteTypeCheckTest : public ::testing::Test {
  protected:
-  ReadWriteTypeCheckTest() : db(), dba(db.Access()) {}
-
   AstStorage storage;
   SymbolTable symbol_table;
 
-  memgraph::storage::Storage db;
-  memgraph::storage::Storage::Accessor dba;
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> dba_storage{db->Access()};
+  memgraph::query::DbAccessor dba{dba_storage.get()};
 
   const Symbol &GetSymbol(std::string name) { return symbol_table.CreateSymbol(name, true); }
 

@@ -66,6 +66,8 @@ class EdgeAccessor final {
     return *this;
   }
 
+  ~EdgeAccessor() = default;
+
   bool IsVisible(storage::View view) const { return impl_->IsVisible(view); }
 
   storage::EdgeTypeId EdgeType() const { return impl_->EdgeType(); }
@@ -102,7 +104,7 @@ class EdgeAccessor final {
 
   storage::Gid Gid() const noexcept { return impl_->Gid(); }
 
-  bool operator==(const EdgeAccessor &e) const noexcept { return impl_ == e.impl_; }
+  bool operator==(const EdgeAccessor &e) const noexcept { return *impl_ == *e.impl_; }
 
   bool operator!=(const EdgeAccessor &e) const noexcept { return !(*this == e); }
 };
@@ -207,7 +209,7 @@ class VertexAccessor final {
 
   storage::Gid Gid() const noexcept { return impl_->Gid(); }
 
-  bool operator==(const VertexAccessor &v) const { return impl_ == v.impl_; }
+  bool operator==(const VertexAccessor &v) const { return *impl_ == *v.impl_; }
 
   bool operator!=(const VertexAccessor &v) const { return !(*this == v); }
 };
@@ -379,7 +381,7 @@ class DbAccessor final {
                                            const storage::EdgeTypeId &edge_type) {
     auto maybe_edge = accessor_->CreateEdge(from->impl_.get(), to->impl_.get(), edge_type);
     if (maybe_edge.HasError()) return storage::Result<EdgeAccessor>(maybe_edge.GetError());
-    return EdgeAccessor((*maybe_edge).get());
+    return EdgeAccessor(std::move(*maybe_edge));
   }
 
   storage::Result<std::optional<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge) {
@@ -388,12 +390,12 @@ class DbAccessor final {
       return res.GetError();
     }
 
-    const auto &value = res.GetValue();
+    auto &value = res.GetValue();
     if (!value) {
       return std::optional<EdgeAccessor>{};
     }
 
-    return std::make_optional<EdgeAccessor>(value.get());
+    return std::make_optional<EdgeAccessor>(std::move(value));
   }
 
   storage::Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachRemoveVertex(
@@ -415,7 +417,7 @@ class DbAccessor final {
     std::vector<EdgeAccessor> deleted_edges;
     deleted_edges.reserve(edges.size());
     std::transform(edges.begin(), edges.end(), std::back_inserter(deleted_edges),
-                   [](const auto &deleted_edge) { return EdgeAccessor{deleted_edge.get()}; });
+                   [](auto &deleted_edge) { return EdgeAccessor{std::move(deleted_edge)}; });
 
     return std::make_optional<ReturnType>(std::move(vertex), std::move(deleted_edges));
   }

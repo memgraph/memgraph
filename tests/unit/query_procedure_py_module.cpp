@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,6 +16,7 @@
 
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/py_module.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "test_utils.hpp"
 
 TEST(PyModule, MgpValueToPyObject) {
@@ -95,23 +96,23 @@ static void AssertPickleAndCopyAreNotSupported(PyObject *py_obj) {
 
 TEST(PyModule, PyVertex) {
   // Initialize the database with 2 vertices and 1 edge.
-  memgraph::storage::Storage db;
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
   {
-    auto dba = db.Access();
-    auto v1 = dba.CreateVertex();
-    auto v2 = dba.CreateVertex();
+    auto dba = db->Access();
+    auto v1 = dba->CreateVertex();
+    auto v2 = dba->CreateVertex();
 
-    ASSERT_TRUE(v1.SetProperty(dba.NameToProperty("key1"), memgraph::storage::PropertyValue("value1")).HasValue());
-    ASSERT_TRUE(v1.SetProperty(dba.NameToProperty("key2"), memgraph::storage::PropertyValue(1337)).HasValue());
+    ASSERT_TRUE(v1->SetProperty(dba->NameToProperty("key1"), memgraph::storage::PropertyValue("value1")).HasValue());
+    ASSERT_TRUE(v1->SetProperty(dba->NameToProperty("key2"), memgraph::storage::PropertyValue(1337)).HasValue());
 
-    auto e = dba.CreateEdge(&v1, &v2, dba.NameToEdgeType("type"));
+    auto e = dba->CreateEdge(v1.get(), v2.get(), dba->NameToEdgeType("type"));
     ASSERT_TRUE(e.HasValue());
 
-    ASSERT_FALSE(dba.Commit().HasError());
+    ASSERT_FALSE(dba->Commit().HasError());
   }
   // Get the first vertex as an mgp_value.
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
   mgp_graph graph{&dba, memgraph::storage::View::OLD};
   auto *vertex = EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{0}, &memory);
@@ -145,22 +146,24 @@ TEST(PyModule, PyVertex) {
 
 TEST(PyModule, PyEdge) {
   // Initialize the database with 2 vertices and 1 edge.
-  memgraph::storage::Storage db;
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
   {
-    auto dba = db.Access();
-    auto v1 = dba.CreateVertex();
-    auto v2 = dba.CreateVertex();
+    auto dba = db->Access();
+    auto v1 = dba->CreateVertex();
+    auto v2 = dba->CreateVertex();
 
-    auto e = dba.CreateEdge(&v1, &v2, dba.NameToEdgeType("type"));
+    auto e = dba->CreateEdge(v1.get(), v2.get(), dba->NameToEdgeType("type"));
     ASSERT_TRUE(e.HasValue());
 
-    ASSERT_TRUE(e->SetProperty(dba.NameToProperty("key1"), memgraph::storage::PropertyValue("value1")).HasValue());
-    ASSERT_TRUE(e->SetProperty(dba.NameToProperty("key2"), memgraph::storage::PropertyValue(1337)).HasValue());
-    ASSERT_FALSE(dba.Commit().HasError());
+    ASSERT_TRUE(
+        e.GetValue()->SetProperty(dba->NameToProperty("key1"), memgraph::storage::PropertyValue("value1")).HasValue());
+    ASSERT_TRUE(
+        e.GetValue()->SetProperty(dba->NameToProperty("key2"), memgraph::storage::PropertyValue(1337)).HasValue());
+    ASSERT_FALSE(dba->Commit().HasError());
   }
   // Get the edge as an mgp_value.
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
   mgp_graph graph{&dba, memgraph::storage::View::OLD};
   auto *start_v = EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{0}, &memory);
@@ -198,16 +201,16 @@ TEST(PyModule, PyEdge) {
 }
 
 TEST(PyModule, PyPath) {
-  memgraph::storage::Storage db;
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
   {
-    auto dba = db.Access();
-    auto v1 = dba.CreateVertex();
-    auto v2 = dba.CreateVertex();
-    ASSERT_TRUE(dba.CreateEdge(&v1, &v2, dba.NameToEdgeType("type")).HasValue());
-    ASSERT_FALSE(dba.Commit().HasError());
+    auto dba = db->Access();
+    auto v1 = dba->CreateVertex();
+    auto v2 = dba->CreateVertex();
+    ASSERT_TRUE(dba->CreateEdge(v1.get(), v2.get(), dba->NameToEdgeType("type")).HasValue());
+    ASSERT_FALSE(dba->Commit().HasError());
   }
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
   mgp_graph graph{&dba, memgraph::storage::View::OLD};
   auto *start_v = EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{0}, &memory);

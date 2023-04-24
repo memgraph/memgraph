@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,6 +21,7 @@
 #include "query/exceptions.hpp"
 #include "query/plan/operator.hpp"
 #include "query_plan_common.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 
 using namespace memgraph::query;
 using namespace memgraph::query::plan;
@@ -36,9 +37,9 @@ TEST(QueryPlan, Accumulate) {
   // with accumulation we expect them to be [[2, 2], [2, 2]]
 
   auto check = [&](bool accumulate) {
-    memgraph::storage::Storage db;
-    auto storage_dba = db.Access();
-    memgraph::query::DbAccessor dba(&storage_dba);
+    auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
     auto prop = dba.NameToProperty("x");
 
     auto v1 = dba.InsertVertex();
@@ -88,9 +89,9 @@ TEST(QueryPlan, AccumulateAdvance) {
   // we simulate 'CREATE (n) WITH n AS n MATCH (m) RETURN m'
   // to get correct results we need to advance the command
   auto check = [&](bool advance) {
-    memgraph::storage::Storage db;
-    auto storage_dba = db.Access();
-    memgraph::query::DbAccessor dba(&storage_dba);
+    auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
     AstStorage storage;
     SymbolTable symbol_table;
     NodeCreationInfo node;
@@ -140,10 +141,10 @@ std::shared_ptr<Produce> MakeAggregationProduce(std::shared_ptr<LogicalOperator>
 /** Test fixture for all the aggregation ops in one return. */
 class QueryPlanAggregateOps : public ::testing::Test {
  protected:
-  memgraph::storage::Storage db;
-  memgraph::storage::Storage::Accessor storage_dba{db.Access()};
-  memgraph::query::DbAccessor dba{&storage_dba};
-  memgraph::storage::PropertyId prop = db.NameToProperty("prop");
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
+  memgraph::query::DbAccessor dba{storage_dba.get()};
+  memgraph::storage::PropertyId prop = db->NameToProperty("prop");
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -290,9 +291,9 @@ TEST(QueryPlan, AggregateGroupByValues) {
   // Tests that distinct groups are aggregated properly for values of all types.
   // Also test the "remember" part of the Aggregation API as final results are
   // obtained via a property lookup of a remembered node.
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
 
   // a vector of memgraph::storage::PropertyValue to be set as property values on vertices
   // most of them should result in a distinct group (commented where not)
@@ -354,9 +355,9 @@ TEST(QueryPlan, AggregateMultipleGroupBy) {
   // in this test we have 3 different properties that have different values
   // for different records and assert that we get the correct combination
   // of values in our groups
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto prop1 = dba.NameToProperty("prop1");
   auto prop2 = dba.NameToProperty("prop2");
@@ -387,9 +388,9 @@ TEST(QueryPlan, AggregateMultipleGroupBy) {
 }
 
 TEST(QueryPlan, AggregateNoInput) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   AstStorage storage;
   SymbolTable symbol_table;
 
@@ -412,9 +413,9 @@ TEST(QueryPlan, AggregateCountEdgeCases) {
   //  - 2 vertices in database, property set on one
   //  - 2 vertices in database, property set on both
 
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   auto prop = dba.NameToProperty("prop");
 
   AstStorage storage;
@@ -466,9 +467,9 @@ TEST(QueryPlan, AggregateFirstValueTypes) {
   // testing exceptions that get emitted by the first-value
   // type check
 
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto v1 = dba.InsertVertex();
   auto prop_string = dba.NameToProperty("string");
@@ -520,9 +521,9 @@ TEST(QueryPlan, AggregateTypes) {
   // does not check all combinations that can result in an exception
   // (that logic is defined and tested by TypedValue)
 
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto p1 = dba.NameToProperty("p1");  // has only string props
   ASSERT_TRUE(dba.InsertVertex().SetProperty(p1, memgraph::storage::PropertyValue("string")).HasValue());
@@ -575,9 +576,9 @@ TEST(QueryPlan, AggregateTypes) {
 }
 
 TEST(QueryPlan, Unwind) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   AstStorage storage;
   SymbolTable symbol_table;
 
@@ -722,9 +723,9 @@ TEST(QueryPlan, AggregateGroupByValuesWithDistinct) {
   // Tests that distinct groups are aggregated properly for values of all types.
   // Also test the "remember" part of the Aggregation API as final results are
   // obtained via a property lookup of a remembered node.
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
 
   // a vector of memgraph::storage::PropertyValue to be set as property values on vertices
   // most of them should result in a distinct group (commented where not)
@@ -789,9 +790,9 @@ TEST(QueryPlan, AggregateMultipleGroupByWithDistinct) {
   // in this test we have 3 different properties that have different values
   // for different records and assert that we get the correct combination
   // of values in our groups
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto prop1 = dba.NameToProperty("prop1");
   auto prop2 = dba.NameToProperty("prop2");
@@ -823,9 +824,9 @@ TEST(QueryPlan, AggregateMultipleGroupByWithDistinct) {
 }
 
 TEST(QueryPlan, AggregateNoInputWithDistinct) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   AstStorage storage;
   SymbolTable symbol_table;
 
@@ -848,9 +849,9 @@ TEST(QueryPlan, AggregateCountEdgeCasesWithDistinct) {
   //  - 2 vertices in database, property set on one
   //  - 2 vertices in database, property set on both
 
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   auto prop = dba.NameToProperty("prop");
 
   AstStorage storage;
@@ -902,9 +903,9 @@ TEST(QueryPlan, AggregateFirstValueTypesWithDistinct) {
   // testing exceptions that get emitted by the first-value
   // type check
 
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto v1 = dba.InsertVertex();
   auto prop_string = dba.NameToProperty("string");
@@ -956,9 +957,9 @@ TEST(QueryPlan, AggregateTypesWithDistinct) {
   // does not check all combinations that can result in an exception
   // (that logic is defined and tested by TypedValue)
 
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto p1 = dba.NameToProperty("p1");  // has only string props
   ASSERT_TRUE(dba.InsertVertex().SetProperty(p1, memgraph::storage::PropertyValue("string")).HasValue());

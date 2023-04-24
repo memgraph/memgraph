@@ -23,6 +23,7 @@
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/memory.hpp"
 
@@ -49,21 +50,21 @@ class MockAuthChecker : public memgraph::query::AuthChecker {
 
 class TriggerContextTest : public ::testing::Test {
  public:
-  void SetUp() override { db.emplace(); }
+  void SetUp() override { db.reset(new memgraph::storage::InMemoryStorage()); }
 
   void TearDown() override {
     accessors.clear();
     db.reset();
   }
 
-  memgraph::storage::Storage::Accessor &StartTransaction() {
-    accessors.push_back(db->Access());
-    return accessors.back();
+  memgraph::storage::Storage::Accessor *StartTransaction() {
+    accessors.emplace_back(db->Access());
+    return accessors.back().get();
   }
 
  protected:
-  std::optional<memgraph::storage::Storage> db;
-  std::list<memgraph::storage::Storage::Accessor> accessors;
+  std::unique_ptr<memgraph::storage::Storage> db;
+  std::list<std::unique_ptr<memgraph::storage::Storage::Accessor>> accessors;
 };
 
 namespace {
@@ -108,7 +109,7 @@ TEST_F(TriggerContextTest, ValidObjectsTest) {
   size_t vertex_count = 0;
   size_t edge_count = 0;
   {
-    memgraph::query::DbAccessor dba{&StartTransaction()};
+    memgraph::query::DbAccessor dba{StartTransaction()};
 
     auto create_vertex = [&] {
       auto created_vertex = dba.InsertVertex();
@@ -162,7 +163,7 @@ TEST_F(TriggerContextTest, ValidObjectsTest) {
   }
 
   {
-    memgraph::query::DbAccessor dba{&StartTransaction()};
+    memgraph::query::DbAccessor dba{StartTransaction()};
     trigger_context.AdaptForAccessor(&dba);
 
     // Should have one less created object for vertex and edge
@@ -175,7 +176,7 @@ TEST_F(TriggerContextTest, ValidObjectsTest) {
   size_t deleted_vertex_count = 0;
   size_t deleted_edge_count = 0;
   {
-    memgraph::query::DbAccessor dba{&StartTransaction()};
+    memgraph::query::DbAccessor dba{StartTransaction()};
 
     // register each type of change for each object
     {
@@ -259,7 +260,7 @@ TEST_F(TriggerContextTest, ValidObjectsTest) {
   // for each update event.
   // TypedValue of the deleted objects stay the same as they're bound to the transaction which deleted them.
   {
-    memgraph::query::DbAccessor dba{&StartTransaction()};
+    memgraph::query::DbAccessor dba{StartTransaction()};
     trigger_context.AdaptForAccessor(&dba);
 
     auto vertices = dba.Vertices(memgraph::storage::View::OLD);
@@ -274,7 +275,7 @@ TEST_F(TriggerContextTest, ValidObjectsTest) {
   }
 
   {
-    memgraph::query::DbAccessor dba{&StartTransaction()};
+    memgraph::query::DbAccessor dba{StartTransaction()};
     trigger_context.AdaptForAccessor(&dba);
 
     CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::SET_VERTEX_PROPERTIES, vertex_count,
@@ -309,7 +310,7 @@ TEST_F(TriggerContextTest, ValidObjectsTest) {
 TEST_F(TriggerContextTest, ReturnCreateOnlyEvent) {
   memgraph::query::TriggerContextCollector trigger_context_collector{kAllEventTypes};
 
-  memgraph::query::DbAccessor dba{&StartTransaction()};
+  memgraph::query::DbAccessor dba{StartTransaction()};
 
   auto create_vertex = [&] {
     auto vertex = dba.InsertVertex();
@@ -371,7 +372,7 @@ void EXPECT_PROP_EQ(const memgraph::query::TypedValue &a, const memgraph::query:
 // that only the change on the global value is returned (value before the transaction + latest value after the
 // transaction) everything inbetween should be ignored.
 TEST_F(TriggerContextTest, GlobalPropertyChange) {
-  memgraph::query::DbAccessor dba{&StartTransaction()};
+  memgraph::query::DbAccessor dba{StartTransaction()};
   const std::unordered_set<memgraph::query::TriggerEventType> event_types{
       memgraph::query::TriggerEventType::VERTEX_UPDATE};
 
@@ -566,7 +567,7 @@ TEST_F(TriggerContextTest, GlobalPropertyChange) {
 
 // Same as above, but for label changes
 TEST_F(TriggerContextTest, GlobalLabelChange) {
-  memgraph::query::DbAccessor dba{&StartTransaction()};
+  memgraph::query::DbAccessor dba{StartTransaction()};
   const std::unordered_set<memgraph::query::TriggerEventType> event_types{
       memgraph::query::TriggerEventType::VERTEX_UPDATE};
 
@@ -802,78 +803,78 @@ TEST_F(TriggerContextTest, Filtering) {
   {
     SCOPED_TRACE("TET::ANY");
     CheckFilters({TET::ANY}, ShouldRegisterExpectation{true, true, true}, ShouldRegisterExpectation{true, true, true},
-                 &StartTransaction());
+                 StartTransaction());
   }
   {
     SCOPED_TRACE("TET::VERTEX_CREATE");
     CheckFilters({TET::VERTEX_CREATE}, ShouldRegisterExpectation{true, false, false},
-                 ShouldRegisterExpectation{false, false, false}, &StartTransaction());
+                 ShouldRegisterExpectation{false, false, false}, StartTransaction());
   }
   {
     SCOPED_TRACE("TET::EDGE_CREATE");
     CheckFilters({TET::EDGE_CREATE}, ShouldRegisterExpectation{false, false, false},
-                 ShouldRegisterExpectation{true, false, false}, &StartTransaction());
+                 ShouldRegisterExpectation{true, false, false}, StartTransaction());
   }
   {
     SCOPED_TRACE("TET::CREATE");
     CheckFilters({TET::CREATE}, ShouldRegisterExpectation{true, false, false},
-                 ShouldRegisterExpectation{true, false, false}, &StartTransaction());
+                 ShouldRegisterExpectation{true, false, false}, StartTransaction());
   }
   {
     SCOPED_TRACE("TET::VERTEX_DELETE");
     CheckFilters({TET::VERTEX_DELETE}, ShouldRegisterExpectation{true, true, false},
-                 ShouldRegisterExpectation{false, false, false}, &StartTransaction());
+                 ShouldRegisterExpectation{false, false, false}, StartTransaction());
   }
   {
     SCOPED_TRACE("TET::EDGE_DELETE");
     CheckFilters({TET::EDGE_DELETE}, ShouldRegisterExpectation{false, false, false},
-                 ShouldRegisterExpectation{true, true, false}, &StartTransaction());
+                 ShouldRegisterExpectation{true, true, false}, StartTransaction());
   }
   {
     SCOPED_TRACE("TET::DELETE");
     CheckFilters({TET::DELETE}, ShouldRegisterExpectation{true, true, false},
-                 ShouldRegisterExpectation{true, true, false}, &StartTransaction());
+                 ShouldRegisterExpectation{true, true, false}, StartTransaction());
   }
   {
     SCOPED_TRACE("TET::VERTEX_UPDATE");
     CheckFilters({TET::VERTEX_UPDATE}, ShouldRegisterExpectation{true, false, true},
-                 ShouldRegisterExpectation{false, false, false}, &StartTransaction());
+                 ShouldRegisterExpectation{false, false, false}, StartTransaction());
   }
   {
     SCOPED_TRACE("TET::EDGE_UPDATE");
     CheckFilters({TET::EDGE_UPDATE}, ShouldRegisterExpectation{false, false, false},
-                 ShouldRegisterExpectation{true, false, true}, &StartTransaction());
+                 ShouldRegisterExpectation{true, false, true}, StartTransaction());
   }
   {
     SCOPED_TRACE("TET::UPDATE");
     CheckFilters({TET::UPDATE}, ShouldRegisterExpectation{true, false, true},
-                 ShouldRegisterExpectation{true, false, true}, &StartTransaction());
+                 ShouldRegisterExpectation{true, false, true}, StartTransaction());
   }
   // Some combined versions
   {
     SCOPED_TRACE("TET::VERTEX_UPDATE, TET::EDGE_UPDATE");
     CheckFilters({TET::VERTEX_UPDATE, TET::EDGE_UPDATE}, ShouldRegisterExpectation{true, false, true},
-                 ShouldRegisterExpectation{true, false, true}, &StartTransaction());
+                 ShouldRegisterExpectation{true, false, true}, StartTransaction());
   }
   {
     SCOPED_TRACE("TET::VERTEX_UPDATE, TET::EDGE_UPDATE, TET::DELETE");
     CheckFilters({TET::VERTEX_UPDATE, TET::EDGE_UPDATE, TET::DELETE}, ShouldRegisterExpectation{true, true, true},
-                 ShouldRegisterExpectation{true, true, true}, &StartTransaction());
+                 ShouldRegisterExpectation{true, true, true}, StartTransaction());
   }
   {
     SCOPED_TRACE("TET::UPDATE, TET::VERTEX_DELETE, TET::EDGE_DELETE");
     CheckFilters({TET::UPDATE, TET::VERTEX_DELETE, TET::EDGE_DELETE}, ShouldRegisterExpectation{true, true, true},
-                 ShouldRegisterExpectation{true, true, true}, &StartTransaction());
+                 ShouldRegisterExpectation{true, true, true}, StartTransaction());
   }
   {
     SCOPED_TRACE("TET::VERTEX_CREATE, TET::VERTEX_UPDATE");
     CheckFilters({TET::VERTEX_CREATE, TET::VERTEX_UPDATE}, ShouldRegisterExpectation{true, false, true},
-                 ShouldRegisterExpectation{false, false, false}, &StartTransaction());
+                 ShouldRegisterExpectation{false, false, false}, StartTransaction());
   }
   {
     SCOPED_TRACE("TET::EDGE_CREATE, TET::EDGE_UPDATE");
     CheckFilters({TET::EDGE_CREATE, TET::EDGE_UPDATE}, ShouldRegisterExpectation{false, false, false},
-                 ShouldRegisterExpectation{true, false, true}, &StartTransaction());
+                 ShouldRegisterExpectation{true, false, true}, StartTransaction());
   }
 }
 
@@ -884,8 +885,9 @@ class TriggerStoreTest : public ::testing::Test {
   void SetUp() override {
     Clear();
 
-    storage_accessor.emplace(storage.Access());
-    dba.emplace(&*storage_accessor);
+    storage = std::make_unique<memgraph::storage::InMemoryStorage>();
+    storage_accessor = storage->Access();
+    dba.emplace(storage_accessor.get());
   }
 
   void TearDown() override {
@@ -893,6 +895,7 @@ class TriggerStoreTest : public ::testing::Test {
 
     dba.reset();
     storage_accessor.reset();
+    storage.reset();
   }
 
   std::optional<memgraph::query::DbAccessor> dba;
@@ -906,8 +909,8 @@ class TriggerStoreTest : public ::testing::Test {
     std::filesystem::remove_all(testing_directory);
   }
 
-  memgraph::storage::Storage storage;
-  std::optional<memgraph::storage::Storage::Accessor> storage_accessor;
+  std::unique_ptr<memgraph::storage::Storage> storage;
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_accessor;
 };
 
 TEST_F(TriggerStoreTest, Restore) {

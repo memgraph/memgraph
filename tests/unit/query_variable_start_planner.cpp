@@ -17,6 +17,7 @@
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/planner.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "utils/algorithm.hpp"
 
 #include "query_plan_common.hpp"
@@ -87,9 +88,9 @@ void CheckPlansProduce(size_t expected_plan_count, memgraph::query::CypherQuery 
 }
 
 TEST(TestVariableStartPlanner, MatchReturn) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   // Make a graph (v1) -[:r]-> (v2)
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
@@ -106,9 +107,9 @@ TEST(TestVariableStartPlanner, MatchReturn) {
 }
 
 TEST(TestVariableStartPlanner, MatchTripletPatternReturn) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   // Make a graph (v1) -[:r]-> (v2) -[:r]-> (v3)
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
@@ -141,9 +142,9 @@ TEST(TestVariableStartPlanner, MatchTripletPatternReturn) {
 }
 
 TEST(TestVariableStartPlanner, MatchOptionalMatchReturn) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   // Make a graph (v1) -[:r]-> (v2) -[:r]-> (v3)
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
@@ -170,9 +171,9 @@ TEST(TestVariableStartPlanner, MatchOptionalMatchReturn) {
 }
 
 TEST(TestVariableStartPlanner, MatchOptionalMatchMergeReturn) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   // Graph (v1) -[:r]-> (v2)
   memgraph::query::VertexAccessor v1(dba.InsertVertex());
   memgraph::query::VertexAccessor v2(dba.InsertVertex());
@@ -196,9 +197,9 @@ TEST(TestVariableStartPlanner, MatchOptionalMatchMergeReturn) {
 }
 
 TEST(TestVariableStartPlanner, MatchWithMatchReturn) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   // Graph (v1) -[:r]-> (v2)
   memgraph::query::VertexAccessor v1(dba.InsertVertex());
   memgraph::query::VertexAccessor v2(dba.InsertVertex());
@@ -218,9 +219,9 @@ TEST(TestVariableStartPlanner, MatchWithMatchReturn) {
 }
 
 TEST(TestVariableStartPlanner, MatchVariableExpand) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   // Graph (v1) -[:r1]-> (v2) -[:r2]-> (v3)
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
@@ -243,9 +244,9 @@ TEST(TestVariableStartPlanner, MatchVariableExpand) {
 }
 
 TEST(TestVariableStartPlanner, MatchVariableExpandReferenceNode) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   auto id = dba.NameToProperty("id");
   // Graph (v1 {id:1}) -[:r1]-> (v2 {id: 2}) -[:r2]-> (v3 {id: 3})
   auto v1 = dba.InsertVertex();
@@ -273,9 +274,9 @@ TEST(TestVariableStartPlanner, MatchVariableExpandReferenceNode) {
 }
 
 TEST(TestVariableStartPlanner, MatchVariableExpandBoth) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   auto id = dba.NameToProperty("id");
   // Graph (v1 {id:1}) -[:r1]-> (v2) -[:r2]-> (v3)
   auto v1 = dba.InsertVertex();
@@ -301,9 +302,9 @@ TEST(TestVariableStartPlanner, MatchVariableExpandBoth) {
 }
 
 TEST(TestVariableStartPlanner, MatchBfs) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   auto id = dba.NameToProperty("id");
   // Graph (v1 {id:1}) -[:r1]-> (v2 {id: 2}) -[:r2]-> (v3 {id: 3})
   auto v1 = dba.InsertVertex();
@@ -330,9 +331,9 @@ TEST(TestVariableStartPlanner, MatchBfs) {
 }
 
 TEST(TestVariableStartPlanner, TestBasicSubquery) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   AstStorage storage;
 
   auto v1 = dba.InsertVertex();
@@ -354,9 +355,9 @@ TEST(TestVariableStartPlanner, TestBasicSubquery) {
 }
 
 TEST(TestVariableStartPlanner, TestBasicSubqueryWithMatching) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   AstStorage storage;
 
   auto v1 = dba.InsertVertex();
@@ -377,9 +378,9 @@ TEST(TestVariableStartPlanner, TestBasicSubqueryWithMatching) {
 }
 
 TEST(TestVariableStartPlanner, TestSubqueryWithUnion) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   AstStorage storage;
   auto id = dba.NameToProperty("id");
 
@@ -407,9 +408,9 @@ TEST(TestVariableStartPlanner, TestSubqueryWithUnion) {
 }
 
 TEST(TestVariableStartPlanner, TestSubqueryWithTripleUnion) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   AstStorage storage;
   auto id = dba.NameToProperty("id");
 
