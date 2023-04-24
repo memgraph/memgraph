@@ -12,6 +12,7 @@
 #include "storage/v2/storage.hpp"
 #include <algorithm>
 #include <atomic>
+#include <cstdint>
 #include <iterator>
 #include <memory>
 #include <mutex>
@@ -26,6 +27,8 @@
 #include "storage/v2/result.hpp"
 
 #include <gflags/gflags.h>
+#include <rocksdb/comparator.h>
+#include <rocksdb/slice.h>
 #include <spdlog/spdlog.h>
 
 #include "io/network/endpoint.hpp"
@@ -63,6 +66,7 @@
 #include "storage/v2/storage_error.hpp"
 
 /// RocksDB
+#include <rocksdb/comparator.h>
 #include <rocksdb/db.h>
 #include <rocksdb/iterator.h>
 #include <rocksdb/options.h>
@@ -93,86 +97,83 @@ inline bool CheckRocksDBStatus(const rocksdb::Status &status) {
   return status.ok();
 }
 
-inline uint64_t ExtractTimestampFromUserKey(const rocksdb::Slice &user_key) {
-  auto str = user_key.ToString();
-  spdlog::debug("Extracting commit ts from: {} {}", user_key.data(), str);
-  auto commit_ts = str.substr(str.rfind('|') + 1);
-  spdlog::debug("Extracted commit ts: {}", commit_ts);
-  // return rocksdb::Slice(commit_ts);
-  return std::stoull(commit_ts);
+inline void PutFixed64(std::string *dst, uint64_t value) {
+  dst->append(const_cast<const char *>(reinterpret_cast<char *>(&value)), sizeof(value));
 }
 
-inline rocksdb::Slice StripTimestampFromUserKey(const rocksdb::Slice &user_key) {
-  auto str = user_key.ToString();
-  spdlog::debug("Stripping ts from {} {}", user_key.data(), str);
-  auto stripped = str.substr(0, str.rfind('|'));
-  spdlog::debug("Stripped timestamp: {}", stripped);
-  return stripped;
+inline uint64_t DecodeFixed64(const char *ptr) {
+  // Load the raw bytes
+  uint64_t result;
+  memcpy(&result, ptr, sizeof(result));  // gcc optimizes this to a plain load
+  return result;
 }
 
-inline std::string Timestamp(uint64_t ts) {
-  // std::string ret;
-  // ret.append(const_cast<const char *>(reinterpret_cast<char *>(&ts)), sizeof(ts));
-  // spdlog::debug("Deserializing timestamp: {}", ret);
-  // return ret;
-  return "|" + std::to_string(ts);
+inline rocksdb::Slice StripTimestampFromUserKey(const rocksdb::Slice &user_key, size_t ts_sz) {
+  rocksdb::Slice ret = user_key;
+  ret.remove_suffix(ts_sz);
+  return ret;
+}
+
+inline rocksdb::Slice ExtractTimestampFromUserKey(const rocksdb::Slice &user_key) {
+  rocksdb::Slice res = std::to_string(DecodeFixed64(user_key.data_ + user_key.size_));
+  return res;
+}
+
+std::string Timestamp(uint64_t ts) {
+  std::string ret;
+  PutFixed64(&ret, ts);
+  return ret;
 }
 
 class ComparatorWithU64TsImpl : public rocksdb::Comparator {
  public:
-  ComparatorWithU64TsImpl() : Comparator(/*ts_sz=*/124), cmp_without_ts_(rocksdb::BytewiseComparator()) {
-    assert(cmp_without_ts_);
+  explicit ComparatorWithU64TsImpl()
+      : Comparator(/*ts_sz=*/sizeof(uint64_t)), cmp_without_ts_(rocksdb::BytewiseComparator()) {
     assert(cmp_without_ts_->timestamp_size() == 0);
   }
-  const char *Name() const override { return "ComparatorWithU64Ts"; }
+
+  static const char *kClassName() { return "be"; }
+
+  const char *Name() const override { return kClassName(); }
+
   void FindShortSuccessor(std::string *) const override {}
   void FindShortestSeparator(std::string *, const rocksdb::Slice &) const override {}
   int Compare(const rocksdb::Slice &a, const rocksdb::Slice &b) const override {
     int ret = CompareWithoutTimestamp(a, b);
+    size_t ts_sz = timestamp_size();
     if (ret != 0) {
-      spdlog::debug("Resolved: {} {}", a.data_, b.data_);
       return ret;
     }
-
-    auto ts1 = ExtractTimestampFromUserKey(a);
-    auto ts2 = ExtractTimestampFromUserKey(b);
-    spdlog::debug("Timestamps: {} {}", ts1, ts2);
-
-    if (ts1 < ts2) {
-      return -1;
-    }
-    if (ts1 > ts2) {
-      return 1;
-    }
-    return 0;
-
     // Compare timestamp.
     // For the same user key with different timestamps, larger (newer) timestamp
     // comes first.
-    // return -CompareTimestamp(ExtractTimestampFromUserKey(a), ExtractTimestampFromUserKey(b));
+    return -CompareTimestamp(ExtractTimestampFromUserKey(a), ExtractTimestampFromUserKey(b));
   }
   using Comparator::CompareWithoutTimestamp;
   int CompareWithoutTimestamp(const rocksdb::Slice &a, bool a_has_ts, const rocksdb::Slice &b,
                               bool b_has_ts) const override {
-    rocksdb::Slice lhs = a_has_ts ? StripTimestampFromUserKey(a) : a;
-    rocksdb::Slice rhs = b_has_ts ? StripTimestampFromUserKey(b) : b;
+    const size_t ts_sz = timestamp_size();
+    assert(!a_has_ts || a.size() >= ts_sz);
+    assert(!b_has_ts || b.size() >= ts_sz);
+    rocksdb::Slice lhs = a_has_ts ? StripTimestampFromUserKey(a, ts_sz) : a;
+    rocksdb::Slice rhs = b_has_ts ? StripTimestampFromUserKey(b, ts_sz) : b;
     return cmp_without_ts_->Compare(lhs, rhs);
   }
+
   int CompareTimestamp(const rocksdb::Slice &ts1, const rocksdb::Slice &ts2) const override {
-    spdlog::debug("Comparing timestamps: {} {} {} {}", ts1.ToString(), ts2.ToString(), ts1.data_, ts2.data_);
-    spdlog::debug("Comparing timestamps: {} {}", ts1.ToString().substr(1), ts2.ToString().substr(1));
-    uint64_t lhs = std::stoull(ts1.ToString().substr(1));
-    uint64_t rhs = std::stoull(ts2.ToString().substr(1));
+    assert(ts1.size() == sizeof(uint64_t));
+    assert(ts2.size() == sizeof(uint64_t));
+    uint64_t lhs = DecodeFixed64(ts1.data());
+    uint64_t rhs = DecodeFixed64(ts2.data());
     if (lhs < rhs) {
       return -1;
-    }
-    if (lhs > rhs) {
+    } else if (lhs > rhs) {
       return 1;
+    } else {
+      return 0;
     }
-    return 0;
   }
 
- private:
   const Comparator *cmp_without_ts_{nullptr};
 };
 
@@ -301,6 +302,8 @@ DiskStorage::DiskStorage(Config config)
 
   /// Create RocksDB object
   options_.create_if_missing = true;
+  // options_.comparator = new ComparatorWithU64TsImpl();
+  // rocksdb::BytewiseComparator()
   options_.comparator = new ComparatorWithU64TsImpl();
   // options_.OptimizeLevelStyleCompaction();
   std::filesystem::path rocksdb_path = "./rocks_experiment";
@@ -437,10 +440,11 @@ std::pair<std::string, std::string> DiskStorage::DiskAccessor::SerializeEdge(con
   return {src_dest_key, dest_src_key};
 }
 
-std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(const char *key,
-                                                                             const std::string_view value) {
+std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(const rocksdb::Slice &&key,
+                                                                             const rocksdb::Slice &&value) {
   /// Create vertex
-  const std::vector<std::string> vertex_parts = utils::Split(key, "|");
+
+  const std::vector<std::string> vertex_parts = utils::Split(key.ToStringView(), "|");
   auto gid = storage::Gid::FromUint(std::stoull(vertex_parts[1]));
   auto acc = storage_->vertices_.access();
   /// In situations when the vertex wasn't evicted from the cache, it will be found in the cache.
@@ -450,10 +454,9 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(con
   }
   spdlog::debug("Vertex with gid {} doesn't exist in the cache, creating it!", gid.AsUint());
 
-  uint64_t vertex_commit_ts = ExtractTimestampFromUserKey(key);
-  spdlog::debug("Commit timestamp: {}", vertex_commit_ts);
-  // uint64_t vertex_commit_ts = std::stoull(vertex_parts[2]);
+  uint64_t vertex_commit_ts = std::stoull(std::string(ExtractTimestampFromUserKey(key).data_));
   // bool is_valid_entry = std::stoull(vertex_parts[2]) < transaction_.start_timestamp;
+  spdlog::debug("Commit ts: {}", vertex_commit_ts);
   auto impl = CreateVertex(gid, vertex_commit_ts);
   // Deserialize labels
   std::vector<LabelId> label_ids;
@@ -466,7 +469,7 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(con
   // if (prop->ValueInt() == 1) {
   // spdlog::debug("ID: {} SerKey: {}", prop->ValueInt(), key);
   // }
-  static_cast<DiskVertexAccessor *>(impl.get())->InitializeDeserializedVertex(label_ids, value);
+  static_cast<DiskVertexAccessor *>(impl.get())->InitializeDeserializedVertex(label_ids, value.ToStringView());
   return impl;
 }
 
@@ -498,15 +501,16 @@ std::unique_ptr<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const s
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
-  rocksdb::ReadOptions read_opts;
   spdlog::debug("Transaction start timestamp: {}", transaction_.start_timestamp);
+  rocksdb::ReadOptions read_opts;
   rocksdb::Slice ts = Timestamp(transaction_.start_timestamp);
   read_opts.timestamp = &ts;
   auto it = std::unique_ptr<rocksdb::Iterator>(storage_->db_->NewIterator(read_opts, storage_->vertex_chandle));
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
-    spdlog::debug("Key orig {}", it->key().data_);
-    // it->key().size());
-    DeserializeVertex(it->key().data_, it->value().ToStringView());
+    // When deserializing vertex, key size is set to user key-size
+    // To be able to extract timestamp, here a copy can be created
+    // with size explicitly added with sizeof(uint64_t)
+    DeserializeVertex(it->key(), it->value());
   }
   return VerticesIterable(AllVerticesIterable(storage_->vertices_.access(), &transaction_, view, &storage_->indices_,
                                               &storage_->constraints_, storage_->config_));
@@ -921,12 +925,12 @@ void DiskStorage::DiskAccessor::FlushCache() {
     //   spdlog::debug("ID: {} Deleted: {} SerKey: {}", prop.ValueInt(), vertex.deleted, SerializeVertex(vertex));
     // }
     auto write_options = rocksdb::WriteOptions();
-    rocksdb::Slice ts = Timestamp(*commit_timestamp_);
-    write_options.timestamp = &ts;
+    std::string ts_str = Timestamp(*commit_timestamp_);
+    rocksdb::Slice ts_slice = ts_str;
+    write_options.timestamp = &ts_slice;
     if (vertex.deleted) {
       AssertRocksDBStatus(storage_->db_->Delete(write_options, storage_->vertex_chandle, SerializeVertex(vertex)));
     } else {
-      spdlog::debug("Serialized key: {}", SerializeVertex(vertex));
       AssertRocksDBStatus(storage_->db_->Put(write_options, storage_->vertex_chandle, SerializeVertex(vertex),
                                              SerializeProperties(vertex.properties)));
     }
