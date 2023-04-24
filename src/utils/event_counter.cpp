@@ -62,7 +62,7 @@
   M(TriggersCreated, "Number of Triggers created.")                                                        \
   M(TriggersExecuted, "Number of Triggers executed.")
 
-namespace EventCounter {
+namespace Statistics {
 
 // define every Event as an index in the array of counters
 #define M(NAME, DOCUMENTATION) extern const Event NAME = __COUNTER__;
@@ -106,4 +106,4 @@ const char *GetDocumentation(const Event event) {
 
 Event End() { return END; }
 
-}  // namespace EventCounter
+}  // namespace Statistics

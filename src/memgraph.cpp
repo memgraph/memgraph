@@ -1009,8 +1009,8 @@ int main(int argc, char **argv) {
     });
     telemetry->AddCollector("event_counters", []() -> nlohmann::json {
       nlohmann::json ret;
-      for (size_t i = 0; i < EventCounter::End(); ++i) {
-        ret[EventCounter::GetName(i)] = EventCounter::global_counters[i].load(std::memory_order_relaxed);
+      for (size_t i = 0; i < Statistics::End(); ++i) {
+        ret[Statistics::GetName(i)] = Statistics::global_counters[i].load(std::memory_order_relaxed);
       }
       return ret;
     });

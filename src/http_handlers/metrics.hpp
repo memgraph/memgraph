@@ -74,11 +74,11 @@ class MetricsService {
 
   std::vector<std::pair<std::string, uint64_t>> GetEventCounters() {
     std::vector<std::pair<std::string, uint64_t>> event_counters;
-    event_counters.reserve(EventCounter::End());
+    event_counters.reserve(Statistics::End());
 
-    for (auto i = 0; i < EventCounter::End(); i++) {
-      event_counters.emplace_back(EventCounter::GetName(i),
-                                  EventCounter::global_counters[i].load(std::memory_order_relaxed));
+    for (auto i = 0; i < Statistics::End(); i++) {
+      event_counters.emplace_back(Statistics::GetName(i),
+                                  Statistics::global_counters[i].load(std::memory_order_relaxed));
     }
 
     return event_counters;

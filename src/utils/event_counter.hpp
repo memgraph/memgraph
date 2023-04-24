@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,7 +14,7 @@
 #include <cstdlib>
 #include <memory>
 
-namespace EventCounter {
+namespace Statistics {
 using Event = uint64_t;
 using Count = uint64_t;
 using Counter = std::atomic<Count>;
@@ -44,4 +44,4 @@ const char *GetDocumentation(Event event);
 
 Event End();
 
-}  // namespace EventCounter
+}  // namespace Statistics

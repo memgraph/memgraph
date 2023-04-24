@@ -44,9 +44,9 @@
 #include "utils/timer.hpp"
 #include "utils/tsc.hpp"
 
-namespace EventCounter {
+namespace Statistics {
 extern const Event FailedQuery;
-}  // namespace EventCounter
+}  // namespace Statistics
 
 namespace memgraph::query {
 
@@ -496,7 +496,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     query_execution.reset(nullptr);
     throw;
   } catch (const utils::BasicException &) {
-    EventCounter::IncrementCounter(EventCounter::FailedQuery);
+    Statistics::IncrementCounter(Statistics::FailedQuery);
     AbortCommand(&query_execution);
     throw;
   }

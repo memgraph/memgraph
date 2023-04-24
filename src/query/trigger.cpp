@@ -25,9 +25,9 @@
 #include "utils/event_counter.hpp"
 #include "utils/memory.hpp"
 
-namespace EventCounter {
+namespace Statistics {
 extern const Event TriggersExecuted;
-}  // namespace EventCounter
+}  // namespace Statistics
 
 namespace memgraph::query {
 namespace {
@@ -248,7 +248,7 @@ void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution
     ;
 
   cursor->Shutdown();
-  EventCounter::IncrementCounter(EventCounter::TriggersExecuted);
+  Statistics::IncrementCounter(Statistics::TriggersExecuted);
 }
 
 namespace {

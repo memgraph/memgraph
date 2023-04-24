@@ -69,7 +69,7 @@
 #include "utils/tsc.hpp"
 #include "utils/variant_helpers.hpp"
 
-namespace EventCounter {
+namespace Statistics {
 extern Event ReadQuery;
 extern Event WriteQuery;
 extern Event ReadWriteQuery;
@@ -79,7 +79,7 @@ extern const Event LabelPropertyIndexCreated;
 
 extern const Event StreamsCreated;
 extern const Event TriggersCreated;
-}  // namespace EventCounter
+}  // namespace Statistics
 
 namespace memgraph::query {
 
@@ -90,13 +90,13 @@ namespace {
 void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
   switch (type) {
     case plan::ReadWriteTypeChecker::RWType::R:
-      EventCounter::IncrementCounter(EventCounter::ReadQuery);
+      Statistics::IncrementCounter(Statistics::ReadQuery);
       break;
     case plan::ReadWriteTypeChecker::RWType::W:
-      EventCounter::IncrementCounter(EventCounter::WriteQuery);
+      Statistics::IncrementCounter(Statistics::WriteQuery);
       break;
     case plan::ReadWriteTypeChecker::RWType::RW:
-      EventCounter::IncrementCounter(EventCounter::ReadWriteQuery);
+      Statistics::IncrementCounter(Statistics::ReadWriteQuery);
       break;
     default:
       break;
@@ -721,7 +721,7 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
   Callback callback;
   switch (stream_query->action_) {
     case StreamQuery::Action::CREATE_STREAM: {
-      EventCounter::IncrementCounter(EventCounter::StreamsCreated);
+      Statistics::IncrementCounter(Statistics::StreamsCreated);
       switch (stream_query->type_) {
         case StreamQuery::Type::KAFKA:
           callback.fn = GetKafkaCreateCallback(stream_query, evaluator, interpreter_context, username);
@@ -1595,7 +1595,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
               [&index_notification, &label_name, &properties_stringified]<typename T>(T &&) {
                 using ErrorType = std::remove_cvref_t<T>;
                 if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
-                  EventCounter::IncrementCounter(EventCounter::LabelIndexCreated);
+                  Statistics::IncrementCounter(Statistics::LabelIndexCreated);
                   throw ReplicationException(
                       fmt::format("At least one SYNC replica has not confirmed the creation of the index on label {} "
                                   "on properties {}.",
@@ -1610,7 +1610,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
               },
               error);
         } else {
-          EventCounter::IncrementCounter(EventCounter::LabelIndexCreated);
+          Statistics::IncrementCounter(Statistics::LabelIndexCreated);
         }
       };
       break;
@@ -1897,7 +1897,7 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, bool in_explicit_tra
       case TriggerQuery::Action::CREATE_TRIGGER:
         trigger_notification.emplace(SeverityLevel::INFO, NotificationCode::CREATE_TRIGGER,
                                      fmt::format("Created trigger {}.", trigger_query->trigger_name_));
-        EventCounter::IncrementCounter(EventCounter::TriggersCreated);
+        Statistics::IncrementCounter(Statistics::TriggersCreated);
         return CreateTrigger(trigger_query, user_parameters, interpreter_context, dba, std::move(owner));
       case TriggerQuery::Action::DROP_TRIGGER:
         trigger_notification.emplace(SeverityLevel::INFO, NotificationCode::DROP_TRIGGER,
@@ -2737,7 +2737,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
     return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid};
   } catch (const utils::BasicException &) {
-    EventCounter::IncrementCounter(EventCounter::FailedQuery);
+    Statistics::IncrementCounter(Statistics::FailedQuery);
     AbortCommand(&query_execution);
     throw;
   }
