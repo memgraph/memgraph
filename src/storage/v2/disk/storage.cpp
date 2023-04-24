@@ -93,6 +93,89 @@ inline bool CheckRocksDBStatus(const rocksdb::Status &status) {
   return status.ok();
 }
 
+inline uint64_t ExtractTimestampFromUserKey(const rocksdb::Slice &user_key) {
+  auto str = user_key.ToString();
+  spdlog::debug("Extracting commit ts from: {} {}", user_key.data(), str);
+  auto commit_ts = str.substr(str.rfind('|') + 1);
+  spdlog::debug("Extracted commit ts: {}", commit_ts);
+  // return rocksdb::Slice(commit_ts);
+  return std::stoull(commit_ts);
+}
+
+inline rocksdb::Slice StripTimestampFromUserKey(const rocksdb::Slice &user_key) {
+  auto str = user_key.ToString();
+  spdlog::debug("Stripping ts from {} {}", user_key.data(), str);
+  auto stripped = str.substr(0, str.rfind('|'));
+  spdlog::debug("Stripped timestamp: {}", stripped);
+  return stripped;
+}
+
+inline std::string Timestamp(uint64_t ts) {
+  // std::string ret;
+  // ret.append(const_cast<const char *>(reinterpret_cast<char *>(&ts)), sizeof(ts));
+  // spdlog::debug("Deserializing timestamp: {}", ret);
+  // return ret;
+  return "|" + std::to_string(ts);
+}
+
+class ComparatorWithU64TsImpl : public rocksdb::Comparator {
+ public:
+  ComparatorWithU64TsImpl() : Comparator(/*ts_sz=*/124), cmp_without_ts_(rocksdb::BytewiseComparator()) {
+    assert(cmp_without_ts_);
+    assert(cmp_without_ts_->timestamp_size() == 0);
+  }
+  const char *Name() const override { return "ComparatorWithU64Ts"; }
+  void FindShortSuccessor(std::string *) const override {}
+  void FindShortestSeparator(std::string *, const rocksdb::Slice &) const override {}
+  int Compare(const rocksdb::Slice &a, const rocksdb::Slice &b) const override {
+    int ret = CompareWithoutTimestamp(a, b);
+    if (ret != 0) {
+      spdlog::debug("Resolved: {} {}", a.data_, b.data_);
+      return ret;
+    }
+
+    auto ts1 = ExtractTimestampFromUserKey(a);
+    auto ts2 = ExtractTimestampFromUserKey(b);
+    spdlog::debug("Timestamps: {} {}", ts1, ts2);
+
+    if (ts1 < ts2) {
+      return -1;
+    }
+    if (ts1 > ts2) {
+      return 1;
+    }
+    return 0;
+
+    // Compare timestamp.
+    // For the same user key with different timestamps, larger (newer) timestamp
+    // comes first.
+    // return -CompareTimestamp(ExtractTimestampFromUserKey(a), ExtractTimestampFromUserKey(b));
+  }
+  using Comparator::CompareWithoutTimestamp;
+  int CompareWithoutTimestamp(const rocksdb::Slice &a, bool a_has_ts, const rocksdb::Slice &b,
+                              bool b_has_ts) const override {
+    rocksdb::Slice lhs = a_has_ts ? StripTimestampFromUserKey(a) : a;
+    rocksdb::Slice rhs = b_has_ts ? StripTimestampFromUserKey(b) : b;
+    return cmp_without_ts_->Compare(lhs, rhs);
+  }
+  int CompareTimestamp(const rocksdb::Slice &ts1, const rocksdb::Slice &ts2) const override {
+    spdlog::debug("Comparing timestamps: {} {} {} {}", ts1.ToString(), ts2.ToString(), ts1.data_, ts2.data_);
+    spdlog::debug("Comparing timestamps: {} {}", ts1.ToString().substr(1), ts2.ToString().substr(1));
+    uint64_t lhs = std::stoull(ts1.ToString().substr(1));
+    uint64_t rhs = std::stoull(ts2.ToString().substr(1));
+    if (lhs < rhs) {
+      return -1;
+    }
+    if (lhs > rhs) {
+      return 1;
+    }
+    return 0;
+  }
+
+ private:
+  const Comparator *cmp_without_ts_{nullptr};
+};
+
 }  // namespace
 
 /// TODO: indices should be initialized at some point after
@@ -218,17 +301,19 @@ DiskStorage::DiskStorage(Config config)
 
   /// Create RocksDB object
   options_.create_if_missing = true;
+  options_.comparator = new ComparatorWithU64TsImpl();
   // options_.OptimizeLevelStyleCompaction();
   std::filesystem::path rocksdb_path = "./rocks_experiment";
   MG_ASSERT(utils::EnsureDir(rocksdb_path), "Unable to create storage folder on the disk.");
   AssertRocksDBStatus(rocksdb::DB::Open(options_, rocksdb_path, &db_));
-  AssertRocksDBStatus(db_->CreateColumnFamily(rocksdb::ColumnFamilyOptions(), vertexHandle, &vertex_chandle));
-  AssertRocksDBStatus(db_->CreateColumnFamily(rocksdb::ColumnFamilyOptions(), edgeHandle, &edge_chandle));
+  AssertRocksDBStatus(db_->CreateColumnFamily(options_, vertexHandle, &vertex_chandle));
+  AssertRocksDBStatus(db_->CreateColumnFamily(options_, edgeHandle, &edge_chandle));
 }
 
 DiskStorage::~DiskStorage() {
   /// TODO(andi): I think that without destroy column family handle, there are memory leaks
   /// But I also think that DestroyColumnFamilyHandle deletes all data in its handle.
+  delete options_.comparator;
   AssertRocksDBStatus(db_->DropColumnFamily(vertex_chandle));
   AssertRocksDBStatus(db_->DropColumnFamily(edge_chandle));
   AssertRocksDBStatus(db_->DestroyColumnFamilyHandle(vertex_chandle));
@@ -288,16 +373,16 @@ std::string DiskStorage::DiskAccessor::SerializeProperties(PropertyStore &proper
 
 std::string DiskStorage::DiskAccessor::SerializeVertex(const Result<std::vector<LabelId>> &labels, Gid gid) const {
   std::string result = labels.HasError() || (*labels).empty() ? "" : SerializeLabels(*labels) + "|";
-  result += SerializeIdType(gid) + "|";
-  result += SerializeTimestamp(*commit_timestamp_);
+  result += SerializeIdType(gid);
+  // result += SerializeTimestamp(*commit_timestamp_);
   return result;
 }
 
 std::string DiskStorage::DiskAccessor::SerializeVertex(const Vertex &vertex) const {
   MG_ASSERT(commit_timestamp_.has_value(), "Transaction must be committed to serialize vertex.");
   std::string result = SerializeLabels(vertex.labels) + "|";
-  result += SerializeIdType(vertex.gid) + "|";
-  result += SerializeTimestamp(*commit_timestamp_);
+  result += SerializeIdType(vertex.gid);
+  // result += SerializeTimestamp(*commit_timestamp_);
   return result;
 }
 
@@ -352,7 +437,7 @@ std::pair<std::string, std::string> DiskStorage::DiskAccessor::SerializeEdge(con
   return {src_dest_key, dest_src_key};
 }
 
-std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(const std::string_view key,
+std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(const char *key,
                                                                              const std::string_view value) {
   /// Create vertex
   const std::vector<std::string> vertex_parts = utils::Split(key, "|");
@@ -363,11 +448,11 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(con
     spdlog::debug("Vertex with gid {} already exists in the cache!", gid.AsUint());
     return nullptr;
   }
-  uint64_t vertex_commit_ts = std::stoull(vertex_parts[2]);
-  /// Completely ignored for now
-  if (vertex_commit_ts < transaction_.start_timestamp) {
-    spdlog::debug("Ignoring vertex with gid {} because");
-  }
+  spdlog::debug("Vertex with gid {} doesn't exist in the cache, creating it!", gid.AsUint());
+
+  uint64_t vertex_commit_ts = ExtractTimestampFromUserKey(key);
+  spdlog::debug("Commit timestamp: {}", vertex_commit_ts);
+  // uint64_t vertex_commit_ts = std::stoull(vertex_parts[2]);
   // bool is_valid_entry = std::stoull(vertex_parts[2]) < transaction_.start_timestamp;
   auto impl = CreateVertex(gid, vertex_commit_ts);
   // Deserialize labels
@@ -377,11 +462,11 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(con
     std::transform(labels.begin(), labels.end(), std::back_inserter(label_ids),
                    [](const auto &label) { return storage::LabelId::FromUint(std::stoull(label)); });
   }
-  auto prop = impl->GetProperty(NameToProperty("id"), View::NEW);
-  if (prop->ValueInt() == 1) {
-    spdlog::debug("ID: {} SerKey: {}", prop->ValueInt(), key);
-  }
-  static_cast<DiskVertexAccessor *>(impl.get())->InitializeDeserializedVertex(label_ids, value, vertex_commit_ts);
+  // auto prop = impl->GetProperty(NameToProperty("id"), View::NEW);
+  // if (prop->ValueInt() == 1) {
+  // spdlog::debug("ID: {} SerKey: {}", prop->ValueInt(), key);
+  // }
+  static_cast<DiskVertexAccessor *>(impl.get())->InitializeDeserializedVertex(label_ids, value);
   return impl;
 }
 
@@ -413,10 +498,15 @@ std::unique_ptr<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const s
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
-  auto it =
-      std::unique_ptr<rocksdb::Iterator>(storage_->db_->NewIterator(rocksdb::ReadOptions(), storage_->vertex_chandle));
+  rocksdb::ReadOptions read_opts;
+  spdlog::debug("Transaction start timestamp: {}", transaction_.start_timestamp);
+  rocksdb::Slice ts = Timestamp(transaction_.start_timestamp);
+  read_opts.timestamp = &ts;
+  auto it = std::unique_ptr<rocksdb::Iterator>(storage_->db_->NewIterator(read_opts, storage_->vertex_chandle));
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
-    DeserializeVertex(it->key().ToStringView(), it->value().ToStringView());
+    spdlog::debug("Key orig {}", it->key().data_);
+    // it->key().size());
+    DeserializeVertex(it->key().data_, it->value().ToStringView());
   }
   return VerticesIterable(AllVerticesIterable(storage_->vertices_.access(), &transaction_, view, &storage_->indices_,
                                               &storage_->constraints_, storage_->config_));
@@ -427,7 +517,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, View view) {
-  throw utils::NotYetImplemented("DiskStorage::DiskAccessor::Vertices(label, property)");
+  throw utils::NotYetImplemented("DiskStorage::DiskAComparatorWithccessor::Vertices(label, property)");
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, const PropertyValue &value,
@@ -501,7 +591,6 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex(storage:
   // that runs single-threadedly and while this instance is set-up to apply
   // threads (it is the replica), it is guaranteed that no other writes are
   // possible.
-  spdlog::debug("Vertex with gid {} doesn't exist in the cache, creating it!", gid.AsUint());
   auto acc = storage_->vertices_.access();
   storage_->vertex_id_.store(std::max(storage_->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
                              std::memory_order_release);
@@ -534,7 +623,7 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::G
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     const auto &key = it->key().ToString();
     if (const auto vertex_parts = utils::Split(key, "|"); vertex_parts[1] == SerializeIdType(gid)) {
-      return DeserializeVertex(key, it->value().ToStringView());
+      // return DeserializeVertex(key, it->value().ToStringView());
     }
   }
   return nullptr;
@@ -827,15 +916,18 @@ void DiskStorage::DiskAccessor::FlushCache() {
   for (Vertex &vertex : vertex_acc) {
     // We must mark entry as deleted only at the end of the transaction since otherwise other transactions
     // couldn't read this entry from RocksDB.
-    auto prop = vertex.properties.GetProperty(NameToProperty("id"));
-    if (prop.ValueInt() == 1) {
-      spdlog::debug("ID: {} Deleted: {} SerKey: {}", prop.ValueInt(), vertex.deleted, SerializeVertex(vertex));
-    }
+    // auto prop = vertex.properties.GetProperty(NameToProperty("id"));
+    // if (prop.ValueInt() == 1) {
+    //   spdlog::debug("ID: {} Deleted: {} SerKey: {}", prop.ValueInt(), vertex.deleted, SerializeVertex(vertex));
+    // }
+    auto write_options = rocksdb::WriteOptions();
+    rocksdb::Slice ts = Timestamp(*commit_timestamp_);
+    write_options.timestamp = &ts;
     if (vertex.deleted) {
-      AssertRocksDBStatus(
-          storage_->db_->Delete(rocksdb::WriteOptions(), storage_->vertex_chandle, SerializeVertex(vertex)));
+      AssertRocksDBStatus(storage_->db_->Delete(write_options, storage_->vertex_chandle, SerializeVertex(vertex)));
     } else {
-      AssertRocksDBStatus(storage_->db_->Put(rocksdb::WriteOptions(), storage_->vertex_chandle, SerializeVertex(vertex),
+      spdlog::debug("Serialized key: {}", SerializeVertex(vertex));
+      AssertRocksDBStatus(storage_->db_->Put(write_options, storage_->vertex_chandle, SerializeVertex(vertex),
                                              SerializeProperties(vertex.properties)));
     }
     for (auto &edge_entry : vertex.out_edges) {

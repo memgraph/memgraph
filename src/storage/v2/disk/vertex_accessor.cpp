@@ -64,8 +64,8 @@ std::pair<bool, bool> IsVisible(Vertex *vertex, Transaction *transaction, View v
 }  // namespace
 }  // namespace detail
 
-bool DiskVertexAccessor::InitializeDeserializedVertex(std::vector<LabelId> &label_ids, std::string_view property_store,
-                                                      uint64_t commit_ts) {
+bool DiskVertexAccessor::InitializeDeserializedVertex(std::vector<LabelId> &label_ids,
+                                                      std::string_view property_store) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 

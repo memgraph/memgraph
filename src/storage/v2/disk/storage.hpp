@@ -265,7 +265,7 @@ class DiskStorage final : public Storage {
     /// Deserializes vertex from the string key and stores it into the vertices_ and lru_vertices_.
     /// Properties are deserialized from the value.
     /// The method should be called only when the vertex is not in the cache.
-    std::unique_ptr<VertexAccessor> DeserializeVertex(std::string_view key, std::string_view value);
+    std::unique_ptr<VertexAccessor> DeserializeVertex(const char *key, std::string_view value);
 
     /// Deserializes edge from the string key and stores it into the edges_ cache.
     /// Properties are deserialized from the value.
