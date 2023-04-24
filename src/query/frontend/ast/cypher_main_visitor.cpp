@@ -124,6 +124,9 @@ antlrcpp::Any CypherMainVisitor::visitInfoQuery(MemgraphCypher::InfoQueryContext
   } else if (ctx->constraintInfo()) {
     info_query->info_type_ = InfoQuery::InfoType::CONSTRAINT;
     return info_query;
+  } else if (ctx->buildInfo()) {
+    info_query->info_type_ = InfoQuery::InfoType::BUILD;
+    return info_query;
   } else {
     throw utils::NotYetImplemented("Info query: '{}'", ctx->getText());
   }

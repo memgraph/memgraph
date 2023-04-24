@@ -43,6 +43,7 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
         AddPrivilege(AuthQuery::Privilege::INDEX);
         break;
       case InfoQuery::InfoType::STORAGE:
+      case InfoQuery::InfoType::BUILD:
         AddPrivilege(AuthQuery::Privilege::STATS);
         break;
       case InfoQuery::InfoType::CONSTRAINT:
