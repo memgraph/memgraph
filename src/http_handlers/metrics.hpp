@@ -11,11 +11,14 @@
 
 #pragma once
 
+#include <vector>
+
 #include <spdlog/spdlog.h>
 #include <boost/beast/http.hpp>
 #include <boost/beast/version.hpp>
 #include <json/json.hpp>
 
+#include <utils/event_counter.hpp>
 #include "query/interpreter.hpp"
 #include "storage/v2/storage.hpp"
 
@@ -33,6 +36,11 @@ struct MetricsResponse {
     metrics_response["average_degree"] = average_degree;
     metrics_response["memory_usage"] = memory_usage;
     metrics_response["disk_usage"] = disk_usage;
+
+    for (const auto &event_counter : event_counters) {
+      metrics_response[event_counter.first] = event_counter.second;
+    }
+
     return metrics_response;
   }
 
@@ -41,6 +49,7 @@ struct MetricsResponse {
   double average_degree;
   uint64_t memory_usage;
   uint64_t disk_usage;
+  std::vector<std::pair<std::string, uint64_t>> event_counters;
 };
 
 template <typename TSessionData>
@@ -54,13 +63,26 @@ class MetricsService {
                            .edge_count = info.edge_count,
                            .average_degree = info.average_degree,
                            .memory_usage = info.memory_usage,
-                           .disk_usage = info.disk_usage};
+                           .disk_usage = info.disk_usage,
+                           .event_counters = GetEventCounters()};
   }
 
  private:
   const storage::Storage *db_;
   query::InterpreterContext *interpreter_context_;
   query::Interpreter interpreter_;
+
+  std::vector<std::pair<std::string, uint64_t>> GetEventCounters() {
+    std::vector<std::pair<std::string, uint64_t>> event_counters;
+    event_counters.reserve(EventCounter::End());
+
+    for (auto i = 0; i < EventCounter::End(); i++) {
+      event_counters.emplace_back(EventCounter::GetName(i),
+                                  EventCounter::global_counters[i].load(std::memory_order_relaxed));
+    }
+
+    return event_counters;
+  }
 };
 
 template <typename TSessionData>
