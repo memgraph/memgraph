@@ -1696,6 +1696,10 @@ antlrcpp::Any CypherMainVisitor::visitMapLiteral(MemgraphCypher::MapLiteralConte
   return map;
 }
 
+antlrcpp::Any CypherMainVisitor::visitMapProjectionLiteral(MemgraphCypher::MapProjectionLiteralContext *ctx) {
+  // TODO ante
+}
+
 antlrcpp::Any CypherMainVisitor::visitListLiteral(MemgraphCypher::ListLiteralContext *ctx) {
   std::vector<Expression *> expressions;
   for (auto *expr_ctx : ctx->expression()) {

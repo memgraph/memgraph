@@ -1087,6 +1087,43 @@ class MapLiteral : public memgraph::query::BaseLiteral {
   friend class AstStorage;
 };
 
+class MapProjectionLiteral : public memgraph::query::BaseLiteral {
+  // TODO ante
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  MapProjectionLiteral() = default;
+
+  DEFVISITABLE(ExpressionVisitor<TypedValue>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<void>);
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      for (auto map_elem : elements_)
+        if (!map_elem->Accept(visitor)) break;
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  std::vector<memgraph::query::MapElement *> elements_;
+
+  MapProjectionLiteral *Clone(AstStorage *storage) const override {
+    MapProjectionLiteral *object = storage->Create<MapProjectionLiteral>();
+    object->elements_.resize(elements_.size());
+    for (auto i0 = 0; i0 < elements_.size(); ++i0) {
+      object->elements_[i0] = elements_[i0] ? elements_[i0]->Clone(storage) : nullptr;
+    }
+    return object;
+  }
+
+ protected:
+  explicit MapProjectionLiteral(const std::vector<MapElement *> &elements) : elements_(elements) {}
+
+ private:
+  friend class AstStorage;
+};
+
 class Identifier : public memgraph::query::Expression {
  public:
   static const utils::TypeInfo kType;
@@ -1156,6 +1193,10 @@ class PropertyLookup : public memgraph::query::Expression {
 
  private:
   friend class AstStorage;
+};
+
+class AllPropertyLookup : public memgraph::query::Expression {
+  // TODO ante
 };
 
 class LabelsTest : public memgraph::query::Expression {
