@@ -164,16 +164,16 @@ DEFINE_VALIDATED_uint64(storage_gc_cycle_sec, 30, "Storage garbage collector int
 // NOTE: The `storage_properties_on_edges` flag must be the same here and in
 // `mg_import_csv`. If you change it, make sure to change it there as well.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(storage_properties_on_edges, false, "Controls whether edges have properties.");
+DEFINE_bool(storage_properties_on_edges, true, "Controls whether edges have properties.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(storage_recover_on_startup, false, "Controls whether the storage recovers persisted data on startup.");
+DEFINE_bool(storage_recover_on_startup, true, "Controls whether the storage recovers persisted data on startup.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_uint64(storage_snapshot_interval_sec, 0,
+DEFINE_VALIDATED_uint64(storage_snapshot_interval_sec, 300,
                         "Storage snapshot creation interval (in seconds). Set "
                         "to 0 to disable periodic snapshot creation.",
                         FLAG_IN_RANGE(0, 7 * 24 * 3600));
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(storage_wal_enabled, false,
+DEFINE_bool(storage_wal_enabled, true,
             "Controls whether the storage uses write-ahead-logging. To enable "
             "WAL periodic snapshots must be enabled.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -190,7 +190,7 @@ DEFINE_VALIDATED_uint64(storage_wal_file_flush_every_n_tx,
                         "WAL file. Set to 1 for fully synchronous operation.",
                         FLAG_IN_RANGE(1, 1000000));
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(storage_snapshot_on_exit, false, "Controls whether the storage creates another snapshot on exit.");
+DEFINE_bool(storage_snapshot_on_exit, true, "Controls whether the storage creates another snapshot on exit.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(telemetry_enabled, false,
