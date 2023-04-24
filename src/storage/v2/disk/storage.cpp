@@ -114,9 +114,13 @@ inline rocksdb::Slice StripTimestampFromUserKey(const rocksdb::Slice &user_key, 
   return ret;
 }
 
+inline uint64_t ExtractDeserializedUserKey(const rocksdb::Slice &user_key) {
+  return DecodeFixed64(user_key.data_ + user_key.size_);
+}
+
 inline rocksdb::Slice ExtractTimestampFromUserKey(const rocksdb::Slice &user_key) {
-  rocksdb::Slice res = std::to_string(DecodeFixed64(user_key.data_ + user_key.size_));
-  return res;
+  assert(user_key.size() >= sizeof(uint64_t));
+  return rocksdb::Slice(user_key.data() + user_key.size() - sizeof(uint64_t), sizeof(uint64_t));
 }
 
 std::string Timestamp(uint64_t ts) {
@@ -454,7 +458,8 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(con
   }
   spdlog::debug("Vertex with gid {} doesn't exist in the cache, creating it!", gid.AsUint());
 
-  uint64_t vertex_commit_ts = std::stoull(std::string(ExtractTimestampFromUserKey(key).data_));
+  // uint64_t vertex_commit_ts = std::stoull(std::string(ExtractTimestampFromUserKey(key).data_));
+  uint64_t vertex_commit_ts = ExtractDeserializedUserKey(key);
   // bool is_valid_entry = std::stoull(vertex_parts[2]) < transaction_.start_timestamp;
   spdlog::debug("Commit ts: {}", vertex_commit_ts);
   auto impl = CreateVertex(gid, vertex_commit_ts);
@@ -507,6 +512,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
   read_opts.timestamp = &ts;
   auto it = std::unique_ptr<rocksdb::Iterator>(storage_->db_->NewIterator(read_opts, storage_->vertex_chandle));
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
+    spdlog::debug("Key: {}", it->key().ToString());
     // When deserializing vertex, key size is set to user key-size
     // To be able to extract timestamp, here a copy can be created
     // with size explicitly added with sizeof(uint64_t)

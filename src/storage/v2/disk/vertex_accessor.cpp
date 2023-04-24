@@ -112,21 +112,20 @@ Result<bool> DiskVertexAccessor::AddLabel(LabelId label) {
 }
 
 Result<bool> DiskVertexAccessor::RemoveLabel(LabelId label) {
-  // std::lock_guard<utils::SpinLock> guard(vertex_->lock);
-  //
-  // if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
-  //
-  // if (vertex_->deleted) return Error::DELETED_OBJECT;
-  //
-  // auto it = std::find(vertex_->labels.begin(), vertex_->labels.end(), label);
-  // if (it == vertex_->labels.end()) return false;
-  //
-  // CreateAndLinkDelta(transaction_, vertex_, Delta::AddLabelTag(), label);
-  //
-  // std::swap(*it, *vertex_->labels.rbegin());
-  // vertex_->labels.pop_back();
-  // return true;
-  throw utils::NotYetImplemented("DiskVertexAccessor::RemoveLabel");
+  std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+
+  if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
+
+  if (vertex_->deleted) return Error::DELETED_OBJECT;
+
+  auto it = std::find(vertex_->labels.begin(), vertex_->labels.end(), label);
+  if (it == vertex_->labels.end()) return false;
+
+  CreateAndLinkDelta(transaction_, vertex_, Delta::AddLabelTag(), label);
+
+  std::swap(*it, *vertex_->labels.rbegin());
+  vertex_->labels.pop_back();
+  return true;
 }
 
 Result<bool> DiskVertexAccessor::HasLabel(LabelId label, View view) const {
@@ -229,27 +228,26 @@ Result<std::vector<LabelId>> DiskVertexAccessor::Labels(View view) const {
 }
 
 Result<PropertyValue> DiskVertexAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
-  // utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-  // std::lock_guard<utils::SpinLock> guard(vertex_->lock);
-  //
-  // if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
-  //
-  // if (vertex_->deleted) return Error::DELETED_OBJECT;
-  //
-  // auto current_value = vertex_->properties.GetProperty(property);
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+
+  if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
+
+  if (vertex_->deleted) return Error::DELETED_OBJECT;
+
+  auto current_value = vertex_->properties.GetProperty(property);
   // We could skip setting the value if the previous one is the same to the new
   // one. This would save some memory as a delta would not be created as well as
   // avoid copying the value. The reason we are not doing that is because the
   // current code always follows the logical pattern of "create a delta" and
   // "modify in-place". Additionally, the created delta will make other
   // transactions get a SERIALIZATION_ERROR.
-  // CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, current_value);
-  // vertex_->properties.SetProperty(property, value);
-  //
-  // UpdateOnSetProperty(indices_, property, value, vertex_, *transaction_);
-  //
-  // return std::move(current_value);
-  throw utils::NotYetImplemented("DiskVertexAccessor::SetProperty");
+  CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, current_value);
+  vertex_->properties.SetProperty(property, value);
+
+  UpdateOnSetProperty(indices_, property, value, vertex_, *transaction_);
+
+  return std::move(current_value);
 }
 
 Result<bool> DiskVertexAccessor::InitProperties(
