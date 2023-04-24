@@ -19,8 +19,10 @@
 #include <json/json.hpp>
 
 #include <utils/event_counter.hpp>
+#include <utils/event_gauge.hpp>
 #include "query/interpreter.hpp"
 #include "storage/v2/storage.hpp"
+#include "utils/event_gauge.hpp"
 
 namespace memgraph::http {
 
@@ -41,6 +43,10 @@ struct MetricsResponse {
       metrics_response[event_counter.first] = event_counter.second;
     }
 
+    for (const auto &event_gauge : event_gauges) {
+      metrics_response[event_gauge.first] = event_gauge.second;
+    }
+
     return metrics_response;
   }
 
@@ -50,6 +56,7 @@ struct MetricsResponse {
   uint64_t memory_usage;
   uint64_t disk_usage;
   std::vector<std::pair<std::string, uint64_t>> event_counters;
+  std::vector<std::pair<std::string, uint64_t>> event_gauges;
 };
 
 template <typename TSessionData>
@@ -64,7 +71,8 @@ class MetricsService {
                            .average_degree = info.average_degree,
                            .memory_usage = info.memory_usage,
                            .disk_usage = info.disk_usage,
-                           .event_counters = GetEventCounters()};
+                           .event_counters = GetEventCounters(),
+                           .event_gauges = GetEventGauges()};
   }
 
  private:
@@ -74,14 +82,26 @@ class MetricsService {
 
   std::vector<std::pair<std::string, uint64_t>> GetEventCounters() {
     std::vector<std::pair<std::string, uint64_t>> event_counters;
-    event_counters.reserve(Statistics::End());
+    event_counters.reserve(Statistics::CounterEnd());
 
-    for (auto i = 0; i < Statistics::End(); i++) {
-      event_counters.emplace_back(Statistics::GetName(i),
+    for (auto i = 0; i < Statistics::CounterEnd(); i++) {
+      event_counters.emplace_back(Statistics::GetCounterName(i),
                                   Statistics::global_counters[i].load(std::memory_order_relaxed));
     }
 
     return event_counters;
+  }
+
+  std::vector<std::pair<std::string, uint64_t>> GetEventGauges() {
+    std::vector<std::pair<std::string, uint64_t>> event_gauges;
+    event_gauges.reserve(Statistics::GaugeEnd());
+
+    for (auto i = 0; i < Statistics::GaugeEnd(); i++) {
+      event_gauges.emplace_back(Statistics::GetGaugeName(i),
+                                Statistics::global_gauges[i].load(std::memory_order_seq_cst));
+    }
+
+    return event_gauges;
   }
 };
 

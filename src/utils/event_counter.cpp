@@ -11,7 +11,7 @@
 
 #include "utils/event_counter.hpp"
 
-#define APPLY_FOR_EVENTS(M)                                                                                \
+#define APPLY_FOR_COUNTERS(M)                                                                              \
   M(ReadQuery, "Number of read-only queries executed.")                                                    \
   M(WriteQuery, "Number of write-only queries executed.")                                                  \
   M(ReadWriteQuery, "Number of read-write queries executed.")                                              \
@@ -68,7 +68,7 @@ namespace Statistics {
 
 // define every Event as an index in the array of counters
 #define M(NAME, DOCUMENTATION) extern const Event NAME = __COUNTER__;
-APPLY_FOR_EVENTS(M)
+APPLY_FOR_COUNTERS(M)
 #undef M
 
 inline constexpr Event END = __COUNTER__;
@@ -91,26 +91,25 @@ void EventCounters::Decrement(const Event event, Count amount) {
 void IncrementCounter(const Event event, Count amount) { global_counters.Increment(event, amount); }
 void DecrementCounter(const Event event, Count amount) { global_counters.Decrement(event, amount); }
 
-const char *GetName(const Event event) {
+const char *GetCounterName(const Event event) {
   static const char *strings[] = {
 #define M(NAME, DOCUMENTATION) #NAME,
-      APPLY_FOR_EVENTS(M)
+      APPLY_FOR_COUNTERS(M)
 #undef M
   };
 
   return strings[event];
 }
 
-const char *GetDocumentation(const Event event) {
+const char *GetCounterDocumentation(const Event event) {
   static const char *strings[] = {
 #define M(NAME, DOCUMENTATION) DOCUMENTATION,
-      APPLY_FOR_EVENTS(M)
+      APPLY_FOR_COUNTERS(M)
 #undef M
   };
 
   return strings[event];
 }
 
-Event End() { return END; }
-
+Event CounterEnd() { return END; }
 }  // namespace Statistics

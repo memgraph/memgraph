@@ -42,9 +42,8 @@ extern EventCounters global_counters;
 void IncrementCounter(Event event, Count amount = 1);
 void DecrementCounter(Event event, Count amount = 1);
 
-const char *GetName(Event event);
-const char *GetDocumentation(Event event);
+const char *GetCounterName(Event event);
+const char *GetCounterDocumentation(Event event);
 
-Event End();
-
+Event CounterEnd();
 }  // namespace Statistics
