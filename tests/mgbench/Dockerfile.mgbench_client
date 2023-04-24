@@ -1,0 +1,42 @@
+FROM ubuntu:22.04 AS mg_bench_client_build_base
+
+SHELL ["/bin/bash", "-c"]
+ARG TOOLCHAIN_VERSION
+ARG TARGETARCH
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+USER root
+
+RUN apt update && apt install -y \
+    ca-certificates wget git
+
+RUN wget -q https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/${TOOLCHAIN_VERSION}/${TOOLCHAIN_VERSION}-binaries-ubuntu-22.04-${TARGETARCH}.tar.gz \
+    -O ${TOOLCHAIN_VERSION}-binaries-ubuntu-22.04-${TARGETARCH}.tar.gz \
+    && tar xzvf ${TOOLCHAIN_VERSION}-binaries-ubuntu-22.04-${TARGETARCH}.tar.gz -C /opt
+
+RUN git clone https://github.com/memgraph/memgraph.git
+
+WORKDIR memgraph
+
+RUN if [ ${TARGETARCH} = "amd64" ] ; then ./environment/os/ubuntu-22.04.sh install TOOLCHAIN_RUN_DEPS ; else ./environment/os/ubuntu-22.04-arm.sh install TOOLCHAIN_RUN_DEPS ; fi
+RUN if [ ${TARGETARCH} = "amd64" ] ; then ./environment/os/ubuntu-22.04.sh install MEMGRAPH_BUILD_DEPS ; else ./environment/os/ubuntu-22.04-arm.sh install MEMGRAPH_BUILD_DEPS ; fi
+
+RUN source /opt/toolchain-v4/activate && \
+    ./init  && \
+    rm -r build && \
+    mkdir build && \
+    cd build && \
+    cmake -DCMAKE_BUILD_TYPE=release .. && \
+    make -j$(nproc) memgraph__mgbench__client && \
+    make .
+
+
+FROM ubuntu:22.04
+
+RUN apt-get update && apt-get install -y wget libcurl4
+
+# Copy mgbench client to clean image
+COPY --from=mg_bench_client_build_base /memgraph/build/tests/mgbench/client /bin/
+
+ENTRYPOINT ["bin/client"]
