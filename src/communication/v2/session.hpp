@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -43,8 +43,13 @@
 
 #include "communication/context.hpp"
 #include "communication/exceptions.hpp"
+#include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
 #include "utils/variant_helpers.hpp"
+
+namespace Statistics {
+extern const Event ActiveConnections;
+}  // namespace Statistics
 
 namespace memgraph::communication::v2 {
 
@@ -429,6 +434,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       }
       lowest_layer.close();
     });
+
+    Statistics::DecrementCounter(Statistics::ActiveConnections);
   }
 
   void DoHandshake() {

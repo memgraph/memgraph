@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -30,8 +30,13 @@
 #include "communication/context.hpp"
 #include "communication/v2/pool.hpp"
 #include "communication/v2/session.hpp"
+#include "utils/event_counter.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
+
+namespace Statistics {
+extern const Event ActiveConnections;
+}  // namespace Statistics
 
 namespace memgraph::communication::v2 {
 
@@ -109,6 +114,8 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
     if (ec) {
       return OnError(ec, "accept");
     }
+
+    Statistics::IncrementCounter(Statistics::ActiveConnections);
 
     auto session = SessionHandler::Create(std::move(socket), data_, *server_context_, endpoint_, inactivity_timeout_,
                                           service_name_);

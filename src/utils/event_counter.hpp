@@ -29,6 +29,8 @@ class EventCounters {
 
   void Increment(Event event, Count amount = 1);
 
+  void Decrement(Event event, Count amount = 1);
+
   static const Event num_counters;
 
  private:
@@ -38,6 +40,7 @@ class EventCounters {
 extern EventCounters global_counters;
 
 void IncrementCounter(Event event, Count amount = 1);
+void DecrementCounter(Event event, Count amount = 1);
 
 const char *GetName(Event event);
 const char *GetDocumentation(Event event);

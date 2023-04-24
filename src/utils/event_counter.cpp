@@ -60,7 +60,9 @@
   M(StreamsCreated, "Number of Streams created.")                                                          \
   M(MessagesConsumed, "Number of consumed streamed messages.")                                             \
   M(TriggersCreated, "Number of Triggers created.")                                                        \
-  M(TriggersExecuted, "Number of Triggers executed.")
+  M(TriggersExecuted, "Number of Triggers executed.")                                                      \
+                                                                                                           \
+  M(ActiveConnections, "Number of active connections.")
 
 namespace Statistics {
 
@@ -82,7 +84,12 @@ void EventCounters::Increment(const Event event, Count amount) {
   counters_[event].fetch_add(amount, std::memory_order_relaxed);
 }
 
+void EventCounters::Decrement(const Event event, Count amount) {
+  counters_[event].fetch_sub(amount, std::memory_order_relaxed);
+}
+
 void IncrementCounter(const Event event, Count amount) { global_counters.Increment(event, amount); }
+void DecrementCounter(const Event event, Count amount) { global_counters.Decrement(event, amount); }
 
 const char *GetName(const Event event) {
   static const char *strings[] = {
