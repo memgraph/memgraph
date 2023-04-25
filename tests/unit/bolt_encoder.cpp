@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,7 +17,7 @@
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/encoder/encoder.hpp"
 #include "glue/communication.hpp"
-#include "storage/v2/storage.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "utils/temporal.hpp"
 using memgraph::communication::bolt::Value;
 
@@ -178,50 +178,50 @@ TEST_F(BoltEncoder, VertexAndEdge) {
   output.clear();
 
   // create vertex
-  memgraph::storage::Storage db;
-  auto dba = db.Access();
-  auto va1 = dba.CreateVertex();
-  auto va2 = dba.CreateVertex();
-  auto l1 = dba.NameToLabel("label1");
-  auto l2 = dba.NameToLabel("label2");
-  ASSERT_TRUE(va1.AddLabel(l1).HasValue());
-  ASSERT_TRUE(va1.AddLabel(l2).HasValue());
-  auto p1 = dba.NameToProperty("prop1");
-  auto p2 = dba.NameToProperty("prop2");
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  auto dba = db->Access();
+  auto va1 = dba->CreateVertex();
+  auto va2 = dba->CreateVertex();
+  auto l1 = dba->NameToLabel("label1");
+  auto l2 = dba->NameToLabel("label2");
+  ASSERT_TRUE(va1->AddLabel(l1).HasValue());
+  ASSERT_TRUE(va1->AddLabel(l2).HasValue());
+  auto p1 = dba->NameToProperty("prop1");
+  auto p2 = dba->NameToProperty("prop2");
   memgraph::storage::PropertyValue pv1(12), pv2(200);
-  ASSERT_TRUE(va1.SetProperty(p1, pv1).HasValue());
-  ASSERT_TRUE(va1.SetProperty(p2, pv2).HasValue());
+  ASSERT_TRUE(va1->SetProperty(p1, pv1).HasValue());
+  ASSERT_TRUE(va1->SetProperty(p2, pv2).HasValue());
 
   // create edge
-  auto et = dba.NameToEdgeType("edgetype");
-  auto ea = dba.CreateEdge(&va1, &va2, et);
-  auto p3 = dba.NameToProperty("prop3");
-  auto p4 = dba.NameToProperty("prop4");
+  auto et = dba->NameToEdgeType("edgetype");
+  auto ea = dba->CreateEdge(va1.get(), va2.get(), et).GetValue();
+  auto p3 = dba->NameToProperty("prop3");
+  auto p4 = dba->NameToProperty("prop4");
   memgraph::storage::PropertyValue pv3(42), pv4(1234);
   ASSERT_TRUE(ea->SetProperty(p3, pv3).HasValue());
   ASSERT_TRUE(ea->SetProperty(p4, pv4).HasValue());
 
   // check everything
   std::vector<Value> vals;
-  vals.push_back(*memgraph::glue::ToBoltValue(memgraph::query::TypedValue(memgraph::query::VertexAccessor(va1)), db,
-                                              memgraph::storage::View::NEW));
-  vals.push_back(*memgraph::glue::ToBoltValue(memgraph::query::TypedValue(memgraph::query::VertexAccessor(va2)), db,
-                                              memgraph::storage::View::NEW));
-  vals.push_back(*memgraph::glue::ToBoltValue(memgraph::query::TypedValue(memgraph::query::EdgeAccessor(*ea)), db,
-                                              memgraph::storage::View::NEW));
+  vals.push_back(*memgraph::glue::ToBoltValue(memgraph::query::TypedValue(memgraph::query::VertexAccessor(va1->Copy())),
+                                              *db, memgraph::storage::View::NEW));
+  vals.push_back(*memgraph::glue::ToBoltValue(memgraph::query::TypedValue(memgraph::query::VertexAccessor(va2->Copy())),
+                                              *db, memgraph::storage::View::NEW));
+  vals.push_back(*memgraph::glue::ToBoltValue(memgraph::query::TypedValue(memgraph::query::EdgeAccessor(ea->Copy())),
+                                              *db, memgraph::storage::View::NEW));
   bolt_encoder.MessageRecord(vals);
 
   // The vertexedge_encoded testdata has hardcoded zeros for IDs,
   // and Memgraph now encodes IDs so we need to check the output
   // part by part.
   CheckOutput(output, vertexedge_encoded, 5, false);
-  CheckInt(output, va1.Gid().AsInt());
+  CheckInt(output, va1->Gid().AsInt());
   CheckOutput(output, vertexedge_encoded + 6, 34, false);
-  CheckInt(output, va2.Gid().AsInt());
+  CheckInt(output, va2->Gid().AsInt());
   CheckOutput(output, vertexedge_encoded + 41, 4, false);
   CheckInt(output, ea->Gid().AsInt());
-  CheckInt(output, va1.Gid().AsInt());
-  CheckInt(output, va2.Gid().AsInt());
+  CheckInt(output, va1->Gid().AsInt());
+  CheckInt(output, va2->Gid().AsInt());
   CheckOutput(output, vertexedge_encoded + 48, 26);
 }
 
