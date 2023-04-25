@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,7 @@
 #pragma once
 
 #include <algorithm>
+#include <optional>
 #include <set>
 #include <utility>
 #include <vector>
@@ -29,6 +30,8 @@ struct RecoveryInfo {
 
   // last timestamp read from a WAL file
   std::optional<uint64_t> last_commit_timestamp;
+
+  std::vector<std::pair<Gid /*first vertex gid*/, uint64_t /*batch size*/>> vertex_batches;
 };
 
 /// Structure used to track indices and constraints during recovery.

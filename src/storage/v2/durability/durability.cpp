@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -163,7 +163,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
                                         std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,
-                                        Indices *indices, Constraints *constraints, Config::Items items,
+                                        Indices *indices, Constraints *constraints, const Config &config,
                                         uint64_t *wal_seq_num) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   spdlog::info("Recovering persisted data using snapshot ({}) and WAL directory ({}).", snapshot_directory,
@@ -195,7 +195,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
       }
       spdlog::info("Starting snapshot recovery from {}.", path);
       try {
-        recovered_snapshot = LoadSnapshot(path, vertices, edges, epoch_history, name_id_mapper, edge_count, items);
+        recovered_snapshot = LoadSnapshot(path, vertices, edges, epoch_history, name_id_mapper, edge_count, config);
         spdlog::info("Snapshot recovery successful!");
         break;
       } catch (const RecoveryFailure &e) {
@@ -319,7 +319,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
       }
       try {
         auto info = LoadWal(wal_file.path, &indices_constraints, last_loaded_timestamp, vertices, edges, name_id_mapper,
-                            edge_count, items);
+                            edge_count, config.items);
         recovery_info.next_vertex_id = std::max(recovery_info.next_vertex_id, info.next_vertex_id);
         recovery_info.next_edge_id = std::max(recovery_info.next_edge_id, info.next_edge_id);
         recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info.next_timestamp);

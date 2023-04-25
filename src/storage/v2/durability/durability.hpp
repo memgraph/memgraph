@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -108,7 +108,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
                                         std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,
-                                        Indices *indices, Constraints *constraints, Config::Items items,
+                                        Indices *indices, Constraints *constraints, const Config &config,
                                         uint64_t *wal_seq_num);
 
 }  // namespace memgraph::storage::durability

@@ -193,6 +193,16 @@ DEFINE_VALIDATED_uint64(storage_wal_file_flush_every_n_tx,
 DEFINE_bool(storage_snapshot_on_exit, false, "Controls whether the storage creates another snapshot on exit.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint64(storage_items_per_batch, memgraph::storage::Config::Durability().items_per_batch,
+              "The number of edges and vertices stored in a batch in a snapshot file.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint64(storage_recovery_thread_count,
+              std::max(static_cast<uint64_t>(std::thread::hardware_concurrency()),
+                       memgraph::storage::Config::Durability().recovery_thread_count),
+              "The number of threads used to recover persisted data from disk.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(telemetry_enabled, false,
             "Set to true to enable telemetry. We collect information about the "
             "running system (CPU and memory information) and information about "
@@ -852,7 +862,9 @@ int main(int argc, char **argv) {
                      .wal_file_size_kibibytes = FLAGS_storage_wal_file_size_kib,
                      .wal_file_flush_every_n_tx = FLAGS_storage_wal_file_flush_every_n_tx,
                      .snapshot_on_exit = FLAGS_storage_snapshot_on_exit,
-                     .restore_replicas_on_startup = true},
+                     .restore_replicas_on_startup = true,
+                     .items_per_batch = FLAGS_storage_items_per_batch,
+                     .recovery_thread_count = FLAGS_storage_recovery_thread_count},
       .transaction = {.isolation_level = ParseIsolationLevel()}};
   if (FLAGS_storage_snapshot_interval_sec == 0) {
     if (FLAGS_storage_wal_enabled) {
