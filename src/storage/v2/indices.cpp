@@ -310,7 +310,7 @@ void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vertices, T
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
   const auto &vertex_batches = paralell_exec_info.first;
-  const auto thread_count = paralell_exec_info.second;
+  const auto thread_count = std::min(paralell_exec_info.second, vertex_batches.size());
 
   MG_ASSERT(!vertex_batches.empty(),
             "The size of batches should always be greater than zero if you want to use the parallel version of index "
