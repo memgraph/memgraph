@@ -150,6 +150,8 @@ class EventHistograms {
 
   const auto &operator[](const Event event) const { return histograms_[event]; }
 
+  void Measure(const Event event, Value value);
+
   static const Event num_histograms;
 
  private:
@@ -157,6 +159,8 @@ class EventHistograms {
 };
 
 extern EventHistograms global_histograms;
+
+void Measure(const Event event, Value value);
 
 const char *GetHistogramName(Event event);
 const char *GetHistogramDocumentation(Event event);

@@ -11,10 +11,7 @@
 
 #include "utils/event_histogram.hpp"
 
-#define APPLY_FOR_HISTOGRAMS(M)                       \
-  M(Histogram1, "Some histogram", 0, 25, 50, 75, 100) \
-  M(Histogram2, "Some histogram", 0, 50, 99)          \
-  M(Histogram3, "Some histogram", 0, 90, 100)
+#define APPLY_FOR_HISTOGRAMS(M) M(QueryLatency_us, "Query latency in microseconds", 0, 25, 50, 75, 99, 100)
 
 namespace Statistics {
 
@@ -35,6 +32,10 @@ Histogram global_histograms_array[END]{
 EventHistograms global_histograms(global_histograms_array);
 
 const Event EventHistograms::num_histograms = END;
+
+void Measure(const Event event, Value value) { global_histograms.Measure(event, value); }
+
+void EventHistograms::Measure(const Event event, Value value) { histograms_[event].Measure(value); }
 
 const char *GetHistogramName(const Event event) {
   static const char *strings[] = {

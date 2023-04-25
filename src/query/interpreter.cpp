@@ -56,6 +56,7 @@
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
+#include "utils/event_histogram.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/likely.hpp"
@@ -79,6 +80,8 @@ extern const Event LabelPropertyIndexCreated;
 
 extern const Event StreamsCreated;
 extern const Event TriggersCreated;
+
+extern const Event QueryLatency_ms;
 }  // namespace Statistics
 
 namespace memgraph::query {
@@ -1106,7 +1109,11 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   if (has_unsent_results_) {
     return std::nullopt;
   }
+
   summary->insert_or_assign("plan_execution_time", execution_time_.count());
+  Statistics::Measure(Statistics::QueryLatency_ms,
+                      std::chrono::duration_cast<std::chrono::microseconds>(execution_time_).count());
+
   // We are finished with pulling all the data, therefore we can send any
   // metadata about the results i.e. notifications and statistics
   const bool is_any_counter_set =
