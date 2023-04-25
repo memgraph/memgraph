@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -203,7 +203,7 @@ enum class FineGrainedTestType {
 // Common interface for single-node and distributed Memgraph.
 class Database {
  public:
-  virtual memgraph::storage::Storage::Accessor Access() = 0;
+  virtual std::unique_ptr<memgraph::storage::Storage::Accessor> Access() = 0;
   virtual std::unique_ptr<memgraph::query::plan::LogicalOperator> MakeBfsOperator(
       memgraph::query::Symbol source_sym, memgraph::query::Symbol sink_sym, memgraph::query::Symbol edge_sym,
       memgraph::query::EdgeAtom::Direction direction, const std::vector<memgraph::storage::EdgeTypeId> &edge_types,
@@ -294,7 +294,7 @@ std::vector<std::vector<int>> CheckPathsAndExtractDistances(
 void BfsTest(Database *db, int lower_bound, int upper_bound, memgraph::query::EdgeAtom::Direction direction,
              std::vector<std::string> edge_types, bool known_sink, FilterLambdaType filter_lambda_type) {
   auto storage_dba = db->Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  memgraph::query::DbAccessor dba(storage_dba.get());
   memgraph::query::AstStorage storage;
   memgraph::query::ExecutionContext context{&dba};
   memgraph::query::Symbol blocked_sym = context.symbol_table.CreateSymbol("blocked", true);
@@ -457,7 +457,7 @@ void BfsTestWithFineGrainedFiltering(Database *db, int lower_bound, int upper_bo
                                      std::vector<std::string> edge_types, bool known_sink,
                                      FineGrainedTestType fine_grained_test_type) {
   auto storage_dba = db->Access();
-  memgraph::query::DbAccessor db_accessor(&storage_dba);
+  memgraph::query::DbAccessor db_accessor(storage_dba.get());
   memgraph::query::AstStorage storage;
   memgraph::query::ExecutionContext context{&db_accessor};
   memgraph::query::Symbol blocked_symbol = context.symbol_table.CreateSymbol("blocked", true);
