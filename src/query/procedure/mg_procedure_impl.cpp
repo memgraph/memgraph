@@ -1996,19 +1996,20 @@ mgp_error mgp_vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_
 #endif
 
         if (*it->in_it != it->in->end()) {
-          std::visit(memgraph::utils::Overloaded{
-                         [&](memgraph::query::DbAccessor *) {
-                           it->current_e.emplace(**it->in_it, (**it->in_it).From(), (**it->in_it).To(), v->graph,
-                                                 it->GetMemoryResource());
-                         },
-                         [&](memgraph::query::SubgraphDbAccessor *impl) {
-                           it->current_e.emplace(
-                               **it->in_it,
-                               memgraph::query::SubgraphVertexAccessor((**it->in_it).From(), impl->getGraph()),
-                               memgraph::query::SubgraphVertexAccessor((**it->in_it).To(), impl->getGraph()), v->graph,
-                               it->GetMemoryResource());
-                         }},
-                     v->graph->impl);
+          std::visit(
+              memgraph::utils::Overloaded{
+                  [&](memgraph::query::DbAccessor *) {
+                    auto edgeAcc = **it->in_it;
+                    it->current_e.emplace(edgeAcc, edgeAcc.From(), edgeAcc.To(), v->graph, it->GetMemoryResource());
+                  },
+                  [&](memgraph::query::SubgraphDbAccessor *impl) {
+                    auto edgeAcc = **it->in_it;
+                    it->current_e.emplace(edgeAcc,
+                                          memgraph::query::SubgraphVertexAccessor(edgeAcc.From(), impl->getGraph()),
+                                          memgraph::query::SubgraphVertexAccessor(edgeAcc.To(), impl->getGraph()),
+                                          v->graph, it->GetMemoryResource());
+                  }},
+              v->graph->impl);
         }
 
         return it.release();
@@ -2056,6 +2057,7 @@ mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges
                     it->current_e.emplace(edgeAcc, edgeAcc.From(), edgeAcc.To(), v->graph, it->GetMemoryResource());
                   },
                   [&](memgraph::query::SubgraphDbAccessor *impl) {
+                    // Dereference iterator implicitly call MakeEdgeAccessor which moves EdgeAccessor.
                     auto edgeAcc = **it->out_it;
                     it->current_e.emplace(edgeAcc,
                                           memgraph::query::SubgraphVertexAccessor(edgeAcc.From(), impl->getGraph()),
@@ -2113,13 +2115,17 @@ mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
           }
           std::visit(memgraph::utils::Overloaded{
                          [&](memgraph::query::DbAccessor *) {
-                           it->current_e.emplace(**impl_it, (**impl_it).From(), (**impl_it).To(),
-                                                 it->source_vertex.graph, it->GetMemoryResource());
+                           // Dereference iterator implicitly call MakeEdgeAccessor which moves EdgeAccessor.
+                           auto edgeAcc = **impl_it;
+                           it->current_e.emplace(edgeAcc, edgeAcc.From(), edgeAcc.To(), it->source_vertex.graph,
+                                                 it->GetMemoryResource());
                          },
                          [&](memgraph::query::SubgraphDbAccessor *impl) {
+                           // Dereference iterator implicitly call MakeEdgeAccessor which moves EdgeAccessor.
+                           auto edgeAcc = **impl_it;
                            it->current_e.emplace(
-                               **impl_it, memgraph::query::SubgraphVertexAccessor((**impl_it).From(), impl->getGraph()),
-                               memgraph::query::SubgraphVertexAccessor((**impl_it).To(), impl->getGraph()),
+                               edgeAcc, memgraph::query::SubgraphVertexAccessor(edgeAcc.From(), impl->getGraph()),
+                               memgraph::query::SubgraphVertexAccessor(edgeAcc.To(), impl->getGraph()),
                                it->source_vertex.graph, it->GetMemoryResource());
                          }},
                      it->source_vertex.graph->impl);
