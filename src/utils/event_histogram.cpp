@@ -11,30 +11,34 @@
 
 #include "utils/event_histogram.hpp"
 
-#define APPLY_FOR_HISTOGRAMS(M)   \
-  M(Histogram1, "Some histogram") \
-  M(Histogram2, "Some histogram") \
-  M(Histogram3, "Some histogram")
+#define APPLY_FOR_HISTOGRAMS(M)                       \
+  M(Histogram1, "Some histogram", 0, 25, 50, 75, 100) \
+  M(Histogram2, "Some histogram", 0, 50, 99)          \
+  M(Histogram3, "Some histogram", 0, 90, 100)
 
 namespace Statistics {
 
 // define every Event as an index in the array of counters
-#define M(NAME, DOCUMENTATION) extern const Event NAME = __COUNTER__;
+#define M(NAME, DOCUMENTATION, ...) extern const Event NAME = __COUNTER__;
 APPLY_FOR_HISTOGRAMS(M)
 #undef M
 
 inline constexpr Event END = __COUNTER__;
 
-// Initialize array for the global counter with all values set to 0
-Histogram global_histograms_array[END]{};
-// Initialize global counters
+// Initialize array for the global histogram with all named histograms and their percentiles
+Histogram global_histograms_array[END]{
+#define M(NAME, DOCUMENTATION, ...) Histogram({__VA_ARGS__}),
+    APPLY_FOR_HISTOGRAMS(M)
+#undef M
+};
+// Initialize global histograms
 EventHistograms global_histograms(global_histograms_array);
 
 const Event EventHistograms::num_histograms = END;
 
 const char *GetHistogramName(const Event event) {
   static const char *strings[] = {
-#define M(NAME, DOCUMENTATION) #NAME,
+#define M(NAME, DOCUMENTATION, ...) #NAME,
       APPLY_FOR_HISTOGRAMS(M)
 #undef M
   };
@@ -44,7 +48,7 @@ const char *GetHistogramName(const Event event) {
 
 const char *GetHistogramDocumentation(const Event event) {
   static const char *strings[] = {
-#define M(NAME, DOCUMENTATION) DOCUMENTATION,
+#define M(NAME, DOCUMENTATION, ...) DOCUMENTATION,
       APPLY_FOR_HISTOGRAMS(M)
 #undef M
   };

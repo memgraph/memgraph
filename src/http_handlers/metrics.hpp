@@ -117,7 +117,7 @@ class MetricsService {
     event_histograms.reserve(Statistics::HistogramEnd());
 
     for (auto i = 0; i < Statistics::HistogramEnd(); i++) {
-      auto name = Statistics::GetHistogramName(i);
+      const auto *name = Statistics::GetHistogramName(i);
       auto &histogram = Statistics::global_histograms[i];
 
       for (auto &[percentile, value] : histogram.YieldPercentiles()) {

@@ -55,7 +55,7 @@ class Histogram {
   // the "compression" logic below.
   std::vector<uint64_t> samples_ = {};
 
-  std::vector<uint8_t> percentiles_ = {0, 25, 50, 75, 90, 100};
+  std::vector<uint8_t> percentiles_;
 
   // count_ is the number of measurements that have been
   // included in this Histogram.
@@ -68,11 +68,18 @@ class Histogram {
   std::mutex samples_mutex_;
 
  public:
-  Histogram() { samples_.resize(kSampleLimit, 0); }
+  Histogram() {
+    samples_.resize(kSampleLimit, 0);
+    percentiles_ = {0, 25, 50, 75, 90, 100};
+  }
+
+  Histogram(std::vector<uint8_t> percentiles) : percentiles_(percentiles) { samples_.resize(kSampleLimit, 0); }
 
   uint64_t Count() const { return count_.load(std::memory_order_relaxed); }
 
   uint64_t Sum() const { return sum_.load(std::memory_order_relaxed); }
+
+  std::vector<uint8_t> Percentiles() const { return percentiles_; }
 
   void Measure(uint64_t value) {
     // "compression" logic
@@ -92,7 +99,7 @@ class Histogram {
     }
   }
 
-  auto YieldPercentiles() const {
+  std::vector<std::pair<uint64_t, uint64_t>> YieldPercentiles() const {
     std::vector<std::pair<uint64_t, uint64_t>> percentile_yield;
     percentile_yield.reserve(percentiles_.size());
 
@@ -107,11 +114,13 @@ class Histogram {
     MG_ASSERT(percentile <= 100.0, "percentiles must not exceed 100.0");
     MG_ASSERT(percentile >= 0.0, "percentiles must be greater than or equal to 0.0");
 
-    if (count_ == 0) {
+    auto count = Count();
+
+    if (count == 0) {
       return 0;
     }
 
-    const auto floated_count = static_cast<double>(count_);
+    const auto floated_count = static_cast<double>(count);
     const auto target = std::max(floated_count * percentile / 100.0, 1.0);
 
     auto scanned = 0.0;
