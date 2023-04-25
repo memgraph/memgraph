@@ -380,7 +380,6 @@ std::string DiskStorage::DiskAccessor::SerializeProperties(PropertyStore &proper
 std::string DiskStorage::DiskAccessor::SerializeVertex(const Result<std::vector<LabelId>> &labels, Gid gid) const {
   std::string result = labels.HasError() || (*labels).empty() ? "" : SerializeLabels(*labels) + "|";
   result += SerializeIdType(gid);
-  // result += SerializeTimestamp(*commit_timestamp_);
   return result;
 }
 
@@ -388,7 +387,6 @@ std::string DiskStorage::DiskAccessor::SerializeVertex(const Vertex &vertex) con
   MG_ASSERT(commit_timestamp_.has_value(), "Transaction must be committed to serialize vertex.");
   std::string result = SerializeLabels(vertex.labels) + "|";
   result += SerializeIdType(vertex.gid);
-  // result += SerializeTimestamp(*commit_timestamp_);
   return result;
 }
 
@@ -404,15 +402,13 @@ std::pair<std::string, std::string> DiskStorage::DiskAccessor::SerializeEdge(Edg
   src_dest_key += to_gid + "|";
   src_dest_key += outEdgeDirection;
   src_dest_key += "|" + edge_type + "|";
-  src_dest_key += edge_gid + "|";
-  src_dest_key += SerializeTimestamp(*commit_timestamp_);
+  src_dest_key += edge_gid;
   // destination->source key
   std::string dest_src_key = to_gid + "|";
   dest_src_key += from_gid + "|";
   dest_src_key += inEdgeDirection;
   dest_src_key += "|" + edge_type + "|";
-  dest_src_key += edge_gid + "|";
-  dest_src_key += SerializeTimestamp(*commit_timestamp_);
+  dest_src_key += edge_gid;
   return {src_dest_key, dest_src_key};
 }
 
@@ -431,22 +427,18 @@ std::pair<std::string, std::string> DiskStorage::DiskAccessor::SerializeEdge(con
   src_dest_key += to_gid + "|";
   src_dest_key += outEdgeDirection;
   src_dest_key += "|" + edge_type + "|";
-  src_dest_key += edge_gid + "|";
-  src_dest_key += SerializeTimestamp(*commit_timestamp_);
+  src_dest_key += edge_gid;
   // destination->source key
   std::string dest_src_key = to_gid + "|";
   dest_src_key += from_gid + "|";
   dest_src_key += inEdgeDirection;
   dest_src_key += "|" + edge_type + "|";
-  dest_src_key += edge_gid + "|";
-  dest_src_key += SerializeTimestamp(*commit_timestamp_);
+  dest_src_key += edge_gid;
   return {src_dest_key, dest_src_key};
 }
 
 std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(const rocksdb::Slice &key,
                                                                              const rocksdb::Slice &value) {
-  /// Create vertex
-
   const std::vector<std::string> vertex_parts = utils::Split(key.ToStringView(), "|");
   auto gid = storage::Gid::FromUint(std::stoull(vertex_parts[1]));
   auto acc = storage_->vertices_.access();
@@ -455,12 +447,8 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(con
     spdlog::debug("Vertex with gid {} already exists in the cache!", gid.AsUint());
     return nullptr;
   }
-  spdlog::debug("Vertex with gid {} doesn't exist in the cache, creating it!", gid.AsUint());
-
-  // uint64_t vertex_commit_ts = std::stoull(std::string(ExtractTimestampFromUserKey(key).data_));
+  spdlog::debug("Vertex with gid {} doesn't exist in the cache!", gid.AsUint());
   uint64_t vertex_commit_ts = ExtractTimestampFromDeserializedUserKey(key);
-  // bool is_valid_entry = std::stoull(vertex_parts[2]) < transaction_.start_timestamp;
-  spdlog::debug("Commit ts: {}", vertex_commit_ts);
   auto impl = CreateVertex(gid, vertex_commit_ts);
   // Deserialize labels
   std::vector<LabelId> label_ids;
@@ -469,10 +457,6 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(con
     std::transform(labels.begin(), labels.end(), std::back_inserter(label_ids),
                    [](const auto &label) { return storage::LabelId::FromUint(std::stoull(label)); });
   }
-  // auto prop = impl->GetProperty(NameToProperty("id"), View::NEW);
-  // if (prop->ValueInt() == 1) {
-  // spdlog::debug("ID: {} SerKey: {}", prop->ValueInt(), key);
-  // }
   static_cast<DiskVertexAccessor *>(impl.get())->InitializeDeserializedVertex(label_ids, value.ToStringView());
   return impl;
 }
@@ -485,8 +469,7 @@ std::unique_ptr<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const r
   auto edge_acc = storage_->edges_.access();
   auto res = edge_acc.find(edge_gid);
   if (res != edge_acc.end()) {
-    spdlog::debug("Edge with gid {} already exists in the cache with delta ts {}!", edge_parts[4],
-                  res->delta->timestamp->load(std::memory_order_acquire));
+    spdlog::debug("Edge with gid {} already exists in the cache!", edge_parts[4]);
     return nullptr;
   }
   spdlog::debug("Edge with gid {} doesn't exist in the cache!", edge_parts[4]);
@@ -517,14 +500,12 @@ std::unique_ptr<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const r
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
-  spdlog::debug("Transaction start timestamp: {}", transaction_.start_timestamp);
-  rocksdb::ReadOptions read_opts;
+  rocksdb::ReadOptions ro;
   rocksdb::Slice ts = Timestamp(transaction_.start_timestamp);
-  read_opts.timestamp = &ts;
-  auto it = std::unique_ptr<rocksdb::Iterator>(
-      storage_->kvstore_->db_->NewIterator(read_opts, storage_->kvstore_->vertex_chandle));
+  ro.timestamp = &ts;
+  auto it =
+      std::unique_ptr<rocksdb::Iterator>(storage_->kvstore_->db_->NewIterator(ro, storage_->kvstore_->vertex_chandle));
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
-    spdlog::debug("Key: {}", it->key().ToString());
     // When deserializing vertex, key size is set to user key-size
     // To be able to extract timestamp, here a copy can be created
     // with size explicitly added with sizeof(uint64_t)
@@ -607,6 +588,8 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex(storage:
                                               &storage_->constraints_, config_, gid, storage_->kvstore_);
 }
 
+/// TODO(andi): This method is the duplicate of CreateVertex(storage::Gid gid), the only thing that is different is
+/// delta creation How to remove this duplication?
 std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex(storage::Gid gid, uint64_t vertex_commit_ts) {
   OOMExceptionEnabler oom_exception;
   // NOTE: When we update the next `vertex_id_` here we perform a RMW
@@ -897,20 +880,17 @@ Result<std::unique_ptr<EdgeAccessor>> DiskStorage::DiskAccessor::CreateEdge(Vert
   storage_->edge_id_.store(std::max(storage_->edge_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
                            std::memory_order_release);
 
-  /// TODO(andi): Remove this once we add full support for edges.
-  MG_ASSERT(config_.properties_on_edges, "Properties on edges must be enabled currently for Disk version!");
-  // if (config_.properties_on_edges) {
-  auto acc = storage_->edges_.access();
-  auto delta = CreateDeleteObjectDelta(&transaction_);
-  auto [it, inserted] = acc.insert(DiskEdge(gid, delta));
-  MG_ASSERT(inserted, "The edge must be inserted here!");
-  MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
-  auto edge = EdgeRef(&*it);
-  delta->prev.Set(&*it);
-  // }
-  storage_->lru_edges_.insert(static_cast<DiskEdge *>(&*it));
-  /// TODO(andi): it shoud be safe to do static_cast here since the resolvement can be done at compile time. But same as
-  /// for the vertices, we should change query engine code to handle that properly.
+  EdgeRef edge(gid);
+  if (config_.properties_on_edges) {
+    auto acc = storage_->edges_.access();
+    auto delta = CreateDeleteObjectDelta(&transaction_);
+    auto [it, inserted] = acc.insert(Edge(gid, delta));
+    MG_ASSERT(inserted, "The edge must be inserted here!");
+    MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
+    storage_->lru_edges_.insert(static_cast<DiskEdge *>(&*it));
+    edge = EdgeRef(&*it);
+    delta->prev.Set(&*it);
+  }
 
   CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
   from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
@@ -967,20 +947,17 @@ Result<std::unique_ptr<EdgeAccessor>> DiskStorage::DiskAccessor::CreateEdge(Vert
   }
 
   auto gid = storage::Gid::FromUint(storage_->edge_id_.fetch_add(1, std::memory_order_acq_rel));
-  /// TODO(andi): Remove this once we add full support for edges.
-  MG_ASSERT(config_.properties_on_edges, "Properties on edges must be enabled currently for Disk version!");
-  // if (config_.properties_on_edges) {
-  auto acc = storage_->edges_.access();
-  auto delta = CreateDeleteObjectDelta(&transaction_);
-  auto [it, inserted] = acc.insert(Edge(gid, delta));
-  MG_ASSERT(inserted, "The edge must be inserted here!");
-  MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
-  auto edge = EdgeRef(&*it);
-  delta->prev.Set(&*it);
-  storage_->lru_edges_.insert(static_cast<DiskEdge *>(&*it));
-  /// TODO(andi): it shoud be safe to do static_cast here since the resolvement can be done at compile time. But same
-  /// as for the vertices, we should change query engine code to handle that properly.
-  // }
+  EdgeRef edge(gid);
+  if (config_.properties_on_edges) {
+    auto acc = storage_->edges_.access();
+    auto delta = CreateDeleteObjectDelta(&transaction_);
+    auto [it, inserted] = acc.insert(Edge(gid, delta));
+    MG_ASSERT(inserted, "The edge must be inserted here!");
+    MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
+    storage_->lru_edges_.insert(static_cast<DiskEdge *>(&*it));
+    edge = EdgeRef(&*it);
+    delta->prev.Set(&*it);
+  }
 
   CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
   from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
@@ -1056,10 +1033,9 @@ void DiskStorage::DiskAccessor::FlushCache() {
   /// Flush vertex cache.
   auto vertex_acc = storage_->vertices_.access();
   uint64_t num_ser_edges = 0;
-  auto write_options = rocksdb::WriteOptions();
-  std::string ts_str = Timestamp(*commit_timestamp_);
-  rocksdb::Slice ts_slice = ts_str;
-  write_options.timestamp = &ts_slice;
+  rocksdb::WriteOptions write_options;
+  rocksdb::Slice ts = Timestamp(*commit_timestamp_);
+  write_options.timestamp = &ts;
   for (Vertex &vertex : vertex_acc) {
     // We must mark entry as deleted only at the end of the transaction since otherwise other transactions
     // couldn't read this entry from RocksDB.

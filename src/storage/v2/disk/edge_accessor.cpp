@@ -24,7 +24,6 @@
 namespace memgraph::storage {
 
 bool DiskEdgeAccessor::IsVisible(const View view) const {
-  /*
   bool exists = true;
   bool deleted = true;
   // When edges don't have properties, their isolation level is still dictated by MVCC ->
@@ -47,6 +46,7 @@ bool DiskEdgeAccessor::IsVisible(const View view) const {
         case Delta::Action::REMOVE_IN_EDGE:
         case Delta::Action::ADD_IN_EDGE:
         case Delta::Action::RECREATE_OBJECT:
+        case Delta::Action::DELETE_DESERIALIZED_OBJECT:
         case Delta::Action::DELETE_OBJECT:
           break;
         case Delta::Action::ADD_OUT_EDGE: {  // relevant for the from_vertex_ -> we just deleted the edge
@@ -86,6 +86,7 @@ bool DiskEdgeAccessor::IsVisible(const View view) const {
         deleted = false;
         break;
       }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT: {
         exists = false;
         break;
@@ -93,8 +94,6 @@ bool DiskEdgeAccessor::IsVisible(const View view) const {
     }
   });
   return exists && (for_deleted_ || !deleted);
-  */
-  throw utils::NotYetImplemented("IsVisible for edges without properties is not implemented yet.");
 }
 
 void DiskEdgeAccessor::InitializeDeserializedEdge(EdgeTypeId edge_type_id, std::string_view property_store) {
@@ -118,7 +117,7 @@ std::unique_ptr<VertexAccessor> DiskEdgeAccessor::ToVertex() const {
 }
 
 Result<storage::PropertyValue> DiskEdgeAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
-  /*utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   if (!config_.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
   std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
@@ -138,8 +137,6 @@ Result<storage::PropertyValue> DiskEdgeAccessor::SetProperty(PropertyId property
   edge_.ptr->properties.SetProperty(property, value);
 
   return std::move(current_value);
-  */
-  throw utils::NotYetImplemented("SetProperty is not implemented yet.");
 }
 
 Result<bool> DiskEdgeAccessor::InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
