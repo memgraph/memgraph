@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #pragma once
+
 #include <atomic>
 #include <cstdlib>
 #include <memory>

@@ -1,0 +1,56 @@
+// Copyright 2023 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#include "utils/event_histogram.hpp"
+
+#define APPLY_FOR_HISTOGRAMS(M)   \
+  M(Histogram1, "Some histogram") \
+  M(Histogram2, "Some histogram") \
+  M(Histogram3, "Some histogram")
+
+namespace Statistics {
+
+// define every Event as an index in the array of counters
+#define M(NAME, DOCUMENTATION) extern const Event NAME = __COUNTER__;
+APPLY_FOR_HISTOGRAMS(M)
+#undef M
+
+inline constexpr Event END = __COUNTER__;
+
+// Initialize array for the global counter with all values set to 0
+Histogram global_histograms_array[END]{};
+// Initialize global counters
+EventHistograms global_histograms(global_histograms_array);
+
+const Event EventHistograms::num_histograms = END;
+
+const char *GetHistogramName(const Event event) {
+  static const char *strings[] = {
+#define M(NAME, DOCUMENTATION) #NAME,
+      APPLY_FOR_HISTOGRAMS(M)
+#undef M
+  };
+
+  return strings[event];
+}
+
+const char *GetHistogramDocumentation(const Event event) {
+  static const char *strings[] = {
+#define M(NAME, DOCUMENTATION) DOCUMENTATION,
+      APPLY_FOR_HISTOGRAMS(M)
+#undef M
+  };
+
+  return strings[event];
+}
+
+Event HistogramEnd() { return END; }
+}  // namespace Statistics

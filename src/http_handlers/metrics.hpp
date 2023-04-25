@@ -23,6 +23,7 @@
 #include "query/interpreter.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/event_gauge.hpp"
+#include "utils/event_histogram.hpp"
 
 namespace memgraph::http {
 
@@ -47,6 +48,10 @@ struct MetricsResponse {
       metrics_response[event_gauge.first] = event_gauge.second;
     }
 
+    for (const auto &event_histogram : event_histograms) {
+      metrics_response[event_histogram.first] = event_histogram.second;
+    }
+
     return metrics_response;
   }
 
@@ -57,6 +62,7 @@ struct MetricsResponse {
   uint64_t disk_usage;
   std::vector<std::pair<std::string, uint64_t>> event_counters;
   std::vector<std::pair<std::string, uint64_t>> event_gauges;
+  std::vector<std::pair<std::string, uint64_t>> event_histograms;
 };
 
 template <typename TSessionData>
@@ -66,13 +72,15 @@ class MetricsService {
       : db_(data->db), interpreter_context_(data->interpreter_context), interpreter_(data->interpreter_context) {}
   MetricsResponse GetMetrics() {
     auto info = db_->GetInfo();
+
     return MetricsResponse{.vertex_count = info.vertex_count,
                            .edge_count = info.edge_count,
                            .average_degree = info.average_degree,
                            .memory_usage = info.memory_usage,
                            .disk_usage = info.disk_usage,
                            .event_counters = GetEventCounters(),
-                           .event_gauges = GetEventGauges()};
+                           .event_gauges = GetEventGauges(),
+                           .event_histograms = GetEventHistograms()};
   }
 
  private:
@@ -80,7 +88,7 @@ class MetricsService {
   query::InterpreterContext *interpreter_context_;
   query::Interpreter interpreter_;
 
-  std::vector<std::pair<std::string, uint64_t>> GetEventCounters() {
+  auto GetEventCounters() {
     std::vector<std::pair<std::string, uint64_t>> event_counters;
     event_counters.reserve(Statistics::CounterEnd());
 
@@ -92,7 +100,7 @@ class MetricsService {
     return event_counters;
   }
 
-  std::vector<std::pair<std::string, uint64_t>> GetEventGauges() {
+  auto GetEventGauges() {
     std::vector<std::pair<std::string, uint64_t>> event_gauges;
     event_gauges.reserve(Statistics::GaugeEnd());
 
@@ -102,6 +110,24 @@ class MetricsService {
     }
 
     return event_gauges;
+  }
+
+  auto GetEventHistograms() {
+    std::vector<std::pair<std::string, uint64_t>> event_histograms;
+    event_histograms.reserve(Statistics::HistogramEnd());
+
+    for (auto i = 0; i < Statistics::HistogramEnd(); i++) {
+      auto name = Statistics::GetHistogramName(i);
+      auto &histogram = Statistics::global_histograms[i];
+
+      for (auto &[percentile, value] : histogram.YieldPercentiles()) {
+        auto metric_name = std::string(name) + "_" + std::to_string(percentile) + "p";
+
+        event_histograms.emplace_back(metric_name, value);
+      }
+    }
+
+    return event_histograms;
   }
 };
 
