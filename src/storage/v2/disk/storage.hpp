@@ -26,6 +26,7 @@
 #include "storage/v2/constraints.hpp"
 #include "storage/v2/disk/disk_edge.hpp"
 #include "storage/v2/disk/disk_vertex.hpp"
+#include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/disk/vertex_accessor.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/wal.hpp"
@@ -92,8 +93,6 @@ class DiskStorage final : public Storage {
 
     ~DiskAccessor() override;
 
-    /// Create and insert vertex into vertices_ and lru_vertices_.
-    /// @throw std::alloc
     std::unique_ptr<VertexAccessor> CreateVertex() override;
 
     /// Checks whether the vertex with the given `gid` exists in the vertices_. If it does, it returns a
@@ -565,10 +564,7 @@ class DiskStorage final : public Storage {
 
   // std::atomic<ReplicationRole> replication_role_{ReplicationRole::MAIN};
 
-  rocksdb::Options options_;
-  rocksdb::DB *db_;
-  rocksdb::ColumnFamilyHandle *vertex_chandle = nullptr;
-  rocksdb::ColumnFamilyHandle *edge_chandle = nullptr;
+  RocksDBStorage *kvstore_;
 };
 
 }  // namespace memgraph::storage

@@ -297,35 +297,34 @@ DiskStorage::DiskStorage(Config config)
   //   spdlog::info("Replica's configuration will be stored and will be automatically restored in case of a crash.");
   //   utils::EnsureDirOrDie(config_.durability.storage_directory / durability::kReplicationDirectory);
   //   storage_ =
-  //       std::make_unique<kvstore::KVStore>(config_.durability.storage_directory / durability::kReplicationDirectory);
+  //       std::make_unique<kvstore_::kvstore_>(config_.durability.storage_directory /
+  //       durability::kReplicationDirectory);
   //   RestoreReplicas();
   // } else {
   //   spdlog::warn("Replicas' configuration will NOT be stored. When the server restarts, replicas will be
   //   forgotten.");
   // }
 
-  /// Create RocksDB object
-  options_.create_if_missing = true;
-  // options_.comparator = new ComparatorWithU64TsImpl();
-  // rocksdb::BytewiseComparator()
-  options_.comparator = new ComparatorWithU64TsImpl();
-  // options_.OptimizeLevelStyleCompaction();
   std::filesystem::path rocksdb_path = "./rocks_experiment";
-  MG_ASSERT(utils::EnsureDir(rocksdb_path), "Unable to create storage folder on the disk.");
-  AssertRocksDBStatus(rocksdb::DB::Open(options_, rocksdb_path, &db_));
-  AssertRocksDBStatus(db_->CreateColumnFamily(options_, vertexHandle, &vertex_chandle));
-  AssertRocksDBStatus(db_->CreateColumnFamily(options_, edgeHandle, &edge_chandle));
+  kvstore_ = new RocksDBStorage();
+  MG_ASSERT(utils::EnsureDir(rocksdb_path), "Unable to create RocksDB storage folder on the disk.");
+  kvstore_->options_.create_if_missing = true;
+  kvstore_->options_.comparator = new ComparatorWithU64TsImpl();
+  AssertRocksDBStatus(rocksdb::DB::Open(kvstore_->options_, rocksdb_path, &kvstore_->db_));
+  AssertRocksDBStatus(kvstore_->db_->CreateColumnFamily(kvstore_->options_, vertexHandle, &kvstore_->vertex_chandle));
+  AssertRocksDBStatus(kvstore_->db_->CreateColumnFamily(kvstore_->options_, edgeHandle, &kvstore_->edge_chandle));
 }
 
 DiskStorage::~DiskStorage() {
   /// TODO(andi): I think that without destroy column family handle, there are memory leaks
   /// But I also think that DestroyColumnFamilyHandle deletes all data in its handle.
-  delete options_.comparator;
-  AssertRocksDBStatus(db_->DropColumnFamily(vertex_chandle));
-  AssertRocksDBStatus(db_->DropColumnFamily(edge_chandle));
-  AssertRocksDBStatus(db_->DestroyColumnFamilyHandle(vertex_chandle));
-  AssertRocksDBStatus(db_->DestroyColumnFamilyHandle(edge_chandle));
-  AssertRocksDBStatus(db_->Close());
+  delete kvstore_->options_.comparator;
+  AssertRocksDBStatus(kvstore_->db_->DropColumnFamily(kvstore_->vertex_chandle));
+  AssertRocksDBStatus(kvstore_->db_->DropColumnFamily(kvstore_->edge_chandle));
+  AssertRocksDBStatus(kvstore_->db_->DestroyColumnFamilyHandle(kvstore_->vertex_chandle));
+  AssertRocksDBStatus(kvstore_->db_->DestroyColumnFamilyHandle(kvstore_->edge_chandle));
+  AssertRocksDBStatus(kvstore_->db_->Close());
+  delete kvstore_;
 }
 
 DiskStorage::DiskAccessor::DiskAccessor(DiskStorage *storage, IsolationLevel isolation_level)
@@ -358,7 +357,7 @@ DiskStorage::DiskAccessor::~DiskAccessor() {
   FinalizeTransaction();
 }
 
-/// (De)serialization utilities
+// (De)serialization utilities
 
 std::string DiskStorage::DiskAccessor::SerializeIdType(const auto &id) const { return std::to_string(id.AsUint()); }
 
@@ -509,7 +508,8 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
   rocksdb::ReadOptions read_opts;
   rocksdb::Slice ts = Timestamp(transaction_.start_timestamp);
   read_opts.timestamp = &ts;
-  auto it = std::unique_ptr<rocksdb::Iterator>(storage_->db_->NewIterator(read_opts, storage_->vertex_chandle));
+  auto it = std::unique_ptr<rocksdb::Iterator>(
+      storage_->kvstore_->db_->NewIterator(read_opts, storage_->kvstore_->vertex_chandle));
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     spdlog::debug("Key: {}", it->key().ToString());
     // When deserializing vertex, key size is set to user key-size
@@ -543,7 +543,8 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
 
 int64_t DiskStorage::DiskAccessor::ApproximateVertexCount() const {
   uint64_t estimate_num_keys = 0;
-  storage_->db_->GetIntProperty(storage_->vertex_chandle, "rocksdb.estimate-num-keys", &estimate_num_keys);
+  storage_->kvstore_->db_->GetIntProperty(storage_->kvstore_->vertex_chandle, "rocksdb.estimate-num-keys",
+                                          &estimate_num_keys);
   return static_cast<int64_t>(estimate_num_keys);
 }
 
@@ -561,7 +562,8 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex() {
   /// std::variant of vertices on query engine level is better? If we use std::variant, we can remove the static_cast
   /// here and for inserting into the lru cache also.
   return std::make_unique<DiskVertexAccessor>(static_cast<DiskVertex *>(&*it), &transaction_, &storage_->indices_,
-                                              &storage_->constraints_, config_, storage::Gid::FromUint(gid));
+                                              &storage_->constraints_, config_, storage::Gid::FromUint(gid),
+                                              storage_->kvstore_);
 }
 
 /// TODO(andi): Currently used only for deserialization but in the in-memory version, replication depends on it
@@ -589,7 +591,7 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex(storage:
   /// std::variant of vertices on query engine level is better? If we use std::variant, we can remove the static_cast
   /// here and for inserting into the lru cache also.
   return std::make_unique<DiskVertexAccessor>(static_cast<DiskVertex *>(&*it), &transaction_, &storage_->indices_,
-                                              &storage_->constraints_, config_, gid);
+                                              &storage_->constraints_, config_, gid, storage_->kvstore_);
 }
 
 std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex(storage::Gid gid, uint64_t vertex_commit_ts) {
@@ -615,7 +617,7 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex(storage:
   /// std::variant of vertices on query engine level is better? If we use std::variant, we can remove the static_cast
   /// here and for inserting into the lru cache also.
   return std::make_unique<DiskVertexAccessor>(static_cast<DiskVertex *>(&*it), &transaction_, &storage_->indices_,
-                                              &storage_->constraints_, config_, gid);
+                                              &storage_->constraints_, config_, gid, storage_->kvstore_);
 }
 
 std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid gid, View view) {
@@ -627,8 +629,8 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::G
                                       view);
   }
   /// If not in the memory, check whether it exists in RocksDB.
-  auto it =
-      std::unique_ptr<rocksdb::Iterator>(storage_->db_->NewIterator(rocksdb::ReadOptions(), storage_->vertex_chandle));
+  auto it = std::unique_ptr<rocksdb::Iterator>(
+      storage_->kvstore_->db_->NewIterator(rocksdb::ReadOptions(), storage_->kvstore_->vertex_chandle));
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     const auto &key = it->key();
     // TODO(andi): If we change format of vertex serialization, change vertex_parts[1] to vertex_parts[0].
@@ -880,8 +882,10 @@ Result<std::unique_ptr<EdgeAccessor>> DiskStorage::DiskAccessor::DeleteEdge(Edge
   auto *to_vertex = disk_edge_acc->to_vertex_;
 
   auto [src_dest_key, dest_src_key] = SerializeEdge(edge);
-  if (!CheckRocksDBStatus(storage_->db_->Delete(rocksdb::WriteOptions(), storage_->edge_chandle, src_dest_key)) ||
-      !CheckRocksDBStatus(storage_->db_->Delete(rocksdb::WriteOptions(), storage_->edge_chandle, dest_src_key))) {
+  if (!CheckRocksDBStatus(
+          storage_->kvstore_->db_->Delete(rocksdb::WriteOptions(), storage_->kvstore_->edge_chandle, src_dest_key)) ||
+      !CheckRocksDBStatus(
+          storage_->kvstore_->db_->Delete(rocksdb::WriteOptions(), storage_->kvstore_->edge_chandle, dest_src_key))) {
     return Error::SERIALIZATION_ERROR;
   }
 
@@ -937,19 +941,21 @@ void DiskStorage::DiskAccessor::FlushCache() {
     rocksdb::Slice ts_slice = ts_str;
     write_options.timestamp = &ts_slice;
     if (vertex.deleted) {
-      AssertRocksDBStatus(storage_->db_->Delete(write_options, storage_->vertex_chandle, SerializeVertex(vertex)));
+      AssertRocksDBStatus(
+          storage_->kvstore_->db_->Delete(write_options, storage_->kvstore_->vertex_chandle, SerializeVertex(vertex)));
     } else {
-      AssertRocksDBStatus(storage_->db_->Put(write_options, storage_->vertex_chandle, SerializeVertex(vertex),
-                                             SerializeProperties(vertex.properties)));
+      AssertRocksDBStatus(storage_->kvstore_->db_->Put(write_options, storage_->kvstore_->vertex_chandle,
+                                                       SerializeVertex(vertex),
+                                                       SerializeProperties(vertex.properties)));
     }
     for (auto &edge_entry : vertex.out_edges) {
       Edge *edge_ptr = std::get<2>(edge_entry).ptr;
       auto [src_dest_key, dest_src_key] =
           SerializeEdge(vertex.gid, std::get<1>(edge_entry)->gid, std::get<0>(edge_entry), edge_ptr);
-      AssertRocksDBStatus(storage_->db_->Put(rocksdb::WriteOptions(), storage_->edge_chandle, src_dest_key,
-                                             SerializeProperties(edge_ptr->properties)));
-      AssertRocksDBStatus(storage_->db_->Put(rocksdb::WriteOptions(), storage_->edge_chandle, dest_src_key,
-                                             SerializeProperties(edge_ptr->properties)));
+      AssertRocksDBStatus(storage_->kvstore_->db_->Put(rocksdb::WriteOptions(), storage_->kvstore_->edge_chandle,
+                                                       src_dest_key, SerializeProperties(edge_ptr->properties)));
+      AssertRocksDBStatus(storage_->kvstore_->db_->Put(rocksdb::WriteOptions(), storage_->kvstore_->edge_chandle,
+                                                       dest_src_key, SerializeProperties(edge_ptr->properties)));
       num_ser_edges++;
     }
     // MG_ASSERT(num_ser_edges == storage_->edges_.size(),
