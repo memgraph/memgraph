@@ -98,9 +98,9 @@ startup_config_dict = {
         "IP address on which the websocket server for Memgraph monitoring should listen.",
     ),
     "monitoring_port": ("7444", "7444", "Port on which the websocket server for Memgraph monitoring should listen."),
-    "parallel_index_creation_enabled": (
-        "true",
-        "true",
+    "storage_parallel_index_recovery": (
+        "false",
+        "false",
         "Controls whether the index creation can be done in a multithreaded fashion.",
     ),
     "password_encryption_algorithm": ("bcrypt", "bcrypt", "The password encryption algorithm used for authentication."),
