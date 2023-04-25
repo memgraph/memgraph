@@ -21,6 +21,7 @@
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
+#include "utils/memory.hpp"
 #include "utils/typeinfo.hpp"
 
 namespace memgraph {
@@ -666,11 +667,16 @@ class InListOperator : public memgraph::query::BinaryOperator {
     return object;
   }
 
+  void SetCachedMap(std::unordered_map<size_t, int> &map) { _cached_map.emplace(map); }
+
+  std::unordered_map<size_t, int> *GetCachedMap() { return _cached_map.has_value() ? &*_cached_map : nullptr; }
+
  protected:
   using BinaryOperator::BinaryOperator;
 
  private:
   friend class AstStorage;
+  std::optional<std::unordered_map<size_t, int>> _cached_map{std::nullopt};
 };
 
 class SubscriptOperator : public memgraph::query::BinaryOperator {

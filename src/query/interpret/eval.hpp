@@ -190,17 +190,27 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(InListOperator &in_list) override {
+    ReferenceExpressionEvaluator reference_expression_evaluator{frame_, symbol_table_, ctx_};
+
+    TypedValue *_list_ptr = in_list.expression2_->Accept(reference_expression_evaluator);
+    TypedValue _list;
+
+    if (nullptr == _list_ptr) {
+      _list = in_list.expression2_->Accept(*this);
+      _list_ptr = &_list;
+    }
+
     auto literal = in_list.expression1_->Accept(*this);
-    auto _list = in_list.expression2_->Accept(*this);
-    if (_list.IsNull()) {
+
+    if (_list_ptr->IsNull()) {
       return TypedValue(ctx_->memory);
     }
     // Exceptions have higher priority than returning nulls when list expression
     // is not null.
-    if (_list.type() != TypedValue::Type::List) {
+    if (_list_ptr->type() != TypedValue::Type::List) {
       throw QueryRuntimeException("IN expected a list, got {}.", _list.type());
     }
-    const auto &list = _list.ValueList();
+    const auto &list = _list_ptr->ValueList();
 
     // If literal is NULL there is no need to try to compare it with every
     // element in the list since result of every comparison will be NULL. There
@@ -208,6 +218,24 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     // result is false since no comparison will be performed.
     if (list.empty()) return TypedValue(false, ctx_->memory);
     if (literal.IsNull()) return TypedValue(ctx_->memory);
+
+    if (in_list.GetCachedMap() == nullptr) {
+      std::unordered_map<size_t, int> _cached_map;
+      TypedValue::Hash hash{};
+      for (const TypedValue &element : list) {
+        _cached_map.emplace(hash(element), 1);
+      }
+
+      in_list.SetCachedMap(_cached_map);
+    }
+
+    const auto &in_list_cached_map = in_list.GetCachedMap();
+
+    TypedValue::Hash hash{};
+    if (in_list_cached_map->contains(hash(literal))) {
+      return TypedValue(true, ctx_->memory);
+    }
+    return TypedValue(false, ctx_->memory);
 
     auto has_null = false;
     for (const auto &element : list) {
