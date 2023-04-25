@@ -129,6 +129,9 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     return true;
   }
 
+  // TODO ante
+  // bool PostVisit(MapProjectionLiteral &map_projection_literal) override { }
+
   bool PostVisit(All &all) override {
     // Remove the symbol which is bound by all, because we are only interested
     // in free (unbound) symbols.

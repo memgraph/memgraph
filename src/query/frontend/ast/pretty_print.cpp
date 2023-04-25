@@ -55,6 +55,8 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
   void Visit(ListLiteral &op) override;
   void Visit(MapLiteral &op) override;
   void Visit(MapProjectionLiteral &op) override;  // TODO ante
+  // void Visit(MapElement &op) override; // TODO ante
+  // void Visit(MapVariable &op) override;  // TODO ante
   void Visit(LabelsTest &op) override;
   void Visit(Aggregation &op) override;
   void Visit(Function &op) override;
@@ -274,6 +276,15 @@ void ExpressionPrettyPrinter::Visit(MapProjectionLiteral &op) {
   // }
   PrintObject(out_, map);
 }
+
+// void ExpressionPrettyPrinter::Visit(MapVariable &op) {
+//   // TODO ante
+// }
+
+// TODO ante
+// void ExpressionPrettyPrinter::Visit(MapElement &op) {
+//
+// }
 
 void ExpressionPrettyPrinter::Visit(LabelsTest &op) { PrintOperator(out_, "LabelsTest", op.expression_); }
 

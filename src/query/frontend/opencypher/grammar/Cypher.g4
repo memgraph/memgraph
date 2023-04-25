@@ -305,9 +305,7 @@ numberLiteral : doubleLiteral
 
 mapLiteral : '{' ( propertyKeyName ':' expression ( ',' propertyKeyName ':' expression )* )? '}' ;
 
-mapProjectionLiteral : mapVariable '{' ( mapElement ( ',' mapElement )* )? '}' ;
-
-mapVariable : variable ;
+mapProjectionLiteral : variable '{' ( mapElement ( ',' mapElement )* )? '}' ;
 
 mapElement : propertyLookup
            | allPropertyLookup

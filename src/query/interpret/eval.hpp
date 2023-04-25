@@ -80,6 +80,8 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue *> {
   UNSUCCESSFUL_VISIT(ListLiteral);
   UNSUCCESSFUL_VISIT(MapLiteral);
   UNSUCCESSFUL_VISIT(MapProjectionLiteral);  // TODO ante
+  // UNSUCCESSFUL_VISIT(MapVariable);           // TODO ante
+  // UNSUCCESSFUL_VISIT(MapElement);         // TODO ante
   UNSUCCESSFUL_VISIT(Aggregation);
   UNSUCCESSFUL_VISIT(Coalesce);
   UNSUCCESSFUL_VISIT(Function);
@@ -558,6 +560,16 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     // // for (const auto &pair : literal.elements_) result.emplace(pair.first.name, pair.second->Accept(*this));
     // return TypedValue(result, ctx_->memory);
   }
+
+  // // TODO ante
+  // TypedValue Visit(MapVariable &map_variable) override {
+  //   throw QueryRuntimeException("Map projection functionality not yet implemented!");
+  // }
+
+  // TODO ante
+  // TypedValue Visit(MapElement &map_element) override {
+  //   throw QueryRuntimeException("Map projection functionality not yet implemented!");
+  // }
 
   TypedValue Visit(Aggregation &aggregation) override {
     return TypedValue(frame_->at(symbol_table_->at(aggregation)), ctx_->memory);

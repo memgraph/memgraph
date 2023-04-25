@@ -181,6 +181,8 @@ class PatternFilterVisitor : public ExpressionVisitor<void> {
   void Visit(ListLiteral &op) override{};
   void Visit(MapLiteral &op) override{};
   void Visit(MapProjectionLiteral &op) override{};  // TODO ante
+  // void Visit(MapVariable &op) override{};           // TODO ante
+  // void Visit(MapElement &op) override{};         // TODO ante
   void Visit(LabelsTest &op) override{};
   void Visit(Aggregation &op) override{};
   void Visit(Function &op) override{};

@@ -1698,8 +1698,18 @@ antlrcpp::Any CypherMainVisitor::visitMapLiteral(MemgraphCypher::MapLiteralConte
 
 antlrcpp::Any CypherMainVisitor::visitMapProjectionLiteral(MemgraphCypher::MapProjectionLiteralContext *ctx) {
   // TODO ante
-  std::pair<Expression *, std::vector<Expression *>> map;
-  return map;
+  std::pair<std::string, std::vector<Expression *>> map_projection;
+
+  auto variable = std::any_cast<std::string>(ctx->variable()->accept(this));
+  map_projection.first = variable;
+
+  // map_projection.first = std::any_cast<Expression *>(ctx->variable()->accept(this));
+
+  // for (int i = 0; i < static_cast<int>(ctx->mapElement().size()); ++i) {
+  //   map_projection.second.insert(std::any_cast<MapElement *>(ctx->mapElement()[i]->accept(this)));
+  // }
+
+  return map_projection;
 }
 
 antlrcpp::Any CypherMainVisitor::visitListLiteral(MemgraphCypher::ListLiteralContext *ctx) {
@@ -2282,6 +2292,12 @@ antlrcpp::Any CypherMainVisitor::visitLiteral(MemgraphCypher::LiteralContext *ct
   } else if (ctx->listLiteral()) {
     return static_cast<Expression *>(
         storage_->Create<ListLiteral>(std::any_cast<std::vector<Expression *>>(ctx->listLiteral()->accept(this))));
+  } else if (ctx->mapProjectionLiteral()) {
+    std::cout << "Create MapProjectionLiteral"
+              << "\n";
+
+    return static_cast<Expression *>(storage_->Create<MapProjectionLiteral>(
+        std::any_cast<std::pair<std::string, std::vector<Expression *>>>(ctx->mapProjectionLiteral()->accept(this))));
   } else {
     return static_cast<Expression *>(storage_->Create<MapLiteral>(
         std::any_cast<std::unordered_map<PropertyIx, Expression *>>(ctx->mapLiteral()->accept(this))));

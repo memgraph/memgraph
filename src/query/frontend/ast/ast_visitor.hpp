@@ -46,8 +46,9 @@ class PrimitiveLiteral;
 class ListLiteral;
 class MapLiteral;
 class MapProjectionLiteral;
-// class MapElement;
 // class MapVariable;
+// TODO ante
+// class MapElement;
 // class PropertyPair;
 class OrOperator;
 class XorOperator;
@@ -115,7 +116,8 @@ using TreeCompositeVisitor = utils::CompositeVisitor<
     Extract, All, Single, Any, None, CallProcedure, Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom, Delete,
     Where, SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge, Unwind, RegexMatch, LoadCsv,
     Foreach, Exists, CallSubquery, CypherQuery>;
-// TODO ante ADD MapElement, MapVariable, PropertyPair
+// TODO ante ADD MapVariable, MapElement, PropertyPair
+// MapVariable
 
 using TreeLeafVisitor = utils::LeafVisitor<Identifier, PrimitiveLiteral, ParameterLookup>;
 
@@ -137,7 +139,8 @@ class ExpressionVisitor
                             ListLiteral, MapLiteral, MapProjectionLiteral, PropertyLookup, AllPropertyLookup,
                             LabelsTest, Aggregation, Function, Reduce, Coalesce, Extract, All, Single, Any, None,
                             ParameterLookup, Identifier, PrimitiveLiteral, RegexMatch, Exists> {};
-// TODO ante ADD MapElement, MapVariable, PropertyPair,
+// TODO ante ADD MapElement, PropertyPair
+// MapVariable
 
 template <class TResult>
 class QueryVisitor
