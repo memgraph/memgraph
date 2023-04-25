@@ -174,8 +174,6 @@ class DiskStorage final : public Storage {
 
     Result<std::unique_ptr<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge) override;
 
-    Result<std::vector<std::unique_ptr<EdgeAccessor>>> DeleteEdges(const auto &edge_accessors);
-
     const std::string &LabelToName(LabelId label) const override;
     const std::string &PropertyToName(PropertyId property) const override;
     const std::string &EdgeTypeToName(EdgeTypeId edge_type) const override;
@@ -291,6 +289,8 @@ class DiskStorage final : public Storage {
 
     std::shared_lock<utils::RWLock> storage_guard_;
     Transaction transaction_;
+    std::vector<std::string> edges_to_delete_;
+    std::vector<std::string> vertices_to_delete_;
     std::optional<uint64_t> commit_timestamp_;
     bool is_transaction_active_;
     Config::Items config_;
