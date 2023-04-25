@@ -2309,7 +2309,9 @@ PreparedQuery PrepareVersionQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
 PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
-                               storage::Storage *db, utils::MemoryResource *execution_memory) {
+                               storage::Storage *db, utils::MemoryResource *execution_memory,
+                               std::optional<storage::IsolationLevel> interpreter_isolation_level,
+                               std::optional<storage::IsolationLevel> next_transaction_isolation_level) {
   if (in_explicit_transaction) {
     throw InfoInMulticommandTxException();
   }
@@ -2322,7 +2324,7 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
     case InfoQuery::InfoType::STORAGE:
       header = {"storage info", "value"};
 
-      handler = [db] {
+      handler = [db, interpreter_isolation_level, next_transaction_isolation_level] {
         auto info = db->GetInfo();
         std::vector<std::vector<TypedValue>> results{
             {TypedValue("vertex_count"), TypedValue(static_cast<int64_t>(info.vertex_count))},
@@ -2332,7 +2334,10 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
             {TypedValue("disk_usage"), TypedValue(static_cast<int64_t>(info.disk_usage))},
             {TypedValue("memory_allocated"), TypedValue(static_cast<int64_t>(utils::total_memory_tracker.Amount()))},
             {TypedValue("allocation_limit"), TypedValue(static_cast<int64_t>(utils::total_memory_tracker.HardLimit()))},
-            {TypedValue("isolation_level"), TypedValue(IsolationLevelToString(db->GetIsolationLevel()))},
+            {TypedValue("global_isolation_level"), TypedValue(IsolationLevelToString(db->GetIsolationLevel()))},
+            {TypedValue("session_isolation_level"), TypedValue(IsolationLevelToString(interpreter_isolation_level))},
+            {TypedValue("next_session_isolation_level"),
+             TypedValue(IsolationLevelToString(next_transaction_isolation_level))},
             {TypedValue("storage_mode"), TypedValue(StorageModeToString(db->GetStorageMode()))}};
         return std::pair{results, QueryHandlerResult::COMMIT};
       };
@@ -2798,7 +2803,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<InfoQuery>(parsed_query.query)) {
       prepared_query = PrepareInfoQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
                                         interpreter_context_, interpreter_context_->db,
-                                        &query_execution->execution_memory_with_exception);
+                                        &query_execution->execution_memory_with_exception, interpreter_isolation_level,
+                                        next_transaction_isolation_level);
     } else if (utils::Downcast<ConstraintQuery>(parsed_query.query)) {
       prepared_query = PrepareConstraintQuery(std::move(parsed_query), in_explicit_transaction_,
                                               &query_execution->notifications, interpreter_context_);

@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <string_view>
 
 namespace memgraph::storage {
@@ -19,5 +20,6 @@ namespace memgraph::storage {
 enum class IsolationLevel : std::uint8_t { SNAPSHOT_ISOLATION, READ_COMMITTED, READ_UNCOMMITTED };
 
 std::string_view IsolationLevelToString(IsolationLevel isolation_level);
+std::string_view IsolationLevelToString(std::optional<IsolationLevel> isolation_level);
 
 }  // namespace memgraph::storage

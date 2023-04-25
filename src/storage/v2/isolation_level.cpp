@@ -24,4 +24,12 @@ std::string_view IsolationLevelToString(IsolationLevel isolation_level) {
   }
 }
 
+std::string_view IsolationLevelToString(std::optional<IsolationLevel> isolation_level) {
+  auto asd = isolation_level.has_value();
+  if (isolation_level) {
+    return IsolationLevelToString(*isolation_level);
+  }
+  return "";
+}
+
 }  // namespace memgraph::storage
