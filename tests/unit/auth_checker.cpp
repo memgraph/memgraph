@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,21 +17,22 @@
 
 #include "license/license.hpp"
 #include "query_plan_common.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/view.hpp"
 
 #ifdef MG_ENTERPRISE
 class FineGrainedAuthCheckerFixture : public testing::Test {
  protected:
-  memgraph::storage::Storage db;
-  memgraph::storage::Storage::Accessor storage_dba{db.Access()};
-  memgraph::query::DbAccessor dba{&storage_dba};
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
+  memgraph::query::DbAccessor dba{storage_dba.get()};
 
   // make a V-graph (v3)<-[r2]-(v1)-[r1]->(v2)
   memgraph::query::VertexAccessor v1{dba.InsertVertex()};
   memgraph::query::VertexAccessor v2{dba.InsertVertex()};
   memgraph::query::VertexAccessor v3{dba.InsertVertex()};
-  memgraph::storage::EdgeTypeId edge_type_one{db.NameToEdgeType("edge_type_1")};
-  memgraph::storage::EdgeTypeId edge_type_two{db.NameToEdgeType("edge_type_2")};
+  memgraph::storage::EdgeTypeId edge_type_one{db->NameToEdgeType("edge_type_1")};
+  memgraph::storage::EdgeTypeId edge_type_two{db->NameToEdgeType("edge_type_2")};
 
   memgraph::query::EdgeAccessor r1{*dba.InsertEdge(&v1, &v2, edge_type_one)};
   memgraph::query::EdgeAccessor r2{*dba.InsertEdge(&v1, &v3, edge_type_one)};
