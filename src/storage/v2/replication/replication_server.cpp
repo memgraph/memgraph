@@ -307,16 +307,19 @@ uint64_t InMemoryStorage::ReplicationServer::ReadAndApplyDelta(durability::BaseD
   auto edge_acc = storage_->edges_.access();
   auto vertex_acc = storage_->vertices_.access();
 
-  std::optional<std::pair<uint64_t, storage::InMemoryStorage::InMemoryAccessor *>> commit_timestamp_and_accessor;
+  std::optional<std::pair<uint64_t, std::unique_ptr<storage::Storage::Accessor>>> commit_timestamp_and_accessor;
   auto get_transaction = [this, &commit_timestamp_and_accessor](uint64_t commit_timestamp) {
     if (!commit_timestamp_and_accessor) {
-      commit_timestamp_and_accessor.emplace(commit_timestamp,
-                                            dynamic_cast<storage::InMemoryStorage::InMemoryAccessor *>(
-                                                storage_->Access(std::optional<IsolationLevel>{}).get()));
+      commit_timestamp_and_accessor.emplace(commit_timestamp, storage_->Access(std::optional<IsolationLevel>{}));
     } else if (commit_timestamp_and_accessor->first != commit_timestamp) {
       throw utils::BasicException("Received more than one transaction!");
     }
-    return commit_timestamp_and_accessor->second;
+    // TODO: Rethink this if we would reuse ReplicationServer for on disk storage.
+    if (auto *inmemoryAcc =
+            dynamic_cast<storage::InMemoryStorage::InMemoryAccessor *>(commit_timestamp_and_accessor->second.get())) {
+      return inmemoryAcc;
+    }
+    throw utils::BasicException("Received transaction for not supported storage!");
   };
 
   uint64_t applied_deltas = 0;
