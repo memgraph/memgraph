@@ -106,13 +106,15 @@ void DiskEdgeAccessor::InitializeDeserializedEdge(EdgeTypeId edge_type_id, std::
 }
 
 std::unique_ptr<VertexAccessor> DiskEdgeAccessor::FromVertex() const {
-  // return std::make_unique<DiskVertexAccessor>(from_vertex_, transaction_, indices_, constraints_, config_);
-  throw utils::NotYetImplemented("FromVertex is not implemented yet.");
+  // TODO(andi): Revisit this GID caching thing once again
+  return std::make_unique<DiskVertexAccessor>(from_vertex_, transaction_, indices_, constraints_, config_,
+                                              from_vertex_->gid);
 }
 
 std::unique_ptr<VertexAccessor> DiskEdgeAccessor::ToVertex() const {
-  // return std::make_unique<DiskVertexAccessor>(to_vertex_, transaction_, indices_, constraints_, config_);
-  throw utils::NotYetImplemented("ToVertex is not implemented yet.");
+  // TODO(andi): Revisit this GID caching thing once again
+  return std::make_unique<DiskVertexAccessor>(to_vertex_, transaction_, indices_, constraints_, config_,
+                                              to_vertex_->gid);
 }
 
 Result<storage::PropertyValue> DiskEdgeAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
@@ -159,27 +161,25 @@ Result<bool> DiskEdgeAccessor::InitProperties(const std::map<storage::PropertyId
 }
 
 Result<std::map<PropertyId, PropertyValue>> DiskEdgeAccessor::ClearProperties() {
-  // if (!config_.properties_on_edges) return Error::PROPERTIES_DISABLED;//
-  //
-  // std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
-  //
-  // if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
-  //
-  // if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
-  //
-  // auto properties = edge_.ptr->properties.Properties();
-  // for (const auto &property : properties) {
-  //   CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property.first, property.second);
-  // }
-  //
-  // edge_.ptr->properties.ClearProperties();
-  //
-  // return std::move(properties);
-  throw utils::NotYetImplemented("ClearProperties is not implemented yet.");
+  if (!config_.properties_on_edges) return Error::PROPERTIES_DISABLED;
+
+  std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
+
+  if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
+
+  if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
+
+  auto properties = edge_.ptr->properties.Properties();
+  for (const auto &property : properties) {
+    CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property.first, property.second);
+  }
+
+  edge_.ptr->properties.ClearProperties();
+
+  return std::move(properties);
 }
 
 Result<PropertyValue> DiskEdgeAccessor::GetProperty(PropertyId property, View view) const {
-  /*
   if (!config_.properties_on_edges) return PropertyValue();
   bool exists = true;
   bool deleted = false;
@@ -199,6 +199,7 @@ Result<PropertyValue> DiskEdgeAccessor::GetProperty(PropertyId property, View vi
         }
         break;
       }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT: {
         exists = false;
         break;
@@ -219,12 +220,10 @@ Result<PropertyValue> DiskEdgeAccessor::GetProperty(PropertyId property, View vi
   if (!exists) return Error::NONEXISTENT_OBJECT;
   if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return std::move(value);
-  */
-  throw utils::NotYetImplemented("GetProperty is not implemented yet.");
 }
 
 Result<std::map<PropertyId, PropertyValue>> DiskEdgeAccessor::Properties(View view) const {
-  /*if (!config_.properties_on_edges) return std::map<PropertyId, PropertyValue>{};
+  if (!config_.properties_on_edges) return std::map<PropertyId, PropertyValue>{};
   bool exists = true;
   bool deleted = false;
   std::map<PropertyId, PropertyValue> properties;
@@ -252,6 +251,7 @@ Result<std::map<PropertyId, PropertyValue>> DiskEdgeAccessor::Properties(View vi
         }
         break;
       }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT: {
         exists = false;
         break;
@@ -272,8 +272,6 @@ Result<std::map<PropertyId, PropertyValue>> DiskEdgeAccessor::Properties(View vi
   if (!exists) return Error::NONEXISTENT_OBJECT;
   if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return std::move(properties);
-  */
-  throw utils::NotYetImplemented("Properties is not implemented yet.");
 }
 
 bool DiskEdgeAccessor::SetPropertyStore(std::string_view buffer) const {

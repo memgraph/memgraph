@@ -46,6 +46,8 @@ TEST(QueryPlan, CreateNodeWithAttributes) {
     const auto &v = node_value.ValueVertex();
     EXPECT_TRUE(*v.HasLabel(memgraph::storage::View::NEW, label));
     EXPECT_EQ(v.GetProperty(memgraph::storage::View::NEW, property)->ValueInt(), 42);
+    dba->PrefetchInEdges();
+    dba->PrefetchOutEdges();
     EXPECT_EQ(CountIterable(*v.InEdges(memgraph::storage::View::NEW)), 0);
     EXPECT_EQ(CountIterable(*v.OutEdges(memgraph::storage::View::NEW)), 0);
     // Invokes LOG(FATAL) instead of erroring out.

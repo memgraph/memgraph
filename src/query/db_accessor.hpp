@@ -377,6 +377,12 @@ class DbAccessor final {
 
   VertexAccessor InsertVertex() { return VertexAccessor(accessor_->CreateVertex()); }
 
+  /// TODO(andi): Change return result to Result<bool>
+  void PrefetchInEdges() const { accessor_->PrefetchInEdges(); }
+
+  /// TODO(andi): Change return result to Result<bool>
+  void PrefetchOutEdges() const { accessor_->PrefetchOutEdges(); }
+
   storage::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
                                            const storage::EdgeTypeId &edge_type) {
     auto maybe_edge = accessor_->CreateEdge(from->impl_.get(), to->impl_.get(), edge_type);

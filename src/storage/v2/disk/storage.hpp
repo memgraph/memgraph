@@ -165,6 +165,10 @@ class DiskStorage final : public Storage {
     Result<std::optional<std::pair<std::unique_ptr<VertexAccessor>, std::vector<std::unique_ptr<EdgeAccessor>>>>>
     DetachDeleteVertex(VertexAccessor *vertex) override;
 
+    void PrefetchInEdges() override;
+
+    void PrefetchOutEdges() override;
+
     Result<std::unique_ptr<EdgeAccessor>> CreateEdge(VertexAccessor *from, VertexAccessor *to,
                                                      EdgeTypeId edge_type) override;
 
@@ -214,15 +218,22 @@ class DiskStorage final : public Storage {
     std::optional<uint64_t> GetTransactionId() const override;
 
    private:
+    /// TODO(andi): Consolidate this vertex creation methods and find from in-memory version where are they used.
     /// Used for deserialization of vertices and edges from KV store.
     /// @throw std::bad_alloc
     std::unique_ptr<VertexAccessor> CreateVertex(storage::Gid gid);
 
+    /// TODO(andi): Consolidate this vertex creation methods and find from in-memory version where are they used.
     std::unique_ptr<VertexAccessor> CreateVertex(storage::Gid gid, uint64_t vertex_commit_ts);
 
     /// @throw std::bad_alloc
+    /// TODO(andi): Consolidate this vertex creation methods and find from in-memory version where are they used.
     Result<std::unique_ptr<EdgeAccessor>> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type,
                                                      storage::Gid gid);
+
+    /// TODO(andi): Consolidate this vertex creation methods and find from in-memory version where are they used.
+    Result<std::unique_ptr<EdgeAccessor>> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type,
+                                                     storage::Gid gid, uint64_t edge_commit_ts);
 
     // (De)serialization utility methods
 
@@ -269,7 +280,7 @@ class DiskStorage final : public Storage {
     /// Deserializes edge from the string key and stores it into the edges_ cache.
     /// Properties are deserialized from the value.
     /// The method should be called only when the edge is not in the cache.
-    std::unique_ptr<EdgeAccessor> DeserializeEdge(std::string_view key, std::string_view value);
+    std::unique_ptr<EdgeAccessor> DeserializeEdge(const rocksdb::Slice &key, const rocksdb::Slice &value);
 
     /// Flushes vertices and edges to the disk with the commit timestamp.
     /// At the time of calling, the commit_timestamp_ must already exist.

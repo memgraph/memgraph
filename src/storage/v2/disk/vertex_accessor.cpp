@@ -381,8 +381,7 @@ Result<std::map<PropertyId, PropertyValue>> DiskVertexAccessor::Properties(View 
 
 Result<std::vector<std::unique_ptr<EdgeAccessor>>> DiskVertexAccessor::InEdges(
     View view, const std::vector<EdgeTypeId> &edge_types, const VertexAccessor *destination) const {
-  /*
-  auto *destVA = dynamic_cast<const DiskVertexAccessor *>(destination);
+  const auto *destVA = static_cast<const DiskVertexAccessor *>(destination);
   MG_ASSERT(!destination || destVA, "Target VertexAccessor must be from the same storage as the storage accessor!");
   MG_ASSERT(!destVA || destVA->transaction_ == transaction_, "Invalid accessor!");
   bool exists = true;
@@ -435,6 +434,7 @@ Result<std::vector<std::unique_ptr<EdgeAccessor>>> DiskVertexAccessor::InEdges(
             in_edges.pop_back();
             break;
           }
+          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
           case Delta::Action::DELETE_OBJECT: {
             exists = false;
             break;
@@ -457,16 +457,17 @@ Result<std::vector<std::unique_ptr<EdgeAccessor>>> DiskVertexAccessor::InEdges(
   ret.reserve(in_edges.size());
   for (const auto &item : in_edges) {
     const auto &[edge_type, from_vertex, edge] = item;
-    ret.emplace_back(std::make_unique<DiskEdgeAccessor>(edge, edge_type, from_vertex, vertex_, transaction_,
-                                                            indices_, constraints_, config_));
+    // TODO(andi): GID handling should be done in a different manner
+    ret.emplace_back(std::make_unique<DiskEdgeAccessor>(edge, edge_type, static_cast<DiskVertex *>(from_vertex),
+                                                        vertex_, transaction_, indices_, constraints_, config_,
+                                                        edge.gid));
   }
-  return std::move(ret);*/
-  throw utils::NotYetImplemented("DiskVertexAccessor::InEdges");
+  return std::move(ret);
 }
 
 Result<std::vector<std::unique_ptr<EdgeAccessor>>> DiskVertexAccessor::OutEdges(
     View view, const std::vector<EdgeTypeId> &edge_types, const VertexAccessor *destination) const {
-  /*auto *destVA = dynamic_cast<const DiskVertexAccessor *>(destination);
+  const auto *destVA = static_cast<const DiskVertexAccessor *>(destination);
   MG_ASSERT(!destination || destVA, "Target VertexAccessor must be from the same storage as the storage accessor!");
   MG_ASSERT(!destVA || destVA->transaction_ == transaction_, "Invalid accessor!");
   bool exists = true;
@@ -519,6 +520,7 @@ Result<std::vector<std::unique_ptr<EdgeAccessor>>> DiskVertexAccessor::OutEdges(
             out_edges.pop_back();
             break;
           }
+          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
           case Delta::Action::DELETE_OBJECT: {
             exists = false;
             break;
@@ -541,11 +543,10 @@ Result<std::vector<std::unique_ptr<EdgeAccessor>>> DiskVertexAccessor::OutEdges(
   ret.reserve(out_edges.size());
   for (const auto &item : out_edges) {
     const auto &[edge_type, to_vertex, edge] = item;
-    ret.emplace_back(std::make_unique<DiskEdgeAccessor>(edge, edge_type, vertex_, to_vertex, transaction_, indices_,
-                                                            constraints_, config_));
+    ret.emplace_back(std::make_unique<DiskEdgeAccessor>(edge, edge_type, vertex_, static_cast<DiskVertex *>(to_vertex),
+                                                        transaction_, indices_, constraints_, config_, edge.gid));
   }
-  return std::move(ret);*/
-  throw utils::NotYetImplemented("DiskVertexAccessor::OutEdges");
+  return std::move(ret);
 }
 
 Result<size_t> DiskVertexAccessor::InDegree(View view) const {

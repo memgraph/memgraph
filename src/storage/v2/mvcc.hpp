@@ -32,6 +32,7 @@ inline void ApplyDeltasForRead(Transaction *transaction, const Delta *delta, Vie
   const auto commit_timestamp = transaction->commit_timestamp
                                     ? transaction->commit_timestamp->load(std::memory_order_acquire)
                                     : transaction->transaction_id.load(std::memory_order_acquire);
+  spdlog::debug("Delta's commit timestamp: {}", delta->timestamp->load(std::memory_order_acquire));
   while (delta != nullptr) {
     auto ts = delta->timestamp->load(std::memory_order_acquire);
     auto cid = delta->command_id;

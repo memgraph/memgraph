@@ -242,6 +242,10 @@ class Storage {
         std::optional<std::pair<std::unique_ptr<VertexAccessor>, std::vector<std::unique_ptr<EdgeAccessor>>>>>
     DetachDeleteVertex(VertexAccessor *vertex) = 0;
 
+    virtual void PrefetchInEdges() = 0;
+
+    virtual void PrefetchOutEdges() = 0;
+
     /// @throw std::bad_alloc
     virtual Result<std::unique_ptr<EdgeAccessor>> CreateEdge(VertexAccessor *from, VertexAccessor *to,
                                                              EdgeTypeId edge_type) = 0;
