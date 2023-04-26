@@ -21,7 +21,6 @@
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
-#include "utils/memory.hpp"
 #include "utils/typeinfo.hpp"
 
 namespace memgraph {
