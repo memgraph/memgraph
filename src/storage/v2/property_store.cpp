@@ -1144,7 +1144,8 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
   return !existed;
 }
 
-bool PropertyStore::InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+template <typename TContainer>
+bool PropertyStore::DoInitProperties(const TContainer &properties) {
   uint64_t size = 0;
   uint8_t *data = nullptr;
   std::tie(size, data) = GetSizeData(buffer_);
@@ -1200,6 +1201,20 @@ bool PropertyStore::InitProperties(const std::map<storage::PropertyId, storage::
   }
 
   return true;
+}
+template bool PropertyStore::DoInitProperties<std::map<PropertyId, PropertyValue>>(
+    const std::map<PropertyId, PropertyValue> &);
+template bool PropertyStore::DoInitProperties<std::vector<std::pair<PropertyId, PropertyValue>>>(
+    const std::vector<std::pair<PropertyId, PropertyValue>> &);
+
+bool PropertyStore::InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+  return DoInitProperties(properties);
+}
+
+bool PropertyStore::InitProperties(std::vector<std::pair<storage::PropertyId, storage::PropertyValue>> properties) {
+  std::sort(properties.begin(), properties.end());
+
+  return DoInitProperties(properties);
 }
 
 bool PropertyStore::ClearProperties() {

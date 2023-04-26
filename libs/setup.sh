@@ -117,7 +117,7 @@ declare -A primary_urls=(
   ["mgconsole"]="http://$local_cache_host/git/mgconsole.git"
   ["spdlog"]="http://$local_cache_host/git/spdlog"
   ["nlohmann"]="http://$local_cache_host/file/nlohmann/json/4f8fba14066156b73f1189a2b8bd568bde5284c5/single_include/nlohmann/json.hpp"
-  ["neo4j"]="http://$local_cache_host/file/neo4j-community-3.2.3-unix.tar.gz"
+  ["neo4j"]="http://$local_cache_host/file/neo4j-community-5.6.0-unix.tar.gz"
   ["librdkafka"]="http://$local_cache_host/git/librdkafka.git"
   ["protobuf"]="http://$local_cache_host/git/protobuf.git"
   ["pulsar"]="http://$local_cache_host/git/pulsar.git"
@@ -142,7 +142,7 @@ declare -A secondary_urls=(
   ["mgconsole"]="http://github.com/memgraph/mgconsole.git"
   ["spdlog"]="https://github.com/gabime/spdlog"
   ["nlohmann"]="https://raw.githubusercontent.com/nlohmann/json/4f8fba14066156b73f1189a2b8bd568bde5284c5/single_include/nlohmann/json.hpp"
-  ["neo4j"]="https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/neo4j-community-3.2.3-unix.tar.gz"
+  ["neo4j"]="https://dist.neo4j.org/neo4j-community-5.6.0-unix.tar.gz"
   ["librdkafka"]="https://github.com/edenhill/librdkafka.git"
   ["protobuf"]="https://github.com/protocolbuffers/protobuf.git"
   ["pulsar"]="https://github.com/apache/pulsar.git"
@@ -180,9 +180,9 @@ repo_clone_try_double "${primary_urls[libbcrypt]}" "${secondary_urls[libbcrypt]}
 
 # neo4j
 file_get_try_double "${primary_urls[neo4j]}" "${secondary_urls[neo4j]}"
-tar -xzf neo4j-community-3.2.3-unix.tar.gz
-mv neo4j-community-3.2.3 neo4j
-rm neo4j-community-3.2.3-unix.tar.gz
+tar -xzf neo4j-community-5.6.0-unix.tar.gz
+mv neo4j-community-5.6.0 neo4j
+rm neo4j-community-5.6.0-unix.tar.gz
 
 # nlohmann json
 # We wget header instead of cloning repo since repo is huge (lots of test data).

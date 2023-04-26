@@ -1068,14 +1068,14 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   std::optional<utils::PoolResource> pool_memory;
 
   if (!use_monotonic_memory_) {
-    pool_memory.emplace(8, kExecutionPoolMaxBlockSize, utils::NewDeleteResource(), utils::NewDeleteResource());
+    pool_memory.emplace(8, kExecutionPoolMaxBlockSize, &resource_with_exception, &resource_with_exception);
   } else {
     // We can throw on every query because a simple queries for deleting will use only
     // the stack allocated buffer.
     // Also, we want to throw only when the query engine requests more memory and not the storage
     // so we add the exception to the allocator.
     // TODO (mferencevic): Tune the parameters accordingly.
-    pool_memory.emplace(128, 1024, &monotonic_memory, utils::NewDeleteResource());
+    pool_memory.emplace(128, 1024, &monotonic_memory, &resource_with_exception);
   }
 
   std::optional<utils::LimitedMemoryResource> maybe_limited_resource;
@@ -2729,7 +2729,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         // Using PoolResource without MonotonicMemoryResouce for LOAD CSV reduces memory usage.
         // QueryExecution MemoryResource is mostly used for allocations done on Frame and storing `row`s
         query_executions_[query_executions_.size() - 1] = std::make_unique<QueryExecution>(
-            utils::PoolResource(1, kExecutionPoolMaxBlockSize, utils::NewDeleteResource(), utils::NewDeleteResource()));
+            utils::PoolResource(8, kExecutionPoolMaxBlockSize, utils::NewDeleteResource(), utils::NewDeleteResource()));
         query_execution_ptr = &query_executions_.back();
       }
     }
