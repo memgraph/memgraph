@@ -62,7 +62,17 @@
   M(TriggersCreated, "Number of Triggers created.")                                                        \
   M(TriggersExecuted, "Number of Triggers executed.")                                                      \
                                                                                                            \
-  M(ActiveConnections, "Number of active connections.")
+  M(ActiveSessions, "Number of active connections.")                                                       \
+  M(ActiveBoltSessions, "Number of active Bolt connections.")                                              \
+  M(ActiveTCPSessions, "Number of active TCP connections.")                                                \
+  M(ActiveSSLSessions, "Number of active SSL connections.")                                                \
+  M(ActiveWebsocketSessions, "Number of active websocket connections.")                                    \
+                                                                                                           \
+  M(ActiveTransactions, "Number of active transactions.")                                                  \
+  M(CommitedTransactions, "Number of committed transactions.")                                             \
+  M(RollbackedTransactions, "Number of rollbacked transactions.")                                          \
+                                                                                                           \
+  M(BoltMessages, "Number of Bolt messages sent.")
 
 namespace Statistics {
 

@@ -521,6 +521,10 @@ void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, std::string c
   }
 }
 
+namespace Statistics {
+extern const Event ActiveBoltSessions;
+}  // namespace Statistics
+
 class BoltSession final : public memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                                         memgraph::communication::v2::OutputStream> {
  public:
@@ -538,10 +542,12 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 #endif
         endpoint_(endpoint),
         run_id_(data->run_id) {
+    Statistics::IncrementCounter(Statistics::ActiveBoltSessions);
     interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.insert(&interpreter_); });
   }
 
   ~BoltSession() override {
+    Statistics::DecrementCounter(Statistics::ActiveBoltSessions);
     interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.erase(&interpreter_); });
   }
 

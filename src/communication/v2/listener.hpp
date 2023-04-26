@@ -35,7 +35,7 @@
 #include "utils/synchronized.hpp"
 
 namespace Statistics {
-extern const Event ActiveConnections;
+extern const Event ActiveSessions;
 }  // namespace Statistics
 
 namespace memgraph::communication::v2 {
@@ -115,10 +115,9 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
       return OnError(ec, "accept");
     }
 
-    Statistics::IncrementCounter(Statistics::ActiveConnections);
-
     auto session = SessionHandler::Create(std::move(socket), data_, *server_context_, endpoint_, inactivity_timeout_,
                                           service_name_);
+
     session->Start();
     DoAccept();
   }

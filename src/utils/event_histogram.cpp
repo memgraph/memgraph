@@ -11,7 +11,9 @@
 
 #include "utils/event_histogram.hpp"
 
-#define APPLY_FOR_HISTOGRAMS(M) M(QueryLatency_us, "Query latency in microseconds", 0, 25, 50, 75, 99, 100)
+#define APPLY_FOR_HISTOGRAMS(M)                                                                  \
+  M(QueryExecutionLatency_us, "Query execution latency in microseconds", 0, 25, 50, 75, 99, 100) \
+  M(SnapshotCreationLatency_us, "Snapshot creation latency in microseconds", 50, 90, 100)
 
 namespace Statistics {
 

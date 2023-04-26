@@ -33,6 +33,7 @@
 #include "storage/v2/replication/replication_persistence_helper.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_accessor.hpp"
+#include "utils/event_histogram.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -47,6 +48,10 @@
 #include "storage/v2/replication/replication_server.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/storage_error.hpp"
+
+namespace Statistics {
+extern const Event SnapshotCreationLatency_us;
+}  // namespace Statistics
 
 namespace memgraph::storage {
 
@@ -1920,11 +1925,17 @@ utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot() {
   // Create the transaction used to create the snapshot.
   auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION);
 
+  auto start_time = std::chrono::steady_clock::now();
+
   // Create snapshot.
   durability::CreateSnapshot(&transaction, snapshot_directory_, wal_directory_,
                              config_.durability.snapshot_retention_count, &vertices_, &edges_, &name_id_mapper_,
                              &indices_, &constraints_, config_.items, uuid_, epoch_id_, epoch_history_,
                              &file_retainer_);
+
+  auto end_time = std::chrono::steady_clock::now();
+  Statistics::Measure(Statistics::SnapshotCreationLatency_us,
+                      std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count());
 
   // Finalize snapshot transaction.
   commit_log_->MarkFinished(transaction.start_timestamp);

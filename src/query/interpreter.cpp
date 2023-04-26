@@ -81,7 +81,11 @@ extern const Event LabelPropertyIndexCreated;
 extern const Event StreamsCreated;
 extern const Event TriggersCreated;
 
-extern const Event QueryLatency_ms;
+extern const Event QueryExecutionLatency_us;
+
+extern const Event CommitedTransactions;
+extern const Event RollbackedTransactions;
+extern const Event ActiveTransactions;
 }  // namespace Statistics
 
 namespace memgraph::query {
@@ -1111,7 +1115,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   }
 
   summary->insert_or_assign("plan_execution_time", execution_time_.count());
-  Statistics::Measure(Statistics::QueryLatency_ms,
+  Statistics::Measure(Statistics::QueryExecutionLatency_us,
                       std::chrono::duration_cast<std::chrono::microseconds>(execution_time_).count());
 
   // We are finished with pulling all the data, therefore we can send any
@@ -2612,6 +2616,10 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   const auto trimmed_query = utils::Trim(upper_case_query);
 
   if (trimmed_query == "BEGIN" || trimmed_query == "COMMIT" || trimmed_query == "ROLLBACK") {
+    if (trimmed_query == "BEGIN") {
+      Statistics::IncrementCounter(Statistics::ActiveTransactions);
+    }
+
     query_execution->prepared_query.emplace(PrepareTransactionQuery(trimmed_query));
     return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid};
   }
@@ -2623,11 +2631,13 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   // an explicit transaction block.
   if (in_explicit_transaction_) {
     AdvanceCommand();
-  }
-  // If we're not in an explicit transaction block and we have an open
-  // transaction, abort it since we're about to prepare a new query.
-  else if (db_accessor_) {
-    AbortCommand(&query_execution);
+  } else {
+    Statistics::IncrementCounter(Statistics::ActiveTransactions);
+    // If we're not in an explicit transaction block and we have an open
+    // transaction, abort it since we're about to prepare a new query.
+    if (db_accessor_) {
+      AbortCommand(&query_execution);
+    }
   }
 
   try {
@@ -2775,7 +2785,12 @@ void Interpreter::Abort() {
 
   expect_rollback_ = false;
   in_explicit_transaction_ = false;
+
+  Statistics::IncrementCounter(Statistics::RollbackedTransactions);
+  Statistics::DecrementCounter(Statistics::ActiveTransactions);
+
   if (!db_accessor_) return;
+
   db_accessor_->Abort();
   execution_db_accessor_.reset();
   db_accessor_.reset();
@@ -2960,6 +2975,9 @@ void Interpreter::Commit() {
   if (!commit_confirmed_by_all_sync_repplicas) {
     throw ReplicationException("At least one SYNC replica has not confirmed committing last transaction.");
   }
+
+  Statistics::IncrementCounter(Statistics::CommitedTransactions);
+  Statistics::DecrementCounter(Statistics::ActiveTransactions);
 }
 
 void Interpreter::AdvanceCommand() {
