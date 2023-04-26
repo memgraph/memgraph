@@ -1068,14 +1068,14 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   std::optional<utils::PoolResource> pool_memory;
 
   if (!use_monotonic_memory_) {
-    pool_memory.emplace(8, kExecutionPoolMaxBlockSize, utils::NewDeleteResource(), utils::NewDeleteResource());
+    pool_memory.emplace(8, kExecutionPoolMaxBlockSize, &resource_with_exception, &resource_with_exception);
   } else {
     // We can throw on every query because a simple queries for deleting will use only
     // the stack allocated buffer.
     // Also, we want to throw only when the query engine requests more memory and not the storage
     // so we add the exception to the allocator.
     // TODO (mferencevic): Tune the parameters accordingly.
-    pool_memory.emplace(128, 1024, &monotonic_memory, utils::NewDeleteResource());
+    pool_memory.emplace(128, 1024, &monotonic_memory, &resource_with_exception);
   }
 
   std::optional<utils::LimitedMemoryResource> maybe_limited_resource;
