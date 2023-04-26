@@ -66,7 +66,7 @@
   M(ActiveBoltSessions, "Number of active Bolt connections.")                                              \
   M(ActiveTCPSessions, "Number of active TCP connections.")                                                \
   M(ActiveSSLSessions, "Number of active SSL connections.")                                                \
-  M(ActiveWebsocketSessions, "Number of active websocket connections.")                                    \
+  M(ActiveWebSocketSessions, "Number of active websocket connections.")                                    \
                                                                                                            \
   M(ActiveTransactions, "Number of active transactions.")                                                  \
   M(CommitedTransactions, "Number of committed transactions.")                                             \
