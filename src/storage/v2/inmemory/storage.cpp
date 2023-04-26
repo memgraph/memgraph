@@ -285,6 +285,7 @@ std::unique_ptr<VertexAccessor> InMemoryStorage::InMemoryAccessor::FindVertex(st
                                         view);
 }
 
+// TODO: Think about moving from raw pointer to unique_ptr!
 Result<std::unique_ptr<VertexAccessor>> InMemoryStorage::InMemoryAccessor::DeleteVertex(VertexAccessor *vertex) {
   auto *inMemoryVA = dynamic_cast<InMemoryVertexAccessor *>(vertex);
   MG_ASSERT(inMemoryVA, "VertexAccessor must be from the same storage as the storage accessor when deleting a vertex!");

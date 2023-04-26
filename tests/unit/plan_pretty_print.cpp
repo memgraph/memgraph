@@ -16,6 +16,7 @@
 #include "query/plan/pretty_print.hpp"
 
 #include "query_common.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 
 using namespace memgraph::query;
 using namespace memgraph::query::plan;
@@ -34,20 +35,18 @@ using namespace nlohmann;
 
 class PrintToJsonTest : public ::testing::Test {
  protected:
-  PrintToJsonTest() : db(), dba(db.Access()) {}
+  PrintToJsonTest() : db(new memgraph::storage::InMemoryStorage()), dba_storage(db->Access()), dba(dba_storage.get()) {}
 
   AstStorage storage;
   SymbolTable symbol_table;
 
-  memgraph::storage::Storage db;
-  memgraph::storage::Storage::Accessor dba;
+  std::unique_ptr<memgraph::storage::Storage> db;
+  std::unique_ptr<memgraph::storage::Storage::Accessor> dba_storage;
+  memgraph::query::DbAccessor dba;
 
   Symbol GetSymbol(std::string name) { return symbol_table.CreateSymbol(name, true); }
 
-  void Check(LogicalOperator *root, std::string expected) {
-    memgraph::query::DbAccessor query_dba(&dba);
-    EXPECT_EQ(PlanToJson(query_dba, root), json::parse(expected));
-  }
+  void Check(LogicalOperator *root, std::string expected) { EXPECT_EQ(PlanToJson(dba, root), json::parse(expected)); }
 };
 
 TEST_F(PrintToJsonTest, Once) {

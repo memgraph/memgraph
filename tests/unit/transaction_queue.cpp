@@ -18,6 +18,7 @@
 #include "gmock/gmock.h"
 
 #include "interpreter_faker.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 
 /*
 Tests rely on the fact that interpreters are sequentially added to runninng_interpreters to get transaction_id of its
@@ -25,9 +26,9 @@ corresponding interpreter/.
 */
 class TransactionQueueSimpleTest : public ::testing::Test {
  protected:
-  memgraph::storage::Storage db_;
+  std::unique_ptr<memgraph::storage::Storage> db_{new memgraph::storage::InMemoryStorage()};
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_transaction_queue_intr"};
-  memgraph::query::InterpreterContext interpreter_context{&db_, {}, data_directory};
+  memgraph::query::InterpreterContext interpreter_context{db_.get(), {}, data_directory};
   InterpreterFaker running_interpreter{&interpreter_context}, main_interpreter{&interpreter_context};
 };
 

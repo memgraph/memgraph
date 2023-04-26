@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,7 +22,7 @@
 
 #include "query/graph.hpp"
 #include "query/typed_value.hpp"
-#include "storage/v2/storage.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 
 using memgraph::query::TypedValue;
 using memgraph::query::TypedValueException;
@@ -30,9 +30,9 @@ using memgraph::query::TypedValueException;
 class AllTypesFixture : public testing::Test {
  protected:
   std::vector<TypedValue> values_;
-  memgraph::storage::Storage db;
-  memgraph::storage::Storage::Accessor storage_dba{db.Access()};
-  memgraph::query::DbAccessor dba{&storage_dba};
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
+  memgraph::query::DbAccessor dba{storage_dba.get()};
 
   void SetUp() override {
     values_.emplace_back(TypedValue());
@@ -49,12 +49,12 @@ class AllTypesFixture : public testing::Test {
                                                            {"e", TypedValue()}});
     auto vertex = dba.InsertVertex();
     values_.emplace_back(vertex);
-    auto edge = *dba.InsertEdge(&vertex, &vertex, dba.NameToEdgeType("et"));
-    values_.emplace_back(edge);
+    auto edge = dba.InsertEdge(&vertex, &vertex, dba.NameToEdgeType("et"));
+    values_.emplace_back(*edge);
     values_.emplace_back(memgraph::query::Path(dba.InsertVertex()));
     memgraph::query::Graph graph{memgraph::utils::NewDeleteResource()};
     graph.InsertVertex(vertex);
-    graph.InsertEdge(edge);
+    graph.InsertEdge(*edge);
     values_.emplace_back(std::move(graph));
   }
 };

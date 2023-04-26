@@ -21,6 +21,7 @@
 
 #include "interpreter_faker.hpp"
 #include "query/exceptions.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 
 constexpr int NUM_INTERPRETERS = 4, INSERTIONS = 4000;
 
@@ -30,10 +31,10 @@ corresponding interpreter.
 */
 class TransactionQueueMultipleTest : public ::testing::Test {
  protected:
-  memgraph::storage::Storage db_;
+  std::unique_ptr<memgraph::storage::Storage> db_{new memgraph::storage::InMemoryStorage()};
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() /
                                        "MG_tests_unit_transaction_queue_multiple_intr"};
-  memgraph::query::InterpreterContext interpreter_context{&db_, {}, data_directory};
+  memgraph::query::InterpreterContext interpreter_context{db_.get(), {}, data_directory};
   InterpreterFaker main_interpreter{&interpreter_context};
   std::vector<InterpreterFaker *> running_interpreters;
 
