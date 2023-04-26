@@ -2308,8 +2308,8 @@ PreparedQuery PrepareVersionQuery(ParsedQuery parsed_query, bool in_explicit_tra
 }
 
 PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                               std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
-                               storage::Storage *db, utils::MemoryResource *execution_memory,
+                               std::map<std::string, TypedValue> * /*summary*/, InterpreterContext *interpreter_context,
+                               storage::Storage *db, utils::MemoryResource * /*execution_memory*/,
                                std::optional<storage::IsolationLevel> interpreter_isolation_level,
                                std::optional<storage::IsolationLevel> next_transaction_isolation_level) {
   if (in_explicit_transaction) {
