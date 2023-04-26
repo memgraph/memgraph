@@ -45,6 +45,7 @@ void DecrementCounter(Event event, Count amount = 1);
 
 const char *GetCounterName(Event event);
 const char *GetCounterDocumentation(Event event);
+const char *GetCounterType(const Event event);
 
 Event CounterEnd();
 }  // namespace Statistics

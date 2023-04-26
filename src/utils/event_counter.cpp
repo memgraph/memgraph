@@ -123,7 +123,7 @@ const char *GetCounterDocumentation(const Event event) {
 
 const char *GetCounterType(const Event event) {
   static const char *strings[] = {
-#define M(NAME, TYPE, DOCUMENTATION) #NAME,
+#define M(NAME, TYPE, DOCUMENTATION) #TYPE,
       APPLY_FOR_COUNTERS(M)
 #undef M
   };

@@ -11,14 +11,14 @@
 
 #include "utils/event_histogram.hpp"
 
-#define APPLY_FOR_HISTOGRAMS(M)                                                                  \
-  M(QueryExecutionLatency_us, "Query execution latency in microseconds", 0, 25, 50, 75, 99, 100) \
-  M(SnapshotCreationLatency_us, "Snapshot creation latency in microseconds", 50, 90, 100)
+#define APPLY_FOR_HISTOGRAMS(M)                                                                         \
+  M(QueryExecutionLatency_us, Query, "Query execution latency in microseconds", 0, 25, 50, 75, 99, 100) \
+  M(SnapshotCreationLatency_us, Snapshot, "Snapshot creation latency in microseconds", 50, 90, 100)
 
 namespace Statistics {
 
 // define every Event as an index in the array of counters
-#define M(NAME, DOCUMENTATION, ...) extern const Event NAME = __COUNTER__;
+#define M(NAME, TYPE, DOCUMENTATION, ...) extern const Event NAME = __COUNTER__;
 APPLY_FOR_HISTOGRAMS(M)
 #undef M
 
@@ -26,7 +26,7 @@ inline constexpr Event END = __COUNTER__;
 
 // Initialize array for the global histogram with all named histograms and their percentiles
 Histogram global_histograms_array[END]{
-#define M(NAME, DOCUMENTATION, ...) Histogram({__VA_ARGS__}),
+#define M(NAME, TYPE, DOCUMENTATION, ...) Histogram({__VA_ARGS__}),
     APPLY_FOR_HISTOGRAMS(M)
 #undef M
 };
@@ -41,7 +41,7 @@ void EventHistograms::Measure(const Event event, Value value) { histograms_[even
 
 const char *GetHistogramName(const Event event) {
   static const char *strings[] = {
-#define M(NAME, DOCUMENTATION, ...) #NAME,
+#define M(NAME, TYPE, DOCUMENTATION, ...) #NAME,
       APPLY_FOR_HISTOGRAMS(M)
 #undef M
   };
@@ -51,7 +51,17 @@ const char *GetHistogramName(const Event event) {
 
 const char *GetHistogramDocumentation(const Event event) {
   static const char *strings[] = {
-#define M(NAME, DOCUMENTATION, ...) DOCUMENTATION,
+#define M(NAME, TYPE, DOCUMENTATION, ...) DOCUMENTATION,
+      APPLY_FOR_HISTOGRAMS(M)
+#undef M
+  };
+
+  return strings[event];
+}
+
+const char *GetHistogramType(const Event event) {
+  static const char *strings[] = {
+#define M(NAME, TYPE, DOCUMENTATION, ...) #TYPE,
       APPLY_FOR_HISTOGRAMS(M)
 #undef M
   };

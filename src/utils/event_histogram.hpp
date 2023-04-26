@@ -164,6 +164,7 @@ void Measure(const Event event, Value value);
 
 const char *GetHistogramName(Event event);
 const char *GetHistogramDocumentation(Event event);
+const char *GetHistogramType(const Event event);
 
 Event HistogramEnd();
 }  // namespace Statistics

@@ -11,17 +11,13 @@
 
 #include "utils/event_gauge.hpp"
 
-#define APPLY_FOR_GAUGES(M)           \
-  M(SomeGauge, "Gauge description.")  \
-  M(SomeGauge2, "Gauge description.") \
-  M(SomeGauge3, "Gauge description.") \
-  M(SomeGauge4, "Gauge description.") \
-  M(SomeGauge5, "Gauge description.")
+// We don't have any gauges for now
+#define APPLY_FOR_GAUGES(M)
 
 namespace Statistics {
 
 // define every Event as an index in the array of gauges
-#define M(NAME, DOCUMENTATION) extern const Event NAME = __COUNTER__;
+#define M(NAME, TYPE, DOCUMENTATION) extern const Event NAME = __COUNTER__;
 APPLY_FOR_GAUGES(M)
 #undef M
 
@@ -40,7 +36,7 @@ void SetGaugeValue(const Event event, Value value) { global_gauges.SetValue(even
 
 const char *GetGaugeName(const Event event) {
   static const char *strings[] = {
-#define M(NAME, DOCUMENTATION) #NAME,
+#define M(NAME, TYPE, DOCUMENTATION) #NAME,
       APPLY_FOR_GAUGES(M)
 #undef M
   };
@@ -50,7 +46,17 @@ const char *GetGaugeName(const Event event) {
 
 const char *GetGaugeDocumentation(const Event event) {
   static const char *strings[] = {
-#define M(NAME, DOCUMENTATION) DOCUMENTATION,
+#define M(NAME, TYPE, DOCUMENTATION) DOCUMENTATION,
+      APPLY_FOR_GAUGES(M)
+#undef M
+  };
+
+  return strings[event];
+}
+
+const char *GetGaugeType(const Event event) {
+  static const char *strings[] = {
+#define M(NAME, TYPE, DOCUMENTATION) #TYPE,
       APPLY_FOR_GAUGES(M)
 #undef M
   };

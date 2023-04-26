@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <tuple>
 #include <vector>
 
 #include <spdlog/spdlog.h>
@@ -41,15 +42,18 @@ struct MetricsResponse {
     metrics_response["disk_usage"] = disk_usage;
 
     for (const auto &event_counter : event_counters) {
-      metrics_response[event_counter.first] = event_counter.second;
+      auto type = std::get<1>(event_counter);
+      metrics_response[type][std::get<0>(event_counter)] = std::get<2>(event_counter);
     }
 
     for (const auto &event_gauge : event_gauges) {
-      metrics_response[event_gauge.first] = event_gauge.second;
+      auto type = std::get<1>(event_gauge);
+      metrics_response[type][std::get<0>(event_gauge)] = std::get<2>(event_gauge);
     }
 
     for (const auto &event_histogram : event_histograms) {
-      metrics_response[event_histogram.first] = event_histogram.second;
+      auto type = std::get<1>(event_histogram);
+      metrics_response[type][std::get<0>(event_histogram)] = std::get<2>(event_histogram);
     }
 
     return metrics_response;
@@ -60,9 +64,9 @@ struct MetricsResponse {
   double average_degree;
   uint64_t memory_usage;
   uint64_t disk_usage;
-  std::vector<std::pair<std::string, uint64_t>> event_counters;
-  std::vector<std::pair<std::string, uint64_t>> event_gauges;
-  std::vector<std::pair<std::string, uint64_t>> event_histograms;
+  std::vector<std::tuple<std::string, std::string, uint64_t>> event_counters;
+  std::vector<std::tuple<std::string, std::string, uint64_t>> event_gauges;
+  std::vector<std::tuple<std::string, std::string, uint64_t>> event_histograms;
 };
 
 template <typename TSessionData>
@@ -89,11 +93,11 @@ class MetricsService {
   query::Interpreter interpreter_;
 
   auto GetEventCounters() {
-    std::vector<std::pair<std::string, uint64_t>> event_counters;
+    std::vector<std::tuple<std::string, std::string, uint64_t>> event_counters;
     event_counters.reserve(Statistics::CounterEnd());
 
     for (auto i = 0; i < Statistics::CounterEnd(); i++) {
-      event_counters.emplace_back(Statistics::GetCounterName(i),
+      event_counters.emplace_back(Statistics::GetCounterName(i), Statistics::GetCounterType(i),
                                   Statistics::global_counters[i].load(std::memory_order_relaxed));
     }
 
@@ -101,11 +105,11 @@ class MetricsService {
   }
 
   auto GetEventGauges() {
-    std::vector<std::pair<std::string, uint64_t>> event_gauges;
+    std::vector<std::tuple<std::string, std::string, uint64_t>> event_gauges;
     event_gauges.reserve(Statistics::GaugeEnd());
 
     for (auto i = 0; i < Statistics::GaugeEnd(); i++) {
-      event_gauges.emplace_back(Statistics::GetGaugeName(i),
+      event_gauges.emplace_back(Statistics::GetGaugeName(i), Statistics::GetGaugeType(i),
                                 Statistics::global_gauges[i].load(std::memory_order_seq_cst));
     }
 
@@ -113,7 +117,7 @@ class MetricsService {
   }
 
   auto GetEventHistograms() {
-    std::vector<std::pair<std::string, uint64_t>> event_histograms;
+    std::vector<std::tuple<std::string, std::string, uint64_t>> event_histograms;
     event_histograms.reserve(Statistics::HistogramEnd());
 
     for (auto i = 0; i < Statistics::HistogramEnd(); i++) {
@@ -123,7 +127,7 @@ class MetricsService {
       for (auto &[percentile, value] : histogram.YieldPercentiles()) {
         auto metric_name = std::string(name) + "_" + std::to_string(percentile) + "p";
 
-        event_histograms.emplace_back(metric_name, value);
+        event_histograms.emplace_back(metric_name, Statistics::GetHistogramType(i), value);
       }
     }
 

@@ -42,6 +42,7 @@ void SetGaugeValue(Event event, Value value);
 
 const char *GetGaugeName(Event event);
 const char *GetGaugeDocumentation(Event event);
+const char *GetGaugeType(const Event event);
 
 Event GaugeEnd();
 }  // namespace Statistics
