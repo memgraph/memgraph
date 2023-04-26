@@ -344,13 +344,16 @@ Latest version: https://memgraph.com/benchgraph
 
 ### Release v2 (latest) - 2023-25-04
 
+- Benchmark process changes:
+  - Executed query count is now identical on both vendors (Memgraph and Neo4j)
+
 - Benchmark presets:
   - single-threaded-runtime = 30 seconds
   - number-of-workers-for-benchmark = 12, 24, 48
   - query-count-lower-bound = 300 queries
   - Mixed and realistic workload queries = 500 queries
 
-- [Full results](https://github.com/memgraph/benchgraph/blob/main/results/benchmark.json)
+- [Full results](https://github.com/memgraph/benchgraph/blob/main/results/benchmarks.json)
 
 - Memgraph got a label index on :User node for Pokec dataset, Neo4j has that index by default.
 
@@ -362,7 +365,10 @@ Latest version: https://memgraph.com/benchgraph
   - query-count-lower-bound = 30 queries
   - Mixed and realistic workload queries = 100 queries
 
-- Results for [Memgraph cold](https://github.com/memgraph/benchgraph/blob/main/results/memgraph_cold.json)
-- Results for [Memgraph warm](https://github.com/memgraph/benchgraph/blob/main/results/memgraph_hot.json)
-- Results for [Neo4j cold](https://github.com/memgraph/benchgraph/blob/main/results/neo4j_cold.json)
-- Results for [Neo4j warm](https://github.com/memgraph/benchgraph/blob/main/results/neo4j_warm.json)
+- Results summary for [Pokec small](https://github.com/memgraph/benchgraph/blob/main/results/v1/small_results_summary.md)
+- Results summary for [Pokec medium](https://github.com/memgraph/benchgraph/blob/main/results/v1/medium_results_summary.md)
+
+- Results for [Memgraph cold](https://github.com/memgraph/benchgraph/blob/main/results/v1/memgraph_cold.json)
+- Results for [Memgraph hot]https://github.com/memgraph/benchgraph/blob/main/results/v1/memgraph_hot.json)
+- Results for [Neo4j cold](https://github.com/memgraph/benchgraph/blob/main/results/v1/neo4j_cold.json)
+- Results for [Neo4j hot](https://github.com/memgraph/benchgraph/blob/main/results/v1/neo4j_hot.json)
