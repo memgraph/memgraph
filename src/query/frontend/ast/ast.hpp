@@ -667,16 +667,16 @@ class InListOperator : public memgraph::query::BinaryOperator {
     return object;
   }
 
-  void SetCachedMap(std::unordered_map<size_t, int> &map) { _cached_map.emplace(map); }
+  void SetCachedSet(std::unordered_set<size_t> &&set_) { _cached_set.emplace(set_); }
 
-  std::unordered_map<size_t, int> *GetCachedMap() { return _cached_map.has_value() ? &*_cached_map : nullptr; }
+  std::unordered_set<size_t> *GetCachedSet() { return _cached_set.has_value() ? &*_cached_set : nullptr; }
 
  protected:
   using BinaryOperator::BinaryOperator;
 
  private:
   friend class AstStorage;
-  std::optional<std::unordered_map<size_t, int>> _cached_map{std::nullopt};
+  std::optional<std::unordered_set<size_t>> _cached_set{std::nullopt};
 };
 
 class SubscriptOperator : public memgraph::query::BinaryOperator {

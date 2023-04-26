@@ -219,34 +219,24 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (list.empty()) return TypedValue(false, ctx_->memory);
     if (literal.IsNull()) return TypedValue(ctx_->memory);
 
-    if (in_list.GetCachedMap() == nullptr) {
-      std::unordered_map<size_t, int> _cached_map;
+    if (in_list.GetCachedSet() == nullptr) {
+      std::unordered_set<size_t> _cached_set;
       TypedValue::Hash hash{};
       for (const TypedValue &element : list) {
-        _cached_map.emplace(hash(element), 1);
+        _cached_set.insert(hash(element));
       }
 
-      in_list.SetCachedMap(_cached_map);
+      in_list.SetCachedSet(std::move(_cached_set));
     }
 
-    const auto &in_list_cached_map = in_list.GetCachedMap();
+    const auto &in_list_cached_set = in_list.GetCachedSet();
 
     TypedValue::Hash hash{};
-    if (in_list_cached_map->contains(hash(literal))) {
+    if (in_list_cached_set->contains(hash(literal))) {
       return TypedValue(true, ctx_->memory);
     }
-    return TypedValue(false, ctx_->memory);
-
-    auto has_null = false;
-    for (const auto &element : list) {
-      auto result = literal == element;
-      if (result.IsNull()) {
-        has_null = true;
-      } else if (result.ValueBool()) {
-        return TypedValue(true, ctx_->memory);
-      }
-    }
-    if (has_null) {
+    // has null
+    if (literal.type() == TypedValue::Type::Null || in_list_cached_set->contains(hash(TypedValue(ctx_->memory)))) {
       return TypedValue(ctx_->memory);
     }
     return TypedValue(false, ctx_->memory);
