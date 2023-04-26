@@ -91,13 +91,18 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
                                                           std::string_view uuid = "",
                                                           std::optional<size_t> current_seq_num = {});
 
+using ParalellizedIndexCreationInfo =
+    std::pair<std::vector<std::pair<Gid, uint64_t>> /*vertex_recovery_info*/, uint64_t /*thread_count*/>;
+
 // Helper function used to recover all discovered indices and constraints. The
 // indices and constraints must be recovered after the data recovery is done
 // to ensure that the indices and constraints are consistent at the end of the
 // recovery process.
 /// @throw RecoveryFailure
-void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_constraints, Indices *indices,
-                                  Constraints *constraints, utils::SkipList<Vertex> *vertices);
+void RecoverIndicesAndConstraints(
+    const RecoveredIndicesAndConstraints &indices_constraints, Indices *indices, Constraints *constraints,
+    utils::SkipList<Vertex> *vertices,
+    const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info = std::nullopt);
 
 /// Recovers data either from a snapshot and/or WAL files.
 /// @throw RecoveryFailure
