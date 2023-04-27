@@ -172,9 +172,9 @@ class InMemoryStorage final : public Storage {
     Result<std::optional<std::pair<std::unique_ptr<VertexAccessor>, std::vector<std::unique_ptr<EdgeAccessor>>>>>
     DetachDeleteVertex(VertexAccessor *vertex) override;
 
-    void PrefetchInEdges() override {}
+    void PrefetchInEdges(const VertexAccessor &vertex_acc) override {}
 
-    void PrefetchOutEdges() override {}
+    void PrefetchOutEdges(const VertexAccessor &vertex_acc) override {}
 
     /// @throw std::bad_alloc
     Result<std::unique_ptr<EdgeAccessor>> CreateEdge(VertexAccessor *from, VertexAccessor *to,

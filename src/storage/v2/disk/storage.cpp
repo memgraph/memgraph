@@ -16,6 +16,8 @@
 #include <iterator>
 #include <memory>
 #include <mutex>
+#include <stop_token>
+#include <string_view>
 #include <variant>
 #include <vector>
 #include "storage/v2/delta.hpp"
@@ -24,6 +26,8 @@
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/isolation_level.hpp"
+#include "storage/v2/mvcc.hpp"
+#include "storage/v2/property_store.hpp"
 #include "storage/v2/result.hpp"
 
 #include <gflags/gflags.h>
@@ -492,7 +496,6 @@ std::unique_ptr<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const r
       CreateEdge(&*from_acc, &*to_acc, edge_type_id, edge_gid, ExtractTimestampFromDeserializedUserKey(key));
   MG_ASSERT(maybe_edge.HasValue());
   static_cast<DiskEdgeAccessor *>(maybe_edge->get())->InitializeDeserializedEdge(edge_type_id, value.ToStringView());
-  // TODO(andi): why is here explicitly deleted constructor and not in DeserializeVertex?
   return std::move(*maybe_edge);
 }
 
@@ -549,16 +552,11 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex() {
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
   delta->prev.Set(&*it);
   storage_->lru_vertices_.insert(static_cast<DiskVertex *>(&*it));
-  /// TODO(andi): it shoud be safe to do static_cast here since the resolvement can be done at compile time. But maybe,
-  /// std::variant of vertices on query engine level is better? If we use std::variant, we can remove the static_cast
-  /// here and for inserting into the lru cache also.
   return std::make_unique<DiskVertexAccessor>(static_cast<DiskVertex *>(&*it), &transaction_, &storage_->indices_,
                                               &storage_->constraints_, config_, storage::Gid::FromUint(gid),
                                               storage_->kvstore_);
 }
 
-/// TODO(andi): Currently used only for deserialization but in the in-memory version, replication depends on it
-/// so it should be addressed in the future
 std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex(storage::Gid gid) {
   OOMExceptionEnabler oom_exception;
   // NOTE: When we update the next `vertex_id_` here we perform a RMW
@@ -578,9 +576,6 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex(storage:
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
   delta->prev.Set(&*it);
   storage_->lru_vertices_.insert(static_cast<DiskVertex *>(&*it));
-  /// TODO(andi): it shoud be safe to do static_cast here since the resolvement can be done at compile time. But maybe,
-  /// std::variant of vertices on query engine level is better? If we use std::variant, we can remove the static_cast
-  /// here and for inserting into the lru cache also.
   return std::make_unique<DiskVertexAccessor>(static_cast<DiskVertex *>(&*it), &transaction_, &storage_->indices_,
                                               &storage_->constraints_, config_, gid, storage_->kvstore_);
 }
@@ -606,9 +601,6 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex(storage:
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
   delta->prev.Set(&*it);
   storage_->lru_vertices_.insert(static_cast<DiskVertex *>(&*it));
-  /// TODO(andi): it shoud be safe to do static_cast here since the resolvement can be done at compile time. But maybe,
-  /// std::variant of vertices on query engine level is better? If we use std::variant, we can remove the static_cast
-  /// here and for inserting into the lru cache also.
   return std::make_unique<DiskVertexAccessor>(static_cast<DiskVertex *>(&*it), &transaction_, &storage_->indices_,
                                               &storage_->constraints_, config_, gid, storage_->kvstore_);
 }
@@ -741,9 +733,7 @@ DiskStorage::DiskAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
       std::move(deleted_edges));
 }
 
-/// TOOD(andi): Add support for fetching in edges only for one vertex. Currently, all in edges are fetched.
-void DiskStorage::DiskAccessor::PrefetchInEdges() {
-  spdlog::debug("Prefetching in edges");
+void DiskStorage::DiskAccessor::PrefetchEdges(const auto &prefetch_edge_filter) {
   rocksdb::ReadOptions read_opts;
   rocksdb::Slice ts = Timestamp(transaction_.start_timestamp);
   read_opts.timestamp = &ts;
@@ -752,27 +742,26 @@ void DiskStorage::DiskAccessor::PrefetchInEdges() {
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     const rocksdb::Slice &key = it->key();
     const auto edge_parts = utils::Split(key.ToStringView(), "|");
-    if (edge_parts[2] == inEdgeDirection) {
+    if (prefetch_edge_filter(edge_parts[0], edge_parts[2])) {
       DeserializeEdge(key, it->value());
     }
   }
 }
 
+/// TOOD(andi): Add support for fetching in edges only for one vertex. Currently, all in edges are fetched.
+void DiskStorage::DiskAccessor::PrefetchInEdges(const VertexAccessor &vertex_acc) {
+  PrefetchEdges(
+      [&vertex_acc, this](const std::string_view disk_edge_gid, const std::string_view disk_edge_direction) -> bool {
+        return disk_edge_gid == SerializeIdType(vertex_acc.Gid()) && disk_edge_direction == inEdgeDirection;
+      });
+}
+
 /// TODO(andi): Functionality of this method can probably be merged with the functionality of in-edges
-void DiskStorage::DiskAccessor::PrefetchOutEdges() {
-  spdlog::debug("Prefetching out edges");
-  rocksdb::ReadOptions read_opts;
-  rocksdb::Slice ts = Timestamp(transaction_.start_timestamp);
-  read_opts.timestamp = &ts;
-  auto it = std::unique_ptr<rocksdb::Iterator>(
-      storage_->kvstore_->db_->NewIterator(read_opts, storage_->kvstore_->edge_chandle));
-  for (it->SeekToFirst(); it->Valid(); it->Next()) {
-    const rocksdb::Slice &key = it->key();
-    const auto edge_parts = utils::Split(key.ToStringView(), "|");
-    if (edge_parts[2] == outEdgeDirection) {
-      DeserializeEdge(key, it->value());
-    }
-  }
+void DiskStorage::DiskAccessor::PrefetchOutEdges(const VertexAccessor &vertex_acc) {
+  PrefetchEdges(
+      [&vertex_acc, this](const std::string_view disk_edge_gid, const std::string_view disk_edge_direction) -> bool {
+        return disk_edge_gid == SerializeIdType(vertex_acc.Gid()) && disk_edge_direction == outEdgeDirection;
+      });
 }
 
 Result<std::unique_ptr<EdgeAccessor>> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from, VertexAccessor *to,
@@ -839,8 +828,6 @@ Result<std::unique_ptr<EdgeAccessor>> DiskStorage::DiskAccessor::CreateEdge(Vert
   delta->prev.Set(&*it);
   // }
   storage_->lru_edges_.insert(static_cast<DiskEdge *>(&*it));
-  /// TODO(andi): it shoud be safe to do static_cast here since the resolvement can be done at compile time. But same as
-  /// for the vertices, we should change query engine code to handle that properly.
   from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
   to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
@@ -1117,8 +1104,6 @@ EdgeTypeId DiskStorage::DiskAccessor::NameToEdgeType(const std::string_view name
 void DiskStorage::DiskAccessor::AdvanceCommand() { ++transaction_.command_id; }
 
 void DiskStorage::DiskAccessor::FlushCache() {
-  /// TODO(andi): Find correct versions of vertices and edges using Deltas to flush.
-  /// I think the perfect method for this is AdvanceToVisibleVertex and is visible.
   /// Flush vertex cache.
   auto vertex_acc = storage_->vertices_.access();
   uint64_t num_ser_edges = 0;
@@ -1126,14 +1111,16 @@ void DiskStorage::DiskAccessor::FlushCache() {
   rocksdb::Slice ts = Timestamp(*commit_timestamp_);
   write_options.timestamp = &ts;
   for (Vertex &vertex : vertex_acc) {
+    auto *disk_vertex = static_cast<DiskVertex *>(&vertex);
     AssertRocksDBStatus(storage_->kvstore_->db_->Put(write_options, storage_->kvstore_->vertex_chandle,
-                                                     SerializeVertex(vertex), SerializeProperties(vertex.properties)));
-    spdlog::debug("rocksdb: Saved vertex with key {} and ts {}", SerializeVertex(vertex), *commit_timestamp_);
-    spdlog::debug("Vertex {} has {} out edges", vertex.gid.AsUint(), vertex.out_edges.size());
-    for (auto &edge_entry : vertex.out_edges) {
+                                                     SerializeVertex(*disk_vertex),
+                                                     SerializeProperties(disk_vertex->properties)));
+    spdlog::debug("rocksdb: Saved vertex with key {} and ts {}", SerializeVertex(*disk_vertex), *commit_timestamp_);
+    spdlog::debug("Vertex {} has {} out edges", disk_vertex->gid.AsUint(), disk_vertex->out_edges.size());
+    for (auto &edge_entry : disk_vertex->out_edges) {
       Edge *edge_ptr = std::get<2>(edge_entry).ptr;
       auto [src_dest_key, dest_src_key] =
-          SerializeEdge(vertex.gid, std::get<1>(edge_entry)->gid, std::get<0>(edge_entry), edge_ptr);
+          SerializeEdge(disk_vertex->gid, std::get<1>(edge_entry)->gid, std::get<0>(edge_entry), edge_ptr);
       AssertRocksDBStatus(storage_->kvstore_->db_->Put(write_options, storage_->kvstore_->edge_chandle, src_dest_key,
                                                        SerializeProperties(edge_ptr->properties)));
       AssertRocksDBStatus(storage_->kvstore_->db_->Put(write_options, storage_->kvstore_->edge_chandle, dest_src_key,
@@ -1558,8 +1545,6 @@ ConstraintsInfo DiskStorage::ListAllConstraints() const { throw utils::NotYetImp
 // this should be handled on an above level of abstraction
 StorageInfo DiskStorage::GetInfo() const { throw utils::NotYetImplemented("GetInfo"); }
 
-/// TODO(andi): When we add support for replication, we should have one CreateTransaction method per
-/// storage.
 Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level) {
   /// We acquire the transaction engine lock here because we access (and
   /// modify) the transaction engine variables (`transaction_id` and

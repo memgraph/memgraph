@@ -165,9 +165,9 @@ class DiskStorage final : public Storage {
     Result<std::optional<std::pair<std::unique_ptr<VertexAccessor>, std::vector<std::unique_ptr<EdgeAccessor>>>>>
     DetachDeleteVertex(VertexAccessor *vertex) override;
 
-    void PrefetchInEdges() override;
+    void PrefetchInEdges(const VertexAccessor &vertex_acc) override;
 
-    void PrefetchOutEdges() override;
+    void PrefetchOutEdges(const VertexAccessor &vertex_acc) override;
 
     Result<std::unique_ptr<EdgeAccessor>> CreateEdge(VertexAccessor *from, VertexAccessor *to,
                                                      EdgeTypeId edge_type) override;
@@ -223,6 +223,8 @@ class DiskStorage final : public Storage {
 
     /// TODO(andi): Consolidate this vertex creation methods and find from in-memory version where are they used.
     std::unique_ptr<VertexAccessor> CreateVertex(storage::Gid gid, uint64_t vertex_commit_ts);
+
+    void PrefetchEdges(const auto &prefetch_edge_filter);
 
     /// @throw std::bad_alloc
     /// TODO(andi): Consolidate this vertex creation methods and find from in-memory version where are they used.

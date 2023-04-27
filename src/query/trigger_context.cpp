@@ -302,7 +302,7 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
       if (!maybe_from_vertex) {
         continue;
       }
-      accessor->PrefetchOutEdges();
+      accessor->PrefetchOutEdges(*maybe_from_vertex);
       auto maybe_out_edges = maybe_from_vertex->OutEdges(storage::View::OLD);
       MG_ASSERT(maybe_out_edges.HasValue());
       const auto edge_gid = created_edge.object.Gid();
