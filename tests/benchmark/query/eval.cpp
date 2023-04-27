@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,6 +14,7 @@
 #include "query/db_accessor.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/interpreter.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 
 // The following classes are wrappers for memgraph::utils::MemoryResource, so that we can
@@ -38,9 +39,9 @@ static void MapLiteral(benchmark::State &state) {
   memgraph::query::SymbolTable symbol_table;
   TMemory memory;
   memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  std::unique_ptr<memgraph::storage::Storage> db(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *> elements;
   for (int64_t i = 0; i < state.range(0); ++i) {
     elements.emplace(ast.GetPropertyIx("prop" + std::to_string(i)), ast.Create<memgraph::query::PrimitiveLiteral>(i));
@@ -67,9 +68,9 @@ static void AdditionOperator(benchmark::State &state) {
   memgraph::query::SymbolTable symbol_table;
   TMemory memory;
   memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  std::unique_ptr<memgraph::storage::Storage> db(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   memgraph::query::Expression *expr = ast.Create<memgraph::query::PrimitiveLiteral>(0);
   for (int64_t i = 0; i < state.range(0); ++i) {
     expr = ast.Create<memgraph::query::AdditionOperator>(expr, ast.Create<memgraph::query::PrimitiveLiteral>(i));
