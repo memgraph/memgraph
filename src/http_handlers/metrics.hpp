@@ -35,11 +35,13 @@ struct MetricsResponse {
  public:
   nlohmann::json AsJson() {
     auto metrics_response = nlohmann::json();
-    metrics_response["vertex_count"] = vertex_count;
-    metrics_response["edge_count"] = edge_count;
-    metrics_response["average_degree"] = average_degree;
-    metrics_response["memory_usage"] = memory_usage;
-    metrics_response["disk_usage"] = disk_usage;
+    const auto *general_type = "General";
+
+    metrics_response[general_type]["vertex_count"] = vertex_count;
+    metrics_response[general_type]["edge_count"] = edge_count;
+    metrics_response[general_type]["average_degree"] = average_degree;
+    metrics_response[general_type]["memory_usage"] = memory_usage;
+    metrics_response[general_type]["disk_usage"] = disk_usage;
 
     for (const auto &event_counter : event_counters) {
       auto type = std::get<1>(event_counter);
