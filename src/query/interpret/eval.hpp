@@ -193,12 +193,14 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     ReferenceExpressionEvaluator reference_expression_evaluator{frame_, symbol_table_, ctx_};
 
     TypedValue *_list_ptr = in_list.expression2_->Accept(reference_expression_evaluator);
+
     TypedValue _list;
 
     if (nullptr == _list_ptr) {
       _list = in_list.expression2_->Accept(*this);
       _list_ptr = &_list;
     }
+    std::cout << static_cast<void *>(_list_ptr) << std::endl;
 
     auto literal = in_list.expression1_->Accept(*this);
 

@@ -12,6 +12,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <unordered_map>
 #include <variant>
 #include <vector>
@@ -663,6 +664,8 @@ class InListOperator : public memgraph::query::BinaryOperator {
     InListOperator *object = storage->Create<InListOperator>();
     object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
     object->expression2_ = expression2_ ? expression2_->Clone(storage) : nullptr;
+    object->_cached_set.reset();
+    this->_cached_set.reset();
     return object;
   }
 
@@ -675,7 +678,7 @@ class InListOperator : public memgraph::query::BinaryOperator {
 
  private:
   friend class AstStorage;
-  std::optional<std::unordered_set<size_t>> _cached_set{std::nullopt};
+  mutable std::optional<std::unordered_set<size_t>> _cached_set{std::nullopt};
 };
 
 class SubscriptOperator : public memgraph::query::BinaryOperator {
