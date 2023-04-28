@@ -50,8 +50,8 @@ RC_GTEST_PROP(RandomGraph, RandomGraph, (std::vector<std::string> vertex_labels,
   }
 
   for (auto type : edge_types) {
-    auto from = vertices[*rc::gen::inRange(0, vertices_num)]->Copy();
-    auto to = vertices[*rc::gen::inRange(0, vertices_num)]->Copy();
+    auto &from = vertices[*rc::gen::inRange(0, vertices_num)];
+    auto &to = vertices[*rc::gen::inRange(0, vertices_num)];
     auto maybe_edge_accessor = dba->CreateEdge(from.get(), to.get(), dba->NameToEdgeType(type));
     RC_ASSERT(maybe_edge_accessor.HasValue());
     edge_type_map.emplace(std::move(maybe_edge_accessor.GetValue()), type);

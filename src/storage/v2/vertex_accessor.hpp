@@ -128,11 +128,13 @@ class VertexAccessor {
   bool for_deleted_{false};
 };
 
+bool operator==(const std::unique_ptr<VertexAccessor> &va1, const std::unique_ptr<VertexAccessor> &va2) noexcept;
+
 }  // namespace memgraph::storage
 
 namespace std {
 template <>
-struct hash<memgraph::storage::VertexAccessor> {
-  size_t operator()(const memgraph::storage::VertexAccessor &v) const noexcept { return v.Gid().AsUint(); }
+struct hash<memgraph::storage::VertexAccessor *> {
+  size_t operator()(const memgraph::storage::VertexAccessor *v) const noexcept { return v->Gid().AsUint(); }
 };
 }  // namespace std

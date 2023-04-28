@@ -91,11 +91,13 @@ class EdgeAccessor {
   bool for_deleted_{false};
 };
 
+bool operator==(const std::unique_ptr<EdgeAccessor> &ea1, const std::unique_ptr<EdgeAccessor> &ea2) noexcept;
+
 }  // namespace memgraph::storage
 
 namespace std {
 template <>
-struct hash<memgraph::storage::EdgeAccessor> {
-  size_t operator()(const memgraph::storage::EdgeAccessor &e) const { return e.Gid().AsUint(); }
+struct hash<memgraph::storage::EdgeAccessor *> {
+  size_t operator()(const memgraph::storage::EdgeAccessor *e) const { return e->Gid().AsUint(); }
 };
 }  // namespace std

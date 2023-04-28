@@ -39,4 +39,13 @@ Result<std::vector<std::unique_ptr<EdgeAccessor>>> VertexAccessor::OutEdges(View
   return OutEdges(view, {}, nullptr);
 }
 
+bool operator==(const std::unique_ptr<VertexAccessor> &va1, const std::unique_ptr<VertexAccessor> &va2) noexcept {
+  const auto *inMemoryVa1 = dynamic_cast<const InMemoryVertexAccessor *>(va1.get());
+  const auto *inMemoryVa2 = dynamic_cast<const InMemoryVertexAccessor *>(va2.get());
+  if (inMemoryVa1 && inMemoryVa2) {
+    return inMemoryVa1->operator==(*inMemoryVa2);
+  }
+  return false;
+}
+
 }  // namespace memgraph::storage
