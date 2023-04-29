@@ -61,6 +61,7 @@
 #include "utils/readable_size.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
+#include "utils/typeinfo.hpp"
 
 // macro for the default implementation of LogicalOperator::Accept
 // that accepts the visitor and visits it's input_ operator
@@ -2337,7 +2338,9 @@ bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
     for (const auto &pattern_filter_cursor : pattern_filter_cursors_) {
       pattern_filter_cursor->Pull(frame, context);
     }
-
+    if (utils::Downcast<InListOperator>(self_.expression_)) {
+      std::cout << "in list operator filter" << std::endl;
+    }
     if (EvaluateFilter(evaluator, self_.expression_)) return true;
   }
   return false;

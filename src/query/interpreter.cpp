@@ -1230,7 +1230,20 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                  const std::string *username, std::atomic<TransactionStatus> *transaction_status,
                                  TriggerContextCollector *trigger_context_collector = nullptr) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
-
+  for (const auto &tree : parsed_query.ast_storage.storage_) {
+    if (tree->GetTypeInfo() == memgraph::query::InListOperator::kType) {
+      std::cout << "we have in list operator" << std::endl;
+      if (auto *inListoperator = utils::Downcast<InListOperator>(tree.get())) {
+        if (inListoperator->expression2_->GetTypeInfo() == ListLiteral::kType) {
+          std::cout << "we list literal" << std::endl;
+        } else if (inListoperator->expression2_->GetTypeInfo() == Identifier::kType) {
+          std::cout << "we have identifier" << std::endl;
+        } else {
+          throw QueryException("");
+        }
+      }
+    }
+  }
   Frame frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
