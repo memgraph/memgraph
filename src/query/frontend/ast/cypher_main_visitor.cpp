@@ -1719,7 +1719,7 @@ antlrcpp::Any CypherMainVisitor::visitMapProjectionLiteral(MemgraphCypher::MapPr
     if (map_el->propertyKeyValuePair()) {
       auto key =
           std::any_cast<std::string>(map_el->propertyKeyValuePair()->propertyKeyName()->symbolicName()->accept(this));
-      auto value = std::any_cast<Expression *>(map_el->propertyKeyValuePair()->expression()->accept(this));
+      auto *value = std::any_cast<Expression *>(map_el->propertyKeyValuePair()->expression()->accept(this));
       map_projection.second.insert({key, value});
     }
   }
