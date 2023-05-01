@@ -1062,14 +1062,8 @@ class MapLiteral : public memgraph::query::BaseLiteral {
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
-    std::cout << "Accept MapLiteral"
-              << "\n";
-
     if (visitor.PreVisit(*this)) {
-      auto map_var = elements_;
-      std::cout << "len(elements): " << elements_.size() << "\n";
       for (auto pair : elements_) {
-        std::cout << "element.name: " << pair.second->kType.name << "\n";
         if (!pair.second->Accept(visitor)) break;
       }
     }
@@ -1095,7 +1089,6 @@ class MapLiteral : public memgraph::query::BaseLiteral {
 };
 
 class MapProjectionLiteral : public memgraph::query::BaseLiteral {
-  // TODO ante
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
@@ -1106,77 +1099,40 @@ class MapProjectionLiteral : public memgraph::query::BaseLiteral {
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
-    std::cout << "Accept MapProjectionLiteral"
-              << "\n";
-    auto elements__ = elements_;
-    // std::cout << "first.name: " << elements_.first->kType.name << "\n";
-    std::cout << "first: " << elements_.first << "\n";
-    std::cout << "len(second): " << elements_.second.size() << "\n";
-
     if (visitor.PreVisit(*this)) {
-      for (auto map_elem : elements_.second) {
-        std::cout << "second.name: " << map_elem->kType.name << "\n";
-        if (!map_elem->Accept(visitor)) break;
-      }
+      for (auto pair : elements_.second) {
+        if (!pair.second) continue;
 
-      // elements_.first->Accept(visitor);
+        if (!pair.second->Accept(visitor)) break;
+      }
     }
     return visitor.PostVisit(*this);
   }
 
-  std::pair<std::string, std::vector<memgraph::query::Expression *>> elements_;
+  std::pair<std::string, std::unordered_map<std::string, memgraph::query::Expression *>> elements_;
 
   MapProjectionLiteral *Clone(AstStorage *storage) const override {
     MapProjectionLiteral *object = storage->Create<MapProjectionLiteral>();
     object->elements_.first = elements_.first;
-    // object->elements_.first = elements_.first ? elements_.first->Clone(storage) : nullptr;
-    object->elements_.second.resize(elements_.second.size());
-    for (auto i0 = 0; i0 < elements_.second.size(); ++i0) {
-      object->elements_.second[i0] = elements_.second[i0] ? elements_.second[i0]->Clone(storage) : nullptr;
+
+    for (const auto &entry : elements_.second) {
+      if (!entry.second) {
+        object->elements_.second[entry.first] = nullptr;
+        continue;
+      }
+
+      object->elements_.second[entry.first] = entry.second->Clone(storage);
     }
     return object;
   }
 
  protected:
-  explicit MapProjectionLiteral(const std::pair<std::string, std::vector<memgraph::query::Expression *>> &elements)
+  explicit MapProjectionLiteral(const std::pair<std::string, std::unordered_map<std::string, Expression *>> &elements)
       : elements_(elements) {}
 
  private:
   friend class AstStorage;
 };
-
-// TODO ante
-// class MapVariable : public memgraph::query::Expression {
-//  public:
-//   static const utils::TypeInfo kType;
-//   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
-
-//   MapVariable() = default;
-
-//   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-//   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
-//   DEFVISITABLE(ExpressionVisitor<void>);
-//   bool Accept(HierarchicalTreeVisitor &visitor) override {
-//     if (visitor.PreVisit(*this)) {
-//       expression_->Accept(visitor);
-//     }
-//     return visitor.PostVisit(*this);
-//   }
-
-//   memgraph::query::Expression *expression_{nullptr};
-//   memgraph::query::Identifier *name_{nullptr};
-
-//   MapVariable *Clone(AstStorage *storage) const override {
-//     MapVariable *object = storage->Create<MapVariable>();
-//     object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
-//     object->name_ = storage->GetPropertyIx(property_.name); // TODO
-//     return object;
-//   }
-
-//  protected:
-//  private:
-//   friend class AstStorage;
-// }
 
 class Identifier : public memgraph::query::Expression {
  public:
@@ -1244,39 +1200,6 @@ class PropertyLookup : public memgraph::query::Expression {
 
  protected:
   PropertyLookup(Expression *expression, PropertyIx property) : expression_(expression), property_(property) {}
-
- private:
-  friend class AstStorage;
-};
-
-// TODO ante
-class AllPropertyLookup : public memgraph::query::Expression {
- public:
-  static const utils::TypeInfo kType;
-  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
-
-  AllPropertyLookup() = default;
-  DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
-  DEFVISITABLE(ExpressionVisitor<void>);
-
-  bool Accept(HierarchicalTreeVisitor &visitor) override {
-    if (visitor.PreVisit(*this)) {
-      expression_->Accept(visitor);
-    }
-    return visitor.PostVisit(*this);
-  }
-
-  memgraph::query::Expression *expression_{nullptr};
-
-  AllPropertyLookup *Clone(AstStorage *storage) const override {
-    AllPropertyLookup *object = storage->Create<AllPropertyLookup>();
-    object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
-    return object;
-  }
-
- protected:
-  AllPropertyLookup(Expression *expression) : expression_(expression) {}
 
  private:
   friend class AstStorage;

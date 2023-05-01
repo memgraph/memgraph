@@ -54,9 +54,7 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
   void Visit(IfOperator &op) override;
   void Visit(ListLiteral &op) override;
   void Visit(MapLiteral &op) override;
-  void Visit(MapProjectionLiteral &op) override;  // TODO ante
-  // void Visit(MapElement &op) override; // TODO ante
-  // void Visit(MapVariable &op) override;  // TODO ante
+  void Visit(MapProjectionLiteral &op) override;
   void Visit(LabelsTest &op) override;
   void Visit(Aggregation &op) override;
   void Visit(Function &op) override;
@@ -71,7 +69,6 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
   void Visit(Identifier &op) override;
   void Visit(PrimitiveLiteral &op) override;
   void Visit(PropertyLookup &op) override;
-  void Visit(AllPropertyLookup &op) override;  // TODO ante
   void Visit(ParameterLookup &op) override;
   void Visit(NamedExpression &op) override;
   void Visit(RegexMatch &op) override;
@@ -277,15 +274,6 @@ void ExpressionPrettyPrinter::Visit(MapProjectionLiteral &op) {
   PrintObject(out_, map);
 }
 
-// void ExpressionPrettyPrinter::Visit(MapVariable &op) {
-//   // TODO ante
-// }
-
-// TODO ante
-// void ExpressionPrettyPrinter::Visit(MapElement &op) {
-//
-// }
-
 void ExpressionPrettyPrinter::Visit(LabelsTest &op) { PrintOperator(out_, "LabelsTest", op.expression_); }
 
 void ExpressionPrettyPrinter::Visit(Aggregation &op) { PrintOperator(out_, "Aggregation", op.op_); }
@@ -326,11 +314,6 @@ void ExpressionPrettyPrinter::Visit(PrimitiveLiteral &op) { PrintObject(out_, op
 
 void ExpressionPrettyPrinter::Visit(PropertyLookup &op) {
   PrintOperator(out_, "PropertyLookup", op.expression_, op.property_.name);
-}
-
-// TODO ante
-void ExpressionPrettyPrinter::Visit(AllPropertyLookup &op) {
-  PrintOperator(out_, "AllPropertyLookup", op.expression_, "*");
 }
 
 void ExpressionPrettyPrinter::Visit(ParameterLookup &op) { PrintOperator(out_, "ParameterLookup", op.token_position_); }

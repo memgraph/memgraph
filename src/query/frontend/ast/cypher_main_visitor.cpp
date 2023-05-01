@@ -1697,17 +1697,32 @@ antlrcpp::Any CypherMainVisitor::visitMapLiteral(MemgraphCypher::MapLiteralConte
 }
 
 antlrcpp::Any CypherMainVisitor::visitMapProjectionLiteral(MemgraphCypher::MapProjectionLiteralContext *ctx) {
-  // TODO ante
-  std::pair<std::string, std::vector<Expression *>> map_projection;
+  std::pair<std::string, std::unordered_map<std::string, memgraph::query::Expression *>> map_projection;
 
   auto variable = std::any_cast<std::string>(ctx->variable()->accept(this));
   map_projection.first = variable;
 
-  // map_projection.first = std::any_cast<Expression *>(ctx->variable()->accept(this));
-
-  // for (int i = 0; i < static_cast<int>(ctx->mapElement().size()); ++i) {
-  //   map_projection.second.insert(std::any_cast<MapElement *>(ctx->mapElement()[i]->accept(this)));
-  // }
+  for (auto *map_el : ctx->mapElement()) {
+    if (map_el->propertyLookup()) {
+      auto key =
+          "." + std::any_cast<std::string>(map_el->propertyLookup()->propertyKeyName()->symbolicName()->accept(this));
+      map_projection.second.insert({key, nullptr});
+    }
+    if (map_el->allPropertyLookup()) {
+      std::string key = ".*";
+      map_projection.second.insert({key, nullptr});
+    }
+    if (map_el->variable()) {
+      auto key = std::any_cast<std::string>(map_el->variable()->accept(this));
+      map_projection.second.insert({key, nullptr});
+    }
+    if (map_el->propertyKeyValuePair()) {
+      auto key =
+          std::any_cast<std::string>(map_el->propertyKeyValuePair()->propertyKeyName()->symbolicName()->accept(this));
+      auto value = std::any_cast<Expression *>(map_el->propertyKeyValuePair()->expression()->accept(this));
+      map_projection.second.insert({key, value});
+    }
+  }
 
   return map_projection;
 }
@@ -2293,11 +2308,9 @@ antlrcpp::Any CypherMainVisitor::visitLiteral(MemgraphCypher::LiteralContext *ct
     return static_cast<Expression *>(
         storage_->Create<ListLiteral>(std::any_cast<std::vector<Expression *>>(ctx->listLiteral()->accept(this))));
   } else if (ctx->mapProjectionLiteral()) {
-    std::cout << "Create MapProjectionLiteral"
-              << "\n";
-
     return static_cast<Expression *>(storage_->Create<MapProjectionLiteral>(
-        std::any_cast<std::pair<std::string, std::vector<Expression *>>>(ctx->mapProjectionLiteral()->accept(this))));
+        std::any_cast<std::pair<std::string, std::unordered_map<std::string, Expression *>>>(
+            ctx->mapProjectionLiteral()->accept(this))));
   } else {
     return static_cast<Expression *>(storage_->Create<MapLiteral>(
         std::any_cast<std::unordered_map<PropertyIx, Expression *>>(ctx->mapLiteral()->accept(this))));

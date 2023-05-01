@@ -309,8 +309,8 @@ mapProjectionLiteral : variable '{' ( mapElement ( ',' mapElement )* )? '}' ;
 
 mapElement : propertyLookup
            | allPropertyLookup
-           | expression
-           | propertyPair
+           | variable
+           | propertyKeyValuePair
            ;
 
 parameter : '$' ( symbolicName | DecimalLiteral ) ;
@@ -319,7 +319,7 @@ propertyExpression : atom ( propertyLookup )+ ;
 
 propertyKeyName : symbolicName ;
 
-propertyPair : propertyKeyName ':' expression ;
+propertyKeyValuePair : propertyKeyName ':' expression ;
 
 integerLiteral : DecimalLiteral
                | OctalLiteral

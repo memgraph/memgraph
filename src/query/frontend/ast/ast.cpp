@@ -117,25 +117,11 @@ constexpr utils::TypeInfo query::MapLiteral::kType{utils::TypeId::AST_MAP_LITERA
 constexpr utils::TypeInfo query::MapProjectionLiteral::kType{utils::TypeId::AST_MAP_PROJECTION_LITERAL,
                                                              "MapProjectionLiteral", &query::BaseLiteral::kType};
 
-// constexpr utils::TypeInfo query::MapVariable::kType{utils::TypeId::AST_MAP_VARIABLE, "MapVariable",
-//                                                     &query::Expression::kType};
-
-// TODO ante
-
-// constexpr utils::TypeInfo query::MapElement::kType{utils::TypeId::AST_MAP_ELEMENT, "MapElement",
-//                                                    &query::Expression::kType};
-
-// constexpr utils::TypeInfo query::PropertyPair::kType{utils::TypeId::AST_PROPERTY_PAIR, "PropertyPair",
-//                                                      &query::Expression::kType};
-
 constexpr utils::TypeInfo query::Identifier::kType{utils::TypeId::AST_IDENTIFIER, "Identifier",
                                                    &query::Expression::kType};
 
 constexpr utils::TypeInfo query::PropertyLookup::kType{utils::TypeId::AST_PROPERTY_LOOKUP, "PropertyLookup",
                                                        &query::Expression::kType};
-
-constexpr utils::TypeInfo query::AllPropertyLookup::kType{utils::TypeId::AST_ALL_PROPERTY_LOOKUP, "AllPropertyLookup",
-                                                          &query::Expression::kType};
 
 constexpr utils::TypeInfo query::LabelsTest::kType{utils::TypeId::AST_LABELS_TEST, "LabelsTest",
                                                    &query::Expression::kType};
