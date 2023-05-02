@@ -15,6 +15,7 @@
 #include <string>
 #include <string_view>
 
+#include "storage/v2/disk/indices.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/vertex.hpp"
 
@@ -40,9 +41,6 @@ class VertexAccessor {
   VertexAccessor(const VertexAccessor &) = default;
 
   virtual ~VertexAccessor() {}
-
-  static std::unique_ptr<VertexAccessor> Create(Vertex *vertex, Transaction *transaction, Indices *indices,
-                                                Constraints *constraints, Config config, View view);
 
   /// @return true if the object is visible from the current transaction
   virtual bool IsVisible(View view) const = 0;

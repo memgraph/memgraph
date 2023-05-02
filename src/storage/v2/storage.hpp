@@ -16,6 +16,7 @@
 
 #include "io/network/endpoint.hpp"
 #include "storage/v2/config.hpp"
+#include "storage/v2/disk/indices.hpp"
 #include "storage/v2/inmemory/indices.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/storage_error.hpp"
@@ -32,16 +33,7 @@ class EdgeAccessor;
 
 enum class ReplicationRole : uint8_t { MAIN, REPLICA };
 
-// The storage is based on this paper:
-// https://db.in.tum.de/~muehlbau/papers/mvcc.pdf
-// The paper implements a fully serializable storage, in our implementation we
-// only implement snapshot isolation for transactions.
-
-/// Iterable for iterating through all vertices of a Storage.
-///
-/// An instance of this will be usually be wrapped inside VerticesIterable for
-/// generic, public use.
-class AllVerticesIterable final {
+class AllMemoryVerticesIterable final {
   utils::SkipList<Vertex>::Accessor vertices_accessor_;
   Transaction *transaction_;
   View view_;
@@ -52,11 +44,11 @@ class AllVerticesIterable final {
 
  public:
   class Iterator final {
-    AllVerticesIterable *self_;
+    AllMemoryVerticesIterable *self_;
     utils::SkipList<Vertex>::Iterator it_;
 
    public:
-    Iterator(AllVerticesIterable *self, utils::SkipList<Vertex>::Iterator it);
+    Iterator(AllMemoryVerticesIterable *self, utils::SkipList<Vertex>::Iterator it);
 
     VertexAccessor *operator*() const;
 
@@ -67,8 +59,47 @@ class AllVerticesIterable final {
     bool operator!=(const Iterator &other) const { return !(*this == other); }
   };
 
-  AllVerticesIterable(utils::SkipList<Vertex>::Accessor vertices_accessor, Transaction *transaction, View view,
-                      Indices *indices, Constraints *constraints, Config config)
+  AllMemoryVerticesIterable(utils::SkipList<Vertex>::Accessor vertices_accessor, Transaction *transaction, View view,
+                            Indices *indices, Constraints *constraints, Config config)
+      : vertices_accessor_(std::move(vertices_accessor)),
+        transaction_(transaction),
+        view_(view),
+        indices_(indices),
+        constraints_(constraints),
+        config_(config) {}
+
+  Iterator begin() { return Iterator(this, vertices_accessor_.begin()); }
+  Iterator end() { return Iterator(this, vertices_accessor_.end()); }
+};
+
+class AllDiskVerticesIterable {
+  utils::SkipList<Vertex>::Accessor vertices_accessor_;
+  Transaction *transaction_;
+  View view_;
+  DiskIndices *indices_;
+  Constraints *constraints_;
+  Config config_;
+  std::unique_ptr<VertexAccessor> vertex_;
+
+ public:
+  class Iterator final {
+    AllDiskVerticesIterable *self_;
+    utils::SkipList<Vertex>::Iterator it_;
+
+   public:
+    Iterator(AllDiskVerticesIterable *self, utils::SkipList<Vertex>::Iterator it);
+
+    VertexAccessor *operator*() const;
+
+    Iterator &operator++();
+
+    bool operator==(const Iterator &other) const { return self_ == other.self_ && it_ == other.it_; }
+
+    bool operator!=(const Iterator &other) const { return !(*this == other); }
+  };
+
+  AllDiskVerticesIterable(utils::SkipList<Vertex>::Accessor vertices_accessor, Transaction *transaction, View view,
+                          DiskIndices *indices, Constraints *constraints, Config config)
       : vertices_accessor_(std::move(vertices_accessor)),
         transaction_(transaction),
         view_(view),
@@ -85,17 +116,19 @@ class AllVerticesIterable final {
 /// This class should be the primary type used by the client code to iterate
 /// over vertices inside a Storage instance.
 class VerticesIterable final {
-  enum class Type { ALL, BY_LABEL, BY_LABEL_PROPERTY };
+  enum class Type { MEMORY_ALL, DISK_ALL, BY_LABEL, BY_LABEL_PROPERTY };
 
   Type type_;
   union {
-    AllVerticesIterable all_vertices_;
+    AllMemoryVerticesIterable all_memory_vertices_;
+    AllDiskVerticesIterable all_disk_vertices_;
     LabelIndex::Iterable vertices_by_label_;
     LabelPropertyIndex::Iterable vertices_by_label_property_;
   };
 
  public:
-  explicit VerticesIterable(AllVerticesIterable);
+  explicit VerticesIterable(AllMemoryVerticesIterable);
+  explicit VerticesIterable(AllDiskVerticesIterable);
   explicit VerticesIterable(LabelIndex::Iterable);
   explicit VerticesIterable(LabelPropertyIndex::Iterable);
 
@@ -110,7 +143,8 @@ class VerticesIterable final {
   class Iterator final {
     Type type_;
     union {
-      AllVerticesIterable::Iterator all_it_;
+      AllMemoryVerticesIterable::Iterator all_memory_it_;
+      AllDiskVerticesIterable::Iterator all_disk_it_;
       LabelIndex::Iterable::Iterator by_label_it_;
       LabelPropertyIndex::Iterable::Iterator by_label_property_it_;
     };
@@ -118,7 +152,8 @@ class VerticesIterable final {
     void Destroy() noexcept;
 
    public:
-    explicit Iterator(AllVerticesIterable::Iterator);
+    explicit Iterator(AllMemoryVerticesIterable::Iterator);
+    explicit Iterator(AllDiskVerticesIterable::Iterator);
     explicit Iterator(LabelIndex::Iterable::Iterator);
     explicit Iterator(LabelPropertyIndex::Iterable::Iterator);
 

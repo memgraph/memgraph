@@ -91,8 +91,9 @@ class InMemoryStorage final : public Storage {
     std::unique_ptr<VertexAccessor> FindVertex(Gid gid, View view) override;
 
     VerticesIterable Vertices(View view) override {
-      return VerticesIterable(AllVerticesIterable(storage_->vertices_.access(), &transaction_, view,
-                                                  &storage_->indices_, &storage_->constraints_, storage_->config_));
+      return VerticesIterable(AllMemoryVerticesIterable(storage_->vertices_.access(), &transaction_, view,
+                                                        &storage_->indices_, &storage_->constraints_,
+                                                        storage_->config_));
     }
 
     VerticesIterable Vertices(LabelId label, View view) override;

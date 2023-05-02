@@ -14,13 +14,12 @@
 #include <optional>
 #include <tuple>
 #include <utility>
+#include "storage/v2/config.hpp"
 #include "storage/v2/constraints.hpp"
 #include "storage/v2/disk/disk_vertex.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/storage.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
-#include "storage/v2/vertex_accessor.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/skip_list.hpp"
 
@@ -35,13 +34,14 @@ class LabelDiskIndex {
 
   /// TODO(andi): If there are no other usages of constaints_ and config_ maybe we can remove
   /// them from here
-  VerticesIterable Vertices(LabelId label, View view, Transaction *transaction) {
-    utils::SkipList<Vertex> vertices;
-    /// TODO(andi): Perform loading
-    // return VerticesIterable(AllVerticesIterable(vertices.access(), transaction, view, indices_, constraints_,
-    // config_));
-    throw utils::NotYetImplemented("LabelIndex::Vertices");
-  }
+  // Iterable Vertices(LabelId label, View view, Transaction *transaction) {
+  //   utils::SkipList<Vertex> vertices;
+  //   /// TODO(andi): Perform loading
+  //   // return VerticesIterable(AllMemoryVerticesIterable(vertices.access(), transaction, view, indices_,
+  //   constraints_,
+  //   // config_));
+  //   throw utils::NotYetImplemented("LabelIndex::Vertices");
+  // }
 
   bool CreateIndex(LabelId label) { throw utils::NotYetImplemented("LabelIndex::CreateIndex"); }
 
@@ -75,15 +75,16 @@ class LabelPropertyDiskIndex {
 
   /// TODO(andi): If there are no other usages of constaints_ and config_ maybe we can remove
   /// them from here
-  VerticesIterable Vertices(LabelId label, PropertyId property,
-                            const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                            const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
-                            Transaction *transaction) {
-    utils::SkipList<Vertex> vertices;
-    // return VerticesIterable(AllVerticesIterable(vertices.access(), transaction, view, indices_, constraints_,
-    // config_));
-    throw utils::NotYetImplemented("LabelPropertyIndex::Vertices");
-  }
+  // VerticesIterable Vertices(LabelId label, PropertyId property,
+  //                           const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+  //                           const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
+  //                           Transaction *transaction) {
+  //   utils::SkipList<Vertex> vertices;
+  //   // return VerticesIterable(AllMemoryVerticesIterable(vertices.access(), transaction, view, indices_,
+  //   constraints_,
+  //   // config_));
+  //   throw utils::NotYetImplemented("LabelPropertyIndex::Vertices");
+  // }
 
   bool CreateIndex(LabelId label, PropertyId property) {
     throw utils::NotYetImplemented("LabelPropertyIndex::CreateIndex");

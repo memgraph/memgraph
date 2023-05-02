@@ -515,9 +515,8 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
     // with size explicitly added with sizeof(uint64_t)
     DeserializeVertex(it->key(), it->value());
   }
-  // return VerticesIterable(AllVerticesIterable(storage_->vertices_.access(), &transaction_, view, &storage_->indices_,
-  // &storage_->constraints_, storage_->config_));
-  throw utils::NotYetImplemented("DiskStorage::DiskAccessor::Vertices(view)");
+  return VerticesIterable(AllDiskVerticesIterable(storage_->vertices_.access(), &transaction_, view,
+                                                  &storage_->indices_, &storage_->constraints_, storage_->config_));
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {

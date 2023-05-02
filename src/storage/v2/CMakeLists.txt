@@ -7,6 +7,7 @@ set(storage_v2_src_files
     durability/snapshot.cpp
     durability/wal.cpp
     edge_accessor.cpp
+    disk/indices.cpp
     inmemory/indices.cpp
     inmemory/edge_accessor.cpp
     inmemory/storage.cpp
