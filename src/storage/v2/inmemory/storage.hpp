@@ -28,7 +28,7 @@
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_accessor.hpp"
-#include "storage/v2/indices.hpp"
+#include "storage/v2/inmemory/indices.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/name_id_mapper.hpp"

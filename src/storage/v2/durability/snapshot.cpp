@@ -18,6 +18,7 @@
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edge_ref.hpp"
+#include "storage/v2/inmemory/vertex_accessor.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -745,7 +746,7 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
     for (auto &vertex : acc) {
       // The visibility check is implemented for vertices so we use it here.
       /// TODO: Here we need to create a vertex accessor dependent on the storage.
-      auto va = VertexAccessor::Create(&vertex, transaction, indices, constraints, items, View::OLD);
+      auto va = InMemoryVertexAccessor::Create(&vertex, transaction, indices, constraints, items.items, View::OLD);
       if (!va) continue;
 
       // Get vertex data.
@@ -755,9 +756,9 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
       MG_ASSERT(maybe_labels.HasValue(), "Invalid database state!");
       auto maybe_props = va->Properties(View::OLD);
       MG_ASSERT(maybe_props.HasValue(), "Invalid database state!");
-      auto maybe_in_edges = va->InEdges(View::OLD);
+      auto maybe_in_edges = va->InEdges(View::OLD, {}, nullptr);
       MG_ASSERT(maybe_in_edges.HasValue(), "Invalid database state!");
-      auto maybe_out_edges = va->OutEdges(View::OLD);
+      auto maybe_out_edges = va->OutEdges(View::OLD, {}, nullptr);
       MG_ASSERT(maybe_out_edges.HasValue(), "Invalid database state!");
 
       // Store the vertex.

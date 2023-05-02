@@ -16,7 +16,7 @@
 
 #include "io/network/endpoint.hpp"
 #include "storage/v2/config.hpp"
-#include "storage/v2/indices.hpp"
+#include "storage/v2/inmemory/indices.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/vertex_accessor.hpp"

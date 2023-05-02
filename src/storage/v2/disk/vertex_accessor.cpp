@@ -17,7 +17,7 @@
 #include "storage/v2/disk/edge_accessor.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/indices.hpp"
+#include "storage/v2/inmemory/indices.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/exceptions.hpp"
@@ -75,7 +75,7 @@ void DiskVertexAccessor::InitializeDeserializedVertex(const std::vector<LabelId>
 }
 
 std::unique_ptr<DiskVertexAccessor> DiskVertexAccessor::Create(Vertex *vertex, Transaction *transaction,
-                                                               Indices *indices, Constraints *constraints,
+                                                               DiskIndices *indices, Constraints *constraints,
                                                                Config::Items config, View view) {
   if (const auto [exists, deleted] = detail::IsVisible(vertex, transaction, view); !exists || deleted) {
     return {};
@@ -105,7 +105,7 @@ Result<bool> DiskVertexAccessor::AddLabel(LabelId label) {
 
   vertex_->labels.push_back(label);
 
-  UpdateOnAddLabel(indices_, label, vertex_, *transaction_);
+  // UpdateOnAddLabel(indices_, label, vertex_, *transaction_);
 
   return true;
 }
@@ -244,7 +244,7 @@ Result<PropertyValue> DiskVertexAccessor::SetProperty(PropertyId property, const
   CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, current_value);
   vertex_->properties.SetProperty(property, value);
 
-  UpdateOnSetProperty(indices_, property, value, vertex_, *transaction_);
+  // UpdateOnSetProperty(indices_, property, value, vertex_, *transaction_);
 
   return std::move(current_value);
 }
@@ -261,7 +261,7 @@ Result<bool> DiskVertexAccessor::InitProperties(
   if (!vertex_->properties.InitProperties(properties)) return false;
   for (const auto &[property, value] : properties) {
     CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, PropertyValue());
-    UpdateOnSetProperty(indices_, property, value, vertex_, *transaction_);
+    // UpdateOnSetProperty(indices_, property, value, vertex_, *transaction_);
   }
 
   return true;

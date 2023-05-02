@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <optional>
 
+#include "storage/v2/disk/indices.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edge_ref.hpp"
@@ -37,7 +38,7 @@ class DiskEdgeAccessor final : public EdgeAccessor {
 
  public:
   DiskEdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, DiskVertex *from_vertex, DiskVertex *to_vertex,
-                   Transaction *transaction, Indices *indices, Constraints *constraints, Config::Items config,
+                   Transaction *transaction, DiskIndices *indices, Constraints *constraints, Config::Items config,
                    storage::Gid gid, bool for_deleted = false)
       : EdgeAccessor(edge_type, transaction, config, for_deleted),
         edge_(edge),
@@ -106,7 +107,7 @@ class DiskEdgeAccessor final : public EdgeAccessor {
   EdgeRef edge_;
   DiskVertex *from_vertex_;
   DiskVertex *to_vertex_;
-  Indices *indices_;
+  DiskIndices *indices_;
   Constraints *constraints_;
   storage::Gid gid_;
   uint64_t modification_ts_;

@@ -17,13 +17,6 @@
 
 namespace memgraph::storage {
 
-std::unique_ptr<VertexAccessor> VertexAccessor::Create(Vertex *vertex, Transaction *transaction, Indices *indices,
-                                                       Constraints *constraints, Config config, View view) {
-  if (config.storage_mode.type == Config::StorageMode::Type::IN_MEMORY)
-    return InMemoryVertexAccessor::Create(vertex, transaction, indices, constraints, config.items, view);
-  return DiskVertexAccessor::Create(vertex, transaction, indices, constraints, config.items, view);
-}
-
 Result<std::vector<std::unique_ptr<EdgeAccessor>>> VertexAccessor::InEdges(
     View view, const std::vector<EdgeTypeId> &edge_types) const {
   return InEdges(view, edge_types, nullptr);

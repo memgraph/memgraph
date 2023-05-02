@@ -15,6 +15,7 @@
 #include <memory>
 
 #include "storage/v2/disk/disk_vertex.hpp"
+#include "storage/v2/disk/indices.hpp"
 #include "storage/v2/id_types.hpp"
 
 #include "storage/v2/config.hpp"
@@ -35,7 +36,7 @@ class DiskVertexAccessor final : public VertexAccessor {
   friend class DiskStorage;
 
  public:
-  DiskVertexAccessor(DiskVertex *vertex, Transaction *transaction, Indices *indices, Constraints *constraints,
+  DiskVertexAccessor(DiskVertex *vertex, Transaction *transaction, DiskIndices *indices, Constraints *constraints,
                      Config::Items config, storage::Gid gid, bool for_deleted = false)
       : VertexAccessor(transaction, config, for_deleted),
         vertex_(vertex),
@@ -43,7 +44,7 @@ class DiskVertexAccessor final : public VertexAccessor {
         constraints_(constraints),
         gid_(gid) {}
 
-  static std::unique_ptr<DiskVertexAccessor> Create(Vertex *vertex, Transaction *transaction, Indices *indices,
+  static std::unique_ptr<DiskVertexAccessor> Create(Vertex *vertex, Transaction *transaction, DiskIndices *indices,
                                                     Constraints *constraints, Config::Items config, View view);
 
   /// The method initializes the vertex from the disk.
@@ -124,7 +125,7 @@ class DiskVertexAccessor final : public VertexAccessor {
 
  private:
   DiskVertex *vertex_;
-  Indices *indices_;
+  DiskIndices *indices_;
   Constraints *constraints_;
   // cached from DiskVertex
   storage::Gid gid_;

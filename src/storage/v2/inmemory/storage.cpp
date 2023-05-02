@@ -26,8 +26,8 @@
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_accessor.hpp"
-#include "storage/v2/indices.hpp"
 #include "storage/v2/inmemory/edge_accessor.hpp"
+#include "storage/v2/inmemory/indices.hpp"
 #include "storage/v2/inmemory/vertex_accessor.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/replication/config.hpp"
@@ -242,6 +242,22 @@ InMemoryStorage::InMemoryAccessor::~InMemoryAccessor() {
   }
 
   FinalizeTransaction();
+}
+
+utils::SkipList<Vertex>::Iterator AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it,
+                                                         utils::SkipList<Vertex>::Iterator end,
+                                                         std::unique_ptr<VertexAccessor> &vertex, Transaction *tx,
+                                                         View view, Indices *indices, Constraints *constraints,
+                                                         Config config) {
+  while (it != end) {
+    vertex = InMemoryVertexAccessor::Create(&*it, tx, indices, constraints, config.items, view);
+    if (!vertex) {
+      ++it;
+      continue;
+    }
+    break;
+  }
+  return it;
 }
 
 std::unique_ptr<VertexAccessor> InMemoryStorage::InMemoryAccessor::CreateVertex() {

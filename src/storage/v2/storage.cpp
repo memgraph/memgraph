@@ -12,6 +12,7 @@
 #include "storage/v2/storage.hpp"
 
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/inmemory/vertex_accessor.hpp"
 
 namespace memgraph::storage {
 
@@ -20,7 +21,7 @@ auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it, utils::SkipLis
                             Constraints *constraints, Config config) {
   while (it != end) {
     /// TODO: Here we need to create a vertex accessor dependent on the storage.
-    vertex = VertexAccessor::Create(&*it, tx, indices, constraints, config, view);
+    vertex = InMemoryVertexAccessor::Create(&*it, tx, indices, constraints, config.items, view);
     if (!vertex) {
       ++it;
       continue;

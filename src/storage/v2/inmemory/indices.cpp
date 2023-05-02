@@ -14,6 +14,7 @@
 #include <iterator>
 #include <limits>
 
+#include "storage/v2/inmemory/vertex_accessor.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/bound.hpp"
@@ -349,8 +350,9 @@ void LabelIndex::Iterable::Iterator::AdvanceUntilValid() {
     if (CurrentVersionHasLabel(*index_iterator_->vertex, self_->label_, self_->transaction_, self_->view_)) {
       current_vertex_ = index_iterator_->vertex;
       /// TODO: Here we need to create a vertex accessor dependent on the storage.
-      current_vertex_accessor_ = VertexAccessor::Create(current_vertex_, self_->transaction_, self_->indices_,
-                                                        self_->constraints_, self_->config_, self_->view_);
+      current_vertex_accessor_ =
+          InMemoryVertexAccessor::Create(current_vertex_, self_->transaction_, self_->indices_, self_->constraints_,
+                                         self_->config_.items, self_->view_);
       break;
     }
   }
@@ -518,8 +520,9 @@ void LabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
                                        index_iterator_->value, self_->transaction_, self_->view_)) {
       current_vertex_ = index_iterator_->vertex;
       /// TODO: Here we need to create a vertex accessor dependent on the storage.
-      current_vertex_accessor_ = VertexAccessor::Create(current_vertex_, self_->transaction_, self_->indices_,
-                                                        self_->constraints_, self_->config_, self_->view_);
+      current_vertex_accessor_ =
+          InMemoryVertexAccessor::Create(current_vertex_, self_->transaction_, self_->indices_, self_->constraints_,
+                                         self_->config_.items, self_->view_);
       break;
     }
   }

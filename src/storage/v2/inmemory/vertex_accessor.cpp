@@ -15,8 +15,8 @@
 
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/indices.hpp"
 #include "storage/v2/inmemory/edge_accessor.hpp"
+#include "storage/v2/inmemory/indices.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"

@@ -26,6 +26,7 @@
 #include "storage/v2/constraints.hpp"
 #include "storage/v2/disk/disk_edge.hpp"
 #include "storage/v2/disk/disk_vertex.hpp"
+#include "storage/v2/disk/indices.hpp"
 #include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/disk/vertex_accessor.hpp"
 #include "storage/v2/durability/metadata.hpp"
@@ -33,7 +34,6 @@
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/indices.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/name_id_mapper.hpp"
@@ -478,7 +478,7 @@ class DiskStorage final : public Storage {
   NameIdMapper name_id_mapper_;
 
   Constraints constraints_;
-  Indices indices_;
+  DiskIndices indices_;
 
   // Transaction engine
   utils::SpinLock engine_lock_;

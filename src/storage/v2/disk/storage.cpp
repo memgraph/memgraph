@@ -12,6 +12,7 @@
 #include "storage/v2/storage.hpp"
 #include <algorithm>
 #include <atomic>
+#include <boost/exception/exception.hpp>
 #include <cstdint>
 #include <iterator>
 #include <memory>
@@ -32,11 +33,13 @@
 
 #include <gflags/gflags.h>
 #include <rocksdb/comparator.h>
+#include <rocksdb/memtablerep.h>
 #include <rocksdb/slice.h>
 #include <spdlog/spdlog.h>
 
 #include "io/network/endpoint.hpp"
 #include "storage/v2/disk/edge_accessor.hpp"
+#include "storage/v2/disk/indices.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/disk/vertex_accessor.hpp"
 #include "storage/v2/durability/durability.hpp"
@@ -45,7 +48,6 @@
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_accessor.hpp"
-#include "storage/v2/indices.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
@@ -72,8 +74,10 @@
 /// RocksDB
 #include <rocksdb/comparator.h>
 #include <rocksdb/db.h>
+#include <rocksdb/filter_policy.h>
 #include <rocksdb/iterator.h>
 #include <rocksdb/options.h>
+#include <rocksdb/slice_transform.h>
 #include <rocksdb/status.h>
 
 namespace memgraph::storage {
@@ -511,8 +515,9 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
     // with size explicitly added with sizeof(uint64_t)
     DeserializeVertex(it->key(), it->value());
   }
-  return VerticesIterable(AllVerticesIterable(storage_->vertices_.access(), &transaction_, view, &storage_->indices_,
-                                              &storage_->constraints_, storage_->config_));
+  // return VerticesIterable(AllVerticesIterable(storage_->vertices_.access(), &transaction_, view, &storage_->indices_,
+  // &storage_->constraints_, storage_->config_));
+  throw utils::NotYetImplemented("DiskStorage::DiskAccessor::Vertices(view)");
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
@@ -1753,7 +1758,7 @@ void DiskStorage::CollectGarbage() {
   if (run_index_cleanup) {
     // This operation is very expensive as it traverses through all of the items
     // in every index every time.
-    RemoveObsoleteEntries(&indices_, oldest_active_start_timestamp);
+    // RemoveObsoleteEntries(&indices_, oldest_active_start_timestamp);
     constraints_.unique_constraints.RemoveObsoleteEntries(oldest_active_start_timestamp);
   }
 

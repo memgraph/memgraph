@@ -16,6 +16,7 @@
 
 namespace memgraph::storage {
 
+/// TODO(andi): Change this
 std::unique_ptr<EdgeAccessor> EdgeAccessor::Create(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex,
                                                    Vertex *to_vertex, Transaction *transaction, Indices *indices,
                                                    Constraints *constraints, Config config, bool for_deleted) {
