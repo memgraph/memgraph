@@ -113,13 +113,15 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 // to ensure that the indices and constraints are consistent at the end of the
 // recovery process.
 void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_constraints, Indices *indices,
-                                  Constraints *constraints, utils::SkipList<Vertex> *vertices) {
+                                  Constraints *constraints, utils::SkipList<Vertex> *vertices,
+                                  const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info) {
   spdlog::info("Recreating indices from metadata.");
   // Recover label indices.
   spdlog::info("Recreating {} label indices from metadata.", indices_constraints.indices.label.size());
   for (const auto &item : indices_constraints.indices.label) {
-    if (!indices->label_index.CreateIndex(item, vertices->access()))
+    if (!indices->label_index.CreateIndex(item, vertices->access(), paralell_exec_info))
       throw RecoveryFailure("The label index must be created here!");
+
     spdlog::info("A label index is recreated from metadata.");
   }
   spdlog::info("Label indices are recreated.");
@@ -213,7 +215,11 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
     *epoch_id = std::move(recovered_snapshot->snapshot_info.epoch_id);
 
     if (!utils::DirExists(wal_directory)) {
-      RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices);
+      const auto par_exec_info = config.durability.allow_parallel_index_creation
+                                     ? std::make_optional(std::make_pair(recovery_info.vertex_batches,
+                                                                         config.durability.recovery_thread_count))
+                                     : std::nullopt;
+      RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices, par_exec_info);
       return recovered_snapshot->recovery_info;
     }
   } else {

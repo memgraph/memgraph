@@ -98,6 +98,11 @@ startup_config_dict = {
         "IP address on which the websocket server for Memgraph monitoring should listen.",
     ),
     "monitoring_port": ("7444", "7444", "Port on which the websocket server for Memgraph monitoring should listen."),
+    "storage_parallel_index_recovery": (
+        "false",
+        "false",
+        "Controls whether the index creation can be done in a multithreaded fashion.",
+    ),
     "password_encryption_algorithm": ("bcrypt", "bcrypt", "The password encryption algorithm used for authentication."),
     "pulsar_service_url": ("", "", "Default URL used while connecting to Pulsar brokers."),
     "query_execution_timeout_sec": (
