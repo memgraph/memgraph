@@ -180,7 +180,7 @@ void PrintObject(std::ostream *out, const std::map<K, V> &map) {
 
 // template <typename P, typename K, typename V>
 template <typename P, typename E>
-void PrintObject(std::ostream *out, const std::pair<P, std::vector<E>> &map) {
+void PrintObject(std::ostream *out, const std::pair<P, std::vector<E>> & /*map*/) {
   // TODO ante
   *out << "{";
   *out << "map_projection";
@@ -264,7 +264,7 @@ void ExpressionPrettyPrinter::Visit(MapLiteral &op) {
   PrintObject(out_, map);
 }
 
-void ExpressionPrettyPrinter::Visit(MapProjectionLiteral &op) {
+void ExpressionPrettyPrinter::Visit(MapProjectionLiteral & /*op*/) {
   // TODO ante
   // std::map<std::string, Expression *> map;
   std::map<Expression *, std::vector<Expression *>> map;
