@@ -114,9 +114,8 @@ class VertexAccessor final {
   // We make this class a friend so that we can access the private MakeEdgeAccessor function.
   friend class SubgraphVertexAccessor;
 
-  // IMPLICIT MOVE! This is a workaround for iter::imap
   static EdgeAccessor MakeEdgeAccessor(std::unique_ptr<storage::EdgeAccessor> &impl) {
-    return EdgeAccessor(std::move(impl));
+    return EdgeAccessor(impl->Copy());
   }
 
  public:

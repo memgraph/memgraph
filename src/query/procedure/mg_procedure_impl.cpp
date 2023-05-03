@@ -1951,9 +1951,9 @@ void NextPermittedEdge(mgp_edges_iterator &it, const bool for_in) {
     const auto *auth_checker = it.source_vertex.graph->ctx->auth_checker.get();
     const auto view = it.source_vertex.graph->view;
     while (*impl_it != end) {
-      if (auth_checker->Has(**impl_it, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
-        const auto &check_vertex =
-            it.source_vertex.getImpl() == (*impl_it)->From() ? (*impl_it)->To() : (*impl_it)->From();
+      auto edgeAcc = **impl_it;
+      if (auth_checker->Has(edgeAcc, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
+        const auto &check_vertex = it.source_vertex.getImpl() == edgeAcc.From() ? edgeAcc.To() : edgeAcc.From();
         if (auth_checker->Has(check_vertex, view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
           break;
         }
@@ -2052,12 +2052,10 @@ mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges
           std::visit(
               memgraph::utils::Overloaded{
                   [&](memgraph::query::DbAccessor *) {
-                    // Dereference iterator implicitly call MakeEdgeAccessor which moves EdgeAccessor.
                     memgraph::query::EdgeAccessor edgeAcc = **it->out_it;
                     it->current_e.emplace(edgeAcc, edgeAcc.From(), edgeAcc.To(), v->graph, it->GetMemoryResource());
                   },
                   [&](memgraph::query::SubgraphDbAccessor *impl) {
-                    // Dereference iterator implicitly call MakeEdgeAccessor which moves EdgeAccessor.
                     auto edgeAcc = **it->out_it;
                     it->current_e.emplace(edgeAcc,
                                           memgraph::query::SubgraphVertexAccessor(edgeAcc.From(), impl->getGraph()),
@@ -2115,13 +2113,11 @@ mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
           }
           std::visit(memgraph::utils::Overloaded{
                          [&](memgraph::query::DbAccessor *) {
-                           // Dereference iterator implicitly call MakeEdgeAccessor which moves EdgeAccessor.
                            auto edgeAcc = **impl_it;
                            it->current_e.emplace(edgeAcc, edgeAcc.From(), edgeAcc.To(), it->source_vertex.graph,
                                                  it->GetMemoryResource());
                          },
                          [&](memgraph::query::SubgraphDbAccessor *impl) {
-                           // Dereference iterator implicitly call MakeEdgeAccessor which moves EdgeAccessor.
                            auto edgeAcc = **impl_it;
                            it->current_e.emplace(
                                edgeAcc, memgraph::query::SubgraphVertexAccessor(edgeAcc.From(), impl->getGraph()),
