@@ -5,7 +5,7 @@ ARG toolchain_version
 
 COPY ${env_folder} /env_folder
 
-RUN yum update && yum install -y curl git
+RUN yum update -y && yum install -y curl git
 
 RUN /${env_folder}/os/centos-9.sh install MEMGRAPH_BUILD_DEPS
 RUN /${env_folder}/os/centos-9.sh install TOOLCHAIN_RUN_DEPS
