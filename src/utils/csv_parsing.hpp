@@ -40,17 +40,12 @@ class Reader {
  public:
   struct Config {
     Config() = default;
-    Config(const bool with_header, const bool ignore_bad, const bool ignore_empty_strings,
-           std::optional<utils::pmr::string> delim, std::optional<utils::pmr::string> qt)
-        : with_header(with_header),
-          ignore_bad(ignore_bad),
-          ignore_empty_strings(ignore_empty_strings),
-          delimiter(std::move(delim)),
-          quote(std::move(qt)) {}
+    Config(const bool with_header, const bool ignore_bad, std::optional<utils::pmr::string> delim,
+           std::optional<utils::pmr::string> qt)
+        : with_header(with_header), ignore_bad(ignore_bad), delimiter(std::move(delim)), quote(std::move(qt)) {}
 
     bool with_header{false};
     bool ignore_bad{false};
-    bool ignore_empty_strings{false};
     std::optional<utils::pmr::string> delimiter{};
     std::optional<utils::pmr::string> quote{};
   };
@@ -63,7 +58,6 @@ class Reader {
       : memory_(mem), path_(std::move(path)) {
     read_config_.with_header = cfg.with_header;
     read_config_.ignore_bad = cfg.ignore_bad;
-    read_config_.ignore_empty_strings = cfg.ignore_empty_strings;
     read_config_.delimiter = cfg.delimiter ? std::move(*cfg.delimiter) : utils::pmr::string{",", memory_};
     read_config_.quote = cfg.quote ? std::move(*cfg.quote) : utils::pmr::string{"\"", memory_};
     InitializeStream();

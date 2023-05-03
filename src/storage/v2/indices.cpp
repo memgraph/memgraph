@@ -497,30 +497,14 @@ bool LabelPropertyIndex::Entry::operator<(const PropertyValue &rhs) { return val
 bool LabelPropertyIndex::Entry::operator==(const PropertyValue &rhs) { return value == rhs; }
 
 void LabelPropertyIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) {
-  auto vertex_properties = vertex->properties.Properties();
-
-  if (index_.size() > vertex_properties.size()) {
-    for (auto &[prop_id, prop_value] : vertex_properties) {
-      auto label_property_pair = std::make_pair(label, prop_id);
-      if (index_.find(label_property_pair) == index_.end()) {
-        continue;
-      }
-
-      auto &storage = index_[label_property_pair];
+  for (auto &[label_prop, storage] : index_) {
+    if (label_prop.first != label) {
+      continue;
+    }
+    auto prop_value = vertex->properties.GetProperty(label_prop.second);
+    if (!prop_value.IsNull()) {
       auto acc = storage.access();
       acc.insert(Entry{std::move(prop_value), vertex, tx.start_timestamp});
-    }
-  } else {
-    for (auto &[label_prop, storage] : index_) {
-      if (label_prop.first != label) {
-        continue;
-      }
-
-      if (vertex_properties.find(label_prop.second) != vertex_properties.end()) {
-        auto prop_value = vertex_properties[label_prop.second];
-        auto acc = storage.access();
-        acc.insert(Entry{std::move(prop_value), vertex, tx.start_timestamp});
-      }
     }
   }
 }
@@ -530,30 +514,13 @@ void LabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const Property
   if (value.IsNull()) {
     return;
   }
-
-  auto index_size = index_.size();
-  auto properties_size = vertex->properties.Properties().size();
-
-  if (index_size > properties_size) {
-    for (auto &label : vertex->labels) {
-      auto label_property_pair = std::make_pair(label, property);
-      if (index_.find(label_property_pair) == index_.end()) {
-        continue;
-      }
-
-      auto &storage = index_[label_property_pair];
+  for (auto &[label_prop, storage] : index_) {
+    if (label_prop.second != property) {
+      continue;
+    }
+    if (utils::Contains(vertex->labels, label_prop.first)) {
       auto acc = storage.access();
       acc.insert(Entry{value, vertex, tx.start_timestamp});
-    }
-  } else {
-    for (auto &[label_prop, storage] : index_) {
-      if (label_prop.second != property) {
-        continue;
-      }
-      if (utils::Contains(vertex->labels, label_prop.first)) {
-        auto acc = storage.access();
-        acc.insert(Entry{value, vertex, tx.start_timestamp});
-      }
     }
   }
 }

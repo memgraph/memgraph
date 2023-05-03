@@ -2227,7 +2227,7 @@ class LoadCsv : public memgraph::query::plan::LogicalOperator {
 
   LoadCsv() = default;
   LoadCsv(std::shared_ptr<LogicalOperator> input, Expression *file, bool with_header, bool ignore_bad,
-          bool ignore_empty_strings, Expression *delimiter, Expression *quote, Symbol row_var);
+          Expression *delimiter, Expression *quote, Symbol row_var);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
@@ -2241,7 +2241,6 @@ class LoadCsv : public memgraph::query::plan::LogicalOperator {
   Expression *file_;
   bool with_header_;
   bool ignore_bad_;
-  bool ignore_empty_strings_;
   Expression *delimiter_{nullptr};
   Expression *quote_{nullptr};
   Symbol row_var_;
@@ -2252,7 +2251,6 @@ class LoadCsv : public memgraph::query::plan::LogicalOperator {
     object->file_ = file_ ? file_->Clone(storage) : nullptr;
     object->with_header_ = with_header_;
     object->ignore_bad_ = ignore_bad_;
-    object->ignore_empty_strings_ = ignore_empty_strings_;
     object->delimiter_ = delimiter_ ? delimiter_->Clone(storage) : nullptr;
     object->quote_ = quote_ ? quote_->Clone(storage) : nullptr;
     object->row_var_ = row_var_;
