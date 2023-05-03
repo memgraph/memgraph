@@ -190,27 +190,17 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(InListOperator &in_list) override {
-    ReferenceExpressionEvaluator reference_expression_evaluator{frame_, symbol_table_, ctx_};
-
-    TypedValue *_list_ptr = in_list.expression2_->Accept(reference_expression_evaluator);
-    TypedValue _list;
-
-    if (nullptr == _list_ptr) {
-      _list = in_list.expression2_->Accept(*this);
-      _list_ptr = &_list;
-    }
-
     auto literal = in_list.expression1_->Accept(*this);
-
-    if (_list_ptr->IsNull()) {
+    auto _list = in_list.expression2_->Accept(*this);
+    if (_list.IsNull()) {
       return TypedValue(ctx_->memory);
     }
     // Exceptions have higher priority than returning nulls when list expression
     // is not null.
-    if (_list_ptr->type() != TypedValue::Type::List) {
+    if (_list.type() != TypedValue::Type::List) {
       throw QueryRuntimeException("IN expected a list, got {}.", _list.type());
     }
-    const auto &list = _list_ptr->ValueList();
+    const auto &list = _list.ValueList();
 
     // If literal is NULL there is no need to try to compare it with every
     // element in the list since result of every comparison will be NULL. There
@@ -219,24 +209,16 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (list.empty()) return TypedValue(false, ctx_->memory);
     if (literal.IsNull()) return TypedValue(ctx_->memory);
 
-    if (in_list.GetCachedSet() == nullptr) {
-      std::unordered_set<size_t> _cached_set;
-      TypedValue::Hash hash{};
-      for (const TypedValue &element : list) {
-        _cached_set.insert(hash(element));
+    auto has_null = false;
+    for (const auto &element : list) {
+      auto result = literal == element;
+      if (result.IsNull()) {
+        has_null = true;
+      } else if (result.ValueBool()) {
+        return TypedValue(true, ctx_->memory);
       }
-
-      in_list.SetCachedSet(std::move(_cached_set));
     }
-
-    const auto &in_list_cached_set = in_list.GetCachedSet();
-
-    TypedValue::Hash hash{};
-    if (in_list_cached_set->contains(hash(literal))) {
-      return TypedValue(true, ctx_->memory);
-    }
-    // has null
-    if (literal.type() == TypedValue::Type::Null || in_list_cached_set->contains(hash(TypedValue(ctx_->memory)))) {
+    if (has_null) {
       return TypedValue(ctx_->memory);
     }
     return TypedValue(false, ctx_->memory);
