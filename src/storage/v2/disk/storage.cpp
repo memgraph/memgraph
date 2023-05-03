@@ -417,7 +417,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
-  throw utils::NotYetImplemented("DiskStorage::DiskAccessor::Vertices(label)");
+  return VerticesIterable(storage_->indices_.label_index.Vertices(label, view, &transaction_));
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, View view) {
@@ -1398,14 +1398,15 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
   rocksdb::Slice ts = utils::StringTimestamp(std::numeric_limits<uint64_t>::max());
   ro.timestamp = &ts;
   auto it = std::unique_ptr<rocksdb::Iterator>(kvstore_->db_->NewIterator(ro, kvstore_->vertex_chandle));
-  std::vector<std::tuple<std::string_view, std::string_view, uint64_t>> indexed_vertices;
+  std::vector<std::tuple<std::string, std::string, uint64_t>> indexed_vertices;
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     const auto &key = it->key();
     const auto vertex_parts = utils::Split(key.ToStringView(), "|");
     if (const auto labels = utils::Split(vertex_parts[0], ",");
         // TODO: (andi): When you decouple SerializeIdType, modify this to_string call to use SerializeIdType.
         std::find(labels.begin(), labels.end(), std::to_string(label.AsUint())) != labels.end()) {
-      indexed_vertices.emplace_back(key.ToStringView(), it->value().ToStringView(),
+      spdlog::debug("Found vertex with gid {} for index creation", vertex_parts[1]);
+      indexed_vertices.emplace_back(key.ToString(), it->value().ToString(),
                                     utils::ExtractTimestampFromDeserializedUserKey(key));
     }
   }
@@ -1415,14 +1416,14 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  const auto success =
-      AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_INDEX_CREATE, label, {}, commit_timestamp);
+  // const auto success =
+  // AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_INDEX_CREATE, label, {}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
 
-  if (success) {
-    return {};
-  }
+  // if (success) {
+  return {};
+  // }
 
   return StorageIndexDefinitionError{ReplicationError{}};
 }

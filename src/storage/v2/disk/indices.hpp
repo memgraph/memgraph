@@ -18,6 +18,7 @@
 #include "storage/v2/constraints.hpp"
 #include "storage/v2/disk/disk_vertex.hpp"
 #include "storage/v2/disk/rocksdb_storage.hpp"
+#include "storage/v2/disk/vertices_iterable.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
@@ -44,21 +45,13 @@ class LabelDiskIndex {
 
   /// TODO(andi): If there are no other usages of constaints_ and config_ maybe we can remove
   /// them from here
-  // Iterable Vertices(LabelId label, View view, Transaction *transaction) {
-  //   utils::SkipList<Vertex> vertices;
-  //   /// TODO(andi): Perform loading
-  //   // return VerticesIterable(AllMemoryVerticesIterable(vertices.access(), transaction, view, indices_,
-  //   constraints_,
-  //   // config_));
-  //   throw utils::NotYetImplemented("LabelIndex::Vertices");
-  // }
+  AllDiskVerticesIterable Vertices(LabelId label, View view, Transaction *transaction);
 
   /// Stores all vertices in the RocksDB instances. Vertices are intentionally transferred as pure strings to avoid
   /// unnecessary deserialization and serialization.
   /// @tparam vertices is a vector of tuples where each tuple contains key, value and the timestamp it has been saved
   /// with
-  bool CreateIndex(LabelId label,
-                   const std::vector<std::tuple<std::string_view, std::string_view, uint64_t>> &vertices);
+  bool CreateIndex(LabelId label, const std::vector<std::tuple<std::string, std::string, uint64_t>> &vertices);
 
   bool DropIndex(LabelId label);
 
@@ -79,6 +72,7 @@ class LabelDiskIndex {
   DiskIndices *indices_;
   Config config_;
   std::unique_ptr<RocksDBStorage> kvstore_;
+  utils::SkipList<Vertex> vertices_;
 };
 
 /// Immovable implementation of LabelPropertyDiskIndex for on-disk storage.

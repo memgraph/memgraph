@@ -15,15 +15,12 @@
 #include <string>
 #include <string_view>
 
-#include "storage/v2/disk/indices.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/vertex.hpp"
 
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints.hpp"
 #include "storage/v2/result.hpp"
-#include "storage/v2/transaction.hpp"
-#include "storage/v2/view.hpp"
 
 namespace memgraph::storage {
 

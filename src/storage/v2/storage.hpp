@@ -17,14 +17,15 @@
 #include "io/network/endpoint.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/disk/indices.hpp"
+#include "storage/v2/disk/vertices_iterable.hpp"
 #include "storage/v2/inmemory/indices.hpp"
+#include "storage/v2/inmemory/vertices_iterable.hpp"
+#include "storage/v2/replication/config.hpp"
+#include "storage/v2/replication/enums.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/view.hpp"
-
-#include "storage/v2/replication/config.hpp"
-#include "storage/v2/replication/enums.hpp"
 
 namespace memgraph::storage {
 
@@ -32,84 +33,6 @@ struct Transaction;
 class EdgeAccessor;
 
 enum class ReplicationRole : uint8_t { MAIN, REPLICA };
-
-class AllMemoryVerticesIterable final {
-  utils::SkipList<Vertex>::Accessor vertices_accessor_;
-  Transaction *transaction_;
-  View view_;
-  Indices *indices_;
-  Constraints *constraints_;
-  Config config_;
-  std::unique_ptr<VertexAccessor> vertex_;
-
- public:
-  class Iterator final {
-    AllMemoryVerticesIterable *self_;
-    utils::SkipList<Vertex>::Iterator it_;
-
-   public:
-    Iterator(AllMemoryVerticesIterable *self, utils::SkipList<Vertex>::Iterator it);
-
-    VertexAccessor *operator*() const;
-
-    Iterator &operator++();
-
-    bool operator==(const Iterator &other) const { return self_ == other.self_ && it_ == other.it_; }
-
-    bool operator!=(const Iterator &other) const { return !(*this == other); }
-  };
-
-  AllMemoryVerticesIterable(utils::SkipList<Vertex>::Accessor vertices_accessor, Transaction *transaction, View view,
-                            Indices *indices, Constraints *constraints, Config config)
-      : vertices_accessor_(std::move(vertices_accessor)),
-        transaction_(transaction),
-        view_(view),
-        indices_(indices),
-        constraints_(constraints),
-        config_(config) {}
-
-  Iterator begin() { return Iterator(this, vertices_accessor_.begin()); }
-  Iterator end() { return Iterator(this, vertices_accessor_.end()); }
-};
-
-class AllDiskVerticesIterable {
-  utils::SkipList<Vertex>::Accessor vertices_accessor_;
-  Transaction *transaction_;
-  View view_;
-  DiskIndices *indices_;
-  Constraints *constraints_;
-  Config config_;
-  std::unique_ptr<VertexAccessor> vertex_;
-
- public:
-  class Iterator final {
-    AllDiskVerticesIterable *self_;
-    utils::SkipList<Vertex>::Iterator it_;
-
-   public:
-    Iterator(AllDiskVerticesIterable *self, utils::SkipList<Vertex>::Iterator it);
-
-    VertexAccessor *operator*() const;
-
-    Iterator &operator++();
-
-    bool operator==(const Iterator &other) const { return self_ == other.self_ && it_ == other.it_; }
-
-    bool operator!=(const Iterator &other) const { return !(*this == other); }
-  };
-
-  AllDiskVerticesIterable(utils::SkipList<Vertex>::Accessor vertices_accessor, Transaction *transaction, View view,
-                          DiskIndices *indices, Constraints *constraints, Config config)
-      : vertices_accessor_(std::move(vertices_accessor)),
-        transaction_(transaction),
-        view_(view),
-        indices_(indices),
-        constraints_(constraints),
-        config_(config) {}
-
-  Iterator begin() { return Iterator(this, vertices_accessor_.begin()); }
-  Iterator end() { return Iterator(this, vertices_accessor_.end()); }
-};
 
 /// Generic access to different kinds of vertex iterations.
 ///

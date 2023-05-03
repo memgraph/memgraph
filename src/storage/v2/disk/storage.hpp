@@ -116,7 +116,7 @@ class DiskStorage final : public Storage {
     int64_t ApproximateVertexCount() const override;
 
     int64_t ApproximateVertexCount(LabelId label) const override {
-      throw utils::NotYetImplemented("ApproximateVertexCount(label) is not implemented for DiskStorage.");
+      return storage_->indices_.label_index.ApproximateVertexCount(label);
     }
 
     int64_t ApproximateVertexCount(LabelId label, PropertyId property) const override {
