@@ -7,7 +7,6 @@ set(storage_v2_src_files
     durability/snapshot.cpp
     durability/wal.cpp
     edge_accessor.cpp
-    disk/indices.cpp
     inmemory/indices.cpp
     inmemory/edge_accessor.cpp
     inmemory/storage.cpp
@@ -16,7 +15,9 @@ set(storage_v2_src_files
     vertex_accessor.cpp
     storage.cpp
     disk/compaction_filter.cpp
+    disk/indices.cpp
     disk/storage.cpp
+    disk/rocksdb_storage.cpp
     disk/vertex_accessor.cpp
     disk/edge_accessor.cpp)
 

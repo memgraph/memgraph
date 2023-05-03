@@ -62,9 +62,6 @@
 
 /// ROCKSDB
 #include <rocksdb/db.h>
-#include <rocksdb/iterator.h>
-#include <rocksdb/options.h>
-#include <rocksdb/status.h>
 
 namespace memgraph::storage {
 
@@ -577,7 +574,7 @@ class DiskStorage final : public Storage {
 
   // std::atomic<ReplicationRole> replication_role_{ReplicationRole::MAIN};
 
-  RocksDBStorage *kvstore_;
+  std::unique_ptr<RocksDBStorage> kvstore_;
 };
 
 }  // namespace memgraph::storage

@@ -15,6 +15,7 @@
 #include <boost/exception/exception.hpp>
 #include <cstdint>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <stop_token>
@@ -32,9 +33,6 @@
 #include "storage/v2/result.hpp"
 
 #include <gflags/gflags.h>
-#include <rocksdb/comparator.h>
-#include <rocksdb/memtablerep.h>
-#include <rocksdb/slice.h>
 #include <spdlog/spdlog.h>
 
 #include "io/network/endpoint.hpp"
@@ -60,6 +58,7 @@
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
+#include "utils/rocksdb.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/stat.hpp"
@@ -71,14 +70,7 @@
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/storage_error.hpp"
 
-/// RocksDB
-#include <rocksdb/comparator.h>
-#include <rocksdb/db.h>
-#include <rocksdb/filter_policy.h>
-#include <rocksdb/iterator.h>
-#include <rocksdb/options.h>
-#include <rocksdb/slice_transform.h>
-#include <rocksdb/status.h>
+#include "storage/v2/disk/rocksdb_storage.hpp"
 
 namespace memgraph::storage {
 
@@ -90,110 +82,15 @@ constexpr const char *outEdgeDirection = "0";
 constexpr const char *inEdgeDirection = "1";
 constexpr const char *vertexHandle = "vertex";
 constexpr const char *edgeHandle = "edge";
+constexpr const char *main_storage_path = "./rocks_experiment";
 
 inline constexpr uint16_t kEpochHistoryRetention = 1000;
-
-// /// Use it for operations that must successfully finish.
-inline void AssertRocksDBStatus(const rocksdb::Status &status) {
-  MG_ASSERT(status.ok(), "rocksdb: {}", status.ToString());
-}
-
-inline bool CheckRocksDBStatus(const rocksdb::Status &status) {
-  if (!status.ok()) [[unlikely]] {
-    spdlog::error("rocksdb: {}", status.ToString());
-  }
-  return status.ok();
-}
-
-inline void PutFixed64(std::string *dst, uint64_t value) {
-  dst->append(const_cast<const char *>(reinterpret_cast<char *>(&value)), sizeof(value));
-}
-
-inline uint64_t DecodeFixed64(const char *ptr) {
-  // Load the raw bytes
-  uint64_t result;
-  memcpy(&result, ptr, sizeof(result));  // gcc optimizes this to a plain load
-  return result;
-}
-
-inline rocksdb::Slice StripTimestampFromUserKey(const rocksdb::Slice &user_key, size_t ts_sz) {
-  rocksdb::Slice ret = user_key;
-  ret.remove_suffix(ts_sz);
-  return ret;
-}
-
-inline uint64_t ExtractTimestampFromDeserializedUserKey(const rocksdb::Slice &user_key) {
-  return DecodeFixed64(user_key.data_ + user_key.size_);
-}
-
-inline rocksdb::Slice ExtractTimestampFromUserKey(const rocksdb::Slice &user_key) {
-  assert(user_key.size() >= sizeof(uint64_t));
-  return rocksdb::Slice(user_key.data() + user_key.size() - sizeof(uint64_t), sizeof(uint64_t));
-}
-
-std::string Timestamp(uint64_t ts) {
-  std::string ret;
-  PutFixed64(&ret, ts);
-  return ret;
-}
-
-class ComparatorWithU64TsImpl : public rocksdb::Comparator {
- public:
-  explicit ComparatorWithU64TsImpl()
-      : Comparator(/*ts_sz=*/sizeof(uint64_t)), cmp_without_ts_(rocksdb::BytewiseComparator()) {
-    assert(cmp_without_ts_->timestamp_size() == 0);
-  }
-
-  static const char *kClassName() { return "be"; }
-
-  const char *Name() const override { return kClassName(); }
-
-  void FindShortSuccessor(std::string *) const override {}
-  void FindShortestSeparator(std::string *, const rocksdb::Slice &) const override {}
-  int Compare(const rocksdb::Slice &a, const rocksdb::Slice &b) const override {
-    int ret = CompareWithoutTimestamp(a, b);
-    size_t ts_sz = timestamp_size();
-    if (ret != 0) {
-      return ret;
-    }
-    // Compare timestamp.
-    // For the same user key with different timestamps, larger (newer) timestamp
-    // comes first.
-    return -CompareTimestamp(ExtractTimestampFromUserKey(a), ExtractTimestampFromUserKey(b));
-  }
-  using Comparator::CompareWithoutTimestamp;
-  int CompareWithoutTimestamp(const rocksdb::Slice &a, bool a_has_ts, const rocksdb::Slice &b,
-                              bool b_has_ts) const override {
-    const size_t ts_sz = timestamp_size();
-    assert(!a_has_ts || a.size() >= ts_sz);
-    assert(!b_has_ts || b.size() >= ts_sz);
-    rocksdb::Slice lhs = a_has_ts ? StripTimestampFromUserKey(a, ts_sz) : a;
-    rocksdb::Slice rhs = b_has_ts ? StripTimestampFromUserKey(b, ts_sz) : b;
-    return cmp_without_ts_->Compare(lhs, rhs);
-  }
-
-  int CompareTimestamp(const rocksdb::Slice &ts1, const rocksdb::Slice &ts2) const override {
-    assert(ts1.size() == sizeof(uint64_t));
-    assert(ts2.size() == sizeof(uint64_t));
-    uint64_t lhs = DecodeFixed64(ts1.data());
-    uint64_t rhs = DecodeFixed64(ts2.data());
-    if (lhs < rhs) {
-      return -1;
-    } else if (lhs > rhs) {
-      return 1;
-    } else {
-      return 0;
-    }
-  }
-
-  const Comparator *cmp_without_ts_{nullptr};
-};
 
 }  // namespace
 
 /// TODO: indices should be initialized at some point after
 DiskStorage::DiskStorage(Config config)
-    : indices_(&constraints_, config),
+    : indices_(config),
       isolation_level_(IsolationLevel::SNAPSHOT_ISOLATION),
       config_(config),
       snapshot_directory_(config_.durability.storage_directory / durability::kSnapshotDirectory),
@@ -313,26 +210,25 @@ DiskStorage::DiskStorage(Config config)
   //   forgotten.");
   // }
 
-  std::filesystem::path rocksdb_path = "./rocks_experiment";
-  kvstore_ = new RocksDBStorage();
-  MG_ASSERT(utils::EnsureDir(rocksdb_path), "Unable to create RocksDB storage folder on the disk.");
+  std::filesystem::path rocksdb_path = main_storage_path;
+  kvstore_ = std::make_unique<RocksDBStorage>();
+  utils::EnsureDirOrDie(rocksdb_path);
   kvstore_->options_.create_if_missing = true;
   kvstore_->options_.comparator = new ComparatorWithU64TsImpl();
-  AssertRocksDBStatus(rocksdb::DB::Open(kvstore_->options_, rocksdb_path, &kvstore_->db_));
-  AssertRocksDBStatus(kvstore_->db_->CreateColumnFamily(kvstore_->options_, vertexHandle, &kvstore_->vertex_chandle));
-  AssertRocksDBStatus(kvstore_->db_->CreateColumnFamily(kvstore_->options_, edgeHandle, &kvstore_->edge_chandle));
+  logging::AssertRocksDBStatus(rocksdb::DB::Open(kvstore_->options_, rocksdb_path, &kvstore_->db_));
+  logging::AssertRocksDBStatus(
+      kvstore_->db_->CreateColumnFamily(kvstore_->options_, vertexHandle, &kvstore_->vertex_chandle));
+  logging::AssertRocksDBStatus(
+      kvstore_->db_->CreateColumnFamily(kvstore_->options_, edgeHandle, &kvstore_->edge_chandle));
 }
 
 DiskStorage::~DiskStorage() {
   /// TODO(andi): I think that without destroy column family handle, there are memory leaks
   /// But I also think that DestroyColumnFamilyHandle deletes all data in its handle.
-  delete kvstore_->options_.comparator;
-  AssertRocksDBStatus(kvstore_->db_->DropColumnFamily(kvstore_->vertex_chandle));
-  AssertRocksDBStatus(kvstore_->db_->DropColumnFamily(kvstore_->edge_chandle));
-  AssertRocksDBStatus(kvstore_->db_->DestroyColumnFamilyHandle(kvstore_->vertex_chandle));
-  AssertRocksDBStatus(kvstore_->db_->DestroyColumnFamilyHandle(kvstore_->edge_chandle));
-  AssertRocksDBStatus(kvstore_->db_->Close());
-  delete kvstore_;
+  logging::AssertRocksDBStatus(kvstore_->db_->DropColumnFamily(kvstore_->vertex_chandle));
+  logging::AssertRocksDBStatus(kvstore_->db_->DropColumnFamily(kvstore_->edge_chandle));
+  logging::AssertRocksDBStatus(kvstore_->db_->DestroyColumnFamilyHandle(kvstore_->vertex_chandle));
+  logging::AssertRocksDBStatus(kvstore_->db_->DestroyColumnFamilyHandle(kvstore_->edge_chandle));
 }
 
 DiskStorage::DiskAccessor::DiskAccessor(DiskStorage *storage, IsolationLevel isolation_level)
@@ -367,6 +263,7 @@ DiskStorage::DiskAccessor::~DiskAccessor() {
 
 // (De)serialization utilities
 
+/// TODO: (andi): Decouple this into some object/class related to rocksdb.
 std::string DiskStorage::DiskAccessor::SerializeIdType(const auto &id) const { return std::to_string(id.AsUint()); }
 
 auto DiskStorage::DiskAccessor::DeserializeIdType(const std::string &str) { return Gid::FromUint(std::stoull(str)); }
@@ -453,7 +350,7 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(con
     return nullptr;
   }
   spdlog::debug("Vertex with gid {} doesn't exist in the cache!", gid.AsUint());
-  uint64_t vertex_commit_ts = ExtractTimestampFromDeserializedUserKey(key);
+  uint64_t vertex_commit_ts = utils::ExtractTimestampFromDeserializedUserKey(key);
   auto impl = CreateVertex(gid, vertex_commit_ts);
   // Deserialize labels
   std::vector<LabelId> label_ids;
@@ -497,7 +394,7 @@ std::unique_ptr<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const r
   }
   const auto edge_type_id = storage::EdgeTypeId::FromUint(std::stoull(edge_parts[3]));
   auto maybe_edge =
-      CreateEdge(&*from_acc, &*to_acc, edge_type_id, edge_gid, ExtractTimestampFromDeserializedUserKey(key));
+      CreateEdge(&*from_acc, &*to_acc, edge_type_id, edge_gid, utils::ExtractTimestampFromDeserializedUserKey(key));
   MG_ASSERT(maybe_edge.HasValue());
   static_cast<DiskEdgeAccessor *>(maybe_edge->get())->InitializeDeserializedEdge(edge_type_id, value.ToStringView());
   return std::move(*maybe_edge);
@@ -505,7 +402,7 @@ std::unique_ptr<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const r
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
   rocksdb::ReadOptions ro;
-  rocksdb::Slice ts = Timestamp(transaction_.start_timestamp);
+  rocksdb::Slice ts = utils::StringTimestamp(transaction_.start_timestamp);
   ro.timestamp = &ts;
   auto it =
       std::unique_ptr<rocksdb::Iterator>(storage_->kvstore_->db_->NewIterator(ro, storage_->kvstore_->vertex_chandle));
@@ -558,7 +455,7 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex() {
   storage_->lru_vertices_.insert(static_cast<DiskVertex *>(&*it));
   return std::make_unique<DiskVertexAccessor>(static_cast<DiskVertex *>(&*it), &transaction_, &storage_->indices_,
                                               &storage_->constraints_, config_, storage::Gid::FromUint(gid),
-                                              storage_->kvstore_);
+                                              storage_->kvstore_.get());
 }
 
 std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex(storage::Gid gid) {
@@ -581,7 +478,7 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex(storage:
   delta->prev.Set(&*it);
   storage_->lru_vertices_.insert(static_cast<DiskVertex *>(&*it));
   return std::make_unique<DiskVertexAccessor>(static_cast<DiskVertex *>(&*it), &transaction_, &storage_->indices_,
-                                              &storage_->constraints_, config_, gid, storage_->kvstore_);
+                                              &storage_->constraints_, config_, gid, storage_->kvstore_.get());
 }
 
 /// TODO(andi): This method is the duplicate of CreateVertex(storage::Gid gid), the only thing that is different is
@@ -606,7 +503,7 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::CreateVertex(storage:
   delta->prev.Set(&*it);
   storage_->lru_vertices_.insert(static_cast<DiskVertex *>(&*it));
   return std::make_unique<DiskVertexAccessor>(static_cast<DiskVertex *>(&*it), &transaction_, &storage_->indices_,
-                                              &storage_->constraints_, config_, gid, storage_->kvstore_);
+                                              &storage_->constraints_, config_, gid, storage_->kvstore_.get());
 }
 
 std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid gid, View view) {
@@ -621,7 +518,7 @@ std::unique_ptr<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::G
   }
   /// If not in the memory, check whether it exists in RocksDB.
   rocksdb::ReadOptions read_opts;
-  rocksdb::Slice ts = Timestamp(transaction_.start_timestamp);
+  rocksdb::Slice ts = utils::StringTimestamp(transaction_.start_timestamp);
   read_opts.timestamp = &ts;
   auto it = std::unique_ptr<rocksdb::Iterator>(
       storage_->kvstore_->db_->NewIterator(read_opts, storage_->kvstore_->vertex_chandle));
@@ -739,7 +636,7 @@ DiskStorage::DiskAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
 
 void DiskStorage::DiskAccessor::PrefetchEdges(const auto &prefetch_edge_filter) {
   rocksdb::ReadOptions read_opts;
-  rocksdb::Slice ts = Timestamp(transaction_.start_timestamp);
+  rocksdb::Slice ts = utils::StringTimestamp(transaction_.start_timestamp);
   read_opts.timestamp = &ts;
   auto it = std::unique_ptr<rocksdb::Iterator>(
       storage_->kvstore_->db_->NewIterator(read_opts, storage_->kvstore_->edge_chandle));
@@ -1112,23 +1009,23 @@ void DiskStorage::DiskAccessor::FlushCache() {
   auto vertex_acc = storage_->vertices_.access();
   uint64_t num_ser_edges = 0;
   rocksdb::WriteOptions write_options;
-  rocksdb::Slice ts = Timestamp(*commit_timestamp_);
+  rocksdb::Slice ts = utils::StringTimestamp(*commit_timestamp_);
   write_options.timestamp = &ts;
   for (Vertex &vertex : vertex_acc) {
     auto *disk_vertex = static_cast<DiskVertex *>(&vertex);
-    AssertRocksDBStatus(storage_->kvstore_->db_->Put(write_options, storage_->kvstore_->vertex_chandle,
-                                                     SerializeVertex(*disk_vertex),
-                                                     SerializeProperties(disk_vertex->properties)));
+    logging::AssertRocksDBStatus(storage_->kvstore_->db_->Put(write_options, storage_->kvstore_->vertex_chandle,
+                                                              SerializeVertex(*disk_vertex),
+                                                              SerializeProperties(disk_vertex->properties)));
     spdlog::debug("rocksdb: Saved vertex with key {} and ts {}", SerializeVertex(*disk_vertex), *commit_timestamp_);
     spdlog::debug("Vertex {} has {} out edges", disk_vertex->gid.AsUint(), disk_vertex->out_edges.size());
     for (auto &edge_entry : disk_vertex->out_edges) {
       Edge *edge_ptr = std::get<2>(edge_entry).ptr;
       auto [src_dest_key, dest_src_key] =
           SerializeEdge(disk_vertex->gid, std::get<1>(edge_entry)->gid, std::get<0>(edge_entry), edge_ptr);
-      AssertRocksDBStatus(storage_->kvstore_->db_->Put(write_options, storage_->kvstore_->edge_chandle, src_dest_key,
-                                                       SerializeProperties(edge_ptr->properties)));
-      AssertRocksDBStatus(storage_->kvstore_->db_->Put(write_options, storage_->kvstore_->edge_chandle, dest_src_key,
-                                                       SerializeProperties(edge_ptr->properties)));
+      logging::AssertRocksDBStatus(storage_->kvstore_->db_->Put(
+          write_options, storage_->kvstore_->edge_chandle, src_dest_key, SerializeProperties(edge_ptr->properties)));
+      logging::AssertRocksDBStatus(storage_->kvstore_->db_->Put(
+          write_options, storage_->kvstore_->edge_chandle, dest_src_key, SerializeProperties(edge_ptr->properties)));
       spdlog::debug("rocksdb: Saved edge with key {} and ts {}", src_dest_key, *commit_timestamp_);
       spdlog::debug("rocksdb: Saved edge with key {} and ts {}", dest_src_key, *commit_timestamp_);
       num_ser_edges++;
@@ -1137,14 +1034,14 @@ void DiskStorage::DiskAccessor::FlushCache() {
   // Delete vertices that were deleted in the current transaction.
   for (const auto &vertex_to_delete : vertices_to_delete_) {
     spdlog::debug("rocksdb: Deleted vertex with key {}", vertex_to_delete);
-    AssertRocksDBStatus(
+    logging::AssertRocksDBStatus(
         storage_->kvstore_->db_->Delete(write_options, storage_->kvstore_->vertex_chandle, vertex_to_delete));
   }
 
   // Delete edges that were deleted in the current transaction.
   for (const auto &edge_to_delete : edges_to_delete_) {
     spdlog::debug("rocksdb: Deleted edge with key {}", edge_to_delete);
-    AssertRocksDBStatus(
+    logging::AssertRocksDBStatus(
         storage_->kvstore_->db_->Delete(write_options, storage_->kvstore_->edge_chandle, edge_to_delete));
   }
 }
@@ -1490,10 +1387,44 @@ EdgeTypeId DiskStorage::NameToEdgeType(const std::string_view name) {
   return EdgeTypeId::FromUint(name_id_mapper_.NameToId(name));
 }
 
-// this should be handled on an above level of abstraction
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
     LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
-  throw utils::NotYetImplemented("CreateIndex");
+  /// TODO: (andi): Here we will probably use some lock to protect reading from and writing to the RocksDB at the same
+  /// time.
+  // Since indexes are handled by the storage, we don't have transaction id for indexes methods.
+  // However, we need to set timestamp because of RocksDB requirement so we set it to the maximum value.
+  // RocksDB will still fetch the most recent value.
+  rocksdb::ReadOptions ro;
+  rocksdb::Slice ts = utils::StringTimestamp(std::numeric_limits<uint64_t>::max());
+  ro.timestamp = &ts;
+  auto it = std::unique_ptr<rocksdb::Iterator>(kvstore_->db_->NewIterator(ro, kvstore_->vertex_chandle));
+  std::vector<std::tuple<std::string_view, std::string_view, uint64_t>> indexed_vertices;
+  for (it->SeekToFirst(); it->Valid(); it->Next()) {
+    const auto &key = it->key();
+    const auto vertex_parts = utils::Split(key.ToStringView(), "|");
+    if (const auto labels = utils::Split(vertex_parts[0], ",");
+        // TODO: (andi): When you decouple SerializeIdType, modify this to_string call to use SerializeIdType.
+        std::find(labels.begin(), labels.end(), std::to_string(label.AsUint())) != labels.end()) {
+      indexed_vertices.emplace_back(key.ToStringView(), it->value().ToStringView(),
+                                    utils::ExtractTimestampFromDeserializedUserKey(key));
+    }
+  }
+
+  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+  if (!indices_.label_index.CreateIndex(label, indexed_vertices)) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
+  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
+  const auto success =
+      AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_INDEX_CREATE, label, {}, commit_timestamp);
+  commit_log_->MarkFinished(commit_timestamp);
+  last_commit_timestamp_ = commit_timestamp;
+
+  if (success) {
+    return {};
+  }
+
+  return StorageIndexDefinitionError{ReplicationError{}};
 }
 
 // this should be handled on an above level of abstraction

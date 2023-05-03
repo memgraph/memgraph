@@ -17,6 +17,7 @@
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints.hpp"
 #include "storage/v2/disk/disk_vertex.hpp"
+#include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
@@ -27,10 +28,19 @@ namespace memgraph::storage {
 
 struct DiskIndices;
 
+/// Immovable implementation of LabelDiskIndex for on-disk storage.
 class LabelDiskIndex {
  public:
-  LabelDiskIndex(DiskIndices *indices, Constraints *constraints, Config config)
-      : indices_(indices), constraints_(constraints), config_(config) {}
+  explicit LabelDiskIndex(DiskIndices *indices, Config config);
+  LabelDiskIndex() = delete;
+
+  LabelDiskIndex(const LabelDiskIndex &) = delete;
+  LabelDiskIndex &operator=(const LabelDiskIndex &) = delete;
+
+  LabelDiskIndex(LabelDiskIndex &&) = delete;
+  LabelDiskIndex &operator=(LabelDiskIndex &&) = delete;
+
+  ~LabelDiskIndex() = default;
 
   /// TODO(andi): If there are no other usages of constaints_ and config_ maybe we can remove
   /// them from here
@@ -43,35 +53,47 @@ class LabelDiskIndex {
   //   throw utils::NotYetImplemented("LabelIndex::Vertices");
   // }
 
-  bool CreateIndex(LabelId label) { throw utils::NotYetImplemented("LabelIndex::CreateIndex"); }
+  /// Stores all vertices in the RocksDB instances. Vertices are intentionally transferred as pure strings to avoid
+  /// unnecessary deserialization and serialization.
+  /// @tparam vertices is a vector of tuples where each tuple contains key, value and the timestamp it has been saved
+  /// with
+  bool CreateIndex(LabelId label,
+                   const std::vector<std::tuple<std::string_view, std::string_view, uint64_t>> &vertices);
 
-  bool DropIndex(LabelId label) { throw utils::NotYetImplemented("LabelIndex::DropIndex"); }
+  bool DropIndex(LabelId label);
 
-  bool IndexExists(LabelId label) const { throw utils::NotYetImplemented("LabelIndex::IndexExists"); }
+  bool IndexExists(LabelId label) const;
 
-  std::vector<LabelId> ListIndices() const { throw utils::NotYetImplemented("LabelIndex::ListIndices"); }
+  std::vector<LabelId> ListIndices() const;
 
-  int64_t ApproximateVertexCount(LabelId label) const {
-    throw utils::NotYetImplemented("LabelIndex::ApproximateVertexCount");
-  }
+  int64_t ApproximateVertexCount(LabelId label) const;
 
   /// Clear all indexed vertices from the disk
-  void Clear() { throw utils::NotYetImplemented("LabelIndex::Clear"); }
+  void Clear();
 
   /// TODO: Maybe we can remove completely interaction with garbage collector
-  void RunGC() { throw utils::NotYetImplemented("LabelIndex::RunGC"); }
+  void RunGC();
 
  private:
   std::vector<LabelId> index_;
   DiskIndices *indices_;
-  Constraints *constraints_;
   Config config_;
+  std::unique_ptr<RocksDBStorage> kvstore_;
 };
 
+/// Immovable implementation of LabelPropertyDiskIndex for on-disk storage.
 class LabelPropertyDiskIndex {
  public:
-  LabelPropertyDiskIndex(DiskIndices *indices, Constraints *constraints, Config config)
-      : indices_(indices), constraints_(constraints), config_(config) {}
+  explicit LabelPropertyDiskIndex(DiskIndices *indices, Config config);
+  LabelPropertyDiskIndex() = delete;
+
+  LabelPropertyDiskIndex(const LabelPropertyDiskIndex &) = delete;
+  LabelPropertyDiskIndex &operator=(const LabelPropertyDiskIndex &) = delete;
+
+  LabelPropertyDiskIndex(LabelPropertyDiskIndex &&) = delete;
+  LabelPropertyDiskIndex &operator=(LabelPropertyDiskIndex &&) = delete;
+
+  ~LabelPropertyDiskIndex() = default;
 
   /// TODO(andi): If there are no other usages of constaints_ and config_ maybe we can remove
   /// them from here
@@ -86,48 +108,40 @@ class LabelPropertyDiskIndex {
   //   throw utils::NotYetImplemented("LabelPropertyIndex::Vertices");
   // }
 
-  bool CreateIndex(LabelId label, PropertyId property) {
-    throw utils::NotYetImplemented("LabelPropertyIndex::CreateIndex");
-  }
+  bool CreateIndex(LabelId label, PropertyId property);
 
-  bool DropIndex(LabelId label, PropertyId property) {
-    throw utils::NotYetImplemented("LabelPropertyIndex::DropIndex");
-  }
+  bool DropIndex(LabelId label, PropertyId property);
 
-  bool IndexExists(LabelId label, PropertyId property) const {
-    throw utils::NotYetImplemented("LabelPropertyIndex::IndexExists");
-  }
+  bool IndexExists(LabelId label, PropertyId property) const;
 
-  std::vector<std::pair<LabelId, PropertyId>> ListIndices() const {
-    throw utils::NotYetImplemented("LabelPropertyIndex::ListIndices");
-  }
+  std::vector<std::pair<LabelId, PropertyId>> ListIndices() const;
 
-  int64_t ApproximateVertexCount(LabelId label, PropertyId property) const {
-    throw utils::NotYetImplemented("LabelPropertyIndex::ApproximateVertexCount");
-  }
+  int64_t ApproximateVertexCount(LabelId label, PropertyId property) const;
 
   /// Clear all indexed vertices from the disk
-  void Clear() { throw utils::NotYetImplemented("LabelPropertyIndex::Clear"); }
+  void Clear();
 
   /// TODO: Maybe we can remove completely interaction with garbage collector
-  void RunGC() { throw utils::NotYetImplemented("LabelPropertyIndex::RunGC"); }
+  void RunGC();
 
  private:
   std::vector<std::pair<LabelId, PropertyId>> index_;
   DiskIndices *indices_;
-  Constraints *constraints_;
   Config config_;
+  std::unique_ptr<RocksDBStorage> kvstore_;
 };
 
+/// Immovable implementation of disk indices. Stored with the help of RocksDB in LSM trees.
 struct DiskIndices {
-  DiskIndices(Constraints *constraints, Config config)
-      : label_index(this, constraints, config), label_property_index(this, constraints, config) {}
+  explicit DiskIndices(Config config) : label_index(this, config), label_property_index(this, config) {}
+  DiskIndices() = delete;
 
-  // Disable copy and move because members hold pointer to `this`.
   DiskIndices(const DiskIndices &) = delete;
-  DiskIndices(DiskIndices &&) = delete;
   DiskIndices &operator=(const DiskIndices &) = delete;
+
+  DiskIndices(DiskIndices &&) = delete;
   DiskIndices &operator=(DiskIndices &&) = delete;
+
   ~DiskIndices() = default;
 
   LabelDiskIndex label_index;
