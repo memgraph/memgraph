@@ -4536,9 +4536,9 @@ class CallProcedureCursor : public Cursor {
       // 2. problem je sto je to memorija od EvalContexta
       // 3. problem je sto se koristi i neka memorija od QueryExecutiona
 
-      utils::PoolResource poolResource{8, 2048, utils::NewDeleteResource(), utils::NewDeleteResource()};
-      auto *memory = &poolResource;
-      utils::OnScopeExit scope_exit([&poolResource] { poolResource.Release(); });
+      // utils::PoolResource poolResource{128, 1024, utils::NewDeleteResource(), utils::NewDeleteResource()};
+      auto *memory = context.evaluation_context.memory;
+      // utils::OnScopeExit scope_exit([&poolResource] { poolResource.Release(); });
       auto memory_limit = EvaluateMemoryLimit(&evaluator, self_->memory_limit_, self_->memory_scale_);
       auto graph = mgp_graph::WritableGraph(*context.db_accessor, graph_view, context);
       CallCustomProcedure(self_->procedure_name_, *proc, self_->arguments_, graph, &evaluator, memory, memory_limit,
