@@ -67,6 +67,7 @@ class DeltaGenerator final {
       auto gid = memgraph::storage::Gid::FromUint(gen_->vertices_count_++);
       auto delta = memgraph::storage::CreateDeleteObjectDelta(&transaction_);
       auto &it = gen_->vertices_.emplace_back(gid, delta);
+      // TODO(gvolfing) This is likely problematic when deleting vertices in ANALYTICAL MODE...
       if (delta != nullptr) {
         delta->prev.Set(&it);
       }
