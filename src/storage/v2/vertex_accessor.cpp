@@ -85,6 +85,7 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   if (std::find(vertex_->labels.begin(), vertex_->labels.end(), label) != vertex_->labels.end()) return false;
 
   CreateAndLinkDelta(transaction_, vertex_, Delta::RemoveLabelTag(), label);
+  vertex_->label_changed = true;
 
   vertex_->labels.push_back(label);
 
@@ -104,6 +105,7 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   if (it == vertex_->labels.end()) return false;
 
   CreateAndLinkDelta(transaction_, vertex_, Delta::AddLabelTag(), label);
+  vertex_->label_changed = true;
 
   std::swap(*it, *vertex_->labels.rbegin());
   vertex_->labels.pop_back();
@@ -224,6 +226,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   // transactions get a SERIALIZATION_ERROR.
 
   CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, current_value);
+  vertex_->property_changed = true;
   vertex_->properties.SetProperty(property, value);
 
   UpdateOnSetProperty(indices_, property, value, vertex_, *transaction_);
@@ -240,6 +243,7 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
   if (vertex_->deleted) return Error::DELETED_OBJECT;
 
   if (!vertex_->properties.InitProperties(properties)) return false;
+  vertex_->property_changed = true;
   for (const auto &[property, value] : properties) {
     CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, PropertyValue());
     UpdateOnSetProperty(indices_, property, value, vertex_, *transaction_);
@@ -256,6 +260,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
   if (vertex_->deleted) return Error::DELETED_OBJECT;
 
   auto properties = vertex_->properties.Properties();
+  vertex_->property_changed = true;
   for (const auto &property : properties) {
     CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property.first, property.second);
     UpdateOnSetProperty(indices_, property.first, PropertyValue(), vertex_, *transaction_);
