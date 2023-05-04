@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -618,7 +618,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
   std::vector<memgraph::storage::Gid> extended_edge_gids_;
 };
 
-void DestroySnapshot(const std::filesystem::path &path) {
+void CorruptSnapshot(const std::filesystem::path &path) {
   auto info = memgraph::storage::durability::ReadSnapshotInfo(path);
   spdlog::info("Destroying snapshot {}", path);
   memgraph::utils::OutputFile file;
@@ -752,7 +752,7 @@ TEST_P(DurabilityTest, SnapshotFallback) {
   {
     auto snapshots = GetSnapshotsList();
     ASSERT_EQ(snapshots.size(), 2);
-    DestroySnapshot(*snapshots.begin());
+    CorruptSnapshot(*snapshots.begin());
   }
 
   // Recover snapshot.
@@ -835,7 +835,7 @@ TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
         spdlog::info("Skipping snapshot {}", snapshot);
         continue;
       }
-      DestroySnapshot(snapshot);
+      CorruptSnapshot(snapshot);
     }
   }
 
@@ -2323,7 +2323,7 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
     }
 
     // Destroy current snapshot.
-    DestroySnapshot(snapshots[i]);
+    CorruptSnapshot(snapshots[i]);
   }
 
   // Recover data after all of the snapshots have been destroyed. The recovery

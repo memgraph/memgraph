@@ -11,10 +11,13 @@
 
 #pragma once
 
-#include <cstdint>
+#include <deque>
 
-namespace memgraph::storage {
+#include "utils/memory.hpp"
 
-enum class StorageMode : std::uint8_t { IN_MEMORY_ANALYTICAL, IN_MEMORY_TRANSACTIONAL };
+namespace memgraph::utils::pmr {
 
-}  // namespace memgraph::storage
+template <class T>
+using deque = std::deque<T, utils::Allocator<T>>;
+
+}  // namespace memgraph::utils::pmr
