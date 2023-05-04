@@ -4474,7 +4474,6 @@ class CallProcedureCursor : public Cursor {
   mgp_result result_;
   decltype(result_.rows.end()) result_row_it_{result_.rows.end()};
   size_t result_signature_size_{0};
-  utils::PoolResource poolResource_{8, 2048, utils::NewDeleteResource(), utils::NewDeleteResource()};
 
  public:
   CallProcedureCursor(const CallProcedure *self, utils::MemoryResource *mem)
@@ -4483,7 +4482,7 @@ class CallProcedureCursor : public Cursor {
         // result_ needs to live throughout multiple Pull evaluations, until all
         // rows are produced. Therefore, we use the memory dedicated for the
         // whole execution.
-        result_(nullptr, &poolResource_) {
+        result_(nullptr, mem) {
     MG_ASSERT(self_->result_fields_.size() == self_->result_symbols_.size(), "Incorrectly constructed CallProcedure");
   }
 
