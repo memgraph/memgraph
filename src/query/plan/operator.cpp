@@ -4501,7 +4501,6 @@ class CallProcedureCursor : public Cursor {
       result_.signature = nullptr;
       result_.rows.clear();
       result_.error_msg.reset();
-      poolResource_.Release();
       // It might be a good idea to resolve the procedure name once, at the
       // start. Unfortunately, this could deadlock if we tried to invoke a
       // procedure from a module (read lock) and reload a module (write lock)
