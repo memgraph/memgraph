@@ -344,8 +344,13 @@ void LabelIndex::Iterable::Iterator::AdvanceUntilValid() {
     }
     if (CurrentVersionHasLabel(*index_iterator_->vertex, self_->label_, self_->transaction_, self_->view_)) {
       current_vertex_ = index_iterator_->vertex;
-      current_vertex_accessor_ = VertexAccessor::Create(current_vertex_, self_->transaction_, self_->indices_,
-                                                        self_->constraints_, self_->config_, self_->view_);
+      if (current_vertex_accessor_) {
+        current_vertex_accessor_->Init(current_vertex_, self_->transaction_, self_->indices_, self_->constraints_,
+                                       self_->config_, self_->view_);
+      } else {
+        current_vertex_accessor_ = VertexAccessor::Create(current_vertex_, self_->transaction_, self_->indices_,
+                                                          self_->constraints_, self_->config_, self_->view_);
+      }
       break;
     }
   }
@@ -513,8 +518,13 @@ void LabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
     if (CurrentVersionHasLabelProperty(*index_iterator_->vertex, self_->label_, self_->property_,
                                        index_iterator_->value, self_->transaction_, self_->view_)) {
       current_vertex_ = index_iterator_->vertex;
-      current_vertex_accessor_ = VertexAccessor::Create(current_vertex_, self_->transaction_, self_->indices_,
-                                                        self_->constraints_, self_->config_, self_->view_);
+      if (current_vertex_accessor_) {
+        current_vertex_accessor_->Init(current_vertex_, self_->transaction_, self_->indices_, self_->constraints_,
+                                       self_->config_, self_->view_);
+      } else {
+        current_vertex_accessor_ = VertexAccessor::Create(current_vertex_, self_->transaction_, self_->indices_,
+                                                          self_->constraints_, self_->config_, self_->view_);
+      }
       break;
     }
   }

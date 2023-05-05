@@ -19,7 +19,11 @@ auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it, utils::SkipLis
                             std::unique_ptr<VertexAccessor> &vertex, Transaction *tx, View view, Indices *indices,
                             Constraints *constraints, Config::Items config) {
   while (it != end) {
-    vertex = VertexAccessor::Create(&*it, tx, indices, constraints, config, view);
+    if (vertex) {
+      vertex->Init(&*it, tx, indices, constraints, config, view);
+    } else {
+      vertex = VertexAccessor::Create(&*it, tx, indices, constraints, config, view);
+    }
     if (!vertex) {
       ++it;
       continue;

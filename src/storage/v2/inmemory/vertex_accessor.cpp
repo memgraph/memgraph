@@ -71,6 +71,19 @@ std::unique_ptr<InMemoryVertexAccessor> InMemoryVertexAccessor::Create(Vertex *v
   return std::make_unique<InMemoryVertexAccessor>(vertex, transaction, indices, constraints, config);
 }
 
+void InMemoryVertexAccessor::Init(Vertex *vertex, Transaction *transaction, Indices *indices, Constraints *constraints,
+                                  Config::Items config, View view) {
+  if (const auto [exists, deleted] = detail::IsVisible(vertex, transaction, view); !exists || deleted) {
+    return;
+  }
+
+  transaction_ = transaction;
+  config_ = config;
+  vertex_ = vertex;
+  indices_ = indices;
+  constraints_ = constraints;
+}
+
 bool InMemoryVertexAccessor::IsVisible(View view) const {
   const auto [exists, deleted] = detail::IsVisible(vertex_, transaction_, view);
   return exists && (for_deleted_ || !deleted);
