@@ -68,8 +68,7 @@ AllDiskVerticesIterable LabelDiskIndex::Vertices(LabelId label, View view, Trans
                        [](const auto &label) { return storage::LabelId::FromUint(std::stoull(label)); });
       }
       vertex_it->labels = std::move(label_ids);
-      /// TODO: (andi): Add support for deserialization vertices to indices.
-      // vertex_tSetPropertyStore(it->value().ToStringView());
+      vertex_it->properties.SetBuffer(it->value().ToStringView());
 
       /// if the vertex with the given gid doesn't exist on the disk, it must be inserted here.
       // MG_ASSERT(inserted, "The vertex must be inserted here!");
