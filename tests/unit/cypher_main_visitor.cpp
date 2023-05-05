@@ -1029,6 +1029,23 @@ TEST_P(CypherMainVisitorTest, MapLiteral) {
   EXPECT_EQ(1, elem_2_1->elements_.size());
 }
 
+TEST_P(CypherMainVisitorTest, MapProjectionLiteral) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
+      "WITH {name: \"Morgan\"} as actor, 85 as age RETURN actor {.name, lastName: \"Freeman\", age}"));
+  ASSERT_TRUE(query);
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[1]);
+  auto *map_projection_literal =
+      dynamic_cast<MapProjectionLiteral *>(return_clause->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(map_projection_literal);
+  ASSERT_EQ(3, map_projection_literal->elements_.size());
+  // ast_generator.CheckLiteral(map_projection_literal->elements_[ast_generator.Prop("name")], "Morgan");
+  // ast_generator.CheckLiteral(map_projection_literal->elements_[ast_generator.Prop("lastName")], "Freeman");
+  // ast_generator.CheckLiteral(map_projection_literal->elements_[ast_generator.Prop("age")], "85");
+}
+
 TEST_P(CypherMainVisitorTest, NodePattern) {
   auto &ast_generator = *GetParam();
   auto *query =
