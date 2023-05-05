@@ -666,11 +666,16 @@ class InListOperator : public memgraph::query::BinaryOperator {
     return object;
   }
 
+  void SetCachedSet(std::unordered_set<size_t> &&set_) { _cached_set.emplace(set_); }
+
+  std::unordered_set<size_t> *GetCachedSet() { return _cached_set.has_value() ? &*_cached_set : nullptr; }
+
  protected:
   using BinaryOperator::BinaryOperator;
 
  private:
   friend class AstStorage;
+  std::optional<std::unordered_set<size_t>> _cached_set{std::nullopt};
 };
 
 class SubscriptOperator : public memgraph::query::BinaryOperator {
