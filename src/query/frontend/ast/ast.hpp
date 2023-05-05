@@ -1090,7 +1090,7 @@ class MapLiteral : public memgraph::query::BaseLiteral {
 
 struct MapProjectionData {
   Expression *map_variable;
-  std::unordered_map<std::string, Expression *> elements;
+  std::unordered_map<PropertyIx, Expression *> elements;
 };
 
 class MapProjectionLiteral : public memgraph::query::BaseLiteral {
@@ -1115,25 +1115,27 @@ class MapProjectionLiteral : public memgraph::query::BaseLiteral {
   }
 
   Expression *map_variable_;
-  std::unordered_map<std::string, Expression *> elements_;
+  std::unordered_map<PropertyIx, Expression *> elements_;
 
   MapProjectionLiteral *Clone(AstStorage *storage) const override {
     MapProjectionLiteral *object = storage->Create<MapProjectionLiteral>();
     object->map_variable_ = map_variable_;
 
     for (const auto &entry : elements_) {
+      auto key = storage->GetPropertyIx(entry.first.name);
+
       if (!entry.second) {
-        object->elements_[entry.first] = nullptr;
+        object->elements_[key] = nullptr;
         continue;
       }
 
-      object->elements_[entry.first] = entry.second->Clone(storage);
+      object->elements_[key] = entry.second->Clone(storage);
     }
     return object;
   }
 
  protected:
-  explicit MapProjectionLiteral(Expression *map_variable, const std::unordered_map<std::string, Expression *> &elements)
+  explicit MapProjectionLiteral(Expression *map_variable, const std::unordered_map<PropertyIx, Expression *> &elements)
       : map_variable_(map_variable), elements_(elements) {}
 
  private:

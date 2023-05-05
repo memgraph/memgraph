@@ -1701,27 +1701,25 @@ antlrcpp::Any CypherMainVisitor::visitMapProjectionLiteral(MemgraphCypher::MapPr
 
   map_projection_data.map_variable =
       storage_->Create<Identifier>(std::any_cast<std::string>(ctx->variable()->accept(this)));
-  auto *variable_name = ctx->variable()->symbolicName();
   for (auto *map_el : ctx->mapElement()) {
     if (map_el->propertyLookup()) {
-      auto key = JoinSymbolicNames(this, {variable_name, map_el->propertyLookup()->propertyKeyName()->symbolicName()});
+      auto key = std::any_cast<PropertyIx>(map_el->propertyLookup()->propertyKeyName()->accept(this));
       auto property = std::any_cast<PropertyIx>(map_el->propertyLookup()->accept(this));
       auto *property_lookup = storage_->Create<PropertyLookup>(map_projection_data.map_variable, property);
       map_projection_data.elements.insert({key, property_lookup});
     }
     if (map_el->allPropertyLookup()) {
-      auto key = variable_name->toString() + ".*";
+      auto key = AddProperty("*");
       // TODO implement AllPropertyLookup
       map_projection_data.elements.insert({key, nullptr});
     }
     if (map_el->variable()) {
-      auto key = std::any_cast<std::string>(map_el->variable()->accept(this));
+      auto key = AddProperty(std::any_cast<std::string>(map_el->variable()->accept(this)));
       auto *variable = storage_->Create<Identifier>(std::any_cast<std::string>(map_el->variable()->accept(this)));
       map_projection_data.elements.insert({key, variable});
     }
     if (map_el->propertyKeyValuePair()) {
-      auto key =
-          std::any_cast<std::string>(map_el->propertyKeyValuePair()->propertyKeyName()->symbolicName()->accept(this));
+      auto key = std::any_cast<PropertyIx>(map_el->propertyKeyValuePair()->propertyKeyName()->accept(this));
       auto *value = std::any_cast<Expression *>(map_el->propertyKeyValuePair()->expression()->accept(this));
       map_projection_data.elements.insert({key, value});
     }
