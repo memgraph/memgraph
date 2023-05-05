@@ -23,4 +23,14 @@ std::unique_ptr<EdgeAccessor> EdgeAccessor::Create(EdgeRef edge, EdgeTypeId edge
   return std::make_unique<InMemoryEdgeAccessor>(edge, edge_type, from_vertex, to_vertex, transaction, indices,
                                                 constraints, config.items, for_deleted);
 }
+
+bool operator==(const std::unique_ptr<EdgeAccessor> &ea1, const std::unique_ptr<EdgeAccessor> &ea2) noexcept {
+  const auto *inMemoryEa1 = dynamic_cast<const InMemoryEdgeAccessor *>(ea1.get());
+  const auto *inMemoryEa2 = dynamic_cast<const InMemoryEdgeAccessor *>(ea2.get());
+  if (inMemoryEa1 && inMemoryEa2) {
+    return inMemoryEa1->operator==(*inMemoryEa2);
+  }
+  return false;
+}
+
 }  // namespace memgraph::storage

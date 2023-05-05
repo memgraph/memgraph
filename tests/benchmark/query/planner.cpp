@@ -17,7 +17,7 @@
 #include "query/plan/cost_estimator.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/vertex_count_cache.hpp"
-#include "storage/v2/storage.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 
 // Add chained MATCH (node1) -- (node2), MATCH (node2) -- (node3) ... clauses.
 static memgraph::query::CypherQuery *AddChainedMatches(int num_matches, memgraph::query::AstStorage &storage) {
@@ -43,9 +43,9 @@ static memgraph::query::CypherQuery *AddChainedMatches(int num_matches, memgraph
 }
 
 static void BM_PlanChainedMatches(benchmark::State &state) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  std::unique_ptr<memgraph::storage::Storage> db(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   while (state.KeepRunning()) {
     state.PauseTiming();
     memgraph::query::AstStorage storage;
@@ -98,24 +98,24 @@ static auto CreateIndexedVertices(int index_count, int vertex_count, memgraph::s
   auto dba = db->Access();
   for (int vi = 0; vi < vertex_count; ++vi) {
     for (int index = 0; index < index_count; ++index) {
-      auto vertex = dba.CreateVertex();
-      MG_ASSERT(vertex.AddLabel(label).HasValue());
-      MG_ASSERT(vertex.SetProperty(prop, memgraph::storage::PropertyValue(index)).HasValue());
+      auto vertex = dba->CreateVertex();
+      MG_ASSERT(vertex->AddLabel(label).HasValue());
+      MG_ASSERT(vertex->SetProperty(prop, memgraph::storage::PropertyValue(index)).HasValue());
     }
   }
-  MG_ASSERT(!dba.Commit().HasError());
+  MG_ASSERT(!dba->Commit().HasError());
   return std::make_pair("label", "prop");
 }
 
 static void BM_PlanAndEstimateIndexedMatching(benchmark::State &state) {
-  memgraph::storage::Storage db;
+  std::unique_ptr<memgraph::storage::Storage> db(new memgraph::storage::InMemoryStorage());
   std::string label;
   std::string prop;
   int index_count = state.range(0);
   int vertex_count = state.range(1);
-  std::tie(label, prop) = CreateIndexedVertices(index_count, vertex_count, &db);
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  std::tie(label, prop) = CreateIndexedVertices(index_count, vertex_count, db.get());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   memgraph::query::Parameters parameters;
   while (state.KeepRunning()) {
     state.PauseTiming();
@@ -137,14 +137,14 @@ static void BM_PlanAndEstimateIndexedMatching(benchmark::State &state) {
 }
 
 static void BM_PlanAndEstimateIndexedMatchingWithCachedCounts(benchmark::State &state) {
-  memgraph::storage::Storage db;
+  std::unique_ptr<memgraph::storage::Storage> db(new memgraph::storage::InMemoryStorage());
   std::string label;
   std::string prop;
   int index_count = state.range(0);
   int vertex_count = state.range(1);
-  std::tie(label, prop) = CreateIndexedVertices(index_count, vertex_count, &db);
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  std::tie(label, prop) = CreateIndexedVertices(index_count, vertex_count, db.get());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   auto vertex_counts = memgraph::query::plan::MakeVertexCountCache(&dba);
   memgraph::query::Parameters parameters;
   while (state.KeepRunning()) {

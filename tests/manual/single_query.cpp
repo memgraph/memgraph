@@ -13,8 +13,8 @@
 #include "license/license.hpp"
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
-#include "storage/v2/storage.hpp"
 #include "utils/on_scope_exit.hpp"
 
 int main(int argc, char *argv[]) {

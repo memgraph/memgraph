@@ -114,9 +114,8 @@ class VertexAccessor final {
   // We make this class a friend so that we can access the private MakeEdgeAccessor function.
   friend class SubgraphVertexAccessor;
 
-  // IMPLICIT MOVE! This is a workaround for iter::imap
   static EdgeAccessor MakeEdgeAccessor(std::unique_ptr<storage::EdgeAccessor> &impl) {
-    return EdgeAccessor(std::move(impl));
+    return EdgeAccessor(impl->Copy());
   }
 
  public:
@@ -262,16 +261,12 @@ namespace std {
 
 template <>
 struct hash<memgraph::query::VertexAccessor> {
-  size_t operator()(const memgraph::query::VertexAccessor &v) const {
-    return std::hash<std::remove_pointer<decltype(v.impl_.get())>::type>{}(*v.impl_);
-  }
+  size_t operator()(const memgraph::query::VertexAccessor &v) const { return std::hash<decltype(v.impl_)>{}(v.impl_); }
 };
 
 template <>
 struct hash<memgraph::query::EdgeAccessor> {
-  size_t operator()(const memgraph::query::EdgeAccessor &e) const {
-    return std::hash<std::remove_pointer<decltype(e.impl_.get())>::type>{}(*e.impl_);
-  }
+  size_t operator()(const memgraph::query::EdgeAccessor &e) const { return std::hash<decltype(e.impl_)>{}(e.impl_); }
 };
 
 }  // namespace std
