@@ -85,6 +85,7 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   if (std::find(vertex_->labels.begin(), vertex_->labels.end(), label) != vertex_->labels.end()) return false;
 
   CreateAndLinkDelta(transaction_, vertex_, Delta::RemoveLabelTag(), label);
+  vertex_->label_changed = true;
 
   vertex_->labels.push_back(label);
 

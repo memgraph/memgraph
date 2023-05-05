@@ -170,7 +170,12 @@ bool CurrentVersionHasLabel(const Vertex &vertex, LabelId label, Transaction *tr
     deleted = vertex.deleted;
     has_label = utils::Contains(vertex.labels, label);
     delta = vertex.delta;
+
+    if (!vertex.label_changed) {
+      return !deleted && has_label;
+    }
   }
+
   ApplyDeltasForRead(transaction, delta, view, [&deleted, &has_label, label](const Delta &delta) {
     switch (delta.action) {
       case Delta::Action::REMOVE_LABEL: {
@@ -223,7 +228,12 @@ bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label, Propert
     has_label = utils::Contains(vertex.labels, label);
     current_value_equal_to_value = vertex.properties.IsPropertyEqual(key, value);
     delta = vertex.delta;
+
+    if (!vertex.label_changed && !vertex.property_changed) {
+      return !deleted && has_label && current_value_equal_to_value;
+    }
   }
+
   ApplyDeltasForRead(transaction, delta, view,
                      [&deleted, &has_label, &current_value_equal_to_value, key, label, &value](const Delta &delta) {
                        switch (delta.action) {

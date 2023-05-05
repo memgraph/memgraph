@@ -1015,6 +1015,8 @@ void Storage::Accessor::Abort() {
         auto vertex = prev.vertex;
         std::lock_guard<utils::SpinLock> guard(vertex->lock);
         Delta *current = vertex->delta;
+        vertex->label_changed = false;
+        vertex->property_changed = false;
         while (current != nullptr && current->timestamp->load(std::memory_order_acquire) ==
                                          transaction_.transaction_id.load(std::memory_order_acquire)) {
           switch (current->action) {
@@ -1551,6 +1553,8 @@ void Storage::CollectGarbage() {
               continue;
             }
             vertex->delta = nullptr;
+            vertex->label_changed = false;
+            vertex->property_changed = false;
             if (vertex->deleted) {
               current_deleted_vertices.push_back(vertex->gid);
             }
