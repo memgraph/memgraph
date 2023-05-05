@@ -533,7 +533,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(MapProjectionLiteral &literal) override {
-    throw QueryRuntimeException("Map projection functionality not yet implemented!");
+    TypedValue::TMap result(ctx_->memory);
+    for (const auto &pair : literal.elements_) result.emplace(pair.first.name, pair.second->Accept(*this));
+    return TypedValue(result, ctx_->memory);
   }
 
   TypedValue Visit(Aggregation &aggregation) override {

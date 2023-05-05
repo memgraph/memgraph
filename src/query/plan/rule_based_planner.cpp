@@ -129,8 +129,12 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     return true;
   }
 
-  // TODO ante
-  // bool PostVisit(MapProjectionLiteral &map_projection_literal) override {}
+  bool PostVisit(MapProjectionLiteral &map_projection_literal) override {
+    MG_ASSERT(map_projection_literal.elements_.size() <= has_aggregation_.size(),
+              "Expected has_aggregation_ flags as much as there are map elements.");
+    PostVisitCollectionLiteral(map_projection_literal, [](auto it) { return it->second; });
+    return true;
+  }
 
   bool PostVisit(All &all) override {
     // Remove the symbol which is bound by all, because we are only interested
@@ -355,6 +359,9 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   }
 
   bool PostVisit(NamedExpression &named_expr) override {
+    auto has_aggregation_size = has_aggregation_.size();
+    std::cout << "has_aggregation_.size: " << has_aggregation_.size() << "\n";
+
     MG_ASSERT(has_aggregation_.size() == 1U, "Expected to reduce has_aggregation_ to single boolean.");
     if (!has_aggregation_.back()) {
       group_by_.emplace_back(named_expr.expression_);
