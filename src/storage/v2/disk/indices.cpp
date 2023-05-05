@@ -13,8 +13,11 @@
 
 #include "storage/v2/disk/indices.hpp"
 #include "storage/v2/delta.hpp"
+#include "storage/v2/disk/disk_vertex.hpp"
+#include "storage/v2/disk/vertex_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/mvcc.hpp"
+#include "storage/v2/vertex_accessor.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/rocksdb.hpp"
@@ -41,9 +44,9 @@ LabelDiskIndex::LabelDiskIndex(DiskIndices *indices, Config config) : indices_(i
   logging::AssertRocksDBStatus(rocksdb::DB::Open(kvstore_->options_, rocksdb_path, &kvstore_->db_));
 }
 
-AllDiskVerticesIterable LabelDiskIndex::Vertices(LabelId label, View view, Transaction *transaction) {
+LabelDiskIndex::Iterable LabelDiskIndex::Vertices(LabelId label, View view, Transaction *transaction) {
   /// TODO: (andi): How to solve issue with garbage collection of vertices?
-  auto acc = vertices_.access();
+  std::vector<std::unique_ptr<VertexAccessor>> vertices;
   rocksdb::ReadOptions ro;
   rocksdb::Slice ts = utils::StringTimestamp(std::numeric_limits<uint64_t>::max());
   ro.timestamp = &ts;
@@ -58,25 +61,22 @@ AllDiskVerticesIterable LabelDiskIndex::Vertices(LabelId label, View view, Trans
         std::find(labels.begin(), labels.end(), std::to_string(label.AsUint())) != labels.end()) {
       auto gid = storage::Gid::FromUint(std::stoull(vertex_parts[1]));
       auto vertex_commit_ts = utils::ExtractTimestampFromDeserializedUserKey(key);
-      auto delta = CreateDeleteDeserializedObjectDelta(transaction, vertex_commit_ts);
+      auto *delta = CreateDeleteDeserializedObjectDelta(transaction, vertex_commit_ts);
       spdlog::debug("Found vertex with gid {} and commit_ts {} in index", vertex_parts[1], vertex_commit_ts);
-      auto [vertex_it, inserted] = acc.insert(DiskVertex{gid, delta});
+      auto vertex = DiskVertex{gid, delta};
+      delta->prev.Set(&vertex);
+      vertices.emplace_back(DiskVertexAccessor::Create(&vertex, transaction, indices_, nullptr, config_.items, view));
       std::vector<LabelId> label_ids;
       if (!vertex_parts[0].empty()) {
         auto labels = utils::Split(vertex_parts[0], ",");
         std::transform(labels.begin(), labels.end(), std::back_inserter(label_ids),
                        [](const auto &label) { return storage::LabelId::FromUint(std::stoull(label)); });
       }
-      vertex_it->labels = std::move(label_ids);
-      /// TODO: (andi): Add support for deserialization vertices to indices.
-      // vertex_tSetPropertyStore(it->value().ToStringView());
-
-      /// if the vertex with the given gid doesn't exist on the disk, it must be inserted here.
-      // MG_ASSERT(inserted, "The vertex must be inserted here!");
-      // MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
+      // vertex.labels = std::move(label_ids);
+      // vertex.properties.SetBuffer(it->value().ToStringView());
     }
   }
-  return {vertices_.access(), transaction, view, indices_, nullptr, config_};
+  return {std::move(vertices), label, view, transaction, indices_, nullptr, config_};
 }
 
 /// TODO: andi: No need to save all labels in the RocksDB, we can save only the first one and apply Bloom filter on it.
@@ -108,6 +108,12 @@ void LabelDiskIndex::Clear() { throw utils::NotYetImplemented("LabelIndex::Clear
 
 /// TODO: Maybe we can remove completely interaction with garbage collector
 void LabelDiskIndex::RunGC() { throw utils::NotYetImplemented("LabelIndex::RunGC"); }
+
+LabelDiskIndex::Iterable::Iterator &LabelDiskIndex::Iterable::Iterator::operator++() {
+  /// TODO: (andi)
+  ++index_iterator_;
+  return *this;
+}
 
 // ----------------------------------------------------------------------------------------------
 // LABEL_PROPERTY_DISK_INDEX METHODS

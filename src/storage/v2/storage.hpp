@@ -39,7 +39,7 @@ enum class ReplicationRole : uint8_t { MAIN, REPLICA };
 /// This class should be the primary type used by the client code to iterate
 /// over vertices inside a Storage instance.
 class VerticesIterable final {
-  enum class Type { MEMORY_ALL, DISK_ALL, BY_LABEL, BY_LABEL_PROPERTY };
+  enum class Type { MEMORY_ALL, DISK_ALL, BY_LABEL, BY_LABEL_PROPERTY, BY_LABEL_DISK };
 
   Type type_;
   union {
@@ -47,6 +47,7 @@ class VerticesIterable final {
     AllDiskVerticesIterable all_disk_vertices_;
     LabelIndex::Iterable vertices_by_label_;
     LabelPropertyIndex::Iterable vertices_by_label_property_;
+    LabelDiskIndex::Iterable disk_vertices_by_label_;
   };
 
  public:
@@ -54,6 +55,7 @@ class VerticesIterable final {
   explicit VerticesIterable(AllDiskVerticesIterable);
   explicit VerticesIterable(LabelIndex::Iterable);
   explicit VerticesIterable(LabelPropertyIndex::Iterable);
+  explicit VerticesIterable(LabelDiskIndex::Iterable);
 
   VerticesIterable(const VerticesIterable &) = delete;
   VerticesIterable &operator=(const VerticesIterable &) = delete;
@@ -70,6 +72,7 @@ class VerticesIterable final {
       AllDiskVerticesIterable::Iterator all_disk_it_;
       LabelIndex::Iterable::Iterator by_label_it_;
       LabelPropertyIndex::Iterable::Iterator by_label_property_it_;
+      LabelDiskIndex::Iterable::Iterator by_label_disk_it_;
     };
 
     void Destroy() noexcept;
@@ -79,6 +82,7 @@ class VerticesIterable final {
     explicit Iterator(AllDiskVerticesIterable::Iterator);
     explicit Iterator(LabelIndex::Iterable::Iterator);
     explicit Iterator(LabelPropertyIndex::Iterable::Iterator);
+    explicit Iterator(LabelDiskIndex::Iterable::Iterator);
 
     Iterator(const Iterator &);
     Iterator &operator=(const Iterator &);

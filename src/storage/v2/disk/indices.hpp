@@ -22,6 +22,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
+#include "storage/v2/vertex_accessor.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/skip_list.hpp"
 
@@ -43,10 +44,6 @@ class LabelDiskIndex {
 
   ~LabelDiskIndex() = default;
 
-  /// TODO(andi): If there are no other usages of constaints_ and config_ maybe we can remove
-  /// them from here
-  AllDiskVerticesIterable Vertices(LabelId label, View view, Transaction *transaction);
-
   /// Stores all vertices in the RocksDB instances. Vertices are intentionally transferred as pure strings to avoid
   /// unnecessary deserialization and serialization.
   /// @tparam vertices is a vector of tuples where each tuple contains key, value and the timestamp it has been saved
@@ -67,12 +64,65 @@ class LabelDiskIndex {
   /// TODO: Maybe we can remove completely interaction with garbage collector
   void RunGC();
 
+  class Iterable {
+   public:
+    Iterable(std::vector<std::unique_ptr<VertexAccessor>> index_accessor, LabelId label, View view,
+             Transaction *transaction, DiskIndices *indices, Constraints *constraints, Config config)
+        : index_accessor_(std::move(index_accessor)),
+          label_(label),
+          view_(view),
+          transaction_(transaction),
+          indices_(indices),
+          constraints_(constraints),
+          config_(config) {}
+
+    class Iterator {
+     public:
+      Iterator(Iterable *self, std::vector<std::unique_ptr<VertexAccessor>>::iterator index_iterator)
+          : self_(self), index_iterator_(index_iterator) {}
+      Iterator(const Iterator &other)
+          : self_(other.self_), index_iterator_(other.index_iterator_), current_vertex_(other.current_vertex_) {
+        /// TODO: (andi) Advance until valid, how to do
+      }
+
+      Iterator(Iterator &&other) = default;
+      ~Iterator() = default;
+
+      VertexAccessor *operator*() const { return index_iterator_->get(); }
+
+      bool operator==(const Iterator &other) const { return index_iterator_ == other.index_iterator_; }
+      bool operator!=(const Iterator &other) const { return index_iterator_ != other.index_iterator_; }
+
+      Iterator &operator++();
+
+     private:
+      Iterable *self_;
+      std::vector<std::unique_ptr<VertexAccessor>>::iterator index_iterator_;
+      Vertex *current_vertex_;
+    };
+
+    Iterator begin() { return Iterator(this, index_accessor_.begin()); }
+    Iterator end() { return Iterator(this, index_accessor_.end()); }
+
+   private:
+    std::vector<std::unique_ptr<VertexAccessor>> index_accessor_;
+    LabelId label_;
+    View view_;
+    Transaction *transaction_;
+    DiskIndices *indices_;
+    Constraints *constraints_;
+    Config config_;
+  };
+
+  /// TODO(andi): If there are no other usages of constaints_ and config_ maybe we can remove
+  /// them from here
+  Iterable Vertices(LabelId label, View view, Transaction *transaction);
+
  private:
   std::vector<LabelId> index_;
   DiskIndices *indices_;
   Config config_;
   std::unique_ptr<RocksDBStorage> kvstore_;
-  utils::SkipList<Vertex> vertices_;
 };
 
 /// Immovable implementation of LabelPropertyDiskIndex for on-disk storage.
