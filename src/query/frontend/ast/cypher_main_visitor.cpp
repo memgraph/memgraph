@@ -357,6 +357,8 @@ antlrcpp::Any CypherMainVisitor::visitLoadCsv(MemgraphCypher::LoadCsvContext *ct
   // handle skip bad row option
   load_csv->ignore_bad_ = ctx->IGNORE() && ctx->BAD();
 
+  load_csv->ignore_empty_strings_ = ctx->IGNORE_EMPTY_STRINGS();
+
   // handle delimiter
   if (ctx->DELIMITER()) {
     if (ctx->delimiter()->literal()->StringLiteral()) {

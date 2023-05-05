@@ -4587,11 +4587,12 @@ UniqueCursorPtr CallProcedure::MakeCursor(utils::MemoryResource *mem) const {
 }
 
 LoadCsv::LoadCsv(std::shared_ptr<LogicalOperator> input, Expression *file, bool with_header, bool ignore_bad,
-                 Expression *delimiter, Expression *quote, Symbol row_var)
+                 bool ignore_empty_strings, Expression *delimiter, Expression *quote, Symbol row_var)
     : input_(input ? input : (std::make_shared<Once>())),
       file_(file),
       with_header_(with_header),
       ignore_bad_(ignore_bad),
+      ignore_empty_strings_(ignore_empty_strings),
       delimiter_(delimiter),
       quote_(quote),
       row_var_(row_var) {
@@ -4624,22 +4625,30 @@ auto ToOptionalString(ExpressionEvaluator *evaluator, Expression *expression) ->
   return std::nullopt;
 };
 
-TypedValue CsvRowToTypedList(csv::Reader::Row &row) {
+TypedValue CsvRowToTypedList(csv::Reader::Row &row, bool ignore_empty_strings = false) {
   auto *mem = row.get_allocator().GetMemoryResource();
   auto typed_columns = utils::pmr::vector<TypedValue>(mem);
   typed_columns.reserve(row.size());
   for (auto &column : row) {
-    typed_columns.emplace_back(std::move(column));
+    if (!ignore_empty_strings || column.empty()) {
+      typed_columns.emplace_back(std::move(column));
+    } else {
+      typed_columns.emplace_back(mem);
+    }
   }
   return {std::move(typed_columns), mem};
 }
 
-TypedValue CsvRowToTypedMap(csv::Reader::Row &row, csv::Reader::Header header) {
+TypedValue CsvRowToTypedMap(csv::Reader::Row &row, csv::Reader::Header header, bool ignore_empty_strings = false) {
   // a valid row has the same number of elements as the header
   auto *mem = row.get_allocator().GetMemoryResource();
   utils::pmr::map<utils::pmr::string, TypedValue> m(mem);
   for (auto i = 0; i < row.size(); ++i) {
-    m.emplace(std::move(header[i]), std::move(row[i]));
+    if (!ignore_empty_strings || !row[i].empty()) {
+      m.emplace(std::move(header[i]), std::move(row[i]));
+    } else {
+      m.emplace(std::move(header[i]), mem);
+    }
   }
   return {std::move(m), mem};
 }
@@ -4688,7 +4697,8 @@ class LoadCsvCursor : public Cursor {
       frame[self_->row_var_] = CsvRowToTypedList(*row);
     } else {
       frame[self_->row_var_] =
-          CsvRowToTypedMap(*row, csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory));
+          CsvRowToTypedMap(*row, csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory),
+                           self_->ignore_empty_strings_);
     }
     return true;
   }
@@ -4712,10 +4722,10 @@ class LoadCsvCursor : public Cursor {
     // Note that the reader has to be given its own memory resource, as it
     // persists between pulls, so it can't use the evalutation context memory
     // resource.
-    return csv::Reader(
-        *maybe_file,
-        csv::Reader::Config(self_->with_header_, self_->ignore_bad_, std::move(maybe_delim), std::move(maybe_quote)),
-        utils::NewDeleteResource());
+    return csv::Reader(*maybe_file,
+                       csv::Reader::Config(self_->with_header_, self_->ignore_bad_, self_->ignore_empty_strings_,
+                                           std::move(maybe_delim), std::move(maybe_quote)),
+                       utils::NewDeleteResource());
   }
 };
 

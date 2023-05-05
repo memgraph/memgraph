@@ -97,10 +97,11 @@ TEST_P(CsvReaderTest, CommaDelimiter) {
 
   bool with_header = false;
   bool ignore_bad = false;
+  bool ignore_empty_strings = false;
   memgraph::utils::pmr::string delimiter{",", mem};
   memgraph::utils::pmr::string quote{"\"", mem};
 
-  memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
+  memgraph::csv::Reader::Config cfg{with_header, ignore_bad, ignore_empty_strings, delimiter, quote};
   auto reader = memgraph::csv::Reader(filepath, cfg, mem);
 
   auto parsed_row = reader.GetNextRow(mem);
@@ -123,7 +124,8 @@ TEST_P(CsvReaderTest, SemicolonDelimiter) {
 
   const bool with_header = false;
   const bool ignore_bad = false;
-  const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
+  const bool ignore_empty_strings = false;
+  const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, ignore_empty_strings, delimiter, quote};
   auto reader = memgraph::csv::Reader(filepath, cfg, mem);
 
   auto parsed_row = reader.GetNextRow(mem);
@@ -156,7 +158,8 @@ TEST_P(CsvReaderTest, SkipBad) {
     // parser's output should be solely the valid row;
     const bool with_header = false;
     const bool ignore_bad = true;
-    const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
+    const bool ignore_empty_strings = false;
+    const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, ignore_empty_strings, delimiter, quote};
     auto reader = memgraph::csv::Reader(filepath, cfg, mem);
 
     auto parsed_row = reader.GetNextRow(mem);
@@ -168,7 +171,8 @@ TEST_P(CsvReaderTest, SkipBad) {
     // an exception must be thrown;
     const bool with_header = false;
     const bool ignore_bad = false;
-    const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
+    const bool ignore_empty_strings = false;
+    const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, ignore_empty_strings, delimiter, quote};
     auto reader = memgraph::csv::Reader(filepath, cfg, mem);
 
     EXPECT_THROW(reader.GetNextRow(mem), memgraph::csv::CsvReadException);
@@ -195,7 +199,8 @@ TEST_P(CsvReaderTest, AllRowsValid) {
 
   const bool with_header = false;
   const bool ignore_bad = false;
-  const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
+  const bool ignore_empty_strings = false;
+  const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, ignore_empty_strings, delimiter, quote};
   auto reader = memgraph::csv::Reader(filepath, cfg);
 
   const auto pmr_columns = ToPmrColumns(columns);
@@ -224,7 +229,8 @@ TEST_P(CsvReaderTest, SkipAllRows) {
 
   const bool with_header = false;
   const bool ignore_bad = true;
-  const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
+  const bool ignore_empty_strings = false;
+  const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, ignore_empty_strings, delimiter, quote};
   auto reader = memgraph::csv::Reader(filepath, cfg);
 
   auto parsed_row = reader.GetNextRow(mem);
@@ -251,7 +257,8 @@ TEST_P(CsvReaderTest, WithHeader) {
 
   const bool with_header = true;
   const bool ignore_bad = false;
-  const memgraph::csv::Reader::Config cfg(with_header, ignore_bad, delimiter, quote);
+  const bool ignore_empty_strings = false;
+  const memgraph::csv::Reader::Config cfg(with_header, ignore_bad, ignore_empty_strings, delimiter, quote);
   auto reader = memgraph::csv::Reader(filepath, cfg);
 
   const auto pmr_header = ToPmrColumns(header);
@@ -287,7 +294,8 @@ TEST_P(CsvReaderTest, MultilineQuotedString) {
 
   const bool with_header = false;
   const bool ignore_bad = true;
-  const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
+  const bool ignore_empty_strings = false;
+  const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, ignore_empty_strings, delimiter, quote};
   auto reader = memgraph::csv::Reader(filepath, cfg);
 
   auto parsed_row = reader.GetNextRow(mem);
@@ -319,7 +327,8 @@ TEST_P(CsvReaderTest, EmptyColumns) {
 
   const bool with_header = false;
   const bool ignore_bad = false;
-  const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, delimiter, quote};
+  const bool ignore_empty_strings = false;
+  const memgraph::csv::Reader::Config cfg{with_header, ignore_bad, ignore_empty_strings, delimiter, quote};
   auto reader = memgraph::csv::Reader(filepath, cfg);
 
   for (const auto &expected_row : expected_rows) {

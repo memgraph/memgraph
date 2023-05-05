@@ -123,7 +123,12 @@ Reader::ParsingResult Reader::ParseRow(utils::MemoryResource *mem) {
             line_string_view.remove_prefix(read_config_.quote->size());
           } else if (utils::StartsWith(line_string_view, *read_config_.delimiter)) {
             // The current field has an empty value.
-            row.emplace_back("");
+            if (read_config_.ignore_empty_strings) {
+              row.emplace_back("\0");
+            } else {
+              row.emplace_back("");
+            }
+
             state = CsvParserState::NEXT_FIELD;
             line_string_view.remove_prefix(read_config_.delimiter->size());
           } else {
@@ -183,7 +188,11 @@ Reader::ParsingResult Reader::ParseRow(utils::MemoryResource *mem) {
     case CsvParserState::EXPECT_DELIMITER:
       break;
     case CsvParserState::NEXT_FIELD:
-      row.emplace_back("");
+      if (read_config_.ignore_empty_strings) {
+        row.emplace_back("\0");
+      } else {
+        row.emplace_back("");
+      }
       break;
     case CsvParserState::QUOTING: {
       return ParseError(ParseError::ErrorCode::NO_CLOSING_QUOTE,
