@@ -1088,6 +1088,11 @@ class MapLiteral : public memgraph::query::BaseLiteral {
   friend class AstStorage;
 };
 
+struct MapProjectionData {
+  Expression *map_variable;
+  std::unordered_map<std::string, Expression *> elements;
+};
+
 class MapProjectionLiteral : public memgraph::query::BaseLiteral {
  public:
   static const utils::TypeInfo kType;
@@ -1100,7 +1105,7 @@ class MapProjectionLiteral : public memgraph::query::BaseLiteral {
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      for (auto pair : elements_.second) {
+      for (auto pair : elements_) {
         if (!pair.second) continue;
 
         if (!pair.second->Accept(visitor)) break;
@@ -1109,26 +1114,27 @@ class MapProjectionLiteral : public memgraph::query::BaseLiteral {
     return visitor.PostVisit(*this);
   }
 
-  std::pair<std::string, std::unordered_map<std::string, memgraph::query::Expression *>> elements_;
+  Expression *map_variable_;
+  std::unordered_map<std::string, Expression *> elements_;
 
   MapProjectionLiteral *Clone(AstStorage *storage) const override {
     MapProjectionLiteral *object = storage->Create<MapProjectionLiteral>();
-    object->elements_.first = elements_.first;
+    object->map_variable_ = map_variable_;
 
-    for (const auto &entry : elements_.second) {
+    for (const auto &entry : elements_) {
       if (!entry.second) {
-        object->elements_.second[entry.first] = nullptr;
+        object->elements_[entry.first] = nullptr;
         continue;
       }
 
-      object->elements_.second[entry.first] = entry.second->Clone(storage);
+      object->elements_[entry.first] = entry.second->Clone(storage);
     }
     return object;
   }
 
  protected:
-  explicit MapProjectionLiteral(const std::pair<std::string, std::unordered_map<std::string, Expression *>> &elements)
-      : elements_(elements) {}
+  explicit MapProjectionLiteral(Expression *map_variable, const std::unordered_map<std::string, Expression *> &elements)
+      : map_variable_(map_variable), elements_(elements) {}
 
  private:
   friend class AstStorage;

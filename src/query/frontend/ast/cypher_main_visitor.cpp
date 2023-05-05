@@ -1697,34 +1697,37 @@ antlrcpp::Any CypherMainVisitor::visitMapLiteral(MemgraphCypher::MapLiteralConte
 }
 
 antlrcpp::Any CypherMainVisitor::visitMapProjectionLiteral(MemgraphCypher::MapProjectionLiteralContext *ctx) {
-  std::pair<std::string, std::unordered_map<std::string, memgraph::query::Expression *>> map_projection;
+  MapProjectionData map_projection_data;
 
-  auto variable = std::any_cast<std::string>(ctx->variable()->accept(this));
-  map_projection.first = variable;
-
+  map_projection_data.map_variable =
+      storage_->Create<Identifier>(std::any_cast<std::string>(ctx->variable()->accept(this)));
+  auto *variable_name = ctx->variable()->symbolicName();
   for (auto *map_el : ctx->mapElement()) {
     if (map_el->propertyLookup()) {
-      auto key =
-          "." + std::any_cast<std::string>(map_el->propertyLookup()->propertyKeyName()->symbolicName()->accept(this));
-      map_projection.second.insert({key, nullptr});
+      auto key = JoinSymbolicNames(this, {variable_name, map_el->propertyLookup()->propertyKeyName()->symbolicName()});
+      auto property = std::any_cast<PropertyIx>(map_el->propertyLookup()->accept(this));
+      auto *property_lookup = storage_->Create<PropertyLookup>(map_projection_data.map_variable, property);
+      map_projection_data.elements.insert({key, property_lookup});
     }
     if (map_el->allPropertyLookup()) {
-      std::string key = ".*";
-      map_projection.second.insert({key, nullptr});
+      auto key = variable_name->toString() + ".*";
+      // TODO implement AllPropertyLookup
+      map_projection_data.elements.insert({key, nullptr});
     }
     if (map_el->variable()) {
       auto key = std::any_cast<std::string>(map_el->variable()->accept(this));
-      map_projection.second.insert({key, nullptr});
+      auto *variable = storage_->Create<Identifier>(std::any_cast<std::string>(map_el->variable()->accept(this)));
+      map_projection_data.elements.insert({key, variable});
     }
     if (map_el->propertyKeyValuePair()) {
       auto key =
           std::any_cast<std::string>(map_el->propertyKeyValuePair()->propertyKeyName()->symbolicName()->accept(this));
       auto *value = std::any_cast<Expression *>(map_el->propertyKeyValuePair()->expression()->accept(this));
-      map_projection.second.insert({key, value});
+      map_projection_data.elements.insert({key, value});
     }
   }
 
-  return map_projection;
+  return map_projection_data;
 }
 
 antlrcpp::Any CypherMainVisitor::visitListLiteral(MemgraphCypher::ListLiteralContext *ctx) {
@@ -2251,6 +2254,7 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
     auto *where = std::any_cast<Where *>(ctx->filterExpression()->where()->accept(this));
     return static_cast<Expression *>(storage_->Create<None>(ident, list_expr, where));
   } else if (ctx->REDUCE()) {
+    // ctx->reduceExpression()->variable()
     auto *accumulator =
         storage_->Create<Identifier>(std::any_cast<std::string>(ctx->reduceExpression()->accumulator->accept(this)));
     auto *initializer = std::any_cast<Expression *>(ctx->reduceExpression()->initial->accept(this));
@@ -2308,9 +2312,9 @@ antlrcpp::Any CypherMainVisitor::visitLiteral(MemgraphCypher::LiteralContext *ct
     return static_cast<Expression *>(
         storage_->Create<ListLiteral>(std::any_cast<std::vector<Expression *>>(ctx->listLiteral()->accept(this))));
   } else if (ctx->mapProjectionLiteral()) {
-    return static_cast<Expression *>(storage_->Create<MapProjectionLiteral>(
-        std::any_cast<std::pair<std::string, std::unordered_map<std::string, Expression *>>>(
-            ctx->mapProjectionLiteral()->accept(this))));
+    auto map_projection_data = std::any_cast<MapProjectionData>(ctx->mapProjectionLiteral()->accept(this));
+    return static_cast<Expression *>(
+        storage_->Create<MapProjectionLiteral>(map_projection_data.map_variable, map_projection_data.elements));
   } else {
     return static_cast<Expression *>(storage_->Create<MapLiteral>(
         std::any_cast<std::unordered_map<PropertyIx, Expression *>>(ctx->mapLiteral()->accept(this))));

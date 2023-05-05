@@ -609,7 +609,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitMapLiteral(MemgraphCypher::MapLiteralContext *ctx) override;
 
   /**
-   * @return pair<std::string, map<std::string, Expression*>>
+   * @return MapProjectionData
    */
   antlrcpp::Any visitMapProjectionLiteral(MemgraphCypher::MapProjectionLiteralContext *ctx) override;
 
