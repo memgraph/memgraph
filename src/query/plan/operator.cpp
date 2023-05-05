@@ -4598,7 +4598,7 @@ LoadCsv::LoadCsv(std::shared_ptr<LogicalOperator> input, Expression *file, bool 
   MG_ASSERT(file_, "Something went wrong - '{}' member file_ shouldn't be a nullptr", __func__);
 }
 
-bool LoadCsv::Accept(HierarchicalLogicalOperatorVisitor &visitor) { return false; };
+ACCEPT_WITH_INPUT(LoadCsv)
 
 class LoadCsvCursor;
 
@@ -4649,14 +4649,12 @@ TypedValue CsvRowToTypedMap(csv::Reader::Row &row, csv::Reader::Header header) {
 class LoadCsvCursor : public Cursor {
   const LoadCsv *self_;
   const UniqueCursorPtr input_cursor_;
-  bool input_is_once_;
+  bool did_pull_;
   std::optional<csv::Reader> reader_{};
 
  public:
   LoadCsvCursor(const LoadCsv *self, utils::MemoryResource *mem)
-      : self_(self), input_cursor_(self_->input_->MakeCursor(mem)) {
-    input_is_once_ = dynamic_cast<Once *>(self_->input_.get());
-  }
+      : self_(self), input_cursor_(self_->input_->MakeCursor(mem)), did_pull_{false} {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("LoadCsv");
@@ -4674,12 +4672,14 @@ class LoadCsvCursor : public Cursor {
 
     bool input_pulled = input_cursor_->Pull(frame, context);
 
-    // If the input is Once, we have to keep going until we read all the rows,
-    // regardless of whether the pull on Once returned false.
-    // If we have e.g. MATCH(n) LOAD CSV ... AS x SET n.name = x.name, then we
-    // have to read at most cardinality(n) rows (but we can read less and stop
-    // pulling MATCH).
-    if (!input_is_once_ && !input_pulled) return false;
+    if (input_pulled) {
+      if (did_pull_) {
+        throw QueryRuntimeException(
+            "LOAD CSV can be executed only once, please check if the cardinality of the operator before LOAD CSV is 1");
+      }
+      did_pull_ = true;
+    }
+
     auto row = reader_->GetNextRow(context.evaluation_context.memory);
     if (!row) {
       return false;
