@@ -301,7 +301,7 @@ class VerticesIterable final {
     }
 
     Iterator &operator++() {
-      std::visit([this](auto it_) { this->it_ = ++it_; }, it_);
+      std::visit([](auto &it_) { ++it_; }, it_);
       return *this;
     }
 
