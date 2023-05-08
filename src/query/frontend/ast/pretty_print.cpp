@@ -69,6 +69,7 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
   void Visit(Identifier &op) override;
   void Visit(PrimitiveLiteral &op) override;
   void Visit(PropertyLookup &op) override;
+  void Visit(AllPropertiesLookup &op) override;
   void Visit(ParameterLookup &op) override;
   void Visit(NamedExpression &op) override;
   void Visit(RegexMatch &op) override;
@@ -265,6 +266,16 @@ void ExpressionPrettyPrinter::Visit(MapLiteral &op) {
 }
 
 void ExpressionPrettyPrinter::Visit(MapProjectionLiteral & /*op*/) {
+  // TODO ante
+  // std::map<std::string, Expression *> map;
+  std::map<Expression *, std::vector<Expression *>> map;
+  // for (const auto &kv : op.elements_) {
+  //   map[kv.first.name] = kv.second;
+  // }
+  PrintObject(out_, map);
+}
+
+void ExpressionPrettyPrinter::Visit(AllPropertiesLookup & /*op*/) {
   // TODO ante
   // std::map<std::string, Expression *> map;
   std::map<Expression *, std::vector<Expression *>> map;

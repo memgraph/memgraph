@@ -1708,10 +1708,10 @@ antlrcpp::Any CypherMainVisitor::visitMapProjectionLiteral(MemgraphCypher::MapPr
       auto *property_lookup = storage_->Create<PropertyLookup>(map_projection_data.map_variable, property);
       map_projection_data.elements.insert({key, property_lookup});
     }
-    if (map_el->allPropertyLookup()) {
+    if (map_el->allPropertiesLookup()) {
       auto key = AddProperty("*");
-      // TODO implement AllPropertyLookup
-      map_projection_data.elements.insert({key, nullptr});
+      auto *all_properties_lookup = storage_->Create<AllPropertiesLookup>(map_projection_data.map_variable);
+      map_projection_data.elements.insert({key, all_properties_lookup});
     }
     if (map_el->variable()) {
       auto key = AddProperty(std::any_cast<std::string>(map_el->variable()->accept(this)));
