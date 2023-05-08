@@ -29,7 +29,6 @@ QUERY_COUNT_LOWER_BOUND = 30
 
 
 def parse_args():
-
     parser = argparse.ArgumentParser(
         description="Memgraph benchmark executor.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -205,7 +204,6 @@ def warmup(condition: str, client: runners.BaseRunner, queries: list = None):
 def mixed_workload(
     vendor: runners.BaseRunner, client: runners.BaseClient, dataset, group, queries, benchmark_context: BenchmarkContext
 ):
-
     num_of_queries = benchmark_context.mode_config[0]
     percentage_distribution = benchmark_context.mode_config[1:]
     if sum(percentage_distribution) != 100:
@@ -233,7 +231,7 @@ def mixed_workload(
         "analytical": [],
     }
 
-    for (_, funcname) in queries[group]:
+    for _, funcname in queries[group]:
         for key in queries_by_type.keys():
             if key in funcname:
                 queries_by_type[key].append(funcname)
@@ -349,7 +347,6 @@ def get_query_cache_count(
     config_key: list,
     benchmark_context: BenchmarkContext,
 ):
-
     cached_count = config.get_value(*config_key)
     if cached_count is None:
         log.info(
@@ -403,7 +400,6 @@ def get_query_cache_count(
 
 
 if __name__ == "__main__":
-
     args = parse_args()
     vendor_specific_args = helpers.parse_kwargs(args.vendor_specific)
 
@@ -593,7 +589,7 @@ if __name__ == "__main__":
                         ret = client.execute(
                             queries=get_queries(func, count),
                             num_workers=benchmark_context.num_workers_for_benchmark,
-                            time_dependent_execution=benchmark_context.time_depended_execution,
+                            time_dependent_execution=benchmark_context.time_dependent_execution,
                         )[0]
                     else:
                         ret = client.execute(
@@ -647,7 +643,6 @@ if __name__ == "__main__":
                 vendor_runner.stop("authorization")
 
                 for query, funcname in queries[group]:
-
                     log.info(
                         "Running query:",
                         "{}/{}/{}/{}".format(group, query, funcname, WITH_FINE_GRAINED_AUTHORIZATION),

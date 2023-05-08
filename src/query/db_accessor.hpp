@@ -14,6 +14,7 @@
 #include <optional>
 #include <type_traits>
 
+#include <boost/smart_ptr/local_shared_ptr.hpp>
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
 
@@ -21,6 +22,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
+#include "storage/v2/vertex_accessor.hpp"
 #include "utils/pmr/unordered_set.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -120,18 +122,27 @@ class VertexAccessor final {
 
  public:
   // It can affect performance if we use std::unique_ptr here.
-  std::unique_ptr<storage::VertexAccessor> impl_;
+  // std::unique_ptr<storage::VertexAccessor> impl_;
+  // local_shared_ptr and all its local copies must reside in the same thread
+  boost::local_shared_ptr<storage::VertexAccessor> impl_;
 
-  explicit VertexAccessor(std::unique_ptr<storage::VertexAccessor> impl) : impl_(std::move(impl)) {}
-  VertexAccessor(const VertexAccessor &impl) : impl_(impl.impl_->Copy()){};
+  // explicit VertexAccessor(std::unique_ptr<storage::VertexAccessor> impl) : impl_(std::move(impl)) {}
+  // increase reference count
+  explicit VertexAccessor(boost::local_shared_ptr<storage::VertexAccessor> impl) : impl_(impl) {}
+
+  // VertexAccessor(const VertexAccessor &impl) : impl_(impl.impl_->Copy()){};
+  VertexAccessor(const VertexAccessor &impl) : impl_(impl.impl_){};
+
   explicit VertexAccessor(VertexAccessor *impl) : VertexAccessor(*impl) {}
 
-  ~VertexAccessor() = default;
-
   VertexAccessor &operator=(const VertexAccessor &other) {
-    impl_ = other.impl_->Copy();
+    // impl_ = other.impl_->Copy();
+    // return *this;
+    impl_ = other.impl_;
     return *this;
   }
+
+  ~VertexAccessor() = default;
 
   bool IsVisible(storage::View view) const { return impl_->IsVisible(view); }
 
