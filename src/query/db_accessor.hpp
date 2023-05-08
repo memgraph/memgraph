@@ -122,6 +122,7 @@ class VertexAccessor final {
   // It can affect performance if we use std::unique_ptr here.
   std::unique_ptr<storage::VertexAccessor> impl_;
 
+  explicit VertexAccessor(storage::VertexAccessor *impl) : impl_(impl) {}
   explicit VertexAccessor(std::unique_ptr<storage::VertexAccessor> impl) : impl_(std::move(impl)) {}
   VertexAccessor(const VertexAccessor &impl) : impl_(impl.impl_->Copy()){};
   explicit VertexAccessor(VertexAccessor *impl) : VertexAccessor(*impl) {}
@@ -294,7 +295,8 @@ class VerticesIterable final {
     VertexAccessor operator*() const {
       return std::visit(
           memgraph::utils::Overloaded{
-              [](storage::VerticesIterable::Iterator it_) { return VertexAccessor((*it_)->Copy()); },
+              [](storage::VerticesIterable::Iterator it_) { return VertexAccessor(*it_); },
+              // [](storage::VerticesIterable::Iterator it_) { return VertexAccessor(*it_); },
               [](std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
                                     utils::Allocator<VertexAccessor>>::iterator it_) { return VertexAccessor(*it_); }},
           it_);

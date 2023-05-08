@@ -270,7 +270,7 @@ TEST_F(IndexTest, LabelIndexBasic) {
   for (auto vertex : acc->Vertices(View::OLD)) {
     int64_t id = vertex->GetProperty(prop_id, View::OLD)->ValueInt();
     if (id % 2 == 0) {
-      ASSERT_NO_ERROR(acc->DeleteVertex(vertex));
+      ASSERT_NO_ERROR(acc->DeleteVertex(vertex.get()));
     }
   }
 
@@ -457,7 +457,7 @@ TEST_F(IndexTest, LabelPropertyIndexBasic) {
   for (auto vertex : acc->Vertices(View::OLD)) {
     int64_t id = vertex->GetProperty(prop_id, View::OLD)->ValueInt();
     if (id % 2 == 0) {
-      ASSERT_NO_ERROR(acc->DeleteVertex(vertex));
+      ASSERT_NO_ERROR(acc->DeleteVertex(vertex.get()));
     }
   }
 

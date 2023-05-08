@@ -331,6 +331,10 @@ LabelIndex::Iterable::Iterator::Iterator(Iterable *self, utils::SkipList<Entry>:
   AdvanceUntilValid();
 }
 
+std::unique_ptr<VertexAccessor> LabelIndex::Iterable::Iterator::operator*() {
+  return std::move(current_vertex_accessor_);
+}
+
 LabelIndex::Iterable::Iterator &LabelIndex::Iterable::Iterator::operator++() {
   ++index_iterator_;
   AdvanceUntilValid();
@@ -482,6 +486,10 @@ void LabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_time
 LabelPropertyIndex::Iterable::Iterator::Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator)
     : self_(self), index_iterator_(index_iterator), current_vertex_accessor_(nullptr), current_vertex_(nullptr) {
   AdvanceUntilValid();
+}
+
+std::unique_ptr<VertexAccessor> LabelPropertyIndex::Iterable::Iterator::operator*() {
+  return std::move(current_vertex_accessor_);
 }
 
 LabelPropertyIndex::Iterable::Iterator &LabelPropertyIndex::Iterable::Iterator::operator++() {

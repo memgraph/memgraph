@@ -40,7 +40,7 @@ AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, utils::SkipLi
       it_(AdvanceToVisibleVertex(it, self->vertices_accessor_.end(), self->vertex_, self->transaction_, self->view_,
                                  self->indices_, self_->constraints_, self->config_)) {}
 
-VertexAccessor *AllVerticesIterable::Iterator::operator*() const { return self_->vertex_.get(); }
+std::unique_ptr<VertexAccessor> AllVerticesIterable::Iterator::operator*() const { return std::move(self_->vertex_); }
 
 AllVerticesIterable::Iterator &AllVerticesIterable::Iterator::operator++() {
   ++it_;
@@ -228,7 +228,7 @@ void VerticesIterable::Iterator::Destroy() noexcept {
   }
 }
 
-VertexAccessor *VerticesIterable::Iterator::operator*() const {
+std::unique_ptr<VertexAccessor> VerticesIterable::Iterator::operator*() {
   switch (type_) {
     case Type::ALL:
       return *all_it_;

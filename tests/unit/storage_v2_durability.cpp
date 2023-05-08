@@ -1455,7 +1455,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
     }
     auto acc = store->Access();
     for (auto vertex : acc->Vertices(memgraph::storage::View::OLD)) {
-      ASSERT_TRUE(acc->DetachDeleteVertex(vertex).HasValue());
+      ASSERT_TRUE(acc->DetachDeleteVertex(vertex.get()).HasValue());
     }
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -1646,7 +1646,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveOnlyBaseDataset) {
       ASSERT_TRUE(has_indexed.HasValue());
       auto has_unindexed = vertex->HasLabel(label_unindexed, memgraph::storage::View::OLD);
       if (!*has_indexed && !*has_unindexed) continue;
-      ASSERT_TRUE(acc->DetachDeleteVertex(vertex).HasValue());
+      ASSERT_TRUE(acc->DetachDeleteVertex(vertex.get()).HasValue());
     }
     ASSERT_FALSE(acc->Commit().HasError());
   }

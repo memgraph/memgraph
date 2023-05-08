@@ -58,7 +58,7 @@ class AllVerticesIterable final {
    public:
     Iterator(AllVerticesIterable *self, utils::SkipList<Vertex>::Iterator it);
 
-    VertexAccessor *operator*() const;
+    std::unique_ptr<VertexAccessor> operator*() const;
 
     Iterator &operator++();
 
@@ -130,7 +130,7 @@ class VerticesIterable final {
 
     ~Iterator();
 
-    VertexAccessor *operator*() const;
+    std::unique_ptr<VertexAccessor> operator*();
 
     Iterator &operator++();
 

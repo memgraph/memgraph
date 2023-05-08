@@ -87,7 +87,7 @@ TEST_F(ConstraintsTest, ExistenceConstraintsCreateFailure1) {
   {
     auto acc = storage->Access();
     for (auto vertex : acc->Vertices(View::OLD)) {
-      ASSERT_NO_ERROR(acc->DeleteVertex(vertex));
+      ASSERT_NO_ERROR(acc->DeleteVertex(vertex.get()));
     }
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -168,7 +168,7 @@ TEST_F(ConstraintsTest, ExistenceConstraintsViolationOnCommit) {
       ASSERT_NO_ERROR(vertex->SetProperty(prop1, PropertyValue()));
     }
     for (auto vertex : acc->Vertices(View::OLD)) {
-      ASSERT_NO_ERROR(acc->DeleteVertex(vertex));
+      ASSERT_NO_ERROR(acc->DeleteVertex(vertex.get()));
     }
 
     ASSERT_NO_ERROR(acc->Commit());
@@ -247,7 +247,7 @@ TEST_F(ConstraintsTest, UniqueConstraintsCreateFailure1) {
   {
     auto acc = storage->Access();
     for (auto vertex : acc->Vertices(View::OLD)) {
-      ASSERT_NO_ERROR(acc->DeleteVertex(vertex));
+      ASSERT_NO_ERROR(acc->DeleteVertex(vertex.get()));
     }
     ASSERT_NO_ERROR(acc->Commit());
   }

@@ -86,7 +86,7 @@ class LabelIndex {
       Iterator(Iterator &&other) = default;
       ~Iterator() = default;
 
-      VertexAccessor *operator*() const { return current_vertex_accessor_.get(); }
+      std::unique_ptr<VertexAccessor> operator*();
 
       bool operator==(const Iterator &other) const { return index_iterator_ == other.index_iterator_; }
       bool operator!=(const Iterator &other) const { return index_iterator_ != other.index_iterator_; }
@@ -197,7 +197,7 @@ class LabelPropertyIndex {
       Iterator(Iterator &&other) = default;
       ~Iterator() = default;
 
-      VertexAccessor *operator*() const { return current_vertex_accessor_.get(); }
+      std::unique_ptr<VertexAccessor> operator*();
 
       bool operator==(const Iterator &other) const { return index_iterator_ == other.index_iterator_; }
       bool operator!=(const Iterator &other) const { return index_iterator_ != other.index_iterator_; }
