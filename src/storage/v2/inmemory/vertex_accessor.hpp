@@ -43,8 +43,8 @@ class InMemoryVertexAccessor final : public VertexAccessor {
   static std::unique_ptr<InMemoryVertexAccessor> Create(Vertex *vertex, Transaction *transaction, Indices *indices,
                                                         Constraints *constraints, Config::Items config, View view);
 
-  void Init(Vertex *vertex, Transaction *transaction, Indices *indices, Constraints *constraints, Config::Items config,
-            View view) override;
+  bool ReInit(Vertex *vertex, Transaction *transaction, Indices *indices, Constraints *constraints,
+              Config::Items config, View view) override;
 
   /// @return true if the object is visible from the current transaction
   bool IsVisible(View view) const override;

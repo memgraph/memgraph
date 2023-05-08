@@ -41,9 +41,9 @@ class VertexAccessor {
   static std::unique_ptr<VertexAccessor> Create(Vertex *vertex, Transaction *transaction, Indices *indices,
                                                 Constraints *constraints, Config::Items config, View view);
 
-  /// Reinitialize the accessor with a new vertex.
-  virtual void Init(Vertex *vertex, Transaction *transaction, Indices *indices, Constraints *constraints,
-                    Config::Items config, View view) = 0;
+  /// Reinitialize the accessor with a new vertex to avoid additional allocations.
+  virtual bool ReInit(Vertex *vertex, Transaction *transaction, Indices *indices, Constraints *constraints,
+                      Config::Items config, View view) = 0;
 
   /// @return true if the object is visible from the current transaction
   virtual bool IsVisible(View view) const = 0;

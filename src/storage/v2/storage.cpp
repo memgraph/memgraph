@@ -19,12 +19,14 @@ auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it, utils::SkipLis
                             std::unique_ptr<VertexAccessor> &vertex, Transaction *tx, View view, Indices *indices,
                             Constraints *constraints, Config::Items config) {
   while (it != end) {
+    bool isVisible = true;
     if (vertex) {
-      vertex->Init(&*it, tx, indices, constraints, config, view);
+      isVisible = vertex->ReInit(&*it, tx, indices, constraints, config, view);
     } else {
       vertex = VertexAccessor::Create(&*it, tx, indices, constraints, config, view);
+      isVisible = (vertex != nullptr);
     }
-    if (!vertex) {
+    if (!isVisible) {
       ++it;
       continue;
     }
