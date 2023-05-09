@@ -631,7 +631,6 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   TypedValue Visit(MapProjectionLiteral &literal) override {
     TypedValue::TMap result(ctx_->memory);
     for (const auto &pair : literal.elements_) {
-      std::cout << "before\n";
       if (pair.first.name == "*") {  // AllPropertiesSelector
         auto maybe_selector = pair.second->Accept(*this);
 
@@ -646,7 +645,6 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
 
       result.emplace(pair.first.name, pair.second->Accept(*this));
-      std::cout << "after\n";
     }
     return TypedValue(result, ctx_->memory);
   }

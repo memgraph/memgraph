@@ -958,6 +958,19 @@ TYPED_TEST(TestPlanner, MapLiteralAggregationReturn) {
   CheckPlan<TypeParam>(query, storage, aggr, ExpectProduce());
 }
 
+// TODO ante
+// TYPED_TEST(TestPlanner, MapProjectionLiteralAggregationReturn) {
+//   // Test WITH {} AS map RETURN map {sum: SUM(2)} AS result, 42 AS group_by
+//   AstStorage storage;
+//   FakeDbAccessor dba;
+//   auto sum = SUM(LITERAL(2), false);
+//   auto group_by_literal = LITERAL(42);
+//   auto *query = QUERY(SINGLE_QUERY(WITH(MAP(), AS("map")), RETURN(MAP({storage.GetPropertyIx("sum"), sum}),
+//                                                                   AS("result"), group_by_literal, AS("group_by"))));
+//   auto aggr = ExpectAggregate({sum}, {group_by_literal});
+//   CheckPlan<TypeParam>(query, storage, aggr, ExpectProduce());
+// }
+
 TYPED_TEST(TestPlanner, EmptyListIndexAggregation) {
   // Test RETURN [][SUM(2)] AS result, 42 AS group_by
   AstStorage storage;
@@ -1019,6 +1032,9 @@ TYPED_TEST(TestPlanner, MapWithAggregationAndGroupBy) {
   auto aggr = ExpectAggregate({sum}, {group_by_literal});
   CheckPlan<TypeParam>(query, storage, aggr, ExpectProduce());
 }
+
+// TODO ante
+// TYPED_TEST(TestPlanner, MapProjectionWithAggregationAndGroupBy) {}
 
 TYPED_TEST(TestPlanner, AtomIndexedLabelProperty) {
   // Test MATCH (n :label {property: 42, not_indexed: 0}) RETURN n

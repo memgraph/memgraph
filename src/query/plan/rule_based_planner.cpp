@@ -359,9 +359,6 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   }
 
   bool PostVisit(NamedExpression &named_expr) override {
-    auto has_aggregation_size = has_aggregation_.size();
-    std::cout << "has_aggregation_.size: " << has_aggregation_.size() << "\n";
-
     MG_ASSERT(has_aggregation_.size() == 1U, "Expected to reduce has_aggregation_ to single boolean.");
     if (!has_aggregation_.back()) {
       group_by_.emplace_back(named_expr.expression_);

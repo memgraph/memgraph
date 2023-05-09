@@ -373,6 +373,38 @@ TEST_F(ExpressionEvaluatorTest, MapIndexing) {
   }
 }
 
+TEST_F(ExpressionEvaluatorTest, MapProjectionIndexing) {
+  auto *map_projection_literal = storage.Create<MapProjectionLiteral>(
+      storage.Create<MapLiteral>(std::unordered_map<PropertyIx, Expression *>{
+          {storage.GetPropertyIx("x"), storage.Create<PrimitiveLiteral>(0)}}),
+      std::unordered_map<PropertyIx, Expression *>{{storage.GetPropertyIx("a"), storage.Create<PrimitiveLiteral>(1)}});
+
+  {
+    // Legal indexing.
+    auto *op = storage.Create<SubscriptOperator>(map_projection_literal, storage.Create<PrimitiveLiteral>("a"));
+    auto value = Eval(op);
+    EXPECT_EQ(value.ValueInt(), 1);
+  }
+  {
+    // Legal indexing, non-existing key.
+    auto *op = storage.Create<SubscriptOperator>(map_projection_literal, storage.Create<PrimitiveLiteral>("z"));
+    auto value = Eval(op);
+    EXPECT_TRUE(value.IsNull());
+  }
+  {
+    // Wrong key type.
+    auto *op = storage.Create<SubscriptOperator>(map_projection_literal, storage.Create<PrimitiveLiteral>(42));
+    EXPECT_THROW(Eval(op), QueryRuntimeException);
+  }
+  {
+    // Indexing with Null.
+    auto *op = storage.Create<SubscriptOperator>(map_projection_literal,
+                                                 storage.Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()));
+    auto value = Eval(op);
+    EXPECT_TRUE(value.IsNull());
+  }
+}
+
 TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
   auto edge_type = dba.NameToEdgeType("edge_type");
   auto prop = dba.NameToProperty("prop");
@@ -1197,10 +1229,87 @@ TEST_F(ExpressionEvaluatorPropertyLookup, Null) {
   EXPECT_TRUE(Value(prop_age).IsNull());
 }
 
-TEST_F(ExpressionEvaluatorPropertyLookup, MapLiteral) {
+TEST_F(ExpressionEvaluatorPropertyLookup, Map) {
   frame[symbol] = TypedValue(std::map<std::string, TypedValue>{{prop_age.first, TypedValue(10)}});
   EXPECT_EQ(Value(prop_age).ValueInt(), 10);
   EXPECT_TRUE(Value(prop_height).IsNull());
+}
+
+class ExpressionEvaluatorAllPropertiesLookup : public ExpressionEvaluatorTest {
+ protected:
+  std::pair<std::string, memgraph::storage::PropertyId> prop_age = std::make_pair("age", dba.NameToProperty("age"));
+  std::pair<std::string, memgraph::storage::PropertyId> prop_height =
+      std::make_pair("height", dba.NameToProperty("height"));
+  Identifier *identifier = storage.Create<Identifier>("element");
+  Symbol symbol = symbol_table.CreateSymbol("element", true);
+
+  void SetUp() { identifier->MapTo(symbol); }
+
+  auto Value() {
+    auto *op = storage.Create<AllPropertiesLookup>(identifier);
+    return Eval(op);
+  }
+};
+
+TEST_F(ExpressionEvaluatorAllPropertiesLookup, Vertex) {
+  auto v1 = dba.InsertVertex();
+  ASSERT_TRUE(v1.SetProperty(prop_age.second, memgraph::storage::PropertyValue(10)).HasValue());
+  dba.AdvanceCommand();
+  frame[symbol] = TypedValue(v1);
+  auto all_properties = Value();
+  EXPECT_TRUE(all_properties.IsMap());
+}
+
+TEST_F(ExpressionEvaluatorAllPropertiesLookup, Edge) {
+  auto v1 = dba.InsertVertex();
+  auto v2 = dba.InsertVertex();
+  auto e12 = dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("edge_type"));
+  ASSERT_TRUE(e12.HasValue());
+  ASSERT_TRUE(e12->SetProperty(prop_age.second, memgraph::storage::PropertyValue(10)).HasValue());
+  dba.AdvanceCommand();
+  frame[symbol] = TypedValue(*e12);
+  auto all_properties = Value();
+  EXPECT_TRUE(all_properties.IsMap());
+}
+
+TEST_F(ExpressionEvaluatorAllPropertiesLookup, Duration) {
+  const memgraph::utils::Duration dur({10, 1, 30, 2, 22, 45});
+  frame[symbol] = TypedValue(dur);
+  auto all_properties = Value();
+  EXPECT_TRUE(all_properties.IsMap());
+}
+
+TEST_F(ExpressionEvaluatorAllPropertiesLookup, Date) {
+  const memgraph::utils::Date date({1996, 11, 22});
+  frame[symbol] = TypedValue(date);
+  auto all_properties = Value();
+  EXPECT_TRUE(all_properties.IsMap());
+}
+
+TEST_F(ExpressionEvaluatorAllPropertiesLookup, LocalTime) {
+  const memgraph::utils::LocalTime lt({1, 2, 3, 11, 22});
+  frame[symbol] = TypedValue(lt);
+  auto all_properties = Value();
+  EXPECT_TRUE(all_properties.IsMap());
+}
+
+TEST_F(ExpressionEvaluatorAllPropertiesLookup, LocalDateTime) {
+  const memgraph::utils::LocalDateTime ldt({1993, 8, 6}, {2, 3, 4, 55, 40});
+  frame[symbol] = TypedValue(ldt);
+  auto all_properties = Value();
+  EXPECT_TRUE(all_properties.IsMap());
+}
+
+TEST_F(ExpressionEvaluatorAllPropertiesLookup, Null) {
+  frame[symbol] = TypedValue();
+  auto all_properties = Value();
+  EXPECT_TRUE(all_properties.IsNull());
+}
+
+TEST_F(ExpressionEvaluatorAllPropertiesLookup, Map) {
+  frame[symbol] = TypedValue(std::map<std::string, TypedValue>{{prop_age.first, TypedValue(10)}});
+  auto all_properties = Value();
+  EXPECT_TRUE(all_properties.IsMap());
 }
 
 class FunctionTest : public ExpressionEvaluatorTest {
