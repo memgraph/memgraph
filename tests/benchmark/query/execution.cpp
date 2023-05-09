@@ -124,7 +124,7 @@ template <class TMemory>
 static void Distinct(benchmark::State &state) {
   memgraph::query::AstStorage ast;
   memgraph::query::Parameters parameters;
-  std::unique_ptr<memgraph::storage::Storage> db(new memgraph::storage::InMemoryStorage());
+  std::unique_ptr<memgraph::storage::Storage> db = std::make_unique<memgraph::storage::InMemoryStorage>();
   AddVertices(db.get(), state.range(0));
   auto storage_dba = db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
@@ -188,8 +188,9 @@ static void ExpandVariable(benchmark::State &state) {
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = expand_variable.MakeCursor(memory.get());
-    for (const auto &v : dba.Vertices(memgraph::storage::View::OLD, dba.NameToLabel(kStartLabel))) {
-      frame[expand_variable.input_symbol_] = memgraph::query::TypedValue(memgraph::query::VertexAccessor(v));
+    auto vertices = dba.Vertices(memgraph::storage::View::OLD, dba.NameToLabel(kStartLabel));
+    for (auto vIt = vertices.begin(); vIt != vertices.end(); ++vIt) {
+      frame[expand_variable.input_symbol_] = memgraph::query::TypedValue(*vIt);
       while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
     }
   }
@@ -227,8 +228,9 @@ static void ExpandBfs(benchmark::State &state) {
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = expand_variable.MakeCursor(memory.get());
-    for (const auto &v : dba.Vertices(memgraph::storage::View::OLD, dba.NameToLabel(kStartLabel))) {
-      frame[expand_variable.input_symbol_] = memgraph::query::TypedValue(memgraph::query::VertexAccessor(v));
+    auto vertices = dba.Vertices(memgraph::storage::View::OLD, dba.NameToLabel(kStartLabel));
+    for (auto vIt = vertices.begin(); vIt != vertices.end(); ++vIt) {
+      frame[expand_variable.input_symbol_] = memgraph::query::TypedValue(*vIt);
       while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
     }
   }
@@ -262,10 +264,11 @@ static void ExpandShortest(benchmark::State &state) {
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = expand_variable.MakeCursor(memory.get());
-    for (const auto &v : dba.Vertices(memgraph::storage::View::OLD, dba.NameToLabel(kStartLabel))) {
-      frame[expand_variable.input_symbol_] = memgraph::query::TypedValue(memgraph::query::VertexAccessor(v));
-      for (const auto &dest : dba.Vertices(memgraph::storage::View::OLD, dba.NameToLabel(kStartLabel))) {
-        frame[dest_symbol] = memgraph::query::TypedValue(memgraph::query::VertexAccessor(dest));
+    auto vertices = dba.Vertices(memgraph::storage::View::OLD, dba.NameToLabel(kStartLabel));
+    for (auto vIt = vertices.begin(); vIt != vertices.end(); ++vIt) {
+      frame[expand_variable.input_symbol_] = memgraph::query::TypedValue(*vIt);
+      for (auto destIt = vertices.begin(); destIt != vertices.end(); ++destIt) {
+        frame[dest_symbol] = memgraph::query::TypedValue(*destIt);
         while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
       }
     }
@@ -303,10 +306,11 @@ static void ExpandWeightedShortest(benchmark::State &state) {
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = expand_variable.MakeCursor(memory.get());
-    for (const auto &v : dba.Vertices(memgraph::storage::View::OLD, dba.NameToLabel(kStartLabel))) {
-      frame[expand_variable.input_symbol_] = memgraph::query::TypedValue(memgraph::query::VertexAccessor(v));
-      for (const auto &dest : dba.Vertices(memgraph::storage::View::OLD, dba.NameToLabel(kStartLabel))) {
-        frame[dest_symbol] = memgraph::query::TypedValue(memgraph::query::VertexAccessor(dest));
+    auto vertices = dba.Vertices(memgraph::storage::View::OLD, dba.NameToLabel(kStartLabel));
+    for (auto vIt = vertices.begin(); vIt != vertices.end(); ++vIt) {
+      frame[expand_variable.input_symbol_] = memgraph::query::TypedValue(*vIt);
+      for (auto destIt = vertices.begin(); destIt != vertices.end(); ++destIt) {
+        frame[dest_symbol] = memgraph::query::TypedValue(*destIt);
         while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
       }
     }
