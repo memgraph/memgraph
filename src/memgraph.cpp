@@ -908,7 +908,7 @@ int main(int argc, char **argv) {
     }
     db_config.durability.snapshot_interval = std::chrono::seconds(FLAGS_storage_snapshot_interval_sec);
   }
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage(db_config));
+  std::unique_ptr<memgraph::storage::Storage> db = std::make_unique<memgraph::storage::InMemoryStorage>(db_config);
 
   memgraph::query::InterpreterContext interpreter_context{
       db.get(),

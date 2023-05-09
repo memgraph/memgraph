@@ -39,7 +39,7 @@ static void MapLiteral(benchmark::State &state) {
   memgraph::query::SymbolTable symbol_table;
   TMemory memory;
   memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
-  std::unique_ptr<memgraph::storage::Storage> db(new memgraph::storage::InMemoryStorage());
+  std::unique_ptr<memgraph::storage::Storage> db = std::make_unique<memgraph::storage::InMemoryStorage>();
   auto storage_dba = db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *> elements;
@@ -68,7 +68,7 @@ static void AdditionOperator(benchmark::State &state) {
   memgraph::query::SymbolTable symbol_table;
   TMemory memory;
   memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
-  std::unique_ptr<memgraph::storage::Storage> db(new memgraph::storage::InMemoryStorage());
+  std::unique_ptr<memgraph::storage::Storage> db = std::make_unique<memgraph::storage::InMemoryStorage>();
   auto storage_dba = db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   memgraph::query::Expression *expr = ast.Create<memgraph::query::PrimitiveLiteral>(0);

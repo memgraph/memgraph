@@ -58,7 +58,8 @@ int main(int argc, char *argv[]) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
   for (const auto &config : TestConfigurations) {
-    std::unique_ptr<memgraph::storage::Storage> storage(new memgraph::storage::InMemoryStorage(config.second));
+    std::unique_ptr<memgraph::storage::Storage> storage =
+        std::make_unique<memgraph::storage::InMemoryStorage>(config.second);
     std::vector<memgraph::storage::Gid> vertices;
     {
       auto acc = storage->Access();
