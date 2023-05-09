@@ -4532,7 +4532,7 @@ class CallProcedureCursor : public Cursor {
 
       // 1. problem je sto se koristi ova memorija
       // 2. problem je sto je to memorija od EvalContexta
-      // 3. problem je sto se koristi i neka memorija od QueryExecutiona
+      // 3. problem je sto se koristi i memorija od QueryExecutiona
 
       // utils::PoolResource poolResource{128, 1024, utils::NewDeleteResource(), utils::NewDeleteResource()};
       auto *memory = context.evaluation_context.memory;

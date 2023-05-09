@@ -14,6 +14,7 @@
 #include <datetime.h>
 #include <pyerrors.h>
 #include <array>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -926,11 +927,16 @@ std::optional<py::ExceptionInfo> AddMultipleRecordsFromPython(mgp_result *result
                                                               mgp_memory *memory) {
   Py_ssize_t len = PySequence_Size(py_seq.Ptr());
   if (len == -1) return py::FetchError();
-  for (Py_ssize_t i = 0; i < len; ++i) {
-    py::Object py_record(PySequence_GetItem(py_seq.Ptr(), i));
+
+  for (Py_ssize_t i = 0, curr_loc = 0; i < len; ++i, ++curr_loc) {
+    py::Object py_record(PySequence_GetItem(py_seq.Ptr(), curr_loc));
     if (!py_record) return py::FetchError();
     auto maybe_exc = AddRecordFromPython(result, py_record, memory);
     if (maybe_exc) return maybe_exc;
+    if (i && i % 100000 == 0) {
+      PySequence_DelSlice(py_seq.Ptr(), 0, 100000);
+      curr_loc = -1;
+    }
   }
   return std::nullopt;
 }

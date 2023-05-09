@@ -1256,7 +1256,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
     contains_csv = true;
   }
   // If this is LOAD CSV query, use PoolResource without MonotonicMemoryResource as we want to reuse allocated memory
-  auto use_monotonic_memory = !contains_csv;
+  auto use_monotonic_memory = false;
   auto plan = CypherQueryToPlan(parsed_query.stripped_query.hash(), std::move(parsed_query.ast_storage), cypher_query,
                                 parsed_query.parameters,
                                 parsed_query.is_cacheable ? &interpreter_context->plan_cache : nullptr, dba);
@@ -1385,7 +1385,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
     contains_csv = true;
   }
   // If this is LOAD CSV query, use PoolResource without MonotonicMemoryResource as we want to reuse allocated memory
-  auto use_monotonic_memory = !contains_csv;
+  auto use_monotonic_memory = false;
 
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in PROFILE");
   Frame frame(0);
@@ -2743,12 +2743,12 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       }
 
       if (const auto &clauses = cypher_query->single_query_->clauses_;
-          std::any_of(clauses.begin(), clauses.end(),
-                      [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
+          true || std::any_of(clauses.begin(), clauses.end(),
+                              [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
         // Using PoolResource without MonotonicMemoryResouce for LOAD CSV reduces memory usage.
         // QueryExecution MemoryResource is mostly used for allocations done on Frame and storing `row`s
-        query_executions_[query_executions_.size() - 1] = std::make_unique<QueryExecution>(
-            utils::PoolResource(8, kExecutionPoolMaxBlockSize, utils::NewDeleteResource(), utils::NewDeleteResource()));
+        query_executions_[query_executions_.size() - 1] = std::make_unique<QueryExecution>(utils::PoolResource(
+            128, kExecutionPoolMaxBlockSize, utils::NewDeleteResource(), utils::NewDeleteResource()));
         query_execution_ptr = &query_executions_.back();
       }
     }
