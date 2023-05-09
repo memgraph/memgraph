@@ -31,6 +31,7 @@
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/replication_persistence_helper.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/file.hpp"
@@ -316,6 +317,7 @@ bool VerticesIterable::Iterator::operator==(const Iterator &other) const {
 Storage::Storage(Config config)
     : indices_(&constraints_, config.items),
       isolation_level_(config.transaction.isolation_level),
+      storage_mode_(StorageMode::IN_MEMORY_TRANSACTIONAL),
       config_(config),
       snapshot_directory_(config_.durability.storage_directory / durability::kSnapshotDirectory),
       wal_directory_(config_.durability.storage_directory / durability::kWalDirectory),
@@ -358,7 +360,7 @@ Storage::Storage(Config config)
   if (config_.durability.recover_on_startup) {
     auto info = durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, &epoch_id_, &epoch_history_,
                                         &vertices_, &edges_, &edge_count_, &name_id_mapper_, &indices_, &constraints_,
-                                        config_.items, &wal_seq_num_);
+                                        config_, &wal_seq_num_);
     if (info) {
       vertex_id_ = info->next_vertex_id;
       edge_id_ = info->next_edge_id;
@@ -398,11 +400,18 @@ Storage::Storage(Config config)
   }
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED) {
     snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval, [this] {
-      if (auto maybe_error = this->CreateSnapshot(); maybe_error.HasError()) {
+      if (auto maybe_error = this->CreateSnapshot({true}); maybe_error.HasError()) {
         switch (maybe_error.GetError()) {
           case CreateSnapshotError::DisabledForReplica:
             spdlog::warn(
                 utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
+            break;
+          case CreateSnapshotError::DisabledForAnalyticsPeriodicCommit:
+            spdlog::warn(utils::MessageWithLink("Periodic snapshots are disabled for analytical mode.",
+                                                "https://memgr.ph/durability"));
+            break;
+          case storage::Storage::CreateSnapshotError::ReachedMaxNumTries:
+            spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
             break;
         }
       }
@@ -446,23 +455,30 @@ Storage::~Storage() {
     snapshot_runner_.Stop();
   }
   if (config_.durability.snapshot_on_exit) {
-    if (auto maybe_error = this->CreateSnapshot(); maybe_error.HasError()) {
+    if (auto maybe_error = this->CreateSnapshot({false}); maybe_error.HasError()) {
       switch (maybe_error.GetError()) {
         case CreateSnapshotError::DisabledForReplica:
           spdlog::warn(utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
+          break;
+        case CreateSnapshotError::DisabledForAnalyticsPeriodicCommit:
+          spdlog::warn(utils::MessageWithLink("Periodic snapshots are disabled for analytical mode.",
+                                              "https://memgr.ph/replication"));
+          break;
+        case storage::Storage::CreateSnapshotError::ReachedMaxNumTries:
+          spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
           break;
       }
     }
   }
 }
 
-Storage::Accessor::Accessor(Storage *storage, IsolationLevel isolation_level)
+Storage::Accessor::Accessor(Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode)
     : storage_(storage),
       // The lock must be acquired before creating the transaction object to
       // prevent freshly created transactions from dangling in an active state
       // during exclusive operations.
       storage_guard_(storage_->main_lock_),
-      transaction_(storage->CreateTransaction(isolation_level)),
+      transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
       config_(storage->config_.items) {}
 
@@ -490,11 +506,16 @@ VertexAccessor Storage::Accessor::CreateVertex() {
   OOMExceptionEnabler oom_exception;
   auto gid = storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
   auto acc = storage_->vertices_.access();
-  auto delta = CreateDeleteObjectDelta(&transaction_);
+
+  auto *delta = CreateDeleteObjectDelta(&transaction_);
   auto [it, inserted] = acc.insert(Vertex{storage::Gid::FromUint(gid), delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
-  delta->prev.Set(&*it);
+
+  if (delta) {
+    delta->prev.Set(&*it);
+  }
+
   return VertexAccessor(&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_);
 }
 
@@ -509,11 +530,14 @@ VertexAccessor Storage::Accessor::CreateVertex(storage::Gid gid) {
   storage_->vertex_id_.store(std::max(storage_->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
                              std::memory_order_release);
   auto acc = storage_->vertices_.access();
-  auto delta = CreateDeleteObjectDelta(&transaction_);
+
+  auto *delta = CreateDeleteObjectDelta(&transaction_);
   auto [it, inserted] = acc.insert(Vertex{gid, delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
-  delta->prev.Set(&*it);
+  if (delta) {
+    delta->prev.Set(&*it);
+  }
   return VertexAccessor(&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_);
 }
 
@@ -656,12 +680,15 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexA
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
     auto acc = storage_->edges_.access();
-    auto delta = CreateDeleteObjectDelta(&transaction_);
+
+    auto *delta = CreateDeleteObjectDelta(&transaction_);
     auto [it, inserted] = acc.insert(Edge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
     MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
     edge = EdgeRef(&*it);
-    delta->prev.Set(&*it);
+    if (delta) {
+      delta->prev.Set(&*it);
+    }
   }
 
   CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
@@ -724,12 +751,15 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexA
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
     auto acc = storage_->edges_.access();
-    auto delta = CreateDeleteObjectDelta(&transaction_);
+
+    auto *delta = CreateDeleteObjectDelta(&transaction_);
     auto [it, inserted] = acc.insert(Edge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
     MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
     edge = EdgeRef(&*it);
-    delta->prev.Set(&*it);
+    if (delta) {
+      delta->prev.Set(&*it);
+    }
   }
 
   CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
@@ -1380,7 +1410,7 @@ VerticesIterable Storage::Accessor::Vertices(LabelId label, PropertyId property,
       storage_->indices_.label_property_index.Vertices(label, property, lower_bound, upper_bound, view, &transaction_));
 }
 
-Transaction Storage::CreateTransaction(IsolationLevel isolation_level) {
+Transaction Storage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) {
   // We acquire the transaction engine lock here because we access (and
   // modify) the transaction engine variables (`transaction_id` and
   // `timestamp`) below.
@@ -1401,7 +1431,7 @@ Transaction Storage::CreateTransaction(IsolationLevel isolation_level) {
       start_timestamp = timestamp_++;
     }
   }
-  return {transaction_id, start_timestamp, isolation_level};
+  return {transaction_id, start_timestamp, isolation_level, storage_mode};
 }
 
 template <bool force>
@@ -1907,28 +1937,47 @@ bool Storage::AppendToWalDataDefinition(durability::StorageGlobalOperation opera
   return finalized_on_all_replicas;
 }
 
-utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot() {
+utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot(std::optional<bool> is_periodic) {
   if (replication_role_.load() != ReplicationRole::MAIN) {
     return CreateSnapshotError::DisabledForReplica;
   }
 
+  auto snapshot_creator = [this]() {
+    auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION, storage_mode_);
+    // Create snapshot.
+    durability::CreateSnapshot(&transaction, snapshot_directory_, wal_directory_,
+                               config_.durability.snapshot_retention_count, &vertices_, &edges_, &name_id_mapper_,
+                               &indices_, &constraints_, config_, uuid_, epoch_id_, epoch_history_, &file_retainer_);
+    // Finalize snapshot transaction.
+    commit_log_->MarkFinished(transaction.start_timestamp);
+  };
+
   std::lock_guard snapshot_guard(snapshot_lock_);
 
-  // Take master RW lock (for reading).
-  std::shared_lock<utils::RWLock> storage_guard(main_lock_);
+  auto should_try_shared{true};
+  auto max_num_tries{10};
+  while (max_num_tries) {
+    if (should_try_shared) {
+      std::shared_lock<utils::RWLock> storage_guard(main_lock_);
+      if (storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
+        snapshot_creator();
+        return {};
+      }
+    } else {
+      std::unique_lock main_guard{main_lock_};
+      if (storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+        if (is_periodic && *is_periodic) {
+          return CreateSnapshotError::DisabledForAnalyticsPeriodicCommit;
+        }
+        snapshot_creator();
+        return {};
+      }
+    }
+    should_try_shared = !should_try_shared;
+    max_num_tries--;
+  }
 
-  // Create the transaction used to create the snapshot.
-  auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION);
-
-  // Create snapshot.
-  durability::CreateSnapshot(&transaction, snapshot_directory_, wal_directory_,
-                             config_.durability.snapshot_retention_count, &vertices_, &edges_, &name_id_mapper_,
-                             &indices_, &constraints_, config_.items, uuid_, epoch_id_, epoch_history_,
-                             &file_retainer_);
-
-  // Finalize snapshot transaction.
-  commit_log_->MarkFinished(transaction.start_timestamp);
-  return {};
+  return CreateSnapshotError::ReachedMaxNumTries;
 }
 
 bool Storage::LockPath() {
@@ -2114,10 +2163,22 @@ std::vector<Storage::ReplicaInfo> Storage::ReplicasInfo() {
   });
 }
 
-void Storage::SetIsolationLevel(IsolationLevel isolation_level) {
+utils::BasicResult<Storage::SetIsolationLevelError> Storage::SetIsolationLevel(IsolationLevel isolation_level) {
   std::unique_lock main_guard{main_lock_};
+  if (storage_mode_ == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+    return Storage::SetIsolationLevelError::DisabledForAnalyticalMode;
+  }
+
   isolation_level_ = isolation_level;
+  return {};
 }
+
+void Storage::SetStorageMode(StorageMode storage_mode) {
+  std::unique_lock main_guard{main_lock_};
+  storage_mode_ = storage_mode;
+}
+
+StorageMode Storage::GetStorageMode() { return storage_mode_; }
 
 void Storage::RestoreReplicas() {
   MG_ASSERT(memgraph::storage::ReplicationRole::MAIN == GetReplicationRole());

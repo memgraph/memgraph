@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright 2022 Memgraph Ltd.
+# Copyright 2023 Memgraph Ltd.
 #
 # Use of this software is governed by the Business Source License
 # included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -97,8 +97,79 @@ def compare_results(results_from, results_to, fields, ignored, different_vendors
     return ret
 
 
-def generate_remarkup(fields, data):
-    ret = "==== Benchmark summary: ====\n\n"
+def generate_remarkup(fields, data, results_from=None, results_to=None):
+    ret = "<html>\n"
+    ret += """
+        <style>
+            table, th, td {
+            border: 1px solid black;
+            }
+        </style>
+        """
+    ret += "<h1>Benchmark comparison</h1>\n"
+    if results_from and results_to:
+        ret += """
+        <h2>Benchmark configuration</h2>
+        <table>
+            <tr>
+                <th>Configuration</th>
+                <th>Reference vendor</th>
+                <th>Vendor </th>
+            </tr>
+            <tr>
+                <td>Vendor name</td>
+                <td>{}</td>
+                <td>{}</td>
+            </tr>
+            <tr>
+                <td>Vendor condition</td>
+                <td>{}</td>
+                <td>{}</td>
+            </tr>
+            <tr>
+                <td>Number of workers</td>
+                <td>{}</td>
+                <td>{}</td>
+            </tr>
+            <tr>
+                <td>Single threaded runtime</td>
+                <td>{}</td>
+                <td>{}</td>
+            </tr>
+            <tr>
+                <td>Platform</td>
+                <td>{}</td>
+                <td>{}</td>
+            </tr>
+        </table>
+        """.format(
+            results_from["vendor"],
+            results_to["vendor"],
+            results_from["condition"],
+            results_to["condition"],
+            results_from["num_workers_for_benchmark"],
+            results_to["num_workers_for_benchmark"],
+            results_from["single_threaded_runtime_sec"],
+            results_to["single_threaded_runtime_sec"],
+            results_from["platform"],
+            results_to["platform"],
+        )
+        ret += """
+        <h2>How to read benchmark results</h2>
+        <b> Throughput and latency values:</b>
+        <p> If vendor <b>  {} </b> is faster than the reference vendor <b>  {} </b>, the result for throughput and latency are show in <b style="color:#008000">green </b>, otherwise <b style="color:#FF0000">red </b>. Percentage difference is visible relative to reference vendor {}. </p>
+        <b> Memory usage:</b>
+        <p> If the vendor <b>  {} </b> uses less memory then the reference vendor <b>  {} </b>, the result is shown in  <b style="color:#008000">green </b>, otherwise <b style="color:#FF0000"> red </b>. Percentage difference for memory is visible relative to reference vendor {}.
+        """.format(
+            results_to["vendor"],
+            results_from["vendor"],
+            results_from["vendor"],
+            results_to["vendor"],
+            results_from["vendor"],
+            results_from["vendor"],
+        )
+
+    ret += "<h2>Benchmark results</h2>\n"
     if len(data) > 0:
         ret += "<table>\n"
         ret += "  <tr>\n"
@@ -135,6 +206,7 @@ def generate_remarkup(fields, data):
                         ret += '<td bgcolor="blue">{:.3f}{} //(new)// </td>\n'.format(value, field["unit"])
             ret += "  </tr>\n"
         ret += "</table>\n"
+        ret += "</html>\n"
     else:
         ret += "No performance change detected.\n"
     return ret
@@ -276,7 +348,11 @@ if __name__ == "__main__":
         results_to = load_results(file_to)
         data.update(compare_results(results_from, results_to, fields, ignored, args.different_vendors))
 
-    remarkup = generate_remarkup(fields, data)
+    results_from_config = (
+        results_from["__run_configuration__"] if "__run_configuration__" in results_from.keys() else None
+    )
+    results_to_config = results_to["__run_configuration__"] if "__run_configuration__" in results_to.keys() else None
+    remarkup = generate_remarkup(fields, data, results_from=results_from_config, results_to=results_to_config)
     if args.output:
         with open(args.output, "w") as f:
             f.write(remarkup)
