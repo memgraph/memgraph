@@ -3,6 +3,23 @@
 set -Eeuo pipefail
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
+MEMGRAPH_BINARY_PATH="../../build/memgraph"
+# NOTE: On Ubuntu 22.04 0.3.2 uses non-existing docker compose --compatibility flag.
+# NOTE: On Ubuntu 22.04 0.3.1 seems to be working.
+JEPSEN_VERSION="${JEPSEN_VERSION:-v0.3.0}"
+JEPSEN_ACTIVE_NODES_NO=5
+CONTROL_LEIN_RUN_ARGS="test-all --node-configs resources/node-config.edn"
+CONTROL_LEIN_RUN_STDOUT_LOGS=1
+CONTROL_LEIN_RUN_STDERR_LOGS=1
+PRINT_CONTEXT() {
+    echo -e "MEMGRAPH_BINARY_PATH:\t\t $MEMGRAPH_BINARY_PATH"
+    echo -e "JEPSEN_VERSION:\t\t\t $JEPSEN_VERSION"
+    echo -e "JEPSEN_ACTIVE_NODES_NO:\t\t $JEPSEN_ACTIVE_NODES_NO"
+    echo -e "CONTROL_LEIN_RUN_ARGS:\t\t $CONTROL_LEIN_RUN_ARGS"
+    echo -e "CONTROL_LEIN_RUN_STDOUT_LOGS:\t $CONTROL_LEIN_RUN_STDOUT_LOGS"
+    echo -e "CONTROL_LEIN_RUN_STDERR_LOGS:\t $CONTROL_LEIN_RUN_STDERR_LOGS"
+}
+
 HELP_EXIT() {
     echo ""
     echo "HELP: $0 help|cluster-up|test [args]"
@@ -28,15 +45,10 @@ if ! command -v docker > /dev/null 2>&1 || ! command -v docker-compose > /dev/nu
   ERROR "docker and docker-compose have to be installed."
   exit 1
 fi
-
-MEMGRAPH_BINARY_PATH="../../build/memgraph"
-JEPSEN_ACTIVE_NODES_NO=5
-CONTROL_LEIN_RUN_ARGS="test-all --node-configs resources/node-config.edn"
-CONTROL_LEIN_RUN_STDOUT_LOGS=1
-CONTROL_LEIN_RUN_STDERR_LOGS=1
+PRINT_CONTEXT
 
 if [ ! -d "$script_dir/jepsen" ]; then
-    git clone https://github.com/jepsen-io/jepsen.git -b "0.2.1" "$script_dir/jepsen"
+    git clone https://github.com/jepsen-io/jepsen.git -b "$JEPSEN_VERSION" "$script_dir/jepsen"
 fi
 
 if [ "$#" -lt 1 ]; then
@@ -96,21 +108,25 @@ case $1 in
             esac
         done
 
-        # Resolve binary path if it is a link.
+        # Copy Memgraph binary, handles both cases, when binary is a sym link
+        # or a regular file.
         binary_path="$MEMGRAPH_BINARY_PATH"
         if [ -L "$binary_path" ]; then
             binary_path=$(readlink "$binary_path")
         fi
         binary_name=$(basename -- "$binary_path")
-
-        # Copy Memgraph binary.
         for iter in $(seq 1 "$JEPSEN_ACTIVE_NODES_NO"); do
             jepsen_node_name="jepsen-n$iter"
-            # Cleanup the node folder with previous binaries.
-            docker exec "$jepsen_node_name" rm -rf /opt/memgraph/
-            docker exec "$jepsen_node_name" mkdir -p /opt/memgraph
-            docker cp "$binary_path" "$jepsen_node_name":/opt/memgraph/"$binary_name"
-            docker exec "$jepsen_node_name" bash -c "rm -f /opt/memgraph/memgraph && ln -s /opt/memgraph/$binary_name /opt/memgraph/memgraph"
+            docker_exec="docker exec $jepsen_node_name bash -c"
+            if [ "$binary_name" == "memgraph" ]; then
+              _binary_name="memgraph_tmp"
+            else
+              _binary_name="$binary_name"
+            fi
+            $docker_exec "rm -rf /opt/memgraph/ && mkdir -p /opt/memgraph"
+            docker cp "$binary_path" "$jepsen_node_name":/opt/memgraph/"$_binary_name"
+            $docker_exec "ln -s /opt/memgraph/$_binary_name /opt/memgraph/memgraph"
+            $docker_exec "touch /opt/memgraph/memgraph.log"
             INFO "Copying $binary_name to $jepsen_node_name DONE."
         done
 

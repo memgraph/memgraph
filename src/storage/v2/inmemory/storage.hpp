@@ -72,7 +72,7 @@ class InMemoryStorage final : public Storage {
    private:
     friend class InMemoryStorage;
 
-    explicit InMemoryAccessor(InMemoryStorage *storage, IsolationLevel isolation_level);
+    explicit InMemoryAccessor(InMemoryStorage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
 
    public:
     InMemoryAccessor(const InMemoryAccessor &) = delete;
@@ -245,7 +245,7 @@ class InMemoryStorage final : public Storage {
 
   std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override {
     return std::unique_ptr<InMemoryAccessor>(
-        new InMemoryAccessor{this, override_isolation_level.value_or(isolation_level_)});
+        new InMemoryAccessor{this, override_isolation_level.value_or(isolation_level_, storage_mode_)});
   }
 
   const std::string &LabelToName(LabelId label) const override;
@@ -368,10 +368,22 @@ class InMemoryStorage final : public Storage {
 
   void SetIsolationLevel(IsolationLevel isolation_level) override;
 
-  utils::BasicResult<CreateSnapshotError> CreateSnapshot() override;
+  enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };
+
+  void SetStorageMode(StorageMode storage_mode);
+
+  StorageMode GetStorageMode();
+
+  enum class CreateSnapshotError : uint8_t {
+    DisabledForReplica,
+    DisabledForAnalyticsPeriodicCommit,
+    ReachedMaxNumTries
+  };
+
+  utils::BasicResult<CreateSnapshotError> CreateSnapshot(std::optional<bool> is_periodic) override;
 
  private:
-  Transaction CreateTransaction(IsolationLevel isolation_level);
+  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode);
 
   /// The force parameter determines the behaviour of the garbage collector.
   /// If it's set to true, it will behave as a global operation, i.e. it can't
@@ -437,6 +449,7 @@ class InMemoryStorage final : public Storage {
 
   utils::Synchronized<std::list<Transaction>, utils::SpinLock> committed_transactions_;
   IsolationLevel isolation_level_;
+  StorageMode storage_mode_;
 
   Config config_;
   utils::Scheduler gc_runner_;

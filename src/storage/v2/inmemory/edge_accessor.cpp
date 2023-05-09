@@ -118,6 +118,7 @@ Result<storage::PropertyValue> InMemoryEdgeAccessor::SetProperty(PropertyId prop
   // current code always follows the logical pattern of "create a delta" and
   // "modify in-place". Additionally, the created delta will make other
   // transactions get a SERIALIZATION_ERROR.
+
   CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, current_value);
   edge_.ptr->properties.SetProperty(property, value);
 

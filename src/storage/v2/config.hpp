@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -50,6 +50,11 @@ struct Config {
 
     bool snapshot_on_exit{false};
     bool restore_replicas_on_startup{false};
+
+    uint64_t items_per_batch{1'000'000};
+    uint64_t recovery_thread_count{8};
+
+    bool allow_parallel_index_creation{false};
   } durability;
 
   struct Transaction {

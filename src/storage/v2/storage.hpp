@@ -19,6 +19,7 @@
 #include "storage/v2/indices.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/storage_error.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/view.hpp"
 
@@ -481,11 +482,21 @@ class Storage {
 
   virtual void FreeMemory() = 0;
 
-  virtual void SetIsolationLevel(IsolationLevel isolation_level) = 0;
+  enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };
 
-  enum class CreateSnapshotError : uint8_t { DisabledForReplica };
+  virtual utils::BasicResult<SetIsolationLevelError> SetIsolationLevel(IsolationLevel isolation_level) = 0;
 
-  virtual utils::BasicResult<CreateSnapshotError> CreateSnapshot() = 0;
+  void SetStorageMode(StorageMode storage_mode);
+
+  StorageMode GetStorageMode();
+
+  enum class CreateSnapshotError : uint8_t {
+    DisabledForReplica,
+    DisabledForAnalyticsPeriodicCommit,
+    ReachedMaxNumTries
+  };
+
+  virtual utils::BasicResult<CreateSnapshotError> CreateSnapshot(std::optional<bool> is_periodic) = 0;
 };
 
 }  // namespace memgraph::storage

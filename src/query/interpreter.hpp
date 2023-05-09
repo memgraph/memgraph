@@ -51,6 +51,7 @@ extern const Event FailedQuery;
 namespace memgraph::query {
 
 inline constexpr size_t kExecutionMemoryBlockSize = 1UL * 1024UL * 1024UL;
+inline constexpr size_t kExecutionPoolMaxBlockSize = 2048UL;  // 2 ^ 11
 
 class AuthQueryHandler {
  public:
@@ -340,13 +341,29 @@ class Interpreter final {
  private:
   struct QueryExecution {
     std::optional<PreparedQuery> prepared_query;
-    utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
-    utils::ResourceWithOutOfMemoryException execution_memory_with_exception{&execution_memory};
+    std::variant<utils::MonotonicBufferResource, utils::PoolResource> execution_memory;
+    utils::ResourceWithOutOfMemoryException execution_memory_with_exception;
 
     std::map<std::string, TypedValue> summary;
     std::vector<Notification> notifications;
 
-    explicit QueryExecution() = default;
+    explicit QueryExecution(utils::MonotonicBufferResource monotonic_memory)
+        : execution_memory(std::move(monotonic_memory)) {
+      std::visit(
+          [&](auto &memory_resource) {
+            execution_memory_with_exception = utils::ResourceWithOutOfMemoryException(&memory_resource);
+          },
+          execution_memory);
+    };
+
+    explicit QueryExecution(utils::PoolResource pool_resource) : execution_memory(std::move(pool_resource)) {
+      std::visit(
+          [&](auto &memory_resource) {
+            execution_memory_with_exception = utils::ResourceWithOutOfMemoryException(&memory_resource);
+          },
+          execution_memory);
+    };
+
     QueryExecution(const QueryExecution &) = delete;
     QueryExecution(QueryExecution &&) = default;
     QueryExecution &operator=(const QueryExecution &) = delete;
@@ -357,7 +374,7 @@ class Interpreter final {
       // destroy the prepared query which is using that instance
       // of execution memory.
       prepared_query.reset();
-      execution_memory.Release();
+      std::visit([](auto &memory_resource) { memory_resource.Release(); }, execution_memory);
     }
   };
 
@@ -445,7 +462,9 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
   try {
     // Wrap the (statically polymorphic) stream type into a common type which
     // the handler knows.
-    AnyStream stream{result_stream, &query_execution->execution_memory};
+    AnyStream stream{result_stream,
+                     std::visit([](auto &execution_memory) -> utils::MemoryResource * { return &execution_memory; },
+                                query_execution->execution_memory)};
     const auto maybe_res = query_execution->prepared_query->query_handler(&stream, n);
     // Stream is using execution memory of the query_execution which
     // can be deleted after its execution so the stream should be cleared
