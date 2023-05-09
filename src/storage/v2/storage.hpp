@@ -486,9 +486,9 @@ class Storage {
 
   virtual utils::BasicResult<SetIsolationLevelError> SetIsolationLevel(IsolationLevel isolation_level) = 0;
 
-  void SetStorageMode(StorageMode storage_mode);
+  virtual void SetStorageMode(StorageMode storage_mode) = 0;
 
-  StorageMode GetStorageMode();
+  virtual StorageMode GetStorageMode() = 0;
 
   enum class CreateSnapshotError : uint8_t {
     DisabledForReplica,

@@ -11,6 +11,7 @@
 
 #include <gtest/gtest.h>
 #include <chrono>
+#include <memory>
 #include <stop_token>
 #include <string>
 #include <string_view>
@@ -18,8 +19,8 @@
 
 #include "interpreter_faker.hpp"
 #include "query/exceptions.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
-#include "storage/v2/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage_test_utils.hpp"
@@ -37,27 +38,29 @@ class StorageModeTest : public ::testing::TestWithParam<memgraph::storage::Stora
 TEST_P(StorageModeTest, Mode) {
   const memgraph::storage::StorageMode storage_mode = GetParam();
 
-  memgraph::storage::Storage storage{
-      {.transaction{.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}}};
-  storage.SetStorageMode(storage_mode);
-  auto creator = storage.Access();
-  auto other_analytics_mode_reader = storage.Access();
+  std::unique_ptr<memgraph::storage::Storage> storage =
+      std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
+          .transaction{.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}});
+  storage->SetStorageMode(storage_mode);
+  auto creator = storage->Access();
+  auto other_analytics_mode_reader = storage->Access();
 
-  ASSERT_EQ(CountVertices(creator, memgraph::storage::View::OLD), 0);
-  ASSERT_EQ(CountVertices(other_analytics_mode_reader, memgraph::storage::View::OLD), 0);
+  ASSERT_EQ(CountVertices(creator.get(), memgraph::storage::View::OLD), 0);
+  ASSERT_EQ(CountVertices(other_analytics_mode_reader.get(), memgraph::storage::View::OLD), 0);
 
   static constexpr int vertex_creation_count = 10;
   {
     for (size_t i = 1; i <= vertex_creation_count; i++) {
-      creator.CreateVertex();
+      creator->CreateVertex();
 
       int64_t expected_vertices_count = storage_mode == memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL ? i : 0;
-      ASSERT_EQ(CountVertices(creator, memgraph::storage::View::OLD), expected_vertices_count);
-      ASSERT_EQ(CountVertices(other_analytics_mode_reader, memgraph::storage::View::OLD), expected_vertices_count);
+      ASSERT_EQ(CountVertices(creator.get(), memgraph::storage::View::OLD), expected_vertices_count);
+      ASSERT_EQ(CountVertices(other_analytics_mode_reader.get(), memgraph::storage::View::OLD),
+                expected_vertices_count);
     }
   }
 
-  ASSERT_FALSE(creator.Commit().HasError());
+  ASSERT_FALSE(creator->Commit().HasError());
 }
 
 INSTANTIATE_TEST_CASE_P(ParameterizedStorageModeTests, StorageModeTest, ::testing::ValuesIn(storage_modes),
@@ -65,9 +68,9 @@ INSTANTIATE_TEST_CASE_P(ParameterizedStorageModeTests, StorageModeTest, ::testin
 
 class StorageModeMultiTxTest : public ::testing::Test {
  protected:
-  memgraph::storage::Storage db_;
+  std::unique_ptr<memgraph::storage::Storage> db_ = std::make_unique<memgraph::storage::InMemoryStorage>();
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_storage_mode"};
-  memgraph::query::InterpreterContext interpreter_context{&db_, {}, data_directory};
+  memgraph::query::InterpreterContext interpreter_context{db_.get(), {}, data_directory};
   InterpreterFaker running_interpreter{&interpreter_context}, main_interpreter{&interpreter_context};
 };
 
@@ -84,11 +87,11 @@ TEST_F(StorageModeMultiTxTest, ModeSwitchInactiveTransaction) {
     while (!started) {
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
-    ASSERT_EQ(db_.GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
+    ASSERT_EQ(db_->GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
     main_interpreter.Interpret("STORAGE MODE IN_MEMORY_ANALYTICAL");
 
     // should change state
-    ASSERT_EQ(db_.GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
+    ASSERT_EQ(db_->GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
 
     // finish thread
     running_thread.request_stop();
@@ -97,7 +100,7 @@ TEST_F(StorageModeMultiTxTest, ModeSwitchInactiveTransaction) {
 
 TEST_F(StorageModeMultiTxTest, ModeSwitchActiveTransaction) {
   // transactional state
-  ASSERT_EQ(db_.GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
+  ASSERT_EQ(db_->GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
   main_interpreter.Interpret("BEGIN");
 
   bool started = false;
@@ -116,7 +119,7 @@ TEST_F(StorageModeMultiTxTest, ModeSwitchActiveTransaction) {
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
     // should not change still
-    ASSERT_EQ(db_.GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
+    ASSERT_EQ(db_->GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
 
     main_interpreter.Interpret("COMMIT");
 
@@ -124,7 +127,7 @@ TEST_F(StorageModeMultiTxTest, ModeSwitchActiveTransaction) {
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
     // should change state
-    ASSERT_EQ(db_.GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
+    ASSERT_EQ(db_->GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
 
     // finish thread
     running_thread.request_stop();
@@ -132,11 +135,11 @@ TEST_F(StorageModeMultiTxTest, ModeSwitchActiveTransaction) {
 }
 
 TEST_F(StorageModeMultiTxTest, ErrorChangeIsolationLevel) {
-  ASSERT_EQ(db_.GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
+  ASSERT_EQ(db_->GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
   main_interpreter.Interpret("STORAGE MODE IN_MEMORY_ANALYTICAL");
 
   // should change state
-  ASSERT_EQ(db_.GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
+  ASSERT_EQ(db_->GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
 
   ASSERT_THROW(running_interpreter.Interpret("SET GLOBAL TRANSACTION ISOLATION LEVEL READ COMMITTED;"),
                memgraph::query::IsolationLevelModificationInAnalyticsException);

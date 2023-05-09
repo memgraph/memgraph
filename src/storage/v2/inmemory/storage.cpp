@@ -1206,7 +1206,7 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
       storage_->indices_.label_property_index.Vertices(label, property, lower_bound, upper_bound, view, &transaction_));
 }
 
-Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level) {
+Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) {
   // We acquire the transaction engine lock here because we access (and
   // modify) the transaction engine variables (`transaction_id` and
   // `timestamp`) below.

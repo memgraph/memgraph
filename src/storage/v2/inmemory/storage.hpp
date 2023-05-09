@@ -245,7 +245,7 @@ class InMemoryStorage final : public Storage {
 
   std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override {
     return std::unique_ptr<InMemoryAccessor>(
-        new InMemoryAccessor{this, override_isolation_level.value_or(isolation_level_, storage_mode_)});
+        new InMemoryAccessor{this, override_isolation_level.value_or(isolation_level_), storage_mode_});
   }
 
   const std::string &LabelToName(LabelId label) const override;
@@ -366,19 +366,10 @@ class InMemoryStorage final : public Storage {
 
   void FreeMemory() override;
 
-  void SetIsolationLevel(IsolationLevel isolation_level) override;
+  utils::BasicResult<SetIsolationLevelError> SetIsolationLevel(IsolationLevel isolation_level) override;
+  void SetStorageMode(StorageMode storage_mode) override;
 
-  enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };
-
-  void SetStorageMode(StorageMode storage_mode);
-
-  StorageMode GetStorageMode();
-
-  enum class CreateSnapshotError : uint8_t {
-    DisabledForReplica,
-    DisabledForAnalyticsPeriodicCommit,
-    ReachedMaxNumTries
-  };
+  StorageMode GetStorageMode() override;
 
   utils::BasicResult<CreateSnapshotError> CreateSnapshot(std::optional<bool> is_periodic) override;
 
