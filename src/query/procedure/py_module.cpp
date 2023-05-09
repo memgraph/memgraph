@@ -14,6 +14,7 @@
 #include <datetime.h>
 #include <pyerrors.h>
 #include <array>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -860,7 +861,7 @@ py::Object MgpListToPyTuple(mgp_list *list, PyObject *py_graph) {
 }
 
 namespace {
-std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Object py_record) {
+std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Object py_record, mgp_memory *memory) {
   py::Object py_mgp(PyImport_ImportModule("mgp"));
   if (!py_mgp) return py::FetchError();
   auto record_cls = py_mgp.GetAttr("Record");
@@ -902,8 +903,12 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
     if (!field_name) return py::FetchError();
     auto *val = PyTuple_GetItem(item, 1);
     if (!val) return py::FetchError();
-    mgp_memory memory{result->rows.get_allocator().GetMemoryResource()};
-    mgp_value *field_val = PyObjectToMgpValueWithPythonExceptions(val, &memory);
+    // This memory was query execution memory. Problem with using this memory is that it is:
+    //  - 1. MonotonicMemory which grows with coeff 1.33
+    //  - 2. Used both for allocations of mgp_value which is destoryed and allocations of TypedValue which is not
+    //  destroyed until at the end
+    // mgp_memory memory_bug{result->rows.get_allocator().GetMemoryResource()}; //<- problematic line
+    mgp_value *field_val = PyObjectToMgpValueWithPythonExceptions(val, memory);
     if (field_val == nullptr) {
       return py::FetchError();
     }
@@ -921,15 +926,22 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
   return std::nullopt;
 }
 
-std::optional<py::ExceptionInfo> AddMultipleRecordsFromPython(mgp_result *result, py::Object py_seq) {
+std::optional<py::ExceptionInfo> AddMultipleRecordsFromPython(mgp_result *result, py::Object py_seq,
+                                                              mgp_memory *memory) {
   Py_ssize_t len = PySequence_Size(py_seq.Ptr());
   if (len == -1) return py::FetchError();
-  for (Py_ssize_t i = 0; i < len; ++i) {
-    py::Object py_record(PySequence_GetItem(py_seq.Ptr(), i));
+  const int del_cnt{100000};
+  for (Py_ssize_t i = 0, curr_loc = 0; i < len; ++i, ++curr_loc) {
+    py::Object py_record(PySequence_GetItem(py_seq.Ptr(), curr_loc));
     if (!py_record) return py::FetchError();
-    auto maybe_exc = AddRecordFromPython(result, py_record);
+    auto maybe_exc = AddRecordFromPython(result, py_record, memory);
     if (maybe_exc) return maybe_exc;
+    if (i && i % del_cnt == 0) {
+      PySequence_DelSlice(py_seq.Ptr(), 0, del_cnt);
+      curr_loc = -1;
+    }
   }
+  PySequence_DelSlice(py_seq.Ptr(), 0, PySequence_Size(py_seq.Ptr()));
   return std::nullopt;
 }
 
@@ -962,6 +974,7 @@ std::function<void()> PyObjectCleanup(py::Object &py_object) {
 
 void CallPythonProcedure(const py::Object &py_cb, mgp_list *args, mgp_graph *graph, mgp_result *result,
                          mgp_memory *memory) {
+  // *memory here is memory from `EvalContext`
   auto gil = py::EnsureGIL();
 
   auto error_to_msg = [](const std::optional<py::ExceptionInfo> &exc_info) -> std::optional<std::string> {
@@ -979,9 +992,9 @@ void CallPythonProcedure(const py::Object &py_cb, mgp_list *args, mgp_graph *gra
     auto py_res = py_cb.Call(py_graph, py_args);
     if (!py_res) return py::FetchError();
     if (PySequence_Check(py_res.Ptr())) {
-      return AddMultipleRecordsFromPython(result, py_res);
+      return AddMultipleRecordsFromPython(result, py_res, memory);
     } else {
-      return AddRecordFromPython(result, py_res);
+      return AddRecordFromPython(result, py_res, memory);
     }
   };
 
@@ -1027,9 +1040,9 @@ void CallPythonTransformation(const py::Object &py_cb, mgp_messages *msgs, mgp_g
     auto py_res = py_cb.Call(py_graph, py_messages);
     if (!py_res) return py::FetchError();
     if (PySequence_Check(py_res.Ptr())) {
-      return AddMultipleRecordsFromPython(result, py_res);
+      return AddMultipleRecordsFromPython(result, py_res, memory);
     }
-    return AddRecordFromPython(result, py_res);
+    return AddRecordFromPython(result, py_res, memory);
   };
 
   // It is *VERY IMPORTANT* to note that this code takes great care not to keep
@@ -1131,6 +1144,7 @@ PyObject *PyQueryModuleAddProcedure(PyQueryModule *self, PyObject *cb, bool is_w
     PyErr_SetString(PyExc_ValueError, "Procedure name is not a valid identifier");
     return nullptr;
   }
+  //
   auto *memory = self->module->procedures.get_allocator().GetMemoryResource();
   mgp_proc proc(name,
                 [py_cb](mgp_list *args, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {

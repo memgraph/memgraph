@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <iostream>
 #include <limits>
 #include <type_traits>
 
@@ -26,11 +27,13 @@ namespace memgraph::utils {
 namespace {
 
 size_t GrowMonotonicBuffer(size_t current_size, size_t max_size) {
-  double next_size = current_size * 1.34;
+  double coef = current_size > 500000000 ? 1 : 1.34;
+  double next_size = current_size * coef;
   if (next_size >= static_cast<double>(max_size)) {
     // Overflow, clamp to max_size
     return max_size;
   }
+  std::cout << "next_size: " << next_size << ", current size: " << current_size << std::endl;
   return std::ceil(next_size);
 }
 
@@ -72,6 +75,7 @@ MonotonicBufferResource &MonotonicBufferResource::operator=(MonotonicBufferResou
 }
 
 void MonotonicBufferResource::Release() {
+  std::cout << "monotonic buffer size on release: " << next_buffer_size_ << std::endl;
   for (auto *b = current_buffer_; b;) {
     auto *next = b->next;
     auto alloc_size = b->size();
