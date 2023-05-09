@@ -26,12 +26,22 @@ Feature: Map projection
       | result                                                    |
       | {age: 85, lastName: 'Freeman', name: 'Morgan', oscars: 1} |
 
+  Scenario: Projecting a nonexistent property
+    When executing query:
+      """
+      WITH {name: "Morgan", lastName: "Freeman"} as actor
+      RETURN actor.age;
+      """
+    Then the result should be:
+      | actor.age |
+      | null      |
+
   Scenario: Storing a map projection as a property
     Given an empty graph
     And having executed
       """
       WITH {name: "Morgan", lastName: "Freeman"} as person
-      WITH person {.*, oscar: True} as actor
+      WITH person {.*, wonOscars: true} as actor
       CREATE (n:Movie {lead: actor});
       """
     When executing query:
@@ -40,8 +50,8 @@ Feature: Map projection
       RETURN movie.lead
       """
     Then the result should be:
-      | movie.lead                                          |
-      | {lastName: 'Freeman', name: 'Morgan', oscars: True} |
+      | movie.lead                                             |
+      | {lastName: 'Freeman', name: 'Morgan', wonOscars: true} |
 
   Scenario: Looking up the properties of a map projection
     When executing query:
