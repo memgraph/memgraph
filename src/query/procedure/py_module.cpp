@@ -903,11 +903,7 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
     if (!field_name) return py::FetchError();
     auto *val = PyTuple_GetItem(item, 1);
     if (!val) return py::FetchError();
-    // This memory was query execution memory. Problem with using this memory is that it is:
-    //  - 1. MonotonicMemory which grows with coeff 1.33
-    //  - 2. Used both for allocations of mgp_value which is destoryed and allocations of TypedValue which is not
-    //  destroyed until at the end
-    // mgp_memory memory_bug{result->rows.get_allocator().GetMemoryResource()}; //<- problematic line
+    // This memory is one dedicated for mg_procedure.
     mgp_value *field_val = PyObjectToMgpValueWithPythonExceptions(val, memory);
     if (field_val == nullptr) {
       return py::FetchError();
@@ -931,17 +927,20 @@ std::optional<py::ExceptionInfo> AddMultipleRecordsFromPython(mgp_result *result
   Py_ssize_t len = PySequence_Size(py_seq.Ptr());
   if (len == -1) return py::FetchError();
   result->rows.reserve(len);
-  const int del_cnt{100000};
-  for (Py_ssize_t i = 0, curr_loc = 0; i < len; ++i, ++curr_loc) {
-    py::Object py_record(PySequence_GetItem(py_seq.Ptr(), curr_loc));
+  // This proved to be good enough constant not to lose performance on transformation
+  static constexpr auto del_cnt{100000};
+  for (Py_ssize_t i = 0, curr_item = 0; i < len; ++i, ++curr_item) {
+    py::Object py_record(PySequence_GetItem(py_seq.Ptr(), curr_item));
     if (!py_record) return py::FetchError();
     auto maybe_exc = AddRecordFromPython(result, py_record, memory);
     if (maybe_exc) return maybe_exc;
+    // Once PySequence_DelSlice deletes "transformed" objects, starting index is 0 again.
     if (i && i % del_cnt == 0) {
       PySequence_DelSlice(py_seq.Ptr(), 0, del_cnt);
-      curr_loc = -1;
+      curr_item = -1;
     }
   }
+  // Clear at the end what left
   PySequence_DelSlice(py_seq.Ptr(), 0, PySequence_Size(py_seq.Ptr()));
   return std::nullopt;
 }
@@ -1145,7 +1144,6 @@ PyObject *PyQueryModuleAddProcedure(PyQueryModule *self, PyObject *cb, bool is_w
     PyErr_SetString(PyExc_ValueError, "Procedure name is not a valid identifier");
     return nullptr;
   }
-  //
   auto *memory = self->module->procedures.get_allocator().GetMemoryResource();
   mgp_proc proc(name,
                 [py_cb](mgp_list *args, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
