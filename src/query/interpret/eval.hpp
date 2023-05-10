@@ -633,7 +633,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
     TypedValue::TMap result(ctx_->memory);
     for (const auto &[property_key, property_value] : literal.elements_) {
-      if (property_key.name == kAllPropertiesSelector.data()) {  // AllPropertiesSelector
+      if (property_key.name == kAllPropertiesSelector.data()) {
         auto maybe_selector = property_value->Accept(*this);
 
         if (maybe_selector.type() != TypedValue::Type::Map) {
