@@ -930,6 +930,7 @@ std::optional<py::ExceptionInfo> AddMultipleRecordsFromPython(mgp_result *result
                                                               mgp_memory *memory) {
   Py_ssize_t len = PySequence_Size(py_seq.Ptr());
   if (len == -1) return py::FetchError();
+  result->rows.reserve(len);
   const int del_cnt{100000};
   for (Py_ssize_t i = 0, curr_loc = 0; i < len; ++i, ++curr_loc) {
     py::Object py_record(PySequence_GetItem(py_seq.Ptr(), curr_loc));
