@@ -1981,6 +1981,11 @@ utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot(std::op
   return CreateSnapshotError::ReachedMaxNumTries;
 }
 
+bool Storage::IsPathLocked() {
+  auto locker_accessor = global_locker_.Access();
+  return locker_accessor.IsPathLocked(config_.durability.storage_directory);
+}
+
 bool Storage::LockPath() {
   auto locker_accessor = global_locker_.Access();
   return locker_accessor.AddPath(config_.durability.storage_directory);

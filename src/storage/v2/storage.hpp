@@ -467,6 +467,7 @@ class Storage final {
 
   StorageInfo GetInfo() const;
 
+  bool IsPathLocked();
   bool LockPath();
   bool UnlockPath();
 

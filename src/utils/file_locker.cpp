@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -138,6 +138,11 @@ FileRetainer::FileLockerAccessor FileRetainer::FileLocker::Access() {
 FileRetainer::FileLockerAccessor::FileLockerAccessor(FileRetainer *retainer, size_t locker_id)
     : file_retainer_{retainer}, retainer_guard_{retainer->main_lock_}, locker_id_{locker_id} {
   file_retainer_->active_accessors_.fetch_add(1);
+}
+
+bool FileRetainer::FileLockerAccessor::IsPathLocked(const std::filesystem::path &path) {
+  if (!std::filesystem::exists(path)) return false;
+  return file_retainer_->FileLocked(std::filesystem::absolute(path));
 }
 
 bool FileRetainer::FileLockerAccessor::AddPath(const std::filesystem::path &path) {
