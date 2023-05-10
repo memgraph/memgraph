@@ -447,7 +447,7 @@ TEST(QueryPlan, AggregateCountEdgeCases) {
 
   // one vertex, property set
   for (auto va : dba.Vertices(memgraph::storage::View::OLD))
-    ASSERT_TRUE(va.SetProperty(prop, memgraph::storage::PropertyValue(42)).HasValue());
+    ASSERT_TRUE(va->SetProperty(prop, memgraph::storage::PropertyValue(42)).HasValue());
   dba.AdvanceCommand();
   EXPECT_EQ(1, count());
 
@@ -458,7 +458,7 @@ TEST(QueryPlan, AggregateCountEdgeCases) {
 
   // two vertices, both with property set
   for (auto va : dba.Vertices(memgraph::storage::View::OLD))
-    ASSERT_TRUE(va.SetProperty(prop, memgraph::storage::PropertyValue(42)).HasValue());
+    ASSERT_TRUE(va->SetProperty(prop, memgraph::storage::PropertyValue(42)).HasValue());
   dba.AdvanceCommand();
   EXPECT_EQ(2, count());
 }
@@ -883,7 +883,7 @@ TEST(QueryPlan, AggregateCountEdgeCasesWithDistinct) {
 
   // one vertex, property set
   for (auto va : dba.Vertices(memgraph::storage::View::OLD))
-    ASSERT_TRUE(va.SetProperty(prop, memgraph::storage::PropertyValue(42)).HasValue());
+    ASSERT_TRUE(va->SetProperty(prop, memgraph::storage::PropertyValue(42)).HasValue());
   dba.AdvanceCommand();
   EXPECT_EQ(1, count());
 
@@ -894,7 +894,7 @@ TEST(QueryPlan, AggregateCountEdgeCasesWithDistinct) {
 
   // two vertices, both with property set
   for (auto va : dba.Vertices(memgraph::storage::View::OLD))
-    ASSERT_TRUE(va.SetProperty(prop, memgraph::storage::PropertyValue(42)).HasValue());
+    ASSERT_TRUE(va->SetProperty(prop, memgraph::storage::PropertyValue(42)).HasValue());
   dba.AdvanceCommand();
   EXPECT_EQ(1, count());
 }

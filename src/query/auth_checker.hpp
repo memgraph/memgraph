@@ -36,8 +36,13 @@ class FineGrainedAuthChecker {
  public:
   virtual ~FineGrainedAuthChecker() = default;
 
-  [[nodiscard]] virtual bool Has(const query::VertexAccessor &vertex, memgraph::storage::View view,
+  [[nodiscard]] virtual bool Has(const query::VertexAccessor *vertex, memgraph::storage::View view,
                                  query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const = 0;
+
+  bool Has(const query::VertexAccessor &vertex, memgraph::storage::View view,
+           query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const {
+    return Has(&vertex, view, fine_grained_privilege);
+  }
 
   [[nodiscard]] virtual bool Has(const query::EdgeAccessor &edge,
                                  query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const = 0;
@@ -57,7 +62,7 @@ class FineGrainedAuthChecker {
 
 class AllowEverythingFineGrainedAuthChecker final : public query::FineGrainedAuthChecker {
  public:
-  bool Has(const VertexAccessor & /*vertex*/, const memgraph::storage::View /*view*/,
+  bool Has(const VertexAccessor * /*vertex*/, const memgraph::storage::View /*view*/,
            const query::AuthQuery::FineGrainedPrivilege /*fine_grained_privilege*/) const override {
     return true;
   }

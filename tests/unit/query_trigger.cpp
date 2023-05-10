@@ -182,15 +182,15 @@ TEST_F(TriggerContextTest, ValidObjectsTest) {
     {
       auto vertices = dba.Vertices(memgraph::storage::View::OLD);
       for (auto vertex : vertices) {
-        trigger_context_collector.RegisterSetObjectProperty(vertex, dba.NameToProperty("PROPERTY1"),
+        trigger_context_collector.RegisterSetObjectProperty(*vertex, dba.NameToProperty("PROPERTY1"),
                                                             memgraph::query::TypedValue("Value"),
                                                             memgraph::query::TypedValue("ValueNew"));
-        trigger_context_collector.RegisterRemovedObjectProperty(vertex, dba.NameToProperty("PROPERTY2"),
+        trigger_context_collector.RegisterRemovedObjectProperty(*vertex, dba.NameToProperty("PROPERTY2"),
                                                                 memgraph::query::TypedValue("Value"));
-        trigger_context_collector.RegisterSetVertexLabel(vertex, dba.NameToLabel("LABEL1"));
-        trigger_context_collector.RegisterRemovedVertexLabel(vertex, dba.NameToLabel("LABEL2"));
+        trigger_context_collector.RegisterSetVertexLabel(*vertex, dba.NameToLabel("LABEL1"));
+        trigger_context_collector.RegisterRemovedVertexLabel(*vertex, dba.NameToLabel("LABEL2"));
 
-        auto out_edges = vertex.OutEdges(memgraph::storage::View::OLD);
+        auto out_edges = vertex->OutEdges(memgraph::storage::View::OLD);
         ASSERT_TRUE(out_edges.HasValue());
 
         for (auto edge : *out_edges) {
@@ -207,7 +207,7 @@ TEST_F(TriggerContextTest, ValidObjectsTest) {
     {
       auto vertices = dba.Vertices(memgraph::storage::View::OLD);
       for (auto vertex : vertices) {
-        const auto maybe_values = dba.DetachRemoveVertex(&vertex);
+        const auto maybe_values = dba.DetachRemoveVertex(vertex);
         ASSERT_TRUE(maybe_values.HasValue());
         ASSERT_TRUE(maybe_values.GetValue());
         const auto &[deleted_vertex, deleted_edges] = *maybe_values.GetValue();
@@ -264,8 +264,8 @@ TEST_F(TriggerContextTest, ValidObjectsTest) {
     trigger_context.AdaptForAccessor(&dba);
 
     auto vertices = dba.Vertices(memgraph::storage::View::OLD);
-    for (auto vertex : vertices) {
-      ASSERT_TRUE(dba.DetachRemoveVertex(&vertex).HasValue());
+    for (auto *vertex : vertices) {
+      ASSERT_TRUE(dba.DetachRemoveVertex(vertex).HasValue());
       break;
     }
     --vertex_count;

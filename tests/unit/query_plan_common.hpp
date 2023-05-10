@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -219,7 +219,7 @@ auto CountIterable(TIterable &&iterable) {
 inline uint64_t CountEdges(memgraph::query::DbAccessor *dba, memgraph::storage::View view) {
   uint64_t count = 0;
   for (auto vertex : dba->Vertices(view)) {
-    auto maybe_edges = vertex.OutEdges(view);
+    auto maybe_edges = vertex->OutEdges(view);
     MG_ASSERT(maybe_edges.HasValue());
     count += CountIterable(*maybe_edges);
   }

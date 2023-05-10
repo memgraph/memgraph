@@ -61,16 +61,16 @@ TEST(QueryPlan, CreateNodeWithAttributes) {
   int vertex_count = 0;
   for (auto vertex : dba.Vertices(memgraph::storage::View::OLD)) {
     vertex_count++;
-    auto maybe_labels = vertex.Labels(memgraph::storage::View::OLD);
+    auto maybe_labels = vertex->Labels(memgraph::storage::View::OLD);
     ASSERT_TRUE(maybe_labels.HasValue());
     const auto &labels = *maybe_labels;
     EXPECT_EQ(labels.size(), 1);
     EXPECT_EQ(*labels.begin(), label);
-    auto maybe_properties = vertex.Properties(memgraph::storage::View::OLD);
+    auto maybe_properties = vertex->Properties(memgraph::storage::View::OLD);
     ASSERT_TRUE(maybe_properties.HasValue());
     const auto &properties = *maybe_properties;
     EXPECT_EQ(properties.size(), 1);
-    auto maybe_prop = vertex.GetProperty(memgraph::storage::View::OLD, property.second);
+    auto maybe_prop = vertex->GetProperty(memgraph::storage::View::OLD, property.second);
     ASSERT_TRUE(maybe_prop.HasValue());
     auto prop_eq = TypedValue(*maybe_prop) == TypedValue(42);
     ASSERT_EQ(prop_eq.type(), TypedValue::Type::Bool);
@@ -275,24 +275,24 @@ TEST(QueryPlan, CreateExpand) {
   test_create_path(true, 1, 1);
 
   for (auto vertex : dba.Vertices(memgraph::storage::View::OLD)) {
-    auto maybe_labels = vertex.Labels(memgraph::storage::View::OLD);
+    auto maybe_labels = vertex->Labels(memgraph::storage::View::OLD);
     MG_ASSERT(maybe_labels.HasValue());
     const auto &labels = *maybe_labels;
     EXPECT_EQ(labels.size(), 1);
     memgraph::storage::LabelId label = labels[0];
     if (label == label_node_1) {
       // node created by first op
-      EXPECT_EQ(vertex.GetProperty(memgraph::storage::View::OLD, property.second)->ValueInt(), 1);
+      EXPECT_EQ(vertex->GetProperty(memgraph::storage::View::OLD, property.second)->ValueInt(), 1);
     } else if (label == label_node_2) {
       // node create by expansion
-      EXPECT_EQ(vertex.GetProperty(memgraph::storage::View::OLD, property.second)->ValueInt(), 2);
+      EXPECT_EQ(vertex->GetProperty(memgraph::storage::View::OLD, property.second)->ValueInt(), 2);
     } else {
       // should not happen
       FAIL();
     }
 
     for (auto vertex : dba.Vertices(memgraph::storage::View::OLD)) {
-      auto maybe_edges = vertex.OutEdges(memgraph::storage::View::OLD);
+      auto maybe_edges = vertex->OutEdges(memgraph::storage::View::OLD);
       MG_ASSERT(maybe_edges.HasValue());
       for (auto edge : *maybe_edges) {
         EXPECT_EQ(edge.EdgeType(), edge_type);
@@ -1131,7 +1131,7 @@ TEST(QueryPlan, SetProperty) {
 
   EXPECT_EQ(CountEdges(&dba, memgraph::storage::View::OLD), 2);
   for (auto vertex : dba.Vertices(memgraph::storage::View::OLD)) {
-    auto maybe_edges = vertex.OutEdges(memgraph::storage::View::OLD);
+    auto maybe_edges = vertex->OutEdges(memgraph::storage::View::OLD);
     ASSERT_TRUE(maybe_edges.HasValue());
     for (auto edge : *maybe_edges) {
       ASSERT_EQ(edge.GetProperty(memgraph::storage::View::OLD, prop1)->type(),
@@ -1187,7 +1187,7 @@ TEST(QueryPlan, SetProperties) {
 
     EXPECT_EQ(CountEdges(&dba, memgraph::storage::View::OLD), 1);
     for (auto vertex : dba.Vertices(memgraph::storage::View::OLD)) {
-      auto maybe_edges = vertex.OutEdges(memgraph::storage::View::OLD);
+      auto maybe_edges = vertex->OutEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(maybe_edges.HasValue());
       for (auto edge : *maybe_edges) {
         auto from = edge.From();
@@ -1246,9 +1246,9 @@ TEST(QueryPlan, SetLabels) {
   EXPECT_EQ(2, PullAll(*label_set, &context));
 
   for (auto vertex : dba.Vertices(memgraph::storage::View::OLD)) {
-    EXPECT_EQ(3, vertex.Labels(memgraph::storage::View::NEW)->size());
-    EXPECT_TRUE(*vertex.HasLabel(memgraph::storage::View::NEW, label2));
-    EXPECT_TRUE(*vertex.HasLabel(memgraph::storage::View::NEW, label3));
+    EXPECT_EQ(3, vertex->Labels(memgraph::storage::View::NEW)->size());
+    EXPECT_TRUE(*vertex->HasLabel(memgraph::storage::View::NEW, label2));
+    EXPECT_TRUE(*vertex->HasLabel(memgraph::storage::View::NEW, label3));
   }
 }
 
@@ -1286,9 +1286,9 @@ TEST(QueryPlan, SetLabelsWithFineGrained) {
     auto label3 = dba.NameToLabel("label3");
     set_labels(user, dba, std::vector<memgraph::storage::LabelId>{label1, label2, label3});
     for (auto vertex : dba.Vertices(memgraph::storage::View::OLD)) {
-      EXPECT_EQ(3, vertex.Labels(memgraph::storage::View::NEW)->size());
-      EXPECT_TRUE(*vertex.HasLabel(memgraph::storage::View::NEW, label2));
-      EXPECT_TRUE(*vertex.HasLabel(memgraph::storage::View::NEW, label3));
+      EXPECT_EQ(3, vertex->Labels(memgraph::storage::View::NEW)->size());
+      EXPECT_TRUE(*vertex->HasLabel(memgraph::storage::View::NEW, label2));
+      EXPECT_TRUE(*vertex->HasLabel(memgraph::storage::View::NEW, label3));
     }
   }
 
@@ -1375,7 +1375,7 @@ TEST(QueryPlan, RemoveProperty) {
 
   EXPECT_EQ(CountEdges(&dba, memgraph::storage::View::OLD), 2);
   for (auto vertex : dba.Vertices(memgraph::storage::View::OLD)) {
-    auto maybe_edges = vertex.OutEdges(memgraph::storage::View::OLD);
+    auto maybe_edges = vertex->OutEdges(memgraph::storage::View::OLD);
     ASSERT_TRUE(maybe_edges.HasValue());
     for (auto edge : *maybe_edges) {
       EXPECT_EQ(edge.GetProperty(memgraph::storage::View::OLD, prop1)->type(),
@@ -1419,9 +1419,9 @@ TEST(QueryPlan, RemoveLabels) {
   EXPECT_EQ(2, PullAll(*label_remove, &context));
 
   for (auto vertex : dba.Vertices(memgraph::storage::View::OLD)) {
-    EXPECT_EQ(1, vertex.Labels(memgraph::storage::View::NEW)->size());
-    EXPECT_FALSE(*vertex.HasLabel(memgraph::storage::View::NEW, label1));
-    EXPECT_FALSE(*vertex.HasLabel(memgraph::storage::View::NEW, label2));
+    EXPECT_EQ(1, vertex->Labels(memgraph::storage::View::NEW)->size());
+    EXPECT_FALSE(*vertex->HasLabel(memgraph::storage::View::NEW, label1));
+    EXPECT_FALSE(*vertex->HasLabel(memgraph::storage::View::NEW, label2));
   }
 }
 
@@ -1465,9 +1465,9 @@ TEST(QueryPlan, RemoveLabelsFineGrainedFiltering) {
     auto label3 = dba.NameToLabel("label3");
     remove_labels(user, dba, std::vector<memgraph::storage::LabelId>{label1, label2, label3});
     for (auto vertex : dba.Vertices(memgraph::storage::View::OLD)) {
-      EXPECT_EQ(1, vertex.Labels(memgraph::storage::View::NEW)->size());
-      EXPECT_FALSE(*vertex.HasLabel(memgraph::storage::View::NEW, label2));
-      EXPECT_TRUE(*vertex.HasLabel(memgraph::storage::View::NEW, label3));
+      EXPECT_EQ(1, vertex->Labels(memgraph::storage::View::NEW)->size());
+      EXPECT_FALSE(*vertex->HasLabel(memgraph::storage::View::NEW, label2));
+      EXPECT_TRUE(*vertex->HasLabel(memgraph::storage::View::NEW, label3));
     }
   }
 
@@ -2037,7 +2037,7 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyWithAuthChecker) {
   EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
 
   auto test_hypothesis = [&](int expected_property_value) {
-    auto vertex = *dba.Vertices(memgraph::storage::View::NEW).begin();
+    auto vertex = **dba.Vertices(memgraph::storage::View::NEW).begin();
     auto maybe_properties = vertex.Properties(memgraph::storage::View::NEW);
     ASSERT_TRUE(maybe_properties.HasValue());
     const auto &properties = *maybe_properties;
@@ -2048,7 +2048,7 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyWithAuthChecker) {
   };
 
   auto test_remove_hypothesis = [&](int properties_size) {
-    auto vertex = *dba.Vertices(memgraph::storage::View::NEW).begin();
+    auto vertex = **dba.Vertices(memgraph::storage::View::NEW).begin();
     auto maybe_properties = vertex.Properties(memgraph::storage::View::NEW);
     ASSERT_TRUE(maybe_properties.HasValue());
     const auto &properties = *maybe_properties;
@@ -2267,8 +2267,8 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
 
   auto test_hypothesis = [&](int expected_property_value) {
     for (auto vertex : dba.Vertices(memgraph::storage::View::NEW)) {
-      if (vertex.OutEdges(memgraph::storage::View::NEW).HasValue()) {
-        auto maybe_edges = vertex.OutEdges(memgraph::storage::View::NEW);
+      if (vertex->OutEdges(memgraph::storage::View::NEW).HasValue()) {
+        auto maybe_edges = vertex->OutEdges(memgraph::storage::View::NEW);
         for (auto edge : *maybe_edges) {
           EXPECT_EQ(edge.EdgeType(), edge_type_id);
           auto maybe_properties = edge.Properties(memgraph::storage::View::NEW);
@@ -2285,8 +2285,8 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
 
   auto test_remove_hypothesis = [&](int properties_size) {
     for (auto vertex : dba.Vertices(memgraph::storage::View::NEW)) {
-      if (vertex.OutEdges(memgraph::storage::View::NEW).HasValue()) {
-        auto maybe_edges = vertex.OutEdges(memgraph::storage::View::NEW);
+      auto maybe_edges = vertex->OutEdges(memgraph::storage::View::NEW);
+      if (maybe_edges.HasValue()) {
         for (auto edge : *maybe_edges) {
           EXPECT_EQ(edge.EdgeType(), edge_type_id);
           auto maybe_properties = edge.Properties(memgraph::storage::View::NEW);

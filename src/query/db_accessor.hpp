@@ -122,14 +122,23 @@ class VertexAccessor final {
   // It can affect performance if we use std::unique_ptr here.
   std::unique_ptr<storage::VertexAccessor> impl_;
 
-  explicit VertexAccessor(std::unique_ptr<storage::VertexAccessor> impl) : impl_(std::move(impl)) {}
-  VertexAccessor(const VertexAccessor &impl) : impl_(impl.impl_->Copy()){};
-  explicit VertexAccessor(VertexAccessor *impl) : VertexAccessor(*impl) {}
+  VertexAccessor() : impl_(nullptr) {}
+  explicit VertexAccessor(std::unique_ptr<storage::VertexAccessor> va) : impl_(std::move(va)) {}
+  VertexAccessor(const VertexAccessor &va) : impl_(va.impl_ ? va.impl_->Copy() : nullptr){};
+  VertexAccessor(VertexAccessor &&va) noexcept : impl_(va.impl_ ? std::move(va.impl_) : nullptr){};
+  explicit VertexAccessor(const VertexAccessor *va) : VertexAccessor(*va) {}
 
   ~VertexAccessor() = default;
 
   VertexAccessor &operator=(const VertexAccessor &other) {
-    impl_ = other.impl_->Copy();
+    if (this == &other) {
+      return *this;
+    }
+    if (other.impl_) {
+      impl_ = other.impl_->Copy();
+    } else {
+      impl_ = nullptr;
+    }
     return *this;
   }
 
@@ -285,23 +294,59 @@ class VerticesIterable final {
                                     utils::Allocator<VertexAccessor>>::iterator>
         it_;
 
+    VertexAccessor curr_vertex_accessor_;
+    bool is_initialized_;
+
    public:
-    explicit Iterator(storage::VerticesIterable::Iterator it) : it_(it) {}
+    explicit Iterator(storage::VerticesIterable::Iterator it) : it_(it), is_initialized_(false) {
+      std::visit(memgraph::utils::Overloaded{
+                     [this](storage::VerticesIterable::Iterator &it_) {
+                       if (*it_ != nullptr) {
+                         curr_vertex_accessor_ = VertexAccessor((*it_)->Copy());
+                         is_initialized_ = true;
+                       }
+                     },
+                     [this](std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
+                                               utils::Allocator<VertexAccessor>>::iterator &it_) {
+                       curr_vertex_accessor_ = *it_;
+                       is_initialized_ = true;
+                     }},
+                 it_);
+    }
     explicit Iterator(std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
                                          utils::Allocator<VertexAccessor>>::iterator it)
-        : it_(it) {}
+        : it_(it), is_initialized_(false) {
+      std::visit(memgraph::utils::Overloaded{
+                     [this](storage::VerticesIterable::Iterator it_) {
+                       curr_vertex_accessor_ = VertexAccessor((*it_)->Copy());
+                     },
+                     [this](std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
+                                               utils::Allocator<VertexAccessor>>::iterator it_) {
+                       curr_vertex_accessor_ = *it_;
+                     }},
+                 it_);
+      is_initialized_ = true;
+    }
 
-    VertexAccessor operator*() const {
-      return std::visit(
-          memgraph::utils::Overloaded{
-              [](storage::VerticesIterable::Iterator it_) { return VertexAccessor((*it_)->Copy()); },
-              [](std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
-                                    utils::Allocator<VertexAccessor>>::iterator it_) { return VertexAccessor(*it_); }},
-          it_);
+    VertexAccessor *operator*() {
+      if (!is_initialized_) {
+        std::visit(memgraph::utils::Overloaded{
+                       [this](storage::VerticesIterable::Iterator it_) {
+                         curr_vertex_accessor_ = VertexAccessor((*it_)->Copy());
+                       },
+                       [this](std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
+                                                 utils::Allocator<VertexAccessor>>::iterator it_) {
+                         curr_vertex_accessor_ = *it_;
+                       }},
+                   it_);
+        is_initialized_ = true;
+      }
+      return &curr_vertex_accessor_;
     }
 
     Iterator &operator++() {
       std::visit([](auto &it_) { ++it_; }, it_);
+      is_initialized_ = false;
       return *this;
     }
 

@@ -445,6 +445,7 @@ class TypedValue {
   TypedValue &operator=(const TMap &);
   TypedValue &operator=(const std::map<std::string, TypedValue> &);
   TypedValue &operator=(const VertexAccessor &);
+  TypedValue &operator=(const VertexAccessor *);
   TypedValue &operator=(const EdgeAccessor &);
   TypedValue &operator=(const Path &);
   TypedValue &operator=(const utils::Date &);

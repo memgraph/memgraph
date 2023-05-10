@@ -440,7 +440,7 @@ class ScanAllCursor : public Cursor {
       // the roundabout assignment + emplace, instead of simple:
       // vertices _ = get_vertices_(frame, context);
       vertices_.emplace(std::move(next_vertices.value()));
-      vertices_it_.emplace(vertices_.value().begin());
+      vertices_it_ = vertices_.value().begin();
     }
 #ifdef MG_ENTERPRISE
     if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker && !FindNextVertex(context)) {

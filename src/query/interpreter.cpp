@@ -1469,8 +1469,8 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
   // Iterate over all indexed vertices
   std::for_each(indices_info.begin(), indices_info.end(), [execution_db_accessor, &counter](const LPIndex &index_info) {
     auto vertices = execution_db_accessor->Vertices(storage::View::OLD, index_info.first, index_info.second);
-    std::for_each(vertices.begin(), vertices.end(), [&index_info, &counter](const auto &vertex) {
-      counter[index_info][*vertex.GetProperty(storage::View::OLD, index_info.second)]++;
+    std::for_each(vertices.begin(), vertices.end(), [&index_info, &counter](const auto *vertex) {
+      counter[index_info][*vertex->GetProperty(storage::View::OLD, index_info.second)]++;
     });
   });
 

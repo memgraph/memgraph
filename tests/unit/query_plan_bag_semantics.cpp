@@ -158,7 +158,7 @@ TEST(QueryPlan, OrderBy) {
     for (const auto &v : order_value_pair.second) values.emplace_back(v);
     // empty database
     for (auto vertex : dba.Vertices(memgraph::storage::View::OLD))
-      ASSERT_TRUE(dba.DetachRemoveVertex(&vertex).HasValue());
+      ASSERT_TRUE(dba.DetachRemoveVertex(vertex).HasValue());
     dba.AdvanceCommand();
     ASSERT_EQ(0, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
 
@@ -279,7 +279,7 @@ TEST(QueryPlan, OrderByExceptions) {
   for (const auto &pair : exception_pairs) {
     // empty database
     for (auto vertex : dba.Vertices(memgraph::storage::View::OLD))
-      ASSERT_TRUE(dba.DetachRemoveVertex(&vertex).HasValue());
+      ASSERT_TRUE(dba.DetachRemoveVertex(vertex).HasValue());
     dba.AdvanceCommand();
     ASSERT_EQ(0, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
 
@@ -289,7 +289,7 @@ TEST(QueryPlan, OrderByExceptions) {
     dba.AdvanceCommand();
     ASSERT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
     for (const auto &va : dba.Vertices(memgraph::storage::View::OLD))
-      ASSERT_NE(va.GetProperty(memgraph::storage::View::OLD, prop).GetValue().type(),
+      ASSERT_NE(va->GetProperty(memgraph::storage::View::OLD, prop).GetValue().type(),
                 memgraph::storage::PropertyValue::Type::Null);
 
     // order by and expect an exception

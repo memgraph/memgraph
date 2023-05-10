@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -168,10 +168,10 @@ void DumpProperties(std::ostream *os, query::DbAccessor *dba,
   *os << "}";
 }
 
-void DumpVertex(std::ostream *os, query::DbAccessor *dba, const query::VertexAccessor &vertex) {
+void DumpVertex(std::ostream *os, query::DbAccessor *dba, const query::VertexAccessor *vertex) {
   *os << "CREATE (";
   *os << ":" << kInternalVertexLabel;
-  auto maybe_labels = vertex.Labels(storage::View::OLD);
+  auto maybe_labels = vertex->Labels(storage::View::OLD);
   if (maybe_labels.HasError()) {
     switch (maybe_labels.GetError()) {
       case storage::Error::DELETED_OBJECT:
@@ -188,7 +188,7 @@ void DumpVertex(std::ostream *os, query::DbAccessor *dba, const query::VertexAcc
     *os << ":" << EscapeName(dba->LabelToName(label));
   }
   *os << " ";
-  auto maybe_props = vertex.Properties(storage::View::OLD);
+  auto maybe_props = vertex->Properties(storage::View::OLD);
   if (maybe_props.HasError()) {
     switch (maybe_props.GetError()) {
       case storage::Error::DELETED_OBJECT:
@@ -201,7 +201,7 @@ void DumpVertex(std::ostream *os, query::DbAccessor *dba, const query::VertexAcc
         throw query::QueryRuntimeException("Unexpected error when getting properties.");
     }
   }
-  DumpProperties(os, dba, *maybe_props, vertex.CypherId());
+  DumpProperties(os, dba, *maybe_props, vertex->CypherId());
   *os << ");";
 }
 
@@ -478,11 +478,11 @@ PullPlanDump::PullChunk PullPlanDump::CreateEdgePullChunk() {
     auto &current_vertex_iter{*maybe_current_vertex_iter};
     size_t local_counter = 0U;
     for (; current_vertex_iter != vertices_iterable_.end() && (!n || local_counter < *n); ++current_vertex_iter) {
-      const auto &vertex = *current_vertex_iter;
+      const auto *vertex = *current_vertex_iter;
       // If we have a saved iterable from a previous pull
       // we need to use the same iterable
       if (!maybe_edge_iterable) {
-        maybe_edge_iterable = std::make_shared<EdgeAccessorIterable>(vertex.OutEdges(storage::View::OLD));
+        maybe_edge_iterable = std::make_shared<EdgeAccessorIterable>(vertex->OutEdges(storage::View::OLD));
       }
       auto &maybe_edges = *maybe_edge_iterable;
       MG_ASSERT(maybe_edges.HasValue(), "Invalid database state!");

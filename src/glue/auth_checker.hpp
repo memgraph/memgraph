@@ -43,8 +43,13 @@ class FineGrainedAuthChecker : public query::FineGrainedAuthChecker {
  public:
   explicit FineGrainedAuthChecker(auth::User user, const memgraph::query::DbAccessor *dba);
 
-  bool Has(const query::VertexAccessor &vertex, memgraph::storage::View view,
+  bool Has(const query::VertexAccessor *vertex, memgraph::storage::View view,
            query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const override;
+
+  bool Has(const query::VertexAccessor &vertex, memgraph::storage::View view,
+           query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const {
+    return Has(&vertex, view, fine_grained_privilege);
+  }
 
   bool Has(const query::EdgeAccessor &edge,
            query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const override;

@@ -108,7 +108,7 @@ TEST_F(MatchReturnFixture, MatchReturnPath) {
   auto results = PathResults(produce);
   ASSERT_EQ(results.size(), 2);
   std::vector<memgraph::query::Path> expected_paths;
-  for (const auto &v : dba.Vertices(memgraph::storage::View::OLD)) expected_paths.emplace_back(v);
+  for (const auto *v : dba.Vertices(memgraph::storage::View::OLD)) expected_paths.emplace_back(*v);
   ASSERT_EQ(expected_paths.size(), 2);
   EXPECT_TRUE(std::is_permutation(expected_paths.begin(), expected_paths.end(), results.begin()));
 }
@@ -1185,12 +1185,12 @@ TEST_F(QueryPlanExpandVariable, NamedPath) {
 
   std::vector<memgraph::query::Path> expected_paths;
   for (const auto &v : dba.Vertices(memgraph::storage::View::OLD)) {
-    if (!*v.HasLabel(memgraph::storage::View::OLD, labels[0])) continue;
-    auto maybe_edges1 = v.OutEdges(memgraph::storage::View::OLD);
+    if (!*v->HasLabel(memgraph::storage::View::OLD, labels[0])) continue;
+    auto maybe_edges1 = v->OutEdges(memgraph::storage::View::OLD);
     for (const auto &e1 : *maybe_edges1) {
       auto maybe_edges2 = e1.To().OutEdges(memgraph::storage::View::OLD);
       for (const auto &e2 : *maybe_edges2) {
-        expected_paths.emplace_back(v, e1, e1.To(), e2, e2.To());
+        expected_paths.emplace_back(*v, e1, e1.To(), e2, e2.To());
       }
     }
   }
@@ -1294,11 +1294,12 @@ TEST_F(QueryPlanExpandVariable, FineGrainedFilterNamedPath) {
 
     std::vector<memgraph::query::Path> expected_paths;
     for (const auto &v : dba.Vertices(memgraph::storage::View::OLD)) {
-      if (!*v.HasLabel(memgraph::storage::View::OLD, labels[0])) continue;
-      expected_paths.emplace_back(v);
-      auto maybe_edges1 = v.OutEdges(memgraph::storage::View::OLD);
+      if (!*v->HasLabel(memgraph::storage::View::OLD, labels[0])) continue;
+      auto maybe_edges1 = v->OutEdges(memgraph::storage::View::OLD);
+      auto &vertex = *v;
+      expected_paths.emplace_back(vertex);
       for (const auto &e1 : *maybe_edges1) {
-        expected_paths.emplace_back(v, e1, e1.To());
+        expected_paths.emplace_back(vertex, e1, e1.To());
       }
     }
     EXPECT_TRUE(std::is_permutation(results.begin(), results.end(), expected_paths.begin()));
@@ -1331,11 +1332,11 @@ TEST_F(QueryPlanExpandVariable, FineGrainedFilterNamedPath) {
 
     std::vector<memgraph::query::Path> expected_paths;
     for (const auto &v : dba.Vertices(memgraph::storage::View::OLD)) {
-      if (!*v.HasLabel(memgraph::storage::View::OLD, labels[0])) continue;
-      expected_paths.emplace_back(v);
-      auto maybe_edges1 = v.OutEdges(memgraph::storage::View::OLD);
+      if (!*v->HasLabel(memgraph::storage::View::OLD, labels[0])) continue;
+      expected_paths.emplace_back(*v);
+      auto maybe_edges1 = v->OutEdges(memgraph::storage::View::OLD);
       for (const auto &e1 : *maybe_edges1) {
-        expected_paths.emplace_back(v, e1, e1.To());
+        expected_paths.emplace_back(*v, e1, e1.To());
       }
     }
 

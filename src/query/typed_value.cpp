@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,6 +19,7 @@
 #include <string_view>
 #include <utility>
 
+#include "query/db_accessor.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
@@ -459,6 +460,16 @@ TypedValue &TypedValue::operator=(const std::map<std::string, TypedValue> &other
   } else {
     *this = TypedValue(other, memory_);
   }
+  return *this;
+}
+
+TypedValue &TypedValue::operator=(const VertexAccessor *other) {
+  if (this->type_ == TypedValue::Type::Vertex) {
+    this->vertex_v = *other;
+  } else {
+    *this = TypedValue(*other, memory_);
+  }
+
   return *this;
 }
 

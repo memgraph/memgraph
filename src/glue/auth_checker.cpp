@@ -120,9 +120,9 @@ bool AuthChecker::IsUserAuthorized(const memgraph::auth::User &user,
 FineGrainedAuthChecker::FineGrainedAuthChecker(auth::User user, const memgraph::query::DbAccessor *dba)
     : user_{std::move(user)}, dba_(dba){};
 
-bool FineGrainedAuthChecker::Has(const memgraph::query::VertexAccessor &vertex, const memgraph::storage::View view,
+bool FineGrainedAuthChecker::Has(const memgraph::query::VertexAccessor *vertex, const memgraph::storage::View view,
                                  const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const {
-  auto maybe_labels = vertex.Labels(view);
+  auto maybe_labels = vertex->Labels(view);
   if (maybe_labels.HasError()) {
     switch (maybe_labels.GetError()) {
       case memgraph::storage::Error::DELETED_OBJECT:

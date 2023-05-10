@@ -2589,13 +2589,15 @@ mgp_vertices_iterator::mgp_vertices_iterator(mgp_graph *graph, memgraph::utils::
 #endif
 
   if (current_it != vertices.end()) {
-    std::visit(
-        memgraph::utils::Overloaded{
-            [this, graph, memory](memgraph::query::DbAccessor *) { current_v.emplace(*current_it, graph, memory); },
-            [this, graph, memory](memgraph::query::SubgraphDbAccessor *impl) {
-              current_v.emplace(memgraph::query::SubgraphVertexAccessor(*current_it, impl->getGraph()), graph, memory);
-            }},
-        graph->impl);
+    std::visit(memgraph::utils::Overloaded{[this, graph, memory](memgraph::query::DbAccessor *) {
+                                             current_v.emplace(std::move(**current_it), graph, memory);
+                                           },
+                                           [this, graph, memory](memgraph::query::SubgraphDbAccessor *impl) {
+                                             current_v.emplace(memgraph::query::SubgraphVertexAccessor(
+                                                                   std::move(**current_it), impl->getGraph()),
+                                                               graph, memory);
+                                           }},
+               graph->impl);
   }
 }
 
@@ -2642,15 +2644,15 @@ mgp_error mgp_vertices_iterator_next(mgp_vertices_iterator *it, mgp_vertex **res
         }
 
         memgraph::utils::OnScopeExit clean_up([it] { it->current_v = std::nullopt; });
-        std::visit(memgraph::utils::Overloaded{[it](memgraph::query::DbAccessor *) {
-                                                 it->current_v.emplace(*it->current_it, it->graph,
-                                                                       it->GetMemoryResource());
-                                               },
-                                               [it](memgraph::query::SubgraphDbAccessor *impl) {
-                                                 it->current_v.emplace(memgraph::query::SubgraphVertexAccessor(
-                                                                           *it->current_it, impl->getGraph()),
-                                                                       it->graph, it->GetMemoryResource());
-                                               }},
+        std::visit(memgraph::utils::Overloaded{
+                       [it](memgraph::query::DbAccessor *) {
+                         it->current_v.emplace(std::move(**it->current_it), it->graph, it->GetMemoryResource());
+                       },
+                       [it](memgraph::query::SubgraphDbAccessor *impl) {
+                         it->current_v.emplace(
+                             memgraph::query::SubgraphVertexAccessor(std::move(**it->current_it), impl->getGraph()),
+                             it->graph, it->GetMemoryResource());
+                       }},
                    it->graph->impl);
 
         clean_up.Disable();
