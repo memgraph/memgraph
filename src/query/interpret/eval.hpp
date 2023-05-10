@@ -550,14 +550,14 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         for (const auto &v : graph.vertices()) {
           vertices.emplace_back(TypedValue(v, ctx_->memory));
         }
-        result.emplace("nodes", TypedValue(vertices, ctx_->memory));
+        result.emplace("nodes", TypedValue(std::move(vertices), ctx_->memory));
 
         utils::pmr::vector<TypedValue> edges(ctx_->memory);
         edges.reserve(graph.edges().size());
         for (const auto &e : graph.edges()) {
           edges.emplace_back(TypedValue(e, ctx_->memory));
         }
-        result.emplace("edges", TypedValue(edges, ctx_->memory));
+        result.emplace("edges", TypedValue(std::move(edges), ctx_->memory));
 
         return TypedValue(result, ctx_->memory);
       }
