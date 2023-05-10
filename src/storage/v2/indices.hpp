@@ -136,7 +136,7 @@ class LabelIndex {
 };
 
 struct IndexStats {
-  double statistic, avg_group_size;
+  double statistic, avg_group_size, avg_degree;
 };
 
 class LabelPropertyIndex {

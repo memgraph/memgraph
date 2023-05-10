@@ -1454,6 +1454,7 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
 
   std::vector<std::vector<TypedValue>> results;
   std::map<LPIndex, std::map<storage::PropertyValue, int64_t>> counter;
+  std::map<LPIndex, uint64_t> vertex_degree_counter;
 
   // Preprocess labels to avoid later checks
   std::vector<LPIndex> indices_info = execution_db_accessor->ListAllIndices().label_property;
@@ -1467,40 +1468,50 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
     }
   }
   // Iterate over all indexed vertices
-  std::for_each(indices_info.begin(), indices_info.end(), [execution_db_accessor, &counter](const LPIndex &index_info) {
-    auto vertices = execution_db_accessor->Vertices(storage::View::OLD, index_info.first, index_info.second);
-    std::for_each(vertices.begin(), vertices.end(), [&index_info, &counter](const auto &vertex) {
-      counter[index_info][*vertex.GetProperty(storage::View::OLD, index_info.second)]++;
-    });
-  });
+  std::for_each(indices_info.begin(), indices_info.end(),
+                [execution_db_accessor, &counter, &vertex_degree_counter](const LPIndex &index_info) {
+                  auto vertices =
+                      execution_db_accessor->Vertices(storage::View::OLD, index_info.first, index_info.second);
+                  std::for_each(vertices.begin(), vertices.end(),
+                                [&index_info, &counter, &vertex_degree_counter](const auto &vertex) {
+                                  counter[index_info][*vertex.GetProperty(storage::View::OLD, index_info.second)]++;
+                                  vertex_degree_counter[index_info] +=
+                                      *vertex.OutDegree(storage::View::OLD) + *vertex.InDegree(storage::View::OLD);
+                                });
+                });
 
   results.reserve(counter.size());
-  std::for_each(counter.begin(), counter.end(), [&results, execution_db_accessor](const auto &counter_entry) {
-    const auto &[label_property, values_map] = counter_entry;
-    std::vector<TypedValue> result;
-    result.reserve(kDeleteStatisticsNumResults);
-    // Extract info
-    int64_t count_property_value = std::accumulate(
-        values_map.begin(), values_map.end(), 0,
-        [](int64_t prev_value, const auto &prop_value_count) { return prev_value + prop_value_count.second; });
-    // num_distinc_values will never be 0
-    double avg_group_size = static_cast<double>(count_property_value) / static_cast<double>(values_map.size());
-    double chi_squared_stat = std::accumulate(
-        values_map.begin(), values_map.end(), 0.0, [avg_group_size](double prev_result, const auto &value_entry) {
-          return prev_result + utils::ChiSquaredValue(value_entry.second, avg_group_size);
-        });
-    execution_db_accessor->SetIndexStats(
-        label_property.first, label_property.second,
-        storage::IndexStats{.statistic = chi_squared_stat, .avg_group_size = avg_group_size});
-    // Save result
-    result.emplace_back(execution_db_accessor->LabelToName(label_property.first));
-    result.emplace_back(execution_db_accessor->PropertyToName(label_property.second));
-    result.emplace_back(count_property_value);
-    result.emplace_back(static_cast<int64_t>(values_map.size()));
-    result.emplace_back(avg_group_size);
-    result.emplace_back(chi_squared_stat);
-    results.push_back(std::move(result));
-  });
+  std::for_each(
+      counter.begin(), counter.end(),
+      [&results, execution_db_accessor, &vertex_degree_counter](const auto &counter_entry) {
+        const auto &[label_property, values_map] = counter_entry;
+        std::vector<TypedValue> result;
+        result.reserve(kDeleteStatisticsNumResults);
+        // Extract info
+        int64_t count_property_value = std::accumulate(
+            values_map.begin(), values_map.end(), 0,
+            [](int64_t prev_value, const auto &prop_value_count) { return prev_value + prop_value_count.second; });
+        // num_distinc_values will never be 0
+        double avg_group_size = static_cast<double>(count_property_value) / static_cast<double>(values_map.size());
+        double chi_squared_stat = std::accumulate(
+            values_map.begin(), values_map.end(), 0.0, [avg_group_size](double prev_result, const auto &value_entry) {
+              return prev_result + utils::ChiSquaredValue(value_entry.second, avg_group_size);
+            });
+        double average_degree = (double)vertex_degree_counter[label_property] / count_property_value;
+        execution_db_accessor->SetIndexStats(
+            label_property.first, label_property.second,
+            storage::IndexStats{
+                .statistic = chi_squared_stat, .avg_group_size = avg_group_size, .avg_degree = average_degree});
+        // Save result
+        result.emplace_back(execution_db_accessor->LabelToName(label_property.first));
+        result.emplace_back(execution_db_accessor->PropertyToName(label_property.second));
+        result.emplace_back(count_property_value);
+        result.emplace_back(static_cast<int64_t>(values_map.size()));
+        result.emplace_back(avg_group_size);
+        result.emplace_back(chi_squared_stat);
+        result.emplace_back(average_degree);
+        results.push_back(std::move(result));
+      });
   return results;
 }
 
@@ -1527,7 +1538,8 @@ Callback HandleAnalyzeGraphQuery(AnalyzeGraphQuery *analyze_graph_query, DbAcces
   switch (analyze_graph_query->action_) {
     case AnalyzeGraphQuery::Action::ANALYZE: {
       callback.header = {"label",      "property",       "num estimation nodes",
-                         "num groups", "avg group size", "chi-squared value"};
+                         "num groups", "avg group size", "chi-squared value",
+                         "avg degree"};
       callback.fn = [handler = AnalyzeGraphQueryHandler(), labels = analyze_graph_query->labels_,
                      execution_db_accessor]() mutable {
         return handler.AnalyzeGraphCreateStatistics(labels, execution_db_accessor);
