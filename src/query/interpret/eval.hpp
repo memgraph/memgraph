@@ -629,22 +629,22 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(MapProjectionLiteral &literal) override {
+    constexpr std::string_view kAllPropertiesSelector{"*"};
+
     TypedValue::TMap result(ctx_->memory);
-    for (const auto &pair : literal.elements_) {
-      if (pair.first.name == "*") {  // AllPropertiesSelector
-        auto maybe_selector = pair.second->Accept(*this);
+    for (const auto &[property_key, property_value] : literal.elements_) {
+      if (property_key.name == kAllPropertiesSelector.data()) {  // AllPropertiesSelector
+        auto maybe_selector = property_value->Accept(*this);
 
         if (maybe_selector.type() != TypedValue::Type::Map) {
-          throw QueryRuntimeException("Expected a map from all properties selection, got {}.", maybe_selector.type());
+          throw QueryRuntimeException("Expected a map from AllPropertiesLookup, got {}.", maybe_selector.type());
         }
 
-        for (const auto &pair : maybe_selector.ValueMap()) {
-          result.emplace(pair.first, pair.second);
-        }
+        result.emplace(maybe_selector.ValueMap());
         continue;
       }
 
-      result.emplace(pair.first.name, pair.second->Accept(*this));
+      result.emplace(property_key.name, property_value->Accept(*this));
     }
     return TypedValue(result, ctx_->memory);
   }
