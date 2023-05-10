@@ -1077,7 +1077,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     // Also, we want to throw only when the query engine requests more memory and not the storage
     // so we add the exception to the allocator.
     // TODO (mferencevic): Tune the parameters accordingly.
-    pool_memory.emplace(kMaxBlockPerChunks, kExecutionPoolMaxBlockSize, &monotonic_memory, &resource_with_exception);
+    pool_memory.emplace(kMaxBlockPerChunks, 1024, &monotonic_memory, &resource_with_exception);
   }
 
   std::optional<utils::LimitedMemoryResource> maybe_limited_resource;
