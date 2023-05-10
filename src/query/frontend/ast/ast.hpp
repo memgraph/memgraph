@@ -1135,7 +1135,8 @@ class MapProjectionLiteral : public memgraph::query::BaseLiteral {
   }
 
  protected:
-  explicit MapProjectionLiteral(Expression *map_variable, const std::unordered_map<PropertyIx, Expression *> &elements)
+explicit MapProjectionLiteral(Expression *map_variable, std::unordered_map<PropertyIx, Expression *> &&elements)
+      : map_variable_(map_variable), elements_(std::move(elements)) {}
       : map_variable_(map_variable), elements_(elements) {}
 
  private:
