@@ -40,7 +40,9 @@ AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, utils::SkipLi
       it_(AdvanceToVisibleVertex(it, self->vertices_accessor_.end(), self->vertex_, self->transaction_, self->view_,
                                  self->indices_, self_->constraints_, self->config_)) {}
 
-VertexAccessor *AllVerticesIterable::Iterator::operator*() const { return self_->vertex_.get(); }
+VertexAccessor *AllVerticesIterable::Iterator::operator*() const {
+  return (it_ != self_->vertices_accessor_.end() ? self_->vertex_.get() : nullptr);
+}
 
 AllVerticesIterable::Iterator &AllVerticesIterable::Iterator::operator++() {
   ++it_;
