@@ -837,6 +837,15 @@ std::vector<std::pair<LabelId, PropertyId>> LabelPropertyIndex::DeleteIndexStats
   return deleted_indexes;
 }
 
+std::vector<LabelId> LabelIndex::ClearIndexStats() {
+  std::vector<LabelId> deleted_indexes;
+  deleted_indexes.reserve(stats_.size());
+  std::transform(stats_.begin(), stats_.end(), std::back_inserter(deleted_indexes),
+                 [](const auto &elem) { return elem.first; });
+  stats_.clear();
+  return deleted_indexes;
+}
+
 std::vector<std::pair<LabelId, PropertyId>> LabelPropertyIndex::ClearIndexStats() {
   std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;
   deleted_indexes.reserve(stats_.size());

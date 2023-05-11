@@ -133,6 +133,8 @@ class LabelIndex {
 
   std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const;
 
+  std::vector<LabelId> ClearIndexStats();
+
   void Clear() { index_.clear(); }
 
   void RunGC();

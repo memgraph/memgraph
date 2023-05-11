@@ -15,8 +15,19 @@
 #include "query/parameters.hpp"
 #include "query/plan/operator.hpp"
 #include "query/typed_value.hpp"
+#include "utils/algorithm.hpp"
 
 namespace memgraph::query::plan {
+
+struct SymbolStatistics {
+  std::string name;
+  int64_t cardinality;
+  double degree;
+};
+
+struct Scope {
+  std::unordered_map<std::string, SymbolStatistics> symbol_stats;
+};
 
 /**
  * Query plan execution time cost estimator, for comparing and choosing optimal
@@ -82,7 +93,10 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   using HierarchicalLogicalOperatorVisitor::PreVisit;
 
   CostEstimator(TDbAccessor *db_accessor, const Parameters &parameters)
-      : db_accessor_(db_accessor), parameters(parameters) {}
+      : db_accessor_(db_accessor), parameters(parameters), scope_(Scope()) {}
+
+  CostEstimator(TDbAccessor *db_accessor, const Parameters &parameters, Scope scope)
+      : db_accessor_(db_accessor), parameters(parameters), scope_(scope) {}
 
   bool PostVisit(ScanAll &) override {
     cardinality_ *= db_accessor_->VerticesCount();
@@ -92,6 +106,15 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(ScanAllByLabel &scan_all_by_label) override {
+    auto index_stats = db_accessor_->GetLabelIndexStats(scan_all_by_label.label_);
+    if (index_stats) {
+      scope_.symbol_stats[scan_all_by_label.output_symbol_.name()] = SymbolStatistics{
+          .name = scan_all_by_label.output_symbol_.name(),
+          .cardinality = index_stats->count,
+          .degree = index_stats->avg_degree,
+      };
+    }
+
     cardinality_ *= db_accessor_->VerticesCount(scan_all_by_label.label_);
     // ScanAll performs some work for every element that is produced
     IncrementCost(CostParam::kScanAllByLabel);
@@ -152,6 +175,18 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
   // TODO: Cost estimate ScanAllById?
 
+  bool PostVisit(Expand &expand) override {
+    auto card_param = CardParam::kExpand;
+    if (utils::Contains(scope_.symbol_stats, expand.input_symbol_.name())) {
+      card_param = scope_.symbol_stats[expand.input_symbol_.name()].degree;
+    }
+
+    cardinality_ *= card_param;
+    IncrementCost(CostParam::kExpand);
+
+    return true;
+  }
+
 // For the given op first increments the cardinality and then cost.
 #define POST_VISIT_CARD_FIRST(NAME)     \
   bool PostVisit(NAME &) override {     \
@@ -160,7 +195,6 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return true;                        \
   }
 
-  POST_VISIT_CARD_FIRST(Expand);
   POST_VISIT_CARD_FIRST(ExpandVariable);
 
 #undef POST_VISIT_CARD_FIRST
@@ -256,6 +290,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   // accessor used for cardinality estimates in ScanAll and ScanAllByLabel
   TDbAccessor *db_accessor_;
   const Parameters &parameters;
+  Scope scope_;
 
   void IncrementCost(double param) { cost_ += param * cardinality_; }
 
