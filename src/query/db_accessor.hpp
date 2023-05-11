@@ -142,6 +142,15 @@ class VertexAccessor final {
     return *this;
   }
 
+  VertexAccessor &operator=(VertexAccessor &&other) {
+    if (other.impl_) {
+      impl_ = std::move(other.impl_);
+    } else {
+      impl_ = nullptr;
+    }
+    return *this;
+  }
+
   bool IsVisible(storage::View view) const { return impl_->IsVisible(view); }
 
   auto Labels(storage::View view) const { return impl_->Labels(view); }
@@ -315,7 +324,7 @@ class VerticesIterable final {
     }
     explicit Iterator(std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
                                          utils::Allocator<VertexAccessor>>::iterator it)
-        : it_(it), is_initialized_(false) {
+        : it_(it), is_initialized_(true) {
       std::visit(memgraph::utils::Overloaded{
                      [this](storage::VerticesIterable::Iterator it_) {
                        curr_vertex_accessor_ = VertexAccessor((*it_)->Copy());
@@ -325,7 +334,6 @@ class VerticesIterable final {
                        curr_vertex_accessor_ = *it_;
                      }},
                  it_);
-      is_initialized_ = true;
     }
 
     VertexAccessor *operator*() {

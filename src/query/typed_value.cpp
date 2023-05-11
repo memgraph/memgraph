@@ -463,11 +463,11 @@ TypedValue &TypedValue::operator=(const std::map<std::string, TypedValue> &other
   return *this;
 }
 
-TypedValue &TypedValue::operator=(const VertexAccessor *other) {
+TypedValue &TypedValue::operator=(VertexAccessor *other) {
   if (this->type_ == TypedValue::Type::Vertex) {
-    this->vertex_v = *other;
+    this->vertex_v = std::move(*other);
   } else {
-    *this = TypedValue(*other, memory_);
+    *this = TypedValue(std::move(*other), memory_);
   }
 
   return *this;
