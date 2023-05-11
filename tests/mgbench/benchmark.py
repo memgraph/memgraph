@@ -643,7 +643,7 @@ if __name__ == "__main__":
                         ret = client.execute(
                             queries=get_queries(func, count),
                             num_workers=benchmark_context.num_workers_for_benchmark,
-                            time_dependent_execution=benchmark_context.time_depended_execution,
+                            time_dependent_execution=benchmark_context.time_dependent_execution,
                         )[0]
                     else:
                         ret = client.execute(
