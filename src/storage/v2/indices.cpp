@@ -478,6 +478,15 @@ void LabelIndex::RunGC() {
   }
 }
 
+void LabelIndex::SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) { stats_[label] = stats; }
+
+std::optional<LabelIndexStats> LabelIndex::GetIndexStats(const storage::LabelId &label) const {
+  if (auto it = stats_.find(label); it != stats_.end()) {
+    return it->second;
+  }
+  return {};
+}
+
 bool LabelPropertyIndex::Entry::operator<(const Entry &rhs) {
   if (value < rhs.value) {
     return true;

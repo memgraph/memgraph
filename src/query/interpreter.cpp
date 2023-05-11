@@ -53,6 +53,7 @@
 #include "query/typed_value.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"
@@ -1456,6 +1457,18 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
   std::map<LPIndex, std::map<storage::PropertyValue, int64_t>> counter;
   std::map<LPIndex, uint64_t> vertex_degree_counter;
 
+  // Preprocess labels in label indexes to avoid later checks
+  std::vector<storage::LabelId> label_indices_info = execution_db_accessor->ListAllIndices().label;
+  if (labels[0] != kAsterisk) {
+    for (auto it = label_indices_info.cbegin(); it != label_indices_info.cend();) {
+      if (std::find(labels.begin(), labels.end(), execution_db_accessor->LabelToName(*it)) == labels.end()) {
+        it = label_indices_info.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+
   // Preprocess labels to avoid later checks
   std::vector<LPIndex> indices_info = execution_db_accessor->ListAllIndices().label_property;
   if (labels[0] != kAsterisk) {
@@ -1467,6 +1480,23 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
       }
     }
   }
+
+  // Iterate over all indexed vertices
+  std::for_each(label_indices_info.begin(), label_indices_info.end(),
+                [execution_db_accessor](const storage::LabelId &index_info) {
+                  auto vertices = execution_db_accessor->Vertices(storage::View::OLD, index_info);
+                  int64_t no_vertices = 0;
+                  auto total_degree = 0;
+                  std::for_each(vertices.begin(), vertices.end(), [&total_degree, &no_vertices](const auto &vertex) {
+                    no_vertices++;
+                    total_degree += *vertex.OutDegree(storage::View::OLD) + *vertex.InDegree(storage::View::OLD);
+                  });
+
+                  auto average_degree = (double)total_degree / no_vertices;
+                  execution_db_accessor->SetLabelIndexStats(
+                      index_info, storage::LabelIndexStats{.count = no_vertices, .avg_degree = average_degree});
+                });
+
   // Iterate over all indexed vertices
   std::for_each(indices_info.begin(), indices_info.end(),
                 [execution_db_accessor, &counter, &vertex_degree_counter](const LPIndex &index_info) {
@@ -1498,10 +1528,11 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
               return prev_result + utils::ChiSquaredValue(value_entry.second, avg_group_size);
             });
         double average_degree = (double)vertex_degree_counter[label_property] / count_property_value;
-        execution_db_accessor->SetIndexStats(
-            label_property.first, label_property.second,
-            storage::IndexStats{
-                .statistic = chi_squared_stat, .avg_group_size = avg_group_size, .avg_degree = average_degree});
+        execution_db_accessor->SetIndexStats(label_property.first, label_property.second,
+                                             storage::IndexStats{.count = count_property_value,
+                                                                 .statistic = chi_squared_stat,
+                                                                 .avg_group_size = avg_group_size,
+                                                                 .avg_degree = average_degree});
         // Save result
         result.emplace_back(execution_db_accessor->LabelToName(label_property.first));
         result.emplace_back(execution_db_accessor->PropertyToName(label_property.second));

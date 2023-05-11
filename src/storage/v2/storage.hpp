@@ -267,6 +267,10 @@ class Storage final {
       return storage_->indices_.label_property_index.ApproximateVertexCount(label, property, lower, upper);
     }
 
+    std::optional<storage::LabelIndexStats> GetLabelIndexStats(const storage::LabelId &label) const {
+      return storage_->indices_.label_index.GetIndexStats(label);
+    }
+
     std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId &label,
                                                      const storage::PropertyId &property) const {
       return storage_->indices_.label_property_index.GetIndexStats(label, property);
@@ -285,6 +289,10 @@ class Storage final {
                                std::make_move_iterator(loc_results.end()));
       });
       return deleted_indexes;
+    }
+
+    void SetLabelIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) {
+      storage_->indices_.label_index.SetIndexStats(label, stats);
     }
 
     void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property, const IndexStats &stats) {

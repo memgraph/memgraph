@@ -31,6 +31,11 @@ struct Constraints;
 using ParalellizedIndexCreationInfo =
     std::pair<std::vector<std::pair<Gid, uint64_t>> /*vertex_recovery_info*/, uint64_t /*thread_count*/>;
 
+struct LabelIndexStats {
+  int64_t count;
+  double avg_degree;
+};
+
 class LabelIndex {
  private:
   struct Entry {
@@ -124,18 +129,24 @@ class LabelIndex {
     return it->second.size();
   }
 
+  void SetIndexStats(const storage::LabelId &label, const storage::LabelIndexStats &stats);
+
+  std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const;
+
   void Clear() { index_.clear(); }
 
   void RunGC();
 
  private:
   std::map<LabelId, utils::SkipList<Entry>> index_;
+  std::map<LabelId, storage::LabelIndexStats> stats_;
   Indices *indices_;
   Constraints *constraints_;
   Config::Items config_;
 };
 
 struct IndexStats {
+  int64_t count;
   double statistic, avg_group_size, avg_degree;
 };
 

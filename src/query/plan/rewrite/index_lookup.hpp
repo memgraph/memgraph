@@ -39,11 +39,20 @@ namespace impl {
 // given expression tree.
 Expression *RemoveAndExpressions(Expression *expr, const std::unordered_set<Expression *> &exprs_to_remove);
 
+struct Scope {
+  bool in_optional{false};
+  std::map<std::string, double> degree;
+  std::map<std::string, uint64_t> cardinality;
+};
+
 template <class TDbAccessor>
 class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
   IndexLookupRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db)
-      : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db) {}
+      : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db), scope_(Scope()) {}
+
+  IndexLookupRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db, Scope scope)
+      : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db), scope_(scope) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
@@ -155,6 +164,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PreVisit(Optional &op) override {
+    scope_.in_optional = true;
     prev_ops_.push_back(&op);
     op.input()->Accept(*this);
     RewriteBranch(&op.optional_);
@@ -162,6 +172,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(Optional &) override {
+    scope_.in_optional = false;
     prev_ops_.pop_back();
     return true;
   }
@@ -489,6 +500,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // Expressions which no longer need a plain Filter operator.
   std::unordered_set<Expression *> filter_exprs_for_removal_;
   std::vector<LogicalOperator *> prev_ops_;
+  Scope scope_;
 
   struct LabelPropertyIndex {
     LabelIx label;
@@ -511,7 +523,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   void RewriteBranch(std::shared_ptr<LogicalOperator> *branch) {
-    IndexLookupRewriter<TDbAccessor> rewriter(symbol_table_, ast_storage_, db_);
+    IndexLookupRewriter<TDbAccessor> rewriter(symbol_table_, ast_storage_, db_, scope_);
     (*branch)->Accept(rewriter);
     if (rewriter.new_root_) {
       *branch = rewriter.new_root_;
@@ -623,6 +635,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
     return found;
   }
+
   // Creates a ScanAll by the best possible index for the `node_symbol`. If the node
   // does not have at least a label, no indexed lookup can be created and
   // `nullptr` is returned. The operator is chained after `input`. Optional
@@ -695,15 +708,30 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         auto *expression = ast_storage_->Create<Identifier>(symbol.name_);
         expression->MapTo(symbol);
         auto unwind_operator = std::make_unique<Unwind>(input, prop_filter.value_, symbol);
+        auto index_stats = db_->GetIndexStats(GetLabel(found_index->label), GetProperty(prop_filter.property_));
+        if (index_stats) {
+          scope_.degree[node_symbol.name()] = index_stats->avg_degree;
+          scope_.cardinality[node_symbol.name()] = index_stats->count;
+        }
         return std::make_unique<ScanAllByLabelPropertyValue>(
             std::move(unwind_operator), node_symbol, GetLabel(found_index->label), GetProperty(prop_filter.property_),
             prop_filter.property_.name, expression, view);
       } else if (prop_filter.type_ == PropertyFilter::Type::IS_NOT_NULL) {
+        auto index_stats = db_->GetIndexStats(GetLabel(found_index->label), GetProperty(prop_filter.property_));
+        if (index_stats) {
+          scope_.degree[node_symbol.name()] = index_stats->avg_degree;
+          scope_.cardinality[node_symbol.name()] = index_stats->count;
+        }
         return std::make_unique<ScanAllByLabelProperty>(input, node_symbol, GetLabel(found_index->label),
                                                         GetProperty(prop_filter.property_), prop_filter.property_.name,
                                                         view);
       } else {
         MG_ASSERT(prop_filter.value_, "Property filter should either have bounds or a value expression.");
+        auto index_stats = db_->GetIndexStats(GetLabel(found_index->label), GetProperty(prop_filter.property_));
+        if (index_stats) {
+          scope_.degree[node_symbol.name()] = index_stats->avg_degree;
+          scope_.cardinality[node_symbol.name()] = index_stats->count;
+        }
         return std::make_unique<ScanAllByLabelPropertyValue>(input, node_symbol, GetLabel(found_index->label),
                                                              GetProperty(prop_filter.property_),
                                                              prop_filter.property_.name, prop_filter.value_, view);
@@ -720,6 +748,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     std::vector<Expression *> removed_expressions;
     filters_.EraseLabelFilter(node_symbol, label, &removed_expressions);
     filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
+    auto index_stats = db_->GetLabelIndexStats(GetLabel(label));
+    if (index_stats) {
+      scope_.degree[node_symbol.name()] = index_stats->avg_degree;
+      scope_.cardinality[node_symbol.name()] = index_stats->count;
+    }
     return std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(label), view);
   }
 };
