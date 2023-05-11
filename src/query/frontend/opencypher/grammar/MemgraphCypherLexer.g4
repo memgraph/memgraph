@@ -106,6 +106,7 @@ SNAPSHOT                : S N A P S H O T ;
 START                   : S T A R T ;
 STATISTICS              : S T A T I S T I C S ;
 STATS                   : S T A T S ;
+STATUS                  : S T A T U S ;
 STOP                    : S T O P ;
 STORAGE                 : S T O R A G E;
 STORAGE_MODE            : S T O R A G E UNDERSCORE MODE;

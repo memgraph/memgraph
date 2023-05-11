@@ -325,7 +325,9 @@ antlrcpp::Any CypherMainVisitor::visitShowReplicas(MemgraphCypher::ShowReplicasC
 
 antlrcpp::Any CypherMainVisitor::visitLockPathQuery(MemgraphCypher::LockPathQueryContext *ctx) {
   auto *lock_query = storage_->Create<LockPathQuery>();
-  if (ctx->LOCK()) {
+  if (ctx->STATUS()) {
+    lock_query->action_ = LockPathQuery::Action::STATUS;
+  } else if (ctx->LOCK()) {
     lock_query->action_ = LockPathQuery::Action::LOCK_PATH;
   } else if (ctx->UNLOCK()) {
     lock_query->action_ = LockPathQuery::Action::UNLOCK_PATH;

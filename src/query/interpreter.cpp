@@ -1777,40 +1777,45 @@ PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query, bool in_explicit_tr
 
   auto *lock_path_query = utils::Downcast<LockPathQuery>(parsed_query.query);
 
-  return PreparedQuery{
-      {"STATUS"},
-      std::move(parsed_query.required_privileges),
-      [interpreter_context, action = lock_path_query->action_](
-          AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-        std::vector<std::vector<TypedValue>> status;
-        const auto locked_status = interpreter_context->db->IsPathLocked();
-        std::string res;
+  return PreparedQuery{{"STATUS"},
+                       std::move(parsed_query.required_privileges),
+                       [interpreter_context, action = lock_path_query->action_](
+                           AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+                         std::vector<std::vector<TypedValue>> status;
+                         const auto locked_status = interpreter_context->db->IsPathLocked();
+                         std::string res;
 
-        switch (action) {
-          case LockPathQuery::Action::LOCK_PATH:
-            // LockPath returns false only if the path doesn't exist (not our case here?)
-            interpreter_context->db->LockPath();
-            res = !locked_status ? "Data directory is now locked." : "Data directory is already locked.";
-            break;
-          case LockPathQuery::Action::UNLOCK_PATH:
-            // UnlockPath returns false only when the path is already unlocked
-            const auto unlock_res = interpreter_context->db->UnlockPath();
-            res = unlock_res ? "Data directory is now unlocked." : "Data directory is already unlocked.";
-            break;
-            // Needed?
-            // default:
-            //   throw...
-            // break;
-        }
+                         switch (action) {
+                           case LockPathQuery::Action::LOCK_PATH:
+                             // LockPath returns false only if the path doesn't exist (not our case here?)
+                             if (!interpreter_context->db->LockPath()) [[unlikely]] {
+                               throw QueryRuntimeException("Failed to lock the data directory");
+                             }
+                             res =
+                                 !locked_status ? "Data directory is now locked." : "Data directory is already locked.";
+                             break;
+                           case LockPathQuery::Action::UNLOCK_PATH:
+                             // UnlockPath returns false only when the path is already unlocked
+                             res = interpreter_context->db->UnlockPath() ? "Data directory is now unlocked."
+                                                                         : "Data directory is already unlocked.";
+                             break;
+                           case LockPathQuery::Action::STATUS:
+                             res = locked_status ? "Data directory is locked." : "Data directory is unlocked.";
+                             break;
+                             // Needed?
+                             // default:
+                             //   throw...
+                             // break;
+                         }
 
-        status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
-        auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
-        if (pull_plan->Pull(stream, n)) {
-          return QueryHandlerResult::COMMIT;
-        }
-        return std::nullopt;
-      },
-      RWType::NONE};
+                         status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
+                         auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
+                         if (pull_plan->Pull(stream, n)) {
+                           return QueryHandlerResult::COMMIT;
+                         }
+                         return std::nullopt;
+                       },
+                       RWType::NONE};
 }
 
 PreparedQuery PrepareFreeMemoryQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
