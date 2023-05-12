@@ -1980,21 +1980,23 @@ utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot(std::op
   return CreateSnapshotError::ReachedMaxNumTries;
 }
 
-bool Storage::IsPathLocked() {
+utils::FileRetainer::FileLockerAccessor::ret_type Storage::IsPathLocked() {
   auto locker_accessor = global_locker_.Access();
   return locker_accessor.IsPathLocked(config_.durability.storage_directory);
 }
 
-bool Storage::LockPath() {
+utils::FileRetainer::FileLockerAccessor::ret_type Storage::LockPath() {
   auto locker_accessor = global_locker_.Access();
   return locker_accessor.AddPath(config_.durability.storage_directory);
 }
 
-bool Storage::UnlockPath() {
+utils::FileRetainer::FileLockerAccessor::ret_type Storage::UnlockPath() {
   {
     auto locker_accessor = global_locker_.Access();
-    if (!locker_accessor.RemovePath(config_.durability.storage_directory)) {
-      return false;
+    const auto ret = locker_accessor.RemovePath(config_.durability.storage_directory);
+    if (!ret.GetValue() || ret.HasError()) {
+      // Exit without cleaning the queue
+      return ret;
     }
   }
 

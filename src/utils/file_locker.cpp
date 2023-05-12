@@ -80,13 +80,14 @@ void FileRetainer::CleanQueue() {
 }
 
 ////// LockerEntry //////
-void FileRetainer::LockerEntry::LockPath(const std::filesystem::path &path) {
+bool FileRetainer::LockerEntry::LockPath(const std::filesystem::path &path) {
   auto absolute_path = std::filesystem::absolute(path);
   if (std::filesystem::is_directory(absolute_path)) {
-    directories_.emplace(std::move(absolute_path));
-    return;
+    const auto [itr, success] = directories_.emplace(std::move(absolute_path));
+    return success;
   }
-  files_.emplace(std::move(absolute_path));
+  const auto [itr, success] = files_.emplace(std::move(absolute_path));
+  return success;
 }
 
 bool FileRetainer::LockerEntry::RemovePath(const std::filesystem::path &path) {
@@ -140,18 +141,27 @@ FileRetainer::FileLockerAccessor::FileLockerAccessor(FileRetainer *retainer, siz
   file_retainer_->active_accessors_.fetch_add(1);
 }
 
-bool FileRetainer::FileLockerAccessor::IsPathLocked(const std::filesystem::path &path) {
-  if (!std::filesystem::exists(path)) return false;
+FileRetainer::FileLockerAccessor::ret_type FileRetainer::FileLockerAccessor::IsPathLocked(
+    const std::filesystem::path &path) {
+  if (!std::filesystem::exists(path)) {
+    return Error::NonexistentPath;
+  }
   return file_retainer_->FileLocked(std::filesystem::absolute(path));
 }
 
-bool FileRetainer::FileLockerAccessor::AddPath(const std::filesystem::path &path) {
-  if (!std::filesystem::exists(path)) return false;
-  file_retainer_->lockers_.WithLock([&](auto &lockers) { lockers[locker_id_].LockPath(path); });
-  return true;
+FileRetainer::FileLockerAccessor::ret_type FileRetainer::FileLockerAccessor::AddPath(
+    const std::filesystem::path &path) {
+  if (!std::filesystem::exists(path)) {
+    return Error::NonexistentPath;
+  }
+  return file_retainer_->lockers_.WithLock([&](auto &lockers) { return lockers[locker_id_].LockPath(path); });
 }
 
-bool FileRetainer::FileLockerAccessor::RemovePath(const std::filesystem::path &path) {
+FileRetainer::FileLockerAccessor::ret_type FileRetainer::FileLockerAccessor::RemovePath(
+    const std::filesystem::path &path) {
+  if (!std::filesystem::exists(path)) {
+    return Error::NonexistentPath;
+  }
   return file_retainer_->lockers_.WithLock([&](auto &lockers) { return lockers[locker_id_].RemovePath(path); });
 }
 

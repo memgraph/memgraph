@@ -18,6 +18,7 @@
 #include <unordered_map>
 
 #include "utils/file.hpp"
+#include "utils/result.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
@@ -114,20 +115,26 @@ class FileRetainer {
   struct FileLockerAccessor {
     friend FileLocker;
 
+    enum class Error : uint8_t {
+      NonexistentPath = 0,
+    };
+
+    using ret_type = utils::BasicResult<FileRetainer::FileLockerAccessor::Error, bool>;
+
     /**
      * Checks if a single path is in the current locker.
      */
-    bool IsPathLocked(const std::filesystem::path &path);
+    ret_type IsPathLocked(const std::filesystem::path &path);
 
     /**
      * Add a single path to the current locker.
      */
-    bool AddPath(const std::filesystem::path &path);
+    ret_type AddPath(const std::filesystem::path &path);
 
     /**
      * Remove a single path form the current locker.
      */
-    bool RemovePath(const std::filesystem::path &path);
+    ret_type RemovePath(const std::filesystem::path &path);
 
     FileLockerAccessor(const FileLockerAccessor &) = delete;
     FileLockerAccessor(FileLockerAccessor &&) = default;
@@ -187,7 +194,7 @@ class FileRetainer {
 
   class LockerEntry {
    public:
-    void LockPath(const std::filesystem::path &path);
+    bool LockPath(const std::filesystem::path &path);
     bool RemovePath(const std::filesystem::path &path);
     [[nodiscard]] bool LocksFile(const std::filesystem::path &path) const;
 

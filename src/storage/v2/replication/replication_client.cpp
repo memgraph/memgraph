@@ -399,7 +399,8 @@ std::vector<Storage::ReplicationClient::RecoveryStep> Storage::ReplicationClient
     // we cannot know if the difference is only in the current WAL or we need
     // to send the snapshot.
     if (latest_snapshot) {
-      locker_acc.AddPath(latest_snapshot->path);
+      const auto lock_success = locker_acc.AddPath(latest_snapshot->path);
+      MG_ASSERT(lock_success.HasError(), "Tried to lock a nonexistant path.");
       recovery_steps.emplace_back(std::in_place_type_t<RecoverySnapshot>{}, std::move(latest_snapshot->path));
     }
     // if there are no finalized WAL files, snapshot left the current WAL
@@ -446,7 +447,8 @@ std::vector<Storage::ReplicationClient::RecoveryStep> Storage::ReplicationClient
       // We need to lock these files and add them to the chain
       for (auto result_wal_it = wal_files->begin() + distance_from_first; result_wal_it != wal_files->end();
            ++result_wal_it) {
-        locker_acc.AddPath(result_wal_it->path);
+        const auto lock_success = locker_acc.AddPath(latest_snapshot->path);
+        MG_ASSERT(lock_success.HasError(), "Tried to lock a nonexistant path.");
         wal_chain.push_back(std::move(result_wal_it->path));
       }
 
@@ -464,7 +466,8 @@ std::vector<Storage::ReplicationClient::RecoveryStep> Storage::ReplicationClient
   MG_ASSERT(latest_snapshot, "Invalid durability state, missing snapshot");
   // We didn't manage to find a WAL chain, we need to send the latest snapshot
   // with its WALs
-  locker_acc.AddPath(latest_snapshot->path);
+  const auto lock_success = locker_acc.AddPath(latest_snapshot->path);
+  MG_ASSERT(lock_success.HasError(), "Tried to lock a nonexistant path.");
   recovery_steps.emplace_back(std::in_place_type_t<RecoverySnapshot>{}, std::move(latest_snapshot->path));
 
   std::vector<std::filesystem::path> recovery_wal_files;
@@ -483,13 +486,15 @@ std::vector<Storage::ReplicationClient::RecoveryStep> Storage::ReplicationClient
   }
 
   for (; wal_it != wal_files->end(); ++wal_it) {
-    locker_acc.AddPath(wal_it->path);
+    const auto lock_success = locker_acc.AddPath(latest_snapshot->path);
+    MG_ASSERT(lock_success.HasError(), "Tried to lock a nonexistant path.");
     recovery_wal_files.push_back(std::move(wal_it->path));
   }
 
   // We only have a WAL before the snapshot
   if (recovery_wal_files.empty()) {
-    locker_acc.AddPath(wal_files->back().path);
+    const auto lock_success = locker_acc.AddPath(latest_snapshot->path);
+    MG_ASSERT(lock_success.HasError(), "Tried to lock a nonexistant path.");
     recovery_wal_files.push_back(std::move(wal_files->back().path));
   }
 
