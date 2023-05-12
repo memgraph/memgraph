@@ -53,6 +53,9 @@
 #include "query/procedure/module.hpp"
 #include "query/procedure/py_module.hpp"
 #include "requests/requests.hpp"
+#include "storage/v2/config.hpp"
+#include "storage/v2/disk/storage.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/view.hpp"
@@ -159,7 +162,7 @@ DEFINE_bool(allow_load_csv, true, "Controls whether LOAD CSV clause is allowed i
 
 // Storage flags.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_uint64(storage_gc_cycle_sec, 30, "Storage garbage collector interval (in seconds).",
+DEFINE_VALIDATED_uint64(storage_gc_cycle_sec, 60, "Storage garbage collector interval (in seconds).",
                         FLAG_IN_RANGE(1, 24 * 3600));
 // NOTE: The `storage_properties_on_edges` flag must be the same here and in
 // `mg_import_csv`. If you change it, make sure to change it there as well.
@@ -855,6 +858,9 @@ int main(int argc, char **argv) {
   // End enterprise features initialization
 #endif
 
+  // auto type = memgraph::storage::Config::StorageMode::Type::IN_MEMORY;
+  auto type = memgraph::storage::Config::StorageMode::Type::PERSISTENT;
+
   // Main storage and execution engines initialization
   memgraph::storage::Config db_config{
       .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC,
@@ -866,11 +872,9 @@ int main(int argc, char **argv) {
                      .wal_file_size_kibibytes = FLAGS_storage_wal_file_size_kib,
                      .wal_file_flush_every_n_tx = FLAGS_storage_wal_file_flush_every_n_tx,
                      .snapshot_on_exit = FLAGS_storage_snapshot_on_exit,
-                     .restore_replicas_on_startup = true,
-                     .items_per_batch = FLAGS_storage_items_per_batch,
-                     .recovery_thread_count = FLAGS_storage_recovery_thread_count,
-                     .allow_parallel_index_creation = FLAGS_storage_parallel_index_recovery},
-      .transaction = {.isolation_level = ParseIsolationLevel()}};
+                     .restore_replicas_on_startup = true},
+      .transaction = {.isolation_level = ParseIsolationLevel()},
+      .storage_mode = {.type = type}};
   if (FLAGS_storage_snapshot_interval_sec == 0) {
     if (FLAGS_storage_wal_enabled) {
       LOG_FATAL(
@@ -889,10 +893,11 @@ int main(int argc, char **argv) {
     }
     db_config.durability.snapshot_interval = std::chrono::seconds(FLAGS_storage_snapshot_interval_sec);
   }
-  memgraph::storage::Storage db(db_config);
+  // auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage(db_config));
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::DiskStorage(db_config));
 
   memgraph::query::InterpreterContext interpreter_context{
-      &db,
+      db.get(),
       {.query = {.allow_load_csv = FLAGS_allow_load_csv},
        .execution_timeout_sec = FLAGS_query_execution_timeout_sec,
        .replication_replica_check_frequency = std::chrono::seconds(FLAGS_replication_replica_check_frequency_sec),
@@ -902,9 +907,9 @@ int main(int argc, char **argv) {
        .stream_transaction_retry_interval = std::chrono::milliseconds(FLAGS_stream_transaction_retry_interval)},
       FLAGS_data_directory};
 #ifdef MG_ENTERPRISE
-  SessionData session_data{&db, &interpreter_context, &auth, &audit_log};
+  SessionData session_data{db.get(), &interpreter_context, &auth, &audit_log};
 #else
-  SessionData session_data{&db, &interpreter_context, &auth};
+  SessionData session_data{db.get(), &interpreter_context, &auth};
 #endif
 
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories, FLAGS_data_directory);
@@ -942,7 +947,7 @@ int main(int argc, char **argv) {
     // Triggers can execute query procedures, so we need to reload the modules first and then
     // the triggers
     auto storage_accessor = interpreter_context.db->Access();
-    auto dba = memgraph::query::DbAccessor{&storage_accessor};
+    auto dba = memgraph::query::DbAccessor{storage_accessor.get()};
     interpreter_context.trigger_store.RestoreTriggers(
         &interpreter_context.ast_cache, &dba, interpreter_context.config.query, interpreter_context.auth_checker);
   }
@@ -976,7 +981,7 @@ int main(int argc, char **argv) {
   if (FLAGS_telemetry_enabled) {
     telemetry.emplace(telemetry_server, data_directory / "telemetry", run_id, machine_id, std::chrono::minutes(10));
     telemetry->AddCollector("storage", [&db]() -> nlohmann::json {
-      auto info = db.GetInfo();
+      auto info = db->GetInfo();
       return {{"vertices", info.vertex_count}, {"edges", info.edge_count}};
     });
     telemetry->AddCollector("event_counters", []() -> nlohmann::json {

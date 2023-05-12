@@ -11,91 +11,79 @@
 
 #pragma once
 
+#include <memory>
 #include <optional>
 
 #include "storage/v2/edge.hpp"
+#include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edge_ref.hpp"
 
 #include "storage/v2/config.hpp"
 #include "storage/v2/result.hpp"
-#include "storage/v2/transaction.hpp"
-#include "storage/v2/view.hpp"
+#include "storage/v2/vertex_accessor.hpp"
 
 namespace memgraph::storage {
 
-struct Vertex;
-class VertexAccessor;
-struct Indices;
-struct Constraints;
+struct Transaction;
 
-class EdgeAccessor final {
+class EdgeAccessor {
  private:
   friend class Storage;
 
  public:
-  EdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Transaction *transaction,
-               Indices *indices, Constraints *constraints, Config::Items config, bool for_deleted = false)
-      : edge_(edge),
-        edge_type_(edge_type),
-        from_vertex_(from_vertex),
-        to_vertex_(to_vertex),
-        transaction_(transaction),
-        indices_(indices),
-        constraints_(constraints),
-        config_(config),
-        for_deleted_(for_deleted) {}
+  EdgeAccessor(EdgeTypeId edge_type, Transaction *transaction, Config::Items config, bool for_deleted = false)
+      : edge_type_(edge_type), transaction_(transaction), config_(config), for_deleted_(for_deleted) {}
+
+  virtual ~EdgeAccessor() {}
+
+  static std::unique_ptr<EdgeAccessor> Create(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex,
+                                              Vertex *to_vertex, Transaction *transaction, Indices *indices,
+                                              Constraints *constraints, Config config, bool for_deleted = false);
 
   /// @return true if the object is visible from the current transaction
-  bool IsVisible(View view) const;
+  virtual bool IsVisible(View view) const = 0;
 
-  VertexAccessor FromVertex() const;
+  virtual std::unique_ptr<VertexAccessor> FromVertex() const = 0;
 
-  VertexAccessor ToVertex() const;
+  virtual std::unique_ptr<VertexAccessor> ToVertex() const = 0;
 
   EdgeTypeId EdgeType() const { return edge_type_; }
 
   /// Set a property value and return the old value.
   /// @throw std::bad_alloc
-  Result<storage::PropertyValue> SetProperty(PropertyId property, const PropertyValue &value);
+  virtual Result<storage::PropertyValue> SetProperty(PropertyId property, const PropertyValue &value) = 0;
 
   /// Set property values only if property store is empty. Returns `true` if successully set all values,
   /// `false` otherwise.
   /// @throw std::bad_alloc
-  Result<bool> InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties);
+  virtual Result<bool> InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) = 0;
 
   /// Remove all properties and return old values for each removed property.
   /// @throw std::bad_alloc
-  Result<std::map<PropertyId, PropertyValue>> ClearProperties();
+  virtual Result<std::map<PropertyId, PropertyValue>> ClearProperties() = 0;
 
   /// @throw std::bad_alloc
-  Result<PropertyValue> GetProperty(PropertyId property, View view) const;
+  virtual Result<PropertyValue> GetProperty(PropertyId property, View view) const = 0;
 
   /// @throw std::bad_alloc
-  Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
+  virtual Result<std::map<PropertyId, PropertyValue>> Properties(View view) const = 0;
 
-  Gid Gid() const noexcept {
-    if (config_.properties_on_edges) {
-      return edge_.ptr->gid;
-    } else {
-      return edge_.gid;
-    }
-  }
+  virtual storage::Gid Gid() const noexcept = 0;
 
-  bool IsCycle() const { return from_vertex_ == to_vertex_; }
+  virtual bool IsCycle() const = 0;
 
-  bool operator==(const EdgeAccessor &other) const noexcept {
-    return edge_ == other.edge_ && transaction_ == other.transaction_;
-  }
+  virtual std::unique_ptr<EdgeAccessor> Copy() const = 0;
+
+  virtual std::optional<std::string> PropertyStore() const = 0;
+
+  virtual bool SetPropertyStore(std::string_view buffer) const = 0;
+
+  virtual bool operator==(const EdgeAccessor &other) const noexcept = 0;
   bool operator!=(const EdgeAccessor &other) const noexcept { return !(*this == other); }
 
- private:
-  EdgeRef edge_;
+ protected:
   EdgeTypeId edge_type_;
-  Vertex *from_vertex_;
-  Vertex *to_vertex_;
   Transaction *transaction_;
-  Indices *indices_;
-  Constraints *constraints_;
   Config::Items config_;
 
   // if the accessor was created for a deleted edge.
@@ -107,11 +95,13 @@ class EdgeAccessor final {
   bool for_deleted_{false};
 };
 
+bool operator==(const std::unique_ptr<EdgeAccessor> &ea1, const std::unique_ptr<EdgeAccessor> &ea2) noexcept;
+
 }  // namespace memgraph::storage
 
 namespace std {
 template <>
-struct hash<memgraph::storage::EdgeAccessor> {
-  size_t operator()(const memgraph::storage::EdgeAccessor &e) const { return e.Gid().AsUint(); }
+struct hash<memgraph::storage::EdgeAccessor *> {
+  size_t operator()(const memgraph::storage::EdgeAccessor *e) const { return e->Gid().AsUint(); }
 };
 }  // namespace std

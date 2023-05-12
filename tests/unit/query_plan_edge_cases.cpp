@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,6 +14,7 @@
 // easy testing and latter readability they are tested end-to-end.
 
 #include <filesystem>
+#include <memory>
 #include <optional>
 
 #include "gmock/gmock.h"
@@ -21,28 +22,29 @@
 
 #include "communication/result_stream_faker.hpp"
 #include "query/interpreter.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 
 DECLARE_bool(query_cost_planner);
 
 class QueryExecution : public testing::Test {
  protected:
-  std::optional<memgraph::storage::Storage> db_;
+  std::unique_ptr<memgraph::storage::Storage> db_;
   std::optional<memgraph::query::InterpreterContext> interpreter_context_;
   std::optional<memgraph::query::Interpreter> interpreter_;
 
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_query_plan_edge_cases"};
 
   void SetUp() {
-    db_.emplace();
-    interpreter_context_.emplace(&*db_, memgraph::query::InterpreterConfig{}, data_directory);
+    db_.reset(new memgraph::storage::InMemoryStorage());
+    interpreter_context_.emplace(db_.get(), memgraph::query::InterpreterConfig{}, data_directory);
     interpreter_.emplace(&*interpreter_context_);
   }
 
   void TearDown() {
     interpreter_ = std::nullopt;
     interpreter_context_ = std::nullopt;
-    db_ = std::nullopt;
+    db_.reset(nullptr);
   }
 
   /**
@@ -51,7 +53,7 @@ class QueryExecution : public testing::Test {
    * Return the query results.
    */
   auto Execute(const std::string &query) {
-    ResultStreamFaker stream(&*db_);
+    ResultStreamFaker stream(db_.get());
 
     auto [header, _, qid] = interpreter_->Prepare(query, {}, nullptr);
     stream.Header(header);

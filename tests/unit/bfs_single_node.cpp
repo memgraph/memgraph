@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,14 +11,16 @@
 
 #include "bfs_common.hpp"
 
+#include "storage/v2/inmemory/storage.hpp"
+
 using namespace memgraph::query;
 using namespace memgraph::query::plan;
 
 class SingleNodeDb : public Database {
  public:
-  SingleNodeDb() : db_() {}
+  SingleNodeDb() : db_(new memgraph::storage::InMemoryStorage()) {}
 
-  memgraph::storage::Storage::Accessor Access() override { return db_.Access(); }
+  std::unique_ptr<memgraph::storage::Storage::Accessor> Access() override { return db_->Access(); }
 
   std::unique_ptr<LogicalOperator> MakeBfsOperator(Symbol source_sym, Symbol sink_sym, Symbol edge_sym,
                                                    EdgeAtom::Direction direction,
@@ -61,7 +63,7 @@ class SingleNodeDb : public Database {
   }
 
  protected:
-  memgraph::storage::Storage db_;
+  std::unique_ptr<memgraph::storage::Storage> db_;
 };
 
 class SingleNodeBfsTest

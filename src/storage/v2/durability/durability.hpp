@@ -23,7 +23,7 @@
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge.hpp"
-#include "storage/v2/indices.hpp"
+#include "storage/v2/inmemory/indices.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/skip_list.hpp"

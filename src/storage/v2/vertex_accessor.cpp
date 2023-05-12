@@ -11,28 +11,35 @@
 
 #include "storage/v2/vertex_accessor.hpp"
 
-#include <memory>
-
-#include "storage/v2/edge_accessor.hpp"
-#include "storage/v2/id_types.hpp"
-#include "storage/v2/indices.hpp"
-#include "storage/v2/mvcc.hpp"
-#include "storage/v2/property_value.hpp"
-#include "utils/logging.hpp"
-#include "utils/memory_tracker.hpp"
+#include "storage/v2/disk/vertex_accessor.hpp"
+#include "storage/v2/inmemory/edge_accessor.hpp"
+#include "storage/v2/inmemory/vertex_accessor.hpp"
 
 namespace memgraph::storage {
 
-namespace detail {
-namespace {
-std::pair<bool, bool> IsVisible(Vertex *vertex, Transaction *transaction, View view) {
-  bool exists = true;
-  bool deleted = false;
-  Delta *delta = nullptr;
-  {
-    std::lock_guard<utils::SpinLock> guard(vertex->lock);
-    deleted = vertex->deleted;
-    delta = vertex->delta;
+Result<std::vector<std::unique_ptr<EdgeAccessor>>> VertexAccessor::InEdges(
+    View view, const std::vector<EdgeTypeId> &edge_types) const {
+  return InEdges(view, edge_types, nullptr);
+}
+
+Result<std::vector<std::unique_ptr<EdgeAccessor>>> VertexAccessor::InEdges(View view) const {
+  return InEdges(view, {}, nullptr);
+}
+
+Result<std::vector<std::unique_ptr<EdgeAccessor>>> VertexAccessor::OutEdges(
+    View view, const std::vector<EdgeTypeId> &edge_types) const {
+  return OutEdges(view, edge_types, nullptr);
+}
+
+Result<std::vector<std::unique_ptr<EdgeAccessor>>> VertexAccessor::OutEdges(View view) const {
+  return OutEdges(view, {}, nullptr);
+}
+
+bool operator==(const std::unique_ptr<VertexAccessor> &va1, const std::unique_ptr<VertexAccessor> &va2) noexcept {
+  const auto *inMemoryVa1 = dynamic_cast<const InMemoryVertexAccessor *>(va1.get());
+  const auto *inMemoryVa2 = dynamic_cast<const InMemoryVertexAccessor *>(va2.get());
+  if (inMemoryVa1 && inMemoryVa2) {
+    return inMemoryVa1->operator==(*inMemoryVa2);
   }
   ApplyDeltasForRead(transaction, delta, view, [&](const Delta &delta) {
     switch (delta.action) {

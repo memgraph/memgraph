@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,6 +25,7 @@
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "query/plan/operator.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 
 #include "query_plan_common.hpp"
 
@@ -32,9 +33,9 @@ using namespace memgraph::query;
 using namespace memgraph::query::plan;
 
 TEST(QueryPlan, Skip) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -63,9 +64,9 @@ TEST(QueryPlan, Skip) {
 }
 
 TEST(QueryPlan, Limit) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -97,9 +98,9 @@ TEST(QueryPlan, CreateLimit) {
   // CREATE (n), (m)
   // MATCH (n) CREATE (m) LIMIT 1
   // in the end we need to have 3 vertices in the db
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   dba.InsertVertex();
   dba.InsertVertex();
   dba.AdvanceCommand();
@@ -120,9 +121,9 @@ TEST(QueryPlan, CreateLimit) {
 }
 
 TEST(QueryPlan, OrderBy) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   AstStorage storage;
   SymbolTable symbol_table;
   auto prop = dba.NameToProperty("prop");
@@ -193,9 +194,9 @@ TEST(QueryPlan, OrderBy) {
 }
 
 TEST(QueryPlan, OrderByMultiple) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   AstStorage storage;
   SymbolTable symbol_table;
 
@@ -247,9 +248,9 @@ TEST(QueryPlan, OrderByMultiple) {
 }
 
 TEST(QueryPlan, OrderByExceptions) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
   AstStorage storage;
   SymbolTable symbol_table;
   auto prop = dba.NameToProperty("prop");

@@ -20,6 +20,7 @@
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/preprocess.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 
 #include "query_common.hpp"
 
@@ -27,9 +28,9 @@ using namespace memgraph::query;
 
 class TestSymbolGenerator : public ::testing::Test {
  protected:
-  memgraph::storage::Storage db;
-  memgraph::storage::Storage::Accessor storage_dba{db.Access()};
-  memgraph::query::DbAccessor dba{&storage_dba};
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
+  memgraph::query::DbAccessor dba{storage_dba.get()};
   AstStorage storage;
 };
 

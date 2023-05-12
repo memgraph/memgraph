@@ -18,6 +18,7 @@
 
 #include "mgp.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/view.hpp"
 
 struct CppApiTestFixture : public ::testing::Test {
@@ -30,16 +31,16 @@ struct CppApiTestFixture : public ::testing::Test {
   }
 
   memgraph::query::DbAccessor &CreateDbAccessor(const memgraph::storage::IsolationLevel isolationLevel) {
-    accessors_.push_back(storage.Access(isolationLevel));
-    db_accessors_.emplace_back(&accessors_.back());
+    accessors_.push_back(storage->Access(isolationLevel));
+    db_accessors_.emplace_back(accessors_.back().get());
     return db_accessors_.back();
   }
 
-  memgraph::storage::Storage storage;
+  std::unique_ptr<memgraph::storage::Storage> storage{new memgraph::storage::InMemoryStorage()};
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
 
  private:
-  std::list<memgraph::storage::Storage::Accessor> accessors_;
+  std::list<std::unique_ptr<memgraph::storage::Storage::Accessor>> accessors_;
   std::list<memgraph::query::DbAccessor> db_accessors_;
   std::unique_ptr<memgraph::query::ExecutionContext> ctx_ = std::make_unique<memgraph::query::ExecutionContext>();
 };

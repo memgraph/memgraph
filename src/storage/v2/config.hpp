@@ -60,6 +60,12 @@ struct Config {
   struct Transaction {
     IsolationLevel isolation_level{IsolationLevel::SNAPSHOT_ISOLATION};
   } transaction;
+
+  struct StorageMode {
+    enum class Type { IN_MEMORY, PERSISTENT };
+
+    Type type{Type::IN_MEMORY};
+  } storage_mode;
 };
 
 }  // namespace memgraph::storage

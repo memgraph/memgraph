@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
@@ -123,6 +124,7 @@ inline bool operator!=(const PreviousPtr::Pointer &a, const PreviousPtr::Pointer
 struct Delta {
   enum class Action {
     // Used for both Vertex and Edge
+    DELETE_DESERIALIZED_OBJECT,
     DELETE_OBJECT,
     RECREATE_OBJECT,
     SET_PROPERTY,
@@ -137,6 +139,7 @@ struct Delta {
   };
 
   // Used for both Vertex and Edge
+  struct DeleteDeserializedObjectTag {};
   struct DeleteObjectTag {};
   struct RecreateObjectTag {};
   struct SetPropertyTag {};
@@ -148,6 +151,9 @@ struct Delta {
   struct AddOutEdgeTag {};
   struct RemoveInEdgeTag {};
   struct RemoveOutEdgeTag {};
+
+  Delta(DeleteDeserializedObjectTag, uint64_t timestamp)
+      : action(Action::DELETE_DESERIALIZED_OBJECT), timestamp(new std::atomic<uint64_t>(timestamp)) {}
 
   Delta(DeleteObjectTag, std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : action(Action::DELETE_OBJECT), timestamp(timestamp), command_id(command_id) {}
@@ -211,6 +217,9 @@ struct Delta {
         break;
       case Action::SET_PROPERTY:
         property.value.~PropertyValue();
+        break;
+      case Action::DELETE_DESERIALIZED_OBJECT:
+        delete timestamp;
         break;
     }
   }

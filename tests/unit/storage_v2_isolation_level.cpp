@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,13 +11,13 @@
 
 #include <gtest/gtest.h>
 
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
-#include "storage/v2/storage.hpp"
 
 namespace {
-int64_t VerticesCount(memgraph::storage::Storage::Accessor &accessor) {
+int64_t VerticesCount(memgraph::storage::Storage::Accessor *accessor) {
   int64_t count{0};
-  for ([[maybe_unused]] const auto &vertex : accessor.Vertices(memgraph::storage::View::NEW)) {
+  for ([[maybe_unused]] const auto &vertex : accessor->Vertices(memgraph::storage::View::NEW)) {
     ++count;
   }
 
@@ -53,14 +53,14 @@ TEST_P(StorageIsolationLevelTest, Visibility) {
   const auto default_isolation_level = GetParam();
 
   for (const auto override_isolation_level : isolation_levels) {
-    memgraph::storage::Storage storage{
-        memgraph::storage::Config{.transaction = {.isolation_level = default_isolation_level}}};
-    auto creator = storage.Access();
-    auto default_isolation_level_reader = storage.Access();
-    auto override_isolation_level_reader = storage.Access(override_isolation_level);
+    std::unique_ptr<memgraph::storage::Storage> storage(new memgraph::storage::InMemoryStorage(
+        {memgraph::storage::Config{.transaction = {.isolation_level = default_isolation_level}}}));
+    auto creator = storage->Access();
+    auto default_isolation_level_reader = storage->Access();
+    auto override_isolation_level_reader = storage->Access(override_isolation_level);
 
-    ASSERT_EQ(VerticesCount(default_isolation_level_reader), 0);
-    ASSERT_EQ(VerticesCount(override_isolation_level_reader), 0);
+    ASSERT_EQ(VerticesCount(default_isolation_level_reader.get()), 0);
+    ASSERT_EQ(VerticesCount(override_isolation_level_reader.get()), 0);
 
     static constexpr auto iteration_count = 10;
     {
@@ -69,18 +69,18 @@ TEST_P(StorageIsolationLevelTest, Visibility) {
           "(default isolation level = {}, override isolation level = {})",
           IsolationLevelToString(default_isolation_level), IsolationLevelToString(override_isolation_level)));
       for (size_t i = 1; i <= iteration_count; ++i) {
-        creator.CreateVertex();
+        creator->CreateVertex();
 
         const auto check_vertices_count = [i](auto &accessor, const auto isolation_level) {
           const auto expected_count = isolation_level == memgraph::storage::IsolationLevel::READ_UNCOMMITTED ? i : 0;
-          EXPECT_EQ(VerticesCount(accessor), expected_count);
+          EXPECT_EQ(VerticesCount(accessor.get()), expected_count);
         };
         check_vertices_count(default_isolation_level_reader, default_isolation_level);
         check_vertices_count(override_isolation_level_reader, override_isolation_level);
       }
     }
 
-    ASSERT_FALSE(creator.Commit().HasError());
+    ASSERT_FALSE(creator->Commit().HasError());
     {
       SCOPED_TRACE(fmt::format(
           "Visibility after the creator transaction is committed "
@@ -89,20 +89,20 @@ TEST_P(StorageIsolationLevelTest, Visibility) {
       const auto check_vertices_count = [](auto &accessor, const auto isolation_level) {
         const auto expected_count =
             isolation_level == memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION ? 0 : iteration_count;
-        ASSERT_EQ(VerticesCount(accessor), expected_count);
+        ASSERT_EQ(VerticesCount(accessor.get()), expected_count);
       };
 
       check_vertices_count(default_isolation_level_reader, default_isolation_level);
       check_vertices_count(override_isolation_level_reader, override_isolation_level);
     }
 
-    ASSERT_FALSE(default_isolation_level_reader.Commit().HasError());
-    ASSERT_FALSE(override_isolation_level_reader.Commit().HasError());
+    ASSERT_FALSE(default_isolation_level_reader->Commit().HasError());
+    ASSERT_FALSE(override_isolation_level_reader->Commit().HasError());
 
     SCOPED_TRACE("Visibility after a new transaction is started");
-    auto verifier = storage.Access();
-    ASSERT_EQ(VerticesCount(verifier), iteration_count);
-    ASSERT_FALSE(verifier.Commit().HasError());
+    auto verifier = storage->Access();
+    ASSERT_EQ(VerticesCount(verifier.get()), iteration_count);
+    ASSERT_FALSE(verifier->Commit().HasError());
   }
 }
 

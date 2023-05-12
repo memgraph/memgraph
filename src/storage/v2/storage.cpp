@@ -10,11 +10,6 @@
 // licenses/APL.txt.
 
 #include "storage/v2/storage.hpp"
-#include <algorithm>
-#include <atomic>
-#include <memory>
-#include <mutex>
-#include <variant>
 
 #include <gflags/gflags.h>
 #include <spdlog/spdlog.h>
@@ -51,31 +46,13 @@
 
 namespace memgraph::storage {
 
-using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
-
-namespace {
-inline constexpr uint16_t kEpochHistoryRetention = 1000;
-
-std::string RegisterReplicaErrorToString(Storage::RegisterReplicaError error) {
-  switch (error) {
-    case Storage::RegisterReplicaError::NAME_EXISTS:
-      return "NAME_EXISTS";
-    case Storage::RegisterReplicaError::END_POINT_EXISTS:
-      return "END_POINT_EXISTS";
-    case Storage::RegisterReplicaError::CONNECTION_FAILED:
-      return "CONNECTION_FAILED";
-    case Storage::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
-      return "COULD_NOT_BE_PERSISTED";
-  }
-}
-}  // namespace
-
 auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it, utils::SkipList<Vertex>::Iterator end,
-                            std::optional<VertexAccessor> *vertex, Transaction *tx, View view, Indices *indices,
-                            Constraints *constraints, Config::Items config) {
+                            std::unique_ptr<VertexAccessor> &vertex, Transaction *tx, View view, Indices *indices,
+                            Constraints *constraints, Config config) {
   while (it != end) {
-    *vertex = VertexAccessor::Create(&*it, tx, indices, constraints, config, view);
-    if (!*vertex) {
+    /// TODO:(andi) Here we need to create a vertex accessor dependent on the storage.
+    vertex = InMemoryVertexAccessor::Create(&*it, tx, indices, constraints, config.items, view);
+    if (!vertex) {
       ++it;
       continue;
     }
@@ -84,22 +61,57 @@ auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it, utils::SkipLis
   return it;
 }
 
-AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, utils::SkipList<Vertex>::Iterator it)
+/// TODO: (andi): Templatize
+auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it, utils::SkipList<Vertex>::Iterator end,
+                            std::unique_ptr<VertexAccessor> &vertex, Transaction *tx, View view, DiskIndices *indices,
+                            Constraints *constraints, Config config) {
+  while (it != end) {
+    /// TODO:(andi) Here we need to create a vertex accessor dependent on the storage.
+    vertex = DiskVertexAccessor::Create(&*it, tx, indices, constraints, config.items, view);
+    if (!vertex) {
+      ++it;
+      continue;
+    }
+    break;
+  }
+  return it;
+}
+
+AllMemoryVerticesIterable::Iterator::Iterator(AllMemoryVerticesIterable *self, utils::SkipList<Vertex>::Iterator it)
     : self_(self),
-      it_(AdvanceToVisibleVertex(it, self->vertices_accessor_.end(), &self->vertex_, self->transaction_, self->view_,
+      it_(AdvanceToVisibleVertex(it, self->vertices_accessor_.end(), self->vertex_, self->transaction_, self->view_,
                                  self->indices_, self_->constraints_, self->config_)) {}
 
-VertexAccessor AllVerticesIterable::Iterator::operator*() const { return *self_->vertex_; }
+AllDiskVerticesIterable::Iterator::Iterator(AllDiskVerticesIterable *self, utils::SkipList<Vertex>::Iterator it)
+    : self_(self),
+      it_(AdvanceToVisibleVertex(it, self->vertices_accessor_.end(), self->vertex_, self->transaction_, self->view_,
+                                 self->indices_, self_->constraints_, self->config_)) {}
 
-AllVerticesIterable::Iterator &AllVerticesIterable::Iterator::operator++() {
+VertexAccessor *AllMemoryVerticesIterable::Iterator::operator*() const { return self_->vertex_.get(); }
+
+VertexAccessor *AllDiskVerticesIterable::Iterator::operator*() const { return self_->vertex_.get(); }
+
+AllMemoryVerticesIterable::Iterator &AllMemoryVerticesIterable::Iterator::operator++() {
   ++it_;
-  it_ = AdvanceToVisibleVertex(it_, self_->vertices_accessor_.end(), &self_->vertex_, self_->transaction_, self_->view_,
+  it_ = AdvanceToVisibleVertex(it_, self_->vertices_accessor_.end(), self_->vertex_, self_->transaction_, self_->view_,
                                self_->indices_, self_->constraints_, self_->config_);
   return *this;
 }
 
-VerticesIterable::VerticesIterable(AllVerticesIterable vertices) : type_(Type::ALL) {
-  new (&all_vertices_) AllVerticesIterable(std::move(vertices));
+AllDiskVerticesIterable::Iterator &AllDiskVerticesIterable::Iterator::operator++() {
+  ++it_;
+  /// TODO(andi): Check what is happening
+  it_ = AdvanceToVisibleVertex(it_, self_->vertices_accessor_.end(), self_->vertex_, self_->transaction_, self_->view_,
+                               self_->indices_, self_->constraints_, self_->config_);
+  return *this;
+}
+
+VerticesIterable::VerticesIterable(AllMemoryVerticesIterable vertices) : type_(Type::MEMORY_ALL) {
+  new (&all_memory_vertices_) AllMemoryVerticesIterable(std::move(vertices));
+}
+
+VerticesIterable::VerticesIterable(AllDiskVerticesIterable vertices) : type_(Type::DISK_ALL) {
+  new (&all_disk_vertices_) AllDiskVerticesIterable(std::move(vertices));
 }
 
 VerticesIterable::VerticesIterable(LabelIndex::Iterable vertices) : type_(Type::BY_LABEL) {
@@ -112,8 +124,11 @@ VerticesIterable::VerticesIterable(LabelPropertyIndex::Iterable vertices) : type
 
 VerticesIterable::VerticesIterable(VerticesIterable &&other) noexcept : type_(other.type_) {
   switch (other.type_) {
-    case Type::ALL:
-      new (&all_vertices_) AllVerticesIterable(std::move(other.all_vertices_));
+    case Type::MEMORY_ALL:
+      new (&all_memory_vertices_) AllMemoryVerticesIterable(std::move(other.all_memory_vertices_));
+      break;
+    case Type::DISK_ALL:
+      new (&all_disk_vertices_) AllDiskVerticesIterable(std::move(other.all_disk_vertices_));
       break;
     case Type::BY_LABEL:
       new (&vertices_by_label_) LabelIndex::Iterable(std::move(other.vertices_by_label_));
@@ -126,8 +141,11 @@ VerticesIterable::VerticesIterable(VerticesIterable &&other) noexcept : type_(ot
 
 VerticesIterable &VerticesIterable::operator=(VerticesIterable &&other) noexcept {
   switch (type_) {
-    case Type::ALL:
-      all_vertices_.AllVerticesIterable::~AllVerticesIterable();
+    case Type::MEMORY_ALL:
+      all_memory_vertices_.AllMemoryVerticesIterable::~AllMemoryVerticesIterable();
+      break;
+    case Type::DISK_ALL:
+      all_disk_vertices_.AllDiskVerticesIterable::~AllDiskVerticesIterable();
       break;
     case Type::BY_LABEL:
       vertices_by_label_.LabelIndex::Iterable::~Iterable();
@@ -138,8 +156,11 @@ VerticesIterable &VerticesIterable::operator=(VerticesIterable &&other) noexcept
   }
   type_ = other.type_;
   switch (other.type_) {
-    case Type::ALL:
-      new (&all_vertices_) AllVerticesIterable(std::move(other.all_vertices_));
+    case Type::MEMORY_ALL:
+      new (&all_memory_vertices_) AllMemoryVerticesIterable(std::move(other.all_memory_vertices_));
+      break;
+    case Type::DISK_ALL:
+      new (&all_disk_vertices_) AllDiskVerticesIterable(std::move(other.all_disk_vertices_));
       break;
     case Type::BY_LABEL:
       new (&vertices_by_label_) LabelIndex::Iterable(std::move(other.vertices_by_label_));
@@ -153,8 +174,11 @@ VerticesIterable &VerticesIterable::operator=(VerticesIterable &&other) noexcept
 
 VerticesIterable::~VerticesIterable() {
   switch (type_) {
-    case Type::ALL:
-      all_vertices_.AllVerticesIterable::~AllVerticesIterable();
+    case Type::MEMORY_ALL:
+      all_memory_vertices_.AllMemoryVerticesIterable::~AllMemoryVerticesIterable();
+      break;
+    case Type::DISK_ALL:
+      all_disk_vertices_.AllDiskVerticesIterable::~AllDiskVerticesIterable();
       break;
     case Type::BY_LABEL:
       vertices_by_label_.LabelIndex::Iterable::~Iterable();
@@ -167,8 +191,10 @@ VerticesIterable::~VerticesIterable() {
 
 VerticesIterable::Iterator VerticesIterable::begin() {
   switch (type_) {
-    case Type::ALL:
-      return Iterator(all_vertices_.begin());
+    case Type::MEMORY_ALL:
+      return Iterator(all_memory_vertices_.begin());
+    case Type::DISK_ALL:
+      return Iterator(all_disk_vertices_.begin());
     case Type::BY_LABEL:
       return Iterator(vertices_by_label_.begin());
     case Type::BY_LABEL_PROPERTY:
@@ -178,8 +204,10 @@ VerticesIterable::Iterator VerticesIterable::begin() {
 
 VerticesIterable::Iterator VerticesIterable::end() {
   switch (type_) {
-    case Type::ALL:
-      return Iterator(all_vertices_.end());
+    case Type::MEMORY_ALL:
+      return Iterator(all_memory_vertices_.end());
+    case Type::DISK_ALL:
+      return Iterator(all_disk_vertices_.end());
     case Type::BY_LABEL:
       return Iterator(vertices_by_label_.end());
     case Type::BY_LABEL_PROPERTY:
@@ -187,8 +215,12 @@ VerticesIterable::Iterator VerticesIterable::end() {
   }
 }
 
-VerticesIterable::Iterator::Iterator(AllVerticesIterable::Iterator it) : type_(Type::ALL) {
-  new (&all_it_) AllVerticesIterable::Iterator(std::move(it));
+VerticesIterable::Iterator::Iterator(AllMemoryVerticesIterable::Iterator it) : type_(Type::MEMORY_ALL) {
+  new (&all_memory_it_) AllMemoryVerticesIterable::Iterator(std::move(it));
+}
+
+VerticesIterable::Iterator::Iterator(AllDiskVerticesIterable::Iterator it) : type_(Type::DISK_ALL) {
+  new (&all_disk_it_) AllDiskVerticesIterable::Iterator(std::move(it));
 }
 
 VerticesIterable::Iterator::Iterator(LabelIndex::Iterable::Iterator it) : type_(Type::BY_LABEL) {
@@ -201,8 +233,11 @@ VerticesIterable::Iterator::Iterator(LabelPropertyIndex::Iterable::Iterator it) 
 
 VerticesIterable::Iterator::Iterator(const VerticesIterable::Iterator &other) : type_(other.type_) {
   switch (other.type_) {
-    case Type::ALL:
-      new (&all_it_) AllVerticesIterable::Iterator(other.all_it_);
+    case Type::MEMORY_ALL:
+      new (&all_memory_it_) AllMemoryVerticesIterable::Iterator(other.all_memory_it_);
+      break;
+    case Type::DISK_ALL:
+      new (&all_disk_it_) AllDiskVerticesIterable::Iterator(other.all_disk_it_);
       break;
     case Type::BY_LABEL:
       new (&by_label_it_) LabelIndex::Iterable::Iterator(other.by_label_it_);
@@ -217,8 +252,11 @@ VerticesIterable::Iterator &VerticesIterable::Iterator::operator=(const Vertices
   Destroy();
   type_ = other.type_;
   switch (other.type_) {
-    case Type::ALL:
-      new (&all_it_) AllVerticesIterable::Iterator(other.all_it_);
+    case Type::MEMORY_ALL:
+      new (&all_memory_it_) AllMemoryVerticesIterable::Iterator(other.all_memory_it_);
+      break;
+    case Type::DISK_ALL:
+      new (&all_disk_it_) AllDiskVerticesIterable::Iterator(other.all_disk_it_);
       break;
     case Type::BY_LABEL:
       new (&by_label_it_) LabelIndex::Iterable::Iterator(other.by_label_it_);
@@ -232,8 +270,11 @@ VerticesIterable::Iterator &VerticesIterable::Iterator::operator=(const Vertices
 
 VerticesIterable::Iterator::Iterator(VerticesIterable::Iterator &&other) noexcept : type_(other.type_) {
   switch (other.type_) {
-    case Type::ALL:
-      new (&all_it_) AllVerticesIterable::Iterator(std::move(other.all_it_));
+    case Type::MEMORY_ALL:
+      new (&all_memory_it_) AllMemoryVerticesIterable::Iterator(std::move(other.all_memory_it_));
+      break;
+    case Type::DISK_ALL:
+      new (&all_disk_it_) AllDiskVerticesIterable::Iterator(std::move(other.all_disk_it_));
       break;
     case Type::BY_LABEL:
       new (&by_label_it_) LabelIndex::Iterable::Iterator(std::move(other.by_label_it_));
@@ -248,8 +289,11 @@ VerticesIterable::Iterator &VerticesIterable::Iterator::operator=(VerticesIterab
   Destroy();
   type_ = other.type_;
   switch (other.type_) {
-    case Type::ALL:
-      new (&all_it_) AllVerticesIterable::Iterator(std::move(other.all_it_));
+    case Type::MEMORY_ALL:
+      new (&all_memory_it_) AllMemoryVerticesIterable::Iterator(std::move(other.all_memory_it_));
+      break;
+    case Type::DISK_ALL:
+      new (&all_disk_it_) AllDiskVerticesIterable::Iterator(std::move(other.all_disk_it_));
       break;
     case Type::BY_LABEL:
       new (&by_label_it_) LabelIndex::Iterable::Iterator(std::move(other.by_label_it_));
@@ -265,8 +309,11 @@ VerticesIterable::Iterator::~Iterator() { Destroy(); }
 
 void VerticesIterable::Iterator::Destroy() noexcept {
   switch (type_) {
-    case Type::ALL:
-      all_it_.AllVerticesIterable::Iterator::~Iterator();
+    case Type::MEMORY_ALL:
+      all_memory_it_.AllMemoryVerticesIterable::Iterator::~Iterator();
+      break;
+    case Type::DISK_ALL:
+      all_disk_it_.AllDiskVerticesIterable::Iterator::~Iterator();
       break;
     case Type::BY_LABEL:
       by_label_it_.LabelIndex::Iterable::Iterator::~Iterator();
@@ -277,10 +324,12 @@ void VerticesIterable::Iterator::Destroy() noexcept {
   }
 }
 
-VertexAccessor VerticesIterable::Iterator::operator*() const {
+VertexAccessor *VerticesIterable::Iterator::operator*() const {
   switch (type_) {
-    case Type::ALL:
-      return *all_it_;
+    case Type::MEMORY_ALL:
+      return *all_memory_it_;
+    case Type::DISK_ALL:
+      return *all_disk_it_;
     case Type::BY_LABEL:
       return *by_label_it_;
     case Type::BY_LABEL_PROPERTY:
@@ -290,8 +339,11 @@ VertexAccessor VerticesIterable::Iterator::operator*() const {
 
 VerticesIterable::Iterator &VerticesIterable::Iterator::operator++() {
   switch (type_) {
-    case Type::ALL:
-      ++all_it_;
+    case Type::MEMORY_ALL:
+      ++all_memory_it_;
+      break;
+    case Type::DISK_ALL:
+      ++all_disk_it_;
       break;
     case Type::BY_LABEL:
       ++by_label_it_;
@@ -305,8 +357,10 @@ VerticesIterable::Iterator &VerticesIterable::Iterator::operator++() {
 
 bool VerticesIterable::Iterator::operator==(const Iterator &other) const {
   switch (type_) {
-    case Type::ALL:
-      return all_it_ == other.all_it_;
+    case Type::MEMORY_ALL:
+      return all_memory_it_ == other.all_memory_it_;
+    case Type::DISK_ALL:
+      return all_disk_it_ == other.all_disk_it_;
     case Type::BY_LABEL:
       return by_label_it_ == other.by_label_it_;
     case Type::BY_LABEL_PROPERTY:
@@ -314,6 +368,7 @@ bool VerticesIterable::Iterator::operator==(const Iterator &other) const {
   }
 }
 
+<<<<<<< HEAD
 Storage::Storage(Config config)
     : indices_(&constraints_, config.items),
       isolation_level_(config.transaction.isolation_level),
@@ -2217,4 +2272,6 @@ void Storage::RestoreReplicas() {
 
 bool Storage::ShouldStoreAndRestoreReplicas() const { return nullptr != storage_; }
 
+=======
+>>>>>>> disk-storage-v1
 }  // namespace memgraph::storage

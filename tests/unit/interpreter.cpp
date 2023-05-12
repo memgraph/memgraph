@@ -26,6 +26,7 @@
 #include "query/stream.hpp"
 #include "query/typed_value.hpp"
 #include "query_common.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/csv_parsing.hpp"
@@ -48,9 +49,9 @@ auto ToEdgeList(const memgraph::communication::bolt::Value &v) {
 
 class InterpreterTest : public ::testing::Test {
  public:
-  memgraph::storage::Storage db_;
+  std::unique_ptr<memgraph::storage::Storage> db_{new memgraph::storage::InMemoryStorage()};
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_interpreter"};
-  memgraph::query::InterpreterContext interpreter_context{&db_, {}, data_directory};
+  memgraph::query::InterpreterContext interpreter_context{db_.get(), {}, data_directory};
 
   InterpreterFaker default_interpreter{&interpreter_context};
 
@@ -286,8 +287,8 @@ TEST_F(InterpreterTest, Bfs) {
 
   // Set up.
   {
-    auto storage_dba = db_.Access();
-    memgraph::query::DbAccessor dba(&storage_dba);
+    auto storage_dba = db_->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
     auto add_node = [&](int level, bool reachable) {
       auto node = dba.InsertVertex();
       MG_ASSERT(node.SetProperty(dba.NameToProperty(kId), memgraph::storage::PropertyValue(id++)).HasValue());
@@ -351,7 +352,6 @@ TEST_F(InterpreterTest, Bfs) {
   EXPECT_EQ(stream.GetHeader()[2], "m");
   ASSERT_EQ(stream.GetResults().size(), 5 * kNumNodesPerLevel);
 
-  auto dba = db_.Access();
   int expected_level = 1;
   int remaining_nodes_in_level = kNumNodesPerLevel;
   std::unordered_set<int64_t> matched_ids;
@@ -403,7 +403,6 @@ TEST_F(InterpreterTest, ShortestPath) {
     EXPECT_EQ(stream.GetHeader()[0], "e");
     ASSERT_EQ(stream.GetResults().size(), 3U);
 
-    auto dba = db_.Access();
     std::vector<std::vector<std::string>> expected_results{{"r1"}, {"r2"}, {"r1", "r2"}};
 
     for (const auto &result : stream.GetResults()) {
@@ -457,7 +456,6 @@ TEST_F(InterpreterTest, AllShortestById) {
   EXPECT_EQ(stream.GetHeader()[0], "e");
   ASSERT_EQ(stream.GetResults().size(), 1U);
 
-  auto dba = db_.Access();
   std::vector<std::string> expected_result = {"r1", "r2"};
 
   const auto &result = stream.GetResults()[0];
@@ -1066,7 +1064,7 @@ TEST_F(InterpreterTest, AllowLoadCsvConfig) {
         "row"};
 
     memgraph::query::InterpreterContext csv_interpreter_context{
-        &db_, {.query = {.allow_load_csv = allow_load_csv}}, directory_manager.Path()};
+        db_.get(), {.query = {.allow_load_csv = allow_load_csv}}, directory_manager.Path()};
     InterpreterFaker interpreter_faker{&csv_interpreter_context};
     for (const auto &query : queries) {
       if (allow_load_csv) {

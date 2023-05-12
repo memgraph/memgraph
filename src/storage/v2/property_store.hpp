@@ -77,6 +77,12 @@ class PropertyStore {
   /// @throw std::bad_alloc
   bool ClearProperties();
 
+  /// Return property buffer as a string
+  std::string StringBuffer();
+
+  /// Sets buffer
+  void SetBuffer(std::string_view buffer);
+
  private:
   template <typename TContainer>
   bool DoInitProperties(const TContainer &properties);

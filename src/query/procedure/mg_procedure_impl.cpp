@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,6 +25,7 @@
 #include "license/license.hpp"
 #include "mg_procedure.h"
 #include "module.hpp"
+#include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/procedure/cypher_types.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
@@ -1950,9 +1951,9 @@ void NextPermittedEdge(mgp_edges_iterator &it, const bool for_in) {
     const auto *auth_checker = it.source_vertex.graph->ctx->auth_checker.get();
     const auto view = it.source_vertex.graph->view;
     while (*impl_it != end) {
-      if (auth_checker->Has(**impl_it, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
-        const auto &check_vertex =
-            it.source_vertex.getImpl() == (*impl_it)->From() ? (*impl_it)->To() : (*impl_it)->From();
+      auto edgeAcc = **impl_it;
+      if (auth_checker->Has(edgeAcc, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
+        const auto &check_vertex = it.source_vertex.getImpl() == edgeAcc.From() ? edgeAcc.To() : edgeAcc.From();
         if (auth_checker->Has(check_vertex, view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
           break;
         }
@@ -1995,19 +1996,20 @@ mgp_error mgp_vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_
 #endif
 
         if (*it->in_it != it->in->end()) {
-          std::visit(memgraph::utils::Overloaded{
-                         [&](memgraph::query::DbAccessor *) {
-                           it->current_e.emplace(**it->in_it, (**it->in_it).From(), (**it->in_it).To(), v->graph,
-                                                 it->GetMemoryResource());
-                         },
-                         [&](memgraph::query::SubgraphDbAccessor *impl) {
-                           it->current_e.emplace(
-                               **it->in_it,
-                               memgraph::query::SubgraphVertexAccessor((**it->in_it).From(), impl->getGraph()),
-                               memgraph::query::SubgraphVertexAccessor((**it->in_it).To(), impl->getGraph()), v->graph,
-                               it->GetMemoryResource());
-                         }},
-                     v->graph->impl);
+          std::visit(
+              memgraph::utils::Overloaded{
+                  [&](memgraph::query::DbAccessor *) {
+                    auto edgeAcc = **it->in_it;
+                    it->current_e.emplace(edgeAcc, edgeAcc.From(), edgeAcc.To(), v->graph, it->GetMemoryResource());
+                  },
+                  [&](memgraph::query::SubgraphDbAccessor *impl) {
+                    auto edgeAcc = **it->in_it;
+                    it->current_e.emplace(edgeAcc,
+                                          memgraph::query::SubgraphVertexAccessor(edgeAcc.From(), impl->getGraph()),
+                                          memgraph::query::SubgraphVertexAccessor(edgeAcc.To(), impl->getGraph()),
+                                          v->graph, it->GetMemoryResource());
+                  }},
+              v->graph->impl);
         }
 
         return it.release();
@@ -2047,19 +2049,20 @@ mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges
 #endif
 
         if (*it->out_it != it->out->end()) {
-          std::visit(memgraph::utils::Overloaded{
-                         [&](memgraph::query::DbAccessor *) {
-                           it->current_e.emplace(**it->out_it, (**it->out_it).From(), (**it->out_it).To(), v->graph,
-                                                 it->GetMemoryResource());
-                         },
-                         [&](memgraph::query::SubgraphDbAccessor *impl) {
-                           it->current_e.emplace(
-                               **it->out_it,
-                               memgraph::query::SubgraphVertexAccessor((**it->out_it).From(), impl->getGraph()),
-                               memgraph::query::SubgraphVertexAccessor((**it->out_it).To(), impl->getGraph()), v->graph,
-                               it->GetMemoryResource());
-                         }},
-                     v->graph->impl);
+          std::visit(
+              memgraph::utils::Overloaded{
+                  [&](memgraph::query::DbAccessor *) {
+                    memgraph::query::EdgeAccessor edgeAcc = **it->out_it;
+                    it->current_e.emplace(edgeAcc, edgeAcc.From(), edgeAcc.To(), v->graph, it->GetMemoryResource());
+                  },
+                  [&](memgraph::query::SubgraphDbAccessor *impl) {
+                    auto edgeAcc = **it->out_it;
+                    it->current_e.emplace(edgeAcc,
+                                          memgraph::query::SubgraphVertexAccessor(edgeAcc.From(), impl->getGraph()),
+                                          memgraph::query::SubgraphVertexAccessor(edgeAcc.To(), impl->getGraph()),
+                                          v->graph, it->GetMemoryResource());
+                  }},
+              v->graph->impl);
         }
 
         return it.release();
@@ -2110,13 +2113,15 @@ mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
           }
           std::visit(memgraph::utils::Overloaded{
                          [&](memgraph::query::DbAccessor *) {
-                           it->current_e.emplace(**impl_it, (**impl_it).From(), (**impl_it).To(),
-                                                 it->source_vertex.graph, it->GetMemoryResource());
+                           auto edgeAcc = **impl_it;
+                           it->current_e.emplace(edgeAcc, edgeAcc.From(), edgeAcc.To(), it->source_vertex.graph,
+                                                 it->GetMemoryResource());
                          },
                          [&](memgraph::query::SubgraphDbAccessor *impl) {
+                           auto edgeAcc = **impl_it;
                            it->current_e.emplace(
-                               **impl_it, memgraph::query::SubgraphVertexAccessor((**impl_it).From(), impl->getGraph()),
-                               memgraph::query::SubgraphVertexAccessor((**impl_it).To(), impl->getGraph()),
+                               edgeAcc, memgraph::query::SubgraphVertexAccessor(edgeAcc.From(), impl->getGraph()),
+                               memgraph::query::SubgraphVertexAccessor(edgeAcc.To(), impl->getGraph()),
                                it->source_vertex.graph, it->GetMemoryResource());
                          }},
                      it->source_vertex.graph->impl);

@@ -17,6 +17,7 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/cost_estimator.hpp"
 #include "query/plan/operator.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 
 using namespace memgraph::query;
@@ -33,11 +34,11 @@ using MiscParam = CostEstimator<memgraph::query::DbAccessor>::MiscParam;
  * estimation testing. */
 class QueryCostEstimator : public ::testing::Test {
  protected:
-  memgraph::storage::Storage db;
-  std::optional<memgraph::storage::Storage::Accessor> storage_dba;
+  std::unique_ptr<memgraph::storage::Storage> db;
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba;
   std::optional<memgraph::query::DbAccessor> dba;
-  memgraph::storage::LabelId label = db.NameToLabel("label");
-  memgraph::storage::PropertyId property = db.NameToProperty("property");
+  memgraph::storage::LabelId label;
+  memgraph::storage::PropertyId property;
 
   // we incrementally build the logical operator plan
   // start it off with Once
@@ -49,10 +50,13 @@ class QueryCostEstimator : public ::testing::Test {
   int symbol_count = 0;
 
   void SetUp() {
-    ASSERT_FALSE(db.CreateIndex(label).HasError());
-    ASSERT_FALSE(db.CreateIndex(label, property).HasError());
-    storage_dba.emplace(db.Access());
-    dba.emplace(&*storage_dba);
+    db.reset(new memgraph::storage::InMemoryStorage());
+    label = db->NameToLabel("label");
+    property = db->NameToProperty("property");
+    ASSERT_FALSE(db->CreateIndex(label).HasError());
+    ASSERT_FALSE(db->CreateIndex(label, property).HasError());
+    storage_dba = db->Access();
+    dba.emplace(storage_dba.get());
   }
 
   Symbol NextSymbol() { return symbol_table_.CreateSymbol("Symbol" + std::to_string(symbol_count++), true); }

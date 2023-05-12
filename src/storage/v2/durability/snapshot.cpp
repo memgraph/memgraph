@@ -1314,7 +1314,11 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
 void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snapshot_directory,
                     const std::filesystem::path &wal_directory, uint64_t snapshot_retention_count,
                     utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper,
+<<<<<<< HEAD
                     Indices *indices, Constraints *constraints, const Config &config, const std::string &uuid,
+=======
+                    Indices *indices, Constraints *constraints, Config items, const std::string &uuid,
+>>>>>>> disk-storage-v1
                     const std::string_view epoch_id, const std::deque<std::pair<std::string, uint64_t>> &epoch_history,
                     utils::FileRetainer *file_retainer) {
   // Ensure that the storage directory exists.
@@ -1366,7 +1370,11 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
   auto items_in_current_batch{0UL};
   auto batch_start_offset{0UL};
   // Store all edges.
+<<<<<<< HEAD
   if (config.items.properties_on_edges) {
+=======
+  if (items.items.properties_on_edges) {
+>>>>>>> disk-storage-v1
     offset_edges = snapshot.GetPosition();
     batch_start_offset = offset_edges;
     auto acc = edges->access();
@@ -1394,6 +1402,7 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
             is_visible = true;
             break;
           }
+          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
           case Delta::Action::DELETE_OBJECT: {
             is_visible = false;
             break;
@@ -1407,11 +1416,16 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
       // type and invalid from/to pointers because we don't know them here,
       // but that isn't an issue because we won't use that part of the API
       // here.
+<<<<<<< HEAD
       auto ea = EdgeAccessor{
           edge_ref, EdgeTypeId::FromUint(0UL), nullptr, nullptr, transaction, indices, constraints, config.items};
+=======
+      auto ea = EdgeAccessor::Create(edge_ref, EdgeTypeId::FromUint(0UL), nullptr, nullptr, transaction, indices,
+                                     constraints, items);
+>>>>>>> disk-storage-v1
 
       // Get edge data.
-      auto maybe_props = ea.Properties(View::OLD);
+      auto maybe_props = ea->Properties(View::OLD);
       MG_ASSERT(maybe_props.HasValue(), "Invalid database state!");
 
       // Store the edge.
@@ -1449,7 +1463,12 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
     auto acc = vertices->access();
     for (auto &vertex : acc) {
       // The visibility check is implemented for vertices so we use it here.
+<<<<<<< HEAD
       auto va = VertexAccessor::Create(&vertex, transaction, indices, constraints, config.items, View::OLD);
+=======
+      /// TODO: Here we need to create a vertex accessor dependent on the storage.
+      auto va = InMemoryVertexAccessor::Create(&vertex, transaction, indices, constraints, items.items, View::OLD);
+>>>>>>> disk-storage-v1
       if (!va) continue;
 
       // Get vertex data.
@@ -1459,9 +1478,9 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
       MG_ASSERT(maybe_labels.HasValue(), "Invalid database state!");
       auto maybe_props = va->Properties(View::OLD);
       MG_ASSERT(maybe_props.HasValue(), "Invalid database state!");
-      auto maybe_in_edges = va->InEdges(View::OLD);
+      auto maybe_in_edges = va->InEdges(View::OLD, {}, nullptr);
       MG_ASSERT(maybe_in_edges.HasValue(), "Invalid database state!");
-      auto maybe_out_edges = va->OutEdges(View::OLD);
+      auto maybe_out_edges = va->OutEdges(View::OLD, {}, nullptr);
       MG_ASSERT(maybe_out_edges.HasValue(), "Invalid database state!");
 
       // Store the vertex.
@@ -1482,16 +1501,16 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
         const auto &in_edges = maybe_in_edges.GetValue();
         snapshot.WriteUint(in_edges.size());
         for (const auto &item : in_edges) {
-          snapshot.WriteUint(item.Gid().AsUint());
-          snapshot.WriteUint(item.FromVertex().Gid().AsUint());
-          write_mapping(item.EdgeType());
+          snapshot.WriteUint(item->Gid().AsUint());
+          snapshot.WriteUint(item->FromVertex()->Gid().AsUint());
+          write_mapping(item->EdgeType());
         }
         const auto &out_edges = maybe_out_edges.GetValue();
         snapshot.WriteUint(out_edges.size());
         for (const auto &item : out_edges) {
-          snapshot.WriteUint(item.Gid().AsUint());
-          snapshot.WriteUint(item.ToVertex().Gid().AsUint());
-          write_mapping(item.EdgeType());
+          snapshot.WriteUint(item->Gid().AsUint());
+          snapshot.WriteUint(item->ToVertex()->Gid().AsUint());
+          write_mapping(item->EdgeType());
         }
       }
 
