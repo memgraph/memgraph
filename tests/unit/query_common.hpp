@@ -521,7 +521,7 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
       std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>{__VA_ARGS__})
 #define MAP_PROJECTION(map_variable, elements)           \
   storage.Create<memgraph::query::MapProjectionLiteral>( \
-      memgraph::query::Expression * {map_variable},      \
+      (memgraph::query::Expression *){map_variable},     \
       std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>{elements})
 #define PROPERTY_PAIR(property_name) std::make_pair(property_name, dba.NameToProperty(property_name))
 #define PROPERTY_LOOKUP(...) memgraph::query::test_common::GetPropertyLookup(storage, dba, __VA_ARGS__)
