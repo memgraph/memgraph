@@ -965,10 +965,10 @@ TYPED_TEST(TestPlanner, MapProjectionLiteralAggregationReturn) {
   FakeDbAccessor dba;
   auto sum = SUM(LITERAL(2), false);
   auto group_by_literal = LITERAL(42);
-  auto projection = std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>{
+  auto elements = std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>{
       {storage.GetPropertyIx("sum"), sum}};
-  auto *query = QUERY(SINGLE_QUERY(WITH(MAP(), AS("map")), RETURN(MAP_PROJECTION(IDENT("map"), projection),
-                                                                  AS("result"), group_by_literal, AS("group_by"))));
+  auto *query = QUERY(SINGLE_QUERY(WITH(MAP(), AS("map")), RETURN(MAP_PROJECTION(IDENT("map"), elements), AS("result"),
+                                                                  group_by_literal, AS("group_by"))));
   auto aggr = ExpectAggregate({sum}, {group_by_literal});
   CheckPlan<TypeParam>(query, storage, ExpectProduce(), aggr, ExpectProduce());
 }
