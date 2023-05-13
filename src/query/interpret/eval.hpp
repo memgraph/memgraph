@@ -17,6 +17,7 @@
 #include <map>
 #include <optional>
 #include <regex>
+#include <string>
 #include <vector>
 
 #include "query/common.hpp"
@@ -632,20 +633,23 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     constexpr std::string_view kAllPropertiesSelector{"*"};
 
     TypedValue::TMap result(ctx_->memory);
+    TypedValue::TMap all_properties_lookup(ctx_->memory);
     for (const auto &[property_key, property_value] : literal.elements_) {
       if (property_key.name == kAllPropertiesSelector.data()) {
-        auto maybe_selector = property_value->Accept(*this);
+        auto maybe_all_properties_lookup = property_value->Accept(*this);
 
-        if (maybe_selector.type() != TypedValue::Type::Map) {
-          throw QueryRuntimeException("Expected a map from AllPropertiesLookup, got {}.", maybe_selector.type());
+        if (maybe_all_properties_lookup.type() != TypedValue::Type::Map) {
+          throw QueryRuntimeException("Expected a map from AllPropertiesLookup, got {}.",
+                                      maybe_all_properties_lookup.type());
         }
-
-        result.emplace(maybe_selector.ValueMap());
+        all_properties_lookup = std::move(maybe_all_properties_lookup.ValueMap());
         continue;
       }
 
       result.emplace(property_key.name, property_value->Accept(*this));
     }
+    if (!all_properties_lookup.empty()) result.merge(all_properties_lookup);
+
     return TypedValue(result, ctx_->memory);
   }
 
