@@ -72,6 +72,7 @@ TEST_F(ExpressionPrettyPrinterTest, Literals) {
             "[DURATION(\"P0DT0H0M0.000001S\"), DURATION(\"P0DT0H0M-0.000002S\"), LOCALTIME(\"00:00:00.000002\"), "
             "LOCALDATETIME(\"1970-01-01T00:00:00.000003\"), DATE(\"1970-01-01\")]");
 
+  // map {literalEntry: 10, variableSelector: a, .map, .*}
   auto elements = std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>{
       {storage.GetPropertyIx("literalEntry"), LITERAL(10)},
       {storage.GetPropertyIx("variableSelector"), IDENT("a")},
