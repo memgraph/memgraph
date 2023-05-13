@@ -153,6 +153,14 @@ auto GetPropertyLookup(AstStorage &storage, TDbAccessor &, Expression *expr,
   return storage.Create<PropertyLookup>(expr, storage.GetPropertyIx(prop_pair.first));
 }
 
+/// Create an AllPropertiesLookup from the given name.
+auto GetAllPropertiesLookup(AstStorage &storage, const std::string &name) {
+  return storage.Create<AllPropertiesLookup>(storage.Create<Identifier>(name));
+}
+
+/// Create an AllPropertiesLookup from the given expression.
+auto GetAllPropertiesLookup(AstStorage &storage, Expression *expr) { return storage.Create<AllPropertiesLookup>(expr); }
+
 /// Create an EdgeAtom with given name, direction and edge_type.
 ///
 /// Name is used to create the Identifier which is assigned to the edge.
@@ -525,6 +533,7 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
       std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>{elements})
 #define PROPERTY_PAIR(property_name) std::make_pair(property_name, dba.NameToProperty(property_name))
 #define PROPERTY_LOOKUP(...) memgraph::query::test_common::GetPropertyLookup(storage, dba, __VA_ARGS__)
+#define ALL_PROPERTIES_LOOKUP(expr) memgraph::query::test_common::GetAllPropertiesLookup(storage, expr)
 #define PARAMETER_LOOKUP(token_position) storage.Create<memgraph::query::ParameterLookup>((token_position))
 #define NEXPR(name, expr) storage.Create<memgraph::query::NamedExpression>((name), (expr))
 // AS is alternative to NEXPR which does not initialize NamedExpression with

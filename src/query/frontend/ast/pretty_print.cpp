@@ -129,7 +129,6 @@ void PrintObject(std::ostream *out, Expression *expr) {
 void PrintObject(std::ostream *out, AllPropertiesLookup *apl) {
   if (apl) {
     ExpressionPrettyPrinter printer{out};
-    apl->Accept(printer);
     *out << ".*";
   } else {
     *out << "<null>";
