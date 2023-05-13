@@ -374,10 +374,13 @@ TEST_F(ExpressionEvaluatorTest, MapIndexing) {
 }
 
 TEST_F(ExpressionEvaluatorTest, MapProjectionIndexing) {
+  auto *map_variable = storage.Create<MapLiteral>(
+      std::unordered_map<PropertyIx, Expression *>{{storage.GetPropertyIx("x"), storage.Create<PrimitiveLiteral>(0)}});
   auto *map_projection_literal = storage.Create<MapProjectionLiteral>(
-      storage.Create<MapLiteral>(std::unordered_map<PropertyIx, Expression *>{
-          {storage.GetPropertyIx("x"), storage.Create<PrimitiveLiteral>(0)}}),
-      std::unordered_map<PropertyIx, Expression *>{{storage.GetPropertyIx("a"), storage.Create<PrimitiveLiteral>(1)}});
+      map_variable,
+      std::unordered_map<PropertyIx, Expression *>{
+          {storage.GetPropertyIx("a"), storage.Create<PrimitiveLiteral>(1)},
+          {storage.GetPropertyIx("y"), storage.Create<PropertyLookup>(map_variable, storage.GetPropertyIx("y"))}});
 
   {
     // Legal indexing.
@@ -386,7 +389,13 @@ TEST_F(ExpressionEvaluatorTest, MapProjectionIndexing) {
     EXPECT_EQ(value.ValueInt(), 1);
   }
   {
-    // Legal indexing, non-existing key.
+    // Legal indexing; property created by PropertyLookup of a non-existent map variable key
+    auto *op = storage.Create<SubscriptOperator>(map_projection_literal, storage.Create<PrimitiveLiteral>("y"));
+    auto value = Eval(op);
+    EXPECT_TRUE(value.IsNull());
+  }
+  {
+    // Legal indexing, non-existing property.
     auto *op = storage.Create<SubscriptOperator>(map_projection_literal, storage.Create<PrimitiveLiteral>("z"));
     auto value = Eval(op);
     EXPECT_TRUE(value.IsNull());
@@ -403,6 +412,40 @@ TEST_F(ExpressionEvaluatorTest, MapProjectionIndexing) {
     auto value = Eval(op);
     EXPECT_TRUE(value.IsNull());
   }
+}
+
+TEST_F(ExpressionEvaluatorTest, MapProjectionAllPropertiesLookupBefore) {
+  // AllPropertiesLookup (.*) may contain properties whose names also occur in MapProjectionLiteral
+  // The ones in MapProjectionLiteral are explicitly given and thus take precedence over those in AllPropertiesLookup
+  // Test case: AllPropertiesLookup comes before the identically-named properties
+
+  auto *map_variable = storage.Create<MapLiteral>(
+      std::unordered_map<PropertyIx, Expression *>{{storage.GetPropertyIx("x"), storage.Create<PrimitiveLiteral>(0)}});
+  auto *map_projection_literal = storage.Create<MapProjectionLiteral>(
+      map_variable, std::unordered_map<PropertyIx, Expression *>{
+                        {storage.GetPropertyIx("*"), storage.Create<AllPropertiesLookup>(map_variable)},
+                        {storage.GetPropertyIx("x"), storage.Create<PrimitiveLiteral>(1)}});
+
+  auto *op = storage.Create<SubscriptOperator>(map_projection_literal, storage.Create<PrimitiveLiteral>("x"));
+  auto value = Eval(op);
+  EXPECT_EQ(value.ValueInt(), 1);
+}
+
+TEST_F(ExpressionEvaluatorTest, MapProjectionAllPropertiesLookupAfter) {
+  // AllPropertiesLookup (.*) may contain properties whose names also occur in MapProjectionLiteral
+  // The ones in MapProjectionLiteral are explicitly given and thus take precedence over those in AllPropertiesLookup
+  // Test case: AllPropertiesLookup comes after the identically-named properties
+
+  auto *map_variable = storage.Create<MapLiteral>(
+      std::unordered_map<PropertyIx, Expression *>{{storage.GetPropertyIx("x"), storage.Create<PrimitiveLiteral>(0)}});
+  auto *map_projection_literal = storage.Create<MapProjectionLiteral>(
+      map_variable, std::unordered_map<PropertyIx, Expression *>{
+                        {storage.GetPropertyIx("x"), storage.Create<PrimitiveLiteral>(1)},
+                        {storage.GetPropertyIx("*"), storage.Create<AllPropertiesLookup>(map_variable)}});
+
+  auto *op = storage.Create<SubscriptOperator>(map_projection_literal, storage.Create<PrimitiveLiteral>("x"));
+  auto value = Eval(op);
+  EXPECT_EQ(value.ValueInt(), 1);
 }
 
 TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
