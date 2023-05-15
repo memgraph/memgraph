@@ -109,7 +109,7 @@ class MetricsRequestHandler final {
     body.append(service_response.dump());
 
     // Cache the size since we need it after the move
-    auto const size = body.size();
+    const auto size = body.size();
 
     // Respond to GET request
     http::response<http::string_body> res{std::piecewise_construct, std::make_tuple(std::move(body)),
