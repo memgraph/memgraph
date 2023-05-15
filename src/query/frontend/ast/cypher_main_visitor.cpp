@@ -2252,7 +2252,6 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
     auto *where = std::any_cast<Where *>(ctx->filterExpression()->where()->accept(this));
     return static_cast<Expression *>(storage_->Create<None>(ident, list_expr, where));
   } else if (ctx->REDUCE()) {
-    // ctx->reduceExpression()->variable()
     auto *accumulator =
         storage_->Create<Identifier>(std::any_cast<std::string>(ctx->reduceExpression()->accumulator->accept(this)));
     auto *initializer = std::any_cast<Expression *>(ctx->reduceExpression()->initial->accept(this));
