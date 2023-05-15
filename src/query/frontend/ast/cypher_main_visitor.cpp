@@ -2310,8 +2310,8 @@ antlrcpp::Any CypherMainVisitor::visitLiteral(MemgraphCypher::LiteralContext *ct
         storage_->Create<ListLiteral>(std::any_cast<std::vector<Expression *>>(ctx->listLiteral()->accept(this))));
   } else if (ctx->mapProjectionLiteral()) {
     auto map_projection_data = std::any_cast<MapProjectionData>(ctx->mapProjectionLiteral()->accept(this));
-    return static_cast<Expression *>(
-        storage_->Create<MapProjectionLiteral>(map_projection_data.map_variable, map_projection_data.elements));
+    return static_cast<Expression *>(storage_->Create<MapProjectionLiteral>(map_projection_data.map_variable,
+                                                                            std::move(map_projection_data.elements)));
   } else {
     return static_cast<Expression *>(storage_->Create<MapLiteral>(
         std::any_cast<std::unordered_map<PropertyIx, Expression *>>(ctx->mapLiteral()->accept(this))));
