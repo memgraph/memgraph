@@ -483,24 +483,21 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       case TypedValue::Type::Null:
         return TypedValue(ctx_->memory);
       case TypedValue::Type::Vertex: {
-        const auto vertex = expression_result.ValueVertex();
-        auto properties = *vertex.Properties(view_);
-        for (const auto &[property_id, value] : properties) {
+        for (const auto properties = *expression_result.ValueVertex().Properties(view_);
+             const auto &[property_id, value] : properties) {
           result.emplace(dba_->PropertyToName(property_id), value);
         }
         return TypedValue(result, ctx_->memory);
       }
       case TypedValue::Type::Edge: {
-        const auto &edge = expression_result.ValueEdge();
-        auto properties = *edge.Properties(view_);
-        for (const auto &[property_id, value] : properties) {
+        for (const auto properties = *expression_result.ValueEdge().Properties(view_);
+             const auto &[property_id, value] : properties) {
           result_.emplace(dba_->PropertyToName(property_id), value);
         }
         return TypedValue(result_, ctx_->memory);
       }
       case TypedValue::Type::Map: {
-        auto &map = expression_result.ValueMap();
-        for (auto &[name, value] : map) {
+        for (auto &[name, value] : expression_result.ValueMap()) {
           result.emplace(name, value);
         }
         return TypedValue(result, ctx_->memory);
