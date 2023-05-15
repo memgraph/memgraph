@@ -292,7 +292,7 @@ TEST(QueryPlan, CreateExpand) {
     }
 
     for (auto vertex : dba.Vertices(memgraph::storage::View::OLD)) {
-      dba.PrefetchOutEdges();
+      dba.PrefetchOutEdges(vertex);
       auto maybe_edges = vertex.OutEdges(memgraph::storage::View::OLD);
       MG_ASSERT(maybe_edges.HasValue());
       for (auto edge : *maybe_edges) {
@@ -1132,7 +1132,7 @@ TEST(QueryPlan, SetProperty) {
 
   EXPECT_EQ(CountEdges(&dba, memgraph::storage::View::OLD), 2);
   for (auto vertex : dba.Vertices(memgraph::storage::View::OLD)) {
-    dba.PrefetchOutEdges();
+    dba.PrefetchOutEdges(vertex);
     auto maybe_edges = vertex.OutEdges(memgraph::storage::View::OLD);
     ASSERT_TRUE(maybe_edges.HasValue());
     for (auto edge : *maybe_edges) {
@@ -1189,7 +1189,7 @@ TEST(QueryPlan, SetProperties) {
 
     EXPECT_EQ(CountEdges(&dba, memgraph::storage::View::OLD), 1);
     for (auto vertex : dba.Vertices(memgraph::storage::View::OLD)) {
-      dba.PrefetchOutEdges();
+      dba.PrefetchOutEdges(vertex);
       auto maybe_edges = vertex.OutEdges(memgraph::storage::View::OLD);
       ASSERT_TRUE(maybe_edges.HasValue());
       for (auto edge : *maybe_edges) {
@@ -1378,7 +1378,7 @@ TEST(QueryPlan, RemoveProperty) {
 
   EXPECT_EQ(CountEdges(&dba, memgraph::storage::View::OLD), 2);
   for (auto vertex : dba.Vertices(memgraph::storage::View::OLD)) {
-    dba.PrefetchOutEdges();
+    dba.PrefetchOutEdges(vertex);
     auto maybe_edges = vertex.OutEdges(memgraph::storage::View::OLD);
     ASSERT_TRUE(maybe_edges.HasValue());
     for (auto edge : *maybe_edges) {

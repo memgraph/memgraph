@@ -46,8 +46,8 @@ TEST(QueryPlan, CreateNodeWithAttributes) {
     const auto &v = node_value.ValueVertex();
     EXPECT_TRUE(*v.HasLabel(memgraph::storage::View::NEW, label));
     EXPECT_EQ(v.GetProperty(memgraph::storage::View::NEW, property)->ValueInt(), 42);
-    dba->PrefetchInEdges();
-    dba->PrefetchOutEdges();
+    dba->PrefetchInEdges(v.impl_);
+    dba->PrefetchOutEdges(v.impl_);
     EXPECT_EQ(CountIterable(*v.InEdges(memgraph::storage::View::NEW)), 0);
     EXPECT_EQ(CountIterable(*v.OutEdges(memgraph::storage::View::NEW)), 0);
     // Invokes LOG(FATAL) instead of erroring out.
@@ -115,7 +115,7 @@ TEST(QueryPlan, ScanAllByLabel) {
     // Add labeled vertices
     for (int i = 0; i < 42; ++i) {
       auto v = dba->CreateVertex();
-      ASSERT_TRUE(v->AddLabel(label).HasValue());
+      ASSERT_TRUE(v.AddLabel(label).HasValue());
     }
     EXPECT_FALSE(dba->Commit().HasError());
   }
