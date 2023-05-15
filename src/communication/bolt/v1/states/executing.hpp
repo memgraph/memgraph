@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -86,6 +86,37 @@ State RunHandlerV4(Signature signature, TSession &session, State state, Marker m
   }
 }
 
+template <typename TSession>
+State RunHandlerV5(Signature signature, TSession &session, State state, Marker marker) {
+  switch (signature) {
+    case Signature::Run:
+      return HandleRunV4<TSession>(session, state, marker);
+    case Signature::Pull:
+      return HandlePullV4<TSession>(session, state, marker);
+    case Signature::Discard:
+      return HandleDiscardV4<TSession>(session, state, marker);
+    case Signature::Reset:
+      return HandleReset<TSession>(session, marker);
+    case Signature::Begin:
+      return HandleBegin<TSession>(session, state, marker);
+    case Signature::Commit:
+      return HandleCommit<TSession>(session, state, marker);
+    case Signature::Goodbye:
+      return HandleGoodbye<TSession>();
+    case Signature::Rollback:
+      return HandleRollback<TSession>(session, state, marker);
+    case Signature::Noop:
+      return HandleNoop<TSession>(state);
+    case Signature::Route:
+      return HandleRoute<TSession>(session, marker);
+    case Signature::LogOff:
+      return HandleLogOff<TSession>(session);
+    default:
+      spdlog::trace("Unrecognized signature received (0x{:02X})!", utils::UnderlyingCast(signature));
+      return State::Close;
+  }
+}
+
 /**
  * Executor state run function
  * This function executes an initialized Bolt session.
@@ -113,6 +144,8 @@ State StateExecutingRun(TSession &session, State state) {
       }
       return RunHandlerV4<TSession>(signature, session, state, marker);
     }
+    case 5:
+      return RunHandlerV5<TSession>(signature, session, state, marker);
     default:
       spdlog::trace("Unsupported bolt version:{}.{})!", session.version_.major, session.version_.minor);
       return State::Close;

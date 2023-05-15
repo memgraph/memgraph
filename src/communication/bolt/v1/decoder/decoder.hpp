@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -406,6 +406,13 @@ class Decoder {
       return false;
     }
     vertex.properties = std::move(dv.ValueMap());
+
+    // Read element_id (>=v5)
+    if (!ReadValue(&dv, Value::Type::String)) {
+      vertex.element_id = "";
+    } else {
+      vertex.element_id = std::move(dv.ValueString());
+    }
 
     return true;
   }

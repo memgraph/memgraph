@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -131,6 +131,11 @@ class BaseEncoder {
     for (const auto &prop : props) {
       WriteString(prop.first);
       WriteValue(prop.second);
+    }
+
+    // Write element_id (>=v5)
+    if (!vertex.element_id.empty()) {
+      WriteString(vertex.element_id);
     }
   }
 
