@@ -72,13 +72,13 @@ static void AddStarGraph(memgraph::storage::Storage *db, int spoke_count, int de
   {
     auto dba = db->Access();
     auto center_vertex = dba->CreateVertex();
-    MG_ASSERT(center_vertex->AddLabel(dba->NameToLabel(kStartLabel)).HasValue());
+    MG_ASSERT(center_vertex.AddLabel(dba->NameToLabel(kStartLabel)).HasValue());
     for (int i = 0; i < spoke_count; ++i) {
-      auto prev_vertex = std::move(center_vertex);
+      auto prev_vertex = center_vertex;
       for (int j = 0; j < depth; ++j) {
         auto dest = dba->CreateVertex();
-        MG_ASSERT(dba->CreateEdge(prev_vertex.get(), dest.get(), dba->NameToEdgeType("Type")).HasValue());
-        prev_vertex = std::move(dest);
+        MG_ASSERT(dba->CreateEdge(&prev_vertex, &dest, dba->NameToEdgeType("Type")).HasValue());
+        prev_vertex = dest;
       }
     }
     MG_ASSERT(!dba->Commit().HasError());
@@ -89,19 +89,19 @@ static void AddStarGraph(memgraph::storage::Storage *db, int spoke_count, int de
 static void AddTree(memgraph::storage::Storage *db, int vertex_count) {
   {
     auto dba = db->Access();
-    std::vector<std::unique_ptr<memgraph::storage::VertexAccessor>> vertices;
+    std::vector<memgraph::storage::VertexAccessor> vertices;
     vertices.reserve(vertex_count);
     auto root = dba->CreateVertex();
-    MG_ASSERT(root->AddLabel(dba->NameToLabel(kStartLabel)).HasValue());
-    vertices.push_back(std::move(root));
+    MG_ASSERT(root.AddLabel(dba->NameToLabel(kStartLabel)).HasValue());
+    vertices.push_back(root);
     // NOLINTNEXTLINE(cert-msc32-c,cert-msc51-cpp)
     std::mt19937_64 rg(42);
     for (int i = 1; i < vertex_count; ++i) {
       auto v = dba->CreateVertex();
       std::uniform_int_distribution<> dis(0U, vertices.size() - 1U);
       auto &parent = vertices.at(dis(rg));
-      MG_ASSERT(dba->CreateEdge(parent.get(), v.get(), dba->NameToEdgeType("Type")).HasValue());
-      vertices.push_back(std::move(v));
+      MG_ASSERT(dba->CreateEdge(&parent, &v, dba->NameToEdgeType("Type")).HasValue());
+      vertices.push_back(v);
     }
     MG_ASSERT(!dba->Commit().HasError());
   }

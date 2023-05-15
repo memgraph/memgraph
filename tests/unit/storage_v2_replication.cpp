@@ -72,10 +72,10 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   {
     auto acc = main_store->Access();
     auto v = acc->CreateVertex();
-    vertex_gid.emplace(v->Gid());
-    ASSERT_TRUE(v->AddLabel(main_store->NameToLabel(vertex_label)).HasValue());
-    ASSERT_TRUE(v->SetProperty(main_store->NameToProperty(vertex_property),
-                               memgraph::storage::PropertyValue(vertex_property_value))
+    vertex_gid.emplace(v.Gid());
+    ASSERT_TRUE(v.AddLabel(main_store->NameToLabel(vertex_label)).HasValue());
+    ASSERT_TRUE(v.SetProperty(main_store->NameToProperty(vertex_property),
+                              memgraph::storage::PropertyValue(vertex_property_value))
                     .HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -122,7 +122,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     auto acc = main_store->Access();
     auto v = acc->FindVertex(*vertex_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v);
-    ASSERT_TRUE(acc->DeleteVertex(v.get()).HasValue());
+    ASSERT_TRUE(acc->DeleteVertex(&*v).HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
@@ -143,25 +143,25 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   {
     auto acc = main_store->Access();
     auto v = acc->CreateVertex();
-    vertex_gid.emplace(v->Gid());
-    auto edgeRes = acc->CreateEdge(v.get(), v.get(), main_store->NameToEdgeType(edge_type));
+    vertex_gid.emplace(v.Gid());
+    auto edgeRes = acc->CreateEdge(&v, &v, main_store->NameToEdgeType(edge_type));
     ASSERT_TRUE(edgeRes.HasValue());
-    auto edge = std::move(edgeRes.GetValue());
-    ASSERT_TRUE(edge->SetProperty(main_store->NameToProperty(edge_property),
-                                  memgraph::storage::PropertyValue(edge_property_value))
+    auto edge = edgeRes.GetValue();
+    ASSERT_TRUE(edge.SetProperty(main_store->NameToProperty(edge_property),
+                                 memgraph::storage::PropertyValue(edge_property_value))
                     .HasValue());
-    edge_gid.emplace(edge->Gid());
+    edge_gid.emplace(edge.Gid());
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
   const auto find_edge = [&](const auto &edges,
-                             const memgraph::storage::Gid edge_gid) -> memgraph::storage::EdgeAccessor * {
+                             const memgraph::storage::Gid edge_gid) -> std::optional<memgraph::storage::EdgeAccessor> {
     for (const auto &edge : edges) {
-      if (edge->Gid() == edge_gid) {
-        return edge.get();
+      if (edge.Gid() == edge_gid) {
+        return edge;
       }
     }
-    return nullptr;
+    return std::nullopt;
   };
 
   {
@@ -307,11 +307,11 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
   {
     auto acc = main_store->Access();
     auto v = acc->CreateVertex();
-    ASSERT_TRUE(v->AddLabel(main_store->NameToLabel(vertex_label)).HasValue());
-    ASSERT_TRUE(v->SetProperty(main_store->NameToProperty(vertex_property),
-                               memgraph::storage::PropertyValue(vertex_property_value))
+    ASSERT_TRUE(v.AddLabel(main_store->NameToLabel(vertex_label)).HasValue());
+    ASSERT_TRUE(v.SetProperty(main_store->NameToProperty(vertex_property),
+                              memgraph::storage::PropertyValue(vertex_property_value))
                     .HasValue());
-    vertex_gid.emplace(v->Gid());
+    vertex_gid.emplace(v.Gid());
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
@@ -332,7 +332,7 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
   {
     auto acc = main_store->Access();
     auto v = acc->CreateVertex();
-    vertex_gid.emplace(v->Gid());
+    vertex_gid.emplace(v.Gid());
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
@@ -368,7 +368,7 @@ TEST_F(ReplicationTest, RecoveryProcess) {
       auto acc = main_store->Access();
       // Create the vertex before registering a replica
       auto v = acc->CreateVertex();
-      vertex_gids.emplace_back(v->Gid());
+      vertex_gids.emplace_back(v.Gid());
       ASSERT_FALSE(acc->Commit().HasError());
     }
   }
@@ -384,13 +384,13 @@ TEST_F(ReplicationTest, RecoveryProcess) {
     {
       auto acc = main_store->Access();
       auto v = acc->CreateVertex();
-      vertex_gids.emplace_back(v->Gid());
+      vertex_gids.emplace_back(v.Gid());
       ASSERT_FALSE(acc->Commit().HasError());
     }
     {
       auto acc = main_store->Access();
       auto v = acc->CreateVertex();
-      vertex_gids.emplace_back(v->Gid());
+      vertex_gids.emplace_back(v.Gid());
       ASSERT_FALSE(acc->Commit().HasError());
     }
   }
@@ -513,7 +513,7 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
   for (size_t i = 0; i < vertices_create_num; ++i) {
     auto acc = main_store->Access();
     auto v = acc->CreateVertex();
-    created_vertices.push_back(v->Gid());
+    created_vertices.push_back(v.Gid());
     ASSERT_FALSE(acc->Commit().HasError());
 
     if (i == 0) {
@@ -531,7 +531,7 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
   ASSERT_TRUE(std::all_of(created_vertices.begin(), created_vertices.end(), [&](const auto vertex_gid) {
     auto acc = replica_store_async->Access();
     auto v = acc->FindVertex(vertex_gid, memgraph::storage::View::OLD);
-    const bool exists = (v != nullptr);
+    const bool exists = v.has_value();
     EXPECT_FALSE(acc->Commit().HasError());
     return exists;
   }));
@@ -563,7 +563,7 @@ TEST_F(ReplicationTest, EpochTest) {
   {
     auto acc = main_store->Access();
     const auto v = acc->CreateVertex();
-    vertex_gid.emplace(v->Gid());
+    vertex_gid.emplace(v.Gid());
     ASSERT_FALSE(acc->Commit().HasError());
   }
   {
@@ -597,7 +597,7 @@ TEST_F(ReplicationTest, EpochTest) {
   {
     auto acc = replica_store1->Access();
     auto v = acc->CreateVertex();
-    vertex_gid.emplace(v->Gid());
+    vertex_gid.emplace(v.Gid());
     ASSERT_FALSE(acc->Commit().HasError());
   }
   // Replica1 should forward it's vertex to Replica2
@@ -618,7 +618,7 @@ TEST_F(ReplicationTest, EpochTest) {
   {
     auto acc = main_store->Access();
     const auto v = acc->CreateVertex();
-    vertex_gid.emplace(v->Gid());
+    vertex_gid.emplace(v.Gid());
     ASSERT_FALSE(acc->Commit().HasError());
   }
   // Replica1 is not compatible with the main so it shouldn't contain

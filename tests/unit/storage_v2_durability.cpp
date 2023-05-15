@@ -490,7 +490,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
       // Verify label indices.
       {
-        std::vector<std::unique_ptr<memgraph::storage::VertexAccessor>> vertices;
+        std::vector<memgraph::storage::VertexAccessor> vertices;
         vertices.reserve(kNumExtendedVertices / 2);
         for (auto vertex : acc->Vertices(extended_label_unused, memgraph::storage::View::OLD)) {
           vertices.emplace_back(vertex);

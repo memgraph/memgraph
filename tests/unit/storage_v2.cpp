@@ -230,7 +230,7 @@ TEST(StorageV2, AccessorMove) {
     ASSERT_TRUE(moved->FindVertex(gid, memgraph::storage::View::NEW).has_value());
     EXPECT_EQ(CountVertices(*moved, memgraph::storage::View::NEW), 1U);
 
-    ASSERT_FALSE(moved.Commit().HasError());
+    ASSERT_FALSE(moved->Commit().HasError());
   }
   {
     auto acc = store->Access();
@@ -244,7 +244,7 @@ TEST(StorageV2, AccessorMove) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexDeleteCommit) {
-  memgraph::storage::Storage store;
+  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   auto acc1 = store->Access();  // read transaction
@@ -280,19 +280,19 @@ TEST(StorageV2, VertexDeleteCommit) {
   {
     auto vertex = acc4->FindVertex(gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
-    EXPECT_EQ(CountVertices(acc4, memgraph::storage::View::OLD), 1U);
-    EXPECT_EQ(CountVertices(acc4, memgraph::storage::View::NEW), 1U);
+    EXPECT_EQ(CountVertices(*acc4, memgraph::storage::View::OLD), 1U);
+    EXPECT_EQ(CountVertices(*acc4, memgraph::storage::View::NEW), 1U);
 
-    auto res = acc4.DeleteVertex(&*vertex);
+    auto res = acc4->DeleteVertex(&*vertex);
     ASSERT_TRUE(res.HasValue());
-    EXPECT_EQ(CountVertices(acc4, memgraph::storage::View::OLD), 1U);
-    EXPECT_EQ(CountVertices(acc4, memgraph::storage::View::NEW), 0U);
+    EXPECT_EQ(CountVertices(*acc4, memgraph::storage::View::OLD), 1U);
+    EXPECT_EQ(CountVertices(*acc4, memgraph::storage::View::NEW), 0U);
 
-    acc4.AdvanceCommand();
-    EXPECT_EQ(CountVertices(acc4, memgraph::storage::View::OLD), 0U);
-    EXPECT_EQ(CountVertices(acc4, memgraph::storage::View::NEW), 0U);
+    acc4->AdvanceCommand();
+    EXPECT_EQ(CountVertices(*acc4, memgraph::storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(*acc4, memgraph::storage::View::NEW), 0U);
 
-    ASSERT_FALSE(acc4.Commit().HasError());
+    ASSERT_FALSE(acc4->Commit().HasError());
   }
 
   auto acc5 = store->Access();  // read transaction
@@ -311,14 +311,14 @@ TEST(StorageV2, VertexDeleteCommit) {
 
   // Check whether the vertex exists in transaction 5
   ASSERT_FALSE(acc5->FindVertex(gid, memgraph::storage::View::OLD).has_value());
-  EXPECT_EQ(CountVertices(acc5, memgraph::storage::View::OLD), 0U);
+  EXPECT_EQ(CountVertices(*acc5, memgraph::storage::View::OLD), 0U);
   ASSERT_FALSE(acc5->FindVertex(gid, memgraph::storage::View::NEW).has_value());
-  EXPECT_EQ(CountVertices(acc5, memgraph::storage::View::NEW), 0U);
+  EXPECT_EQ(CountVertices(*acc5, memgraph::storage::View::NEW), 0U);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexDeleteAbort) {
-  memgraph::storage::Storage store;
+  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   auto acc1 = store->Access();  // read transaction
@@ -354,19 +354,19 @@ TEST(StorageV2, VertexDeleteAbort) {
   {
     auto vertex = acc4->FindVertex(gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
-    EXPECT_EQ(CountVertices(acc4, memgraph::storage::View::OLD), 1U);
-    EXPECT_EQ(CountVertices(acc4, memgraph::storage::View::NEW), 1U);
+    EXPECT_EQ(CountVertices(*acc4, memgraph::storage::View::OLD), 1U);
+    EXPECT_EQ(CountVertices(*acc4, memgraph::storage::View::NEW), 1U);
 
-    auto res = acc4.DeleteVertex(&*vertex);
+    auto res = acc4->DeleteVertex(&*vertex);
     ASSERT_TRUE(res.HasValue());
-    EXPECT_EQ(CountVertices(acc4, memgraph::storage::View::OLD), 1U);
-    EXPECT_EQ(CountVertices(acc4, memgraph::storage::View::NEW), 0U);
+    EXPECT_EQ(CountVertices(*acc4, memgraph::storage::View::OLD), 1U);
+    EXPECT_EQ(CountVertices(*acc4, memgraph::storage::View::NEW), 0U);
 
-    acc4.AdvanceCommand();
-    EXPECT_EQ(CountVertices(acc4, memgraph::storage::View::OLD), 0U);
-    EXPECT_EQ(CountVertices(acc4, memgraph::storage::View::NEW), 0U);
+    acc4->AdvanceCommand();
+    EXPECT_EQ(CountVertices(*acc4, memgraph::storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(*acc4, memgraph::storage::View::NEW), 0U);
 
-    acc4.Abort();
+    acc4->Abort();
   }
 
   auto acc5 = store->Access();  // read transaction
@@ -386,27 +386,27 @@ TEST(StorageV2, VertexDeleteAbort) {
 
   // Check whether the vertex exists in transaction 5
   ASSERT_TRUE(acc5->FindVertex(gid, memgraph::storage::View::OLD).has_value());
-  EXPECT_EQ(CountVertices(acc5, memgraph::storage::View::OLD), 1U);
+  EXPECT_EQ(CountVertices(*acc5, memgraph::storage::View::OLD), 1U);
   ASSERT_TRUE(acc5->FindVertex(gid, memgraph::storage::View::NEW).has_value());
-  EXPECT_EQ(CountVertices(acc5, memgraph::storage::View::NEW), 1U);
+  EXPECT_EQ(CountVertices(*acc5, memgraph::storage::View::NEW), 1U);
 
   // Delete the vertex in transaction 6
   {
     auto vertex = acc6->FindVertex(gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
-    EXPECT_EQ(CountVertices(acc6, memgraph::storage::View::OLD), 1U);
-    EXPECT_EQ(CountVertices(acc6, memgraph::storage::View::NEW), 1U);
+    EXPECT_EQ(CountVertices(*acc6, memgraph::storage::View::OLD), 1U);
+    EXPECT_EQ(CountVertices(*acc6, memgraph::storage::View::NEW), 1U);
 
-    auto res = acc6.DeleteVertex(&*vertex);
+    auto res = acc6->DeleteVertex(&*vertex);
     ASSERT_TRUE(res.HasValue());
-    EXPECT_EQ(CountVertices(acc6, memgraph::storage::View::OLD), 1U);
-    EXPECT_EQ(CountVertices(acc6, memgraph::storage::View::NEW), 0U);
+    EXPECT_EQ(CountVertices(*acc6, memgraph::storage::View::OLD), 1U);
+    EXPECT_EQ(CountVertices(*acc6, memgraph::storage::View::NEW), 0U);
 
-    acc6.AdvanceCommand();
-    EXPECT_EQ(CountVertices(acc6, memgraph::storage::View::OLD), 0U);
-    EXPECT_EQ(CountVertices(acc6, memgraph::storage::View::NEW), 0U);
+    acc6->AdvanceCommand();
+    EXPECT_EQ(CountVertices(*acc6, memgraph::storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(*acc6, memgraph::storage::View::NEW), 0U);
 
-    ASSERT_FALSE(acc6.Commit().HasError());
+    ASSERT_FALSE(acc6->Commit().HasError());
   }
 
   auto acc7 = store->Access();  // read transaction
@@ -425,26 +425,26 @@ TEST(StorageV2, VertexDeleteAbort) {
 
   // Check whether the vertex exists in transaction 5
   ASSERT_TRUE(acc5->FindVertex(gid, memgraph::storage::View::OLD).has_value());
-  EXPECT_EQ(CountVertices(acc5, memgraph::storage::View::OLD), 1U);
+  EXPECT_EQ(CountVertices(*acc5, memgraph::storage::View::OLD), 1U);
   ASSERT_TRUE(acc5->FindVertex(gid, memgraph::storage::View::NEW).has_value());
-  EXPECT_EQ(CountVertices(acc5, memgraph::storage::View::NEW), 1U);
+  EXPECT_EQ(CountVertices(*acc5, memgraph::storage::View::NEW), 1U);
 
   // Check whether the vertex exists in transaction 7
   ASSERT_FALSE(acc7->FindVertex(gid, memgraph::storage::View::OLD).has_value());
-  EXPECT_EQ(CountVertices(acc7, memgraph::storage::View::OLD), 0U);
+  EXPECT_EQ(CountVertices(*acc7, memgraph::storage::View::OLD), 0U);
   ASSERT_FALSE(acc7->FindVertex(gid, memgraph::storage::View::NEW).has_value());
-  EXPECT_EQ(CountVertices(acc7, memgraph::storage::View::NEW), 0U);
+  EXPECT_EQ(CountVertices(*acc7, memgraph::storage::View::NEW), 0U);
 
   // Commit all accessors
   ASSERT_FALSE(acc1->Commit().HasError());
   ASSERT_FALSE(acc3->Commit().HasError());
-  ASSERT_FALSE(acc5.Commit().HasError());
-  ASSERT_FALSE(acc7.Commit().HasError());
+  ASSERT_FALSE(acc5->Commit().HasError());
+  ASSERT_FALSE(acc7->Commit().HasError());
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexDeleteSerializationError) {
-  memgraph::storage::Storage store;
+  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create vertex
@@ -519,7 +519,7 @@ TEST(StorageV2, VertexDeleteSerializationError) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexDeleteSpecialCases) {
-  memgraph::storage::Storage store;
+  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
   memgraph::storage::Gid gid1 = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   memgraph::storage::Gid gid2 = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
@@ -579,7 +579,7 @@ TEST(StorageV2, VertexDeleteSpecialCases) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexDeleteLabel) {
-  memgraph::storage::Storage store;
+  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create the vertex
@@ -735,7 +735,7 @@ TEST(StorageV2, VertexDeleteLabel) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexDeleteProperty) {
-  memgraph::storage::Storage store;
+  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create the vertex
@@ -878,7 +878,7 @@ TEST(StorageV2, VertexDeleteProperty) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexLabelCommit) {
-  memgraph::storage::Storage store;
+  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
     auto acc = store->Access();
@@ -993,7 +993,7 @@ TEST(StorageV2, VertexLabelCommit) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexLabelAbort) {
-  memgraph::storage::Storage store;
+  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create the vertex.
@@ -1241,7 +1241,7 @@ TEST(StorageV2, VertexLabelAbort) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexLabelSerializationError) {
-  memgraph::storage::Storage store;
+  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
     auto acc = store->Access();
@@ -1349,7 +1349,7 @@ TEST(StorageV2, VertexLabelSerializationError) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexPropertyCommit) {
-  memgraph::storage::Storage store;
+  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
     auto acc = store->Access();
@@ -1471,7 +1471,7 @@ TEST(StorageV2, VertexPropertyCommit) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexPropertyAbort) {
-  memgraph::storage::Storage store;
+  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create the vertex.
@@ -1749,7 +1749,7 @@ TEST(StorageV2, VertexPropertyAbort) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexPropertySerializationError) {
-  memgraph::storage::Storage store;
+  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
     auto acc = store->Access();
@@ -1851,7 +1851,7 @@ TEST(StorageV2, VertexPropertySerializationError) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexLabelPropertyMixed) {
-  memgraph::storage::Storage store;
+  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
   auto acc = store->Access();
   auto vertex = acc->CreateVertex();
 
@@ -2090,7 +2090,7 @@ TEST(StorageV2, VertexLabelPropertyMixed) {
 }
 
 TEST(StorageV2, VertexPropertyClear) {
-  memgraph::storage::Storage store;
+  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
   memgraph::storage::Gid gid;
   auto property1 = store->NameToProperty("property1");
   auto property2 = store->NameToProperty("property2");
@@ -2195,7 +2195,7 @@ TEST(StorageV2, VertexPropertyClear) {
 }
 
 TEST(StorageV2, VertexNonexistentLabelPropertyEdgeAPI) {
-  memgraph::storage::Storage store;
+  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
 
   auto label = store->NameToLabel("label");
   auto property = store->NameToProperty("property");
@@ -2256,7 +2256,7 @@ TEST(StorageV2, VertexNonexistentLabelPropertyEdgeAPI) {
 }
 
 TEST(StorageV2, VertexVisibilitySingleTransaction) {
-  memgraph::storage::Storage store;
+  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
 
   auto acc1 = store->Access();
   auto acc2 = store->Access();
@@ -2312,7 +2312,7 @@ TEST(StorageV2, VertexVisibilitySingleTransaction) {
 }
 
 TEST(StorageV2, VertexVisibilityMultipleTransactions) {
-  memgraph::storage::Storage store;
+  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
   memgraph::storage::Gid gid;
 
   {
@@ -2552,7 +2552,7 @@ TEST(StorageV2, VertexVisibilityMultipleTransactions) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, DeletedVertexAccessor) {
-  memgraph::storage::Storage store;
+  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
 
   const auto property = store->NameToProperty("property");
   const memgraph::storage::PropertyValue property_value{"property_value"};

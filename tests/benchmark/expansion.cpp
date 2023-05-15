@@ -36,11 +36,11 @@ class ExpansionBenchFixture : public benchmark::Fixture {
 
       // the fixed part is one vertex expanding to 1000 others
       auto start = dba->CreateVertex();
-      MG_ASSERT(start->AddLabel(label).HasValue());
+      MG_ASSERT(start.AddLabel(label).HasValue());
       auto edge_type = dba->NameToEdgeType("edge_type");
       for (int i = 0; i < 1000; i++) {
         auto dest = dba->CreateVertex();
-        MG_ASSERT(dba->CreateEdge(start.get(), dest.get(), edge_type).HasValue());
+        MG_ASSERT(dba->CreateEdge(&start, &dest, edge_type).HasValue());
       }
       MG_ASSERT(!dba->Commit().HasError());
     }

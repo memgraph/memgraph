@@ -134,38 +134,38 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
   auto dba = db->Access();
   for (const auto &vertex : dba->Vertices(memgraph::storage::View::NEW)) {
     std::set<std::string> labels;
-    auto maybe_labels = vertex->Labels(memgraph::storage::View::NEW);
+    auto maybe_labels = vertex.Labels(memgraph::storage::View::NEW);
     MG_ASSERT(maybe_labels.HasValue());
     for (const auto &label : *maybe_labels) {
       labels.insert(dba->LabelToName(label));
     }
     std::map<std::string, memgraph::storage::PropertyValue> props;
-    auto maybe_properties = vertex->Properties(memgraph::storage::View::NEW);
+    auto maybe_properties = vertex.Properties(memgraph::storage::View::NEW);
     MG_ASSERT(maybe_properties.HasValue());
     for (const auto &kv : *maybe_properties) {
       props.emplace(dba->PropertyToName(kv.first), kv.second);
     }
     MG_ASSERT(props.count(kPropertyId) == 1);
     const auto id = props[kPropertyId].ValueInt();
-    gid_mapping[vertex->Gid()] = id;
+    gid_mapping[vertex.Gid()] = id;
     vertices.insert({id, labels, props});
   }
 
   // Capture all edges
   std::set<DatabaseState::Edge> edges;
   for (const auto &vertex : dba->Vertices(memgraph::storage::View::NEW)) {
-    auto maybe_edges = vertex->OutEdges(memgraph::storage::View::NEW);
+    auto maybe_edges = vertex.OutEdges(memgraph::storage::View::NEW);
     MG_ASSERT(maybe_edges.HasValue());
     for (const auto &edge : *maybe_edges) {
-      const auto &edge_type_name = dba->EdgeTypeToName(edge->EdgeType());
+      const auto &edge_type_name = dba->EdgeTypeToName(edge.EdgeType());
       std::map<std::string, memgraph::storage::PropertyValue> props;
-      auto maybe_properties = edge->Properties(memgraph::storage::View::NEW);
+      auto maybe_properties = edge.Properties(memgraph::storage::View::NEW);
       MG_ASSERT(maybe_properties.HasValue());
       for (const auto &kv : *maybe_properties) {
         props.emplace(dba->PropertyToName(kv.first), kv.second);
       }
-      const auto from = gid_mapping[edge->FromVertex()->Gid()];
-      const auto to = gid_mapping[edge->ToVertex()->Gid()];
+      const auto from = gid_mapping[edge.FromVertex().Gid()];
+      const auto to = gid_mapping[edge.ToVertex().Gid()];
       edges.insert({from, to, edge_type_name, props});
     }
   }
@@ -217,39 +217,41 @@ auto Execute(memgraph::storage::Storage *db, const std::string &query) {
   return stream;
 }
 
-std::unique_ptr<memgraph::storage::VertexAccessor> CreateVertex(
-    memgraph::storage::Storage::Accessor *dba, const std::vector<std::string> &labels,
-    const std::map<std::string, memgraph::storage::PropertyValue> &props, bool add_property_id = true) {
+memgraph::storage::VertexAccessor CreateVertex(memgraph::storage::Storage::Accessor *dba,
+                                               const std::vector<std::string> &labels,
+                                               const std::map<std::string, memgraph::storage::PropertyValue> &props,
+                                               bool add_property_id = true) {
   MG_ASSERT(dba);
   auto vertex = dba->CreateVertex();
   for (const auto &label_name : labels) {
-    MG_ASSERT(vertex->AddLabel(dba->NameToLabel(label_name)).HasValue());
+    MG_ASSERT(vertex.AddLabel(dba->NameToLabel(label_name)).HasValue());
   }
   for (const auto &kv : props) {
-    MG_ASSERT(vertex->SetProperty(dba->NameToProperty(kv.first), kv.second).HasValue());
+    MG_ASSERT(vertex.SetProperty(dba->NameToProperty(kv.first), kv.second).HasValue());
   }
   if (add_property_id) {
     MG_ASSERT(
-        vertex->SetProperty(dba->NameToProperty(kPropertyId), memgraph::storage::PropertyValue(vertex->Gid().AsInt()))
+        vertex.SetProperty(dba->NameToProperty(kPropertyId), memgraph::storage::PropertyValue(vertex.Gid().AsInt()))
             .HasValue());
   }
   return vertex;
 }
 
-std::unique_ptr<memgraph::storage::EdgeAccessor> CreateEdge(
-    memgraph::storage::Storage::Accessor *dba, memgraph::storage::VertexAccessor *from,
-    memgraph::storage::VertexAccessor *to, const std::string &edge_type_name,
-    const std::map<std::string, memgraph::storage::PropertyValue> &props, bool add_property_id = true) {
+memgraph::storage::EdgeAccessor CreateEdge(memgraph::storage::Storage::Accessor *dba,
+                                           memgraph::storage::VertexAccessor *from,
+                                           memgraph::storage::VertexAccessor *to, const std::string &edge_type_name,
+                                           const std::map<std::string, memgraph::storage::PropertyValue> &props,
+                                           bool add_property_id = true) {
   MG_ASSERT(dba);
   auto edge = dba->CreateEdge(from, to, dba->NameToEdgeType(edge_type_name));
   MG_ASSERT(edge.HasValue());
   auto edgeAcc = std::move(edge.GetValue());
   for (const auto &kv : props) {
-    MG_ASSERT(edgeAcc->SetProperty(dba->NameToProperty(kv.first), kv.second).HasValue());
+    MG_ASSERT(edgeAcc.SetProperty(dba->NameToProperty(kv.first), kv.second).HasValue());
   }
   if (add_property_id) {
     MG_ASSERT(
-        edgeAcc->SetProperty(dba->NameToProperty(kPropertyId), memgraph::storage::PropertyValue(edgeAcc->Gid().AsInt()))
+        edgeAcc.SetProperty(dba->NameToProperty(kPropertyId), memgraph::storage::PropertyValue(edgeAcc.Gid().AsInt()))
             .HasValue());
   }
   return edgeAcc;
@@ -444,7 +446,7 @@ TEST(DumpTest, SingleEdge) {
     auto dba = db->Access();
     auto u = CreateVertex(dba.get(), {}, {}, false);
     auto v = CreateVertex(dba.get(), {}, {}, false);
-    CreateEdge(dba.get(), u.get(), v.get(), "EdgeType", {}, false);
+    CreateEdge(dba.get(), &u, &v, "EdgeType", {}, false);
     ASSERT_FALSE(dba->Commit().HasError());
   }
 
@@ -472,9 +474,9 @@ TEST(DumpTest, MultipleEdges) {
     auto u = CreateVertex(dba.get(), {}, {}, false);
     auto v = CreateVertex(dba.get(), {}, {}, false);
     auto w = CreateVertex(dba.get(), {}, {}, false);
-    CreateEdge(dba.get(), u.get(), v.get(), "EdgeType", {}, false);
-    CreateEdge(dba.get(), v.get(), u.get(), "EdgeType 2", {}, false);
-    CreateEdge(dba.get(), v.get(), w.get(), "EdgeType `!\"", {}, false);
+    CreateEdge(dba.get(), &u, &v, "EdgeType", {}, false);
+    CreateEdge(dba.get(), &v, &u, "EdgeType 2", {}, false);
+    CreateEdge(dba.get(), &v, &w, "EdgeType `!\"", {}, false);
     ASSERT_FALSE(dba->Commit().HasError());
   }
 
@@ -505,7 +507,7 @@ TEST(DumpTest, EdgeWithProperties) {
     auto dba = db->Access();
     auto u = CreateVertex(dba.get(), {}, {}, false);
     auto v = CreateVertex(dba.get(), {}, {}, false);
-    CreateEdge(dba.get(), u.get(), v.get(), "EdgeType", {{"prop", memgraph::storage::PropertyValue(13)}}, false);
+    CreateEdge(dba.get(), &u, &v, "EdgeType", {{"prop", memgraph::storage::PropertyValue(13)}}, false);
     ASSERT_FALSE(dba->Commit().HasError());
   }
 
@@ -664,32 +666,32 @@ TEST(DumpTest, CheckStateSimpleGraph) {
     auto z =
         CreateVertex(dba.get(), {"Person"},
                      {{"name", memgraph::storage::PropertyValue("Buha")}, {"id", memgraph::storage::PropertyValue(1)}});
-    CreateEdge(dba.get(), u.get(), v.get(), "Knows", {});
-    CreateEdge(dba.get(), v.get(), w.get(), "Knows", {{"how_long", memgraph::storage::PropertyValue(5)}});
-    CreateEdge(dba.get(), w.get(), u.get(), "Knows", {{"how", memgraph::storage::PropertyValue("distant past")}});
-    CreateEdge(dba.get(), v.get(), u.get(), "Knows", {});
-    CreateEdge(dba.get(), v.get(), u.get(), "Likes", {});
-    CreateEdge(dba.get(), z.get(), u.get(), "Knows", {});
-    CreateEdge(dba.get(), w.get(), z.get(), "Knows", {{"how", memgraph::storage::PropertyValue("school")}});
-    CreateEdge(dba.get(), w.get(), z.get(), "Likes", {{"how", memgraph::storage::PropertyValue("very much")}});
-    CreateEdge(dba.get(), w.get(), z.get(), "Date",
+    CreateEdge(dba.get(), &u, &v, "Knows", {});
+    CreateEdge(dba.get(), &v, &w, "Knows", {{"how_long", memgraph::storage::PropertyValue(5)}});
+    CreateEdge(dba.get(), &w, &u, "Knows", {{"how", memgraph::storage::PropertyValue("distant past")}});
+    CreateEdge(dba.get(), &v, &u, "Knows", {});
+    CreateEdge(dba.get(), &v, &u, "Likes", {});
+    CreateEdge(dba.get(), &z, &u, "Knows", {});
+    CreateEdge(dba.get(), &w, &z, "Knows", {{"how", memgraph::storage::PropertyValue("school")}});
+    CreateEdge(dba.get(), &w, &z, "Likes", {{"how", memgraph::storage::PropertyValue("very much")}});
+    CreateEdge(dba.get(), &w, &z, "Date",
                {{"time", memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
                              memgraph::storage::TemporalType::Date,
                              memgraph::utils::Date({1994, 12, 7}).MicrosecondsSinceEpoch()))}});
-    CreateEdge(dba.get(), w.get(), z.get(), "LocalTime",
+    CreateEdge(dba.get(), &w, &z, "LocalTime",
                {{"time", memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
                              memgraph::storage::TemporalType::LocalTime,
                              memgraph::utils::LocalTime({14, 10, 44, 99, 99}).MicrosecondsSinceEpoch()))}});
     CreateEdge(
-        dba.get(), w.get(), z.get(), "LocalDateTime",
+        dba.get(), &w, &z, "LocalDateTime",
         {{"time", memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
                       memgraph::storage::TemporalType::LocalDateTime,
                       memgraph::utils::LocalDateTime({1994, 12, 7}, {14, 10, 44, 99, 99}).MicrosecondsSinceEpoch()))}});
-    CreateEdge(dba.get(), w.get(), z.get(), "Duration",
+    CreateEdge(dba.get(), &w, &z, "Duration",
                {{"time", memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
                              memgraph::storage::TemporalType::Duration,
                              memgraph::utils::Duration({3, 4, 5, 6, 10, 11}).microseconds))}});
-    CreateEdge(dba.get(), w.get(), z.get(), "NegativeDuration",
+    CreateEdge(dba.get(), &w, &z, "NegativeDuration",
                {{"time", memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
                              memgraph::storage::TemporalType::Duration,
                              memgraph::utils::Duration({-3, -4, -5, -6, -10, -11}).microseconds))}});
@@ -902,10 +904,10 @@ TEST(DumpTest, MultiplePartialPulls) {
                            {{"name", memgraph::storage::PropertyValue("Person5")},
                             {"surname", memgraph::storage::PropertyValue("Unique5")}},
                            false);
-    CreateEdge(dba.get(), p1.get(), p2.get(), "REL", {}, false);
-    CreateEdge(dba.get(), p1.get(), p3.get(), "REL", {}, false);
-    CreateEdge(dba.get(), p4.get(), p5.get(), "REL", {}, false);
-    CreateEdge(dba.get(), p2.get(), p5.get(), "REL", {}, false);
+    CreateEdge(dba.get(), &p1, &p2, "REL", {}, false);
+    CreateEdge(dba.get(), &p1, &p3, "REL", {}, false);
+    CreateEdge(dba.get(), &p4, &p5, "REL", {}, false);
+    CreateEdge(dba.get(), &p2, &p5, "REL", {}, false);
     ASSERT_FALSE(dba->Commit().HasError());
   }
 

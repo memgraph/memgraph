@@ -36,25 +36,25 @@ RC_GTEST_PROP(RandomGraph, RandomGraph, (std::vector<std::string> vertex_labels,
   int edges_num = edge_types.size();
 
   std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
-  std::vector<std::unique_ptr<memgraph::storage::VertexAccessor>> vertices;
-  std::unordered_map<std::unique_ptr<memgraph::storage::VertexAccessor>, std::string> vertex_label_map;
-  std::unordered_map<std::unique_ptr<memgraph::storage::EdgeAccessor>, std::string> edge_type_map;
+  std::vector<memgraph::storage::VertexAccessor> vertices;
+  std::unordered_map<memgraph::storage::VertexAccessor, std::string> vertex_label_map;
+  std::unordered_map<memgraph::storage::EdgeAccessor, std::string> edge_type_map;
 
   auto dba = db->Access();
 
   for (auto label : vertex_labels) {
     auto vertex_accessor = dba->CreateVertex();
-    RC_ASSERT(vertex_accessor->AddLabel(dba->NameToLabel(label)).HasValue());
-    vertex_label_map.emplace(vertex_accessor->Copy(), label);
-    vertices.push_back(std::move(vertex_accessor));
+    RC_ASSERT(vertex_accessor.AddLabel(dba->NameToLabel(label)).HasValue());
+    vertex_label_map.emplace(vertex_accessor, label);
+    vertices.push_back(vertex_accessor);
   }
 
   for (auto type : edge_types) {
     auto &from = vertices[*rc::gen::inRange(0, vertices_num)];
     auto &to = vertices[*rc::gen::inRange(0, vertices_num)];
-    auto maybe_edge_accessor = dba->CreateEdge(from.get(), to.get(), dba->NameToEdgeType(type));
+    auto maybe_edge_accessor = dba->CreateEdge(&from, &to, dba->NameToEdgeType(type));
     RC_ASSERT(maybe_edge_accessor.HasValue());
-    edge_type_map.emplace(std::move(maybe_edge_accessor.GetValue()), type);
+    edge_type_map.insert({*maybe_edge_accessor, type});
   }
 
   dba->AdvanceCommand();
@@ -62,18 +62,18 @@ RC_GTEST_PROP(RandomGraph, RandomGraph, (std::vector<std::string> vertex_labels,
   int edges_num_check = 0;
   int vertices_num_check = 0;
   for (auto vertex : dba->Vertices(memgraph::storage::View::OLD)) {
-    auto label = vertex_label_map.at(vertex->Copy());
-    auto maybe_labels = vertex->Labels(memgraph::storage::View::OLD);
+    auto label = vertex_label_map.at(vertex);
+    auto maybe_labels = vertex.Labels(memgraph::storage::View::OLD);
     RC_ASSERT(maybe_labels.HasValue());
     const auto &labels = *maybe_labels;
     RC_ASSERT(labels.size() == 1);
     RC_ASSERT(dba->LabelToName(labels[0]) == label);
     vertices_num_check++;
-    auto maybe_edges = vertex->OutEdges(memgraph::storage::View::OLD);
+    auto maybe_edges = vertex.OutEdges(memgraph::storage::View::OLD);
     RC_ASSERT(maybe_edges.HasValue());
     for (auto &edge : *maybe_edges) {
       const auto &type = edge_type_map.at(edge);
-      RC_ASSERT(dba->EdgeTypeToName(edge->EdgeType()) == type);
+      RC_ASSERT(dba->EdgeTypeToName(edge.EdgeType()) == type);
       edges_num_check++;
     }
   }
