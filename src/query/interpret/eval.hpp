@@ -476,24 +476,27 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   TypedValue Visit(AllPropertiesLookup &all_properties_lookup) override {
     TypedValue::TMap result(ctx_->memory);
+    std::map<std::string, TypedValue> result_;
 
     auto expression_result = all_properties_lookup.expression_->Accept(*this);
     switch (expression_result.type()) {
       case TypedValue::Type::Null:
         return TypedValue(ctx_->memory);
       case TypedValue::Type::Vertex: {
-        const auto &vertex = expression_result.ValueVertex();
-        for (const auto &[property_id, value] : *vertex.Properties(view_)) {
+        const auto vertex = expression_result.ValueVertex();
+        auto properties = *vertex.Properties(view_);
+        for (const auto &[property_id, value] : properties) {
           result.emplace(dba_->PropertyToName(property_id), value);
         }
         return TypedValue(result, ctx_->memory);
       }
       case TypedValue::Type::Edge: {
         const auto &edge = expression_result.ValueEdge();
-        for (const auto &[property_id, value] : *edge.Properties(view_)) {
-          result.emplace(dba_->PropertyToName(property_id), value);
+        auto properties = *edge.Properties(view_);
+        for (const auto &[property_id, value] : properties) {
+          result_.emplace(dba_->PropertyToName(property_id), value);
         }
-        return TypedValue(result, ctx_->memory);
+        return TypedValue(result_, ctx_->memory);
       }
       case TypedValue::Type::Map: {
         auto &map = expression_result.ValueMap();

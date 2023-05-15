@@ -1041,12 +1041,17 @@ TEST_P(CypherMainVisitorTest, MapProjectionLiteral) {
       dynamic_cast<MapProjectionLiteral *>(return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(map_projection_literal);
   ASSERT_EQ(4, map_projection_literal->elements_.size());
-  ASSERT_EQ(map_projection_literal->elements_[ast_generator.Prop("name")]->GetTypeInfo().name, "PropertyLookup");
-  ASSERT_EQ(map_projection_literal->elements_[ast_generator.Prop("*")]->GetTypeInfo().name, "AllPropertiesLookup");
-  ASSERT_EQ(map_projection_literal->elements_[ast_generator.Prop("age")]->GetTypeInfo().name, "Identifier");
-  ASSERT_EQ(map_projection_literal->elements_[ast_generator.Prop("lastName")]->GetTypeInfo().name,
-            std::string(typeid(ast_generator).name()).ends_with("CachedAstGenerator") ? "ParameterLookup"
-                                                                                      : "PrimitiveLiteral");
+
+  ASSERT_EQ(std::string(map_projection_literal->elements_[ast_generator.Prop("name")]->GetTypeInfo().name),
+            std::string("PropertyLookup"));
+  ASSERT_EQ(std::string(map_projection_literal->elements_[ast_generator.Prop("*")]->GetTypeInfo().name),
+            std::string("AllPropertiesLookup"));
+  ASSERT_EQ(std::string(map_projection_literal->elements_[ast_generator.Prop("age")]->GetTypeInfo().name),
+            std::string("Identifier"));
+  ASSERT_EQ(std::string(map_projection_literal->elements_[ast_generator.Prop("lastName")]->GetTypeInfo().name),
+            std::string(typeid(ast_generator).name()).ends_with("CachedAstGenerator")
+                ? std::string("ParameterLookup")
+                : std::string("PrimitiveLiteral"));
 }
 
 TEST_P(CypherMainVisitorTest, MapProjectionRepeatedKeySameTypeValue) {
@@ -1077,7 +1082,8 @@ TEST_P(CypherMainVisitorTest, MapProjectionRepeatedKeyDifferentTypeValue) {
   // When multiple map properties have the same name, only one gets in
   ASSERT_EQ(1, map_projection_literal->elements_.size());
   // The last-given map property is the one that gets in
-  ASSERT_EQ(map_projection_literal->elements_[ast_generator.Prop("a")]->GetTypeInfo().name, "Identifier");
+  ASSERT_EQ(std::string(map_projection_literal->elements_[ast_generator.Prop("a")]->GetTypeInfo().name),
+            std::string("Identifier"));
 }
 
 TEST_P(CypherMainVisitorTest, NodePattern) {
