@@ -33,7 +33,6 @@ inline void ApplyDeltasForRead(Transaction *transaction, const Delta *delta, Vie
   const auto commit_timestamp = transaction->commit_timestamp
                                     ? transaction->commit_timestamp->load(std::memory_order_acquire)
                                     : transaction->transaction_id.load(std::memory_order_acquire);
-  spdlog::debug("Delta's commit timestamp: {}", delta->timestamp->load(std::memory_order_acquire));
   while (delta != nullptr) {
     auto ts = delta->timestamp->load(std::memory_order_acquire);
     auto cid = delta->command_id;
@@ -82,8 +81,6 @@ template <typename TObj>
 inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
   if (object->delta == nullptr) return true;
   auto ts = object->delta->timestamp->load(std::memory_order_acquire);
-  spdlog::debug("Delta: {} Ts: {} TX id {} TX start {}", object->delta->action, ts,
-                transaction->transaction_id.load(std::memory_order_acquire), transaction->start_timestamp);
   if (ts == transaction->transaction_id.load(std::memory_order_acquire) || ts < transaction->start_timestamp) {
     return true;
   }

@@ -42,7 +42,7 @@ TEST(StorageV2Gc, Sanity) {
 
     for (uint64_t i = 0; i < 1000; ++i) {
       auto vertex = acc->FindVertex(vertices[i], memgraph::storage::View::OLD);
-      ASSERT_TRUE(vertex);
+      ASSERT_TRUE(vertex.has_value());
       if (i % 5 == 0) {
         EXPECT_FALSE(acc->DeleteVertex(&vertex.value()).HasError());
       }
@@ -54,7 +54,7 @@ TEST(StorageV2Gc, Sanity) {
     for (uint64_t i = 0; i < 1000; ++i) {
       auto vertex_old = acc->FindVertex(vertices[i], memgraph::storage::View::OLD);
       auto vertex_new = acc->FindVertex(vertices[i], memgraph::storage::View::NEW);
-      EXPECT_TRUE(vertex_old);
+      EXPECT_TRUE(vertex_old.has_value());
       EXPECT_EQ(vertex_new.has_value(), i % 5 != 0);
     }
 
@@ -68,7 +68,7 @@ TEST(StorageV2Gc, Sanity) {
       auto vertex = acc->FindVertex(vertices[i], memgraph::storage::View::OLD);
       EXPECT_EQ(vertex.has_value(), i % 5 != 0);
 
-      if (vertex) {
+      if (vertex.has_value()) {
         EXPECT_FALSE(vertex->AddLabel(memgraph::storage::LabelId::FromUint(3 * i)).HasError());
         EXPECT_FALSE(vertex->AddLabel(memgraph::storage::LabelId::FromUint(3 * i + 1)).HasError());
         EXPECT_FALSE(vertex->AddLabel(memgraph::storage::LabelId::FromUint(3 * i + 2)).HasError());
@@ -83,7 +83,7 @@ TEST(StorageV2Gc, Sanity) {
       auto vertex = acc->FindVertex(vertices[i], memgraph::storage::View::NEW);
       EXPECT_EQ(vertex.has_value(), i % 5 != 0);
 
-      if (vertex) {
+      if (vertex.has_value()) {
         auto labels_old = vertex->Labels(memgraph::storage::View::OLD);
         EXPECT_TRUE(labels_old.HasValue());
         EXPECT_TRUE(labels_old->empty());
@@ -108,7 +108,7 @@ TEST(StorageV2Gc, Sanity) {
       EXPECT_EQ(from_vertex.has_value(), i % 5 != 0);
       EXPECT_EQ(to_vertex.has_value(), (i + 1) % 5 != 0);
 
-      if (from_vertex && to_vertex) {
+      if (from_vertex.has_value() && to_vertex.has_value()) {
         EXPECT_FALSE(
             acc->CreateEdge(&from_vertex.value(), &to_vertex.value(), memgraph::storage::EdgeTypeId::FromUint(i))
                 .HasError());
@@ -119,7 +119,7 @@ TEST(StorageV2Gc, Sanity) {
     for (uint64_t i = 0; i < 1000; ++i) {
       auto vertex = acc->FindVertex(vertices[i], memgraph::storage::View::NEW);
       EXPECT_EQ(vertex.has_value(), i % 5 != 0);
-      if (vertex) {
+      if (vertex.has_value()) {
         if (i % 3 == 0) {
           EXPECT_FALSE(acc->DetachDeleteVertex(&vertex.value()).HasError());
         }
@@ -133,7 +133,7 @@ TEST(StorageV2Gc, Sanity) {
     for (uint64_t i = 0; i < 1000; ++i) {
       auto vertex = acc->FindVertex(vertices[i], memgraph::storage::View::NEW);
       EXPECT_EQ(vertex.has_value(), i % 5 != 0 && i % 3 != 0);
-      if (vertex) {
+      if (vertex.has_value()) {
         auto out_edges = vertex->OutEdges(memgraph::storage::View::NEW);
         if (i % 5 != 4 && i % 3 != 2) {
           EXPECT_EQ(out_edges.GetValue().size(), 1);
@@ -147,7 +147,7 @@ TEST(StorageV2Gc, Sanity) {
         if (i % 5 != 1 && i % 3 != 1) {
           EXPECT_EQ(in_edges.GetValue().size(), 1);
           EXPECT_EQ(*vertex->InDegree(memgraph::storage::View::NEW), 1);
-          EXPECT_EQ(out_edges.GetValue().at(0).EdgeType().AsUint(), i);
+          EXPECT_EQ(in_edges.GetValue().at(0).EdgeType().AsUint(), (i + 999) % 1000);
         } else {
           EXPECT_TRUE(in_edges->empty());
         }
