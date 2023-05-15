@@ -102,10 +102,10 @@ TEST(PyModule, PyVertex) {
     auto v1 = dba->CreateVertex();
     auto v2 = dba->CreateVertex();
 
-    ASSERT_TRUE(v1->SetProperty(dba->NameToProperty("key1"), memgraph::storage::PropertyValue("value1")).HasValue());
-    ASSERT_TRUE(v1->SetProperty(dba->NameToProperty("key2"), memgraph::storage::PropertyValue(1337)).HasValue());
+    ASSERT_TRUE(v1.SetProperty(dba->NameToProperty("key1"), memgraph::storage::PropertyValue("value1")).HasValue());
+    ASSERT_TRUE(v1.SetProperty(dba->NameToProperty("key2"), memgraph::storage::PropertyValue(1337)).HasValue());
 
-    auto e = dba->CreateEdge(v1.get(), v2.get(), dba->NameToEdgeType("type"));
+    auto e = dba->CreateEdge(&v1, &v2, dba->NameToEdgeType("type"));
     ASSERT_TRUE(e.HasValue());
 
     ASSERT_FALSE(dba->Commit().HasError());
@@ -152,13 +152,13 @@ TEST(PyModule, PyEdge) {
     auto v1 = dba->CreateVertex();
     auto v2 = dba->CreateVertex();
 
-    auto e = dba->CreateEdge(v1.get(), v2.get(), dba->NameToEdgeType("type"));
+    auto e = dba->CreateEdge(&v1, &v2, dba->NameToEdgeType("type"));
     ASSERT_TRUE(e.HasValue());
 
     ASSERT_TRUE(
-        e.GetValue()->SetProperty(dba->NameToProperty("key1"), memgraph::storage::PropertyValue("value1")).HasValue());
+        e.GetValue().SetProperty(dba->NameToProperty("key1"), memgraph::storage::PropertyValue("value1")).HasValue());
     ASSERT_TRUE(
-        e.GetValue()->SetProperty(dba->NameToProperty("key2"), memgraph::storage::PropertyValue(1337)).HasValue());
+        e.GetValue().SetProperty(dba->NameToProperty("key2"), memgraph::storage::PropertyValue(1337)).HasValue());
     ASSERT_FALSE(dba->Commit().HasError());
   }
   // Get the edge as an mgp_value.
@@ -206,7 +206,7 @@ TEST(PyModule, PyPath) {
     auto dba = db->Access();
     auto v1 = dba->CreateVertex();
     auto v2 = dba->CreateVertex();
-    ASSERT_TRUE(dba->CreateEdge(v1.get(), v2.get(), dba->NameToEdgeType("type")).HasValue());
+    ASSERT_TRUE(dba->CreateEdge(&v1, &v2, dba->NameToEdgeType("type")).HasValue());
     ASSERT_FALSE(dba->Commit().HasError());
   }
   auto storage_dba = db->Access();
