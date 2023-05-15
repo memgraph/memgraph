@@ -11,35 +11,28 @@
 
 #include "storage/v2/vertex_accessor.hpp"
 
-#include "storage/v2/disk/vertex_accessor.hpp"
-#include "storage/v2/inmemory/edge_accessor.hpp"
-#include "storage/v2/inmemory/vertex_accessor.hpp"
+#include <memory>
+
+#include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/id_types.hpp"
+#include "storage/v2/indices.hpp"
+#include "storage/v2/mvcc.hpp"
+#include "storage/v2/property_value.hpp"
+#include "utils/logging.hpp"
+#include "utils/memory_tracker.hpp"
 
 namespace memgraph::storage {
 
-Result<std::vector<std::unique_ptr<EdgeAccessor>>> VertexAccessor::InEdges(
-    View view, const std::vector<EdgeTypeId> &edge_types) const {
-  return InEdges(view, edge_types, nullptr);
-}
-
-Result<std::vector<std::unique_ptr<EdgeAccessor>>> VertexAccessor::InEdges(View view) const {
-  return InEdges(view, {}, nullptr);
-}
-
-Result<std::vector<std::unique_ptr<EdgeAccessor>>> VertexAccessor::OutEdges(
-    View view, const std::vector<EdgeTypeId> &edge_types) const {
-  return OutEdges(view, edge_types, nullptr);
-}
-
-Result<std::vector<std::unique_ptr<EdgeAccessor>>> VertexAccessor::OutEdges(View view) const {
-  return OutEdges(view, {}, nullptr);
-}
-
-bool operator==(const std::unique_ptr<VertexAccessor> &va1, const std::unique_ptr<VertexAccessor> &va2) noexcept {
-  const auto *inMemoryVa1 = dynamic_cast<const InMemoryVertexAccessor *>(va1.get());
-  const auto *inMemoryVa2 = dynamic_cast<const InMemoryVertexAccessor *>(va2.get());
-  if (inMemoryVa1 && inMemoryVa2) {
-    return inMemoryVa1->operator==(*inMemoryVa2);
+namespace detail {
+namespace {
+std::pair<bool, bool> IsVisible(Vertex *vertex, Transaction *transaction, View view) {
+  bool exists = true;
+  bool deleted = false;
+  Delta *delta = nullptr;
+  {
+    std::lock_guard<utils::SpinLock> guard(vertex->lock);
+    deleted = vertex->deleted;
+    delta = vertex->delta;
   }
   ApplyDeltasForRead(transaction, delta, view, [&](const Delta &delta) {
     switch (delta.action) {
@@ -55,6 +48,7 @@ bool operator==(const std::unique_ptr<VertexAccessor> &va1, const std::unique_pt
         deleted = false;
         break;
       }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT: {
         exists = false;
         break;
@@ -144,6 +138,7 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
         }
         break;
       }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT: {
         exists = false;
         break;
@@ -193,6 +188,7 @@ Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
         labels.push_back(delta.label);
         break;
       }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT: {
         exists = false;
         break;
@@ -292,6 +288,7 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
         }
         break;
       }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT: {
         exists = false;
         break;
@@ -342,6 +339,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
         }
         break;
       }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT: {
         exists = false;
         break;
@@ -417,6 +415,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, const std::
             in_edges.pop_back();
             break;
           }
+          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
           case Delta::Action::DELETE_OBJECT: {
             exists = false;
             break;
@@ -497,6 +496,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(View view, const std:
             out_edges.pop_back();
             break;
           }
+          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
           case Delta::Action::DELETE_OBJECT: {
             exists = false;
             break;
@@ -543,6 +543,7 @@ Result<size_t> VertexAccessor::InDegree(View view) const {
       case Delta::Action::REMOVE_IN_EDGE:
         --degree;
         break;
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT:
         exists = false;
         break;
@@ -581,6 +582,7 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
       case Delta::Action::REMOVE_OUT_EDGE:
         --degree;
         break;
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT:
         exists = false;
         break;

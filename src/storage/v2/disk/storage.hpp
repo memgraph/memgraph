@@ -28,7 +28,6 @@
 #include "storage/v2/disk/disk_vertex.hpp"
 #include "storage/v2/disk/indices.hpp"
 #include "storage/v2/disk/rocksdb_storage.hpp"
-#include "storage/v2/disk/vertex_accessor.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge.hpp"
@@ -90,14 +89,14 @@ class DiskStorage final : public Storage {
 
     ~DiskAccessor() override;
 
-    std::unique_ptr<VertexAccessor> CreateVertex() override;
+    VertexAccessor CreateVertex() override;
 
     /// Checks whether the vertex with the given `gid` exists in the vertices_. If it does, it returns a
     /// VertexAccessor to it. If it doesn't, it fetches vertex from the RocksDB. If it doesn't exist in the RocksDB
     /// either, it returns nullptr. If the vertex is fetched from the RocksDB, it is inserted into the vertices_ and
     /// lru_vertices_. Check whether the vertex is in the memory cache (vertices_) is done in O(logK) where K is the
     /// size of the cache.
-    std::unique_ptr<VertexAccessor> FindVertex(Gid gid, View view) override;
+    std::optional<VertexAccessor> FindVertex(Gid gid, View view) override;
 
     /// Utility method to load all vertices from the underlying KV storage.
     VerticesIterable Vertices(View view) override;
@@ -157,19 +156,18 @@ class DiskStorage final : public Storage {
     /// Deletes vertex only from the cache if it was created in the same transaction.
     /// If the vertex was fetched from the RocksDB, it is deleted from the RocksDB.
     /// It is impossible that the object isn't in the cache because of generated query plan.
-    Result<std::unique_ptr<VertexAccessor>> DeleteVertex(VertexAccessor *vertex) override;
+    Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex) override;
 
-    Result<std::optional<std::pair<std::unique_ptr<VertexAccessor>, std::vector<std::unique_ptr<EdgeAccessor>>>>>
-    DetachDeleteVertex(VertexAccessor *vertex) override;
+    Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachDeleteVertex(
+        VertexAccessor *vertex) override;
 
     void PrefetchInEdges(const VertexAccessor &vertex_acc) override;
 
     void PrefetchOutEdges(const VertexAccessor &vertex_acc) override;
 
-    Result<std::unique_ptr<EdgeAccessor>> CreateEdge(VertexAccessor *from, VertexAccessor *to,
-                                                     EdgeTypeId edge_type) override;
+    Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) override;
 
-    Result<std::unique_ptr<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge) override;
+    Result<std::optional<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge) override;
 
     const std::string &LabelToName(LabelId label) const override;
     const std::string &PropertyToName(PropertyId property) const override;
@@ -417,9 +415,13 @@ class DiskStorage final : public Storage {
 
   void FreeMemory() override;
 
-  void SetIsolationLevel(IsolationLevel isolation_level) override;
+  utils::BasicResult<SetIsolationLevelError> SetIsolationLevel(IsolationLevel isolation_level) override;
 
-  utils::BasicResult<CreateSnapshotError> CreateSnapshot() override;
+  void SetStorageMode(StorageMode storage_mode) override;
+
+  StorageMode GetStorageMode() override;
+
+  utils::BasicResult<CreateSnapshotError> CreateSnapshot(std::optional<bool> is_periodic) override;
 
  private:
   Transaction CreateTransaction(IsolationLevel isolation_level);
@@ -475,7 +477,7 @@ class DiskStorage final : public Storage {
   NameIdMapper name_id_mapper_;
 
   Constraints constraints_;
-  DiskIndices indices_;
+  Indices indices_;
 
   // Transaction engine
   utils::SpinLock engine_lock_;

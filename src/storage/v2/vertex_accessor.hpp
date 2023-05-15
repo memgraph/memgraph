@@ -12,112 +12,104 @@
 #pragma once
 
 #include <optional>
-#include <string>
-#include <string_view>
 
-#include "storage/v2/id_types.hpp"
 #include "storage/v2/vertex.hpp"
 
 #include "storage/v2/config.hpp"
-#include "storage/v2/constraints.hpp"
 #include "storage/v2/result.hpp"
+#include "storage/v2/transaction.hpp"
+#include "storage/v2/view.hpp"
 
 namespace memgraph::storage {
 
 class EdgeAccessor;
+class Storage;
 struct Indices;
+struct Constraints;
 
-class VertexAccessor {
+class VertexAccessor final {
  private:
   friend class Storage;
 
  public:
-  VertexAccessor(Transaction *transaction, Config::Items config, bool for_deleted = false)
-      : transaction_(transaction), config_(config), for_deleted_(for_deleted) {}
+  VertexAccessor(Vertex *vertex, Transaction *transaction, Indices *indices, Constraints *constraints,
+                 Config::Items config, bool for_deleted = false)
+      : vertex_(vertex),
+        transaction_(transaction),
+        indices_(indices),
+        constraints_(constraints),
+        config_(config),
+        for_deleted_(for_deleted) {}
 
-  VertexAccessor(const VertexAccessor &) = default;
-
-  virtual ~VertexAccessor() {}
+  static std::optional<VertexAccessor> Create(Vertex *vertex, Transaction *transaction, Indices *indices,
+                                              Constraints *constraints, Config::Items config, View view);
 
   /// @return true if the object is visible from the current transaction
-  virtual bool IsVisible(View view) const = 0;
+  bool IsVisible(View view) const;
 
   /// Add a label and return `true` if insertion took place.
   /// `false` is returned if the label already existed.
   /// @throw std::bad_alloc
-  virtual Result<bool> AddLabel(LabelId label) = 0;
+  Result<bool> AddLabel(LabelId label);
 
   /// Remove a label and return `true` if deletion took place.
   /// `false` is returned if the vertex did not have a label already.
   /// @throw std::bad_alloc
-  virtual Result<bool> RemoveLabel(LabelId label) = 0;
+  Result<bool> RemoveLabel(LabelId label);
 
-  virtual Result<bool> HasLabel(LabelId label, View view) const = 0;
+  Result<bool> HasLabel(LabelId label, View view) const;
 
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().
-  virtual Result<std::vector<LabelId>> Labels(View view) const = 0;
+  Result<std::vector<LabelId>> Labels(View view) const;
 
   /// Set a property value and return the old value.
   /// @throw std::bad_alloc
-  virtual Result<PropertyValue> SetProperty(PropertyId property, const PropertyValue &value) = 0;
+  Result<PropertyValue> SetProperty(PropertyId property, const PropertyValue &value);
 
   /// Set property values only if property store is empty. Returns `true` if successully set all values,
   /// `false` otherwise.
   /// @throw std::bad_alloc
-  virtual Result<bool> InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) = 0;
+  Result<bool> InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties);
 
   /// Remove all properties and return the values of the removed properties.
   /// @throw std::bad_alloc
-  virtual Result<std::map<PropertyId, PropertyValue>> ClearProperties() = 0;
+  Result<std::map<PropertyId, PropertyValue>> ClearProperties();
 
   /// @throw std::bad_alloc
-  virtual Result<PropertyValue> GetProperty(PropertyId property, View view) const = 0;
+  Result<PropertyValue> GetProperty(PropertyId property, View view) const;
 
   /// @throw std::bad_alloc
-  virtual Result<std::map<PropertyId, PropertyValue>> Properties(View view) const = 0;
-
-  virtual std::string PropertyStore() const = 0;
-
-  virtual void SetPropertyStore(std::string_view buffer) const = 0;
+  Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
 
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().
-  virtual Result<std::vector<std::unique_ptr<EdgeAccessor>>> InEdges(View view,
-                                                                     const std::vector<EdgeTypeId> &edge_types,
-                                                                     const VertexAccessor *destination) const = 0;
-
-  Result<std::vector<std::unique_ptr<EdgeAccessor>>> InEdges(View view,
-                                                             const std::vector<EdgeTypeId> &edge_types) const;
-
-  Result<std::vector<std::unique_ptr<EdgeAccessor>>> InEdges(View view) const;
+  Result<std::vector<EdgeAccessor>> InEdges(View view, const std::vector<EdgeTypeId> &edge_types = {},
+                                            const VertexAccessor *destination = nullptr) const;
 
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().
-  virtual Result<std::vector<std::unique_ptr<EdgeAccessor>>> OutEdges(View view,
-                                                                      const std::vector<EdgeTypeId> &edge_types,
-                                                                      const VertexAccessor *destination) const = 0;
+  Result<std::vector<EdgeAccessor>> OutEdges(View view, const std::vector<EdgeTypeId> &edge_types = {},
+                                             const VertexAccessor *destination = nullptr) const;
 
-  Result<std::vector<std::unique_ptr<EdgeAccessor>>> OutEdges(View view,
-                                                              const std::vector<EdgeTypeId> &edge_types) const;
-  Result<std::vector<std::unique_ptr<EdgeAccessor>>> OutEdges(View view) const;
+  Result<size_t> InDegree(View view) const;
 
-  virtual Result<size_t> InDegree(View view) const = 0;
+  Result<size_t> OutDegree(View view) const;
 
-  virtual Result<size_t> OutDegree(View view) const = 0;
+  Gid Gid() const noexcept { return vertex_->gid; }
 
-  virtual Gid Gid() const noexcept = 0;
-
-  virtual std::unique_ptr<VertexAccessor> Copy() const = 0;
-
-  virtual bool operator==(const VertexAccessor &other) const noexcept = 0;
+  bool operator==(const VertexAccessor &other) const noexcept {
+    return vertex_ == other.vertex_ && transaction_ == other.transaction_;
+  }
   bool operator!=(const VertexAccessor &other) const noexcept { return !(*this == other); }
 
- protected:
+  Vertex *vertex_;
   Transaction *transaction_;
+  Indices *indices_;
+  Constraints *constraints_;
   Config::Items config_;
 
   // if the accessor was created for a deleted vertex.
@@ -130,13 +122,11 @@ class VertexAccessor {
   bool for_deleted_{false};
 };
 
-bool operator==(const std::unique_ptr<VertexAccessor> &va1, const std::unique_ptr<VertexAccessor> &va2) noexcept;
-
 }  // namespace memgraph::storage
 
 namespace std {
 template <>
-struct hash<memgraph::storage::VertexAccessor *> {
-  size_t operator()(const memgraph::storage::VertexAccessor *v) const noexcept { return v->Gid().AsUint(); }
+struct hash<memgraph::storage::VertexAccessor> {
+  size_t operator()(const memgraph::storage::VertexAccessor &v) const noexcept { return v.Gid().AsUint(); }
 };
 }  // namespace std

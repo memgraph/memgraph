@@ -54,7 +54,7 @@ class LabelIndex {
   };
 
  public:
-  LabelIndex(Indices *indices, Constraints *constraints, Config config)
+  LabelIndex(Indices *indices, Constraints *constraints, Config::Items config)
       : indices_(indices), constraints_(constraints), config_(config) {}
 
   /// @throw std::bad_alloc
@@ -76,21 +76,13 @@ class LabelIndex {
   class Iterable {
    public:
     Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, View view, Transaction *transaction,
-             Indices *indices, Constraints *constraints, Config config);
+             Indices *indices, Constraints *constraints, Config::Items config);
 
     class Iterator {
      public:
       Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator);
-      Iterator(const Iterator &other)
-          : self_(other.self_),
-            index_iterator_(other.index_iterator_),
-            current_vertex_accessor_(other.current_vertex_accessor_ ? other.current_vertex_accessor_->Copy() : nullptr),
-            current_vertex_(other.current_vertex_) {}
 
-      Iterator(Iterator &&other) = default;
-      ~Iterator() = default;
-
-      VertexAccessor *operator*() const { return current_vertex_accessor_.get(); }
+      VertexAccessor operator*() const { return current_vertex_accessor_; }
 
       bool operator==(const Iterator &other) const { return index_iterator_ == other.index_iterator_; }
       bool operator!=(const Iterator &other) const { return index_iterator_ != other.index_iterator_; }
@@ -102,7 +94,7 @@ class LabelIndex {
 
       Iterable *self_;
       utils::SkipList<Entry>::Iterator index_iterator_;
-      std::unique_ptr<VertexAccessor> current_vertex_accessor_;
+      VertexAccessor current_vertex_accessor_;
       Vertex *current_vertex_;
     };
 
@@ -116,7 +108,7 @@ class LabelIndex {
     Transaction *transaction_;
     Indices *indices_;
     Constraints *constraints_;
-    Config config_;
+    Config::Items config_;
   };
 
   /// Returns an self with vertices visible from the given transaction.
@@ -140,7 +132,7 @@ class LabelIndex {
   std::map<LabelId, utils::SkipList<Entry>> index_;
   Indices *indices_;
   Constraints *constraints_;
-  Config config_;
+  Config::Items config_;
 };
 
 struct IndexStats {
@@ -162,7 +154,7 @@ class LabelPropertyIndex {
   };
 
  public:
-  LabelPropertyIndex(Indices *indices, Constraints *constraints, Config config)
+  LabelPropertyIndex(Indices *indices, Constraints *constraints, Config::Items config)
       : indices_(indices), constraints_(constraints), config_(config) {}
 
   /// @throw std::bad_alloc
@@ -188,21 +180,13 @@ class LabelPropertyIndex {
     Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, PropertyId property,
              const std::optional<utils::Bound<PropertyValue>> &lower_bound,
              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Transaction *transaction,
-             Indices *indices, Constraints *constraints, Config config);
+             Indices *indices, Constraints *constraints, Config::Items config);
 
     class Iterator {
      public:
       Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator);
-      Iterator(const Iterator &other)
-          : self_(other.self_),
-            index_iterator_(other.index_iterator_),
-            current_vertex_accessor_(other.current_vertex_accessor_ ? other.current_vertex_accessor_->Copy() : nullptr),
-            current_vertex_(other.current_vertex_) {}
 
-      Iterator(Iterator &&other) = default;
-      ~Iterator() = default;
-
-      VertexAccessor *operator*() const { return current_vertex_accessor_.get(); }
+      VertexAccessor operator*() const { return current_vertex_accessor_; }
 
       bool operator==(const Iterator &other) const { return index_iterator_ == other.index_iterator_; }
       bool operator!=(const Iterator &other) const { return index_iterator_ != other.index_iterator_; }
@@ -214,7 +198,7 @@ class LabelPropertyIndex {
 
       Iterable *self_;
       utils::SkipList<Entry>::Iterator index_iterator_;
-      std::unique_ptr<VertexAccessor> current_vertex_accessor_;
+      VertexAccessor current_vertex_accessor_;
       Vertex *current_vertex_;
     };
 
@@ -232,7 +216,7 @@ class LabelPropertyIndex {
     Transaction *transaction_;
     Indices *indices_;
     Constraints *constraints_;
-    Config config_;
+    Config::Items config_;
   };
 
   Iterable Vertices(LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
@@ -281,11 +265,11 @@ class LabelPropertyIndex {
   std::map<std::pair<LabelId, PropertyId>, storage::IndexStats> stats_;
   Indices *indices_;
   Constraints *constraints_;
-  Config config_;
+  Config::Items config_;
 };
 
 struct Indices {
-  Indices(Constraints *constraints, Config config)
+  Indices(Constraints *constraints, Config::Items config)
       : label_index(this, constraints, config), label_property_index(this, constraints, config) {}
 
   // Disable copy and move because members hold pointer to `this`.

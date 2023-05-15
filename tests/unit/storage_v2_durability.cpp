@@ -93,15 +93,15 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     for (uint64_t i = 0; i < kNumBaseVertices; ++i) {
       auto acc = store->Access();
       auto vertex = acc->CreateVertex();
-      base_vertex_gids_[i] = vertex->Gid();
+      base_vertex_gids_[i] = vertex.Gid();
       if (i < kNumBaseVertices / 2) {
-        ASSERT_TRUE(vertex->AddLabel(label_indexed).HasValue());
+        ASSERT_TRUE(vertex.AddLabel(label_indexed).HasValue());
       } else {
-        ASSERT_TRUE(vertex->AddLabel(label_unindexed).HasValue());
+        ASSERT_TRUE(vertex.AddLabel(label_unindexed).HasValue());
       }
       if (i < kNumBaseVertices / 3 || i >= kNumBaseVertices / 2) {
         ASSERT_TRUE(
-            vertex->SetProperty(property_id, memgraph::storage::PropertyValue(static_cast<int64_t>(i))).HasValue());
+            vertex.SetProperty(property_id, memgraph::storage::PropertyValue(static_cast<int64_t>(i))).HasValue());
       }
       ASSERT_FALSE(acc->Commit().HasError());
     }
@@ -122,12 +122,12 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       auto edgeRes = acc->CreateEdge(&*vertex1, &*vertex2, et);
       ASSERT_TRUE(edgeRes.HasValue());
       auto edge = std::move(edgeRes.GetValue());
-      base_edge_gids_[i] = edge->Gid();
+      base_edge_gids_[i] = edge.Gid();
       if (properties_on_edges) {
         ASSERT_TRUE(
-            edge->SetProperty(property_id, memgraph::storage::PropertyValue(static_cast<int64_t>(i))).HasValue());
+            edge.SetProperty(property_id, memgraph::storage::PropertyValue(static_cast<int64_t>(i))).HasValue());
       } else {
-        auto ret = edge->SetProperty(property_id, memgraph::storage::PropertyValue(static_cast<int64_t>(i)));
+        auto ret = edge.SetProperty(property_id, memgraph::storage::PropertyValue(static_cast<int64_t>(i)));
         ASSERT_TRUE(ret.HasError());
         ASSERT_EQ(ret.GetError(), memgraph::storage::Error::PROPERTIES_DISABLED);
       }
@@ -162,12 +162,12 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     for (uint64_t i = 0; i < kNumExtendedVertices; ++i) {
       if (!single_transaction) acc = store->Access();
       auto vertex = acc->CreateVertex();
-      extended_vertex_gids_[i] = vertex->Gid();
+      extended_vertex_gids_[i] = vertex.Gid();
       if (i < kNumExtendedVertices / 2) {
-        ASSERT_TRUE(vertex->AddLabel(label_indexed).HasValue());
+        ASSERT_TRUE(vertex.AddLabel(label_indexed).HasValue());
       }
       if (i < kNumExtendedVertices / 3 || i >= kNumExtendedVertices / 2) {
-        ASSERT_TRUE(vertex->SetProperty(property_count, memgraph::storage::PropertyValue("nandare")).HasValue());
+        ASSERT_TRUE(vertex.SetProperty(property_count, memgraph::storage::PropertyValue("nandare")).HasValue());
       }
       if (!single_transaction) ASSERT_FALSE(acc->Commit().HasError());
     }
@@ -190,7 +190,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       auto edgeRes = acc->CreateEdge(&*vertex1, &*vertex2, et);
       ASSERT_TRUE(edgeRes.HasValue());
       auto edge = std::move(edgeRes.GetValue());
-      extended_edge_gids_[i] = edge->Gid();
+      extended_edge_gids_[i] = edge.Gid();
       if (!single_transaction) ASSERT_FALSE(acc->Commit().HasError());
     }
 
@@ -308,10 +308,10 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
       // Verify edges.
       for (uint64_t i = 0; i < kNumBaseEdges; ++i) {
-        auto find_edge = [&](auto &edges) -> std::unique_ptr<memgraph::storage::EdgeAccessor> {
+        auto find_edge = [&](auto &edges) -> std::optional<memgraph::storage::EdgeAccessor> {
           for (auto &edge : edges) {
-            if (edge->Gid() == base_edge_gids_[i]) {
-              return std::move(edge);
+            if (edge.Gid() == base_edge_gids_[i]) {
+              return edge;
             }
           }
           return {};
@@ -364,29 +364,29 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
       // Verify label indices.
       {
-        std::vector<std::unique_ptr<memgraph::storage::VertexAccessor>> vertices;
+        std::vector<memgraph::storage::VertexAccessor> vertices;
         vertices.reserve(kNumBaseVertices / 2);
         for (auto vertex : acc->Vertices(base_label_unindexed, memgraph::storage::View::OLD)) {
-          vertices.push_back(vertex->Copy());
+          vertices.push_back(vertex);
         }
         ASSERT_EQ(vertices.size(), kNumBaseVertices / 2);
-        std::sort(vertices.begin(), vertices.end(), [](const auto &a, const auto &b) { return a->Gid() < b->Gid(); });
+        std::sort(vertices.begin(), vertices.end(), [](const auto &a, const auto &b) { return a.Gid() < b.Gid(); });
         for (uint64_t i = 0; i < kNumBaseVertices / 2; ++i) {
-          ASSERT_EQ(vertices[i]->Gid(), base_vertex_gids_[kNumBaseVertices / 2 + i]);
+          ASSERT_EQ(vertices[i].Gid(), base_vertex_gids_[kNumBaseVertices / 2 + i]);
         }
       }
 
       // Verify label+property index.
       {
-        std::vector<std::unique_ptr<memgraph::storage::VertexAccessor>> vertices;
+        std::vector<memgraph::storage::VertexAccessor> vertices;
         vertices.reserve(kNumBaseVertices / 3);
         for (auto vertex : acc->Vertices(base_label_indexed, property_id, memgraph::storage::View::OLD)) {
-          vertices.push_back(vertex->Copy());
+          vertices.push_back(vertex);
         }
         ASSERT_EQ(vertices.size(), kNumBaseVertices / 3);
-        std::sort(vertices.begin(), vertices.end(), [](const auto &a, const auto &b) { return a->Gid() < b->Gid(); });
+        std::sort(vertices.begin(), vertices.end(), [](const auto &a, const auto &b) { return a.Gid() < b.Gid(); });
         for (uint64_t i = 0; i < kNumBaseVertices / 3; ++i) {
-          ASSERT_EQ(vertices[i]->Gid(), base_vertex_gids_[i]);
+          ASSERT_EQ(vertices[i].Gid(), base_vertex_gids_[i]);
         }
       }
     } else {
@@ -442,10 +442,10 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
       // Verify edges.
       for (uint64_t i = 0; i < kNumExtendedEdges; ++i) {
-        auto find_edge = [&](auto &edges) -> std::unique_ptr<memgraph::storage::EdgeAccessor> {
+        auto find_edge = [&](auto &edges) -> std::optional<memgraph::storage::EdgeAccessor> {
           for (auto &edge : edges) {
-            if (edge->Gid() == extended_edge_gids_[i]) {
-              return std::move(edge);
+            if (edge.Gid() == extended_edge_gids_[i]) {
+              return edge;
             }
           }
           return {};
@@ -493,22 +493,22 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         std::vector<std::unique_ptr<memgraph::storage::VertexAccessor>> vertices;
         vertices.reserve(kNumExtendedVertices / 2);
         for (auto vertex : acc->Vertices(extended_label_unused, memgraph::storage::View::OLD)) {
-          vertices.emplace_back(vertex->Copy());
+          vertices.emplace_back(vertex);
         }
         ASSERT_EQ(vertices.size(), 0);
       }
 
       // Verify label+property index.
       {
-        std::vector<std::unique_ptr<memgraph::storage::VertexAccessor>> vertices;
+        std::vector<memgraph::storage::VertexAccessor> vertices;
         vertices.reserve(kNumExtendedVertices / 3);
         for (auto vertex : acc->Vertices(extended_label_indexed, property_count, memgraph::storage::View::OLD)) {
-          vertices.emplace_back(vertex->Copy());
+          vertices.emplace_back(vertex);
         }
         ASSERT_EQ(vertices.size(), kNumExtendedVertices / 3);
-        std::sort(vertices.begin(), vertices.end(), [](const auto &a, const auto &b) { return a->Gid() < b->Gid(); });
+        std::sort(vertices.begin(), vertices.end(), [](const auto &a, const auto &b) { return a.Gid() < b.Gid(); });
         for (uint64_t i = 0; i < kNumExtendedVertices / 3; ++i) {
-          ASSERT_EQ(vertices[i]->Gid(), extended_vertex_gids_[i]);
+          ASSERT_EQ(vertices[i].Gid(), extended_vertex_gids_[i]);
         }
       }
     } else {
@@ -693,7 +693,7 @@ TEST_P(DurabilityTest, SnapshotOnExit) {
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(vertex.get(), vertex.get(), store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -727,7 +727,7 @@ TEST_P(DurabilityTest, SnapshotPeriodic) {
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(vertex.get(), vertex.get(), store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -771,7 +771,7 @@ TEST_P(DurabilityTest, SnapshotFallback) {
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(vertex.get(), vertex.get(), store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -922,7 +922,7 @@ TEST_P(DurabilityTest, SnapshotRetention) {
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(vertex.get(), vertex.get(), store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -986,7 +986,7 @@ TEST_P(DurabilityTest, SnapshotMixedUUID) {
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(vertex.get(), vertex.get(), store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -1054,7 +1054,7 @@ TEST_F(DurabilityTest, SnapshotWithoutPropertiesOnEdgesRecoveryWithPropertiesOnE
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(vertex.get(), vertex.get(), store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -1103,24 +1103,24 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesButUnusedRecoveryWithoutProp
     {
       auto acc = store->Access();
       for (auto vertex : acc->Vertices(memgraph::storage::View::OLD)) {
-        auto in_edges = vertex->InEdges(memgraph::storage::View::OLD);
+        auto in_edges = vertex.InEdges(memgraph::storage::View::OLD);
         ASSERT_TRUE(in_edges.HasValue());
         for (auto &edge : *in_edges) {
           // TODO (mferencevic): Replace with `ClearProperties()`
-          auto props = edge->Properties(memgraph::storage::View::NEW);
+          auto props = edge.Properties(memgraph::storage::View::NEW);
           ASSERT_TRUE(props.HasValue());
           for (const auto &prop : *props) {
-            ASSERT_TRUE(edge->SetProperty(prop.first, memgraph::storage::PropertyValue()).HasValue());
+            ASSERT_TRUE(edge.SetProperty(prop.first, memgraph::storage::PropertyValue()).HasValue());
           }
         }
-        auto out_edges = vertex->InEdges(memgraph::storage::View::OLD);
+        auto out_edges = vertex.InEdges(memgraph::storage::View::OLD);
         ASSERT_TRUE(out_edges.HasValue());
         for (auto &edge : *out_edges) {
           // TODO (mferencevic): Replace with `ClearProperties()`
-          auto props = edge->Properties(memgraph::storage::View::NEW);
+          auto props = edge.Properties(memgraph::storage::View::NEW);
           ASSERT_TRUE(props.HasValue());
           for (const auto &prop : *props) {
-            ASSERT_TRUE(edge->SetProperty(prop.first, memgraph::storage::PropertyValue()).HasValue());
+            ASSERT_TRUE(edge.SetProperty(prop.first, memgraph::storage::PropertyValue()).HasValue());
           }
         }
       }
@@ -1143,7 +1143,7 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesButUnusedRecoveryWithoutProp
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(vertex.get(), vertex.get(), store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -1179,7 +1179,7 @@ TEST_P(DurabilityTest, WalBasic) {
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(vertex.get(), vertex.get(), store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -1281,7 +1281,7 @@ TEST_P(DurabilityTest, WalAppendToExisting) {
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(vertex.get(), vertex.get(), store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -1303,25 +1303,25 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
              .wal_file_flush_every_n_tx = kFlushWalEvery}}));
     auto acc = store->Access();
     auto v1 = acc->CreateVertex();
-    gid_v1 = v1->Gid();
+    gid_v1 = v1.Gid();
     auto v2 = acc->CreateVertex();
-    gid_v2 = v2->Gid();
-    auto e1Res = acc->CreateEdge(v1.get(), v2.get(), store->NameToEdgeType("e1"));
+    gid_v2 = v2.Gid();
+    auto e1Res = acc->CreateEdge(&v1, &v2, store->NameToEdgeType("e1"));
     ASSERT_TRUE(e1Res.HasValue());
     auto e1 = std::move(e1Res.GetValue());
-    gid_e1 = e1->Gid();
-    ASSERT_TRUE(v1->AddLabel(store->NameToLabel("l11")).HasValue());
-    ASSERT_TRUE(v1->AddLabel(store->NameToLabel("l12")).HasValue());
-    ASSERT_TRUE(v1->AddLabel(store->NameToLabel("l13")).HasValue());
+    gid_e1 = e1.Gid();
+    ASSERT_TRUE(v1.AddLabel(store->NameToLabel("l11")).HasValue());
+    ASSERT_TRUE(v1.AddLabel(store->NameToLabel("l12")).HasValue());
+    ASSERT_TRUE(v1.AddLabel(store->NameToLabel("l13")).HasValue());
     if (GetParam()) {
       ASSERT_TRUE(
-          e1->SetProperty(store->NameToProperty("test"), memgraph::storage::PropertyValue("nandare")).HasValue());
+          e1.SetProperty(store->NameToProperty("test"), memgraph::storage::PropertyValue("nandare")).HasValue());
     }
-    ASSERT_TRUE(v2->AddLabel(store->NameToLabel("l21")).HasValue());
-    ASSERT_TRUE(v2->SetProperty(store->NameToProperty("hello"), memgraph::storage::PropertyValue("world")).HasValue());
+    ASSERT_TRUE(v2.AddLabel(store->NameToLabel("l21")).HasValue());
+    ASSERT_TRUE(v2.SetProperty(store->NameToProperty("hello"), memgraph::storage::PropertyValue("world")).HasValue());
     auto v3 = acc->CreateVertex();
-    gid_v3 = v3->Gid();
-    ASSERT_TRUE(v3->SetProperty(store->NameToProperty("v3"), memgraph::storage::PropertyValue(42)).HasValue());
+    gid_v3 = v3.Gid();
+    ASSERT_TRUE(v3.SetProperty(store->NameToProperty("v3"), memgraph::storage::PropertyValue(42)).HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
@@ -1359,8 +1359,8 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
       ASSERT_TRUE(out_edges.HasValue());
       ASSERT_EQ(out_edges->size(), 1);
       const auto &edge = (*out_edges)[0];
-      ASSERT_EQ(edge->Gid(), gid_e1);
-      auto edge_props = edge->Properties(memgraph::storage::View::OLD);
+      ASSERT_EQ(edge.Gid(), gid_e1);
+      auto edge_props = edge.Properties(memgraph::storage::View::OLD);
       ASSERT_TRUE(edge_props.HasValue());
       if (GetParam()) {
         ASSERT_THAT(*edge_props, UnorderedElementsAre(std::make_pair(store->NameToProperty("test"),
@@ -1383,8 +1383,8 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
       ASSERT_TRUE(in_edges.HasValue());
       ASSERT_EQ(in_edges->size(), 1);
       const auto &edge = (*in_edges)[0];
-      ASSERT_EQ(edge->Gid(), gid_e1);
-      auto edge_props = edge->Properties(memgraph::storage::View::OLD);
+      ASSERT_EQ(edge.Gid(), gid_e1);
+      auto edge_props = edge.Properties(memgraph::storage::View::OLD);
       ASSERT_TRUE(edge_props.HasValue());
       if (GetParam()) {
         ASSERT_THAT(*edge_props, UnorderedElementsAre(std::make_pair(store->NameToProperty("test"),
@@ -1419,7 +1419,7 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(vertex.get(), vertex.get(), store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -1455,7 +1455,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
     }
     auto acc = store->Access();
     for (auto vertex : acc->Vertices(memgraph::storage::View::OLD)) {
-      ASSERT_TRUE(acc->DetachDeleteVertex(vertex).HasValue());
+      ASSERT_TRUE(acc->DetachDeleteVertex(&vertex).HasValue());
     }
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -1489,7 +1489,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(vertex.get(), vertex.get(), store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -1517,8 +1517,8 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
     // Create vertex in transaction 2.
     {
       auto vertex2 = acc2->CreateVertex();
-      gid2 = vertex2->Gid();
-      ASSERT_TRUE(vertex2->SetProperty(store->NameToProperty("id"), memgraph::storage::PropertyValue(2)).HasValue());
+      gid2 = vertex2.Gid();
+      ASSERT_TRUE(vertex2.SetProperty(store->NameToProperty("id"), memgraph::storage::PropertyValue(2)).HasValue());
     }
 
     auto acc3 = store->Access();
@@ -1526,15 +1526,15 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
     // Create vertex in transaction 3.
     {
       auto vertex3 = acc3->CreateVertex();
-      gid3 = vertex3->Gid();
-      ASSERT_TRUE(vertex3->SetProperty(store->NameToProperty("id"), memgraph::storage::PropertyValue(3)).HasValue());
+      gid3 = vertex3.Gid();
+      ASSERT_TRUE(vertex3.SetProperty(store->NameToProperty("id"), memgraph::storage::PropertyValue(3)).HasValue());
     }
 
     // Create vertex in transaction 1.
     {
       auto vertex1 = acc1->CreateVertex();
-      gid1 = vertex1->Gid();
-      ASSERT_TRUE(vertex1->SetProperty(store->NameToProperty("id"), memgraph::storage::PropertyValue(1)).HasValue());
+      gid1 = vertex1.Gid();
+      ASSERT_TRUE(vertex1.SetProperty(store->NameToProperty("id"), memgraph::storage::PropertyValue(1)).HasValue());
     }
 
     // Commit transaction 3, then 1, then 2.
@@ -1619,7 +1619,7 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(vertex.get(), vertex.get(), store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -1642,11 +1642,11 @@ TEST_P(DurabilityTest, WalCreateAndRemoveOnlyBaseDataset) {
     auto label_unindexed = store->NameToLabel("base_unindexed");
     auto acc = store->Access();
     for (auto vertex : acc->Vertices(memgraph::storage::View::OLD)) {
-      auto has_indexed = vertex->HasLabel(label_indexed, memgraph::storage::View::OLD);
+      auto has_indexed = vertex.HasLabel(label_indexed, memgraph::storage::View::OLD);
       ASSERT_TRUE(has_indexed.HasValue());
-      auto has_unindexed = vertex->HasLabel(label_unindexed, memgraph::storage::View::OLD);
+      auto has_unindexed = vertex.HasLabel(label_unindexed, memgraph::storage::View::OLD);
       if (!*has_indexed && !*has_unindexed) continue;
-      ASSERT_TRUE(acc->DetachDeleteVertex(vertex).HasValue());
+      ASSERT_TRUE(acc->DetachDeleteVertex(&vertex).HasValue());
     }
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -1666,7 +1666,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveOnlyBaseDataset) {
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(vertex.get(), vertex.get(), store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -1763,7 +1763,7 @@ TEST_P(DurabilityTest, WalDeathResilience) {
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(vertex.get(), vertex.get(), store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -1811,7 +1811,7 @@ TEST_P(DurabilityTest, WalMissingSecond) {
     for (uint64_t i = 0; i < kNumVertices; ++i) {
       auto acc = store->Access();
       auto vertex = acc->CreateVertex();
-      gids.push_back(vertex->Gid());
+      gids.push_back(vertex.Gid());
       ASSERT_FALSE(acc->Commit().HasError());
     }
     for (uint64_t i = 0; i < kNumVertices; ++i) {
@@ -1898,7 +1898,7 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
     for (uint64_t i = 0; i < kNumVertices; ++i) {
       auto acc = store->Access();
       auto vertex = acc->CreateVertex();
-      gids.push_back(vertex->Gid());
+      gids.push_back(vertex.Gid());
       ASSERT_FALSE(acc->Commit().HasError());
     }
     for (uint64_t i = 0; i < kNumVertices; ++i) {
@@ -1983,7 +1983,7 @@ TEST_P(DurabilityTest, WalCorruptLastTransaction) {
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(vertex.get(), vertex.get(), store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -2004,36 +2004,35 @@ TEST_P(DurabilityTest, WalAllOperationsInSingleTransaction) {
     auto acc = store->Access();
     auto vertex1 = acc->CreateVertex();
     auto vertex2 = acc->CreateVertex();
-    ASSERT_TRUE(vertex1->AddLabel(acc->NameToLabel("nandare")).HasValue());
-    ASSERT_TRUE(vertex2->SetProperty(acc->NameToProperty("haihai"), memgraph::storage::PropertyValue(42)).HasValue());
-    ASSERT_TRUE(vertex1->RemoveLabel(acc->NameToLabel("nandare")).HasValue());
-    auto edge1Res = acc->CreateEdge(vertex1.get(), vertex2.get(), acc->NameToEdgeType("et1"));
+    ASSERT_TRUE(vertex1.AddLabel(acc->NameToLabel("nandare")).HasValue());
+    ASSERT_TRUE(vertex2.SetProperty(acc->NameToProperty("haihai"), memgraph::storage::PropertyValue(42)).HasValue());
+    ASSERT_TRUE(vertex1.RemoveLabel(acc->NameToLabel("nandare")).HasValue());
+    auto edge1Res = acc->CreateEdge(&vertex1, &vertex2, acc->NameToEdgeType("et1"));
     ASSERT_TRUE(edge1Res.HasValue());
     auto edge1 = std::move(edge1Res.GetValue());
 
-    ASSERT_TRUE(vertex2->SetProperty(acc->NameToProperty("haihai"), memgraph::storage::PropertyValue()).HasValue());
+    ASSERT_TRUE(vertex2.SetProperty(acc->NameToProperty("haihai"), memgraph::storage::PropertyValue()).HasValue());
     auto vertex3 = acc->CreateVertex();
-    auto edge2Res = acc->CreateEdge(vertex3.get(), vertex3.get(), acc->NameToEdgeType("et2"));
+    auto edge2Res = acc->CreateEdge(&vertex3, &vertex3, acc->NameToEdgeType("et2"));
     ASSERT_TRUE(edge2Res.HasValue());
     auto edge2 = std::move(edge2Res.GetValue());
     if (GetParam()) {
+      ASSERT_TRUE(edge2.SetProperty(acc->NameToProperty("meaning"), memgraph::storage::PropertyValue(true)).HasValue());
       ASSERT_TRUE(
-          edge2->SetProperty(acc->NameToProperty("meaning"), memgraph::storage::PropertyValue(true)).HasValue());
-      ASSERT_TRUE(
-          edge1->SetProperty(acc->NameToProperty("hello"), memgraph::storage::PropertyValue("world")).HasValue());
-      ASSERT_TRUE(edge2->SetProperty(acc->NameToProperty("meaning"), memgraph::storage::PropertyValue()).HasValue());
+          edge1.SetProperty(acc->NameToProperty("hello"), memgraph::storage::PropertyValue("world")).HasValue());
+      ASSERT_TRUE(edge2.SetProperty(acc->NameToProperty("meaning"), memgraph::storage::PropertyValue()).HasValue());
     }
-    ASSERT_TRUE(vertex3->AddLabel(acc->NameToLabel("test")).HasValue());
-    ASSERT_TRUE(vertex3->SetProperty(acc->NameToProperty("nonono"), memgraph::storage::PropertyValue(-1)).HasValue());
-    ASSERT_TRUE(vertex3->SetProperty(acc->NameToProperty("nonono"), memgraph::storage::PropertyValue()).HasValue());
+    ASSERT_TRUE(vertex3.AddLabel(acc->NameToLabel("test")).HasValue());
+    ASSERT_TRUE(vertex3.SetProperty(acc->NameToProperty("nonono"), memgraph::storage::PropertyValue(-1)).HasValue());
+    ASSERT_TRUE(vertex3.SetProperty(acc->NameToProperty("nonono"), memgraph::storage::PropertyValue()).HasValue());
     if (GetParam()) {
-      ASSERT_TRUE(edge1->SetProperty(acc->NameToProperty("hello"), memgraph::storage::PropertyValue()).HasValue());
+      ASSERT_TRUE(edge1.SetProperty(acc->NameToProperty("hello"), memgraph::storage::PropertyValue()).HasValue());
     }
-    ASSERT_TRUE(vertex3->RemoveLabel(acc->NameToLabel("test")).HasValue());
-    ASSERT_TRUE(acc->DetachDeleteVertex(vertex1.get()).HasValue());
-    ASSERT_TRUE(acc->DeleteEdge(edge2.get()).HasValue());
-    ASSERT_TRUE(acc->DeleteVertex(vertex2.get()).HasValue());
-    ASSERT_TRUE(acc->DeleteVertex(vertex3.get()).HasValue());
+    ASSERT_TRUE(vertex3.RemoveLabel(acc->NameToLabel("test")).HasValue());
+    ASSERT_TRUE(acc->DetachDeleteVertex(&vertex1).HasValue());
+    ASSERT_TRUE(acc->DeleteEdge(&edge2).HasValue());
+    ASSERT_TRUE(acc->DeleteVertex(&vertex2).HasValue());
+    ASSERT_TRUE(acc->DeleteVertex(&vertex3).HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
@@ -2060,7 +2059,7 @@ TEST_P(DurabilityTest, WalAllOperationsInSingleTransaction) {
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(vertex.get(), vertex.get(), store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -2097,7 +2096,7 @@ TEST_P(DurabilityTest, WalAndSnapshot) {
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(vertex.get(), vertex.get(), store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -2154,7 +2153,7 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshot) {
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(vertex.get(), vertex.get(), store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -2215,10 +2214,10 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
     VerifyDataset(store.get(), DatasetType::BASE_WITH_EXTENDED, GetParam());
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    vertex_gid = vertex->Gid();
+    vertex_gid = vertex.Gid();
     if (GetParam()) {
       ASSERT_TRUE(
-          vertex->SetProperty(store->NameToProperty("meaning"), memgraph::storage::PropertyValue(42)).HasValue());
+          vertex.SetProperty(store->NameToProperty("meaning"), memgraph::storage::PropertyValue(42)).HasValue());
     }
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -2255,7 +2254,7 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(vertex.get(), vertex.get(), store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -2409,7 +2408,7 @@ TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(vertex.get(), vertex.get(), store->NameToEdgeType("et"));
+    auto edge = acc->CreateEdge(&vertex, &vertex, store->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
     ASSERT_FALSE(acc->Commit().HasError());
   }

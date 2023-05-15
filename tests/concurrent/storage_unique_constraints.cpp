@@ -38,7 +38,7 @@ class StorageUniqueConstraints : public ::testing::Test {
     // NOLINTNEXTLINE(modernize-loop-convert)
     for (int i = 0; i < kNumThreads; ++i) {
       auto vertex = acc->CreateVertex();
-      gids[i] = vertex->Gid();
+      gids[i] = vertex.Gid();
     }
     ASSERT_OK(acc->Commit());
   }

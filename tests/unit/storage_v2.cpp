@@ -28,19 +28,19 @@ TEST(StorageV2, Commit) {
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    gid = vertex->Gid();
-    ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::OLD));
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::OLD), 0U);
-    ASSERT_TRUE(acc->FindVertex(gid, memgraph::storage::View::NEW));
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::NEW), 1U);
+    gid = vertex.Gid();
+    ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::OLD).has_value());
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 0U);
+    ASSERT_TRUE(acc->FindVertex(gid, memgraph::storage::View::NEW).has_value());
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::NEW), 1U);
     ASSERT_FALSE(acc->Commit().HasError());
   }
   {
     auto acc = store->Access();
-    ASSERT_TRUE(acc->FindVertex(gid, memgraph::storage::View::OLD));
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::OLD), 1U);
-    ASSERT_TRUE(acc->FindVertex(gid, memgraph::storage::View::NEW));
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::NEW), 1U);
+    ASSERT_TRUE(acc->FindVertex(gid, memgraph::storage::View::OLD).has_value());
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 1U);
+    ASSERT_TRUE(acc->FindVertex(gid, memgraph::storage::View::NEW).has_value());
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::NEW), 1U);
     acc->Abort();
   }
   {
@@ -50,21 +50,21 @@ TEST(StorageV2, Commit) {
 
     auto res = acc->DeleteVertex(&*vertex);
     ASSERT_FALSE(res.HasError());
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::OLD), 1U);
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::NEW), 0U);
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 1U);
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::NEW), 0U);
 
     acc->AdvanceCommand();
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::OLD), 0U);
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::NEW), 0U);
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::NEW), 0U);
 
     ASSERT_FALSE(acc->Commit().HasError());
   }
   {
     auto acc = store->Access();
-    ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::OLD));
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::OLD), 0U);
-    ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::NEW));
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::NEW), 0U);
+    ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::OLD).has_value());
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 0U);
+    ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::NEW).has_value());
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::NEW), 0U);
     acc->Abort();
   }
 }
@@ -76,19 +76,19 @@ TEST(StorageV2, Abort) {
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    gid = vertex->Gid();
-    ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::OLD));
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::OLD), 0U);
-    ASSERT_TRUE(acc->FindVertex(gid, memgraph::storage::View::NEW));
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::NEW), 1U);
+    gid = vertex.Gid();
+    ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::OLD).has_value());
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 0U);
+    ASSERT_TRUE(acc->FindVertex(gid, memgraph::storage::View::NEW).has_value());
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::NEW), 1U);
     acc->Abort();
   }
   {
     auto acc = store->Access();
-    ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::OLD));
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::OLD), 0U);
-    ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::NEW));
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::NEW), 0U);
+    ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::OLD).has_value());
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 0U);
+    ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::NEW).has_value());
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::NEW), 0U);
     acc->Abort();
   }
 }
@@ -102,34 +102,34 @@ TEST(StorageV2, AdvanceCommandCommit) {
     auto acc = store->Access();
 
     auto vertex1 = acc->CreateVertex();
-    gid1 = vertex1->Gid();
-    ASSERT_FALSE(acc->FindVertex(gid1, memgraph::storage::View::OLD));
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::OLD), 0U);
-    ASSERT_TRUE(acc->FindVertex(gid1, memgraph::storage::View::NEW));
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::NEW), 1U);
+    gid1 = vertex1.Gid();
+    ASSERT_FALSE(acc->FindVertex(gid1, memgraph::storage::View::OLD).has_value());
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 0U);
+    ASSERT_TRUE(acc->FindVertex(gid1, memgraph::storage::View::NEW).has_value());
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::NEW), 1U);
 
     acc->AdvanceCommand();
 
     auto vertex2 = acc->CreateVertex();
-    gid2 = vertex2->Gid();
-    ASSERT_FALSE(acc->FindVertex(gid2, memgraph::storage::View::OLD));
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::OLD), 1U);
-    ASSERT_TRUE(acc->FindVertex(gid2, memgraph::storage::View::NEW));
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::NEW), 2U);
+    gid2 = vertex2.Gid();
+    ASSERT_FALSE(acc->FindVertex(gid2, memgraph::storage::View::OLD).has_value());
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 1U);
+    ASSERT_TRUE(acc->FindVertex(gid2, memgraph::storage::View::NEW).has_value());
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::NEW), 2U);
 
-    ASSERT_TRUE(acc->FindVertex(gid1, memgraph::storage::View::OLD));
-    ASSERT_TRUE(acc->FindVertex(gid1, memgraph::storage::View::NEW));
+    ASSERT_TRUE(acc->FindVertex(gid1, memgraph::storage::View::OLD).has_value());
+    ASSERT_TRUE(acc->FindVertex(gid1, memgraph::storage::View::NEW).has_value());
 
     ASSERT_FALSE(acc->Commit().HasError());
   }
   {
     auto acc = store->Access();
-    ASSERT_TRUE(acc->FindVertex(gid1, memgraph::storage::View::OLD));
-    ASSERT_TRUE(acc->FindVertex(gid1, memgraph::storage::View::NEW));
-    ASSERT_TRUE(acc->FindVertex(gid2, memgraph::storage::View::OLD));
-    ASSERT_TRUE(acc->FindVertex(gid2, memgraph::storage::View::NEW));
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::OLD), 2U);
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::NEW), 2U);
+    ASSERT_TRUE(acc->FindVertex(gid1, memgraph::storage::View::OLD).has_value());
+    ASSERT_TRUE(acc->FindVertex(gid1, memgraph::storage::View::NEW).has_value());
+    ASSERT_TRUE(acc->FindVertex(gid2, memgraph::storage::View::OLD).has_value());
+    ASSERT_TRUE(acc->FindVertex(gid2, memgraph::storage::View::NEW).has_value());
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 2U);
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::NEW), 2U);
     acc->Abort();
   }
 }
@@ -143,34 +143,34 @@ TEST(StorageV2, AdvanceCommandAbort) {
     auto acc = store->Access();
 
     auto vertex1 = acc->CreateVertex();
-    gid1 = vertex1->Gid();
-    ASSERT_FALSE(acc->FindVertex(gid1, memgraph::storage::View::OLD));
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::OLD), 0U);
-    ASSERT_TRUE(acc->FindVertex(gid1, memgraph::storage::View::NEW));
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::NEW), 1U);
+    gid1 = vertex1.Gid();
+    ASSERT_FALSE(acc->FindVertex(gid1, memgraph::storage::View::OLD).has_value());
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 0U);
+    ASSERT_TRUE(acc->FindVertex(gid1, memgraph::storage::View::NEW).has_value());
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::NEW), 1U);
 
     acc->AdvanceCommand();
 
     auto vertex2 = acc->CreateVertex();
-    gid2 = vertex2->Gid();
-    ASSERT_FALSE(acc->FindVertex(gid2, memgraph::storage::View::OLD));
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::OLD), 1U);
-    ASSERT_TRUE(acc->FindVertex(gid2, memgraph::storage::View::NEW));
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::NEW), 2U);
+    gid2 = vertex2.Gid();
+    ASSERT_FALSE(acc->FindVertex(gid2, memgraph::storage::View::OLD).has_value());
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 1U);
+    ASSERT_TRUE(acc->FindVertex(gid2, memgraph::storage::View::NEW).has_value());
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::NEW), 2U);
 
-    ASSERT_TRUE(acc->FindVertex(gid1, memgraph::storage::View::OLD));
-    ASSERT_TRUE(acc->FindVertex(gid1, memgraph::storage::View::NEW));
+    ASSERT_TRUE(acc->FindVertex(gid1, memgraph::storage::View::OLD).has_value());
+    ASSERT_TRUE(acc->FindVertex(gid1, memgraph::storage::View::NEW).has_value());
 
     acc->Abort();
   }
   {
     auto acc = store->Access();
-    ASSERT_FALSE(acc->FindVertex(gid1, memgraph::storage::View::OLD));
-    ASSERT_FALSE(acc->FindVertex(gid1, memgraph::storage::View::NEW));
-    ASSERT_FALSE(acc->FindVertex(gid2, memgraph::storage::View::OLD));
-    ASSERT_FALSE(acc->FindVertex(gid2, memgraph::storage::View::NEW));
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::OLD), 0U);
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::NEW), 0U);
+    ASSERT_FALSE(acc->FindVertex(gid1, memgraph::storage::View::OLD).has_value());
+    ASSERT_FALSE(acc->FindVertex(gid1, memgraph::storage::View::NEW).has_value());
+    ASSERT_FALSE(acc->FindVertex(gid2, memgraph::storage::View::OLD).has_value());
+    ASSERT_FALSE(acc->FindVertex(gid2, memgraph::storage::View::NEW).has_value());
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::NEW), 0U);
     acc->Abort();
   }
 }
@@ -183,29 +183,29 @@ TEST(StorageV2, SnapshotIsolation) {
   auto acc2 = store->Access();
 
   auto vertex = acc1->CreateVertex();
-  auto gid = vertex->Gid();
+  auto gid = vertex.Gid();
 
-  ASSERT_FALSE(acc2->FindVertex(gid, memgraph::storage::View::OLD));
-  EXPECT_EQ(CountVertices(acc1.get(), memgraph::storage::View::OLD), 0U);
-  EXPECT_EQ(CountVertices(acc2.get(), memgraph::storage::View::OLD), 0U);
-  ASSERT_FALSE(acc2->FindVertex(gid, memgraph::storage::View::NEW));
-  EXPECT_EQ(CountVertices(acc1.get(), memgraph::storage::View::NEW), 1U);
-  EXPECT_EQ(CountVertices(acc2.get(), memgraph::storage::View::NEW), 0U);
+  ASSERT_FALSE(acc2->FindVertex(gid, memgraph::storage::View::OLD).has_value());
+  EXPECT_EQ(CountVertices(*acc1, memgraph::storage::View::OLD), 0U);
+  EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::OLD), 0U);
+  ASSERT_FALSE(acc2->FindVertex(gid, memgraph::storage::View::NEW).has_value());
+  EXPECT_EQ(CountVertices(*acc1, memgraph::storage::View::NEW), 1U);
+  EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::NEW), 0U);
 
   ASSERT_FALSE(acc1->Commit().HasError());
 
-  ASSERT_FALSE(acc2->FindVertex(gid, memgraph::storage::View::OLD));
-  EXPECT_EQ(CountVertices(acc2.get(), memgraph::storage::View::OLD), 0U);
-  ASSERT_FALSE(acc2->FindVertex(gid, memgraph::storage::View::NEW));
-  EXPECT_EQ(CountVertices(acc2.get(), memgraph::storage::View::NEW), 0U);
+  ASSERT_FALSE(acc2->FindVertex(gid, memgraph::storage::View::OLD).has_value());
+  EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::OLD), 0U);
+  ASSERT_FALSE(acc2->FindVertex(gid, memgraph::storage::View::NEW).has_value());
+  EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::NEW), 0U);
 
   acc2->Abort();
 
   auto acc3 = store->Access();
-  ASSERT_TRUE(acc3->FindVertex(gid, memgraph::storage::View::OLD));
-  EXPECT_EQ(CountVertices(acc3.get(), memgraph::storage::View::OLD), 1U);
-  ASSERT_TRUE(acc3->FindVertex(gid, memgraph::storage::View::NEW));
-  EXPECT_EQ(CountVertices(acc3.get(), memgraph::storage::View::NEW), 1U);
+  ASSERT_TRUE(acc3->FindVertex(gid, memgraph::storage::View::OLD).has_value());
+  EXPECT_EQ(CountVertices(*acc3, memgraph::storage::View::OLD), 1U);
+  ASSERT_TRUE(acc3->FindVertex(gid, memgraph::storage::View::NEW).has_value());
+  EXPECT_EQ(CountVertices(*acc3, memgraph::storage::View::NEW), 1U);
   acc3->Abort();
 }
 
@@ -216,35 +216,35 @@ TEST(StorageV2, AccessorMove) {
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    gid = vertex->Gid();
+    gid = vertex.Gid();
 
-    ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::OLD));
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::OLD), 0U);
-    ASSERT_TRUE(acc->FindVertex(gid, memgraph::storage::View::NEW));
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::NEW), 1U);
+    ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::OLD).has_value());
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 0U);
+    ASSERT_TRUE(acc->FindVertex(gid, memgraph::storage::View::NEW).has_value());
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::NEW), 1U);
 
-    std::unique_ptr<memgraph::storage::Storage::Accessor> moved(std::move(acc));
+    auto moved(std::move(acc));
 
-    ASSERT_FALSE(moved->FindVertex(gid, memgraph::storage::View::OLD));
-    EXPECT_EQ(CountVertices(moved.get(), memgraph::storage::View::OLD), 0U);
-    ASSERT_TRUE(moved->FindVertex(gid, memgraph::storage::View::NEW));
-    EXPECT_EQ(CountVertices(moved.get(), memgraph::storage::View::NEW), 1U);
+    ASSERT_FALSE(moved->FindVertex(gid, memgraph::storage::View::OLD).has_value());
+    EXPECT_EQ(CountVertices(*moved, memgraph::storage::View::OLD), 0U);
+    ASSERT_TRUE(moved->FindVertex(gid, memgraph::storage::View::NEW).has_value());
+    EXPECT_EQ(CountVertices(*moved, memgraph::storage::View::NEW), 1U);
 
-    ASSERT_FALSE(moved->Commit().HasError());
+    ASSERT_FALSE(moved.Commit().HasError());
   }
   {
     auto acc = store->Access();
-    ASSERT_TRUE(acc->FindVertex(gid, memgraph::storage::View::OLD));
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::OLD), 1U);
-    ASSERT_TRUE(acc->FindVertex(gid, memgraph::storage::View::NEW));
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::NEW), 1U);
+    ASSERT_TRUE(acc->FindVertex(gid, memgraph::storage::View::OLD).has_value());
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 1U);
+    ASSERT_TRUE(acc->FindVertex(gid, memgraph::storage::View::NEW).has_value());
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::NEW), 1U);
     acc->Abort();
   }
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexDeleteCommit) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+  memgraph::storage::Storage store;
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   auto acc1 = store->Access();  // read transaction
@@ -253,11 +253,11 @@ TEST(StorageV2, VertexDeleteCommit) {
   // Create the vertex in transaction 2
   {
     auto vertex = acc2->CreateVertex();
-    gid = vertex->Gid();
-    ASSERT_FALSE(acc2->FindVertex(gid, memgraph::storage::View::OLD));
-    EXPECT_EQ(CountVertices(acc2.get(), memgraph::storage::View::OLD), 0U);
-    ASSERT_TRUE(acc2->FindVertex(gid, memgraph::storage::View::NEW));
-    EXPECT_EQ(CountVertices(acc2.get(), memgraph::storage::View::NEW), 1U);
+    gid = vertex.Gid();
+    ASSERT_FALSE(acc2->FindVertex(gid, memgraph::storage::View::OLD).has_value());
+    EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::OLD), 0U);
+    ASSERT_TRUE(acc2->FindVertex(gid, memgraph::storage::View::NEW).has_value());
+    EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::NEW), 1U);
     ASSERT_FALSE(acc2->Commit().HasError());
   }
 
@@ -265,60 +265,60 @@ TEST(StorageV2, VertexDeleteCommit) {
   auto acc4 = store->Access();  // write transaction
 
   // Check whether the vertex exists in transaction 1
-  ASSERT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::OLD));
-  EXPECT_EQ(CountVertices(acc1.get(), memgraph::storage::View::OLD), 0U);
-  ASSERT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::NEW));
-  EXPECT_EQ(CountVertices(acc1.get(), memgraph::storage::View::NEW), 0U);
+  ASSERT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::OLD).has_value());
+  EXPECT_EQ(CountVertices(*acc1, memgraph::storage::View::OLD), 0U);
+  ASSERT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::NEW).has_value());
+  EXPECT_EQ(CountVertices(*acc1, memgraph::storage::View::NEW), 0U);
 
   // Check whether the vertex exists in transaction 3
-  ASSERT_TRUE(acc3->FindVertex(gid, memgraph::storage::View::OLD));
-  EXPECT_EQ(CountVertices(acc3.get(), memgraph::storage::View::OLD), 1U);
-  ASSERT_TRUE(acc3->FindVertex(gid, memgraph::storage::View::NEW));
-  EXPECT_EQ(CountVertices(acc3.get(), memgraph::storage::View::NEW), 1U);
+  ASSERT_TRUE(acc3->FindVertex(gid, memgraph::storage::View::OLD).has_value());
+  EXPECT_EQ(CountVertices(*acc3, memgraph::storage::View::OLD), 1U);
+  ASSERT_TRUE(acc3->FindVertex(gid, memgraph::storage::View::NEW).has_value());
+  EXPECT_EQ(CountVertices(*acc3, memgraph::storage::View::NEW), 1U);
 
   // Delete the vertex in transaction 4
   {
     auto vertex = acc4->FindVertex(gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
-    EXPECT_EQ(CountVertices(acc4.get(), memgraph::storage::View::OLD), 1U);
-    EXPECT_EQ(CountVertices(acc4.get(), memgraph::storage::View::NEW), 1U);
+    EXPECT_EQ(CountVertices(acc4, memgraph::storage::View::OLD), 1U);
+    EXPECT_EQ(CountVertices(acc4, memgraph::storage::View::NEW), 1U);
 
-    auto res = acc4->DeleteVertex(&*vertex);
+    auto res = acc4.DeleteVertex(&*vertex);
     ASSERT_TRUE(res.HasValue());
-    EXPECT_EQ(CountVertices(acc4.get(), memgraph::storage::View::OLD), 1U);
-    EXPECT_EQ(CountVertices(acc4.get(), memgraph::storage::View::NEW), 0U);
+    EXPECT_EQ(CountVertices(acc4, memgraph::storage::View::OLD), 1U);
+    EXPECT_EQ(CountVertices(acc4, memgraph::storage::View::NEW), 0U);
 
-    acc4->AdvanceCommand();
-    EXPECT_EQ(CountVertices(acc4.get(), memgraph::storage::View::OLD), 0U);
-    EXPECT_EQ(CountVertices(acc4.get(), memgraph::storage::View::NEW), 0U);
+    acc4.AdvanceCommand();
+    EXPECT_EQ(CountVertices(acc4, memgraph::storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(acc4, memgraph::storage::View::NEW), 0U);
 
-    ASSERT_FALSE(acc4->Commit().HasError());
+    ASSERT_FALSE(acc4.Commit().HasError());
   }
 
   auto acc5 = store->Access();  // read transaction
 
   // Check whether the vertex exists in transaction 1
-  ASSERT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::OLD));
-  EXPECT_EQ(CountVertices(acc1.get(), memgraph::storage::View::OLD), 0U);
-  ASSERT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::NEW));
-  EXPECT_EQ(CountVertices(acc1.get(), memgraph::storage::View::NEW), 0U);
+  ASSERT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::OLD).has_value());
+  EXPECT_EQ(CountVertices(*acc1, memgraph::storage::View::OLD), 0U);
+  ASSERT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::NEW).has_value());
+  EXPECT_EQ(CountVertices(*acc1, memgraph::storage::View::NEW), 0U);
 
   // Check whether the vertex exists in transaction 3
-  ASSERT_TRUE(acc3->FindVertex(gid, memgraph::storage::View::OLD));
-  EXPECT_EQ(CountVertices(acc3.get(), memgraph::storage::View::OLD), 1U);
-  ASSERT_TRUE(acc3->FindVertex(gid, memgraph::storage::View::NEW));
-  EXPECT_EQ(CountVertices(acc3.get(), memgraph::storage::View::NEW), 1U);
+  ASSERT_TRUE(acc3->FindVertex(gid, memgraph::storage::View::OLD).has_value());
+  EXPECT_EQ(CountVertices(*acc3, memgraph::storage::View::OLD), 1U);
+  ASSERT_TRUE(acc3->FindVertex(gid, memgraph::storage::View::NEW).has_value());
+  EXPECT_EQ(CountVertices(*acc3, memgraph::storage::View::NEW), 1U);
 
   // Check whether the vertex exists in transaction 5
-  ASSERT_FALSE(acc5->FindVertex(gid, memgraph::storage::View::OLD));
-  EXPECT_EQ(CountVertices(acc5.get(), memgraph::storage::View::OLD), 0U);
-  ASSERT_FALSE(acc5->FindVertex(gid, memgraph::storage::View::NEW));
-  EXPECT_EQ(CountVertices(acc5.get(), memgraph::storage::View::NEW), 0U);
+  ASSERT_FALSE(acc5->FindVertex(gid, memgraph::storage::View::OLD).has_value());
+  EXPECT_EQ(CountVertices(acc5, memgraph::storage::View::OLD), 0U);
+  ASSERT_FALSE(acc5->FindVertex(gid, memgraph::storage::View::NEW).has_value());
+  EXPECT_EQ(CountVertices(acc5, memgraph::storage::View::NEW), 0U);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexDeleteAbort) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+  memgraph::storage::Storage store;
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   auto acc1 = store->Access();  // read transaction
@@ -327,11 +327,11 @@ TEST(StorageV2, VertexDeleteAbort) {
   // Create the vertex in transaction 2
   {
     auto vertex = acc2->CreateVertex();
-    gid = vertex->Gid();
-    ASSERT_FALSE(acc2->FindVertex(gid, memgraph::storage::View::OLD));
-    EXPECT_EQ(CountVertices(acc2.get(), memgraph::storage::View::OLD), 0U);
-    ASSERT_TRUE(acc2->FindVertex(gid, memgraph::storage::View::NEW));
-    EXPECT_EQ(CountVertices(acc2.get(), memgraph::storage::View::NEW), 1U);
+    gid = vertex.Gid();
+    ASSERT_FALSE(acc2->FindVertex(gid, memgraph::storage::View::OLD).has_value());
+    EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::OLD), 0U);
+    ASSERT_TRUE(acc2->FindVertex(gid, memgraph::storage::View::NEW).has_value());
+    EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::NEW), 1U);
     ASSERT_FALSE(acc2->Commit().HasError());
   }
 
@@ -339,119 +339,119 @@ TEST(StorageV2, VertexDeleteAbort) {
   auto acc4 = store->Access();  // write transaction (aborted)
 
   // Check whether the vertex exists in transaction 1
-  ASSERT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::OLD));
-  EXPECT_EQ(CountVertices(acc1.get(), memgraph::storage::View::OLD), 0U);
-  ASSERT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::NEW));
-  EXPECT_EQ(CountVertices(acc1.get(), memgraph::storage::View::NEW), 0U);
+  ASSERT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::OLD).has_value());
+  EXPECT_EQ(CountVertices(*acc1, memgraph::storage::View::OLD), 0U);
+  ASSERT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::NEW).has_value());
+  EXPECT_EQ(CountVertices(*acc1, memgraph::storage::View::NEW), 0U);
 
   // Check whether the vertex exists in transaction 3
-  ASSERT_TRUE(acc3->FindVertex(gid, memgraph::storage::View::OLD));
-  EXPECT_EQ(CountVertices(acc3.get(), memgraph::storage::View::OLD), 1U);
-  ASSERT_TRUE(acc3->FindVertex(gid, memgraph::storage::View::NEW));
-  EXPECT_EQ(CountVertices(acc3.get(), memgraph::storage::View::NEW), 1U);
+  ASSERT_TRUE(acc3->FindVertex(gid, memgraph::storage::View::OLD).has_value());
+  EXPECT_EQ(CountVertices(*acc3, memgraph::storage::View::OLD), 1U);
+  ASSERT_TRUE(acc3->FindVertex(gid, memgraph::storage::View::NEW).has_value());
+  EXPECT_EQ(CountVertices(*acc3, memgraph::storage::View::NEW), 1U);
 
   // Delete the vertex in transaction 4, but abort the transaction
   {
     auto vertex = acc4->FindVertex(gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
-    EXPECT_EQ(CountVertices(acc4.get(), memgraph::storage::View::OLD), 1U);
-    EXPECT_EQ(CountVertices(acc4.get(), memgraph::storage::View::NEW), 1U);
+    EXPECT_EQ(CountVertices(acc4, memgraph::storage::View::OLD), 1U);
+    EXPECT_EQ(CountVertices(acc4, memgraph::storage::View::NEW), 1U);
 
-    auto res = acc4->DeleteVertex(&*vertex);
+    auto res = acc4.DeleteVertex(&*vertex);
     ASSERT_TRUE(res.HasValue());
-    EXPECT_EQ(CountVertices(acc4.get(), memgraph::storage::View::OLD), 1U);
-    EXPECT_EQ(CountVertices(acc4.get(), memgraph::storage::View::NEW), 0U);
+    EXPECT_EQ(CountVertices(acc4, memgraph::storage::View::OLD), 1U);
+    EXPECT_EQ(CountVertices(acc4, memgraph::storage::View::NEW), 0U);
 
-    acc4->AdvanceCommand();
-    EXPECT_EQ(CountVertices(acc4.get(), memgraph::storage::View::OLD), 0U);
-    EXPECT_EQ(CountVertices(acc4.get(), memgraph::storage::View::NEW), 0U);
+    acc4.AdvanceCommand();
+    EXPECT_EQ(CountVertices(acc4, memgraph::storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(acc4, memgraph::storage::View::NEW), 0U);
 
-    acc4->Abort();
+    acc4.Abort();
   }
 
   auto acc5 = store->Access();  // read transaction
   auto acc6 = store->Access();  // write transaction
 
   // Check whether the vertex exists in transaction 1
-  ASSERT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::OLD));
-  EXPECT_EQ(CountVertices(acc1.get(), memgraph::storage::View::OLD), 0U);
-  ASSERT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::NEW));
-  EXPECT_EQ(CountVertices(acc1.get(), memgraph::storage::View::NEW), 0U);
+  ASSERT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::OLD).has_value());
+  EXPECT_EQ(CountVertices(*acc1, memgraph::storage::View::OLD), 0U);
+  ASSERT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::NEW).has_value());
+  EXPECT_EQ(CountVertices(*acc1, memgraph::storage::View::NEW), 0U);
 
   // Check whether the vertex exists in transaction 3
-  ASSERT_TRUE(acc3->FindVertex(gid, memgraph::storage::View::OLD));
-  EXPECT_EQ(CountVertices(acc3.get(), memgraph::storage::View::OLD), 1U);
-  ASSERT_TRUE(acc3->FindVertex(gid, memgraph::storage::View::NEW));
-  EXPECT_EQ(CountVertices(acc3.get(), memgraph::storage::View::NEW), 1U);
+  ASSERT_TRUE(acc3->FindVertex(gid, memgraph::storage::View::OLD).has_value());
+  EXPECT_EQ(CountVertices(*acc3, memgraph::storage::View::OLD), 1U);
+  ASSERT_TRUE(acc3->FindVertex(gid, memgraph::storage::View::NEW).has_value());
+  EXPECT_EQ(CountVertices(*acc3, memgraph::storage::View::NEW), 1U);
 
   // Check whether the vertex exists in transaction 5
-  ASSERT_TRUE(acc5->FindVertex(gid, memgraph::storage::View::OLD));
-  EXPECT_EQ(CountVertices(acc5.get(), memgraph::storage::View::OLD), 1U);
-  ASSERT_TRUE(acc5->FindVertex(gid, memgraph::storage::View::NEW));
-  EXPECT_EQ(CountVertices(acc5.get(), memgraph::storage::View::NEW), 1U);
+  ASSERT_TRUE(acc5->FindVertex(gid, memgraph::storage::View::OLD).has_value());
+  EXPECT_EQ(CountVertices(acc5, memgraph::storage::View::OLD), 1U);
+  ASSERT_TRUE(acc5->FindVertex(gid, memgraph::storage::View::NEW).has_value());
+  EXPECT_EQ(CountVertices(acc5, memgraph::storage::View::NEW), 1U);
 
   // Delete the vertex in transaction 6
   {
     auto vertex = acc6->FindVertex(gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
-    EXPECT_EQ(CountVertices(acc6.get(), memgraph::storage::View::OLD), 1U);
-    EXPECT_EQ(CountVertices(acc6.get(), memgraph::storage::View::NEW), 1U);
+    EXPECT_EQ(CountVertices(acc6, memgraph::storage::View::OLD), 1U);
+    EXPECT_EQ(CountVertices(acc6, memgraph::storage::View::NEW), 1U);
 
-    auto res = acc6->DeleteVertex(&*vertex);
+    auto res = acc6.DeleteVertex(&*vertex);
     ASSERT_TRUE(res.HasValue());
-    EXPECT_EQ(CountVertices(acc6.get(), memgraph::storage::View::OLD), 1U);
-    EXPECT_EQ(CountVertices(acc6.get(), memgraph::storage::View::NEW), 0U);
+    EXPECT_EQ(CountVertices(acc6, memgraph::storage::View::OLD), 1U);
+    EXPECT_EQ(CountVertices(acc6, memgraph::storage::View::NEW), 0U);
 
-    acc6->AdvanceCommand();
-    EXPECT_EQ(CountVertices(acc6.get(), memgraph::storage::View::OLD), 0U);
-    EXPECT_EQ(CountVertices(acc6.get(), memgraph::storage::View::NEW), 0U);
+    acc6.AdvanceCommand();
+    EXPECT_EQ(CountVertices(acc6, memgraph::storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(acc6, memgraph::storage::View::NEW), 0U);
 
-    ASSERT_FALSE(acc6->Commit().HasError());
+    ASSERT_FALSE(acc6.Commit().HasError());
   }
 
   auto acc7 = store->Access();  // read transaction
 
   // Check whether the vertex exists in transaction 1
-  ASSERT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::OLD));
-  EXPECT_EQ(CountVertices(acc1.get(), memgraph::storage::View::OLD), 0U);
-  ASSERT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::NEW));
-  EXPECT_EQ(CountVertices(acc1.get(), memgraph::storage::View::NEW), 0U);
+  ASSERT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::OLD).has_value());
+  EXPECT_EQ(CountVertices(*acc1, memgraph::storage::View::OLD), 0U);
+  ASSERT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::NEW).has_value());
+  EXPECT_EQ(CountVertices(*acc1, memgraph::storage::View::NEW), 0U);
 
   // Check whether the vertex exists in transaction 3
-  ASSERT_TRUE(acc3->FindVertex(gid, memgraph::storage::View::OLD));
-  EXPECT_EQ(CountVertices(acc3.get(), memgraph::storage::View::OLD), 1U);
-  ASSERT_TRUE(acc3->FindVertex(gid, memgraph::storage::View::NEW));
-  EXPECT_EQ(CountVertices(acc3.get(), memgraph::storage::View::NEW), 1U);
+  ASSERT_TRUE(acc3->FindVertex(gid, memgraph::storage::View::OLD).has_value());
+  EXPECT_EQ(CountVertices(*acc3, memgraph::storage::View::OLD), 1U);
+  ASSERT_TRUE(acc3->FindVertex(gid, memgraph::storage::View::NEW).has_value());
+  EXPECT_EQ(CountVertices(*acc3, memgraph::storage::View::NEW), 1U);
 
   // Check whether the vertex exists in transaction 5
-  ASSERT_TRUE(acc5->FindVertex(gid, memgraph::storage::View::OLD));
-  EXPECT_EQ(CountVertices(acc5.get(), memgraph::storage::View::OLD), 1U);
-  ASSERT_TRUE(acc5->FindVertex(gid, memgraph::storage::View::NEW));
-  EXPECT_EQ(CountVertices(acc5.get(), memgraph::storage::View::NEW), 1U);
+  ASSERT_TRUE(acc5->FindVertex(gid, memgraph::storage::View::OLD).has_value());
+  EXPECT_EQ(CountVertices(acc5, memgraph::storage::View::OLD), 1U);
+  ASSERT_TRUE(acc5->FindVertex(gid, memgraph::storage::View::NEW).has_value());
+  EXPECT_EQ(CountVertices(acc5, memgraph::storage::View::NEW), 1U);
 
   // Check whether the vertex exists in transaction 7
-  ASSERT_FALSE(acc7->FindVertex(gid, memgraph::storage::View::OLD));
-  EXPECT_EQ(CountVertices(acc7.get(), memgraph::storage::View::OLD), 0U);
-  ASSERT_FALSE(acc7->FindVertex(gid, memgraph::storage::View::NEW));
-  EXPECT_EQ(CountVertices(acc7.get(), memgraph::storage::View::NEW), 0U);
+  ASSERT_FALSE(acc7->FindVertex(gid, memgraph::storage::View::OLD).has_value());
+  EXPECT_EQ(CountVertices(acc7, memgraph::storage::View::OLD), 0U);
+  ASSERT_FALSE(acc7->FindVertex(gid, memgraph::storage::View::NEW).has_value());
+  EXPECT_EQ(CountVertices(acc7, memgraph::storage::View::NEW), 0U);
 
   // Commit all accessors
   ASSERT_FALSE(acc1->Commit().HasError());
   ASSERT_FALSE(acc3->Commit().HasError());
-  ASSERT_FALSE(acc5->Commit().HasError());
-  ASSERT_FALSE(acc7->Commit().HasError());
+  ASSERT_FALSE(acc5.Commit().HasError());
+  ASSERT_FALSE(acc7.Commit().HasError());
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexDeleteSerializationError) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+  memgraph::storage::Storage store;
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create vertex
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    gid = vertex->Gid();
+    gid = vertex.Gid();
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
@@ -462,44 +462,44 @@ TEST(StorageV2, VertexDeleteSerializationError) {
   {
     auto vertex = acc1->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
-    EXPECT_EQ(CountVertices(acc1.get(), memgraph::storage::View::OLD), 1U);
-    EXPECT_EQ(CountVertices(acc1.get(), memgraph::storage::View::NEW), 1U);
+    EXPECT_EQ(CountVertices(*acc1, memgraph::storage::View::OLD), 1U);
+    EXPECT_EQ(CountVertices(*acc1, memgraph::storage::View::NEW), 1U);
 
     {
       auto res = acc1->DeleteVertex(&*vertex);
       ASSERT_TRUE(res.HasValue());
       ASSERT_TRUE(res.GetValue());
-      EXPECT_EQ(CountVertices(acc1.get(), memgraph::storage::View::OLD), 1U);
-      EXPECT_EQ(CountVertices(acc1.get(), memgraph::storage::View::NEW), 0U);
+      EXPECT_EQ(CountVertices(*acc1, memgraph::storage::View::OLD), 1U);
+      EXPECT_EQ(CountVertices(*acc1, memgraph::storage::View::NEW), 0U);
     }
 
     {
       auto res = acc1->DeleteVertex(&*vertex);
       ASSERT_TRUE(res.HasValue());
       ASSERT_FALSE(res.GetValue());
-      EXPECT_EQ(CountVertices(acc1.get(), memgraph::storage::View::OLD), 1U);
-      EXPECT_EQ(CountVertices(acc1.get(), memgraph::storage::View::NEW), 0U);
+      EXPECT_EQ(CountVertices(*acc1, memgraph::storage::View::OLD), 1U);
+      EXPECT_EQ(CountVertices(*acc1, memgraph::storage::View::NEW), 0U);
     }
 
     acc1->AdvanceCommand();
-    EXPECT_EQ(CountVertices(acc1.get(), memgraph::storage::View::OLD), 0U);
-    EXPECT_EQ(CountVertices(acc1.get(), memgraph::storage::View::NEW), 0U);
+    EXPECT_EQ(CountVertices(*acc1, memgraph::storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(*acc1, memgraph::storage::View::NEW), 0U);
   }
 
   // Delete vertex in accessor 2
   {
     auto vertex = acc2->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
-    EXPECT_EQ(CountVertices(acc2.get(), memgraph::storage::View::OLD), 1U);
-    EXPECT_EQ(CountVertices(acc2.get(), memgraph::storage::View::NEW), 1U);
+    EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::OLD), 1U);
+    EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::NEW), 1U);
     auto res = acc2->DeleteVertex(&*vertex);
     ASSERT_TRUE(res.HasError());
     ASSERT_EQ(res.GetError(), memgraph::storage::Error::SERIALIZATION_ERROR);
-    EXPECT_EQ(CountVertices(acc2.get(), memgraph::storage::View::OLD), 1U);
-    EXPECT_EQ(CountVertices(acc2.get(), memgraph::storage::View::NEW), 1U);
+    EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::OLD), 1U);
+    EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::NEW), 1U);
     acc2->AdvanceCommand();
-    EXPECT_EQ(CountVertices(acc2.get(), memgraph::storage::View::OLD), 1U);
-    EXPECT_EQ(CountVertices(acc2.get(), memgraph::storage::View::NEW), 1U);
+    EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::OLD), 1U);
+    EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::NEW), 1U);
   }
 
   // Finalize both accessors
@@ -511,15 +511,15 @@ TEST(StorageV2, VertexDeleteSerializationError) {
     auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_FALSE(vertex);
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::OLD), 0U);
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::NEW), 0U);
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::NEW), 0U);
     ASSERT_FALSE(acc->Commit().HasError());
   }
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexDeleteSpecialCases) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+  memgraph::storage::Storage store;
   memgraph::storage::Gid gid1 = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   memgraph::storage::Gid gid2 = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
@@ -528,19 +528,19 @@ TEST(StorageV2, VertexDeleteSpecialCases) {
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    gid1 = vertex->Gid();
-    ASSERT_FALSE(acc->FindVertex(gid1, memgraph::storage::View::OLD));
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::OLD), 0U);
-    ASSERT_TRUE(acc->FindVertex(gid1, memgraph::storage::View::NEW));
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::NEW), 1U);
-    auto res = acc->DeleteVertex(vertex.get());
+    gid1 = vertex.Gid();
+    ASSERT_FALSE(acc->FindVertex(gid1, memgraph::storage::View::OLD).has_value());
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 0U);
+    ASSERT_TRUE(acc->FindVertex(gid1, memgraph::storage::View::NEW).has_value());
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::NEW), 1U);
+    auto res = acc->DeleteVertex(&vertex);
     ASSERT_TRUE(res.HasValue());
     ASSERT_TRUE(res.GetValue());
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::OLD), 0U);
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::NEW), 0U);
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::NEW), 0U);
     acc->AdvanceCommand();
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::OLD), 0U);
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::NEW), 0U);
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::NEW), 0U);
     acc->Abort();
   }
 
@@ -548,47 +548,47 @@ TEST(StorageV2, VertexDeleteSpecialCases) {
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    gid2 = vertex->Gid();
-    ASSERT_FALSE(acc->FindVertex(gid2, memgraph::storage::View::OLD));
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::OLD), 0U);
-    ASSERT_TRUE(acc->FindVertex(gid2, memgraph::storage::View::NEW));
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::NEW), 1U);
-    auto res = acc->DeleteVertex(vertex.get());
+    gid2 = vertex.Gid();
+    ASSERT_FALSE(acc->FindVertex(gid2, memgraph::storage::View::OLD).has_value());
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 0U);
+    ASSERT_TRUE(acc->FindVertex(gid2, memgraph::storage::View::NEW).has_value());
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::NEW), 1U);
+    auto res = acc->DeleteVertex(&vertex);
     ASSERT_TRUE(res.HasValue());
     ASSERT_TRUE(res.GetValue());
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::OLD), 0U);
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::NEW), 0U);
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::NEW), 0U);
     acc->AdvanceCommand();
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::OLD), 0U);
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::NEW), 0U);
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::NEW), 0U);
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
   // Check whether the vertices exist
   {
     auto acc = store->Access();
-    ASSERT_FALSE(acc->FindVertex(gid1, memgraph::storage::View::OLD));
-    ASSERT_FALSE(acc->FindVertex(gid1, memgraph::storage::View::NEW));
-    ASSERT_FALSE(acc->FindVertex(gid2, memgraph::storage::View::OLD));
-    ASSERT_FALSE(acc->FindVertex(gid2, memgraph::storage::View::NEW));
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::OLD), 0U);
-    EXPECT_EQ(CountVertices(acc.get(), memgraph::storage::View::NEW), 0U);
+    ASSERT_FALSE(acc->FindVertex(gid1, memgraph::storage::View::OLD).has_value());
+    ASSERT_FALSE(acc->FindVertex(gid1, memgraph::storage::View::NEW).has_value());
+    ASSERT_FALSE(acc->FindVertex(gid2, memgraph::storage::View::OLD).has_value());
+    ASSERT_FALSE(acc->FindVertex(gid2, memgraph::storage::View::NEW).has_value());
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 0U);
+    EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::NEW), 0U);
     acc->Abort();
   }
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexDeleteLabel) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+  memgraph::storage::Storage store;
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create the vertex
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    gid = vertex->Gid();
-    ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::OLD));
-    ASSERT_TRUE(acc->FindVertex(gid, memgraph::storage::View::NEW));
+    gid = vertex.Gid();
+    ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::OLD).has_value());
+    ASSERT_TRUE(acc->FindVertex(gid, memgraph::storage::View::NEW).has_value());
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
@@ -735,16 +735,16 @@ TEST(StorageV2, VertexDeleteLabel) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexDeleteProperty) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+  memgraph::storage::Storage store;
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create the vertex
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    gid = vertex->Gid();
-    ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::OLD));
-    ASSERT_TRUE(acc->FindVertex(gid, memgraph::storage::View::NEW));
+    gid = vertex.Gid();
+    ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::OLD).has_value());
+    ASSERT_TRUE(acc->FindVertex(gid, memgraph::storage::View::NEW).has_value());
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
@@ -878,33 +878,33 @@ TEST(StorageV2, VertexDeleteProperty) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexLabelCommit) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+  memgraph::storage::Storage store;
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    gid = vertex->Gid();
+    gid = vertex.Gid();
 
     auto label = acc->NameToLabel("label5");
 
-    ASSERT_FALSE(vertex->HasLabel(label, memgraph::storage::View::NEW).GetValue());
-    ASSERT_EQ(vertex->Labels(memgraph::storage::View::NEW)->size(), 0);
+    ASSERT_FALSE(vertex.HasLabel(label, memgraph::storage::View::NEW).GetValue());
+    ASSERT_EQ(vertex.Labels(memgraph::storage::View::NEW)->size(), 0);
 
     {
-      auto res = vertex->AddLabel(label);
+      auto res = vertex.AddLabel(label);
       ASSERT_TRUE(res.HasValue());
       ASSERT_TRUE(res.GetValue());
     }
 
-    ASSERT_TRUE(vertex->HasLabel(label, memgraph::storage::View::NEW).GetValue());
+    ASSERT_TRUE(vertex.HasLabel(label, memgraph::storage::View::NEW).GetValue());
     {
-      auto labels = vertex->Labels(memgraph::storage::View::NEW).GetValue();
+      auto labels = vertex.Labels(memgraph::storage::View::NEW).GetValue();
       ASSERT_EQ(labels.size(), 1);
       ASSERT_EQ(labels[0], label);
     }
 
     {
-      auto res = vertex->AddLabel(label);
+      auto res = vertex.AddLabel(label);
       ASSERT_TRUE(res.HasValue());
       ASSERT_FALSE(res.GetValue());
     }
@@ -993,14 +993,14 @@ TEST(StorageV2, VertexLabelCommit) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexLabelAbort) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+  memgraph::storage::Storage store;
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create the vertex.
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    gid = vertex->Gid();
+    gid = vertex.Gid();
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
@@ -1241,12 +1241,12 @@ TEST(StorageV2, VertexLabelAbort) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexLabelSerializationError) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+  memgraph::storage::Storage store;
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    gid = vertex->Gid();
+    gid = vertex.Gid();
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
@@ -1349,40 +1349,40 @@ TEST(StorageV2, VertexLabelSerializationError) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexPropertyCommit) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+  memgraph::storage::Storage store;
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    gid = vertex->Gid();
+    gid = vertex.Gid();
 
     auto property = acc->NameToProperty("property5");
 
-    ASSERT_TRUE(vertex->GetProperty(property, memgraph::storage::View::NEW)->IsNull());
-    ASSERT_EQ(vertex->Properties(memgraph::storage::View::NEW)->size(), 0);
+    ASSERT_TRUE(vertex.GetProperty(property, memgraph::storage::View::NEW)->IsNull());
+    ASSERT_EQ(vertex.Properties(memgraph::storage::View::NEW)->size(), 0);
 
     {
-      auto old_value = vertex->SetProperty(property, memgraph::storage::PropertyValue("temporary"));
+      auto old_value = vertex.SetProperty(property, memgraph::storage::PropertyValue("temporary"));
       ASSERT_TRUE(old_value.HasValue());
       ASSERT_TRUE(old_value->IsNull());
     }
 
-    ASSERT_EQ(vertex->GetProperty(property, memgraph::storage::View::NEW)->ValueString(), "temporary");
+    ASSERT_EQ(vertex.GetProperty(property, memgraph::storage::View::NEW)->ValueString(), "temporary");
     {
-      auto properties = vertex->Properties(memgraph::storage::View::NEW).GetValue();
+      auto properties = vertex.Properties(memgraph::storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[property].ValueString(), "temporary");
     }
 
     {
-      auto old_value = vertex->SetProperty(property, memgraph::storage::PropertyValue("nandare"));
+      auto old_value = vertex.SetProperty(property, memgraph::storage::PropertyValue("nandare"));
       ASSERT_TRUE(old_value.HasValue());
       ASSERT_FALSE(old_value->IsNull());
     }
 
-    ASSERT_EQ(vertex->GetProperty(property, memgraph::storage::View::NEW)->ValueString(), "nandare");
+    ASSERT_EQ(vertex.GetProperty(property, memgraph::storage::View::NEW)->ValueString(), "nandare");
     {
-      auto properties = vertex->Properties(memgraph::storage::View::NEW).GetValue();
+      auto properties = vertex.Properties(memgraph::storage::View::NEW).GetValue();
       ASSERT_EQ(properties.size(), 1);
       ASSERT_EQ(properties[property].ValueString(), "nandare");
     }
@@ -1471,14 +1471,14 @@ TEST(StorageV2, VertexPropertyCommit) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexPropertyAbort) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+  memgraph::storage::Storage store;
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create the vertex.
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    gid = vertex->Gid();
+    gid = vertex.Gid();
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
@@ -1749,12 +1749,12 @@ TEST(StorageV2, VertexPropertyAbort) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexPropertySerializationError) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+  memgraph::storage::Storage store;
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    gid = vertex->Gid();
+    gid = vertex.Gid();
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
@@ -1851,7 +1851,7 @@ TEST(StorageV2, VertexPropertySerializationError) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, VertexLabelPropertyMixed) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+  memgraph::storage::Storage store;
   auto acc = store->Access();
   auto vertex = acc->CreateVertex();
 
@@ -1859,66 +1859,66 @@ TEST(StorageV2, VertexLabelPropertyMixed) {
   auto property = acc->NameToProperty("property5");
 
   // Check whether label 5 and property 5 exist
-  ASSERT_FALSE(vertex->HasLabel(label, memgraph::storage::View::NEW).GetValue());
-  ASSERT_EQ(vertex->Labels(memgraph::storage::View::NEW)->size(), 0);
-  ASSERT_TRUE(vertex->GetProperty(property, memgraph::storage::View::NEW)->IsNull());
-  ASSERT_EQ(vertex->Properties(memgraph::storage::View::NEW)->size(), 0);
+  ASSERT_FALSE(vertex.HasLabel(label, memgraph::storage::View::NEW).GetValue());
+  ASSERT_EQ(vertex.Labels(memgraph::storage::View::NEW)->size(), 0);
+  ASSERT_TRUE(vertex.GetProperty(property, memgraph::storage::View::NEW)->IsNull());
+  ASSERT_EQ(vertex.Properties(memgraph::storage::View::NEW)->size(), 0);
 
   // Add label 5
-  ASSERT_TRUE(vertex->AddLabel(label).GetValue());
+  ASSERT_TRUE(vertex.AddLabel(label).GetValue());
 
   // Check whether label 5 and property 5 exist
-  ASSERT_TRUE(vertex->HasLabel(label, memgraph::storage::View::NEW).GetValue());
+  ASSERT_TRUE(vertex.HasLabel(label, memgraph::storage::View::NEW).GetValue());
   {
-    auto labels = vertex->Labels(memgraph::storage::View::NEW).GetValue();
+    auto labels = vertex.Labels(memgraph::storage::View::NEW).GetValue();
     ASSERT_EQ(labels.size(), 1);
     ASSERT_EQ(labels[0], label);
   }
-  ASSERT_TRUE(vertex->GetProperty(property, memgraph::storage::View::NEW)->IsNull());
-  ASSERT_EQ(vertex->Properties(memgraph::storage::View::NEW)->size(), 0);
+  ASSERT_TRUE(vertex.GetProperty(property, memgraph::storage::View::NEW)->IsNull());
+  ASSERT_EQ(vertex.Properties(memgraph::storage::View::NEW)->size(), 0);
 
   // Advance command
   acc->AdvanceCommand();
 
   // Check whether label 5 and property 5 exist
-  ASSERT_TRUE(vertex->HasLabel(label, memgraph::storage::View::OLD).GetValue());
-  ASSERT_TRUE(vertex->HasLabel(label, memgraph::storage::View::NEW).GetValue());
+  ASSERT_TRUE(vertex.HasLabel(label, memgraph::storage::View::OLD).GetValue());
+  ASSERT_TRUE(vertex.HasLabel(label, memgraph::storage::View::NEW).GetValue());
   {
-    auto labels = vertex->Labels(memgraph::storage::View::OLD).GetValue();
+    auto labels = vertex.Labels(memgraph::storage::View::OLD).GetValue();
     ASSERT_EQ(labels.size(), 1);
     ASSERT_EQ(labels[0], label);
   }
   {
-    auto labels = vertex->Labels(memgraph::storage::View::NEW).GetValue();
+    auto labels = vertex.Labels(memgraph::storage::View::NEW).GetValue();
     ASSERT_EQ(labels.size(), 1);
     ASSERT_EQ(labels[0], label);
   }
-  ASSERT_TRUE(vertex->GetProperty(property, memgraph::storage::View::OLD)->IsNull());
-  ASSERT_TRUE(vertex->GetProperty(property, memgraph::storage::View::NEW)->IsNull());
-  ASSERT_EQ(vertex->Properties(memgraph::storage::View::OLD)->size(), 0);
-  ASSERT_EQ(vertex->Properties(memgraph::storage::View::NEW)->size(), 0);
+  ASSERT_TRUE(vertex.GetProperty(property, memgraph::storage::View::OLD)->IsNull());
+  ASSERT_TRUE(vertex.GetProperty(property, memgraph::storage::View::NEW)->IsNull());
+  ASSERT_EQ(vertex.Properties(memgraph::storage::View::OLD)->size(), 0);
+  ASSERT_EQ(vertex.Properties(memgraph::storage::View::NEW)->size(), 0);
 
   // Set property 5 to "nandare"
-  ASSERT_TRUE(vertex->SetProperty(property, memgraph::storage::PropertyValue("nandare"))->IsNull());
+  ASSERT_TRUE(vertex.SetProperty(property, memgraph::storage::PropertyValue("nandare"))->IsNull());
 
   // Check whether label 5 and property 5 exist
-  ASSERT_TRUE(vertex->HasLabel(label, memgraph::storage::View::OLD).GetValue());
-  ASSERT_TRUE(vertex->HasLabel(label, memgraph::storage::View::NEW).GetValue());
+  ASSERT_TRUE(vertex.HasLabel(label, memgraph::storage::View::OLD).GetValue());
+  ASSERT_TRUE(vertex.HasLabel(label, memgraph::storage::View::NEW).GetValue());
   {
-    auto labels = vertex->Labels(memgraph::storage::View::OLD).GetValue();
+    auto labels = vertex.Labels(memgraph::storage::View::OLD).GetValue();
     ASSERT_EQ(labels.size(), 1);
     ASSERT_EQ(labels[0], label);
   }
   {
-    auto labels = vertex->Labels(memgraph::storage::View::NEW).GetValue();
+    auto labels = vertex.Labels(memgraph::storage::View::NEW).GetValue();
     ASSERT_EQ(labels.size(), 1);
     ASSERT_EQ(labels[0], label);
   }
-  ASSERT_TRUE(vertex->GetProperty(property, memgraph::storage::View::OLD)->IsNull());
-  ASSERT_EQ(vertex->GetProperty(property, memgraph::storage::View::NEW)->ValueString(), "nandare");
-  ASSERT_EQ(vertex->Properties(memgraph::storage::View::OLD)->size(), 0);
+  ASSERT_TRUE(vertex.GetProperty(property, memgraph::storage::View::OLD)->IsNull());
+  ASSERT_EQ(vertex.GetProperty(property, memgraph::storage::View::NEW)->ValueString(), "nandare");
+  ASSERT_EQ(vertex.Properties(memgraph::storage::View::OLD)->size(), 0);
   {
-    auto properties = vertex->Properties(memgraph::storage::View::NEW).GetValue();
+    auto properties = vertex.Properties(memgraph::storage::View::NEW).GetValue();
     ASSERT_EQ(properties.size(), 1);
     ASSERT_EQ(properties[property].ValueString(), "nandare");
   }
@@ -1927,56 +1927,56 @@ TEST(StorageV2, VertexLabelPropertyMixed) {
   acc->AdvanceCommand();
 
   // Check whether label 5 and property 5 exist
-  ASSERT_TRUE(vertex->HasLabel(label, memgraph::storage::View::OLD).GetValue());
-  ASSERT_TRUE(vertex->HasLabel(label, memgraph::storage::View::NEW).GetValue());
+  ASSERT_TRUE(vertex.HasLabel(label, memgraph::storage::View::OLD).GetValue());
+  ASSERT_TRUE(vertex.HasLabel(label, memgraph::storage::View::NEW).GetValue());
   {
-    auto labels = vertex->Labels(memgraph::storage::View::OLD).GetValue();
+    auto labels = vertex.Labels(memgraph::storage::View::OLD).GetValue();
     ASSERT_EQ(labels.size(), 1);
     ASSERT_EQ(labels[0], label);
   }
   {
-    auto labels = vertex->Labels(memgraph::storage::View::NEW).GetValue();
+    auto labels = vertex.Labels(memgraph::storage::View::NEW).GetValue();
     ASSERT_EQ(labels.size(), 1);
     ASSERT_EQ(labels[0], label);
   }
-  ASSERT_EQ(vertex->GetProperty(property, memgraph::storage::View::OLD)->ValueString(), "nandare");
-  ASSERT_EQ(vertex->GetProperty(property, memgraph::storage::View::NEW)->ValueString(), "nandare");
+  ASSERT_EQ(vertex.GetProperty(property, memgraph::storage::View::OLD)->ValueString(), "nandare");
+  ASSERT_EQ(vertex.GetProperty(property, memgraph::storage::View::NEW)->ValueString(), "nandare");
   {
-    auto properties = vertex->Properties(memgraph::storage::View::OLD).GetValue();
+    auto properties = vertex.Properties(memgraph::storage::View::OLD).GetValue();
     ASSERT_EQ(properties.size(), 1);
     ASSERT_EQ(properties[property].ValueString(), "nandare");
   }
   {
-    auto properties = vertex->Properties(memgraph::storage::View::NEW).GetValue();
+    auto properties = vertex.Properties(memgraph::storage::View::NEW).GetValue();
     ASSERT_EQ(properties.size(), 1);
     ASSERT_EQ(properties[property].ValueString(), "nandare");
   }
 
   // Set property 5 to "haihai"
-  ASSERT_FALSE(vertex->SetProperty(property, memgraph::storage::PropertyValue("haihai"))->IsNull());
+  ASSERT_FALSE(vertex.SetProperty(property, memgraph::storage::PropertyValue("haihai"))->IsNull());
 
   // Check whether label 5 and property 5 exist
-  ASSERT_TRUE(vertex->HasLabel(label, memgraph::storage::View::OLD).GetValue());
-  ASSERT_TRUE(vertex->HasLabel(label, memgraph::storage::View::NEW).GetValue());
+  ASSERT_TRUE(vertex.HasLabel(label, memgraph::storage::View::OLD).GetValue());
+  ASSERT_TRUE(vertex.HasLabel(label, memgraph::storage::View::NEW).GetValue());
   {
-    auto labels = vertex->Labels(memgraph::storage::View::OLD).GetValue();
+    auto labels = vertex.Labels(memgraph::storage::View::OLD).GetValue();
     ASSERT_EQ(labels.size(), 1);
     ASSERT_EQ(labels[0], label);
   }
   {
-    auto labels = vertex->Labels(memgraph::storage::View::NEW).GetValue();
+    auto labels = vertex.Labels(memgraph::storage::View::NEW).GetValue();
     ASSERT_EQ(labels.size(), 1);
     ASSERT_EQ(labels[0], label);
   }
-  ASSERT_EQ(vertex->GetProperty(property, memgraph::storage::View::OLD)->ValueString(), "nandare");
-  ASSERT_EQ(vertex->GetProperty(property, memgraph::storage::View::NEW)->ValueString(), "haihai");
+  ASSERT_EQ(vertex.GetProperty(property, memgraph::storage::View::OLD)->ValueString(), "nandare");
+  ASSERT_EQ(vertex.GetProperty(property, memgraph::storage::View::NEW)->ValueString(), "haihai");
   {
-    auto properties = vertex->Properties(memgraph::storage::View::OLD).GetValue();
+    auto properties = vertex.Properties(memgraph::storage::View::OLD).GetValue();
     ASSERT_EQ(properties.size(), 1);
     ASSERT_EQ(properties[property].ValueString(), "nandare");
   }
   {
-    auto properties = vertex->Properties(memgraph::storage::View::NEW).GetValue();
+    auto properties = vertex.Properties(memgraph::storage::View::NEW).GetValue();
     ASSERT_EQ(properties.size(), 1);
     ASSERT_EQ(properties[property].ValueString(), "haihai");
   }
@@ -1985,52 +1985,52 @@ TEST(StorageV2, VertexLabelPropertyMixed) {
   acc->AdvanceCommand();
 
   // Check whether label 5 and property 5 exist
-  ASSERT_TRUE(vertex->HasLabel(label, memgraph::storage::View::OLD).GetValue());
-  ASSERT_TRUE(vertex->HasLabel(label, memgraph::storage::View::NEW).GetValue());
+  ASSERT_TRUE(vertex.HasLabel(label, memgraph::storage::View::OLD).GetValue());
+  ASSERT_TRUE(vertex.HasLabel(label, memgraph::storage::View::NEW).GetValue());
   {
-    auto labels = vertex->Labels(memgraph::storage::View::OLD).GetValue();
+    auto labels = vertex.Labels(memgraph::storage::View::OLD).GetValue();
     ASSERT_EQ(labels.size(), 1);
     ASSERT_EQ(labels[0], label);
   }
   {
-    auto labels = vertex->Labels(memgraph::storage::View::NEW).GetValue();
+    auto labels = vertex.Labels(memgraph::storage::View::NEW).GetValue();
     ASSERT_EQ(labels.size(), 1);
     ASSERT_EQ(labels[0], label);
   }
-  ASSERT_EQ(vertex->GetProperty(property, memgraph::storage::View::OLD)->ValueString(), "haihai");
-  ASSERT_EQ(vertex->GetProperty(property, memgraph::storage::View::NEW)->ValueString(), "haihai");
+  ASSERT_EQ(vertex.GetProperty(property, memgraph::storage::View::OLD)->ValueString(), "haihai");
+  ASSERT_EQ(vertex.GetProperty(property, memgraph::storage::View::NEW)->ValueString(), "haihai");
   {
-    auto properties = vertex->Properties(memgraph::storage::View::OLD).GetValue();
+    auto properties = vertex.Properties(memgraph::storage::View::OLD).GetValue();
     ASSERT_EQ(properties.size(), 1);
     ASSERT_EQ(properties[property].ValueString(), "haihai");
   }
   {
-    auto properties = vertex->Properties(memgraph::storage::View::NEW).GetValue();
+    auto properties = vertex.Properties(memgraph::storage::View::NEW).GetValue();
     ASSERT_EQ(properties.size(), 1);
     ASSERT_EQ(properties[property].ValueString(), "haihai");
   }
 
   // Remove label 5
-  ASSERT_TRUE(vertex->RemoveLabel(label).GetValue());
+  ASSERT_TRUE(vertex.RemoveLabel(label).GetValue());
 
   // Check whether label 5 and property 5 exist
-  ASSERT_TRUE(vertex->HasLabel(label, memgraph::storage::View::OLD).GetValue());
-  ASSERT_FALSE(vertex->HasLabel(label, memgraph::storage::View::NEW).GetValue());
+  ASSERT_TRUE(vertex.HasLabel(label, memgraph::storage::View::OLD).GetValue());
+  ASSERT_FALSE(vertex.HasLabel(label, memgraph::storage::View::NEW).GetValue());
   {
-    auto labels = vertex->Labels(memgraph::storage::View::OLD).GetValue();
+    auto labels = vertex.Labels(memgraph::storage::View::OLD).GetValue();
     ASSERT_EQ(labels.size(), 1);
     ASSERT_EQ(labels[0], label);
   }
-  ASSERT_EQ(vertex->Labels(memgraph::storage::View::NEW)->size(), 0);
-  ASSERT_EQ(vertex->GetProperty(property, memgraph::storage::View::OLD)->ValueString(), "haihai");
-  ASSERT_EQ(vertex->GetProperty(property, memgraph::storage::View::NEW)->ValueString(), "haihai");
+  ASSERT_EQ(vertex.Labels(memgraph::storage::View::NEW)->size(), 0);
+  ASSERT_EQ(vertex.GetProperty(property, memgraph::storage::View::OLD)->ValueString(), "haihai");
+  ASSERT_EQ(vertex.GetProperty(property, memgraph::storage::View::NEW)->ValueString(), "haihai");
   {
-    auto properties = vertex->Properties(memgraph::storage::View::OLD).GetValue();
+    auto properties = vertex.Properties(memgraph::storage::View::OLD).GetValue();
     ASSERT_EQ(properties.size(), 1);
     ASSERT_EQ(properties[property].ValueString(), "haihai");
   }
   {
-    auto properties = vertex->Properties(memgraph::storage::View::NEW).GetValue();
+    auto properties = vertex.Properties(memgraph::storage::View::NEW).GetValue();
     ASSERT_EQ(properties.size(), 1);
     ASSERT_EQ(properties[property].ValueString(), "haihai");
   }
@@ -2039,67 +2039,67 @@ TEST(StorageV2, VertexLabelPropertyMixed) {
   acc->AdvanceCommand();
 
   // Check whether label 5 and property 5 exist
-  ASSERT_FALSE(vertex->HasLabel(label, memgraph::storage::View::OLD).GetValue());
-  ASSERT_FALSE(vertex->HasLabel(label, memgraph::storage::View::NEW).GetValue());
-  ASSERT_EQ(vertex->Labels(memgraph::storage::View::OLD)->size(), 0);
-  ASSERT_EQ(vertex->Labels(memgraph::storage::View::NEW)->size(), 0);
-  ASSERT_EQ(vertex->GetProperty(property, memgraph::storage::View::OLD)->ValueString(), "haihai");
-  ASSERT_EQ(vertex->GetProperty(property, memgraph::storage::View::NEW)->ValueString(), "haihai");
+  ASSERT_FALSE(vertex.HasLabel(label, memgraph::storage::View::OLD).GetValue());
+  ASSERT_FALSE(vertex.HasLabel(label, memgraph::storage::View::NEW).GetValue());
+  ASSERT_EQ(vertex.Labels(memgraph::storage::View::OLD)->size(), 0);
+  ASSERT_EQ(vertex.Labels(memgraph::storage::View::NEW)->size(), 0);
+  ASSERT_EQ(vertex.GetProperty(property, memgraph::storage::View::OLD)->ValueString(), "haihai");
+  ASSERT_EQ(vertex.GetProperty(property, memgraph::storage::View::NEW)->ValueString(), "haihai");
   {
-    auto properties = vertex->Properties(memgraph::storage::View::OLD).GetValue();
+    auto properties = vertex.Properties(memgraph::storage::View::OLD).GetValue();
     ASSERT_EQ(properties.size(), 1);
     ASSERT_EQ(properties[property].ValueString(), "haihai");
   }
   {
-    auto properties = vertex->Properties(memgraph::storage::View::NEW).GetValue();
+    auto properties = vertex.Properties(memgraph::storage::View::NEW).GetValue();
     ASSERT_EQ(properties.size(), 1);
     ASSERT_EQ(properties[property].ValueString(), "haihai");
   }
 
   // Set property 5 to null
-  ASSERT_FALSE(vertex->SetProperty(property, memgraph::storage::PropertyValue())->IsNull());
+  ASSERT_FALSE(vertex.SetProperty(property, memgraph::storage::PropertyValue())->IsNull());
 
   // Check whether label 5 and property 5 exist
-  ASSERT_FALSE(vertex->HasLabel(label, memgraph::storage::View::OLD).GetValue());
-  ASSERT_FALSE(vertex->HasLabel(label, memgraph::storage::View::NEW).GetValue());
-  ASSERT_EQ(vertex->Labels(memgraph::storage::View::OLD)->size(), 0);
-  ASSERT_EQ(vertex->Labels(memgraph::storage::View::NEW)->size(), 0);
-  ASSERT_EQ(vertex->GetProperty(property, memgraph::storage::View::OLD)->ValueString(), "haihai");
-  ASSERT_TRUE(vertex->GetProperty(property, memgraph::storage::View::NEW)->IsNull());
+  ASSERT_FALSE(vertex.HasLabel(label, memgraph::storage::View::OLD).GetValue());
+  ASSERT_FALSE(vertex.HasLabel(label, memgraph::storage::View::NEW).GetValue());
+  ASSERT_EQ(vertex.Labels(memgraph::storage::View::OLD)->size(), 0);
+  ASSERT_EQ(vertex.Labels(memgraph::storage::View::NEW)->size(), 0);
+  ASSERT_EQ(vertex.GetProperty(property, memgraph::storage::View::OLD)->ValueString(), "haihai");
+  ASSERT_TRUE(vertex.GetProperty(property, memgraph::storage::View::NEW)->IsNull());
   {
-    auto properties = vertex->Properties(memgraph::storage::View::OLD).GetValue();
+    auto properties = vertex.Properties(memgraph::storage::View::OLD).GetValue();
     ASSERT_EQ(properties.size(), 1);
     ASSERT_EQ(properties[property].ValueString(), "haihai");
   }
-  ASSERT_EQ(vertex->Properties(memgraph::storage::View::NEW)->size(), 0);
+  ASSERT_EQ(vertex.Properties(memgraph::storage::View::NEW)->size(), 0);
 
   // Advance command
   acc->AdvanceCommand();
 
   // Check whether label 5 and property 5 exist
-  ASSERT_FALSE(vertex->HasLabel(label, memgraph::storage::View::OLD).GetValue());
-  ASSERT_FALSE(vertex->HasLabel(label, memgraph::storage::View::NEW).GetValue());
-  ASSERT_EQ(vertex->Labels(memgraph::storage::View::OLD)->size(), 0);
-  ASSERT_EQ(vertex->Labels(memgraph::storage::View::NEW)->size(), 0);
-  ASSERT_TRUE(vertex->GetProperty(property, memgraph::storage::View::NEW)->IsNull());
-  ASSERT_TRUE(vertex->GetProperty(property, memgraph::storage::View::NEW)->IsNull());
-  ASSERT_EQ(vertex->Properties(memgraph::storage::View::OLD)->size(), 0);
-  ASSERT_EQ(vertex->Properties(memgraph::storage::View::NEW)->size(), 0);
+  ASSERT_FALSE(vertex.HasLabel(label, memgraph::storage::View::OLD).GetValue());
+  ASSERT_FALSE(vertex.HasLabel(label, memgraph::storage::View::NEW).GetValue());
+  ASSERT_EQ(vertex.Labels(memgraph::storage::View::OLD)->size(), 0);
+  ASSERT_EQ(vertex.Labels(memgraph::storage::View::NEW)->size(), 0);
+  ASSERT_TRUE(vertex.GetProperty(property, memgraph::storage::View::NEW)->IsNull());
+  ASSERT_TRUE(vertex.GetProperty(property, memgraph::storage::View::NEW)->IsNull());
+  ASSERT_EQ(vertex.Properties(memgraph::storage::View::OLD)->size(), 0);
+  ASSERT_EQ(vertex.Properties(memgraph::storage::View::NEW)->size(), 0);
 
   ASSERT_FALSE(acc->Commit().HasError());
 }
 
 TEST(StorageV2, VertexPropertyClear) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+  memgraph::storage::Storage store;
   memgraph::storage::Gid gid;
   auto property1 = store->NameToProperty("property1");
   auto property2 = store->NameToProperty("property2");
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    gid = vertex->Gid();
+    gid = vertex.Gid();
 
-    auto old_value = vertex->SetProperty(property1, memgraph::storage::PropertyValue("value"));
+    auto old_value = vertex.SetProperty(property1, memgraph::storage::PropertyValue("value"));
     ASSERT_TRUE(old_value.HasValue());
     ASSERT_TRUE(old_value->IsNull());
 
@@ -2195,7 +2195,7 @@ TEST(StorageV2, VertexPropertyClear) {
 }
 
 TEST(StorageV2, VertexNonexistentLabelPropertyEdgeAPI) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+  memgraph::storage::Storage store;
 
   auto label = store->NameToLabel("label");
   auto property = store->NameToProperty("property");
@@ -2204,79 +2204,79 @@ TEST(StorageV2, VertexNonexistentLabelPropertyEdgeAPI) {
   auto vertex = acc->CreateVertex();
 
   // Check state before (OLD view).
-  ASSERT_EQ(vertex->Labels(memgraph::storage::View::OLD).GetError(), memgraph::storage::Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex->HasLabel(label, memgraph::storage::View::OLD).GetError(),
+  ASSERT_EQ(vertex.Labels(memgraph::storage::View::OLD).GetError(), memgraph::storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.HasLabel(label, memgraph::storage::View::OLD).GetError(),
             memgraph::storage::Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex->Properties(memgraph::storage::View::OLD).GetError(), memgraph::storage::Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex->GetProperty(property, memgraph::storage::View::OLD).GetError(),
+  ASSERT_EQ(vertex.Properties(memgraph::storage::View::OLD).GetError(), memgraph::storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.GetProperty(property, memgraph::storage::View::OLD).GetError(),
             memgraph::storage::Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex->InEdges(memgraph::storage::View::OLD).GetError(), memgraph::storage::Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex->OutEdges(memgraph::storage::View::OLD).GetError(), memgraph::storage::Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex->InDegree(memgraph::storage::View::OLD).GetError(), memgraph::storage::Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex->OutDegree(memgraph::storage::View::OLD).GetError(), memgraph::storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.InEdges(memgraph::storage::View::OLD).GetError(), memgraph::storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.OutEdges(memgraph::storage::View::OLD).GetError(), memgraph::storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.InDegree(memgraph::storage::View::OLD).GetError(), memgraph::storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.OutDegree(memgraph::storage::View::OLD).GetError(), memgraph::storage::Error::NONEXISTENT_OBJECT);
 
   // Check state before (NEW view).
-  ASSERT_EQ(vertex->Labels(memgraph::storage::View::NEW)->size(), 0);
-  ASSERT_EQ(*vertex->HasLabel(label, memgraph::storage::View::NEW), false);
-  ASSERT_EQ(vertex->Properties(memgraph::storage::View::NEW)->size(), 0);
-  ASSERT_EQ(*vertex->GetProperty(property, memgraph::storage::View::NEW), memgraph::storage::PropertyValue());
-  ASSERT_EQ(vertex->InEdges(memgraph::storage::View::NEW)->size(), 0);
-  ASSERT_EQ(vertex->OutEdges(memgraph::storage::View::NEW)->size(), 0);
-  ASSERT_EQ(*vertex->InDegree(memgraph::storage::View::NEW), 0);
-  ASSERT_EQ(*vertex->OutDegree(memgraph::storage::View::NEW), 0);
+  ASSERT_EQ(vertex.Labels(memgraph::storage::View::NEW)->size(), 0);
+  ASSERT_EQ(*vertex.HasLabel(label, memgraph::storage::View::NEW), false);
+  ASSERT_EQ(vertex.Properties(memgraph::storage::View::NEW)->size(), 0);
+  ASSERT_EQ(*vertex.GetProperty(property, memgraph::storage::View::NEW), memgraph::storage::PropertyValue());
+  ASSERT_EQ(vertex.InEdges(memgraph::storage::View::NEW)->size(), 0);
+  ASSERT_EQ(vertex.OutEdges(memgraph::storage::View::NEW)->size(), 0);
+  ASSERT_EQ(*vertex.InDegree(memgraph::storage::View::NEW), 0);
+  ASSERT_EQ(*vertex.OutDegree(memgraph::storage::View::NEW), 0);
 
   // Modify vertex.
-  ASSERT_TRUE(vertex->AddLabel(label).HasValue());
-  ASSERT_TRUE(vertex->SetProperty(property, memgraph::storage::PropertyValue("value")).HasValue());
-  ASSERT_TRUE(acc->CreateEdge(vertex.get(), vertex.get(), acc->NameToEdgeType("edge")).HasValue());
+  ASSERT_TRUE(vertex.AddLabel(label).HasValue());
+  ASSERT_TRUE(vertex.SetProperty(property, memgraph::storage::PropertyValue("value")).HasValue());
+  ASSERT_TRUE(acc->CreateEdge(&vertex, &vertex, acc->NameToEdgeType("edge")).HasValue());
 
   // Check state after (OLD view).
-  ASSERT_EQ(vertex->Labels(memgraph::storage::View::OLD).GetError(), memgraph::storage::Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex->HasLabel(label, memgraph::storage::View::OLD).GetError(),
+  ASSERT_EQ(vertex.Labels(memgraph::storage::View::OLD).GetError(), memgraph::storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.HasLabel(label, memgraph::storage::View::OLD).GetError(),
             memgraph::storage::Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex->Properties(memgraph::storage::View::OLD).GetError(), memgraph::storage::Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex->GetProperty(property, memgraph::storage::View::OLD).GetError(),
+  ASSERT_EQ(vertex.Properties(memgraph::storage::View::OLD).GetError(), memgraph::storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.GetProperty(property, memgraph::storage::View::OLD).GetError(),
             memgraph::storage::Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex->InEdges(memgraph::storage::View::OLD).GetError(), memgraph::storage::Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex->OutEdges(memgraph::storage::View::OLD).GetError(), memgraph::storage::Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex->InDegree(memgraph::storage::View::OLD).GetError(), memgraph::storage::Error::NONEXISTENT_OBJECT);
-  ASSERT_EQ(vertex->OutDegree(memgraph::storage::View::OLD).GetError(), memgraph::storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.InEdges(memgraph::storage::View::OLD).GetError(), memgraph::storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.OutEdges(memgraph::storage::View::OLD).GetError(), memgraph::storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.InDegree(memgraph::storage::View::OLD).GetError(), memgraph::storage::Error::NONEXISTENT_OBJECT);
+  ASSERT_EQ(vertex.OutDegree(memgraph::storage::View::OLD).GetError(), memgraph::storage::Error::NONEXISTENT_OBJECT);
 
   // Check state after (NEW view).
-  ASSERT_EQ(vertex->Labels(memgraph::storage::View::NEW)->size(), 1);
-  ASSERT_EQ(*vertex->HasLabel(label, memgraph::storage::View::NEW), true);
-  ASSERT_EQ(vertex->Properties(memgraph::storage::View::NEW)->size(), 1);
-  ASSERT_EQ(*vertex->GetProperty(property, memgraph::storage::View::NEW), memgraph::storage::PropertyValue("value"));
-  ASSERT_EQ(vertex->InEdges(memgraph::storage::View::NEW)->size(), 1);
-  ASSERT_EQ(vertex->OutEdges(memgraph::storage::View::NEW)->size(), 1);
-  ASSERT_EQ(*vertex->InDegree(memgraph::storage::View::NEW), 1);
-  ASSERT_EQ(*vertex->OutDegree(memgraph::storage::View::NEW), 1);
+  ASSERT_EQ(vertex.Labels(memgraph::storage::View::NEW)->size(), 1);
+  ASSERT_EQ(*vertex.HasLabel(label, memgraph::storage::View::NEW), true);
+  ASSERT_EQ(vertex.Properties(memgraph::storage::View::NEW)->size(), 1);
+  ASSERT_EQ(*vertex.GetProperty(property, memgraph::storage::View::NEW), memgraph::storage::PropertyValue("value"));
+  ASSERT_EQ(vertex.InEdges(memgraph::storage::View::NEW)->size(), 1);
+  ASSERT_EQ(vertex.OutEdges(memgraph::storage::View::NEW)->size(), 1);
+  ASSERT_EQ(*vertex.InDegree(memgraph::storage::View::NEW), 1);
+  ASSERT_EQ(*vertex.OutDegree(memgraph::storage::View::NEW), 1);
 
   ASSERT_FALSE(acc->Commit().HasError());
 }
 
 TEST(StorageV2, VertexVisibilitySingleTransaction) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+  memgraph::storage::Storage store;
 
   auto acc1 = store->Access();
   auto acc2 = store->Access();
 
   auto vertex = acc1->CreateVertex();
-  auto gid = vertex->Gid();
+  auto gid = vertex.Gid();
 
   EXPECT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::OLD));
   EXPECT_TRUE(acc1->FindVertex(gid, memgraph::storage::View::NEW));
   EXPECT_FALSE(acc2->FindVertex(gid, memgraph::storage::View::OLD));
   EXPECT_FALSE(acc2->FindVertex(gid, memgraph::storage::View::NEW));
 
-  ASSERT_TRUE(vertex->AddLabel(acc1->NameToLabel("label")).HasValue());
+  ASSERT_TRUE(vertex.AddLabel(acc1->NameToLabel("label")).HasValue());
 
   EXPECT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::OLD));
   EXPECT_TRUE(acc1->FindVertex(gid, memgraph::storage::View::NEW));
   EXPECT_FALSE(acc2->FindVertex(gid, memgraph::storage::View::OLD));
   EXPECT_FALSE(acc2->FindVertex(gid, memgraph::storage::View::NEW));
 
-  ASSERT_TRUE(vertex->SetProperty(acc1->NameToProperty("meaning"), memgraph::storage::PropertyValue(42)).HasValue());
+  ASSERT_TRUE(vertex.SetProperty(acc1->NameToProperty("meaning"), memgraph::storage::PropertyValue(42)).HasValue());
 
   auto acc3 = store->Access();
 
@@ -2287,7 +2287,7 @@ TEST(StorageV2, VertexVisibilitySingleTransaction) {
   EXPECT_FALSE(acc3->FindVertex(gid, memgraph::storage::View::OLD));
   EXPECT_FALSE(acc3->FindVertex(gid, memgraph::storage::View::NEW));
 
-  ASSERT_TRUE(acc1->DeleteVertex(vertex.get()).HasValue());
+  ASSERT_TRUE(acc1->DeleteVertex(&vertex).HasValue());
 
   EXPECT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::OLD));
   EXPECT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::NEW));
@@ -2312,7 +2312,7 @@ TEST(StorageV2, VertexVisibilitySingleTransaction) {
 }
 
 TEST(StorageV2, VertexVisibilityMultipleTransactions) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+  memgraph::storage::Storage store;
   memgraph::storage::Gid gid;
 
   {
@@ -2320,7 +2320,7 @@ TEST(StorageV2, VertexVisibilityMultipleTransactions) {
     auto acc2 = store->Access();
 
     auto vertex = acc1->CreateVertex();
-    gid = vertex->Gid();
+    gid = vertex.Gid();
 
     EXPECT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::OLD));
     EXPECT_TRUE(acc1->FindVertex(gid, memgraph::storage::View::NEW));
@@ -2552,7 +2552,7 @@ TEST(StorageV2, VertexVisibilityMultipleTransactions) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2, DeletedVertexAccessor) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+  memgraph::storage::Storage store;
 
   const auto property = store->NameToProperty("property");
   const memgraph::storage::PropertyValue property_value{"property_value"};
@@ -2562,8 +2562,8 @@ TEST(StorageV2, DeletedVertexAccessor) {
   {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
-    gid = vertex->Gid();
-    ASSERT_FALSE(vertex->SetProperty(property, property_value).HasError());
+    gid = vertex.Gid();
+    ASSERT_FALSE(vertex.SetProperty(property, property_value).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
@@ -2573,7 +2573,7 @@ TEST(StorageV2, DeletedVertexAccessor) {
   auto maybe_deleted_vertex = acc->DeleteVertex(&*vertex);
   ASSERT_FALSE(maybe_deleted_vertex.HasError());
 
-  auto deleted_vertex = std::move(maybe_deleted_vertex.GetValue());
+  auto deleted_vertex = maybe_deleted_vertex.GetValue();
   ASSERT_TRUE(deleted_vertex);
   // you cannot modify deleted vertex
   ASSERT_TRUE(deleted_vertex->ClearProperties().HasError());

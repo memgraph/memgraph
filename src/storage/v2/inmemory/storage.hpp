@@ -28,7 +28,7 @@
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_accessor.hpp"
-#include "storage/v2/inmemory/indices.hpp"
+#include "storage/v2/indices.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/name_id_mapper.hpp"
@@ -72,7 +72,7 @@ class InMemoryStorage final : public Storage {
    private:
     friend class InMemoryStorage;
 
-    explicit InMemoryAccessor(InMemoryStorage *storage, IsolationLevel isolation_level);
+    explicit InMemoryAccessor(InMemoryStorage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
 
    public:
     InMemoryAccessor(const InMemoryAccessor &) = delete;
@@ -86,14 +86,14 @@ class InMemoryStorage final : public Storage {
     ~InMemoryAccessor() override;
 
     /// @throw std::bad_alloc
-    std::unique_ptr<VertexAccessor> CreateVertex() override;
+    VertexAccessor CreateVertex() override;
 
-    std::unique_ptr<VertexAccessor> FindVertex(Gid gid, View view) override;
+    std::optional<VertexAccessor> FindVertex(Gid gid, View view) override;
 
     VerticesIterable Vertices(View view) override {
-      return VerticesIterable(AllMemoryVerticesIterable(storage_->vertices_.access(), &transaction_, view,
-                                                        &storage_->indices_, &storage_->constraints_,
-                                                        storage_->config_));
+      return VerticesIterable(AllVerticesIterable(storage_->vertices_.access(), &transaction_, view,
+                                                  &storage_->indices_, &storage_->constraints_,
+                                                  storage_->config_.items));
     }
 
     VerticesIterable Vertices(LabelId label, View view) override;
@@ -166,24 +166,23 @@ class InMemoryStorage final : public Storage {
 
     /// @return Accessor to the deleted vertex if a deletion took place, std::nullopt otherwise
     /// @throw std::bad_alloc
-    Result<std::unique_ptr<VertexAccessor>> DeleteVertex(VertexAccessor *vertex) override;
+    Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex) override;
 
     /// @return Accessor to the deleted vertex and deleted edges if a deletion took place, std::nullopt otherwise
     /// @throw std::bad_alloc
-    Result<std::optional<std::pair<std::unique_ptr<VertexAccessor>, std::vector<std::unique_ptr<EdgeAccessor>>>>>
-    DetachDeleteVertex(VertexAccessor *vertex) override;
+    Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachDeleteVertex(
+        VertexAccessor *vertex) override;
 
-    void PrefetchInEdges(const VertexAccessor &vertex_acc) override {}
+    void PrefetchInEdges(const VertexAccessor &vertex_acc) override{};
 
-    void PrefetchOutEdges(const VertexAccessor &vertex_acc) override {}
+    void PrefetchOutEdges(const VertexAccessor &vertex_acc) override{};
 
     /// @throw std::bad_alloc
-    Result<std::unique_ptr<EdgeAccessor>> CreateEdge(VertexAccessor *from, VertexAccessor *to,
-                                                     EdgeTypeId edge_type) override;
+    Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) override;
 
     /// Accessor to the deleted edge if a deletion took place, std::nullopt otherwise
     /// @throw std::bad_alloc
-    Result<std::unique_ptr<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge) override;
+    Result<std::optional<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge) override;
 
     const std::string &LabelToName(LabelId label) const override;
     const std::string &PropertyToName(PropertyId property) const override;
@@ -233,11 +232,10 @@ class InMemoryStorage final : public Storage {
 
    private:
     /// @throw std::bad_alloc
-    std::unique_ptr<VertexAccessor> CreateVertex(storage::Gid gid);
+    VertexAccessor CreateVertex(storage::Gid gid);
 
     /// @throw std::bad_alloc
-    Result<std::unique_ptr<EdgeAccessor>> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type,
-                                                     storage::Gid gid);
+    Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid);
 
     InMemoryStorage *storage_;
     std::shared_lock<utils::RWLock> storage_guard_;
@@ -249,7 +247,7 @@ class InMemoryStorage final : public Storage {
 
   std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override {
     return std::unique_ptr<InMemoryAccessor>(
-        new InMemoryAccessor{this, override_isolation_level.value_or(isolation_level_)});
+        new InMemoryAccessor{this, override_isolation_level.value_or(isolation_level_), storage_mode_});
   }
 
   const std::string &LabelToName(LabelId label) const override;
@@ -370,12 +368,15 @@ class InMemoryStorage final : public Storage {
 
   void FreeMemory() override;
 
-  void SetIsolationLevel(IsolationLevel isolation_level) override;
+  utils::BasicResult<SetIsolationLevelError> SetIsolationLevel(IsolationLevel isolation_level) override;
+  void SetStorageMode(StorageMode storage_mode) override;
 
-  utils::BasicResult<CreateSnapshotError> CreateSnapshot() override;
+  StorageMode GetStorageMode() override;
+
+  utils::BasicResult<CreateSnapshotError> CreateSnapshot(std::optional<bool> is_periodic) override;
 
  private:
-  Transaction CreateTransaction(IsolationLevel isolation_level);
+  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode);
 
   /// The force parameter determines the behaviour of the garbage collector.
   /// If it's set to true, it will behave as a global operation, i.e. it can't
@@ -441,6 +442,7 @@ class InMemoryStorage final : public Storage {
 
   utils::Synchronized<std::list<Transaction>, utils::SpinLock> committed_transactions_;
   IsolationLevel isolation_level_;
+  StorageMode storage_mode_;
 
   Config config_;
   utils::Scheduler gc_runner_;

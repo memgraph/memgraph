@@ -13,13 +13,13 @@
 #include <atomic>
 #include <filesystem>
 
+#include "storage/v2/delta.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/durability/wal.hpp"
-#include "storage/v2/inmemory/edge_accessor.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/exceptions.hpp"
@@ -167,9 +167,9 @@ void InMemoryStorage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader
   storage_->edges_.clear();
 
   storage_->constraints_ = Constraints();
-  storage_->indices_.label_index = LabelIndex(&storage_->indices_, &storage_->constraints_, storage_->config_);
+  storage_->indices_.label_index = LabelIndex(&storage_->indices_, &storage_->constraints_, storage_->config_.items);
   storage_->indices_.label_property_index =
-      LabelPropertyIndex(&storage_->indices_, &storage_->constraints_, storage_->config_);
+      LabelPropertyIndex(&storage_->indices_, &storage_->constraints_, storage_->config_.items);
   try {
     spdlog::debug("Loading snapshot");
     auto recovered_snapshot = durability::LoadSnapshot(*maybe_snapshot_path, &storage_->vertices_, &storage_->edges_,
@@ -414,7 +414,7 @@ uint64_t InMemoryStorage::ReplicationServer::ReadAndApplyDelta(durability::BaseD
         if (edges.HasError()) throw utils::BasicException("Invalid transaction!");
         if (edges->size() != 1) throw utils::BasicException("Invalid transaction!");
         auto &edge = (*edges)[0];
-        auto ret = transaction->DeleteEdge(edge.get());
+        auto ret = transaction->DeleteEdge(&edge);
         if (ret.HasError()) throw utils::BasicException("Invalid transaction!");
         break;
       }
@@ -473,14 +473,14 @@ uint64_t InMemoryStorage::ReplicationServer::ReadAndApplyDelta(durability::BaseD
         // type and invalid from/to pointers because we don't know them
         // here, but that isn't an issue because we won't use that part of
         // the API here.
-        auto ea = InMemoryEdgeAccessor{edge_ref,
-                                       EdgeTypeId::FromUint(0UL),
-                                       nullptr,
-                                       nullptr,
-                                       &transaction->transaction_,
-                                       &storage_->indices_,
-                                       &storage_->constraints_,
-                                       storage_->config_.items};
+        auto ea = EdgeAccessor{edge_ref,
+                               EdgeTypeId::FromUint(0UL),
+                               nullptr,
+                               nullptr,
+                               &transaction->transaction_,
+                               &storage_->indices_,
+                               &storage_->constraints_,
+                               storage_->config_.items};
 
         auto ret = ea.SetProperty(transaction->NameToProperty(delta.vertex_edge_set_property.property),
                                   delta.vertex_edge_set_property.value);

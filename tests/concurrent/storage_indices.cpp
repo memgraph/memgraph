@@ -43,8 +43,8 @@ TEST(Storage, LabelIndex) {
         for (uint64_t j = 0; j < kVerifierBatchSize; ++j) {
           auto acc = store->Access();
           auto vertex = acc->CreateVertex();
-          gids.emplace(vertex->Gid(), false);
-          auto ret = vertex->AddLabel(label);
+          gids.emplace(vertex.Gid(), false);
+          auto ret = vertex.AddLabel(label);
           ASSERT_TRUE(ret.HasValue());
           ASSERT_TRUE(*ret);
           ASSERT_FALSE(acc->Commit().HasError());
@@ -53,7 +53,7 @@ TEST(Storage, LabelIndex) {
           auto acc = store->Access();
           auto vertices = acc->Vertices(label, memgraph::storage::View::OLD);
           for (auto vertex : vertices) {
-            auto it = gids.find(vertex->Gid());
+            auto it = gids.find(vertex.Gid());
             if (it != gids.end()) {
               ASSERT_FALSE(it->second);
               it->second = true;
@@ -80,8 +80,8 @@ TEST(Storage, LabelIndex) {
         for (uint64_t i = 0; i < kMutatorBatchSize; ++i) {
           auto acc = store->Access();
           auto vertex = acc->CreateVertex();
-          gids[i] = vertex->Gid();
-          auto ret = vertex->AddLabel(label);
+          gids[i] = vertex.Gid();
+          auto ret = vertex.AddLabel(label);
           ASSERT_TRUE(ret.HasValue());
           ASSERT_TRUE(*ret);
           ASSERT_FALSE(acc->Commit().HasError());
@@ -125,14 +125,14 @@ TEST(Storage, LabelPropertyIndex) {
         for (uint64_t j = 0; j < kVerifierBatchSize; ++j) {
           auto acc = store->Access();
           auto vertex = acc->CreateVertex();
-          gids.emplace(vertex->Gid(), false);
+          gids.emplace(vertex.Gid(), false);
           {
-            auto ret = vertex->AddLabel(label);
+            auto ret = vertex.AddLabel(label);
             ASSERT_TRUE(ret.HasValue());
             ASSERT_TRUE(*ret);
           }
           {
-            auto old_value = vertex->SetProperty(prop, memgraph::storage::PropertyValue(vertex->Gid().AsInt()));
+            auto old_value = vertex.SetProperty(prop, memgraph::storage::PropertyValue(vertex.Gid().AsInt()));
             ASSERT_TRUE(old_value.HasValue());
             ASSERT_TRUE(old_value->IsNull());
           }
@@ -142,7 +142,7 @@ TEST(Storage, LabelPropertyIndex) {
           auto acc = store->Access();
           auto vertices = acc->Vertices(label, prop, memgraph::storage::View::OLD);
           for (auto vertex : vertices) {
-            auto it = gids.find(vertex->Gid());
+            auto it = gids.find(vertex.Gid());
             if (it != gids.end()) {
               ASSERT_FALSE(it->second);
               it->second = true;
@@ -169,14 +169,14 @@ TEST(Storage, LabelPropertyIndex) {
         for (uint64_t i = 0; i < kMutatorBatchSize; ++i) {
           auto acc = store->Access();
           auto vertex = acc->CreateVertex();
-          gids[i] = vertex->Gid();
+          gids[i] = vertex.Gid();
           {
-            auto ret = vertex->AddLabel(label);
+            auto ret = vertex.AddLabel(label);
             ASSERT_TRUE(ret.HasValue());
             ASSERT_TRUE(*ret);
           }
           {
-            auto old_value = vertex->SetProperty(prop, memgraph::storage::PropertyValue(vertex->Gid().AsInt()));
+            auto old_value = vertex.SetProperty(prop, memgraph::storage::PropertyValue(vertex.Gid().AsInt()));
             ASSERT_TRUE(old_value.HasValue());
             ASSERT_TRUE(old_value->IsNull());
           }

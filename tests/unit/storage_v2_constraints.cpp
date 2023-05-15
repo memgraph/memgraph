@@ -75,7 +75,7 @@ TEST_F(ConstraintsTest, ExistenceConstraintsCreateFailure1) {
   {
     auto acc = storage->Access();
     auto vertex = acc->CreateVertex();
-    ASSERT_NO_ERROR(vertex->AddLabel(label1));
+    ASSERT_NO_ERROR(vertex.AddLabel(label1));
     ASSERT_NO_ERROR(acc->Commit());
   }
   {
@@ -87,7 +87,7 @@ TEST_F(ConstraintsTest, ExistenceConstraintsCreateFailure1) {
   {
     auto acc = storage->Access();
     for (auto vertex : acc->Vertices(View::OLD)) {
-      ASSERT_NO_ERROR(acc->DeleteVertex(vertex));
+      ASSERT_NO_ERROR(acc->DeleteVertex(&vertex));
     }
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -102,7 +102,7 @@ TEST_F(ConstraintsTest, ExistenceConstraintsCreateFailure2) {
   {
     auto acc = storage->Access();
     auto vertex = acc->CreateVertex();
-    ASSERT_NO_ERROR(vertex->AddLabel(label1));
+    ASSERT_NO_ERROR(vertex.AddLabel(label1));
     ASSERT_NO_ERROR(acc->Commit());
   }
   {
@@ -114,7 +114,7 @@ TEST_F(ConstraintsTest, ExistenceConstraintsCreateFailure2) {
   {
     auto acc = storage->Access();
     for (auto vertex : acc->Vertices(View::OLD)) {
-      ASSERT_NO_ERROR(vertex->SetProperty(prop1, PropertyValue(1)));
+      ASSERT_NO_ERROR(vertex.SetProperty(prop1, PropertyValue(1)));
     }
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -134,7 +134,7 @@ TEST_F(ConstraintsTest, ExistenceConstraintsViolationOnCommit) {
   {
     auto acc = storage->Access();
     auto vertex = acc->CreateVertex();
-    ASSERT_NO_ERROR(vertex->AddLabel(label1));
+    ASSERT_NO_ERROR(vertex.AddLabel(label1));
 
     auto res = acc->Commit();
     ASSERT_TRUE(res.HasError());
@@ -145,15 +145,15 @@ TEST_F(ConstraintsTest, ExistenceConstraintsViolationOnCommit) {
   {
     auto acc = storage->Access();
     auto vertex = acc->CreateVertex();
-    ASSERT_NO_ERROR(vertex->AddLabel(label1));
-    ASSERT_NO_ERROR(vertex->SetProperty(prop1, PropertyValue(1)));
+    ASSERT_NO_ERROR(vertex.AddLabel(label1));
+    ASSERT_NO_ERROR(vertex.SetProperty(prop1, PropertyValue(1)));
     ASSERT_NO_ERROR(acc->Commit());
   }
 
   {
     auto acc = storage->Access();
     for (auto vertex : acc->Vertices(View::OLD)) {
-      ASSERT_NO_ERROR(vertex->SetProperty(prop1, PropertyValue()));
+      ASSERT_NO_ERROR(vertex.SetProperty(prop1, PropertyValue()));
     }
 
     auto res = acc->Commit();
@@ -165,10 +165,10 @@ TEST_F(ConstraintsTest, ExistenceConstraintsViolationOnCommit) {
   {
     auto acc = storage->Access();
     for (auto vertex : acc->Vertices(View::OLD)) {
-      ASSERT_NO_ERROR(vertex->SetProperty(prop1, PropertyValue()));
+      ASSERT_NO_ERROR(vertex.SetProperty(prop1, PropertyValue()));
     }
     for (auto vertex : acc->Vertices(View::OLD)) {
-      ASSERT_NO_ERROR(acc->DeleteVertex(vertex));
+      ASSERT_NO_ERROR(acc->DeleteVertex(&vertex));
     }
 
     ASSERT_NO_ERROR(acc->Commit());
@@ -179,7 +179,7 @@ TEST_F(ConstraintsTest, ExistenceConstraintsViolationOnCommit) {
   {
     auto acc = storage->Access();
     auto vertex = acc->CreateVertex();
-    ASSERT_NO_ERROR(vertex->AddLabel(label1));
+    ASSERT_NO_ERROR(vertex.AddLabel(label1));
     ASSERT_NO_ERROR(acc->Commit());
   }
 }
@@ -231,8 +231,8 @@ TEST_F(ConstraintsTest, UniqueConstraintsCreateFailure1) {
     auto acc = storage->Access();
     for (int i = 0; i < 2; ++i) {
       auto vertex1 = acc->CreateVertex();
-      ASSERT_NO_ERROR(vertex1->AddLabel(label1));
-      ASSERT_NO_ERROR(vertex1->SetProperty(prop1, PropertyValue(1)));
+      ASSERT_NO_ERROR(vertex1.AddLabel(label1));
+      ASSERT_NO_ERROR(vertex1.SetProperty(prop1, PropertyValue(1)));
     }
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -247,7 +247,7 @@ TEST_F(ConstraintsTest, UniqueConstraintsCreateFailure1) {
   {
     auto acc = storage->Access();
     for (auto vertex : acc->Vertices(View::OLD)) {
-      ASSERT_NO_ERROR(acc->DeleteVertex(vertex));
+      ASSERT_NO_ERROR(acc->DeleteVertex(&vertex));
     }
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -265,8 +265,8 @@ TEST_F(ConstraintsTest, UniqueConstraintsCreateFailure2) {
     auto acc = storage->Access();
     for (int i = 0; i < 2; ++i) {
       auto vertex = acc->CreateVertex();
-      ASSERT_NO_ERROR(vertex->AddLabel(label1));
-      ASSERT_NO_ERROR(vertex->SetProperty(prop1, PropertyValue(1)));
+      ASSERT_NO_ERROR(vertex.AddLabel(label1));
+      ASSERT_NO_ERROR(vertex.SetProperty(prop1, PropertyValue(1)));
     }
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -282,7 +282,7 @@ TEST_F(ConstraintsTest, UniqueConstraintsCreateFailure2) {
     auto acc = storage->Access();
     int value = 0;
     for (auto vertex : acc->Vertices(View::OLD)) {
-      ASSERT_NO_ERROR(vertex->SetProperty(prop1, PropertyValue(value)));
+      ASSERT_NO_ERROR(vertex.SetProperty(prop1, PropertyValue(value)));
       ++value;
     }
     ASSERT_NO_ERROR(acc->Commit());
@@ -303,11 +303,11 @@ TEST_F(ConstraintsTest, UniqueConstraintsNoViolation1) {
     auto acc = storage->Access();
     auto vertex1 = acc->CreateVertex();
     auto vertex2 = acc->CreateVertex();
-    gid1 = vertex1->Gid();
-    gid2 = vertex2->Gid();
+    gid1 = vertex1.Gid();
+    gid2 = vertex2.Gid();
 
-    ASSERT_NO_ERROR(vertex1->AddLabel(label1));
-    ASSERT_NO_ERROR(vertex1->SetProperty(prop1, PropertyValue(1)));
+    ASSERT_NO_ERROR(vertex1.AddLabel(label1));
+    ASSERT_NO_ERROR(vertex1.SetProperty(prop1, PropertyValue(1)));
     ASSERT_NO_ERROR(acc->Commit());
   }
 
@@ -356,13 +356,13 @@ TEST_F(ConstraintsTest, UniqueConstraintsNoViolation2) {
     auto vertex1 = acc1->CreateVertex();
     auto vertex2 = acc2->CreateVertex();
 
-    ASSERT_NO_ERROR(vertex1->AddLabel(label1));
-    ASSERT_NO_ERROR(vertex1->SetProperty(prop1, PropertyValue(1)));
-    ASSERT_NO_ERROR(vertex2->AddLabel(label1));
-    ASSERT_NO_ERROR(vertex2->SetProperty(prop1, PropertyValue(2)));
+    ASSERT_NO_ERROR(vertex1.AddLabel(label1));
+    ASSERT_NO_ERROR(vertex1.SetProperty(prop1, PropertyValue(1)));
+    ASSERT_NO_ERROR(vertex2.AddLabel(label1));
+    ASSERT_NO_ERROR(vertex2.SetProperty(prop1, PropertyValue(2)));
 
-    ASSERT_NO_ERROR(vertex1->SetProperty(prop1, PropertyValue(2)));
-    ASSERT_NO_ERROR(vertex2->SetProperty(prop1, PropertyValue(1)));
+    ASSERT_NO_ERROR(vertex1.SetProperty(prop1, PropertyValue(2)));
+    ASSERT_NO_ERROR(vertex2.SetProperty(prop1, PropertyValue(1)));
 
     ASSERT_NO_ERROR(acc1->Commit());
     ASSERT_NO_ERROR(acc2->Commit());
@@ -384,10 +384,10 @@ TEST_F(ConstraintsTest, UniqueConstraintsNoViolation3) {
 
     auto acc1 = storage->Access();
     auto vertex1 = acc1->CreateVertex();
-    auto gid = vertex1->Gid();
+    auto gid = vertex1.Gid();
 
-    ASSERT_NO_ERROR(vertex1->AddLabel(label1));
-    ASSERT_NO_ERROR(vertex1->SetProperty(prop1, PropertyValue(1)));
+    ASSERT_NO_ERROR(vertex1.AddLabel(label1));
+    ASSERT_NO_ERROR(vertex1.SetProperty(prop1, PropertyValue(1)));
 
     ASSERT_NO_ERROR(acc1->Commit());
 
@@ -397,8 +397,8 @@ TEST_F(ConstraintsTest, UniqueConstraintsNoViolation3) {
     auto vertex3 = acc3->CreateVertex();
 
     ASSERT_NO_ERROR(vertex2->SetProperty(prop1, PropertyValue(2)));
-    ASSERT_NO_ERROR(vertex3->AddLabel(label1));
-    ASSERT_NO_ERROR(vertex3->SetProperty(prop1, PropertyValue(1)));
+    ASSERT_NO_ERROR(vertex3.AddLabel(label1));
+    ASSERT_NO_ERROR(vertex3.SetProperty(prop1, PropertyValue(1)));
 
     ASSERT_NO_ERROR(acc2->Commit());
     ASSERT_NO_ERROR(acc3->Commit());
@@ -420,10 +420,9 @@ TEST_F(ConstraintsTest, UniqueConstraintsNoViolation4) {
 
     auto acc1 = storage->Access();
     auto vertex1 = acc1->CreateVertex();
-    auto gid = vertex1->Gid();
+    auto gid = vertex1.Gid();
 
-    ASSERT_NO_ERROR(vertex1->AddLabel(label1));
-    ASSERT_NO_ERROR(vertex1->SetProperty(prop1, PropertyValue(1)));
+    ASSERT_NO_ERROR(vertex1.SetProperty(prop1, PropertyValue(1)));
 
     ASSERT_NO_ERROR(acc1->Commit());
 
@@ -432,8 +431,8 @@ TEST_F(ConstraintsTest, UniqueConstraintsNoViolation4) {
     auto vertex2 = acc2->CreateVertex();
     auto vertex3 = acc3->FindVertex(gid, View::NEW);
 
-    ASSERT_NO_ERROR(vertex2->AddLabel(label1));
-    ASSERT_NO_ERROR(vertex2->SetProperty(prop1, PropertyValue(1)));
+    ASSERT_NO_ERROR(vertex2.AddLabel(label1));
+    ASSERT_NO_ERROR(vertex2.SetProperty(prop1, PropertyValue(1)));
     ASSERT_NO_ERROR(vertex3->SetProperty(prop1, PropertyValue(2)));
 
     ASSERT_NO_ERROR(acc3->Commit());
@@ -453,10 +452,10 @@ TEST_F(ConstraintsTest, UniqueConstraintsViolationOnCommit1) {
     auto acc = storage->Access();
     auto vertex1 = acc->CreateVertex();
     auto vertex2 = acc->CreateVertex();
-    ASSERT_NO_ERROR(vertex1->AddLabel(label1));
-    ASSERT_NO_ERROR(vertex1->SetProperty(prop1, PropertyValue(1)));
-    ASSERT_NO_ERROR(vertex2->AddLabel(label1));
-    ASSERT_NO_ERROR(vertex2->SetProperty(prop1, PropertyValue(1)));
+    ASSERT_NO_ERROR(vertex1.AddLabel(label1));
+    ASSERT_NO_ERROR(vertex1.SetProperty(prop1, PropertyValue(1)));
+    ASSERT_NO_ERROR(vertex2.AddLabel(label1));
+    ASSERT_NO_ERROR(vertex2.SetProperty(prop1, PropertyValue(1)));
     auto res = acc->Commit();
     ASSERT_TRUE(res.HasError());
     EXPECT_EQ(std::get<ConstraintViolation>(res.GetError()),
@@ -480,13 +479,13 @@ TEST_F(ConstraintsTest, UniqueConstraintsViolationOnCommit2) {
     auto acc1 = storage->Access();
     auto vertex1 = acc1->CreateVertex();
     auto vertex2 = acc1->CreateVertex();
-    auto gid1 = vertex1->Gid();
-    auto gid2 = vertex2->Gid();
+    auto gid1 = vertex1.Gid();
+    auto gid2 = vertex2.Gid();
 
-    ASSERT_NO_ERROR(vertex1->AddLabel(label1));
-    ASSERT_NO_ERROR(vertex1->SetProperty(prop1, PropertyValue(1)));
-    ASSERT_NO_ERROR(vertex2->AddLabel(label1));
-    ASSERT_NO_ERROR(vertex2->SetProperty(prop1, PropertyValue(2)));
+    ASSERT_NO_ERROR(vertex1.AddLabel(label1));
+    ASSERT_NO_ERROR(vertex1.SetProperty(prop1, PropertyValue(1)));
+    ASSERT_NO_ERROR(vertex2.AddLabel(label1));
+    ASSERT_NO_ERROR(vertex2.SetProperty(prop1, PropertyValue(2)));
 
     ASSERT_NO_ERROR(acc1->Commit());
 
@@ -522,13 +521,13 @@ TEST_F(ConstraintsTest, UniqueConstraintsViolationOnCommit3) {
     auto acc1 = storage->Access();
     auto vertex1 = acc1->CreateVertex();
     auto vertex2 = acc1->CreateVertex();
-    auto gid1 = vertex1->Gid();
-    auto gid2 = vertex2->Gid();
+    auto gid1 = vertex1.Gid();
+    auto gid2 = vertex2.Gid();
 
-    ASSERT_NO_ERROR(vertex1->AddLabel(label1));
-    ASSERT_NO_ERROR(vertex1->SetProperty(prop1, PropertyValue(1)));
-    ASSERT_NO_ERROR(vertex2->AddLabel(label1));
-    ASSERT_NO_ERROR(vertex2->SetProperty(prop1, PropertyValue(2)));
+    ASSERT_NO_ERROR(vertex1.AddLabel(label1));
+    ASSERT_NO_ERROR(vertex1.SetProperty(prop1, PropertyValue(1)));
+    ASSERT_NO_ERROR(vertex2.AddLabel(label1));
+    ASSERT_NO_ERROR(vertex2.SetProperty(prop1, PropertyValue(2)));
 
     ASSERT_NO_ERROR(acc1->Commit());
 
@@ -571,13 +570,13 @@ TEST_F(ConstraintsTest, UniqueConstraintsLabelAlteration) {
     auto acc = storage->Access();
     auto vertex1 = acc->CreateVertex();
     auto vertex2 = acc->CreateVertex();
-    gid1 = vertex1->Gid();
-    gid2 = vertex2->Gid();
+    gid1 = vertex1.Gid();
+    gid2 = vertex2.Gid();
 
-    ASSERT_NO_ERROR(vertex1->AddLabel(label2));
-    ASSERT_NO_ERROR(vertex1->SetProperty(prop1, PropertyValue(1)));
-    ASSERT_NO_ERROR(vertex2->AddLabel(label1));
-    ASSERT_NO_ERROR(vertex2->SetProperty(prop1, PropertyValue(1)));
+    ASSERT_NO_ERROR(vertex1.AddLabel(label2));
+    ASSERT_NO_ERROR(vertex1.SetProperty(prop1, PropertyValue(1)));
+    ASSERT_NO_ERROR(vertex2.AddLabel(label1));
+    ASSERT_NO_ERROR(vertex2.SetProperty(prop1, PropertyValue(1)));
 
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -730,16 +729,16 @@ TEST_F(ConstraintsTest, UniqueConstraintsMultipleProperties) {
     auto acc = storage->Access();
     auto vertex1 = acc->CreateVertex();
     auto vertex2 = acc->CreateVertex();
-    gid1 = vertex1->Gid();
-    gid2 = vertex2->Gid();
+    gid1 = vertex1.Gid();
+    gid2 = vertex2.Gid();
 
-    ASSERT_NO_ERROR(vertex1->AddLabel(label1));
-    ASSERT_NO_ERROR(vertex1->SetProperty(prop1, PropertyValue(1)));
-    ASSERT_NO_ERROR(vertex1->SetProperty(prop2, PropertyValue(2)));
+    ASSERT_NO_ERROR(vertex1.AddLabel(label1));
+    ASSERT_NO_ERROR(vertex1.SetProperty(prop1, PropertyValue(1)));
+    ASSERT_NO_ERROR(vertex1.SetProperty(prop2, PropertyValue(2)));
 
-    ASSERT_NO_ERROR(vertex2->AddLabel(label1));
-    ASSERT_NO_ERROR(vertex2->SetProperty(prop1, PropertyValue(1)));
-    ASSERT_NO_ERROR(vertex2->SetProperty(prop2, PropertyValue(3)));
+    ASSERT_NO_ERROR(vertex2.AddLabel(label1));
+    ASSERT_NO_ERROR(vertex2.SetProperty(prop1, PropertyValue(1)));
+    ASSERT_NO_ERROR(vertex2.SetProperty(prop2, PropertyValue(3)));
 
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -779,18 +778,18 @@ TEST_F(ConstraintsTest, UniqueConstraintsInsertAbortInsert) {
   {
     auto acc = storage->Access();
     auto vertex = acc->CreateVertex();
-    ASSERT_NO_ERROR(vertex->AddLabel(label1));
-    ASSERT_NO_ERROR(vertex->SetProperty(prop1, PropertyValue(1)));
-    ASSERT_NO_ERROR(vertex->SetProperty(prop2, PropertyValue(2)));
+    ASSERT_NO_ERROR(vertex.AddLabel(label1));
+    ASSERT_NO_ERROR(vertex.SetProperty(prop1, PropertyValue(1)));
+    ASSERT_NO_ERROR(vertex.SetProperty(prop2, PropertyValue(2)));
     acc->Abort();
   }
 
   {
     auto acc = storage->Access();
     auto vertex = acc->CreateVertex();
-    ASSERT_NO_ERROR(vertex->AddLabel(label1));
-    ASSERT_NO_ERROR(vertex->SetProperty(prop2, PropertyValue(2)));
-    ASSERT_NO_ERROR(vertex->SetProperty(prop1, PropertyValue(1)));
+    ASSERT_NO_ERROR(vertex.AddLabel(label1));
+    ASSERT_NO_ERROR(vertex.SetProperty(prop2, PropertyValue(2)));
+    ASSERT_NO_ERROR(vertex.SetProperty(prop1, PropertyValue(1)));
     ASSERT_NO_ERROR(acc->Commit());
   }
 }
@@ -806,10 +805,10 @@ TEST_F(ConstraintsTest, UniqueConstraintsInsertRemoveInsert) {
   {
     auto acc = storage->Access();
     auto vertex = acc->CreateVertex();
-    gid = vertex->Gid();
-    ASSERT_NO_ERROR(vertex->AddLabel(label1));
-    ASSERT_NO_ERROR(vertex->SetProperty(prop1, PropertyValue(1)));
-    ASSERT_NO_ERROR(vertex->SetProperty(prop2, PropertyValue(2)));
+    gid = vertex.Gid();
+    ASSERT_NO_ERROR(vertex.AddLabel(label1));
+    ASSERT_NO_ERROR(vertex.SetProperty(prop1, PropertyValue(1)));
+    ASSERT_NO_ERROR(vertex.SetProperty(prop2, PropertyValue(2)));
     ASSERT_NO_ERROR(acc->Commit());
   }
 
@@ -823,9 +822,9 @@ TEST_F(ConstraintsTest, UniqueConstraintsInsertRemoveInsert) {
   {
     auto acc = storage->Access();
     auto vertex = acc->CreateVertex();
-    ASSERT_NO_ERROR(vertex->AddLabel(label1));
-    ASSERT_NO_ERROR(vertex->SetProperty(prop1, PropertyValue(1)));
-    ASSERT_NO_ERROR(vertex->SetProperty(prop2, PropertyValue(2)));
+    ASSERT_NO_ERROR(vertex.AddLabel(label1));
+    ASSERT_NO_ERROR(vertex.SetProperty(prop1, PropertyValue(1)));
+    ASSERT_NO_ERROR(vertex.SetProperty(prop2, PropertyValue(2)));
     ASSERT_NO_ERROR(acc->Commit());
   }
 }
@@ -841,10 +840,10 @@ TEST_F(ConstraintsTest, UniqueConstraintsInsertRemoveAbortInsert) {
   {
     auto acc = storage->Access();
     auto vertex = acc->CreateVertex();
-    gid = vertex->Gid();
-    ASSERT_NO_ERROR(vertex->AddLabel(label1));
-    ASSERT_NO_ERROR(vertex->SetProperty(prop1, PropertyValue(2)));
-    ASSERT_NO_ERROR(vertex->SetProperty(prop2, PropertyValue(1)));
+    gid = vertex.Gid();
+    ASSERT_NO_ERROR(vertex.AddLabel(label1));
+    ASSERT_NO_ERROR(vertex.SetProperty(prop1, PropertyValue(2)));
+    ASSERT_NO_ERROR(vertex.SetProperty(prop2, PropertyValue(1)));
     ASSERT_NO_ERROR(acc->Commit());
   }
 
@@ -858,9 +857,9 @@ TEST_F(ConstraintsTest, UniqueConstraintsInsertRemoveAbortInsert) {
   {
     auto acc = storage->Access();
     auto vertex = acc->CreateVertex();
-    ASSERT_NO_ERROR(vertex->AddLabel(label1));
-    ASSERT_NO_ERROR(vertex->SetProperty(prop2, PropertyValue(1)));
-    ASSERT_NO_ERROR(vertex->SetProperty(prop1, PropertyValue(2)));
+    ASSERT_NO_ERROR(vertex.AddLabel(label1));
+    ASSERT_NO_ERROR(vertex.SetProperty(prop2, PropertyValue(1)));
+    ASSERT_NO_ERROR(vertex.SetProperty(prop1, PropertyValue(2)));
 
     auto res = acc->Commit();
     ASSERT_TRUE(res.HasError());
@@ -882,13 +881,13 @@ TEST_F(ConstraintsTest, UniqueConstraintsDeleteVertexSetProperty) {
     auto acc = storage->Access();
     auto vertex1 = acc->CreateVertex();
     auto vertex2 = acc->CreateVertex();
-    gid1 = vertex1->Gid();
-    gid2 = vertex2->Gid();
+    gid1 = vertex1.Gid();
+    gid2 = vertex2.Gid();
 
-    ASSERT_NO_ERROR(vertex1->AddLabel(label1));
-    ASSERT_NO_ERROR(vertex2->AddLabel(label1));
-    ASSERT_NO_ERROR(vertex1->SetProperty(prop1, PropertyValue(1)));
-    ASSERT_NO_ERROR(vertex2->SetProperty(prop1, PropertyValue(2)));
+    ASSERT_NO_ERROR(vertex1.AddLabel(label1));
+    ASSERT_NO_ERROR(vertex2.AddLabel(label1));
+    ASSERT_NO_ERROR(vertex1.SetProperty(prop1, PropertyValue(1)));
+    ASSERT_NO_ERROR(vertex2.SetProperty(prop1, PropertyValue(2)));
 
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -921,9 +920,9 @@ TEST_F(ConstraintsTest, UniqueConstraintsInsertDropInsert) {
   {
     auto acc = storage->Access();
     auto vertex = acc->CreateVertex();
-    ASSERT_NO_ERROR(vertex->AddLabel(label1));
-    ASSERT_NO_ERROR(vertex->SetProperty(prop1, PropertyValue(1)));
-    ASSERT_NO_ERROR(vertex->SetProperty(prop2, PropertyValue(2)));
+    ASSERT_NO_ERROR(vertex.AddLabel(label1));
+    ASSERT_NO_ERROR(vertex.SetProperty(prop1, PropertyValue(1)));
+    ASSERT_NO_ERROR(vertex.SetProperty(prop2, PropertyValue(2)));
     ASSERT_NO_ERROR(acc->Commit());
   }
 
@@ -933,9 +932,9 @@ TEST_F(ConstraintsTest, UniqueConstraintsInsertDropInsert) {
   {
     auto acc = storage->Access();
     auto vertex = acc->CreateVertex();
-    ASSERT_NO_ERROR(vertex->AddLabel(label1));
-    ASSERT_NO_ERROR(vertex->SetProperty(prop2, PropertyValue(2)));
-    ASSERT_NO_ERROR(vertex->SetProperty(prop1, PropertyValue(1)));
+    ASSERT_NO_ERROR(vertex.AddLabel(label1));
+    ASSERT_NO_ERROR(vertex.SetProperty(prop2, PropertyValue(2)));
+    ASSERT_NO_ERROR(vertex.SetProperty(prop1, PropertyValue(1)));
     ASSERT_NO_ERROR(acc->Commit());
   }
 }
@@ -953,27 +952,27 @@ TEST_F(ConstraintsTest, UniqueConstraintsComparePropertyValues) {
   {
     auto acc = storage->Access();
     auto vertex = acc->CreateVertex();
-    ASSERT_NO_ERROR(vertex->AddLabel(label1));
-    ASSERT_NO_ERROR(vertex->SetProperty(prop1, PropertyValue(2)));
-    ASSERT_NO_ERROR(vertex->SetProperty(prop2, PropertyValue(1)));
+    ASSERT_NO_ERROR(vertex.AddLabel(label1));
+    ASSERT_NO_ERROR(vertex.SetProperty(prop1, PropertyValue(2)));
+    ASSERT_NO_ERROR(vertex.SetProperty(prop2, PropertyValue(1)));
     ASSERT_NO_ERROR(acc->Commit());
   }
 
   {
     auto acc = storage->Access();
     auto vertex = acc->CreateVertex();
-    ASSERT_NO_ERROR(vertex->AddLabel(label1));
-    ASSERT_NO_ERROR(vertex->SetProperty(prop1, PropertyValue(1)));
-    ASSERT_NO_ERROR(vertex->SetProperty(prop2, PropertyValue(2)));
+    ASSERT_NO_ERROR(vertex.AddLabel(label1));
+    ASSERT_NO_ERROR(vertex.SetProperty(prop1, PropertyValue(1)));
+    ASSERT_NO_ERROR(vertex.SetProperty(prop2, PropertyValue(2)));
     ASSERT_NO_ERROR(acc->Commit());
   }
 
   {
     auto acc = storage->Access();
     auto vertex = acc->CreateVertex();
-    ASSERT_NO_ERROR(vertex->AddLabel(label1));
-    ASSERT_NO_ERROR(vertex->SetProperty(prop2, PropertyValue(0)));
-    ASSERT_NO_ERROR(vertex->SetProperty(prop1, PropertyValue(3)));
+    ASSERT_NO_ERROR(vertex.AddLabel(label1));
+    ASSERT_NO_ERROR(vertex.SetProperty(prop2, PropertyValue(0)));
+    ASSERT_NO_ERROR(vertex.SetProperty(prop1, PropertyValue(3)));
     ASSERT_NO_ERROR(acc->Commit());
   }
 }

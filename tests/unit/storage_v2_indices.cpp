@@ -42,9 +42,9 @@ class IndexTest : public testing::Test {
   LabelId label1;
   LabelId label2;
 
-  std::unique_ptr<VertexAccessor> CreateVertex(Storage::Accessor *accessor) {
-    auto vertex = accessor->CreateVertex();
-    MG_ASSERT(!vertex->SetProperty(prop_id, PropertyValue(vertex_id++)).HasError());
+  VertexAccessor CreateVertex(Storage::Accessor *accessor) {
+    VertexAccessor vertex = accessor->CreateVertex();
+    MG_ASSERT(!vertex.SetProperty(prop_id, PropertyValue(vertex_id++)).HasError());
     return vertex;
   }
 
@@ -52,7 +52,7 @@ class IndexTest : public testing::Test {
   std::vector<int64_t> GetIds(TIterable iterable, View view = View::OLD) {
     std::vector<int64_t> ret;
     for (auto vertex : iterable) {
-      ret.push_back(vertex->GetProperty(prop_id, view)->ValueInt());
+      ret.push_back(vertex.GetProperty(prop_id, view)->ValueInt());
     }
     return ret;
   }
@@ -73,7 +73,7 @@ TEST_F(IndexTest, LabelIndexCreate) {
     auto acc = storage->Access();
     for (int i = 0; i < 10; ++i) {
       auto vertex = CreateVertex(acc.get());
-      ASSERT_NO_ERROR(vertex->AddLabel(i % 2 ? label1 : label2));
+      ASSERT_NO_ERROR(vertex.AddLabel(i % 2 ? label1 : label2));
     }
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -90,7 +90,7 @@ TEST_F(IndexTest, LabelIndexCreate) {
     auto acc = storage->Access();
     for (int i = 10; i < 20; ++i) {
       auto vertex = CreateVertex(acc.get());
-      ASSERT_NO_ERROR(vertex->AddLabel(i % 2 ? label1 : label2));
+      ASSERT_NO_ERROR(vertex.AddLabel(i % 2 ? label1 : label2));
     }
 
     EXPECT_THAT(GetIds(acc->Vertices(label1, View::OLD), View::OLD), UnorderedElementsAre(1, 3, 5, 7, 9));
@@ -111,7 +111,7 @@ TEST_F(IndexTest, LabelIndexCreate) {
     auto acc = storage->Access();
     for (int i = 10; i < 20; ++i) {
       auto vertex = CreateVertex(acc.get());
-      ASSERT_NO_ERROR(vertex->AddLabel(i % 2 ? label1 : label2));
+      ASSERT_NO_ERROR(vertex.AddLabel(i % 2 ? label1 : label2));
     }
 
     EXPECT_THAT(GetIds(acc->Vertices(label1, View::OLD), View::OLD), UnorderedElementsAre(1, 3, 5, 7, 9));
@@ -158,7 +158,7 @@ TEST_F(IndexTest, LabelIndexDrop) {
     auto acc = storage->Access();
     for (int i = 0; i < 10; ++i) {
       auto vertex = CreateVertex(acc.get());
-      ASSERT_NO_ERROR(vertex->AddLabel(i % 2 ? label1 : label2));
+      ASSERT_NO_ERROR(vertex.AddLabel(i % 2 ? label1 : label2));
     }
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -189,7 +189,7 @@ TEST_F(IndexTest, LabelIndexDrop) {
     auto acc = storage->Access();
     for (int i = 10; i < 20; ++i) {
       auto vertex = CreateVertex(acc.get());
-      ASSERT_NO_ERROR(vertex->AddLabel(i % 2 ? label1 : label2));
+      ASSERT_NO_ERROR(vertex.AddLabel(i % 2 ? label1 : label2));
     }
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -239,7 +239,7 @@ TEST_F(IndexTest, LabelIndexBasic) {
 
   for (int i = 0; i < 10; ++i) {
     auto vertex = CreateVertex(acc.get());
-    ASSERT_NO_ERROR(vertex->AddLabel(i % 2 ? label1 : label2));
+    ASSERT_NO_ERROR(vertex.AddLabel(i % 2 ? label1 : label2));
   }
 
   EXPECT_THAT(GetIds(acc->Vertices(label1, View::OLD), View::OLD), IsEmpty());
@@ -254,11 +254,11 @@ TEST_F(IndexTest, LabelIndexBasic) {
   EXPECT_THAT(GetIds(acc->Vertices(label2, View::NEW), View::NEW), UnorderedElementsAre(0, 2, 4, 6, 8));
 
   for (auto vertex : acc->Vertices(View::OLD)) {
-    int64_t id = vertex->GetProperty(prop_id, View::OLD)->ValueInt();
+    int64_t id = vertex.GetProperty(prop_id, View::OLD)->ValueInt();
     if (id % 2) {
-      ASSERT_NO_ERROR(vertex->RemoveLabel(label1));
+      ASSERT_NO_ERROR(vertex.RemoveLabel(label1));
     } else {
-      ASSERT_NO_ERROR(vertex->AddLabel(label1));
+      ASSERT_NO_ERROR(vertex.AddLabel(label1));
     }
   }
 
@@ -268,9 +268,9 @@ TEST_F(IndexTest, LabelIndexBasic) {
   EXPECT_THAT(GetIds(acc->Vertices(label2, View::NEW), View::NEW), UnorderedElementsAre(0, 2, 4, 6, 8));
 
   for (auto vertex : acc->Vertices(View::OLD)) {
-    int64_t id = vertex->GetProperty(prop_id, View::OLD)->ValueInt();
+    int64_t id = vertex.GetProperty(prop_id, View::OLD)->ValueInt();
     if (id % 2 == 0) {
-      ASSERT_NO_ERROR(acc->DeleteVertex(vertex));
+      ASSERT_NO_ERROR(acc->DeleteVertex(&vertex));
     }
   }
 
@@ -299,7 +299,7 @@ TEST_F(IndexTest, LabelIndexDuplicateVersions) {
     auto acc = storage->Access();
     for (int i = 0; i < 5; ++i) {
       auto vertex = CreateVertex(acc.get());
-      ASSERT_NO_ERROR(vertex->AddLabel(label1));
+      ASSERT_NO_ERROR(vertex.AddLabel(label1));
     }
 
     EXPECT_THAT(GetIds(acc->Vertices(label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1, 2, 3, 4));
@@ -312,14 +312,14 @@ TEST_F(IndexTest, LabelIndexDuplicateVersions) {
     EXPECT_THAT(GetIds(acc->Vertices(label1, View::OLD), View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4));
 
     for (auto vertex : acc->Vertices(View::OLD)) {
-      ASSERT_NO_ERROR(vertex->RemoveLabel(label1));
+      ASSERT_NO_ERROR(vertex.RemoveLabel(label1));
     }
 
     EXPECT_THAT(GetIds(acc->Vertices(label1, View::OLD), View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4));
     EXPECT_THAT(GetIds(acc->Vertices(label1, View::NEW), View::NEW), IsEmpty());
 
     for (auto vertex : acc->Vertices(View::OLD)) {
-      ASSERT_NO_ERROR(vertex->AddLabel(label1));
+      ASSERT_NO_ERROR(vertex.AddLabel(label1));
     }
     EXPECT_THAT(GetIds(acc->Vertices(label1, View::OLD), View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4));
     EXPECT_THAT(GetIds(acc->Vertices(label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1, 2, 3, 4));
@@ -338,7 +338,7 @@ TEST_F(IndexTest, LabelIndexTransactionalIsolation) {
 
   for (int i = 0; i < 5; ++i) {
     auto vertex = CreateVertex(acc.get());
-    ASSERT_NO_ERROR(vertex->AddLabel(label1));
+    ASSERT_NO_ERROR(vertex.AddLabel(label1));
   }
 
   EXPECT_THAT(GetIds(acc->Vertices(label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1, 2, 3, 4));
@@ -362,7 +362,7 @@ TEST_F(IndexTest, LabelIndexCountEstimate) {
   auto acc = storage->Access();
   for (int i = 0; i < 20; ++i) {
     auto vertex = CreateVertex(acc.get());
-    ASSERT_NO_ERROR(vertex->AddLabel(i % 3 ? label1 : label2));
+    ASSERT_NO_ERROR(vertex.AddLabel(i % 3 ? label1 : label2));
   }
 
   EXPECT_EQ(acc->ApproximateVertexCount(label1), 13);
@@ -424,8 +424,8 @@ TEST_F(IndexTest, LabelPropertyIndexBasic) {
 
   for (int i = 0; i < 10; ++i) {
     auto vertex = CreateVertex(acc.get());
-    ASSERT_NO_ERROR(vertex->AddLabel(i % 2 ? label1 : label2));
-    ASSERT_NO_ERROR(vertex->SetProperty(prop_val, PropertyValue(i)));
+    ASSERT_NO_ERROR(vertex.AddLabel(i % 2 ? label1 : label2));
+    ASSERT_NO_ERROR(vertex.SetProperty(prop_val, PropertyValue(i)));
   }
 
   EXPECT_THAT(GetIds(acc->Vertices(label1, prop_val, View::OLD), View::OLD), IsEmpty());
@@ -441,11 +441,11 @@ TEST_F(IndexTest, LabelPropertyIndexBasic) {
   EXPECT_THAT(GetIds(acc->Vertices(label2, prop_val, View::NEW), View::NEW), UnorderedElementsAre(0, 2, 4, 6, 8));
 
   for (auto vertex : acc->Vertices(View::OLD)) {
-    int64_t id = vertex->GetProperty(prop_id, View::OLD)->ValueInt();
+    int64_t id = vertex.GetProperty(prop_id, View::OLD)->ValueInt();
     if (id % 2) {
-      ASSERT_NO_ERROR(vertex->SetProperty(prop_val, PropertyValue()));
+      ASSERT_NO_ERROR(vertex.SetProperty(prop_val, PropertyValue()));
     } else {
-      ASSERT_NO_ERROR(vertex->AddLabel(label1));
+      ASSERT_NO_ERROR(vertex.AddLabel(label1));
     }
   }
 
@@ -455,9 +455,9 @@ TEST_F(IndexTest, LabelPropertyIndexBasic) {
   EXPECT_THAT(GetIds(acc->Vertices(label2, prop_val, View::NEW), View::NEW), UnorderedElementsAre(0, 2, 4, 6, 8));
 
   for (auto vertex : acc->Vertices(View::OLD)) {
-    int64_t id = vertex->GetProperty(prop_id, View::OLD)->ValueInt();
+    int64_t id = vertex.GetProperty(prop_id, View::OLD)->ValueInt();
     if (id % 2 == 0) {
-      ASSERT_NO_ERROR(acc->DeleteVertex(vertex));
+      ASSERT_NO_ERROR(acc->DeleteVertex(&vertex));
     }
   }
 
@@ -481,8 +481,8 @@ TEST_F(IndexTest, LabelPropertyIndexDuplicateVersions) {
     auto acc = storage->Access();
     for (int i = 0; i < 5; ++i) {
       auto vertex = CreateVertex(acc.get());
-      ASSERT_NO_ERROR(vertex->AddLabel(label1));
-      ASSERT_NO_ERROR(vertex->SetProperty(prop_val, PropertyValue(i)));
+      ASSERT_NO_ERROR(vertex.AddLabel(label1));
+      ASSERT_NO_ERROR(vertex.SetProperty(prop_val, PropertyValue(i)));
     }
 
     EXPECT_THAT(GetIds(acc->Vertices(label1, prop_val, View::NEW), View::NEW), UnorderedElementsAre(0, 1, 2, 3, 4));
@@ -495,14 +495,14 @@ TEST_F(IndexTest, LabelPropertyIndexDuplicateVersions) {
     EXPECT_THAT(GetIds(acc->Vertices(label1, prop_val, View::OLD), View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4));
 
     for (auto vertex : acc->Vertices(View::OLD)) {
-      ASSERT_NO_ERROR(vertex->SetProperty(prop_val, PropertyValue()));
+      ASSERT_NO_ERROR(vertex.SetProperty(prop_val, PropertyValue()));
     }
 
     EXPECT_THAT(GetIds(acc->Vertices(label1, prop_val, View::OLD), View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4));
     EXPECT_THAT(GetIds(acc->Vertices(label1, prop_val, View::NEW), View::NEW), IsEmpty());
 
     for (auto vertex : acc->Vertices(View::OLD)) {
-      ASSERT_NO_ERROR(vertex->SetProperty(prop_val, PropertyValue(42)));
+      ASSERT_NO_ERROR(vertex.SetProperty(prop_val, PropertyValue(42)));
     }
     EXPECT_THAT(GetIds(acc->Vertices(label1, prop_val, View::OLD), View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4));
     EXPECT_THAT(GetIds(acc->Vertices(label1, prop_val, View::NEW), View::NEW), UnorderedElementsAre(0, 1, 2, 3, 4));
@@ -519,8 +519,8 @@ TEST_F(IndexTest, LabelPropertyIndexTransactionalIsolation) {
 
   for (int i = 0; i < 5; ++i) {
     auto vertex = CreateVertex(acc.get());
-    ASSERT_NO_ERROR(vertex->AddLabel(label1));
-    ASSERT_NO_ERROR(vertex->SetProperty(prop_val, PropertyValue(i)));
+    ASSERT_NO_ERROR(vertex.AddLabel(label1));
+    ASSERT_NO_ERROR(vertex.SetProperty(prop_val, PropertyValue(i)));
   }
 
   EXPECT_THAT(GetIds(acc->Vertices(label1, prop_val, View::NEW), View::NEW), UnorderedElementsAre(0, 1, 2, 3, 4));
@@ -552,8 +552,8 @@ TEST_F(IndexTest, LabelPropertyIndexFiltering) {
 
     for (int i = 0; i < 10; ++i) {
       auto vertex = CreateVertex(acc.get());
-      ASSERT_NO_ERROR(vertex->AddLabel(label1));
-      ASSERT_NO_ERROR(vertex->SetProperty(prop_val, i % 2 ? PropertyValue(i / 2) : PropertyValue(i / 2.0)));
+      ASSERT_NO_ERROR(vertex.AddLabel(label1));
+      ASSERT_NO_ERROR(vertex.SetProperty(prop_val, i % 2 ? PropertyValue(i / 2) : PropertyValue(i / 2.0)));
     }
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -609,8 +609,8 @@ TEST_F(IndexTest, LabelPropertyIndexCountEstimate) {
   for (int i = 1; i <= 10; ++i) {
     for (int j = 0; j < i; ++j) {
       auto vertex = CreateVertex(acc.get());
-      ASSERT_NO_ERROR(vertex->AddLabel(label1));
-      ASSERT_NO_ERROR(vertex->SetProperty(prop_val, PropertyValue(i)));
+      ASSERT_NO_ERROR(vertex.AddLabel(label1));
+      ASSERT_NO_ERROR(vertex.SetProperty(prop_val, PropertyValue(i)));
     }
   }
 
@@ -664,8 +664,8 @@ TEST_F(IndexTest, LabelPropertyIndexMixedIteration) {
     auto acc = storage->Access();
     for (const auto &value : values) {
       auto v = acc->CreateVertex();
-      ASSERT_TRUE(v->AddLabel(label1).HasValue());
-      ASSERT_TRUE(v->SetProperty(prop_val, value).HasValue());
+      ASSERT_TRUE(v.AddLabel(label1).HasValue());
+      ASSERT_TRUE(v.SetProperty(prop_val, value).HasValue());
     }
     ASSERT_FALSE(acc->Commit().HasError());
   }
@@ -678,7 +678,7 @@ TEST_F(IndexTest, LabelPropertyIndexMixedIteration) {
     for (const auto &value : values) {
       ASSERT_NE(it, iterable.end());
       auto vertex = *it;
-      auto maybe_value = vertex->GetProperty(prop_val, View::OLD);
+      auto maybe_value = vertex.GetProperty(prop_val, View::OLD);
       ASSERT_TRUE(maybe_value.HasValue());
       ASSERT_EQ(value, *maybe_value);
       ++it;
@@ -694,7 +694,7 @@ TEST_F(IndexTest, LabelPropertyIndexMixedIteration) {
     size_t i = 0;
     for (auto it = iterable.begin(); it != iterable.end(); ++it, ++i) {
       auto vertex = *it;
-      auto maybe_value = vertex->GetProperty(prop_val, View::OLD);
+      auto maybe_value = vertex.GetProperty(prop_val, View::OLD);
       ASSERT_TRUE(maybe_value.HasValue());
       ASSERT_EQ(*maybe_value, expected[i]);
     }

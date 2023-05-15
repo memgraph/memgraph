@@ -112,25 +112,37 @@ query::Graph *SubgraphDbAccessor::getGraph() { return graph_; }
 VertexAccessor SubgraphVertexAccessor::GetVertexAccessor() const { return impl_; }
 
 auto SubgraphVertexAccessor::OutEdges(storage::View view) const -> decltype(impl_.OutEdges(view)) {
-  auto edges = impl_.OutEdges(view, {});
-  std::vector<std::unique_ptr<storage::EdgeAccessor>> filteredOutEdges;
-  for (auto edge : *edges) {
-    if (graph_->ContainsEdge(edge)) {
-      filteredOutEdges.push_back(std::move(edge.impl_));
+  auto maybe_edges = impl_.impl_.OutEdges(view, {});
+  if (maybe_edges.HasError()) return maybe_edges.GetError();
+  auto edges = std::move(*maybe_edges);
+  const auto &graph_edges = graph_->edges();
+
+  std::vector<storage::EdgeAccessor> filteredOutEdges;
+  for (auto &edge : edges) {
+    auto edge_q = EdgeAccessor(edge);
+    if (graph_edges.contains(edge_q)) {
+      filteredOutEdges.push_back(edge);
     }
   }
+
   return iter::imap(VertexAccessor::MakeEdgeAccessor, std::move(filteredOutEdges));
 }
 
 auto SubgraphVertexAccessor::InEdges(storage::View view) const -> decltype(impl_.InEdges(view)) {
-  auto edges = impl_.InEdges(view, {});
-  std::vector<std::unique_ptr<storage::EdgeAccessor>> filteredEdges;
-  for (auto edge : *edges) {
-    if (graph_->ContainsEdge(edge)) {
-      filteredEdges.push_back(std::move(edge.impl_));
+  auto maybe_edges = impl_.impl_.InEdges(view, {});
+  if (maybe_edges.HasError()) return maybe_edges.GetError();
+  auto edges = std::move(*maybe_edges);
+  const auto &graph_edges = graph_->edges();
+
+  std::vector<storage::EdgeAccessor> filteredOutEdges;
+  for (auto &edge : edges) {
+    auto edge_q = EdgeAccessor(edge);
+    if (graph_edges.contains(edge_q)) {
+      filteredOutEdges.push_back(edge);
     }
   }
-  return iter::imap(VertexAccessor::MakeEdgeAccessor, std::move(filteredEdges));
+
+  return iter::imap(VertexAccessor::MakeEdgeAccessor, std::move(filteredOutEdges));
 }
 
 }  // namespace memgraph::query

@@ -54,6 +54,7 @@
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/message.hpp"
+#include "utils/pmr/deque.hpp"
 #include "utils/pmr/list.hpp"
 #include "utils/pmr/unordered_map.hpp"
 #include "utils/pmr/unordered_set.hpp"
