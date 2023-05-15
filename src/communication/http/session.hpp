@@ -37,6 +37,8 @@
 
 namespace memgraph::communication::http {
 namespace {
+inline constexpr uint16_t kSSLExpirySeconds = 30;
+
 void LogError(boost::beast::error_code ec, const std::string_view what) {
   spdlog::warn("HTTP session failed on {}: {}", what, ec.message());
 }
@@ -56,7 +58,7 @@ class Session : public std::enable_shared_from_this<Session<TRequestHandler, TSe
   void Run() {
     if (auto *ssl = std::get_if<SSLSocket>(&stream_); ssl != nullptr) {
       try {
-        boost::beast::get_lowest_layer(*ssl).expires_after(std::chrono::seconds(30));
+        boost::beast::get_lowest_layer(*ssl).expires_after(std::chrono::seconds(kSSLExpirySeconds));
         ssl->handshake(boost::asio::ssl::stream_base::server);
       } catch (const boost::system::system_error &e) {
         spdlog::warn("Failed on SSL handshake: {}", e.what());
@@ -108,7 +110,7 @@ class Session : public std::enable_shared_from_this<Session<TRequestHandler, TSe
     req_ = {};
 
     ExecuteForStream([this](auto &&stream) {
-      boost::beast::get_lowest_layer(stream).expires_after(std::chrono::seconds(30));
+      boost::beast::get_lowest_layer(stream).expires_after(std::chrono::seconds(kSSLExpirySeconds));
 
       boost::beast::http::async_read(
           stream, buffer_, req_,
