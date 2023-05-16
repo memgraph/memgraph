@@ -291,7 +291,7 @@ patternComprehension : '[' ( variable '=' )? relationshipsPattern ( WHERE expres
 
 propertyLookup : '.' ( propertyKeyName ) ;
 
-allPropertyLookup : '.' '*' ;
+allPropertiesLookup : '.' '*' ;
 
 caseExpression : ( ( CASE ( caseAlternatives )+ ) | ( CASE test=expression ( caseAlternatives )+ ) ) ( ELSE else_expression=expression )? END ;
 
@@ -308,7 +308,7 @@ mapLiteral : '{' ( propertyKeyName ':' expression ( ',' propertyKeyName ':' expr
 mapProjectionLiteral : variable '{' ( mapElement ( ',' mapElement )* )? '}' ;
 
 mapElement : propertyLookup
-           | allPropertyLookup
+           | allPropertiesLookup
            | variable
            | propertyKeyValuePair
            ;

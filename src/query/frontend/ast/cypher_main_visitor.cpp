@@ -1706,22 +1706,22 @@ antlrcpp::Any CypherMainVisitor::visitMapProjectionLiteral(MemgraphCypher::MapPr
       auto key = std::any_cast<PropertyIx>(map_el->propertyLookup()->propertyKeyName()->accept(this));
       auto property = std::any_cast<PropertyIx>(map_el->propertyLookup()->accept(this));
       auto *property_lookup = storage_->Create<PropertyLookup>(map_projection_data.map_variable, property);
-      map_projection_data.elements.insert({key, property_lookup});
+      map_projection_data.elements.insert_or_assign(key, property_lookup);
     }
-    if (map_el->allPropertyLookup()) {
+    if (map_el->allPropertiesLookup()) {
       auto key = AddProperty("*");
-      // TODO implement AllPropertyLookup
-      map_projection_data.elements.insert({key, nullptr});
+      auto *all_properties_lookup = storage_->Create<AllPropertiesLookup>(map_projection_data.map_variable);
+      map_projection_data.elements.insert_or_assign(key, all_properties_lookup);
     }
     if (map_el->variable()) {
       auto key = AddProperty(std::any_cast<std::string>(map_el->variable()->accept(this)));
       auto *variable = storage_->Create<Identifier>(std::any_cast<std::string>(map_el->variable()->accept(this)));
-      map_projection_data.elements.insert({key, variable});
+      map_projection_data.elements.insert_or_assign(key, variable);
     }
     if (map_el->propertyKeyValuePair()) {
       auto key = std::any_cast<PropertyIx>(map_el->propertyKeyValuePair()->propertyKeyName()->accept(this));
       auto *value = std::any_cast<Expression *>(map_el->propertyKeyValuePair()->expression()->accept(this));
-      map_projection_data.elements.insert({key, value});
+      map_projection_data.elements.insert_or_assign(key, value);
     }
   }
 
@@ -2252,7 +2252,6 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
     auto *where = std::any_cast<Where *>(ctx->filterExpression()->where()->accept(this));
     return static_cast<Expression *>(storage_->Create<None>(ident, list_expr, where));
   } else if (ctx->REDUCE()) {
-    // ctx->reduceExpression()->variable()
     auto *accumulator =
         storage_->Create<Identifier>(std::any_cast<std::string>(ctx->reduceExpression()->accumulator->accept(this)));
     auto *initializer = std::any_cast<Expression *>(ctx->reduceExpression()->initial->accept(this));
@@ -2311,8 +2310,8 @@ antlrcpp::Any CypherMainVisitor::visitLiteral(MemgraphCypher::LiteralContext *ct
         storage_->Create<ListLiteral>(std::any_cast<std::vector<Expression *>>(ctx->listLiteral()->accept(this))));
   } else if (ctx->mapProjectionLiteral()) {
     auto map_projection_data = std::any_cast<MapProjectionData>(ctx->mapProjectionLiteral()->accept(this));
-    return static_cast<Expression *>(
-        storage_->Create<MapProjectionLiteral>(map_projection_data.map_variable, map_projection_data.elements));
+    return static_cast<Expression *>(storage_->Create<MapProjectionLiteral>(map_projection_data.map_variable,
+                                                                            std::move(map_projection_data.elements)));
   } else {
     return static_cast<Expression *>(storage_->Create<MapLiteral>(
         std::any_cast<std::unordered_map<PropertyIx, Expression *>>(ctx->mapLiteral()->accept(this))));
