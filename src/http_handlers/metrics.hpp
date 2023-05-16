@@ -96,7 +96,7 @@ class MetricsService {
   query::Interpreter interpreter_;
 
   auto GetEventCounters() {
-    std::vector<std::tuple<std::string, std::string, uint64_t>> event_counters;
+    std::vector<std::tuple<std::string, std::string, uint64_t>> event_counters{};
     event_counters.reserve(memgraph::metrics::CounterEnd());
 
     for (auto i = 0; i < memgraph::metrics::CounterEnd(); i++) {
@@ -108,7 +108,7 @@ class MetricsService {
   }
 
   auto GetEventGauges() {
-    std::vector<std::tuple<std::string, std::string, uint64_t>> event_gauges;
+    std::vector<std::tuple<std::string, std::string, uint64_t>> event_gauges{};
     event_gauges.reserve(memgraph::metrics::GaugeEnd());
 
     for (auto i = 0; i < memgraph::metrics::GaugeEnd(); i++) {
@@ -120,7 +120,7 @@ class MetricsService {
   }
 
   auto GetEventHistograms() {
-    std::vector<std::tuple<std::string, std::string, uint64_t>> event_histograms;
+    std::vector<std::tuple<std::string, std::string, uint64_t>> event_histograms{};
     event_histograms.reserve(memgraph::metrics::HistogramEnd());
 
     for (auto i = 0; i < memgraph::metrics::HistogramEnd(); i++) {
