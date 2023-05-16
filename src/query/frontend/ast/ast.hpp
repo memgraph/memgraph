@@ -2985,7 +2985,7 @@ class LockPathQuery : public memgraph::query::Query {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class Action { LOCK_PATH, UNLOCK_PATH };
+  enum class Action { LOCK_PATH, UNLOCK_PATH, STATUS };
 
   LockPathQuery() = default;
 
