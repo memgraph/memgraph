@@ -44,6 +44,7 @@
 #include "query/frontend/semantic/required_privileges.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/interpret/eval.hpp"
+#include "query/interpret/frame.hpp"
 #include "query/metadata.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/profile.hpp"
@@ -983,7 +984,8 @@ struct PullPlan {
                     DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                     std::optional<std::string> username, std::atomic<TransactionStatus> *transaction_status,
                     TriggerContextCollector *trigger_context_collector = nullptr,
-                    std::optional<size_t> memory_limit = {}, bool use_monotonic_memory = true);
+                    std::optional<size_t> memory_limit = {}, bool use_monotonic_memory = true,
+                    FrameChangeCollector *frame_change_collector_ = nullptr);
 
   std::optional<plan::ProfilingStatsWithTotalTime> Pull(AnyStream *stream, std::optional<int> n,
                                                         const std::vector<Symbol> &output_symbols,
@@ -1021,7 +1023,7 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                    std::optional<std::string> username, std::atomic<TransactionStatus> *transaction_status,
                    TriggerContextCollector *trigger_context_collector, const std::optional<size_t> memory_limit,
-                   bool use_monotonic_memory)
+                   bool use_monotonic_memory, FrameChangeCollector *frame_change_collector)
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory)),
       frame_(plan->symbol_table().max_position(), execution_memory),
@@ -1052,6 +1054,7 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
   ctx_.transaction_status = transaction_status;
   ctx_.is_profile_query = is_profile_query;
   ctx_.trigger_context_collector = trigger_context_collector;
+  ctx_.frame_change_collector = frame_change_collector;
 }
 
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
@@ -1228,18 +1231,25 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                  InterpreterContext *interpreter_context, DbAccessor *dba,
                                  utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
                                  const std::string *username, std::atomic<TransactionStatus> *transaction_status,
-                                 TriggerContextCollector *trigger_context_collector = nullptr) {
+                                 TriggerContextCollector *trigger_context_collector = nullptr,
+                                 FrameChangeCollector *frame_change_collector = nullptr) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
   for (const auto &tree : parsed_query.ast_storage.storage_) {
     if (tree->GetTypeInfo() == memgraph::query::InListOperator::kType) {
       std::cout << "we have in list operator" << std::endl;
       if (auto *inListoperator = utils::Downcast<InListOperator>(tree.get())) {
         if (inListoperator->expression2_->GetTypeInfo() == ListLiteral::kType) {
-          std::cout << "we list literal" << std::endl;
+          std::stringstream ss;
+          ss << static_cast<const void *>(tree.get());
+          if (frame_change_collector) frame_change_collector->AddTrackingValue(ss.str());
+          std::cout << "we use in list literal" << std::endl;
         } else if (inListoperator->expression2_->GetTypeInfo() == Identifier::kType) {
-          std::cout << "we have identifier" << std::endl;
+          auto *identifier = utils::Downcast<Identifier>(inListoperator->expression2_);
+          if (frame_change_collector) frame_change_collector->AddTrackingValue(identifier->name_);
+          std::cout << "we are tracking identifier" << std::endl;
         } else {
-          throw QueryException("");
+          std::cout << inListoperator->expression2_->GetTypeInfo().name << std::endl;
+          throw QueryException("Wrong operator in list");
         }
       }
     }
@@ -1288,9 +1298,10 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
     header.push_back(
         utils::FindOr(parsed_query.stripped_query.named_expressions(), symbol.token_position(), symbol.name()).first);
   }
-  auto pull_plan = std::make_shared<PullPlan>(plan, parsed_query.parameters, false, dba, interpreter_context,
-                                              execution_memory, StringPointerToOptional(username), transaction_status,
-                                              trigger_context_collector, memory_limit, use_monotonic_memory);
+  auto pull_plan =
+      std::make_shared<PullPlan>(plan, parsed_query.parameters, false, dba, interpreter_context, execution_memory,
+                                 StringPointerToOptional(username), transaction_status, trigger_context_collector,
+                                 memory_limit, use_monotonic_memory, frame_change_collector);
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
                        [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary](
                            AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
@@ -2779,11 +2790,13 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     utils::MemoryResource *memory_resource =
         std::visit([](auto &execution_memory) -> utils::MemoryResource * { return &execution_memory; },
                    query_execution->execution_memory);
+    frame_change_collector_.reset();
+    frame_change_collector_.emplace(memory_resource);
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
-      prepared_query =
-          PrepareCypherQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
-                             &*execution_db_accessor_, memory_resource, &query_execution->notifications, username,
-                             &transaction_status_, trigger_context_collector_ ? &*trigger_context_collector_ : nullptr);
+      prepared_query = PrepareCypherQuery(
+          std::move(parsed_query), &query_execution->summary, interpreter_context_, &*execution_db_accessor_,
+          memory_resource, &query_execution->notifications, username, &transaction_status_,
+          trigger_context_collector_ ? &*trigger_context_collector_ : nullptr, &*frame_change_collector_);
     } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
       prepared_query = PrepareExplainQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
                                            &*execution_db_accessor_, &query_execution->execution_memory_with_exception);
