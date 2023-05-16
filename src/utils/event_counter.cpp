@@ -11,6 +11,7 @@
 
 #include "utils/event_counter.hpp"
 
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define APPLY_FOR_COUNTERS(M)                                                                                        \
   M(ReadQuery, QueryType, "Number of read-only queries executed.")                                                   \
   M(WriteQuery, QueryType, "Number of write-only queries executed.")                                                 \

@@ -11,6 +11,7 @@
 
 #include "utils/event_histogram.hpp"
 
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define APPLY_FOR_HISTOGRAMS(M)                                                             \
   M(QueryExecutionLatency_us, Query, "Query execution latency in microseconds", 50, 90, 99) \
   M(SnapshotCreationLatency_us, Snapshot, "Snapshot creation latency in microseconds", 50, 90, 99)
