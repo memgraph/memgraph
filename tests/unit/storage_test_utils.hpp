@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,8 +15,6 @@
 #include "storage/v2/view.hpp"
 
 size_t CountVertices(memgraph::storage::Storage::Accessor &storage_accessor, memgraph::storage::View view);
-
-std::string_view StorageModeToString(memgraph::storage::StorageMode storage_mode);
 
 inline constexpr std::array storage_modes{memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL,
                                           memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
