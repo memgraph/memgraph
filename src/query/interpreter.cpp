@@ -1067,16 +1067,18 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   utils::ResourceWithOutOfMemoryException resource_with_exception;
   utils::MonotonicBufferResource monotonic_memory{&stack_data[0], stack_size, &resource_with_exception};
   std::optional<utils::PoolResource> pool_memory;
+  static constexpr auto kMaxBlockPerChunks = 128;
 
   if (!use_monotonic_memory_) {
-    pool_memory.emplace(8, kExecutionPoolMaxBlockSize, utils::NewDeleteResource(), utils::NewDeleteResource());
+    pool_memory.emplace(kMaxBlockPerChunks, kExecutionPoolMaxBlockSize, &resource_with_exception,
+                        &resource_with_exception);
   } else {
     // We can throw on every query because a simple queries for deleting will use only
     // the stack allocated buffer.
     // Also, we want to throw only when the query engine requests more memory and not the storage
     // so we add the exception to the allocator.
     // TODO (mferencevic): Tune the parameters accordingly.
-    pool_memory.emplace(128, 1024, &monotonic_memory, utils::NewDeleteResource());
+    pool_memory.emplace(kMaxBlockPerChunks, 1024, &monotonic_memory, &resource_with_exception);
   }
 
   std::optional<utils::LimitedMemoryResource> maybe_limited_resource;
@@ -1376,6 +1378,16 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                  &interpreter_context->ast_cache, interpreter_context->config.query);
 
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
+
+  bool contains_csv = false;
+  auto clauses = cypher_query->single_query_->clauses_;
+  if (std::any_of(clauses.begin(), clauses.end(),
+                  [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
+    contains_csv = true;
+  }
+  // If this is LOAD CSV query, use PoolResource without MonotonicMemoryResource as we want to reuse allocated memory
+  auto use_monotonic_memory = !contains_csv;
+
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in PROFILE");
   Frame frame(0);
   SymbolTable symbol_table;
@@ -1400,14 +1412,14 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                         // We want to execute the query we are profiling lazily, so we delay
                         // the construction of the corresponding context.
                         stats_and_total_time = std::optional<plan::ProfilingStatsWithTotalTime>{},
-                        pull_plan = std::shared_ptr<PullPlanVector>(nullptr), transaction_status](
+                        pull_plan = std::shared_ptr<PullPlanVector>(nullptr), transaction_status, use_monotonic_memory](
                            AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
                          // No output symbols are given so that nothing is streamed.
                          if (!stats_and_total_time) {
-                           stats_and_total_time =
-                               PullPlan(plan, parameters, true, dba, interpreter_context, execution_memory,
-                                        optional_username, transaction_status, nullptr, memory_limit)
-                                   .Pull(stream, {}, {}, summary);
+                           stats_and_total_time = PullPlan(plan, parameters, true, dba, interpreter_context,
+                                                           execution_memory, optional_username, transaction_status,
+                                                           nullptr, memory_limit, use_monotonic_memory)
+                                                      .Pull(stream, {}, {}, summary);
                            pull_plan = std::make_shared<PullPlanVector>(ProfilingStatsToTable(*stats_and_total_time));
                          }
 
@@ -2731,8 +2743,15 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         ParseQuery(query_string, params, &interpreter_context_->ast_cache, interpreter_context_->config.query);
     TypedValue parsing_time{parsing_timer.Elapsed().count()};
 
-    if (utils::Downcast<CypherQuery>(parsed_query.query)) {
-      auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
+    if ((utils::Downcast<CypherQuery>(parsed_query.query) || utils::Downcast<ProfileQuery>(parsed_query.query))) {
+      CypherQuery *cypher_query = nullptr;
+      if (utils::Downcast<CypherQuery>(parsed_query.query)) {
+        cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
+      } else {
+        auto *profile_query = utils::Downcast<ProfileQuery>(parsed_query.query);
+        cypher_query = profile_query->cypher_query_;
+      }
+
       if (const auto &clauses = cypher_query->single_query_->clauses_;
           std::any_of(clauses.begin(), clauses.end(),
                       [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
