@@ -418,43 +418,18 @@ class DiskStorage final : public Storage {
 
   bool ShouldStoreAndRestoreReplicas() const;
 
-  // Main storage lock.
-  //
-  // Accessors take a shared lock when starting, so it is possible to block
-  // creation of new accessors by taking a unique lock. This is used when doing
-  // operations on storage that affect the global state, for example index
-  // creation.
-  mutable utils::RWLock main_lock_{utils::RWLock::Priority::WRITE};
-
-  utils::SkipList<storage::Vertex> vertices_;
-  utils::SkipList<storage::Edge> edges_;
-  std::atomic<uint64_t> vertex_id_{0};
-  std::atomic<uint64_t> edge_id_{0};
-  // Even though the edge count is already kept in the `edges_` SkipList, the
-  // list is used only when properties are enabled for edges. Because of that we
-  // keep a separate count of edges that is always updated.
-  std::atomic<uint64_t> edge_count_{0};
-
-  NameIdMapper name_id_mapper_;
-
   Constraints constraints_;
   Indices indices_;
+  IsolationLevel isolation_level_;
+  StorageMode storage_mode_;
+  Config config_;
 
-  // Transaction engine
-  utils::SpinLock engine_lock_;
-  uint64_t timestamp_{kTimestampInitialId};
-  uint64_t transaction_id_{kTransactionInitialId};
   // TODO: This isn't really a commit log, it doesn't even care if a
   // transaction commited or aborted. We could probably combine this with
   // `timestamp_` in a sensible unit, something like TransactionClock or
   // whatever.
   std::optional<CommitLog> commit_log_;
-
   utils::Synchronized<std::list<Transaction>, utils::SpinLock> committed_transactions_;
-  IsolationLevel isolation_level_;
-  StorageMode storage_mode_;
-
-  Config config_;
   utils::Scheduler gc_runner_;
   std::mutex gc_lock_;
 
@@ -472,52 +447,6 @@ class DiskStorage final : public Storage {
   // Edges that are logically deleted and wait to be removed from the main
   // storage.
   utils::Synchronized<std::list<Gid>, utils::SpinLock> deleted_edges_;
-
-  // Durability
-  std::filesystem::path snapshot_directory_;
-  std::filesystem::path wal_directory_;
-  std::filesystem::path lock_file_path_;
-  utils::OutputFile lock_file_handle_;
-  std::unique_ptr<kvstore::KVStore> storage_;
-
-  utils::Scheduler snapshot_runner_;
-  utils::SpinLock snapshot_lock_;
-
-  // UUID used to distinguish snapshots and to link snapshots to WALs
-  std::string uuid_;
-  // Sequence number used to keep track of the chain of WALs.
-  uint64_t wal_seq_num_{0};
-
-  // UUID to distinguish different main instance runs for replication process
-  // on SAME storage.
-  // Multiple instances can have same storage UUID and be MAIN at the same time.
-  // We cannot compare commit timestamps of those instances if one of them
-  // becomes the replica of the other so we use epoch_id_ as additional
-  // discriminating property.
-  // Example of this:
-  // We have 2 instances of the same storage, S1 and S2.
-  // S1 and S2 are MAIN and accept their own commits and write them to the WAL.
-  // At the moment when S1 commited a transaction with timestamp 20, and S2
-  // a different transaction with timestamp 15, we change S2's role to REPLICA
-  // and register it on S1.
-  // Without using the epoch_id, we don't know that S1 and S2 have completely
-  // different transactions, we think that the S2 is behind only by 5 commits.
-  std::string epoch_id_;
-  // History of the previous epoch ids.
-  // Each value consists of the epoch id along the last commit belonging to that
-  // epoch.
-  std::deque<std::pair<std::string, uint64_t>> epoch_history_;
-
-  std::optional<durability::WalFile> wal_file_;
-  uint64_t wal_unsynced_transactions_{0};
-
-  utils::FileRetainer file_retainer_;
-
-  // Global locker that is used for clients file locking
-  utils::FileRetainer::FileLocker global_locker_;
-
-  // Last commited timestamp
-  std::atomic<uint64_t> last_commit_timestamp_{kTimestampInitialId};
 
   // class ReplicationServer;
   // std::unique_ptr<ReplicationServer> replication_server_{nullptr};

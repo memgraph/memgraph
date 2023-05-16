@@ -85,16 +85,11 @@ inline constexpr uint16_t kEpochHistoryRetention = 1000;
 
 /// TODO: indices should be initialized at some point after
 DiskStorage::DiskStorage(Config config)
-    : indices_(&constraints_, config.items),
+    : Storage(config),
+      indices_(&constraints_, config.items),
       isolation_level_(IsolationLevel::SNAPSHOT_ISOLATION),
       storage_mode_(StorageMode::IN_MEMORY_TRANSACTIONAL),
-      config_(config),
-      snapshot_directory_(config_.durability.storage_directory / durability::kSnapshotDirectory),
-      wal_directory_(config_.durability.storage_directory / durability::kWalDirectory),
-      lock_file_path_(config_.durability.storage_directory / durability::kLockFile),
-      uuid_(utils::GenerateUUID()),
-      epoch_id_(utils::GenerateUUID()),
-      global_locker_(file_retainer_.AddLocker()) {
+      config_(config) {
   if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED
       /// TODO(andi): When replication support will be added, uncomment this.
       // && replication_role_ == ReplicationRole::MAIN) {
