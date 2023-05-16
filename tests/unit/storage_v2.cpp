@@ -14,19 +14,32 @@
 
 #include <limits>
 
+#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/storage.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage_test_utils.hpp"
 
+using testing::Types;
 using testing::UnorderedElementsAre;
 
+template <typename StorageType>
+class StorageV2Test : public testing::Test {
+ public:
+  StorageV2Test() : store{new StorageType()} {}
+
+  std::unique_ptr<memgraph::storage::Storage> store;
+};
+
+typedef testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage> StorageTypes;
+TYPED_TEST_CASE(StorageV2Test, StorageTypes);
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, Commit) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+TYPED_TEST(StorageV2Test, Commit) {
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
     ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::OLD).has_value());
@@ -36,7 +49,7 @@ TEST(StorageV2, Commit) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     ASSERT_TRUE(acc->FindVertex(gid, memgraph::storage::View::OLD).has_value());
     EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 1U);
     ASSERT_TRUE(acc->FindVertex(gid, memgraph::storage::View::NEW).has_value());
@@ -44,7 +57,7 @@ TEST(StorageV2, Commit) {
     acc->Abort();
   }
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
 
@@ -60,7 +73,7 @@ TEST(StorageV2, Commit) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::OLD).has_value());
     EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 0U);
     ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::NEW).has_value());
@@ -70,11 +83,10 @@ TEST(StorageV2, Commit) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, Abort) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+TYPED_TEST(StorageV2Test, Abort) {
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
     ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::OLD).has_value());
@@ -84,7 +96,7 @@ TEST(StorageV2, Abort) {
     acc->Abort();
   }
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::OLD).has_value());
     EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 0U);
     ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::NEW).has_value());
@@ -94,12 +106,11 @@ TEST(StorageV2, Abort) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, AdvanceCommandCommit) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+TYPED_TEST(StorageV2Test, AdvanceCommandCommit) {
   memgraph::storage::Gid gid1 = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   memgraph::storage::Gid gid2 = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
 
     auto vertex1 = acc->CreateVertex();
     gid1 = vertex1.Gid();
@@ -123,7 +134,7 @@ TEST(StorageV2, AdvanceCommandCommit) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     ASSERT_TRUE(acc->FindVertex(gid1, memgraph::storage::View::OLD).has_value());
     ASSERT_TRUE(acc->FindVertex(gid1, memgraph::storage::View::NEW).has_value());
     ASSERT_TRUE(acc->FindVertex(gid2, memgraph::storage::View::OLD).has_value());
@@ -135,12 +146,11 @@ TEST(StorageV2, AdvanceCommandCommit) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, AdvanceCommandAbort) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+TYPED_TEST(StorageV2Test, AdvanceCommandAbort) {
   memgraph::storage::Gid gid1 = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   memgraph::storage::Gid gid2 = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
 
     auto vertex1 = acc->CreateVertex();
     gid1 = vertex1.Gid();
@@ -164,7 +174,7 @@ TEST(StorageV2, AdvanceCommandAbort) {
     acc->Abort();
   }
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     ASSERT_FALSE(acc->FindVertex(gid1, memgraph::storage::View::OLD).has_value());
     ASSERT_FALSE(acc->FindVertex(gid1, memgraph::storage::View::NEW).has_value());
     ASSERT_FALSE(acc->FindVertex(gid2, memgraph::storage::View::OLD).has_value());
@@ -176,11 +186,9 @@ TEST(StorageV2, AdvanceCommandAbort) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, SnapshotIsolation) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
-
-  auto acc1 = store->Access();
-  auto acc2 = store->Access();
+TYPED_TEST(StorageV2Test, SnapshotIsolation) {
+  auto acc1 = this->store->Access();
+  auto acc2 = this->store->Access();
 
   auto vertex = acc1->CreateVertex();
   auto gid = vertex.Gid();
@@ -201,7 +209,7 @@ TEST(StorageV2, SnapshotIsolation) {
 
   acc2->Abort();
 
-  auto acc3 = store->Access();
+  auto acc3 = this->store->Access();
   ASSERT_TRUE(acc3->FindVertex(gid, memgraph::storage::View::OLD).has_value());
   EXPECT_EQ(CountVertices(*acc3, memgraph::storage::View::OLD), 1U);
   ASSERT_TRUE(acc3->FindVertex(gid, memgraph::storage::View::NEW).has_value());
@@ -210,11 +218,10 @@ TEST(StorageV2, SnapshotIsolation) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, AccessorMove) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+TYPED_TEST(StorageV2Test, AccessorMove) {
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
 
@@ -233,7 +240,7 @@ TEST(StorageV2, AccessorMove) {
     ASSERT_FALSE(moved->Commit().HasError());
   }
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     ASSERT_TRUE(acc->FindVertex(gid, memgraph::storage::View::OLD).has_value());
     EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 1U);
     ASSERT_TRUE(acc->FindVertex(gid, memgraph::storage::View::NEW).has_value());
@@ -243,12 +250,10 @@ TEST(StorageV2, AccessorMove) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, VertexDeleteCommit) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+TYPED_TEST(StorageV2Test, VertexDeleteCommit) {
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
-
-  auto acc1 = store->Access();  // read transaction
-  auto acc2 = store->Access();  // write transaction
+  auto acc1 = this->store->Access();  // read transaction
+  auto acc2 = this->store->Access();  // write transaction
 
   // Create the vertex in transaction 2
   {
@@ -261,8 +266,8 @@ TEST(StorageV2, VertexDeleteCommit) {
     ASSERT_FALSE(acc2->Commit().HasError());
   }
 
-  auto acc3 = store->Access();  // read transaction
-  auto acc4 = store->Access();  // write transaction
+  auto acc3 = this->store->Access();  // read transaction
+  auto acc4 = this->store->Access();  // write transaction
 
   // Check whether the vertex exists in transaction 1
   ASSERT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::OLD).has_value());
@@ -295,7 +300,7 @@ TEST(StorageV2, VertexDeleteCommit) {
     ASSERT_FALSE(acc4->Commit().HasError());
   }
 
-  auto acc5 = store->Access();  // read transaction
+  auto acc5 = this->store->Access();  // read transaction
 
   // Check whether the vertex exists in transaction 1
   ASSERT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::OLD).has_value());
@@ -317,12 +322,11 @@ TEST(StorageV2, VertexDeleteCommit) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, VertexDeleteAbort) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+TYPED_TEST(StorageV2Test, VertexDeleteAbort) {
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
-  auto acc1 = store->Access();  // read transaction
-  auto acc2 = store->Access();  // write transaction
+  auto acc1 = this->store->Access();  // read transaction
+  auto acc2 = this->store->Access();  // write transaction
 
   // Create the vertex in transaction 2
   {
@@ -335,8 +339,8 @@ TEST(StorageV2, VertexDeleteAbort) {
     ASSERT_FALSE(acc2->Commit().HasError());
   }
 
-  auto acc3 = store->Access();  // read transaction
-  auto acc4 = store->Access();  // write transaction (aborted)
+  auto acc3 = this->store->Access();  // read transaction
+  auto acc4 = this->store->Access();  // write transaction (aborted)
 
   // Check whether the vertex exists in transaction 1
   ASSERT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::OLD).has_value());
@@ -369,8 +373,8 @@ TEST(StorageV2, VertexDeleteAbort) {
     acc4->Abort();
   }
 
-  auto acc5 = store->Access();  // read transaction
-  auto acc6 = store->Access();  // write transaction
+  auto acc5 = this->store->Access();  // read transaction
+  auto acc6 = this->store->Access();  // write transaction
 
   // Check whether the vertex exists in transaction 1
   ASSERT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::OLD).has_value());
@@ -409,7 +413,7 @@ TEST(StorageV2, VertexDeleteAbort) {
     ASSERT_FALSE(acc6->Commit().HasError());
   }
 
-  auto acc7 = store->Access();  // read transaction
+  auto acc7 = this->store->Access();  // read transaction
 
   // Check whether the vertex exists in transaction 1
   ASSERT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::OLD).has_value());
@@ -443,20 +447,19 @@ TEST(StorageV2, VertexDeleteAbort) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, VertexDeleteSerializationError) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+TYPED_TEST(StorageV2Test, VertexDeleteSerializationError) {
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create vertex
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
-  auto acc1 = store->Access();
-  auto acc2 = store->Access();
+  auto acc1 = this->store->Access();
+  auto acc2 = this->store->Access();
 
   // Delete vertex in accessor 1
   {
@@ -508,7 +511,7 @@ TEST(StorageV2, VertexDeleteSerializationError) {
 
   // Check whether the vertex exists
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_FALSE(vertex);
     EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 0U);
@@ -518,15 +521,14 @@ TEST(StorageV2, VertexDeleteSerializationError) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, VertexDeleteSpecialCases) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+TYPED_TEST(StorageV2Test, VertexDeleteSpecialCases) {
   memgraph::storage::Gid gid1 = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   memgraph::storage::Gid gid2 = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create vertex and delete it in the same transaction, but abort the
   // transaction
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid1 = vertex.Gid();
     ASSERT_FALSE(acc->FindVertex(gid1, memgraph::storage::View::OLD).has_value());
@@ -546,7 +548,7 @@ TEST(StorageV2, VertexDeleteSpecialCases) {
 
   // Create vertex and delete it in the same transaction
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid2 = vertex.Gid();
     ASSERT_FALSE(acc->FindVertex(gid2, memgraph::storage::View::OLD).has_value());
@@ -566,7 +568,7 @@ TEST(StorageV2, VertexDeleteSpecialCases) {
 
   // Check whether the vertices exist
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     ASSERT_FALSE(acc->FindVertex(gid1, memgraph::storage::View::OLD).has_value());
     ASSERT_FALSE(acc->FindVertex(gid1, memgraph::storage::View::NEW).has_value());
     ASSERT_FALSE(acc->FindVertex(gid2, memgraph::storage::View::OLD).has_value());
@@ -578,13 +580,12 @@ TEST(StorageV2, VertexDeleteSpecialCases) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, VertexDeleteLabel) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+TYPED_TEST(StorageV2Test, VertexDeleteLabel) {
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create the vertex
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
     ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::OLD).has_value());
@@ -594,7 +595,7 @@ TEST(StorageV2, VertexDeleteLabel) {
 
   // Add label, delete the vertex and check the label API (same command)
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
 
@@ -648,7 +649,7 @@ TEST(StorageV2, VertexDeleteLabel) {
 
   // Add label, delete the vertex and check the label API (different command)
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
 
@@ -734,13 +735,12 @@ TEST(StorageV2, VertexDeleteLabel) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, VertexDeleteProperty) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+TYPED_TEST(StorageV2Test, VertexDeleteProperty) {
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create the vertex
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
     ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::OLD).has_value());
@@ -750,7 +750,7 @@ TEST(StorageV2, VertexDeleteProperty) {
 
   // Set property, delete the vertex and check the property API (same command)
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
 
@@ -798,7 +798,7 @@ TEST(StorageV2, VertexDeleteProperty) {
   // Set property, delete the vertex and check the property API (different
   // command)
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
 
@@ -877,11 +877,11 @@ TEST(StorageV2, VertexDeleteProperty) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, VertexLabelCommit) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+TYPED_TEST(StorageV2Test, VertexLabelCommit) {
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
 
@@ -912,7 +912,7 @@ TEST(StorageV2, VertexLabelCommit) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -940,7 +940,7 @@ TEST(StorageV2, VertexLabelCommit) {
     acc->Abort();
   }
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -971,7 +971,7 @@ TEST(StorageV2, VertexLabelCommit) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -992,13 +992,12 @@ TEST(StorageV2, VertexLabelCommit) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, VertexLabelAbort) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+TYPED_TEST(StorageV2Test, VertexLabelAbort) {
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create the vertex.
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
     ASSERT_FALSE(acc->Commit().HasError());
@@ -1006,7 +1005,7 @@ TEST(StorageV2, VertexLabelAbort) {
 
   // Add label 5, but abort the transaction.
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1039,7 +1038,7 @@ TEST(StorageV2, VertexLabelAbort) {
 
   // Check that label 5 doesn't exist.
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1060,7 +1059,7 @@ TEST(StorageV2, VertexLabelAbort) {
 
   // Add label 5.
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1093,7 +1092,7 @@ TEST(StorageV2, VertexLabelAbort) {
 
   // Check that label 5 exists.
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1123,7 +1122,7 @@ TEST(StorageV2, VertexLabelAbort) {
 
   // Remove label 5, but abort the transaction.
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1156,7 +1155,7 @@ TEST(StorageV2, VertexLabelAbort) {
 
   // Check that label 5 exists.
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1186,7 +1185,7 @@ TEST(StorageV2, VertexLabelAbort) {
 
   // Remove label 5.
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1219,7 +1218,7 @@ TEST(StorageV2, VertexLabelAbort) {
 
   // Check that label 5 doesn't exist.
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1240,18 +1239,17 @@ TEST(StorageV2, VertexLabelAbort) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, VertexLabelSerializationError) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+TYPED_TEST(StorageV2Test, VertexLabelSerializationError) {
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
-  auto acc1 = store->Access();
-  auto acc2 = store->Access();
+  auto acc1 = this->store->Access();
+  auto acc2 = this->store->Access();
 
   // Add label 1 in accessor 1.
   {
@@ -1320,7 +1318,7 @@ TEST(StorageV2, VertexLabelSerializationError) {
 
   // Check which labels exist.
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1348,11 +1346,10 @@ TEST(StorageV2, VertexLabelSerializationError) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, VertexPropertyCommit) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+TYPED_TEST(StorageV2Test, VertexPropertyCommit) {
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
 
@@ -1390,7 +1387,7 @@ TEST(StorageV2, VertexPropertyCommit) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1418,7 +1415,7 @@ TEST(StorageV2, VertexPropertyCommit) {
     acc->Abort();
   }
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1449,7 +1446,7 @@ TEST(StorageV2, VertexPropertyCommit) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1470,13 +1467,12 @@ TEST(StorageV2, VertexPropertyCommit) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, VertexPropertyAbort) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+TYPED_TEST(StorageV2Test, VertexPropertyAbort) {
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create the vertex.
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
     ASSERT_FALSE(acc->Commit().HasError());
@@ -1484,7 +1480,7 @@ TEST(StorageV2, VertexPropertyAbort) {
 
   // Set property 5 to "nandare", but abort the transaction.
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1524,7 +1520,7 @@ TEST(StorageV2, VertexPropertyAbort) {
 
   // Check that property 5 is null.
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1545,7 +1541,7 @@ TEST(StorageV2, VertexPropertyAbort) {
 
   // Set property 5 to "nandare".
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1585,7 +1581,7 @@ TEST(StorageV2, VertexPropertyAbort) {
 
   // Check that property 5 is "nandare".
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1615,7 +1611,7 @@ TEST(StorageV2, VertexPropertyAbort) {
 
   // Set property 5 to null, but abort the transaction.
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1656,7 +1652,7 @@ TEST(StorageV2, VertexPropertyAbort) {
 
   // Check that property 5 is "nandare".
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1686,7 +1682,7 @@ TEST(StorageV2, VertexPropertyAbort) {
 
   // Set property 5 to null.
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1727,7 +1723,7 @@ TEST(StorageV2, VertexPropertyAbort) {
 
   // Check that property 5 is null.
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1748,18 +1744,17 @@ TEST(StorageV2, VertexPropertyAbort) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, VertexPropertySerializationError) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+TYPED_TEST(StorageV2Test, VertexPropertySerializationError) {
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
-  auto acc1 = store->Access();
-  auto acc2 = store->Access();
+  auto acc1 = this->store->Access();
+  auto acc2 = this->store->Access();
 
   // Set property 1 to 123 in accessor 1.
   {
@@ -1822,7 +1817,7 @@ TEST(StorageV2, VertexPropertySerializationError) {
 
   // Check which properties exist.
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1850,9 +1845,8 @@ TEST(StorageV2, VertexPropertySerializationError) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, VertexLabelPropertyMixed) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
-  auto acc = store->Access();
+TYPED_TEST(StorageV2Test, VertexLabelPropertyMixed) {
+  auto acc = this->store->Access();
   auto vertex = acc->CreateVertex();
 
   auto label = acc->NameToLabel("label5");
@@ -2089,13 +2083,12 @@ TEST(StorageV2, VertexLabelPropertyMixed) {
   ASSERT_FALSE(acc->Commit().HasError());
 }
 
-TEST(StorageV2, VertexPropertyClear) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+TYPED_TEST(StorageV2Test, VertexPropertyClear) {
   memgraph::storage::Gid gid;
-  auto property1 = store->NameToProperty("property1");
-  auto property2 = store->NameToProperty("property2");
+  auto property1 = this->store->NameToProperty("property1");
+  auto property2 = this->store->NameToProperty("property2");
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
 
@@ -2106,7 +2099,7 @@ TEST(StorageV2, VertexPropertyClear) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -2138,7 +2131,7 @@ TEST(StorageV2, VertexPropertyClear) {
     acc->Abort();
   }
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -2149,7 +2142,7 @@ TEST(StorageV2, VertexPropertyClear) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -2182,7 +2175,7 @@ TEST(StorageV2, VertexPropertyClear) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -2194,13 +2187,11 @@ TEST(StorageV2, VertexPropertyClear) {
   }
 }
 
-TEST(StorageV2, VertexNonexistentLabelPropertyEdgeAPI) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+TYPED_TEST(StorageV2Test, VertexNonexistentLabelPropertyEdgeAPI) {
+  auto label = this->store->NameToLabel("label");
+  auto property = this->store->NameToProperty("property");
 
-  auto label = store->NameToLabel("label");
-  auto property = store->NameToProperty("property");
-
-  auto acc = store->Access();
+  auto acc = this->store->Access();
   auto vertex = acc->CreateVertex();
 
   // Check state before (OLD view).
@@ -2255,11 +2246,9 @@ TEST(StorageV2, VertexNonexistentLabelPropertyEdgeAPI) {
   ASSERT_FALSE(acc->Commit().HasError());
 }
 
-TEST(StorageV2, VertexVisibilitySingleTransaction) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
-
-  auto acc1 = store->Access();
-  auto acc2 = store->Access();
+TYPED_TEST(StorageV2Test, VertexVisibilitySingleTransaction) {
+  auto acc1 = this->store->Access();
+  auto acc2 = this->store->Access();
 
   auto vertex = acc1->CreateVertex();
   auto gid = vertex.Gid();
@@ -2278,7 +2267,7 @@ TEST(StorageV2, VertexVisibilitySingleTransaction) {
 
   ASSERT_TRUE(vertex.SetProperty(acc1->NameToProperty("meaning"), memgraph::storage::PropertyValue(42)).HasValue());
 
-  auto acc3 = store->Access();
+  auto acc3 = this->store->Access();
 
   EXPECT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::OLD));
   EXPECT_TRUE(acc1->FindVertex(gid, memgraph::storage::View::NEW));
@@ -2311,13 +2300,12 @@ TEST(StorageV2, VertexVisibilitySingleTransaction) {
   acc3->Abort();
 }
 
-TEST(StorageV2, VertexVisibilityMultipleTransactions) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
+TYPED_TEST(StorageV2Test, VertexVisibilityMultipleTransactions) {
   memgraph::storage::Gid gid;
 
   {
-    auto acc1 = store->Access();
-    auto acc2 = store->Access();
+    auto acc1 = this->store->Access();
+    auto acc2 = this->store->Access();
 
     auto vertex = acc1->CreateVertex();
     gid = vertex.Gid();
@@ -2346,8 +2334,8 @@ TEST(StorageV2, VertexVisibilityMultipleTransactions) {
   }
 
   {
-    auto acc1 = store->Access();
-    auto acc2 = store->Access();
+    auto acc1 = this->store->Access();
+    auto acc2 = this->store->Access();
 
     auto vertex = acc1->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
@@ -2380,7 +2368,7 @@ TEST(StorageV2, VertexVisibilityMultipleTransactions) {
 
     ASSERT_TRUE(vertex->SetProperty(acc1->NameToProperty("meaning"), memgraph::storage::PropertyValue(42)).HasValue());
 
-    auto acc3 = store->Access();
+    auto acc3 = this->store->Access();
 
     EXPECT_TRUE(acc1->FindVertex(gid, memgraph::storage::View::OLD));
     EXPECT_TRUE(acc1->FindVertex(gid, memgraph::storage::View::NEW));
@@ -2422,15 +2410,15 @@ TEST(StorageV2, VertexVisibilityMultipleTransactions) {
   }
 
   {
-    auto acc1 = store->Access();
-    auto acc2 = store->Access();
+    auto acc1 = this->store->Access();
+    auto acc2 = this->store->Access();
 
     auto vertex = acc1->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
     ASSERT_TRUE(acc1->DeleteVertex(&*vertex).HasValue());
 
-    auto acc3 = store->Access();
+    auto acc3 = this->store->Access();
 
     EXPECT_TRUE(acc1->FindVertex(gid, memgraph::storage::View::OLD));
     EXPECT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::NEW));
@@ -2472,7 +2460,7 @@ TEST(StorageV2, VertexVisibilityMultipleTransactions) {
   }
 
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
 
     EXPECT_TRUE(acc->FindVertex(gid, memgraph::storage::View::OLD));
     EXPECT_TRUE(acc->FindVertex(gid, memgraph::storage::View::NEW));
@@ -2486,15 +2474,15 @@ TEST(StorageV2, VertexVisibilityMultipleTransactions) {
   }
 
   {
-    auto acc1 = store->Access();
-    auto acc2 = store->Access();
+    auto acc1 = this->store->Access();
+    auto acc2 = this->store->Access();
 
     auto vertex = acc1->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
     ASSERT_TRUE(acc1->DeleteVertex(&*vertex).HasValue());
 
-    auto acc3 = store->Access();
+    auto acc3 = this->store->Access();
 
     EXPECT_TRUE(acc1->FindVertex(gid, memgraph::storage::View::OLD));
     EXPECT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::NEW));
@@ -2536,7 +2524,7 @@ TEST(StorageV2, VertexVisibilityMultipleTransactions) {
   }
 
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
 
     EXPECT_FALSE(acc->FindVertex(gid, memgraph::storage::View::OLD));
     EXPECT_FALSE(acc->FindVertex(gid, memgraph::storage::View::NEW));
@@ -2551,23 +2539,21 @@ TEST(StorageV2, VertexVisibilityMultipleTransactions) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV2, DeletedVertexAccessor) {
-  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
-
-  const auto property = store->NameToProperty("property");
+TYPED_TEST(StorageV2Test, DeletedVertexAccessor) {
+  const auto property = this->store->NameToProperty("property");
   const memgraph::storage::PropertyValue property_value{"property_value"};
 
   std::optional<memgraph::storage::Gid> gid;
   // Create the vertex
   {
-    auto acc = store->Access();
+    auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
     ASSERT_FALSE(vertex.SetProperty(property, property_value).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
-  auto acc = store->Access();
+  auto acc = this->store->Access();
   auto vertex = acc->FindVertex(*gid, memgraph::storage::View::OLD);
   ASSERT_TRUE(vertex);
   auto maybe_deleted_vertex = acc->DeleteVertex(&*vertex);
