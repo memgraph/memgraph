@@ -28,8 +28,7 @@
 
 namespace memgraph::http {
 
-namespace beast = boost::beast;
-namespace http = beast::http;
+namespace http = boost::beast::http;
 
 struct MetricsResponse {
  public:
@@ -66,14 +65,14 @@ struct MetricsResponse {
 
   // Storage of all the counter values throughout the system
   // e.g. number of active transactions
-  std::vector<std::tuple<std::string, std::string, uint64_t>> event_counters;
+  std::vector<std::tuple<std::string, std::string, uint64_t>> event_counters{};
 
   // Storage of all the current values throughout the system
-  std::vector<std::tuple<std::string, std::string, uint64_t>> event_gauges;
+  std::vector<std::tuple<std::string, std::string, uint64_t>> event_gauges{};
 
   // Storage of all the percentile values across the histograms in the system
   // e.g. query latency percentiles, snapshot recovery duration percentiles, etc.
-  std::vector<std::tuple<std::string, std::string, uint64_t>> event_histograms;
+  std::vector<std::tuple<std::string, std::string, uint64_t>> event_histograms{};
 };
 
 template <typename TSessionData>
@@ -160,7 +159,7 @@ class MetricsRequestHandler final {
                      std::function<void(http::response<http::string_body>)> &&send) {
     auto response_json = nlohmann::json();
     // Returns a bad request response
-    auto const bad_request = [&req, &response_json](beast::string_view why) {
+    auto const bad_request = [&req, &response_json](boost::beast::string_view why) {
       response_json["error"] = std::string(why);
 
       http::response<http::string_body> res{http::status::bad_request, req.version()};
@@ -178,11 +177,11 @@ class MetricsRequestHandler final {
     }
 
     // Request path must be absolute and not contain "..".
-    if (req.target().empty() || req.target()[0] != '/' || req.target().find("..") != beast::string_view::npos) {
+    if (req.target().empty() || req.target()[0] != '/' || req.target().find("..") != boost::beast::string_view::npos) {
       return send(bad_request("Illegal request-target"));
     }
 
-    http::string_body::value_type body;
+    http::string_body::value_type body{};
 
     auto service_response = service_.GetMetrics().AsJson();
     body.append(service_response.dump());

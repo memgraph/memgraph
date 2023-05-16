@@ -36,13 +36,11 @@
 #include "utils/variant_helpers.hpp"
 
 namespace memgraph::communication::http {
-namespace {
-inline constexpr uint16_t kSSLExpirySeconds = 30;
 
+inline constexpr uint16_t kSSLExpirySeconds = 30;
 void LogError(boost::beast::error_code ec, const std::string_view what) {
   spdlog::warn("HTTP session failed on {}: {}", what, ec.message());
 }
-}  // namespace
 
 template <class TRequestHandler, typename TSessionData>
 class Session : public std::enable_shared_from_this<Session<TRequestHandler, TSessionData>> {
