@@ -1762,12 +1762,12 @@ bool DiskStorage::AppendToWalDataDefinition(durability::StorageGlobalOperation o
   throw utils::NotYetImplemented("AppendToWalDataDefinition");
 }
 
-void InMemoryStorage::SetStorageMode(StorageMode storage_mode) {
+void DiskStorage::SetStorageMode(StorageMode storage_mode) {
   std::unique_lock main_guard{main_lock_};
   storage_mode_ = storage_mode;
 }
 
-StorageMode InMemoryStorage::GetStorageMode() { return storage_mode_; }
+StorageMode DiskStorage::GetStorageMode() { return storage_mode_; }
 
 utils::BasicResult<DiskStorage::CreateSnapshotError> DiskStorage::CreateSnapshot(std::optional<bool> is_periodic) {
   throw utils::NotYetImplemented("CreateSnapshot");
