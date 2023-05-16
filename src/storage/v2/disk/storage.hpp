@@ -24,8 +24,6 @@
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints.hpp"
-#include "storage/v2/disk/disk_edge.hpp"
-#include "storage/v2/disk/disk_vertex.hpp"
 #include "storage/v2/disk/indices.hpp"
 #include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/durability/metadata.hpp"
@@ -39,6 +37,7 @@
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -76,7 +75,7 @@ class DiskStorage final : public Storage {
    private:
     friend class DiskStorage;
 
-    explicit DiskAccessor(DiskStorage *storage, IsolationLevel isolation_level);
+    explicit DiskAccessor(DiskStorage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
 
    public:
     DiskAccessor(const DiskAccessor &) = delete;
@@ -214,21 +213,20 @@ class DiskStorage final : public Storage {
     /// TODO(andi): Consolidate this vertex creation methods and find from in-memory version where are they used.
     /// Used for deserialization of vertices and edges from KV store.
     /// @throw std::bad_alloc
-    std::unique_ptr<VertexAccessor> CreateVertex(storage::Gid gid);
+    VertexAccessor CreateVertex(storage::Gid gid);
 
     /// TODO(andi): Consolidate this vertex creation methods and find from in-memory version where are they used.
-    std::unique_ptr<VertexAccessor> CreateVertex(storage::Gid gid, uint64_t vertex_commit_ts);
+    VertexAccessor CreateVertex(storage::Gid gid, uint64_t vertex_commit_ts);
 
     void PrefetchEdges(const auto &prefetch_edge_filter);
 
     /// @throw std::bad_alloc
     /// TODO(andi): Consolidate this vertex creation methods and find from in-memory version where are they used.
-    Result<std::unique_ptr<EdgeAccessor>> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type,
-                                                     storage::Gid gid);
+    Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid);
 
     /// TODO(andi): Consolidate this vertex creation methods and find from in-memory version where are they used.
-    Result<std::unique_ptr<EdgeAccessor>> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type,
-                                                     storage::Gid gid, uint64_t edge_commit_ts);
+    Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid,
+                                    uint64_t edge_commit_ts);
 
     // (De)serialization utility methods
 
@@ -270,12 +268,12 @@ class DiskStorage final : public Storage {
     /// Deserializes vertex from the string key and stores it into the vertices_ and lru_vertices_.
     /// Properties are deserialized from the value.
     /// The method should be called only when the vertex is not in the cache.
-    std::unique_ptr<VertexAccessor> DeserializeVertex(const rocksdb::Slice &key, const rocksdb::Slice &value);
+    std::optional<VertexAccessor> DeserializeVertex(const rocksdb::Slice &key, const rocksdb::Slice &value);
 
     /// Deserializes edge from the string key and stores it into the edges_ cache.
     /// Properties are deserialized from the value.
     /// The method should be called only when the edge is not in the cache.
-    std::unique_ptr<EdgeAccessor> DeserializeEdge(const rocksdb::Slice &key, const rocksdb::Slice &value);
+    std::optional<EdgeAccessor> DeserializeEdge(const rocksdb::Slice &key, const rocksdb::Slice &value);
 
     /// Flushes vertices and edges to the disk with the commit timestamp.
     /// At the time of calling, the commit_timestamp_ must already exist.
@@ -294,7 +292,8 @@ class DiskStorage final : public Storage {
   };
 
   std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override {
-    return std::unique_ptr<DiskAccessor>(new DiskAccessor{this, override_isolation_level.value_or(isolation_level_)});
+    return std::unique_ptr<DiskAccessor>(
+        new DiskAccessor{this, override_isolation_level.value_or(isolation_level_), storage_mode_});
   }
 
   const std::string &LabelToName(LabelId label) const override;
@@ -424,7 +423,7 @@ class DiskStorage final : public Storage {
   utils::BasicResult<CreateSnapshotError> CreateSnapshot(std::optional<bool> is_periodic) override;
 
  private:
-  Transaction CreateTransaction(IsolationLevel isolation_level);
+  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode);
 
   /// The force parameter determines the behaviour of the garbage collector.
   /// If it's set to true, it will behave as a global operation, i.e. it can't
@@ -465,8 +464,6 @@ class DiskStorage final : public Storage {
 
   utils::SkipList<storage::Vertex> vertices_;
   utils::SkipList<storage::Edge> edges_;
-  std::set<storage::DiskVertex *, decltype(storage::disk_vertex_cmp)> lru_vertices_;
-  std::set<storage::DiskEdge *, decltype(storage::disk_edge_cmp)> lru_edges_;
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};
   // Even though the edge count is already kept in the `edges_` SkipList, the
@@ -491,6 +488,7 @@ class DiskStorage final : public Storage {
 
   utils::Synchronized<std::list<Transaction>, utils::SpinLock> committed_transactions_;
   IsolationLevel isolation_level_;
+  StorageMode storage_mode_;
 
   Config config_;
   utils::Scheduler gc_runner_;

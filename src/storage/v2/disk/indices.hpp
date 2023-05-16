@@ -16,7 +16,6 @@
 // #include <utility>
 // #include "storage/v2/config.hpp"
 // #include "storage/v2/constraints.hpp"
-// #include "storage/v2/disk/disk_vertex.hpp"
 // #include "storage/v2/disk/rocksdb_storage.hpp"
 // #include "storage/v2/id_types.hpp"
 // #include "storage/v2/transaction.hpp"

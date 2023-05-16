@@ -60,7 +60,7 @@
 //       auto vertex_commit_ts = utils::ExtractTimestampFromDeserializedUserKey(key);
 //       auto delta = CreateDeleteDeserializedObjectDelta(transaction, vertex_commit_ts);
 //       spdlog::debug("Found vertex with gid {} and commit_ts {} in index", vertex_parts[1], vertex_commit_ts);
-//       auto [vertex_it, inserted] = acc.insert(DiskVertex{gid, delta});
+//       auto [vertex_it, inserted] = acc.insert(Vertex{gid, delta});
 //       std::vector<LabelId> label_ids;
 //       if (!vertex_parts[0].empty()) {
 //         auto labels = utils::Split(vertex_parts[0], ",");
