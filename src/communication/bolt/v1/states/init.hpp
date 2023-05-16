@@ -92,12 +92,38 @@ template <typename TSession>
 std::optional<Value> GetMetadataV4(TSession &session, const Marker marker) {
   if (marker != Marker::TinyStruct1) [[unlikely]] {
     spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
-    spdlog::trace(
-        "The client sent malformed data, but we are continuing "
-        "because the official Neo4j Java driver sends malformed "
-        "data. D'oh!");
-    // TODO: this should be uncommented when the Neo4j Java driver is fixed
-    // return State::Close;
+    return std::nullopt;
+  }
+
+  Value metadata;
+  if (!session.decoder_.ReadValue(&metadata, Value::Type::Map)) {
+    spdlog::trace("Couldn't read metadata!");
+    return std::nullopt;
+  }
+
+  auto &data = metadata.ValueMap();
+  if (!data.count("user_agent")) {
+    spdlog::warn("The client didn't supply the user agent!");
+    return std::nullopt;
+  }
+
+  // Special case for neo4j python driver auth=None
+  // It sends an empty authentication structure, which isn't supported by the Bolt protocol, but works with neo4j.
+  // Just passing "none" as the protocol defines.
+  if (!data.count("scheme")) {
+    data["scheme"] = "none";
+  }
+
+  spdlog::info("Client connected '{}'", data.at("user_agent").ValueString());
+
+  return metadata;
+}
+
+template <typename TSession>
+std::optional<Value> GetInitDataV5(TSession &session, const Marker marker) {
+  if (marker != Marker::TinyStruct1) [[unlikely]] {
+    spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
+    return std::nullopt;
   }
 
   Value metadata;
@@ -118,15 +144,10 @@ std::optional<Value> GetMetadataV4(TSession &session, const Marker marker) {
 }
 
 template <typename TSession>
-std::optional<Value> GetMetadataV5(TSession &session, const Marker marker) {
+std::optional<Value> GetAuthDataV5(TSession &session, const Marker marker) {
   if (marker != Marker::TinyStruct1) [[unlikely]] {
     spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
-    spdlog::trace(
-        "The client sent malformed data, but we are continuing "
-        "because the official Neo4j Java driver sends malformed "
-        "data. D'oh!");
-    // TODO: this should be uncommented when the Neo4j Java driver is fixed
-    // return State::Close;
+    return std::nullopt;
   }
 
   Value metadata;
@@ -135,13 +156,13 @@ std::optional<Value> GetMetadataV5(TSession &session, const Marker marker) {
     return std::nullopt;
   }
 
-  const auto &data = metadata.ValueMap();
-  if (!data.count("user_agent")) {
-    spdlog::warn("The client didn't supply the user agent!");
-    return std::nullopt;
+  // Special case for neo4j python driver auth=None
+  // It sends an empty authentication structure, which isn't supported by the Bolt protocol, but works with neo4j.
+  // Just passing "none" as the protocol defines.
+  auto &data = metadata.ValueMap();
+  if (data.empty()) {
+    data["scheme"] = "none";
   }
-
-  spdlog::info("Client connected '{}'", data.at("user_agent").ValueString());
 
   return metadata;
 }
@@ -218,7 +239,7 @@ State StateInitRunV5(TSession &session, Marker marker, Signature signature) {
   }
 
   if (signature == Signature::Init) {
-    auto maybeMetadata = GetMetadataV5(session, marker);
+    auto maybeMetadata = GetInitDataV5(session, marker);
 
     if (!maybeMetadata) {
       return State::Close;
@@ -240,12 +261,11 @@ State StateInitRunV5(TSession &session, Marker marker, Signature signature) {
       return State::Close;
     }
 
-    Value auth;
-    if (!session.decoder_.ReadValue(&auth, Value::Type::Map)) {
-      spdlog::trace("Couldn't read authentication data!");
+    auto maybeMetadata = GetAuthDataV5(session, marker);
+    if (!maybeMetadata) {
       return State::Close;
     }
-    auto result = AuthenticateUser(session, auth);
+    auto result = AuthenticateUser(session, *maybeMetadata);
     if (result) {
       spdlog::trace("Failed to authenticate, closing connection...");
       return State::Close;
