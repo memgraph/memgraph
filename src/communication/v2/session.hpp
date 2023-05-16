@@ -45,6 +45,7 @@
 #include "communication/exceptions.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/variant_helpers.hpp"
 
 namespace memgraph::metrics {
@@ -280,10 +281,12 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     timeout_timer_.async_wait(boost::asio::bind_executor(strand_, std::bind(&Session::OnTimeout, shared_from_this())));
 
     if (std::holds_alternative<SSLSocket>(socket_)) {
-      memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveSSLSessions);
+      utils::OnScopeExit increment_counter(
+          [] { memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveSSLSessions); });
       boost::asio::dispatch(strand_, [shared_this = shared_from_this()] { shared_this->DoHandshake(); });
     } else {
-      memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTCPSessions);
+      utils::OnScopeExit increment_counter(
+          [] { memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTCPSessions); });
       boost::asio::dispatch(strand_, [shared_this = shared_from_this()] { shared_this->DoRead(); });
     }
     return true;

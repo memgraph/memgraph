@@ -63,8 +63,16 @@ struct MetricsResponse {
   double average_degree;
   uint64_t memory_usage;
   uint64_t disk_usage;
+
+  // Storage of all the counter values throughout the system
+  // e.g. number of active transactions
   std::vector<std::tuple<std::string, std::string, uint64_t>> event_counters;
+
+  // Storage of all the current values throughout the system
   std::vector<std::tuple<std::string, std::string, uint64_t>> event_gauges;
+
+  // Storage of all the percentile values across the histograms in the system
+  // e.g. query latency percentiles, snapshot recovery duration percentiles, etc.
   std::vector<std::tuple<std::string, std::string, uint64_t>> event_histograms;
 };
 
