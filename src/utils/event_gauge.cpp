@@ -17,6 +17,7 @@
 namespace memgraph::metrics {
 
 // define every Event as an index in the array of gauges
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define M(NAME, TYPE, DOCUMENTATION) extern const Event NAME = __COUNTER__;
 APPLY_FOR_GAUGES(M)
 #undef M
