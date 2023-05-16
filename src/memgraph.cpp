@@ -1033,9 +1033,10 @@ int main(int argc, char **argv) {
       {FLAGS_monitoring_address, static_cast<uint16_t>(FLAGS_monitoring_port)}, &context, websocket_auth};
   AddLoggerSink(websocket_server.GetLoggingSink());
 
-#ifdef MG_ENTERPRISE
   MonitoringServerT metrics_server{
       {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, &session_data, &context};
+
+#ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     // Handler for regular termination signals
     auto shutdown = [&metrics_server, &websocket_server, &server, &interpreter_context] {
@@ -1068,7 +1069,6 @@ int main(int argc, char **argv) {
   };
 
   InitSignalHandlers(shutdown);
-
 #endif
 
   MG_ASSERT(server.Start(), "Couldn't start the Bolt server!");
@@ -1093,7 +1093,6 @@ int main(int argc, char **argv) {
 
   server.AwaitShutdown();
   websocket_server.AwaitShutdown();
-
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     metrics_server.AwaitShutdown();
