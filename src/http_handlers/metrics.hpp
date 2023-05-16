@@ -53,6 +53,17 @@ class MetricsService {
  public:
   explicit MetricsService(TSessionData *data)
       : db_(data->db), interpreter_context_(data->interpreter_context), interpreter_(data->interpreter_context) {}
+
+  nlohmann::json GetMetricsJSON() {
+    auto response = GetMetrics();
+    return AsJson(response);
+  }
+
+ private:
+  const storage::Storage *db_;
+  query::InterpreterContext *interpreter_context_;
+  query::Interpreter interpreter_;
+
   MetricsResponse GetMetrics() {
     auto info = db_->GetInfo();
 
@@ -90,11 +101,6 @@ class MetricsService {
 
     return metrics_response;
   }
-
- private:
-  const storage::Storage *db_;
-  query::InterpreterContext *interpreter_context_;
-  query::Interpreter interpreter_;
 
   auto GetEventCounters() {
     // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
@@ -158,7 +164,7 @@ class MetricsRequestHandler final {
                      std::function<void(boost::beast::http::response<boost::beast::http::string_body>)> &&send) {
     auto response_json = nlohmann::json();
     // Returns a bad request response
-    auto const bad_request = [&req, &response_json](boost::beast::string_view why) {
+    auto const bad_request = [&req, &response_json](const auto why) {
       response_json["error"] = std::string(why);
 
       // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
@@ -185,7 +191,7 @@ class MetricsRequestHandler final {
     // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
     boost::beast::http::string_body::value_type body;
 
-    auto service_response = service_.AsJson(service_.GetMetrics());
+    auto service_response = service_.GetMetricsJSON();
     body.append(service_response.dump());
 
     // Cache the size since we need it after the move

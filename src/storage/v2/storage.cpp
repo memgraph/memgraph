@@ -55,8 +55,8 @@
 namespace memgraph::metrics {
 extern const Event SnapshotCreationLatency_us;
 
-extern const Event LabelIndexCreated;
-extern const Event LabelPropertyIndexCreated;
+extern const Event ActiveLabelIndices;
+extern const Event ActiveLabelPropertyIndices;
 }  // namespace memgraph::metrics
 
 namespace memgraph::storage {
@@ -1224,7 +1224,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> Storage::CreateIndex(
   last_commit_timestamp_ = commit_timestamp;
 
   // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::IncrementCounter(memgraph::metrics::LabelIndexCreated);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelIndices);
 
   if (success) {
     return {};
@@ -1246,7 +1246,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> Storage::CreateIndex(
   last_commit_timestamp_ = commit_timestamp;
 
   // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::IncrementCounter(memgraph::metrics::LabelPropertyIndexCreated);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
 
   if (success) {
     return {};
@@ -1268,7 +1268,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> Storage::DropIndex(
   last_commit_timestamp_ = commit_timestamp;
 
   // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::DecrementCounter(memgraph::metrics::LabelIndexCreated);
+  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelIndices);
 
   if (success) {
     return {};
@@ -1292,7 +1292,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> Storage::DropIndex(
   last_commit_timestamp_ = commit_timestamp;
 
   // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::DecrementCounter(memgraph::metrics::LabelPropertyIndexCreated);
+  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
 
   if (success) {
     return {};

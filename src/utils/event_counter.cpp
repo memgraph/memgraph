@@ -55,8 +55,8 @@
   M(EvaluatePatternFilterOperator, Operator, "Number of times EvaluatePatternFilter operator was used.")             \
   M(ApplyOperator, Operator, "Number of times ApplyOperator operator was used.")                                     \
                                                                                                                      \
-  M(LabelIndexCreated, Index, "Number of times a label index was created.")                                          \
-  M(LabelPropertyIndexCreated, Index, "Number of times a label property index was created.")                         \
+  M(ActiveLabelIndices, Index, "Number of active label indices in the system.")                                      \
+  M(ActiveLabelPropertyIndices, Index, "Number of active label property indices in the system<.")                    \
                                                                                                                      \
   M(StreamsCreated, Stream, "Number of Streams created.")                                                            \
   M(MessagesConsumed, Stream, "Number of consumed streamed messages.")                                               \

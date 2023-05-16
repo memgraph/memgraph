@@ -1226,6 +1226,10 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
       if (!in_explicit_transaction_) {
         throw ExplicitTransactionUsageException("No current transaction to rollback.");
       }
+
+      utils::OnScopeExit rollback_metric_update(
+          []() { memgraph::metrics::IncrementCounter(memgraph::metrics::RollbackedTransactions); });
+
       Abort();
       expect_rollback_ = false;
       in_explicit_transaction_ = false;
@@ -2746,7 +2750,6 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   if (in_explicit_transaction_) {
     AdvanceCommand();
   } else {
-    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTransactions);
     // If we're not in an explicit transaction block and we have an open
     // transaction, abort it since we're about to prepare a new query.
     if (db_accessor_) {
@@ -2812,6 +2815,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         trigger_context_collector_.emplace(interpreter_context_->trigger_store.GetEventTypes());
       }
     }
+
+    utils::OnScopeExit active_transaction_update_metric(
+        []() { memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTransactions); });
 
     utils::Timer planning_timer;
     PreparedQuery prepared_query;
@@ -2938,7 +2944,6 @@ void Interpreter::Abort() {
   expect_rollback_ = false;
   in_explicit_transaction_ = false;
 
-  memgraph::metrics::IncrementCounter(memgraph::metrics::RollbackedTransactions);
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTransactions);
 
   if (!db_accessor_) return;
@@ -3038,6 +3043,11 @@ void Interpreter::Commit() {
   utils::OnScopeExit clean_status(
       [this]() { transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release); });
 
+  utils::OnScopeExit update_metrics([]() {
+    memgraph::metrics::IncrementCounter(memgraph::metrics::CommitedTransactions);
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTransactions);
+  });
+
   std::optional<TriggerContext> trigger_context = std::nullopt;
   if (trigger_context_collector_) {
     trigger_context.emplace(std::move(*trigger_context_collector_).TransformToTriggerContext());
@@ -3127,9 +3137,6 @@ void Interpreter::Commit() {
   if (!commit_confirmed_by_all_sync_repplicas) {
     throw ReplicationException("At least one SYNC replica has not confirmed committing last transaction.");
   }
-
-  memgraph::metrics::IncrementCounter(memgraph::metrics::CommitedTransactions);
-  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTransactions);
 }
 
 void Interpreter::AdvanceCommand() {
