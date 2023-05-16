@@ -34,10 +34,6 @@
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
-namespace Statistics {
-extern const Event ActiveSessions;
-}  // namespace Statistics
-
 namespace memgraph::communication::v2 {
 
 template <class TSession, class TSessionData>

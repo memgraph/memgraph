@@ -70,13 +70,10 @@
 #include "utils/tsc.hpp"
 #include "utils/variant_helpers.hpp"
 
-namespace Statistics {
+namespace memgraph::metrics {
 extern Event ReadQuery;
 extern Event WriteQuery;
 extern Event ReadWriteQuery;
-
-extern const Event LabelIndexCreated;
-extern const Event LabelPropertyIndexCreated;
 
 extern const Event StreamsCreated;
 extern const Event TriggersCreated;
@@ -86,7 +83,7 @@ extern const Event QueryExecutionLatency_us;
 extern const Event CommitedTransactions;
 extern const Event RollbackedTransactions;
 extern const Event ActiveTransactions;
-}  // namespace Statistics
+}  // namespace memgraph::metrics
 
 namespace memgraph::query {
 
@@ -97,13 +94,13 @@ namespace {
 void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
   switch (type) {
     case plan::ReadWriteTypeChecker::RWType::R:
-      Statistics::IncrementCounter(Statistics::ReadQuery);
+      memgraph::metrics::IncrementCounter(memgraph::metrics::ReadQuery);
       break;
     case plan::ReadWriteTypeChecker::RWType::W:
-      Statistics::IncrementCounter(Statistics::WriteQuery);
+      memgraph::metrics::IncrementCounter(memgraph::metrics::WriteQuery);
       break;
     case plan::ReadWriteTypeChecker::RWType::RW:
-      Statistics::IncrementCounter(Statistics::ReadWriteQuery);
+      memgraph::metrics::IncrementCounter(memgraph::metrics::ReadWriteQuery);
       break;
     default:
       break;
@@ -728,7 +725,7 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
   Callback callback;
   switch (stream_query->action_) {
     case StreamQuery::Action::CREATE_STREAM: {
-      Statistics::IncrementCounter(Statistics::StreamsCreated);
+      memgraph::metrics::IncrementCounter(memgraph::metrics::StreamsCreated);
       switch (stream_query->type_) {
         case StreamQuery::Type::KAFKA:
           callback.fn = GetKafkaCreateCallback(stream_query, evaluator, interpreter_context, username);
@@ -1115,8 +1112,8 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   }
 
   summary->insert_or_assign("plan_execution_time", execution_time_.count());
-  Statistics::Measure(Statistics::QueryExecutionLatency_us,
-                      std::chrono::duration_cast<std::chrono::microseconds>(execution_time_).count());
+  memgraph::metrics::Measure(memgraph::metrics::QueryExecutionLatency_us,
+                             std::chrono::duration_cast<std::chrono::microseconds>(execution_time_).count());
 
   // We are finished with pulling all the data, therefore we can send any
   // metadata about the results i.e. notifications and statistics
@@ -1154,6 +1151,8 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
       if (in_explicit_transaction_) {
         throw ExplicitTransactionUsageException("Nested transactions are not supported.");
       }
+
+      memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTransactions);
 
       in_explicit_transaction_ = true;
       expect_rollback_ = false;
@@ -1606,7 +1605,6 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
               [&index_notification, &label_name, &properties_stringified]<typename T>(T &&) {
                 using ErrorType = std::remove_cvref_t<T>;
                 if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
-                  Statistics::IncrementCounter(Statistics::LabelIndexCreated);
                   throw ReplicationException(
                       fmt::format("At least one SYNC replica has not confirmed the creation of the index on label {} "
                                   "on properties {}.",
@@ -1620,8 +1618,6 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
                 }
               },
               error);
-        } else {
-          Statistics::IncrementCounter(Statistics::LabelIndexCreated);
         }
       };
       break;
@@ -1854,6 +1850,7 @@ Callback CreateTrigger(TriggerQuery *trigger_query,
             std::move(trigger_name), trigger_statement, user_parameters, ToTriggerEventType(event_type),
             before_commit ? TriggerPhase::BEFORE_COMMIT : TriggerPhase::AFTER_COMMIT, &interpreter_context->ast_cache,
             dba, interpreter_context->config.query, std::move(owner), interpreter_context->auth_checker);
+        memgraph::metrics::IncrementCounter(memgraph::metrics::TriggersCreated);
         return {};
       }};
 }
@@ -1908,7 +1905,6 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, bool in_explicit_tra
       case TriggerQuery::Action::CREATE_TRIGGER:
         trigger_notification.emplace(SeverityLevel::INFO, NotificationCode::CREATE_TRIGGER,
                                      fmt::format("Created trigger {}.", trigger_query->trigger_name_));
-        Statistics::IncrementCounter(Statistics::TriggersCreated);
         return CreateTrigger(trigger_query, user_parameters, interpreter_context, dba, std::move(owner));
       case TriggerQuery::Action::DROP_TRIGGER:
         trigger_notification.emplace(SeverityLevel::INFO, NotificationCode::DROP_TRIGGER,
@@ -2616,10 +2612,6 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   const auto trimmed_query = utils::Trim(upper_case_query);
 
   if (trimmed_query == "BEGIN" || trimmed_query == "COMMIT" || trimmed_query == "ROLLBACK") {
-    if (trimmed_query == "BEGIN") {
-      Statistics::IncrementCounter(Statistics::ActiveTransactions);
-    }
-
     query_execution->prepared_query.emplace(PrepareTransactionQuery(trimmed_query));
     return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid};
   }
@@ -2632,7 +2624,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   if (in_explicit_transaction_) {
     AdvanceCommand();
   } else {
-    Statistics::IncrementCounter(Statistics::ActiveTransactions);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTransactions);
     // If we're not in an explicit transaction block and we have an open
     // transaction, abort it since we're about to prepare a new query.
     if (db_accessor_) {
@@ -2754,7 +2746,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
     return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid};
   } catch (const utils::BasicException &) {
-    Statistics::IncrementCounter(Statistics::FailedQuery);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
     AbortCommand(&query_execution);
     throw;
   }
@@ -2786,8 +2778,8 @@ void Interpreter::Abort() {
   expect_rollback_ = false;
   in_explicit_transaction_ = false;
 
-  Statistics::IncrementCounter(Statistics::RollbackedTransactions);
-  Statistics::DecrementCounter(Statistics::ActiveTransactions);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::RollbackedTransactions);
+  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTransactions);
 
   if (!db_accessor_) return;
 
@@ -2976,8 +2968,8 @@ void Interpreter::Commit() {
     throw ReplicationException("At least one SYNC replica has not confirmed committing last transaction.");
   }
 
-  Statistics::IncrementCounter(Statistics::CommitedTransactions);
-  Statistics::DecrementCounter(Statistics::ActiveTransactions);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::CommitedTransactions);
+  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTransactions);
 }
 
 void Interpreter::AdvanceCommand() {

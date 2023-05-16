@@ -75,7 +75,7 @@
   M(RollbackedTransactions, Transaction, "Number of rollbacked transactions.")                                       \
   M(FailedQuery, Transaction, "Number of times executing a query failed.")
 
-namespace Statistics {
+namespace memgraph::metrics {
 // define every Event as an index in the array of counters
 #define M(NAME, TYPE, DOCUMENTATION) extern const Event NAME = __COUNTER__;
 APPLY_FOR_COUNTERS(M)
@@ -132,4 +132,4 @@ const char *GetCounterType(const Event event) {
 }
 
 Event CounterEnd() { return END; }
-}  // namespace Statistics
+}  // namespace memgraph::metrics

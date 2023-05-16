@@ -521,9 +521,9 @@ void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, std::string c
   }
 }
 
-namespace Statistics {
+namespace memgraph::metrics {
 extern const Event ActiveBoltSessions;
-}  // namespace Statistics
+}  // namespace memgraph::metrics
 
 class BoltSession final : public memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                                         memgraph::communication::v2::OutputStream> {
@@ -542,12 +542,12 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 #endif
         endpoint_(endpoint),
         run_id_(data->run_id) {
-    Statistics::IncrementCounter(Statistics::ActiveBoltSessions);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveBoltSessions);
     interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.insert(&interpreter_); });
   }
 
   ~BoltSession() override {
-    Statistics::DecrementCounter(Statistics::ActiveBoltSessions);
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveBoltSessions);
     interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.erase(&interpreter_); });
   }
 
@@ -1015,8 +1015,9 @@ int main(int argc, char **argv) {
     });
     telemetry->AddCollector("event_counters", []() -> nlohmann::json {
       nlohmann::json ret;
-      for (size_t i = 0; i < Statistics::CounterEnd(); ++i) {
-        ret[Statistics::GetCounterName(i)] = Statistics::global_counters[i].load(std::memory_order_relaxed);
+      for (size_t i = 0; i < memgraph::metrics::CounterEnd(); ++i) {
+        ret[memgraph::metrics::GetCounterName(i)] =
+            memgraph::metrics::global_counters[i].load(std::memory_order_relaxed);
       }
       return ret;
     });

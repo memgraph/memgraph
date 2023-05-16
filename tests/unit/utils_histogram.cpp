@@ -16,7 +16,7 @@
 #include "utils/logging.hpp"
 
 TEST(Histogram, BasicFunctionality) {
-  Statistics::Histogram histo{};
+  memgraph::metrics::Histogram histo{};
 
   for (int i = 0; i < 9000; i++) {
     histo.Measure(10);
@@ -41,6 +41,6 @@ TEST(Histogram, BasicFunctionality) {
   uint64_t max = std::numeric_limits<uint64_t>::max();
   histo.Measure(max);
   auto observed_max = static_cast<double>(histo.Percentile(100.0));
-  auto diff = (max - observed_max) / max;
-  ASSERT_THAT(diff, testing::Lt(0.01));
+
+  ASSERT_NEAR(max, observed_max, 0.01);
 }

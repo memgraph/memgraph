@@ -14,7 +14,7 @@
 // We don't have any gauges for now
 #define APPLY_FOR_GAUGES(M)
 
-namespace Statistics {
+namespace memgraph::metrics {
 
 // define every Event as an index in the array of gauges
 #define M(NAME, TYPE, DOCUMENTATION) extern const Event NAME = __COUNTER__;
@@ -66,4 +66,4 @@ const char *GetGaugeType(const Event event) {
 
 Event GaugeEnd() { return END; }
 
-}  // namespace Statistics
+}  // namespace memgraph::metrics

@@ -15,7 +15,7 @@
   M(QueryExecutionLatency_us, Query, "Query execution latency in microseconds", 0, 25, 50, 75, 99, 100) \
   M(SnapshotCreationLatency_us, Snapshot, "Snapshot creation latency in microseconds", 50, 90, 100)
 
-namespace Statistics {
+namespace memgraph::metrics {
 
 // define every Event as an index in the array of counters
 #define M(NAME, TYPE, DOCUMENTATION, ...) extern const Event NAME = __COUNTER__;
@@ -70,4 +70,4 @@ const char *GetHistogramType(const Event event) {
 }
 
 Event HistogramEnd() { return END; }
-}  // namespace Statistics
+}  // namespace memgraph::metrics

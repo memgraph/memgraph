@@ -15,7 +15,7 @@
 #include <cstdlib>
 #include <memory>
 
-namespace Statistics {
+namespace memgraph::metrics {
 using Event = uint64_t;
 using Value = uint64_t;
 using Gauge = std::atomic<Value>;
@@ -45,4 +45,4 @@ const char *GetGaugeDocumentation(Event event);
 const char *GetGaugeType(const Event event);
 
 Event GaugeEnd();
-}  // namespace Statistics
+}  // namespace memgraph::metrics

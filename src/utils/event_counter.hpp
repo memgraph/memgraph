@@ -15,7 +15,7 @@
 #include <cstdlib>
 #include <memory>
 
-namespace Statistics {
+namespace memgraph::metrics {
 using Event = uint64_t;
 using Count = uint64_t;
 using Counter = std::atomic<Count>;
@@ -48,4 +48,4 @@ const char *GetCounterDocumentation(Event event);
 const char *GetCounterType(const Event event);
 
 Event CounterEnd();
-}  // namespace Statistics
+}  // namespace memgraph::metrics

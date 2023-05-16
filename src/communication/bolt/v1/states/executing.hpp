@@ -27,9 +27,9 @@
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
 
-namespace Statistics {
+namespace memgraph::metrics {
 extern const Event BoltMessages;
-}  // namespace Statistics
+}  // namespace memgraph::metrics
 
 namespace memgraph::communication::bolt {
 
@@ -99,7 +99,6 @@ State RunHandlerV4(Signature signature, TSession &session, State state, Marker m
  */
 template <typename TSession>
 State StateExecutingRun(TSession &session, State state) {
-  Statistics::IncrementCounter(Statistics::BoltMessages);
   Marker marker;
   Signature signature;
   if (!session.decoder_.ReadMessageHeader(&signature, &marker)) {
@@ -109,8 +108,10 @@ State StateExecutingRun(TSession &session, State state) {
 
   switch (session.version_.major) {
     case 1:
+      memgraph::metrics::IncrementCounter(memgraph::metrics::BoltMessages);
       return RunHandlerV1(signature, session, state, marker);
     case 4: {
+      memgraph::metrics::IncrementCounter(memgraph::metrics::BoltMessages);
       if (session.version_.minor >= 3) {
         return RunHandlerV4<TSession, 3>(signature, session, state, marker);
       }

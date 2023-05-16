@@ -43,19 +43,16 @@ struct MetricsResponse {
     metrics_response[general_type]["memory_usage"] = memory_usage;
     metrics_response[general_type]["disk_usage"] = disk_usage;
 
-    for (const auto &event_counter : event_counters) {
-      auto type = std::get<1>(event_counter);
-      metrics_response[type][std::get<0>(event_counter)] = std::get<2>(event_counter);
+    for (const auto &[name, type, value] : event_counters) {
+      metrics_response[type][name] = value;
     }
 
-    for (const auto &event_gauge : event_gauges) {
-      auto type = std::get<1>(event_gauge);
-      metrics_response[type][std::get<0>(event_gauge)] = std::get<2>(event_gauge);
+    for (const auto &[name, type, value] : event_gauges) {
+      metrics_response[type][name] = value;
     }
 
-    for (const auto &event_histogram : event_histograms) {
-      auto type = std::get<1>(event_histogram);
-      metrics_response[type][std::get<0>(event_histogram)] = std::get<2>(event_histogram);
+    for (const auto &[name, type, value] : event_histograms) {
+      metrics_response[type][name] = value;
     }
 
     return metrics_response;
@@ -96,11 +93,11 @@ class MetricsService {
 
   auto GetEventCounters() {
     std::vector<std::tuple<std::string, std::string, uint64_t>> event_counters;
-    event_counters.reserve(Statistics::CounterEnd());
+    event_counters.reserve(memgraph::metrics::CounterEnd());
 
-    for (auto i = 0; i < Statistics::CounterEnd(); i++) {
-      event_counters.emplace_back(Statistics::GetCounterName(i), Statistics::GetCounterType(i),
-                                  Statistics::global_counters[i].load(std::memory_order_relaxed));
+    for (auto i = 0; i < memgraph::metrics::CounterEnd(); i++) {
+      event_counters.emplace_back(memgraph::metrics::GetCounterName(i), memgraph::metrics::GetCounterType(i),
+                                  memgraph::metrics::global_counters[i].load(std::memory_order_relaxed));
     }
 
     return event_counters;
@@ -108,11 +105,11 @@ class MetricsService {
 
   auto GetEventGauges() {
     std::vector<std::tuple<std::string, std::string, uint64_t>> event_gauges;
-    event_gauges.reserve(Statistics::GaugeEnd());
+    event_gauges.reserve(memgraph::metrics::GaugeEnd());
 
-    for (auto i = 0; i < Statistics::GaugeEnd(); i++) {
-      event_gauges.emplace_back(Statistics::GetGaugeName(i), Statistics::GetGaugeType(i),
-                                Statistics::global_gauges[i].load(std::memory_order_seq_cst));
+    for (auto i = 0; i < memgraph::metrics::GaugeEnd(); i++) {
+      event_gauges.emplace_back(memgraph::metrics::GetGaugeName(i), memgraph::metrics::GetGaugeType(i),
+                                memgraph::metrics::global_gauges[i].load(std::memory_order_seq_cst));
     }
 
     return event_gauges;
@@ -120,16 +117,16 @@ class MetricsService {
 
   auto GetEventHistograms() {
     std::vector<std::tuple<std::string, std::string, uint64_t>> event_histograms;
-    event_histograms.reserve(Statistics::HistogramEnd());
+    event_histograms.reserve(memgraph::metrics::HistogramEnd());
 
-    for (auto i = 0; i < Statistics::HistogramEnd(); i++) {
-      const auto *name = Statistics::GetHistogramName(i);
-      auto &histogram = Statistics::global_histograms[i];
+    for (auto i = 0; i < memgraph::metrics::HistogramEnd(); i++) {
+      const auto *name = memgraph::metrics::GetHistogramName(i);
+      auto &histogram = memgraph::metrics::global_histograms[i];
 
       for (auto &[percentile, value] : histogram.YieldPercentiles()) {
         auto metric_name = std::string(name) + "_" + std::to_string(percentile) + "p";
 
-        event_histograms.emplace_back(metric_name, Statistics::GetHistogramType(i), value);
+        event_histograms.emplace_back(metric_name, memgraph::metrics::GetHistogramType(i), value);
       }
     }
 

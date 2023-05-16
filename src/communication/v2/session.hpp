@@ -47,12 +47,12 @@
 #include "utils/logging.hpp"
 #include "utils/variant_helpers.hpp"
 
-namespace Statistics {
+namespace memgraph::metrics {
 extern const Event ActiveSessions;
 extern const Event ActiveTCPSessions;
 extern const Event ActiveSSLSessions;
 extern const Event ActiveWebSocketSessions;
-}  // namespace Statistics
+}  // namespace memgraph::metrics
 
 namespace memgraph::communication::v2 {
 
@@ -107,7 +107,7 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
   // Start the asynchronous accept operation
   template <class Body, class Allocator>
   void DoAccept(boost::beast::http::request<Body, boost::beast::http::basic_fields<Allocator>> req) {
-    Statistics::IncrementCounter(Statistics::ActiveWebSocketSessions);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveWebSocketSessions);
 
     execution_active_ = true;
     // Set suggested timeout settings for the websocket
@@ -224,8 +224,8 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
       return;
     }
 
-    Statistics::DecrementCounter(Statistics::ActiveSessions);
-    Statistics::DecrementCounter(Statistics::ActiveWebSocketSessions);
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveSessions);
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveWebSocketSessions);
 
     if (ec) {
       return OnError(ec, "close");
@@ -274,16 +274,16 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       return false;
     }
 
-    Statistics::IncrementCounter(Statistics::ActiveSessions);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveSessions);
 
     execution_active_ = true;
     timeout_timer_.async_wait(boost::asio::bind_executor(strand_, std::bind(&Session::OnTimeout, shared_from_this())));
 
     if (std::holds_alternative<SSLSocket>(socket_)) {
-      Statistics::IncrementCounter(Statistics::ActiveSSLSessions);
+      memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveSSLSessions);
       boost::asio::dispatch(strand_, [shared_this = shared_from_this()] { shared_this->DoHandshake(); });
     } else {
-      Statistics::IncrementCounter(Statistics::ActiveTCPSessions);
+      memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTCPSessions);
       boost::asio::dispatch(strand_, [shared_this = shared_from_this()] { shared_this->DoRead(); });
     }
     return true;
@@ -448,8 +448,6 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       }
       lowest_layer.close();
     });
-
-    Statistics::DecrementCounter(Statistics::ActiveSessions);
   }
 
   void DoHandshake() {
@@ -472,10 +470,12 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
   void OnClose(const boost::system::error_code &ec) {
     if (ssl_context_.has_value()) {
-      Statistics::DecrementCounter(Statistics::ActiveSSLSessions);
+      memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveSSLSessions);
     } else {
-      Statistics::DecrementCounter(Statistics::ActiveTCPSessions);
+      memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTCPSessions);
     }
+
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveSessions);
 
     if (ec) {
       return OnError(ec);

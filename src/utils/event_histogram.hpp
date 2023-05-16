@@ -15,7 +15,7 @@
 
 #include "utils/logging.hpp"
 
-namespace Statistics {
+namespace memgraph::metrics {
 using Event = uint64_t;
 using Value = uint64_t;
 using Measurement = std::atomic<uint64_t>;
@@ -167,4 +167,4 @@ const char *GetHistogramDocumentation(Event event);
 const char *GetHistogramType(const Event event);
 
 Event HistogramEnd();
-}  // namespace Statistics
+}  // namespace memgraph::metrics
