@@ -248,6 +248,7 @@ literal : numberLiteral
         | booleanLiteral
         | CYPHERNULL
         | mapLiteral
+        | mapProjectionLiteral
         | listLiteral
         ;
 
@@ -290,7 +291,7 @@ patternComprehension : '[' ( variable '=' )? relationshipsPattern ( WHERE expres
 
 propertyLookup : '.' ( propertyKeyName ) ;
 
-allPropertyLookup : '.' '*' ;
+allPropertiesLookup : '.' '*' ;
 
 caseExpression : ( ( CASE ( caseAlternatives )+ ) | ( CASE test=expression ( caseAlternatives )+ ) ) ( ELSE else_expression=expression )? END ;
 
@@ -304,14 +305,12 @@ numberLiteral : doubleLiteral
 
 mapLiteral : '{' ( propertyKeyName ':' expression ( ',' propertyKeyName ':' expression )* )? '}' ;
 
-mapProjectionLiteral : mapVariable '{' ( mapElement ( ',' mapElement )* )? '}' ;
-
-mapVariable : variable ;
+mapProjectionLiteral : variable '{' ( mapElement ( ',' mapElement )* )? '}' ;
 
 mapElement : propertyLookup
-           | allPropertyLookup
-           | expression
-           | propertyPair
+           | allPropertiesLookup
+           | variable
+           | propertyKeyValuePair
            ;
 
 parameter : '$' ( symbolicName | DecimalLiteral ) ;
@@ -320,7 +319,7 @@ propertyExpression : atom ( propertyLookup )+ ;
 
 propertyKeyName : symbolicName ;
 
-propertyPair : propertyKeyName ':' expression ;
+propertyKeyValuePair : propertyKeyName ':' expression ;
 
 integerLiteral : DecimalLiteral
                | OctalLiteral
