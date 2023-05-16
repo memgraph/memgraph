@@ -439,8 +439,12 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid
   auto acc = storage_->vertices_.access();
   auto vertex_it = acc.find(gid);
   if (vertex_it != acc.end()) {
-    spdlog::debug("Vertex with gid {} found in the cache with ts {}!", gid.AsUint(),
-                  vertex_it->delta->timestamp->load(std::memory_order_acquire));
+    if (vertex_it->delta) {
+      spdlog::debug("Vertex with gid {} found in the cache with ts {}!", gid.AsUint(),
+                    vertex_it->delta->timestamp->load(std::memory_order_acquire));
+    } else {
+      spdlog::debug("Vertex with gid {} found in the cache! Delta is null.", gid.AsUint());
+    }
     return VertexAccessor::Create(&*vertex_it, &transaction_, &storage_->indices_, &storage_->constraints_, config_,
                                   view);
   }
