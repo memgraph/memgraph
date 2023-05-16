@@ -21,6 +21,7 @@
 #include "query/dump.hpp"
 #include "query/interpreter.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
