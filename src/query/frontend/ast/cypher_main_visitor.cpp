@@ -124,6 +124,9 @@ antlrcpp::Any CypherMainVisitor::visitInfoQuery(MemgraphCypher::InfoQueryContext
   } else if (ctx->constraintInfo()) {
     info_query->info_type_ = InfoQuery::InfoType::CONSTRAINT;
     return info_query;
+  } else if (ctx->buildInfo()) {
+    info_query->info_type_ = InfoQuery::InfoType::BUILD;
+    return info_query;
   } else {
     throw utils::NotYetImplemented("Info query: '{}'", ctx->getText());
   }
@@ -485,6 +488,20 @@ antlrcpp::Any CypherMainVisitor::visitIsolationLevelQuery(MemgraphCypher::Isolat
 
   query_ = isolation_level_query;
   return isolation_level_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitStorageModeQuery(MemgraphCypher::StorageModeQueryContext *ctx) {
+  auto *storage_mode_query = storage_->Create<StorageModeQuery>();
+
+  storage_mode_query->storage_mode_ = std::invoke([mode = ctx->storageMode()]() {
+    if (mode->IN_MEMORY_ANALYTICAL()) {
+      return StorageModeQuery::StorageMode::IN_MEMORY_ANALYTICAL;
+    }
+    return StorageModeQuery::StorageMode::IN_MEMORY_TRANSACTIONAL;
+  });
+
+  query_ = storage_mode_query;
+  return storage_mode_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitCreateSnapshotQuery(MemgraphCypher::CreateSnapshotQueryContext *ctx) {
@@ -1511,6 +1528,7 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
   if (ctx->MODULE_WRITE()) return AuthQuery::Privilege::MODULE_WRITE;
   if (ctx->WEBSOCKET()) return AuthQuery::Privilege::WEBSOCKET;
   if (ctx->TRANSACTION_MANAGEMENT()) return AuthQuery::Privilege::TRANSACTION_MANAGEMENT;
+  if (ctx->STORAGE_MODE()) return AuthQuery::Privilege::STORAGE_MODE;
   LOG_FATAL("Should not get here - unknown privilege!");
 }
 

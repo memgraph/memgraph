@@ -31,6 +31,7 @@ memgraphCypherKeyword : cypherKeyword
                       | BATCH_SIZE
                       | BEFORE
                       | BOOTSTRAP_SERVERS
+                      | BUILD
                       | CHECK
                       | CLEAR
                       | COMMIT
@@ -59,6 +60,8 @@ memgraphCypherKeyword : cypherKeyword
                       | HEADER
                       | IDENTIFIED
                       | ISOLATION
+                      | IN_MEMORY_ANALYTICAL
+                      | IN_MEMORY_TRANSACTIONAL
                       | KAFKA
                       | LABELS
                       | LEVEL
@@ -88,6 +91,7 @@ memgraphCypherKeyword : cypherKeyword
                       | SNAPSHOT
                       | START
                       | STATS
+                      | STORAGE
                       | STREAM
                       | STREAMS
                       | SYNC
@@ -127,6 +131,7 @@ query : cypherQuery
       | freeMemoryQuery
       | triggerQuery
       | isolationLevelQuery
+      | storageModeQuery
       | createSnapshotQuery
       | streamQuery
       | settingQuery
@@ -277,6 +282,7 @@ privilege : CREATE
           | MODULE_WRITE
           | WEBSOCKET
           | TRANSACTION_MANAGEMENT
+          | STORAGE_MODE
           ;
 
 granularPrivilege : NOTHING | READ | UPDATE | CREATE_DELETE ;
@@ -353,6 +359,10 @@ isolationLevel : SNAPSHOT ISOLATION | READ COMMITTED | READ UNCOMMITTED ;
 isolationLevelScope : GLOBAL | SESSION | NEXT ;
 
 isolationLevelQuery : SET isolationLevelScope TRANSACTION ISOLATION LEVEL isolationLevel ;
+
+storageMode : IN_MEMORY_ANALYTICAL | IN_MEMORY_TRANSACTIONAL ;
+
+storageModeQuery : STORAGE MODE storageMode ;
 
 createSnapshotQuery : CREATE SNAPSHOT ;
 
