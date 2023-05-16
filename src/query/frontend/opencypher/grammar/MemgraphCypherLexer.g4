@@ -35,6 +35,7 @@ BATCH_INTERVAL          : B A T C H UNDERSCORE I N T E R V A L ;
 BATCH_LIMIT             : B A T C H UNDERSCORE L I M I T ;
 BATCH_SIZE              : B A T C H UNDERSCORE S I Z E ;
 BEFORE                  : B E F O R E ;
+BUILD                   : B U I L D ;
 BOOTSTRAP_SERVERS       : B O O T S T R A P UNDERSCORE S E R V E R S ;
 CALL                    : C A L L ;
 CHECK                   : C H E C K ;
