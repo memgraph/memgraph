@@ -57,6 +57,7 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "utils/algorithm.hpp"
+#include "utils/build_info.hpp"
 #include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
@@ -2415,6 +2416,15 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
           results.push_back(
               {TypedValue("unique"), TypedValue(db->LabelToName(item.first)), TypedValue(std::move(properties))});
         }
+        return std::pair{results, QueryHandlerResult::NOTHING};
+      };
+      break;
+
+    case InfoQuery::InfoType::BUILD:
+      header = {"build info", "value"};
+      handler = [] {
+        std::vector<std::vector<TypedValue>> results{
+            {TypedValue("build_type"), TypedValue(utils::GetBuildInfo().build_name)}};
         return std::pair{results, QueryHandlerResult::NOTHING};
       };
       break;

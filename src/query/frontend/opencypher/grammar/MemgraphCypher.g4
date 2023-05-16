@@ -31,6 +31,7 @@ memgraphCypherKeyword : cypherKeyword
                       | BATCH_SIZE
                       | BEFORE
                       | BOOTSTRAP_SERVERS
+                      | BUILD
                       | CHECK
                       | CLEAR
                       | COMMIT
