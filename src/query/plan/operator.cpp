@@ -2333,7 +2333,7 @@ bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   // Like all filters, newly set values should not affect filtering of old
   // nodes and edges.
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                storage::View::OLD);
+                                storage::View::OLD, context.frame_change_collector);
   while (input_cursor_->Pull(frame, context)) {
     for (const auto &pattern_filter_cursor : pattern_filter_cursors_) {
       pattern_filter_cursor->Pull(frame, context);
@@ -2414,8 +2414,12 @@ bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
     // Produce should always yield the latest results.
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::NEW);
-    for (auto named_expr : self_.named_expressions_) named_expr->Accept(evaluator);
-
+    for (auto *named_expr : self_.named_expressions_) {
+      if (context.frame_change_collector && context.frame_change_collector->ContainsTrackingValue(named_expr->name_)) {
+        context.frame_change_collector->ResetTrackingValue(named_expr->name_);
+      }
+      named_expr->Accept(evaluator);
+    }
     return true;
   }
   return false;

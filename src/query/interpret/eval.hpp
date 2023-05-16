@@ -13,10 +13,12 @@
 #pragma once
 
 #include <algorithm>
+#include <cstddef>
 #include <limits>
 #include <map>
 #include <optional>
 #include <regex>
+#include <string>
 #include <vector>
 
 #include "query/common.hpp"
@@ -28,6 +30,7 @@
 #include "query/interpret/frame.hpp"
 #include "query/typed_value.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/pmr/unordered_map.hpp"
 
 namespace memgraph::query {
 
@@ -100,8 +103,13 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue *> {
 class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
   ExpressionEvaluator(Frame *frame, const SymbolTable &symbol_table, const EvaluationContext &ctx, DbAccessor *dba,
-                      storage::View view)
-      : frame_(frame), symbol_table_(&symbol_table), ctx_(&ctx), dba_(dba), view_(view) {}
+                      storage::View view, FrameChangeCollector *frame_change_collector = nullptr)
+      : frame_(frame),
+        symbol_table_(&symbol_table),
+        ctx_(&ctx),
+        dba_(dba),
+        view_(view),
+        frame_change_collector_(frame_change_collector) {}
 
   using ExpressionVisitor<TypedValue>::Visit;
 
@@ -191,6 +199,31 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   TypedValue Visit(InListOperator &in_list) override {
     ReferenceExpressionEvaluator reference_expression_evaluator{frame_, symbol_table_, ctx_};
+    using CachedType = std::unordered_map<size_t, std::vector<TypedValue>>;
+
+    std::optional<const CachedType> maybe_cached_value;
+    std::string cached_id;
+    if (in_list.expression2_->GetTypeInfo() == ListLiteral::kType) {
+      std::stringstream ss;
+      ss << static_cast<const void *>(&in_list);
+      cached_id = ss.str();
+
+      std::cout << "we use in list literal:" << cached_id << std::endl;
+    } else if (in_list.expression2_->GetTypeInfo() == Identifier::kType) {
+      auto *identifier = utils::Downcast<Identifier>(in_list.expression2_);
+      cached_id = identifier->name_;
+      std::cout << "we are tracking identifier: " << cached_id << std::endl;
+    } else {
+      std::cout << in_list.expression2_->GetTypeInfo().name << std::endl;
+      throw QueryException("Wrong operator in list");
+    }
+
+    if (frame_change_collector_ && frame_change_collector_->ContainsTrackingValue(cached_id)) {
+      if (frame_change_collector_->IsTrackingValueCached(cached_id)) {
+        std::cout << "contains cached value " << std::endl;
+        maybe_cached_value.emplace(frame_change_collector_->GetCachedValue(cached_id));
+      }
+    }
 
     TypedValue *_list_ptr = in_list.expression2_->Accept(reference_expression_evaluator);
 
@@ -200,7 +233,6 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       _list = in_list.expression2_->Accept(*this);
       _list_ptr = &_list;
     }
-    std::cout << static_cast<void *>(_list_ptr) << std::endl;
 
     auto literal = in_list.expression1_->Accept(*this);
 
@@ -221,24 +253,51 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (list.empty()) return TypedValue(false, ctx_->memory);
     if (literal.IsNull()) return TypedValue(ctx_->memory);
 
-    if (in_list.GetCachedSet() == nullptr) {
-      std::unordered_set<size_t> _cached_set;
+    if (!maybe_cached_value) {
+      // this part needs to be reorganized to use std::unorderd_map with size_t and vector
+      std::unordered_map<size_t, std::vector<TypedValue>> cached_map;
       TypedValue::Hash hash{};
       for (const TypedValue &element : list) {
-        _cached_set.insert(hash(element));
-      }
+        size_t key = hash(element);
+        if (cached_map.contains(key)) {
+          auto &vector_values = cached_map[key];
 
-      in_list.SetCachedSet(std::move(_cached_set));
+          const auto contains_element =
+              std::any_of(vector_values.begin(), vector_values.end(), [&element](auto &vec_value) {
+                auto result = vec_value == element;
+                if (result.IsNull()) return false;
+                return result.ValueBool();
+              });
+
+          if (!contains_element) {
+            vector_values.push_back(element);
+          }
+
+        } else {
+          cached_map.emplace(key, std::vector<TypedValue>{element});
+        }
+      }
+      if (frame_change_collector_) {
+        frame_change_collector_->SetCacheOnTrackingValue(cached_id, std::move(cached_map));
+      }
     }
 
-    const auto &in_list_cached_set = in_list.GetCachedSet();
+    const auto &in_list_cached_map = frame_change_collector_->GetCachedValue(cached_id);
 
     TypedValue::Hash hash{};
-    if (in_list_cached_set->contains(hash(literal))) {
-      return TypedValue(true, ctx_->memory);
+    size_t key = hash(literal);
+    if (in_list_cached_map.contains(key)) {
+      const auto &vec_values = in_list_cached_map.at(key);
+      auto result = std::any_of(vec_values.begin(), vec_values.end(), [&literal](auto &vec_value) {
+        auto result = vec_value == literal;
+        if (result.IsNull()) return false;
+        return result.ValueBool();
+      });
+      return TypedValue(result, ctx_->memory);
     }
+
     // has null
-    if (literal.type() == TypedValue::Type::Null || in_list_cached_set->contains(hash(TypedValue(ctx_->memory)))) {
+    if (literal.type() == TypedValue::Type::Null || in_list_cached_map.contains(hash(TypedValue(ctx_->memory)))) {
       return TypedValue(ctx_->memory);
     }
     return TypedValue(false, ctx_->memory);
@@ -872,6 +931,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   DbAccessor *dba_;
   // which switching approach should be used when evaluating
   storage::View view_;
+  FrameChangeCollector *frame_change_collector_;
 };
 
 /// A helper function for evaluating an expression that's an int.

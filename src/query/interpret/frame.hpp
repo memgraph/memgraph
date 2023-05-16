@@ -28,18 +28,8 @@ class Frame {
 
   Frame(int64_t size, utils::MemoryResource *memory) : elems_(size, memory) { MG_ASSERT(size >= 0); }
 
-  TypedValue &operator[](const Symbol &symbol) {
-    auto type = symbol.type();
-    std::cout << "we are referencing list" << std::endl;
-    // callback to cache to restore value later
-
-    return elems_[symbol.position()];
-  }
-  const TypedValue &operator[](const Symbol &symbol) const {
-    auto type = symbol.type();
-    std::cout << "we are referencing list" << std::endl;
-    return elems_[symbol.position()];
-  }
+  TypedValue &operator[](const Symbol &symbol) { return elems_[symbol.position()]; }
+  const TypedValue &operator[](const Symbol &symbol) const { return elems_[symbol.position()]; }
 
   TypedValue &at(const Symbol &symbol) { return elems_.at(symbol.position()); }
   const TypedValue &at(const Symbol &symbol) const { return elems_.at(symbol.position()); }
