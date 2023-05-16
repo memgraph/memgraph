@@ -31,6 +31,7 @@
 #include "communication/v2/pool.hpp"
 #include "communication/v2/session.hpp"
 #include "utils/event_counter.hpp"
+#include "utils/message.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
