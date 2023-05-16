@@ -195,6 +195,7 @@ class PatternFilterVisitor : public ExpressionVisitor<void> {
   void Visit(Identifier &op) override{};
   void Visit(PrimitiveLiteral &op) override{};
   void Visit(PropertyLookup &op) override{};
+  void Visit(AllPropertiesLookup &op) override{};
   void Visit(ParameterLookup &op) override{};
   void Visit(NamedExpression &op) override{};
   void Visit(RegexMatch &op) override{};

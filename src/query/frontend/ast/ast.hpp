@@ -1135,7 +1135,7 @@ class MapProjectionLiteral : public memgraph::query::BaseLiteral {
   }
 
  protected:
-  explicit MapProjectionLiteral(Expression *map_variable, const std::unordered_map<PropertyIx, Expression *> &elements)
+  explicit MapProjectionLiteral(Expression *map_variable, const std::unordered_map<PropertyIx, Expression *> &&elements)
       : map_variable_(map_variable), elements_(elements) {}
 
  private:
@@ -1208,6 +1208,38 @@ class PropertyLookup : public memgraph::query::Expression {
 
  protected:
   PropertyLookup(Expression *expression, PropertyIx property) : expression_(expression), property_(property) {}
+
+ private:
+  friend class AstStorage;
+};
+
+class AllPropertiesLookup : public memgraph::query::Expression {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  AllPropertiesLookup() = default;
+
+  DEFVISITABLE(ExpressionVisitor<TypedValue>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<void>);
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      expression_->Accept(visitor);
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  memgraph::query::Expression *expression_{nullptr};
+
+  AllPropertiesLookup *Clone(AstStorage *storage) const override {
+    AllPropertiesLookup *object = storage->Create<AllPropertiesLookup>();
+    object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+    return object;
+  }
+
+ protected:
+  explicit AllPropertiesLookup(Expression *expression) : expression_(expression) {}
 
  private:
   friend class AstStorage;

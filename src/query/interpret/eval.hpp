@@ -17,6 +17,7 @@
 #include <map>
 #include <optional>
 #include <regex>
+#include <string>
 #include <vector>
 
 #include "query/common.hpp"
@@ -73,6 +74,7 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue *> {
   UNSUCCESSFUL_VISIT(ListSlicingOperator);
   UNSUCCESSFUL_VISIT(IsNullOperator);
   UNSUCCESSFUL_VISIT(PropertyLookup);
+  UNSUCCESSFUL_VISIT(AllPropertiesLookup);
   UNSUCCESSFUL_VISIT(LabelsTest);
 
   UNSUCCESSFUL_VISIT(PrimitiveLiteral);
@@ -467,7 +469,101 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         throw QueryRuntimeException("Invalid property name {} for Graph", prop_name);
       }
       default:
-        throw QueryRuntimeException("Only nodes, edges, maps and temporal types have properties to be looked-up.");
+        throw QueryRuntimeException(
+            "Only nodes, edges, maps, temporal types and graphs have properties to be looked up.");
+    }
+  }
+
+  TypedValue Visit(AllPropertiesLookup &all_properties_lookup) override {
+    TypedValue::TMap result(ctx_->memory);
+
+    auto expression_result = all_properties_lookup.expression_->Accept(*this);
+    switch (expression_result.type()) {
+      case TypedValue::Type::Null:
+        return TypedValue(ctx_->memory);
+      case TypedValue::Type::Vertex: {
+        for (const auto properties = *expression_result.ValueVertex().Properties(view_);
+             const auto &[property_id, value] : properties) {
+          result.emplace(dba_->PropertyToName(property_id), value);
+        }
+        return TypedValue(result, ctx_->memory);
+      }
+      case TypedValue::Type::Edge: {
+        for (const auto properties = *expression_result.ValueEdge().Properties(view_);
+             const auto &[property_id, value] : properties) {
+          result.emplace(dba_->PropertyToName(property_id), value);
+        }
+        return TypedValue(result, ctx_->memory);
+      }
+      case TypedValue::Type::Map: {
+        for (auto &[name, value] : expression_result.ValueMap()) {
+          result.emplace(name, value);
+        }
+        return TypedValue(result, ctx_->memory);
+      }
+      case TypedValue::Type::Duration: {
+        const auto &dur = expression_result.ValueDuration();
+        result.emplace("day", TypedValue(dur.Days(), ctx_->memory));
+        result.emplace("hour", TypedValue(dur.SubDaysAsHours(), ctx_->memory));
+        result.emplace("minute", TypedValue(dur.SubDaysAsMinutes(), ctx_->memory));
+        result.emplace("second", TypedValue(dur.SubDaysAsSeconds(), ctx_->memory));
+        result.emplace("millisecond", TypedValue(dur.SubDaysAsMilliseconds(), ctx_->memory));
+        result.emplace("microseconds", TypedValue(dur.SubDaysAsMicroseconds(), ctx_->memory));
+        result.emplace("nanoseconds", TypedValue(dur.SubDaysAsNanoseconds(), ctx_->memory));
+        return TypedValue(result, ctx_->memory);
+      }
+      case TypedValue::Type::Date: {
+        const auto &date = expression_result.ValueDate();
+        result.emplace("year", TypedValue(date.year, ctx_->memory));
+        result.emplace("month", TypedValue(date.month, ctx_->memory));
+        result.emplace("day", TypedValue(date.day, ctx_->memory));
+        return TypedValue(result, ctx_->memory);
+      }
+      case TypedValue::Type::LocalTime: {
+        const auto &lt = expression_result.ValueLocalTime();
+        result.emplace("hour", TypedValue(lt.hour, ctx_->memory));
+        result.emplace("minute", TypedValue(lt.minute, ctx_->memory));
+        result.emplace("second", TypedValue(lt.second, ctx_->memory));
+        result.emplace("millisecond", TypedValue(lt.millisecond, ctx_->memory));
+        result.emplace("microsecond", TypedValue(lt.microsecond, ctx_->memory));
+        return TypedValue(result, ctx_->memory);
+      }
+      case TypedValue::Type::LocalDateTime: {
+        const auto &ldt = expression_result.ValueLocalDateTime();
+        const auto &date = ldt.date;
+        const auto &lt = ldt.local_time;
+        result.emplace("year", TypedValue(date.year, ctx_->memory));
+        result.emplace("month", TypedValue(date.month, ctx_->memory));
+        result.emplace("day", TypedValue(date.day, ctx_->memory));
+        result.emplace("hour", TypedValue(lt.hour, ctx_->memory));
+        result.emplace("minute", TypedValue(lt.minute, ctx_->memory));
+        result.emplace("second", TypedValue(lt.second, ctx_->memory));
+        result.emplace("millisecond", TypedValue(lt.millisecond, ctx_->memory));
+        result.emplace("microsecond", TypedValue(lt.microsecond, ctx_->memory));
+        return TypedValue(result, ctx_->memory);
+      }
+      case TypedValue::Type::Graph: {
+        const auto &graph = expression_result.ValueGraph();
+
+        utils::pmr::vector<TypedValue> vertices(ctx_->memory);
+        vertices.reserve(graph.vertices().size());
+        for (const auto &v : graph.vertices()) {
+          vertices.emplace_back(TypedValue(v, ctx_->memory));
+        }
+        result.emplace("nodes", TypedValue(std::move(vertices), ctx_->memory));
+
+        utils::pmr::vector<TypedValue> edges(ctx_->memory);
+        edges.reserve(graph.edges().size());
+        for (const auto &e : graph.edges()) {
+          edges.emplace_back(TypedValue(e, ctx_->memory));
+        }
+        result.emplace("edges", TypedValue(std::move(edges), ctx_->memory));
+
+        return TypedValue(result, ctx_->memory);
+      }
+      default:
+        throw QueryRuntimeException(
+            "Only nodes, edges, maps, temporal types and graphs have properties to be looked up.");
     }
   }
 
@@ -533,8 +629,26 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(MapProjectionLiteral &literal) override {
+    constexpr std::string_view kAllPropertiesSelector{"*"};
+
     TypedValue::TMap result(ctx_->memory);
-    for (const auto &pair : literal.elements_) result.emplace(pair.first.name, pair.second->Accept(*this));
+    TypedValue::TMap all_properties_lookup(ctx_->memory);
+    for (const auto &[property_key, property_value] : literal.elements_) {
+      if (property_key.name == kAllPropertiesSelector.data()) {
+        auto maybe_all_properties_lookup = property_value->Accept(*this);
+
+        if (maybe_all_properties_lookup.type() != TypedValue::Type::Map) {
+          throw QueryRuntimeException("Expected a map from AllPropertiesLookup, got {}.",
+                                      maybe_all_properties_lookup.type());
+        }
+        all_properties_lookup = std::move(maybe_all_properties_lookup.ValueMap());
+        continue;
+      }
+
+      result.emplace(property_key.name, property_value->Accept(*this));
+    }
+    if (!all_properties_lookup.empty()) result.merge(all_properties_lookup);
+
     return TypedValue(result, ctx_->memory);
   }
 
@@ -859,7 +973,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   DbAccessor *dba_;
   // which switching approach should be used when evaluating
   storage::View view_;
-};
+};  // namespace memgraph::query
 
 /// A helper function for evaluating an expression that's an int.
 ///
