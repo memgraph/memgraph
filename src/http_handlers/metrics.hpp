@@ -21,6 +21,7 @@
 
 #include <utils/event_counter.hpp>
 #include <utils/event_gauge.hpp>
+// NOLINTNEXTLINE(clang-diagnostic-error)
 #include "query/interpreter.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/event_gauge.hpp"
