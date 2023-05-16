@@ -77,6 +77,7 @@
 
 namespace memgraph::metrics {
 // define every Event as an index in the array of counters
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define M(NAME, TYPE, DOCUMENTATION) extern const Event NAME = __COUNTER__;
 APPLY_FOR_COUNTERS(M)
 #undef M
@@ -106,6 +107,7 @@ void DecrementCounter(const Event event, Count amount) { global_counters.Decreme
 
 const char *GetCounterName(const Event event) {
   static const char *strings[] = {
+  // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define M(NAME, TYPE, DOCUMENTATION) #NAME,
       APPLY_FOR_COUNTERS(M)
 #undef M
@@ -116,6 +118,7 @@ const char *GetCounterName(const Event event) {
 
 const char *GetCounterDocumentation(const Event event) {
   static const char *strings[] = {
+  // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define M(NAME, TYPE, DOCUMENTATION) DOCUMENTATION,
       APPLY_FOR_COUNTERS(M)
 #undef M
@@ -126,6 +129,7 @@ const char *GetCounterDocumentation(const Event event) {
 
 const char *GetCounterType(const Event event) {
   static const char *strings[] = {
+  // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define M(NAME, TYPE, DOCUMENTATION) #TYPE,
       APPLY_FOR_COUNTERS(M)
 #undef M

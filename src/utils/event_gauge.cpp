@@ -39,6 +39,7 @@ void SetGaugeValue(const Event event, Value value) { global_gauges.SetValue(even
 
 const char *GetGaugeName(const Event event) {
   static const char *strings[] = {
+  // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define M(NAME, TYPE, DOCUMENTATION) #NAME,
       APPLY_FOR_GAUGES(M)
 #undef M
@@ -49,6 +50,7 @@ const char *GetGaugeName(const Event event) {
 
 const char *GetGaugeDocumentation(const Event event) {
   static const char *strings[] = {
+  // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define M(NAME, TYPE, DOCUMENTATION) DOCUMENTATION,
       APPLY_FOR_GAUGES(M)
 #undef M
@@ -59,6 +61,7 @@ const char *GetGaugeDocumentation(const Event event) {
 
 const char *GetGaugeType(const Event event) {
   static const char *strings[] = {
+  // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define M(NAME, TYPE, DOCUMENTATION) #TYPE,
       APPLY_FOR_GAUGES(M)
 #undef M

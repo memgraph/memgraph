@@ -27,6 +27,8 @@ inline constexpr Event END = __COUNTER__;
 // Initialize array for the global histogram with all named histograms and their percentiles
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 Histogram global_histograms_array[END]{
+
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define M(NAME, TYPE, DOCUMENTATION, ...) Histogram({__VA_ARGS__}),
     APPLY_FOR_HISTOGRAMS(M)
 #undef M
@@ -44,6 +46,7 @@ void EventHistograms::Measure(const Event event, Value value) { histograms_[even
 
 const char *GetHistogramName(const Event event) {
   static const char *strings[] = {
+  // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define M(NAME, TYPE, DOCUMENTATION, ...) #NAME,
       APPLY_FOR_HISTOGRAMS(M)
 #undef M
@@ -54,6 +57,7 @@ const char *GetHistogramName(const Event event) {
 
 const char *GetHistogramDocumentation(const Event event) {
   static const char *strings[] = {
+  // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define M(NAME, TYPE, DOCUMENTATION, ...) DOCUMENTATION,
       APPLY_FOR_HISTOGRAMS(M)
 #undef M
@@ -64,6 +68,7 @@ const char *GetHistogramDocumentation(const Event event) {
 
 const char *GetHistogramType(const Event event) {
   static const char *strings[] = {
+  // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define M(NAME, TYPE, DOCUMENTATION, ...) #TYPE,
       APPLY_FOR_HISTOGRAMS(M)
 #undef M
