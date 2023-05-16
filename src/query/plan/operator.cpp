@@ -4545,7 +4545,7 @@ class CallProcedureCursor : public Cursor {
       result_row_it_ = result_.rows.begin();
     }
 
-    const auto &values = result_row_it_->values;
+    auto &values = result_row_it_->values;
     // Check that the row has all fields as required by the result signature.
     // C API guarantees that it's impossible to set fields which are not part of
     // the result record, but it does not gurantee that some may be missing. See
@@ -4563,7 +4563,7 @@ class CallProcedureCursor : public Cursor {
         throw QueryRuntimeException("Procedure '{}' did not yield a record with '{}' field.", self_->procedure_name_,
                                     field_name);
       }
-      frame[self_->result_symbols_[i]] = result_it->second;
+      frame[self_->result_symbols_[i]] = std::move(result_it->second);
     }
     ++result_row_it_;
 
