@@ -1994,7 +1994,7 @@ utils::FileRetainer::FileLockerAccessor::ret_type Storage::UnlockPath() {
   {
     auto locker_accessor = global_locker_.Access();
     const auto ret = locker_accessor.RemovePath(config_.durability.storage_directory);
-    if (!ret.GetValue() || ret.HasError()) {
+    if (ret.HasError() || !ret.GetValue()) {
       // Exit without cleaning the queue
       return ret;
     }
