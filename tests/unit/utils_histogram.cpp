@@ -41,6 +41,7 @@ TEST(Histogram, BasicFunctionality) {
   uint64_t max = std::numeric_limits<uint64_t>::max();
   histo.Measure(max);
   auto observed_max = static_cast<double>(histo.Percentile(100.0));
+  auto diff = (max - observed_max) / max;
 
-  ASSERT_NEAR(max, observed_max, 0.01);
+  ASSERT_NEAR(diff, 0, 0.01);
 }
