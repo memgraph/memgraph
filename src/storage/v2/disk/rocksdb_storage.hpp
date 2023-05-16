@@ -17,6 +17,8 @@
 #include <rocksdb/options.h>
 #include <rocksdb/status.h>
 
+#include "storage/v2/id_types.hpp"
+#include "storage/v2/property_store.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::storage {
@@ -37,6 +39,7 @@ struct RocksDBStorage {
   rocksdb::ColumnFamilyHandle *edge_chandle = nullptr;
 };
 
+/// RocksDB comparator that compares keys with timestamps.
 class ComparatorWithU64TsImpl : public rocksdb::Comparator {
  public:
   explicit ComparatorWithU64TsImpl();

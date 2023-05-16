@@ -75,8 +75,6 @@ using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 namespace {
 
-constexpr const char *outEdgeDirection = "0";
-constexpr const char *inEdgeDirection = "1";
 constexpr const char *vertexHandle = "vertex";
 constexpr const char *edgeHandle = "edge";
 constexpr const char *main_storage_path = "./rocks_experiment";
@@ -266,84 +264,6 @@ DiskStorage::DiskAccessor::~DiskAccessor() {
   FinalizeTransaction();
 }
 
-// (De)serialization utilities
-
-/// TODO: (andi): Decouple this into some object/class related to rocksdb.
-std::string DiskStorage::DiskAccessor::SerializeIdType(const auto &id) const { return std::to_string(id.AsUint()); }
-
-auto DiskStorage::DiskAccessor::DeserializeIdType(const std::string &str) { return Gid::FromUint(std::stoull(str)); }
-
-std::string DiskStorage::DiskAccessor::SerializeTimestamp(const uint64_t ts) { return std::to_string(ts); }
-
-std::string DiskStorage::DiskAccessor::SerializeLabels(const std::vector<LabelId> &labels) {
-  std::string result = std::to_string(labels[0].AsUint());
-  std::string ser_labels = std::accumulate(
-      std::next(labels.begin()), labels.end(), result,
-      [](const std::string &join, const auto &label_id) { return join + "," + std::to_string(label_id.AsUint()); });
-  return ser_labels;
-}
-
-std::string DiskStorage::DiskAccessor::SerializeProperties(PropertyStore &properties) {
-  return properties.StringBuffer();
-}
-
-std::string DiskStorage::DiskAccessor::SerializeVertex(const Result<std::vector<LabelId>> &labels, Gid gid) const {
-  std::string result = labels.HasError() || (*labels).empty() ? "" : SerializeLabels(*labels) + "|";
-  result += SerializeIdType(gid);
-  return result;
-}
-
-std::string DiskStorage::DiskAccessor::SerializeVertex(const Vertex &vertex) const {
-  std::string result = SerializeLabels(vertex.labels) + "|";
-  result += SerializeIdType(vertex.gid);
-  return result;
-}
-
-std::pair<std::string, std::string> DiskStorage::DiskAccessor::SerializeEdge(EdgeAccessor *edge_acc) const {
-  // Serialized objects
-  auto from_gid = SerializeIdType(edge_acc->FromVertex().Gid());
-  auto to_gid = SerializeIdType(edge_acc->ToVertex().Gid());
-  auto edge_type = SerializeIdType(edge_acc->EdgeType());
-  auto edge_gid = SerializeIdType(edge_acc->Gid());
-  // source->destination key
-  std::string src_dest_key = from_gid + "|";
-  src_dest_key += to_gid + "|";
-  src_dest_key += outEdgeDirection;
-  src_dest_key += "|" + edge_type + "|";
-  src_dest_key += edge_gid;
-  // destination->source key
-  std::string dest_src_key = to_gid + "|";
-  dest_src_key += from_gid + "|";
-  dest_src_key += inEdgeDirection;
-  dest_src_key += "|" + edge_type + "|";
-  dest_src_key += edge_gid;
-  return {src_dest_key, dest_src_key};
-}
-
-std::pair<std::string, std::string> DiskStorage::DiskAccessor::SerializeEdge(const Gid src_vertex_gid,
-                                                                             const Gid dest_vertex_gid,
-                                                                             EdgeTypeId edge_type_id,
-                                                                             const Edge *edge) const {
-  // Serialized objects
-  auto from_gid = SerializeIdType(src_vertex_gid);
-  auto to_gid = SerializeIdType(dest_vertex_gid);
-  auto edge_type = SerializeIdType(edge_type_id);
-  auto edge_gid = SerializeIdType(edge->gid);
-  // source->destination key
-  std::string src_dest_key = from_gid + "|";
-  src_dest_key += to_gid + "|";
-  src_dest_key += outEdgeDirection;
-  src_dest_key += "|" + edge_type + "|";
-  src_dest_key += edge_gid;
-  // destination->source key
-  std::string dest_src_key = to_gid + "|";
-  dest_src_key += from_gid + "|";
-  dest_src_key += inEdgeDirection;
-  dest_src_key += "|" + edge_type + "|";
-  dest_src_key += edge_gid;
-  return {src_dest_key, dest_src_key};
-}
-
 std::optional<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(const rocksdb::Slice &key,
                                                                            const rocksdb::Slice &value) {
   OOMExceptionEnabler oom_exception;
@@ -371,7 +291,7 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(const
 std::optional<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const rocksdb::Slice &key,
                                                                        const rocksdb::Slice &value) {
   const auto edge_parts = utils::Split(key.ToStringView(), "|");
-  const Gid edge_gid = DeserializeIdType(edge_parts[4]);
+  const Gid edge_gid = utils::DeserializeIdType(edge_parts[4]);
 
   auto edge_acc = storage_->edges_.access();
   auto res = edge_acc.find(edge_gid);
@@ -392,8 +312,8 @@ std::optional<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const roc
       edge_parts);
 
   // load vertex accessors
-  auto from_acc = FindVertex(DeserializeIdType(from_gid), View::OLD);
-  auto to_acc = FindVertex(DeserializeIdType(to_gid), View::OLD);
+  auto from_acc = FindVertex(utils::DeserializeIdType(from_gid), View::OLD);
+  auto to_acc = FindVertex(utils::DeserializeIdType(to_gid), View::OLD);
   if (!from_acc || !to_acc) {
     throw utils::BasicException("Non-existing vertices found during edge deserialization");
   }
@@ -538,7 +458,7 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     const auto &key = it->key();
     // TODO(andi): If we change format of vertex serialization, change vertex_parts[1] to vertex_parts[0].
-    if (const auto vertex_parts = utils::Split(key.ToString(), "|"); vertex_parts[1] == SerializeIdType(gid)) {
+    if (const auto vertex_parts = utils::Split(key.ToString(), "|"); vertex_parts[1] == utils::SerializeIdType(gid)) {
       return DeserializeVertex(key, it->value());
     }
   }
@@ -563,7 +483,7 @@ Result<std::optional<VertexAccessor>> DiskStorage::DiskAccessor::DeleteVertex(Ve
 
   CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
   vertex_ptr->deleted = true;
-  vertices_to_delete_.emplace_back(SerializeVertex(*vertex_ptr));
+  vertices_to_delete_.emplace_back(utils::SerializeVertex(*vertex_ptr));
 
   return std::make_optional<VertexAccessor>(vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_,
                                             config_, true);
@@ -633,7 +553,7 @@ DiskStorage::DiskAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
 
   CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
   vertex_ptr->deleted = true;
-  vertices_to_delete_.emplace_back(SerializeVertex(*vertex_ptr));
+  vertices_to_delete_.emplace_back(utils::SerializeVertex(*vertex_ptr));
 
   return std::make_optional<ReturnType>(
       VertexAccessor{vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_, config_, true},
@@ -657,18 +577,18 @@ void DiskStorage::DiskAccessor::PrefetchEdges(const auto &prefetch_edge_filter) 
 
 /// TOOD(andi): Add support for fetching in edges only for one vertex. Currently, all in edges are fetched.
 void DiskStorage::DiskAccessor::PrefetchInEdges(const VertexAccessor &vertex_acc) {
-  PrefetchEdges(
-      [&vertex_acc, this](const std::string_view disk_edge_gid, const std::string_view disk_edge_direction) -> bool {
-        return disk_edge_gid == SerializeIdType(vertex_acc.Gid()) && disk_edge_direction == inEdgeDirection;
-      });
+  PrefetchEdges([&vertex_acc](const std::string_view disk_edge_gid,
+                              const std::string_view disk_edge_direction) -> bool {
+    return disk_edge_gid == utils::SerializeIdType(vertex_acc.Gid()) && disk_edge_direction == utils::inEdgeDirection;
+  });
 }
 
 /// TODO(andi): Functionality of this method can probably be merged with the functionality of in-edges
 void DiskStorage::DiskAccessor::PrefetchOutEdges(const VertexAccessor &vertex_acc) {
-  PrefetchEdges(
-      [&vertex_acc, this](const std::string_view disk_edge_gid, const std::string_view disk_edge_direction) -> bool {
-        return disk_edge_gid == SerializeIdType(vertex_acc.Gid()) && disk_edge_direction == outEdgeDirection;
-      });
+  PrefetchEdges([&vertex_acc](const std::string_view disk_edge_gid,
+                              const std::string_view disk_edge_direction) -> bool {
+    return disk_edge_gid == utils::SerializeIdType(vertex_acc.Gid()) && disk_edge_direction == utils::outEdgeDirection;
+  });
 }
 
 Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from, VertexAccessor *to,
@@ -843,7 +763,7 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
     auto acc = storage_->edges_.access();
-    auto delta = CreateDeleteObjectDelta(&transaction_);
+    auto *delta = CreateDeleteObjectDelta(&transaction_);
     auto [it, inserted] = acc.insert(Edge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
     MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
@@ -921,7 +841,8 @@ Result<std::optional<EdgeAccessor>> DiskStorage::DiskAccessor::DeleteEdge(EdgeAc
 
   auto op1 = delete_edge_from_storage(to_vertex, &from_vertex->out_edges);
   auto op2 = delete_edge_from_storage(from_vertex, &to_vertex->in_edges);
-  auto [src_dest_del_key, dest_src_del_key] = SerializeEdge(from_vertex->gid, to_vertex->gid, edge_type, edge_ref.ptr);
+  auto [src_dest_del_key, dest_src_del_key] =
+      utils::SerializeEdge(from_vertex->gid, to_vertex->gid, edge_type, edge_ref.ptr);
   edges_to_delete_.emplace_back(src_dest_del_key);
   edges_to_delete_.emplace_back(dest_src_del_key);
 
@@ -990,18 +911,20 @@ void DiskStorage::DiskAccessor::FlushCache() {
   write_options.timestamp = &ts;
   for (Vertex &vertex : vertex_acc) {
     logging::AssertRocksDBStatus(storage_->kvstore_->db_->Put(write_options, storage_->kvstore_->vertex_chandle,
-                                                              SerializeVertex(vertex),
-                                                              SerializeProperties(vertex.properties)));
-    spdlog::debug("rocksdb: Saved vertex with key {} and ts {}", SerializeVertex(vertex), *commit_timestamp_);
+                                                              utils::SerializeVertex(vertex),
+                                                              utils::SerializeProperties(vertex.properties)));
+    spdlog::debug("rocksdb: Saved vertex with key {} and ts {}", utils::SerializeVertex(vertex), *commit_timestamp_);
     spdlog::debug("Vertex {} has {} out edges", vertex.gid.AsUint(), vertex.out_edges.size());
     for (auto &edge_entry : vertex.out_edges) {
       Edge *edge_ptr = std::get<2>(edge_entry).ptr;
       auto [src_dest_key, dest_src_key] =
-          SerializeEdge(vertex.gid, std::get<1>(edge_entry)->gid, std::get<0>(edge_entry), edge_ptr);
-      logging::AssertRocksDBStatus(storage_->kvstore_->db_->Put(
-          write_options, storage_->kvstore_->edge_chandle, src_dest_key, SerializeProperties(edge_ptr->properties)));
-      logging::AssertRocksDBStatus(storage_->kvstore_->db_->Put(
-          write_options, storage_->kvstore_->edge_chandle, dest_src_key, SerializeProperties(edge_ptr->properties)));
+          utils::SerializeEdge(vertex.gid, std::get<1>(edge_entry)->gid, std::get<0>(edge_entry), edge_ptr);
+      logging::AssertRocksDBStatus(storage_->kvstore_->db_->Put(write_options, storage_->kvstore_->edge_chandle,
+                                                                src_dest_key,
+                                                                utils::SerializeProperties(edge_ptr->properties)));
+      logging::AssertRocksDBStatus(storage_->kvstore_->db_->Put(write_options, storage_->kvstore_->edge_chandle,
+                                                                dest_src_key,
+                                                                utils::SerializeProperties(edge_ptr->properties)));
       spdlog::debug("rocksdb: Saved edge with key {} and ts {}", src_dest_key, *commit_timestamp_);
       spdlog::debug("rocksdb: Saved edge with key {} and ts {}", dest_src_key, *commit_timestamp_);
       num_ser_edges++;
@@ -1332,7 +1255,10 @@ void DiskStorage::DiskAccessor::FinalizeTransaction() {
 
 // this should be handled on an above level of abstraction
 std::optional<uint64_t> DiskStorage::DiskAccessor::GetTransactionId() const {
-  throw utils::NotYetImplemented("GetTransactionId");
+  if (is_transaction_active_) {
+    return transaction_.transaction_id.load(std::memory_order_acquire);
+  }
+  return {};
 }
 
 // this should be handled on an above level of abstraction
@@ -1380,7 +1306,8 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
     const auto &key = it->key();
     const auto vertex_parts = utils::Split(key.ToStringView(), "|");
     if (const auto labels = utils::Split(vertex_parts[0], ",");
-        // TODO: (andi): When you decouple SerializeIdType, modify this to_string call to use SerializeIdType.
+        // TODO: (andi): When you decouple utils::SerializeIdType, modify this to_string call to use
+        // utils::SerializeIdType.
         std::find(labels.begin(), labels.end(), std::to_string(label.AsUint())) != labels.end()) {
       spdlog::debug("Found vertex with gid {} for index creation", vertex_parts[1]);
       indexed_vertices.emplace_back(key.ToString(), it->value().ToString(),

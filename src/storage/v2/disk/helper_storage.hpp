@@ -70,12 +70,12 @@ class RocksDBStorage {
 
   //   /// fetch the edge's source vertex by its GID
   //   std::optional<query::VertexAccessor> FromVertex(const query::EdgeAccessor &edge_acc, query::DbAccessor &dba) {
-  //     return FindVertex(SerializeIdType(edge_acc.From().Gid()), dba);
+  //     return FindVertex(utils::SerializeIdType(edge_acc.From().Gid()), dba);
   //   }
 
   //   /// fetch the edge's destination vertex by its GID
   //   std::optional<query::VertexAccessor> ToVertex(const query::EdgeAccessor &edge_acc, query::DbAccessor &dba) {
-  //     return FindVertex(SerializeIdType(edge_acc.To().Gid()), dba);
+  //     return FindVertex(utils::SerializeIdType(edge_acc.To().Gid()), dba);
   //   }
 
   //   /// VERTEX ACCESSOR FUNCTIONALITIES
@@ -86,7 +86,7 @@ class RocksDBStorage {
   //   /// other_vertex_gid | src_gid | 1 | ...
   //   /// We use the firt way since this should be possible to optimize using Bloom filters and prefix search
   //   std::vector<query::EdgeAccessor> OutEdges(const query::VertexAccessor &vertex_acc, query::DbAccessor &dba) {
-  //     const auto vertex_acc_gid = SerializeIdType(vertex_acc.Gid());
+  //     const auto vertex_acc_gid = utils::SerializeIdType(vertex_acc.Gid());
   //     std::vector<query::EdgeAccessor> out_edges;
   //     auto it = std::unique_ptr<rocksdb::Iterator>(db_->NewIterator(rocksdb::ReadOptions(), edge_chandle));
   //     for (it->SeekToFirst(); it->Valid(); it->Next()) {
@@ -104,7 +104,7 @@ class RocksDBStorage {
   //   /// dest_gid | other_verte_gid | 1 | ...
   //   /// we use the second way since this should be possible to optimize using Bloom filters and prefix search.
   //   std::vector<query::EdgeAccessor> InEdges(const query::VertexAccessor &vertex_acc, query::DbAccessor &dba) {
-  //     const auto vertex_acc_gid = SerializeIdType(vertex_acc.Gid());
+  //     const auto vertex_acc_gid = utils::SerializeIdType(vertex_acc.Gid());
   //     std::vector<query::EdgeAccessor> in_edges;
   //     auto it = std::unique_ptr<rocksdb::Iterator>(db_->NewIterator(rocksdb::ReadOptions(), edge_chandle));
   //     for (it->SeekToFirst(); it->Valid(); it->Next()) {
@@ -187,13 +187,13 @@ class RocksDBStorage {
   //   /// Properties are serialized as the value
   //   void StoreVertex(const query::VertexAccessor &vertex_acc) {
   //     AssertRocksDBStatus(db_->Put(rocksdb::WriteOptions(), vertex_chandle, SerializeVertex(vertex_acc),
-  //                                  SerializeProperties(vertex_acc.PropertyStore())));
+  //                                  utils::SerializeProperties(vertex_acc.PropertyStore())));
   //   }
 
   //   /// Store edge as two key-value entries in the RocksDB.
   //   void StoreEdge(const query::EdgeAccessor &edge_acc) {
   //     auto [src_dest_key, dest_src_key] = SerializeEdge(edge_acc);
-  //     const std::string value = SerializeProperties(edge_acc.PropertyStore());
+  //     const std::string value = utils::SerializeProperties(edge_acc.PropertyStore());
   //     AssertRocksDBStatus(db_->Put(rocksdb::WriteOptions(), edge_chandle, src_dest_key, value));
   //     AssertRocksDBStatus(db_->Put(rocksdb::WriteOptions(), edge_chandle, dest_src_key, value));
   //   }
@@ -268,10 +268,10 @@ class RocksDBStorage {
   //   /// Serialization of properties is done by saving the property store buffer
   //   /// If the data is stored in the local buffer of the property store, data from the buffer is copied to the string
   //   /// If the data is stored in some external buffer, the data is read from that location and copied to the string
-  //   inline std::string SerializeProperties(const auto &&properties) { return properties; }
+  //   inline std::string utils::SerializeProperties(const auto &&properties) { return properties; }
 
   //   /// Serialize labels delimitied by | to string
-  //   std::string SerializeLabels(const auto &&labels) {
+  //   std::string utils::SerializeLabels(const auto &&labels) {
   //     if (labels.HasError() || (*labels).empty()) {
   //       return "";
   //     }
@@ -284,13 +284,13 @@ class RocksDBStorage {
   //   }
 
   //   /// Serializes id type to string
-  //   inline std::string SerializeIdType(const auto &id) { return std::to_string(id.AsUint()); }
+  //   inline std::string utils::SerializeIdType(const auto &id) { return std::to_string(id.AsUint()); }
 
   //   /// Serialize vertex to string
   //   /// The format: | label1,label2,label3 | gid
   //   std::string SerializeVertex(const query::VertexAccessor &vertex_acc) {
-  //     std::string result = SerializeLabels(vertex_acc.Labels(storage::View::OLD)) + "|";
-  //     result += SerializeIdType(vertex_acc.Gid());
+  //     std::string result = utils::SerializeLabels(vertex_acc.Labels(storage::View::OLD)) + "|";
+  //     result += utils::SerializeIdType(vertex_acc.Gid());
   //     return result;
   //   }
 
@@ -332,10 +332,10 @@ class RocksDBStorage {
   //   // | from_gid | to_gid | direction | edge_type | edge_gid
   //   std::pair<std::string, std::string> SerializeEdge(const query::EdgeAccessor &edge_acc) {
   //     // Serialized objects
-  //     auto from_gid = SerializeIdType(edge_acc.From().Gid());
-  //     auto to_gid = SerializeIdType(edge_acc.To().Gid());
-  //     auto edge_type = SerializeIdType(edge_acc.EdgeType());
-  //     auto edge_gid = SerializeIdType(edge_acc.Gid());
+  //     auto from_gid = utils::SerializeIdType(edge_acc.From().Gid());
+  //     auto to_gid = utils::SerializeIdType(edge_acc.To().Gid());
+  //     auto edge_type = utils::SerializeIdType(edge_acc.EdgeType());
+  //     auto edge_gid = utils::SerializeIdType(edge_acc.Gid());
   //     // source->destination key
   //     std::string src_dest_key = from_gid + "|";
   //     src_dest_key += to_gid + "|";

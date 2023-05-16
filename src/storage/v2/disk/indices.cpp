@@ -54,8 +54,9 @@
 //     const auto &key = it->key().ToString();
 //     const auto vertex_parts = utils::Split(key, "|");
 //     if (const auto labels = utils::Split(vertex_parts[0], ",");
-//         // TODO: (andi): When you decouple SerializeIdType, modify this to_string call to use SerializeIdType.
-//         std::find(labels.begin(), labels.end(), std::to_string(label.AsUint())) != labels.end()) {
+//         // TODO: (andi): When you decouple utils::SerializeIdType, modify this to_string call to use
+//         utils::SerializeIdType. std::find(labels.begin(), labels.end(), std::to_string(label.AsUint())) !=
+//         labels.end()) {
 //       auto gid = storage::Gid::FromUint(std::stoull(vertex_parts[1]));
 //       auto vertex_commit_ts = utils::ExtractTimestampFromDeserializedUserKey(key);
 //       auto delta = CreateDeleteDeserializedObjectDelta(transaction, vertex_commit_ts);

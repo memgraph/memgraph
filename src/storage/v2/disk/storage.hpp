@@ -209,6 +209,16 @@ class DiskStorage final : public Storage {
 
     std::optional<uint64_t> GetTransactionId() const override;
 
+    /// Deserializes vertex from the string key and stores it into the vertices_ and lru_vertices_.
+    /// Properties are deserialized from the value.
+    /// The method should be called only when the vertex is not in the cache.
+    std::optional<storage::VertexAccessor> DeserializeVertex(const rocksdb::Slice &key, const rocksdb::Slice &value);
+
+    /// Deserializes edge from the string key and stores it into the edges_ cache.
+    /// Properties are deserialized from the value.
+    /// The method should be called only when the edge is not in the cache.
+    std::optional<storage::EdgeAccessor> DeserializeEdge(const rocksdb::Slice &key, const rocksdb::Slice &value);
+
    private:
     /// TODO(andi): Consolidate this vertex creation methods and find from in-memory version where are they used.
     /// Used for deserialization of vertices and edges from KV store.
@@ -228,53 +238,6 @@ class DiskStorage final : public Storage {
     /// TODO(andi): Consolidate this vertex creation methods and find from in-memory version where are they used.
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid,
                                     uint64_t edge_commit_ts);
-
-    // (De)serialization utility methods
-
-    /// Serialize types defined with STORAGE_DEFINE_ID_TYPE
-    std::string SerializeIdType(const auto &id) const;
-
-    /// Deserialize types defined with STORAGE_DEFINE_ID_TYPE
-    static auto DeserializeIdType(const std::string &str);
-
-    /// Serialize timestamp to string
-    static std::string SerializeTimestamp(uint64_t ts);
-
-    /// Serialize labels to string
-    static std::string SerializeLabels(const std::vector<LabelId> &labels);
-
-    /// Uses the PropertyStore buffer to serialize properties to string.
-    static std::string SerializeProperties(PropertyStore &properties);
-
-    /// Serialize vertex to string as a key in KV store
-    /// label1, label2 | GID | commit_timestamp
-    std::string SerializeVertex(const Result<std::vector<LabelId>> &labels, Gid gid) const;
-
-    /// Serialize vertex to string as a key in KV store
-    /// label1, label2 | GID | commit_timestamp
-    std::string SerializeVertex(const Vertex &vertex) const;
-
-    /// Serialize edge as two KV entries
-    /// vertex_gid_1 | vertex_gid_2 | direction | edge_type | GID | commit_timestamp
-    std::pair<std::string, std::string> SerializeEdge(EdgeAccessor *edge_acc) const;
-
-    /// Serialize edge as two KV entries
-    /// vertex_gid_1 | vertex_gid_2 | direction | edge_type | GID | commit_timestamp
-    /// @tparam src_vertex_gid, dest_vertex_gid: Gid of the source and destination vertices
-    /// @tparam edge: Edge to be serialized
-    /// @tparam edge_type_id: EdgeTypeId of the edge
-    std::pair<std::string, std::string> SerializeEdge(Gid src_vertex_gid, Gid dest_vertex_gid, EdgeTypeId edge_type_id,
-                                                      const Edge *edge) const;
-
-    /// Deserializes vertex from the string key and stores it into the vertices_ and lru_vertices_.
-    /// Properties are deserialized from the value.
-    /// The method should be called only when the vertex is not in the cache.
-    std::optional<VertexAccessor> DeserializeVertex(const rocksdb::Slice &key, const rocksdb::Slice &value);
-
-    /// Deserializes edge from the string key and stores it into the edges_ cache.
-    /// Properties are deserialized from the value.
-    /// The method should be called only when the edge is not in the cache.
-    std::optional<EdgeAccessor> DeserializeEdge(const rocksdb::Slice &key, const rocksdb::Slice &value);
 
     /// Flushes vertices and edges to the disk with the commit timestamp.
     /// At the time of calling, the commit_timestamp_ must already exist.
