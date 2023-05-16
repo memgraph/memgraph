@@ -15,6 +15,8 @@
 #include <unordered_set>
 #include <utility>
 
+#include <antlr4-runtime.h>
+
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/opencypher/generated/MemgraphCypherBaseVisitor.h"
 #include "utils/exceptions.hpp"
