@@ -152,7 +152,7 @@ class MetricsRequestHandler final {
   ~MetricsRequestHandler() = default;
 
   template <class Body, class Allocator>
-  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
+  // NOLINTNEXTLINE(misc-unused-parameters)
   void HandleRequest(boost::beast::http::request<Body, boost::beast::http::basic_fields<Allocator>> &&req,
                      std::function<void(boost::beast::http::response<boost::beast::http::string_body>)> &&send) {
     auto response_json = nlohmann::json();
