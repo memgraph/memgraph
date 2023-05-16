@@ -24,7 +24,7 @@ inline rocksdb::Slice StripTimestampFromUserKey(const rocksdb::Slice &user_key, 
 
 inline rocksdb::Slice ExtractTimestampFromUserKey(const rocksdb::Slice &user_key) {
   assert(user_key.size() >= sizeof(uint64_t));
-  return rocksdb::Slice(user_key.data() + user_key.size() - sizeof(uint64_t), sizeof(uint64_t));
+  return {user_key.data() + user_key.size() - sizeof(uint64_t), sizeof(uint64_t)};
 }
 
 }  // namespace

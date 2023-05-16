@@ -271,7 +271,7 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex() {
     delta->prev.Set(&*it);
   }
 
-  return VertexAccessor(&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_);
+  return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
 }
 
 VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex(storage::Gid gid) {
@@ -407,8 +407,8 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
             "VertexAccessors must be from the same transaction in when "
             "creating an edge!");
 
-  auto from_vertex = from->vertex_;
-  auto to_vertex = to->vertex_;
+  auto *from_vertex = from->vertex_;
+  auto *to_vertex = to->vertex_;
 
   // Obtain the locks by `gid` order to avoid lock cycles.
   std::unique_lock<utils::SpinLock> guard_from(from_vertex->lock, std::defer_lock);
@@ -470,8 +470,8 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
             "VertexAccessors must be from the same transaction in when "
             "creating an edge!");
 
-  auto from_vertex = from->vertex_;
-  auto to_vertex = to->vertex_;
+  auto *from_vertex = from->vertex_;
+  auto *to_vertex = to->vertex_;
 
   // Obtain the locks by `gid` order to avoid lock cycles.
   std::unique_lock<utils::SpinLock> guard_from(from_vertex->lock, std::defer_lock);
@@ -540,7 +540,7 @@ Result<std::optional<EdgeAccessor>> InMemoryStorage::InMemoryAccessor::DeleteEdg
 
   std::unique_lock<utils::SpinLock> guard;
   if (config_.properties_on_edges) {
-    auto edge_ptr = edge_ref.ptr;
+    auto *edge_ptr = edge_ref.ptr;
     guard = std::unique_lock<utils::SpinLock>(edge_ptr->lock);
 
     if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
@@ -729,7 +729,7 @@ utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemory
         // Take committed_transactions lock while holding the engine lock to
         // make sure that committed transactions are sorted by the commit
         // timestamp in the list.
-        storage_->committed_transactions_.WithLock([&](auto &committed_transactions) {
+        storage_->committed_transactions_.WithLock([&](auto & /*committed_transactions*/) {
           // TODO: release lock, and update all deltas to have a local copy
           // of the commit timestamp
           MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
@@ -776,7 +776,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     auto prev = delta.prev.Get();
     switch (prev.type) {
       case PreviousPtr::Type::VERTEX: {
-        auto vertex = prev.vertex;
+        auto *vertex = prev.vertex;
         std::lock_guard<utils::SpinLock> guard(vertex->lock);
         Delta *current = vertex->delta;
         while (current != nullptr && current->timestamp->load(std::memory_order_acquire) ==
@@ -864,7 +864,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
         break;
       }
       case PreviousPtr::Type::EDGE: {
-        auto edge = prev.edge;
+        auto *edge = prev.edge;
         std::lock_guard<utils::SpinLock> guard(edge->lock);
         Delta *current = edge->delta;
         while (current != nullptr && current->timestamp->load(std::memory_order_acquire) ==
@@ -1152,6 +1152,7 @@ StorageInfo InMemoryStorage::GetInfo() const {
   auto edge_count = edge_count_.load(std::memory_order_acquire);
   double average_degree = 0.0;
   if (vertex_count) {
+    // NOLINTNEXTLINE(bugprone-narrowing-conversions, cppcoreguidelines-narrowing-conversions)
     average_degree = 2.0 * static_cast<double>(edge_count) / vertex_count;
   }
   return {vertex_count, edge_count, average_degree, utils::GetMemoryUsage(),
@@ -1184,8 +1185,8 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
   // We acquire the transaction engine lock here because we access (and
   // modify) the transaction engine variables (`transaction_id` and
   // `timestamp`) below.
-  uint64_t transaction_id;
-  uint64_t start_timestamp;
+  uint64_t transaction_id = 0;
+  uint64_t start_timestamp = 0;
   {
     std::lock_guard<utils::SpinLock> guard(engine_lock_);
     transaction_id = transaction_id_++;
@@ -1263,7 +1264,7 @@ void InMemoryStorage::CollectGarbage() {
   while (true) {
     // We don't want to hold the lock on commited transactions for too long,
     // because that prevents other transactions from committing.
-    Transaction *transaction;
+    Transaction *transaction = nullptr;
     {
       auto committed_transactions_ptr = committed_transactions_.Lock();
       if (committed_transactions_ptr->empty()) {
@@ -1512,7 +1513,7 @@ bool InMemoryStorage::AppendToWalDataManipulation(const Transaction &transaction
   // delta that should be processed and then appends all discovered deltas.
   auto find_and_apply_deltas = [&](const auto *delta, const auto &parent, auto filter) {
     while (true) {
-      auto older = delta->next.load(std::memory_order_acquire);
+      auto *older = delta->next.load(std::memory_order_acquire);
       if (older == nullptr || older->timestamp->load(std::memory_order_acquire) != current_commit_timestamp) break;
       delta = older;
     }
@@ -1784,10 +1785,9 @@ void InMemoryStorage::FreeMemory() {
 uint64_t InMemoryStorage::CommitTimestamp(const std::optional<uint64_t> desired_commit_timestamp) {
   if (!desired_commit_timestamp) {
     return timestamp_++;
-  } else {
-    timestamp_ = std::max(timestamp_, *desired_commit_timestamp + 1);
-    return *desired_commit_timestamp;
   }
+  timestamp_ = std::max(timestamp_, *desired_commit_timestamp + 1);
+  return *desired_commit_timestamp;
 }
 
 bool InMemoryStorage::SetReplicaRole(io::network::Endpoint endpoint,

@@ -20,8 +20,8 @@ class TimestampCompactionFilter : public rocksdb::CompactionFilter {
 
   /// Return true if the key-value pair should be removed from the database during compaction.
   /// Filters KV entries that are older than the specified timestamp.
-  bool Filter(int level, const rocksdb::Slice &key, const rocksdb::Slice &existing_value, std::string *new_value,
-              bool *value_changed) const override {
+  bool Filter(int /*level*/, const rocksdb::Slice & /*key*/, const rocksdb::Slice & /*existing_value*/,
+              std::string * /*new_value*/, bool * /*value_changed*/) const override {
     return true;
   }
 };
