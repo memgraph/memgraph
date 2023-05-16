@@ -346,6 +346,7 @@ std::pair<std::string, std::string> DiskStorage::DiskAccessor::SerializeEdge(con
 
 std::optional<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(const rocksdb::Slice &key,
                                                                            const rocksdb::Slice &value) {
+  OOMExceptionEnabler oom_exception;
   const std::vector<std::string> vertex_parts = utils::Split(key.ToStringView(), "|");
   auto gid = storage::Gid::FromUint(std::stoull(vertex_parts[1]));
   auto acc = storage_->vertices_.access();
@@ -356,7 +357,6 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(const
   }
   spdlog::debug("Vertex with gid {} doesn't exist in the cache!", gid.AsUint());
   uint64_t vertex_commit_ts = utils::ExtractTimestampFromDeserializedUserKey(key);
-  auto impl = CreateVertex(gid, vertex_commit_ts);
   // Deserialize labels
   std::vector<LabelId> label_ids;
   if (!vertex_parts[0].empty()) {
@@ -364,8 +364,7 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(const
     std::transform(labels.begin(), labels.end(), std::back_inserter(label_ids),
                    [](const auto &label) { return storage::LabelId::FromUint(std::stoull(label)); });
   }
-  // TODO(andi): Initialize deserialized vertex
-  // static_cast<DiskVertexAccessor *>(impl.get())->InitializeDeserializedVertex(label_ids, value.ToStringView());
+  auto impl = CreateVertex(gid, vertex_commit_ts, label_ids, value.ToStringView());
   return impl;
 }
 
@@ -404,7 +403,7 @@ std::optional<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const roc
   MG_ASSERT(maybe_edge.HasValue());
   // TODO(andi): Initialize deserialized edge
   // static_cast<DiskEdgeAccessor *>(maybe_edge->get())->InitializeDeserializedEdge(edge_type_id, value.ToStringView());
-  return std::move(*maybe_edge);
+  return *maybe_edge;
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
@@ -454,11 +453,16 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex() {
   OOMExceptionEnabler oom_exception;
   auto gid = storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
   auto acc = storage_->vertices_.access();
-  auto delta = CreateDeleteObjectDelta(&transaction_);
+
+  auto *delta = CreateDeleteObjectDelta(&transaction_);
   auto [it, inserted] = acc.insert(Vertex{storage::Gid::FromUint(gid), delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
-  delta->prev.Set(&*it);
+
+  if (delta) {
+    delta->prev.Set(&*it);
+  }
+
   return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
 }
 
@@ -474,18 +478,22 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex(storage::Gid gid) {
   auto acc = storage_->vertices_.access();
   storage_->vertex_id_.store(std::max(storage_->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
                              std::memory_order_release);
-  auto delta = CreateDeleteObjectDelta(&transaction_);
+
+  auto *delta = CreateDeleteObjectDelta(&transaction_);
   auto [it, inserted] = acc.insert(Vertex{gid, delta});
   /// if the vertex with the given gid doesn't exist on the disk, it must be inserted here.
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
-  delta->prev.Set(&*it);
+  if (delta) {
+    delta->prev.Set(&*it);
+  }
   return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
 }
 
 /// TODO(andi): This method is the duplicate of CreateVertex(storage::Gid gid), the only thing that is different is
 /// delta creation How to remove this duplication?
-VertexAccessor DiskStorage::DiskAccessor::CreateVertex(storage::Gid gid, uint64_t vertex_commit_ts) {
+VertexAccessor DiskStorage::DiskAccessor::CreateVertex(storage::Gid gid, uint64_t vertex_commit_ts,
+                                                       std::vector<LabelId> label_ids, std::string_view properties) {
   OOMExceptionEnabler oom_exception;
   // NOTE: When we update the next `vertex_id_` here we perform a RMW
   // (read-modify-write) operation that ISN'T atomic! But, that isn't an issue
@@ -496,12 +504,18 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex(storage::Gid gid, uint64_
   auto acc = storage_->vertices_.access();
   storage_->vertex_id_.store(std::max(storage_->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
                              std::memory_order_release);
-  auto delta = CreateDeleteDeserializedObjectDelta(&transaction_, vertex_commit_ts);
+  auto *delta = CreateDeleteDeserializedObjectDelta(&transaction_, vertex_commit_ts);
   auto [it, inserted] = acc.insert(Vertex{gid, delta});
-  /// if the vertex with the given gid doesn't exist on the disk, it must be inserted here.
+  // NOTE: If the vertex with the given gid doesn't exist on the disk, it must be inserted here.
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
-  delta->prev.Set(&*it);
+  for (auto label_id : label_ids) {
+    it->labels.push_back(label_id);
+  }
+  it->properties.SetBuffer(properties);
+  if (delta) {
+    delta->prev.Set(&*it);
+  }
   return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
 }
 
@@ -1762,12 +1776,12 @@ bool DiskStorage::AppendToWalDataDefinition(durability::StorageGlobalOperation o
   throw utils::NotYetImplemented("AppendToWalDataDefinition");
 }
 
-void InMemoryStorage::SetStorageMode(StorageMode storage_mode) {
+void DiskStorage::SetStorageMode(StorageMode storage_mode) {
   std::unique_lock main_guard{main_lock_};
   storage_mode_ = storage_mode;
 }
 
-StorageMode InMemoryStorage::GetStorageMode() { return storage_mode_; }
+StorageMode DiskStorage::GetStorageMode() { return storage_mode_; }
 
 utils::BasicResult<DiskStorage::CreateSnapshotError> DiskStorage::CreateSnapshot(std::optional<bool> is_periodic) {
   throw utils::NotYetImplemented("CreateSnapshot");

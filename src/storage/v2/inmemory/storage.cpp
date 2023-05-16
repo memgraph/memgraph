@@ -293,7 +293,7 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex(storage::Gid gid)
   if (delta) {
     delta->prev.Set(&*it);
   }
-  return VertexAccessor(&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_);
+  return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
 }
 
 std::optional<VertexAccessor> InMemoryStorage::InMemoryAccessor::FindVertex(Gid gid, View view) {
