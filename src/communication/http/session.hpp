@@ -38,7 +38,7 @@
 namespace memgraph::communication::http {
 
 inline constexpr uint16_t kSSLExpirySeconds = 30;
-void LogError(boost::beast::error_code ec, const std::string_view what) {
+inline void LogError(boost::beast::error_code ec, const std::string_view what) {
   spdlog::warn("HTTP session failed on {}: {}", what, ec.message());
 }
 
