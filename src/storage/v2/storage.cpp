@@ -2180,6 +2180,8 @@ utils::BasicResult<Storage::SetIsolationLevelError> Storage::SetIsolationLevel(I
   return {};
 }
 
+IsolationLevel Storage::GetIsolationLevel() const noexcept { return isolation_level_; }
+
 void Storage::SetStorageMode(StorageMode storage_mode) {
   std::unique_lock main_guard{main_lock_};
   storage_mode_ = storage_mode;
