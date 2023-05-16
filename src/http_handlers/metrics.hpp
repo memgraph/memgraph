@@ -160,6 +160,7 @@ class MetricsRequestHandler final {
     auto const bad_request = [&req, &response_json](boost::beast::string_view why) {
       response_json["error"] = std::string(why);
 
+      // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
       boost::beast::http::response<boost::beast::http::string_body> res{boost::beast::http::status::bad_request,
                                                                         req.version()};
       res.set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
@@ -180,6 +181,7 @@ class MetricsRequestHandler final {
       return send(bad_request("Illegal request-target"));
     }
 
+    // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
     boost::beast::http::string_body::value_type body{};
 
     auto service_response = service_.AsJson(service_.GetMetrics());
@@ -189,6 +191,7 @@ class MetricsRequestHandler final {
     const auto size = body.size();
 
     // Respond to GET request
+    // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
     boost::beast::http::response<boost::beast::http::string_body> res{
         std::piecewise_construct, std::make_tuple(std::move(body)),
         std::make_tuple(boost::beast::http::status::ok, req.version())};
