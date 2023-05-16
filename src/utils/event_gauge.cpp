@@ -24,8 +24,11 @@ APPLY_FOR_GAUGES(M)
 inline constexpr Event END = __COUNTER__;
 
 // Initialize array for the global gauges with all values set to 0
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 Gauge global_gauges_array[END]{};
+
 // Initialize global counters
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 EventGauges global_gauges(global_gauges_array);
 
 const Event EventGauges::num_gauges = END;

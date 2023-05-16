@@ -25,12 +25,15 @@ APPLY_FOR_HISTOGRAMS(M)
 inline constexpr Event END = __COUNTER__;
 
 // Initialize array for the global histogram with all named histograms and their percentiles
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 Histogram global_histograms_array[END]{
 #define M(NAME, TYPE, DOCUMENTATION, ...) Histogram({__VA_ARGS__}),
     APPLY_FOR_HISTOGRAMS(M)
 #undef M
 };
+
 // Initialize global histograms
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 EventHistograms global_histograms(global_histograms_array);
 
 const Event EventHistograms::num_histograms = END;

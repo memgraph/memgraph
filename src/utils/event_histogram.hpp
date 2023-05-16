@@ -158,13 +158,14 @@ class EventHistograms {
   Histogram *histograms_;
 };
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 extern EventHistograms global_histograms;
 
-void Measure(const Event event, Value value);
+void Measure(Event event, Value value);
 
 const char *GetHistogramName(Event event);
 const char *GetHistogramDocumentation(Event event);
-const char *GetHistogramType(const Event event);
+const char *GetHistogramType(Event event);
 
 Event HistogramEnd();
 }  // namespace memgraph::metrics

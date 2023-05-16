@@ -36,13 +36,14 @@ class EventGauges {
   Gauge *gauges_;
 };
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 extern EventGauges global_gauges;
 
 void SetGaugeValue(Event event, Value value);
 
 const char *GetGaugeName(Event event);
 const char *GetGaugeDocumentation(Event event);
-const char *GetGaugeType(const Event event);
+const char *GetGaugeType(Event event);
 
 Event GaugeEnd();
 }  // namespace memgraph::metrics

@@ -38,6 +38,7 @@ class EventCounters {
   Counter *counters_;
 };
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 extern EventCounters global_counters;
 
 void IncrementCounter(Event event, Count amount = 1);
@@ -45,7 +46,7 @@ void DecrementCounter(Event event, Count amount = 1);
 
 const char *GetCounterName(Event event);
 const char *GetCounterDocumentation(Event event);
-const char *GetCounterType(const Event event);
+const char *GetCounterType(Event event);
 
 Event CounterEnd();
 }  // namespace memgraph::metrics

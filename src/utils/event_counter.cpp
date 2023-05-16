@@ -84,8 +84,11 @@ APPLY_FOR_COUNTERS(M)
 inline constexpr Event END = __COUNTER__;
 
 // Initialize array for the global counter with all values set to 0
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 Counter global_counters_array[END]{};
+
 // Initialize global counters
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 EventCounters global_counters(global_counters_array);
 
 const Event EventCounters::num_counters = END;
