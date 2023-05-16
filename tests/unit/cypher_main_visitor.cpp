@@ -3368,10 +3368,43 @@ TEST_P(CypherMainVisitorTest, TestLockPathQuery) {
       ASSERT_TRUE(parsed_query);
       EXPECT_EQ(parsed_query->action_, action);
     }
+
+    {
+      const std::string query = fmt::format("{} DATA DIRECTORY LOCK STATUS", command);
+      ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+    }
+
+    {
+      const std::string query = fmt::format("{} DATA DIRECTORY STATUS", command);
+      ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+    }
   };
 
   test_lock_path_query("LOCK", LockPathQuery::Action::LOCK_PATH);
   test_lock_path_query("UNLOCK", LockPathQuery::Action::UNLOCK_PATH);
+
+  // Status test
+  {
+    const std::string query = "DATA DIRECTORY LOCK";
+    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+  }
+
+  {
+    const std::string query = "DATA LOCK STATUS";
+    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+  }
+
+  {
+    const std::string query = "DIRECTORY LOCK STATUS";
+    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+  }
+
+  {
+    const std::string query = "DATA DIRECTORY LOCK STATUS";
+    auto *parsed_query = dynamic_cast<LockPathQuery *>(ast_generator.ParseQuery(query));
+    ASSERT_TRUE(parsed_query);
+    EXPECT_EQ(parsed_query->action_, LockPathQuery::Action::STATUS);
+  }
 }
 
 TEST_P(CypherMainVisitorTest, TestLoadCsvClause) {
