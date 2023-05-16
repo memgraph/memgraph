@@ -96,6 +96,7 @@ class MetricsService {
   query::Interpreter interpreter_;
 
   auto GetEventCounters() {
+    // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
     std::vector<std::tuple<std::string, std::string, uint64_t>> event_counters(memgraph::metrics::CounterEnd());
 
     for (auto i = 0; i < memgraph::metrics::CounterEnd(); i++) {
@@ -107,6 +108,7 @@ class MetricsService {
   }
 
   auto GetEventGauges() {
+    // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
     std::vector<std::tuple<std::string, std::string, uint64_t>> event_gauges(memgraph::metrics::GaugeEnd());
 
     for (auto i = 0; i < memgraph::metrics::GaugeEnd(); i++) {
@@ -118,6 +120,7 @@ class MetricsService {
   }
 
   auto GetEventHistograms() {
+    // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
     std::vector<std::tuple<std::string, std::string, uint64_t>> event_histograms(memgraph::metrics::HistogramEnd());
 
     for (auto i = 0; i < memgraph::metrics::HistogramEnd(); i++) {
