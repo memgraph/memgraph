@@ -476,7 +476,6 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   TypedValue Visit(AllPropertiesLookup &all_properties_lookup) override {
     TypedValue::TMap result(ctx_->memory);
-    std::map<std::string, TypedValue> result_;
 
     auto expression_result = all_properties_lookup.expression_->Accept(*this);
     switch (expression_result.type()) {
@@ -492,9 +491,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       case TypedValue::Type::Edge: {
         for (const auto properties = *expression_result.ValueEdge().Properties(view_);
              const auto &[property_id, value] : properties) {
-          result_.emplace(dba_->PropertyToName(property_id), value);
+          result.emplace(dba_->PropertyToName(property_id), value);
         }
-        return TypedValue(result_, ctx_->memory);
+        return TypedValue(result, ctx_->memory);
       }
       case TypedValue::Type::Map: {
         for (auto &[name, value] : expression_result.ValueMap()) {
