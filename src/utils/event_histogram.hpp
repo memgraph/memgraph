@@ -73,7 +73,7 @@ class Histogram {
     percentiles_ = {0, 25, 50, 75, 90, 100};
   }
 
-  Histogram(std::vector<uint8_t> percentiles) : percentiles_(percentiles) { samples_.resize(kSampleLimit, 0); }
+  explicit Histogram(std::vector<uint8_t> percentiles) : percentiles_(percentiles) { samples_.resize(kSampleLimit, 0); }
 
   uint64_t Count() const { return count_.load(std::memory_order_relaxed); }
 
@@ -150,7 +150,7 @@ class EventHistograms {
 
   const auto &operator[](const Event event) const { return histograms_[event]; }
 
-  void Measure(const Event event, Value value);
+  void Measure(Event event, Value value);
 
   static const Event num_histograms;
 
