@@ -45,7 +45,9 @@ const std::vector<Permission> kPermissionsAll = {Permission::MATCH,       Permis
                                                  Permission::FREE_MEMORY, Permission::TRIGGER,
                                                  Permission::CONFIG,      Permission::STREAM,
                                                  Permission::MODULE_READ, Permission::MODULE_WRITE,
-                                                 Permission::WEBSOCKET,   Permission::TRANSACTION_MANAGEMENT};
+                                                 Permission::WEBSOCKET,   Permission::TRANSACTION_MANAGEMENT,
+                                                 Permission::STORAGE_MODE};
+
 }  // namespace
 
 std::string PermissionToString(Permission permission) {
@@ -94,6 +96,8 @@ std::string PermissionToString(Permission permission) {
       return "WEBSOCKET";
     case Permission::TRANSACTION_MANAGEMENT:
       return "TRANSACTION_MANAGEMENT";
+    case Permission::STORAGE_MODE:
+      return "STORAGE_MODE";
   }
 }
 

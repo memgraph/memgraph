@@ -33,6 +33,7 @@
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/result.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -200,7 +201,7 @@ class Storage final {
    private:
     friend class Storage;
 
-    explicit Accessor(Storage *storage, IsolationLevel isolation_level);
+    explicit Accessor(Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
 
    public:
     Accessor(const Accessor &) = delete;
@@ -368,7 +369,7 @@ class Storage final {
   };
 
   Accessor Access(std::optional<IsolationLevel> override_isolation_level = {}) {
-    return Accessor{this, override_isolation_level.value_or(isolation_level_)};
+    return Accessor{this, override_isolation_level.value_or(isolation_level_), storage_mode_};
   }
 
   const std::string &LabelToName(LabelId label) const;
@@ -509,14 +510,25 @@ class Storage final {
 
   void FreeMemory();
 
-  void SetIsolationLevel(IsolationLevel isolation_level);
+  enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };
 
-  enum class CreateSnapshotError : uint8_t { DisabledForReplica };
+  utils::BasicResult<SetIsolationLevelError> SetIsolationLevel(IsolationLevel isolation_level);
+  IsolationLevel GetIsolationLevel() const noexcept;
 
-  utils::BasicResult<CreateSnapshotError> CreateSnapshot();
+  void SetStorageMode(StorageMode storage_mode);
+
+  StorageMode GetStorageMode();
+
+  enum class CreateSnapshotError : uint8_t {
+    DisabledForReplica,
+    DisabledForAnalyticsPeriodicCommit,
+    ReachedMaxNumTries
+  };
+
+  utils::BasicResult<CreateSnapshotError> CreateSnapshot(std::optional<bool> is_periodic);
 
  private:
-  Transaction CreateTransaction(IsolationLevel isolation_level);
+  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode);
 
   /// The force parameter determines the behaviour of the garbage collector.
   /// If it's set to true, it will behave as a global operation, i.e. it can't
@@ -582,6 +594,7 @@ class Storage final {
 
   utils::Synchronized<std::list<Transaction>, utils::SpinLock> committed_transactions_;
   IsolationLevel isolation_level_;
+  StorageMode storage_mode_;
 
   Config config_;
   utils::Scheduler gc_runner_;

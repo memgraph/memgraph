@@ -43,6 +43,7 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
         AddPrivilege(AuthQuery::Privilege::INDEX);
         break;
       case InfoQuery::InfoType::STORAGE:
+      case InfoQuery::InfoType::BUILD:
         AddPrivilege(AuthQuery::Privilege::STATS);
         break;
       case InfoQuery::InfoType::CONSTRAINT:
@@ -77,6 +78,8 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
   void Visit(ReplicationQuery &replication_query) override { AddPrivilege(AuthQuery::Privilege::REPLICATION); }
 
   void Visit(IsolationLevelQuery &isolation_level_query) override { AddPrivilege(AuthQuery::Privilege::CONFIG); }
+
+  void Visit(StorageModeQuery & /*storage_mode_query*/) override { AddPrivilege(AuthQuery::Privilege::STORAGE_MODE); }
 
   void Visit(CreateSnapshotQuery &create_snapshot_query) override { AddPrivilege(AuthQuery::Privilege::DURABILITY); }
 

@@ -322,13 +322,16 @@ add_unit_test(storage_v2_property_store.cpp)
 target_link_libraries(${test_prefix}storage_v2_property_store mg-storage-v2 fmt)
 
 add_unit_test(storage_v2_wal_file.cpp)
-target_link_libraries(${test_prefix}storage_v2_wal_file mg-storage-v2 fmt)
+target_link_libraries(${test_prefix}storage_v2_wal_file mg-storage-v2 storage_test_utils fmt)
 
 add_unit_test(storage_v2_replication.cpp)
 target_link_libraries(${test_prefix}storage_v2_replication mg-storage-v2 fmt)
 
 add_unit_test(storage_v2_isolation_level.cpp)
 target_link_libraries(${test_prefix}storage_v2_isolation_level mg-storage-v2)
+
+add_unit_test(storage_v2_storage_mode.cpp)
+target_link_libraries(${test_prefix}storage_v2_storage_mode mg-storage-v2 storage_test_utils mg-query mg-glue)
 
 add_unit_test(replication_persistence_helper.cpp)
 target_link_libraries(${test_prefix}replication_persistence_helper mg-storage-v2)
