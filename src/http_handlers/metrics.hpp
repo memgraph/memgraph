@@ -96,8 +96,7 @@ class MetricsService {
   query::Interpreter interpreter_;
 
   auto GetEventCounters() {
-    std::vector<std::tuple<std::string, std::string, uint64_t>> event_counters{};
-    event_counters.reserve(memgraph::metrics::CounterEnd());
+    std::vector<std::tuple<std::string, std::string, uint64_t>> event_counters(memgraph::metrics::CounterEnd());
 
     for (auto i = 0; i < memgraph::metrics::CounterEnd(); i++) {
       event_counters.emplace_back(memgraph::metrics::GetCounterName(i), memgraph::metrics::GetCounterType(i),
@@ -108,8 +107,7 @@ class MetricsService {
   }
 
   auto GetEventGauges() {
-    std::vector<std::tuple<std::string, std::string, uint64_t>> event_gauges{};
-    event_gauges.reserve(memgraph::metrics::GaugeEnd());
+    std::vector<std::tuple<std::string, std::string, uint64_t>> event_gauges(memgraph::metrics::GaugeEnd());
 
     for (auto i = 0; i < memgraph::metrics::GaugeEnd(); i++) {
       event_gauges.emplace_back(memgraph::metrics::GetGaugeName(i), memgraph::metrics::GetGaugeType(i),
@@ -120,8 +118,7 @@ class MetricsService {
   }
 
   auto GetEventHistograms() {
-    std::vector<std::tuple<std::string, std::string, uint64_t>> event_histograms{};
-    event_histograms.reserve(memgraph::metrics::HistogramEnd());
+    std::vector<std::tuple<std::string, std::string, uint64_t>> event_histograms(memgraph::metrics::HistogramEnd());
 
     for (auto i = 0; i < memgraph::metrics::HistogramEnd(); i++) {
       const auto *name = memgraph::metrics::GetHistogramName(i);
