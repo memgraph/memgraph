@@ -30,7 +30,6 @@
 #include "communication/context.hpp"
 #include "communication/v2/pool.hpp"
 #include "communication/v2/session.hpp"
-#include "utils/event_counter.hpp"
 #include "utils/message.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
@@ -114,7 +113,6 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
 
     auto session = SessionHandler::Create(std::move(socket), data_, *server_context_, endpoint_, inactivity_timeout_,
                                           service_name_);
-
     session->Start();
     DoAccept();
   }

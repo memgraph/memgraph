@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <tuple>
 #include <vector>
 
@@ -101,7 +102,7 @@ class MetricsService {
 
     for (auto i = 0; i < memgraph::metrics::CounterEnd(); i++) {
       event_counters.emplace_back(memgraph::metrics::GetCounterName(i), memgraph::metrics::GetCounterType(i),
-                                  memgraph::metrics::global_counters[i].load(std::memory_order_relaxed));
+                                  memgraph::metrics::global_counters[i].load(std::memory_order_acquire));
     }
 
     return event_counters;
@@ -113,7 +114,7 @@ class MetricsService {
 
     for (auto i = 0; i < memgraph::metrics::GaugeEnd(); i++) {
       event_gauges.emplace_back(memgraph::metrics::GetGaugeName(i), memgraph::metrics::GetGaugeType(i),
-                                memgraph::metrics::global_gauges[i].load(std::memory_order_seq_cst));
+                                memgraph::metrics::global_gauges[i].load(std::memory_order_acquire));
     }
 
     return event_gauges;
@@ -182,7 +183,7 @@ class MetricsRequestHandler final {
     }
 
     // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
-    boost::beast::http::string_body::value_type body{};
+    boost::beast::http::string_body::value_type body;
 
     auto service_response = service_.AsJson(service_.GetMetrics());
     body.append(service_response.dump());
