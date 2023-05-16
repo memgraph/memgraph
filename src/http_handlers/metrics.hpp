@@ -28,35 +28,7 @@
 
 namespace memgraph::http {
 
-namespace http = boost::beast::http;
-
 struct MetricsResponse {
- public:
-  nlohmann::json AsJson() {
-    auto metrics_response = nlohmann::json();
-    const auto *general_type = "General";
-
-    metrics_response[general_type]["vertex_count"] = vertex_count;
-    metrics_response[general_type]["edge_count"] = edge_count;
-    metrics_response[general_type]["average_degree"] = average_degree;
-    metrics_response[general_type]["memory_usage"] = memory_usage;
-    metrics_response[general_type]["disk_usage"] = disk_usage;
-
-    for (const auto &[name, type, value] : event_counters) {
-      metrics_response[type][name] = value;
-    }
-
-    for (const auto &[name, type, value] : event_gauges) {
-      metrics_response[type][name] = value;
-    }
-
-    for (const auto &[name, type, value] : event_histograms) {
-      metrics_response[type][name] = value;
-    }
-
-    return metrics_response;
-  }
-
   uint64_t vertex_count;
   uint64_t edge_count;
   double average_degree;
@@ -91,6 +63,31 @@ class MetricsService {
                            .event_counters = GetEventCounters(),
                            .event_gauges = GetEventGauges(),
                            .event_histograms = GetEventHistograms()};
+  }
+
+  nlohmann::json AsJson(MetricsResponse response) {
+    auto metrics_response = nlohmann::json();
+    const auto *general_type = "General";
+
+    metrics_response[general_type]["vertex_count"] = response.vertex_count;
+    metrics_response[general_type]["edge_count"] = response.edge_count;
+    metrics_response[general_type]["average_degree"] = response.average_degree;
+    metrics_response[general_type]["memory_usage"] = response.memory_usage;
+    metrics_response[general_type]["disk_usage"] = response.disk_usage;
+
+    for (const auto &[name, type, value] : response.event_counters) {
+      metrics_response[type][name] = value;
+    }
+
+    for (const auto &[name, type, value] : response.event_gauges) {
+      metrics_response[type][name] = value;
+    }
+
+    for (const auto &[name, type, value] : response.event_histograms) {
+      metrics_response[type][name] = value;
+    }
+
+    return metrics_response;
   }
 
  private:
@@ -155,16 +152,17 @@ class MetricsRequestHandler final {
   ~MetricsRequestHandler() = default;
 
   template <class Body, class Allocator>
-  void HandleRequest(http::request<Body, http::basic_fields<Allocator>> &&req,
-                     std::function<void(http::response<http::string_body>)> &&send) {
+  void HandleRequest(boost::beast::http::request<Body, boost::beast::http::basic_fields<Allocator>> &&req,
+                     std::function<void(boost::beast::http::response<boost::beast::http::string_body>)> &&send) {
     auto response_json = nlohmann::json();
     // Returns a bad request response
     auto const bad_request = [&req, &response_json](boost::beast::string_view why) {
       response_json["error"] = std::string(why);
 
-      http::response<http::string_body> res{http::status::bad_request, req.version()};
-      res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
-      res.set(http::field::content_type, "application/json");
+      boost::beast::http::response<boost::beast::http::string_body> res{boost::beast::http::status::bad_request,
+                                                                        req.version()};
+      res.set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
+      res.set(boost::beast::http::field::content_type, "application/json");
       res.keep_alive(req.keep_alive());
       res.body() = response_json.dump();
       res.prepare_payload();
@@ -172,7 +170,7 @@ class MetricsRequestHandler final {
     };
 
     // Make sure we can handle the method
-    if (req.method() != http::verb::get) {
+    if (req.method() != boost::beast::http::verb::get) {
       return send(bad_request("Unknown HTTP-method"));
     }
 
@@ -181,19 +179,20 @@ class MetricsRequestHandler final {
       return send(bad_request("Illegal request-target"));
     }
 
-    http::string_body::value_type body{};
+    boost::beast::http::string_body::value_type body{};
 
-    auto service_response = service_.GetMetrics().AsJson();
+    auto service_response = service_.AsJson(service_.GetMetrics());
     body.append(service_response.dump());
 
     // Cache the size since we need it after the move
     const auto size = body.size();
 
     // Respond to GET request
-    http::response<http::string_body> res{std::piecewise_construct, std::make_tuple(std::move(body)),
-                                          std::make_tuple(http::status::ok, req.version())};
-    res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
-    res.set(http::field::content_type, "application/json");
+    boost::beast::http::response<boost::beast::http::string_body> res{
+        std::piecewise_construct, std::make_tuple(std::move(body)),
+        std::make_tuple(boost::beast::http::status::ok, req.version())};
+    res.set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
+    res.set(boost::beast::http::field::content_type, "application/json");
     res.content_length(size);
     res.keep_alive(req.keep_alive());
     return send(std::move(res));
