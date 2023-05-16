@@ -513,6 +513,7 @@ class Storage final {
   enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };
 
   utils::BasicResult<SetIsolationLevelError> SetIsolationLevel(IsolationLevel isolation_level);
+  IsolationLevel GetIsolationLevel() const noexcept;
 
   void SetStorageMode(StorageMode storage_mode);
 
