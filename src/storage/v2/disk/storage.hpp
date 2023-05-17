@@ -182,8 +182,6 @@ class DiskStorage final : public Storage {
       throw utils::NotYetImplemented("ListAllConstraints() is not implemented for DiskStorage.");
     }
 
-    void AdvanceCommand() override;
-
     utils::BasicResult<StorageDataManipulationError, void> Commit(
         std::optional<uint64_t> desired_commit_timestamp = {}) override;
 
@@ -193,8 +191,6 @@ class DiskStorage final : public Storage {
 
     /// Currently, it does everything the same as in-memory version.
     void FinalizeTransaction() override;
-
-    std::optional<uint64_t> GetTransactionId() const override;
 
     /// Deserializes vertex from the string key and stores it into the vertices_ and lru_vertices_.
     /// Properties are deserialized from the value.
@@ -321,11 +317,6 @@ class DiskStorage final : public Storage {
 
   ConstraintsInfo ListAllConstraints() const override;
 
-  StorageInfo GetInfo() const override;
-
-  bool LockPath() override;
-  bool UnlockPath() override;
-
   bool SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config) override;
 
   bool SetMainReplicationRole() override;
@@ -390,7 +381,6 @@ class DiskStorage final : public Storage {
   Indices indices_;
   IsolationLevel isolation_level_;
   StorageMode storage_mode_;
-  Config config_;
 
   // TODO: This isn't really a commit log, it doesn't even care if a
   // transaction commited or aborted. We could probably combine this with

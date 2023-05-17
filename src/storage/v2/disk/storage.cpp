@@ -88,8 +88,7 @@ DiskStorage::DiskStorage(Config config)
     : Storage(config),
       indices_(&constraints_, config.items),
       isolation_level_(IsolationLevel::SNAPSHOT_ISOLATION),
-      storage_mode_(StorageMode::IN_MEMORY_TRANSACTIONAL),
-      config_(config) {
+      storage_mode_(StorageMode::IN_MEMORY_TRANSACTIONAL) {
   if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED
       /// TODO(andi): When replication support will be added, uncomment this.
       // && replication_role_ == ReplicationRole::MAIN) {
@@ -876,9 +875,6 @@ Result<std::optional<EdgeAccessor>> DiskStorage::DiskAccessor::DeleteEdge(EdgeAc
                                           &disk_storage->indices_, &disk_storage->constraints_, config_, true);
 }
 
-// this should be handled on an above level of abstraction
-void DiskStorage::DiskAccessor::AdvanceCommand() { ++transaction_.command_id; }
-
 void DiskStorage::DiskAccessor::FlushCache() {
   /// Flush vertex cache.
   auto vertex_acc = storage_->vertices_.access();
@@ -1235,14 +1231,6 @@ void DiskStorage::DiskAccessor::FinalizeTransaction() {
   }
 }
 
-// this should be handled on an above level of abstraction
-std::optional<uint64_t> DiskStorage::DiskAccessor::GetTransactionId() const {
-  if (is_transaction_active_) {
-    return transaction_.transaction_id.load(std::memory_order_acquire);
-  }
-  return {};
-}
-
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
     LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
   /// TODO: (andi): Here we will probably use some lock to protect reading from and writing to the RocksDB at the
@@ -1335,9 +1323,6 @@ DiskStorage::DropUniqueConstraint(LabelId label, const std::set<PropertyId> &pro
 
 // this should be handled on an above level of abstraction
 ConstraintsInfo DiskStorage::ListAllConstraints() const { throw utils::NotYetImplemented("ListAllConstraints"); }
-
-// this should be handled on an above level of abstraction
-StorageInfo DiskStorage::GetInfo() const { throw utils::NotYetImplemented("GetInfo"); }
 
 Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) {
   /// We acquire the transaction engine lock here because we access (and
@@ -1667,10 +1652,6 @@ StorageMode DiskStorage::GetStorageMode() { return storage_mode_; }
 utils::BasicResult<DiskStorage::CreateSnapshotError> DiskStorage::CreateSnapshot(std::optional<bool> is_periodic) {
   throw utils::NotYetImplemented("CreateSnapshot");
 }
-
-bool DiskStorage::LockPath() { throw utils::NotYetImplemented("LockPath"); }
-
-bool DiskStorage::UnlockPath() { throw utils::NotYetImplemented("UnlockPath"); }
 
 void DiskStorage::FreeMemory() { throw utils::NotYetImplemented("FreeMemory"); }
 

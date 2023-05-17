@@ -209,8 +209,6 @@ class InMemoryStorage final : public Storage {
               mem_storage->constraints_.unique_constraints.ListConstraints()};
     }
 
-    void AdvanceCommand() override;
-
     /// Returns void if the transaction has been committed.
     /// Returns `StorageDataManipulationError` if an error occures. Error can be:
     /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
@@ -224,8 +222,6 @@ class InMemoryStorage final : public Storage {
     void Abort() override;
 
     void FinalizeTransaction() override;
-
-    std::optional<uint64_t> GetTransactionId() const override;
 
    private:
     /// @throw std::bad_alloc
@@ -322,11 +318,6 @@ class InMemoryStorage final : public Storage {
 
   ConstraintsInfo ListAllConstraints() const override;
 
-  StorageInfo GetInfo() const override;
-
-  bool LockPath() override;
-  bool UnlockPath() override;
-
   bool SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config) override;
 
   bool SetMainReplicationRole() override;
@@ -391,7 +382,6 @@ class InMemoryStorage final : public Storage {
   StorageMode storage_mode_;
   Constraints constraints_;
   Indices indices_;
-  Config config_;
 
   // TODO: This isn't really a commit log, it doesn't even care if a
   // transaction commited or aborted. We could probably combine this with

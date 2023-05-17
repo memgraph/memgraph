@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/storage.hpp"
+#include "utils/stat.hpp"
 
 namespace memgraph::storage {
 
@@ -279,6 +280,37 @@ Storage::Accessor::Accessor(Accessor &&other) noexcept
   other.commit_timestamp_.reset();
 }
 
+bool Storage::LockPath() {
+  auto locker_accessor = global_locker_.Access();
+  return locker_accessor.AddPath(config_.durability.storage_directory);
+}
+
+bool Storage::UnlockPath() {
+  {
+    auto locker_accessor = global_locker_.Access();
+    if (!locker_accessor.RemovePath(config_.durability.storage_directory)) {
+      return false;
+    }
+  }
+
+  // We use locker accessor in seperate scope so we don't produce deadlock
+  // after we call clean queue.
+  file_retainer_.CleanQueue();
+  return true;
+}
+
+StorageInfo Storage::GetInfo() const {
+  auto vertex_count = vertices_.size();
+  auto edge_count = edge_count_.load(std::memory_order_acquire);
+  double average_degree = 0.0;
+  if (vertex_count) {
+    // NOLINTNEXTLINE(bugprone-narrowing-conversions, cppcoreguidelines-narrowing-conversions)
+    average_degree = 2.0 * static_cast<double>(edge_count) / vertex_count;
+  }
+  return {vertex_count, edge_count, average_degree, utils::GetMemoryUsage(),
+          utils::GetDirDiskUsage(config_.durability.storage_directory)};
+}
+
 // this should be handled on an above level of abstraction
 const std::string &Storage::LabelToName(LabelId label) const { return name_id_mapper_.IdToName(label.AsUint()); }
 
@@ -320,5 +352,14 @@ LabelId Storage::Accessor::NameToLabel(const std::string_view name) { return sto
 PropertyId Storage::Accessor::NameToProperty(const std::string_view name) { return storage_->NameToProperty(name); }
 
 EdgeTypeId Storage::Accessor::NameToEdgeType(const std::string_view name) { return storage_->NameToEdgeType(name); }
+
+std::optional<uint64_t> Storage::Accessor::GetTransactionId() const {
+  if (is_transaction_active_) {
+    return transaction_.transaction_id.load(std::memory_order_acquire);
+  }
+  return {};
+}
+
+void Storage::Accessor::AdvanceCommand() { ++transaction_.command_id; }
 
 }  // namespace memgraph::storage

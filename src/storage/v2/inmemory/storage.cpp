@@ -71,10 +71,9 @@ std::string RegisterReplicaErrorToString(InMemoryStorage::RegisterReplicaError e
 
 InMemoryStorage::InMemoryStorage(Config config)
     : Storage(config),
-      indices_(&constraints_, config.items),
       isolation_level_(config.transaction.isolation_level),
       storage_mode_(StorageMode::IN_MEMORY_TRANSACTIONAL),
-      config_(config) {
+      indices_(&constraints_, config.items) {
   if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED &&
       replication_role_ == ReplicationRole::MAIN) {
     spdlog::warn(
@@ -603,8 +602,6 @@ Result<std::optional<EdgeAccessor>> InMemoryStorage::InMemoryAccessor::DeleteEdg
                                           &mem_storage->indices_, &mem_storage->constraints_, config_, true);
 }
 
-void InMemoryStorage::InMemoryAccessor::AdvanceCommand() { ++transaction_.command_id; }
-
 utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemoryAccessor::Commit(
     const std::optional<uint64_t> desired_commit_timestamp) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
@@ -909,13 +906,6 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
   }
 }
 
-std::optional<uint64_t> InMemoryStorage::InMemoryAccessor::GetTransactionId() const {
-  if (is_transaction_active_) {
-    return transaction_.transaction_id.load(std::memory_order_acquire);
-  }
-  return {};
-}
-
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::CreateIndex(
     LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
@@ -1090,18 +1080,6 @@ InMemoryStorage::DropUniqueConstraint(LabelId label, const std::set<PropertyId> 
 ConstraintsInfo InMemoryStorage::ListAllConstraints() const {
   std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
   return {ListExistenceConstraints(constraints_), constraints_.unique_constraints.ListConstraints()};
-}
-
-StorageInfo InMemoryStorage::GetInfo() const {
-  auto vertex_count = vertices_.size();
-  auto edge_count = edge_count_.load(std::memory_order_acquire);
-  double average_degree = 0.0;
-  if (vertex_count) {
-    // NOLINTNEXTLINE(bugprone-narrowing-conversions, cppcoreguidelines-narrowing-conversions)
-    average_degree = 2.0 * static_cast<double>(edge_count) / vertex_count;
-  }
-  return {vertex_count, edge_count, average_degree, utils::GetMemoryUsage(),
-          utils::GetDirDiskUsage(config_.durability.storage_directory)};
 }
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, View view) {
@@ -1697,25 +1675,6 @@ utils::BasicResult<Storage::CreateSnapshotError> InMemoryStorage::CreateSnapshot
   }
 
   return CreateSnapshotError::ReachedMaxNumTries;
-}
-
-bool InMemoryStorage::LockPath() {
-  auto locker_accessor = global_locker_.Access();
-  return locker_accessor.AddPath(config_.durability.storage_directory);
-}
-
-bool InMemoryStorage::UnlockPath() {
-  {
-    auto locker_accessor = global_locker_.Access();
-    if (!locker_accessor.RemovePath(config_.durability.storage_directory)) {
-      return false;
-    }
-  }
-
-  // We use locker accessor in seperate scope so we don't produce deadlock
-  // after we call clean queue.
-  file_retainer_.CleanQueue();
-  return true;
 }
 
 void InMemoryStorage::FreeMemory() {

@@ -179,7 +179,8 @@ struct StorageInfo {
 class Storage {
  public:
   Storage(Config config)
-      : snapshot_directory_(config.durability.storage_directory / durability::kSnapshotDirectory),
+      : config_(config),
+        snapshot_directory_(config.durability.storage_directory / durability::kSnapshotDirectory),
         wal_directory_(config.durability.storage_directory / durability::kWalDirectory),
         lock_file_path_(config.durability.storage_directory / durability::kLockFile),
         uuid_(utils::GenerateUUID()),
@@ -272,19 +273,6 @@ class Storage {
     /// @throw std::bad_alloc
     virtual Result<std::optional<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge) = 0;
 
-    const std::string &LabelToName(LabelId label) const;
-    const std::string &PropertyToName(PropertyId property) const;
-    const std::string &EdgeTypeToName(EdgeTypeId edge_type) const;
-
-    /// @throw std::bad_alloc if unable to insert a new mapping
-    LabelId NameToLabel(std::string_view name);
-
-    /// @throw std::bad_alloc if unable to insert a new mapping
-    PropertyId NameToProperty(std::string_view name);
-
-    /// @throw std::bad_alloc if unable to insert a new mapping
-    EdgeTypeId NameToEdgeType(std::string_view name);
-
     virtual bool LabelIndexExists(LabelId label) const = 0;
 
     virtual bool LabelPropertyIndexExists(LabelId label, PropertyId property) const = 0;
@@ -292,8 +280,6 @@ class Storage {
     virtual IndicesInfo ListAllIndices() const = 0;
 
     virtual ConstraintsInfo ListAllConstraints() const = 0;
-
-    virtual void AdvanceCommand() = 0;
 
     /// Returns void if the transaction has been committed.
     /// Returns `StorageDataManipulationError` if an error occures. Error can be:
@@ -309,7 +295,24 @@ class Storage {
 
     virtual void FinalizeTransaction() = 0;
 
-    virtual std::optional<uint64_t> GetTransactionId() const = 0;
+    std::optional<uint64_t> GetTransactionId() const;
+
+    void AdvanceCommand();
+
+    const std::string &LabelToName(LabelId label) const;
+
+    const std::string &PropertyToName(PropertyId property) const;
+
+    const std::string &EdgeTypeToName(EdgeTypeId edge_type) const;
+
+    /// @throw std::bad_alloc if unable to insert a new mapping
+    LabelId NameToLabel(std::string_view name);
+
+    /// @throw std::bad_alloc if unable to insert a new mapping
+    PropertyId NameToProperty(std::string_view name);
+
+    /// @throw std::bad_alloc if unable to insert a new mapping
+    EdgeTypeId NameToEdgeType(std::string_view name);
 
    protected:
     Storage *storage_;
@@ -319,11 +322,15 @@ class Storage {
     bool is_transaction_active_;
   };
 
-  virtual std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level) = 0;
-  std::unique_ptr<Accessor> Access() { return Access(std::optional<IsolationLevel>{}); }
+  bool LockPath();
+  bool UnlockPath();
+
+  StorageInfo GetInfo() const;
 
   const std::string &LabelToName(LabelId label) const;
+
   const std::string &PropertyToName(PropertyId property) const;
+
   const std::string &EdgeTypeToName(EdgeTypeId edge_type) const;
 
   /// @throw std::bad_alloc if unable to insert a new mapping
@@ -334,6 +341,9 @@ class Storage {
 
   /// @throw std::bad_alloc if unable to insert a new mapping
   EdgeTypeId NameToEdgeType(std::string_view name);
+
+  virtual std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level) = 0;
+  std::unique_ptr<Accessor> Access() { return Access(std::optional<IsolationLevel>{}); }
 
   /// Create an index.
   /// Returns void if the index has been created.
@@ -453,11 +463,6 @@ class Storage {
 
   virtual ConstraintsInfo ListAllConstraints() const = 0;
 
-  virtual StorageInfo GetInfo() const = 0;
-
-  virtual bool LockPath() = 0;
-  virtual bool UnlockPath() = 0;
-
   virtual bool SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config) = 0;
 
   bool SetReplicaRole(io::network::Endpoint endpoint) {
@@ -546,6 +551,7 @@ class Storage {
   std::atomic<uint64_t> edge_count_{0};
 
   NameIdMapper name_id_mapper_;
+  Config config_;
 
   // Transaction engine
   utils::SpinLock engine_lock_;
