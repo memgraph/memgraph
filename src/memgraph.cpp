@@ -1035,22 +1035,22 @@ int main(int argc, char **argv) {
     };
 
     InitSignalHandlers(shutdown);
+  } else {
+    // Handler for regular termination signals
+    auto shutdown = [&websocket_server, &server, &interpreter_context] {
+      // Server needs to be shutdown first and then the database. This prevents
+      // a race condition when a transaction is accepted during server shutdown.
+      server.Shutdown();
+      // After the server is notified to stop accepting and processing
+      // connections we tell the execution engine to stop processing all pending
+      // queries.
+      memgraph::query::Shutdown(&interpreter_context);
+
+      websocket_server.Shutdown();
+    };
+
+    InitSignalHandlers(shutdown);
   }
-#else
-  // Handler for regular termination signals
-  auto shutdown = [&websocket_server, &server, &interpreter_context] {
-    // Server needs to be shutdown first and then the database. This prevents
-    // a race condition when a transaction is accepted during server shutdown.
-    server.Shutdown();
-    // After the server is notified to stop accepting and processing
-    // connections we tell the execution engine to stop processing all pending
-    // queries.
-    memgraph::query::Shutdown(&interpreter_context);
-
-    websocket_server.Shutdown();
-  };
-
-  InitSignalHandlers(shutdown);
 #endif
 
   MG_ASSERT(server.Start(), "Couldn't start the Bolt server!");
