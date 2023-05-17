@@ -22,7 +22,6 @@
 
 #include <utils/event_counter.hpp>
 #include <utils/event_gauge.hpp>
-#include "query/interpreter.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/event_gauge.hpp"
 #include "utils/event_histogram.hpp"
@@ -51,8 +50,7 @@ struct MetricsResponse {
 template <typename TSessionData>
 class MetricsService {
  public:
-  explicit MetricsService(TSessionData *data)
-      : db_(data->db), interpreter_context_(data->interpreter_context), interpreter_(data->interpreter_context) {}
+  explicit MetricsService(TSessionData *data) : db_(data->db) {}
 
   nlohmann::json GetMetricsJSON() {
     auto response = GetMetrics();
@@ -61,8 +59,6 @@ class MetricsService {
 
  private:
   const storage::Storage *db_;
-  query::InterpreterContext *interpreter_context_;
-  query::Interpreter interpreter_;
 
   MetricsResponse GetMetrics() {
     auto info = db_->GetInfo();
@@ -104,7 +100,7 @@ class MetricsService {
 
   auto GetEventCounters() {
     // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
-    std::vector<std::tuple<std::string, std::string, uint64_t>> event_counters(memgraph::metrics::CounterEnd());
+    std::vector<std::tuple<std::string, std::string, uint64_t>> event_counters{};
 
     for (auto i = 0; i < memgraph::metrics::CounterEnd(); i++) {
       event_counters.emplace_back(memgraph::metrics::GetCounterName(i), memgraph::metrics::GetCounterType(i),
@@ -116,7 +112,7 @@ class MetricsService {
 
   auto GetEventGauges() {
     // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
-    std::vector<std::tuple<std::string, std::string, uint64_t>> event_gauges(memgraph::metrics::GaugeEnd());
+    std::vector<std::tuple<std::string, std::string, uint64_t>> event_gauges{};
 
     for (auto i = 0; i < memgraph::metrics::GaugeEnd(); i++) {
       event_gauges.emplace_back(memgraph::metrics::GetGaugeName(i), memgraph::metrics::GetGaugeType(i),
@@ -128,7 +124,7 @@ class MetricsService {
 
   auto GetEventHistograms() {
     // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
-    std::vector<std::tuple<std::string, std::string, uint64_t>> event_histograms(memgraph::metrics::HistogramEnd());
+    std::vector<std::tuple<std::string, std::string, uint64_t>> event_histograms{};
 
     for (auto i = 0; i < memgraph::metrics::HistogramEnd(); i++) {
       const auto *name = memgraph::metrics::GetHistogramName(i);
