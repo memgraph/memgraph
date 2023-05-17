@@ -31,6 +31,7 @@ memgraphCypherKeyword : cypherKeyword
                       | BATCH_SIZE
                       | BEFORE
                       | BOOTSTRAP_SERVERS
+                      | BUILD
                       | CHECK
                       | CLEAR
                       | COMMIT
@@ -90,6 +91,7 @@ memgraphCypherKeyword : cypherKeyword
                       | SNAPSHOT
                       | START
                       | STATS
+                      | STATUS
                       | STORAGE
                       | STREAM
                       | STREAMS
@@ -334,7 +336,7 @@ dropReplica : DROP REPLICA replicaName ;
 
 showReplicas  : SHOW REPLICAS ;
 
-lockPathQuery : ( LOCK | UNLOCK ) DATA DIRECTORY ;
+lockPathQuery : ( LOCK | UNLOCK ) DATA DIRECTORY | DATA DIRECTORY LOCK STATUS;
 
 freeMemoryQuery : FREE MEMORY ;
 

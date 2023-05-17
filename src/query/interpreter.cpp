@@ -53,8 +53,11 @@
 #include "query/typed_value.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/isolation_level.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "utils/algorithm.hpp"
+#include "utils/build_info.hpp"
 #include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
@@ -1777,25 +1780,49 @@ PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query, bool in_explicit_tr
 
   auto *lock_path_query = utils::Downcast<LockPathQuery>(parsed_query.query);
 
-  return PreparedQuery{{},
-                       std::move(parsed_query.required_privileges),
-                       [interpreter_context, action = lock_path_query->action_](
-                           AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-                         switch (action) {
-                           case LockPathQuery::Action::LOCK_PATH:
-                             if (!interpreter_context->db->LockPath()) {
-                               throw QueryRuntimeException("Failed to lock the data directory");
-                             }
-                             break;
-                           case LockPathQuery::Action::UNLOCK_PATH:
-                             if (!interpreter_context->db->UnlockPath()) {
-                               throw QueryRuntimeException("Failed to unlock the data directory");
-                             }
-                             break;
-                         }
-                         return QueryHandlerResult::COMMIT;
-                       },
-                       RWType::NONE};
+  return PreparedQuery{
+      {"STATUS"},
+      std::move(parsed_query.required_privileges),
+      [interpreter_context, action = lock_path_query->action_](
+          AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+        std::vector<std::vector<TypedValue>> status;
+        std::string res;
+
+        switch (action) {
+          case LockPathQuery::Action::LOCK_PATH: {
+            const auto lock_success = interpreter_context->db->LockPath();
+            if (lock_success.HasError()) [[unlikely]] {
+              throw QueryRuntimeException("Failed to lock the data directory");
+            }
+            res = lock_success.GetValue() ? "Data directory is now locked." : "Data directory is already locked.";
+            break;
+          }
+          case LockPathQuery::Action::UNLOCK_PATH: {
+            const auto unlock_success = interpreter_context->db->UnlockPath();
+            if (unlock_success.HasError()) [[unlikely]] {
+              throw QueryRuntimeException("Failed to unlock the data directory");
+            }
+            res = unlock_success.GetValue() ? "Data directory is now unlocked." : "Data directory is already unlocked.";
+            break;
+          }
+          case LockPathQuery::Action::STATUS: {
+            const auto locked_status = interpreter_context->db->IsPathLocked();
+            if (locked_status.HasError()) [[unlikely]] {
+              throw QueryRuntimeException("Failed to access the data directory");
+            }
+            res = locked_status.GetValue() ? "Data directory is locked." : "Data directory is unlocked.";
+            break;
+          }
+        }
+
+        status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
+        auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
+        if (pull_plan->Pull(stream, n)) {
+          return QueryHandlerResult::COMMIT;
+        }
+        return std::nullopt;
+      },
+      RWType::NONE};
 }
 
 PreparedQuery PrepareFreeMemoryQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
@@ -2318,8 +2345,10 @@ PreparedQuery PrepareVersionQuery(ParsedQuery parsed_query, bool in_explicit_tra
 }
 
 PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                               std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
-                               storage::Storage *db, utils::MemoryResource *execution_memory) {
+                               std::map<std::string, TypedValue> * /*summary*/, InterpreterContext *interpreter_context,
+                               storage::Storage *db, utils::MemoryResource * /*execution_memory*/,
+                               std::optional<storage::IsolationLevel> interpreter_isolation_level,
+                               std::optional<storage::IsolationLevel> next_transaction_isolation_level) {
   if (in_explicit_transaction) {
     throw InfoInMulticommandTxException();
   }
@@ -2331,7 +2360,8 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
   switch (info_query->info_type_) {
     case InfoQuery::InfoType::STORAGE:
       header = {"storage info", "value"};
-      handler = [db] {
+
+      handler = [db, interpreter_isolation_level, next_transaction_isolation_level] {
         auto info = db->GetInfo();
         std::vector<std::vector<TypedValue>> results{
             {TypedValue("vertex_count"), TypedValue(static_cast<int64_t>(info.vertex_count))},
@@ -2340,8 +2370,12 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
             {TypedValue("memory_usage"), TypedValue(static_cast<int64_t>(info.memory_usage))},
             {TypedValue("disk_usage"), TypedValue(static_cast<int64_t>(info.disk_usage))},
             {TypedValue("memory_allocated"), TypedValue(static_cast<int64_t>(utils::total_memory_tracker.Amount()))},
-            {TypedValue("allocation_limit"),
-             TypedValue(static_cast<int64_t>(utils::total_memory_tracker.HardLimit()))}};
+            {TypedValue("allocation_limit"), TypedValue(static_cast<int64_t>(utils::total_memory_tracker.HardLimit()))},
+            {TypedValue("global_isolation_level"), TypedValue(IsolationLevelToString(db->GetIsolationLevel()))},
+            {TypedValue("session_isolation_level"), TypedValue(IsolationLevelToString(interpreter_isolation_level))},
+            {TypedValue("next_session_isolation_level"),
+             TypedValue(IsolationLevelToString(next_transaction_isolation_level))},
+            {TypedValue("storage_mode"), TypedValue(StorageModeToString(db->GetStorageMode()))}};
         return std::pair{results, QueryHandlerResult::COMMIT};
       };
       break;
@@ -2382,6 +2416,15 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
           results.push_back(
               {TypedValue("unique"), TypedValue(db->LabelToName(item.first)), TypedValue(std::move(properties))});
         }
+        return std::pair{results, QueryHandlerResult::NOTHING};
+      };
+      break;
+
+    case InfoQuery::InfoType::BUILD:
+      header = {"build info", "value"};
+      handler = [] {
+        std::vector<std::vector<TypedValue>> results{
+            {TypedValue("build_type"), TypedValue(utils::GetBuildInfo().build_name)}};
         return std::pair{results, QueryHandlerResult::NOTHING};
       };
       break;
@@ -2813,7 +2856,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<InfoQuery>(parsed_query.query)) {
       prepared_query = PrepareInfoQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
                                         interpreter_context_, interpreter_context_->db,
-                                        &query_execution->execution_memory_with_exception);
+                                        &query_execution->execution_memory_with_exception, interpreter_isolation_level,
+                                        next_transaction_isolation_level);
     } else if (utils::Downcast<ConstraintQuery>(parsed_query.query)) {
       prepared_query = PrepareConstraintQuery(std::move(parsed_query), in_explicit_transaction_,
                                               &query_execution->notifications, interpreter_context_);

@@ -11,13 +11,14 @@
 
 #pragma once
 
-#include <cstdint>
-#include <string_view>
+#include <string>
 
-namespace memgraph::storage {
+namespace memgraph::utils {
 
-enum class StorageMode : std::uint8_t { IN_MEMORY_ANALYTICAL, IN_MEMORY_TRANSACTIONAL };
+struct BuildInfo {
+  std::string build_name;
+};
 
-std::string_view StorageModeToString(memgraph::storage::StorageMode storage_mode);
+BuildInfo GetBuildInfo();
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::utils

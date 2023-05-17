@@ -15,7 +15,8 @@ set(utils_src_files
     thread_pool.cpp
     tsc.cpp
     system_info.cpp
-    uuid.cpp)
+    uuid.cpp
+    build_info.cpp)
 
 find_package(Boost REQUIRED)
 find_package(fmt REQUIRED)
