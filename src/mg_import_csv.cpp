@@ -20,6 +20,7 @@
 #include <unordered_map>
 
 #include "helpers.hpp"
+#include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"

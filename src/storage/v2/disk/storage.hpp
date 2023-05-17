@@ -176,7 +176,7 @@ class DiskStorage final : public Storage {
 
     /// TODO(andi): Consolidate this vertex creation methods and find from in-memory version where are they used.
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid,
-                                    uint64_t edge_commit_ts);
+                                    uint64_t edge_commit_ts, std::string_view properties);
 
     /// Flushes vertices and edges to the disk with the commit timestamp.
     /// At the time of calling, the commit_timestamp_ must already exist.

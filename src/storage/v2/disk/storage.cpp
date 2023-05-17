@@ -33,7 +33,6 @@ inline constexpr uint16_t kEpochHistoryRetention = 1000;
 
 }  // namespace
 
-/// TODO: indices should be initialized at some point after
 DiskStorage::DiskStorage(Config config)
     : Storage(config),
       indices_(&constraints_, config.items),
@@ -250,11 +249,10 @@ std::optional<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const roc
     throw utils::BasicException("Non-existing vertices found during edge deserialization");
   }
   const auto edge_type_id = storage::EdgeTypeId::FromUint(std::stoull(edge_parts[3]));
-  auto maybe_edge =
-      CreateEdge(&*from_acc, &*to_acc, edge_type_id, edge_gid, utils::ExtractTimestampFromDeserializedUserKey(key));
+  auto maybe_edge = CreateEdge(&*from_acc, &*to_acc, edge_type_id, edge_gid,
+                               utils::ExtractTimestampFromDeserializedUserKey(key), value.ToStringView());
   MG_ASSERT(maybe_edge.HasValue());
-  // TODO(andi): Initialize deserialized edge
-  // static_cast<DiskEdgeAccessor *>(maybe_edge->get())->InitializeDeserializedEdge(edge_type_id, value.ToStringView());
+
   return *maybe_edge;
 }
 
@@ -300,7 +298,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
 int64_t DiskStorage::DiskAccessor::ApproximateVertexCount() const {
   uint64_t estimate_num_keys = 0;
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  // TODO: This method should probably be organized.
+  // TODO: This method should probably be organized in a better way.
   disk_storage->kvstore_->db_->GetIntProperty(disk_storage->kvstore_->vertex_chandle, "rocksdb.estimate-num-keys",
                                               &estimate_num_keys);
   return static_cast<int64_t>(estimate_num_keys);
@@ -523,7 +521,6 @@ void DiskStorage::DiskAccessor::PrefetchEdges(const auto &prefetch_edge_filter) 
   }
 }
 
-/// TOOD(andi): Add support for fetching in edges only for one vertex. Currently, all in edges are fetched.
 void DiskStorage::DiskAccessor::PrefetchInEdges(const VertexAccessor &vertex_acc) {
   PrefetchEdges([&vertex_acc](const std::string_view disk_edge_gid,
                               const std::string_view disk_edge_direction) -> bool {
@@ -531,7 +528,6 @@ void DiskStorage::DiskAccessor::PrefetchInEdges(const VertexAccessor &vertex_acc
   });
 }
 
-/// TODO(andi): Functionality of this method can probably be merged with the functionality of in-edges
 void DiskStorage::DiskAccessor::PrefetchOutEdges(const VertexAccessor &vertex_acc) {
   PrefetchEdges([&vertex_acc](const std::string_view disk_edge_gid,
                               const std::string_view disk_edge_direction) -> bool {
@@ -541,7 +537,7 @@ void DiskStorage::DiskAccessor::PrefetchOutEdges(const VertexAccessor &vertex_ac
 
 Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from, VertexAccessor *to,
                                                            EdgeTypeId edge_type, storage::Gid gid,
-                                                           uint64_t edge_commit_ts) {
+                                                           uint64_t edge_commit_ts, std::string_view properties) {
   OOMExceptionEnabler oom_exception;
   MG_ASSERT(from->transaction_ == to->transaction_,
             "VertexAccessors must be from the same transaction when creating "
@@ -584,17 +580,20 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   storage_->edge_id_.store(std::max(storage_->edge_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
                            std::memory_order_release);
 
-  /// TODO(andi): Remove this once we add full support for edges.
-  MG_ASSERT(config_.properties_on_edges, "Properties on edges must be enabled currently for Disk version!");
-  // if (config_.properties_on_edges) {
-  auto acc = storage_->edges_.access();
-  auto delta = CreateDeleteDeserializedObjectDelta(&transaction_, edge_commit_ts);
-  auto [it, inserted] = acc.insert(Edge(gid, delta));
-  MG_ASSERT(inserted, "The edge must be inserted here!");
-  MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
-  auto edge = EdgeRef(&*it);
-  delta->prev.Set(&*it);
-  // }
+  EdgeRef edge(gid);
+  if (config_.properties_on_edges) {
+    auto acc = storage_->edges_.access();
+    auto *delta = CreateDeleteDeserializedObjectDelta(&transaction_, edge_commit_ts);
+    auto [it, inserted] = acc.insert(Edge(gid, delta));
+    MG_ASSERT(inserted, "The edge must be inserted here!");
+    MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
+    edge = EdgeRef(&*it);
+    if (delta) {
+      delta->prev.Set(&*it);
+    }
+    edge.ptr->properties.SetBuffer(properties);
+  }
+
   from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
   to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
@@ -653,7 +652,7 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
     auto acc = storage_->edges_.access();
-    auto delta = CreateDeleteObjectDelta(&transaction_);
+    auto *delta = CreateDeleteObjectDelta(&transaction_);
     auto [it, inserted] = acc.insert(Edge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
     MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
@@ -812,7 +811,6 @@ Result<std::optional<EdgeAccessor>> DiskStorage::DiskAccessor::DeleteEdge(EdgeAc
     CreateAndLinkDelta(&transaction_, edge_ptr, Delta::RecreateObjectTag());
     edge_ptr->deleted = true;
   }
-  // TODO(andi): How to know that the edge is deleted if properties_on_edges are disabled?
 
   CreateAndLinkDelta(&transaction_, from_vertex, Delta::AddOutEdgeTag(), edge_type, to_vertex, edge_ref);
   CreateAndLinkDelta(&transaction_, to_vertex, Delta::AddInEdgeTag(), edge_type, from_vertex, edge_ref);
@@ -1000,7 +998,6 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
   return {};
 }
 
-/// TODO(andi): I think we should have one Abort method per storage.
 void DiskStorage::DiskAccessor::Abort() {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
 
@@ -1543,11 +1540,6 @@ void DiskStorage::CollectGarbage() {
       MG_ASSERT(edge_acc.remove(edge), "Invalid database state!");
     }
   }
-
-  // TODO(andi): Remove this after we are assured that deserialization works
-  edges_.clear();
-  vertices_.clear();
-  spdlog::debug("Cleared caches");
 }
 
 // tell the linker he can find the CollectGarbage definitions here
