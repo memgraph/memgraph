@@ -60,6 +60,7 @@
 #include "utils/build_info.hpp"
 #include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
+#include "utils/event_histogram.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/likely.hpp"
@@ -74,17 +75,20 @@
 #include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
 
-namespace EventCounter {
+namespace memgraph::metrics {
 extern Event ReadQuery;
 extern Event WriteQuery;
 extern Event ReadWriteQuery;
 
-extern const Event LabelIndexCreated;
-extern const Event LabelPropertyIndexCreated;
-
 extern const Event StreamsCreated;
 extern const Event TriggersCreated;
-}  // namespace EventCounter
+
+extern const Event QueryExecutionLatency_us;
+
+extern const Event CommitedTransactions;
+extern const Event RollbackedTransactions;
+extern const Event ActiveTransactions;
+}  // namespace memgraph::metrics
 
 namespace memgraph::query {
 
@@ -95,13 +99,13 @@ namespace {
 void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
   switch (type) {
     case plan::ReadWriteTypeChecker::RWType::R:
-      EventCounter::IncrementCounter(EventCounter::ReadQuery);
+      memgraph::metrics::IncrementCounter(memgraph::metrics::ReadQuery);
       break;
     case plan::ReadWriteTypeChecker::RWType::W:
-      EventCounter::IncrementCounter(EventCounter::WriteQuery);
+      memgraph::metrics::IncrementCounter(memgraph::metrics::WriteQuery);
       break;
     case plan::ReadWriteTypeChecker::RWType::RW:
-      EventCounter::IncrementCounter(EventCounter::ReadWriteQuery);
+      memgraph::metrics::IncrementCounter(memgraph::metrics::ReadWriteQuery);
       break;
     default:
       break;
@@ -666,6 +670,8 @@ Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, Exp
     return config_map;
   };
 
+  memgraph::metrics::IncrementCounter(memgraph::metrics::StreamsCreated);
+
   return [interpreter_context, stream_name = stream_query->stream_name_,
           topic_names = EvaluateTopicNames(evaluator, stream_query->topic_names_),
           consumer_group = std::move(consumer_group), common_stream_info = std::move(common_stream_info),
@@ -696,6 +702,8 @@ Callback::CallbackFunction GetPulsarCreateCallback(StreamQuery *stream_query, Ex
     throw SemanticException("Service URL must not be an empty string!");
   }
   auto common_stream_info = GetCommonStreamInfo(stream_query, evaluator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::StreamsCreated);
+
   return [interpreter_context, stream_name = stream_query->stream_name_,
           topic_names = EvaluateTopicNames(evaluator, stream_query->topic_names_),
           common_stream_info = std::move(common_stream_info), service_url = std::move(service_url),
@@ -726,7 +734,6 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
   Callback callback;
   switch (stream_query->action_) {
     case StreamQuery::Action::CREATE_STREAM: {
-      EventCounter::IncrementCounter(EventCounter::StreamsCreated);
       switch (stream_query->type_) {
         case StreamQuery::Type::KAFKA:
           callback.fn = GetKafkaCreateCallback(stream_query, evaluator, interpreter_context, username);
@@ -1137,7 +1144,11 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   if (has_unsent_results_) {
     return std::nullopt;
   }
+
   summary->insert_or_assign("plan_execution_time", execution_time_.count());
+  memgraph::metrics::Measure(memgraph::metrics::QueryExecutionLatency_us,
+                             std::chrono::duration_cast<std::chrono::microseconds>(execution_time_).count());
+
   // We are finished with pulling all the data, therefore we can send any
   // metadata about the results i.e. notifications and statistics
   const bool is_any_counter_set =
@@ -1174,6 +1185,9 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
       if (in_explicit_transaction_) {
         throw ExplicitTransactionUsageException("Nested transactions are not supported.");
       }
+
+      memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTransactions);
+
       in_explicit_transaction_ = true;
       expect_rollback_ = false;
 
@@ -1212,6 +1226,9 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
       if (!in_explicit_transaction_) {
         throw ExplicitTransactionUsageException("No current transaction to rollback.");
       }
+
+      memgraph::metrics::IncrementCounter(memgraph::metrics::RollbackedTransactions);
+
       Abort();
       expect_rollback_ = false;
       in_explicit_transaction_ = false;
@@ -1638,7 +1655,6 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
               [&index_notification, &label_name, &properties_stringified]<typename T>(T &&) {
                 using ErrorType = std::remove_cvref_t<T>;
                 if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
-                  EventCounter::IncrementCounter(EventCounter::LabelIndexCreated);
                   throw ReplicationException(
                       fmt::format("At least one SYNC replica has not confirmed the creation of the index on label {} "
                                   "on properties {}.",
@@ -1652,8 +1668,6 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
                 }
               },
               error);
-        } else {
-          EventCounter::IncrementCounter(EventCounter::LabelIndexCreated);
         }
       };
       break;
@@ -1886,6 +1900,7 @@ Callback CreateTrigger(TriggerQuery *trigger_query,
             std::move(trigger_name), trigger_statement, user_parameters, ToTriggerEventType(event_type),
             before_commit ? TriggerPhase::BEFORE_COMMIT : TriggerPhase::AFTER_COMMIT, &interpreter_context->ast_cache,
             dba, interpreter_context->config.query, std::move(owner), interpreter_context->auth_checker);
+        memgraph::metrics::IncrementCounter(memgraph::metrics::TriggersCreated);
         return {};
       }};
 }
@@ -1940,7 +1955,6 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, bool in_explicit_tra
       case TriggerQuery::Action::CREATE_TRIGGER:
         trigger_notification.emplace(SeverityLevel::INFO, NotificationCode::CREATE_TRIGGER,
                                      fmt::format("Created trigger {}.", trigger_query->trigger_name_));
-        EventCounter::IncrementCounter(EventCounter::TriggersCreated);
         return CreateTrigger(trigger_query, user_parameters, interpreter_context, dba, std::move(owner));
       case TriggerQuery::Action::DROP_TRIGGER:
         trigger_notification.emplace(SeverityLevel::INFO, NotificationCode::DROP_TRIGGER,
@@ -2734,14 +2748,14 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   // an explicit transaction block.
   if (in_explicit_transaction_) {
     AdvanceCommand();
-  }
-  // If we're not in an explicit transaction block and we have an open
-  // transaction, abort it since we're about to prepare a new query.
-  else if (db_accessor_) {
+  } else if (db_accessor_) {
+    // If we're not in an explicit transaction block and we have an open
+    // transaction, abort it since we're about to prepare a new query.
     query_executions_.emplace_back(
         std::make_unique<QueryExecution>(utils::MonotonicBufferResource(kExecutionMemoryBlockSize)));
     AbortCommand(&query_executions_.back());
   }
+
   std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;
   try {
     query_executions_.emplace_back(
@@ -2789,6 +2803,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
          utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
          utils::Downcast<TriggerQuery>(parsed_query.query) || utils::Downcast<AnalyzeGraphQuery>(parsed_query.query) ||
          utils::Downcast<TransactionQueueQuery>(parsed_query.query))) {
+      memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTransactions);
       db_accessor_ =
           std::make_unique<storage::Storage::Accessor>(interpreter_context_->db->Access(GetIsolationLevelOverride()));
       execution_db_accessor_.emplace(db_accessor_.get());
@@ -2892,7 +2907,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
     return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid};
   } catch (const utils::BasicException &) {
-    EventCounter::IncrementCounter(EventCounter::FailedQuery);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
     AbortCommand(query_execution_ptr);
     throw;
   }
@@ -2923,7 +2938,11 @@ void Interpreter::Abort() {
 
   expect_rollback_ = false;
   in_explicit_transaction_ = false;
+
+  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTransactions);
+
   if (!db_accessor_) return;
+
   db_accessor_->Abort();
   execution_db_accessor_.reset();
   db_accessor_.reset();
@@ -3018,6 +3037,11 @@ void Interpreter::Commit() {
   // Clean transaction status if something went wrong
   utils::OnScopeExit clean_status(
       [this]() { transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release); });
+
+  utils::OnScopeExit update_metrics([]() {
+    memgraph::metrics::IncrementCounter(memgraph::metrics::CommitedTransactions);
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTransactions);
+  });
 
   std::optional<TriggerContext> trigger_context = std::nullopt;
   if (trigger_context_collector_) {

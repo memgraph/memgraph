@@ -2,6 +2,8 @@ set(utils_src_files
     async_timer.cpp
     base64.cpp
     event_counter.cpp
+    event_gauge.cpp
+    event_histogram.cpp
     csv_parsing.cpp
     file.cpp
     file_locker.cpp

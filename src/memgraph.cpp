@@ -125,7 +125,7 @@ DEFINE_VALIDATED_int32(monitoring_port, 7444,
                        "Port on which the websocket server for Memgraph monitoring should listen.",
                        FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_int32(metrics_port, 9092, "Port on which the Memgraph server for exposing metrics should listen.",
+DEFINE_VALIDATED_int32(metrics_port, 9091, "Port on which the Memgraph server for exposing metrics should listen.",
                        FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_int32(bolt_num_workers, std::max(std::thread::hardware_concurrency(), 1U),
@@ -500,6 +500,10 @@ void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, std::string c
   }
 }
 
+namespace memgraph::metrics {
+extern const Event ActiveBoltSessions;
+}  // namespace memgraph::metrics
+
 class BoltSession final : public memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                                         memgraph::communication::v2::OutputStream> {
  public:
@@ -517,10 +521,12 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 #endif
         endpoint_(endpoint),
         run_id_(data->run_id) {
+    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveBoltSessions);
     interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.insert(&interpreter_); });
   }
 
   ~BoltSession() override {
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveBoltSessions);
     interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.erase(&interpreter_); });
   }
 
@@ -991,8 +997,9 @@ int main(int argc, char **argv) {
     });
     telemetry->AddCollector("event_counters", []() -> nlohmann::json {
       nlohmann::json ret;
-      for (size_t i = 0; i < EventCounter::End(); ++i) {
-        ret[EventCounter::GetName(i)] = EventCounter::global_counters[i].load(std::memory_order_relaxed);
+      for (size_t i = 0; i < memgraph::metrics::CounterEnd(); ++i) {
+        ret[memgraph::metrics::GetCounterName(i)] =
+            memgraph::metrics::global_counters[i].load(std::memory_order_relaxed);
       }
       return ret;
     });
@@ -1011,8 +1018,42 @@ int main(int argc, char **argv) {
   MonitoringServerT metrics_server{
       {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, &session_data, &context};
 
+#ifdef MG_ENTERPRISE
+  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    // Handler for regular termination signals
+    auto shutdown = [&metrics_server, &websocket_server, &server, &interpreter_context] {
+      // Server needs to be shutdown first and then the database. This prevents
+      // a race condition when a transaction is accepted during server shutdown.
+      server.Shutdown();
+      // After the server is notified to stop accepting and processing
+      // connections we tell the execution engine to stop processing all pending
+      // queries.
+      memgraph::query::Shutdown(&interpreter_context);
+
+      websocket_server.Shutdown();
+      metrics_server.Shutdown();
+    };
+
+    InitSignalHandlers(shutdown);
+  } else {
+    // Handler for regular termination signals
+    auto shutdown = [&websocket_server, &server, &interpreter_context] {
+      // Server needs to be shutdown first and then the database. This prevents
+      // a race condition when a transaction is accepted during server shutdown.
+      server.Shutdown();
+      // After the server is notified to stop accepting and processing
+      // connections we tell the execution engine to stop processing all pending
+      // queries.
+      memgraph::query::Shutdown(&interpreter_context);
+
+      websocket_server.Shutdown();
+    };
+
+    InitSignalHandlers(shutdown);
+  }
+#else
   // Handler for regular termination signals
-  auto shutdown = [&metrics_server, &websocket_server, &server, &interpreter_context] {
+  auto shutdown = [&websocket_server, &server, &interpreter_context] {
     // Server needs to be shutdown first and then the database. This prevents
     // a race condition when a transaction is accepted during server shutdown.
     server.Shutdown();
@@ -1022,14 +1063,19 @@ int main(int argc, char **argv) {
     memgraph::query::Shutdown(&interpreter_context);
 
     websocket_server.Shutdown();
-    metrics_server.Shutdown();
   };
 
   InitSignalHandlers(shutdown);
+#endif
 
   MG_ASSERT(server.Start(), "Couldn't start the Bolt server!");
   websocket_server.Start();
-  metrics_server.Start();
+
+#ifdef MG_ENTERPRISE
+  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    metrics_server.Start();
+  }
+#endif
 
   if (!FLAGS_init_data_file.empty()) {
     spdlog::info("Running init data file.");
@@ -1044,7 +1090,11 @@ int main(int argc, char **argv) {
 
   server.AwaitShutdown();
   websocket_server.AwaitShutdown();
-  metrics_server.AwaitShutdown();
+#ifdef MG_ENTERPRISE
+  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    metrics_server.AwaitShutdown();
+  }
+#endif
 
   memgraph::query::procedure::gModuleRegistry.UnloadAllModules();
 
