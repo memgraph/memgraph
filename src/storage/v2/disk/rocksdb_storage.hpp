@@ -31,12 +31,14 @@ struct RocksDBStorage {
   ~RocksDBStorage() {
     logging::AssertRocksDBStatus(db_->Close());
     delete options_.comparator;
+    delete db_;
   }
 
   rocksdb::Options options_;
   rocksdb::DB *db_;
   rocksdb::ColumnFamilyHandle *vertex_chandle = nullptr;
   rocksdb::ColumnFamilyHandle *edge_chandle = nullptr;
+  // rocksdb::ColumnFamilyHandle *default_chandle = nullptr;
 };
 
 /// RocksDB comparator that compares keys with timestamps.

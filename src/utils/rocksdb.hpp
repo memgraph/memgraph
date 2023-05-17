@@ -120,7 +120,7 @@ inline void PutFixed64(std::string *dst, uint64_t value) {
 
 inline uint64_t DecodeFixed64(const char *ptr) {
   // Load the raw bytes
-  uint64_t result;
+  uint64_t result = 0;
   memcpy(&result, ptr, sizeof(result));  // gcc optimizes this to a plain load
   return result;
 }

@@ -10,11 +10,13 @@
 // licenses/APL.txt.
 
 #include "storage/v2/disk/storage.hpp"
+#include <asm-generic/errno.h>
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
+#include "utils/file.hpp"
 #include "utils/message.hpp"
 #include "utils/rocksdb.hpp"
 #include "utils/stat.hpp"
@@ -27,6 +29,7 @@ namespace {
 
 constexpr const char *vertexHandle = "vertex";
 constexpr const char *edgeHandle = "edge";
+constexpr const char *defaultHandle = "default";
 constexpr const char *main_storage_path = "./rocks_experiment";
 
 inline constexpr uint16_t kEpochHistoryRetention = 1000;
@@ -158,21 +161,32 @@ DiskStorage::DiskStorage(Config config)
 
   std::filesystem::path rocksdb_path = main_storage_path;
   kvstore_ = std::make_unique<RocksDBStorage>();
-  utils::EnsureDirOrDie(rocksdb_path);
   kvstore_->options_.create_if_missing = true;
   kvstore_->options_.comparator = new ComparatorWithU64TsImpl();
-  logging::AssertRocksDBStatus(rocksdb::DB::Open(kvstore_->options_, rocksdb_path, &kvstore_->db_));
-  logging::AssertRocksDBStatus(
-      kvstore_->db_->CreateColumnFamily(kvstore_->options_, vertexHandle, &kvstore_->vertex_chandle));
-  logging::AssertRocksDBStatus(
-      kvstore_->db_->CreateColumnFamily(kvstore_->options_, edgeHandle, &kvstore_->edge_chandle));
+  std::vector<rocksdb::ColumnFamilyHandle *> column_handles;
+  std::vector<rocksdb::ColumnFamilyDescriptor> column_families;
+  if (utils::DirExists(rocksdb_path)) {
+    column_families.emplace_back(vertexHandle, kvstore_->options_);
+    column_families.emplace_back(edgeHandle, kvstore_->options_);
+    column_families.emplace_back(defaultHandle, kvstore_->options_);
+    logging::AssertRocksDBStatus(
+        rocksdb::DB::Open(kvstore_->options_, rocksdb_path, column_families, &column_handles, &kvstore_->db_));
+    kvstore_->vertex_chandle = column_handles[0];
+    kvstore_->edge_chandle = column_handles[1];
+    // kvstore_->default_chandle = column_handles[2];
+  } else {
+    logging::AssertRocksDBStatus(rocksdb::DB::Open(kvstore_->options_, rocksdb_path, &kvstore_->db_));
+    logging::AssertRocksDBStatus(
+        kvstore_->db_->CreateColumnFamily(kvstore_->options_, vertexHandle, &kvstore_->vertex_chandle));
+    logging::AssertRocksDBStatus(
+        kvstore_->db_->CreateColumnFamily(kvstore_->options_, edgeHandle, &kvstore_->edge_chandle));
+    // kvstore_->default_chandle = kvstore_->db_->DefaultColumnFamily();
+  }
 }
 
 DiskStorage::~DiskStorage() {
-  /// TODO(andi): I think that without destroy column family handle, there are memory leaks
-  /// But I also think that DestroyColumnFamilyHandle deletes all data in its handle.
-  logging::AssertRocksDBStatus(kvstore_->db_->DropColumnFamily(kvstore_->vertex_chandle));
-  logging::AssertRocksDBStatus(kvstore_->db_->DropColumnFamily(kvstore_->edge_chandle));
+  // logging::AssertRocksDBStatus(kvstore_->db_->DropColumnFamily(kvstore_->vertex_chandle));
+  // logging::AssertRocksDBStatus(kvstore_->db_->DropColumnFamily(kvstore_->edge_chandle));
   logging::AssertRocksDBStatus(kvstore_->db_->DestroyColumnFamilyHandle(kvstore_->vertex_chandle));
   logging::AssertRocksDBStatus(kvstore_->db_->DestroyColumnFamilyHandle(kvstore_->edge_chandle));
 }
