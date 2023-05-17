@@ -36,7 +36,9 @@ namespace memgraph::communication::bolt {
 template <typename Buffer>
 class BaseEncoder {
  public:
-  explicit BaseEncoder(Buffer &buffer) : buffer_(buffer) {}
+  explicit BaseEncoder(Buffer &buffer) : buffer_(buffer), major_v_(0) {}
+
+  void UpdateVersion(int major_v) { major_v_ = major_v; }
 
   void WriteRAW(const uint8_t *data, uint64_t len) { buffer_.Write(data, len); }
 
@@ -116,7 +118,8 @@ class BaseEncoder {
   }
 
   void WriteVertex(const Vertex &vertex) {
-    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct) + 3);
+    int struct_n = 3 + int(major_v_ > 4);  // element_id introduced from v5
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct) + struct_n);
     WriteRAW(utils::UnderlyingCast(Signature::Node));
     WriteInt(vertex.id.AsInt());
 
@@ -133,14 +136,15 @@ class BaseEncoder {
       WriteValue(prop.second);
     }
 
-    // Write element_id (>=v5)
-    if (!vertex.element_id.empty()) {
+    if (major_v_ > 4) {
+      // element_id introduced in v5.0
       WriteString(vertex.element_id);
     }
   }
 
   void WriteEdge(const Edge &edge, bool unbound = false) {
-    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct) + (unbound ? 3 : 5));
+    int struct_n = (unbound ? 3 + int(major_v_ > 4) : 5 + 3 * int(major_v_ > 4));  // element_id introduced from v5
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct) + struct_n);
     WriteRAW(utils::UnderlyingCast(unbound ? Signature::UnboundRelationship : Signature::Relationship));
 
     WriteInt(edge.id.AsInt());
@@ -157,10 +161,22 @@ class BaseEncoder {
       WriteString(prop.first);
       WriteValue(prop.second);
     }
+
+    if (major_v_ > 4) {
+      // element_id introduced in v5.0
+      WriteString(edge.element_id);
+      if (!unbound) {
+        // from_element_id introduced in v5.0
+        WriteString(edge.from_element_id);
+        // to_element_id introduced in v5.0
+        WriteString(edge.to_element_id);
+      }
+    }
   }
 
   void WriteEdge(const UnboundedEdge &edge) {
-    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct) + 3);
+    const int struct_n = 3 + int(major_v_ > 4);  // element_id introduced from v5
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct) + struct_n);
     WriteRAW(utils::UnderlyingCast(Signature::UnboundRelationship));
 
     WriteInt(edge.id.AsInt());
@@ -172,6 +188,11 @@ class BaseEncoder {
     for (const auto &prop : props) {
       WriteString(prop.first);
       WriteValue(prop.second);
+    }
+
+    if (major_v_ > 4) {
+      // element_id introduced in v5.0
+      WriteString(edge.element_id);
     }
   }
 
@@ -269,6 +290,7 @@ class BaseEncoder {
 
  protected:
   Buffer &buffer_;
+  int major_v_;
 
  private:
   template <class T>

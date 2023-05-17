@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -120,6 +120,9 @@ class Session {
         return;
       }
       handshake_done_ = true;
+      // Update the decoder's Bolt version (v5 has changed the undelying structure)
+      decoder_.UpdateVersion(version_.major);
+      encoder_.UpdateVersion(version_.major);
     }
 
     ChunkState chunk_state;

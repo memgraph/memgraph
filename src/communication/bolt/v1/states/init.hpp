@@ -92,7 +92,12 @@ template <typename TSession>
 std::optional<Value> GetMetadataV4(TSession &session, const Marker marker) {
   if (marker != Marker::TinyStruct1) [[unlikely]] {
     spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
-    return std::nullopt;
+    spdlog::trace(
+        "The client sent malformed data, but we are continuing "
+        "because the official Neo4j Java driver sends malformed "
+        "data. D'oh!");
+    // TODO: this should be uncommented when the Neo4j Java driver is fixed
+    // return State::Close;
   }
 
   Value metadata;
@@ -111,6 +116,7 @@ std::optional<Value> GetMetadataV4(TSession &session, const Marker marker) {
   // It sends an empty authentication structure, which isn't supported by the Bolt protocol, but works with neo4j.
   // Just passing "none" as the protocol defines.
   if (!data.count("scheme")) {
+    spdlog::warn("The client didn't supply the authentication scheme! Trying with \"none\"...");
     data["scheme"] = "none";
   }
 
@@ -161,6 +167,7 @@ std::optional<Value> GetAuthDataV5(TSession &session, const Marker marker) {
   // Just passing "none" as the protocol defines.
   auto &data = metadata.ValueMap();
   if (data.empty()) {
+    spdlog::warn("The client didn't supply the authentication scheme! Trying with \"none\"...");
     data["scheme"] = "none";
   }
 

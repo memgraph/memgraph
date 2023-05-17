@@ -33,7 +33,9 @@ namespace memgraph::communication::bolt {
 template <typename Buffer>
 class Decoder {
  public:
-  explicit Decoder(Buffer &buffer) : buffer_(buffer) {}
+  explicit Decoder(Buffer &buffer) : buffer_(buffer), major_v_(0) {}
+
+  void UpdateVersion(int major_v) { major_v_ = major_v; }
 
   /**
    * Reads a Value from the available data in the buffer.
@@ -208,6 +210,7 @@ class Decoder {
 
  protected:
   Buffer &buffer_;
+  int major_v_;
 
  private:
   bool ReadNull(const Marker &marker, Value *data) {
@@ -370,11 +373,7 @@ class Decoder {
       }
       ret.emplace(std::move(dv_key.ValueString()), std::move(dv_val));
     }
-    if (ret.size() != size) {
-      return false;
-    }
-
-    return true;
+    return ret.size() == size;
   }
 
   bool ReadVertex(Value *data) {
@@ -407,10 +406,11 @@ class Decoder {
     }
     vertex.properties = std::move(dv.ValueMap());
 
-    // Read element_id (>=v5)
-    if (!ReadValue(&dv, Value::Type::String)) {
-      vertex.element_id = "";
-    } else {
+    if (major_v_ > 4) {
+      // element_id introduced in v5.0
+      if (!ReadValue(&dv, Value::Type::String)) {
+        return false;
+      }
       vertex.element_id = std::move(dv.ValueString());
     }
 
@@ -452,6 +452,23 @@ class Decoder {
     }
     edge.properties = std::move(dv.ValueMap());
 
+    if (major_v_ > 4) {
+      // element_id introduced in v5.0
+      if (!ReadValue(&dv, Value::Type::String)) {
+        return false;
+      }
+      edge.element_id = std::move(dv.ValueString());
+      // from_element_id introduced in v5.0
+      if (!ReadValue(&dv, Value::Type::String)) {
+        return false;
+      }
+      edge.from_element_id = std::move(dv.ValueString());
+      // to_element_id introduced in v5.0
+      if (!ReadValue(&dv, Value::Type::String)) {
+        return false;
+      }
+      edge.to_element_id = std::move(dv.ValueString());
+    }
     return true;
   }
 
@@ -477,6 +494,14 @@ class Decoder {
       return false;
     }
     edge.properties = std::move(dv.ValueMap());
+
+    if (major_v_ > 4) {
+      // element_id introduced in v5.0
+      if (!ReadValue(&dv, Value::Type::String)) {
+        return false;
+      }
+      edge.element_id = std::move(dv.ValueString());
+    }
 
     return true;
   }

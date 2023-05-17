@@ -70,6 +70,9 @@ struct Edge {
   Id to;
   std::string type;
   std::map<std::string, Value> properties;
+  std::string element_id;
+  std::string from_element_id;
+  std::string to_element_id;
 };
 
 /**
@@ -80,6 +83,7 @@ struct UnboundedEdge {
   Id id;
   std::string type;
   std::map<std::string, Value> properties;
+  std::string element_id;
 };
 
 /**
