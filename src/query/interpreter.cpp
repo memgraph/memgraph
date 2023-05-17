@@ -1227,8 +1227,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
         throw ExplicitTransactionUsageException("No current transaction to rollback.");
       }
 
-      utils::OnScopeExit rollback_metric_update(
-          []() { memgraph::metrics::IncrementCounter(memgraph::metrics::RollbackedTransactions); });
+      memgraph::metrics::IncrementCounter(memgraph::metrics::RollbackedTransactions);
 
       Abort();
       expect_rollback_ = false;
@@ -2749,14 +2748,12 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   // an explicit transaction block.
   if (in_explicit_transaction_) {
     AdvanceCommand();
-  } else {
+  } else if (db_accessor_) {
     // If we're not in an explicit transaction block and we have an open
     // transaction, abort it since we're about to prepare a new query.
-    if (db_accessor_) {
-      query_executions_.emplace_back(
-          std::make_unique<QueryExecution>(utils::MonotonicBufferResource(kExecutionMemoryBlockSize)));
-      AbortCommand(&query_executions_.back());
-    }
+    query_executions_.emplace_back(
+        std::make_unique<QueryExecution>(utils::MonotonicBufferResource(kExecutionMemoryBlockSize)));
+    AbortCommand(&query_executions_.back());
   }
 
   std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;
@@ -2806,6 +2803,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
          utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
          utils::Downcast<TriggerQuery>(parsed_query.query) || utils::Downcast<AnalyzeGraphQuery>(parsed_query.query) ||
          utils::Downcast<TransactionQueueQuery>(parsed_query.query))) {
+      memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTransactions);
       db_accessor_ =
           std::make_unique<storage::Storage::Accessor>(interpreter_context_->db->Access(GetIsolationLevelOverride()));
       execution_db_accessor_.emplace(db_accessor_.get());
@@ -2815,9 +2813,6 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         trigger_context_collector_.emplace(interpreter_context_->trigger_store.GetEventTypes());
       }
     }
-
-    utils::OnScopeExit active_transaction_update_metric(
-        []() { memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTransactions); });
 
     utils::Timer planning_timer;
     PreparedQuery prepared_query;
