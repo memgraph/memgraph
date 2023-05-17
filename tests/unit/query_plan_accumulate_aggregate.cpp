@@ -21,6 +21,7 @@
 #include "query/exceptions.hpp"
 #include "query/plan/operator.hpp"
 #include "query_plan_common.hpp"
+#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
 using namespace memgraph::query;
@@ -29,7 +30,16 @@ using memgraph::query::test_common::ToIntList;
 using memgraph::query::test_common::ToIntMap;
 using testing::UnorderedElementsAre;
 
-TEST(QueryPlan, Accumulate) {
+template <typename StorageType>
+class QueryPlanTest : public testing::Test {
+ public:
+  std::unique_ptr<memgraph::storage::Storage> db = std::make_unique<StorageType>();
+};
+
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage /*, memgraph::storage::DiskStorage*/>;
+TYPED_TEST_CASE(QueryPlanTest, StorageTypes);
+
+TYPED_TEST(QueryPlanTest, Accumulate) {
   // simulate the following two query execution on an empty db
   // CREATE ({x:0})-[:T]->({x:0})
   // MATCH (n)--(m) SET n.x = n.x + 1, m.x = m.x + 1 RETURN n.x, m.x
@@ -37,8 +47,9 @@ TEST(QueryPlan, Accumulate) {
   // with accumulation we expect them to be [[2, 2], [2, 2]]
 
   auto check = [&](bool accumulate) {
-    auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-    auto storage_dba = db->Access();
+    this->db.reset(nullptr);
+    this->db = std::make_unique<TypeParam>();
+    auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto prop = dba.NameToProperty("x");
 
@@ -85,12 +96,13 @@ TEST(QueryPlan, Accumulate) {
   check(true);
 }
 
-TEST(QueryPlan, AccumulateAdvance) {
+TYPED_TEST(QueryPlanTest, AccumulateAdvance) {
   // we simulate 'CREATE (n) WITH n AS n MATCH (m) RETURN m'
   // to get correct results we need to advance the command
   auto check = [&](bool advance) {
-    auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-    auto storage_dba = db->Access();
+    this->db.reset();
+    this->db = std::make_unique<TypeParam>();
+    auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     AstStorage storage;
     SymbolTable symbol_table;
@@ -139,9 +151,10 @@ std::shared_ptr<Produce> MakeAggregationProduce(std::shared_ptr<LogicalOperator>
 }
 
 /** Test fixture for all the aggregation ops in one return. */
+template <typename StorageType>
 class QueryPlanAggregateOps : public ::testing::Test {
  protected:
-  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  std::unique_ptr<memgraph::storage::Storage> db = std::make_unique<StorageType>();
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   memgraph::storage::PropertyId prop = db->NameToProperty("prop");
@@ -186,9 +199,11 @@ class QueryPlanAggregateOps : public ::testing::Test {
   }
 };
 
-TEST_F(QueryPlanAggregateOps, WithData) {
-  AddData();
-  auto results = AggregationResults(false, false);
+TYPED_TEST_CASE(QueryPlanAggregateOps, StorageTypes);
+
+TYPED_TEST(QueryPlanAggregateOps, WithData) {
+  this->AddData();
+  auto results = this->AggregationResults(false, false);
 
   ASSERT_EQ(results.size(), 1);
   ASSERT_EQ(results[0].size(), 8);
@@ -221,48 +236,48 @@ TEST_F(QueryPlanAggregateOps, WithData) {
   EXPECT_FALSE(std::set<int>({5, 7, 12}).insert(map.begin()->second).second);
 }
 
-TEST_F(QueryPlanAggregateOps, WithoutDataWithGroupBy) {
+TYPED_TEST(QueryPlanAggregateOps, WithoutDataWithGroupBy) {
   {
-    auto results = AggregationResults(true, false, {Aggregation::Op::COUNT});
+    auto results = this->AggregationResults(true, false, {Aggregation::Op::COUNT});
     EXPECT_EQ(results.size(), 1);
     EXPECT_EQ(results[0][0].type(), TypedValue::Type::Int);
     EXPECT_EQ(results[0][0].ValueInt(), 0);
   }
   {
-    auto results = AggregationResults(true, false, {Aggregation::Op::SUM});
+    auto results = this->AggregationResults(true, false, {Aggregation::Op::SUM});
     EXPECT_EQ(results.size(), 1);
     EXPECT_EQ(results[0][0].type(), TypedValue::Type::Int);
     EXPECT_EQ(results[0][0].ValueInt(), 0);
   }
   {
-    auto results = AggregationResults(true, false, {Aggregation::Op::AVG});
+    auto results = this->AggregationResults(true, false, {Aggregation::Op::AVG});
     EXPECT_EQ(results.size(), 1);
     EXPECT_EQ(results[0][0].type(), TypedValue::Type::Null);
   }
   {
-    auto results = AggregationResults(true, false, {Aggregation::Op::MIN});
+    auto results = this->AggregationResults(true, false, {Aggregation::Op::MIN});
     EXPECT_EQ(results.size(), 1);
     EXPECT_EQ(results[0][0].type(), TypedValue::Type::Null);
   }
   {
-    auto results = AggregationResults(true, false, {Aggregation::Op::MAX});
+    auto results = this->AggregationResults(true, false, {Aggregation::Op::MAX});
     EXPECT_EQ(results.size(), 1);
     EXPECT_EQ(results[0][0].type(), TypedValue::Type::Null);
   }
   {
-    auto results = AggregationResults(true, false, {Aggregation::Op::COLLECT_LIST});
+    auto results = this->AggregationResults(true, false, {Aggregation::Op::COLLECT_LIST});
     EXPECT_EQ(results.size(), 1);
     EXPECT_EQ(results[0][0].type(), TypedValue::Type::List);
   }
   {
-    auto results = AggregationResults(true, false, {Aggregation::Op::COLLECT_MAP});
+    auto results = this->AggregationResults(true, false, {Aggregation::Op::COLLECT_MAP});
     EXPECT_EQ(results.size(), 1);
     EXPECT_EQ(results[0][0].type(), TypedValue::Type::Map);
   }
 }
 
-TEST_F(QueryPlanAggregateOps, WithoutDataWithoutGroupBy) {
-  auto results = AggregationResults(false, false);
+TYPED_TEST(QueryPlanAggregateOps, WithoutDataWithoutGroupBy) {
+  auto results = this->AggregationResults(false, false);
   ASSERT_EQ(results.size(), 1);
   ASSERT_EQ(results[0].size(), 8);
   // count(*)
@@ -287,12 +302,11 @@ TEST_F(QueryPlanAggregateOps, WithoutDataWithoutGroupBy) {
   EXPECT_EQ(ToIntMap(results[0][7]).size(), 0);
 }
 
-TEST(QueryPlan, AggregateGroupByValues) {
+TYPED_TEST(QueryPlanTest, AggregateGroupByValues) {
   // Tests that distinct groups are aggregated properly for values of all types.
   // Also test the "remember" part of the Aggregation API as final results are
   // obtained via a property lookup of a remembered node.
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // a vector of memgraph::storage::PropertyValue to be set as property values on vertices
@@ -351,12 +365,11 @@ TEST(QueryPlan, AggregateGroupByValues) {
                                   TypedValue::BoolEqual{}));
 }
 
-TEST(QueryPlan, AggregateMultipleGroupBy) {
+TYPED_TEST(QueryPlanTest, AggregateMultipleGroupBy) {
   // in this test we have 3 different properties that have different values
   // for different records and assert that we get the correct combination
   // of values in our groups
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto prop1 = dba.NameToProperty("prop1");
@@ -387,9 +400,8 @@ TEST(QueryPlan, AggregateMultipleGroupBy) {
   EXPECT_EQ(results.size(), 2 * 3 * 5);
 }
 
-TEST(QueryPlan, AggregateNoInput) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlanTest, AggregateNoInput) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   AstStorage storage;
   SymbolTable symbol_table;
@@ -404,7 +416,7 @@ TEST(QueryPlan, AggregateNoInput) {
   EXPECT_EQ(1, results[0][0].ValueInt());
 }
 
-TEST(QueryPlan, AggregateCountEdgeCases) {
+TYPED_TEST(QueryPlanTest, AggregateCountEdgeCases) {
   // tests for detected bugs in the COUNT aggregation behavior
   // ensure that COUNT returns correctly for
   //  - 0 vertices in database
@@ -413,8 +425,7 @@ TEST(QueryPlan, AggregateCountEdgeCases) {
   //  - 2 vertices in database, property set on one
   //  - 2 vertices in database, property set on both
 
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto prop = dba.NameToProperty("prop");
 
@@ -463,12 +474,11 @@ TEST(QueryPlan, AggregateCountEdgeCases) {
   EXPECT_EQ(2, count());
 }
 
-TEST(QueryPlan, AggregateFirstValueTypes) {
+TYPED_TEST(QueryPlanTest, AggregateFirstValueTypes) {
   // testing exceptions that get emitted by the first-value
   // type check
 
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto v1 = dba.InsertVertex();
@@ -516,13 +526,12 @@ TEST(QueryPlan, AggregateFirstValueTypes) {
   aggregate(n_prop_int, Aggregation::Op::COLLECT_MAP);
 }
 
-TEST(QueryPlan, AggregateTypes) {
+TYPED_TEST(QueryPlanTest, AggregateTypes) {
   // testing exceptions that can get emitted by an aggregation
   // does not check all combinations that can result in an exception
   // (that logic is defined and tested by TypedValue)
 
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto p1 = dba.NameToProperty("p1");  // has only string props
@@ -575,9 +584,8 @@ TEST(QueryPlan, AggregateTypes) {
   EXPECT_THROW(aggregate(n_p2, Aggregation::Op::SUM), QueryRuntimeException);
 }
 
-TEST(QueryPlan, Unwind) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlanTest, Unwind) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   AstStorage storage;
   SymbolTable symbol_table;
@@ -618,9 +626,9 @@ TEST(QueryPlan, Unwind) {
   }
 }
 
-TEST_F(QueryPlanAggregateOps, WithDataDistinct) {
-  AddData();
-  auto results = AggregationResults(false, true);
+TYPED_TEST(QueryPlanAggregateOps, WithDataDistinct) {
+  this->AddData();
+  auto results = this->AggregationResults(false, true);
 
   ASSERT_EQ(results.size(), 1);
   ASSERT_EQ(results[0].size(), 8);
@@ -653,48 +661,48 @@ TEST_F(QueryPlanAggregateOps, WithDataDistinct) {
   EXPECT_FALSE(std::set<int>({5, 7, 12}).insert(map.begin()->second).second);
 }
 
-TEST_F(QueryPlanAggregateOps, WithoutDataWithDistinctAndWithGroupBy) {
+TYPED_TEST(QueryPlanAggregateOps, WithoutDataWithDistinctAndWithGroupBy) {
   {
-    auto results = AggregationResults(true, true, {Aggregation::Op::COUNT});
+    auto results = this->AggregationResults(true, true, {Aggregation::Op::COUNT});
     EXPECT_EQ(results.size(), 1);
     EXPECT_EQ(results[0][0].type(), TypedValue::Type::Int);
     EXPECT_EQ(results[0][0].ValueInt(), 0);
   }
   {
-    auto results = AggregationResults(true, true, {Aggregation::Op::SUM});
+    auto results = this->AggregationResults(true, true, {Aggregation::Op::SUM});
     EXPECT_EQ(results.size(), 1);
     EXPECT_EQ(results[0][0].type(), TypedValue::Type::Int);
     EXPECT_EQ(results[0][0].ValueInt(), 0);
   }
   {
-    auto results = AggregationResults(true, true, {Aggregation::Op::AVG});
+    auto results = this->AggregationResults(true, true, {Aggregation::Op::AVG});
     EXPECT_EQ(results.size(), 1);
     EXPECT_EQ(results[0][0].type(), TypedValue::Type::Null);
   }
   {
-    auto results = AggregationResults(true, true, {Aggregation::Op::MIN});
+    auto results = this->AggregationResults(true, true, {Aggregation::Op::MIN});
     EXPECT_EQ(results.size(), 1);
     EXPECT_EQ(results[0][0].type(), TypedValue::Type::Null);
   }
   {
-    auto results = AggregationResults(true, true, {Aggregation::Op::MAX});
+    auto results = this->AggregationResults(true, true, {Aggregation::Op::MAX});
     EXPECT_EQ(results.size(), 1);
     EXPECT_EQ(results[0][0].type(), TypedValue::Type::Null);
   }
   {
-    auto results = AggregationResults(true, true, {Aggregation::Op::COLLECT_LIST});
+    auto results = this->AggregationResults(true, true, {Aggregation::Op::COLLECT_LIST});
     EXPECT_EQ(results.size(), 1);
     EXPECT_EQ(results[0][0].type(), TypedValue::Type::List);
   }
   {
-    auto results = AggregationResults(true, true, {Aggregation::Op::COLLECT_MAP});
+    auto results = this->AggregationResults(true, true, {Aggregation::Op::COLLECT_MAP});
     EXPECT_EQ(results.size(), 1);
     EXPECT_EQ(results[0][0].type(), TypedValue::Type::Map);
   }
 }
 
-TEST_F(QueryPlanAggregateOps, WithoutDataWithDistinctAndWithoutGroupBy) {
-  auto results = AggregationResults(false, true);
+TYPED_TEST(QueryPlanAggregateOps, WithoutDataWithDistinctAndWithoutGroupBy) {
+  auto results = this->AggregationResults(false, true);
   ASSERT_EQ(results.size(), 1);
   ASSERT_EQ(results[0].size(), 8);
   // count(*)
@@ -719,12 +727,11 @@ TEST_F(QueryPlanAggregateOps, WithoutDataWithDistinctAndWithoutGroupBy) {
   EXPECT_EQ(ToIntMap(results[0][7]).size(), 0);
 }
 
-TEST(QueryPlan, AggregateGroupByValuesWithDistinct) {
+TYPED_TEST(QueryPlanTest, AggregateGroupByValuesWithDistinct) {
   // Tests that distinct groups are aggregated properly for values of all types.
   // Also test the "remember" part of the Aggregation API as final results are
   // obtained via a property lookup of a remembered node.
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // a vector of memgraph::storage::PropertyValue to be set as property values on vertices
@@ -786,12 +793,11 @@ TEST(QueryPlan, AggregateGroupByValuesWithDistinct) {
                                   TypedValue::BoolEqual{}));
 }
 
-TEST(QueryPlan, AggregateMultipleGroupByWithDistinct) {
+TYPED_TEST(QueryPlanTest, AggregateMultipleGroupByWithDistinct) {
   // in this test we have 3 different properties that have different values
   // for different records and assert that we get the correct combination
   // of values in our groups
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto prop1 = dba.NameToProperty("prop1");
@@ -823,9 +829,8 @@ TEST(QueryPlan, AggregateMultipleGroupByWithDistinct) {
   }
 }
 
-TEST(QueryPlan, AggregateNoInputWithDistinct) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlanTest, AggregateNoInputWithDistinct) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   AstStorage storage;
   SymbolTable symbol_table;
@@ -840,7 +845,7 @@ TEST(QueryPlan, AggregateNoInputWithDistinct) {
   EXPECT_EQ(1, results[0][0].ValueInt());
 }
 
-TEST(QueryPlan, AggregateCountEdgeCasesWithDistinct) {
+TYPED_TEST(QueryPlanTest, AggregateCountEdgeCasesWithDistinct) {
   // tests for detected bugs in the COUNT aggregation behavior
   // ensure that COUNT returns correctly for
   //  - 0 vertices in database
@@ -849,8 +854,7 @@ TEST(QueryPlan, AggregateCountEdgeCasesWithDistinct) {
   //  - 2 vertices in database, property set on one
   //  - 2 vertices in database, property set on both
 
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto prop = dba.NameToProperty("prop");
 
@@ -899,12 +903,11 @@ TEST(QueryPlan, AggregateCountEdgeCasesWithDistinct) {
   EXPECT_EQ(1, count());
 }
 
-TEST(QueryPlan, AggregateFirstValueTypesWithDistinct) {
+TYPED_TEST(QueryPlanTest, AggregateFirstValueTypesWithDistinct) {
   // testing exceptions that get emitted by the first-value
   // type check
 
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto v1 = dba.InsertVertex();
@@ -952,13 +955,12 @@ TEST(QueryPlan, AggregateFirstValueTypesWithDistinct) {
   aggregate(n_prop_int, Aggregation::Op::COLLECT_MAP);
 }
 
-TEST(QueryPlan, AggregateTypesWithDistinct) {
+TYPED_TEST(QueryPlanTest, AggregateTypesWithDistinct) {
   // testing exceptions that can get emitted by an aggregation
   // does not check all combinations that can result in an exception
   // (that logic is defined and tested by TypedValue)
 
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto p1 = dba.NameToProperty("p1");  // has only string props
