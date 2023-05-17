@@ -17,36 +17,33 @@
 
 namespace memgraph::metrics {
 using Event = uint64_t;
-using Count = uint64_t;
-using Counter = std::atomic<Count>;
+using Value = uint64_t;
+using Gauge = std::atomic<Value>;
 
-class EventCounters {
+class EventGauges {
  public:
-  explicit EventCounters(Counter *allocated_counters) noexcept : counters_(allocated_counters) {}
+  explicit EventGauges(Gauge *allocated_gauges) noexcept : gauges_(allocated_gauges) {}
 
-  auto &operator[](const Event event) { return counters_[event]; }
+  auto &operator[](const Event event) { return gauges_[event]; }
 
-  const auto &operator[](const Event event) const { return counters_[event]; }
+  const auto &operator[](const Event event) const { return gauges_[event]; }
 
-  void Increment(Event event, Count amount = 1);
+  void SetValue(Event event, Value value);
 
-  void Decrement(Event event, Count amount = 1);
-
-  static const Event num_counters;
+  static const Event num_gauges;
 
  private:
-  Counter *counters_;
+  Gauge *gauges_;
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-extern EventCounters global_counters;
+extern EventGauges global_gauges;
 
-void IncrementCounter(Event event, Count amount = 1);
-void DecrementCounter(Event event, Count amount = 1);
+void SetGaugeValue(Event event, Value value);
 
-const char *GetCounterName(Event event);
-const char *GetCounterDocumentation(Event event);
-const char *GetCounterType(Event event);
+const char *GetGaugeName(Event event);
+const char *GetGaugeDocumentation(Event event);
+const char *GetGaugeType(Event event);
 
-Event CounterEnd();
+Event GaugeEnd();
 }  // namespace memgraph::metrics
