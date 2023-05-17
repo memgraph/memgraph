@@ -26,6 +26,7 @@
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
@@ -223,26 +224,9 @@ InMemoryStorage::~InMemoryStorage() {
 
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryStorage *storage, IsolationLevel isolation_level,
                                                     StorageMode storage_mode)
-    : storage_(storage),
-      // The lock must be acquired before creating the transaction object to
-      // prevent freshly created transactions from dangling in an active state
-      // during exclusive operations.
-      storage_guard_(storage_->main_lock_),
-      transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
-      is_transaction_active_(true),
-      config_(storage->config_.items) {}
-
+    : Accessor(storage, isolation_level, storage_mode), config_(storage->config_.items) {}
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
-    : storage_(other.storage_),
-      storage_guard_(std::move(other.storage_guard_)),
-      transaction_(std::move(other.transaction_)),
-      commit_timestamp_(other.commit_timestamp_),
-      is_transaction_active_(other.is_transaction_active_),
-      config_(other.config_) {
-  // Don't allow the other accessor to abort our transaction in destructor.
-  other.is_transaction_active_ = false;
-  other.commit_timestamp_.reset();
-}
+    : Accessor(std::move(other)), config_(other.config_) {}
 
 InMemoryStorage::InMemoryAccessor::~InMemoryAccessor() {
   if (is_transaction_active_) {
@@ -266,7 +250,9 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex() {
     delta->prev.Set(&*it);
   }
 
-  return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+
+  return {&*it, &transaction_, &mem_storage->indices_, &mem_storage->constraints_, config_};
 }
 
 VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex(storage::Gid gid) {
@@ -288,14 +274,16 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex(storage::Gid gid)
   if (delta) {
     delta->prev.Set(&*it);
   }
-  return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  return {&*it, &transaction_, &mem_storage->indices_, &mem_storage->constraints_, config_};
 }
 
 std::optional<VertexAccessor> InMemoryStorage::InMemoryAccessor::FindVertex(Gid gid, View view) {
   auto acc = storage_->vertices_.access();
   auto it = acc.find(gid);
   if (it == acc.end()) return std::nullopt;
-  return VertexAccessor::Create(&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_, view);
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  return VertexAccessor::Create(&*it, &transaction_, &mem_storage->indices_, &mem_storage->constraints_, config_, view);
 }
 
 Result<std::optional<VertexAccessor>> InMemoryStorage::InMemoryAccessor::DeleteVertex(VertexAccessor *vertex) {
@@ -317,8 +305,9 @@ Result<std::optional<VertexAccessor>> InMemoryStorage::InMemoryAccessor::DeleteV
   CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
   vertex_ptr->deleted = true;
 
-  return std::make_optional<VertexAccessor>(vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_,
-                                            config_, true);
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  return std::make_optional<VertexAccessor>(vertex_ptr, &transaction_, &mem_storage->indices_,
+                                            &mem_storage->constraints_, config_, true);
 }
 
 Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>>
@@ -345,10 +334,11 @@ InMemoryStorage::InMemoryAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
   }
 
   std::vector<EdgeAccessor> deleted_edges;
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   for (const auto &item : in_edges) {
     auto [edge_type, from_vertex, edge] = item;
-    EdgeAccessor e(edge, edge_type, from_vertex, vertex_ptr, &transaction_, &storage_->indices_,
-                   &storage_->constraints_, config_);
+    EdgeAccessor e(edge, edge_type, from_vertex, vertex_ptr, &transaction_, &mem_storage->indices_,
+                   &mem_storage->constraints_, config_);
     auto ret = DeleteEdge(&e);
     if (ret.HasError()) {
       MG_ASSERT(ret.GetError() == Error::SERIALIZATION_ERROR, "Invalid database state!");
@@ -361,8 +351,8 @@ InMemoryStorage::InMemoryAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
   }
   for (const auto &item : out_edges) {
     auto [edge_type, to_vertex, edge] = item;
-    EdgeAccessor e(edge, edge_type, vertex_ptr, to_vertex, &transaction_, &storage_->indices_, &storage_->constraints_,
-                   config_);
+    EdgeAccessor e(edge, edge_type, vertex_ptr, to_vertex, &transaction_, &mem_storage->indices_,
+                   &mem_storage->constraints_, config_);
     auto ret = DeleteEdge(&e);
     if (ret.HasError()) {
       MG_ASSERT(ret.GetError() == Error::SERIALIZATION_ERROR, "Invalid database state!");
@@ -388,7 +378,7 @@ InMemoryStorage::InMemoryAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
   vertex_ptr->deleted = true;
 
   return std::make_optional<ReturnType>(
-      VertexAccessor{vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_, config_, true},
+      VertexAccessor{vertex_ptr, &transaction_, &mem_storage->indices_, &mem_storage->constraints_, config_, true},
       std::move(deleted_edges));
 }
 
@@ -451,8 +441,9 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   // Increment edge count.
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
-  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
-                      &storage_->constraints_, config_);
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &mem_storage->indices_,
+                      &mem_storage->constraints_, config_);
 }
 
 Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccessor *from, VertexAccessor *to,
@@ -522,8 +513,9 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   // Increment edge count.
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
-  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
-                      &storage_->constraints_, config_);
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &mem_storage->indices_,
+                      &mem_storage->constraints_, config_);
 }
 
 Result<std::optional<EdgeAccessor>> InMemoryStorage::InMemoryAccessor::DeleteEdge(EdgeAccessor *edge) {
@@ -606,8 +598,9 @@ Result<std::optional<EdgeAccessor>> InMemoryStorage::InMemoryAccessor::DeleteEdg
   // Decrement edge count.
   storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
 
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   return std::make_optional<EdgeAccessor>(edge_ref, edge_type, from_vertex, to_vertex, &transaction_,
-                                          &storage_->indices_, &storage_->constraints_, config_, true);
+                                          &mem_storage->indices_, &mem_storage->constraints_, config_, true);
 }
 
 const std::string &InMemoryStorage::InMemoryAccessor::LabelToName(LabelId label) const {
@@ -643,10 +636,12 @@ utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemory
 
   auto could_replicate_all_sync_replicas = true;
 
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+
   if (transaction_.deltas.empty()) {
     // We don't have to update the commit timestamp here because no one reads
     // it.
-    storage_->commit_log_->MarkFinished(transaction_.start_timestamp);
+    mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   } else {
     // Validate that existence constraints are satisfied for all modified
     // vertices.
@@ -658,7 +653,7 @@ utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemory
       }
       // No need to take any locks here because we modified this vertex and no
       // one else can touch it until we commit.
-      auto validation_result = ValidateExistenceConstraints(*prev.vertex, storage_->constraints_);
+      auto validation_result = ValidateExistenceConstraints(*prev.vertex, mem_storage->constraints_);
       if (validation_result) {
         Abort();
         return StorageDataManipulationError{*validation_result};
@@ -675,7 +670,7 @@ utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemory
 
     {
       std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
-      commit_timestamp_.emplace(storage_->CommitTimestamp(desired_commit_timestamp));
+      commit_timestamp_.emplace(mem_storage->CommitTimestamp(desired_commit_timestamp));
 
       // Before committing and validating vertices against unique constraints,
       // we have to update unique constraints with the vertices that are going
@@ -686,7 +681,7 @@ utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemory
         if (prev.type != PreviousPtr::Type::VERTEX) {
           continue;
         }
-        storage_->constraints_.unique_constraints.UpdateBeforeCommit(prev.vertex, transaction_);
+        mem_storage->constraints_.unique_constraints.UpdateBeforeCommit(prev.vertex, transaction_);
       }
 
       // Validate that unique constraints are satisfied for all modified
@@ -701,7 +696,7 @@ utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemory
         // No need to take any locks here because we modified this vertex and no
         // one else can touch it until we commit.
         unique_constraint_violation =
-            storage_->constraints_.unique_constraints.Validate(*prev.vertex, transaction_, *commit_timestamp_);
+            mem_storage->constraints_.unique_constraints.Validate(*prev.vertex, transaction_, *commit_timestamp_);
         if (unique_constraint_violation) {
           break;
         }
@@ -717,21 +712,22 @@ utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemory
         // modifications before they are written to disk.
         // Replica can log only the write transaction received from Main
         // so the Wal files are consistent
-        if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
-          could_replicate_all_sync_replicas = storage_->AppendToWalDataManipulation(transaction_, *commit_timestamp_);
+        if (mem_storage->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
+          could_replicate_all_sync_replicas =
+              mem_storage->AppendToWalDataManipulation(transaction_, *commit_timestamp_);
         }
 
         // Take committed_transactions lock while holding the engine lock to
         // make sure that committed transactions are sorted by the commit
         // timestamp in the list.
-        storage_->committed_transactions_.WithLock([&](auto & /*committed_transactions*/) {
+        mem_storage->committed_transactions_.WithLock([&](auto & /*committed_transactions*/) {
           // TODO: release lock, and update all deltas to have a local copy
           // of the commit timestamp
           MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
           transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
           // Replica can only update the last commit timestamp with
           // the commits received from main.
-          if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
+          if (mem_storage->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
             // Update the last commit timestamp
             storage_->last_commit_timestamp_.store(*commit_timestamp_);
           }
@@ -740,7 +736,7 @@ utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemory
           engine_guard.unlock();
         });
 
-        storage_->commit_log_->MarkFinished(start_timestamp);
+        mem_storage->commit_log_->MarkFinished(start_timestamp);
       }
     }
 
@@ -905,31 +901,33 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     }
   }
 
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   {
     std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
     uint64_t mark_timestamp = storage_->timestamp_;
     // Take garbage_undo_buffers lock while holding the engine lock to make
     // sure that entries are sorted by mark timestamp in the list.
-    storage_->garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
+    mem_storage->garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
       // Release engine lock because we don't have to hold it anymore and
       // emplace back could take a long time.
       engine_guard.unlock();
       garbage_undo_buffers.emplace_back(mark_timestamp, std::move(transaction_.deltas));
     });
-    storage_->deleted_vertices_.WithLock(
+    mem_storage->deleted_vertices_.WithLock(
         [&](auto &deleted_vertices) { deleted_vertices.splice(deleted_vertices.begin(), my_deleted_vertices); });
-    storage_->deleted_edges_.WithLock(
+    mem_storage->deleted_edges_.WithLock(
         [&](auto &deleted_edges) { deleted_edges.splice(deleted_edges.begin(), my_deleted_edges); });
   }
 
-  storage_->commit_log_->MarkFinished(transaction_.start_timestamp);
+  mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   is_transaction_active_ = false;
 }
 
 void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
   if (commit_timestamp_) {
-    storage_->commit_log_->MarkFinished(*commit_timestamp_);
-    storage_->committed_transactions_.WithLock(
+    auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+    mem_storage->commit_log_->MarkFinished(*commit_timestamp_);
+    mem_storage->committed_transactions_.WithLock(
         [&](auto &committed_transactions) { committed_transactions.emplace_back(std::move(transaction_)); });
     commit_timestamp_.reset();
   }
@@ -1155,25 +1153,26 @@ StorageInfo InMemoryStorage::GetInfo() const {
 }
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, View view) {
-  return VerticesIterable(storage_->indices_.label_index.Vertices(label, view, &transaction_));
+  return VerticesIterable(
+      static_cast<InMemoryStorage *>(storage_)->indices_.label_index.Vertices(label, view, &transaction_));
 }
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, PropertyId property, View view) {
-  return VerticesIterable(storage_->indices_.label_property_index.Vertices(label, property, std::nullopt, std::nullopt,
-                                                                           view, &transaction_));
+  return VerticesIterable(static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index.Vertices(
+      label, property, std::nullopt, std::nullopt, view, &transaction_));
 }
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, PropertyId property,
                                                              const PropertyValue &value, View view) {
-  return VerticesIterable(storage_->indices_.label_property_index.Vertices(
+  return VerticesIterable(static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index.Vertices(
       label, property, utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value), view, &transaction_));
 }
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
     LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) {
-  return VerticesIterable(
-      storage_->indices_.label_property_index.Vertices(label, property, lower_bound, upper_bound, view, &transaction_));
+  return VerticesIterable(static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index.Vertices(
+      label, property, lower_bound, upper_bound, view, &transaction_));
 }
 
 Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) {

@@ -114,7 +114,7 @@ class DiskStorage final : public Storage {
     int64_t ApproximateVertexCount() const override;
 
     int64_t ApproximateVertexCount(LabelId label) const override {
-      return storage_->indices_.label_index.ApproximateVertexCount(label);
+      throw utils::NotYetImplemented("ApproximateVertexCount(label) is not implemented for DiskStorage.");
     }
 
     int64_t ApproximateVertexCount(LabelId label, PropertyId property) const override {
@@ -181,14 +181,14 @@ class DiskStorage final : public Storage {
     /// @throw std::bad_alloc if unable to insert a new mapping
     EdgeTypeId NameToEdgeType(std::string_view name) override;
 
-    bool LabelIndexExists(LabelId label) const override { return storage_->indices_.label_index.IndexExists(label); }
+    bool LabelIndexExists(LabelId label) const override { throw utils::NotYetImplemented("LabelIndexExists()"); }
 
     bool LabelPropertyIndexExists(LabelId label, PropertyId property) const override {
-      return storage_->indices_.label_property_index.IndexExists(label, property);
+      throw utils::NotYetImplemented("LabelPropertyIndexExists() is not implemented for DiskStorage.");
     }
 
     IndicesInfo ListAllIndices() const override {
-      return {storage_->indices_.label_index.ListIndices(), storage_->indices_.label_property_index.ListIndices()};
+      throw utils::NotYetImplemented("ListAllIndices() is not implemented for DiskStorage.");
     }
 
     ConstraintsInfo ListAllConstraints() const override {
@@ -244,15 +244,9 @@ class DiskStorage final : public Storage {
     /// After this method, the vertex and edge caches are cleared.
     void FlushCache();
 
-    DiskStorage *storage_;
-
-    std::shared_lock<utils::RWLock> storage_guard_;
-    Transaction transaction_;
+    Config::Items config_;
     std::vector<std::string> edges_to_delete_;
     std::vector<std::string> vertices_to_delete_;
-    std::optional<uint64_t> commit_timestamp_;
-    bool is_transaction_active_;
-    Config::Items config_;
   };
 
   std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override {
@@ -386,9 +380,9 @@ class DiskStorage final : public Storage {
 
   utils::BasicResult<CreateSnapshotError> CreateSnapshot(std::optional<bool> is_periodic) override;
 
- private:
-  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode);
+  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
 
+ private:
   /// The force parameter determines the behaviour of the garbage collector.
   /// If it's set to true, it will behave as a global operation, i.e. it can't
   /// be part of a transaction, and no other transaction can be active at the same time.

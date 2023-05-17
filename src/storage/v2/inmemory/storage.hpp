@@ -91,9 +91,10 @@ class InMemoryStorage final : public Storage {
     std::optional<VertexAccessor> FindVertex(Gid gid, View view) override;
 
     VerticesIterable Vertices(View view) override {
+      auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
       return VerticesIterable(AllVerticesIterable(storage_->vertices_.access(), &transaction_, view,
-                                                  &storage_->indices_, &storage_->constraints_,
-                                                  storage_->config_.items));
+                                                  &mem_storage->indices_, &mem_storage->constraints_,
+                                                  mem_storage->config_.items));
     }
 
     VerticesIterable Vertices(LabelId label, View view) override;
@@ -113,20 +114,22 @@ class InMemoryStorage final : public Storage {
     /// Return approximate number of vertices with the given label.
     /// Note that this is always an over-estimate and never an under-estimate.
     int64_t ApproximateVertexCount(LabelId label) const override {
-      return storage_->indices_.label_index.ApproximateVertexCount(label);
+      return static_cast<InMemoryStorage *>(storage_)->indices_.label_index.ApproximateVertexCount(label);
     }
 
     /// Return approximate number of vertices with the given label and property.
     /// Note that this is always an over-estimate and never an under-estimate.
     int64_t ApproximateVertexCount(LabelId label, PropertyId property) const override {
-      return storage_->indices_.label_property_index.ApproximateVertexCount(label, property);
+      return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index.ApproximateVertexCount(label,
+                                                                                                            property);
     }
 
     /// Return approximate number of vertices with the given label and the given
     /// value for the given property. Note that this is always an over-estimate
     /// and never an under-estimate.
     int64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const override {
-      return storage_->indices_.label_property_index.ApproximateVertexCount(label, property, value);
+      return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index.ApproximateVertexCount(
+          label, property, value);
     }
 
     /// Return approximate number of vertices with the given label and value for
@@ -135,16 +138,17 @@ class InMemoryStorage final : public Storage {
     int64_t ApproximateVertexCount(LabelId label, PropertyId property,
                                    const std::optional<utils::Bound<PropertyValue>> &lower,
                                    const std::optional<utils::Bound<PropertyValue>> &upper) const override {
-      return storage_->indices_.label_property_index.ApproximateVertexCount(label, property, lower, upper);
+      return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index.ApproximateVertexCount(
+          label, property, lower, upper);
     }
 
     std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId &label,
                                                      const storage::PropertyId &property) const override {
-      return storage_->indices_.label_property_index.GetIndexStats(label, property);
+      return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index.GetIndexStats(label, property);
     }
 
     std::vector<std::pair<LabelId, PropertyId>> ClearIndexStats() override {
-      return storage_->indices_.label_property_index.ClearIndexStats();
+      return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index.ClearIndexStats();
     }
 
     std::vector<std::pair<LabelId, PropertyId>> DeleteIndexStatsForLabels(
@@ -152,7 +156,8 @@ class InMemoryStorage final : public Storage {
       std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;
       std::for_each(labels.begin(), labels.end(), [this, &deleted_indexes](const auto &label_str) {
         std::vector<std::pair<LabelId, PropertyId>> loc_results =
-            storage_->indices_.label_property_index.DeleteIndexStatsForLabel(NameToLabel(label_str));
+            static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index.DeleteIndexStatsForLabel(
+                NameToLabel(label_str));
         deleted_indexes.insert(deleted_indexes.end(), std::make_move_iterator(loc_results.begin()),
                                std::make_move_iterator(loc_results.end()));
       });
@@ -161,7 +166,7 @@ class InMemoryStorage final : public Storage {
 
     void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
                        const IndexStats &stats) override {
-      storage_->indices_.label_property_index.SetIndexStats(label, property, stats);
+      static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index.SetIndexStats(label, property, stats);
     }
 
     /// @return Accessor to the deleted vertex if a deletion took place, std::nullopt otherwise
@@ -197,19 +202,24 @@ class InMemoryStorage final : public Storage {
     /// @throw std::bad_alloc if unable to insert a new mapping
     EdgeTypeId NameToEdgeType(std::string_view name) override;
 
-    bool LabelIndexExists(LabelId label) const override { return storage_->indices_.label_index.IndexExists(label); }
+    bool LabelIndexExists(LabelId label) const override {
+      return static_cast<InMemoryStorage *>(storage_)->indices_.label_index.IndexExists(label);
+    }
 
     bool LabelPropertyIndexExists(LabelId label, PropertyId property) const override {
-      return storage_->indices_.label_property_index.IndexExists(label, property);
+      return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index.IndexExists(label, property);
     }
 
     IndicesInfo ListAllIndices() const override {
-      return {storage_->indices_.label_index.ListIndices(), storage_->indices_.label_property_index.ListIndices()};
+      auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+      return {mem_storage->indices_.label_index.ListIndices(),
+              mem_storage->indices_.label_property_index.ListIndices()};
     }
 
     ConstraintsInfo ListAllConstraints() const override {
-      return {ListExistenceConstraints(storage_->constraints_),
-              storage_->constraints_.unique_constraints.ListConstraints()};
+      auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+      return {ListExistenceConstraints(mem_storage->constraints_),
+              mem_storage->constraints_.unique_constraints.ListConstraints()};
     }
 
     void AdvanceCommand() override;
@@ -237,11 +247,6 @@ class InMemoryStorage final : public Storage {
     /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid);
 
-    InMemoryStorage *storage_;
-    std::shared_lock<utils::RWLock> storage_guard_;
-    Transaction transaction_;
-    std::optional<uint64_t> commit_timestamp_;
-    bool is_transaction_active_;
     Config::Items config_;
   };
 
@@ -375,9 +380,9 @@ class InMemoryStorage final : public Storage {
 
   utils::BasicResult<CreateSnapshotError> CreateSnapshot(std::optional<bool> is_periodic) override;
 
- private:
-  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode);
+  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
 
+ private:
   /// The force parameter determines the behaviour of the garbage collector.
   /// If it's set to true, it will behave as a global operation, i.e. it can't
   /// be part of a transaction, and no other transaction can be active at the same time.
@@ -408,10 +413,10 @@ class InMemoryStorage final : public Storage {
   bool ShouldStoreAndRestoreReplicas() const;
 
   // Specific per storage engine
-  Constraints constraints_;
-  Indices indices_;
   IsolationLevel isolation_level_;
   StorageMode storage_mode_;
+  Constraints constraints_;
+  Indices indices_;
   Config config_;
 
   // TODO: This isn't really a commit log, it doesn't even care if a

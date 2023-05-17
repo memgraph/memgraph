@@ -259,4 +259,24 @@ bool VerticesIterable::Iterator::operator==(const Iterator &other) const {
   }
 }
 
+Storage::Accessor::Accessor(Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode)
+    : storage_(storage),
+      // The lock must be acquired before creating the transaction object to
+      // prevent freshly created transactions from dangling in an active state
+      // during exclusive operations.
+      storage_guard_(storage_->main_lock_),
+      transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
+      is_transaction_active_(true) {}
+
+Storage::Accessor::Accessor(Accessor &&other) noexcept
+    : storage_(other.storage_),
+      storage_guard_(std::move(other.storage_guard_)),
+      transaction_(std::move(other.transaction_)),
+      commit_timestamp_(other.commit_timestamp_),
+      is_transaction_active_(other.is_transaction_active_) {
+  // Don't allow the other accessor to abort our transaction in destructor.
+  other.is_transaction_active_ = false;
+  other.commit_timestamp_.reset();
+}
+
 }  // namespace memgraph::storage

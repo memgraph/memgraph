@@ -189,7 +189,7 @@ class Storage {
   virtual ~Storage() {}
   class Accessor {
    public:
-    Accessor() {}
+    Accessor(Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
     Accessor(const Accessor &) = delete;
     Accessor &operator=(const Accessor &) = delete;
     Accessor &operator=(Accessor &&other) = delete;
@@ -310,6 +310,13 @@ class Storage {
     virtual void FinalizeTransaction() = 0;
 
     virtual std::optional<uint64_t> GetTransactionId() const = 0;
+
+   protected:
+    Storage *storage_;
+    std::shared_lock<utils::RWLock> storage_guard_;
+    Transaction transaction_;
+    std::optional<uint64_t> commit_timestamp_;
+    bool is_transaction_active_;
   };
 
   virtual std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level) = 0;
@@ -518,7 +525,8 @@ class Storage {
 
   virtual utils::BasicResult<CreateSnapshotError> CreateSnapshot(std::optional<bool> is_periodic) = 0;
 
- protected:
+  virtual Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) = 0;
+
   // Main storage lock.
   // Accessors take a shared lock when starting, so it is possible to block
   // creation of new accessors by taking a unique lock. This is used when doing
@@ -543,6 +551,7 @@ class Storage {
   utils::SpinLock engine_lock_;
   uint64_t timestamp_{kTimestampInitialId};
   uint64_t transaction_id_{kTransactionInitialId};
+
   // Durability
   std::filesystem::path snapshot_directory_;
   std::filesystem::path wal_directory_;
