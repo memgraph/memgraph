@@ -1018,8 +1018,42 @@ int main(int argc, char **argv) {
   MonitoringServerT metrics_server{
       {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, &session_data, &context};
 
+#ifdef MG_ENTERPRISE
+  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    // Handler for regular termination signals
+    auto shutdown = [&metrics_server, &websocket_server, &server, &interpreter_context] {
+      // Server needs to be shutdown first and then the database. This prevents
+      // a race condition when a transaction is accepted during server shutdown.
+      server.Shutdown();
+      // After the server is notified to stop accepting and processing
+      // connections we tell the execution engine to stop processing all pending
+      // queries.
+      memgraph::query::Shutdown(&interpreter_context);
+
+      websocket_server.Shutdown();
+      metrics_server.Shutdown();
+    };
+
+    InitSignalHandlers(shutdown);
+  } else {
+    // Handler for regular termination signals
+    auto shutdown = [&websocket_server, &server, &interpreter_context] {
+      // Server needs to be shutdown first and then the database. This prevents
+      // a race condition when a transaction is accepted during server shutdown.
+      server.Shutdown();
+      // After the server is notified to stop accepting and processing
+      // connections we tell the execution engine to stop processing all pending
+      // queries.
+      memgraph::query::Shutdown(&interpreter_context);
+
+      websocket_server.Shutdown();
+    };
+
+    InitSignalHandlers(shutdown);
+  }
+#else
   // Handler for regular termination signals
-  auto community_servers_shutdown = [&websocket_server, &server, &interpreter_context] {
+  auto shutdown = [&websocket_server, &server, &interpreter_context] {
     // Server needs to be shutdown first and then the database. This prevents
     // a race condition when a transaction is accepted during server shutdown.
     server.Shutdown();
@@ -1031,17 +1065,7 @@ int main(int argc, char **argv) {
     websocket_server.Shutdown();
   };
 
-  auto enterprise_servers_shutdown = [&metrics_server] { metrics_server.Shutdown(); };
-
-#ifdef MG_ENTERPRISE
-  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    InitSignalHandlers(community_servers_shutdown);
-    InitSignalHandlers(enterprise_servers_shutdown);
-  } else {
-    InitSignalHandlers(community_servers_shutdown);
-  }
-#else
-  InitSignalHandlers(community_servers_shutdown);
+  InitSignalHandlers(shutdown);
 #endif
 
   MG_ASSERT(server.Start(), "Couldn't start the Bolt server!");
