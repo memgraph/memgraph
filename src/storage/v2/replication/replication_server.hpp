@@ -11,7 +11,10 @@
 
 #pragma once
 
+#include "rpc/server.hpp"
+#include "slk/streams.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/replication/replication_client.hpp"
 
 namespace memgraph::storage {
 

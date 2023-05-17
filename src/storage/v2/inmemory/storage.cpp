@@ -9,44 +9,17 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/storage.hpp"
-#include <algorithm>
-#include <atomic>
-#include <memory>
-#include <mutex>
-#include <variant>
-
-#include <gflags/gflags.h>
-#include <spdlog/spdlog.h>
-
-#include "io/network/endpoint.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/durability/durability.hpp"
-#include "storage/v2/durability/metadata.hpp"
-#include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_accessor.hpp"
-#include "storage/v2/inmemory/storage.hpp"
-#include "storage/v2/mvcc.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
-#include "storage/v2/replication/replication_persistence_helper.hpp"
-#include "storage/v2/transaction.hpp"
-#include "storage/v2/vertex_accessor.hpp"
-#include "utils/file.hpp"
-#include "utils/logging.hpp"
-#include "utils/memory_tracker.hpp"
-#include "utils/message.hpp"
-#include "utils/rw_lock.hpp"
-#include "utils/spin_lock.hpp"
-#include "utils/stat.hpp"
-#include "utils/uuid.hpp"
-
-/// REPLICATION ///
 #include "storage/v2/replication/replication_client.hpp"
+#include "storage/v2/replication/replication_persistence_helper.hpp"
 #include "storage/v2/replication/replication_server.hpp"
-#include "storage/v2/replication/rpc.hpp"
-#include "storage/v2/storage_error.hpp"
+#include "storage/v2/vertex_accessor.hpp"
 
 namespace memgraph::storage {
 

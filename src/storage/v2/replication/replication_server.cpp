@@ -9,7 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/replication/replication_server.hpp"
 #include <atomic>
 #include <filesystem>
 
@@ -20,7 +19,9 @@
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/durability/wal.hpp"
+#include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/replication/config.hpp"
+#include "storage/v2/replication/replication_server.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/exceptions.hpp"
 
