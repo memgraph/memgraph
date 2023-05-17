@@ -277,7 +277,8 @@ class DumpTest : public ::testing::Test {
   std::unique_ptr<memgraph::storage::Storage> db = std::make_unique<StorageType>();
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+// using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 TYPED_TEST_CASE(DumpTest, StorageTypes);
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)

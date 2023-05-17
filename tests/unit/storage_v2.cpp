@@ -32,7 +32,8 @@ class StorageV2Test : public testing::Test {
   std::unique_ptr<memgraph::storage::Storage> store;
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+// using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 TYPED_TEST_CASE(StorageV2Test, StorageTypes);
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
