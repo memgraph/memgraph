@@ -603,30 +603,6 @@ Result<std::optional<EdgeAccessor>> InMemoryStorage::InMemoryAccessor::DeleteEdg
                                           &mem_storage->indices_, &mem_storage->constraints_, config_, true);
 }
 
-const std::string &InMemoryStorage::InMemoryAccessor::LabelToName(LabelId label) const {
-  return storage_->LabelToName(label);
-}
-
-const std::string &InMemoryStorage::InMemoryAccessor::PropertyToName(PropertyId property) const {
-  return storage_->PropertyToName(property);
-}
-
-const std::string &InMemoryStorage::InMemoryAccessor::EdgeTypeToName(EdgeTypeId edge_type) const {
-  return storage_->EdgeTypeToName(edge_type);
-}
-
-LabelId InMemoryStorage::InMemoryAccessor::NameToLabel(const std::string_view name) {
-  return storage_->NameToLabel(name);
-}
-
-PropertyId InMemoryStorage::InMemoryAccessor::NameToProperty(const std::string_view name) {
-  return storage_->NameToProperty(name);
-}
-
-EdgeTypeId InMemoryStorage::InMemoryAccessor::NameToEdgeType(const std::string_view name) {
-  return storage_->NameToEdgeType(name);
-}
-
 void InMemoryStorage::InMemoryAccessor::AdvanceCommand() { ++transaction_.command_id; }
 
 utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemoryAccessor::Commit(
@@ -938,30 +914,6 @@ std::optional<uint64_t> InMemoryStorage::InMemoryAccessor::GetTransactionId() co
     return transaction_.transaction_id.load(std::memory_order_acquire);
   }
   return {};
-}
-
-const std::string &InMemoryStorage::LabelToName(LabelId label) const {
-  return name_id_mapper_.IdToName(label.AsUint());
-}
-
-const std::string &InMemoryStorage::PropertyToName(PropertyId property) const {
-  return name_id_mapper_.IdToName(property.AsUint());
-}
-
-const std::string &InMemoryStorage::EdgeTypeToName(EdgeTypeId edge_type) const {
-  return name_id_mapper_.IdToName(edge_type.AsUint());
-}
-
-LabelId InMemoryStorage::NameToLabel(const std::string_view name) {
-  return LabelId::FromUint(name_id_mapper_.NameToId(name));
-}
-
-PropertyId InMemoryStorage::NameToProperty(const std::string_view name) {
-  return PropertyId::FromUint(name_id_mapper_.NameToId(name));
-}
-
-EdgeTypeId InMemoryStorage::NameToEdgeType(const std::string_view name) {
-  return EdgeTypeId::FromUint(name_id_mapper_.NameToId(name));
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::CreateIndex(

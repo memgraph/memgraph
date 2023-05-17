@@ -168,19 +168,6 @@ class DiskStorage final : public Storage {
 
     Result<std::optional<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge) override;
 
-    const std::string &LabelToName(LabelId label) const override;
-    const std::string &PropertyToName(PropertyId property) const override;
-    const std::string &EdgeTypeToName(EdgeTypeId edge_type) const override;
-
-    /// @throw std::bad_alloc if unable to insert a new mapping
-    LabelId NameToLabel(std::string_view name) override;
-
-    /// @throw std::bad_alloc if unable to insert a new mapping
-    PropertyId NameToProperty(std::string_view name) override;
-
-    /// @throw std::bad_alloc if unable to insert a new mapping
-    EdgeTypeId NameToEdgeType(std::string_view name) override;
-
     bool LabelIndexExists(LabelId label) const override { throw utils::NotYetImplemented("LabelIndexExists()"); }
 
     bool LabelPropertyIndexExists(LabelId label, PropertyId property) const override {
@@ -253,19 +240,6 @@ class DiskStorage final : public Storage {
     return std::unique_ptr<DiskAccessor>(
         new DiskAccessor{this, override_isolation_level.value_or(isolation_level_), storage_mode_});
   }
-
-  const std::string &LabelToName(LabelId label) const override;
-  const std::string &PropertyToName(PropertyId property) const override;
-  const std::string &EdgeTypeToName(EdgeTypeId edge_type) const override;
-
-  /// @throw std::bad_alloc if unable to insert a new mapping
-  LabelId NameToLabel(std::string_view name) override;
-
-  /// @throw std::bad_alloc if unable to insert a new mapping
-  PropertyId NameToProperty(std::string_view name) override;
-
-  /// @throw std::bad_alloc if unable to insert a new mapping
-  EdgeTypeId NameToEdgeType(std::string_view name) override;
 
   /// Create an index.
   /// Returns void if the index has been created.

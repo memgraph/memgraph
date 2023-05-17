@@ -189,19 +189,6 @@ class InMemoryStorage final : public Storage {
     /// @throw std::bad_alloc
     Result<std::optional<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge) override;
 
-    const std::string &LabelToName(LabelId label) const override;
-    const std::string &PropertyToName(PropertyId property) const override;
-    const std::string &EdgeTypeToName(EdgeTypeId edge_type) const override;
-
-    /// @throw std::bad_alloc if unable to insert a new mapping
-    LabelId NameToLabel(std::string_view name) override;
-
-    /// @throw std::bad_alloc if unable to insert a new mapping
-    PropertyId NameToProperty(std::string_view name) override;
-
-    /// @throw std::bad_alloc if unable to insert a new mapping
-    EdgeTypeId NameToEdgeType(std::string_view name) override;
-
     bool LabelIndexExists(LabelId label) const override {
       return static_cast<InMemoryStorage *>(storage_)->indices_.label_index.IndexExists(label);
     }
@@ -254,19 +241,6 @@ class InMemoryStorage final : public Storage {
     return std::unique_ptr<InMemoryAccessor>(
         new InMemoryAccessor{this, override_isolation_level.value_or(isolation_level_), storage_mode_});
   }
-
-  const std::string &LabelToName(LabelId label) const override;
-  const std::string &PropertyToName(PropertyId property) const override;
-  const std::string &EdgeTypeToName(EdgeTypeId edge_type) const override;
-
-  /// @throw std::bad_alloc if unable to insert a new mapping
-  LabelId NameToLabel(std::string_view name) override;
-
-  /// @throw std::bad_alloc if unable to insert a new mapping
-  PropertyId NameToProperty(std::string_view name) override;
-
-  /// @throw std::bad_alloc if unable to insert a new mapping
-  EdgeTypeId NameToEdgeType(std::string_view name) override;
 
   /// Create an index.
   /// Returns void if the index has been created.

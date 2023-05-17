@@ -877,32 +877,6 @@ Result<std::optional<EdgeAccessor>> DiskStorage::DiskAccessor::DeleteEdge(EdgeAc
 }
 
 // this should be handled on an above level of abstraction
-const std::string &DiskStorage::DiskAccessor::LabelToName(LabelId label) const { return storage_->LabelToName(label); }
-
-// this should be handled on an above level of abstraction
-const std::string &DiskStorage::DiskAccessor::PropertyToName(PropertyId property) const {
-  return storage_->PropertyToName(property);
-}
-
-// this should be handled on an above level of abstraction
-const std::string &DiskStorage::DiskAccessor::EdgeTypeToName(EdgeTypeId edge_type) const {
-  return storage_->EdgeTypeToName(edge_type);
-}
-
-// this should be handled on an above level of abstraction
-LabelId DiskStorage::DiskAccessor::NameToLabel(const std::string_view name) { return storage_->NameToLabel(name); }
-
-// this should be handled on an above level of abstraction
-PropertyId DiskStorage::DiskAccessor::NameToProperty(const std::string_view name) {
-  return storage_->NameToProperty(name);
-}
-
-// this should be handled on an above level of abstraction
-EdgeTypeId DiskStorage::DiskAccessor::NameToEdgeType(const std::string_view name) {
-  return storage_->NameToEdgeType(name);
-}
-
-// this should be handled on an above level of abstraction
 void DiskStorage::DiskAccessor::AdvanceCommand() { ++transaction_.command_id; }
 
 void DiskStorage::DiskAccessor::FlushCache() {
@@ -1267,34 +1241,6 @@ std::optional<uint64_t> DiskStorage::DiskAccessor::GetTransactionId() const {
     return transaction_.transaction_id.load(std::memory_order_acquire);
   }
   return {};
-}
-
-// this should be handled on an above level of abstraction
-const std::string &DiskStorage::LabelToName(LabelId label) const { return name_id_mapper_.IdToName(label.AsUint()); }
-
-// this should be handled on an above level of abstraction
-const std::string &DiskStorage::PropertyToName(PropertyId property) const {
-  return name_id_mapper_.IdToName(property.AsUint());
-}
-
-// this should be handled on an above level of abstraction
-const std::string &DiskStorage::EdgeTypeToName(EdgeTypeId edge_type) const {
-  return name_id_mapper_.IdToName(edge_type.AsUint());
-}
-
-// this should be handled on an above level of abstraction
-LabelId DiskStorage::NameToLabel(const std::string_view name) {
-  return LabelId::FromUint(name_id_mapper_.NameToId(name));
-}
-
-// this should be handled on an above level of abstraction
-PropertyId DiskStorage::NameToProperty(const std::string_view name) {
-  return PropertyId::FromUint(name_id_mapper_.NameToId(name));
-}
-
-// this should be handled on an above level of abstraction
-EdgeTypeId DiskStorage::NameToEdgeType(const std::string_view name) {
-  return EdgeTypeId::FromUint(name_id_mapper_.NameToId(name));
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(

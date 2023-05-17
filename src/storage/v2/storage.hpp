@@ -272,18 +272,18 @@ class Storage {
     /// @throw std::bad_alloc
     virtual Result<std::optional<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge) = 0;
 
-    virtual const std::string &LabelToName(LabelId label) const = 0;
-    virtual const std::string &PropertyToName(PropertyId property) const = 0;
-    virtual const std::string &EdgeTypeToName(EdgeTypeId edge_type) const = 0;
+    const std::string &LabelToName(LabelId label) const;
+    const std::string &PropertyToName(PropertyId property) const;
+    const std::string &EdgeTypeToName(EdgeTypeId edge_type) const;
 
     /// @throw std::bad_alloc if unable to insert a new mapping
-    virtual LabelId NameToLabel(std::string_view name) = 0;
+    LabelId NameToLabel(std::string_view name);
 
     /// @throw std::bad_alloc if unable to insert a new mapping
-    virtual PropertyId NameToProperty(std::string_view name) = 0;
+    PropertyId NameToProperty(std::string_view name);
 
     /// @throw std::bad_alloc if unable to insert a new mapping
-    virtual EdgeTypeId NameToEdgeType(std::string_view name) = 0;
+    EdgeTypeId NameToEdgeType(std::string_view name);
 
     virtual bool LabelIndexExists(LabelId label) const = 0;
 
@@ -322,18 +322,18 @@ class Storage {
   virtual std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level) = 0;
   std::unique_ptr<Accessor> Access() { return Access(std::optional<IsolationLevel>{}); }
 
-  virtual const std::string &LabelToName(LabelId label) const = 0;
-  virtual const std::string &PropertyToName(PropertyId property) const = 0;
-  virtual const std::string &EdgeTypeToName(EdgeTypeId edge_type) const = 0;
+  const std::string &LabelToName(LabelId label) const;
+  const std::string &PropertyToName(PropertyId property) const;
+  const std::string &EdgeTypeToName(EdgeTypeId edge_type) const;
 
   /// @throw std::bad_alloc if unable to insert a new mapping
-  virtual LabelId NameToLabel(std::string_view name) = 0;
+  LabelId NameToLabel(std::string_view name);
 
   /// @throw std::bad_alloc if unable to insert a new mapping
-  virtual PropertyId NameToProperty(std::string_view name) = 0;
+  PropertyId NameToProperty(std::string_view name);
 
   /// @throw std::bad_alloc if unable to insert a new mapping
-  virtual EdgeTypeId NameToEdgeType(std::string_view name) = 0;
+  EdgeTypeId NameToEdgeType(std::string_view name);
 
   /// Create an index.
   /// Returns void if the index has been created.

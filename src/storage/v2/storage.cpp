@@ -279,4 +279,46 @@ Storage::Accessor::Accessor(Accessor &&other) noexcept
   other.commit_timestamp_.reset();
 }
 
+// this should be handled on an above level of abstraction
+const std::string &Storage::LabelToName(LabelId label) const { return name_id_mapper_.IdToName(label.AsUint()); }
+
+// this should be handled on an above level of abstraction
+const std::string &Storage::PropertyToName(PropertyId property) const {
+  return name_id_mapper_.IdToName(property.AsUint());
+}
+
+// this should be handled on an above level of abstraction
+const std::string &Storage::EdgeTypeToName(EdgeTypeId edge_type) const {
+  return name_id_mapper_.IdToName(edge_type.AsUint());
+}
+
+// this should be handled on an above level of abstraction
+LabelId Storage::NameToLabel(const std::string_view name) { return LabelId::FromUint(name_id_mapper_.NameToId(name)); }
+
+// this should be handled on an above level of abstraction
+PropertyId Storage::NameToProperty(const std::string_view name) {
+  return PropertyId::FromUint(name_id_mapper_.NameToId(name));
+}
+
+// this should be handled on an above level of abstraction
+EdgeTypeId Storage::NameToEdgeType(const std::string_view name) {
+  return EdgeTypeId::FromUint(name_id_mapper_.NameToId(name));
+}
+
+const std::string &Storage::Accessor::LabelToName(LabelId label) const { return storage_->LabelToName(label); }
+
+const std::string &Storage::Accessor::PropertyToName(PropertyId property) const {
+  return storage_->PropertyToName(property);
+}
+
+const std::string &Storage::Accessor::EdgeTypeToName(EdgeTypeId edge_type) const {
+  return storage_->EdgeTypeToName(edge_type);
+}
+
+LabelId Storage::Accessor::NameToLabel(const std::string_view name) { return storage_->NameToLabel(name); }
+
+PropertyId Storage::Accessor::NameToProperty(const std::string_view name) { return storage_->NameToProperty(name); }
+
+EdgeTypeId Storage::Accessor::NameToEdgeType(const std::string_view name) { return storage_->NameToEdgeType(name); }
+
 }  // namespace memgraph::storage
