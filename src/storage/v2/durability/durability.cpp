@@ -27,9 +27,15 @@
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
+#include "utils/event_histogram.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
+#include "utils/timer.hpp"
+
+namespace memgraph::metrics {
+extern const Event SnapshotRecoveryLatency_us;
+}  // namespace memgraph::metrics
 
 namespace memgraph::storage::durability {
 
@@ -175,6 +181,8 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
                                         "https://memgr.ph/durability"));
     return std::nullopt;
   }
+
+  utils::Timer timer;
 
   auto snapshot_files = GetSnapshotFiles(snapshot_directory);
 
@@ -347,6 +355,10 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
   }
 
   RecoverIndicesAndConstraints(indices_constraints, indices, constraints, vertices);
+
+  memgraph::metrics::Measure(memgraph::metrics::SnapshotRecoveryLatency_us,
+                             std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
+
   return recovery_info;
 }
 
