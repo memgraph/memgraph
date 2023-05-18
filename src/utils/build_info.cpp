@@ -9,15 +9,18 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+#include "build_info.hpp"
 
-#include <cstdint>
-#include <string_view>
+namespace memgraph::utils {
 
-namespace memgraph::storage {
+BuildInfo GetBuildInfo() {
+#ifdef CMAKE_BUILD_TYPE_NAME
+  constexpr const char *build_info_name = CMAKE_BUILD_TYPE_NAME;
+#else
+  constexpr const char *build_info_name = "unkown";
+#endif
+  BuildInfo info{build_info_name};
+  return info;
+}
 
-enum class StorageMode : std::uint8_t { IN_MEMORY_ANALYTICAL, IN_MEMORY_TRANSACTIONAL };
-
-std::string_view StorageModeToString(memgraph::storage::StorageMode storage_mode);
-
-}  // namespace memgraph::storage
+}  // namespace memgraph::utils
