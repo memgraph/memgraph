@@ -162,13 +162,17 @@ std::optional<Value> GetAuthDataV5(TSession &session, const Marker marker) {
     return std::nullopt;
   }
 
-  // Special case for neo4j python driver auth=None
-  // It sends an empty authentication structure, which isn't supported by the Bolt protocol, but works with neo4j.
-  // Just passing "none" as the protocol defines.
+  // From neo4j driver v4.4, fields that have a default value are not sent.
+  // In order to have back-compatibility, the missing fields will be added.
   auto &data = metadata.ValueMap();
-  if (data.empty()) {
+  if (data.empty()) {  // Special case auth=None
     spdlog::warn("The client didn't supply the authentication scheme! Trying with \"none\"...");
     data["scheme"] = "none";
+  } else if (data["scheme"].ValueString() == "basic") {  // none and basic are the only 2 protocols we support
+    auto &dp = data["principal"];
+    dp = dp.type() == Value::Type::Null ? "" : dp;
+    auto &dc = data["credentials"];
+    dc = dc.type() == Value::Type::Null ? "" : dc;
   }
 
   return metadata;
