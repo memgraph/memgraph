@@ -22,9 +22,14 @@
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/states/handlers.hpp"
 #include "communication/bolt/v1/value.hpp"
+#include "utils/event_counter.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
+
+namespace memgraph::metrics {
+extern const Event BoltMessages;
+}  // namespace memgraph::metrics
 
 namespace memgraph::communication::bolt {
 
@@ -137,8 +142,10 @@ State StateExecutingRun(TSession &session, State state) {
 
   switch (session.version_.major) {
     case 1:
+      memgraph::metrics::IncrementCounter(memgraph::metrics::BoltMessages);
       return RunHandlerV1(signature, session, state, marker);
     case 4: {
+      memgraph::metrics::IncrementCounter(memgraph::metrics::BoltMessages);
       if (session.version_.minor >= 3) {
         return RunHandlerV4<TSession, 3>(signature, session, state, marker);
       }

@@ -92,6 +92,12 @@ startup_config_dict = {
         "1024",
         "Memory warning threshold, in MB. If Memgraph detects there is less available RAM it will log a warning. Set to 0 to disable.",
     ),
+    "metrics_address": (
+        "0.0.0.0",
+        "0.0.0.0",
+        "IP address on which the Memgraph server for exposing metrics should listen.",
+    ),
+    "metrics_port": ("9091", "9091", "Port on which the Memgraph server for exposing metrics should listen."),
     "monitoring_address": (
         "0.0.0.0",
         "0.0.0.0",
