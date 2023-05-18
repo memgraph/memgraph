@@ -35,6 +35,7 @@ class Encoder : private BaseEncoder<Buffer> {
   Encoder(Buffer &buffer) : BaseEncoder<Buffer>(buffer) {}
 
   using BaseEncoder<Buffer>::UpdateVersion;
+
   /**
    * Sends a Record message.
    *

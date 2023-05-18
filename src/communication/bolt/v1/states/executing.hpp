@@ -90,10 +90,13 @@ template <typename TSession>
 State RunHandlerV5(Signature signature, TSession &session, State state, Marker marker) {
   switch (signature) {
     case Signature::Run:
+      // Using V4 on purpose
       return HandleRunV4<TSession>(session, state, marker);
     case Signature::Pull:
+      // Using V4 on purpose
       return HandlePullV4<TSession>(session, state, marker);
     case Signature::Discard:
+      // Using V4 on purpose
       return HandleDiscardV4<TSession>(session, state, marker);
     case Signature::Reset:
       return HandleReset<TSession>(session, marker);

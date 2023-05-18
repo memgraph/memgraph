@@ -35,6 +35,11 @@ class Decoder {
  public:
   explicit Decoder(Buffer &buffer) : buffer_(buffer), major_v_(0) {}
 
+  /**
+   * Lets the user update the version.
+   * This is all single thread for now. TODO: Update if ever multithreaded.
+   * @param major_v the major version of the Bolt protocol used.
+   */
   void UpdateVersion(int major_v) { major_v_ = major_v; }
 
   /**
@@ -210,7 +215,7 @@ class Decoder {
 
  protected:
   Buffer &buffer_;
-  int major_v_;
+  int major_v_;  //!< Major version of the underlying Bolt protocol (TODO: Think about reimplementing the versioning)
 
  private:
   bool ReadNull(const Marker &marker, Value *data) {

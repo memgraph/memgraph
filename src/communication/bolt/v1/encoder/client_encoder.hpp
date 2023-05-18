@@ -42,6 +42,7 @@ class ClientEncoder : private BaseEncoder<Buffer> {
   ClientEncoder(Buffer &buffer) : BaseEncoder<Buffer>(buffer) {}
 
   using BaseEncoder<Buffer>::UpdateVersion;
+
   /**
    * Writes a Init message.
    *

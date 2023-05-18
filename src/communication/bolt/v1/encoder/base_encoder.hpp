@@ -38,6 +38,11 @@ class BaseEncoder {
  public:
   explicit BaseEncoder(Buffer &buffer) : buffer_(buffer), major_v_(0) {}
 
+  /**
+   * Lets the user update the version.
+   * This is all single thread for now. TODO: Update if ever multithreaded.
+   * @param major_v the major version of the Bolt protocol used.
+   */
   void UpdateVersion(int major_v) { major_v_ = major_v; }
 
   void WriteRAW(const uint8_t *data, uint64_t len) { buffer_.Write(data, len); }
@@ -118,7 +123,7 @@ class BaseEncoder {
   }
 
   void WriteVertex(const Vertex &vertex) {
-    int struct_n = 3 + int(major_v_ > 4);  // element_id introduced from v5
+    int struct_n = 3 + 1 * int(major_v_ > 4);  // element_id introduced from v5
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct) + struct_n);
     WriteRAW(utils::UnderlyingCast(Signature::Node));
     WriteInt(vertex.id.AsInt());
@@ -143,7 +148,7 @@ class BaseEncoder {
   }
 
   void WriteEdge(const Edge &edge, bool unbound = false) {
-    int struct_n = (unbound ? 3 + int(major_v_ > 4) : 5 + 3 * int(major_v_ > 4));  // element_id introduced from v5
+    int struct_n = (unbound ? 3 + 1 * int(major_v_ > 4) : 5 + 3 * int(major_v_ > 4));  // element_id introduced from v5
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct) + struct_n);
     WriteRAW(utils::UnderlyingCast(unbound ? Signature::UnboundRelationship : Signature::Relationship));
 
@@ -175,7 +180,7 @@ class BaseEncoder {
   }
 
   void WriteEdge(const UnboundedEdge &edge) {
-    const int struct_n = 3 + int(major_v_ > 4);  // element_id introduced from v5
+    const int struct_n = 3 + 1 * int(major_v_ > 4);  // element_id introduced from v5
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct) + struct_n);
     WriteRAW(utils::UnderlyingCast(Signature::UnboundRelationship));
 
@@ -290,7 +295,7 @@ class BaseEncoder {
 
  protected:
   Buffer &buffer_;
-  int major_v_;
+  int major_v_;  //!< Major version of the underlying Bolt protocol (TODO: Think about reimplementing the versioning)
 
  private:
   template <class T>

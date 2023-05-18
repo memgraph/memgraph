@@ -27,17 +27,25 @@ namespace details {
 template <typename TSession>
 std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
   // Get authentication data.
+  // From neo4j driver v4.4, fields that have a default value are not sent.
+  // In order to have back-compatibility, the missing fields will be added.
+
   auto &data = metadata.ValueMap();
-  if (!data.count("scheme")) {
-    spdlog::warn("The client didn't supply authentication information!");
-    return State::Close;
+  if (data.empty()) {  // Special case auth=None
+    spdlog::warn("The client didn't supply the authentication scheme! Trying with \"none\"...");
+    data["scheme"] = "none";
   }
+
   std::string username;
   std::string password;
   if (data["scheme"].ValueString() == "basic") {
-    if (!data.count("principal") || !data.count("credentials")) {
-      spdlog::warn("The client didn't supply authentication information!");
-      return State::Close;
+    if (!data.count("principal")) {  // Special case principal = ""
+      spdlog::warn("The client didn't supply the principal field! Trying with \"\"...");
+      data["principal"] = "";
+    }
+    if (!data.count("credentials")) {  // Special case credentials = ""
+      spdlog::warn("The client didn't supply the credentials field! Trying with \"\"...");
+      data["credentials"] = "";
     }
     username = data["principal"].ValueString();
     password = data["credentials"].ValueString();
@@ -112,14 +120,6 @@ std::optional<Value> GetMetadataV4(TSession &session, const Marker marker) {
     return std::nullopt;
   }
 
-  // Special case for neo4j python driver auth=None
-  // It sends an empty authentication structure, which isn't supported by the Bolt protocol, but works with neo4j.
-  // Just passing "none" as the protocol defines.
-  if (!data.count("scheme")) {
-    spdlog::warn("The client didn't supply the authentication scheme! Trying with \"none\"...");
-    data["scheme"] = "none";
-  }
-
   spdlog::info("Client connected '{}'", data.at("user_agent").ValueString());
 
   return metadata;
@@ -160,19 +160,6 @@ std::optional<Value> GetAuthDataV5(TSession &session, const Marker marker) {
   if (!session.decoder_.ReadValue(&metadata, Value::Type::Map)) {
     spdlog::trace("Couldn't read metadata!");
     return std::nullopt;
-  }
-
-  // From neo4j driver v4.4, fields that have a default value are not sent.
-  // In order to have back-compatibility, the missing fields will be added.
-  auto &data = metadata.ValueMap();
-  if (data.empty()) {  // Special case auth=None
-    spdlog::warn("The client didn't supply the authentication scheme! Trying with \"none\"...");
-    data["scheme"] = "none";
-  } else if (data["scheme"].ValueString() == "basic") {  // none and basic are the only 2 protocols we support
-    auto &dp = data["principal"];
-    dp = dp.type() == Value::Type::Null ? "" : dp;
-    auto &dc = data["credentials"];
-    dc = dc.type() == Value::Type::Null ? "" : dc;
   }
 
   return metadata;
