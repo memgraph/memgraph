@@ -219,3 +219,26 @@ Feature: List operators
             | [[1], 2] |
             | [3]      |
             | 4        |
+
+    Scenario: Unwind + InList test1
+        When executing query:
+            """
+            UNWIND [[1,2], [3,4]] as l
+            RETURN 2 in l as x
+            """
+        Then the result should be:
+            | x     |
+            | true  |
+            | false |
+
+    Scenario: Unwind + InList test2
+        When executing query:
+            """
+            WITH [[1,2], [3,4]] as list
+            UNWIND list as l
+            RETURN 2 in l as x
+            """
+        Then the result should be:
+            | x     |
+            | true  |
+            | false |

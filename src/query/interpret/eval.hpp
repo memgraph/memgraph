@@ -29,7 +29,9 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/typed_value.hpp"
+#include "spdlog/spdlog.h"
 #include "utils/exceptions.hpp"
+#include "utils/logging.hpp"
 #include "utils/pmr/unordered_map.hpp"
 
 namespace memgraph::query {
@@ -199,36 +201,25 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   TypedValue Visit(InListOperator &in_list) override {
     ReferenceExpressionEvaluator reference_expression_evaluator{frame_, symbol_table_, ctx_};
-    using CachedType = std::unordered_map<size_t, std::vector<TypedValue>>;
-
-    std::optional<const CachedType> maybe_cached_value;
     std::string cached_id;
     if (in_list.expression2_->GetTypeInfo() == ListLiteral::kType) {
       std::stringstream ss;
-      ss << static_cast<const void *>(&in_list);
+      ss << static_cast<const void *>(in_list.expression2_);
       cached_id = ss.str();
-
-      std::cout << "we use in list literal:" << cached_id << std::endl;
+      spdlog::trace("ListLiteral in InListOperator: {}", cached_id);
     } else if (in_list.expression2_->GetTypeInfo() == Identifier::kType) {
       auto *identifier = utils::Downcast<Identifier>(in_list.expression2_);
       cached_id = identifier->name_;
-      std::cout << "we are tracking identifier: " << cached_id << std::endl;
+      spdlog::trace("Identifier in InListOperator: {}", cached_id);
     } else {
-      std::cout << in_list.expression2_->GetTypeInfo().name << std::endl;
-      throw QueryException("Wrong operator in list");
+      spdlog::trace("InListOperator got {} as expression2_", in_list.expression2_->GetTypeInfo().name);
     }
 
-    if (frame_change_collector_ && frame_change_collector_->ContainsTrackingValue(cached_id)) {
-      if (frame_change_collector_->IsTrackingValueCached(cached_id)) {
-        std::cout << "contains cached value " << std::endl;
-        maybe_cached_value.emplace(frame_change_collector_->GetCachedValue(cached_id));
-      }
-    }
+    const auto do_cache{frame_change_collector_ != nullptr &&
+                        frame_change_collector_->ContainsTrackingValue(cached_id)};
 
     TypedValue *_list_ptr = in_list.expression2_->Accept(reference_expression_evaluator);
-
     TypedValue _list;
-
     if (nullptr == _list_ptr) {
       _list = in_list.expression2_->Accept(*this);
       _list_ptr = &_list;
@@ -253,51 +244,66 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (list.empty()) return TypedValue(false, ctx_->memory);
     if (literal.IsNull()) return TypedValue(ctx_->memory);
 
-    if (!maybe_cached_value) {
-      // this part needs to be reorganized to use std::unorderd_map with size_t and vector
-      std::unordered_map<size_t, std::vector<TypedValue>> cached_map;
-      TypedValue::Hash hash{};
-      for (const TypedValue &element : list) {
-        size_t key = hash(element);
-        if (cached_map.contains(key)) {
-          auto &vector_values = cached_map[key];
+    if (do_cache) {
+      if (frame_change_collector_->IsTrackingValueCached(cached_id)) {
+        spdlog::debug("Contains chached value {}", cached_id);
+      } else {
+        spdlog::debug("Recalculating chached value {}", cached_id);
+        // this part needs to be reorganized to use std::unorderd_map with size_t and vector
+        std::unordered_map<size_t, std::vector<TypedValue>> cached_map;
+        TypedValue::Hash hash{};
+        for (const TypedValue &element : list) {
+          size_t key = hash(element);
+          if (cached_map.contains(key)) {
+            // Hash collisions should happen rarely, if ever.
+            auto &vector_values = cached_map[key];
+            const auto contains_element =
+                std::any_of(vector_values.begin(), vector_values.end(), [&element](auto &vec_value) {
+                  auto result = vec_value == element;
+                  if (result.IsNull()) return false;
+                  return result.ValueBool();
+                });
 
-          const auto contains_element =
-              std::any_of(vector_values.begin(), vector_values.end(), [&element](auto &vec_value) {
-                auto result = vec_value == element;
-                if (result.IsNull()) return false;
-                return result.ValueBool();
-              });
-
-          if (!contains_element) {
-            vector_values.push_back(element);
+            if (!contains_element) {
+              vector_values.push_back(element);
+            }
+          } else {
+            cached_map.emplace(key, std::vector<TypedValue>{element});
           }
-
-        } else {
-          cached_map.emplace(key, std::vector<TypedValue>{element});
         }
-      }
-      if (frame_change_collector_) {
+        spdlog::debug("Cached value stored {}", cached_id);
         frame_change_collector_->SetCacheOnTrackingValue(cached_id, std::move(cached_map));
       }
+      const auto &in_list_cached_map = frame_change_collector_->GetCachedValue(cached_id);
+      TypedValue::Hash hash{};
+      size_t key = hash(literal);
+      if (in_list_cached_map.contains(key)) {
+        const auto &vec_values = in_list_cached_map.at(key);
+        auto result = std::any_of(vec_values.begin(), vec_values.end(), [&literal](auto &vec_value) {
+          auto result = vec_value == literal;
+          if (result.IsNull()) return false;
+          return result.ValueBool();
+        });
+        return TypedValue(result, ctx_->memory);
+      }
+
+      // has null
+      if (literal.type() == TypedValue::Type::Null || in_list_cached_map.contains(hash(TypedValue(ctx_->memory)))) {
+        return TypedValue(ctx_->memory);
+      }
+      return TypedValue(false, ctx_->memory);
     }
-
-    const auto &in_list_cached_map = frame_change_collector_->GetCachedValue(cached_id);
-
-    TypedValue::Hash hash{};
-    size_t key = hash(literal);
-    if (in_list_cached_map.contains(key)) {
-      const auto &vec_values = in_list_cached_map.at(key);
-      auto result = std::any_of(vec_values.begin(), vec_values.end(), [&literal](auto &vec_value) {
-        auto result = vec_value == literal;
-        if (result.IsNull()) return false;
-        return result.ValueBool();
-      });
-      return TypedValue(result, ctx_->memory);
+    spdlog::trace("Not using cache on IN LIST operator");
+    auto has_null = false;
+    for (const auto &element : list) {
+      auto result = literal == element;
+      if (result.IsNull()) {
+        has_null = true;
+      } else if (result.ValueBool()) {
+        return TypedValue(true, ctx_->memory);
+      }
     }
-
-    // has null
-    if (literal.type() == TypedValue::Type::Null || in_list_cached_map.contains(hash(TypedValue(ctx_->memory)))) {
+    if (has_null) {
       return TypedValue(ctx_->memory);
     }
     return TypedValue(false, ctx_->memory);

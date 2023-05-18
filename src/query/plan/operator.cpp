@@ -2375,6 +2375,10 @@ bool EvaluatePatternFilter::EvaluatePatternFilterCursor::Pull(Frame &frame, Exec
   input_cursor_->Reset();
 
   frame[self_.output_symbol_] = TypedValue(input_cursor_->Pull(frame, context), context.evaluation_context.memory);
+  if (context.frame_change_collector &&
+      context.frame_change_collector->ContainsTrackingValue(self_.output_symbol_.name())) {
+    context.frame_change_collector->ResetTrackingValue(self_.output_symbol_.name());
+  }
 
   return true;
 }
@@ -2413,7 +2417,7 @@ bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
   if (input_cursor_->Pull(frame, context)) {
     // Produce should always yield the latest results.
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                  storage::View::NEW);
+                                  storage::View::NEW, context.frame_change_collector);
     for (auto *named_expr : self_.named_expressions_) {
       if (context.frame_change_collector && context.frame_change_collector->ContainsTrackingValue(named_expr->name_)) {
         context.frame_change_collector->ResetTrackingValue(named_expr->name_);
@@ -3240,7 +3244,12 @@ class AccumulateCursor : public Cursor {
     if (MustAbort(context)) throw HintedAbortError();
     if (cache_it_ == cache_.end()) return false;
     auto row_it = (cache_it_++)->begin();
-    for (const Symbol &symbol : self_.symbols_) frame[symbol] = *row_it++;
+    for (const Symbol &symbol : self_.symbols_) {
+      if (context.frame_change_collector && context.frame_change_collector->ContainsTrackingValue(symbol.name())) {
+        context.frame_change_collector->ResetTrackingValue(symbol.name());
+      }
+      frame[symbol] = *row_it++;
+    }
     return true;
   }
 
@@ -3322,10 +3331,22 @@ class AggregateCursor : public Cursor {
       if (aggregation_.empty()) {
         auto *pull_memory = context.evaluation_context.memory;
         // place default aggregation values on the frame
-        for (const auto &elem : self_.aggregations_)
+        for (const auto &elem : self_.aggregations_) {
           frame[elem.output_sym] = DefaultAggregationOpValue(elem, pull_memory);
+          if (context.frame_change_collector &&
+              context.frame_change_collector->ContainsTrackingValue(elem.output_sym.name())) {
+            context.frame_change_collector->ResetTrackingValue(elem.output_sym.name());
+          }
+        }
+
         // place null as remember values on the frame
-        for (const Symbol &remember_sym : self_.remember_) frame[remember_sym] = TypedValue(pull_memory);
+        for (const Symbol &remember_sym : self_.remember_) {
+          frame[remember_sym] = TypedValue(pull_memory);
+          if (context.frame_change_collector &&
+              context.frame_change_collector->ContainsTrackingValue(remember_sym.name())) {
+            context.frame_change_collector->ResetTrackingValue(remember_sym.name());
+          }
+        }
         return true;
       }
     }
@@ -3805,8 +3826,13 @@ class OrderByCursor : public Cursor {
                "Number of values does not match the number of output symbols "
                "in OrderBy");
     auto output_sym_it = self_.output_symbols_.begin();
-    for (const TypedValue &output : cache_it_->remember) frame[*output_sym_it++] = output;
-
+    for (const TypedValue &output : cache_it_->remember) {
+      if (context.frame_change_collector &&
+          context.frame_change_collector->ContainsTrackingValue(output_sym_it->name())) {
+        context.frame_change_collector->ResetTrackingValue(output_sym_it->name());
+      }
+      frame[*output_sym_it++] = output;
+    }
     cache_it_++;
     return true;
   }
@@ -4039,6 +4065,10 @@ class UnwindCursor : public Cursor {
       if (input_value_it_ == input_value_.end()) continue;
 
       frame[self_.output_symbol_] = *input_value_it_++;
+      if (context.frame_change_collector &&
+          context.frame_change_collector->ContainsTrackingValue(self_.output_symbol_.name_)) {
+        context.frame_change_collector->ResetTrackingValue(self_.output_symbol_.name_);
+      }
       return true;
     }
   }
@@ -4168,11 +4198,19 @@ bool Union::UnionCursor::Pull(Frame &frame, ExecutionContext &context) {
     // collect values from the left child
     for (const auto &output_symbol : self_.left_symbols_) {
       results[output_symbol.name()] = frame[output_symbol];
+      if (context.frame_change_collector &&
+          context.frame_change_collector->ContainsTrackingValue(output_symbol.name())) {
+        context.frame_change_collector->ResetTrackingValue(output_symbol.name());
+      }
     }
   } else if (right_cursor_->Pull(frame, context)) {
     // collect values from the right child
     for (const auto &output_symbol : self_.right_symbols_) {
       results[output_symbol.name()] = frame[output_symbol];
+      if (context.frame_change_collector &&
+          context.frame_change_collector->ContainsTrackingValue(output_symbol.name())) {
+        context.frame_change_collector->ResetTrackingValue(output_symbol.name());
+      }
     }
   } else {
     return false;
@@ -4181,6 +4219,9 @@ bool Union::UnionCursor::Pull(Frame &frame, ExecutionContext &context) {
   // put collected values on frame under union symbols
   for (const auto &symbol : self_.union_symbols_) {
     frame[symbol] = results[symbol.name()];
+    if (context.frame_change_collector && context.frame_change_collector->ContainsTrackingValue(symbol.name())) {
+      context.frame_change_collector->ResetTrackingValue(symbol.name());
+    }
   }
   return true;
 }
@@ -4245,9 +4286,12 @@ class CartesianCursor : public Cursor {
       return false;
     }
 
-    auto restore_frame = [&frame](const auto &symbols, const auto &restore_from) {
+    auto restore_frame = [&frame, &context](const auto &symbols, const auto &restore_from) {
       for (const auto &symbol : symbols) {
         frame[symbol] = restore_from[symbol.position()];
+        if (context.frame_change_collector && context.frame_change_collector->ContainsTrackingValue(symbol.name())) {
+          context.frame_change_collector->ResetTrackingValue(symbol.name());
+        }
       }
     };
 
@@ -4325,6 +4369,10 @@ class OutputTableCursor : public Cursor {
     if (current_row_ < rows_.size()) {
       for (size_t i = 0; i < self_.output_symbols_.size(); ++i) {
         frame[self_.output_symbols_[i]] = rows_[current_row_][i];
+        if (context.frame_change_collector &&
+            context.frame_change_collector->ContainsTrackingValue(self_.output_symbols_[i].name())) {
+          context.frame_change_collector->ResetTrackingValue(self_.output_symbols_[i].name());
+        }
       }
       current_row_++;
       return true;
@@ -4368,6 +4416,10 @@ class OutputTableStreamCursor : public Cursor {
       MG_ASSERT(row->size() == self_->output_symbols_.size(), "Wrong number of columns in row!");
       for (size_t i = 0; i < self_->output_symbols_.size(); ++i) {
         frame[self_->output_symbols_[i]] = row->at(i);
+        if (context.frame_change_collector &&
+            context.frame_change_collector->ContainsTrackingValue(self_->output_symbols_[i].name())) {
+          context.frame_change_collector->ResetTrackingValue(self_->output_symbols_[i].name());
+        }
       }
       return true;
     }
@@ -4571,6 +4623,10 @@ class CallProcedureCursor : public Cursor {
                                     field_name);
       }
       frame[self_->result_symbols_[i]] = result_it->second;
+      if (context.frame_change_collector &&
+          context.frame_change_collector->ContainsTrackingValue(self_->result_symbols_[i].name())) {
+        context.frame_change_collector->ResetTrackingValue(self_->result_symbols_[i].name());
+      }
     }
     ++result_row_it_;
 
@@ -4696,6 +4752,10 @@ class LoadCsvCursor : public Cursor {
     } else {
       frame[self_->row_var_] =
           CsvRowToTypedMap(*row, csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory));
+    }
+    if (context.frame_change_collector &&
+        context.frame_change_collector->ContainsTrackingValue(self_->row_var_.name())) {
+      context.frame_change_collector->ResetTrackingValue(self_->row_var_.name());
     }
     return true;
   }

@@ -1234,26 +1234,30 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                  TriggerContextCollector *trigger_context_collector = nullptr,
                                  FrameChangeCollector *frame_change_collector = nullptr) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
-  for (const auto &tree : parsed_query.ast_storage.storage_) {
-    if (tree->GetTypeInfo() == memgraph::query::InListOperator::kType) {
-      std::cout << "we have in list operator" << std::endl;
-      if (auto *inListoperator = utils::Downcast<InListOperator>(tree.get())) {
-        if (inListoperator->expression2_->GetTypeInfo() == ListLiteral::kType) {
-          std::stringstream ss;
-          ss << static_cast<const void *>(tree.get());
-          if (frame_change_collector) frame_change_collector->AddTrackingValue(ss.str());
-          std::cout << "we use in list literal" << std::endl;
-        } else if (inListoperator->expression2_->GetTypeInfo() == Identifier::kType) {
-          auto *identifier = utils::Downcast<Identifier>(inListoperator->expression2_);
-          if (frame_change_collector) frame_change_collector->AddTrackingValue(identifier->name_);
-          std::cout << "we are tracking identifier" << std::endl;
-        } else {
-          std::cout << inListoperator->expression2_->GetTypeInfo().name << std::endl;
-          throw QueryException("Wrong operator in list");
-        }
+  if (frame_change_collector) {
+    for (const auto &tree : parsed_query.ast_storage.storage_) {
+      if (tree->GetTypeInfo() != memgraph::query::InListOperator::kType) {
+        continue;
+      }
+      auto *inListoperator = utils::Downcast<InListOperator>(tree.get());
+      if (inListoperator->expression2_->GetTypeInfo() == ListLiteral::kType) {
+        std::stringstream ss;
+        ss << static_cast<const void *>(inListoperator->expression2_);
+        frame_change_collector->AddTrackingValue(ss.str());
+        spdlog::trace("Tracking IN LIST {} {}", ListLiteral::kType.name, ss.str());
+      } else if (inListoperator->expression2_->GetTypeInfo() == Identifier::kType) {
+        auto *identifier = utils::Downcast<Identifier>(inListoperator->expression2_);
+        frame_change_collector->AddTrackingValue(identifier->name_);
+        spdlog::trace("Tracking IN LIST identifier {}", identifier->name_);
+      } else {
+        // maybe TODO(antoniofilipovic): add visitor of expression in other operators to check if there is identifier we
+        // can track on change
+        std::cout << inListoperator->expression2_->GetTypeInfo().name << std::endl;
+        spdlog::trace("Not tracking IN LIST {} {}", inListoperator->expression2_->GetTypeInfo().name, "");
       }
     }
   }
+
   Frame frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
