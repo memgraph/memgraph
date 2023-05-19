@@ -200,99 +200,83 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(InListOperator &in_list) override {
-    ReferenceExpressionEvaluator reference_expression_evaluator{frame_, symbol_table_, ctx_};
-    std::string cached_id;
-    if (in_list.expression2_->GetTypeInfo() == ListLiteral::kType) {
-      std::stringstream ss;
-      ss << static_cast<const void *>(in_list.expression2_);
-      cached_id = ss.str();
-      spdlog::trace("ListLiteral in InListOperator: {}", cached_id);
-    } else if (in_list.expression2_->GetTypeInfo() == Identifier::kType) {
-      auto *identifier = utils::Downcast<Identifier>(in_list.expression2_);
-      cached_id = identifier->name_;
-      spdlog::trace("Identifier in InListOperator: {}", cached_id);
-    } else {
-      spdlog::trace("InListOperator got {} as expression2_", in_list.expression2_->GetTypeInfo().name);
+    TypedValue *_list_ptr = nullptr;
+    TypedValue _list;
+    auto literal = in_list.expression1_->Accept(*this);
+
+    auto get_list_literal = [this, &in_list, &_list, &_list_ptr]() -> void {
+      ReferenceExpressionEvaluator reference_expression_evaluator{frame_, symbol_table_, ctx_};
+      _list_ptr = in_list.expression2_->Accept(reference_expression_evaluator);
+      if (nullptr == _list_ptr) {
+        _list = in_list.expression2_->Accept(*this);
+        _list_ptr = &_list;
+      }
+    };
+
+    auto do_list_literal_checks = [this, &literal, &_list_ptr]() -> std::optional<TypedValue> {
+      MG_ASSERT(_list_ptr, "List literal should have been defined");
+      if (_list_ptr->IsNull()) {
+        return TypedValue(ctx_->memory);
+      }
+      // Exceptions have higher priority than returning nulls when list expression
+      // is not null.
+      if (_list_ptr->type() != TypedValue::Type::List) {
+        throw QueryRuntimeException("IN expected a list, got {}.", _list_ptr->type());
+      }
+      const auto &list = _list_ptr->ValueList();
+
+      // If literal is NULL there is no need to try to compare it with every
+      // element in the list since result of every comparison will be NULL. There
+      // is one special case that we must test explicitly: if list is empty then
+      // result is false since no comparison will be performed.
+      if (list.empty()) return TypedValue(false, ctx_->memory);
+      if (literal.IsNull()) return TypedValue(ctx_->memory);
+      return {};
+    };
+
+    auto get_cached_id = [&in_list]() -> std::string {
+      std::string cached_id;
+      if (in_list.expression2_->GetTypeInfo() == ListLiteral::kType) {
+        std::stringstream ss;
+        ss << static_cast<const void *>(in_list.expression2_);
+        cached_id = ss.str();
+        spdlog::trace("ListLiteral in InListOperator: {}", cached_id);
+      } else if (in_list.expression2_->GetTypeInfo() == Identifier::kType) {
+        auto *identifier = utils::Downcast<Identifier>(in_list.expression2_);
+        cached_id = identifier->name_;
+        spdlog::trace("Identifier in InListOperator: {}", cached_id);
+      } else {
+        spdlog::trace("InListOperator got {} as expression2_", in_list.expression2_->GetTypeInfo().name);
+      }
+      return cached_id;
+    };
+    // These checks need to be done in both cases, whether we are caching or not
+    get_list_literal();
+    auto preoperational_checks = do_list_literal_checks();
+    if (preoperational_checks) {
+      return *preoperational_checks;
     }
+    auto cached_id = get_cached_id();
 
     const auto do_cache{frame_change_collector_ != nullptr &&
                         frame_change_collector_->ContainsTrackingValue(cached_id)};
-
-    TypedValue *_list_ptr = in_list.expression2_->Accept(reference_expression_evaluator);
-    TypedValue _list;
-    if (nullptr == _list_ptr) {
-      _list = in_list.expression2_->Accept(*this);
-      _list_ptr = &_list;
-    }
-
-    auto literal = in_list.expression1_->Accept(*this);
-
-    if (_list_ptr->IsNull()) {
-      return TypedValue(ctx_->memory);
-    }
-    // Exceptions have higher priority than returning nulls when list expression
-    // is not null.
-    if (_list_ptr->type() != TypedValue::Type::List) {
-      throw QueryRuntimeException("IN expected a list, got {}.", _list.type());
-    }
-    const auto &list = _list_ptr->ValueList();
-
-    // If literal is NULL there is no need to try to compare it with every
-    // element in the list since result of every comparison will be NULL. There
-    // is one special case that we must test explicitly: if list is empty then
-    // result is false since no comparison will be performed.
-    if (list.empty()) return TypedValue(false, ctx_->memory);
-    if (literal.IsNull()) return TypedValue(ctx_->memory);
-
     if (do_cache) {
-      if (frame_change_collector_->IsTrackingValueCached(cached_id)) {
-        spdlog::debug("Contains chached value {}", cached_id);
-      } else {
-        spdlog::debug("Recalculating chached value {}", cached_id);
-        // this part needs to be reorganized to use std::unorderd_map with size_t and vector
-        std::unordered_map<size_t, std::vector<TypedValue>> cached_map;
-        TypedValue::Hash hash{};
-        for (const TypedValue &element : list) {
-          size_t key = hash(element);
-          if (cached_map.contains(key)) {
-            // Hash collisions should happen rarely, if ever.
-            auto &vector_values = cached_map[key];
-            const auto contains_element =
-                std::any_of(vector_values.begin(), vector_values.end(), [&element](auto &vec_value) {
-                  auto result = vec_value == element;
-                  if (result.IsNull()) return false;
-                  return result.ValueBool();
-                });
-
-            if (!contains_element) {
-              vector_values.push_back(element);
-            }
-          } else {
-            cached_map.emplace(key, std::vector<TypedValue>{element});
-          }
-        }
-        spdlog::debug("Cached value stored {}", cached_id);
-        frame_change_collector_->SetCacheOnTrackingValue(cached_id, std::move(cached_map));
+      if (!frame_change_collector_->IsTrackingValueCached(cached_id)) {
+        auto &cached_value = frame_change_collector_->GetCachedValue(cached_id);
+        cached_value.cache_value_(cached_value, *_list_ptr);
       }
-      const auto &in_list_cached_map = frame_change_collector_->GetCachedValue(cached_id);
-      TypedValue::Hash hash{};
-      size_t key = hash(literal);
-      if (in_list_cached_map.contains(key)) {
-        const auto &vec_values = in_list_cached_map.at(key);
-        auto result = std::any_of(vec_values.begin(), vec_values.end(), [&literal](auto &vec_value) {
-          auto result = vec_value == literal;
-          if (result.IsNull()) return false;
-          return result.ValueBool();
-        });
-        return TypedValue(result, ctx_->memory);
-      }
+      auto &cached_value = frame_change_collector_->GetCachedValue(cached_id);
 
+      if (cached_value.contains_value_(cached_value, literal)) {
+        return TypedValue(true, ctx_->memory);
+      }
       // has null
-      if (literal.type() == TypedValue::Type::Null || in_list_cached_map.contains(hash(TypedValue(ctx_->memory)))) {
+      if (cached_value.contains_value_(cached_value, TypedValue(ctx_->memory))) {
         return TypedValue(ctx_->memory);
       }
       return TypedValue(false, ctx_->memory);
     }
+    const auto &list = _list.ValueList();
     spdlog::trace("Not using cache on IN LIST operator");
     auto has_null = false;
     for (const auto &element : list) {
