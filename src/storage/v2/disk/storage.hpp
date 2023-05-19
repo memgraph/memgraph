@@ -321,6 +321,8 @@ class DiskStorage final : public Storage {
   bool InitializeWalFile();
   void FinalizeWalFile();
 
+  StorageInfo GetInfo() const override;
+
   /// Return true in all cases excepted if any sync replicas have not sent confirmation.
   [[nodiscard]] bool AppendToWalDataManipulation(const Transaction &transaction, uint64_t final_commit_timestamp);
   /// Return true in all cases excepted if any sync replicas have not sent confirmation.
@@ -332,6 +334,12 @@ class DiskStorage final : public Storage {
   void RestoreReplicas();
 
   bool ShouldStoreAndRestoreReplicas() const;
+
+  // Main object storage
+  utils::SkipList<storage::Vertex> vertices_;
+  utils::SkipList<storage::Edge> edges_;
+  std::atomic<uint64_t> vertex_id_{0};
+  std::atomic<uint64_t> edge_id_{0};
 
   Constraints constraints_;
   Indices indices_;

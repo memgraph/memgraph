@@ -316,8 +316,6 @@ class Storage {
   bool LockPath();
   bool UnlockPath();
 
-  StorageInfo GetInfo() const;
-
   const std::string &LabelToName(LabelId label) const;
 
   const std::string &PropertyToName(PropertyId property) const;
@@ -513,6 +511,8 @@ class Storage {
 
   virtual StorageMode GetStorageMode() = 0;
 
+  virtual StorageInfo GetInfo() const = 0;
+
   enum class CreateSnapshotError : uint8_t {
     DisabledForReplica,
     DisabledForAnalyticsPeriodicCommit,
@@ -529,12 +529,6 @@ class Storage {
   // operations on storage that affect the global state, for example index
   // creation.
   mutable utils::RWLock main_lock_{utils::RWLock::Priority::WRITE};
-
-  // Main object storage
-  utils::SkipList<storage::Vertex> vertices_;
-  utils::SkipList<storage::Edge> edges_;
-  std::atomic<uint64_t> vertex_id_{0};
-  std::atomic<uint64_t> edge_id_{0};
 
   // Even though the edge count is already kept in the `edges_` SkipList, the
   // list is used only when properties are enabled for edges. Because of that we

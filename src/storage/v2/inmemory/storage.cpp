@@ -20,6 +20,7 @@
 #include "storage/v2/replication/replication_persistence_helper.hpp"
 #include "storage/v2/replication/replication_server.hpp"
 #include "storage/v2/vertex_accessor.hpp"
+#include "utils/stat.hpp"
 
 namespace memgraph::storage {
 
@@ -210,8 +211,9 @@ InMemoryStorage::InMemoryAccessor::~InMemoryAccessor() {
 
 VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex() {
   OOMExceptionEnabler oom_exception;
-  auto gid = storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
-  auto acc = storage_->vertices_.access();
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  auto gid = mem_storage->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
+  auto acc = mem_storage->vertices_.access();
 
   auto *delta = CreateDeleteObjectDelta(&transaction_);
   auto [it, inserted] = acc.insert(Vertex{storage::Gid::FromUint(gid), delta});
@@ -221,9 +223,6 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex() {
   if (delta) {
     delta->prev.Set(&*it);
   }
-
-  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-
   return {&*it, &transaction_, &mem_storage->indices_, &mem_storage->constraints_, config_};
 }
 
@@ -235,9 +234,10 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex(storage::Gid gid)
   // that runs single-threadedly and while this instance is set-up to apply
   // threads (it is the replica), it is guaranteed that no other writes are
   // possible.
-  storage_->vertex_id_.store(std::max(storage_->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
-                             std::memory_order_release);
-  auto acc = storage_->vertices_.access();
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  mem_storage->vertex_id_.store(std::max(mem_storage->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
+                                std::memory_order_release);
+  auto acc = mem_storage->vertices_.access();
 
   auto *delta = CreateDeleteObjectDelta(&transaction_);
   auto [it, inserted] = acc.insert(Vertex{gid, delta});
@@ -246,15 +246,14 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex(storage::Gid gid)
   if (delta) {
     delta->prev.Set(&*it);
   }
-  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   return {&*it, &transaction_, &mem_storage->indices_, &mem_storage->constraints_, config_};
 }
 
 std::optional<VertexAccessor> InMemoryStorage::InMemoryAccessor::FindVertex(Gid gid, View view) {
-  auto acc = storage_->vertices_.access();
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  auto acc = mem_storage->vertices_.access();
   auto it = acc.find(gid);
   if (it == acc.end()) return std::nullopt;
-  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   return VertexAccessor::Create(&*it, &transaction_, &mem_storage->indices_, &mem_storage->constraints_, config_, view);
 }
 
@@ -389,10 +388,11 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
     if (to_vertex->deleted) return Error::DELETED_OBJECT;
   }
 
-  auto gid = storage::Gid::FromUint(storage_->edge_id_.fetch_add(1, std::memory_order_acq_rel));
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  auto gid = storage::Gid::FromUint(mem_storage->edge_id_.fetch_add(1, std::memory_order_acq_rel));
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
-    auto acc = storage_->edges_.access();
+    auto acc = mem_storage->edges_.access();
     auto *delta = CreateDeleteObjectDelta(&transaction_);
     auto [it, inserted] = acc.insert(Edge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
@@ -412,7 +412,6 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   // Increment edge count.
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
-  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &mem_storage->indices_,
                       &mem_storage->constraints_, config_);
 }
@@ -458,12 +457,13 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   // that runs single-threadedly and while this instance is set-up to apply
   // threads (it is the replica), it is guaranteed that no other writes are
   // possible.
-  storage_->edge_id_.store(std::max(storage_->edge_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
-                           std::memory_order_release);
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  mem_storage->edge_id_.store(std::max(mem_storage->edge_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
+                              std::memory_order_release);
 
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
-    auto acc = storage_->edges_.access();
+    auto acc = mem_storage->edges_.access();
 
     auto *delta = CreateDeleteObjectDelta(&transaction_);
     auto [it, inserted] = acc.insert(Edge(gid, delta));
@@ -484,7 +484,6 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   // Increment edge count.
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
-  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &mem_storage->indices_,
                       &mem_storage->constraints_, config_);
 }
@@ -1359,6 +1358,18 @@ void InMemoryStorage::CollectGarbage() {
 // tell the linker he can find the CollectGarbage definitions here
 template void InMemoryStorage::CollectGarbage<true>();
 template void InMemoryStorage::CollectGarbage<false>();
+
+StorageInfo InMemoryStorage::GetInfo() const {
+  auto vertex_count = vertices_.size();
+  auto edge_count = edge_count_.load(std::memory_order_acquire);
+  double average_degree = 0.0;
+  if (vertex_count) {
+    // NOLINTNEXTLINE(bugprone-narrowing-conversions, cppcoreguidelines-narrowing-conversions)
+    average_degree = 2.0 * static_cast<double>(edge_count) / vertex_count;
+  }
+  return {vertex_count, edge_count, average_degree, utils::GetMemoryUsage(),
+          utils::GetDirDiskUsage(config_.durability.storage_directory)};
+}
 
 bool InMemoryStorage::InitializeWalFile() {
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL)

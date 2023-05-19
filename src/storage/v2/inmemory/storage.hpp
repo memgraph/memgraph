@@ -54,7 +54,7 @@ class InMemoryStorage final : public Storage {
 
     VerticesIterable Vertices(View view) override {
       auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-      return VerticesIterable(AllVerticesIterable(storage_->vertices_.access(), &transaction_, view,
+      return VerticesIterable(AllVerticesIterable(mem_storage->vertices_.access(), &transaction_, view,
                                                   &mem_storage->indices_, &mem_storage->constraints_,
                                                   mem_storage->config_.items));
     }
@@ -71,7 +71,10 @@ class InMemoryStorage final : public Storage {
 
     /// Return approximate number of all vertices in the database.
     /// Note that this is always an over-estimate and never an under-estimate.
-    int64_t ApproximateVertexCount() const override { return storage_->vertices_.size(); }
+    int64_t ApproximateVertexCount() const override {
+      auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+      return mem_storage->vertices_.size();
+    }
 
     /// Return approximate number of vertices with the given label.
     /// Note that this is always an over-estimate and never an under-estimate.
@@ -327,6 +330,8 @@ class InMemoryStorage final : public Storage {
   bool InitializeWalFile();
   void FinalizeWalFile();
 
+  StorageInfo GetInfo() const override;
+
   /// Return true in all cases excepted if any sync replicas have not sent confirmation.
   [[nodiscard]] bool AppendToWalDataManipulation(const Transaction &transaction, uint64_t final_commit_timestamp);
   /// Return true in all cases excepted if any sync replicas have not sent confirmation.
@@ -338,6 +343,12 @@ class InMemoryStorage final : public Storage {
   void RestoreReplicas();
 
   bool ShouldStoreAndRestoreReplicas() const;
+
+  // Main object storage
+  utils::SkipList<storage::Vertex> vertices_;
+  utils::SkipList<storage::Edge> edges_;
+  std::atomic<uint64_t> vertex_id_{0};
+  std::atomic<uint64_t> edge_id_{0};
 
   // Specific per storage engine
   IsolationLevel isolation_level_;

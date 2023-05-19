@@ -214,7 +214,8 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(const
   OOMExceptionEnabler oom_exception;
   const std::vector<std::string> vertex_parts = utils::Split(key.ToStringView(), "|");
   auto gid = storage::Gid::FromUint(std::stoull(vertex_parts[1]));
-  auto acc = storage_->vertices_.access();
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  auto acc = disk_storage->vertices_.access();
   /// In situations when the vertex wasn't evicted from the cache, it will be found in the cache.
   if (acc.find(gid) != acc.end()) {
     spdlog::debug("Vertex with gid {} already exists in the cache!", gid.AsUint());
@@ -238,7 +239,8 @@ std::optional<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const roc
   const auto edge_parts = utils::Split(key.ToStringView(), "|");
   const Gid edge_gid = utils::DeserializeIdType(edge_parts[4]);
 
-  auto edge_acc = storage_->edges_.access();
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  auto edge_acc = disk_storage->edges_.access();
   auto res = edge_acc.find(edge_gid);
   if (res != edge_acc.end()) {
     spdlog::debug("Edge with gid {} already exists in the cache!", edge_parts[4]);
@@ -283,7 +285,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
     // with size explicitly added with sizeof(uint64_t)
     DeserializeVertex(it->key(), it->value());
   }
-  return VerticesIterable(AllVerticesIterable(storage_->vertices_.access(), &transaction_, view,
+  return VerticesIterable(AllVerticesIterable(disk_storage->vertices_.access(), &transaction_, view,
                                               &disk_storage->indices_, &disk_storage->constraints_,
                                               disk_storage->config_.items));
 }
@@ -320,8 +322,9 @@ int64_t DiskStorage::DiskAccessor::ApproximateVertexCount() const {
 
 VertexAccessor DiskStorage::DiskAccessor::CreateVertex() {
   OOMExceptionEnabler oom_exception;
-  auto gid = storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
-  auto acc = storage_->vertices_.access();
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  auto gid = disk_storage->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
+  auto acc = disk_storage->vertices_.access();
 
   auto *delta = CreateDeleteObjectDelta(&transaction_);
   auto [it, inserted] = acc.insert(Vertex{storage::Gid::FromUint(gid), delta});
@@ -331,9 +334,20 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex() {
   if (delta) {
     delta->prev.Set(&*it);
   }
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
 
   return {&*it, &transaction_, &disk_storage->indices_, &disk_storage->constraints_, config_};
+}
+
+StorageInfo DiskStorage::GetInfo() const {
+  auto vertex_count = vertices_.size();
+  auto edge_count = edge_count_.load(std::memory_order_acquire);
+  double average_degree = 0.0;
+  if (vertex_count) {
+    // NOLINTNEXTLINE(bugprone-narrowing-conversions, cppcoreguidelines-narrowing-conversions)
+    average_degree = 2.0 * static_cast<double>(edge_count) / vertex_count;
+  }
+  return {vertex_count, edge_count, average_degree, utils::GetMemoryUsage(),
+          utils::GetDirDiskUsage(config_.durability.storage_directory)};
 }
 
 VertexAccessor DiskStorage::DiskAccessor::CreateVertex(storage::Gid gid) {
@@ -345,9 +359,10 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex(storage::Gid gid) {
   // threads (it is the replica), it is guaranteed that no other writes are
   // possible.
   spdlog::debug("Vertex with gid {} doesn't exist in the cache, creating it!", gid.AsUint());
-  auto acc = storage_->vertices_.access();
-  storage_->vertex_id_.store(std::max(storage_->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
-                             std::memory_order_release);
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  auto acc = disk_storage->vertices_.access();
+  disk_storage->vertex_id_.store(std::max(disk_storage->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
+                                 std::memory_order_release);
 
   auto *delta = CreateDeleteObjectDelta(&transaction_);
   auto [it, inserted] = acc.insert(Vertex{gid, delta});
@@ -357,7 +372,6 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex(storage::Gid gid) {
   if (delta) {
     delta->prev.Set(&*it);
   }
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
   return {&*it, &transaction_, &disk_storage->indices_, &disk_storage->constraints_, config_};
 }
 
@@ -372,9 +386,10 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex(storage::Gid gid, uint64_
   // that runs single-threadedly and while this instance is set-up to apply
   // threads (it is the replica), it is guaranteed that no other writes are
   // possible.
-  auto acc = storage_->vertices_.access();
-  storage_->vertex_id_.store(std::max(storage_->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
-                             std::memory_order_release);
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  auto acc = disk_storage->vertices_.access();
+  disk_storage->vertex_id_.store(std::max(disk_storage->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
+                                 std::memory_order_release);
   auto *delta = CreateDeleteDeserializedObjectDelta(&transaction_, vertex_commit_ts);
   auto [it, inserted] = acc.insert(Vertex{gid, delta});
   // NOTE: If the vertex with the given gid doesn't exist on the disk, it must be inserted here.
@@ -387,14 +402,13 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex(storage::Gid gid, uint64_
   if (delta) {
     delta->prev.Set(&*it);
   }
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
   return {&*it, &transaction_, &disk_storage->indices_, &disk_storage->constraints_, config_};
 }
 
 std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid gid, View view) {
   /// Check if the vertex is in the cache.
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  auto acc = storage_->vertices_.access();
+  auto acc = disk_storage->vertices_.access();
   auto vertex_it = acc.find(gid);
   if (vertex_it != acc.end()) {
     if (vertex_it->delta) {
@@ -591,12 +605,13 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   // that runs single-threadedly and while this instance is set-up to apply
   // threads (it is the replica), it is guaranteed that no other writes are
   // possible.
-  storage_->edge_id_.store(std::max(storage_->edge_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
-                           std::memory_order_release);
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  disk_storage->edge_id_.store(std::max(disk_storage->edge_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
+                               std::memory_order_release);
 
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
-    auto acc = storage_->edges_.access();
+    auto acc = disk_storage->edges_.access();
     auto *delta = CreateDeleteDeserializedObjectDelta(&transaction_, edge_commit_ts);
     auto [it, inserted] = acc.insert(Edge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
@@ -614,7 +629,6 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   // Increment edge count.
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &disk_storage->indices_,
                       &disk_storage->constraints_, config_);
 }
@@ -660,12 +674,13 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   // that runs single-threadedly and while this instance is set-up to apply
   // threads (it is the replica), it is guaranteed that no other writes are
   // possible.
-  storage_->edge_id_.store(std::max(storage_->edge_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
-                           std::memory_order_release);
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  disk_storage->edge_id_.store(std::max(disk_storage->edge_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
+                               std::memory_order_release);
 
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
-    auto acc = storage_->edges_.access();
+    auto acc = disk_storage->edges_.access();
     auto *delta = CreateDeleteObjectDelta(&transaction_);
     auto [it, inserted] = acc.insert(Edge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
@@ -683,7 +698,6 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   // Increment edge count.
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &disk_storage->indices_,
                       &disk_storage->constraints_, config_);
 }
@@ -722,10 +736,11 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
     if (to_vertex->deleted) return Error::DELETED_OBJECT;
   }
 
-  auto gid = storage::Gid::FromUint(storage_->edge_id_.fetch_add(1, std::memory_order_acq_rel));
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  auto gid = storage::Gid::FromUint(disk_storage->edge_id_.fetch_add(1, std::memory_order_acq_rel));
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
-    auto acc = storage_->edges_.access();
+    auto acc = disk_storage->edges_.access();
     auto *delta = CreateDeleteObjectDelta(&transaction_);
     auto [it, inserted] = acc.insert(Edge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
@@ -743,7 +758,6 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   // Increment edge count.
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &disk_storage->indices_,
                       &disk_storage->constraints_, config_);
 }
@@ -838,13 +852,13 @@ Result<std::optional<EdgeAccessor>> DiskStorage::DiskAccessor::DeleteEdge(EdgeAc
 }
 
 void DiskStorage::DiskAccessor::FlushCache() {
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
   /// Flush vertex cache.
-  auto vertex_acc = storage_->vertices_.access();
+  auto vertex_acc = disk_storage->vertices_.access();
   uint64_t num_ser_edges = 0;
   rocksdb::WriteOptions write_options;
   rocksdb::Slice ts = utils::StringTimestamp(*commit_timestamp_);
   write_options.timestamp = &ts;
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
   for (Vertex &vertex : vertex_acc) {
     logging::AssertRocksDBStatus(disk_storage->kvstore_->db_->Put(write_options, disk_storage->kvstore_->vertex_chandle,
                                                                   utils::SerializeVertex(vertex),
