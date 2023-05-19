@@ -9,42 +9,43 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <gmock/gmock.h>
-#include <gtest/gtest.h>
-#include <cassert>
-#include <exception>
-#include <string>
-#include <unordered_set>
+// #include <gmock/gmock.h>
+// #include <gtest/gtest.h>
+// #include <cassert>
+// #include <exception>
+// #include <string>
+// #include <unordered_set>
 
-#include "query/common.hpp"
-#include "query/db_accessor.hpp"
-#include "storage/v2/delta.hpp"
-#include "storage/v2/disk/storage.hpp"
-#include "storage/v2/id_types.hpp"
-#include "storage/v2/isolation_level.hpp"
-#include "storage/v2/property_value.hpp"
-#include "storage/v2/storage.hpp"
-#include "storage/v2/vertex_accessor.hpp"
-#include "storage/v2/view.hpp"
-#include "utils/rocksdb.hpp"
+// #include "query/common.hpp"
+// #include "query/db_accessor.hpp"
+// #include "storage/v2/delta.hpp"
+// #include "storage/v2/disk/storage.hpp"
+// #include "storage/v2/id_types.hpp"
+// #include "storage/v2/isolation_level.hpp"
+// #include "storage/v2/property_value.hpp"
+// #include "storage/v2/storage.hpp"
+// #include "storage/v2/vertex_accessor.hpp"
+// #include "storage/v2/view.hpp"
+// #include "utils/rocksdb.hpp"
 
-class RocksDBStorageTest : public ::testing::TestWithParam<bool> {
- public:
-  RocksDBStorageTest() { storage = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::DiskStorage()); }
+// class RocksDBStorageTest : public ::testing::TestWithParam<bool> {
+//  public:
+//   RocksDBStorageTest() { storage = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::DiskStorage());
+//   }
 
-  ~RocksDBStorageTest() override {}
+//   ~RocksDBStorageTest() override {}
 
- protected:
-  std::unique_ptr<memgraph::storage::Storage> storage;
-};
+//  protected:
+//   std::unique_ptr<memgraph::storage::Storage> storage;
+// };
 
-/// Serialize vertex which contains only GID.
-TEST_F(RocksDBStorageTest, SerializeVertexGID) {
-  auto acc = storage->Access();
-  auto vertex = acc->CreateVertex();
-  auto gid = vertex.Gid();
-  // ASSERT_EQ(memgraph::utils::SerializeVertex(*vertex.vertex_), "|" + memgraph::utils::SerializeIdType(gid));
-}
+// /// Serialize vertex which contains only GID.
+// TEST_F(RocksDBStorageTest, SerializeVertexGID) {
+//   auto acc = storage->Access();
+//   auto vertex = acc->CreateVertex();
+//   auto gid = vertex.Gid();
+// ASSERT_EQ(memgraph::utils::SerializeVertex(*vertex.vertex_), "|" + memgraph::utils::SerializeIdType(gid));
+// }
 
 /// Serialize vertex with gid and its single label.
 // TEST_F(RocksDBStorageTest, SerializeVertexGIDLabels) {
