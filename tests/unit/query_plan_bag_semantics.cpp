@@ -25,6 +25,7 @@
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "query/plan/operator.hpp"
+#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
 #include "query_plan_common.hpp"
@@ -32,9 +33,17 @@
 using namespace memgraph::query;
 using namespace memgraph::query::plan;
 
-TEST(QueryPlan, Skip) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+template <typename StorageType>
+class QueryPlanTest : public testing::Test {
+ public:
+  std::unique_ptr<memgraph::storage::Storage> db = std::make_unique<StorageType>();
+};
+
+using StorageTypes = ::testing::Types</*memgraph::storage::InMemoryStorage,*/ memgraph::storage::DiskStorage>;
+TYPED_TEST_CASE(QueryPlanTest, StorageTypes);
+
+TYPED_TEST(QueryPlanTest, Skip) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   AstStorage storage;
@@ -63,9 +72,8 @@ TEST(QueryPlan, Skip) {
   EXPECT_EQ(11, PullAll(*skip, &context));
 }
 
-TEST(QueryPlan, Limit) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlanTest, Limit) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   AstStorage storage;
@@ -94,12 +102,11 @@ TEST(QueryPlan, Limit) {
   EXPECT_EQ(2, PullAll(*skip, &context));
 }
 
-TEST(QueryPlan, CreateLimit) {
+TYPED_TEST(QueryPlanTest, CreateLimit) {
   // CREATE (n), (m)
   // MATCH (n) CREATE (m) LIMIT 1
   // in the end we need to have 3 vertices in the db
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   dba.InsertVertex();
   dba.InsertVertex();
@@ -120,9 +127,8 @@ TEST(QueryPlan, CreateLimit) {
   EXPECT_EQ(3, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
 }
 
-TEST(QueryPlan, OrderBy) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlanTest, OrderBy) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   AstStorage storage;
   SymbolTable symbol_table;
@@ -193,9 +199,8 @@ TEST(QueryPlan, OrderBy) {
   }
 }
 
-TEST(QueryPlan, OrderByMultiple) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlanTest, OrderByMultiple) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   AstStorage storage;
   SymbolTable symbol_table;
@@ -247,9 +252,8 @@ TEST(QueryPlan, OrderByMultiple) {
   }
 }
 
-TEST(QueryPlan, OrderByExceptions) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlanTest, OrderByExceptions) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   AstStorage storage;
   SymbolTable symbol_table;
