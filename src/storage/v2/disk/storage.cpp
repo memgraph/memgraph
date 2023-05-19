@@ -173,14 +173,14 @@ DiskStorage::DiskStorage(Config config)
         rocksdb::DB::Open(kvstore_->options_, rocksdb_path, column_families, &column_handles, &kvstore_->db_));
     kvstore_->vertex_chandle = column_handles[0];
     kvstore_->edge_chandle = column_handles[1];
-    // kvstore_->default_chandle = column_handles[2];
+    kvstore_->default_chandle = column_handles[2];
   } else {
     logging::AssertRocksDBStatus(rocksdb::DB::Open(kvstore_->options_, rocksdb_path, &kvstore_->db_));
     logging::AssertRocksDBStatus(
         kvstore_->db_->CreateColumnFamily(kvstore_->options_, vertexHandle, &kvstore_->vertex_chandle));
     logging::AssertRocksDBStatus(
         kvstore_->db_->CreateColumnFamily(kvstore_->options_, edgeHandle, &kvstore_->edge_chandle));
-    // kvstore_->default_chandle = kvstore_->db_->DefaultColumnFamily();
+    kvstore_->default_chandle = kvstore_->db_->DefaultColumnFamily();
   }
 }
 
@@ -189,6 +189,7 @@ DiskStorage::~DiskStorage() {
   // logging::AssertRocksDBStatus(kvstore_->db_->DropColumnFamily(kvstore_->edge_chandle));
   logging::AssertRocksDBStatus(kvstore_->db_->DestroyColumnFamilyHandle(kvstore_->vertex_chandle));
   logging::AssertRocksDBStatus(kvstore_->db_->DestroyColumnFamilyHandle(kvstore_->edge_chandle));
+  logging::AssertRocksDBStatus(kvstore_->db_->DestroyColumnFamilyHandle(kvstore_->default_chandle));
 }
 
 DiskStorage::DiskAccessor::DiskAccessor(DiskStorage *storage, IsolationLevel isolation_level, StorageMode storage_mode)
