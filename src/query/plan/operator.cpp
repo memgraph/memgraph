@@ -82,7 +82,7 @@
     LOG_FATAL("Operator " #class_name " has no single input!");  \
   }
 
-namespace EventCounter {
+namespace memgraph::metrics {
 extern const Event OnceOperator;
 extern const Event CreateNodeOperator;
 extern const Event CreateExpandOperator;
@@ -120,7 +120,7 @@ extern const Event ForeachOperator;
 extern const Event EmptyResultOperator;
 extern const Event EvaluatePatternFilterOperator;
 extern const Event ApplyOperator;
-}  // namespace EventCounter
+}  // namespace memgraph::metrics
 
 namespace memgraph::query::plan {
 
@@ -171,7 +171,7 @@ bool Once::OnceCursor::Pull(Frame &, ExecutionContext &context) {
 }
 
 UniqueCursorPtr Once::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::OnceOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::OnceOperator);
 
   return MakeUniqueCursorPtr<OnceCursor>(mem);
 }
@@ -233,7 +233,7 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
 ACCEPT_WITH_INPUT(CreateNode)
 
 UniqueCursorPtr CreateNode::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::CreateNodeOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::CreateNodeOperator);
 
   return MakeUniqueCursorPtr<CreateNodeCursor>(mem, *this, mem);
 }
@@ -283,7 +283,7 @@ CreateExpand::CreateExpand(const NodeCreationInfo &node_info, const EdgeCreation
 ACCEPT_WITH_INPUT(CreateExpand)
 
 UniqueCursorPtr CreateExpand::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::CreateNodeOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::CreateNodeOperator);
 
   return MakeUniqueCursorPtr<CreateExpandCursor>(mem, *this, mem);
 }
@@ -490,7 +490,7 @@ ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_sy
 ACCEPT_WITH_INPUT(ScanAll)
 
 UniqueCursorPtr ScanAll::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::ScanAllOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);
 
   auto vertices = [this](Frame &, ExecutionContext &context) {
     auto *db = context.db_accessor;
@@ -513,7 +513,7 @@ ScanAllByLabel::ScanAllByLabel(const std::shared_ptr<LogicalOperator> &input, Sy
 ACCEPT_WITH_INPUT(ScanAllByLabel)
 
 UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::ScanAllByLabelOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByLabelOperator);
 
   auto vertices = [this](Frame &, ExecutionContext &context) {
     auto *db = context.db_accessor;
@@ -543,7 +543,7 @@ ScanAllByLabelPropertyRange::ScanAllByLabelPropertyRange(const std::shared_ptr<L
 ACCEPT_WITH_INPUT(ScanAllByLabelPropertyRange)
 
 UniqueCursorPtr ScanAllByLabelPropertyRange::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::ScanAllByLabelPropertyRangeOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByLabelPropertyRangeOperator);
 
   auto vertices = [this](Frame &frame, ExecutionContext &context)
       -> std::optional<decltype(context.db_accessor->Vertices(view_, label_, property_, std::nullopt, std::nullopt))> {
@@ -603,7 +603,7 @@ ScanAllByLabelPropertyValue::ScanAllByLabelPropertyValue(const std::shared_ptr<L
 ACCEPT_WITH_INPUT(ScanAllByLabelPropertyValue)
 
 UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::ScanAllByLabelPropertyValueOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByLabelPropertyValueOperator);
 
   auto vertices = [this](Frame &frame, ExecutionContext &context)
       -> std::optional<decltype(context.db_accessor->Vertices(view_, label_, property_, storage::PropertyValue()))> {
@@ -628,7 +628,7 @@ ScanAllByLabelProperty::ScanAllByLabelProperty(const std::shared_ptr<LogicalOper
 ACCEPT_WITH_INPUT(ScanAllByLabelProperty)
 
 UniqueCursorPtr ScanAllByLabelProperty::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::ScanAllByLabelPropertyOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByLabelPropertyOperator);
 
   auto vertices = [this](Frame &frame, ExecutionContext &context) {
     auto *db = context.db_accessor;
@@ -647,7 +647,7 @@ ScanAllById::ScanAllById(const std::shared_ptr<LogicalOperator> &input, Symbol o
 ACCEPT_WITH_INPUT(ScanAllById)
 
 UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::ScanAllByIdOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByIdOperator);
 
   auto vertices = [this](Frame &frame, ExecutionContext &context) -> std::optional<std::vector<VertexAccessor>> {
     auto *db = context.db_accessor;
@@ -702,7 +702,7 @@ Expand::Expand(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbo
 ACCEPT_WITH_INPUT(Expand)
 
 UniqueCursorPtr Expand::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::ExpandOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ExpandOperator);
 
   return MakeUniqueCursorPtr<ExpandCursor>(mem, *this, mem);
 }
@@ -2172,7 +2172,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 };
 
 UniqueCursorPtr ExpandVariable::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::ExpandVariableOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ExpandVariableOperator);
 
   switch (type_) {
     case EdgeAtom::Type::BREADTH_FIRST:
@@ -2275,7 +2275,7 @@ class ConstructNamedPathCursor : public Cursor {
 ACCEPT_WITH_INPUT(ConstructNamedPath)
 
 UniqueCursorPtr ConstructNamedPath::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::ConstructNamedPathOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ConstructNamedPathOperator);
 
   return MakeUniqueCursorPtr<ConstructNamedPathCursor>(mem, *this, mem);
 }
@@ -2301,7 +2301,7 @@ bool Filter::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
 }
 
 UniqueCursorPtr Filter::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::FilterOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::FilterOperator);
 
   return MakeUniqueCursorPtr<FilterCursor>(mem, *this, mem);
 }
@@ -2356,7 +2356,7 @@ EvaluatePatternFilter::EvaluatePatternFilter(const std::shared_ptr<LogicalOperat
 ACCEPT_WITH_INPUT(EvaluatePatternFilter);
 
 UniqueCursorPtr EvaluatePatternFilter::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::EvaluatePatternFilterOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::EvaluatePatternFilterOperator);
 
   return MakeUniqueCursorPtr<EvaluatePatternFilterCursor>(mem, *this, mem);
 }
@@ -2393,7 +2393,7 @@ Produce::Produce(const std::shared_ptr<LogicalOperator> &input, const std::vecto
 ACCEPT_WITH_INPUT(Produce)
 
 UniqueCursorPtr Produce::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::ProduceOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ProduceOperator);
 
   return MakeUniqueCursorPtr<ProduceCursor>(mem, *this, mem);
 }
@@ -2440,7 +2440,7 @@ Delete::Delete(const std::shared_ptr<LogicalOperator> &input_, const std::vector
 ACCEPT_WITH_INPUT(Delete)
 
 UniqueCursorPtr Delete::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::DeleteOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::DeleteOperator);
 
   return MakeUniqueCursorPtr<DeleteCursor>(mem, *this, mem);
 }
@@ -2592,7 +2592,7 @@ SetProperty::SetProperty(const std::shared_ptr<LogicalOperator> &input, storage:
 ACCEPT_WITH_INPUT(SetProperty)
 
 UniqueCursorPtr SetProperty::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::SetPropertyOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::SetPropertyOperator);
 
   return MakeUniqueCursorPtr<SetPropertyCursor>(mem, *this, mem);
 }
@@ -2675,7 +2675,7 @@ SetProperties::SetProperties(const std::shared_ptr<LogicalOperator> &input, Symb
 ACCEPT_WITH_INPUT(SetProperties)
 
 UniqueCursorPtr SetProperties::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::SetPropertiesOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::SetPropertiesOperator);
 
   return MakeUniqueCursorPtr<SetPropertiesCursor>(mem, *this, mem);
 }
@@ -2872,7 +2872,7 @@ SetLabels::SetLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input
 ACCEPT_WITH_INPUT(SetLabels)
 
 UniqueCursorPtr SetLabels::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::SetLabelsOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::SetLabelsOperator);
 
   return MakeUniqueCursorPtr<SetLabelsCursor>(mem, *this, mem);
 }
@@ -2944,7 +2944,7 @@ RemoveProperty::RemoveProperty(const std::shared_ptr<LogicalOperator> &input, st
 ACCEPT_WITH_INPUT(RemoveProperty)
 
 UniqueCursorPtr RemoveProperty::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::RemovePropertyOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::RemovePropertyOperator);
 
   return MakeUniqueCursorPtr<RemovePropertyCursor>(mem, *this, mem);
 }
@@ -3030,7 +3030,7 @@ RemoveLabels::RemoveLabels(const std::shared_ptr<LogicalOperator> &input, Symbol
 ACCEPT_WITH_INPUT(RemoveLabels)
 
 UniqueCursorPtr RemoveLabels::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::RemoveLabelsOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::RemoveLabelsOperator);
 
   return MakeUniqueCursorPtr<RemoveLabelsCursor>(mem, *this, mem);
 }
@@ -3103,7 +3103,7 @@ EdgeUniquenessFilter::EdgeUniquenessFilter(const std::shared_ptr<LogicalOperator
 ACCEPT_WITH_INPUT(EdgeUniquenessFilter)
 
 UniqueCursorPtr EdgeUniquenessFilter::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::EdgeUniquenessFilterOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::EdgeUniquenessFilterOperator);
 
   return MakeUniqueCursorPtr<EdgeUniquenessFilterCursor>(mem, *this, mem);
 }
@@ -3205,7 +3205,7 @@ class EmptyResultCursor : public Cursor {
 };
 
 UniqueCursorPtr EmptyResult::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::EmptyResultOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::EmptyResultOperator);
 
   return MakeUniqueCursorPtr<EmptyResultCursor>(mem, *this, mem);
 }
@@ -3271,7 +3271,7 @@ class AccumulateCursor : public Cursor {
 };
 
 UniqueCursorPtr Accumulate::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::AccumulateOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::AccumulateOperator);
 
   return MakeUniqueCursorPtr<AccumulateCursor>(mem, *this, mem);
 }
@@ -3645,7 +3645,7 @@ class AggregateCursor : public Cursor {
 };
 
 UniqueCursorPtr Aggregate::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::AggregateOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::AggregateOperator);
 
   return MakeUniqueCursorPtr<AggregateCursor>(mem, *this, mem);
 }
@@ -3656,7 +3656,7 @@ Skip::Skip(const std::shared_ptr<LogicalOperator> &input, Expression *expression
 ACCEPT_WITH_INPUT(Skip)
 
 UniqueCursorPtr Skip::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::SkipOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::SkipOperator);
 
   return MakeUniqueCursorPtr<SkipCursor>(mem, *this, mem);
 }
@@ -3709,7 +3709,7 @@ Limit::Limit(const std::shared_ptr<LogicalOperator> &input, Expression *expressi
 ACCEPT_WITH_INPUT(Limit)
 
 UniqueCursorPtr Limit::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::LimitOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::LimitOperator);
 
   return MakeUniqueCursorPtr<LimitCursor>(mem, *this, mem);
 }
@@ -3862,7 +3862,7 @@ class OrderByCursor : public Cursor {
 };
 
 UniqueCursorPtr OrderBy::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::OrderByOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::OrderByOperator);
 
   return MakeUniqueCursorPtr<OrderByCursor>(mem, *this, mem);
 }
@@ -3879,7 +3879,7 @@ bool Merge::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
 }
 
 UniqueCursorPtr Merge::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::MergeOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::MergeOperator);
 
   return MakeUniqueCursorPtr<MergeCursor>(mem, *this, mem);
 }
@@ -3959,7 +3959,7 @@ bool Optional::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
 }
 
 UniqueCursorPtr Optional::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::OptionalOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::OptionalOperator);
 
   return MakeUniqueCursorPtr<OptionalCursor>(mem, *this, mem);
 }
@@ -4091,7 +4091,7 @@ class UnwindCursor : public Cursor {
 };
 
 UniqueCursorPtr Unwind::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::UnwindOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::UnwindOperator);
 
   return MakeUniqueCursorPtr<UnwindCursor>(mem, *this, mem);
 }
@@ -4145,7 +4145,7 @@ Distinct::Distinct(const std::shared_ptr<LogicalOperator> &input, const std::vec
 ACCEPT_WITH_INPUT(Distinct)
 
 UniqueCursorPtr Distinct::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::DistinctOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::DistinctOperator);
 
   return MakeUniqueCursorPtr<DistinctCursor>(mem, *this, mem);
 }
@@ -4167,7 +4167,7 @@ Union::Union(const std::shared_ptr<LogicalOperator> &left_op, const std::shared_
       right_symbols_(right_symbols) {}
 
 UniqueCursorPtr Union::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::UnionOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::UnionOperator);
 
   return MakeUniqueCursorPtr<Union::UnionCursor>(mem, *this, mem);
 }
@@ -4340,7 +4340,7 @@ class CartesianCursor : public Cursor {
 }  // namespace
 
 UniqueCursorPtr Cartesian::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::CartesianOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::CartesianOperator);
 
   return MakeUniqueCursorPtr<CartesianCursor>(mem, *this, mem);
 }
@@ -4604,7 +4604,7 @@ class CallProcedureCursor : public Cursor {
       result_row_it_ = result_.rows.begin();
     }
 
-    const auto &values = result_row_it_->values;
+    auto &values = result_row_it_->values;
     // Check that the row has all fields as required by the result signature.
     // C API guarantees that it's impossible to set fields which are not part of
     // the result record, but it does not gurantee that some may be missing. See
@@ -4622,7 +4622,7 @@ class CallProcedureCursor : public Cursor {
         throw QueryRuntimeException("Procedure '{}' did not yield a record with '{}' field.", self_->procedure_name_,
                                     field_name);
       }
-      frame[self_->result_symbols_[i]] = result_it->second;
+      frame[self_->result_symbols_[i]] = std::move(result_it->second);
       if (context.frame_change_collector &&
           context.frame_change_collector->ContainsTrackingValue(self_->result_symbols_[i].name())) {
         context.frame_change_collector->ResetTrackingValue(self_->result_symbols_[i].name());
@@ -4643,7 +4643,7 @@ class CallProcedureCursor : public Cursor {
 };
 
 UniqueCursorPtr CallProcedure::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::CallProcedureOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::CallProcedureOperator);
   CallProcedure::IncrementCounter(procedure_name_);
 
   return MakeUniqueCursorPtr<CallProcedureCursor>(mem, this, mem);
@@ -4853,7 +4853,7 @@ Foreach::Foreach(std::shared_ptr<LogicalOperator> input, std::shared_ptr<Logical
       loop_variable_symbol_(loop_variable_symbol) {}
 
 UniqueCursorPtr Foreach::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::ForeachOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ForeachOperator);
   return MakeUniqueCursorPtr<ForeachCursor>(mem, *this, mem);
 }
 
@@ -4885,7 +4885,7 @@ bool Apply::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
 }
 
 UniqueCursorPtr Apply::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::ApplyOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ApplyOperator);
 
   return MakeUniqueCursorPtr<ApplyCursor>(mem, *this, mem);
 }

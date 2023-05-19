@@ -54,10 +54,14 @@
 #include "query/typed_value.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/isolation_level.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "utils/algorithm.hpp"
+#include "utils/build_info.hpp"
 #include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
+#include "utils/event_histogram.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/likely.hpp"
@@ -72,17 +76,20 @@
 #include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
 
-namespace EventCounter {
+namespace memgraph::metrics {
 extern Event ReadQuery;
 extern Event WriteQuery;
 extern Event ReadWriteQuery;
 
-extern const Event LabelIndexCreated;
-extern const Event LabelPropertyIndexCreated;
-
 extern const Event StreamsCreated;
 extern const Event TriggersCreated;
-}  // namespace EventCounter
+
+extern const Event QueryExecutionLatency_us;
+
+extern const Event CommitedTransactions;
+extern const Event RollbackedTransactions;
+extern const Event ActiveTransactions;
+}  // namespace memgraph::metrics
 
 namespace memgraph::query {
 
@@ -93,13 +100,13 @@ namespace {
 void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
   switch (type) {
     case plan::ReadWriteTypeChecker::RWType::R:
-      EventCounter::IncrementCounter(EventCounter::ReadQuery);
+      memgraph::metrics::IncrementCounter(memgraph::metrics::ReadQuery);
       break;
     case plan::ReadWriteTypeChecker::RWType::W:
-      EventCounter::IncrementCounter(EventCounter::WriteQuery);
+      memgraph::metrics::IncrementCounter(memgraph::metrics::WriteQuery);
       break;
     case plan::ReadWriteTypeChecker::RWType::RW:
-      EventCounter::IncrementCounter(EventCounter::ReadWriteQuery);
+      memgraph::metrics::IncrementCounter(memgraph::metrics::ReadWriteQuery);
       break;
     default:
       break;
@@ -664,6 +671,8 @@ Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, Exp
     return config_map;
   };
 
+  memgraph::metrics::IncrementCounter(memgraph::metrics::StreamsCreated);
+
   return [interpreter_context, stream_name = stream_query->stream_name_,
           topic_names = EvaluateTopicNames(evaluator, stream_query->topic_names_),
           consumer_group = std::move(consumer_group), common_stream_info = std::move(common_stream_info),
@@ -694,6 +703,8 @@ Callback::CallbackFunction GetPulsarCreateCallback(StreamQuery *stream_query, Ex
     throw SemanticException("Service URL must not be an empty string!");
   }
   auto common_stream_info = GetCommonStreamInfo(stream_query, evaluator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::StreamsCreated);
+
   return [interpreter_context, stream_name = stream_query->stream_name_,
           topic_names = EvaluateTopicNames(evaluator, stream_query->topic_names_),
           common_stream_info = std::move(common_stream_info), service_url = std::move(service_url),
@@ -724,7 +735,6 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
   Callback callback;
   switch (stream_query->action_) {
     case StreamQuery::Action::CREATE_STREAM: {
-      EventCounter::IncrementCounter(EventCounter::StreamsCreated);
       switch (stream_query->type_) {
         case StreamQuery::Type::KAFKA:
           callback.fn = GetKafkaCreateCallback(stream_query, evaluator, interpreter_context, username);
@@ -1137,7 +1147,11 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   if (has_unsent_results_) {
     return std::nullopt;
   }
+
   summary->insert_or_assign("plan_execution_time", execution_time_.count());
+  memgraph::metrics::Measure(memgraph::metrics::QueryExecutionLatency_us,
+                             std::chrono::duration_cast<std::chrono::microseconds>(execution_time_).count());
+
   // We are finished with pulling all the data, therefore we can send any
   // metadata about the results i.e. notifications and statistics
   const bool is_any_counter_set =
@@ -1174,6 +1188,9 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
       if (in_explicit_transaction_) {
         throw ExplicitTransactionUsageException("Nested transactions are not supported.");
       }
+
+      memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTransactions);
+
       in_explicit_transaction_ = true;
       expect_rollback_ = false;
 
@@ -1212,6 +1229,9 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
       if (!in_explicit_transaction_) {
         throw ExplicitTransactionUsageException("No current transaction to rollback.");
       }
+
+      memgraph::metrics::IncrementCounter(memgraph::metrics::RollbackedTransactions);
+
       Abort();
       expect_rollback_ = false;
       in_explicit_transaction_ = false;
@@ -1715,7 +1735,6 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
               [&index_notification, &label_name, &properties_stringified]<typename T>(T &&) {
                 using ErrorType = std::remove_cvref_t<T>;
                 if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
-                  EventCounter::IncrementCounter(EventCounter::LabelIndexCreated);
                   throw ReplicationException(
                       fmt::format("At least one SYNC replica has not confirmed the creation of the index on label {} "
                                   "on properties {}.",
@@ -1729,8 +1748,6 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
                 }
               },
               error);
-        } else {
-          EventCounter::IncrementCounter(EventCounter::LabelIndexCreated);
         }
       };
       break;
@@ -1857,25 +1874,49 @@ PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query, bool in_explicit_tr
 
   auto *lock_path_query = utils::Downcast<LockPathQuery>(parsed_query.query);
 
-  return PreparedQuery{{},
-                       std::move(parsed_query.required_privileges),
-                       [interpreter_context, action = lock_path_query->action_](
-                           AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-                         switch (action) {
-                           case LockPathQuery::Action::LOCK_PATH:
-                             if (!interpreter_context->db->LockPath()) {
-                               throw QueryRuntimeException("Failed to lock the data directory");
-                             }
-                             break;
-                           case LockPathQuery::Action::UNLOCK_PATH:
-                             if (!interpreter_context->db->UnlockPath()) {
-                               throw QueryRuntimeException("Failed to unlock the data directory");
-                             }
-                             break;
-                         }
-                         return QueryHandlerResult::COMMIT;
-                       },
-                       RWType::NONE};
+  return PreparedQuery{
+      {"STATUS"},
+      std::move(parsed_query.required_privileges),
+      [interpreter_context, action = lock_path_query->action_](
+          AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+        std::vector<std::vector<TypedValue>> status;
+        std::string res;
+
+        switch (action) {
+          case LockPathQuery::Action::LOCK_PATH: {
+            const auto lock_success = interpreter_context->db->LockPath();
+            if (lock_success.HasError()) [[unlikely]] {
+              throw QueryRuntimeException("Failed to lock the data directory");
+            }
+            res = lock_success.GetValue() ? "Data directory is now locked." : "Data directory is already locked.";
+            break;
+          }
+          case LockPathQuery::Action::UNLOCK_PATH: {
+            const auto unlock_success = interpreter_context->db->UnlockPath();
+            if (unlock_success.HasError()) [[unlikely]] {
+              throw QueryRuntimeException("Failed to unlock the data directory");
+            }
+            res = unlock_success.GetValue() ? "Data directory is now unlocked." : "Data directory is already unlocked.";
+            break;
+          }
+          case LockPathQuery::Action::STATUS: {
+            const auto locked_status = interpreter_context->db->IsPathLocked();
+            if (locked_status.HasError()) [[unlikely]] {
+              throw QueryRuntimeException("Failed to access the data directory");
+            }
+            res = locked_status.GetValue() ? "Data directory is locked." : "Data directory is unlocked.";
+            break;
+          }
+        }
+
+        status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
+        auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
+        if (pull_plan->Pull(stream, n)) {
+          return QueryHandlerResult::COMMIT;
+        }
+        return std::nullopt;
+      },
+      RWType::NONE};
 }
 
 PreparedQuery PrepareFreeMemoryQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
@@ -1963,6 +2004,7 @@ Callback CreateTrigger(TriggerQuery *trigger_query,
             std::move(trigger_name), trigger_statement, user_parameters, ToTriggerEventType(event_type),
             before_commit ? TriggerPhase::BEFORE_COMMIT : TriggerPhase::AFTER_COMMIT, &interpreter_context->ast_cache,
             dba, interpreter_context->config.query, std::move(owner), interpreter_context->auth_checker);
+        memgraph::metrics::IncrementCounter(memgraph::metrics::TriggersCreated);
         return {};
       }};
 }
@@ -2017,7 +2059,6 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, bool in_explicit_tra
       case TriggerQuery::Action::CREATE_TRIGGER:
         trigger_notification.emplace(SeverityLevel::INFO, NotificationCode::CREATE_TRIGGER,
                                      fmt::format("Created trigger {}.", trigger_query->trigger_name_));
-        EventCounter::IncrementCounter(EventCounter::TriggersCreated);
         return CreateTrigger(trigger_query, user_parameters, interpreter_context, dba, std::move(owner));
       case TriggerQuery::Action::DROP_TRIGGER:
         trigger_notification.emplace(SeverityLevel::INFO, NotificationCode::DROP_TRIGGER,
@@ -2398,8 +2439,10 @@ PreparedQuery PrepareVersionQuery(ParsedQuery parsed_query, bool in_explicit_tra
 }
 
 PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                               std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
-                               storage::Storage *db, utils::MemoryResource *execution_memory) {
+                               std::map<std::string, TypedValue> * /*summary*/, InterpreterContext *interpreter_context,
+                               storage::Storage *db, utils::MemoryResource * /*execution_memory*/,
+                               std::optional<storage::IsolationLevel> interpreter_isolation_level,
+                               std::optional<storage::IsolationLevel> next_transaction_isolation_level) {
   if (in_explicit_transaction) {
     throw InfoInMulticommandTxException();
   }
@@ -2411,7 +2454,8 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
   switch (info_query->info_type_) {
     case InfoQuery::InfoType::STORAGE:
       header = {"storage info", "value"};
-      handler = [db] {
+
+      handler = [db, interpreter_isolation_level, next_transaction_isolation_level] {
         auto info = db->GetInfo();
         std::vector<std::vector<TypedValue>> results{
             {TypedValue("vertex_count"), TypedValue(static_cast<int64_t>(info.vertex_count))},
@@ -2420,8 +2464,12 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
             {TypedValue("memory_usage"), TypedValue(static_cast<int64_t>(info.memory_usage))},
             {TypedValue("disk_usage"), TypedValue(static_cast<int64_t>(info.disk_usage))},
             {TypedValue("memory_allocated"), TypedValue(static_cast<int64_t>(utils::total_memory_tracker.Amount()))},
-            {TypedValue("allocation_limit"),
-             TypedValue(static_cast<int64_t>(utils::total_memory_tracker.HardLimit()))}};
+            {TypedValue("allocation_limit"), TypedValue(static_cast<int64_t>(utils::total_memory_tracker.HardLimit()))},
+            {TypedValue("global_isolation_level"), TypedValue(IsolationLevelToString(db->GetIsolationLevel()))},
+            {TypedValue("session_isolation_level"), TypedValue(IsolationLevelToString(interpreter_isolation_level))},
+            {TypedValue("next_session_isolation_level"),
+             TypedValue(IsolationLevelToString(next_transaction_isolation_level))},
+            {TypedValue("storage_mode"), TypedValue(StorageModeToString(db->GetStorageMode()))}};
         return std::pair{results, QueryHandlerResult::COMMIT};
       };
       break;
@@ -2462,6 +2510,15 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
           results.push_back(
               {TypedValue("unique"), TypedValue(db->LabelToName(item.first)), TypedValue(std::move(properties))});
         }
+        return std::pair{results, QueryHandlerResult::NOTHING};
+      };
+      break;
+
+    case InfoQuery::InfoType::BUILD:
+      header = {"build info", "value"};
+      handler = [] {
+        std::vector<std::vector<TypedValue>> results{
+            {TypedValue("build_type"), TypedValue(utils::GetBuildInfo().build_name)}};
         return std::pair{results, QueryHandlerResult::NOTHING};
       };
       break;
@@ -2795,14 +2852,14 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   // an explicit transaction block.
   if (in_explicit_transaction_) {
     AdvanceCommand();
-  }
-  // If we're not in an explicit transaction block and we have an open
-  // transaction, abort it since we're about to prepare a new query.
-  else if (db_accessor_) {
+  } else if (db_accessor_) {
+    // If we're not in an explicit transaction block and we have an open
+    // transaction, abort it since we're about to prepare a new query.
     query_executions_.emplace_back(
         std::make_unique<QueryExecution>(utils::MonotonicBufferResource(kExecutionMemoryBlockSize)));
     AbortCommand(&query_executions_.back());
   }
+
   std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;
   try {
     query_executions_.emplace_back(
@@ -2850,6 +2907,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
          utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
          utils::Downcast<TriggerQuery>(parsed_query.query) || utils::Downcast<AnalyzeGraphQuery>(parsed_query.query) ||
          utils::Downcast<TransactionQueueQuery>(parsed_query.query))) {
+      memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTransactions);
       db_accessor_ =
           std::make_unique<storage::Storage::Accessor>(interpreter_context_->db->Access(GetIsolationLevelOverride()));
       execution_db_accessor_.emplace(db_accessor_.get());
@@ -2895,7 +2953,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<InfoQuery>(parsed_query.query)) {
       prepared_query = PrepareInfoQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
                                         interpreter_context_, interpreter_context_->db,
-                                        &query_execution->execution_memory_with_exception);
+                                        &query_execution->execution_memory_with_exception, interpreter_isolation_level,
+                                        next_transaction_isolation_level);
     } else if (utils::Downcast<ConstraintQuery>(parsed_query.query)) {
       prepared_query = PrepareConstraintQuery(std::move(parsed_query), in_explicit_transaction_,
                                               &query_execution->notifications, interpreter_context_);
@@ -2954,7 +3013,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
     return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid};
   } catch (const utils::BasicException &) {
-    EventCounter::IncrementCounter(EventCounter::FailedQuery);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
     AbortCommand(query_execution_ptr);
     throw;
   }
@@ -2985,7 +3044,11 @@ void Interpreter::Abort() {
 
   expect_rollback_ = false;
   in_explicit_transaction_ = false;
+
+  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTransactions);
+
   if (!db_accessor_) return;
+
   db_accessor_->Abort();
   execution_db_accessor_.reset();
   db_accessor_.reset();
@@ -3080,6 +3143,11 @@ void Interpreter::Commit() {
   // Clean transaction status if something went wrong
   utils::OnScopeExit clean_status(
       [this]() { transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release); });
+
+  utils::OnScopeExit update_metrics([]() {
+    memgraph::metrics::IncrementCounter(memgraph::metrics::CommitedTransactions);
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTransactions);
+  });
 
   std::optional<TriggerContext> trigger_context = std::nullopt;
   if (trigger_context_collector_) {

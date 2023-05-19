@@ -44,14 +44,14 @@
 #include "utils/timer.hpp"
 #include "utils/tsc.hpp"
 
-namespace EventCounter {
+namespace memgraph::metrics {
 extern const Event FailedQuery;
-}  // namespace EventCounter
+}  // namespace memgraph::metrics
 
 namespace memgraph::query {
 
 inline constexpr size_t kExecutionMemoryBlockSize = 1UL * 1024UL * 1024UL;
-inline constexpr size_t kExecutionPoolMaxBlockSize = 2048UL;  // 2 ^ 11
+inline constexpr size_t kExecutionPoolMaxBlockSize = 1024UL;  // 2 ^ 10
 
 class AuthQueryHandler {
  public:
@@ -516,7 +516,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     query_execution.reset(nullptr);
     throw;
   } catch (const utils::BasicException &) {
-    EventCounter::IncrementCounter(EventCounter::FailedQuery);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
     AbortCommand(&query_execution);
     throw;
   }

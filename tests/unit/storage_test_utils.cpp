@@ -18,12 +18,3 @@ size_t CountVertices(memgraph::storage::Storage::Accessor &storage_accessor, mem
     ;
   return count;
 }
-
-std::string_view StorageModeToString(memgraph::storage::StorageMode storage_mode) {
-  switch (storage_mode) {
-    case memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL:
-      return "IN_MEMORY_ANALYTICAL";
-    case memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL:
-      return "IN_MEMORY_TRANSACTIONAL";
-  }
-}

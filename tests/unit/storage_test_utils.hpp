@@ -16,7 +16,5 @@
 
 size_t CountVertices(memgraph::storage::Storage::Accessor &storage_accessor, memgraph::storage::View view);
 
-std::string_view StorageModeToString(memgraph::storage::StorageMode storage_mode);
-
 inline constexpr std::array storage_modes{memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL,
                                           memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
