@@ -183,6 +183,9 @@ class DiskStorage final : public Storage {
     /// After this method, the vertex and edge caches are cleared.
     void FlushCache();
 
+    // Main object storage
+    utils::SkipList<storage::Vertex> vertices_;
+    utils::SkipList<storage::Edge> edges_;
     Config::Items config_;
     std::vector<std::string> edges_to_delete_;
     std::vector<std::string> vertices_to_delete_;
@@ -335,9 +338,6 @@ class DiskStorage final : public Storage {
 
   bool ShouldStoreAndRestoreReplicas() const;
 
-  // Main object storage
-  utils::SkipList<storage::Vertex> vertices_;
-  utils::SkipList<storage::Edge> edges_;
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};
 

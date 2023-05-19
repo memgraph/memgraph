@@ -214,8 +214,7 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(const
   OOMExceptionEnabler oom_exception;
   const std::vector<std::string> vertex_parts = utils::Split(key.ToStringView(), "|");
   auto gid = storage::Gid::FromUint(std::stoull(vertex_parts[1]));
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  auto acc = disk_storage->vertices_.access();
+  auto acc = vertices_.access();
   /// In situations when the vertex wasn't evicted from the cache, it will be found in the cache.
   if (acc.find(gid) != acc.end()) {
     spdlog::debug("Vertex with gid {} already exists in the cache!", gid.AsUint());
@@ -239,8 +238,7 @@ std::optional<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const roc
   const auto edge_parts = utils::Split(key.ToStringView(), "|");
   const Gid edge_gid = utils::DeserializeIdType(edge_parts[4]);
 
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  auto edge_acc = disk_storage->edges_.access();
+  auto edge_acc = edges_.access();
   auto res = edge_acc.find(edge_gid);
   if (res != edge_acc.end()) {
     spdlog::debug("Edge with gid {} already exists in the cache!", edge_parts[4]);
@@ -285,9 +283,8 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
     // with size explicitly added with sizeof(uint64_t)
     DeserializeVertex(it->key(), it->value());
   }
-  return VerticesIterable(AllVerticesIterable(disk_storage->vertices_.access(), &transaction_, view,
-                                              &disk_storage->indices_, &disk_storage->constraints_,
-                                              disk_storage->config_.items));
+  return VerticesIterable(AllVerticesIterable(vertices_.access(), &transaction_, view, &disk_storage->indices_,
+                                              &disk_storage->constraints_, disk_storage->config_.items));
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
@@ -312,19 +309,15 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
 }
 
 int64_t DiskStorage::DiskAccessor::ApproximateVertexCount() const {
-  uint64_t estimate_num_keys = 0;
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  // TODO: This method should probably be organized in a better way.
-  disk_storage->kvstore_->db_->GetIntProperty(disk_storage->kvstore_->vertex_chandle, "rocksdb.estimate-num-keys",
-                                              &estimate_num_keys);
-  return static_cast<int64_t>(estimate_num_keys);
+  return disk_storage->kvstore_->ApproximateVertexCount();
 }
 
 VertexAccessor DiskStorage::DiskAccessor::CreateVertex() {
   OOMExceptionEnabler oom_exception;
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   auto gid = disk_storage->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
-  auto acc = disk_storage->vertices_.access();
+  auto acc = vertices_.access();
 
   auto *delta = CreateDeleteObjectDelta(&transaction_);
   auto [it, inserted] = acc.insert(Vertex{storage::Gid::FromUint(gid), delta});
@@ -339,7 +332,7 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex() {
 }
 
 StorageInfo DiskStorage::GetInfo() const {
-  auto vertex_count = vertices_.size();
+  auto vertex_count = kvstore_->ApproximateVertexCount();
   auto edge_count = edge_count_.load(std::memory_order_acquire);
   double average_degree = 0.0;
   if (vertex_count) {
@@ -360,7 +353,7 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex(storage::Gid gid) {
   // possible.
   spdlog::debug("Vertex with gid {} doesn't exist in the cache, creating it!", gid.AsUint());
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  auto acc = disk_storage->vertices_.access();
+  auto acc = vertices_.access();
   disk_storage->vertex_id_.store(std::max(disk_storage->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
                                  std::memory_order_release);
 
@@ -387,7 +380,7 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex(storage::Gid gid, uint64_
   // threads (it is the replica), it is guaranteed that no other writes are
   // possible.
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  auto acc = disk_storage->vertices_.access();
+  auto acc = vertices_.access();
   disk_storage->vertex_id_.store(std::max(disk_storage->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
                                  std::memory_order_release);
   auto *delta = CreateDeleteDeserializedObjectDelta(&transaction_, vertex_commit_ts);
@@ -408,18 +401,14 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex(storage::Gid gid, uint64_
 std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid gid, View view) {
   /// Check if the vertex is in the cache.
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  auto acc = disk_storage->vertices_.access();
+  auto acc = vertices_.access();
   auto vertex_it = acc.find(gid);
   if (vertex_it != acc.end()) {
-    if (vertex_it->delta) {
-      spdlog::debug("Vertex with gid {} found in the cache with ts {}!", gid.AsUint(),
-                    vertex_it->delta->timestamp->load(std::memory_order_acquire));
-    } else {
-      spdlog::debug("Vertex with gid {} found in the cache! Delta is null.", gid.AsUint());
-    }
+    spdlog::debug("Vertex with gid {} found in the cache!", gid.AsUint());
     return VertexAccessor::Create(&*vertex_it, &transaction_, &disk_storage->indices_, &disk_storage->constraints_,
                                   config_, view);
   }
+  spdlog::debug("Vertex with gid {} not found in the cache!", gid.AsUint());
   /// If not in the memory, check whether it exists in RocksDB.
   rocksdb::ReadOptions read_opts;
   rocksdb::Slice ts = utils::StringTimestamp(transaction_.start_timestamp);
@@ -611,7 +600,7 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
 
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
-    auto acc = disk_storage->edges_.access();
+    auto acc = edges_.access();
     auto *delta = CreateDeleteDeserializedObjectDelta(&transaction_, edge_commit_ts);
     auto [it, inserted] = acc.insert(Edge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
@@ -680,7 +669,7 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
 
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
-    auto acc = disk_storage->edges_.access();
+    auto acc = edges_.access();
     auto *delta = CreateDeleteObjectDelta(&transaction_);
     auto [it, inserted] = acc.insert(Edge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
@@ -740,7 +729,7 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   auto gid = storage::Gid::FromUint(disk_storage->edge_id_.fetch_add(1, std::memory_order_acq_rel));
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
-    auto acc = disk_storage->edges_.access();
+    auto acc = edges_.access();
     auto *delta = CreateDeleteObjectDelta(&transaction_);
     auto [it, inserted] = acc.insert(Edge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
@@ -854,7 +843,7 @@ Result<std::optional<EdgeAccessor>> DiskStorage::DiskAccessor::DeleteEdge(EdgeAc
 void DiskStorage::DiskAccessor::FlushCache() {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   /// Flush vertex cache.
-  auto vertex_acc = disk_storage->vertices_.access();
+  auto vertex_acc = vertices_.access();
   uint64_t num_ser_edges = 0;
   rocksdb::WriteOptions write_options;
   rocksdb::Slice ts = utils::StringTimestamp(*commit_timestamp_);
@@ -1544,30 +1533,6 @@ void DiskStorage::CollectGarbage() {
       }
     }
   });
-
-  {
-    auto vertex_acc = vertices_.access();
-    if constexpr (force) {
-      // if force is set to true, then we have unique_lock and no transactions are active
-      // so we can clean all of the deleted vertices
-      while (!garbage_vertices_.empty()) {
-        MG_ASSERT(vertex_acc.remove(garbage_vertices_.front().second), "Invalid database state!");
-        garbage_vertices_.pop_front();
-      }
-    } else {
-      while (!garbage_vertices_.empty() && garbage_vertices_.front().first < oldest_active_start_timestamp) {
-        MG_ASSERT(vertex_acc.remove(garbage_vertices_.front().second), "Invalid database state!");
-        garbage_vertices_.pop_front();
-      }
-    }
-  }
-
-  {
-    auto edge_acc = edges_.access();
-    for (auto edge : current_deleted_edges) {
-      MG_ASSERT(edge_acc.remove(edge), "Invalid database state!");
-    }
-  }
 }
 
 // tell the linker he can find the CollectGarbage definitions here
