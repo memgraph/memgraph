@@ -38,7 +38,7 @@ struct RocksDBStorage {
   rocksdb::DB *db_;
   rocksdb::ColumnFamilyHandle *vertex_chandle = nullptr;
   rocksdb::ColumnFamilyHandle *edge_chandle = nullptr;
-  // rocksdb::ColumnFamilyHandle *default_chandle = nullptr;
+  rocksdb::ColumnFamilyHandle *default_chandle = nullptr;
 
   uint64_t ApproximateVertexCount() const {
     uint64_t estimate_num_keys = 0;
