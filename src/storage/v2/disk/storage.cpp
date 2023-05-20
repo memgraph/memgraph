@@ -137,7 +137,8 @@ DiskStorage::DiskStorage(Config config)
     });
   }
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
-    gc_runner_.Run("Storage GC", config_.gc.interval, [this] { this->CollectGarbage<false>(); });
+    // We remove data on each tx commit. Now we don't need GC.
+    // gc_runner_.Run("Storage GC", config_.gc.interval, [this] { this->CollectGarbage<false>(); });
   }
 
   if (timestamp_ == kTimestampInitialId) {
@@ -180,16 +181,17 @@ DiskStorage::DiskStorage(Config config)
         kvstore_->db_->CreateColumnFamily(kvstore_->options_, vertexHandle, &kvstore_->vertex_chandle));
     logging::AssertRocksDBStatus(
         kvstore_->db_->CreateColumnFamily(kvstore_->options_, edgeHandle, &kvstore_->edge_chandle));
-    kvstore_->default_chandle = kvstore_->db_->DefaultColumnFamily();
   }
 }
 
 DiskStorage::~DiskStorage() {
-  // logging::AssertRocksDBStatus(kvstore_->db_->DropColumnFamily(kvstore_->vertex_chandle));
-  // logging::AssertRocksDBStatus(kvstore_->db_->DropColumnFamily(kvstore_->edge_chandle));
   logging::AssertRocksDBStatus(kvstore_->db_->DestroyColumnFamilyHandle(kvstore_->vertex_chandle));
   logging::AssertRocksDBStatus(kvstore_->db_->DestroyColumnFamilyHandle(kvstore_->edge_chandle));
-  logging::AssertRocksDBStatus(kvstore_->db_->DestroyColumnFamilyHandle(kvstore_->default_chandle));
+  if (kvstore_->default_chandle) {
+    // We must destroy default column family handle only if it was read from existing database.
+    // https://github.com/facebook/rocksdb/issues/5006#issuecomment-1003154821
+    logging::AssertRocksDBStatus(kvstore_->db_->DestroyColumnFamilyHandle(kvstore_->default_chandle));
+  }
 }
 
 DiskStorage::DiskAccessor::DiskAccessor(DiskStorage *storage, IsolationLevel isolation_level, StorageMode storage_mode)
@@ -222,7 +224,8 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(const
     return std::nullopt;
   }
   spdlog::debug("Vertex with gid {} doesn't exist in the cache!", gid.AsUint());
-  uint64_t vertex_commit_ts = utils::ExtractTimestampFromDeserializedUserKey(key);
+  // uint64_t vertex_commit_ts = utils::ExtractTimestampFromDeserializedUserKey(key);
+  uint64_t vertex_commit_ts = transaction_.transaction_id;
   // Deserialize labels
   std::vector<LabelId> label_ids;
   if (!vertex_parts[0].empty()) {
@@ -274,7 +277,8 @@ std::optional<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const roc
 VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   rocksdb::ReadOptions ro;
-  rocksdb::Slice ts = utils::StringTimestamp(transaction_.start_timestamp);
+  std::string strTs = utils::StringTimestamp(transaction_.start_timestamp);
+  rocksdb::Slice ts(strTs);
   ro.timestamp = &ts;
   auto it = std::unique_ptr<rocksdb::Iterator>(
       disk_storage->kvstore_->db_->NewIterator(ro, disk_storage->kvstore_->vertex_chandle));
@@ -414,7 +418,8 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid
   spdlog::debug("Vertex with gid {} not found in the cache!", gid.AsUint());
   /// If not in the memory, check whether it exists in RocksDB.
   rocksdb::ReadOptions read_opts;
-  rocksdb::Slice ts = utils::StringTimestamp(transaction_.start_timestamp);
+  auto strTs = utils::StringTimestamp(transaction_.start_timestamp);
+  rocksdb::Slice ts(strTs);
   read_opts.timestamp = &ts;
   auto it = std::unique_ptr<rocksdb::Iterator>(
       disk_storage->kvstore_->db_->NewIterator(read_opts, disk_storage->kvstore_->vertex_chandle));
@@ -527,7 +532,8 @@ DiskStorage::DiskAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
 
 void DiskStorage::DiskAccessor::PrefetchEdges(const auto &prefetch_edge_filter) {
   rocksdb::ReadOptions read_opts;
-  rocksdb::Slice ts = utils::StringTimestamp(transaction_.start_timestamp);
+  auto strTs = utils::StringTimestamp(transaction_.start_timestamp);
+  rocksdb::Slice ts(strTs);
   read_opts.timestamp = &ts;
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   auto it = std::unique_ptr<rocksdb::Iterator>(
@@ -849,7 +855,8 @@ void DiskStorage::DiskAccessor::FlushCache() {
   auto vertex_acc = vertices_.access();
   uint64_t num_ser_edges = 0;
   rocksdb::WriteOptions write_options;
-  rocksdb::Slice ts = utils::StringTimestamp(*commit_timestamp_);
+  auto strTs = utils::StringTimestamp(*commit_timestamp_);
+  rocksdb::Slice ts(strTs);
   write_options.timestamp = &ts;
   for (Vertex &vertex : vertex_acc) {
     logging::AssertRocksDBStatus(disk_storage->kvstore_->db_->Put(write_options, disk_storage->kvstore_->vertex_chandle,
@@ -1207,7 +1214,8 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
   // However, we need to set timestamp because of RocksDB requirement so we set it to the maximum value.
   // RocksDB will still fetch the most recent value.
   rocksdb::ReadOptions ro;
-  rocksdb::Slice ts = utils::StringTimestamp(std::numeric_limits<uint64_t>::max());
+  auto strTs = utils::StringTimestamp(std::numeric_limits<uint64_t>::max());
+  rocksdb::Slice ts(strTs);
   ro.timestamp = &ts;
   auto it = std::unique_ptr<rocksdb::Iterator>(kvstore_->db_->NewIterator(ro, kvstore_->vertex_chandle));
   std::vector<std::tuple<std::string, std::string, uint64_t>> indexed_vertices;
