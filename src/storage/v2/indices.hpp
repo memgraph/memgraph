@@ -43,16 +43,6 @@ class LabelIndex {
     bool operator==(const Entry &rhs) { return vertex == rhs.vertex && timestamp == rhs.timestamp; }
   };
 
-  struct LabelStorage {
-    LabelId label;
-    utils::SkipList<Entry> vertices;
-
-    bool operator<(const LabelStorage &rhs) { return label < rhs.label; }
-    bool operator<(LabelId rhs) { return label < rhs; }
-    bool operator==(const LabelStorage &rhs) { return label == rhs.label; }
-    bool operator==(LabelId rhs) { return label == rhs; }
-  };
-
  public:
   LabelIndex(Indices *indices, Constraints *constraints, Config::Items config)
       : indices_(indices), constraints_(constraints), config_(config) {}
