@@ -79,21 +79,21 @@ class InMemoryStorage final : public Storage {
     /// Return approximate number of vertices with the given label.
     /// Note that this is always an over-estimate and never an under-estimate.
     int64_t ApproximateVertexCount(LabelId label) const override {
-      return static_cast<InMemoryStorage *>(storage_)->indices_.label_index.ApproximateVertexCount(label);
+      return static_cast<InMemoryStorage *>(storage_)->indices_.label_index_->ApproximateVertexCount(label);
     }
 
     /// Return approximate number of vertices with the given label and property.
     /// Note that this is always an over-estimate and never an under-estimate.
     int64_t ApproximateVertexCount(LabelId label, PropertyId property) const override {
-      return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index.ApproximateVertexCount(label,
-                                                                                                            property);
+      return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index_->ApproximateVertexCount(label,
+                                                                                                              property);
     }
 
     /// Return approximate number of vertices with the given label and the given
     /// value for the given property. Note that this is always an over-estimate
     /// and never an under-estimate.
     int64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const override {
-      return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index.ApproximateVertexCount(
+      return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index_->ApproximateVertexCount(
           label, property, value);
     }
 
@@ -103,17 +103,17 @@ class InMemoryStorage final : public Storage {
     int64_t ApproximateVertexCount(LabelId label, PropertyId property,
                                    const std::optional<utils::Bound<PropertyValue>> &lower,
                                    const std::optional<utils::Bound<PropertyValue>> &upper) const override {
-      return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index.ApproximateVertexCount(
+      return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index_->ApproximateVertexCount(
           label, property, lower, upper);
     }
 
     std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId &label,
                                                      const storage::PropertyId &property) const override {
-      return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index.GetIndexStats(label, property);
+      return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index_->GetIndexStats(label, property);
     }
 
     std::vector<std::pair<LabelId, PropertyId>> ClearIndexStats() override {
-      return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index.ClearIndexStats();
+      return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index_->ClearIndexStats();
     }
 
     std::vector<std::pair<LabelId, PropertyId>> DeleteIndexStatsForLabels(
@@ -121,7 +121,7 @@ class InMemoryStorage final : public Storage {
       std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;
       std::for_each(labels.begin(), labels.end(), [this, &deleted_indexes](const auto &label_str) {
         std::vector<std::pair<LabelId, PropertyId>> loc_results =
-            static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index.DeleteIndexStatsForLabel(
+            static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index_->DeleteIndexStatsForLabel(
                 NameToLabel(label_str));
         deleted_indexes.insert(deleted_indexes.end(), std::make_move_iterator(loc_results.begin()),
                                std::make_move_iterator(loc_results.end()));
@@ -131,7 +131,7 @@ class InMemoryStorage final : public Storage {
 
     void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
                        const IndexStats &stats) override {
-      static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index.SetIndexStats(label, property, stats);
+      static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index_->SetIndexStats(label, property, stats);
     }
 
     /// @return Accessor to the deleted vertex if a deletion took place, std::nullopt otherwise
@@ -155,17 +155,17 @@ class InMemoryStorage final : public Storage {
     Result<std::optional<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge) override;
 
     bool LabelIndexExists(LabelId label) const override {
-      return static_cast<InMemoryStorage *>(storage_)->indices_.label_index.IndexExists(label);
+      return static_cast<InMemoryStorage *>(storage_)->indices_.label_index_->IndexExists(label);
     }
 
     bool LabelPropertyIndexExists(LabelId label, PropertyId property) const override {
-      return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index.IndexExists(label, property);
+      return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index_->IndexExists(label, property);
     }
 
     IndicesInfo ListAllIndices() const override {
       auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-      return {mem_storage->indices_.label_index.ListIndices(),
-              mem_storage->indices_.label_property_index.ListIndices()};
+      return {mem_storage->indices_.label_index_->ListIndices(),
+              mem_storage->indices_.label_property_index_->ListIndices()};
     }
 
     ConstraintsInfo ListAllConstraints() const override {

@@ -7,14 +7,18 @@ set(storage_v2_src_files
     durability/snapshot.cpp
     durability/wal.cpp
     edge_accessor.cpp
-    indices.cpp
     property_store.cpp
     vertex_accessor.cpp
     storage.cpp
+    indices/indices.cpp
     inmemory/storage.cpp
+    inmemory/label_index.cpp
+    inmemory/label_property_index.cpp
     disk/compaction_filter.cpp
     disk/storage.cpp
     disk/rocksdb_storage.cpp
+    disk/label_index.cpp
+    disk/label_property_index.cpp
 )
 
 

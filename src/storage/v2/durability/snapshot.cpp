@@ -1517,7 +1517,7 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
 
     // Write label indices.
     {
-      auto label = indices->label_index.ListIndices();
+      auto label = indices->label_index_->ListIndices();
       snapshot.WriteUint(label.size());
       for (const auto &item : label) {
         write_mapping(item);
@@ -1526,7 +1526,7 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
 
     // Write label+property indices.
     {
-      auto label_property = indices->label_property_index.ListIndices();
+      auto label_property = indices->label_property_index_->ListIndices();
       snapshot.WriteUint(label_property.size());
       for (const auto &item : label_property) {
         write_mapping(item.first);

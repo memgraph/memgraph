@@ -20,7 +20,7 @@
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_accessor.hpp"
-#include "storage/v2/indices.hpp"
+#include "storage/v2/indices/indices.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
@@ -93,14 +93,14 @@ class VerticesIterable final {
   Type type_;
   union {
     AllVerticesIterable all_vertices_;
-    LabelIndex::Iterable vertices_by_label_;
-    LabelPropertyIndex::Iterable vertices_by_label_property_;
+    InMemoryLabelIndex::Iterable vertices_by_label_;
+    InMemoryLabelPropertyIndex::Iterable vertices_by_label_property_;
   };
 
  public:
   explicit VerticesIterable(AllVerticesIterable);
-  explicit VerticesIterable(LabelIndex::Iterable);
-  explicit VerticesIterable(LabelPropertyIndex::Iterable);
+  explicit VerticesIterable(InMemoryLabelIndex::Iterable);
+  explicit VerticesIterable(InMemoryLabelPropertyIndex::Iterable);
 
   VerticesIterable(const VerticesIterable &) = delete;
   VerticesIterable &operator=(const VerticesIterable &) = delete;
@@ -114,16 +114,16 @@ class VerticesIterable final {
     Type type_;
     union {
       AllVerticesIterable::Iterator all_it_;
-      LabelIndex::Iterable::Iterator by_label_it_;
-      LabelPropertyIndex::Iterable::Iterator by_label_property_it_;
+      InMemoryLabelIndex::Iterable::Iterator by_label_it_;
+      InMemoryLabelPropertyIndex::Iterable::Iterator by_label_property_it_;
     };
 
     void Destroy() noexcept;
 
    public:
     explicit Iterator(AllVerticesIterable::Iterator);
-    explicit Iterator(LabelIndex::Iterable::Iterator);
-    explicit Iterator(LabelPropertyIndex::Iterable::Iterator);
+    explicit Iterator(InMemoryLabelIndex::Iterable::Iterator);
+    explicit Iterator(InMemoryLabelPropertyIndex::Iterable::Iterator);
 
     Iterator(const Iterator &);
     Iterator &operator=(const Iterator &);

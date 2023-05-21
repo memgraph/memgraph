@@ -119,7 +119,7 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
   // Recover label indices.
   spdlog::info("Recreating {} label indices from metadata.", indices_constraints.indices.label.size());
   for (const auto &item : indices_constraints.indices.label) {
-    if (!indices->label_index.CreateIndex(item, vertices->access(), paralell_exec_info))
+    if (!indices->label_index_->CreateIndex(item, vertices->access(), paralell_exec_info))
       throw RecoveryFailure("The label index must be created here!");
 
     spdlog::info("A label index is recreated from metadata.");
@@ -130,7 +130,7 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
   spdlog::info("Recreating {} label+property indices from metadata.",
                indices_constraints.indices.label_property.size());
   for (const auto &item : indices_constraints.indices.label_property) {
-    if (!indices->label_property_index.CreateIndex(item.first, item.second, vertices->access()))
+    if (!indices->label_property_index_->CreateIndex(item.first, item.second, vertices->access(), std::nullopt))
       throw RecoveryFailure("The label+property index must be created here!");
     spdlog::info("A label+property index is recreated from metadata.");
   }

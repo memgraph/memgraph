@@ -24,8 +24,8 @@ namespace memgraph::storage {
 
 class EdgeAccessor;
 class Storage;
-struct Indices;
 struct Constraints;
+struct Indices;
 
 class VertexAccessor final {
  private:

@@ -19,6 +19,7 @@
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_persistence_helper.hpp"
 #include "storage/v2/replication/replication_server.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/stat.hpp"
 
@@ -47,7 +48,7 @@ InMemoryStorage::InMemoryStorage(Config config)
     : Storage(config),
       isolation_level_(config.transaction.isolation_level),
       storage_mode_(StorageMode::IN_MEMORY_TRANSACTIONAL),
-      indices_(&constraints_, config.items) {
+      indices_(&constraints_, config.items, StorageMode::IN_MEMORY_TRANSACTIONAL) {
   if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED &&
       replication_role_ == ReplicationRole::MAIN) {
     spdlog::warn(
@@ -880,7 +881,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::CreateIndex(
     LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  if (!indices_.label_index.CreateIndex(label, vertices_.access())) {
+  if (!indices_.label_index_->CreateIndex(label, vertices_.access(), std::nullopt)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
@@ -899,7 +900,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::CreateInd
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::CreateIndex(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  if (!indices_.label_property_index.CreateIndex(label, property, vertices_.access())) {
+  if (!indices_.label_property_index_->CreateIndex(label, property, vertices_.access(), std::nullopt)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
@@ -918,7 +919,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::CreateInd
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::DropIndex(
     LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  if (!indices_.label_index.DropIndex(label)) {
+  if (!indices_.label_index_->DropIndex(label)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
@@ -937,7 +938,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::DropIndex
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::DropIndex(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  if (!indices_.label_property_index.DropIndex(label, property)) {
+  if (!indices_.label_property_index_->DropIndex(label, property)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   // For a description why using `timestamp_` is correct, see
@@ -957,7 +958,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::DropIndex
 
 IndicesInfo InMemoryStorage::ListAllIndices() const {
   std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
-  return {indices_.label_index.ListIndices(), indices_.label_property_index.ListIndices()};
+  return {indices_.label_index_->ListIndices(), indices_.label_property_index_->ListIndices()};
 }
 
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void> InMemoryStorage::CreateExistenceConstraint(
@@ -1054,26 +1055,36 @@ ConstraintsInfo InMemoryStorage::ListAllConstraints() const {
 }
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, View view) {
-  return VerticesIterable(
-      static_cast<InMemoryStorage *>(storage_)->indices_.label_index.Vertices(label, view, &transaction_));
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  auto *mem_label_index = static_cast<InMemoryLabelIndex *>(mem_storage->indices_.label_index_.get());
+  return VerticesIterable(mem_label_index->Vertices(label, view, &transaction_));
 }
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, PropertyId property, View view) {
-  return VerticesIterable(static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index.Vertices(
-      label, property, std::nullopt, std::nullopt, view, &transaction_));
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  auto *mem_label_property_index =
+      static_cast<InMemoryLabelPropertyIndex *>(mem_storage->indices_.label_property_index_.get());
+  return VerticesIterable(
+      mem_label_property_index->Vertices(label, property, std::nullopt, std::nullopt, view, &transaction_));
 }
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, PropertyId property,
                                                              const PropertyValue &value, View view) {
-  return VerticesIterable(static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index.Vertices(
-      label, property, utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value), view, &transaction_));
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  auto *mem_label_property_index =
+      static_cast<InMemoryLabelPropertyIndex *>(mem_storage->indices_.label_property_index_.get());
+  return VerticesIterable(mem_label_property_index->Vertices(label, property, utils::MakeBoundInclusive(value),
+                                                             utils::MakeBoundInclusive(value), view, &transaction_));
 }
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
     LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) {
-  return VerticesIterable(static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index.Vertices(
-      label, property, lower_bound, upper_bound, view, &transaction_));
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  auto *mem_label_property_index =
+      static_cast<InMemoryLabelPropertyIndex *>(mem_storage->indices_.label_property_index_.get());
+  return VerticesIterable(
+      mem_label_property_index->Vertices(label, property, lower_bound, upper_bound, view, &transaction_));
 }
 
 Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) {
@@ -1293,7 +1304,7 @@ void InMemoryStorage::CollectGarbage() {
   if (run_index_cleanup) {
     // This operation is very expensive as it traverses through all of the items
     // in every index every time.
-    RemoveObsoleteEntries(&indices_, oldest_active_start_timestamp);
+    indices_.RemoveObsoleteEntries(oldest_active_start_timestamp);
     constraints_.unique_constraints.RemoveObsoleteEntries(oldest_active_start_timestamp);
   }
 
@@ -1666,8 +1677,8 @@ void InMemoryStorage::FreeMemory() {
   // SkipList is already threadsafe
   vertices_.run_gc();
   edges_.run_gc();
-  indices_.label_index.RunGC();
-  indices_.label_property_index.RunGC();
+  indices_.label_index_->RunGC();
+  indices_.label_property_index_->RunGC();
 }
 
 uint64_t InMemoryStorage::CommitTimestamp(const std::optional<uint64_t> desired_commit_timestamp) {

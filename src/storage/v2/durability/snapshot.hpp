@@ -19,7 +19,7 @@
 #include "storage/v2/constraints.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/edge.hpp"
-#include "storage/v2/indices.hpp"
+#include "storage/v2/indices/indices.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"

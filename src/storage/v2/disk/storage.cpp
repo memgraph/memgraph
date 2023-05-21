@@ -38,7 +38,7 @@ inline constexpr uint16_t kEpochHistoryRetention = 1000;
 
 DiskStorage::DiskStorage(Config config)
     : Storage(config),
-      indices_(&constraints_, config.items),
+      indices_(&constraints_, config.items, StorageMode::IN_MEMORY_TRANSACTIONAL),
       isolation_level_(IsolationLevel::SNAPSHOT_ISOLATION),
       storage_mode_(StorageMode::IN_MEMORY_TRANSACTIONAL) {
   if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED
@@ -289,8 +289,10 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
-  return VerticesIterable(
-      static_cast<DiskStorage *>(storage_)->indices_.label_index.Vertices(label, view, &transaction_));
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  auto *disk_label_index = static_cast<DiskLabelIndex *>(disk_storage->indices_.label_index_.get());
+  // return VerticesIterable(disk_label_index->Vertices(label, view, &transaction_));
+  throw utils::NotYetImplemented("DiskStorage::DiskAccessor::Vertices(label, view)");
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, View view) {

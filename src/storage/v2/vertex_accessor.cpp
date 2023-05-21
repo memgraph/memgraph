@@ -15,7 +15,7 @@
 
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/indices.hpp"
+#include "storage/v2/indices/indices.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
@@ -89,7 +89,7 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
 
   vertex_->labels.push_back(label);
 
-  UpdateOnAddLabel(indices_, label, vertex_, *transaction_);
+  indices_->UpdateOnAddLabel(label, vertex_, *transaction_);
 
   return true;
 }
@@ -229,7 +229,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, current_value);
   vertex_->properties.SetProperty(property, value);
 
-  UpdateOnSetProperty(indices_, property, value, vertex_, *transaction_);
+  indices_->UpdateOnSetProperty(property, value, vertex_, *transaction_);
 
   return std::move(current_value);
 }
@@ -245,7 +245,7 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
   if (!vertex_->properties.InitProperties(properties)) return false;
   for (const auto &[property, value] : properties) {
     CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, PropertyValue());
-    UpdateOnSetProperty(indices_, property, value, vertex_, *transaction_);
+    indices_->UpdateOnSetProperty(property, value, vertex_, *transaction_);
   }
 
   return true;
@@ -261,7 +261,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
   auto properties = vertex_->properties.Properties();
   for (const auto &property : properties) {
     CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property.first, property.second);
-    UpdateOnSetProperty(indices_, property.first, PropertyValue(), vertex_, *transaction_);
+    indices_->UpdateOnSetProperty(property.first, PropertyValue(), vertex_, *transaction_);
   }
 
   vertex_->properties.ClearProperties();
