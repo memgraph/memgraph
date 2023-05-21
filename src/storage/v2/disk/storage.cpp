@@ -350,6 +350,8 @@ StorageInfo DiskStorage::GetInfo() const {
           utils::GetDirDiskUsage(config_.durability.storage_directory)};
 }
 
+std::string DiskStorage::GetDbPath() const { return main_storage_path; }
+
 VertexAccessor DiskStorage::DiskAccessor::CreateVertex(storage::Gid gid) {
   OOMExceptionEnabler oom_exception;
   // NOTE: When we update the next `vertex_id_` here we perform a RMW

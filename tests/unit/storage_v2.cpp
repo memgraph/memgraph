@@ -12,6 +12,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <filesystem>
 #include <limits>
 
 #include "storage/v2/disk/storage.hpp"
@@ -29,11 +30,20 @@ class StorageV2Test : public testing::Test {
  public:
   StorageV2Test() : store{new StorageType()} {}
 
+  void TearDown() override {
+    std::string dbPath;
+    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
+      dbPath = dynamic_cast<memgraph::storage::DiskStorage *>(store.get())->GetDbPath();
+    }
+    store.reset(nullptr);
+    std::filesystem::remove_all(dbPath);
+  }
+
   std::unique_ptr<memgraph::storage::Storage> store;
 };
 
 // using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::DiskStorage>;
 TYPED_TEST_CASE(StorageV2Test, StorageTypes);
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
