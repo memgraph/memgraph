@@ -38,9 +38,9 @@ inline constexpr uint16_t kEpochHistoryRetention = 1000;
 
 DiskStorage::DiskStorage(Config config)
     : Storage(config),
-      indices_(&constraints_, config.items, StorageMode::IN_MEMORY_TRANSACTIONAL),
+      indices_(&constraints_, config.items, StorageMode::ON_DISK_TRANSACTIONAL),
       isolation_level_(IsolationLevel::SNAPSHOT_ISOLATION),
-      storage_mode_(StorageMode::IN_MEMORY_TRANSACTIONAL) {
+      storage_mode_(StorageMode::ON_DISK_TRANSACTIONAL) {
   if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED
       /// TODO(andi): When replication support will be added, uncomment this.
       // && replication_role_ == ReplicationRole::MAIN) {

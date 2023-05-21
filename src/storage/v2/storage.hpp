@@ -15,6 +15,7 @@
 
 #include "io/network/endpoint.hpp"
 #include "kvstore/kvstore.hpp"
+#include "query/exceptions.hpp"
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/durability/paths.hpp"
@@ -88,19 +89,23 @@ class AllVerticesIterable final {
 /// This class should be the primary type used by the client code to iterate
 /// over vertices inside a Storage instance.
 class VerticesIterable final {
-  enum class Type { ALL, BY_LABEL, BY_LABEL_PROPERTY };
+  enum class Type { ALL, BY_LABEL_IN_MEMORY, BY_LABEL_PROPERTY_IN_MEMORY, BY_LABEL_ON_DISK, BY_LABEL_PROPERTY_ON_DISK };
 
   Type type_;
   union {
     AllVerticesIterable all_vertices_;
-    InMemoryLabelIndex::Iterable vertices_by_label_;
-    InMemoryLabelPropertyIndex::Iterable vertices_by_label_property_;
+    InMemoryLabelIndex::Iterable in_memory_vertices_by_label_;
+    InMemoryLabelPropertyIndex::Iterable in_memory_vertices_by_label_property_;
+    DiskLabelIndex::Iterable disk_vertices_by_label_;
+    DiskLabelPropertyIndex::Iterable disk_vertices_by_label_property_;
   };
 
  public:
   explicit VerticesIterable(AllVerticesIterable);
   explicit VerticesIterable(InMemoryLabelIndex::Iterable);
   explicit VerticesIterable(InMemoryLabelPropertyIndex::Iterable);
+  explicit VerticesIterable(DiskLabelIndex::Iterable);
+  explicit VerticesIterable(DiskLabelPropertyIndex::Iterable);
 
   VerticesIterable(const VerticesIterable &) = delete;
   VerticesIterable &operator=(const VerticesIterable &) = delete;
@@ -114,8 +119,10 @@ class VerticesIterable final {
     Type type_;
     union {
       AllVerticesIterable::Iterator all_it_;
-      InMemoryLabelIndex::Iterable::Iterator by_label_it_;
-      InMemoryLabelPropertyIndex::Iterable::Iterator by_label_property_it_;
+      InMemoryLabelIndex::Iterable::Iterator in_memory_by_label_it_;
+      InMemoryLabelPropertyIndex::Iterable::Iterator in_memory_by_label_property_it_;
+      DiskLabelIndex::Iterable::Iterator disk_by_label_it_;
+      DiskLabelPropertyIndex::Iterable::Iterator disk_by_label_property_it_;
     };
 
     void Destroy() noexcept;
@@ -124,6 +131,8 @@ class VerticesIterable final {
     explicit Iterator(AllVerticesIterable::Iterator);
     explicit Iterator(InMemoryLabelIndex::Iterable::Iterator);
     explicit Iterator(InMemoryLabelPropertyIndex::Iterable::Iterator);
+    explicit Iterator(DiskLabelIndex::Iterable::Iterator);
+    explicit Iterator(DiskLabelPropertyIndex::Iterable::Iterator);
 
     Iterator(const Iterator &);
     Iterator &operator=(const Iterator &);
