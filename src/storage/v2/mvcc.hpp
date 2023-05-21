@@ -60,7 +60,9 @@ inline void ApplyDeltasForRead(Transaction *transaction, const Delta *delta, Vie
 
     // We shouldn't undo our older changes because the user requested a OLD view
     // of the database.
-    if (view == View::OLD && ts == commit_timestamp && cid < transaction->command_id) {
+    if (view == View::OLD && ts == commit_timestamp &&
+        (cid < transaction->command_id ||
+         (cid == transaction->command_id && delta->action == Delta::Action::DELETE_DESERIALIZED_OBJECT))) {
       break;
     }
 

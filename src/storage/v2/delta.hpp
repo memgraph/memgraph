@@ -153,7 +153,7 @@ struct Delta {
   struct RemoveOutEdgeTag {};
 
   Delta(DeleteDeserializedObjectTag, uint64_t timestamp)
-      : action(Action::DELETE_DESERIALIZED_OBJECT), timestamp(new std::atomic<uint64_t>(timestamp)) {}
+      : action(Action::DELETE_DESERIALIZED_OBJECT), timestamp(new std::atomic<uint64_t>(timestamp)), command_id(0) {}
 
   Delta(DeleteObjectTag, std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : action(Action::DELETE_OBJECT), timestamp(timestamp), command_id(command_id) {}
