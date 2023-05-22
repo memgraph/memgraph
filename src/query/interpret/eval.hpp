@@ -256,7 +256,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     get_list_literal();
     auto preoperational_checks = do_list_literal_checks();
     if (preoperational_checks) {
-      return *preoperational_checks;
+      return std::move(*preoperational_checks);
     }
     auto cached_id = get_cached_id();
 
