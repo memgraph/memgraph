@@ -215,7 +215,10 @@ class Decoder {
 
  protected:
   Buffer &buffer_;
-  int major_v_;  //!< Major version of the underlying Bolt protocol (TODO: Think about reimplementing the versioning)
+  int major_v_;  //!< Major version of the underlying Bolt protocol
+                 // TODO: when refactoring
+  // Ideally the major_v would be a compile time constant. If the higher level (Bolt driver) ends up being separate
+  // classes, this could be just a template and each version of the driver would use the appropriate decoder.
 
  private:
   bool ReadNull(const Marker &marker, Value *data) {
