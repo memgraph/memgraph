@@ -49,10 +49,6 @@ class LabelPropertyIndex {
   virtual void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
                                    const Transaction &tx) = 0;
 
-  /// TODO: (andi) parallel_exec_info optional arguements in derived classes
-  virtual bool CreateIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
-                           const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info) = 0;
-
   virtual bool DropIndex(LabelId label, PropertyId property) = 0;
 
   virtual bool IndexExists(LabelId label, PropertyId property) const = 0;

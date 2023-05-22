@@ -901,7 +901,8 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::CreateInd
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::CreateIndex(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  if (!indices_.label_property_index_->CreateIndex(label, property, vertices_.access(), std::nullopt)) {
+  auto *mem_label_property_index = static_cast<InMemoryLabelPropertyIndex *>(indices_.label_property_index_.get());
+  if (!mem_label_property_index->CreateIndex(label, property, vertices_.access(), std::nullopt)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);

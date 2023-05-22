@@ -44,7 +44,7 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   /// @throw std::bad_alloc
   bool CreateIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
-                   const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info) override;
+                   const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info);
 
   bool DropIndex(LabelId label, PropertyId property) override { return index_.erase({label, property}) > 0; }
 

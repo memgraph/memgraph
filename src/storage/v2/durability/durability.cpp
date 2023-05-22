@@ -132,8 +132,10 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
   // Recover label+property indices.
   spdlog::info("Recreating {} label+property indices from metadata.",
                indices_constraints.indices.label_property.size());
+  /// TODO: andi fix this so that it creates correct index corresponding to storage mode
+  auto *mem_label_property_index = static_cast<InMemoryLabelPropertyIndex *>(indices->label_property_index_.get());
   for (const auto &item : indices_constraints.indices.label_property) {
-    if (!indices->label_property_index_->CreateIndex(item.first, item.second, vertices->access(), std::nullopt))
+    if (!mem_label_property_index->CreateIndex(item.first, item.second, vertices->access(), std::nullopt))
       throw RecoveryFailure("The label+property index must be created here!");
     spdlog::info("A label+property index is recreated from metadata.");
   }
