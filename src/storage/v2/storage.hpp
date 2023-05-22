@@ -295,6 +295,8 @@ class Storage {
 
     virtual void FinalizeTransaction() = 0;
 
+    virtual void PrepareForNextQuery() = 0;
+
     std::optional<uint64_t> GetTransactionId() const;
 
     void AdvanceCommand();

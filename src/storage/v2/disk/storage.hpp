@@ -149,6 +149,8 @@ class DiskStorage final : public Storage {
     /// Currently, it does everything the same as in-memory version.
     void FinalizeTransaction() override;
 
+    void PrepareForNextQuery() override { indexed_vertices_.clear(); }
+
     /// Deserializes vertex from the string key and stores it into the vertices_ and lru_vertices_.
     /// Properties are deserialized from the value.
     /// The method should be called only when the vertex is not in the cache.

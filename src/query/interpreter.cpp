@@ -2680,6 +2680,12 @@ void Interpreter::RollbackTransaction() {
   transaction_queries_->clear();
 }
 
+void Interpreter::PrepareStorageForNextQuery() {
+  if (db_accessor_) {
+    db_accessor_->PrepareForNextQuery();
+  }
+}
+
 Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                                 const std::map<std::string, storage::PropertyValue> &params,
                                                 const std::string *username) {
@@ -2715,6 +2721,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   // All queries other than transaction control queries advance the command in
   // an explicit transaction block.
   if (in_explicit_transaction_) {
+    PrepareStorageForNextQuery();
     AdvanceCommand();
   }
   // If we're not in an explicit transaction block and we have an open

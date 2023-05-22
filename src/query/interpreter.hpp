@@ -318,9 +318,6 @@ class Interpreter final {
 
   void BeginTransaction();
 
-  /*
-  Returns transaction id or empty if the db_accessor is not initialized.
-  */
   std::optional<uint64_t> GetTransactionId() const;
 
   void CommitTransaction();
@@ -331,6 +328,8 @@ class Interpreter final {
   void SetSessionIsolationLevel(storage::IsolationLevel isolation_level);
 
   std::vector<TypedValue> GetQueries();
+
+  void PrepareStorageForNextQuery();
 
   /**
    * Abort the current multicommand transaction.

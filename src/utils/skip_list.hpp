@@ -888,7 +888,7 @@ class SkipList final {
   MemoryResource *GetMemoryResource() const { return gc_.GetMemoryResource(); }
 
   /// This function removes all elements from the list.
-  /// NOTE: The function *isn't* thread-safe. It must be called while there are
+  /// NOTE: The function *isn't* thread-safe. It must be called only if there are
   /// no more active accessors using the list.
   void clear() {
     TNode *curr = head_->nexts[0].load(std::memory_order_acquire);

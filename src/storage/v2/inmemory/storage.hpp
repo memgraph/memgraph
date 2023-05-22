@@ -188,6 +188,8 @@ class InMemoryStorage final : public Storage {
 
     void FinalizeTransaction() override;
 
+    void PrepareForNextQuery() override {}
+
    private:
     /// @throw std::bad_alloc
     VertexAccessor CreateVertex(storage::Gid gid);
