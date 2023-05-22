@@ -40,10 +40,6 @@ class LabelIndex {
 
   virtual void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) = 0;
 
-  /// TODO: (andi) parallel_exec_info optional arguements in derived classes
-  virtual bool CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor vertices,
-                           const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info) = 0;
-
   virtual bool DropIndex(LabelId label) = 0;
 
   virtual bool IndexExists(LabelId label) const = 0;

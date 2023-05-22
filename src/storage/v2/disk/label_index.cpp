@@ -11,114 +11,59 @@
 
 #include "storage/v2/disk/label_index.hpp"
 #include "storage/v2/inmemory/indices_utils.hpp"
+#include "utils/file.hpp"
+#include "utils/rocksdb.hpp"
 
 namespace memgraph::storage {
+
+namespace {
+constexpr const char *label_index_path = "rocksdb_label_index";
+}  // namespace
+
+DiskLabelIndex::DiskLabelIndex(Indices *indices, Constraints *constraints, Config::Items config)
+    : LabelIndex(indices, constraints, config) {
+  std::filesystem::path rocksdb_path = label_index_path;
+  kvstore_ = std::make_unique<RocksDBStorage>();
+  utils::EnsureDirOrDie(rocksdb_path);
+  kvstore_->options_.create_if_missing = true;
+  //   // kvstore_->options_.comparator = new ComparatorWithU64TsImpl();
+  logging::AssertRocksDBStatus(rocksdb::DB::Open(kvstore_->options_, rocksdb_path, &kvstore_->db_));
+}
 
 void DiskLabelIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) {
   auto it = index_.find(label);
   if (it == index_.end()) return;
-  auto acc = it->second.access();
-  acc.insert(Entry{vertex, tx.start_timestamp});
 }
 
-bool DiskLabelIndex::CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor vertices,
-                                 const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info) {
-  auto create_index_seq = [this](LabelId label, utils::SkipList<Vertex>::Accessor &vertices,
-                                 std::map<LabelId, utils::SkipList<Entry>>::iterator it) {
-    using IndexAccessor = decltype(it->second.access());
-
-    CreateIndexOnSingleThread(vertices, it, index_, label,
-                              [](Vertex &vertex, LabelId label, IndexAccessor &index_accessor) {
-                                TryInsertLabelIndex(vertex, label, index_accessor);
-                              });
-
-    return true;
-  };
-
-  auto create_index_par = [this](LabelId label, utils::SkipList<Vertex>::Accessor &vertices,
-                                 std::map<LabelId, utils::SkipList<Entry>>::iterator label_it,
-                                 const ParalellizedIndexCreationInfo &paralell_exec_info) {
-    using IndexAccessor = decltype(label_it->second.access());
-
-    CreateIndexOnMultipleThreads(vertices, label_it, index_, label, paralell_exec_info,
-                                 [](Vertex &vertex, LabelId label, IndexAccessor &index_accessor) {
-                                   TryInsertLabelIndex(vertex, label, index_accessor);
-                                 });
-
-    return true;
-  };
-
-  auto [it, emplaced] = index_.emplace(std::piecewise_construct, std::forward_as_tuple(label), std::forward_as_tuple());
-  if (!emplaced) {
-    // Index already exists.
-    return false;
+bool DiskLabelIndex::CreateIndex(LabelId label, const std::vector<std::pair<std::string, std::string>> &vertices) {
+  index_.emplace(label);
+  for (const auto &[key, value] : vertices) {
+    kvstore_->db_->Put(rocksdb::WriteOptions(), key, value);
   }
-
-  if (paralell_exec_info) {
-    return create_index_par(label, vertices, it, *paralell_exec_info);
-  }
-  return create_index_seq(label, vertices, it);
+  return true;
 }
 
-std::vector<LabelId> DiskLabelIndex::ListIndices() const {
-  std::vector<LabelId> ret;
-  ret.reserve(index_.size());
-  for (const auto &item : index_) {
-    ret.push_back(item.first);
-  }
-  return ret;
-}
+std::vector<LabelId> DiskLabelIndex::ListIndices() const { return std::vector<LabelId>(index_.begin(), index_.end()); }
 
 void DiskLabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) {
-  for (auto &label_storage : index_) {
-    auto vertices_acc = label_storage.second.access();
-    for (auto it = vertices_acc.begin(); it != vertices_acc.end();) {
-      auto next_it = it;
-      ++next_it;
+  throw utils::NotYetImplemented("DiskLabelIndex::RemoveObsoleteEntries");
+}
 
-      if (it->timestamp >= oldest_active_start_timestamp) {
-        it = next_it;
-        continue;
-      }
-
-      if ((next_it != vertices_acc.end() && it->vertex == next_it->vertex) ||
-          !AnyVersionHasLabel(*it->vertex, label_storage.first, oldest_active_start_timestamp)) {
-        vertices_acc.remove(*it);
-      }
-
-      it = next_it;
-    }
-  }
+int64_t DiskLabelIndex::ApproximateVertexCount(LabelId /*label*/) const {
+  /// TODO: andi figure out something smarter.
+  return 10;
 }
 
 DiskLabelIndex::Iterable::Iterator::Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
       current_vertex_accessor_(nullptr, nullptr, nullptr, nullptr, self_->config_),
-      current_vertex_(nullptr) {
-  AdvanceUntilValid();
-}
+      current_vertex_(nullptr) {}
 
 DiskLabelIndex::Iterable::Iterator &DiskLabelIndex::Iterable::Iterator::operator++() {
   ++index_iterator_;
-  AdvanceUntilValid();
   return *this;
 }
-
-void DiskLabelIndex::Iterable::Iterator::AdvanceUntilValid() {
-  for (; index_iterator_ != self_->index_accessor_.end(); ++index_iterator_) {
-    if (index_iterator_->vertex == current_vertex_) {
-      continue;
-    }
-    if (CurrentVersionHasLabel(*index_iterator_->vertex, self_->label_, self_->transaction_, self_->view_)) {
-      current_vertex_ = index_iterator_->vertex;
-      current_vertex_accessor_ =
-          VertexAccessor{current_vertex_, self_->transaction_, self_->indices_, self_->constraints_, self_->config_};
-      break;
-    }
-  }
-}
-
 DiskLabelIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, View view,
                                    Transaction *transaction, Indices *indices, Constraints *constraints,
                                    Config::Items config)
@@ -131,9 +76,7 @@ DiskLabelIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_access
       config_(config) {}
 
 void DiskLabelIndex::RunGC() {
-  for (auto &index_entry : index_) {
-    index_entry.second.run_gc();
-  }
+  // throw utils::NotYetImplemented("DiskLabelIndex::RunGC");
 }
 
 }  // namespace memgraph::storage

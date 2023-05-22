@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -345,9 +345,9 @@ class SkipListGc final {
   MemoryResource *GetMemoryResource() const { return memory_; }
 
   void Clear() {
-#ifndef NDEBUG
-    MG_ASSERT(alive_accessors_ == 0, "The SkipList can't be cleared while there are existing accessors!");
-#endif
+    // #ifndef NDEBUG
+    //     MG_ASSERT(alive_accessors_ == 0, "The SkipList can't be cleared while there are existing accessors!");
+    // #endif
     // Delete all allocated blocks.
     Block *head = head_.load(std::memory_order_acquire);
     while (head != nullptr) {

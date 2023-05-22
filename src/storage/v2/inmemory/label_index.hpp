@@ -40,7 +40,7 @@ class InMemoryLabelIndex : public storage::LabelIndex {
 
   /// @throw std::bad_alloc
   bool CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor vertices,
-                   const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info) override;
+                   const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info);
 
   /// Returns false if there was no index to drop
   bool DropIndex(LabelId label) override { return index_.erase(label) > 0; }

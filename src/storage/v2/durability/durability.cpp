@@ -27,6 +27,7 @@
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
+#include "storage/v2/indices/label_property_index.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
@@ -119,7 +120,9 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
   // Recover label indices.
   spdlog::info("Recreating {} label indices from metadata.", indices_constraints.indices.label.size());
   for (const auto &item : indices_constraints.indices.label) {
-    if (!indices->label_index_->CreateIndex(item, vertices->access(), paralell_exec_info))
+    // TODO: andi This thing depends on the concrete storage type
+    auto *mem_label_index = static_cast<InMemoryLabelIndex *>(indices->label_index_.get());
+    if (!mem_label_index->CreateIndex(item, vertices->access(), paralell_exec_info))
       throw RecoveryFailure("The label index must be created here!");
 
     spdlog::info("A label index is recreated from metadata.");

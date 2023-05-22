@@ -16,6 +16,7 @@
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
+#include "storage/v2/storage.hpp"
 #include "utils/file.hpp"
 #include "utils/message.hpp"
 #include "utils/rocksdb.hpp"
@@ -212,14 +213,14 @@ DiskStorage::DiskAccessor::~DiskAccessor() {
   FinalizeTransaction();
 }
 
-std::optional<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(const rocksdb::Slice &key,
+std::optional<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(utils::SkipList<Vertex>::Accessor accessor,
+                                                                           const rocksdb::Slice &key,
                                                                            const rocksdb::Slice &value) {
   OOMExceptionEnabler oom_exception;
   const std::vector<std::string> vertex_parts = utils::Split(key.ToStringView(), "|");
   auto gid = storage::Gid::FromUint(std::stoull(vertex_parts[1]));
-  auto acc = vertices_.access();
   /// In situations when the vertex wasn't evicted from the cache, it will be found in the cache.
-  if (acc.find(gid) != acc.end()) {
+  if (accessor.find(gid) != accessor.end()) {
     spdlog::debug("Vertex with gid {} already exists in the cache!", gid.AsUint());
     return std::nullopt;
   }
@@ -233,7 +234,7 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(const
     std::transform(labels.begin(), labels.end(), std::back_inserter(label_ids),
                    [](const auto &label) { return storage::LabelId::FromUint(std::stoull(label)); });
   }
-  auto impl = CreateVertex(gid, vertex_commit_ts, label_ids, value.ToStringView());
+  auto impl = CreateVertex(accessor, gid, vertex_commit_ts, label_ids, value.ToStringView());
   return impl;
 }
 
@@ -286,17 +287,27 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
     // When deserializing vertex, key size is set to user key-size
     // To be able to extract timestamp, here a copy can be created
     // with size explicitly added with sizeof(uint64_t)
-    DeserializeVertex(it->key(), it->value());
+    DeserializeVertex(vertices_.access(), it->key(), it->value());
   }
   return VerticesIterable(AllVerticesIterable(vertices_.access(), &transaction_, view, &disk_storage->indices_,
                                               &disk_storage->constraints_, disk_storage->config_.items));
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
+  OOMExceptionEnabler oom_exception;
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   auto *disk_label_index = static_cast<DiskLabelIndex *>(disk_storage->indices_.label_index_.get());
-  // return VerticesIterable(disk_label_index->Vertices(label, view, &transaction_));
-  throw utils::NotYetImplemented("DiskStorage::DiskAccessor::Vertices(label, view)");
+  auto it = disk_label_index->CreateRocksDBIterator();
+  for (it->SeekToFirst(); it->Valid(); it->Next()) {
+    std::string key = it->key().ToString();
+    // TODO: andi this will be optimized bla bla
+    if (key.starts_with(utils::SerializeIdType(label))) {
+      DeserializeVertex(indexed_vertices_.access(), it->key(), it->value());
+    }
+  }
+  // TODO: andi. If the current version stays like this no need for two new iterators inside the storage
+  return VerticesIterable(AllVerticesIterable(indexed_vertices_.access(), &transaction_, view, &disk_storage->indices_,
+                                              &disk_storage->constraints_, disk_storage->config_.items));
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, View view) {
@@ -379,8 +390,9 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex(storage::Gid gid) {
 
 /// TODO(andi): This method is the duplicate of CreateVertex(storage::Gid gid), the only thing that is different is
 /// delta creation How to remove this duplication?
-VertexAccessor DiskStorage::DiskAccessor::CreateVertex(storage::Gid gid, uint64_t vertex_commit_ts,
-                                                       std::vector<LabelId> label_ids, std::string_view properties) {
+VertexAccessor DiskStorage::DiskAccessor::CreateVertex(utils::SkipList<Vertex>::Accessor &accessor, storage::Gid gid,
+                                                       uint64_t vertex_commit_ts, std::vector<LabelId> label_ids,
+                                                       std::string_view properties) {
   OOMExceptionEnabler oom_exception;
   // NOTE: When we update the next `vertex_id_` here we perform a RMW
   // (read-modify-write) operation that ISN'T atomic! But, that isn't an issue
@@ -389,14 +401,13 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex(storage::Gid gid, uint64_
   // threads (it is the replica), it is guaranteed that no other writes are
   // possible.
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  auto acc = vertices_.access();
   disk_storage->vertex_id_.store(std::max(disk_storage->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
                                  std::memory_order_release);
   auto *delta = CreateDeleteDeserializedObjectDelta(&transaction_, vertex_commit_ts);
-  auto [it, inserted] = acc.insert(Vertex{gid, delta});
+  auto [it, inserted] = accessor.insert(Vertex{gid, delta});
   // NOTE: If the vertex with the given gid doesn't exist on the disk, it must be inserted here.
   MG_ASSERT(inserted, "The vertex must be inserted here!");
-  MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
+  MG_ASSERT(it != accessor.end(), "Invalid Vertex accessor!");
   for (auto label_id : label_ids) {
     it->labels.push_back(label_id);
   }
@@ -429,7 +440,7 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid
     const auto &key = it->key();
     // TODO(andi): If we change format of vertex serialization, change vertex_parts[1] to vertex_parts[0].
     if (const auto vertex_parts = utils::Split(key.ToString(), "|"); vertex_parts[1] == utils::SerializeIdType(gid)) {
-      return DeserializeVertex(key, it->value());
+      return DeserializeVertex(vertices_.access(), key, it->value());
     }
   }
   return std::nullopt;
@@ -1220,33 +1231,32 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
   rocksdb::Slice ts(strTs);
   ro.timestamp = &ts;
   auto it = std::unique_ptr<rocksdb::Iterator>(kvstore_->db_->NewIterator(ro, kvstore_->vertex_chandle));
-  std::vector<std::tuple<std::string, std::string, uint64_t>> indexed_vertices;
+  std::vector<std::pair<std::string, std::string>> vertices_to_be_indexed;
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     const auto &key = it->key();
     const auto vertex_parts = utils::Split(key.ToStringView(), "|");
-    if (const auto labels = utils::Split(vertex_parts[0], ",");
-        // TODO: (andi): When you decouple utils::SerializeIdType, modify this to_string call to use
-        // utils::SerializeIdType.
-        std::find(labels.begin(), labels.end(), std::to_string(label.AsUint())) != labels.end()) {
-      spdlog::debug("Found vertex with gid {} for index creation", vertex_parts[1]);
-      indexed_vertices.emplace_back(key.ToString(), it->value().ToString(),
-                                    utils::ExtractTimestampFromDeserializedUserKey(key));
+    if (const std::vector<std::string> labels = utils::Split(vertex_parts[0], ",");
+        std::find(labels.begin(), labels.end(), utils::SerializeIdType(label)) != labels.end()) {
+      std::string gid = vertex_parts[1];
+      spdlog::debug("Found vertex with gid {} for index creation", gid);
+      vertices_to_be_indexed.emplace_back(utils::SerializeIndexedVertex(label, labels, gid), it->value().ToString());
     }
   }
 
-  // std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  // if (!indices_.label_index.CreateIndex(label, indexed_vertices)) {
-  //   return StorageIndexDefinitionError{IndexDefinitionError{}};
-  // }
-  // const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  // const auto success =
-  // AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_INDEX_CREATE, label, {}, commit_timestamp);
-  // commit_log_->MarkFinished(commit_timestamp);
-  // last_commit_timestamp_ = commit_timestamp;
+  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+  if (auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
+      !disk_label_index->CreateIndex(label, vertices_to_be_indexed)) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
+  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
+  const auto success =
+      AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_INDEX_CREATE, label, {}, commit_timestamp);
+  commit_log_->MarkFinished(commit_timestamp);
+  last_commit_timestamp_ = commit_timestamp;
 
-  // if (success) {
-  // return {};
-  // }
+  if (success) {
+    return {};
+  }
 
   return StorageIndexDefinitionError{ReplicationError{}};
 }
@@ -1582,12 +1592,219 @@ void DiskStorage::FinalizeWalFile() {
 }
 
 bool DiskStorage::AppendToWalDataManipulation(const Transaction &transaction, uint64_t final_commit_timestamp) {
-  throw utils::NotYetImplemented("AppendToWalDataManipulation");
+  if (!InitializeWalFile()) {
+    return true;
+  }
+  // Traverse deltas and append them to the WAL file.
+  // A single transaction will always be contained in a single WAL file.
+  auto current_commit_timestamp = transaction.commit_timestamp->load(std::memory_order_acquire);
+
+  // if (replication_role_.load() == ReplicationRole::MAIN) {
+  //   replication_clients_.WithLock([&](auto &clients) {
+  //     for (auto &client : clients) {
+  //       client->StartTransactionReplication(wal_file_->SequenceNumber());
+  //     }
+  //   });
+  // }
+
+  // Helper lambda that traverses the delta chain on order to find the first
+  // delta that should be processed and then appends all discovered deltas.
+  auto find_and_apply_deltas = [&](const auto *delta, const auto &parent, auto filter) {
+    while (true) {
+      auto *older = delta->next.load(std::memory_order_acquire);
+      if (older == nullptr || older->timestamp->load(std::memory_order_acquire) != current_commit_timestamp) break;
+      delta = older;
+    }
+    while (true) {
+      if (filter(delta->action)) {
+        wal_file_->AppendDelta(*delta, parent, final_commit_timestamp);
+        // replication_clients_.WithLock([&](auto &clients) {
+        //   for (auto &client : clients) {
+        //     client->IfStreamingTransaction(
+        //         [&](auto &stream) { stream.AppendDelta(*delta, parent, final_commit_timestamp); });
+        //   }
+        // });
+      }
+      auto prev = delta->prev.Get();
+      MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
+      if (prev.type != PreviousPtr::Type::DELTA) break;
+      delta = prev.delta;
+    }
+  };
+
+  // The deltas are ordered correctly in the `transaction.deltas` buffer, but we
+  // don't traverse them in that order. That is because for each delta we need
+  // information about the vertex or edge they belong to and that information
+  // isn't stored in the deltas themselves. In order to find out information
+  // about the corresponding vertex or edge it is necessary to traverse the
+  // delta chain for each delta until a vertex or edge is encountered. This
+  // operation is very expensive as the chain grows.
+  // Instead, we traverse the edges until we find a vertex or edge and traverse
+  // their delta chains. This approach has a drawback because we lose the
+  // correct order of the operations. Because of that, we need to traverse the
+  // deltas several times and we have to manually ensure that the stored deltas
+  // will be ordered correctly.
+
+  // 1. Process all Vertex deltas and store all operations that create vertices
+  // and modify vertex data.
+  for (const auto &delta : transaction.deltas) {
+    auto prev = delta.prev.Get();
+    MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
+    if (prev.type != PreviousPtr::Type::VERTEX) continue;
+    find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
+      switch (action) {
+        case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+        case Delta::Action::DELETE_OBJECT:
+        case Delta::Action::SET_PROPERTY:
+        case Delta::Action::ADD_LABEL:
+        case Delta::Action::REMOVE_LABEL:
+          return true;
+
+        case Delta::Action::RECREATE_OBJECT:
+        case Delta::Action::ADD_IN_EDGE:
+        case Delta::Action::ADD_OUT_EDGE:
+        case Delta::Action::REMOVE_IN_EDGE:
+        case Delta::Action::REMOVE_OUT_EDGE:
+          return false;
+      }
+    });
+  }
+  // 2. Process all Vertex deltas and store all operations that create edges.
+  for (const auto &delta : transaction.deltas) {
+    auto prev = delta.prev.Get();
+    MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
+    if (prev.type != PreviousPtr::Type::VERTEX) continue;
+    find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
+      switch (action) {
+        case Delta::Action::REMOVE_OUT_EDGE:
+          return true;
+        case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+        case Delta::Action::DELETE_OBJECT:
+        case Delta::Action::RECREATE_OBJECT:
+        case Delta::Action::SET_PROPERTY:
+        case Delta::Action::ADD_LABEL:
+        case Delta::Action::REMOVE_LABEL:
+        case Delta::Action::ADD_IN_EDGE:
+        case Delta::Action::ADD_OUT_EDGE:
+        case Delta::Action::REMOVE_IN_EDGE:
+          return false;
+      }
+    });
+  }
+  // 3. Process all Edge deltas and store all operations that modify edge data.
+  for (const auto &delta : transaction.deltas) {
+    auto prev = delta.prev.Get();
+    MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
+    if (prev.type != PreviousPtr::Type::EDGE) continue;
+    find_and_apply_deltas(&delta, *prev.edge, [](auto action) {
+      switch (action) {
+        case Delta::Action::SET_PROPERTY:
+          return true;
+        case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+        case Delta::Action::DELETE_OBJECT:
+        case Delta::Action::RECREATE_OBJECT:
+        case Delta::Action::ADD_LABEL:
+        case Delta::Action::REMOVE_LABEL:
+        case Delta::Action::ADD_IN_EDGE:
+        case Delta::Action::ADD_OUT_EDGE:
+        case Delta::Action::REMOVE_IN_EDGE:
+        case Delta::Action::REMOVE_OUT_EDGE:
+          return false;
+      }
+    });
+  }
+  // 4. Process all Vertex deltas and store all operations that delete edges.
+  for (const auto &delta : transaction.deltas) {
+    auto prev = delta.prev.Get();
+    MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
+    if (prev.type != PreviousPtr::Type::VERTEX) continue;
+    find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
+      switch (action) {
+        case Delta::Action::ADD_OUT_EDGE:
+          return true;
+        case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+        case Delta::Action::DELETE_OBJECT:
+        case Delta::Action::RECREATE_OBJECT:
+        case Delta::Action::SET_PROPERTY:
+        case Delta::Action::ADD_LABEL:
+        case Delta::Action::REMOVE_LABEL:
+        case Delta::Action::ADD_IN_EDGE:
+        case Delta::Action::REMOVE_IN_EDGE:
+        case Delta::Action::REMOVE_OUT_EDGE:
+          return false;
+      }
+    });
+  }
+  // 5. Process all Vertex deltas and store all operations that delete vertices.
+  for (const auto &delta : transaction.deltas) {
+    auto prev = delta.prev.Get();
+    MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
+    if (prev.type != PreviousPtr::Type::VERTEX) continue;
+    find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
+      switch (action) {
+        case Delta::Action::RECREATE_OBJECT:
+          return true;
+        case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+        case Delta::Action::DELETE_OBJECT:
+        case Delta::Action::SET_PROPERTY:
+        case Delta::Action::ADD_LABEL:
+        case Delta::Action::REMOVE_LABEL:
+        case Delta::Action::ADD_IN_EDGE:
+        case Delta::Action::ADD_OUT_EDGE:
+        case Delta::Action::REMOVE_IN_EDGE:
+        case Delta::Action::REMOVE_OUT_EDGE:
+          return false;
+      }
+    });
+  }
+
+  // Add a delta that indicates that the transaction is fully written to the WAL
+  // file.
+  wal_file_->AppendTransactionEnd(final_commit_timestamp);
+
+  FinalizeWalFile();
+
+  auto finalized_on_all_replicas = true;
+  // replication_clients_.WithLock([&](auto &clients) {
+  //   for (auto &client : clients) {
+  //     client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(final_commit_timestamp); });
+  //     const auto finalized = client->FinalizeTransactionReplication();
+
+  //     if (client->Mode() == replication::ReplicationMode::SYNC) {
+  //       finalized_on_all_replicas = finalized && finalized_on_all_replicas;
+  //     }
+  //   }
+  // });
+
+  return finalized_on_all_replicas;
 }
 
 bool DiskStorage::AppendToWalDataDefinition(durability::StorageGlobalOperation operation, LabelId label,
                                             const std::set<PropertyId> &properties, uint64_t final_commit_timestamp) {
-  throw utils::NotYetImplemented("AppendToWalDataDefinition");
+  if (!InitializeWalFile()) {
+    return true;
+  }
+
+  auto finalized_on_all_replicas = true;
+  wal_file_->AppendOperation(operation, label, properties, final_commit_timestamp);
+  // {
+  //   if (replication_role_.load() == ReplicationRole::MAIN) {
+  //     replication_clients_.WithLock([&](auto &clients) {
+  //       for (auto &client : clients) {
+  //         client->StartTransactionReplication(wal_file_->SequenceNumber());
+  //         client->IfStreamingTransaction(
+  //             [&](auto &stream) { stream.AppendOperation(operation, label, properties, final_commit_timestamp); });
+
+  //         const auto finalized = client->FinalizeTransactionReplication();
+  //         if (client->Mode() == replication::ReplicationMode::SYNC) {
+  //           finalized_on_all_replicas = finalized && finalized_on_all_replicas;
+  //         }
+  //       }
+  //     });
+  //   }
+  // }
+  FinalizeWalFile();
+  return finalized_on_all_replicas;
 }
 
 void DiskStorage::SetStorageMode(StorageMode storage_mode) {

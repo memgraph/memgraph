@@ -9,14 +9,18 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <rocksdb/iterator.h>
+#include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/indices/label_index.hpp"
 #include "storage/v2/vertex.hpp"
+#include "utils/rocksdb.hpp"
 
 namespace memgraph::storage {
 
 using ParalellizedIndexCreationInfo =
     std::pair<std::vector<std::pair<Gid, uint64_t>> /*vertex_recovery_info*/, uint64_t /*thread_count*/>;
 
+using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 class DiskLabelIndex : public storage::LabelIndex {
  private:
   struct Entry {
@@ -30,15 +34,12 @@ class DiskLabelIndex : public storage::LabelIndex {
   };
 
  public:
-  DiskLabelIndex(Indices *indices, Constraints *constraints, Config::Items config)
-      : LabelIndex(indices, constraints, config) {}
+  DiskLabelIndex(Indices *indices, Constraints *constraints, Config::Items config);
 
   /// @throw std::bad_alloc
   void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) override;
 
-  /// @throw std::bad_alloc
-  bool CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor vertices,
-                   const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info) override;
+  bool CreateIndex(LabelId label, const std::vector<std::pair<std::string, std::string>> &vertices);
 
   /// Returns false if there was no index to drop
   bool DropIndex(LabelId label) override { return index_.erase(label) > 0; }
@@ -66,8 +67,6 @@ class DiskLabelIndex : public storage::LabelIndex {
       Iterator &operator++();
 
      private:
-      void AdvanceUntilValid();
-
       Iterable *self_;
       utils::SkipList<Entry>::Iterator index_iterator_;
       VertexAccessor current_vertex_accessor_;
@@ -88,16 +87,27 @@ class DiskLabelIndex : public storage::LabelIndex {
   };
 
   /// Returns an self with vertices visible from the given transaction.
-  Iterable Vertices(LabelId label, View view, Transaction *transaction) {
+  Iterable Vertices(utils::SkipList<Vertex>::Accessor accessor, LabelId label, View view, Transaction *transaction) {
+    OOMExceptionEnabler oom_exception;
     auto it = index_.find(label);
     MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist", label.AsUint());
-    return Iterable(it->second.access(), label, view, transaction, indices_, constraints_, config_);
+    // rocksdb::ReadOptions ro;
+    // auto rocks_it = std::unique_ptr<rocksdb::Iterator>(kvstore_->db_->NewIterator(ro));
+    // for (rocks_it->SeekToFirst(); rocks_it->Valid(); rocks_it->Next()) {
+    //   std::string key = rocks_it->key().ToString();
+    //   if (key.starts_with(utils::SerializeIdType(label))) {
+    //     // DeserializeVertex(rocks_it->key(), rocks_it->value());
+    //   }
+    // }
+
+    // return Iterable(it->second.access(), label, view, transaction, indices_, constraints_, config_);
+    throw utils::NotYetImplemented("DiskLabelIndex::Vertices");
   }
 
-  int64_t ApproximateVertexCount(LabelId label) const override {
-    auto it = index_.find(label);
-    MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist", label.AsUint());
-    return it->second.size();
+  int64_t ApproximateVertexCount(LabelId label) const override;
+
+  std::unique_ptr<rocksdb::Iterator> CreateRocksDBIterator() {
+    return std::unique_ptr<rocksdb::Iterator>(kvstore_->db_->NewIterator(rocksdb::ReadOptions()));
   }
 
   void Clear() override { index_.clear(); }
@@ -105,10 +115,11 @@ class DiskLabelIndex : public storage::LabelIndex {
   void RunGC() override;
 
  private:
-  std::map<LabelId, utils::SkipList<Entry>> index_;
+  std::unordered_set<LabelId> index_;
   Indices *indices_;
   Constraints *constraints_;
   Config::Items config_;
+  std::unique_ptr<RocksDBStorage> kvstore_;
 };
 
 }  // namespace memgraph::storage

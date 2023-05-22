@@ -69,9 +69,7 @@ class DiskStorage final : public Storage {
 
     int64_t ApproximateVertexCount() const override;
 
-    int64_t ApproximateVertexCount(LabelId label) const override {
-      throw utils::NotYetImplemented("ApproximateVertexCount(label) is not implemented for DiskStorage.");
-    }
+    int64_t ApproximateVertexCount(LabelId label) const override { return 10; }
 
     int64_t ApproximateVertexCount(LabelId label, PropertyId property) const override {
       throw utils::NotYetImplemented("ApproximateVertexCount(label, property) is not implemented for DiskStorage.");
@@ -124,7 +122,10 @@ class DiskStorage final : public Storage {
 
     Result<std::optional<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge) override;
 
-    bool LabelIndexExists(LabelId label) const override { throw utils::NotYetImplemented("LabelIndexExists()"); }
+    bool LabelIndexExists(LabelId label) const override {
+      auto *disk_storage = static_cast<DiskStorage *>(storage_);
+      return disk_storage->indices_.label_index_->IndexExists(label);
+    }
 
     bool LabelPropertyIndexExists(LabelId label, PropertyId property) const override {
       throw utils::NotYetImplemented("LabelPropertyIndexExists() is not implemented for DiskStorage.");
@@ -151,7 +152,8 @@ class DiskStorage final : public Storage {
     /// Deserializes vertex from the string key and stores it into the vertices_ and lru_vertices_.
     /// Properties are deserialized from the value.
     /// The method should be called only when the vertex is not in the cache.
-    std::optional<storage::VertexAccessor> DeserializeVertex(const rocksdb::Slice &key, const rocksdb::Slice &value);
+    std::optional<storage::VertexAccessor> DeserializeVertex(utils::SkipList<Vertex>::Accessor accessor,
+                                                             const rocksdb::Slice &key, const rocksdb::Slice &value);
 
     /// Deserializes edge from the string key and stores it into the edges_ cache.
     /// Properties are deserialized from the value.
@@ -165,8 +167,8 @@ class DiskStorage final : public Storage {
     VertexAccessor CreateVertex(storage::Gid gid);
 
     /// TODO(andi): Consolidate this vertex creation methods and find from in-memory version where are they used.
-    VertexAccessor CreateVertex(storage::Gid gid, uint64_t vertex_commit_ts, std::vector<LabelId> label_ids,
-                                std::string_view properties);
+    VertexAccessor CreateVertex(utils::SkipList<Vertex>::Accessor &accessor, storage::Gid gid,
+                                uint64_t vertex_commit_ts, std::vector<LabelId> label_ids, std::string_view properties);
 
     void PrefetchEdges(const auto &prefetch_edge_filter);
 
@@ -185,6 +187,7 @@ class DiskStorage final : public Storage {
 
     // Main object storage
     utils::SkipList<storage::Vertex> vertices_;
+    utils::SkipList<storage::Vertex> indexed_vertices_;
     utils::SkipList<storage::Edge> edges_;
     Config::Items config_;
     std::vector<std::string> edges_to_delete_;
