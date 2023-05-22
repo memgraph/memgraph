@@ -12,6 +12,7 @@
 #pragma once
 
 #include <map>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -209,7 +210,7 @@ State HandleRunV1(TSession &session, const State state, const Marker marker) {
 
   try {
     // Interpret can throw.
-    const auto [header, qid] = session.Interpret(query.ValueString(), params.ValueMap());
+    const auto [header, qid] = session.Interpret(query.ValueString(), params.ValueMap(), {});
     // Convert std::string to Value
     std::vector<Value> vec;
     std::map<std::string, Value> data;
@@ -266,7 +267,7 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
 
   try {
     // Interpret can throw.
-    const auto [header, qid] = session.Interpret(query.ValueString(), params.ValueMap());
+    const auto [header, qid] = session.Interpret(query.ValueString(), params.ValueMap(), extra.ValueMap());
     // Convert std::string to Value
     std::vector<Value> vec;
     std::map<std::string, Value> data;
@@ -360,7 +361,7 @@ State HandleBegin(TSession &session, const State state, const Marker marker) {
   }
 
   try {
-    session.BeginTransaction();
+    session.BeginTransaction(extra.ValueMap());
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
   }

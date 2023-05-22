@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -39,7 +39,8 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
       : Session<TestInputStream, TestOutputStream>(input_stream, output_stream) {}
 
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(
-      const std::string &query, const std::map<std::string, Value> &params) override {
+      const std::string &query, const std::map<std::string, Value> &params,
+      const std::map<std::string, Value> &metadata = {}) override {
     if (query == kQueryReturn42 || query == kQueryEmpty || query == kQueryReturnMultiple) {
       query_ = query;
       return {{"result_name"}, {}};
@@ -78,7 +79,7 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
 
   std::map<std::string, Value> Discard(std::optional<int>, std::optional<int>) override { return {}; }
 
-  void BeginTransaction() override {}
+  void BeginTransaction(const std::map<std::string, Value> &metadata) override {}
   void CommitTransaction() override {}
   void RollbackTransaction() override {}
 

@@ -112,6 +112,16 @@ void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
   }
 }
 
+template <typename T>
+concept HasEmpty = requires(T t) {
+  { t.empty() } -> std::convertible_to<bool>;
+};
+
+template <HasEmpty T>
+inline std::optional<T> GenOptional(const T &in) {
+  return in.empty() ? std::nullopt : std::optional<T>{in};
+}
+
 struct Callback {
   std::vector<std::string> header;
   using CallbackFunction = std::function<std::vector<std::vector<TypedValue>>()>;
@@ -1177,11 +1187,12 @@ Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
 }
 
-PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper) {
+PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper,
+                                                   const std::map<std::string, storage::PropertyValue> &metadata) {
   std::function<void()> handler;
 
   if (query_upper == "BEGIN") {
-    handler = [this] {
+    handler = [this, metadata] {
       if (in_explicit_transaction_) {
         throw ExplicitTransactionUsageException("Nested transactions are not supported.");
       }
@@ -1190,6 +1201,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
 
       in_explicit_transaction_ = true;
       expect_rollback_ = false;
+      metadata_ = GenOptional(metadata);
 
       db_accessor_ =
           std::make_unique<storage::Storage::Accessor>(interpreter_context_->db->Access(GetIsolationLevelOverride()));
@@ -1220,6 +1232,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
 
       expect_rollback_ = false;
       in_explicit_transaction_ = false;
+      metadata_ = std::nullopt;
     };
   } else if (query_upper == "ROLLBACK") {
     handler = [this] {
@@ -1232,6 +1245,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
       Abort();
       expect_rollback_ = false;
       in_explicit_transaction_ = false;
+      metadata_ = std::nullopt;
     };
   } else {
     LOG_FATAL("Should not get here -- unknown transaction query!");
@@ -2212,6 +2226,14 @@ std::vector<std::vector<TypedValue>> TransactionQueueQueryHandler::ShowTransacti
       const auto &typed_queries = interpreter->GetQueries();
       results.push_back({TypedValue(interpreter->username_.value_or("")),
                          TypedValue(std::to_string(transaction_id.value())), TypedValue(typed_queries)});
+      // Handle user-defined metadata
+      std::map<std::string, TypedValue> metadata_tv;
+      if (interpreter->metadata_) {
+        for (const auto &md : *(interpreter->metadata_)) {
+          metadata_tv.emplace(md.first, TypedValue(md.second));
+        }
+      }
+      results.back().push_back(TypedValue(metadata_tv));
     }
   }
   return results;
@@ -2281,7 +2303,7 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
   Callback callback;
   switch (transaction_query->action_) {
     case TransactionQueueQuery::Action::SHOW_TRANSACTIONS: {
-      callback.header = {"username", "transaction_id", "query"};
+      callback.header = {"username", "transaction_id", "query", "metadata"};
       callback.fn = [handler = TransactionQueueQueryHandler(), interpreter_context, username,
                      hasTransactionManagementPrivilege]() mutable {
         std::vector<std::vector<TypedValue>> results;
@@ -2717,8 +2739,8 @@ std::optional<uint64_t> Interpreter::GetTransactionId() const {
   return {};
 }
 
-void Interpreter::BeginTransaction() {
-  const auto prepared_query = PrepareTransactionQuery("BEGIN");
+void Interpreter::BeginTransaction(const std::map<std::string, storage::PropertyValue> &metadata) {
+  const auto prepared_query = PrepareTransactionQuery("BEGIN", metadata);
   prepared_query.query_handler(nullptr, {});
 }
 
@@ -2738,10 +2760,13 @@ void Interpreter::RollbackTransaction() {
 
 Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                                 const std::map<std::string, storage::PropertyValue> &params,
-                                                const std::string *username) {
+                                                const std::string *username,
+                                                const std::map<std::string, storage::PropertyValue> &metadata) {
   if (!in_explicit_transaction_) {
     query_executions_.clear();
     transaction_queries_->clear();
+    // Handle user-defined metadata in auto-transactions
+    metadata_ = GenOptional(metadata);
   }
 
   // This will be done in the handle transaction query. Our handler can save username and then send it to the kill and
@@ -2761,7 +2786,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     std::optional<int> qid =
         in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};
 
-    query_execution->prepared_query.emplace(PrepareTransactionQuery(trimmed_query));
+    query_execution->prepared_query.emplace(PrepareTransactionQuery(trimmed_query, metadata));
     return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid};
   }
 
@@ -2769,7 +2794,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   transaction_queries_->push_back(query_string);
 
   // All queries other than transaction control queries advance the command in
-  // an explicit transaction block.
+  // an explicit transaction block.in_explicit_transaction_
   if (in_explicit_transaction_) {
     AdvanceCommand();
   } else if (db_accessor_) {
@@ -2962,6 +2987,7 @@ void Interpreter::Abort() {
 
   expect_rollback_ = false;
   in_explicit_transaction_ = false;
+  metadata_ = std::nullopt;
 
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTransactions);
 

@@ -533,16 +533,23 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
   using memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                memgraph::communication::v2::OutputStream>::TEncoder;
 
-  void BeginTransaction() override { interpreter_.BeginTransaction(); }
+  void BeginTransaction(const std::map<std::string, memgraph::communication::bolt::Value> &metadata) override {
+    std::map<std::string, memgraph::storage::PropertyValue> metadata_pv;
+    for (const auto &kv : metadata) metadata_pv.emplace(kv.first, memgraph::glue::ToPropertyValue(kv.second));
+    interpreter_.BeginTransaction(metadata_pv);
+  }
 
   void CommitTransaction() override { interpreter_.CommitTransaction(); }
 
   void RollbackTransaction() override { interpreter_.RollbackTransaction(); }
 
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(
-      const std::string &query, const std::map<std::string, memgraph::communication::bolt::Value> &params) override {
+      const std::string &query, const std::map<std::string, memgraph::communication::bolt::Value> &params,
+      const std::map<std::string, memgraph::communication::bolt::Value> &metadata) override {
     std::map<std::string, memgraph::storage::PropertyValue> params_pv;
+    std::map<std::string, memgraph::storage::PropertyValue> metadata_pv;
     for (const auto &kv : params) params_pv.emplace(kv.first, memgraph::glue::ToPropertyValue(kv.second));
+    for (const auto &kv : metadata) metadata_pv.emplace(kv.first, memgraph::glue::ToPropertyValue(kv.second));
     const std::string *username{nullptr};
     if (user_) {
       username = &user_->username();
@@ -554,7 +561,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
     }
 #endif
     try {
-      auto result = interpreter_.Prepare(query, params_pv, username);
+      auto result = interpreter_.Prepare(query, params_pv, username, metadata_pv);
       if (user_ && !memgraph::glue::AuthChecker::IsUserAuthorized(*user_, result.privileges)) {
         interpreter_.Abort();
         throw memgraph::communication::bolt::ClientError(
