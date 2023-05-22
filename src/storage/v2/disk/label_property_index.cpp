@@ -11,8 +11,25 @@
 
 #include "storage/v2/disk/label_property_index.hpp"
 #include "storage/v2/inmemory/indices_utils.hpp"
+#include "utils/exceptions.hpp"
+#include "utils/file.hpp"
+#include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
+
+namespace {
+constexpr const char *label_property_index_path = "rocksdb_label_property_index";
+}  // namespace
+
+DiskLabelPropertyIndex::DiskLabelPropertyIndex(Indices *indices, Constraints *constraints, Config::Items config)
+    : LabelPropertyIndex(indices, constraints, config) {
+  std::filesystem::path rocksdb_path = label_property_index_path;
+  kvstore_ = std::make_unique<RocksDBStorage>();
+  utils::EnsureDirOrDie(rocksdb_path);
+  kvstore_->options_.create_if_missing = true;
+  //   // kvstore_->options_.comparator = new ComparatorWithU64TsImpl();
+  logging::AssertRocksDBStatus(rocksdb::DB::Open(kvstore_->options_, rocksdb_path, &kvstore_->db_));
+}
 
 bool DiskLabelPropertyIndex::Entry::operator<(const Entry &rhs) {
   if (value < rhs.value) {
@@ -33,16 +50,8 @@ bool DiskLabelPropertyIndex::Entry::operator<(const PropertyValue &rhs) { return
 bool DiskLabelPropertyIndex::Entry::operator==(const PropertyValue &rhs) { return value == rhs; }
 
 void DiskLabelPropertyIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) {
-  for (auto &[label_prop, storage] : index_) {
-    if (label_prop.first != label) {
-      continue;
-    }
-    auto prop_value = vertex->properties.GetProperty(label_prop.second);
-    if (!prop_value.IsNull()) {
-      auto acc = storage.access();
-      acc.insert(Entry{std::move(prop_value), vertex, tx.start_timestamp});
-    }
-  }
+  /// TODO: andi iterate over whole set
+  // throw utils::NotYetImplemented("DiskLabelPropertyIndex::UpdateOnAddLabel");
 }
 
 void DiskLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
@@ -50,137 +59,45 @@ void DiskLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const Prop
   if (value.IsNull()) {
     return;
   }
-  for (auto &[label_prop, storage] : index_) {
-    if (label_prop.second != property) {
-      continue;
-    }
-    if (utils::Contains(vertex->labels, label_prop.first)) {
-      auto acc = storage.access();
-      acc.insert(Entry{value, vertex, tx.start_timestamp});
-    }
-  }
+  /// TODO: andi iterate over whole set
+  // throw utils::NotYetImplemented("DiskLabelPropertyIndex::UpdateOnSetProperty");
 }
 
-bool DiskLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
-                                         const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info) {
-  auto create_index_seq = [this](LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor &vertices,
-                                 std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>>::iterator it) {
-    using IndexAccessor = decltype(it->second.access());
-
-    CreateIndexOnSingleThread(vertices, it, index_, std::make_pair(label, property),
-                              [](Vertex &vertex, std::pair<LabelId, PropertyId> key, IndexAccessor &index_accessor) {
-                                TryInsertLabelPropertyIndex(vertex, key, index_accessor);
-                              });
-
-    return true;
-  };
-
-  auto create_index_par =
-      [this](LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor &vertices,
-             std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>>::iterator label_property_it,
-             const ParalellizedIndexCreationInfo &paralell_exec_info) {
-        using IndexAccessor = decltype(label_property_it->second.access());
-
-        CreateIndexOnMultipleThreads(
-            vertices, label_property_it, index_, std::make_pair(label, property), paralell_exec_info,
-            [](Vertex &vertex, std::pair<LabelId, PropertyId> key, IndexAccessor &index_accessor) {
-              TryInsertLabelPropertyIndex(vertex, key, index_accessor);
-            });
-
-        return true;
-      };
-
-  auto [it, emplaced] =
-      index_.emplace(std::piecewise_construct, std::forward_as_tuple(label, property), std::forward_as_tuple());
-  if (!emplaced) {
-    // Index already exists.
-    return false;
+bool DiskLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
+                                         const std::vector<std::pair<std::string, std::string>> &vertices) {
+  index_.emplace(label, property);
+  rocksdb::WriteOptions wo;
+  for (const auto &[key, value] : vertices) {
+    kvstore_->db_->Put(wo, key, value);
   }
+  return true;
+}
 
-  if (paralell_exec_info) {
-    return create_index_par(label, property, vertices, it, *paralell_exec_info);
-  }
-  return create_index_seq(label, property, vertices, it);
+bool DiskLabelPropertyIndex::DropIndex(LabelId label, PropertyId property) {
+  return index_.erase({label, property}) > 0;
+}
+
+bool DiskLabelPropertyIndex::IndexExists(LabelId label, PropertyId property) const {
+  return index_.find({label, property}) != index_.end();
 }
 
 std::vector<std::pair<LabelId, PropertyId>> DiskLabelPropertyIndex::ListIndices() const {
-  std::vector<std::pair<LabelId, PropertyId>> ret;
-  ret.reserve(index_.size());
-  for (const auto &item : index_) {
-    ret.push_back(item.first);
-  }
-  return ret;
+  return std::vector<std::pair<LabelId, PropertyId>>(index_.begin(), index_.end());
 }
 
 void DiskLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) {
-  for (auto &[label_property, index] : index_) {
-    auto index_acc = index.access();
-    for (auto it = index_acc.begin(); it != index_acc.end();) {
-      auto next_it = it;
-      ++next_it;
-
-      if (it->timestamp >= oldest_active_start_timestamp) {
-        it = next_it;
-        continue;
-      }
-
-      if ((next_it != index_acc.end() && it->vertex == next_it->vertex && it->value == next_it->value) ||
-          !AnyVersionHasLabelProperty(*it->vertex, label_property.first, label_property.second, it->value,
-                                      oldest_active_start_timestamp)) {
-        index_acc.remove(*it);
-      }
-      it = next_it;
-    }
-  }
+  throw utils::NotYetImplemented("DiskLabelPropertyIndex::RemoveObsoleteEntries");
 }
 
 DiskLabelPropertyIndex::Iterable::Iterator::Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
       current_vertex_accessor_(nullptr, nullptr, nullptr, nullptr, self_->config_),
-      current_vertex_(nullptr) {
-  AdvanceUntilValid();
-}
+      current_vertex_(nullptr) {}
 
 DiskLabelPropertyIndex::Iterable::Iterator &DiskLabelPropertyIndex::Iterable::Iterator::operator++() {
   ++index_iterator_;
-  AdvanceUntilValid();
   return *this;
-}
-
-void DiskLabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
-  for (; index_iterator_ != self_->index_accessor_.end(); ++index_iterator_) {
-    if (index_iterator_->vertex == current_vertex_) {
-      continue;
-    }
-
-    if (self_->lower_bound_) {
-      if (index_iterator_->value < self_->lower_bound_->value()) {
-        continue;
-      }
-      if (!self_->lower_bound_->IsInclusive() && index_iterator_->value == self_->lower_bound_->value()) {
-        continue;
-      }
-    }
-    if (self_->upper_bound_) {
-      if (self_->upper_bound_->value() < index_iterator_->value) {
-        index_iterator_ = self_->index_accessor_.end();
-        break;
-      }
-      if (!self_->upper_bound_->IsInclusive() && index_iterator_->value == self_->upper_bound_->value()) {
-        index_iterator_ = self_->index_accessor_.end();
-        break;
-      }
-    }
-
-    if (CurrentVersionHasLabelProperty(*index_iterator_->vertex, self_->label_, self_->property_,
-                                       index_iterator_->value, self_->transaction_, self_->view_)) {
-      current_vertex_ = index_iterator_->vertex;
-      current_vertex_accessor_ =
-          VertexAccessor(current_vertex_, self_->transaction_, self_->indices_, self_->constraints_, self_->config_);
-      break;
-    }
-  }
 }
 
 // These constants represent the smallest possible value of each type that is
@@ -320,36 +237,21 @@ DiskLabelPropertyIndex::Iterable::Iterator DiskLabelPropertyIndex::Iterable::end
   return Iterator(this, index_accessor_.end());
 }
 
+int64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId property) const {
+  throw utils::NotYetImplemented("DiskLabelPropertyIndex::ApproximateVertexCount");
+}
+
 int64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId property,
                                                        const PropertyValue &value) const {
-  auto it = index_.find({label, property});
-  MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
-  auto acc = it->second.access();
-  if (!value.IsNull()) {
-    return acc.estimate_count(value, utils::SkipListLayerForCountEstimation(acc.size()));
-  } else {
-    // The value `Null` won't ever appear in the index because it indicates that
-    // the property shouldn't exist. Instead, this value is used as an indicator
-    // to estimate the average number of equal elements in the list (for any
-    // given value).
-    return acc.estimate_average_number_of_equals(
-        [](const auto &first, const auto &second) { return first.value == second.value; },
-        utils::SkipListLayerForAverageEqualsEstimation(acc.size()));
-  }
+  throw utils::NotYetImplemented("DiskLabelPropertyIndex::ApproximateVertexCount");
 }
 
 int64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId property,
                                                        const std::optional<utils::Bound<PropertyValue>> &lower,
                                                        const std::optional<utils::Bound<PropertyValue>> &upper) const {
-  auto it = index_.find({label, property});
-  MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
-  auto acc = it->second.access();
-  return acc.estimate_range_count(lower, upper, utils::SkipListLayerForCountEstimation(acc.size()));
+  throw utils::NotYetImplemented("DiskLabelPropertyIndex::ApproximateVertexCount");
 }
 
-/*
-Iterate over all property-label pairs and deletes if label from the index is equal to label parameter.
-*/
 std::vector<std::pair<LabelId, PropertyId>> DiskLabelPropertyIndex::DeleteIndexStatsForLabel(
     const storage::LabelId &label) {
   std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;
@@ -386,10 +288,8 @@ std::optional<IndexStats> DiskLabelPropertyIndex::GetIndexStats(const storage::L
   return {};
 }
 
-void DiskLabelPropertyIndex::RunGC() {
-  for (auto &index_entry : index_) {
-    index_entry.second.run_gc();
-  }
-}
+void DiskLabelPropertyIndex::Clear() { index_.clear(); }
+
+void DiskLabelPropertyIndex::RunGC() { throw utils::NotYetImplemented("DiskLabelPropertyIndex::RunGC"); }
 
 }  // namespace memgraph::storage

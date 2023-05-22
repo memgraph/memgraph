@@ -311,7 +311,22 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, View view) {
-  throw utils::NotYetImplemented("DiskStorage::DiskAComparatorWithccessor::Vertices(label, property)");
+  OOMExceptionEnabler oom_exception;
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  auto *disk_label_property_index =
+      static_cast<DiskLabelPropertyIndex *>(disk_storage->indices_.label_property_index_.get());
+  auto it = disk_label_property_index->CreateRocksDBIterator();
+  std::string search_key = utils::SerializeIdType(label) + "," + utils::SerializeIdType(property);
+  for (it->SeekToFirst(); it->Valid(); it->Next()) {
+    std::string key = it->key().ToString();
+    // TODO: andi this will be optimized bla bla
+    if (key.starts_with(search_key)) {
+      DeserializeVertex(indexed_vertices_.access(), it->key(), it->value());
+    }
+  }
+  // TODO: andi. If the current version stays like this no need for two new iterators inside the storage
+  return VerticesIterable(AllVerticesIterable(indexed_vertices_.access(), &transaction_, view, &disk_storage->indices_,
+                                              &disk_storage->constraints_, disk_storage->config_.items));
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, const PropertyValue &value,
@@ -1239,8 +1254,8 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
         std::find(labels.begin(), labels.end(), utils::SerializeIdType(label)) != labels.end()) {
       std::string gid = vertex_parts[1];
       spdlog::debug("Found vertex with gid {} for index creation", gid);
-      vertices_to_be_indexed.emplace_back(utils::SerializeIndexedVertex(utils::SerializeIdType(label), labels, gid),
-                                          it->value().ToString());
+      vertices_to_be_indexed.emplace_back(
+          utils::SerializeVertexForLabelIndex(utils::SerializeIdType(label), labels, gid), it->value().ToString());
     }
   }
 
@@ -1265,7 +1280,43 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
 // this should be handled on an above level of abstraction
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
-  throw utils::NotYetImplemented("CreateIndex");
+  // TODO: (andi): Here we will probably use some lock to protect reading from and writing to the RocksDB at the
+  // same
+  /// time.
+  // Since indexes are handled by the storage, we don't have transaction id for indexes methods.
+  // However, we need to set timestamp because of RocksDB requirement so we set it to the maximum value.
+  // RocksDB will still fetch the most recent value.
+  rocksdb::ReadOptions ro;
+  auto it = std::unique_ptr<rocksdb::Iterator>(kvstore_->db_->NewIterator(ro, kvstore_->vertex_chandle));
+  std::vector<std::pair<std::string, std::string>> vertices_to_be_indexed;
+  for (it->SeekToFirst(); it->Valid(); it->Next()) {
+    const std::string &key = it->key().ToString();
+    const auto vertex_parts = utils::Split(key, "|");
+    const std::string &value = it->value().ToString();
+    PropertyStore properties = PropertyStore::CreateFromBuffer(value);
+    if (const std::vector<std::string> labels = utils::Split(vertex_parts[0], ",");
+        std::find(labels.begin(), labels.end(), utils::SerializeIdType(label)) != labels.end() &&
+        properties.HasProperty(property)) {
+      std::string gid = vertex_parts[1];
+      spdlog::debug("Found vertex with gid {} for index creation", gid);
+      vertices_to_be_indexed.emplace_back(
+          utils::SerializeVertexForLabelPropertyIndex(utils::SerializeIdType(label), utils::SerializeIdType(property),
+                                                      labels, gid),
+          it->value().ToString());
+    }
+  }
+
+  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
+  auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE, label,
+                                           {property}, commit_timestamp);
+  commit_log_->MarkFinished(commit_timestamp);
+  last_commit_timestamp_ = commit_timestamp;
+
+  if (success) {
+    return {};
+  }
+
+  return StorageIndexDefinitionError{ReplicationError{}};
 }
 
 // this should be handled on an above level of abstraction

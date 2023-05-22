@@ -32,6 +32,10 @@ constexpr const char *inEdgeDirection = "1";
 
 inline std::string PutIndexingLabelFirst(const std::string &indexing_label, const std::vector<std::string> &labels);
 
+inline std::string PutIndexingLabelAndPropertyFirst(const std::string &indexing_label,
+                                                    const std::string &indexing_property,
+                                                    const std::vector<std::string> &labels);
+
 inline std::string SerializeIdType(const auto &id) { return std::to_string(id.AsUint()); }
 
 inline auto DeserializeIdType(const std::string &str) { return storage::Gid::FromUint(std::stoull(str)); }
@@ -67,22 +71,42 @@ inline std::string SerializeVertex(const storage::Vertex &vertex) {
   return result;
 }
 
-inline std::string SerializeIndexedVertex(const std::string &indexing_label, const std::vector<std::string> &labels,
-                                          const std::string &gid) {
+inline std::string SerializeVertexForLabelIndex(const std::string &indexing_label,
+                                                const std::vector<std::string> &labels, const std::string &gid) {
   auto indexed_labels = PutIndexingLabelFirst(indexing_label, labels);
   return indexed_labels + "|" + gid;
 }
 
-inline std::string SerializeIndexedVertex(storage::LabelId label, const std::vector<storage::LabelId> &labels,
-                                          storage::Gid gid) {
+inline std::string SerializeVertexForLabelIndex(storage::LabelId label, const std::vector<storage::LabelId> &labels,
+                                                storage::Gid gid) {
   std::vector<std::string> labels_str;
   std::transform(labels.begin(), labels.end(), std::back_inserter(labels_str),
                  [](storage::LabelId label_) { return SerializeIdType(label_); });
-  return SerializeIndexedVertex(SerializeIdType(label), labels_str, utils::SerializeIdType(gid));
+  return SerializeVertexForLabelIndex(SerializeIdType(label), labels_str, utils::SerializeIdType(gid));
 }
 
 inline std::string PutIndexingLabelFirst(const std::string &indexing_label, const std::vector<std::string> &labels) {
   std::string result = indexing_label;
+  for (const auto &label : labels) {
+    if (label != indexing_label) {
+      result += "," + label;
+    }
+  }
+  return result;
+}
+
+inline std::string SerializeVertexForLabelPropertyIndex(const std::string &indexing_label,
+                                                        const std::string &indexing_property,
+                                                        const std::vector<std::string> &labels,
+                                                        const std::string &gid) {
+  auto key_for_indexing = PutIndexingLabelAndPropertyFirst(indexing_label, indexing_property, labels);
+  return key_for_indexing + "|" + gid;
+}
+
+inline std::string PutIndexingLabelAndPropertyFirst(const std::string &indexing_label,
+                                                    const std::string &indexing_property,
+                                                    const std::vector<std::string> &labels) {
+  std::string result = indexing_label + "," + indexing_property;
   for (const auto &label : labels) {
     if (label != indexing_label) {
       result += "," + label;

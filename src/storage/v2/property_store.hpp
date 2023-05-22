@@ -23,6 +23,12 @@ class PropertyStore {
                 "PropertyStore supports only architectures using little-endian.");
 
  public:
+  static PropertyStore CreateFromBuffer(std::string_view buffer) {
+    PropertyStore store;
+    store.SetBuffer(buffer);
+    return store;
+  }
+
   PropertyStore();
 
   PropertyStore(const PropertyStore &) = delete;

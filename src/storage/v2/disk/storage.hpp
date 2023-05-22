@@ -128,7 +128,8 @@ class DiskStorage final : public Storage {
     }
 
     bool LabelPropertyIndexExists(LabelId label, PropertyId property) const override {
-      throw utils::NotYetImplemented("LabelPropertyIndexExists() is not implemented for DiskStorage.");
+      auto *disk_storage = static_cast<DiskStorage *>(storage_);
+      return disk_storage->indices_.label_property_index_->IndexExists(label, property);
     }
 
     IndicesInfo ListAllIndices() const override {

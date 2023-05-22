@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
 
 namespace memgraph::storage {
@@ -32,8 +33,7 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
   };
 
  public:
-  DiskLabelPropertyIndex(Indices *indices, Constraints *constraints, Config::Items config)
-      : LabelPropertyIndex(indices, constraints, config) {}
+  DiskLabelPropertyIndex(Indices *indices, Constraints *constraints, Config::Items config);
 
   /// @throw std::bad_alloc
   void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) override;
@@ -42,15 +42,16 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
   void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
                            const Transaction &tx) override;
 
-  /// @throw std::bad_alloc
-  bool CreateIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
-                   const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info);
+  // Key: INDEX_LABEL,INDEX_PROPERTY_KEY,OTHER_LABEL_1,OTHER_LABEL_2, ..|GID
+  // Value: VERTEX.PROPERTIES
+  /// TODO: andi Whenever vertex is updated you should go to the disk if it is indexed.
+  /// Optimize by using prefixed Bloom filters
+  bool CreateIndex(LabelId label, PropertyId property,
+                   const std::vector<std::pair<std::string, std::string>> &vertices);
 
-  bool DropIndex(LabelId label, PropertyId property) override { return index_.erase({label, property}) > 0; }
+  bool DropIndex(LabelId label, PropertyId property) override;
 
-  bool IndexExists(LabelId label, PropertyId property) const override {
-    return index_.find({label, property}) != index_.end();
-  }
+  bool IndexExists(LabelId label, PropertyId property) const override;
 
   std::vector<std::pair<LabelId, PropertyId>> ListIndices() const override;
 
@@ -75,8 +76,6 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
       Iterator &operator++();
 
      private:
-      void AdvanceUntilValid();
-
       Iterable *self_;
       utils::SkipList<Entry>::Iterator index_iterator_;
       VertexAccessor current_vertex_accessor_;
@@ -100,22 +99,7 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
     Config::Items config_;
   };
 
-  Iterable Vertices(LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
-                    Transaction *transaction) {
-    auto it = index_.find({label, property});
-    MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
-              property.AsUint());
-    return Iterable(it->second.access(), label, property, lower_bound, upper_bound, view, transaction, indices_,
-                    constraints_, config_);
-  }
-
-  int64_t ApproximateVertexCount(LabelId label, PropertyId property) const override {
-    auto it = index_.find({label, property});
-    MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
-              property.AsUint());
-    return it->second.size();
-  }
+  int64_t ApproximateVertexCount(LabelId label, PropertyId property) const override;
 
   /// Supplying a specific value into the count estimation function will return
   /// an estimated count of nodes which have their property's value set to
@@ -137,16 +121,22 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
   std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId &label,
                                                    const storage::PropertyId &property) const override;
 
-  void Clear() override { index_.clear(); }
+  std::unique_ptr<rocksdb::Iterator> CreateRocksDBIterator() {
+    return std::unique_ptr<rocksdb::Iterator>(kvstore_->db_->NewIterator(rocksdb::ReadOptions()));
+  }
+
+  void Clear() override;
 
   void RunGC() override;
 
  private:
-  std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>> index_;
+  /// TODO: andi Optimize by using unordered_set
+  std::set<std::pair<LabelId, PropertyId>> index_;
   std::map<std::pair<LabelId, PropertyId>, storage::IndexStats> stats_;
   Indices *indices_;
   Constraints *constraints_;
   Config::Items config_;
+  std::unique_ptr<RocksDBStorage> kvstore_;
 };
 
 }  // namespace memgraph::storage

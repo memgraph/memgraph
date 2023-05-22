@@ -39,6 +39,10 @@ class DiskLabelIndex : public storage::LabelIndex {
   /// @throw std::bad_alloc
   void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) override;
 
+  /// Key: INDEX_LABEL,OTHER_LABEL_1,OTHER_LABEL_2, ..|GID
+  /// Value: VERTEX.PROPERTIES
+  /// TODO: andi Whenever vertex is updated you should go to the disk if it is indexed.
+  /// Optimize by using prefixed Bloom filters
   bool CreateIndex(LabelId label, const std::vector<std::pair<std::string, std::string>> &vertices);
 
   /// Returns false if there was no index to drop
@@ -86,31 +90,13 @@ class DiskLabelIndex : public storage::LabelIndex {
     Config::Items config_;
   };
 
-  /// Returns an self with vertices visible from the given transaction.
-  Iterable Vertices(utils::SkipList<Vertex>::Accessor accessor, LabelId label, View view, Transaction *transaction) {
-    OOMExceptionEnabler oom_exception;
-    auto it = index_.find(label);
-    MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist", label.AsUint());
-    // rocksdb::ReadOptions ro;
-    // auto rocks_it = std::unique_ptr<rocksdb::Iterator>(kvstore_->db_->NewIterator(ro));
-    // for (rocks_it->SeekToFirst(); rocks_it->Valid(); rocks_it->Next()) {
-    //   std::string key = rocks_it->key().ToString();
-    //   if (key.starts_with(utils::SerializeIdType(label))) {
-    //     // DeserializeVertex(rocks_it->key(), rocks_it->value());
-    //   }
-    // }
-
-    // return Iterable(it->second.access(), label, view, transaction, indices_, constraints_, config_);
-    throw utils::NotYetImplemented("DiskLabelIndex::Vertices");
-  }
-
   int64_t ApproximateVertexCount(LabelId label) const override;
 
   std::unique_ptr<rocksdb::Iterator> CreateRocksDBIterator() {
     return std::unique_ptr<rocksdb::Iterator>(kvstore_->db_->NewIterator(rocksdb::ReadOptions()));
   }
 
-  void Clear() override { index_.clear(); }
+  void Clear() override;
 
   void RunGC() override;
 

@@ -9,8 +9,9 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/disk/label_index.hpp"
 #include <rocksdb/options.h>
+
+#include "storage/v2/disk/label_index.hpp"
 #include "storage/v2/inmemory/indices_utils.hpp"
 #include "utils/file.hpp"
 #include "utils/rocksdb_serialization.hpp"
@@ -31,10 +32,11 @@ DiskLabelIndex::DiskLabelIndex(Indices *indices, Constraints *constraints, Confi
   logging::AssertRocksDBStatus(rocksdb::DB::Open(kvstore_->options_, rocksdb_path, &kvstore_->db_));
 }
 
+/// TODO: andi if the vertex is already indexed, we should update the entry, not create a new one.
 void DiskLabelIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) {
   auto it = index_.find(label);
   if (it == index_.end()) return;
-  std::string key = utils::SerializeIndexedVertex(label, vertex->labels, vertex->gid);
+  std::string key = utils::SerializeVertexForLabelIndex(label, vertex->labels, vertex->gid);
   std::string value = utils::SerializeProperties(vertex->properties);
   kvstore_->db_->Put(rocksdb::WriteOptions(), key, value);
 }
@@ -79,6 +81,8 @@ DiskLabelIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_access
       indices_(indices),
       constraints_(constraints),
       config_(config) {}
+
+void DiskLabelIndex::Clear() { index_.clear(); }
 
 void DiskLabelIndex::RunGC() {
   // throw utils::NotYetImplemented("DiskLabelIndex::RunGC");
