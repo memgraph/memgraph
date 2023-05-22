@@ -26,7 +26,7 @@
 // #include "storage/v2/storage.hpp"
 // #include "storage/v2/vertex_accessor.hpp"
 // #include "storage/v2/view.hpp"
-// #include "utils/rocksdb.hpp"
+// #include "utils/rocksdb_serialization.hpp"
 
 // class RocksDBStorageTest : public ::testing::TestWithParam<bool> {
 //  public:

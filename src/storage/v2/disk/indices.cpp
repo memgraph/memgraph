@@ -17,7 +17,7 @@
 // #include "storage/v2/mvcc.hpp"
 // #include "utils/exceptions.hpp"
 // #include "utils/file.hpp"
-// #include "utils/rocksdb.hpp"
+// #include "utils/rocksdb_serialization.hpp"
 // #include "utils/skip_list.hpp"
 // #include "utils/string.hpp"
 

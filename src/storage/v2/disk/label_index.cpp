@@ -10,9 +10,10 @@
 // licenses/APL.txt.
 
 #include "storage/v2/disk/label_index.hpp"
+#include <rocksdb/options.h>
 #include "storage/v2/inmemory/indices_utils.hpp"
 #include "utils/file.hpp"
-#include "utils/rocksdb.hpp"
+#include "utils/rocksdb_serialization.hpp"
 
 namespace memgraph::storage {
 
@@ -33,12 +34,16 @@ DiskLabelIndex::DiskLabelIndex(Indices *indices, Constraints *constraints, Confi
 void DiskLabelIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) {
   auto it = index_.find(label);
   if (it == index_.end()) return;
+  std::string key = utils::SerializeIndexedVertex(label, vertex->labels, vertex->gid);
+  std::string value = utils::SerializeProperties(vertex->properties);
+  kvstore_->db_->Put(rocksdb::WriteOptions(), key, value);
 }
 
 bool DiskLabelIndex::CreateIndex(LabelId label, const std::vector<std::pair<std::string, std::string>> &vertices) {
   index_.emplace(label);
+  rocksdb::WriteOptions wo;
   for (const auto &[key, value] : vertices) {
-    kvstore_->db_->Put(rocksdb::WriteOptions(), key, value);
+    kvstore_->db_->Put(wo, key, value);
   }
   return true;
 }

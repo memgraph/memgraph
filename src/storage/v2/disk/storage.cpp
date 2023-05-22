@@ -19,7 +19,7 @@
 #include "storage/v2/storage.hpp"
 #include "utils/file.hpp"
 #include "utils/message.hpp"
-#include "utils/rocksdb.hpp"
+#include "utils/rocksdb_serialization.hpp"
 #include "utils/stat.hpp"
 
 namespace memgraph::storage {
@@ -1239,7 +1239,8 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
         std::find(labels.begin(), labels.end(), utils::SerializeIdType(label)) != labels.end()) {
       std::string gid = vertex_parts[1];
       spdlog::debug("Found vertex with gid {} for index creation", gid);
-      vertices_to_be_indexed.emplace_back(utils::SerializeIndexedVertex(label, labels, gid), it->value().ToString());
+      vertices_to_be_indexed.emplace_back(utils::SerializeIndexedVertex(utils::SerializeIdType(label), labels, gid),
+                                          it->value().ToString());
     }
   }
 

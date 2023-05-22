@@ -10,7 +10,7 @@
 // licenses/APL.txt.
 
 #include "rocksdb_storage.hpp"
-#include "utils/rocksdb.hpp"
+#include "utils/rocksdb_serialization.hpp"
 
 namespace memgraph::storage {
 

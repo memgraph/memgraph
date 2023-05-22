@@ -13,7 +13,7 @@
 #include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/indices/label_index.hpp"
 #include "storage/v2/vertex.hpp"
-#include "utils/rocksdb.hpp"
+#include "utils/rocksdb_serialization.hpp"
 
 namespace memgraph::storage {
 
