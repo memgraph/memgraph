@@ -24,6 +24,7 @@
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
+#include "utils/string.hpp"
 
 namespace memgraph::utils {
 
@@ -51,6 +52,33 @@ inline std::string SerializeLabels(const std::vector<storage::LabelId> &labels) 
       std::next(labels.begin()), labels.end(), result,
       [](const std::string &join, const auto &label_id) { return join + "," + std::to_string(label_id.AsUint()); });
   return ser_labels;
+}
+
+inline bool SerializedVertexHasLabels(const std::string &labels) { return !labels.empty(); }
+
+inline std::vector<storage::LabelId> TransformStringLabels(const std::vector<std::string> &labels) {
+  std::vector<storage::LabelId> labels_id;
+  std::transform(labels.begin(), labels.end(), std::back_inserter(labels_id),
+                 [](const auto &label) { return storage::LabelId::FromUint(std::stoull(label)); });
+  return labels_id;
+}
+
+inline std::vector<storage::LabelId> DeserializeLabelsFromMainDiskStorage(const std::string &labels_str) {
+  if (SerializedVertexHasLabels(labels_str)) {
+    return TransformStringLabels(utils::Split(labels_str, ","));
+  }
+  return {};
+}
+
+inline std::vector<storage::LabelId> DeserializeLabelsFromLabelIndexStorage(const std::string &labels_str) {
+  return TransformStringLabels(utils::Split(labels_str, ","));
+}
+
+inline std::vector<storage::LabelId> DeserializeLabelsFromLabelPropertyIndexStorage(const std::string &labels_str) {
+  std::vector<std::string> index_key = utils::Split(labels_str, ",");
+  auto property_it = index_key.begin() + 1;
+  index_key.erase(property_it);
+  return TransformStringLabels(index_key);
 }
 
 inline std::string SerializeProperties(storage::PropertyStore &properties) { return properties.StringBuffer(); }

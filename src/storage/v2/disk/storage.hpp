@@ -71,25 +71,21 @@ class DiskStorage final : public Storage {
 
     int64_t ApproximateVertexCount(LabelId label) const override { return 10; }
 
-    int64_t ApproximateVertexCount(LabelId label, PropertyId property) const override {
-      throw utils::NotYetImplemented("ApproximateVertexCount(label, property) is not implemented for DiskStorage.");
-    }
+    int64_t ApproximateVertexCount(LabelId label, PropertyId property) const override { return 10; }
 
     int64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const override {
-      throw utils::NotYetImplemented(
-          "ApproximateVertexCount(label, property, value) is not implemented for DiskStorage.");
+      return 10;
     }
 
     int64_t ApproximateVertexCount(LabelId label, PropertyId property,
                                    const std::optional<utils::Bound<PropertyValue>> &lower,
                                    const std::optional<utils::Bound<PropertyValue>> &upper) const override {
-      throw utils::NotYetImplemented(
-          "ApproximateVertexCount(label, property, lower, upper) is not implemented for DiskStorage.");
+      return 10;
     }
 
     std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId &label,
                                                      const storage::PropertyId &property) const override {
-      throw utils::NotYetImplemented("GetIndexStats() is not implemented for DiskStorage.");
+      return static_cast<DiskStorage *>(storage_)->indices_.label_property_index_->GetIndexStats(label, property);
     }
 
     std::vector<std::pair<LabelId, PropertyId>> ClearIndexStats() override {
@@ -133,7 +129,9 @@ class DiskStorage final : public Storage {
     }
 
     IndicesInfo ListAllIndices() const override {
-      throw utils::NotYetImplemented("ListAllIndices() is not implemented for DiskStorage.");
+      auto *disk_storage = static_cast<DiskStorage *>(storage_);
+      return {disk_storage->indices_.label_index_->ListIndices(),
+              disk_storage->indices_.label_property_index_->ListIndices()};
     }
 
     ConstraintsInfo ListAllConstraints() const override {
@@ -152,11 +150,14 @@ class DiskStorage final : public Storage {
 
     void PrepareForNextQuery() override { indexed_vertices_.clear(); }
 
-    /// Deserializes vertex from the string key and stores it into the vertices_ and lru_vertices_.
-    /// Properties are deserialized from the value.
-    /// The method should be called only when the vertex is not in the cache.
-    std::optional<storage::VertexAccessor> DeserializeVertex(utils::SkipList<Vertex>::Accessor accessor,
-                                                             const rocksdb::Slice &key, const rocksdb::Slice &value);
+    std::optional<storage::VertexAccessor> LoadVertexToLabelIndexCache(
+        const utils::SkipList<Vertex>::Accessor &accessor, const rocksdb::Slice &key, const rocksdb::Slice &value);
+
+    std::optional<storage::VertexAccessor> LoadVertexToMainMemoryCache(
+        const utils::SkipList<Vertex>::Accessor &accessor, const rocksdb::Slice &key, const rocksdb::Slice &value);
+
+    std::optional<storage::VertexAccessor> LoadVertexToLabelPropertyIndexCache(
+        const utils::SkipList<Vertex>::Accessor &accessor, const rocksdb::Slice &key, const rocksdb::Slice &value);
 
     /// Deserializes edge from the string key and stores it into the edges_ cache.
     /// Properties are deserialized from the value.

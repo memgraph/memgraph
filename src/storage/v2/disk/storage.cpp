@@ -11,16 +11,23 @@
 
 #include "storage/v2/disk/storage.hpp"
 #include <asm-generic/errno.h>
+#include <rocksdb/slice.h>
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
+#include "storage/v2/id_types.hpp"
+#include "storage/v2/property_store.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/vertex_accessor.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/message.hpp"
 #include "utils/rocksdb_serialization.hpp"
 #include "utils/stat.hpp"
+#include "utils/string.hpp"
 
 namespace memgraph::storage {
 
@@ -34,6 +41,16 @@ constexpr const char *defaultHandle = "default";
 constexpr const char *main_storage_path = "./rocks_experiment";
 
 inline constexpr uint16_t kEpochHistoryRetention = 1000;
+
+bool VertexExistsInCache(const utils::SkipList<Vertex>::Accessor &accessor, Gid gid) {
+  OOMExceptionEnabler oom_exception;
+  if (accessor.find(gid) != accessor.end()) {
+    spdlog::debug("Vertex with gid {} already exists in the cache!", gid.AsUint());
+    return true;
+  }
+  spdlog::debug("Vertex with gid {} doesn't exist in the cache!", gid.AsUint());
+  return false;
+}
 
 }  // namespace
 
@@ -213,29 +230,55 @@ DiskStorage::DiskAccessor::~DiskAccessor() {
   FinalizeTransaction();
 }
 
-std::optional<VertexAccessor> DiskStorage::DiskAccessor::DeserializeVertex(utils::SkipList<Vertex>::Accessor accessor,
-                                                                           const rocksdb::Slice &key,
-                                                                           const rocksdb::Slice &value) {
+std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToMainMemoryCache(
+    const utils::SkipList<Vertex>::Accessor &accessor, const rocksdb::Slice &key, const rocksdb::Slice &value) {
   OOMExceptionEnabler oom_exception;
   const std::vector<std::string> vertex_parts = utils::Split(key.ToStringView(), "|");
-  auto gid = storage::Gid::FromUint(std::stoull(vertex_parts[1]));
-  /// In situations when the vertex wasn't evicted from the cache, it will be found in the cache.
-  if (accessor.find(gid) != accessor.end()) {
-    spdlog::debug("Vertex with gid {} already exists in the cache!", gid.AsUint());
+  storage::Gid gid = storage::Gid::FromUint(std::stoull(vertex_parts[1]));
+  if (VertexExistsInCache(accessor, gid)) {
     return std::nullopt;
   }
-  spdlog::debug("Vertex with gid {} doesn't exist in the cache!", gid.AsUint());
+  std::string labels_str = vertex_parts[0];
+  std::vector<LabelId> labels_id = utils::DeserializeLabelsFromMainDiskStorage(labels_str);
+  /// TODO: andi This is probably wrong but will be changed
   // uint64_t vertex_commit_ts = utils::ExtractTimestampFromDeserializedUserKey(key);
   uint64_t vertex_commit_ts = transaction_.transaction_id;
-  // Deserialize labels
-  std::vector<LabelId> label_ids;
-  if (!vertex_parts[0].empty()) {
-    auto labels = utils::Split(vertex_parts[0], ",");
-    std::transform(labels.begin(), labels.end(), std::back_inserter(label_ids),
-                   [](const auto &label) { return storage::LabelId::FromUint(std::stoull(label)); });
+  auto main_storage_accessor = vertices_.access();
+  return CreateVertex(main_storage_accessor, gid, vertex_commit_ts, labels_id, value.ToStringView());
+}
+
+std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLabelIndexCache(
+    const utils::SkipList<Vertex>::Accessor &accessor, const rocksdb::Slice &key, const rocksdb::Slice &value) {
+  OOMExceptionEnabler oom_exception;
+  const std::vector<std::string> vertex_parts = utils::Split(key.ToStringView(), "|");
+  storage::Gid gid = storage::Gid::FromUint(std::stoull(vertex_parts[1]));
+  if (VertexExistsInCache(accessor, gid)) {
+    return std::nullopt;
   }
-  auto impl = CreateVertex(accessor, gid, vertex_commit_ts, label_ids, value.ToStringView());
-  return impl;
+  std::string index_key = vertex_parts[0];
+  std::vector<LabelId> labels_id = utils::DeserializeLabelsFromLabelIndexStorage(index_key);
+  /// TODO: andi This is probably wrong but will be changed
+  // uint64_t vertex_commit_ts = utils::ExtractTimestampFromDeserializedUserKey(key);
+  uint64_t vertex_commit_ts = transaction_.transaction_id;
+  auto index_accessor = indexed_vertices_.access();
+  return CreateVertex(index_accessor, gid, vertex_commit_ts, labels_id, value.ToStringView());
+}
+
+std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLabelPropertyIndexCache(
+    const utils::SkipList<Vertex>::Accessor &accessor, const rocksdb::Slice &key, const rocksdb::Slice &value) {
+  OOMExceptionEnabler oom_exception;
+  const std::vector<std::string> vertex_parts = utils::Split(key.ToStringView(), "|");
+  storage::Gid gid = storage::Gid::FromUint(std::stoull(vertex_parts[1]));
+  if (VertexExistsInCache(accessor, gid)) {
+    return std::nullopt;
+  }
+  std::string index_key = vertex_parts[0];
+  std::vector<LabelId> labels_id = utils::DeserializeLabelsFromLabelPropertyIndexStorage(index_key);
+  /// TODO: andi This is probably wrong but will be changed
+  // uint64_t vertex_commit_ts = utils::ExtractTimestampFromDeserializedUserKey(key);
+  uint64_t vertex_commit_ts = transaction_.transaction_id;
+  auto index_accessor = indexed_vertices_.access();
+  return CreateVertex(index_accessor, gid, vertex_commit_ts, labels_id, value.ToStringView());
 }
 
 std::optional<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const rocksdb::Slice &key,
@@ -287,7 +330,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
     // When deserializing vertex, key size is set to user key-size
     // To be able to extract timestamp, here a copy can be created
     // with size explicitly added with sizeof(uint64_t)
-    DeserializeVertex(vertices_.access(), it->key(), it->value());
+    LoadVertexToMainMemoryCache(vertices_.access(), it->key(), it->value());
   }
   return VerticesIterable(AllVerticesIterable(vertices_.access(), &transaction_, view, &disk_storage->indices_,
                                               &disk_storage->constraints_, disk_storage->config_.items));
@@ -302,7 +345,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
     std::string key = it->key().ToString();
     // TODO: andi this will be optimized bla bla
     if (key.starts_with(utils::SerializeIdType(label))) {
-      DeserializeVertex(indexed_vertices_.access(), it->key(), it->value());
+      LoadVertexToLabelIndexCache(indexed_vertices_.access(), it->key(), it->value());
     }
   }
   // TODO: andi. If the current version stays like this no need for two new iterators inside the storage
@@ -321,7 +364,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
     std::string key = it->key().ToString();
     // TODO: andi this will be optimized bla bla
     if (key.starts_with(search_key)) {
-      DeserializeVertex(indexed_vertices_.access(), it->key(), it->value());
+      LoadVertexToLabelPropertyIndexCache(indexed_vertices_.access(), it->key(), it->value());
     }
   }
   // TODO: andi. If the current version stays like this no need for two new iterators inside the storage
@@ -331,7 +374,22 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, const PropertyValue &value,
                                                      View view) {
-  throw utils::NotYetImplemented("DiskStorage::DiskAccessor::Vertices(label, property, value)");
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  auto *disk_label_property_index =
+      static_cast<DiskLabelPropertyIndex *>(disk_storage->indices_.label_property_index_.get());
+  auto it = disk_label_property_index->CreateRocksDBIterator();
+  std::string search_key = utils::SerializeIdType(label) + "," + utils::SerializeIdType(property);
+  for (it->SeekToFirst(); it->Valid(); it->Next()) {
+    std::string key = it->key().ToString();
+    // TODO: andi this will be optimized bla bla
+    PropertyStore properties = PropertyStore::CreateFromBuffer(it->value().ToStringView());
+    if (key.starts_with(search_key) && properties.IsPropertyEqual(property, value)) {
+      LoadVertexToLabelPropertyIndexCache(indexed_vertices_.access(), it->key(), it->value());
+    }
+  }
+  // TODO: andi. If the current version stays like this no need for two new iterators inside the storage
+  return VerticesIterable(AllVerticesIterable(indexed_vertices_.access(), &transaction_, view, &disk_storage->indices_,
+                                              &disk_storage->constraints_, disk_storage->config_.items));
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property,
@@ -455,7 +513,7 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid
     const auto &key = it->key();
     // TODO(andi): If we change format of vertex serialization, change vertex_parts[1] to vertex_parts[0].
     if (const auto vertex_parts = utils::Split(key.ToString(), "|"); vertex_parts[1] == utils::SerializeIdType(gid)) {
-      return DeserializeVertex(vertices_.access(), key, it->value());
+      return LoadVertexToMainMemoryCache(vertices_.access(), key, it->value());
     }
   }
   return std::nullopt;
@@ -1306,6 +1364,12 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
     }
   }
 
+  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+  if (auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
+      !disk_label_property_index->CreateIndex(label, property, vertices_to_be_indexed)) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
+
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE, label,
                                            {property}, commit_timestamp);
@@ -1319,20 +1383,21 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
   return StorageIndexDefinitionError{ReplicationError{}};
 }
 
-// this should be handled on an above level of abstraction
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DropIndex(
     LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
   throw utils::NotYetImplemented("DropIndex");
 }
 
-// this should be handled on an above level of abstraction
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DropIndex(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   throw utils::NotYetImplemented("DropIndex");
 }
 
-// this should be handled on an above level of abstraction
-IndicesInfo DiskStorage::ListAllIndices() const { throw utils::NotYetImplemented("ListAllIndices"); }
+/// TODO: andi possible to put it into abstract storage
+IndicesInfo DiskStorage::ListAllIndices() const {
+  std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
+  return {indices_.label_index_->ListIndices(), indices_.label_property_index_->ListIndices()};
+}
 
 // this should be handled on an above level of abstraction
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void> DiskStorage::CreateExistenceConstraint(
