@@ -23,6 +23,7 @@
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "communication/exceptions.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
 
@@ -251,6 +252,13 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
   // Even though this part seems unnecessary it is needed to move the buffer
   if (!session.decoder_.ReadValue(&extra, Value::Type::Map)) {
     spdlog::trace("Couldn't read extra field!");
+    return State::Close;
+  }
+
+  std::map<std::string, Value> md{};
+  auto &md_tv = extra.ValueMap()["tx_metadata"];
+  if (md_tv.IsMap()) {
+    md = md_tv.ValueMap();
   }
 
   if (state != State::Idle) {
@@ -267,7 +275,7 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
 
   try {
     // Interpret can throw.
-    const auto [header, qid] = session.Interpret(query.ValueString(), params.ValueMap(), extra.ValueMap());
+    const auto [header, qid] = session.Interpret(query.ValueString(), params.ValueMap(), md);
     // Convert std::string to Value
     std::vector<Value> vec;
     std::map<std::string, Value> data;
@@ -348,6 +356,12 @@ State HandleBegin(TSession &session, const State state, const Marker marker) {
     return State::Close;
   }
 
+  std::map<std::string, Value> md{};
+  auto &md_tv = extra.ValueMap()["tx_metadata"];
+  if (md_tv.IsMap()) {
+    md = md_tv.ValueMap();
+  }
+
   if (state != State::Idle) {
     spdlog::trace("Unexpected BEGIN command!");
     return State::Close;
@@ -361,7 +375,7 @@ State HandleBegin(TSession &session, const State state, const Marker marker) {
   }
 
   try {
-    session.BeginTransaction(extra.ValueMap());
+    session.BeginTransaction(md);
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
   }
