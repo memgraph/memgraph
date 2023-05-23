@@ -45,10 +45,9 @@ std::string RegisterReplicaErrorToString(InMemoryStorage::RegisterReplicaError e
 }  // namespace
 
 InMemoryStorage::InMemoryStorage(Config config)
-    : Storage(config),
+    : Storage(config, &constraints_, StorageMode::IN_MEMORY_TRANSACTIONAL),
       isolation_level_(config.transaction.isolation_level),
-      storage_mode_(StorageMode::IN_MEMORY_TRANSACTIONAL),
-      indices_(&constraints_, config.items, StorageMode::IN_MEMORY_TRANSACTIONAL) {
+      storage_mode_(StorageMode::IN_MEMORY_TRANSACTIONAL) {
   if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED &&
       replication_role_ == ReplicationRole::MAIN) {
     spdlog::warn(
@@ -224,7 +223,7 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex() {
   if (delta) {
     delta->prev.Set(&*it);
   }
-  return {&*it, &transaction_, &mem_storage->indices_, &mem_storage->constraints_, config_};
+  return {&*it, &transaction_, &storage_->indices_, &mem_storage->constraints_, config_};
 }
 
 VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex(storage::Gid gid) {
@@ -247,7 +246,7 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex(storage::Gid gid)
   if (delta) {
     delta->prev.Set(&*it);
   }
-  return {&*it, &transaction_, &mem_storage->indices_, &mem_storage->constraints_, config_};
+  return {&*it, &transaction_, &storage_->indices_, &mem_storage->constraints_, config_};
 }
 
 std::optional<VertexAccessor> InMemoryStorage::InMemoryAccessor::FindVertex(Gid gid, View view) {
@@ -255,7 +254,7 @@ std::optional<VertexAccessor> InMemoryStorage::InMemoryAccessor::FindVertex(Gid 
   auto acc = mem_storage->vertices_.access();
   auto it = acc.find(gid);
   if (it == acc.end()) return std::nullopt;
-  return VertexAccessor::Create(&*it, &transaction_, &mem_storage->indices_, &mem_storage->constraints_, config_, view);
+  return VertexAccessor::Create(&*it, &transaction_, &storage_->indices_, &mem_storage->constraints_, config_, view);
 }
 
 Result<std::optional<VertexAccessor>> InMemoryStorage::InMemoryAccessor::DeleteVertex(VertexAccessor *vertex) {
@@ -278,8 +277,8 @@ Result<std::optional<VertexAccessor>> InMemoryStorage::InMemoryAccessor::DeleteV
   vertex_ptr->deleted = true;
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-  return std::make_optional<VertexAccessor>(vertex_ptr, &transaction_, &mem_storage->indices_,
-                                            &mem_storage->constraints_, config_, true);
+  return std::make_optional<VertexAccessor>(vertex_ptr, &transaction_, &storage_->indices_, &mem_storage->constraints_,
+                                            config_, true);
 }
 
 Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>>
@@ -309,7 +308,7 @@ InMemoryStorage::InMemoryAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   for (const auto &item : in_edges) {
     auto [edge_type, from_vertex, edge] = item;
-    EdgeAccessor e(edge, edge_type, from_vertex, vertex_ptr, &transaction_, &mem_storage->indices_,
+    EdgeAccessor e(edge, edge_type, from_vertex, vertex_ptr, &transaction_, &storage_->indices_,
                    &mem_storage->constraints_, config_);
     auto ret = DeleteEdge(&e);
     if (ret.HasError()) {
@@ -323,7 +322,7 @@ InMemoryStorage::InMemoryAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
   }
   for (const auto &item : out_edges) {
     auto [edge_type, to_vertex, edge] = item;
-    EdgeAccessor e(edge, edge_type, vertex_ptr, to_vertex, &transaction_, &mem_storage->indices_,
+    EdgeAccessor e(edge, edge_type, vertex_ptr, to_vertex, &transaction_, &storage_->indices_,
                    &mem_storage->constraints_, config_);
     auto ret = DeleteEdge(&e);
     if (ret.HasError()) {
@@ -350,7 +349,7 @@ InMemoryStorage::InMemoryAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
   vertex_ptr->deleted = true;
 
   return std::make_optional<ReturnType>(
-      VertexAccessor{vertex_ptr, &transaction_, &mem_storage->indices_, &mem_storage->constraints_, config_, true},
+      VertexAccessor{vertex_ptr, &transaction_, &storage_->indices_, &mem_storage->constraints_, config_, true},
       std::move(deleted_edges));
 }
 
@@ -413,7 +412,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   // Increment edge count.
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
-  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &mem_storage->indices_,
+  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
                       &mem_storage->constraints_, config_);
 }
 
@@ -485,7 +484,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   // Increment edge count.
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
-  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &mem_storage->indices_,
+  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
                       &mem_storage->constraints_, config_);
 }
 
@@ -571,7 +570,7 @@ Result<std::optional<EdgeAccessor>> InMemoryStorage::InMemoryAccessor::DeleteEdg
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   return std::make_optional<EdgeAccessor>(edge_ref, edge_type, from_vertex, to_vertex, &transaction_,
-                                          &mem_storage->indices_, &mem_storage->constraints_, config_, true);
+                                          &storage_->indices_, &mem_storage->constraints_, config_, true);
 }
 
 utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemoryAccessor::Commit(
@@ -1057,24 +1056,21 @@ ConstraintsInfo InMemoryStorage::ListAllConstraints() const {
 }
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, View view) {
-  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-  auto *mem_label_index = static_cast<InMemoryLabelIndex *>(mem_storage->indices_.label_index_.get());
+  auto *mem_label_index = static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get());
   return VerticesIterable(mem_label_index->Vertices(label, view, &transaction_));
 }
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, PropertyId property, View view) {
-  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
-      static_cast<InMemoryLabelPropertyIndex *>(mem_storage->indices_.label_property_index_.get());
+      static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
   return VerticesIterable(
       mem_label_property_index->Vertices(label, property, std::nullopt, std::nullopt, view, &transaction_));
 }
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, PropertyId property,
                                                              const PropertyValue &value, View view) {
-  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
-      static_cast<InMemoryLabelPropertyIndex *>(mem_storage->indices_.label_property_index_.get());
+      static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
   return VerticesIterable(mem_label_property_index->Vertices(label, property, utils::MakeBoundInclusive(value),
                                                              utils::MakeBoundInclusive(value), view, &transaction_));
 }
@@ -1082,9 +1078,8 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, Prop
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
     LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) {
-  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_property_index =
-      static_cast<InMemoryLabelPropertyIndex *>(mem_storage->indices_.label_property_index_.get());
+      static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
   return VerticesIterable(
       mem_label_property_index->Vertices(label, property, lower_bound, upper_bound, view, &transaction_));
 }

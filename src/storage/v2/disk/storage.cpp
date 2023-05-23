@@ -55,8 +55,7 @@ bool VertexExistsInCache(const utils::SkipList<Vertex>::Accessor &accessor, Gid 
 }  // namespace
 
 DiskStorage::DiskStorage(Config config)
-    : Storage(config),
-      indices_(&constraints_, config.items, StorageMode::ON_DISK_TRANSACTIONAL),
+    : Storage(config, &constraints_, StorageMode::ON_DISK_TRANSACTIONAL),
       isolation_level_(IsolationLevel::SNAPSHOT_ISOLATION),
       storage_mode_(StorageMode::ON_DISK_TRANSACTIONAL) {
   if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED
@@ -332,14 +331,14 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
     // with size explicitly added with sizeof(uint64_t)
     LoadVertexToMainMemoryCache(vertices_.access(), it->key(), it->value());
   }
-  return VerticesIterable(AllVerticesIterable(vertices_.access(), &transaction_, view, &disk_storage->indices_,
+  return VerticesIterable(AllVerticesIterable(vertices_.access(), &transaction_, view, &storage_->indices_,
                                               &disk_storage->constraints_, disk_storage->config_.items));
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
   OOMExceptionEnabler oom_exception;
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  auto *disk_label_index = static_cast<DiskLabelIndex *>(disk_storage->indices_.label_index_.get());
+  auto *disk_label_index = static_cast<DiskLabelIndex *>(storage_->indices_.label_index_.get());
   auto it = disk_label_index->CreateRocksDBIterator();
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     std::string key = it->key().ToString();
@@ -349,7 +348,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
     }
   }
   // TODO: andi. If the current version stays like this no need for two new iterators inside the storage
-  return VerticesIterable(AllVerticesIterable(indexed_vertices_.access(), &transaction_, view, &disk_storage->indices_,
+  return VerticesIterable(AllVerticesIterable(indexed_vertices_.access(), &transaction_, view, &storage_->indices_,
                                               &disk_storage->constraints_, disk_storage->config_.items));
 }
 
@@ -357,7 +356,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   OOMExceptionEnabler oom_exception;
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   auto *disk_label_property_index =
-      static_cast<DiskLabelPropertyIndex *>(disk_storage->indices_.label_property_index_.get());
+      static_cast<DiskLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
   auto it = disk_label_property_index->CreateRocksDBIterator();
   std::string search_key = utils::SerializeIdType(label) + "," + utils::SerializeIdType(property);
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
@@ -368,7 +367,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
     }
   }
   // TODO: andi. If the current version stays like this no need for two new iterators inside the storage
-  return VerticesIterable(AllVerticesIterable(indexed_vertices_.access(), &transaction_, view, &disk_storage->indices_,
+  return VerticesIterable(AllVerticesIterable(indexed_vertices_.access(), &transaction_, view, &storage_->indices_,
                                               &disk_storage->constraints_, disk_storage->config_.items));
 }
 
@@ -376,7 +375,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
                                                      View view) {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   auto *disk_label_property_index =
-      static_cast<DiskLabelPropertyIndex *>(disk_storage->indices_.label_property_index_.get());
+      static_cast<DiskLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
   auto it = disk_label_property_index->CreateRocksDBIterator();
   std::string search_key = utils::SerializeIdType(label) + "," + utils::SerializeIdType(property);
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
@@ -388,7 +387,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
     }
   }
   // TODO: andi. If the current version stays like this no need for two new iterators inside the storage
-  return VerticesIterable(AllVerticesIterable(indexed_vertices_.access(), &transaction_, view, &disk_storage->indices_,
+  return VerticesIterable(AllVerticesIterable(indexed_vertices_.access(), &transaction_, view, &storage_->indices_,
                                               &disk_storage->constraints_, disk_storage->config_.items));
 }
 
@@ -419,7 +418,7 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex() {
     delta->prev.Set(&*it);
   }
 
-  return {&*it, &transaction_, &disk_storage->indices_, &disk_storage->constraints_, config_};
+  return {&*it, &transaction_, &storage_->indices_, &disk_storage->constraints_, config_};
 }
 
 StorageInfo DiskStorage::GetInfo() const {
@@ -458,7 +457,7 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex(storage::Gid gid) {
   if (delta) {
     delta->prev.Set(&*it);
   }
-  return {&*it, &transaction_, &disk_storage->indices_, &disk_storage->constraints_, config_};
+  return {&*it, &transaction_, &storage_->indices_, &disk_storage->constraints_, config_};
 }
 
 /// TODO(andi): This method is the duplicate of CreateVertex(storage::Gid gid), the only thing that is different is
@@ -488,7 +487,7 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex(utils::SkipList<Vertex>::
   if (delta) {
     delta->prev.Set(&*it);
   }
-  return {&*it, &transaction_, &disk_storage->indices_, &disk_storage->constraints_, config_};
+  return {&*it, &transaction_, &storage_->indices_, &disk_storage->constraints_, config_};
 }
 
 std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid gid, View view) {
@@ -498,8 +497,8 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid
   auto vertex_it = acc.find(gid);
   if (vertex_it != acc.end()) {
     spdlog::debug("Vertex with gid {} found in the cache!", gid.AsUint());
-    return VertexAccessor::Create(&*vertex_it, &transaction_, &disk_storage->indices_, &disk_storage->constraints_,
-                                  config_, view);
+    return VertexAccessor::Create(&*vertex_it, &transaction_, &storage_->indices_, &disk_storage->constraints_, config_,
+                                  view);
   }
   spdlog::debug("Vertex with gid {} not found in the cache!", gid.AsUint());
   /// If not in the memory, check whether it exists in RocksDB.
@@ -540,8 +539,8 @@ Result<std::optional<VertexAccessor>> DiskStorage::DiskAccessor::DeleteVertex(Ve
   vertices_to_delete_.emplace_back(utils::SerializeVertex(*vertex_ptr));
 
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  return std::make_optional<VertexAccessor>(vertex_ptr, &transaction_, &disk_storage->indices_,
-                                            &disk_storage->constraints_, config_, true);
+  return std::make_optional<VertexAccessor>(vertex_ptr, &transaction_, &storage_->indices_, &disk_storage->constraints_,
+                                            config_, true);
 }
 
 Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>>
@@ -570,7 +569,7 @@ DiskStorage::DiskAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
   std::vector<EdgeAccessor> deleted_edges;
   for (const auto &item : in_edges) {
     auto [edge_type, from_vertex, edge] = item;
-    EdgeAccessor e(edge, edge_type, from_vertex, vertex_ptr, &transaction_, &disk_storage->indices_,
+    EdgeAccessor e(edge, edge_type, from_vertex, vertex_ptr, &transaction_, &storage_->indices_,
                    &disk_storage->constraints_, config_);
     auto ret = DeleteEdge(&e);
     if (ret.HasError()) {
@@ -584,7 +583,7 @@ DiskStorage::DiskAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
   }
   for (const auto &item : out_edges) {
     auto [edge_type, to_vertex, edge] = item;
-    EdgeAccessor e(edge, edge_type, vertex_ptr, to_vertex, &transaction_, &disk_storage->indices_,
+    EdgeAccessor e(edge, edge_type, vertex_ptr, to_vertex, &transaction_, &storage_->indices_,
                    &disk_storage->constraints_, config_);
     auto ret = DeleteEdge(&e);
     if (ret.HasError()) {
@@ -612,7 +611,7 @@ DiskStorage::DiskAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
   vertices_to_delete_.emplace_back(utils::SerializeVertex(*vertex_ptr));
 
   return std::make_optional<ReturnType>(
-      VertexAccessor{vertex_ptr, &transaction_, &disk_storage->indices_, &disk_storage->constraints_, config_, true},
+      VertexAccessor{vertex_ptr, &transaction_, &storage_->indices_, &disk_storage->constraints_, config_, true},
       std::move(deleted_edges));
 }
 
@@ -713,7 +712,7 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   // Increment edge count.
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
-  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &disk_storage->indices_,
+  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
                       &disk_storage->constraints_, config_);
 }
 
@@ -782,7 +781,7 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   // Increment edge count.
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
-  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &disk_storage->indices_,
+  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
                       &disk_storage->constraints_, config_);
 }
 
@@ -842,7 +841,7 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   // Increment edge count.
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
-  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &disk_storage->indices_,
+  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
                       &disk_storage->constraints_, config_);
 }
 
@@ -932,7 +931,7 @@ Result<std::optional<EdgeAccessor>> DiskStorage::DiskAccessor::DeleteEdge(EdgeAc
 
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   return std::make_optional<EdgeAccessor>(edge_ref, edge_type, from_vertex, to_vertex, &transaction_,
-                                          &disk_storage->indices_, &disk_storage->constraints_, config_, true);
+                                          &storage_->indices_, &disk_storage->constraints_, config_, true);
 }
 
 void DiskStorage::DiskAccessor::FlushCache() {

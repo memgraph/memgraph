@@ -46,9 +46,9 @@ class DiskLabelIndex : public storage::LabelIndex {
   bool CreateIndex(LabelId label, const std::vector<std::pair<std::string, std::string>> &vertices);
 
   /// Returns false if there was no index to drop
-  bool DropIndex(LabelId label) override { return index_.erase(label) > 0; }
+  bool DropIndex(LabelId label) override;
 
-  bool IndexExists(LabelId label) const override { return index_.find(label) != index_.end(); }
+  bool IndexExists(LabelId label) const override;
 
   std::vector<LabelId> ListIndices() const override;
 

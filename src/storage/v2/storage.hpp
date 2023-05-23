@@ -178,11 +178,12 @@ struct StorageInfo {
 
 class Storage {
  public:
-  Storage(Config config)
+  Storage(Config config, Constraints *constraints, StorageMode storage_mode)
       : config_(config),
         snapshot_directory_(config.durability.storage_directory / durability::kSnapshotDirectory),
         wal_directory_(config.durability.storage_directory / durability::kWalDirectory),
         lock_file_path_(config.durability.storage_directory / durability::kLockFile),
+        indices_(constraints, config.items, storage_mode),
         uuid_(utils::GenerateUUID()),
         epoch_id_(utils::GenerateUUID()),
         global_locker_(file_retainer_.AddLocker()) {}
@@ -560,6 +561,8 @@ class Storage {
   std::filesystem::path lock_file_path_;
   utils::OutputFile lock_file_handle_;
   std::unique_ptr<kvstore::KVStore> storage_;
+
+  Indices indices_;
 
   utils::Scheduler snapshot_runner_;
   utils::SpinLock snapshot_lock_;

@@ -34,8 +34,10 @@ DiskLabelIndex::DiskLabelIndex(Indices *indices, Constraints *constraints, Confi
 
 /// TODO: andi if the vertex is already indexed, we should update the entry, not create a new one.
 void DiskLabelIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) {
-  auto it = index_.find(label);
-  if (it == index_.end()) return;
+  if (!IndexExists(label)) {
+    return;
+  }
+  /// TODO: andi This change should be done at the commit time not before and under some lock, probably RocksDB lock.
   std::string key = utils::SerializeVertexForLabelIndex(label, vertex->labels, vertex->gid);
   std::string value = utils::SerializeProperties(vertex->properties);
   kvstore_->db_->Put(rocksdb::WriteOptions(), key, value);
@@ -49,6 +51,11 @@ bool DiskLabelIndex::CreateIndex(LabelId label, const std::vector<std::pair<std:
   }
   return true;
 }
+
+/// TODO: andi Here will come Bloom filter deletion
+bool DiskLabelIndex::DropIndex(LabelId label) { return index_.erase(label) > 0; }
+
+bool DiskLabelIndex::IndexExists(LabelId label) const { return index_.find(label) != index_.end(); }
 
 std::vector<LabelId> DiskLabelIndex::ListIndices() const { return std::vector<LabelId>(index_.begin(), index_.end()); }
 

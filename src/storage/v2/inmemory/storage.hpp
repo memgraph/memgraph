@@ -356,7 +356,6 @@ class InMemoryStorage final : public Storage {
   IsolationLevel isolation_level_;
   StorageMode storage_mode_;
   Constraints constraints_;
-  Indices indices_;
 
   // TODO: This isn't really a commit log, it doesn't even care if a
   // transaction commited or aborted. We could probably combine this with

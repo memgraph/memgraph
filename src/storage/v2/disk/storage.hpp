@@ -351,7 +351,6 @@ class DiskStorage final : public Storage {
   std::atomic<uint64_t> edge_id_{0};
 
   Constraints constraints_;
-  Indices indices_;
   IsolationLevel isolation_level_;
   StorageMode storage_mode_;
 
