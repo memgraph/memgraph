@@ -2338,9 +2338,6 @@ bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
     for (const auto &pattern_filter_cursor : pattern_filter_cursors_) {
       pattern_filter_cursor->Pull(frame, context);
     }
-    if (utils::Downcast<InListOperator>(self_.expression_)) {
-      std::cout << "in list operator filter" << std::endl;
-    }
     if (EvaluateFilter(evaluator, self_.expression_)) return true;
   }
   return false;

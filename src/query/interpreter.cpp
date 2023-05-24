@@ -1263,33 +1263,18 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
         continue;
       }
       auto *inListoperator = utils::Downcast<InListOperator>(tree.get());
-      std::optional<std::pair<std::string, std::string>> cache_info;
-      if (inListoperator->expression2_->GetTypeInfo() == ListLiteral::kType) {
-        std::stringstream ss;
-        // This is probably only way how we can track ListLiteral as it doesn't change
-        ss << static_cast<const void *>(inListoperator->expression2_);
-        cache_info.emplace(std::string(ListLiteral::kType.name), ss.str());
-      } else if (inListoperator->expression2_->GetTypeInfo() == Identifier::kType) {
-        auto *identifier = utils::Downcast<Identifier>(inListoperator->expression2_);
-        spdlog::trace(" Identifier: {} {} {}", identifier->name_, identifier->symbol_pos_, identifier->user_declared_);
-        cache_info.emplace(std::string(Identifier::kType.name), identifier->name_);
-      } else {
-        // TODO(antoniofilipovic): [[likely]] we can track other Expressions too, like PropertyLookup, ListSlicing
-        // operator, etc.. Think how to add visitor (maybe like ReferenceExpressionEvaluator, only this would be
-        // CacheExpressionEvalutator) so we can track other values on frame on chage.
-        spdlog::trace("Not tracking IN LIST {}", inListoperator->expression2_->GetTypeInfo().name);
-      }
-      if (!cache_info || cache_info->second.empty()) {
-        spdlog::trace("Not tracking IN LIST {}", cache_info->first);
+      const auto cached_id = memgraph::utils::GetFrameChangeId(*inListoperator);
+      if (!cached_id || cached_id->empty()) {
+        spdlog::trace("Not tracking IN LIST {}");
         continue;
       }
-      auto &cached_value = frame_change_collector->AddTrackingValue(cache_info->second);
-      cached_value.cache_value_ = [](decltype(cached_value) &object, const TypedValue &value) -> bool {
+      auto &cached_value = frame_change_collector->AddTrackingValue(*cached_id);
+      cached_value.cache_value_ = [](auto &object, const TypedValue &value) -> bool {
         if (!value.IsList()) {
           return false;
         }
         decltype(object.cache_) &cached_value = object.cache_;
-        auto &list = value.ValueList();
+        const auto &list = value.ValueList();
         TypedValue::Hash hash{};
         for (const TypedValue &element : list) {
           auto key = hash(element);
@@ -1305,15 +1290,14 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                 if (result.IsNull()) return false;
                 return result.ValueBool();
               });
-          // Hash collisions should happen rarely, if ever.
-          if (!contains_element) {
+          if (!contains_element) [[unlikely]] {
             vector_values.push_back(element);
           }
         }
         return true;
       };
 
-      cached_value.contains_value_ = [](decltype(cached_value) &object, const TypedValue &value) -> bool {
+      cached_value.contains_value_ = [](auto &object, const TypedValue &value) -> bool {
         TypedValue::Hash hash{};
         decltype(object.cache_) &cached_value = object.cache_;
 
@@ -1329,8 +1313,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
         }
         return false;
       };
-      spdlog::trace("Tracking {} operator, from {} type, by id: {}", InListOperator::kType.name, cache_info->first,
-                    cache_info->second);
+      spdlog::trace("Tracking {} operator, by id: {}", InListOperator::kType.name, *cached_id);
     }
   }
 

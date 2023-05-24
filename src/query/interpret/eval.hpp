@@ -31,6 +31,7 @@
 #include "query/typed_value.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/exceptions.hpp"
+#include "utils/frame_change_id.hpp"
 #include "utils/logging.hpp"
 #include "utils/pmr/unordered_map.hpp"
 
@@ -236,39 +237,23 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       return {};
     };
 
-    auto get_cached_id = [&in_list]() -> std::string {
-      std::string cached_id;
-      if (in_list.expression2_->GetTypeInfo() == ListLiteral::kType) {
-        std::stringstream ss;
-        ss << static_cast<const void *>(in_list.expression2_);
-        cached_id = ss.str();
-        spdlog::trace("ListLiteral in InListOperator: {}", cached_id);
-      } else if (in_list.expression2_->GetTypeInfo() == Identifier::kType) {
-        auto *identifier = utils::Downcast<Identifier>(in_list.expression2_);
-        cached_id = identifier->name_;
-        spdlog::trace("Identifier in InListOperator: {}", cached_id);
-      } else {
-        spdlog::trace("InListOperator got {} as expression2_", in_list.expression2_->GetTypeInfo().name);
-      }
-      return cached_id;
-    };
     // These checks need to be done in both cases, whether we are caching or not
     get_list_literal();
     auto preoperational_checks = do_list_literal_checks();
     if (preoperational_checks) {
       return std::move(*preoperational_checks);
     }
-    auto cached_id = get_cached_id();
+    const auto cached_id = memgraph::utils::GetFrameChangeId(in_list);
 
-    const auto do_cache{frame_change_collector_ != nullptr &&
-                        frame_change_collector_->ContainsTrackingValue(cached_id)};
+    const auto do_cache{frame_change_collector_ != nullptr && cached_id &&
+                        frame_change_collector_->ContainsTrackingValue(*cached_id)};
     if (do_cache) {
-      if (!frame_change_collector_->IsTrackingValueCached(cached_id)) {
-        auto &cached_value = frame_change_collector_->GetCachedValue(cached_id);
+      if (!frame_change_collector_->IsTrackingValueCached(*cached_id)) {
+        auto &cached_value = frame_change_collector_->GetCachedValue(*cached_id);
         cached_value.cache_value_(cached_value, *_list_ptr);
-        spdlog::trace("Recalculating cached value {}", cached_id);
+        spdlog::trace("Calculating cached value {}", *cached_id);
       }
-      auto &cached_value = frame_change_collector_->GetCachedValue(cached_id);
+      auto &cached_value = frame_change_collector_->GetCachedValue(*cached_id);
 
       if (cached_value.contains_value_(cached_value, literal)) {
         return TypedValue(true, ctx_->memory);
