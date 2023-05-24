@@ -22,17 +22,6 @@ using ParalellizedIndexCreationInfo =
 
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 class DiskLabelIndex : public storage::LabelIndex {
- private:
-  struct Entry {
-    Vertex *vertex;
-    uint64_t timestamp;
-
-    bool operator<(const Entry &rhs) {
-      return std::make_tuple(vertex, timestamp) < std::make_tuple(rhs.vertex, rhs.timestamp);
-    }
-    bool operator==(const Entry &rhs) { return vertex == rhs.vertex && timestamp == rhs.timestamp; }
-  };
-
  public:
   DiskLabelIndex(Indices *indices, Constraints *constraints, Config::Items config);
 
@@ -54,42 +43,6 @@ class DiskLabelIndex : public storage::LabelIndex {
 
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) override;
 
-  class Iterable {
-   public:
-    Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, View view, Transaction *transaction,
-             Indices *indices, Constraints *constraints, Config::Items config);
-
-    class Iterator {
-     public:
-      Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator);
-
-      VertexAccessor operator*() const { return current_vertex_accessor_; }
-
-      bool operator==(const Iterator &other) const { return index_iterator_ == other.index_iterator_; }
-      bool operator!=(const Iterator &other) const { return index_iterator_ != other.index_iterator_; }
-
-      Iterator &operator++();
-
-     private:
-      Iterable *self_;
-      utils::SkipList<Entry>::Iterator index_iterator_;
-      VertexAccessor current_vertex_accessor_;
-      Vertex *current_vertex_;
-    };
-
-    Iterator begin() { return Iterator(this, index_accessor_.begin()); }
-    Iterator end() { return Iterator(this, index_accessor_.end()); }
-
-   private:
-    utils::SkipList<Entry>::Accessor index_accessor_;
-    LabelId label_;
-    View view_;
-    Transaction *transaction_;
-    Indices *indices_;
-    Constraints *constraints_;
-    Config::Items config_;
-  };
-
   int64_t ApproximateVertexCount(LabelId label) const override;
 
   std::unique_ptr<rocksdb::Iterator> CreateRocksDBIterator() {
@@ -102,9 +55,9 @@ class DiskLabelIndex : public storage::LabelIndex {
 
  private:
   std::unordered_set<LabelId> index_;
-  Indices *indices_;
+  Indices *indices_;  /// TODO: andi maybe you can remove a pointer to indices_
   Constraints *constraints_;
-  Config::Items config_;
+  Config config_;
   std::unique_ptr<RocksDBStorage> kvstore_;
 };
 

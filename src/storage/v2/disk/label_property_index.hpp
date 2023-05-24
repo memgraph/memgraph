@@ -19,19 +19,6 @@ using ParalellizedIndexCreationInfo =
     std::pair<std::vector<std::pair<Gid, uint64_t>> /*vertex_recovery_info*/, uint64_t /*thread_count*/>;
 
 class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
- private:
-  struct Entry {
-    PropertyValue value;
-    Vertex *vertex;
-    uint64_t timestamp;
-
-    bool operator<(const Entry &rhs);
-    bool operator==(const Entry &rhs);
-
-    bool operator<(const PropertyValue &rhs);
-    bool operator==(const PropertyValue &rhs);
-  };
-
  public:
   DiskLabelPropertyIndex(Indices *indices, Constraints *constraints, Config::Items config);
 
@@ -56,48 +43,6 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
   std::vector<std::pair<LabelId, PropertyId>> ListIndices() const override;
 
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) override;
-
-  class Iterable {
-   public:
-    Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, PropertyId property,
-             const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-             const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Transaction *transaction,
-             Indices *indices, Constraints *constraints, Config::Items config);
-
-    class Iterator {
-     public:
-      Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator);
-
-      VertexAccessor operator*() const { return current_vertex_accessor_; }
-
-      bool operator==(const Iterator &other) const { return index_iterator_ == other.index_iterator_; }
-      bool operator!=(const Iterator &other) const { return index_iterator_ != other.index_iterator_; }
-
-      Iterator &operator++();
-
-     private:
-      Iterable *self_;
-      utils::SkipList<Entry>::Iterator index_iterator_;
-      VertexAccessor current_vertex_accessor_;
-      Vertex *current_vertex_;
-    };
-
-    Iterator begin();
-    Iterator end();
-
-   private:
-    utils::SkipList<Entry>::Accessor index_accessor_;
-    LabelId label_;
-    PropertyId property_;
-    std::optional<utils::Bound<PropertyValue>> lower_bound_;
-    std::optional<utils::Bound<PropertyValue>> upper_bound_;
-    bool bounds_valid_{true};
-    View view_;
-    Transaction *transaction_;
-    Indices *indices_;
-    Constraints *constraints_;
-    Config::Items config_;
-  };
 
   int64_t ApproximateVertexCount(LabelId label, PropertyId property) const override;
 
@@ -133,7 +78,7 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
   /// TODO: andi Optimize by using unordered_set
   std::set<std::pair<LabelId, PropertyId>> index_;
   std::map<std::pair<LabelId, PropertyId>, storage::IndexStats> stats_;
-  Indices *indices_;
+  Indices *indices_;  /// TODO: andi check if you can remove a pointer to indices_
   Constraints *constraints_;
   Config::Items config_;
   std::unique_ptr<RocksDBStorage> kvstore_;

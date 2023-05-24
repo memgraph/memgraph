@@ -68,27 +68,6 @@ int64_t DiskLabelIndex::ApproximateVertexCount(LabelId /*label*/) const {
   return 10;
 }
 
-DiskLabelIndex::Iterable::Iterator::Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator)
-    : self_(self),
-      index_iterator_(index_iterator),
-      current_vertex_accessor_(nullptr, nullptr, nullptr, nullptr, self_->config_),
-      current_vertex_(nullptr) {}
-
-DiskLabelIndex::Iterable::Iterator &DiskLabelIndex::Iterable::Iterator::operator++() {
-  ++index_iterator_;
-  return *this;
-}
-DiskLabelIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, View view,
-                                   Transaction *transaction, Indices *indices, Constraints *constraints,
-                                   Config::Items config)
-    : index_accessor_(std::move(index_accessor)),
-      label_(label),
-      view_(view),
-      transaction_(transaction),
-      indices_(indices),
-      constraints_(constraints),
-      config_(config) {}
-
 void DiskLabelIndex::Clear() { index_.clear(); }
 
 void DiskLabelIndex::RunGC() {

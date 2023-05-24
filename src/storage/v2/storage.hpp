@@ -89,23 +89,19 @@ class AllVerticesIterable final {
 /// This class should be the primary type used by the client code to iterate
 /// over vertices inside a Storage instance.
 class VerticesIterable final {
-  enum class Type { ALL, BY_LABEL_IN_MEMORY, BY_LABEL_PROPERTY_IN_MEMORY, BY_LABEL_ON_DISK, BY_LABEL_PROPERTY_ON_DISK };
+  enum class Type { ALL, BY_LABEL_IN_MEMORY, BY_LABEL_PROPERTY_IN_MEMORY };
 
   Type type_;
   union {
     AllVerticesIterable all_vertices_;
     InMemoryLabelIndex::Iterable in_memory_vertices_by_label_;
     InMemoryLabelPropertyIndex::Iterable in_memory_vertices_by_label_property_;
-    DiskLabelIndex::Iterable disk_vertices_by_label_;
-    DiskLabelPropertyIndex::Iterable disk_vertices_by_label_property_;
   };
 
  public:
   explicit VerticesIterable(AllVerticesIterable);
   explicit VerticesIterable(InMemoryLabelIndex::Iterable);
   explicit VerticesIterable(InMemoryLabelPropertyIndex::Iterable);
-  explicit VerticesIterable(DiskLabelIndex::Iterable);
-  explicit VerticesIterable(DiskLabelPropertyIndex::Iterable);
 
   VerticesIterable(const VerticesIterable &) = delete;
   VerticesIterable &operator=(const VerticesIterable &) = delete;
@@ -121,8 +117,6 @@ class VerticesIterable final {
       AllVerticesIterable::Iterator all_it_;
       InMemoryLabelIndex::Iterable::Iterator in_memory_by_label_it_;
       InMemoryLabelPropertyIndex::Iterable::Iterator in_memory_by_label_property_it_;
-      DiskLabelIndex::Iterable::Iterator disk_by_label_it_;
-      DiskLabelPropertyIndex::Iterable::Iterator disk_by_label_property_it_;
     };
 
     void Destroy() noexcept;
@@ -131,8 +125,6 @@ class VerticesIterable final {
     explicit Iterator(AllVerticesIterable::Iterator);
     explicit Iterator(InMemoryLabelIndex::Iterable::Iterator);
     explicit Iterator(InMemoryLabelPropertyIndex::Iterable::Iterator);
-    explicit Iterator(DiskLabelIndex::Iterable::Iterator);
-    explicit Iterator(DiskLabelPropertyIndex::Iterable::Iterator);
 
     Iterator(const Iterator &);
     Iterator &operator=(const Iterator &);
@@ -178,6 +170,7 @@ struct StorageInfo {
 
 class Storage {
  public:
+  /// TODO: andi no need for storage-mode being passed separately
   Storage(Config config, Constraints *constraints, StorageMode storage_mode)
       : config_(config),
         snapshot_directory_(config.durability.storage_directory / durability::kSnapshotDirectory),
