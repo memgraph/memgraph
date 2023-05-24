@@ -52,6 +52,7 @@
 #include "query/stream/common.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
+#include "spdlog/spdlog.h"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/isolation_level.hpp"
@@ -1270,6 +1271,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
         cache_info.emplace(std::string(ListLiteral::kType.name), ss.str());
       } else if (inListoperator->expression2_->GetTypeInfo() == Identifier::kType) {
         auto *identifier = utils::Downcast<Identifier>(inListoperator->expression2_);
+        spdlog::trace(" Identifier: {} {} {}", identifier->name_, identifier->symbol_pos_, identifier->user_declared_);
         cache_info.emplace(std::string(Identifier::kType.name), identifier->name_);
       } else {
         // TODO(antoniofilipovic): [[likely]] we can track other Expressions too, like PropertyLookup, ListSlicing

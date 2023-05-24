@@ -266,6 +266,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       if (!frame_change_collector_->IsTrackingValueCached(cached_id)) {
         auto &cached_value = frame_change_collector_->GetCachedValue(cached_id);
         cached_value.cache_value_(cached_value, *_list_ptr);
+        spdlog::trace("Recalculating cached value {}", cached_id);
       }
       auto &cached_value = frame_change_collector_->GetCachedValue(cached_id);
 
