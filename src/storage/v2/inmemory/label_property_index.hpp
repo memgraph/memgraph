@@ -26,16 +26,19 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     Vertex *vertex;
     uint64_t timestamp;
 
-    bool operator<(const Entry &rhs);
-    bool operator==(const Entry &rhs);
+    bool operator<(const Entry &rhs) const;
+    bool operator==(const Entry &rhs) const;
 
-    bool operator<(const PropertyValue &rhs);
-    bool operator==(const PropertyValue &rhs);
+    bool operator<(const PropertyValue &rhs) const;
+    bool operator==(const PropertyValue &rhs) const;
   };
 
  public:
-  InMemoryLabelPropertyIndex(Indices *indices, Constraints *constraints, const Config &config)
-      : LabelPropertyIndex(indices, constraints, config) {}
+  InMemoryLabelPropertyIndex(Indices *indices, Constraints *constraints, const Config &config);
+
+  /// @throw std::bad_alloc
+  bool CreateIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
+                   const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info);
 
   /// @throw std::bad_alloc
   void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) override;
@@ -44,15 +47,9 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
                            const Transaction &tx) override;
 
-  /// @throw std::bad_alloc
-  bool CreateIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
-                   const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info);
+  bool DropIndex(LabelId label, PropertyId property) override;
 
-  bool DropIndex(LabelId label, PropertyId property) override { return index_.erase({label, property}) > 0; }
-
-  bool IndexExists(LabelId label, PropertyId property) const override {
-    return index_.find({label, property}) != index_.end();
-  }
+  bool IndexExists(LabelId label, PropertyId property) const override;
 
   std::vector<std::pair<LabelId, PropertyId>> ListIndices() const override;
 
@@ -102,32 +99,17 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     Config config_;
   };
 
-  Iterable Vertices(LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
-                    Transaction *transaction) {
-    auto it = index_.find({label, property});
-    MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
-              property.AsUint());
-    return Iterable(it->second.access(), label, property, lower_bound, upper_bound, view, transaction, indices_,
-                    constraints_, config_);
-  }
-
-  int64_t ApproximateVertexCount(LabelId label, PropertyId property) const override {
-    auto it = index_.find({label, property});
-    MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
-              property.AsUint());
-    return it->second.size();
-  }
+  uint64_t ApproximateVertexCount(LabelId label, PropertyId property) const override;
 
   /// Supplying a specific value into the count estimation function will return
   /// an estimated count of nodes which have their property's value set to
   /// `value`. If the `value` specified is `Null`, then an average number of
   /// equal elements is returned.
-  int64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const override;
+  uint64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const override;
 
-  int64_t ApproximateVertexCount(LabelId label, PropertyId property,
-                                 const std::optional<utils::Bound<PropertyValue>> &lower,
-                                 const std::optional<utils::Bound<PropertyValue>> &upper) const override;
+  uint64_t ApproximateVertexCount(LabelId label, PropertyId property,
+                                  const std::optional<utils::Bound<PropertyValue>> &lower,
+                                  const std::optional<utils::Bound<PropertyValue>> &upper) const override;
 
   std::vector<std::pair<LabelId, PropertyId>> ClearIndexStats() override;
 
@@ -139,9 +121,12 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId &label,
                                                    const storage::PropertyId &property) const override;
 
-  void Clear() override { index_.clear(); }
+  void Clear() override;
 
   void RunGC() override;
+
+  Iterable Vertices(LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Transaction *transaction);
 
  private:
   std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>> index_;

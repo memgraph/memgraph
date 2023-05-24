@@ -27,6 +27,19 @@ DiskLabelIndex::DiskLabelIndex(Indices *indices, Constraints *constraints, const
       rocksdb::DB::Open(kvstore_->options_, config.disk.label_index_directory, &kvstore_->db_));
 }
 
+bool DiskLabelIndex::CreateIndex(LabelId label, const std::vector<std::pair<std::string, std::string>> &vertices) {
+  index_.emplace(label);
+  rocksdb::WriteOptions wo;
+  for (const auto &[key, value] : vertices) {
+    kvstore_->db_->Put(wo, key, value);
+  }
+  return true;
+}
+
+std::unique_ptr<rocksdb::Iterator> DiskLabelIndex::CreateRocksDBIterator() {
+  return std::unique_ptr<rocksdb::Iterator>(kvstore_->db_->NewIterator(rocksdb::ReadOptions()));
+}
+
 /// TODO: andi if the vertex is already indexed, we should update the entry, not create a new one.
 void DiskLabelIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) {
   if (!IndexExists(label)) {
@@ -38,27 +51,18 @@ void DiskLabelIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Trans
   kvstore_->db_->Put(rocksdb::WriteOptions(), key, value);
 }
 
-bool DiskLabelIndex::CreateIndex(LabelId label, const std::vector<std::pair<std::string, std::string>> &vertices) {
-  index_.emplace(label);
-  rocksdb::WriteOptions wo;
-  for (const auto &[key, value] : vertices) {
-    kvstore_->db_->Put(wo, key, value);
-  }
-  return true;
-}
-
 /// TODO: andi Here will come Bloom filter deletion
 bool DiskLabelIndex::DropIndex(LabelId label) { return index_.erase(label) > 0; }
 
 bool DiskLabelIndex::IndexExists(LabelId label) const { return index_.find(label) != index_.end(); }
 
-std::vector<LabelId> DiskLabelIndex::ListIndices() const { return std::vector<LabelId>(index_.begin(), index_.end()); }
+std::vector<LabelId> DiskLabelIndex::ListIndices() const { return {index_.begin(), index_.end()}; }
 
 void DiskLabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) {
   throw utils::NotYetImplemented("DiskLabelIndex::RemoveObsoleteEntries");
 }
 
-int64_t DiskLabelIndex::ApproximateVertexCount(LabelId /*label*/) const {
+uint64_t DiskLabelIndex::ApproximateVertexCount(LabelId /*label*/) const {
   /// TODO: andi figure out something smarter.
   return 10;
 }

@@ -25,6 +25,11 @@ class DiskStorage final : public Storage {
   /// @throw std::bad_alloc
   explicit DiskStorage(Config config = Config());
 
+  DiskStorage(const DiskStorage &) = delete;
+  DiskStorage(DiskStorage &&) = delete;
+  DiskStorage &operator=(const DiskStorage &) = delete;
+  DiskStorage &operator=(DiskStorage &&) = delete;
+
   ~DiskStorage() override;
 
   class DiskAccessor final : public Storage::Accessor {

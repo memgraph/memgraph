@@ -22,19 +22,19 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
  public:
   DiskLabelPropertyIndex(Indices *indices, Constraints *constraints, const Config &config);
 
-  /// @throw std::bad_alloc
-  void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) override;
-
-  /// @throw std::bad_alloc
-  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                           const Transaction &tx) override;
-
   // Key: INDEX_LABEL,INDEX_PROPERTY_KEY,OTHER_LABEL_1,OTHER_LABEL_2, ..|GID
   // Value: VERTEX.PROPERTIES
   /// TODO: andi Whenever vertex is updated you should go to the disk if it is indexed.
   /// Optimize by using prefixed Bloom filters
   bool CreateIndex(LabelId label, PropertyId property,
                    const std::vector<std::pair<std::string, std::string>> &vertices);
+
+  /// @throw std::bad_alloc
+  void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) override;
+
+  /// @throw std::bad_alloc
+  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
+                           const Transaction &tx) override;
 
   bool DropIndex(LabelId label, PropertyId property) override;
 
@@ -44,17 +44,13 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) override;
 
-  int64_t ApproximateVertexCount(LabelId label, PropertyId property) const override;
+  uint64_t ApproximateVertexCount(LabelId label, PropertyId property) const override;
 
-  /// Supplying a specific value into the count estimation function will return
-  /// an estimated count of nodes which have their property's value set to
-  /// `value`. If the `value` specified is `Null`, then an average number of
-  /// equal elements is returned.
-  int64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const override;
+  uint64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const override;
 
-  int64_t ApproximateVertexCount(LabelId label, PropertyId property,
-                                 const std::optional<utils::Bound<PropertyValue>> &lower,
-                                 const std::optional<utils::Bound<PropertyValue>> &upper) const override;
+  uint64_t ApproximateVertexCount(LabelId label, PropertyId property,
+                                  const std::optional<utils::Bound<PropertyValue>> &lower,
+                                  const std::optional<utils::Bound<PropertyValue>> &upper) const override;
 
   std::vector<std::pair<LabelId, PropertyId>> ClearIndexStats() override;
 
@@ -66,13 +62,11 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
   std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId &label,
                                                    const storage::PropertyId &property) const override;
 
-  std::unique_ptr<rocksdb::Iterator> CreateRocksDBIterator() {
-    return std::unique_ptr<rocksdb::Iterator>(kvstore_->db_->NewIterator(rocksdb::ReadOptions()));
-  }
-
   void Clear() override;
 
   void RunGC() override;
+
+  std::unique_ptr<rocksdb::Iterator> CreateRocksDBIterator();
 
  private:
   /// TODO: andi Optimize by using unordered_set

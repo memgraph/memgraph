@@ -28,12 +28,11 @@ class InMemoryLabelIndex : public storage::LabelIndex {
     bool operator<(const Entry &rhs) {
       return std::make_tuple(vertex, timestamp) < std::make_tuple(rhs.vertex, rhs.timestamp);
     }
-    bool operator==(const Entry &rhs) { return vertex == rhs.vertex && timestamp == rhs.timestamp; }
+    bool operator==(const Entry &rhs) const { return vertex == rhs.vertex && timestamp == rhs.timestamp; }
   };
 
  public:
-  InMemoryLabelIndex(Indices *indices, Constraints *constraints, Config config)
-      : LabelIndex(indices, constraints, config) {}
+  InMemoryLabelIndex(Indices *indices, Constraints *constraints, Config config);
 
   /// @throw std::bad_alloc
   void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) override;
@@ -43,9 +42,9 @@ class InMemoryLabelIndex : public storage::LabelIndex {
                    const std::optional<ParalellizedIndexCreationInfo> &paralell_exec_info);
 
   /// Returns false if there was no index to drop
-  bool DropIndex(LabelId label) override { return index_.erase(label) > 0; }
+  bool DropIndex(LabelId label) override;
 
-  bool IndexExists(LabelId label) const override { return index_.find(label) != index_.end(); }
+  bool IndexExists(LabelId label) const override;
 
   std::vector<LabelId> ListIndices() const override;
 
@@ -76,8 +75,8 @@ class InMemoryLabelIndex : public storage::LabelIndex {
       Vertex *current_vertex_;
     };
 
-    Iterator begin() { return Iterator(this, index_accessor_.begin()); }
-    Iterator end() { return Iterator(this, index_accessor_.end()); }
+    Iterator begin() { return {this, index_accessor_.begin()}; }
+    Iterator end() { return {this, index_accessor_.end()}; }
 
    private:
     utils::SkipList<Entry>::Accessor index_accessor_;
@@ -89,22 +88,13 @@ class InMemoryLabelIndex : public storage::LabelIndex {
     Config config_;
   };
 
-  /// Returns an self with vertices visible from the given transaction.
-  Iterable Vertices(LabelId label, View view, Transaction *transaction) {
-    auto it = index_.find(label);
-    MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist", label.AsUint());
-    return Iterable(it->second.access(), label, view, transaction, indices_, constraints_, config_);
-  }
+  uint64_t ApproximateVertexCount(LabelId label) const override;
 
-  int64_t ApproximateVertexCount(LabelId label) const override {
-    auto it = index_.find(label);
-    MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist", label.AsUint());
-    return it->second.size();
-  }
-
-  void Clear() override { index_.clear(); }
+  void Clear() override;
 
   void RunGC() override;
+
+  Iterable Vertices(LabelId label, View view, Transaction *transaction);
 
  private:
   std::map<LabelId, utils::SkipList<Entry>> index_;

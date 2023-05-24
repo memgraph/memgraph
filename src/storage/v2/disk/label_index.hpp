@@ -17,23 +17,20 @@
 #include "utils/rocksdb_serialization.hpp"
 
 namespace memgraph::storage {
-
-using ParalellizedIndexCreationInfo =
-    std::pair<std::vector<std::pair<Gid, uint64_t>> /*vertex_recovery_info*/, uint64_t /*thread_count*/>;
-
-using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 class DiskLabelIndex : public storage::LabelIndex {
  public:
   DiskLabelIndex(Indices *indices, Constraints *constraints, const Config &config);
-
-  /// @throw std::bad_alloc
-  void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) override;
 
   /// Key: INDEX_LABEL,OTHER_LABEL_1,OTHER_LABEL_2, ..|GID
   /// Value: VERTEX.PROPERTIES
   /// TODO: andi Whenever vertex is updated you should go to the disk if it is indexed.
   /// Optimize by using prefixed Bloom filters
   bool CreateIndex(LabelId label, const std::vector<std::pair<std::string, std::string>> &vertices);
+
+  std::unique_ptr<rocksdb::Iterator> CreateRocksDBIterator();
+
+  /// @throw std::bad_alloc
+  void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) override;
 
   /// Returns false if there was no index to drop
   bool DropIndex(LabelId label) override;
@@ -44,11 +41,7 @@ class DiskLabelIndex : public storage::LabelIndex {
 
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) override;
 
-  int64_t ApproximateVertexCount(LabelId label) const override;
-
-  std::unique_ptr<rocksdb::Iterator> CreateRocksDBIterator() {
-    return std::unique_ptr<rocksdb::Iterator>(kvstore_->db_->NewIterator(rocksdb::ReadOptions()));
-  }
+  uint64_t ApproximateVertexCount(LabelId label) const override;
 
   void Clear() override;
 

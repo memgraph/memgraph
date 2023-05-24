@@ -14,6 +14,9 @@
 
 namespace memgraph::storage {
 
+InMemoryLabelIndex::InMemoryLabelIndex(Indices *indices, Constraints *constraints, Config config)
+    : LabelIndex(indices, constraints, config) {}
+
 void InMemoryLabelIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) {
   auto it = index_.find(label);
   if (it == index_.end()) return;
@@ -60,6 +63,10 @@ bool InMemoryLabelIndex::CreateIndex(LabelId label, utils::SkipList<Vertex>::Acc
   return create_index_seq(label, vertices, it);
 }
 
+bool InMemoryLabelIndex::DropIndex(LabelId label) { return index_.erase(label) > 0; }
+
+bool InMemoryLabelIndex::IndexExists(LabelId label) const { return index_.find(label) != index_.end(); }
+
 std::vector<LabelId> InMemoryLabelIndex::ListIndices() const {
   std::vector<LabelId> ret;
   ret.reserve(index_.size());
@@ -91,6 +98,17 @@ void InMemoryLabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_time
   }
 }
 
+InMemoryLabelIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, View view,
+                                       Transaction *transaction, Indices *indices, Constraints *constraints,
+                                       const Config &config)
+    : index_accessor_(std::move(index_accessor)),
+      label_(label),
+      view_(view),
+      transaction_(transaction),
+      indices_(indices),
+      constraints_(constraints),
+      config_(config) {}
+
 InMemoryLabelIndex::Iterable::Iterator::Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
@@ -119,21 +137,24 @@ void InMemoryLabelIndex::Iterable::Iterator::AdvanceUntilValid() {
   }
 }
 
-InMemoryLabelIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, View view,
-                                       Transaction *transaction, Indices *indices, Constraints *constraints,
-                                       const Config &config)
-    : index_accessor_(std::move(index_accessor)),
-      label_(label),
-      view_(view),
-      transaction_(transaction),
-      indices_(indices),
-      constraints_(constraints),
-      config_(config) {}
+uint64_t InMemoryLabelIndex::ApproximateVertexCount(LabelId label) const {
+  auto it = index_.find(label);
+  MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist", label.AsUint());
+  return it->second.size();
+}
+
+void InMemoryLabelIndex::Clear() { index_.clear(); }
 
 void InMemoryLabelIndex::RunGC() {
   for (auto &index_entry : index_) {
     index_entry.second.run_gc();
   }
+}
+
+InMemoryLabelIndex::Iterable InMemoryLabelIndex::Vertices(LabelId label, View view, Transaction *transaction) {
+  auto it = index_.find(label);
+  MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist", label.AsUint());
+  return {it->second.access(), label, view, transaction, indices_, constraints_, config_};
 }
 
 }  // namespace memgraph::storage

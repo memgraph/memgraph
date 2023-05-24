@@ -26,6 +26,16 @@ DiskLabelPropertyIndex::DiskLabelPropertyIndex(Indices *indices, Constraints *co
       rocksdb::DB::Open(kvstore_->options_, config.disk.label_property_index_directory, &kvstore_->db_));
 }
 
+bool DiskLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
+                                         const std::vector<std::pair<std::string, std::string>> &vertices) {
+  index_.emplace(label, property);
+  rocksdb::WriteOptions wo;
+  for (const auto &[key, value] : vertices) {
+    kvstore_->db_->Put(wo, key, value);
+  }
+  return true;
+}
+
 void DiskLabelPropertyIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) {
   /// TODO: andi iterate over whole set
   // throw utils::NotYetImplemented("DiskLabelPropertyIndex::UpdateOnAddLabel");
@@ -38,16 +48,6 @@ void DiskLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const Prop
   }
   /// TODO: andi iterate over whole set
   // throw utils::NotYetImplemented("DiskLabelPropertyIndex::UpdateOnSetProperty");
-}
-
-bool DiskLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
-                                         const std::vector<std::pair<std::string, std::string>> &vertices) {
-  index_.emplace(label, property);
-  rocksdb::WriteOptions wo;
-  for (const auto &[key, value] : vertices) {
-    kvstore_->db_->Put(wo, key, value);
-  }
-  return true;
 }
 
 bool DiskLabelPropertyIndex::DropIndex(LabelId label, PropertyId property) {
@@ -78,19 +78,28 @@ const PropertyValue kSmallestMap = PropertyValue(std::map<std::string, PropertyV
 const PropertyValue kSmallestTemporalData =
     PropertyValue(TemporalData{static_cast<TemporalType>(0), std::numeric_limits<int64_t>::min()});
 
-int64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId property) const {
+uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId property) const {
   throw utils::NotYetImplemented("DiskLabelPropertyIndex::ApproximateVertexCount");
 }
 
-int64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId property,
-                                                       const PropertyValue &value) const {
+uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId property,
+                                                        const PropertyValue &value) const {
   throw utils::NotYetImplemented("DiskLabelPropertyIndex::ApproximateVertexCount");
 }
 
-int64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId property,
-                                                       const std::optional<utils::Bound<PropertyValue>> &lower,
-                                                       const std::optional<utils::Bound<PropertyValue>> &upper) const {
+uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId property,
+                                                        const std::optional<utils::Bound<PropertyValue>> &lower,
+                                                        const std::optional<utils::Bound<PropertyValue>> &upper) const {
   throw utils::NotYetImplemented("DiskLabelPropertyIndex::ApproximateVertexCount");
+}
+
+std::vector<std::pair<LabelId, PropertyId>> DiskLabelPropertyIndex::ClearIndexStats() {
+  std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;
+  deleted_indexes.reserve(stats_.size());
+  std::transform(stats_.begin(), stats_.end(), std::back_inserter(deleted_indexes),
+                 [](const auto &elem) { return elem.first; });
+  stats_.clear();
+  return deleted_indexes;
 }
 
 std::vector<std::pair<LabelId, PropertyId>> DiskLabelPropertyIndex::DeleteIndexStatsForLabel(
@@ -104,15 +113,6 @@ std::vector<std::pair<LabelId, PropertyId>> DiskLabelPropertyIndex::DeleteIndexS
       ++it;
     }
   }
-  return deleted_indexes;
-}
-
-std::vector<std::pair<LabelId, PropertyId>> DiskLabelPropertyIndex::ClearIndexStats() {
-  std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;
-  deleted_indexes.reserve(stats_.size());
-  std::transform(stats_.begin(), stats_.end(), std::back_inserter(deleted_indexes),
-                 [](const auto &elem) { return elem.first; });
-  stats_.clear();
   return deleted_indexes;
 }
 
@@ -132,5 +132,9 @@ std::optional<IndexStats> DiskLabelPropertyIndex::GetIndexStats(const storage::L
 void DiskLabelPropertyIndex::Clear() { index_.clear(); }
 
 void DiskLabelPropertyIndex::RunGC() { throw utils::NotYetImplemented("DiskLabelPropertyIndex::RunGC"); }
+
+std::unique_ptr<rocksdb::Iterator> DiskLabelPropertyIndex::CreateRocksDBIterator() {
+  return std::unique_ptr<rocksdb::Iterator>(kvstore_->db_->NewIterator(rocksdb::ReadOptions()));
+}
 
 }  // namespace memgraph::storage

@@ -170,17 +170,15 @@ struct StorageInfo {
 
 class Storage {
  public:
-  Storage(Config config, Constraints *constraints, StorageMode storage_mode)
-      : config_(config),
-        snapshot_directory_(config.durability.storage_directory / durability::kSnapshotDirectory),
-        wal_directory_(config.durability.storage_directory / durability::kWalDirectory),
-        lock_file_path_(config.durability.storage_directory / durability::kLockFile),
-        indices_(constraints, config, storage_mode),
-        uuid_(utils::GenerateUUID()),
-        epoch_id_(utils::GenerateUUID()),
-        global_locker_(file_retainer_.AddLocker()) {}
+  Storage(Config config, Constraints *constraints, StorageMode storage_mode);
+
+  Storage(const Storage &) = delete;
+  Storage(Storage &&) = delete;
+  Storage &operator=(const Storage &) = delete;
+  Storage &operator=(Storage &&) = delete;
 
   virtual ~Storage() {}
+
   class Accessor {
    public:
     Accessor(Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode);

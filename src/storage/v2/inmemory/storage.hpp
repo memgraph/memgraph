@@ -28,6 +28,11 @@ class InMemoryStorage final : public Storage {
   /// @throw std::bad_alloc
   explicit InMemoryStorage(Config config = Config());
 
+  InMemoryStorage(const InMemoryStorage &) = delete;
+  InMemoryStorage(InMemoryStorage &&) = delete;
+  InMemoryStorage &operator=(const InMemoryStorage &) = delete;
+  InMemoryStorage &operator=(InMemoryStorage &&) = delete;
+
   ~InMemoryStorage() override;
 
   class InMemoryAccessor final : public Storage::Accessor {

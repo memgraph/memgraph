@@ -270,6 +270,16 @@ bool VerticesIterable::Iterator::operator==(const Iterator &other) const {
   }
 }
 
+Storage::Storage(Config config, Constraints *constraints, StorageMode storage_mode)
+    : config_(config),
+      snapshot_directory_(config.durability.storage_directory / durability::kSnapshotDirectory),
+      wal_directory_(config.durability.storage_directory / durability::kWalDirectory),
+      lock_file_path_(config.durability.storage_directory / durability::kLockFile),
+      indices_(constraints, config, storage_mode),
+      uuid_(utils::GenerateUUID()),
+      epoch_id_(utils::GenerateUUID()),
+      global_locker_(file_retainer_.AddLocker()) {}
+
 Storage::Accessor::Accessor(Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode)
     : storage_(storage),
       // The lock must be acquired before creating the transaction object to

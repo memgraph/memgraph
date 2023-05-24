@@ -40,7 +40,7 @@ class LabelIndex {
   /// TODO: (andi) Maybe not needed for disk version so remove from abstract class
   virtual void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) = 0;
 
-  virtual int64_t ApproximateVertexCount(LabelId label) const = 0;
+  virtual uint64_t ApproximateVertexCount(LabelId label) const = 0;
 
   virtual void Clear() = 0;
 
