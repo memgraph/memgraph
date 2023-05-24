@@ -240,9 +240,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     const auto cached_id = memgraph::utils::GetFrameChangeId(in_list);
 
     const auto do_cache{frame_change_collector_ != nullptr && cached_id &&
-                        frame_change_collector_->ContainsTrackingValue(*cached_id)};
+                        frame_change_collector_->IsKeyTracked(*cached_id)};
     if (do_cache) {
-      if (!frame_change_collector_->IsTrackingValueCached(*cached_id)) {
+      if (!frame_change_collector_->IsKeyValueCached(*cached_id)) {
         get_list_literal();
         auto preoperational_checks = do_list_literal_checks();
         if (preoperational_checks) {

@@ -1262,7 +1262,7 @@ void TryCaching(const ParsedQuery &parsed_query, FrameChangeCollector *frame_cha
       spdlog::trace("Not tracking IN LIST {}");
       continue;
     }
-    frame_change_collector->AddTrackingValue(*cached_id);
+    frame_change_collector->AddTrackingKey(*cached_id);
     spdlog::trace("Tracking {} operator, by id: {}", InListOperator::kType.name, *cached_id);
   }
 }
@@ -1453,34 +1453,36 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
   rw_type_checker.InferRWType(const_cast<plan::LogicalOperator &>(cypher_query_plan->plan()));
 
-  return PreparedQuery{{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"},
-                       std::move(parsed_query.required_privileges),
-                       [plan = std::move(cypher_query_plan), parameters = std::move(parsed_inner_query.parameters),
-                        summary, dba, interpreter_context, execution_memory, memory_limit, optional_username,
-                        // We want to execute the query we are profiling lazily, so we delay
-                        // the construction of the corresponding context.
-                        stats_and_total_time = std::optional<plan::ProfilingStatsWithTotalTime>{},
-                        pull_plan = std::shared_ptr<PullPlanVector>(nullptr), transaction_status, use_monotonic_memory](
-                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-                         // No output symbols are given so that nothing is streamed.
-                         if (!stats_and_total_time) {
-                           stats_and_total_time = PullPlan(plan, parameters, true, dba, interpreter_context,
-                                                           execution_memory, optional_username, transaction_status,
-                                                           nullptr, memory_limit, use_monotonic_memory)
-                                                      .Pull(stream, {}, {}, summary);
-                           pull_plan = std::make_shared<PullPlanVector>(ProfilingStatsToTable(*stats_and_total_time));
-                         }
+  return PreparedQuery{
+      {"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"},
+      std::move(parsed_query.required_privileges),
+      [plan = std::move(cypher_query_plan), parameters = std::move(parsed_inner_query.parameters), summary, dba,
+       interpreter_context, execution_memory, memory_limit, optional_username,
+       // We want to execute the query we are profiling lazily, so we delay
+       // the construction of the corresponding context.
+       stats_and_total_time = std::optional<plan::ProfilingStatsWithTotalTime>{},
+       pull_plan = std::shared_ptr<PullPlanVector>(nullptr), transaction_status, use_monotonic_memory,
+       frame_change_collector](AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+        // No output symbols are given so that nothing is streamed.
+        if (!stats_and_total_time) {
+          stats_and_total_time =
+              PullPlan(plan, parameters, true, dba, interpreter_context, execution_memory, optional_username,
+                       transaction_status, nullptr, memory_limit, use_monotonic_memory,
+                       frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr)
+                  .Pull(stream, {}, {}, summary);
+          pull_plan = std::make_shared<PullPlanVector>(ProfilingStatsToTable(*stats_and_total_time));
+        }
 
-                         MG_ASSERT(stats_and_total_time, "Failed to execute the query!");
+        MG_ASSERT(stats_and_total_time, "Failed to execute the query!");
 
-                         if (pull_plan->Pull(stream, n)) {
-                           summary->insert_or_assign("profile", ProfilingStatsToJson(*stats_and_total_time).dump());
-                           return QueryHandlerResult::ABORT;
-                         }
+        if (pull_plan->Pull(stream, n)) {
+          summary->insert_or_assign("profile", ProfilingStatsToJson(*stats_and_total_time).dump());
+          return QueryHandlerResult::ABORT;
+        }
 
-                         return std::nullopt;
-                       },
-                       rw_type_checker.type};
+        return std::nullopt;
+      },
+      rw_type_checker.type};
 }
 
 PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary, DbAccessor *dba,

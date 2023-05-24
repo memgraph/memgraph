@@ -64,31 +64,40 @@ struct CachedValue {
     return false;
   }
 };
+
+// Class tracks keys for which user can cache values which help with faster search or faster retrieval
+// in the future.
 class FrameChangeCollector {
  public:
   explicit FrameChangeCollector(utils::MemoryResource *mem) : tracked_values_(mem){};
 
-  CachedValue &AddTrackingValue(const std::string &name) {
-    tracked_values_.emplace(name, CachedValue{});
-    return tracked_values_[name];
+  // Add tracking key to cache later value
+  CachedValue &AddTrackingKey(const std::string &key) {
+    tracked_values_.emplace(key, CachedValue{});
+    return tracked_values_[key];
   }
 
-  bool ContainsTrackingValue(const std::string &name) const { return tracked_values_.contains(name); }
+  // Is key tracked
+  bool IsKeyTracked(const std::string &key) const { return tracked_values_.contains(key); }
 
-  bool IsTrackingValueCached(const std::string &name) const {
-    return tracked_values_.contains(name) && !tracked_values_.at(name).cache_.empty();
+  // Is value for given key cached
+  bool IsKeyValueCached(const std::string &key) const {
+    return tracked_values_.contains(key) && !tracked_values_.at(key).cache_.empty();
   }
 
-  bool ResetTrackingValue(const std::string &name) {
-    if (tracked_values_.contains(name)) {
-      tracked_values_[name].cache_.clear();
+  // Reset value for tracking key
+  bool ResetTrackingValue(const std::string &key) {
+    if (tracked_values_.contains(key)) {
+      tracked_values_[key].cache_.clear();
     }
 
     return true;
   }
 
-  CachedValue &GetCachedValue(const std::string &name) { return tracked_values_[name]; }
+  // Get value cached for tracking key
+  CachedValue &GetCachedValue(const std::string &key) { return tracked_values_[key]; }
 
+  // Checks for keys tracked
   bool IsTrackingValues() const { return !tracked_values_.empty(); }
 
  private:
