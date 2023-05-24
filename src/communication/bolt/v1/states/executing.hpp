@@ -95,14 +95,11 @@ template <typename TSession>
 State RunHandlerV5(Signature signature, TSession &session, State state, Marker marker) {
   switch (signature) {
     case Signature::Run:
-      // Using V4 on purpose
-      return HandleRunV4<TSession>(session, state, marker);
+      return HandleRunV5<TSession>(session, state, marker);
     case Signature::Pull:
-      // Using V4 on purpose
-      return HandlePullV4<TSession>(session, state, marker);
+      return HandlePullV5<TSession>(session, state, marker);
     case Signature::Discard:
-      // Using V4 on purpose
-      return HandleDiscardV4<TSession>(session, state, marker);
+      return HandleDiscardV5<TSession>(session, state, marker);
     case Signature::Reset:
       return HandleReset<TSession>(session, marker);
     case Signature::Begin:
@@ -118,7 +115,7 @@ State RunHandlerV5(Signature signature, TSession &session, State state, Marker m
     case Signature::Route:
       return HandleRoute<TSession>(session, marker);
     case Signature::LogOff:
-      return HandleLogOff<TSession>(session);
+      return HandleLogOff<TSession>();
     default:
       spdlog::trace("Unrecognized signature received (0x{:02X})!", utils::UnderlyingCast(signature));
       return State::Close;
