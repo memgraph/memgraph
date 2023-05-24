@@ -11,6 +11,8 @@ set(storage_v2_src_files
     vertex_accessor.cpp
     storage.cpp
     indices/indices.cpp
+    all_vertices_iterable.cpp
+    vertices_iterable.cpp
     inmemory/storage.cpp
     inmemory/label_index.cpp
     inmemory/label_property_index.cpp

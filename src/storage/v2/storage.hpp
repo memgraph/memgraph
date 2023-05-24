@@ -16,6 +16,7 @@
 #include "io/network/endpoint.hpp"
 #include "kvstore/kvstore.hpp"
 #include "query/exceptions.hpp"
+#include "storage/v2/all_vertices_iterable.hpp"
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/durability/paths.hpp"
@@ -26,6 +27,7 @@
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/storage_error.hpp"
+#include "storage/v2/vertices_iterable.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/uuid.hpp"
 
@@ -36,115 +38,10 @@ class EdgeAccessor;
 
 enum class ReplicationRole : uint8_t { MAIN, REPLICA };
 
-// The storage is based on this paper:
-// https://db.in.tum.de/~muehlbau/papers/mvcc.pdf
-// The paper implements a fully serializable storage, in our implementation we
-// only implement snapshot isolation for transactions.
-
-/// Iterable for iterating through all vertices of a Storage.
-///
-/// An instance of this will be usually be wrapped inside VerticesIterable for
-/// generic, public use.
-class AllVerticesIterable final {
-  utils::SkipList<Vertex>::Accessor vertices_accessor_;
-  Transaction *transaction_;
-  View view_;
-  Indices *indices_;
-  Constraints *constraints_;
-  Config::Items config_;
-  std::optional<VertexAccessor> vertex_;
-
- public:
-  class Iterator final {
-    AllVerticesIterable *self_;
-    utils::SkipList<Vertex>::Iterator it_;
-
-   public:
-    Iterator(AllVerticesIterable *self, utils::SkipList<Vertex>::Iterator it);
-
-    VertexAccessor operator*() const;
-
-    Iterator &operator++();
-
-    bool operator==(const Iterator &other) const { return self_ == other.self_ && it_ == other.it_; }
-
-    bool operator!=(const Iterator &other) const { return !(*this == other); }
-  };
-
-  AllVerticesIterable(utils::SkipList<Vertex>::Accessor vertices_accessor, Transaction *transaction, View view,
-                      Indices *indices, Constraints *constraints, Config::Items config)
-      : vertices_accessor_(std::move(vertices_accessor)),
-        transaction_(transaction),
-        view_(view),
-        indices_(indices),
-        constraints_(constraints),
-        config_(config) {}
-
-  Iterator begin() { return Iterator(this, vertices_accessor_.begin()); }
-  Iterator end() { return Iterator(this, vertices_accessor_.end()); }
-};
-
 /// Generic access to different kinds of vertex iterations.
 ///
 /// This class should be the primary type used by the client code to iterate
 /// over vertices inside a Storage instance.
-class VerticesIterable final {
-  enum class Type { ALL, BY_LABEL_IN_MEMORY, BY_LABEL_PROPERTY_IN_MEMORY };
-
-  Type type_;
-  union {
-    AllVerticesIterable all_vertices_;
-    InMemoryLabelIndex::Iterable in_memory_vertices_by_label_;
-    InMemoryLabelPropertyIndex::Iterable in_memory_vertices_by_label_property_;
-  };
-
- public:
-  explicit VerticesIterable(AllVerticesIterable);
-  explicit VerticesIterable(InMemoryLabelIndex::Iterable);
-  explicit VerticesIterable(InMemoryLabelPropertyIndex::Iterable);
-
-  VerticesIterable(const VerticesIterable &) = delete;
-  VerticesIterable &operator=(const VerticesIterable &) = delete;
-
-  VerticesIterable(VerticesIterable &&) noexcept;
-  VerticesIterable &operator=(VerticesIterable &&) noexcept;
-
-  ~VerticesIterable();
-
-  class Iterator final {
-    Type type_;
-    union {
-      AllVerticesIterable::Iterator all_it_;
-      InMemoryLabelIndex::Iterable::Iterator in_memory_by_label_it_;
-      InMemoryLabelPropertyIndex::Iterable::Iterator in_memory_by_label_property_it_;
-    };
-
-    void Destroy() noexcept;
-
-   public:
-    explicit Iterator(AllVerticesIterable::Iterator);
-    explicit Iterator(InMemoryLabelIndex::Iterable::Iterator);
-    explicit Iterator(InMemoryLabelPropertyIndex::Iterable::Iterator);
-
-    Iterator(const Iterator &);
-    Iterator &operator=(const Iterator &);
-
-    Iterator(Iterator &&) noexcept;
-    Iterator &operator=(Iterator &&) noexcept;
-
-    ~Iterator();
-
-    VertexAccessor operator*() const;
-
-    Iterator &operator++();
-
-    bool operator==(const Iterator &other) const;
-    bool operator!=(const Iterator &other) const { return !(*this == other); }
-  };
-
-  Iterator begin();
-  Iterator end();
-};
 
 /// Structure used to return information about existing indices in the storage.
 struct IndicesInfo {
