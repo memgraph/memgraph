@@ -237,18 +237,17 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       return {};
     };
 
-    // These checks need to be done in both cases, whether we are caching or not
-    get_list_literal();
-    auto preoperational_checks = do_list_literal_checks();
-    if (preoperational_checks) {
-      return std::move(*preoperational_checks);
-    }
     const auto cached_id = memgraph::utils::GetFrameChangeId(in_list);
 
     const auto do_cache{frame_change_collector_ != nullptr && cached_id &&
                         frame_change_collector_->ContainsTrackingValue(*cached_id)};
     if (do_cache) {
       if (!frame_change_collector_->IsTrackingValueCached(*cached_id)) {
+        get_list_literal();
+        auto preoperational_checks = do_list_literal_checks();
+        if (preoperational_checks) {
+          return std::move(*preoperational_checks);
+        }
         auto &cached_value = frame_change_collector_->GetCachedValue(*cached_id);
         cached_value.CacheValue(*_list_ptr);
         spdlog::trace("Calculating cached value {}", *cached_id);
@@ -264,6 +263,13 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
       return TypedValue(false, ctx_->memory);
     }
+
+    get_list_literal();
+    auto preoperational_checks = do_list_literal_checks();
+    if (preoperational_checks) {
+      return std::move(*preoperational_checks);
+    }
+
     const auto &list = _list.ValueList();
     spdlog::trace("Not using cache on IN LIST operator");
     auto has_null = false;
