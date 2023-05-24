@@ -1250,6 +1250,23 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
           RWType::NONE};
 }
 
+void TryCaching(const ParsedQuery &parsed_query, FrameChangeCollector *frame_change_collector) {
+  MG_ASSERT(frame_change_collector);
+  for (const auto &tree : parsed_query.ast_storage.storage_) {
+    if (tree->GetTypeInfo() != memgraph::query::InListOperator::kType) {
+      continue;
+    }
+    auto *inListoperator = utils::Downcast<InListOperator>(tree.get());
+    const auto cached_id = memgraph::utils::GetFrameChangeId(*inListoperator);
+    if (!cached_id || cached_id->empty()) {
+      spdlog::trace("Not tracking IN LIST {}");
+      continue;
+    }
+    frame_change_collector->AddTrackingValue(*cached_id);
+    spdlog::trace("Tracking {} operator, by id: {}", InListOperator::kType.name, *cached_id);
+  }
+}
+
 PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
                                  InterpreterContext *interpreter_context, DbAccessor *dba,
                                  utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
@@ -1258,63 +1275,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                  FrameChangeCollector *frame_change_collector = nullptr) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
   if (frame_change_collector) {
-    for (const auto &tree : parsed_query.ast_storage.storage_) {
-      if (tree->GetTypeInfo() != memgraph::query::InListOperator::kType) {
-        continue;
-      }
-      auto *inListoperator = utils::Downcast<InListOperator>(tree.get());
-      const auto cached_id = memgraph::utils::GetFrameChangeId(*inListoperator);
-      if (!cached_id || cached_id->empty()) {
-        spdlog::trace("Not tracking IN LIST {}");
-        continue;
-      }
-      auto &cached_value = frame_change_collector->AddTrackingValue(*cached_id);
-      cached_value.cache_value_ = [](auto &object, const TypedValue &value) -> bool {
-        if (!value.IsList()) {
-          return false;
-        }
-        decltype(object.cache_) &cached_value = object.cache_;
-        const auto &list = value.ValueList();
-        TypedValue::Hash hash{};
-        for (const TypedValue &element : list) {
-          auto key = hash(element);
-          if (!cached_value.contains(key)) {
-            cached_value.emplace(key, std::vector<TypedValue>{element});
-            continue;
-          }
-
-          auto &vector_values = cached_value[key];
-          const auto contains_element =
-              std::any_of(vector_values.begin(), vector_values.end(), [&element](auto &vec_value) {
-                auto result = vec_value == element;
-                if (result.IsNull()) return false;
-                return result.ValueBool();
-              });
-          if (!contains_element) [[unlikely]] {
-            vector_values.push_back(element);
-          }
-        }
-        return true;
-      };
-
-      cached_value.contains_value_ = [](auto &object, const TypedValue &value) -> bool {
-        TypedValue::Hash hash{};
-        decltype(object.cache_) &cached_value = object.cache_;
-
-        auto key = hash(value);
-        if (cached_value.contains(key)) {
-          const auto &vec_values = cached_value.at(key);
-          auto result = std::any_of(vec_values.begin(), vec_values.end(), [&value](auto &vec_value) {
-            auto result = vec_value == value;
-            if (result.IsNull()) return false;
-            return result.ValueBool();
-          });
-          return result;
-        }
-        return false;
-      };
-      spdlog::trace("Tracking {} operator, by id: {}", InListOperator::kType.name, *cached_id);
-    }
+    TryCaching(parsed_query, frame_change_collector);
   }
 
   Frame frame(0);
@@ -1361,10 +1322,10 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
     header.push_back(
         utils::FindOr(parsed_query.stripped_query.named_expressions(), symbol.token_position(), symbol.name()).first);
   }
-  auto pull_plan =
-      std::make_shared<PullPlan>(plan, parsed_query.parameters, false, dba, interpreter_context, execution_memory,
-                                 StringPointerToOptional(username), transaction_status, trigger_context_collector,
-                                 memory_limit, use_monotonic_memory, frame_change_collector);
+  auto pull_plan = std::make_shared<PullPlan>(
+      plan, parsed_query.parameters, false, dba, interpreter_context, execution_memory,
+      StringPointerToOptional(username), transaction_status, trigger_context_collector, memory_limit,
+      use_monotonic_memory, frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr);
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
                        [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary](
                            AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
@@ -1425,7 +1386,8 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
 PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                   std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
                                   DbAccessor *dba, utils::MemoryResource *execution_memory, const std::string *username,
-                                  std::atomic<TransactionStatus> *transaction_status) {
+                                  std::atomic<TransactionStatus> *transaction_status,
+                                  FrameChangeCollector *frame_change_collector) {
   const std::string kProfileQueryStart = "profile ";
 
   MG_ASSERT(utils::StartsWith(utils::ToLowerCase(parsed_query.stripped_query.query()), kProfileQueryStart),
@@ -1460,7 +1422,9 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   ParsedQuery parsed_inner_query =
       ParseQuery(parsed_query.query_string.substr(kProfileQueryStart.size()), parsed_query.user_parameters,
                  &interpreter_context->ast_cache, interpreter_context->config.query);
-
+  if (frame_change_collector) {
+    TryCaching(parsed_inner_query, frame_change_collector);
+  }
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
 
   bool contains_csv = false;
@@ -2919,9 +2883,10 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareExplainQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
                                            &*execution_db_accessor_, &query_execution->execution_memory_with_exception);
     } else if (utils::Downcast<ProfileQuery>(parsed_query.query)) {
-      prepared_query = PrepareProfileQuery(
-          std::move(parsed_query), in_explicit_transaction_, &query_execution->summary, interpreter_context_,
-          &*execution_db_accessor_, &query_execution->execution_memory_with_exception, username, &transaction_status_);
+      prepared_query = PrepareProfileQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
+                                           interpreter_context_, &*execution_db_accessor_,
+                                           &query_execution->execution_memory_with_exception, username,
+                                           &transaction_status_, &*frame_change_collector_);
     } else if (utils::Downcast<DumpQuery>(parsed_query.query)) {
       prepared_query = PrepareDumpQuery(std::move(parsed_query), &query_execution->summary, &*execution_db_accessor_,
                                         memory_resource);
