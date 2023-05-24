@@ -17,24 +17,15 @@
 
 namespace memgraph::storage {
 
-using ParalellizedIndexCreationInfo =
-    std::pair<std::vector<std::pair<Gid, uint64_t>> /*vertex_recovery_info*/, uint64_t /*thread_count*/>;
-
 class LabelIndex {
- private:
-  struct Entry {
-    Vertex *vertex;
-    uint64_t timestamp;
-
-    bool operator<(const Entry &rhs) {
-      return std::make_tuple(vertex, timestamp) < std::make_tuple(rhs.vertex, rhs.timestamp);
-    }
-    bool operator==(const Entry &rhs) { return vertex == rhs.vertex && timestamp == rhs.timestamp; }
-  };
-
  public:
-  LabelIndex(Indices *indices, Constraints *constraints, Config::Items config)
+  LabelIndex(Indices *indices, Constraints *constraints, const Config &config)
       : indices_(indices), constraints_(constraints), config_(config) {}
+
+  LabelIndex(const LabelIndex &) = delete;
+  LabelIndex(LabelIndex &&) = delete;
+  LabelIndex &operator=(const LabelIndex &) = delete;
+  LabelIndex &operator=(LabelIndex &&) = delete;
 
   virtual ~LabelIndex() = default;
 
@@ -56,11 +47,11 @@ class LabelIndex {
   /// TODO: (andi) Maybe not needed for disk version so remove from abstract class
   virtual void RunGC() = 0;
 
- private:
-  std::map<LabelId, utils::SkipList<Entry>> index_;
+ protected:
+  /// TODO: andi maybe no need for have those in abstract class if disk storage isn't using it
   Indices *indices_;
   Constraints *constraints_;
-  Config::Items config_;
+  Config config_;
 };
 
 }  // namespace memgraph::storage

@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <rocksdb/iterator.h>
+
 #include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/indices/label_index.hpp"
 #include "storage/v2/vertex.hpp"
@@ -23,7 +24,7 @@ using ParalellizedIndexCreationInfo =
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 class DiskLabelIndex : public storage::LabelIndex {
  public:
-  DiskLabelIndex(Indices *indices, Constraints *constraints, Config::Items config);
+  DiskLabelIndex(Indices *indices, Constraints *constraints, const Config &config);
 
   /// @throw std::bad_alloc
   void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) override;
@@ -55,9 +56,6 @@ class DiskLabelIndex : public storage::LabelIndex {
 
  private:
   std::unordered_set<LabelId> index_;
-  Indices *indices_;  /// TODO: andi maybe you can remove a pointer to indices_
-  Constraints *constraints_;
-  Config config_;
   std::unique_ptr<RocksDBStorage> kvstore_;
 };
 

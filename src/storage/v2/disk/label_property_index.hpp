@@ -20,7 +20,7 @@ using ParalellizedIndexCreationInfo =
 
 class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
  public:
-  DiskLabelPropertyIndex(Indices *indices, Constraints *constraints, Config::Items config);
+  DiskLabelPropertyIndex(Indices *indices, Constraints *constraints, const Config &config);
 
   /// @throw std::bad_alloc
   void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) override;
@@ -78,9 +78,6 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
   /// TODO: andi Optimize by using unordered_set
   std::set<std::pair<LabelId, PropertyId>> index_;
   std::map<std::pair<LabelId, PropertyId>, storage::IndexStats> stats_;
-  Indices *indices_;  /// TODO: andi check if you can remove a pointer to indices_
-  Constraints *constraints_;
-  Config::Items config_;
   std::unique_ptr<RocksDBStorage> kvstore_;
 };
 

@@ -94,7 +94,7 @@ void InMemoryLabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_time
 InMemoryLabelIndex::Iterable::Iterator::Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
-      current_vertex_accessor_(nullptr, nullptr, nullptr, nullptr, self_->config_),
+      current_vertex_accessor_(nullptr, nullptr, nullptr, nullptr, self_->config_.items),
       current_vertex_(nullptr) {
   AdvanceUntilValid();
 }
@@ -112,8 +112,8 @@ void InMemoryLabelIndex::Iterable::Iterator::AdvanceUntilValid() {
     }
     if (CurrentVersionHasLabel(*index_iterator_->vertex, self_->label_, self_->transaction_, self_->view_)) {
       current_vertex_ = index_iterator_->vertex;
-      current_vertex_accessor_ =
-          VertexAccessor{current_vertex_, self_->transaction_, self_->indices_, self_->constraints_, self_->config_};
+      current_vertex_accessor_ = VertexAccessor{current_vertex_, self_->transaction_, self_->indices_,
+                                                self_->constraints_, self_->config_.items};
       break;
     }
   }
@@ -121,7 +121,7 @@ void InMemoryLabelIndex::Iterable::Iterator::AdvanceUntilValid() {
 
 InMemoryLabelIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, View view,
                                        Transaction *transaction, Indices *indices, Constraints *constraints,
-                                       Config::Items config)
+                                       const Config &config)
     : index_accessor_(std::move(index_accessor)),
       label_(label),
       view_(view),

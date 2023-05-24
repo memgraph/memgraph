@@ -61,11 +61,11 @@ struct Config {
     IsolationLevel isolation_level{IsolationLevel::SNAPSHOT_ISOLATION};
   } transaction;
 
-  struct StorageMode {
-    enum class Type { IN_MEMORY, PERSISTENT };
-
-    Type type{Type::IN_MEMORY};
-  } storage_mode;
+  struct DiskConfig {
+    std::filesystem::path main_storage_directory{"rocksdb_main_storage"};
+    std::filesystem::path label_index_directory{"rocksdb_label_index"};
+    std::filesystem::path label_property_index_directory{"rocksdb_label_property_index"};
+  } disk;
 };
 
 }  // namespace memgraph::storage

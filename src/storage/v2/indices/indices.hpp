@@ -23,7 +23,7 @@
 namespace memgraph::storage {
 
 struct Indices {
-  Indices(Constraints *constraints, Config::Items config, StorageMode storage_mode) {
+  Indices(Constraints *constraints, const Config &config, StorageMode storage_mode) {
     std::invoke([this, constraints, config, storage_mode]() {
       if (storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL) {
         label_index_ = std::make_unique<InMemoryLabelIndex>(this, constraints, config);
@@ -37,6 +37,7 @@ struct Indices {
 
   // Disable copy and move because members hold pointer to `this`.
   explicit Indices() : label_index_(nullptr), label_property_index_(nullptr) {}
+
   Indices(const Indices &) = delete;
   Indices(Indices &&) = delete;
   Indices &operator=(const Indices &) = delete;

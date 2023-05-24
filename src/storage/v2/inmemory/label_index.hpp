@@ -32,7 +32,7 @@ class InMemoryLabelIndex : public storage::LabelIndex {
   };
 
  public:
-  InMemoryLabelIndex(Indices *indices, Constraints *constraints, Config::Items config)
+  InMemoryLabelIndex(Indices *indices, Constraints *constraints, Config config)
       : LabelIndex(indices, constraints, config) {}
 
   /// @throw std::bad_alloc
@@ -54,7 +54,7 @@ class InMemoryLabelIndex : public storage::LabelIndex {
   class Iterable {
    public:
     Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, View view, Transaction *transaction,
-             Indices *indices, Constraints *constraints, Config::Items config);
+             Indices *indices, Constraints *constraints, const Config &config);
 
     class Iterator {
      public:
@@ -86,7 +86,7 @@ class InMemoryLabelIndex : public storage::LabelIndex {
     Transaction *transaction_;
     Indices *indices_;
     Constraints *constraints_;
-    Config::Items config_;
+    Config config_;
   };
 
   /// Returns an self with vertices visible from the given transaction.
@@ -108,9 +108,6 @@ class InMemoryLabelIndex : public storage::LabelIndex {
 
  private:
   std::map<LabelId, utils::SkipList<Entry>> index_;
-  Indices *indices_;
-  Constraints *constraints_;
-  Config::Items config_;
 };
 
 }  // namespace memgraph::storage

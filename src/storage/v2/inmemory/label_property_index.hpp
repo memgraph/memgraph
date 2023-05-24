@@ -34,7 +34,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   };
 
  public:
-  InMemoryLabelPropertyIndex(Indices *indices, Constraints *constraints, Config::Items config)
+  InMemoryLabelPropertyIndex(Indices *indices, Constraints *constraints, const Config &config)
       : LabelPropertyIndex(indices, constraints, config) {}
 
   /// @throw std::bad_alloc
@@ -63,7 +63,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, PropertyId property,
              const std::optional<utils::Bound<PropertyValue>> &lower_bound,
              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Transaction *transaction,
-             Indices *indices, Constraints *constraints, Config::Items config);
+             Indices *indices, Constraints *constraints, const Config &config);
 
     class Iterator {
      public:
@@ -99,7 +99,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     Transaction *transaction_;
     Indices *indices_;
     Constraints *constraints_;
-    Config::Items config_;
+    Config config_;
   };
 
   Iterable Vertices(LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
@@ -146,9 +146,6 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
  private:
   std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>> index_;
   std::map<std::pair<LabelId, PropertyId>, storage::IndexStats> stats_;
-  Indices *indices_;
-  Constraints *constraints_;
-  Config::Items config_;
 };
 
 }  // namespace memgraph::storage

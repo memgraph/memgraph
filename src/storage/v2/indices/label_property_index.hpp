@@ -21,26 +21,15 @@ struct IndexStats {
   double statistic, avg_group_size;
 };
 
-using ParalellizedIndexCreationInfo =
-    std::pair<std::vector<std::pair<Gid, uint64_t>> /*vertex_recovery_info*/, uint64_t /*thread_count*/>;
-
 class LabelPropertyIndex {
- private:
-  struct Entry {
-    PropertyValue value;
-    Vertex *vertex;
-    uint64_t timestamp;
-
-    bool operator<(const Entry &rhs);
-    bool operator==(const Entry &rhs);
-
-    bool operator<(const PropertyValue &rhs);
-    bool operator==(const PropertyValue &rhs);
-  };
-
  public:
-  LabelPropertyIndex(Indices *indices, Constraints *constraints, Config::Items config)
+  LabelPropertyIndex(Indices *indices, Constraints *constraints, const Config &config)
       : indices_(indices), constraints_(constraints), config_(config) {}
+
+  LabelPropertyIndex(const LabelPropertyIndex &) = delete;
+  LabelPropertyIndex(LabelPropertyIndex &&) = delete;
+  LabelPropertyIndex &operator=(const LabelPropertyIndex &) = delete;
+  LabelPropertyIndex &operator=(LabelPropertyIndex &&) = delete;
 
   virtual ~LabelPropertyIndex() = default;
 
@@ -79,12 +68,11 @@ class LabelPropertyIndex {
 
   virtual void RunGC() = 0;
 
- private:
-  std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>> index_;
+ protected:
   std::map<std::pair<LabelId, PropertyId>, storage::IndexStats> stats_;
   Indices *indices_;
   Constraints *constraints_;
-  Config::Items config_;
+  Config config_;
 };
 
 }  // namespace memgraph::storage

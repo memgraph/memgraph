@@ -29,8 +29,6 @@ struct RocksDBStorage {
   /// TODO: (andi) Revisit special methods if this struct
 
   ~RocksDBStorage() {
-    delete options_.comparator;
-    options_.comparator = nullptr;
     delete db_;
     db_ = nullptr;
   }

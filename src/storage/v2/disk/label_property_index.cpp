@@ -17,37 +17,14 @@
 
 namespace memgraph::storage {
 
-namespace {
-constexpr const char *label_property_index_path = "rocksdb_label_property_index";
-}  // namespace
-
-DiskLabelPropertyIndex::DiskLabelPropertyIndex(Indices *indices, Constraints *constraints, Config::Items config)
+DiskLabelPropertyIndex::DiskLabelPropertyIndex(Indices *indices, Constraints *constraints, const Config &config)
     : LabelPropertyIndex(indices, constraints, config) {
-  std::filesystem::path rocksdb_path = label_property_index_path;
   kvstore_ = std::make_unique<RocksDBStorage>();
-  utils::EnsureDirOrDie(rocksdb_path);
+  utils::EnsureDirOrDie(config.disk.label_property_index_directory);
   kvstore_->options_.create_if_missing = true;
-  //   // kvstore_->options_.comparator = new ComparatorWithU64TsImpl();
-  logging::AssertRocksDBStatus(rocksdb::DB::Open(kvstore_->options_, rocksdb_path, &kvstore_->db_));
+  logging::AssertRocksDBStatus(
+      rocksdb::DB::Open(kvstore_->options_, config.disk.label_property_index_directory, &kvstore_->db_));
 }
-
-bool DiskLabelPropertyIndex::Entry::operator<(const Entry &rhs) {
-  if (value < rhs.value) {
-    return true;
-  }
-  if (rhs.value < value) {
-    return false;
-  }
-  return std::make_tuple(vertex, timestamp) < std::make_tuple(rhs.vertex, rhs.timestamp);
-}
-
-bool DiskLabelPropertyIndex::Entry::operator==(const Entry &rhs) {
-  return value == rhs.value && vertex == rhs.vertex && timestamp == rhs.timestamp;
-}
-
-bool DiskLabelPropertyIndex::Entry::operator<(const PropertyValue &rhs) { return value < rhs; }
-
-bool DiskLabelPropertyIndex::Entry::operator==(const PropertyValue &rhs) { return value == rhs; }
 
 void DiskLabelPropertyIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) {
   /// TODO: andi iterate over whole set

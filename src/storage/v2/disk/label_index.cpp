@@ -18,18 +18,13 @@
 
 namespace memgraph::storage {
 
-namespace {
-constexpr const char *label_index_path = "rocksdb_label_index";
-}  // namespace
-
-DiskLabelIndex::DiskLabelIndex(Indices *indices, Constraints *constraints, Config::Items config)
+DiskLabelIndex::DiskLabelIndex(Indices *indices, Constraints *constraints, const Config &config)
     : LabelIndex(indices, constraints, config) {
-  std::filesystem::path rocksdb_path = label_index_path;
   kvstore_ = std::make_unique<RocksDBStorage>();
-  utils::EnsureDirOrDie(rocksdb_path);
+  utils::EnsureDirOrDie(config.disk.label_index_directory);
   kvstore_->options_.create_if_missing = true;
-  //   // kvstore_->options_.comparator = new ComparatorWithU64TsImpl();
-  logging::AssertRocksDBStatus(rocksdb::DB::Open(kvstore_->options_, rocksdb_path, &kvstore_->db_));
+  logging::AssertRocksDBStatus(
+      rocksdb::DB::Open(kvstore_->options_, config.disk.label_index_directory, &kvstore_->db_));
 }
 
 /// TODO: andi if the vertex is already indexed, we should update the entry, not create a new one.

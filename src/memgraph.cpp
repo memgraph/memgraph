@@ -858,9 +858,6 @@ int main(int argc, char **argv) {
   // End enterprise features initialization
 #endif
 
-  // auto type = memgraph::storage::Config::StorageMode::Type::IN_MEMORY;
-  auto type = memgraph::storage::Config::StorageMode::Type::PERSISTENT;
-
   // Main storage and execution engines initialization
   memgraph::storage::Config db_config{
       .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC,
@@ -874,7 +871,9 @@ int main(int argc, char **argv) {
                      .snapshot_on_exit = FLAGS_storage_snapshot_on_exit,
                      .restore_replicas_on_startup = true},
       .transaction = {.isolation_level = ParseIsolationLevel()},
-      .storage_mode = {.type = type}};
+      .disk = {.main_storage_directory = FLAGS_data_directory + "/rocksdb_main_storage",
+               .label_index_directory = FLAGS_data_directory + "/rocksdb_label_index",
+               .label_property_index_directory = FLAGS_data_directory + "/rocksdb_label_property_index"}};
   if (FLAGS_storage_snapshot_interval_sec == 0) {
     if (FLAGS_storage_wal_enabled) {
       LOG_FATAL(

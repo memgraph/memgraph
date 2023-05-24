@@ -38,7 +38,6 @@ namespace {
 constexpr const char *vertexHandle = "vertex";
 constexpr const char *edgeHandle = "edge";
 constexpr const char *defaultHandle = "default";
-constexpr const char *main_storage_path = "./rocks_experiment";
 
 inline constexpr uint16_t kEpochHistoryRetention = 1000;
 
@@ -177,23 +176,23 @@ DiskStorage::DiskStorage(Config config)
   //   forgotten.");
   // }
 
-  std::filesystem::path rocksdb_path = main_storage_path;
   kvstore_ = std::make_unique<RocksDBStorage>();
   kvstore_->options_.create_if_missing = true;
   kvstore_->options_.comparator = new ComparatorWithU64TsImpl();
   std::vector<rocksdb::ColumnFamilyHandle *> column_handles;
   std::vector<rocksdb::ColumnFamilyDescriptor> column_families;
-  if (utils::DirExists(rocksdb_path)) {
+  if (utils::DirExists(config.disk.main_storage_directory)) {
     column_families.emplace_back(vertexHandle, kvstore_->options_);
     column_families.emplace_back(edgeHandle, kvstore_->options_);
     column_families.emplace_back(defaultHandle, kvstore_->options_);
-    logging::AssertRocksDBStatus(
-        rocksdb::DB::Open(kvstore_->options_, rocksdb_path, column_families, &column_handles, &kvstore_->db_));
+    logging::AssertRocksDBStatus(rocksdb::DB::Open(kvstore_->options_, config.disk.main_storage_directory,
+                                                   column_families, &column_handles, &kvstore_->db_));
     kvstore_->vertex_chandle = column_handles[0];
     kvstore_->edge_chandle = column_handles[1];
     kvstore_->default_chandle = column_handles[2];
   } else {
-    logging::AssertRocksDBStatus(rocksdb::DB::Open(kvstore_->options_, rocksdb_path, &kvstore_->db_));
+    logging::AssertRocksDBStatus(
+        rocksdb::DB::Open(kvstore_->options_, config.disk.main_storage_directory, &kvstore_->db_));
     logging::AssertRocksDBStatus(
         kvstore_->db_->CreateColumnFamily(kvstore_->options_, vertexHandle, &kvstore_->vertex_chandle));
     logging::AssertRocksDBStatus(
@@ -209,6 +208,8 @@ DiskStorage::~DiskStorage() {
     // https://github.com/facebook/rocksdb/issues/5006#issuecomment-1003154821
     logging::AssertRocksDBStatus(kvstore_->db_->DestroyColumnFamilyHandle(kvstore_->default_chandle));
   }
+  delete kvstore_->options_.comparator;
+  kvstore_->options_.comparator = nullptr;
 }
 
 DiskStorage::DiskAccessor::DiskAccessor(DiskStorage *storage, IsolationLevel isolation_level, StorageMode storage_mode)
@@ -432,8 +433,6 @@ StorageInfo DiskStorage::GetInfo() const {
   return {vertex_count, edge_count, average_degree, utils::GetMemoryUsage(),
           utils::GetDirDiskUsage(config_.durability.storage_directory)};
 }
-
-std::string DiskStorage::GetDbPath() const { return main_storage_path; }
 
 VertexAccessor DiskStorage::DiskAccessor::CreateVertex(storage::Gid gid) {
   OOMExceptionEnabler oom_exception;

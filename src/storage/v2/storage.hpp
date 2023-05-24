@@ -170,13 +170,12 @@ struct StorageInfo {
 
 class Storage {
  public:
-  /// TODO: andi no need for storage-mode being passed separately
   Storage(Config config, Constraints *constraints, StorageMode storage_mode)
       : config_(config),
         snapshot_directory_(config.durability.storage_directory / durability::kSnapshotDirectory),
         wal_directory_(config.durability.storage_directory / durability::kWalDirectory),
         lock_file_path_(config.durability.storage_directory / durability::kLockFile),
-        indices_(constraints, config.items, storage_mode),
+        indices_(constraints, config, storage_mode),
         uuid_(utils::GenerateUUID()),
         epoch_id_(utils::GenerateUUID()),
         global_locker_(file_retainer_.AddLocker()) {}
