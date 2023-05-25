@@ -250,7 +250,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         }
         auto &cached_value = frame_change_collector_->GetCachedValue(*cached_id);
         cached_value.CacheValue(*_list_ptr);
-        spdlog::trace("Calculating cached value {}", *cached_id);
+        spdlog::trace("Value cached {}", *cached_id);
       }
       auto &cached_value = frame_change_collector_->GetCachedValue(*cached_id);
 

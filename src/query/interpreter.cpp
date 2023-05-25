@@ -1250,8 +1250,8 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
           RWType::NONE};
 }
 
-void TryCaching(const ParsedQuery &parsed_query, FrameChangeCollector *frame_change_collector) {
-  MG_ASSERT(frame_change_collector);
+inline static void TryCaching(const ParsedQuery &parsed_query, FrameChangeCollector *frame_change_collector) {
+  if (!frame_change_collector) return;
   for (const auto &tree : parsed_query.ast_storage.storage_) {
     if (tree->GetTypeInfo() != memgraph::query::InListOperator::kType) {
       continue;
@@ -1274,9 +1274,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                  TriggerContextCollector *trigger_context_collector = nullptr,
                                  FrameChangeCollector *frame_change_collector = nullptr) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
-  if (frame_change_collector) {
-    TryCaching(parsed_query, frame_change_collector);
-  }
+
+  TryCaching(parsed_query, frame_change_collector);
 
   Frame frame(0);
   SymbolTable symbol_table;
@@ -1422,9 +1421,9 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   ParsedQuery parsed_inner_query =
       ParseQuery(parsed_query.query_string.substr(kProfileQueryStart.size()), parsed_query.user_parameters,
                  &interpreter_context->ast_cache, interpreter_context->config.query);
-  if (frame_change_collector) {
-    TryCaching(parsed_inner_query, frame_change_collector);
-  }
+
+  TryCaching(parsed_inner_query, frame_change_collector);
+
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
 
   bool contains_csv = false;

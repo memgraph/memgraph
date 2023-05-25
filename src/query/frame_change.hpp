@@ -13,14 +13,36 @@
 #include "query/typed_value.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/unordered_map.hpp"
-
+#include "utils/pmr/vector.hpp"
 namespace memgraph::query {
 
-using CachedType = std::unordered_map<size_t, std::vector<TypedValue>>;
+using CachedType = utils::pmr::unordered_map<size_t, std::vector<TypedValue>>;
 
 struct CachedValue {
   // Cached value, this can be probably templateized
   CachedType cache_;
+
+  explicit CachedValue(utils::MemoryResource *mem) : cache_(mem) {}
+
+  CachedValue(CachedType &&cache, memgraph::utils::MemoryResource *memory) : cache_(std::move(cache), memory) {}
+
+  CachedValue(const CachedValue &other, memgraph::utils::MemoryResource *memory) : cache_(other.cache_, memory) {}
+
+  CachedValue(CachedValue &&other, memgraph::utils::MemoryResource *memory) : cache_(std::move(other.cache_), memory) {}
+
+  CachedValue(CachedValue &&other) noexcept : cache_(std::move(other.cache_)) {}
+
+  /// Copy construction without memgraph::utils::MemoryResource is not allowed.
+  CachedValue(const CachedValue &) = delete;
+
+  CachedValue &operator=(const CachedValue &) = delete;
+  CachedValue &operator=(CachedValue &&) = delete;
+
+  ~CachedValue() = default;
+
+  memgraph::utils::MemoryResource *GetMemoryResource() const noexcept {
+    return cache_.get_allocator().GetMemoryResource();
+  }
 
   // Func to check if cache_ contains value
   bool CacheValue(const TypedValue &value) {
@@ -30,19 +52,9 @@ struct CachedValue {
     const auto &list = value.ValueList();
     TypedValue::Hash hash{};
     for (const TypedValue &element : list) {
-      auto key = hash(element);
-      if (!cache_.contains(key)) {
-        cache_.emplace(key, std::vector<TypedValue>{element});
-        continue;
-      }
+      const auto key = hash(element);
       auto &vector_values = cache_[key];
-      const auto contains_element =
-          std::any_of(vector_values.begin(), vector_values.end(), [&element](auto &vec_value) {
-            auto result = vec_value == element;
-            if (result.IsNull()) return false;
-            return result.ValueBool();
-          });
-      if (!contains_element) [[unlikely]] {
+      if (!IsValueInVec(vector_values, element)) {
         vector_values.push_back(element);
       }
     }
@@ -51,17 +63,20 @@ struct CachedValue {
   // Func to cache_value inside cache_
   bool ContainsValue(const TypedValue &value) {
     TypedValue::Hash hash{};
-    auto key = hash(value);
+    const auto key = hash(value);
     if (cache_.contains(key)) {
-      const auto &vec_values = cache_.at(key);
-      auto result = std::any_of(vec_values.begin(), vec_values.end(), [&value](auto &vec_value) {
-        auto result = vec_value == value;
-        if (result.IsNull()) return false;
-        return result.ValueBool();
-      });
-      return result;
+      return IsValueInVec(cache_[key], value);
     }
     return false;
+  }
+
+ private:
+  inline static bool IsValueInVec(const std::vector<TypedValue> &vec_values, const TypedValue &value) {
+    return std::any_of(vec_values.begin(), vec_values.end(), [&value](auto &vec_value) {
+      const auto is_value_equal = vec_value == value;
+      if (is_value_equal.IsNull()) return false;
+      return is_value_equal.ValueBool();
+    });
   }
 };
 
@@ -73,8 +88,8 @@ class FrameChangeCollector {
 
   // Add tracking key to cache later value
   CachedValue &AddTrackingKey(const std::string &key) {
-    tracked_values_.emplace(key, CachedValue{});
-    return tracked_values_[key];
+    tracked_values_.emplace(key, tracked_values_.get_allocator().GetMemoryResource());
+    return tracked_values_.at(key);
   }
 
   // Is key tracked
@@ -88,14 +103,14 @@ class FrameChangeCollector {
   // Reset value for tracking key
   bool ResetTrackingValue(const std::string &key) {
     if (tracked_values_.contains(key)) {
-      tracked_values_[key].cache_.clear();
+      tracked_values_.at(key).cache_.clear();
     }
 
     return true;
   }
 
   // Get value cached for tracking key
-  CachedValue &GetCachedValue(const std::string &key) { return tracked_values_[key]; }
+  CachedValue &GetCachedValue(const std::string &key) { return tracked_values_.at(key); }
 
   // Checks for keys tracked
   bool IsTrackingValues() const { return !tracked_values_.empty(); }

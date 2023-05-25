@@ -4,6 +4,8 @@
 #include "spdlog/spdlog.h"
 
 namespace memgraph::utils {
+
+// Get ID by which FrameChangeCollector struct can cache in_list.expression2_
 inline std::optional<std::string> GetFrameChangeId(memgraph::query::InListOperator &in_list) {
   if (in_list.expression2_->GetTypeInfo() == memgraph::query::ListLiteral::kType) {
     std::stringstream ss;
