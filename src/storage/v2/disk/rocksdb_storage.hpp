@@ -70,6 +70,9 @@ class ComparatorWithU64TsImpl : public rocksdb::Comparator {
   int CompareTimestamp(const rocksdb::Slice &ts1, const rocksdb::Slice &ts2) const override;
 
  private:
+  // Extracts global id from user key. User key must be without timestamp.
+  std::string_view ExtractGidFromUserKey(const rocksdb::Slice &key) const;
+
   const Comparator *cmp_without_ts_{nullptr};
 };
 
