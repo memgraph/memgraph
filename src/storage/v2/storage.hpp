@@ -209,6 +209,7 @@ class Storage {
     std::shared_lock<utils::RWLock> storage_guard_;
     Transaction transaction_;
     std::optional<uint64_t> commit_timestamp_;
+    /// TODO: andi how can we remove usage of this?
     bool is_transaction_active_;
   };
 
@@ -450,6 +451,7 @@ class Storage {
   std::unique_ptr<kvstore::KVStore> storage_;
 
   Indices indices_;
+  Constraints constraints_;
 
   utils::Scheduler snapshot_runner_;
   utils::SpinLock snapshot_lock_;

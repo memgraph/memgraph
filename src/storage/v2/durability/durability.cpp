@@ -145,9 +145,18 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
   spdlog::info("Recreating constraints from metadata.");
   // Recover existence constraints.
   spdlog::info("Recreating {} existence constraints from metadata.", indices_constraints.constraints.existence.size());
-  for (const auto &item : indices_constraints.constraints.existence) {
-    auto ret = CreateExistenceConstraint(constraints, item.first, item.second, vertices->access());
-    if (ret.HasError() || !ret.GetValue()) throw RecoveryFailure("The existence constraint must be created here!");
+  for (const auto &[label, property] : indices_constraints.constraints.existence) {
+    if (constraints->existence_constraints_->ConstraintExists(label, property)) {
+      throw RecoveryFailure("The existence constraint must be created here!");
+    }
+
+    if (auto violation = ExistenceConstraints::ValidateVerticesOnConstraint(vertices->access(), label, property);
+        violation.has_value()) {
+      throw RecoveryFailure("The existence constraint must be created here!");
+    }
+
+    constraints->existence_constraints_->InsertConstraint(label, property);
+
     spdlog::info("A existence constraint is recreated from metadata.");
   }
   spdlog::info("Existence constraints are recreated from metadata.");
@@ -155,7 +164,7 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
   // Recover unique constraints.
   spdlog::info("Recreating {} unique constraints from metadata.", indices_constraints.constraints.unique.size());
   for (const auto &item : indices_constraints.constraints.unique) {
-    auto ret = constraints->unique_constraints.CreateConstraint(item.first, item.second, vertices->access());
+    auto ret = constraints->unique_constraints_->CreateConstraint(item.first, item.second, vertices->access());
     if (ret.HasError() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)
       throw RecoveryFailure("The unique constraint must be created here!");
     spdlog::info("A unique constraint is recreated from metadata.");

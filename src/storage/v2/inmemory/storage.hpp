@@ -175,8 +175,8 @@ class InMemoryStorage final : public Storage {
 
     ConstraintsInfo ListAllConstraints() const override {
       auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-      return {ListExistenceConstraints(mem_storage->constraints_),
-              mem_storage->constraints_.unique_constraints.ListConstraints()};
+      return {mem_storage->constraints_.existence_constraints_->ListConstraints(),
+              mem_storage->constraints_.unique_constraints_->ListConstraints()};
     }
 
     /// Returns void if the transaction has been committed.
@@ -360,7 +360,6 @@ class InMemoryStorage final : public Storage {
   // Specific per storage engine
   IsolationLevel isolation_level_;
   StorageMode storage_mode_;
-  Constraints constraints_;
 
   // TODO: This isn't really a commit log, it doesn't even care if a
   // transaction commited or aborted. We could probably combine this with

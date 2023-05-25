@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
@@ -568,9 +569,8 @@ Result<std::optional<EdgeAccessor>> InMemoryStorage::InMemoryAccessor::DeleteEdg
   // Decrement edge count.
   storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
 
-  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   return std::make_optional<EdgeAccessor>(edge_ref, edge_type, from_vertex, to_vertex, &transaction_,
-                                          &storage_->indices_, &mem_storage->constraints_, config_, true);
+                                          &storage_->indices_, &storage_->constraints_, config_, true);
 }
 
 utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemoryAccessor::Commit(
@@ -597,7 +597,7 @@ utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemory
       }
       // No need to take any locks here because we modified this vertex and no
       // one else can touch it until we commit.
-      auto validation_result = ValidateExistenceConstraints(*prev.vertex, mem_storage->constraints_);
+      auto validation_result = storage_->constraints_.existence_constraints_->Validate(*prev.vertex);
       if (validation_result) {
         Abort();
         return StorageDataManipulationError{*validation_result};
@@ -625,7 +625,7 @@ utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemory
         if (prev.type != PreviousPtr::Type::VERTEX) {
           continue;
         }
-        mem_storage->constraints_.unique_constraints.UpdateBeforeCommit(prev.vertex, transaction_);
+        storage_->constraints_.unique_constraints_->UpdateBeforeCommit(prev.vertex, transaction_);
       }
 
       // Validate that unique constraints are satisfied for all modified
@@ -640,7 +640,7 @@ utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemory
         // No need to take any locks here because we modified this vertex and no
         // one else can touch it until we commit.
         unique_constraint_violation =
-            mem_storage->constraints_.unique_constraints.Validate(*prev.vertex, transaction_, *commit_timestamp_);
+            storage_->constraints_.unique_constraints_->Validate(*prev.vertex, transaction_, *commit_timestamp_);
         if (unique_constraint_violation) {
           break;
         }
@@ -965,13 +965,17 @@ IndicesInfo InMemoryStorage::ListAllIndices() const {
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void> InMemoryStorage::CreateExistenceConstraint(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  auto ret = storage::CreateExistenceConstraint(&constraints_, label, property, vertices_.access());
-  if (ret.HasError()) {
-    return StorageExistenceConstraintDefinitionError{ret.GetError()};
-  }
-  if (!ret.GetValue()) {
+
+  if (constraints_.existence_constraints_->ConstraintExists(label, property)) {
     return StorageExistenceConstraintDefinitionError{ConstraintDefinitionError{}};
   }
+
+  if (auto violation = ExistenceConstraints::ValidateVerticesOnConstraint(vertices_.access(), label, property);
+      violation.has_value()) {
+    return StorageExistenceConstraintDefinitionError{violation.value()};
+  }
+
+  constraints_.existence_constraints_->InsertConstraint(label, property);
 
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE, label,
@@ -989,7 +993,7 @@ utils::BasicResult<StorageExistenceConstraintDefinitionError, void> InMemoryStor
 utils::BasicResult<StorageExistenceConstraintDroppingError, void> InMemoryStorage::DropExistenceConstraint(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  if (!storage::DropExistenceConstraint(&constraints_, label, property)) {
+  if (!constraints_.existence_constraints_->DropConstraint(label, property)) {
     return StorageExistenceConstraintDroppingError{ConstraintDefinitionError{}};
   }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
@@ -1009,7 +1013,7 @@ utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::Cr
 InMemoryStorage::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
                                         const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  auto ret = constraints_.unique_constraints.CreateConstraint(label, properties, vertices_.access());
+  auto ret = constraints_.unique_constraints_->CreateConstraint(label, properties, vertices_.access());
   if (ret.HasError()) {
     return StorageUniqueConstraintDefinitionError{ret.GetError()};
   }
@@ -1033,7 +1037,7 @@ utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::Dele
 InMemoryStorage::DropUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
                                       const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  auto ret = constraints_.unique_constraints.DropConstraint(label, properties);
+  auto ret = constraints_.unique_constraints_->DropConstraint(label, properties);
   if (ret != UniqueConstraints::DeletionStatus::SUCCESS) {
     return ret;
   }
@@ -1052,7 +1056,7 @@ InMemoryStorage::DropUniqueConstraint(LabelId label, const std::set<PropertyId> 
 
 ConstraintsInfo InMemoryStorage::ListAllConstraints() const {
   std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
-  return {ListExistenceConstraints(constraints_), constraints_.unique_constraints.ListConstraints()};
+  return {constraints_.existence_constraints_->ListConstraints(), constraints_.unique_constraints_->ListConstraints()};
 }
 
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, View view) {
@@ -1302,7 +1306,7 @@ void InMemoryStorage::CollectGarbage() {
     // This operation is very expensive as it traverses through all of the items
     // in every index every time.
     indices_.RemoveObsoleteEntries(oldest_active_start_timestamp);
-    constraints_.unique_constraints.RemoveObsoleteEntries(oldest_active_start_timestamp);
+    constraints_.unique_constraints_->RemoveObsoleteEntries(oldest_active_start_timestamp);
   }
 
   {

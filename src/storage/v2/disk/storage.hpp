@@ -155,14 +155,14 @@ class DiskStorage final : public Storage {
 
     void PrepareForNextQuery() override { indexed_vertices_.clear(); }
 
-    std::optional<storage::VertexAccessor> LoadVertexToLabelIndexCache(
-        const utils::SkipList<Vertex>::Accessor &accessor, const rocksdb::Slice &key, const rocksdb::Slice &value);
+    std::optional<storage::VertexAccessor> LoadVertexToLabelIndexCache(const rocksdb::Slice &key,
+                                                                       const rocksdb::Slice &value);
 
-    std::optional<storage::VertexAccessor> LoadVertexToMainMemoryCache(
-        const utils::SkipList<Vertex>::Accessor &accessor, const rocksdb::Slice &key, const rocksdb::Slice &value);
+    std::optional<storage::VertexAccessor> LoadVertexToMainMemoryCache(const rocksdb::Slice &key,
+                                                                       const rocksdb::Slice &value);
 
-    std::optional<storage::VertexAccessor> LoadVertexToLabelPropertyIndexCache(
-        const utils::SkipList<Vertex>::Accessor &accessor, const rocksdb::Slice &key, const rocksdb::Slice &value);
+    std::optional<storage::VertexAccessor> LoadVertexToLabelPropertyIndexCache(const rocksdb::Slice &key,
+                                                                               const rocksdb::Slice &value);
 
     /// Deserializes edge from the string key and stores it into the edges_ cache.
     /// Properties are deserialized from the value.
@@ -192,7 +192,8 @@ class DiskStorage final : public Storage {
     /// Flushes vertices and edges to the disk with the commit timestamp.
     /// At the time of calling, the commit_timestamp_ must already exist.
     /// After this method, the vertex and edge caches are cleared.
-    void FlushCache();
+    [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void>
+    CheckExistenceConstraintsAndFlushMainMemoryCache();
 
     // Main object storage
     utils::SkipList<storage::Vertex> vertices_;
@@ -318,8 +319,6 @@ class DiskStorage final : public Storage {
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
 
-  std::string GetDbPath() const;
-
  private:
   /// The force parameter determines the behaviour of the garbage collector.
   /// If it's set to true, it will behave as a global operation, i.e. it can't
@@ -355,7 +354,6 @@ class DiskStorage final : public Storage {
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};
 
-  Constraints constraints_;
   IsolationLevel isolation_level_;
   StorageMode storage_mode_;
 

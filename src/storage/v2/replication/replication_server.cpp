@@ -167,7 +167,8 @@ void InMemoryStorage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader
   storage_->vertices_.clear();
   storage_->edges_.clear();
 
-  storage_->constraints_ = Constraints();
+  storage_->constraints_.existence_constraints_ = std::make_unique<ExistenceConstraints>();
+  storage_->constraints_.unique_constraints_ = std::make_unique<UniqueConstraints>();
   storage_->indices_.label_index_ =
       std::make_unique<InMemoryLabelIndex>(&storage_->indices_, &storage_->constraints_, storage_->config_);
   storage_->indices_.label_property_index_ =

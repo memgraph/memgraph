@@ -19,7 +19,7 @@
 #include <variant>
 
 #include "storage/v2/config.hpp"
-#include "storage/v2/constraints.hpp"
+#include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge.hpp"

@@ -16,7 +16,7 @@
 #include <string>
 
 #include "storage/v2/config.hpp"
-#include "storage/v2/constraints.hpp"
+#include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/indices/indices.hpp"

@@ -1542,7 +1542,7 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
 
     // Write existence constraints.
     {
-      auto existence = ListExistenceConstraints(*constraints);
+      auto existence = constraints->existence_constraints_->ListConstraints();
       snapshot.WriteUint(existence.size());
       for (const auto &item : existence) {
         write_mapping(item.first);
@@ -1552,7 +1552,7 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
 
     // Write unique constraints.
     {
-      auto unique = constraints->unique_constraints.ListConstraints();
+      auto unique = constraints->unique_constraints_->ListConstraints();
       snapshot.WriteUint(unique.size());
       for (const auto &item : unique) {
         write_mapping(item.first);

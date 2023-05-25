@@ -66,11 +66,11 @@ class UniqueConstraints {
     const Vertex *vertex;
     uint64_t timestamp;
 
-    bool operator<(const Entry &rhs);
-    bool operator==(const Entry &rhs);
+    bool operator<(const Entry &rhs) const;
+    bool operator==(const Entry &rhs) const;
 
-    bool operator<(const std::vector<PropertyValue> &rhs);
-    bool operator==(const std::vector<PropertyValue> &rhs);
+    bool operator<(const std::vector<PropertyValue> &rhs) const;
+    bool operator==(const std::vector<PropertyValue> &rhs) const;
   };
 
  public:
@@ -118,9 +118,7 @@ class UniqueConstraints {
   /// `DeletionStatus::SUCCESS` on success.
   DeletionStatus DropConstraint(LabelId label, const std::set<PropertyId> &properties);
 
-  bool ConstraintExists(LabelId label, const std::set<PropertyId> &properties) {
-    return constraints_.find({label, properties}) != constraints_.end();
-  }
+  bool ConstraintExists(LabelId label, const std::set<PropertyId> &properties) const;
 
   /// Validates the given vertex against unique constraints before committing.
   /// This method should be called while commit lock is active with
@@ -134,66 +132,62 @@ class UniqueConstraints {
   /// GC method that removes outdated entries from constraints' storages.
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp);
 
-  void Clear() { constraints_.clear(); }
+  void Clear();
 
  private:
   std::map<std::pair<LabelId, std::set<PropertyId>>, utils::SkipList<Entry>> constraints_;
 };
 
-struct Constraints {
-  std::vector<std::pair<LabelId, PropertyId>> existence_constraints;
-  UniqueConstraints unique_constraints;
+class ExistenceConstraints {
+ public:
+  [[nodiscard]] static std::optional<ConstraintViolation> ValidateVertexOnConstraint(const Vertex &vertex,
+                                                                                     LabelId label,
+                                                                                     PropertyId property) {
+    if (!vertex.deleted && utils::Contains(vertex.labels, label) && !vertex.properties.HasProperty(property)) {
+      return ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label, std::set<PropertyId>{property}};
+    }
+    return std::nullopt;
+  }
+
+  [[nodiscard]] static std::optional<ConstraintViolation> ValidateVerticesOnConstraint(
+      utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property) {
+    for (const auto &vertex : vertices) {
+      if (auto violation = ValidateVertexOnConstraint(vertex, label, property); violation.has_value()) {
+        return violation;
+      }
+    }
+    return std::nullopt;
+  }
+
+  bool ConstraintExists(LabelId label, PropertyId property) const;
+
+  void InsertConstraint(LabelId label, PropertyId property);
+
+  /// Returns true if the constraint was removed, and false if it doesn't exist.
+  bool DropConstraint(LabelId label, PropertyId property);
+
+  ///  Returns `std::nullopt` if all checks pass, and `ConstraintViolation` describing the violated constraint
+  ///  otherwise.
+  [[nodiscard]] std::optional<ConstraintViolation> Validate(const Vertex &vertex);
+
+  std::vector<std::pair<LabelId, PropertyId>> ListConstraints() const;
+
+ private:
+  std::vector<std::pair<LabelId, PropertyId>> constraints_;
 };
 
-/// Adds a unique constraint to `constraints`. Returns true if the constraint
-/// was successfully added, false if it already exists and a
-/// `ConstraintViolation` if there is an existing vertex violating the
-/// constraint.
-///
-/// @throw std::bad_alloc
-/// @throw std::length_error
-inline utils::BasicResult<ConstraintViolation, bool> CreateExistenceConstraint(
-    Constraints *constraints, LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices) {
-  if (utils::Contains(constraints->existence_constraints, std::make_pair(label, property))) {
-    return false;
-  }
-  for (const auto &vertex : vertices) {
-    if (!vertex.deleted && utils::Contains(vertex.labels, label) && !vertex.properties.HasProperty(property)) {
-      return ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label, std::set<PropertyId>{property}};
-    }
-  }
-  constraints->existence_constraints.emplace_back(label, property);
-  return true;
-}
+struct Constraints {
+  /// TODO: andi Pass storage mode here
+  Constraints();
 
-/// Removes a unique constraint from `constraints`. Returns true if the
-/// constraint was removed, and false if it doesn't exist.
-inline bool DropExistenceConstraint(Constraints *constraints, LabelId label, PropertyId property) {
-  auto it = std::find(constraints->existence_constraints.begin(), constraints->existence_constraints.end(),
-                      std::make_pair(label, property));
-  if (it == constraints->existence_constraints.end()) {
-    return false;
-  }
-  constraints->existence_constraints.erase(it);
-  return true;
-}
+  Constraints(const Constraints &) = delete;
+  Constraints(Constraints &&) = delete;
+  Constraints &operator=(const Constraints &) = delete;
+  Constraints &operator=(Constraints &&) = delete;
+  ~Constraints() = default;
 
-/// Verifies that the given vertex satisfies all existence constraints. Returns
-/// `std::nullopt` if all checks pass, and `ConstraintViolation` describing the
-/// violated constraint otherwise.
-[[nodiscard]] inline std::optional<ConstraintViolation> ValidateExistenceConstraints(const Vertex &vertex,
-                                                                                     const Constraints &constraints) {
-  for (const auto &[label, property] : constraints.existence_constraints) {
-    if (!vertex.deleted && utils::Contains(vertex.labels, label) && !vertex.properties.HasProperty(property)) {
-      return ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label, std::set<PropertyId>{property}};
-    }
-  }
-  return std::nullopt;
-}
-
-/// Returns a list of all created existence constraints.
-inline std::vector<std::pair<LabelId, PropertyId>> ListExistenceConstraints(const Constraints &constraints) {
-  return constraints.existence_constraints;
-}
+  std::unique_ptr<ExistenceConstraints> existence_constraints_;
+  std::unique_ptr<UniqueConstraints> unique_constraints_;
+};
 
 }  // namespace memgraph::storage

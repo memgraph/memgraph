@@ -9,12 +9,14 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/constraints.hpp"
+#include "storage/v2/constraints/constraints.hpp"
 
 #include <algorithm>
 #include <atomic>
 #include <cstring>
 #include <map>
+#include <memory>
+#include <optional>
 
 #include "storage/v2/mvcc.hpp"
 #include "utils/logging.hpp"
@@ -250,7 +252,7 @@ bool operator==(const ConstraintViolation &lhs, const ConstraintViolation &rhs) 
   return lhs.type == rhs.type && lhs.label == rhs.label && lhs.properties == rhs.properties;
 }
 
-bool UniqueConstraints::Entry::operator<(const Entry &rhs) {
+bool UniqueConstraints::Entry::operator<(const Entry &rhs) const {
   if (values < rhs.values) {
     return true;
   }
@@ -260,13 +262,13 @@ bool UniqueConstraints::Entry::operator<(const Entry &rhs) {
   return std::make_tuple(vertex, timestamp) < std::make_tuple(rhs.vertex, rhs.timestamp);
 }
 
-bool UniqueConstraints::Entry::operator==(const Entry &rhs) {
+bool UniqueConstraints::Entry::operator==(const Entry &rhs) const {
   return values == rhs.values && vertex == rhs.vertex && timestamp == rhs.timestamp;
 }
 
-bool UniqueConstraints::Entry::operator<(const std::vector<PropertyValue> &rhs) { return values < rhs; }
+bool UniqueConstraints::Entry::operator<(const std::vector<PropertyValue> &rhs) const { return values < rhs; }
 
-bool UniqueConstraints::Entry::operator==(const std::vector<PropertyValue> &rhs) { return values == rhs; }
+bool UniqueConstraints::Entry::operator==(const std::vector<PropertyValue> &rhs) const { return values == rhs; }
 
 void UniqueConstraints::UpdateBeforeCommit(const Vertex *vertex, const Transaction &tx) {
   for (auto &[label_props, storage] : constraints_) {
@@ -347,6 +349,10 @@ UniqueConstraints::DeletionStatus UniqueConstraints::DropConstraint(LabelId labe
   return UniqueConstraints::DeletionStatus::NOT_FOUND;
 }
 
+bool UniqueConstraints::ConstraintExists(LabelId label, const std::set<PropertyId> &properties) const {
+  return constraints_.find({label, properties}) != constraints_.end();
+}
+
 std::optional<ConstraintViolation> UniqueConstraints::Validate(const Vertex &vertex, const Transaction &tx,
                                                                uint64_t commit_timestamp) const {
   if (vertex.deleted) {
@@ -412,6 +418,41 @@ void UniqueConstraints::RemoveObsoleteEntries(uint64_t oldest_active_start_times
       it = next_it;
     }
   }
+}
+
+void UniqueConstraints::Clear() { constraints_.clear(); }
+
+bool ExistenceConstraints::ConstraintExists(LabelId label, PropertyId property) const {
+  return utils::Contains(constraints_, std::make_pair(label, property));
+}
+
+void ExistenceConstraints::InsertConstraint(LabelId label, PropertyId property) {
+  constraints_.emplace_back(label, property);
+}
+
+bool ExistenceConstraints::DropConstraint(LabelId label, PropertyId property) {
+  auto it = std::find(constraints_.begin(), constraints_.end(), std::make_pair(label, property));
+  if (it == constraints_.end()) {
+    return false;
+  }
+  constraints_.erase(it);
+  return true;
+}
+
+std::vector<std::pair<LabelId, PropertyId>> ExistenceConstraints::ListConstraints() const { return constraints_; }
+
+[[nodiscard]] std::optional<ConstraintViolation> ExistenceConstraints::Validate(const Vertex &vertex) {
+  for (const auto &[label, property] : constraints_) {
+    if (auto violation = ValidateVertexOnConstraint(vertex, label, property); violation.has_value()) {
+      return violation;
+    }
+  }
+  return std::nullopt;
+}
+
+Constraints::Constraints() {
+  existence_constraints_ = std::make_unique<ExistenceConstraints>();
+  unique_constraints_ = std::make_unique<UniqueConstraints>();
 }
 
 }  // namespace memgraph::storage

@@ -13,7 +13,7 @@
 
 #include <gtest/gtest.h>
 
-#include "storage/v2/constraints.hpp"
+#include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
 const int kNumThreads = 8;
