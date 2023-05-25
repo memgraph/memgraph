@@ -73,6 +73,23 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::ex
           "should be in database logs."};
 }
 
+namespace helpers {
+
+/** Extracts metadata from the extras field.
+ * NOTE: In order to avoid a copy, the metadata in moved.
+ * TODO: Update if extra field is used for anything else.
+ */
+inline std::map<std::string, Value> ConsumeMetadata(Value &extra) {
+  std::map<std::string, Value> md;
+  auto &md_tv = extra.ValueMap()["tx_metadata"];
+  if (md_tv.IsMap()) {
+    md = std::move(md_tv.ValueMap());
+  }
+  return md;
+}
+
+}  // namespace helpers
+
 namespace details {
 
 template <bool is_pull, typename TSession>
@@ -255,12 +272,6 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
     return State::Close;
   }
 
-  std::map<std::string, Value> md{};
-  auto &md_tv = extra.ValueMap()["tx_metadata"];
-  if (md_tv.IsMap()) {
-    md = md_tv.ValueMap();
-  }
-
   if (state != State::Idle) {
     // Client could potentially recover if we move to error state, but there is
     // no legitimate situation in which well working client would end up in this
@@ -275,7 +286,8 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
 
   try {
     // Interpret can throw.
-    const auto [header, qid] = session.Interpret(query.ValueString(), params.ValueMap(), md);
+    const auto [header, qid] =
+        session.Interpret(query.ValueString(), params.ValueMap(), helpers::ConsumeMetadata(extra));
     // Convert std::string to Value
     std::vector<Value> vec;
     std::map<std::string, Value> data;
@@ -356,12 +368,6 @@ State HandleBegin(TSession &session, const State state, const Marker marker) {
     return State::Close;
   }
 
-  std::map<std::string, Value> md{};
-  auto &md_tv = extra.ValueMap()["tx_metadata"];
-  if (md_tv.IsMap()) {
-    md = md_tv.ValueMap();
-  }
-
   if (state != State::Idle) {
     spdlog::trace("Unexpected BEGIN command!");
     return State::Close;
@@ -375,7 +381,7 @@ State HandleBegin(TSession &session, const State state, const Marker marker) {
   }
 
   try {
-    session.BeginTransaction(md);
+    session.BeginTransaction(helpers::ConsumeMetadata(extra));
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
   }

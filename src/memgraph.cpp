@@ -535,7 +535,9 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 
   void BeginTransaction(const std::map<std::string, memgraph::communication::bolt::Value> &metadata) override {
     std::map<std::string, memgraph::storage::PropertyValue> metadata_pv;
-    for (const auto &kv : metadata) metadata_pv.emplace(kv.first, memgraph::glue::ToPropertyValue(kv.second));
+    for (const auto &[key, bolt_value] : metadata) {
+      metadata_pv.emplace(key, memgraph::glue::ToPropertyValue(bolt_value));
+    }
     interpreter_.BeginTransaction(metadata_pv);
   }
 
@@ -548,8 +550,12 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
       const std::map<std::string, memgraph::communication::bolt::Value> &metadata) override {
     std::map<std::string, memgraph::storage::PropertyValue> params_pv;
     std::map<std::string, memgraph::storage::PropertyValue> metadata_pv;
-    for (const auto &kv : params) params_pv.emplace(kv.first, memgraph::glue::ToPropertyValue(kv.second));
-    for (const auto &kv : metadata) metadata_pv.emplace(kv.first, memgraph::glue::ToPropertyValue(kv.second));
+    for (const auto &[key, bolt_param] : params) {
+      params_pv.emplace(key, memgraph::glue::ToPropertyValue(bolt_param));
+    }
+    for (const auto &[key, bolt_md] : metadata) {
+      metadata_pv.emplace(key, memgraph::glue::ToPropertyValue(bolt_md));
+    }
     const std::string *username{nullptr};
     if (user_) {
       username = &user_->username();

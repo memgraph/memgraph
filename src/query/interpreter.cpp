@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -117,9 +118,9 @@ concept HasEmpty = requires(T t) {
   { t.empty() } -> std::convertible_to<bool>;
 };
 
-template <HasEmpty T>
+template <typename T>
 inline std::optional<T> GenOptional(const T &in) {
-  return in.empty() ? std::nullopt : std::optional<T>{in};
+  return in.empty() ? std::nullopt : std::make_optional<T>(in);
 }
 
 struct Callback {
@@ -2794,7 +2795,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   transaction_queries_->push_back(query_string);
 
   // All queries other than transaction control queries advance the command in
-  // an explicit transaction block.in_explicit_transaction_
+  // an explicit transaction block.
   if (in_explicit_transaction_) {
     AdvanceCommand();
   } else if (db_accessor_) {
