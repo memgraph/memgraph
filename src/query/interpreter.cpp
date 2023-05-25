@@ -1193,6 +1193,8 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper,
   std::function<void()> handler;
 
   if (query_upper == "BEGIN") {
+    // TODO: Evaluate doing move(metadata). Currently the metadata is very small, but this will be important if it ever
+    // becomes large.
     handler = [this, metadata] {
       if (in_explicit_transaction_) {
         throw ExplicitTransactionUsageException("Nested transactions are not supported.");
