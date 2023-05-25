@@ -1015,7 +1015,8 @@ bool DiskStorage::DiskAccessor::DeleteEdgeFromDisk(const std::string &edge) {
   return true;
 }
 
-utils::BasicResult<memgraph::storage::Error, void> DiskStorage::DiskAccessor::FlushCache() {
+utils::BasicResult<StorageDataManipulationError, void>
+DiskStorage::DiskAccessor::CheckExistenceConstraintsAndFlushMainMemoryCache() {
   /// Flush vertex cache.
   auto vertex_acc = vertices_.access();
   uint64_t num_ser_edges = 0;
@@ -1023,17 +1024,14 @@ utils::BasicResult<memgraph::storage::Error, void> DiskStorage::DiskAccessor::Fl
   for (Vertex &vertex : vertex_acc) {
     if (auto validation_result = storage_->constraints_.existence_constraints_->Validate(vertex);
         validation_result.has_value()) {
-      Abort();
-      return StorageDataManipulationError{*validation_result};
+      return StorageDataManipulationError{validation_result.value()};
     }
-    logging::AssertRocksDBStatus(disk_storage->kvstore_->db_->Put(write_options, disk_storage->kvstore_->vertex_chandle,
-                                                                  utils::SerializeVertex(vertex),
-                                                                  utils::SerializeProperties(vertex.properties)));
+
     if (vertex.deleted) {
       continue;
     }
     if (!WriteVertexToDisk(vertex)) {
-      return Error::SERIALIZATION_ERROR;
+      return StorageDataManipulationError{SerializationError{}};
     }
 
     spdlog::debug("rocksdb: Saved vertex with key {} and ts {}", utils::SerializeVertex(vertex), *commit_timestamp_);
@@ -1045,11 +1043,11 @@ utils::BasicResult<memgraph::storage::Error, void> DiskStorage::DiskAccessor::Fl
           utils::SerializeEdge(vertex.gid, std::get<1>(edge_entry)->gid, std::get<0>(edge_entry), edge_ptr);
 
       if (!WriteEdgeToDisk(edge_ptr, src_dest_key)) {
-        return Error::SERIALIZATION_ERROR;
+        return StorageDataManipulationError{SerializationError{}};
       }
 
       if (!WriteEdgeToDisk(edge_ptr, dest_src_key)) {
-        return Error::SERIALIZATION_ERROR;
+        return StorageDataManipulationError{SerializationError{}};
       }
 
       num_ser_edges++;
@@ -1059,21 +1057,21 @@ utils::BasicResult<memgraph::storage::Error, void> DiskStorage::DiskAccessor::Fl
   // Delete vertices that were deleted in the current transaction.
   for (const auto &vertex_to_delete : vertices_to_delete_) {
     if (!DeleteVertexFromDisk(vertex_to_delete)) {
-      return Error::SERIALIZATION_ERROR;
+      return StorageDataManipulationError{SerializationError{}};
     }
   }
 
   // Delete edges that were deleted in the current transaction.
   for (const auto &edge_to_delete : edges_to_delete_) {
     if (!DeleteEdgeFromDisk(edge_to_delete)) {
-      return Error::SERIALIZATION_ERROR;
+      return StorageDataManipulationError{SerializationError{}};
     }
   }
   logging::AssertRocksDBStatus(disk_transaction_->SetCommitTimestamp(*commit_timestamp_));
   auto commitStatus = disk_transaction_->Commit();
   if (!commitStatus.ok()) {
     spdlog::error("rocksdb: Commit failed with status {}", commitStatus.ToString());
-    return Error::SERIALIZATION_ERROR;
+    return StorageDataManipulationError{SerializationError{}};
   }
   return {};
 }
@@ -1183,6 +1181,7 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
     }
 
     if (auto res = CheckExistenceConstraintsAndFlushMainMemoryCache(); res.HasError()) {
+      Abort();
       return res;
     }
   }

@@ -2969,6 +2969,8 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
                                trigger.Name(), label_name, property_names_stream.str());
                 }
               }
+            } else if constexpr (std::is_same_v<ErrorType, storage::SerializationError>) {
+              throw QueryException("Unable to commit due to serialization error.");
             } else {
               static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
             }
@@ -3068,6 +3070,8 @@ void Interpreter::Commit() {
                                      property_names_stream.str());
               }
             }
+          } else if constexpr (std::is_same_v<ErrorType, storage::SerializationError>) {
+            throw QueryException("Unable to commit due to serialization error.");
           } else {
             static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
           }
