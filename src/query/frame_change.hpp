@@ -8,9 +8,6 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
-
-#include <unordered_map>
-
 #include "query/typed_value.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/unordered_map.hpp"
@@ -63,17 +60,17 @@ struct CachedValue {
     return true;
   }
   // Func to cache_value inside cache_
-  bool ContainsValue(const TypedValue &value) {
+  bool ContainsValue(const TypedValue &value) const {
     TypedValue::Hash hash{};
     const auto key = hash(value);
     if (cache_.contains(key)) {
-      return IsValueInVec(cache_[key], value);
+      return IsValueInVec(cache_.at(key), value);
     }
     return false;
   }
 
  private:
-  inline static bool IsValueInVec(const std::vector<TypedValue> &vec_values, const TypedValue &value) {
+  bool IsValueInVec(const std::vector<TypedValue> &vec_values, const TypedValue &value) const {
     return std::any_of(vec_values.begin(), vec_values.end(), [&value](auto &vec_value) {
       const auto is_value_equal = vec_value == value;
       if (is_value_equal.IsNull()) return false;
