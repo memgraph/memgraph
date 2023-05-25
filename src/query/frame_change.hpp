@@ -90,7 +90,7 @@ class FrameChangeCollector {
 
   // Add tracking key to cache later value
   CachedValue &AddTrackingKey(const std::string &key) {
-    const auto &[it, result] = tracked_values_.emplace(key, tracked_values_.get_allocator().GetMemoryResource());
+    const auto &[it, _] = tracked_values_.emplace(key, tracked_values_.get_allocator().GetMemoryResource());
     return it->second;
   }
 
