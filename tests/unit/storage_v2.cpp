@@ -28,18 +28,25 @@ using testing::UnorderedElementsAre;
 template <typename StorageType>
 class StorageV2Test : public testing::Test {
  public:
-  StorageV2Test() : store{new StorageType()} {}
+  StorageV2Test() {
+    config_ = {.disk = {.main_storage_directory{"rocksdb_test_db"},
+                        .label_index_directory{"rocksdb_test_label_index"},
+                        .label_property_index_directory{"rocksdb_test_label_property_index"}}};
+    store = std::make_unique<StorageType>(config_);
+  }
 
   void TearDown() override {
     std::string dbPath;
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      dbPath = dynamic_cast<memgraph::storage::DiskStorage *>(store.get())->GetDbPath();
+      store.reset(nullptr);
+      std::filesystem::remove_all(config_.disk.main_storage_directory);
+      std::filesystem::remove_all(config_.disk.label_index_directory);
+      std::filesystem::remove_all(config_.disk.label_property_index_directory);
     }
-    store.reset(nullptr);
-    std::filesystem::remove_all(dbPath);
   }
 
   std::unique_ptr<memgraph::storage::Storage> store;
+  memgraph::storage::Config config_;
 };
 
 // using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
