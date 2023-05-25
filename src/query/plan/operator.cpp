@@ -2372,9 +2372,6 @@ bool EvaluatePatternFilter::EvaluatePatternFilterCursor::Pull(Frame &frame, Exec
   input_cursor_->Reset();
 
   frame[self_.output_symbol_] = TypedValue(input_cursor_->Pull(frame, context), context.evaluation_context.memory);
-  if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(self_.output_symbol_.name())) {
-    context.frame_change_collector->ResetTrackingValue(self_.output_symbol_.name());
-  }
 
   return true;
 }

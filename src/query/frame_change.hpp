@@ -10,12 +10,14 @@
 // licenses/APL.txt.
 
 #include <unordered_map>
+
 #include "query/typed_value.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/unordered_map.hpp"
 #include "utils/pmr/vector.hpp"
 namespace memgraph::query {
 
+// Key is hash output, value is vector of unique elements
 using CachedType = utils::pmr::unordered_map<size_t, std::vector<TypedValue>>;
 
 struct CachedValue {
@@ -30,7 +32,7 @@ struct CachedValue {
 
   CachedValue(CachedValue &&other, memgraph::utils::MemoryResource *memory) : cache_(std::move(other.cache_), memory) {}
 
-  CachedValue(CachedValue &&other) noexcept : cache_(std::move(other.cache_)) {}
+  CachedValue(CachedValue &&other) noexcept = delete;
 
   /// Copy construction without memgraph::utils::MemoryResource is not allowed.
   CachedValue(const CachedValue &) = delete;
@@ -88,8 +90,8 @@ class FrameChangeCollector {
 
   // Add tracking key to cache later value
   CachedValue &AddTrackingKey(const std::string &key) {
-    tracked_values_.emplace(key, tracked_values_.get_allocator().GetMemoryResource());
-    return tracked_values_.at(key);
+    const auto &[it, result] = tracked_values_.emplace(key, tracked_values_.get_allocator().GetMemoryResource());
+    return it->second;
   }
 
   // Is key tracked
@@ -109,13 +111,14 @@ class FrameChangeCollector {
     return true;
   }
 
-  // Get value cached for tracking key
+  // Get value cached for tracking key, throws if key is not in tracked
   CachedValue &GetCachedValue(const std::string &key) { return tracked_values_.at(key); }
 
   // Checks for keys tracked
   bool IsTrackingValues() const { return !tracked_values_.empty(); }
 
  private:
+  // Key is output of utils::GetFrameChangeId, value is utils::pmr::unordered_map
   memgraph::utils::pmr::unordered_map<std::string, CachedValue> tracked_values_;
 };
 }  // namespace memgraph::query

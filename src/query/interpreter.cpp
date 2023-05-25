@@ -1256,10 +1256,9 @@ inline static void TryCaching(const ParsedQuery &parsed_query, FrameChangeCollec
     if (tree->GetTypeInfo() != memgraph::query::InListOperator::kType) {
       continue;
     }
-    auto *inListoperator = utils::Downcast<InListOperator>(tree.get());
-    const auto cached_id = memgraph::utils::GetFrameChangeId(*inListoperator);
+    auto *in_list_operator = utils::Downcast<InListOperator>(tree.get());
+    const auto cached_id = memgraph::utils::GetFrameChangeId(*in_list_operator);
     if (!cached_id || cached_id->empty()) {
-      spdlog::trace("Not tracking IN LIST {}");
       continue;
     }
     frame_change_collector->AddTrackingKey(*cached_id);
@@ -3004,6 +3003,7 @@ void Interpreter::Abort() {
   execution_db_accessor_.reset();
   db_accessor_.reset();
   trigger_context_collector_.reset();
+  frame_change_collector_.reset();
 }
 
 namespace {
@@ -3104,6 +3104,10 @@ void Interpreter::Commit() {
   if (trigger_context_collector_) {
     trigger_context.emplace(std::move(*trigger_context_collector_).TransformToTriggerContext());
     trigger_context_collector_.reset();
+  }
+
+  if (frame_change_collector_) {
+    frame_change_collector_.reset();
   }
 
   if (trigger_context) {

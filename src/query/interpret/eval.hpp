@@ -243,6 +243,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
                         frame_change_collector_->IsKeyTracked(*cached_id)};
     if (do_cache) {
       if (!frame_change_collector_->IsKeyValueCached(*cached_id)) {
+        // Check only first time if everything is okay, later when we use
+        // cache there is no need to check again as we did check first time
         get_list_literal();
         auto preoperational_checks = do_list_literal_checks();
         if (preoperational_checks) {
@@ -263,7 +265,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
       return TypedValue(false, ctx_->memory);
     }
-
+    // When caching is not an option, we need to evaluate list literal every time
+    // and do the checks
     get_list_literal();
     auto preoperational_checks = do_list_literal_checks();
     if (preoperational_checks) {
