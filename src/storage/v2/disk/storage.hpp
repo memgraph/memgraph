@@ -195,6 +195,11 @@ class DiskStorage final : public Storage {
     [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void>
     CheckExistenceConstraintsAndFlushMainMemoryCache();
 
+    bool WriteVertexToDisk(const Vertex &vertex);
+    bool WriteEdgeToDisk(const Edge *edgePtr, const std::string &serializedEdgeKey);
+    bool DeleteVertexFromDisk(const std::string &vertex);
+    bool DeleteEdgeFromDisk(const std::string &edge);
+
     // Main object storage
     utils::SkipList<storage::Vertex> vertices_;
     utils::SkipList<storage::Vertex> indexed_vertices_;
@@ -202,6 +207,7 @@ class DiskStorage final : public Storage {
     Config::Items config_;
     std::vector<std::string> edges_to_delete_;
     std::vector<std::string> vertices_to_delete_;
+    rocksdb::Transaction *disk_transaction_;
   };
 
   std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override {

@@ -13,13 +13,17 @@
 
 #include "storage/v2/constraints/constraints.hpp"
 
+#include <iterator>
 #include <variant>
 
 namespace memgraph::storage {
 
 struct ReplicationError {};
 
-using StorageDataManipulationError = std::variant<ConstraintViolation, ReplicationError>;
+struct SerializationError {};
+inline bool operator==(const SerializationError &, const SerializationError &) { return true; }
+
+using StorageDataManipulationError = std::variant<ConstraintViolation, ReplicationError, SerializationError>;
 
 struct IndexDefinitionError {};
 using StorageIndexDefinitionError = std::variant<IndexDefinitionError, ReplicationError>;

@@ -84,7 +84,7 @@ class PropertyStore {
   bool ClearProperties();
 
   /// Return property buffer as a string
-  std::string StringBuffer();
+  std::string StringBuffer() const;
 
   /// Sets buffer
   void SetBuffer(std::string_view buffer);

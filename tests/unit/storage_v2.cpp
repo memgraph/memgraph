@@ -28,18 +28,25 @@ using testing::UnorderedElementsAre;
 template <typename StorageType>
 class StorageV2Test : public testing::Test {
  public:
-  StorageV2Test() : store{new StorageType()} {}
+  StorageV2Test() {
+    config_ = {.disk = {.main_storage_directory{"rocksdb_test_db"},
+                        .label_index_directory{"rocksdb_test_label_index"},
+                        .label_property_index_directory{"rocksdb_test_label_property_index"}}};
+    store = std::make_unique<StorageType>(config_);
+  }
 
   void TearDown() override {
     std::string dbPath;
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      dbPath = dynamic_cast<memgraph::storage::DiskStorage *>(store.get())->GetDbPath();
+      store.reset(nullptr);
+      std::filesystem::remove_all(config_.disk.main_storage_directory);
+      std::filesystem::remove_all(config_.disk.label_index_directory);
+      std::filesystem::remove_all(config_.disk.label_property_index_directory);
     }
-    store.reset(nullptr);
-    std::filesystem::remove_all(dbPath);
   }
 
   std::unique_ptr<memgraph::storage::Storage> store;
+  memgraph::storage::Config config_;
 };
 
 // using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
@@ -507,18 +514,39 @@ TYPED_TEST(StorageV2Test, VertexDeleteSerializationError) {
     EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::OLD), 1U);
     EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::NEW), 1U);
     auto res = acc2->DeleteVertex(&*vertex);
-    ASSERT_TRUE(res.HasError());
-    ASSERT_EQ(res.GetError(), memgraph::storage::Error::SERIALIZATION_ERROR);
+    if (std::is_same<TypeParam, memgraph::storage::InMemoryStorage>::value) {
+      // Serialization error for disk will be on commit
+      ASSERT_TRUE(res.HasError());
+      ASSERT_EQ(res.GetError(), memgraph::storage::Error::SERIALIZATION_ERROR);
+    }
+
     EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::OLD), 1U);
-    EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::NEW), 1U);
+    if (std::is_same<TypeParam, memgraph::storage::InMemoryStorage>::value) {
+      // Beucase of pessimistic Serialization error happened on DeleteVertex() function
+      EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::NEW), 1U);
+    } else {
+      EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::NEW), 0U);
+    }
+
     acc2->AdvanceCommand();
-    EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::OLD), 1U);
-    EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::NEW), 1U);
+    if (std::is_same<TypeParam, memgraph::storage::InMemoryStorage>::value) {
+      EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::OLD), 1U);
+      EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::NEW), 1U);
+    } else {
+      EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::OLD), 0U);
+      EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::NEW), 0U);
+    }
   }
 
   // Finalize both accessors
   ASSERT_FALSE(acc1->Commit().HasError());
-  acc2->Abort();
+  if (std::is_same<TypeParam, memgraph::storage::InMemoryStorage>::value) {
+    acc2->Abort();
+  } else {
+    auto res = acc2->Commit();
+    ASSERT_TRUE(res.HasError());
+    ASSERT_EQ(std::get<memgraph::storage::SerializationError>(res.GetError()), memgraph::storage::SerializationError());
+  }
 
   // Check whether the vertex exists
   {

@@ -1237,9 +1237,9 @@ bool PropertyStore::ClearProperties() {
   return true;
 }
 
-std::string PropertyStore::StringBuffer() {
+std::string PropertyStore::StringBuffer() const {
   uint64_t size = 0;
-  uint8_t *data = nullptr;
+  const uint8_t *data = nullptr;
   std::tie(size, data) = GetSizeData(buffer_);
   if (size % 8 != 0) {  // We are storing the data in the local buffer.
     size = sizeof(buffer_) - 1;

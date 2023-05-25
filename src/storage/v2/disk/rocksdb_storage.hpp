@@ -16,6 +16,7 @@
 #include <rocksdb/iterator.h>
 #include <rocksdb/options.h>
 #include <rocksdb/status.h>
+#include <rocksdb/utilities/transaction_db.h>
 
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_store.hpp"
@@ -31,10 +32,12 @@ struct RocksDBStorage {
   ~RocksDBStorage() {
     delete db_;
     db_ = nullptr;
+    delete options_.comparator;
+    options_.comparator = nullptr;
   }
 
   rocksdb::Options options_;
-  rocksdb::DB *db_;
+  rocksdb::TransactionDB *db_;
   rocksdb::ColumnFamilyHandle *vertex_chandle = nullptr;
   rocksdb::ColumnFamilyHandle *edge_chandle = nullptr;
   rocksdb::ColumnFamilyHandle *default_chandle = nullptr;
