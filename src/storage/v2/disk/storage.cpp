@@ -10,8 +10,12 @@
 // licenses/APL.txt.
 
 #include "storage/v2/disk/storage.hpp"
+
 #include <asm-generic/errno.h>
-#include <rocksdb/slice.h>
+#include <rocksdb/options.h>
+#include <rocksdb/utilities/transaction.h>
+#include <rocksdb/utilities/transaction_db.h>
+
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/paths.hpp"
@@ -20,7 +24,9 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/result.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/storage_error.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
@@ -185,14 +191,15 @@ DiskStorage::DiskStorage(Config config)
     column_families.emplace_back(vertexHandle, kvstore_->options_);
     column_families.emplace_back(edgeHandle, kvstore_->options_);
     column_families.emplace_back(defaultHandle, kvstore_->options_);
-    logging::AssertRocksDBStatus(rocksdb::DB::Open(kvstore_->options_, config.disk.main_storage_directory,
-                                                   column_families, &column_handles, &kvstore_->db_));
+    logging::AssertRocksDBStatus(rocksdb::TransactionDB::Open(kvstore_->options_, rocksdb::TransactionDBOptions(),
+                                                              config.disk.main_storage_directory, column_families,
+                                                              &column_handles, &kvstore_->db_));
     kvstore_->vertex_chandle = column_handles[0];
     kvstore_->edge_chandle = column_handles[1];
     kvstore_->default_chandle = column_handles[2];
   } else {
-    logging::AssertRocksDBStatus(
-        rocksdb::DB::Open(kvstore_->options_, config.disk.main_storage_directory, &kvstore_->db_));
+    logging::AssertRocksDBStatus(rocksdb::TransactionDB::Open(kvstore_->options_, rocksdb::TransactionDBOptions(),
+                                                              config.disk.main_storage_directory, &kvstore_->db_));
     logging::AssertRocksDBStatus(
         kvstore_->db_->CreateColumnFamily(kvstore_->options_, vertexHandle, &kvstore_->vertex_chandle));
     logging::AssertRocksDBStatus(
@@ -213,7 +220,15 @@ DiskStorage::~DiskStorage() {
 }
 
 DiskStorage::DiskAccessor::DiskAccessor(DiskStorage *storage, IsolationLevel isolation_level, StorageMode storage_mode)
-    : Accessor(storage, isolation_level, storage_mode), config_(storage->config_.items) {}
+    : Accessor(storage, isolation_level, storage_mode), config_(storage->config_.items) {
+  rocksdb::WriteOptions write_options;
+  // auto strTs = utils::StringTimestamp(transaction_.start_timestamp);
+  // rocksdb::Slice ts(strTs);
+  // write_options.timestamp = &ts;
+  auto txOptions = rocksdb::TransactionOptions{.set_snapshot = true};
+  disk_transaction_ = storage->kvstore_->db_->BeginTransaction(write_options, txOptions);
+  disk_transaction_->SetReadTimestampForValidation(transaction_.start_timestamp);
+}
 
 DiskStorage::DiskAccessor::DiskAccessor(DiskAccessor &&other) noexcept
     : Accessor(std::move(other)), config_(other.config_) {
@@ -228,6 +243,7 @@ DiskStorage::DiskAccessor::~DiskAccessor() {
   }
 
   FinalizeTransaction();
+  delete disk_transaction_;
 }
 
 std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToMainMemoryCache(
@@ -324,8 +340,8 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
   std::string strTs = utils::StringTimestamp(transaction_.start_timestamp);
   rocksdb::Slice ts(strTs);
   ro.timestamp = &ts;
-  auto it = std::unique_ptr<rocksdb::Iterator>(
-      disk_storage->kvstore_->db_->NewIterator(ro, disk_storage->kvstore_->vertex_chandle));
+  auto it =
+      std::unique_ptr<rocksdb::Iterator>(disk_transaction_->GetIterator(ro, disk_storage->kvstore_->vertex_chandle));
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     // When deserializing vertex, key size is set to user key-size
     // To be able to extract timestamp, here a copy can be created
@@ -506,7 +522,7 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid
   rocksdb::Slice ts(strTs);
   read_opts.timestamp = &ts;
   auto it = std::unique_ptr<rocksdb::Iterator>(
-      disk_storage->kvstore_->db_->NewIterator(read_opts, disk_storage->kvstore_->vertex_chandle));
+      disk_transaction_->GetIterator(read_opts, disk_storage->kvstore_->vertex_chandle));
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     const auto &key = it->key();
     // TODO(andi): If we change format of vertex serialization, change vertex_parts[1] to vertex_parts[0].
@@ -621,7 +637,7 @@ void DiskStorage::DiskAccessor::PrefetchEdges(const auto &prefetch_edge_filter) 
   read_opts.timestamp = &ts;
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   auto it = std::unique_ptr<rocksdb::Iterator>(
-      disk_storage->kvstore_->db_->NewIterator(read_opts, disk_storage->kvstore_->edge_chandle));
+      disk_transaction_->GetIterator(read_opts, disk_storage->kvstore_->edge_chandle));
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     const rocksdb::Slice &key = it->key();
     const auto edge_parts = utils::Split(key.ToStringView(), "|");
@@ -933,49 +949,122 @@ Result<std::optional<EdgeAccessor>> DiskStorage::DiskAccessor::DeleteEdge(EdgeAc
                                           &storage_->indices_, &disk_storage->constraints_, config_, true);
 }
 
-void DiskStorage::DiskAccessor::FlushCache() {
+bool DiskStorage::DiskAccessor::WriteVertexToDisk(const Vertex &vertex) {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  auto status = disk_transaction_->Put(disk_storage->kvstore_->vertex_chandle, utils::SerializeVertex(vertex),
+                                       utils::SerializeProperties(vertex.properties));
+  if (status.ok()) {
+    spdlog::debug("rocksdb: Saved vertex with key {} and ts {}", utils::SerializeVertex(vertex), *commit_timestamp_);
+  } else if (status.IsBusy()) {
+    spdlog::error("rocksdb: Vertex with key {} and ts {} was changed and committed in another transaction",
+                  utils::SerializeVertex(vertex), *commit_timestamp_);
+    return false;
+  } else {
+    spdlog::error("rocksdb: Failed to save vertex with key {} and ts {}", utils::SerializeVertex(vertex),
+                  *commit_timestamp_);
+    return false;
+  }
+  return true;
+}
+
+bool DiskStorage::DiskAccessor::WriteEdgeToDisk(const Edge *edgePtr, const std::string &serializedEdgeKey) {
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  auto status = disk_transaction_->Put(disk_storage->kvstore_->edge_chandle, serializedEdgeKey,
+                                       utils::SerializeProperties(edgePtr->properties));
+  if (status.ok()) {
+    spdlog::debug("rocksdb: Saved edge with key {} and ts {}", serializedEdgeKey, *commit_timestamp_);
+  } else if (status.IsBusy()) {
+    spdlog::error("rocksdb: Edge with key {} and ts {} was changed and committed in another transaction",
+                  serializedEdgeKey, *commit_timestamp_);
+    return false;
+  } else {
+    spdlog::error("rocksdb: Failed to save edge with key {} and ts {}", serializedEdgeKey, *commit_timestamp_);
+    return false;
+  }
+  return true;
+}
+
+bool DiskStorage::DiskAccessor::DeleteVertexFromDisk(const std::string &vertex) {
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  auto status = disk_transaction_->Delete(disk_storage->kvstore_->vertex_chandle, vertex);
+  if (status.ok()) {
+    spdlog::debug("rocksdb: Deleted vertex with key {}", vertex);
+  } else if (status.IsBusy()) {
+    spdlog::error("rocksdb: Vertex with key {} was changed and committed in another transaction", vertex);
+    return false;
+  } else {
+    spdlog::error("rocksdb: Failed to delete vertex with key {}", vertex);
+    return false;
+  }
+  return true;
+}
+
+bool DiskStorage::DiskAccessor::DeleteEdgeFromDisk(const std::string &edge) {
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  auto status = disk_transaction_->Delete(disk_storage->kvstore_->edge_chandle, edge);
+  if (status.ok()) {
+    spdlog::debug("rocksdb: Deleted edge with key {}", edge);
+  } else if (status.IsBusy()) {
+    spdlog::error("rocksdb: Edge with key {} was changed and committed in another transaction", edge);
+    return false;
+  } else {
+    spdlog::error("rocksdb: Failed to delete edge with key {}", edge);
+    return false;
+  }
+  return true;
+}
+
+utils::BasicResult<memgraph::storage::Error, void> DiskStorage::DiskAccessor::FlushCache() {
   /// Flush vertex cache.
   auto vertex_acc = vertices_.access();
   uint64_t num_ser_edges = 0;
-  rocksdb::WriteOptions write_options;
-  auto strTs = utils::StringTimestamp(*commit_timestamp_);
-  rocksdb::Slice ts(strTs);
-  write_options.timestamp = &ts;
+
   for (Vertex &vertex : vertex_acc) {
-    logging::AssertRocksDBStatus(disk_storage->kvstore_->db_->Put(write_options, disk_storage->kvstore_->vertex_chandle,
-                                                                  utils::SerializeVertex(vertex),
-                                                                  utils::SerializeProperties(vertex.properties)));
-    spdlog::debug("rocksdb: Saved vertex with key {} and ts {}", utils::SerializeVertex(vertex), *commit_timestamp_);
+    if (vertex.deleted) {
+      continue;
+    }
+    if (!WriteVertexToDisk(vertex)) {
+      return Error::SERIALIZATION_ERROR;
+    }
+
     spdlog::debug("Vertex {} has {} out edges", vertex.gid.AsUint(), vertex.out_edges.size());
     for (auto &edge_entry : vertex.out_edges) {
       Edge *edge_ptr = std::get<2>(edge_entry).ptr;
       auto [src_dest_key, dest_src_key] =
           utils::SerializeEdge(vertex.gid, std::get<1>(edge_entry)->gid, std::get<0>(edge_entry), edge_ptr);
-      logging::AssertRocksDBStatus(disk_storage->kvstore_->db_->Put(write_options, disk_storage->kvstore_->edge_chandle,
-                                                                    src_dest_key,
-                                                                    utils::SerializeProperties(edge_ptr->properties)));
-      logging::AssertRocksDBStatus(disk_storage->kvstore_->db_->Put(write_options, disk_storage->kvstore_->edge_chandle,
-                                                                    dest_src_key,
-                                                                    utils::SerializeProperties(edge_ptr->properties)));
-      spdlog::debug("rocksdb: Saved edge with key {} and ts {}", src_dest_key, *commit_timestamp_);
-      spdlog::debug("rocksdb: Saved edge with key {} and ts {}", dest_src_key, *commit_timestamp_);
+
+      if (!WriteEdgeToDisk(edge_ptr, src_dest_key)) {
+        return Error::SERIALIZATION_ERROR;
+      }
+
+      if (!WriteEdgeToDisk(edge_ptr, dest_src_key)) {
+        return Error::SERIALIZATION_ERROR;
+      }
+
       num_ser_edges++;
     }
   }
+
   // Delete vertices that were deleted in the current transaction.
   for (const auto &vertex_to_delete : vertices_to_delete_) {
-    spdlog::debug("rocksdb: Deleted vertex with key {}", vertex_to_delete);
-    logging::AssertRocksDBStatus(
-        disk_storage->kvstore_->db_->Delete(write_options, disk_storage->kvstore_->vertex_chandle, vertex_to_delete));
+    if (!DeleteVertexFromDisk(vertex_to_delete)) {
+      return Error::SERIALIZATION_ERROR;
+    }
   }
 
   // Delete edges that were deleted in the current transaction.
   for (const auto &edge_to_delete : edges_to_delete_) {
-    spdlog::debug("rocksdb: Deleted edge with key {}", edge_to_delete);
-    logging::AssertRocksDBStatus(
-        disk_storage->kvstore_->db_->Delete(write_options, disk_storage->kvstore_->edge_chandle, edge_to_delete));
+    if (!DeleteEdgeFromDisk(edge_to_delete)) {
+      return Error::SERIALIZATION_ERROR;
+    }
   }
+  logging::AssertRocksDBStatus(disk_transaction_->SetCommitTimestamp(*commit_timestamp_));
+  auto commitStatus = disk_transaction_->Commit();
+  if (!commitStatus.ok()) {
+    spdlog::error("rocksdb: Commit failed with status {}", commitStatus.ToString());
+    return Error::SERIALIZATION_ERROR;
+  }
+  return {};
 }
 
 // this will be modified here for a disk-based storage
@@ -1098,7 +1187,11 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
       Abort();
       return StorageDataManipulationError{*unique_constraint_violation};
     }
-    FlushCache();
+    auto result = FlushCache();
+    if (result.HasError()) {
+      Abort();
+      return StorageDataManipulationError{SerializationError{}};
+    }
   }
   is_transaction_active_ = false;
 

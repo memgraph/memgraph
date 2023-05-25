@@ -81,7 +81,7 @@ inline std::vector<storage::LabelId> DeserializeLabelsFromLabelPropertyIndexStor
   return TransformStringLabels(index_key);
 }
 
-inline std::string SerializeProperties(storage::PropertyStore &properties) { return properties.StringBuffer(); }
+inline std::string SerializeProperties(const storage::PropertyStore &properties) { return properties.StringBuffer(); }
 
 /// Serialize vertex to string as a key in KV store
 /// label1, label2 | GID | commit_timestamp

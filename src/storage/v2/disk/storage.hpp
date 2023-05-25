@@ -192,7 +192,12 @@ class DiskStorage final : public Storage {
     /// Flushes vertices and edges to the disk with the commit timestamp.
     /// At the time of calling, the commit_timestamp_ must already exist.
     /// After this method, the vertex and edge caches are cleared.
-    void FlushCache();
+    utils::BasicResult<memgraph::storage::Error, void> FlushCache();
+
+    bool WriteVertexToDisk(const Vertex &vertex);
+    bool WriteEdgeToDisk(const Edge *edgePtr, const std::string &serializedEdgeKey);
+    bool DeleteVertexFromDisk(const std::string &vertex);
+    bool DeleteEdgeFromDisk(const std::string &edge);
 
     // Main object storage
     utils::SkipList<storage::Vertex> vertices_;
@@ -201,6 +206,7 @@ class DiskStorage final : public Storage {
     Config::Items config_;
     std::vector<std::string> edges_to_delete_;
     std::vector<std::string> vertices_to_delete_;
+    rocksdb::Transaction *disk_transaction_;
   };
 
   std::unique_ptr<Storage::Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override {

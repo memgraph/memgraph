@@ -23,8 +23,9 @@ DiskLabelIndex::DiskLabelIndex(Indices *indices, Constraints *constraints, const
   kvstore_ = std::make_unique<RocksDBStorage>();
   utils::EnsureDirOrDie(config.disk.label_index_directory);
   kvstore_->options_.create_if_missing = true;
-  logging::AssertRocksDBStatus(
-      rocksdb::DB::Open(kvstore_->options_, config.disk.label_index_directory, &kvstore_->db_));
+  kvstore_->options_.comparator = new ComparatorWithU64TsImpl();
+  logging::AssertRocksDBStatus(rocksdb::TransactionDB::Open(kvstore_->options_, rocksdb::TransactionDBOptions(),
+                                                            config.disk.label_index_directory, &kvstore_->db_));
 }
 
 bool DiskLabelIndex::CreateIndex(LabelId label, const std::vector<std::pair<std::string, std::string>> &vertices) {

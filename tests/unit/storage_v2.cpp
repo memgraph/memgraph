@@ -507,18 +507,39 @@ TYPED_TEST(StorageV2Test, VertexDeleteSerializationError) {
     EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::OLD), 1U);
     EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::NEW), 1U);
     auto res = acc2->DeleteVertex(&*vertex);
-    ASSERT_TRUE(res.HasError());
-    ASSERT_EQ(res.GetError(), memgraph::storage::Error::SERIALIZATION_ERROR);
+    if (std::is_same<TypeParam, memgraph::storage::InMemoryStorage>::value) {
+      // Serialization error for disk will be on commit
+      ASSERT_TRUE(res.HasError());
+      ASSERT_EQ(res.GetError(), memgraph::storage::Error::SERIALIZATION_ERROR);
+    }
+
     EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::OLD), 1U);
-    EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::NEW), 1U);
+    if (std::is_same<TypeParam, memgraph::storage::InMemoryStorage>::value) {
+      // Beucase of pessimistic Serialization error happened on DeleteVertex() function
+      EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::NEW), 1U);
+    } else {
+      EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::NEW), 0U);
+    }
+
     acc2->AdvanceCommand();
-    EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::OLD), 1U);
-    EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::NEW), 1U);
+    if (std::is_same<TypeParam, memgraph::storage::InMemoryStorage>::value) {
+      EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::OLD), 1U);
+      EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::NEW), 1U);
+    } else {
+      EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::OLD), 0U);
+      EXPECT_EQ(CountVertices(*acc2, memgraph::storage::View::NEW), 0U);
+    }
   }
 
   // Finalize both accessors
   ASSERT_FALSE(acc1->Commit().HasError());
-  acc2->Abort();
+  if (std::is_same<TypeParam, memgraph::storage::InMemoryStorage>::value) {
+    acc2->Abort();
+  } else {
+    auto res = acc2->Commit();
+    ASSERT_TRUE(res.HasError());
+    ASSERT_EQ(std::get<memgraph::storage::SerializationError>(res.GetError()), memgraph::storage::SerializationError());
+  }
 
   // Check whether the vertex exists
   {
