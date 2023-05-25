@@ -12,6 +12,7 @@
 #pragma once
 
 #include "storage/v2/disk/rocksdb_storage.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/storage.hpp"
 
 /// ROCKSDB
@@ -326,6 +327,9 @@ class DiskStorage final : public Storage {
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
 
  private:
+  [[nodiscard]] std::optional<ConstraintViolation> CheckExistingVerticesBeforeCreatingExistenceConstraint(
+      LabelId label, PropertyId property);
+
   /// The force parameter determines the behaviour of the garbage collector.
   /// If it's set to true, it will behave as a global operation, i.e. it can't
   /// be part of a transaction, and no other transaction can be active at the same time.

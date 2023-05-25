@@ -1015,7 +1015,7 @@ bool DiskStorage::DiskAccessor::DeleteEdgeFromDisk(const std::string &edge) {
   return true;
 }
 
-utils::BasicResult<StorageDataManipulationError, void>
+[[nodiscard]] utils::BasicResult<StorageDataManipulationError, void>
 DiskStorage::DiskAccessor::CheckExistenceConstraintsAndFlushMainMemoryCache() {
   /// Flush vertex cache.
   auto vertex_acc = vertices_.access();
@@ -1074,6 +1074,26 @@ DiskStorage::DiskAccessor::CheckExistenceConstraintsAndFlushMainMemoryCache() {
     return StorageDataManipulationError{SerializationError{}};
   }
   return {};
+}
+
+[[nodiscard]] std::optional<ConstraintViolation> DiskStorage::CheckExistingVerticesBeforeCreatingExistenceConstraint(
+    LabelId label, PropertyId property) {
+  rocksdb::ReadOptions ro;
+  std::string strTs = utils::StringTimestamp(std::numeric_limits<uint64_t>::max());
+  rocksdb::Slice ts(strTs);
+  ro.timestamp = &ts;
+  auto it = std::unique_ptr<rocksdb::Iterator>(kvstore_->db_->NewIterator(ro, kvstore_->vertex_chandle));
+  for (it->SeekToFirst(); it->Valid(); it->Next()) {
+    const std::vector<std::string> vertex_parts = utils::Split(it->key().ToStringView(), "|");
+    std::string labels_str = vertex_parts[0];
+    std::vector<LabelId> labels_id = utils::DeserializeLabelsFromMainDiskStorage(labels_str);
+    PropertyStore properties;
+    properties.SetBuffer(it->value().ToStringView());
+    if (utils::Contains(labels_id, label) && !properties.HasProperty(property)) {
+      return ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label, std::set<PropertyId>{property}};
+    }
+  }
+  return std::nullopt;
 }
 
 // this will be modified here for a disk-based storage
@@ -1493,22 +1513,8 @@ utils::BasicResult<StorageExistenceConstraintDefinitionError, void> DiskStorage:
     return StorageExistenceConstraintDefinitionError{ConstraintDefinitionError{}};
   }
 
-  /// TODO: andi refactor into a private method
-  rocksdb::ReadOptions ro;
-  std::string strTs = utils::StringTimestamp(std::numeric_limits<uint64_t>::max());
-  rocksdb::Slice ts(strTs);
-  ro.timestamp = &ts;
-  auto it = std::unique_ptr<rocksdb::Iterator>(kvstore_->db_->NewIterator(ro, kvstore_->vertex_chandle));
-  for (it->SeekToFirst(); it->Valid(); it->Next()) {
-    const std::vector<std::string> vertex_parts = utils::Split(it->key().ToStringView(), "|");
-    std::string labels_str = vertex_parts[0];
-    std::vector<LabelId> labels_id = utils::DeserializeLabelsFromMainDiskStorage(labels_str);
-    PropertyStore properties;
-    properties.SetBuffer(it->value().ToStringView());
-    if (utils::Contains(labels_id, label) && !properties.HasProperty(property)) {
-      return StorageExistenceConstraintDefinitionError{
-          ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label, std::set<PropertyId>{property}}};
-    }
+  if (auto check = CheckExistingVerticesBeforeCreatingExistenceConstraint(label, property); check.has_value()) {
+    return StorageExistenceConstraintDefinitionError{check.value()};
   }
 
   constraints_.existence_constraints_->InsertConstraint(label, property);

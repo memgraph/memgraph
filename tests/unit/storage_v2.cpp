@@ -38,11 +38,11 @@ class StorageV2Test : public testing::Test {
   void TearDown() override {
     std::string dbPath;
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      store.reset(nullptr);
       std::filesystem::remove_all(config_.disk.main_storage_directory);
       std::filesystem::remove_all(config_.disk.label_index_directory);
       std::filesystem::remove_all(config_.disk.label_property_index_directory);
     }
+    store.reset(nullptr);
   }
 
   std::unique_ptr<memgraph::storage::Storage> store;
