@@ -105,6 +105,7 @@
 constexpr const char *kMgUser = "MEMGRAPH_USER";
 constexpr const char *kMgPassword = "MEMGRAPH_PASSWORD";
 constexpr const char *kMgPassfile = "MEMGRAPH_PASSFILE";
+static const auto kMgDefaultName = std::string("Memgraph/") + version_string;
 
 // Short help flag.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -142,7 +143,7 @@ DEFINE_string(bolt_cert_file, "", "Certificate file which should be used for the
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(bolt_key_file, "", "Key file which should be used for the Bolt server.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(bolt_server_name_for_init, "",
+DEFINE_string(bolt_server_name_for_init, kMgDefaultName,
               "Server name which the database should send to the client in the "
               "Bolt INIT message.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
