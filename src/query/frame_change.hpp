@@ -102,7 +102,8 @@ class FrameChangeCollector {
   // Reset value for tracking key
   bool ResetTrackingValue(const std::string &key) {
     if (tracked_values_.contains(key)) {
-      tracked_values_.at(key).cache_.clear();
+      tracked_values_.erase(key);
+      AddTrackingKey(key);
     }
 
     return true;

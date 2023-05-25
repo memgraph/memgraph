@@ -49,6 +49,7 @@
 #include "query/plan/planner.hpp"
 #include "query/plan/profile.hpp"
 #include "query/plan/vertex_count_cache.hpp"
+#include "query/stream.hpp"
 #include "query/stream/common.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
@@ -1250,9 +1251,9 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
           RWType::NONE};
 }
 
-inline static void TryCaching(const ParsedQuery &parsed_query, FrameChangeCollector *frame_change_collector) {
+inline static void TryCaching(const AstStorage &ast_storage, FrameChangeCollector *frame_change_collector) {
   if (!frame_change_collector) return;
-  for (const auto &tree : parsed_query.ast_storage.storage_) {
+  for (const auto &tree : ast_storage.storage_) {
     if (tree->GetTypeInfo() != memgraph::query::InListOperator::kType) {
       continue;
     }
@@ -1273,8 +1274,6 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                  TriggerContextCollector *trigger_context_collector = nullptr,
                                  FrameChangeCollector *frame_change_collector = nullptr) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
-
-  TryCaching(parsed_query, frame_change_collector);
 
   Frame frame(0);
   SymbolTable symbol_table;
@@ -1304,6 +1303,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                 parsed_query.parameters,
                                 parsed_query.is_cacheable ? &interpreter_context->plan_cache : nullptr, dba);
 
+  TryCaching(plan->ast_storage(), frame_change_collector);
   summary->insert_or_assign("cost_estimate", plan->cost());
   auto rw_type_checker = plan::ReadWriteTypeChecker();
   rw_type_checker.InferRWType(const_cast<plan::LogicalOperator &>(plan->plan()));
@@ -1421,8 +1421,6 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
       ParseQuery(parsed_query.query_string.substr(kProfileQueryStart.size()), parsed_query.user_parameters,
                  &interpreter_context->ast_cache, interpreter_context->config.query);
 
-  TryCaching(parsed_inner_query, frame_change_collector);
-
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
 
   bool contains_csv = false;
@@ -1446,6 +1444,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   auto cypher_query_plan = CypherQueryToPlan(
       parsed_inner_query.stripped_query.hash(), std::move(parsed_inner_query.ast_storage), cypher_query,
       parsed_inner_query.parameters, parsed_inner_query.is_cacheable ? &interpreter_context->plan_cache : nullptr, dba);
+  TryCaching(cypher_query_plan->ast_storage(), frame_change_collector);
   auto rw_type_checker = plan::ReadWriteTypeChecker();
   auto optional_username = StringPointerToOptional(username);
 
