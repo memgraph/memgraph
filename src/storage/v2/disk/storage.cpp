@@ -481,7 +481,7 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex(storage::Gid gid) {
 /// TODO(andi): This method is the duplicate of CreateVertex(storage::Gid gid), the only thing that is different is
 /// delta creation How to remove this duplication?
 VertexAccessor DiskStorage::DiskAccessor::CreateVertex(utils::SkipList<Vertex>::Accessor &accessor, storage::Gid gid,
-                                                       uint64_t vertex_commit_ts, std::vector<LabelId> label_ids,
+                                                       uint64_t vertex_commit_ts, const std::vector<LabelId> &label_ids,
                                                        std::string_view properties) {
   OOMExceptionEnabler oom_exception;
   // NOTE: When we update the next `vertex_id_` here we perform a RMW
