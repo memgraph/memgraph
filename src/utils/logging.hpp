@@ -39,12 +39,11 @@ namespace memgraph::logging {
 // TODO (antonio2368): Replace with std::source_location when it's supported by
 // compilers
 inline void AssertFailed(const char *file_name, int line_num, const char *expr, const std::string &message) {
-  // TODO(gitbuda): Double check the AssertFailed with the fmt issue.
-  //  spdlog::critical(
-  //      "\nAssertion failed in file {} at line {}."
-  //      "\n\tExpression: '{}'"
-  //      "{}",
-  //      file_name, line_num, expr, !message.empty() ? fmt::format("\n\tMessage: '{}'", message) : "");
+  spdlog::critical(
+      "\nAssertion failed in file {} at line {}."
+      "\n\tExpression: '{}'"
+      "{}",
+      file_name, line_num, expr, !message.empty() ? fmt::format("\n\tMessage: '{}'", message) : "");
   std::terminate();
 }
 
