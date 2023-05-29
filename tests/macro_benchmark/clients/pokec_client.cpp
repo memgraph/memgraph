@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,6 +24,7 @@
 #include <gflags/gflags.h>
 #include <json/json.hpp>
 
+#include "communication/bolt/v1/fmt.hpp"
 #include "io/network/utils.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/timer.hpp"

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -131,6 +131,16 @@ struct NodeId {
   std::string id;
   // Group/space of IDs. ID must be unique in a single group.
   std::string id_space;
+};
+
+template <>
+class fmt::formatter<NodeId> {
+ public:
+  constexpr auto parse(format_parse_context &ctx) { return ctx.begin(); }
+  template <typename Context>
+  constexpr auto format(NodeId const &node, Context &ctx) const {
+    return fmt::format_to(ctx.out(), "({}, {})", node.id, node.id_space);
+  }
 };
 
 bool operator==(const NodeId &a, const NodeId &b) { return a.id == b.id && a.id_space == b.id_space; }

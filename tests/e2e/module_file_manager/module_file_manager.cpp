@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -56,11 +56,11 @@ bool ModuleFileExists(auto &client, const auto &path) {
 }
 
 void AssertModuleFileExists(auto &client, const auto &path) {
-  MG_ASSERT(ModuleFileExists(client, path), "Module file {} is missing", path);
+  MG_ASSERT(ModuleFileExists(client, path), "Module file {} is missing", path.string());
 }
 
 void AssertModuleFileNotExists(auto &client, const auto &path) {
-  MG_ASSERT(!ModuleFileExists(client, path), "Invalid module file {} is present", path);
+  MG_ASSERT(!ModuleFileExists(client, path), "Invalid module file {} is present", path.string());
 }
 
 bool ProcedureExists(auto &client, const std::string_view procedure_name,
@@ -125,11 +125,11 @@ std::filesystem::path CreateModuleFile(auto &client, const std::string_view file
 }
 
 std::string GetModuleFileQuery(const std::filesystem::path &path) {
-  return fmt::format("CALL mg.get_module_file({}) YIELD content", path);
+  return fmt::format("CALL mg.get_module_file({}) YIELD content", path.string());
 }
 
 std::string GetModuleFile(auto &client, const std::filesystem::path &path) {
-  spdlog::info("Getting content of module file '{}'", path);
+  spdlog::info("Getting content of module file '{}'", path.string());
   MG_ASSERT(client->Execute(GetModuleFileQuery(path)));
 
   const auto result_row = client->FetchOne();
@@ -140,21 +140,21 @@ std::string GetModuleFile(auto &client, const std::filesystem::path &path) {
 }
 
 std::string UpdateModuleFileQuery(const std::filesystem::path &path, const std::string_view content) {
-  return fmt::format("CALL mg.update_module_file({}, '{}')", path, content);
+  return fmt::format("CALL mg.update_module_file({}, '{}')", path.string(), content);
 }
 
 void UpdateModuleFile(auto &client, const std::filesystem::path &path, const std::string_view content) {
-  spdlog::info("Updating module file {} with content:\n{}", path, content);
+  spdlog::info("Updating module file {} with content:\n{}", path.string(), content);
   MG_ASSERT(client->Execute(UpdateModuleFileQuery(path, content)));
   MG_ASSERT(client->FetchAll().has_value());
 }
 
 std::string DeleteModuleFileQuery(const std::filesystem::path &path) {
-  return fmt::format("CALL mg.delete_module_file({})", path);
+  return fmt::format("CALL mg.delete_module_file({})", path.string());
 }
 
 void DeleteModuleFile(auto &client, const std::filesystem::path &path) {
-  spdlog::info("Deleting module file {}", path);
+  spdlog::info("Deleting module file {}", path.string());
   MG_ASSERT(client->Execute(DeleteModuleFileQuery(path)));
   MG_ASSERT(client->FetchAll().has_value());
 }
@@ -246,7 +246,7 @@ int main(int argc, char **argv) {
 
   {
     std::ofstream non_module_file{non_module_file_path};
-    MG_ASSERT(non_module_file.is_open(), "Failed to open {} for writing", non_module_file_path);
+    MG_ASSERT(non_module_file.is_open(), "Failed to open {} for writing", non_module_file_path.string());
     static constexpr std::string_view content = "import mgp";
     non_module_file.write(content.data(), content.size());
     non_module_file.flush();

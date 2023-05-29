@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -54,10 +54,10 @@ int main(int argc, char **argv) {
         auto label_name = (*data)[0][1].ValueString();
         auto property_name = (*data)[0][2].ValueString();
         if (label_name != "Node" || property_name != "id") {
-          LOG_FATAL("{} does NOT have valid indexes created.", database_endpoint);
+          LOG_FATAL("{} does NOT have valid indexes created.", database_endpoint.SocketAddress());
         }
       } else {
-        LOG_FATAL("Unable to get INDEX INFO from {}", database_endpoint);
+        LOG_FATAL("Unable to get INDEX INFO from {}", database_endpoint.SocketAddress());
       }
     }
     spdlog::info("All indexes are in-place.");
@@ -139,10 +139,10 @@ int main(int argc, char **argv) {
       client->Execute("SHOW INDEX INFO;");
       if (const auto data = client->FetchAll()) {
         if ((*data).size() != 0) {
-          LOG_FATAL("{} still have some indexes.", database_endpoint);
+          LOG_FATAL("{} still have some indexes.", database_endpoint.SocketAddress());
         }
       } else {
-        LOG_FATAL("Unable to get INDEX INFO from {}", database_endpoint);
+        LOG_FATAL("Unable to get INDEX INFO from {}", database_endpoint.SocketAddress());
       }
     }
     spdlog::info("All indexes were deleted.");
