@@ -642,12 +642,21 @@ BZIP2_SHA256=a2848f34fcd5d6cf47def00461fcb528a0484d8edef8208d6d2e2909dc61d9cd
 BZIP2_VERSION=1.0.6
 DOUBLE_CONVERSION_SHA256=8a79e87d02ce1333c9d6c5e47f452596442a343d8c3e9b234e8a62fce1b1d49c
 DOUBLE_CONVERSION_VERSION=3.1.6
-FBLIBS_VERSION=2022.10.17.00
-FIZZ_SHA256=6c7069cb6812e9ed990b65e60c4d87b59d59c4a11f26d0ae1e35498e47489d9d
+
+# FBLIBS_VERSION=2022.10.17.00
+FBLIBS_VERSION=2023.05.22.00
+# FIZZ_SHA256=6c7069cb6812e9ed990b65e60c4d87b59d59c4a11f26d0ae1e35498e47489d9d
+FIZZ_SHA256=3b6ca4f5bd52f54c043c6a3ebf8a30289817780d199b4150e47b02596f4c0a1f
+# FOLLY_SHA256=651ba3ed2b38b02c604cf99e008c9e51d87e74c9af2da3c7eaee1240f72ac25b
+FOLLY_SHA256=110b5726b16ba2594b628111a1caba80bc35ff6ae12a34e1be61f90860c7c822
+# PROXYGEN_SHA256=2f89e7d57d266504a191a74dad5f611c72467ab1bab077e0298368d7429901cb
+PROXYGEN_SHA256=be38c39dd921e6fce9c3ecc1106e9710e0ccd9b346ddd355df799e80554e2782
+# WANGLE_SHA256=c88f9f010ef90d42ae160b65ba114dddb67a2d5a2a64c87ee40acead263577d2
+WANGLE_SHA256=da277062a3ec1a1901bf10cef61d3778949efae94bcef6de628e621ce2790ea1
+
 FLEX_VERSION=2.6.4
 FMT_SHA256=5dea48d1fcddc3ec571ce2058e13910a0d4a6bab4cc09a809d8b1dd1c88ae6f2
 FMT_VERSION=9.1.0
-FOLLY_SHA256=651ba3ed2b38b02c604cf99e008c9e51d87e74c9af2da3c7eaee1240f72ac25b
 GFLAGS_COMMIT_HASH=b37ceb03a0e56c9f15ce80409438a555f8a67b7c
 GLOG_SHA256=eede71f28371bf39aa69b45de23b329d37214016e2055269b3b5e7cfd40b59f5
 GLOG_VERSION=0.5.0
@@ -658,13 +667,11 @@ LIBSODIUM_VERSION=1.0.18
 LIBUNWIND_VERSION=1.6.2
 LZ4_SHA256=33af5936ac06536805f9745e0b6d61da606a1f8b4cc5c04dd3cbaca3b9b4fc43
 LZ4_VERSION=1.8.3
-PROXYGEN_SHA256=2f89e7d57d266504a191a74dad5f611c72467ab1bab077e0298368d7429901cb
 SNAPPY_SHA256=75c1fbb3d618dd3a0483bff0e26d0a92b495bbe5059c8b4f1c962b478b6e06e7
 SNAPPY_VERSION=1.1.9
 XZ_VERSION=5.2.5 # for LZMA
 ZLIB_VERSION=1.2.13
 ZSTD_VERSION=1.5.0
-WANGLE_SHA256=c88f9f010ef90d42ae160b65ba114dddb67a2d5a2a64c87ee40acead263577d2
 
 pushd archives
 if [ ! -f boost_$BOOST_VERSION_UNDERSCORES.tar.gz ]; then
@@ -687,9 +694,12 @@ fi
 if [ ! -f fmt-$FMT_VERSION.tar.gz ]; then
     wget https://github.com/fmtlib/fmt/archive/refs/tags/$FMT_VERSION.tar.gz -O fmt-$FMT_VERSION.tar.gz
 fi
-if [ ! -f folly-$FBLIBS_VERSION.tar.gz ]; then
-    wget https://github.com/facebook/folly/releases/download/v$FBLIBS_VERSION/folly-v$FBLIBS_VERSION.tar.gz -O folly-$FBLIBS_VERSION.tar.gz
+if [ ! -d folly-$FBLIBS_VERSION ]; then
+    git clone --depth 1 --branch v$FBLIBS_VERSION https://github.com/facebook/folly.git folly-$FBLIBS_VERSION
 fi
+# if [ ! -f folly-$FBLIBS_VERSION.tar.gz ]; then
+#     wget https://github.com/facebook/folly/releases/download/v$FBLIBS_VERSION/folly-v$FBLIBS_VERSION.tar.gz -O folly-$FBLIBS_VERSION.tar.gz
+# fi
 if [ ! -f glog-$GLOG_VERSION.tar.gz ]; then
     wget https://github.com/google/glog/archive/refs/tags/v$GLOG_VERSION.tar.gz -O glog-$GLOG_VERSION.tar.gz
 fi
@@ -744,7 +754,7 @@ $GPG --verify flex-$FLEX_VERSION.tar.gz.sig flex-$FLEX_VERSION.tar.gz
 # verify fmt
 echo "$FMT_SHA256 fmt-$FMT_VERSION.tar.gz" | sha256sum -c
 # verify folly
-echo "$FOLLY_SHA256 folly-$FBLIBS_VERSION.tar.gz" | sha256sum -c
+# echo "$FOLLY_SHA256 folly-$FBLIBS_VERSION.tar.gz" | sha256sum -c
 # verify glog
 echo "$GLOG_SHA256  glog-$GLOG_VERSION.tar.gz" | sha256sum -c
 # verify libaio
@@ -1065,9 +1075,9 @@ if [ ! -d $PREFIX/include/folly ]; then
     if [ -d folly-$FBLIBS_VERSION ]; then
         rm -rf folly-$FBLIBS_VERSION
     fi
-    mkdir folly-$FBLIBS_VERSION
-    tar -xzf ../archives/folly-$FBLIBS_VERSION.tar.gz -C folly-$FBLIBS_VERSION
+    cp -r ../archives/folly-$FBLIBS_VERSION ./folly-$FBLIBS_VERSION
     pushd folly-$FBLIBS_VERSION
+    git apply ../../folly-$FBLIBS_VERSION.patch
     # build is used by facebook builder
     mkdir _build
     pushd _build
