@@ -23,21 +23,33 @@
 #include "license/license.hpp"
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
+#include "query/frontend/ast/ast.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
 
 #include "query_plan_common.hpp"
+#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/storage.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 
 using namespace memgraph::query;
 using namespace memgraph::query::plan;
 
-TEST(QueryPlan, CreateNodeWithAttributes) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+template <typename StorageType>
+class QueryPlanTest : public testing::Test {
+ public:
+  std::unique_ptr<memgraph::storage::Storage> db = std::make_unique<StorageType>();
+};
+
+// using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::DiskStorage>;
+TYPED_TEST_CASE(QueryPlanTest, StorageTypes);
+
+TYPED_TEST(QueryPlanTest, CreateNodeWithAttributes) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   memgraph::storage::LabelId label = dba.NameToLabel("Person");
@@ -80,12 +92,11 @@ TEST(QueryPlan, CreateNodeWithAttributes) {
 }
 
 #ifdef MG_ENTERPRISE
-TEST(QueryPlan, FineGrainedCreateNodeWithAttributes) {
+TYPED_TEST(QueryPlanTest, FineGrainedCreateNodeWithAttributes) {
   memgraph::license::global_license_checker.EnableTesting();
   memgraph::query::AstStorage ast;
   memgraph::query::SymbolTable symbol_table;
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto dba = db->Access();
+  auto dba = this->db->Access();
   DbAccessor execution_dba(dba.get());
   const auto label = dba->NameToLabel("label1");
   const auto property = memgraph::storage::PropertyId::FromInt(1);
@@ -123,10 +134,9 @@ TEST(QueryPlan, FineGrainedCreateNodeWithAttributes) {
 }
 #endif
 
-TEST(QueryPlan, CreateReturn) {
+TYPED_TEST(QueryPlanTest, CreateReturn) {
   // test CREATE (n:Person {age: 42}) RETURN n, n.age
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   memgraph::storage::LabelId label = dba.NameToLabel("Person");
@@ -164,12 +174,11 @@ TEST(QueryPlan, CreateReturn) {
 }
 
 #ifdef MG_ENTERPRISE
-TEST(QueryPlan, FineGrainedCreateReturn) {
+TYPED_TEST(QueryPlanTest, FineGrainedCreateReturn) {
   memgraph::license::global_license_checker.EnableTesting();
 
   // test CREATE (n:Person {age: 42}) RETURN n, n.age
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   const auto label = dba.NameToLabel("label");
@@ -225,9 +234,8 @@ TEST(QueryPlan, FineGrainedCreateReturn) {
 }
 #endif
 
-TEST(QueryPlan, CreateExpand) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlanTest, CreateExpand) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   memgraph::storage::LabelId label_node_1 = dba.NameToLabel("Node1");
@@ -304,10 +312,10 @@ TEST(QueryPlan, CreateExpand) {
 }
 
 #ifdef MG_ENTERPRISE
-class CreateExpandWithAuthFixture : public testing::Test {
+template <typename StorageType>
+class CreateExpandWithAuthFixture : public QueryPlanTest<StorageType> {
  protected:
-  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{this->db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   AstStorage storage;
   SymbolTable symbol_table;
@@ -353,38 +361,40 @@ class CreateExpandWithAuthFixture : public testing::Test {
   }
 };
 
-TEST_F(CreateExpandWithAuthFixture, CreateExpandWithNoGrantsOnCreateDelete) {
+TYPED_TEST_CASE(CreateExpandWithAuthFixture, StorageTypes);
+
+TYPED_TEST(CreateExpandWithAuthFixture, CreateExpandWithNoGrantsOnCreateDelete) {
   // All labels denied, All edge types denied
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
   user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
-  ASSERT_THROW(ExecuteCreateExpand(false, user), QueryRuntimeException);
-  ASSERT_THROW(ExecuteCreateExpand(true, user), QueryRuntimeException);
+  ASSERT_THROW(this->ExecuteCreateExpand(false, user), QueryRuntimeException);
+  ASSERT_THROW(this->ExecuteCreateExpand(true, user), QueryRuntimeException);
 }
 
-TEST_F(CreateExpandWithAuthFixture, CreateExpandWithLabelsGrantedOnly) {
+TYPED_TEST(CreateExpandWithAuthFixture, CreateExpandWithLabelsGrantedOnly) {
   // All labels granted, All edge types denied
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().Grant("*",
                                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE);
   user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
 
-  ASSERT_THROW(ExecuteCreateExpand(false, user), QueryRuntimeException);
-  ASSERT_THROW(ExecuteCreateExpand(true, user), QueryRuntimeException);
+  ASSERT_THROW(this->ExecuteCreateExpand(false, user), QueryRuntimeException);
+  ASSERT_THROW(this->ExecuteCreateExpand(true, user), QueryRuntimeException);
 }
 
-TEST_F(CreateExpandWithAuthFixture, CreateExpandWithEdgeTypesGrantedOnly) {
+TYPED_TEST(CreateExpandWithAuthFixture, CreateExpandWithEdgeTypesGrantedOnly) {
   // All labels denied, All edge types granted
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
   user.fine_grained_access_handler().edge_type_permissions().Grant(
       "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
-  ASSERT_THROW(ExecuteCreateExpand(false, user), QueryRuntimeException);
-  ASSERT_THROW(ExecuteCreateExpand(true, user), QueryRuntimeException);
+  ASSERT_THROW(this->ExecuteCreateExpand(false, user), QueryRuntimeException);
+  ASSERT_THROW(this->ExecuteCreateExpand(true, user), QueryRuntimeException);
 }
 
-TEST_F(CreateExpandWithAuthFixture, CreateExpandWithFirstLabelGranted) {
+TYPED_TEST(CreateExpandWithAuthFixture, CreateExpandWithFirstLabelGranted) {
   // First label granted, All edge types granted
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().Grant("Node1",
@@ -394,11 +404,11 @@ TEST_F(CreateExpandWithAuthFixture, CreateExpandWithFirstLabelGranted) {
   user.fine_grained_access_handler().edge_type_permissions().Grant(
       "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
-  ASSERT_THROW(ExecuteCreateExpand(false, user), QueryRuntimeException);
-  ASSERT_THROW(ExecuteCreateExpand(true, user), QueryRuntimeException);
+  ASSERT_THROW(this->ExecuteCreateExpand(false, user), QueryRuntimeException);
+  ASSERT_THROW(this->ExecuteCreateExpand(true, user), QueryRuntimeException);
 }
 
-TEST_F(CreateExpandWithAuthFixture, CreateExpandWithSecondLabelGranted) {
+TYPED_TEST(CreateExpandWithAuthFixture, CreateExpandWithSecondLabelGranted) {
   // Second label granted, All edge types granted
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().Grant("Node2",
@@ -407,11 +417,11 @@ TEST_F(CreateExpandWithAuthFixture, CreateExpandWithSecondLabelGranted) {
   user.fine_grained_access_handler().edge_type_permissions().Grant(
       "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
-  ASSERT_THROW(ExecuteCreateExpand(false, user), QueryRuntimeException);
-  ASSERT_THROW(ExecuteCreateExpand(true, user), QueryRuntimeException);
+  ASSERT_THROW(this->ExecuteCreateExpand(false, user), QueryRuntimeException);
+  ASSERT_THROW(this->ExecuteCreateExpand(true, user), QueryRuntimeException);
 }
 
-TEST_F(CreateExpandWithAuthFixture, CreateExpandWithoutCycleWithEverythingGranted) {
+TYPED_TEST(CreateExpandWithAuthFixture, CreateExpandWithoutCycleWithEverythingGranted) {
   // All labels granted, All edge types granted
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().Grant("*",
@@ -419,11 +429,11 @@ TEST_F(CreateExpandWithAuthFixture, CreateExpandWithoutCycleWithEverythingGrante
   user.fine_grained_access_handler().edge_type_permissions().Grant(
       "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
-  ExecuteCreateExpand(false, user);
-  TestCreateExpandHypothesis(2, 1);
+  this->ExecuteCreateExpand(false, user);
+  this->TestCreateExpandHypothesis(2, 1);
 }
 
-TEST_F(CreateExpandWithAuthFixture, CreateExpandWithCycleWithEverythingGranted) {
+TYPED_TEST(CreateExpandWithAuthFixture, CreateExpandWithCycleWithEverythingGranted) {
   // All labels granted, All edge types granted
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().Grant("*",
@@ -431,13 +441,12 @@ TEST_F(CreateExpandWithAuthFixture, CreateExpandWithCycleWithEverythingGranted) 
   user.fine_grained_access_handler().edge_type_permissions().Grant(
       "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
-  ExecuteCreateExpand(true, user);
-  TestCreateExpandHypothesis(1, 1);
+  this->ExecuteCreateExpand(true, user);
+  this->TestCreateExpandHypothesis(1, 1);
 }
 
-TEST(QueryPlan, MatchCreateNode) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlanTest, MatchCreateNode) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // add three nodes we'll match and expand-create from
@@ -464,10 +473,10 @@ TEST(QueryPlan, MatchCreateNode) {
   EXPECT_EQ(CountIterable(dba.Vertices(memgraph::storage::View::OLD)), 6);
 }
 
-class MatchCreateNodeWithAuthFixture : public testing::Test {
+template <typename StorageType>
+class MatchCreateNodeWithAuthFixture : public QueryPlanTest<StorageType> {
  protected:
-  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{this->db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   AstStorage storage;
   SymbolTable symbol_table;
@@ -513,25 +522,27 @@ class MatchCreateNodeWithAuthFixture : public testing::Test {
   }
 };
 
-TEST_F(MatchCreateNodeWithAuthFixture, MatchCreateWithAllLabelsDeniedThrows) {
+TYPED_TEST_CASE(MatchCreateNodeWithAuthFixture, StorageTypes);
+
+TYPED_TEST(MatchCreateNodeWithAuthFixture, MatchCreateWithAllLabelsDeniedThrows) {
   // All labels denied
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
 
-  ASSERT_THROW(ExecuteMatchCreateTestSuite(user, 3), QueryRuntimeException);
+  ASSERT_THROW(this->ExecuteMatchCreateTestSuite(user, 3), QueryRuntimeException);
 }
 
-TEST_F(MatchCreateNodeWithAuthFixture, MatchCreateWithAllLabelsGrantedExecutes) {
+TYPED_TEST(MatchCreateNodeWithAuthFixture, MatchCreateWithAllLabelsGrantedExecutes) {
   // All labels granteddenieddenieddenied
 
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().Grant("*",
                                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
-  ExecuteMatchCreateTestSuite(user, 6);
+  this->ExecuteMatchCreateTestSuite(user, 6);
 }
 
-TEST_F(MatchCreateNodeWithAuthFixture, MatchCreateWithOneLabelDeniedThrows) {
+TYPED_TEST(MatchCreateNodeWithAuthFixture, MatchCreateWithOneLabelDeniedThrows) {
   // Label2 denied
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().Grant("l1",
@@ -541,13 +552,12 @@ TEST_F(MatchCreateNodeWithAuthFixture, MatchCreateWithOneLabelDeniedThrows) {
 
   user.fine_grained_access_handler().label_permissions().Grant("l2", memgraph::auth::FineGrainedPermission::UPDATE);
 
-  ASSERT_THROW(ExecuteMatchCreateTestSuite(user, 3), QueryRuntimeException);
+  ASSERT_THROW(this->ExecuteMatchCreateTestSuite(user, 3), QueryRuntimeException);
 }
 #endif
 
-TEST(QueryPlan, MatchCreateExpand) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlanTest, MatchCreateExpand) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // add three nodes we'll match and expand-create from
@@ -594,10 +604,10 @@ TEST(QueryPlan, MatchCreateExpand) {
 }
 
 #ifdef MG_ENTERPRISE
-class MatchCreateExpandWithAuthFixture : public testing::Test {
+template <typename StorageType>
+class MatchCreateExpandWithAuthFixture : public QueryPlanTest<StorageType> {
  protected:
-  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{this->db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   AstStorage storage;
   SymbolTable symbol_table;
@@ -652,36 +662,38 @@ class MatchCreateExpandWithAuthFixture : public testing::Test {
   }
 };
 
-TEST_F(MatchCreateExpandWithAuthFixture, MatchCreateExpandThrowsWhenDeniedEverything) {
+TYPED_TEST_CASE(MatchCreateExpandWithAuthFixture, StorageTypes);
+
+TYPED_TEST(MatchCreateExpandWithAuthFixture, MatchCreateExpandThrowsWhenDeniedEverything) {
   // All labels denied, All edge types denied
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
   user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
-  ASSERT_THROW(ExecuteMatchCreateExpandTestSuite(false, 0, 0, user), QueryRuntimeException);
-  ASSERT_THROW(ExecuteMatchCreateExpandTestSuite(true, 0, 0, user), QueryRuntimeException);
+  ASSERT_THROW(this->ExecuteMatchCreateExpandTestSuite(false, 0, 0, user), QueryRuntimeException);
+  ASSERT_THROW(this->ExecuteMatchCreateExpandTestSuite(true, 0, 0, user), QueryRuntimeException);
 }
 
-TEST_F(MatchCreateExpandWithAuthFixture, MatchCreateExpandThrowsWhenDeniedEdgeTypes) {
+TYPED_TEST(MatchCreateExpandWithAuthFixture, MatchCreateExpandThrowsWhenDeniedEdgeTypes) {
   // All labels granted, All edge types denied
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().Grant("*",
                                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE);
   user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
-  ASSERT_THROW(ExecuteMatchCreateExpandTestSuite(false, 0, 0, user), QueryRuntimeException);
-  ASSERT_THROW(ExecuteMatchCreateExpandTestSuite(true, 0, 0, user), QueryRuntimeException);
+  ASSERT_THROW(this->ExecuteMatchCreateExpandTestSuite(false, 0, 0, user), QueryRuntimeException);
+  ASSERT_THROW(this->ExecuteMatchCreateExpandTestSuite(true, 0, 0, user), QueryRuntimeException);
 }
 
-TEST_F(MatchCreateExpandWithAuthFixture, MatchCreateExpandThrowsWhenDeniedLabels) {
+TYPED_TEST(MatchCreateExpandWithAuthFixture, MatchCreateExpandThrowsWhenDeniedLabels) {
   // All labels denied, All edge types granted
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
   user.fine_grained_access_handler().edge_type_permissions().Grant(
       "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-  ASSERT_THROW(ExecuteMatchCreateExpandTestSuite(false, 0, 0, user), QueryRuntimeException);
-  ASSERT_THROW(ExecuteMatchCreateExpandTestSuite(true, 0, 0, user), QueryRuntimeException);
+  ASSERT_THROW(this->ExecuteMatchCreateExpandTestSuite(false, 0, 0, user), QueryRuntimeException);
+  ASSERT_THROW(this->ExecuteMatchCreateExpandTestSuite(true, 0, 0, user), QueryRuntimeException);
 }
 
-TEST_F(MatchCreateExpandWithAuthFixture, MatchCreateExpandThrowsWhenDeniedOneLabel) {
+TYPED_TEST(MatchCreateExpandWithAuthFixture, MatchCreateExpandThrowsWhenDeniedOneLabel) {
   // First two label granted, All edge types granted
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().Grant("l1", memgraph::auth::FineGrainedPermission::UPDATE);
@@ -691,11 +703,11 @@ TEST_F(MatchCreateExpandWithAuthFixture, MatchCreateExpandThrowsWhenDeniedOneLab
   user.fine_grained_access_handler().edge_type_permissions().Grant(
       "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
-  ASSERT_THROW(ExecuteMatchCreateExpandTestSuite(false, 0, 0, user), QueryRuntimeException);
-  ASSERT_THROW(ExecuteMatchCreateExpandTestSuite(true, 0, 0, user), QueryRuntimeException);
+  ASSERT_THROW(this->ExecuteMatchCreateExpandTestSuite(false, 0, 0, user), QueryRuntimeException);
+  ASSERT_THROW(this->ExecuteMatchCreateExpandTestSuite(true, 0, 0, user), QueryRuntimeException);
 }
 
-TEST_F(MatchCreateExpandWithAuthFixture, MatchCreateExpandWithoutCycleExecutesWhenGrantedSpecificallyEverything) {
+TYPED_TEST(MatchCreateExpandWithAuthFixture, MatchCreateExpandWithoutCycleExecutesWhenGrantedSpecificallyEverything) {
   // All label granted, Specific edge type granted
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().Grant("*",
@@ -703,10 +715,10 @@ TEST_F(MatchCreateExpandWithAuthFixture, MatchCreateExpandWithoutCycleExecutesWh
   user.fine_grained_access_handler().edge_type_permissions().Grant(
       "edge_type", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
-  ExecuteMatchCreateExpandTestSuite(false, 6, 3, user);
+  this->ExecuteMatchCreateExpandTestSuite(false, 6, 3, user);
 }
 
-TEST_F(MatchCreateExpandWithAuthFixture, MatchCreateExpandWithCycleExecutesWhenGrantedSpecificallyEverything) {
+TYPED_TEST(MatchCreateExpandWithAuthFixture, MatchCreateExpandWithCycleExecutesWhenGrantedSpecificallyEverything) {
   // All label granted, Specific edge type granted
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().Grant("*",
@@ -714,10 +726,10 @@ TEST_F(MatchCreateExpandWithAuthFixture, MatchCreateExpandWithCycleExecutesWhenG
   user.fine_grained_access_handler().edge_type_permissions().Grant(
       "edge_type", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
-  ExecuteMatchCreateExpandTestSuite(true, 3, 3, user);
+  this->ExecuteMatchCreateExpandTestSuite(true, 3, 3, user);
 }
 
-TEST_F(MatchCreateExpandWithAuthFixture, MatchCreateExpandWithoutCycleExecutesWhenGrantedEverything) {
+TYPED_TEST(MatchCreateExpandWithAuthFixture, MatchCreateExpandWithoutCycleExecutesWhenGrantedEverything) {
   // All labels granted, All edge types granted
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().Grant("*",
@@ -725,10 +737,10 @@ TEST_F(MatchCreateExpandWithAuthFixture, MatchCreateExpandWithoutCycleExecutesWh
   user.fine_grained_access_handler().edge_type_permissions().Grant(
       "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
-  ExecuteMatchCreateExpandTestSuite(false, 6, 3, user);
+  this->ExecuteMatchCreateExpandTestSuite(false, 6, 3, user);
 }
 
-TEST_F(MatchCreateExpandWithAuthFixture, MatchCreateExpandWithCycleExecutesWhenGrantedEverything) {
+TYPED_TEST(MatchCreateExpandWithAuthFixture, MatchCreateExpandWithCycleExecutesWhenGrantedEverything) {
   // All labels granted, All edge types granted
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().Grant("*",
@@ -736,13 +748,12 @@ TEST_F(MatchCreateExpandWithAuthFixture, MatchCreateExpandWithCycleExecutesWhenG
   user.fine_grained_access_handler().edge_type_permissions().Grant(
       "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
-  ExecuteMatchCreateExpandTestSuite(true, 3, 3, user);
+  this->ExecuteMatchCreateExpandTestSuite(true, 3, 3, user);
 }
 #endif
 
-TEST(QueryPlan, Delete) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlanTest, Delete) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // make a fully-connected (one-direction, no cycles) with 4 nodes
@@ -812,10 +823,10 @@ TEST(QueryPlan, Delete) {
 }
 
 #ifdef MG_ENTERPRISE
-class DeleteOperatorWithAuthFixture : public testing::Test {
+template <typename StorageType>
+class DeleteOperatorWithAuthFixture : public QueryPlanTest<StorageType> {
  protected:
-  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{this->db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   AstStorage storage;
   SymbolTable symbol_table;
@@ -893,39 +904,41 @@ class DeleteOperatorWithAuthFixture : public testing::Test {
   }
 };
 
-TEST_F(DeleteOperatorWithAuthFixture, DeleteNodeThrowsExceptionWhenAllLabelsDenied) {
+TYPED_TEST_CASE(DeleteOperatorWithAuthFixture, StorageTypes);
+
+TYPED_TEST(DeleteOperatorWithAuthFixture, DeleteNodeThrowsExceptionWhenAllLabelsDenied) {
   // All labels denied
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
 
-  ASSERT_THROW(ExecuteDeleteNodesTestSuite(user, 0), QueryRuntimeException);
+  ASSERT_THROW(this->ExecuteDeleteNodesTestSuite(user, 0), QueryRuntimeException);
 }
 
-TEST_F(DeleteOperatorWithAuthFixture, DeleteNodeThrowsExceptionWhenPartialLabelsGranted) {
+TYPED_TEST(DeleteOperatorWithAuthFixture, DeleteNodeThrowsExceptionWhenPartialLabelsGranted) {
   // One Label granted
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().Grant("l1",
                                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE);
   user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
-  ASSERT_THROW(ExecuteDeleteNodesTestSuite(user, 0), QueryRuntimeException);
+  ASSERT_THROW(this->ExecuteDeleteNodesTestSuite(user, 0), QueryRuntimeException);
 }
 
-TEST_F(DeleteOperatorWithAuthFixture, DeleteNodeExecutesWhenGrantedAllLabels) {
+TYPED_TEST(DeleteOperatorWithAuthFixture, DeleteNodeExecutesWhenGrantedAllLabels) {
   // All labels granted
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().Grant("*",
                                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-  ExecuteDeleteNodesTestSuite(user, 0);
+  this->ExecuteDeleteNodesTestSuite(user, 0);
 }
-TEST_F(DeleteOperatorWithAuthFixture, DeleteNodeThrowsExceptionWhenEdgeTypesNotGranted) {
+TYPED_TEST(DeleteOperatorWithAuthFixture, DeleteNodeThrowsExceptionWhenEdgeTypesNotGranted) {
   // All labels granted,All edge types denied
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
   user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
 
-  ASSERT_THROW(ExecuteDeleteNodesTestSuite(user, 0), QueryRuntimeException);
+  ASSERT_THROW(this->ExecuteDeleteNodesTestSuite(user, 0), QueryRuntimeException);
 }
-TEST_F(DeleteOperatorWithAuthFixture, DeleteEdgesThrowsErrorWhenPartialGrant) {
+TYPED_TEST(DeleteOperatorWithAuthFixture, DeleteEdgesThrowsErrorWhenPartialGrant) {
   // Specific label granted, Specific edge types granted
 
   memgraph::auth::User user{"test"};
@@ -942,10 +955,10 @@ TEST_F(DeleteOperatorWithAuthFixture, DeleteEdgesThrowsErrorWhenPartialGrant) {
   user.fine_grained_access_handler().edge_type_permissions().Grant("type3",
                                                                    memgraph::auth::FineGrainedPermission::UPDATE);
 
-  ASSERT_THROW(ExecuteDeleteEdgesTestSuite(user, 0), QueryRuntimeException);
+  ASSERT_THROW(this->ExecuteDeleteEdgesTestSuite(user, 0), QueryRuntimeException);
 }
 
-TEST_F(DeleteOperatorWithAuthFixture, DeleteNodeAndDeleteEdgePerformWhenGranted) {
+TYPED_TEST(DeleteOperatorWithAuthFixture, DeleteNodeAndDeleteEdgePerformWhenGranted) {
   // All labels granted, All edge_types granted
 
   memgraph::auth::User user{"test"};
@@ -954,14 +967,14 @@ TEST_F(DeleteOperatorWithAuthFixture, DeleteNodeAndDeleteEdgePerformWhenGranted)
   user.fine_grained_access_handler().edge_type_permissions().Grant(
       "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
-  InitGraph();
-  DeleteAllNodes(user);
-  TestDeleteNodesHypothesis(0);
-  TestDeleteEdgesHypothesis(0);
+  this->InitGraph();
+  this->DeleteAllNodes(user);
+  this->TestDeleteNodesHypothesis(0);
+  this->TestDeleteEdgesHypothesis(0);
 }
 #endif
 
-TEST(QueryPlan, DeleteTwiceDeleteBlockingEdge) {
+TYPED_TEST(QueryPlanTest, DeleteTwiceDeleteBlockingEdge) {
   // test deleting the same vertex and edge multiple times
   //
   // also test vertex deletion succeeds if the prohibiting
@@ -973,9 +986,8 @@ TEST(QueryPlan, DeleteTwiceDeleteBlockingEdge) {
   // CREATE ()-[:T]->()
   // MATCH (n)-[r]-(m) [DETACH] DELETE n, r, m
 
-  auto test_delete = [](bool detach) {
-    auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-    auto storage_dba = db->Access();
+  auto test_delete = [this](bool detach) {
+    auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
 
     auto v1 = dba.InsertVertex();
@@ -1009,9 +1021,8 @@ TEST(QueryPlan, DeleteTwiceDeleteBlockingEdge) {
   test_delete(false);
 }
 
-TEST(QueryPlan, DeleteReturn) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlanTest, DeleteReturn) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // make a fully-connected (one-direction, no cycles) with 4 nodes
@@ -1041,10 +1052,9 @@ TEST(QueryPlan, DeleteReturn) {
   ASSERT_THROW(CollectProduce(*produce, &context), QueryRuntimeException);
 }
 
-TEST(QueryPlan, DeleteNull) {
+TYPED_TEST(QueryPlanTest, DeleteNull) {
   // test (simplified) WITH Null as x delete x
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   AstStorage storage;
   SymbolTable symbol_table;
@@ -1055,14 +1065,12 @@ TEST(QueryPlan, DeleteNull) {
   EXPECT_EQ(1, PullAll(*delete_op, &context));
 }
 
-TEST(QueryPlan, DeleteAdvance) {
+TYPED_TEST(QueryPlanTest, DeleteAdvance) {
   // test queries on empty DB:
   // CREATE (n)
   // MATCH (n) DELETE n WITH n ...
   // this fails only if the deleted record `n` is actually used in subsequent
   // clauses, which is compatible with Neo's behavior.
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-
   AstStorage storage;
   SymbolTable symbol_table;
 
@@ -1072,7 +1080,7 @@ TEST(QueryPlan, DeleteAdvance) {
   auto advance = std::make_shared<Accumulate>(delete_op, std::vector<Symbol>{n.sym_}, true);
   auto res_sym = symbol_table.CreateSymbol("res", true);
   {
-    auto storage_dba = db->Access();
+    auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     dba.InsertVertex();
     dba.AdvanceCommand();
@@ -1081,7 +1089,7 @@ TEST(QueryPlan, DeleteAdvance) {
     EXPECT_EQ(1, PullAll(*produce, &context));
   }
   {
-    auto storage_dba = db->Access();
+    auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     dba.InsertVertex();
     dba.AdvanceCommand();
@@ -1092,9 +1100,8 @@ TEST(QueryPlan, DeleteAdvance) {
   }
 }
 
-TEST(QueryPlan, SetProperty) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlanTest, SetProperty) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // graph with 4 vertices in connected pairs
@@ -1150,10 +1157,9 @@ TEST(QueryPlan, SetProperty) {
   }
 }
 
-TEST(QueryPlan, SetProperties) {
-  auto test_set_properties = [](bool update) {
-    auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-    auto storage_dba = db->Access();
+TYPED_TEST(QueryPlanTest, SetProperties) {
+  auto test_set_properties = [this](bool update) {
+    auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
 
     // graph: ({a: 0})-[:R {b:1}]->({c:2})
@@ -1227,9 +1233,8 @@ TEST(QueryPlan, SetProperties) {
   test_set_properties(false);
 }
 
-TEST(QueryPlan, SetLabels) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlanTest, SetLabels) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto label1 = dba.NameToLabel("label1");
@@ -1256,7 +1261,7 @@ TEST(QueryPlan, SetLabels) {
 }
 
 #ifdef MG_ENTERPRISE
-TEST(QueryPlan, SetLabelsWithFineGrained) {
+TYPED_TEST(QueryPlanTest, SetLabelsWithFineGrained) {
   memgraph::license::global_license_checker.EnableTesting();
   auto set_labels = [&](memgraph::auth::User user, memgraph::query::DbAccessor dba,
                         std::vector<memgraph::storage::LabelId> labels) {
@@ -1281,8 +1286,7 @@ TEST(QueryPlan, SetLabelsWithFineGrained) {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().label_permissions().Grant("*",
                                                                  memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-    auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-    auto storage_dba = db->Access();
+    auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto label1 = dba.NameToLabel("label1");
     auto label2 = dba.NameToLabel("label2");
@@ -1299,8 +1303,7 @@ TEST(QueryPlan, SetLabelsWithFineGrained) {
   {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
-    auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-    auto storage_dba = db->Access();
+    auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto label1 = dba.NameToLabel("label1");
     auto label2 = dba.NameToLabel("label2");
@@ -1319,8 +1322,7 @@ TEST(QueryPlan, SetLabelsWithFineGrained) {
     user.fine_grained_access_handler().label_permissions().Grant("label3",
                                                                  memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
-    auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-    auto storage_dba = db->Access();
+    auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto label1 = dba.NameToLabel("label1");
     auto label2 = dba.NameToLabel("label2");
@@ -1331,9 +1333,8 @@ TEST(QueryPlan, SetLabelsWithFineGrained) {
 }
 #endif
 
-TEST(QueryPlan, RemoveProperty) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlanTest, RemoveProperty) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // graph with 4 vertices in connected pairs
@@ -1396,9 +1397,8 @@ TEST(QueryPlan, RemoveProperty) {
   }
 }
 
-TEST(QueryPlan, RemoveLabels) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlanTest, RemoveLabels) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto label1 = dba.NameToLabel("label1");
@@ -1430,7 +1430,7 @@ TEST(QueryPlan, RemoveLabels) {
 }
 
 #ifdef MG_ENTERPRISE
-TEST(QueryPlan, RemoveLabelsFineGrainedFiltering) {
+TYPED_TEST(QueryPlanTest, RemoveLabelsFineGrainedFiltering) {
   memgraph::license::global_license_checker.EnableTesting();
   auto remove_labels = [&](memgraph::auth::User user, memgraph::query::DbAccessor dba,
                            std::vector<memgraph::storage::LabelId> labels) {
@@ -1461,8 +1461,7 @@ TEST(QueryPlan, RemoveLabelsFineGrainedFiltering) {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().label_permissions().Grant("*",
                                                                  memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-    auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-    auto storage_dba = db->Access();
+    auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto label1 = dba.NameToLabel("label1");
     auto label2 = dba.NameToLabel("label2");
@@ -1479,8 +1478,7 @@ TEST(QueryPlan, RemoveLabelsFineGrainedFiltering) {
   {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
-    auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-    auto storage_dba = db->Access();
+    auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto label1 = dba.NameToLabel("label1");
     auto label2 = dba.NameToLabel("label2");
@@ -1499,8 +1497,7 @@ TEST(QueryPlan, RemoveLabelsFineGrainedFiltering) {
     user.fine_grained_access_handler().label_permissions().Grant("label3",
                                                                  memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
-    auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-    auto storage_dba = db->Access();
+    auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto label1 = dba.NameToLabel("label1");
     auto label2 = dba.NameToLabel("label2");
@@ -1511,9 +1508,8 @@ TEST(QueryPlan, RemoveLabelsFineGrainedFiltering) {
 }
 #endif
 
-TEST(QueryPlan, NodeFilterSet) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlanTest, NodeFilterSet) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Create a graph such that (v1 {prop: 42}) is connected to v2 and v3.
   auto v1 = dba.InsertVertex();
@@ -1550,9 +1546,8 @@ TEST(QueryPlan, NodeFilterSet) {
   EXPECT_TRUE(prop_eq.ValueBool());
 }
 
-TEST(QueryPlan, FilterRemove) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlanTest, FilterRemove) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Create a graph such that (v1 {prop: 42}) is connected to v2 and v3.
   auto v1 = dba.InsertVertex();
@@ -1586,9 +1581,8 @@ TEST(QueryPlan, FilterRemove) {
             memgraph::storage::PropertyValue::Type::Null);
 }
 
-TEST(QueryPlan, SetRemove) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlanTest, SetRemove) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto v = dba.InsertVertex();
   auto label1 = dba.NameToLabel("label1");
@@ -1611,15 +1605,14 @@ TEST(QueryPlan, SetRemove) {
   EXPECT_FALSE(*v.HasLabel(memgraph::storage::View::OLD, label2));
 }
 
-TEST(QueryPlan, Merge) {
+TYPED_TEST(QueryPlanTest, Merge) {
   // test setup:
   //  - three nodes, two of them connected with T
   //  - merge input branch matches all nodes
   //  - merge_match branch looks for an expansion (any direction)
   //    and sets some property (for result validation)
   //  - merge_create branch just sets some other property
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
@@ -1659,11 +1652,10 @@ TEST(QueryPlan, Merge) {
   ASSERT_EQ(v3.GetProperty(memgraph::storage::View::OLD, prop.second)->ValueInt(), 2);
 }
 
-TEST(QueryPlan, MergeNoInput) {
+TYPED_TEST(QueryPlanTest, MergeNoInput) {
   // merge with no input, creates a single node
 
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   AstStorage storage;
   SymbolTable symbol_table;
@@ -1680,10 +1672,9 @@ TEST(QueryPlan, MergeNoInput) {
   EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
 }
 
-TEST(QueryPlan, SetPropertyOnNull) {
+TYPED_TEST(QueryPlanTest, SetPropertyOnNull) {
   // SET (Null).prop = 42
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   AstStorage storage;
   SymbolTable symbol_table;
@@ -1697,10 +1688,9 @@ TEST(QueryPlan, SetPropertyOnNull) {
   EXPECT_EQ(1, PullAll(*set_op, &context));
 }
 
-TEST(QueryPlan, SetPropertiesOnNull) {
+TYPED_TEST(QueryPlanTest, SetPropertiesOnNull) {
   // OPTIONAL MATCH (n) SET n = n
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   AstStorage storage;
   SymbolTable symbol_table;
@@ -1713,10 +1703,9 @@ TEST(QueryPlan, SetPropertiesOnNull) {
   EXPECT_EQ(1, PullAll(*set_op, &context));
 }
 
-TEST(QueryPlan, SetLabelsOnNull) {
+TYPED_TEST(QueryPlanTest, SetLabelsOnNull) {
   // OPTIONAL MATCH (n) SET n :label
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto label = dba.NameToLabel("label");
   AstStorage storage;
@@ -1729,10 +1718,9 @@ TEST(QueryPlan, SetLabelsOnNull) {
   EXPECT_EQ(1, PullAll(*set_op, &context));
 }
 
-TEST(QueryPlan, RemovePropertyOnNull) {
+TYPED_TEST(QueryPlanTest, RemovePropertyOnNull) {
   // REMOVE (Null).prop
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   AstStorage storage;
   SymbolTable symbol_table;
@@ -1745,10 +1733,9 @@ TEST(QueryPlan, RemovePropertyOnNull) {
   EXPECT_EQ(1, PullAll(*remove_op, &context));
 }
 
-TEST(QueryPlan, RemoveLabelsOnNull) {
+TYPED_TEST(QueryPlanTest, RemoveLabelsOnNull) {
   // OPTIONAL MATCH (n) REMOVE n :label
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto label = dba.NameToLabel("label");
   AstStorage storage;
@@ -1762,9 +1749,8 @@ TEST(QueryPlan, RemoveLabelsOnNull) {
   EXPECT_EQ(1, PullAll(*remove_op, &context));
 }
 
-TEST(QueryPlan, DeleteSetProperty) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlanTest, DeleteSetProperty) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Add a single vertex.
   dba.InsertVertex();
@@ -1783,9 +1769,8 @@ TEST(QueryPlan, DeleteSetProperty) {
   EXPECT_THROW(PullAll(*set_op, &context), QueryRuntimeException);
 }
 
-TEST(QueryPlan, DeleteSetPropertiesFromMap) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlanTest, DeleteSetPropertiesFromMap) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Add a single vertex.
   dba.InsertVertex();
@@ -1808,9 +1793,8 @@ TEST(QueryPlan, DeleteSetPropertiesFromMap) {
   }
 }
 
-TEST(QueryPlan, DeleteSetPropertiesFrom) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlanTest, DeleteSetPropertiesFrom) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Add a single vertex.
   {
@@ -1833,9 +1817,8 @@ TEST(QueryPlan, DeleteSetPropertiesFrom) {
   }
 }
 
-TEST(QueryPlan, DeleteRemoveLabels) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlanTest, DeleteRemoveLabels) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Add a single vertex.
   dba.InsertVertex();
@@ -1853,9 +1836,8 @@ TEST(QueryPlan, DeleteRemoveLabels) {
   EXPECT_THROW(PullAll(*rem_op, &context), QueryRuntimeException);
 }
 
-TEST(QueryPlan, DeleteRemoveProperty) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlanTest, DeleteRemoveProperty) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Add a single vertex.
   dba.InsertVertex();
@@ -1878,10 +1860,10 @@ TEST(QueryPlan, DeleteRemoveProperty) {
 ////     FINE GRAINED AUTHORIZATION      /////
 //////////////////////////////////////////////
 #ifdef MG_ENTERPRISE
-class UpdatePropertiesWithAuthFixture : public testing::Test {
+template <typename StorageType>
+class UpdatePropertiesWithAuthFixture : public QueryPlanTest<StorageType> {
  protected:
-  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{this->db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   AstStorage storage;
   SymbolTable symbol_table;
@@ -2031,28 +2013,30 @@ class UpdatePropertiesWithAuthFixture : public testing::Test {
   };
 };
 
-TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyWithAuthChecker) {
-  // Add a single vertex
-  auto v = dba.InsertVertex();
-  ASSERT_TRUE(v.AddLabel(vertex_label).HasValue());
-  ASSERT_TRUE(v.SetProperty(entity_prop, entity_prop_value).HasValue());
-  dba.AdvanceCommand();
+TYPED_TEST_CASE(UpdatePropertiesWithAuthFixture, StorageTypes);
 
-  EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
+TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyWithAuthChecker) {
+  // Add a single vertex
+  auto v = this->dba.InsertVertex();
+  ASSERT_TRUE(v.AddLabel(this->vertex_label).HasValue());
+  ASSERT_TRUE(v.SetProperty(this->entity_prop, this->entity_prop_value).HasValue());
+  this->dba.AdvanceCommand();
+
+  EXPECT_EQ(1, CountIterable(this->dba.Vertices(memgraph::storage::View::OLD)));
 
   auto test_hypothesis = [&](int expected_property_value) {
-    auto vertex = *dba.Vertices(memgraph::storage::View::NEW).begin();
+    auto vertex = *this->dba.Vertices(memgraph::storage::View::NEW).begin();
     auto maybe_properties = vertex.Properties(memgraph::storage::View::NEW);
     ASSERT_TRUE(maybe_properties.HasValue());
     const auto &properties = *maybe_properties;
     EXPECT_EQ(properties.size(), 1);
-    auto maybe_prop = vertex.GetProperty(memgraph::storage::View::NEW, entity_prop);
+    auto maybe_prop = vertex.GetProperty(memgraph::storage::View::NEW, this->entity_prop);
     ASSERT_TRUE(maybe_prop.HasValue());
     ASSERT_EQ(maybe_prop->ValueInt(), expected_property_value);
   };
 
   auto test_remove_hypothesis = [&](int properties_size) {
-    auto vertex = *dba.Vertices(memgraph::storage::View::NEW).begin();
+    auto vertex = *this->dba.Vertices(memgraph::storage::View::NEW).begin();
     auto maybe_properties = vertex.Properties(memgraph::storage::View::NEW);
     ASSERT_TRUE(maybe_properties.HasValue());
     const auto &properties = *maybe_properties;
@@ -2064,35 +2048,35 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyWithAuthChecker) {
 
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::NOTHING);
 
-    SetVertexProperty(v);
-    ExecuteSetPropertyOnVertex(user, 2);
+    this->SetVertexProperty(v);
+    this->ExecuteSetPropertyOnVertex(user, 2);
     test_hypothesis(1);
 
-    SetVertexProperty(v);
-    ExecuteSetPropertiesOnVertex(user, 2);
+    this->SetVertexProperty(v);
+    this->ExecuteSetPropertiesOnVertex(user, 2);
     test_hypothesis(1);
 
-    SetVertexProperty(v);
-    ExecuteRemovePropertyOnVertex(user);
+    this->SetVertexProperty(v);
+    this->ExecuteRemovePropertyOnVertex(user);
     test_remove_hypothesis(1);
   }
 
   {
     auto user = memgraph::auth::User{"denied_label"};
 
-    user.fine_grained_access_handler().label_permissions().Grant(vertex_label_name,
+    user.fine_grained_access_handler().label_permissions().Grant(this->vertex_label_name,
                                                                  memgraph::auth::FineGrainedPermission::NOTHING);
 
-    SetVertexProperty(v);
-    ExecuteSetPropertyOnVertex(user, 2);
+    this->SetVertexProperty(v);
+    this->ExecuteSetPropertyOnVertex(user, 2);
     test_hypothesis(1);
 
-    SetVertexProperty(v);
-    ExecuteSetPropertiesOnVertex(user, 2);
+    this->SetVertexProperty(v);
+    this->ExecuteSetPropertiesOnVertex(user, 2);
     test_hypothesis(1);
 
-    SetVertexProperty(v);
-    ExecuteRemovePropertyOnVertex(user);
+    this->SetVertexProperty(v);
+    this->ExecuteRemovePropertyOnVertex(user);
     test_remove_hypothesis(1);
   }
 
@@ -2101,54 +2085,54 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyWithAuthChecker) {
 
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
 
-    SetVertexProperty(v);
-    ExecuteSetPropertyOnVertex(user, 2);
+    this->SetVertexProperty(v);
+    this->ExecuteSetPropertyOnVertex(user, 2);
     test_hypothesis(2);
 
-    SetVertexProperty(v);
-    ExecuteSetPropertiesOnVertex(user, 2);
+    this->SetVertexProperty(v);
+    this->ExecuteSetPropertiesOnVertex(user, 2);
     test_hypothesis(2);
 
-    SetVertexProperty(v);
-    ExecuteRemovePropertyOnVertex(user);
+    this->SetVertexProperty(v);
+    this->ExecuteRemovePropertyOnVertex(user);
     test_remove_hypothesis(0);
   }
 
   {
     auto user = memgraph::auth::User{"granted_label"};
 
-    user.fine_grained_access_handler().label_permissions().Grant(vertex_label_name,
+    user.fine_grained_access_handler().label_permissions().Grant(this->vertex_label_name,
                                                                  memgraph::auth::FineGrainedPermission::UPDATE);
 
-    SetVertexProperty(v);
-    ExecuteSetPropertyOnVertex(user, 2);
+    this->SetVertexProperty(v);
+    this->ExecuteSetPropertyOnVertex(user, 2);
     test_hypothesis(2);
 
-    SetVertexProperty(v);
-    ExecuteSetPropertiesOnVertex(user, 2);
+    this->SetVertexProperty(v);
+    this->ExecuteSetPropertiesOnVertex(user, 2);
     test_hypothesis(2);
 
-    SetVertexProperty(v);
-    ExecuteRemovePropertyOnVertex(user);
+    this->SetVertexProperty(v);
+    this->ExecuteRemovePropertyOnVertex(user);
     test_remove_hypothesis(0);
   }
 
   {
     auto user = memgraph::auth::User{"granted_read_label"};
 
-    user.fine_grained_access_handler().label_permissions().Grant(vertex_label_name,
+    user.fine_grained_access_handler().label_permissions().Grant(this->vertex_label_name,
                                                                  memgraph::auth::FineGrainedPermission::READ);
 
-    SetVertexProperty(v);
-    ASSERT_THROW(ExecuteSetPropertyOnVertex(user, 2), QueryRuntimeException);
+    this->SetVertexProperty(v);
+    ASSERT_THROW(this->ExecuteSetPropertyOnVertex(user, 2), QueryRuntimeException);
     test_hypothesis(1);
 
-    SetVertexProperty(v);
-    ASSERT_THROW(ExecuteSetPropertiesOnVertex(user, 2), QueryRuntimeException);
+    this->SetVertexProperty(v);
+    ASSERT_THROW(this->ExecuteSetPropertiesOnVertex(user, 2), QueryRuntimeException);
     test_hypothesis(1);
 
-    SetVertexProperty(v);
-    ASSERT_THROW(ExecuteRemovePropertyOnVertex(user), QueryRuntimeException);
+    this->SetVertexProperty(v);
+    ASSERT_THROW(this->ExecuteRemovePropertyOnVertex(user), QueryRuntimeException);
     test_remove_hypothesis(1);
   }
 
@@ -2157,120 +2141,120 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyWithAuthChecker) {
 
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
 
-    SetVertexProperty(v);
-    ASSERT_THROW(ExecuteSetPropertyOnVertex(user, 2), QueryRuntimeException);
+    this->SetVertexProperty(v);
+    ASSERT_THROW(this->ExecuteSetPropertyOnVertex(user, 2), QueryRuntimeException);
     test_hypothesis(1);
 
-    SetVertexProperty(v);
-    ASSERT_THROW(ExecuteSetPropertiesOnVertex(user, 2), QueryRuntimeException);
+    this->SetVertexProperty(v);
+    ASSERT_THROW(this->ExecuteSetPropertiesOnVertex(user, 2), QueryRuntimeException);
     test_hypothesis(1);
 
-    SetVertexProperty(v);
-    ASSERT_THROW(ExecuteRemovePropertyOnVertex(user), QueryRuntimeException);
+    this->SetVertexProperty(v);
+    ASSERT_THROW(this->ExecuteRemovePropertyOnVertex(user), QueryRuntimeException);
     test_remove_hypothesis(1);
   }
 
   {
     auto user = memgraph::auth::User{"granted_update_label_denied_read_global"};
 
-    user.fine_grained_access_handler().label_permissions().Grant(vertex_label_name,
+    user.fine_grained_access_handler().label_permissions().Grant(this->vertex_label_name,
                                                                  memgraph::auth::FineGrainedPermission::UPDATE);
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::NOTHING);
 
-    SetVertexProperty(v);
-    ExecuteSetPropertyOnVertex(user, 2);
+    this->SetVertexProperty(v);
+    this->ExecuteSetPropertyOnVertex(user, 2);
     test_hypothesis(2);
 
-    SetVertexProperty(v);
-    ExecuteSetPropertiesOnVertex(user, 2);
+    this->SetVertexProperty(v);
+    this->ExecuteSetPropertiesOnVertex(user, 2);
     test_hypothesis(2);
 
-    SetVertexProperty(v);
-    ExecuteRemovePropertyOnVertex(user);
+    this->SetVertexProperty(v);
+    this->ExecuteRemovePropertyOnVertex(user);
     test_remove_hypothesis(0);
   }
 
   {
     auto user = memgraph::auth::User{"granted_update_global_denied_read_label"};
 
-    user.fine_grained_access_handler().label_permissions().Grant(vertex_label_name,
+    user.fine_grained_access_handler().label_permissions().Grant(this->vertex_label_name,
                                                                  memgraph::auth::FineGrainedPermission::NOTHING);
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
 
-    SetVertexProperty(v);
-    ExecuteSetPropertyOnVertex(user, 2);
+    this->SetVertexProperty(v);
+    this->ExecuteSetPropertyOnVertex(user, 2);
     test_hypothesis(1);
 
-    SetVertexProperty(v);
-    ExecuteSetPropertiesOnVertex(user, 2);
+    this->SetVertexProperty(v);
+    this->ExecuteSetPropertiesOnVertex(user, 2);
     test_hypothesis(1);
 
-    SetVertexProperty(v);
-    ExecuteRemovePropertyOnVertex(user);
+    this->SetVertexProperty(v);
+    this->ExecuteRemovePropertyOnVertex(user);
     test_remove_hypothesis(1);
   }
 
   {
     auto user = memgraph::auth::User{"granted_create_delete_label_denied_read_global"};
 
-    user.fine_grained_access_handler().label_permissions().Grant(vertex_label_name,
+    user.fine_grained_access_handler().label_permissions().Grant(this->vertex_label_name,
                                                                  memgraph::auth::FineGrainedPermission::CREATE_DELETE);
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::NOTHING);
 
-    SetVertexProperty(v);
-    ExecuteSetPropertyOnVertex(user, 2);
+    this->SetVertexProperty(v);
+    this->ExecuteSetPropertyOnVertex(user, 2);
     test_hypothesis(2);
 
-    SetVertexProperty(v);
-    ExecuteSetPropertiesOnVertex(user, 2);
+    this->SetVertexProperty(v);
+    this->ExecuteSetPropertiesOnVertex(user, 2);
     test_hypothesis(2);
 
-    SetVertexProperty(v);
-    ExecuteRemovePropertyOnVertex(user);
+    this->SetVertexProperty(v);
+    this->ExecuteRemovePropertyOnVertex(user);
     test_remove_hypothesis(0);
   }
 
   {
     auto user = memgraph::auth::User{"granted_create_delete_global_denied_read_label"};
 
-    user.fine_grained_access_handler().label_permissions().Grant(vertex_label_name,
+    user.fine_grained_access_handler().label_permissions().Grant(this->vertex_label_name,
                                                                  memgraph::auth::FineGrainedPermission::NOTHING);
     user.fine_grained_access_handler().label_permissions().Grant("*",
                                                                  memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
-    SetVertexProperty(v);
-    ExecuteSetPropertyOnVertex(user, 2);
+    this->SetVertexProperty(v);
+    this->ExecuteSetPropertyOnVertex(user, 2);
     test_hypothesis(1);
 
-    SetVertexProperty(v);
-    ExecuteSetPropertiesOnVertex(user, 2);
+    this->SetVertexProperty(v);
+    this->ExecuteSetPropertiesOnVertex(user, 2);
     test_hypothesis(1);
 
-    SetVertexProperty(v);
-    ExecuteRemovePropertyOnVertex(user);
+    this->SetVertexProperty(v);
+    this->ExecuteRemovePropertyOnVertex(user);
     test_remove_hypothesis(1);
   }
 }
 
-TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
+TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
   // Add a single vertex
-  auto v1 = dba.InsertVertex();
-  ASSERT_TRUE(v1.AddLabel(label_1).HasValue());
+  auto v1 = this->dba.InsertVertex();
+  ASSERT_TRUE(v1.AddLabel(this->label_1).HasValue());
 
-  auto v2 = dba.InsertVertex();
-  ASSERT_TRUE(v2.AddLabel(label_2).HasValue());
+  auto v2 = this->dba.InsertVertex();
+  ASSERT_TRUE(v2.AddLabel(this->label_2).HasValue());
 
   auto edge_type_name = "edge_type";
-  auto edge_type_id = dba.NameToEdgeType(edge_type_name);
-  auto edge = dba.InsertEdge(&v1, &v2, edge_type_id);
+  auto edge_type_id = this->dba.NameToEdgeType(edge_type_name);
+  auto edge = this->dba.InsertEdge(&v1, &v2, edge_type_id);
   ASSERT_TRUE(edge.HasValue());
-  ASSERT_TRUE(edge->SetProperty(entity_prop, entity_prop_value).HasValue());
-  dba.AdvanceCommand();
+  ASSERT_TRUE(edge->SetProperty(this->entity_prop, this->entity_prop_value).HasValue());
+  this->dba.AdvanceCommand();
 
-  EXPECT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
+  EXPECT_EQ(2, CountIterable(this->dba.Vertices(memgraph::storage::View::OLD)));
 
   auto test_hypothesis = [&](int expected_property_value) {
-    for (auto vertex : dba.Vertices(memgraph::storage::View::NEW)) {
+    for (auto vertex : this->dba.Vertices(memgraph::storage::View::NEW)) {
       if (vertex.OutEdges(memgraph::storage::View::NEW).HasValue()) {
         auto maybe_edges = vertex.OutEdges(memgraph::storage::View::NEW);
         for (auto edge : *maybe_edges) {
@@ -2279,7 +2263,7 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
           ASSERT_TRUE(maybe_properties.HasValue());
           const auto &properties = *maybe_properties;
           EXPECT_EQ(properties.size(), 1);
-          auto maybe_prop = edge.GetProperty(memgraph::storage::View::NEW, entity_prop);
+          auto maybe_prop = edge.GetProperty(memgraph::storage::View::NEW, this->entity_prop);
           ASSERT_TRUE(maybe_prop.HasValue());
           ASSERT_EQ(maybe_prop->ValueInt(), expected_property_value);
         }
@@ -2288,7 +2272,7 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
   };
 
   auto test_remove_hypothesis = [&](int properties_size) {
-    for (auto vertex : dba.Vertices(memgraph::storage::View::NEW)) {
+    for (auto vertex : this->dba.Vertices(memgraph::storage::View::NEW)) {
       if (vertex.OutEdges(memgraph::storage::View::NEW).HasValue()) {
         auto maybe_edges = vertex.OutEdges(memgraph::storage::View::NEW);
         for (auto edge : *maybe_edges) {
@@ -2309,16 +2293,16 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
     user.fine_grained_access_handler().edge_type_permissions().Grant("*",
                                                                      memgraph::auth::FineGrainedPermission::NOTHING);
 
-    SetEdgeProperty(edge.GetValue());
-    ExecuteSetPropertyOnEdge(user, 2);
+    this->SetEdgeProperty(edge.GetValue());
+    this->ExecuteSetPropertyOnEdge(user, 2);
     test_hypothesis(1);
 
-    SetEdgeProperty(edge.GetValue());
-    ExecuteSetPropertiesOnEdge(user, 2);
+    this->SetEdgeProperty(edge.GetValue());
+    this->ExecuteSetPropertiesOnEdge(user, 2);
     test_hypothesis(1);
 
-    SetEdgeProperty(edge.GetValue());
-    ExecuteRemovePropertyOnEdge(user);
+    this->SetEdgeProperty(edge.GetValue());
+    this->ExecuteRemovePropertyOnEdge(user);
     test_remove_hypothesis(1);
   }
 
@@ -2329,16 +2313,16 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
     user.fine_grained_access_handler().edge_type_permissions().Grant(edge_type_name,
                                                                      memgraph::auth::FineGrainedPermission::NOTHING);
 
-    SetEdgeProperty(edge.GetValue());
-    ExecuteSetPropertyOnEdge(user, 2);
+    this->SetEdgeProperty(edge.GetValue());
+    this->ExecuteSetPropertyOnEdge(user, 2);
     test_hypothesis(1);
 
-    SetEdgeProperty(edge.GetValue());
-    ExecuteSetPropertiesOnEdge(user, 2);
+    this->SetEdgeProperty(edge.GetValue());
+    this->ExecuteSetPropertiesOnEdge(user, 2);
     test_hypothesis(1);
 
-    SetEdgeProperty(edge.GetValue());
-    ExecuteRemovePropertyOnEdge(user);
+    this->SetEdgeProperty(edge.GetValue());
+    this->ExecuteRemovePropertyOnEdge(user);
     test_remove_hypothesis(1);
   }
 
@@ -2349,16 +2333,16 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
     user.fine_grained_access_handler().edge_type_permissions().Grant("*",
                                                                      memgraph::auth::FineGrainedPermission::UPDATE);
 
-    SetEdgeProperty(edge.GetValue());
-    ExecuteSetPropertyOnEdge(user, 2);
+    this->SetEdgeProperty(edge.GetValue());
+    this->ExecuteSetPropertyOnEdge(user, 2);
     test_hypothesis(2);
 
-    SetEdgeProperty(edge.GetValue());
-    ExecuteSetPropertiesOnEdge(user, 2);
+    this->SetEdgeProperty(edge.GetValue());
+    this->ExecuteSetPropertiesOnEdge(user, 2);
     test_hypothesis(2);
 
-    SetEdgeProperty(edge.GetValue());
-    ExecuteRemovePropertyOnEdge(user);
+    this->SetEdgeProperty(edge.GetValue());
+    this->ExecuteRemovePropertyOnEdge(user);
     test_remove_hypothesis(0);
   }
 
@@ -2369,16 +2353,16 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
     user.fine_grained_access_handler().edge_type_permissions().Grant(edge_type_name,
                                                                      memgraph::auth::FineGrainedPermission::UPDATE);
 
-    SetEdgeProperty(edge.GetValue());
-    ExecuteSetPropertyOnEdge(user, 2);
+    this->SetEdgeProperty(edge.GetValue());
+    this->ExecuteSetPropertyOnEdge(user, 2);
     test_hypothesis(2);
 
-    SetEdgeProperty(edge.GetValue());
-    ExecuteSetPropertiesOnEdge(user, 2);
+    this->SetEdgeProperty(edge.GetValue());
+    this->ExecuteSetPropertiesOnEdge(user, 2);
     test_hypothesis(2);
 
-    SetEdgeProperty(edge.GetValue());
-    ExecuteRemovePropertyOnEdge(user);
+    this->SetEdgeProperty(edge.GetValue());
+    this->ExecuteRemovePropertyOnEdge(user);
     test_remove_hypothesis(0);
   }
 
@@ -2391,16 +2375,16 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
     user.fine_grained_access_handler().edge_type_permissions().Grant("*",
                                                                      memgraph::auth::FineGrainedPermission::NOTHING);
 
-    SetEdgeProperty(edge.GetValue());
-    ExecuteSetPropertyOnEdge(user, 2);
+    this->SetEdgeProperty(edge.GetValue());
+    this->ExecuteSetPropertyOnEdge(user, 2);
     test_hypothesis(2);
 
-    SetEdgeProperty(edge.GetValue());
-    ExecuteSetPropertiesOnEdge(user, 2);
+    this->SetEdgeProperty(edge.GetValue());
+    this->ExecuteSetPropertiesOnEdge(user, 2);
     test_hypothesis(2);
 
-    SetEdgeProperty(edge.GetValue());
-    ExecuteRemovePropertyOnEdge(user);
+    this->SetEdgeProperty(edge.GetValue());
+    this->ExecuteRemovePropertyOnEdge(user);
     test_remove_hypothesis(0);
   }
 
@@ -2411,16 +2395,16 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
     user.fine_grained_access_handler().edge_type_permissions().Grant(edge_type_name,
                                                                      memgraph::auth::FineGrainedPermission::READ);
 
-    SetEdgeProperty(edge.GetValue());
-    ASSERT_THROW(ExecuteSetPropertyOnEdge(user, 2), QueryRuntimeException);
+    this->SetEdgeProperty(edge.GetValue());
+    ASSERT_THROW(this->ExecuteSetPropertyOnEdge(user, 2), QueryRuntimeException);
     test_hypothesis(1);
 
-    SetEdgeProperty(edge.GetValue());
-    ASSERT_THROW(ExecuteSetPropertiesOnEdge(user, 2), QueryRuntimeException);
+    this->SetEdgeProperty(edge.GetValue());
+    ASSERT_THROW(this->ExecuteSetPropertiesOnEdge(user, 2), QueryRuntimeException);
     test_hypothesis(1);
 
-    SetEdgeProperty(edge.GetValue());
-    ASSERT_THROW(ExecuteRemovePropertyOnEdge(user), QueryRuntimeException);
+    this->SetEdgeProperty(edge.GetValue());
+    ASSERT_THROW(this->ExecuteRemovePropertyOnEdge(user), QueryRuntimeException);
     test_remove_hypothesis(1);
   }
 
@@ -2430,16 +2414,16 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
 
-    SetEdgeProperty(edge.GetValue());
-    ASSERT_THROW(ExecuteSetPropertyOnEdge(user, 2), QueryRuntimeException);
+    this->SetEdgeProperty(edge.GetValue());
+    ASSERT_THROW(this->ExecuteSetPropertyOnEdge(user, 2), QueryRuntimeException);
     test_hypothesis(1);
 
-    SetEdgeProperty(edge.GetValue());
-    ASSERT_THROW(ExecuteSetPropertiesOnEdge(user, 2), QueryRuntimeException);
+    this->SetEdgeProperty(edge.GetValue());
+    ASSERT_THROW(this->ExecuteSetPropertiesOnEdge(user, 2), QueryRuntimeException);
     test_hypothesis(1);
 
-    SetEdgeProperty(edge.GetValue());
-    ASSERT_THROW(ExecuteRemovePropertyOnEdge(user), QueryRuntimeException);
+    this->SetEdgeProperty(edge.GetValue());
+    ASSERT_THROW(this->ExecuteRemovePropertyOnEdge(user), QueryRuntimeException);
     test_remove_hypothesis(1);
   }
 
@@ -2452,16 +2436,16 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
     user.fine_grained_access_handler().edge_type_permissions().Grant("*",
                                                                      memgraph::auth::FineGrainedPermission::UPDATE);
 
-    SetEdgeProperty(edge.GetValue());
-    ExecuteSetPropertyOnEdge(user, 2);
+    this->SetEdgeProperty(edge.GetValue());
+    this->ExecuteSetPropertyOnEdge(user, 2);
     test_hypothesis(1);
 
-    SetEdgeProperty(edge.GetValue());
-    ExecuteSetPropertiesOnEdge(user, 2);
+    this->SetEdgeProperty(edge.GetValue());
+    this->ExecuteSetPropertiesOnEdge(user, 2);
     test_hypothesis(1);
 
-    SetEdgeProperty(edge.GetValue());
-    ExecuteRemovePropertyOnEdge(user);
+    this->SetEdgeProperty(edge.GetValue());
+    this->ExecuteRemovePropertyOnEdge(user);
     test_remove_hypothesis(1);
   }
 
@@ -2474,16 +2458,16 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
     user.fine_grained_access_handler().edge_type_permissions().Grant("*",
                                                                      memgraph::auth::FineGrainedPermission::NOTHING);
 
-    SetEdgeProperty(edge.GetValue());
-    ExecuteSetPropertyOnEdge(user, 2);
+    this->SetEdgeProperty(edge.GetValue());
+    this->ExecuteSetPropertyOnEdge(user, 2);
     test_hypothesis(2);
 
-    SetEdgeProperty(edge.GetValue());
-    ExecuteSetPropertiesOnEdge(user, 2);
+    this->SetEdgeProperty(edge.GetValue());
+    this->ExecuteSetPropertiesOnEdge(user, 2);
     test_hypothesis(2);
 
-    SetEdgeProperty(edge.GetValue());
-    ExecuteRemovePropertyOnEdge(user);
+    this->SetEdgeProperty(edge.GetValue());
+    this->ExecuteRemovePropertyOnEdge(user);
     test_remove_hypothesis(0);
   }
 
@@ -2496,16 +2480,16 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
     user.fine_grained_access_handler().edge_type_permissions().Grant(
         "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
-    SetEdgeProperty(edge.GetValue());
-    ExecuteSetPropertyOnEdge(user, 2);
+    this->SetEdgeProperty(edge.GetValue());
+    this->ExecuteSetPropertyOnEdge(user, 2);
     test_hypothesis(1);
 
-    SetEdgeProperty(edge.GetValue());
-    ExecuteSetPropertiesOnEdge(user, 2);
+    this->SetEdgeProperty(edge.GetValue());
+    this->ExecuteSetPropertiesOnEdge(user, 2);
     test_hypothesis(1);
 
-    SetEdgeProperty(edge.GetValue());
-    ExecuteRemovePropertyOnEdge(user);
+    this->SetEdgeProperty(edge.GetValue());
+    this->ExecuteRemovePropertyOnEdge(user);
     test_remove_hypothesis(1);
   }
 }
