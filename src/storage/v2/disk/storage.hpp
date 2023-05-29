@@ -73,19 +73,19 @@ class DiskStorage final : public Storage {
                               const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                               const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
 
-    int64_t ApproximateVertexCount() const override;
+    uint64_t ApproximateVertexCount() const override;
 
-    int64_t ApproximateVertexCount(LabelId label) const override { return 10; }
+    uint64_t ApproximateVertexCount(LabelId label) const override { return 10; }
 
-    int64_t ApproximateVertexCount(LabelId label, PropertyId property) const override { return 10; }
+    uint64_t ApproximateVertexCount(LabelId label, PropertyId property) const override { return 10; }
 
-    int64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const override {
+    uint64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const override {
       return 10;
     }
 
-    int64_t ApproximateVertexCount(LabelId label, PropertyId property,
-                                   const std::optional<utils::Bound<PropertyValue>> &lower,
-                                   const std::optional<utils::Bound<PropertyValue>> &upper) const override {
+    uint64_t ApproximateVertexCount(LabelId label, PropertyId property,
+                                    const std::optional<utils::Bound<PropertyValue>> &lower,
+                                    const std::optional<utils::Bound<PropertyValue>> &upper) const override {
       return 10;
     }
 

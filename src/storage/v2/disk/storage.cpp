@@ -418,9 +418,13 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   throw utils::NotYetImplemented("DiskStorage::DiskAccessor::Vertices(label, property, lower_bound, upper_bound)");
 }
 
-int64_t DiskStorage::DiskAccessor::ApproximateVertexCount() const {
+uint64_t DiskStorage::DiskAccessor::ApproximateVertexCount() const {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  return disk_storage->kvstore_->ApproximateVertexCount();
+  auto estimatedCount = disk_storage->kvstore_->ApproximateVertexCount();
+  if (estimatedCount == 0) {
+    estimatedCount = vertices_.size();
+  }
+  return estimatedCount;
 }
 
 VertexAccessor DiskStorage::DiskAccessor::CreateVertex() {
@@ -567,7 +571,6 @@ DiskStorage::DiskAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
             "VertexAccessor must be from the same transaction as the storage "
             "accessor when deleting a vertex!");
   auto *vertex_ptr = vertex->vertex_;
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
 
   std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
   std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
