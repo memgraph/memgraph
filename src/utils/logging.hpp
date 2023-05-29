@@ -24,7 +24,8 @@
 
 #include <fmt/format.h>
 // TODO(gitbuda): This solves all the issues with printing std::path (replace .string() calls)
-#include <fmt/std.h>
+// TOOD(gitbuda): <fmt/std.h> doesn't work on the previous versions of fmt
+// #include <fmt/std.h>
 #include <spdlog/fmt/ostr.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
@@ -38,11 +39,12 @@ namespace memgraph::logging {
 // TODO (antonio2368): Replace with std::source_location when it's supported by
 // compilers
 inline void AssertFailed(const char *file_name, int line_num, const char *expr, const std::string &message) {
-  spdlog::critical(
-      "\nAssertion failed in file {} at line {}."
-      "\n\tExpression: '{}'"
-      "{}",
-      file_name, line_num, expr, !message.empty() ? fmt::format("\n\tMessage: '{}'", message) : "");
+  // TODO(gitbuda): Double check the AssertFailed with the fmt issue.
+  //  spdlog::critical(
+  //      "\nAssertion failed in file {} at line {}."
+  //      "\n\tExpression: '{}'"
+  //      "{}",
+  //      file_name, line_num, expr, !message.empty() ? fmt::format("\n\tMessage: '{}'", message) : "");
   std::terminate();
 }
 
