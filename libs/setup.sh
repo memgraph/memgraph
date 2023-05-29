@@ -210,7 +210,7 @@ repo_clone_try_double "${primary_urls[pymgclient]}" "${secondary_urls[pymgclient
 mgconsole_tag="v1.3.0" # (2022-11-20)
 repo_clone_try_double "${primary_urls[mgconsole]}" "${secondary_urls[mgconsole]}" "mgconsole" "$mgconsole_tag" true
 
-spdlog_tag="v1.10.0" # 2022-04-04
+spdlog_tag="v1.11.0" # 2022-11-02
 repo_clone_try_double "${primary_urls[spdlog]}" "${secondary_urls[spdlog]}" "spdlog" "$spdlog_tag" true
 
 # librdkafka
