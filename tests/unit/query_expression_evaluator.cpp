@@ -78,7 +78,7 @@ class ExpressionEvaluatorTest : public ::testing::Test {
 };
 
 // using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::DiskStorage>;
 TYPED_TEST_CASE(ExpressionEvaluatorTest, StorageTypes);
 
 TYPED_TEST(ExpressionEvaluatorTest, OrOperator) {
