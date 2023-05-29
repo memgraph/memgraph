@@ -105,7 +105,10 @@
 constexpr const char *kMgUser = "MEMGRAPH_USER";
 constexpr const char *kMgPassword = "MEMGRAPH_PASSWORD";
 constexpr const char *kMgPassfile = "MEMGRAPH_PASSFILE";
+
+constexpr const char *kServerNameSettingKey = "server.name";
 static const auto kMgDefaultName = std::string("Memgraph/") + version_string;
+memgraph::utils::Synchronized<std::string, memgraph::utils::ReadPrioritizedRWLock> bolt_server_name_;
 
 // Short help flag.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -143,7 +146,7 @@ DEFINE_string(bolt_cert_file, "", "Certificate file which should be used for the
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(bolt_key_file, "", "Key file which should be used for the Bolt server.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(bolt_server_name_for_init, kMgDefaultName,
+DEFINE_string(bolt_server_name_for_init, "",
               "Server name which the database should send to the client in the "
               "Bolt INIT message.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -597,8 +600,9 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
   }
 
   std::optional<std::string> GetServerNameForInit() override {
-    if (FLAGS_bolt_server_name_for_init.empty()) return std::nullopt;
-    return FLAGS_bolt_server_name_for_init;
+    const auto locked_name = bolt_server_name_.ReadLock();
+    if (locked_name->empty()) return std::nullopt;
+    return *locked_name;
   }
 
  private:
@@ -839,6 +843,26 @@ int main(int argc, char **argv) {
   }
 
   memgraph::license::global_license_checker.StartBackgroundLicenseChecker(memgraph::utils::global_settings);
+
+  // register bolt server name settings
+  // set to the current name if not present
+  memgraph::utils::global_settings.RegisterSetting(std::string{kServerNameSettingKey}, "", [&] {
+    const auto server_name = memgraph::utils::global_settings.GetValue(std::string{kServerNameSettingKey});
+    MG_ASSERT(server_name, "Bolt server name is missing from the settings");
+    *(bolt_server_name_.Lock()) = *server_name;
+  });
+  // TODO: Figure out the exact logic here. Do we want to override the settings using the gflag, or just use the gflag
+  // as a temp value?
+  if (!FLAGS_bolt_server_name_for_init.empty()) {
+    memgraph::utils::global_settings.SetValue(std::string{kServerNameSettingKey}, FLAGS_bolt_server_name_for_init);
+  } else {
+    const auto server_name = memgraph::utils::global_settings.GetValue(std::string{kServerNameSettingKey});
+    if (server_name && !server_name->empty()) {
+      *(bolt_server_name_.Lock()) = *server_name;
+    } else {  // Default value
+      memgraph::utils::global_settings.SetValue(std::string{kServerNameSettingKey}, kMgDefaultName);
+    }
+  }
 
   // All enterprise features should be constructed before the main database
   // storage. This will cause them to be destructed *after* the main database
