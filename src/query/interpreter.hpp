@@ -261,6 +261,7 @@ class Interpreter final {
   std::optional<std::string> username_;
   bool in_explicit_transaction_{false};
   bool expect_rollback_{false};
+  std::optional<std::map<std::string, storage::PropertyValue>> metadata_{};  //!< User defined transaction metadata
 
   /**
    * Prepare a query for execution.
@@ -271,7 +272,8 @@ class Interpreter final {
    * @throw query::QueryException
    */
   PrepareResult Prepare(const std::string &query, const std::map<std::string, storage::PropertyValue> &params,
-                        const std::string *username);
+                        const std::string *username,
+                        const std::map<std::string, storage::PropertyValue> &metadata = {});
 
   /**
    * Execute the last prepared query and stream *all* of the results into the
@@ -315,7 +317,7 @@ class Interpreter final {
   std::map<std::string, TypedValue> Pull(TStream *result_stream, std::optional<int> n = {},
                                          std::optional<int> qid = {});
 
-  void BeginTransaction();
+  void BeginTransaction(const std::map<std::string, storage::PropertyValue> &metadata = {});
 
   /*
   Returns transaction id or empty if the db_accessor is not initialized.
@@ -405,7 +407,8 @@ class Interpreter final {
   std::optional<storage::IsolationLevel> interpreter_isolation_level;
   std::optional<storage::IsolationLevel> next_transaction_isolation_level;
 
-  PreparedQuery PrepareTransactionQuery(std::string_view query_upper);
+  PreparedQuery PrepareTransactionQuery(std::string_view query_upper,
+                                        const std::map<std::string, storage::PropertyValue> &metadata = {});
   void Commit();
   void AdvanceCommand();
   void AbortCommand(std::unique_ptr<QueryExecution> *query_execution);
