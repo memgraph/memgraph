@@ -4,3 +4,4 @@ endfunction()
 
 copy_configuration_check_e2e_python_files(default_config.py)
 copy_configuration_check_e2e_python_files(configuration_check.py)
+copy_configuration_check_e2e_python_files(storage_info.py)

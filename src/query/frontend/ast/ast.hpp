@@ -1063,8 +1063,9 @@ class MapLiteral : public memgraph::query::BaseLiteral {
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      for (auto pair : elements_)
+      for (auto pair : elements_) {
         if (!pair.second->Accept(visitor)) break;
+      }
     }
     return visitor.PostVisit(*this);
   }
@@ -1082,6 +1083,60 @@ class MapLiteral : public memgraph::query::BaseLiteral {
 
  protected:
   explicit MapLiteral(const std::unordered_map<PropertyIx, Expression *> &elements) : elements_(elements) {}
+
+ private:
+  friend class AstStorage;
+};
+
+struct MapProjectionData {
+  Expression *map_variable;
+  std::unordered_map<PropertyIx, Expression *> elements;
+};
+
+class MapProjectionLiteral : public memgraph::query::BaseLiteral {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  MapProjectionLiteral() = default;
+
+  DEFVISITABLE(ExpressionVisitor<TypedValue>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<void>);
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      for (auto pair : elements_) {
+        if (!pair.second) continue;
+
+        if (!pair.second->Accept(visitor)) break;
+      }
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  Expression *map_variable_;
+  std::unordered_map<PropertyIx, Expression *> elements_;
+
+  MapProjectionLiteral *Clone(AstStorage *storage) const override {
+    MapProjectionLiteral *object = storage->Create<MapProjectionLiteral>();
+    object->map_variable_ = map_variable_;
+
+    for (const auto &entry : elements_) {
+      auto key = storage->GetPropertyIx(entry.first.name);
+
+      if (!entry.second) {
+        object->elements_[key] = nullptr;
+        continue;
+      }
+
+      object->elements_[key] = entry.second->Clone(storage);
+    }
+    return object;
+  }
+
+ protected:
+  explicit MapProjectionLiteral(Expression *map_variable, std::unordered_map<PropertyIx, Expression *> &&elements)
+      : map_variable_(map_variable), elements_(std::move(elements)) {}
 
  private:
   friend class AstStorage;
@@ -1153,6 +1208,38 @@ class PropertyLookup : public memgraph::query::Expression {
 
  protected:
   PropertyLookup(Expression *expression, PropertyIx property) : expression_(expression), property_(property) {}
+
+ private:
+  friend class AstStorage;
+};
+
+class AllPropertiesLookup : public memgraph::query::Expression {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  AllPropertiesLookup() = default;
+
+  DEFVISITABLE(ExpressionVisitor<TypedValue>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<void>);
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      expression_->Accept(visitor);
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  memgraph::query::Expression *expression_{nullptr};
+
+  AllPropertiesLookup *Clone(AstStorage *storage) const override {
+    AllPropertiesLookup *object = storage->Create<AllPropertiesLookup>();
+    object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+    return object;
+  }
+
+ protected:
+  explicit AllPropertiesLookup(Expression *expression) : expression_(expression) {}
 
  private:
   friend class AstStorage;
@@ -2714,6 +2801,7 @@ class AuthQuery : public memgraph::query::Query {
     MODULE_READ,
     MODULE_WRITE,
     WEBSOCKET,
+    STORAGE_MODE,
     TRANSACTION_MANAGEMENT
   };
 
@@ -2777,14 +2865,15 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
     AuthQuery::Privilege::FREE_MEMORY, AuthQuery::Privilege::TRIGGER,
     AuthQuery::Privilege::CONFIG,      AuthQuery::Privilege::STREAM,
     AuthQuery::Privilege::MODULE_READ, AuthQuery::Privilege::MODULE_WRITE,
-    AuthQuery::Privilege::WEBSOCKET,   AuthQuery::Privilege::TRANSACTION_MANAGEMENT};
+    AuthQuery::Privilege::WEBSOCKET,   AuthQuery::Privilege::TRANSACTION_MANAGEMENT,
+    AuthQuery::Privilege::STORAGE_MODE};
 
 class InfoQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class InfoType { STORAGE, INDEX, CONSTRAINT };
+  enum class InfoType { STORAGE, INDEX, CONSTRAINT, BUILD };
 
   DEFVISITABLE(QueryVisitor<void>);
 
@@ -2896,7 +2985,7 @@ class LockPathQuery : public memgraph::query::Query {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class Action { LOCK_PATH, UNLOCK_PATH };
+  enum class Action { LOCK_PATH, UNLOCK_PATH, STATUS };
 
   LockPathQuery() = default;
 
@@ -3039,6 +3128,29 @@ class IsolationLevelQuery : public memgraph::query::Query {
     IsolationLevelQuery *object = storage->Create<IsolationLevelQuery>();
     object->isolation_level_ = isolation_level_;
     object->isolation_level_scope_ = isolation_level_scope_;
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class StorageModeQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  enum class StorageMode { IN_MEMORY_TRANSACTIONAL, IN_MEMORY_ANALYTICAL };
+
+  StorageModeQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  memgraph::query::StorageModeQuery::StorageMode storage_mode_;
+
+  StorageModeQuery *Clone(AstStorage *storage) const override {
+    StorageModeQuery *object = storage->Create<StorageModeQuery>();
+    object->storage_mode_ = storage_mode_;
     return object;
   }
 

@@ -22,6 +22,7 @@
 #include "storage/v2/edge.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/view.hpp"
 
@@ -31,12 +32,14 @@ const uint64_t kTimestampInitialId = 0;
 const uint64_t kTransactionInitialId = 1ULL << 63U;
 
 struct Transaction {
-  Transaction(uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level)
+  Transaction(uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level,
+              StorageMode storage_mode)
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
         command_id(0),
         must_abort(false),
-        isolation_level(isolation_level) {}
+        isolation_level(isolation_level),
+        storage_mode(storage_mode) {}
 
   Transaction(Transaction &&other) noexcept
       : transaction_id(other.transaction_id.load(std::memory_order_acquire)),
@@ -45,7 +48,8 @@ struct Transaction {
         command_id(other.command_id),
         deltas(std::move(other.deltas)),
         must_abort(other.must_abort),
-        isolation_level(other.isolation_level) {}
+        isolation_level(other.isolation_level),
+        storage_mode(other.storage_mode) {}
 
   Transaction(const Transaction &) = delete;
   Transaction &operator=(const Transaction &) = delete;
@@ -70,6 +74,7 @@ struct Transaction {
   std::list<Delta> deltas;
   bool must_abort;
   IsolationLevel isolation_level;
+  StorageMode storage_mode;
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {

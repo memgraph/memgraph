@@ -2,6 +2,8 @@ set(utils_src_files
     async_timer.cpp
     base64.cpp
     event_counter.cpp
+    event_gauge.cpp
+    event_histogram.cpp
     csv_parsing.cpp
     file.cpp
     file_locker.cpp
@@ -15,7 +17,8 @@ set(utils_src_files
     thread_pool.cpp
     tsc.cpp
     system_info.cpp
-    uuid.cpp)
+    uuid.cpp
+    build_info.cpp)
 
 find_package(Boost REQUIRED)
 find_package(fmt REQUIRED)

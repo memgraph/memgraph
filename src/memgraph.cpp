@@ -36,11 +36,13 @@
 
 #include "auth/models.hpp"
 #include "communication/bolt/v1/constants.hpp"
+#include "communication/http/server.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
 #include "glue/auth_checker.hpp"
 #include "glue/auth_handler.hpp"
 #include "helpers.hpp"
+#include "http_handlers/metrics.hpp"
 #include "license/license.hpp"
 #include "license/license_sender.hpp"
 #include "py/py.hpp"
@@ -57,6 +59,7 @@
 #include "storage/v2/storage.hpp"
 #include "storage/v2/view.hpp"
 #include "telemetry/telemetry.hpp"
+#include "utils/enum.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/file.hpp"
 #include "utils/flag_validation.hpp"
@@ -103,42 +106,6 @@ constexpr const char *kMgUser = "MEMGRAPH_USER";
 constexpr const char *kMgPassword = "MEMGRAPH_PASSWORD";
 constexpr const char *kMgPassfile = "MEMGRAPH_PASSFILE";
 
-namespace {
-std::string GetAllowedEnumValuesString(const auto &mappings) {
-  std::vector<std::string> allowed_values;
-  allowed_values.reserve(mappings.size());
-  std::transform(mappings.begin(), mappings.end(), std::back_inserter(allowed_values),
-                 [](const auto &mapping) { return std::string(mapping.first); });
-  return memgraph::utils::Join(allowed_values, ", ");
-}
-
-enum class ValidationError : uint8_t { EmptyValue, InvalidValue };
-
-memgraph::utils::BasicResult<ValidationError> IsValidEnumValueString(const auto &value, const auto &mappings) {
-  if (value.empty()) {
-    return ValidationError::EmptyValue;
-  }
-
-  if (std::find_if(mappings.begin(), mappings.end(), [&](const auto &mapping) { return mapping.first == value; }) ==
-      mappings.cend()) {
-    return ValidationError::InvalidValue;
-  }
-
-  return {};
-}
-
-template <typename Enum>
-std::optional<Enum> StringToEnum(const auto &value, const auto &mappings) {
-  const auto mapping_iter =
-      std::find_if(mappings.begin(), mappings.end(), [&](const auto &mapping) { return mapping.first == value; });
-  if (mapping_iter == mappings.cend()) {
-    return std::nullopt;
-  }
-
-  return mapping_iter->second;
-}
-}  // namespace
-
 // Short help flag.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_HIDDEN_bool(h, false, "Print usage and exit.");
@@ -148,11 +115,17 @@ DEFINE_string(bolt_address, "0.0.0.0", "IP address on which the Bolt server shou
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(monitoring_address, "0.0.0.0",
               "IP address on which the websocket server for Memgraph monitoring should listen.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(metrics_address, "0.0.0.0",
+              "IP address on which the Memgraph server for exposing metrics should listen.");
 DEFINE_VALIDATED_int32(bolt_port, 7687, "Port on which the Bolt server should listen.",
                        FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_int32(monitoring_port, 7444,
                        "Port on which the websocket server for Memgraph monitoring should listen.",
+                       FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_VALIDATED_int32(metrics_port, 9091, "Port on which the Memgraph server for exposing metrics should listen.",
                        FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_int32(bolt_num_workers, std::max(std::thread::hardware_concurrency(), 1U),
@@ -228,6 +201,20 @@ DEFINE_VALIDATED_uint64(storage_wal_file_flush_every_n_tx,
 DEFINE_bool(storage_snapshot_on_exit, false, "Controls whether the storage creates another snapshot on exit.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint64(storage_items_per_batch, memgraph::storage::Config::Durability().items_per_batch,
+              "The number of edges and vertices stored in a batch in a snapshot file.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_parallel_index_recovery, false,
+            "Controls whether the index creation can be done in a multithreaded fashion.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint64(storage_recovery_thread_count,
+              std::max(static_cast<uint64_t>(std::thread::hardware_concurrency()),
+                       memgraph::storage::Config::Durability().recovery_thread_count),
+              "The number of threads used to recover persisted data from disk.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(telemetry_enabled, false,
             "Set to true to enable telemetry. We collect information about the "
             "running system (CPU and memory information) and information about "
@@ -290,21 +277,21 @@ inline constexpr std::array isolation_level_mappings{
 
 const std::string isolation_level_help_string =
     fmt::format("Default isolation level used for the transactions. Allowed values: {}",
-                GetAllowedEnumValuesString(isolation_level_mappings));
+                memgraph::utils::GetAllowedEnumValuesString(isolation_level_mappings));
 }  // namespace
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_string(isolation_level, "SNAPSHOT_ISOLATION", isolation_level_help_string.c_str(), {
-  if (const auto result = IsValidEnumValueString(value, isolation_level_mappings); result.HasError()) {
+  if (const auto result = memgraph::utils::IsValidEnumValueString(value, isolation_level_mappings); result.HasError()) {
     const auto error = result.GetError();
     switch (error) {
-      case ValidationError::EmptyValue: {
+      case memgraph::utils::ValidationError::EmptyValue: {
         std::cout << "Isolation level cannot be empty." << std::endl;
         break;
       }
-      case ValidationError::InvalidValue: {
+      case memgraph::utils::ValidationError::InvalidValue: {
         std::cout << "Invalid value for isolation level. Allowed values: "
-                  << GetAllowedEnumValuesString(isolation_level_mappings) << std::endl;
+                  << memgraph::utils::GetAllowedEnumValuesString(isolation_level_mappings) << std::endl;
         break;
       }
     }
@@ -317,7 +304,7 @@ DEFINE_VALIDATED_string(isolation_level, "SNAPSHOT_ISOLATION", isolation_level_h
 namespace {
 memgraph::storage::IsolationLevel ParseIsolationLevel() {
   const auto isolation_level =
-      StringToEnum<memgraph::storage::IsolationLevel>(FLAGS_isolation_level, isolation_level_mappings);
+      memgraph::utils::StringToEnum<memgraph::storage::IsolationLevel>(FLAGS_isolation_level, isolation_level_mappings);
   MG_ASSERT(isolation_level, "Invalid isolation level");
   return *isolation_level;
 }
@@ -377,21 +364,21 @@ inline constexpr std::array log_level_mappings{
     std::pair{"INFO"sv, spdlog::level::info},   std::pair{"WARNING"sv, spdlog::level::warn},
     std::pair{"ERROR"sv, spdlog::level::err},   std::pair{"CRITICAL"sv, spdlog::level::critical}};
 
-const std::string log_level_help_string =
-    fmt::format("Minimum log level. Allowed values: {}", GetAllowedEnumValuesString(log_level_mappings));
+const std::string log_level_help_string = fmt::format("Minimum log level. Allowed values: {}",
+                                                      memgraph::utils::GetAllowedEnumValuesString(log_level_mappings));
 }  // namespace
 
 DEFINE_VALIDATED_string(log_level, "WARNING", log_level_help_string.c_str(), {
-  if (const auto result = IsValidEnumValueString(value, log_level_mappings); result.HasError()) {
+  if (const auto result = memgraph::utils::IsValidEnumValueString(value, log_level_mappings); result.HasError()) {
     const auto error = result.GetError();
     switch (error) {
-      case ValidationError::EmptyValue: {
+      case memgraph::utils::ValidationError::EmptyValue: {
         std::cout << "Log level cannot be empty." << std::endl;
         break;
       }
-      case ValidationError::InvalidValue: {
-        std::cout << "Invalid value for log level. Allowed values: " << GetAllowedEnumValuesString(log_level_mappings)
-                  << std::endl;
+      case memgraph::utils::ValidationError::InvalidValue: {
+        std::cout << "Invalid value for log level. Allowed values: "
+                  << memgraph::utils::GetAllowedEnumValuesString(log_level_mappings) << std::endl;
         break;
       }
     }
@@ -403,7 +390,7 @@ DEFINE_VALIDATED_string(log_level, "WARNING", log_level_help_string.c_str(), {
 
 namespace {
 spdlog::level::level_enum ParseLogLevel() {
-  const auto log_level = StringToEnum<spdlog::level::level_enum>(FLAGS_log_level, log_level_mappings);
+  const auto log_level = memgraph::utils::StringToEnum<spdlog::level::level_enum>(FLAGS_log_level, log_level_mappings);
   MG_ASSERT(log_level, "Invalid log level");
   return *log_level;
 }
@@ -513,6 +500,10 @@ void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, std::string c
   }
 }
 
+namespace memgraph::metrics {
+extern const Event ActiveBoltSessions;
+}  // namespace memgraph::metrics
+
 class BoltSession final : public memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                                         memgraph::communication::v2::OutputStream> {
  public:
@@ -530,26 +521,41 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 #endif
         endpoint_(endpoint),
         run_id_(data->run_id) {
+    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveBoltSessions);
     interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.insert(&interpreter_); });
   }
 
   ~BoltSession() override {
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveBoltSessions);
     interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.erase(&interpreter_); });
   }
 
   using memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                memgraph::communication::v2::OutputStream>::TEncoder;
 
-  void BeginTransaction() override { interpreter_.BeginTransaction(); }
+  void BeginTransaction(const std::map<std::string, memgraph::communication::bolt::Value> &metadata) override {
+    std::map<std::string, memgraph::storage::PropertyValue> metadata_pv;
+    for (const auto &[key, bolt_value] : metadata) {
+      metadata_pv.emplace(key, memgraph::glue::ToPropertyValue(bolt_value));
+    }
+    interpreter_.BeginTransaction(metadata_pv);
+  }
 
   void CommitTransaction() override { interpreter_.CommitTransaction(); }
 
   void RollbackTransaction() override { interpreter_.RollbackTransaction(); }
 
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(
-      const std::string &query, const std::map<std::string, memgraph::communication::bolt::Value> &params) override {
+      const std::string &query, const std::map<std::string, memgraph::communication::bolt::Value> &params,
+      const std::map<std::string, memgraph::communication::bolt::Value> &metadata) override {
     std::map<std::string, memgraph::storage::PropertyValue> params_pv;
-    for (const auto &kv : params) params_pv.emplace(kv.first, memgraph::glue::ToPropertyValue(kv.second));
+    std::map<std::string, memgraph::storage::PropertyValue> metadata_pv;
+    for (const auto &[key, bolt_param] : params) {
+      params_pv.emplace(key, memgraph::glue::ToPropertyValue(bolt_param));
+    }
+    for (const auto &[key, bolt_md] : metadata) {
+      metadata_pv.emplace(key, memgraph::glue::ToPropertyValue(bolt_md));
+    }
     const std::string *username{nullptr};
     if (user_) {
       username = &user_->username();
@@ -561,7 +567,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
     }
 #endif
     try {
-      auto result = interpreter_.Prepare(query, params_pv, username);
+      auto result = interpreter_.Prepare(query, params_pv, username, metadata_pv);
       if (user_ && !memgraph::glue::AuthChecker::IsUserAuthorized(*user_, result.privileges)) {
         interpreter_.Abort();
         throw memgraph::communication::bolt::ClientError(
@@ -693,6 +699,8 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 };
 
 using ServerT = memgraph::communication::v2::Server<BoltSession, SessionData>;
+using MonitoringServerT =
+    memgraph::communication::http::Server<memgraph::http::MetricsRequestHandler<SessionData>, SessionData>;
 using memgraph::communication::ServerContext;
 
 // Needed to correctly handle memgraph destruction from a signal handler.
@@ -887,7 +895,10 @@ int main(int argc, char **argv) {
                      .wal_file_size_kibibytes = FLAGS_storage_wal_file_size_kib,
                      .wal_file_flush_every_n_tx = FLAGS_storage_wal_file_flush_every_n_tx,
                      .snapshot_on_exit = FLAGS_storage_snapshot_on_exit,
-                     .restore_replicas_on_startup = true},
+                     .restore_replicas_on_startup = true,
+                     .items_per_batch = FLAGS_storage_items_per_batch,
+                     .recovery_thread_count = FLAGS_storage_recovery_thread_count,
+                     .allow_parallel_index_creation = FLAGS_storage_parallel_index_recovery},
       .transaction = {.isolation_level = ParseIsolationLevel()}};
   if (FLAGS_storage_snapshot_interval_sec == 0) {
     if (FLAGS_storage_wal_enabled) {
@@ -999,8 +1010,9 @@ int main(int argc, char **argv) {
     });
     telemetry->AddCollector("event_counters", []() -> nlohmann::json {
       nlohmann::json ret;
-      for (size_t i = 0; i < EventCounter::End(); ++i) {
-        ret[EventCounter::GetName(i)] = EventCounter::global_counters[i].load(std::memory_order_relaxed);
+      for (size_t i = 0; i < memgraph::metrics::CounterEnd(); ++i) {
+        ret[memgraph::metrics::GetCounterName(i)] =
+            memgraph::metrics::global_counters[i].load(std::memory_order_relaxed);
       }
       return ret;
     });
@@ -1016,6 +1028,43 @@ int main(int argc, char **argv) {
       {FLAGS_monitoring_address, static_cast<uint16_t>(FLAGS_monitoring_port)}, &context, websocket_auth};
   AddLoggerSink(websocket_server.GetLoggingSink());
 
+  MonitoringServerT metrics_server{
+      {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, &session_data, &context};
+
+#ifdef MG_ENTERPRISE
+  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    // Handler for regular termination signals
+    auto shutdown = [&metrics_server, &websocket_server, &server, &interpreter_context] {
+      // Server needs to be shutdown first and then the database. This prevents
+      // a race condition when a transaction is accepted during server shutdown.
+      server.Shutdown();
+      // After the server is notified to stop accepting and processing
+      // connections we tell the execution engine to stop processing all pending
+      // queries.
+      memgraph::query::Shutdown(&interpreter_context);
+
+      websocket_server.Shutdown();
+      metrics_server.Shutdown();
+    };
+
+    InitSignalHandlers(shutdown);
+  } else {
+    // Handler for regular termination signals
+    auto shutdown = [&websocket_server, &server, &interpreter_context] {
+      // Server needs to be shutdown first and then the database. This prevents
+      // a race condition when a transaction is accepted during server shutdown.
+      server.Shutdown();
+      // After the server is notified to stop accepting and processing
+      // connections we tell the execution engine to stop processing all pending
+      // queries.
+      memgraph::query::Shutdown(&interpreter_context);
+
+      websocket_server.Shutdown();
+    };
+
+    InitSignalHandlers(shutdown);
+  }
+#else
   // Handler for regular termination signals
   auto shutdown = [&websocket_server, &server, &interpreter_context] {
     // Server needs to be shutdown first and then the database. This prevents
@@ -1025,13 +1074,21 @@ int main(int argc, char **argv) {
     // connections we tell the execution engine to stop processing all pending
     // queries.
     memgraph::query::Shutdown(&interpreter_context);
+
     websocket_server.Shutdown();
   };
 
   InitSignalHandlers(shutdown);
+#endif
 
   MG_ASSERT(server.Start(), "Couldn't start the Bolt server!");
   websocket_server.Start();
+
+#ifdef MG_ENTERPRISE
+  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    metrics_server.Start();
+  }
+#endif
 
   if (!FLAGS_init_data_file.empty()) {
     spdlog::info("Running init data file.");
@@ -1046,6 +1103,11 @@ int main(int argc, char **argv) {
 
   server.AwaitShutdown();
   websocket_server.AwaitShutdown();
+#ifdef MG_ENTERPRISE
+  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    metrics_server.AwaitShutdown();
+  }
+#endif
 
   memgraph::query::procedure::gModuleRegistry.UnloadAllModules();
 

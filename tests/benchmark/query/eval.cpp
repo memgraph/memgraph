@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -59,6 +59,8 @@ static void MapLiteral(benchmark::State &state) {
 BENCHMARK_TEMPLATE(MapLiteral, NewDeleteResource)->Range(512, 1U << 15U)->Unit(benchmark::kMicrosecond);
 
 BENCHMARK_TEMPLATE(MapLiteral, MonotonicBufferResource)->Range(512, 1U << 15U)->Unit(benchmark::kMicrosecond);
+
+// TODO ante benchmark template for MapProjectionLiteral
 
 template <class TMemory>
 // NOLINTNEXTLINE(google-runtime-references)

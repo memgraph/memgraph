@@ -1,3 +1,15 @@
+# Copyright 2023 Memgraph Ltd.
+#
+# Use of this software is governed by the Business Source License
+# included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+# License, and you may not use this file except in compliance with the Business Source License.
+#
+# As of the Change Date specified in that file, in accordance with
+# the Business Source License, use of this software will be governed
+# by the Apache License, Version 2.0, included in the file
+# licenses/APL.txt.
+
+# --- DISCLAIMER: This is NOT an official implementation of an LDBC Benchmark. ---
 import inspect
 import random
 from datetime import datetime
@@ -10,7 +22,6 @@ from workloads.importers.importer_ldbc_interactive import *
 
 
 class LDBC_Interactive(Workload):
-
     NAME = "ldbc_interactive"
     VARIANTS = ["sf0.1", "sf1", "sf3", "sf10"]
     DEFAULT_VARIANT = "sf1"
@@ -31,7 +42,7 @@ class LDBC_Interactive(Workload):
     SIZES = {
         "sf0.1": {"vertices": 327588, "edges": 1477965},
         "sf1": {"vertices": 3181724, "edges": 17256038},
-        "sf3": {"vertices": 1, "edges": 1},
+        "sf3": {"vertices": 9281922, "edges": 52695735},
         "sf10": {"vertices": 1, "edges": 1},
     }
 
@@ -44,8 +55,8 @@ class LDBC_Interactive(Workload):
 
     QUERY_PARAMETERS = {
         "sf0.1": "https://repository.surfsara.nl/datasets/cwi/snb/files/substitution_parameters/substitution_parameters-sf0.1.tar.zst",
-        "sf1": "https://repository.surfsara.nl/datasets/cwi/snb/files/substitution_parameters/substitution_parameters-sf0.1.tar.zst",
-        "sf3": "https://repository.surfsara.nl/datasets/cwi/snb/files/substitution_parameters/substitution_parameters-sf0.1.tar.zst",
+        "sf1": "https://repository.surfsara.nl/datasets/cwi/snb/files/substitution_parameters/substitution_parameters-sf1.tar.zst",
+        "sf3": "https://repository.surfsara.nl/datasets/cwi/snb/files/substitution_parameters/substitution_parameters-sf3.tar.zst",
     }
 
     def custom_import(self) -> bool:
@@ -61,7 +72,7 @@ class LDBC_Interactive(Workload):
     def _prepare_parameters_directory(self):
         parameters = Path() / ".cache" / "datasets" / self.NAME / self._variant / "parameters"
         parameters.mkdir(parents=True, exist_ok=True)
-        dir_name = self.QUERY_PARAMETERS[self._variant].split("/")[-1:][0].removesuffix(".tar.zst")
+        dir_name = self.QUERY_PARAMETERS[self._variant].split("/")[-1:][0].replace(".tar.zst", "")
         if (parameters / dir_name).exists():
             print("Files downloaded:")
             parameters = parameters / dir_name
@@ -230,7 +241,6 @@ class LDBC_Interactive(Workload):
         )
 
     def benchmark__interactive__complex_query_3_analytical(self):
-
         memgraph = (
             """
             MATCH (countryX:Country {name: $countryXName }),
@@ -327,8 +337,9 @@ class LDBC_Interactive(Workload):
             RETURN tag.name AS tagName, postCount
             ORDER BY postCount DESC, tagName ASC
             LIMIT 10
-
-            """,
+            """.replace(
+                "\n", ""
+            ),
             self._get_query_parameters(),
         )
 
@@ -351,8 +362,9 @@ class LDBC_Interactive(Workload):
             RETURN tag.name AS tagName, postCount
             ORDER BY postCount DESC, tagName ASC
             LIMIT 10
-
-            """,
+            """.replace(
+                "\n", ""
+            ),
             self._get_query_parameters(),
         )
 
@@ -527,72 +539,6 @@ class LDBC_Interactive(Workload):
             ),
             self._get_query_parameters(),
         )
-
-    def benchmark__interactive__complex_query_10_analytical(self):
-        memgraph = (
-            """
-            MATCH (person:Person {id: $personId})-[:KNOWS*2..2]-(friend),
-                (friend)-[:IS_LOCATED_IN]->(city:City)
-            WHERE NOT friend=person AND
-                NOT (friend)-[:KNOWS]-(person)
-            WITH person, city, friend, datetime({epochMillis: friend.birthday}) as birthday
-            WHERE  (birthday.month=$month AND birthday.day>=21) OR
-                    (birthday.month=($month%12)+1 AND birthday.day<22)
-            WITH DISTINCT friend, city, person
-            OPTIONAL MATCH (friend)<-[:HAS_CREATOR]-(post:Post)
-            WITH friend, city, collect(post) AS posts, person
-            WITH friend,
-                city,
-                size(posts) AS postCount,
-                size([p IN posts WHERE (p)-[:HAS_TAG]->()<-[:HAS_INTEREST]-(person)]) AS commonPostCount
-            RETURN friend.id AS personId,
-                friend.firstName AS personFirstName,
-                friend.lastName AS personLastName,
-                commonPostCount - (postCount - commonPostCount) AS commonInterestScore,
-                friend.gender AS personGender,
-                city.name AS personCityName
-            ORDER BY commonInterestScore DESC, personId ASC
-            LIMIT 10
-            """.replace(
-                "\n", ""
-            ),
-            self._get_query_parameters(),
-        )
-
-        neo4j = (
-            """
-            MATCH (person:Person {id: $personId})-[:KNOWS*2..2]-(friend),
-                (friend)-[:IS_LOCATED_IN]->(city:City)
-            WHERE NOT friend=person AND
-                NOT (friend)-[:KNOWS]-(person)
-            WITH person, city, friend, datetime({epochMillis: friend.birthday}) as birthday
-            WHERE  (birthday.month=$month AND birthday.day>=21) OR
-                    (birthday.month=($month%12)+1 AND birthday.day<22)
-            WITH DISTINCT friend, city, person
-            OPTIONAL MATCH (friend)<-[:HAS_CREATOR]-(post:Post)
-            WITH friend, city, collect(post) AS posts, person
-            WITH friend,
-                city,
-                size(posts) AS postCount,
-                size([p IN posts WHERE (p)-[:HAS_TAG]->()<-[:HAS_INTEREST]-(person)]) AS commonPostCount
-            RETURN friend.id AS personId,
-                friend.firstName AS personFirstName,
-                friend.lastName AS personLastName,
-                commonPostCount - (postCount - commonPostCount) AS commonInterestScore,
-                friend.gender AS personGender,
-                city.name AS personCityName
-            ORDER BY commonInterestScore DESC, personId ASC
-            LIMIT 10
-            """.replace(
-                "\n", ""
-            ),
-            self._get_query_parameters(),
-        )
-
-        if self._vendor == "memgraph":
-            return memgraph
-        else:
-            return neo4j
 
     def benchmark__interactive__complex_query_11_analytical(self):
         return (
