@@ -33,4 +33,4 @@ for file in $modified_files; do
   fi
 done;
 
-return ${FAIL}
+exit ${FAIL}
