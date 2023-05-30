@@ -108,7 +108,7 @@ constexpr const char *kMgPassfile = "MEMGRAPH_PASSFILE";
 
 constexpr const char *kServerNameSettingKey = "server.name";
 static const auto kMgDefaultName = std::string("Memgraph/") + version_string;
-memgraph::utils::Synchronized<std::string, memgraph::utils::ReadPrioritizedRWLock> bolt_server_name_;
+static memgraph::utils::Synchronized<std::string, memgraph::utils::ReadPrioritizedRWLock> bolt_server_name_;
 
 // Short help flag.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
