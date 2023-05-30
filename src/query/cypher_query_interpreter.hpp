@@ -108,6 +108,7 @@ struct ParsedQuery {
   Query *query;
   std::vector<AuthQuery::Privilege> required_privileges;
   bool is_cacheable{true};
+  bool has_all_shortest{false};
 };
 
 ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::string, storage::PropertyValue> &params,

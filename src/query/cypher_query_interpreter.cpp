@@ -51,6 +51,7 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
   // Return a copy of both the AST storage and the query.
   CachedQuery result;
   bool is_cacheable = true;
+  bool has_all_shortest = false;
 
   auto get_information_from_cache = [&](const auto &cached_query) {
     result.ast_storage.properties_ = cached_query.ast_storage.properties_;
@@ -84,7 +85,7 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
     if (visitor.GetQueryInfo().has_load_csv && !query_config.allow_load_csv) {
       throw utils::BasicException("Load CSV not allowed on this instance because it was disabled by a config.");
     }
-
+    has_all_shortest = visitor.GetQueryInfo().has_all_shortest;
     if (visitor.GetQueryInfo().is_cacheable) {
       CachedQuery cached_query{std::move(ast_storage), visitor.query(), query::GetRequiredPrivileges(visitor.query())};
       it = accessor.insert({hash, std::move(cached_query)}).first;
@@ -111,7 +112,8 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
                      std::move(result.ast_storage),
                      result.query,
                      std::move(result.required_privileges),
-                     is_cacheable};
+                     is_cacheable,
+                     has_all_shortest};
 }
 
 std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters,

@@ -1895,6 +1895,7 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
       case 1:
         if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH ||
             edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS) {
+          query_info_.has_all_shortest = true;
           // For wShortest and allShortest, the first (and required) lambda is
           // used for weight calculation.
           edge->weight_lambda_ = visit_lambda(relationshipLambdas[0]);
@@ -1902,6 +1903,7 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
           // Add mandatory inner variables for filter lambda.
           anonymous_identifiers.push_back(&edge->filter_lambda_.inner_edge);
           anonymous_identifiers.push_back(&edge->filter_lambda_.inner_node);
+
         } else {
           // Other variable expands only have the filter lambda.
           edge->filter_lambda_ = visit_lambda(relationshipLambdas[0]);

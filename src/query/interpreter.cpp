@@ -51,6 +51,7 @@
 #include "query/stream/common.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
+#include "spdlog/spdlog.h"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/isolation_level.hpp"
@@ -1275,8 +1276,9 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
         "conversion functions such as ToInteger, ToFloat, ToBoolean etc.");
     contains_csv = true;
   }
-  // If this is LOAD CSV query, use PoolResource without MonotonicMemoryResource as we want to reuse allocated memory
-  auto use_monotonic_memory = !contains_csv;
+  // If this is LOAD CSV or AllShortest paths query, use PoolResource without MonotonicMemoryResource as we want to
+  // reuse allocated memory
+  auto use_monotonic_memory = !contains_csv && !parsed_query.has_all_shortest;
   auto plan = CypherQueryToPlan(parsed_query.stripped_query.hash(), std::move(parsed_query.ast_storage), cypher_query,
                                 parsed_query.parameters,
                                 parsed_query.is_cacheable ? &interpreter_context->plan_cache : nullptr, dba);
@@ -1404,8 +1406,9 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                   [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
     contains_csv = true;
   }
-  // If this is LOAD CSV query, use PoolResource without MonotonicMemoryResource as we want to reuse allocated memory
-  auto use_monotonic_memory = !contains_csv;
+  // If this is LOAD CSV or AllShortest paths query, use PoolResource without MonotonicMemoryResource as we want to
+  // reuse allocated memory
+  auto use_monotonic_memory = !contains_csv && !parsed_query.has_all_shortest;
 
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in PROFILE");
   Frame frame(0);
@@ -2736,6 +2739,26 @@ void Interpreter::RollbackTransaction() {
   transaction_queries_->clear();
 }
 
+// bool IsAllShortestPathsQuery(std::vector<memgraph::query::Clause *> &clauses){
+//   for(auto &clause: clauses){
+//     if (clause->GetTypeInfo() == Match::kType){
+//       auto *match_clause = utils::Downcast<Match>(clause);
+//       for(auto &pattern: match_clause->patterns_){
+//         for (auto &atom: pattern->atoms_){
+//           if (atom->GetTypeInfo() == EdgeAtom::kType){
+//             auto *edge_atom = utils::Downcast<EdgeAtom>(atom);
+//             if (edge_atom->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS){
+//               return true;
+//               spdlog::trace("Has all shortest from our visitor");
+//             }
+//           }
+//         }
+//       }
+//     }
+//   }
+//   return false;
+// }
+
 Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                                 const std::map<std::string, storage::PropertyValue> &params,
                                                 const std::string *username) {
@@ -2798,14 +2821,16 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         auto *profile_query = utils::Downcast<ProfileQuery>(parsed_query.query);
         cypher_query = profile_query->cypher_query_;
       }
-
+      bool is_all_shortest_cypher_visitor = parsed_query.has_all_shortest;
+      spdlog::trace("Has all shortest {}", is_all_shortest_cypher_visitor);
       if (const auto &clauses = cypher_query->single_query_->clauses_;
-          std::any_of(clauses.begin(), clauses.end(),
-                      [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
+          is_all_shortest_cypher_visitor || std::any_of(clauses.begin(), clauses.end(), [](const auto *clause) {
+            return clause->GetTypeInfo() == LoadCsv::kType;
+          })) {
         // Using PoolResource without MonotonicMemoryResouce for LOAD CSV reduces memory usage.
         // QueryExecution MemoryResource is mostly used for allocations done on Frame and storing `row`s
-        query_executions_[query_executions_.size() - 1] = std::make_unique<QueryExecution>(
-            utils::PoolResource(8, kExecutionPoolMaxBlockSize, utils::NewDeleteResource(), utils::NewDeleteResource()));
+        query_executions_[query_executions_.size() - 1] = std::make_unique<QueryExecution>(utils::PoolResource(
+            128, kExecutionPoolMaxBlockSize, utils::NewDeleteResource(), utils::NewDeleteResource()));
         query_execution_ptr = &query_executions_.back();
       }
     }
