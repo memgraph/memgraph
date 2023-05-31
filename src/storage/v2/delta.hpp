@@ -152,8 +152,8 @@ struct Delta {
   struct RemoveInEdgeTag {};
   struct RemoveOutEdgeTag {};
 
-  Delta(DeleteDeserializedObjectTag, uint64_t timestamp)
-      : action(Action::DELETE_DESERIALIZED_OBJECT), timestamp(new std::atomic<uint64_t>(timestamp)), command_id(0) {}
+  Delta(DeleteDeserializedObjectTag, std::atomic<uint64_t> *timestamp)
+      : action(Action::DELETE_DESERIALIZED_OBJECT), timestamp(timestamp), command_id(0) {}
 
   Delta(DeleteObjectTag, std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : action(Action::DELETE_OBJECT), timestamp(timestamp), command_id(command_id) {}
@@ -214,12 +214,10 @@ struct Delta {
       case Action::ADD_OUT_EDGE:
       case Action::REMOVE_IN_EDGE:
       case Action::REMOVE_OUT_EDGE:
+      case Action::DELETE_DESERIALIZED_OBJECT:
         break;
       case Action::SET_PROPERTY:
         property.value.~PropertyValue();
-        break;
-      case Action::DELETE_DESERIALIZED_OBJECT:
-        delete timestamp;
         break;
     }
   }

@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "rocksdb_storage.hpp"
+#include <string_view>
 #include "utils/rocksdb_serialization.hpp"
 
 namespace memgraph::storage {
@@ -50,9 +51,11 @@ int ComparatorWithU64TsImpl::CompareWithoutTimestamp(const rocksdb::Slice &a, bo
   const size_t ts_sz = timestamp_size();
   assert(!a_has_ts || a.size() >= ts_sz);
   assert(!b_has_ts || b.size() >= ts_sz);
-  rocksdb::Slice lhs = a_has_ts ? StripTimestampFromUserKey(a, ts_sz) : a;
-  rocksdb::Slice rhs = b_has_ts ? StripTimestampFromUserKey(b, ts_sz) : b;
-  return cmp_without_ts_->Compare(lhs, rhs);
+  rocksdb::Slice lhsUserKey = a_has_ts ? StripTimestampFromUserKey(a, ts_sz) : a;
+  rocksdb::Slice rhsUserKey = b_has_ts ? StripTimestampFromUserKey(b, ts_sz) : b;
+  rocksdb::Slice lhsGid = ExtractGidFromUserKey(lhsUserKey);
+  rocksdb::Slice rhsGid = ExtractGidFromUserKey(rhsUserKey);
+  return cmp_without_ts_->Compare(lhsGid, rhsGid);
 }
 
 int ComparatorWithU64TsImpl::CompareTimestamp(const rocksdb::Slice &ts1, const rocksdb::Slice &ts2) const {
@@ -67,6 +70,12 @@ int ComparatorWithU64TsImpl::CompareTimestamp(const rocksdb::Slice &ts1, const r
     return 1;
   }
   return 0;
+}
+
+std::string_view ComparatorWithU64TsImpl::ExtractGidFromUserKey(const rocksdb::Slice &key) const {
+  assert(key.size() >= 2);
+  auto keyStrView = key.ToStringView();
+  return keyStrView.substr(keyStrView.find_last_of('|') + 1);
 }
 
 }  // namespace memgraph::storage

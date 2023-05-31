@@ -73,19 +73,19 @@ class DiskStorage final : public Storage {
                               const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                               const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
 
-    int64_t ApproximateVertexCount() const override;
+    uint64_t ApproximateVertexCount() const override;
 
-    int64_t ApproximateVertexCount(LabelId label) const override { return 10; }
+    uint64_t ApproximateVertexCount(LabelId label) const override { return 10; }
 
-    int64_t ApproximateVertexCount(LabelId label, PropertyId property) const override { return 10; }
+    uint64_t ApproximateVertexCount(LabelId label, PropertyId property) const override { return 10; }
 
-    int64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const override {
+    uint64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const override {
       return 10;
     }
 
-    int64_t ApproximateVertexCount(LabelId label, PropertyId property,
-                                   const std::optional<utils::Bound<PropertyValue>> &lower,
-                                   const std::optional<utils::Bound<PropertyValue>> &upper) const override {
+    uint64_t ApproximateVertexCount(LabelId label, PropertyId property,
+                                    const std::optional<utils::Bound<PropertyValue>> &lower,
+                                    const std::optional<utils::Bound<PropertyValue>> &upper) const override {
       return 10;
     }
 
@@ -178,7 +178,8 @@ class DiskStorage final : public Storage {
 
     /// TODO(andi): Consolidate this vertex creation methods and find from in-memory version where are they used.
     VertexAccessor CreateVertex(utils::SkipList<Vertex>::Accessor &accessor, storage::Gid gid,
-                                uint64_t vertex_commit_ts, std::vector<LabelId> label_ids, std::string_view properties);
+                                uint64_t vertex_commit_ts, const std::vector<LabelId> &label_ids,
+                                std::string_view properties);
 
     void PrefetchEdges(const auto &prefetch_edge_filter);
 

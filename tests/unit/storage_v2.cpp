@@ -36,7 +36,6 @@ class StorageV2Test : public testing::Test {
   }
 
   void TearDown() override {
-    std::string dbPath;
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       std::filesystem::remove_all(config_.disk.main_storage_directory);
       std::filesystem::remove_all(config_.disk.label_index_directory);
@@ -1345,15 +1344,29 @@ TYPED_TEST(StorageV2Test, VertexLabelSerializationError) {
     ASSERT_EQ(vertex->Labels(memgraph::storage::View::NEW)->size(), 0);
 
     {
-      auto res = vertex->AddLabel(label1);
-      ASSERT_TRUE(res.HasError());
-      ASSERT_EQ(res.GetError(), memgraph::storage::Error::SERIALIZATION_ERROR);
+      auto res = vertex->AddLabel(label2);
+      if (std::is_same<TypeParam, memgraph::storage::InMemoryStorage>::value) {
+        // InMemoryStorage works with pessimistic transactions.
+        ASSERT_TRUE(res.HasError());
+        ASSERT_EQ(res.GetError(), memgraph::storage::Error::SERIALIZATION_ERROR);
+      } else {
+        // Disk storage works with optimistic transactions.
+        ASSERT_TRUE(res.HasValue());
+        ASSERT_TRUE(res.GetValue());
+      }
     }
   }
 
   // Finalize both accessors.
   ASSERT_FALSE(acc1->Commit().HasError());
-  acc2->Abort();
+  if (std::is_same<TypeParam, memgraph::storage::InMemoryStorage>::value) {
+    acc2->Abort();
+  } else {
+    // Disk storage works with optimistic transactions. So on write conflict, transaction fails on commit.
+    auto res = acc2->Commit();
+    ASSERT_TRUE(res.HasError());
+    ASSERT_EQ(std::get<memgraph::storage::SerializationError>(res.GetError()), memgraph::storage::SerializationError());
+  }
 
   // Check which labels exist.
   {
@@ -1845,14 +1858,28 @@ TYPED_TEST(StorageV2Test, VertexPropertySerializationError) {
 
     {
       auto res = vertex->SetProperty(property2, memgraph::storage::PropertyValue("nandare"));
-      ASSERT_TRUE(res.HasError());
-      ASSERT_EQ(res.GetError(), memgraph::storage::Error::SERIALIZATION_ERROR);
+      if (std::is_same<TypeParam, memgraph::storage::InMemoryStorage>::value) {
+        // InMemoryStorage works with pessimistic transactions.
+        ASSERT_TRUE(res.HasError());
+        ASSERT_EQ(res.GetError(), memgraph::storage::Error::SERIALIZATION_ERROR);
+      } else {
+        // Disk storage works with optimistic transactions.
+        ASSERT_TRUE(res.HasValue());
+        ASSERT_TRUE(res->IsNull());
+      }
     }
   }
 
   // Finalize both accessors.
   ASSERT_FALSE(acc1->Commit().HasError());
-  acc2->Abort();
+  if (std::is_same<TypeParam, memgraph::storage::InMemoryStorage>::value) {
+    acc2->Abort();
+  } else {
+    // Disk storage works with optimistic transactions. So on write conflict, transaction fails on commit.
+    auto res = acc2->Commit();
+    ASSERT_TRUE(res.HasError());
+    ASSERT_EQ(std::get<memgraph::storage::SerializationError>(res.GetError()), memgraph::storage::SerializationError());
+  }
 
   // Check which properties exist.
   {

@@ -34,15 +34,17 @@
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "query/plan/operator.hpp"
+#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/synchronized.hpp"
 
 using namespace memgraph::query;
 using namespace memgraph::query::plan;
 
+template <typename StorageType>
 class MatchReturnFixture : public testing::Test {
  protected:
-  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  std::unique_ptr<memgraph::storage::Storage> db{new StorageType()};
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   AstStorage storage;
@@ -73,60 +75,64 @@ class MatchReturnFixture : public testing::Test {
   }
 };
 
-TEST_F(MatchReturnFixture, MatchReturn) {
-  AddVertices(2);
-  dba.AdvanceCommand();
+// using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::DiskStorage>;
+TYPED_TEST_CASE(MatchReturnFixture, StorageTypes);
+
+TYPED_TEST(MatchReturnFixture, MatchReturn) {
+  this->AddVertices(2);
+  this->dba.AdvanceCommand();
 
   auto test_pull_count = [&](memgraph::storage::View view) {
-    auto scan_all = MakeScanAll(storage, symbol_table, "n", nullptr, view);
-    auto output =
-        NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+    auto scan_all = MakeScanAll(this->storage, this->symbol_table, "n", nullptr, view);
+    auto output = this->NEXPR("n", this->IDENT("n")->MapTo(scan_all.sym_))
+                      ->MapTo(this->symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(scan_all.op_, output);
-    auto context = MakeContext(storage, symbol_table, &dba);
+    auto context = MakeContext(this->storage, this->symbol_table, &this->dba);
     return PullAll(*produce, &context);
   };
 
   EXPECT_EQ(2, test_pull_count(memgraph::storage::View::NEW));
   EXPECT_EQ(2, test_pull_count(memgraph::storage::View::OLD));
-  dba.InsertVertex();
+  this->dba.InsertVertex();
   EXPECT_EQ(3, test_pull_count(memgraph::storage::View::NEW));
   EXPECT_EQ(2, test_pull_count(memgraph::storage::View::OLD));
-  dba.AdvanceCommand();
+  this->dba.AdvanceCommand();
   EXPECT_EQ(3, test_pull_count(memgraph::storage::View::OLD));
 }
 
-TEST_F(MatchReturnFixture, MatchReturnPath) {
-  AddVertices(2);
-  dba.AdvanceCommand();
+TYPED_TEST(MatchReturnFixture, MatchReturnPath) {
+  this->AddVertices(2);
+  this->dba.AdvanceCommand();
 
-  auto scan_all = MakeScanAll(storage, symbol_table, "n", nullptr);
-  Symbol path_sym = symbol_table.CreateSymbol("path", true);
+  auto scan_all = MakeScanAll(this->storage, this->symbol_table, "n", nullptr);
+  Symbol path_sym = this->symbol_table.CreateSymbol("path", true);
   auto make_path = std::make_shared<ConstructNamedPath>(scan_all.op_, path_sym, std::vector<Symbol>{scan_all.sym_});
-  auto output =
-      NEXPR("path", IDENT("path")->MapTo(path_sym))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+  auto output = this->NEXPR("path", this->IDENT("path")->MapTo(path_sym))
+                    ->MapTo(this->symbol_table.CreateSymbol("named_expression_1", true));
   auto produce = MakeProduce(make_path, output);
-  auto results = PathResults(produce);
+  auto results = this->PathResults(produce);
   ASSERT_EQ(results.size(), 2);
   std::vector<memgraph::query::Path> expected_paths;
-  for (const auto &v : dba.Vertices(memgraph::storage::View::OLD)) expected_paths.emplace_back(v);
+  for (const auto &v : this->dba.Vertices(memgraph::storage::View::OLD)) expected_paths.emplace_back(v);
   ASSERT_EQ(expected_paths.size(), 2);
   EXPECT_TRUE(std::is_permutation(expected_paths.begin(), expected_paths.end(), results.begin()));
 }
 
 #ifdef MG_ENTERPRISE
-TEST_F(MatchReturnFixture, ScanAllWithAuthChecker) {
+TYPED_TEST(MatchReturnFixture, ScanAllWithAuthChecker) {
   std::string labelName = "l1";
-  const auto label = dba.NameToLabel(labelName);
+  const auto label = this->dba.NameToLabel(labelName);
 
-  ASSERT_TRUE(dba.InsertVertex().AddLabel(label).HasValue());
-  dba.AdvanceCommand();
+  ASSERT_TRUE(this->dba.InsertVertex().AddLabel(label).HasValue());
+  this->dba.AdvanceCommand();
 
   auto test_hypothesis = [&](memgraph::auth::User user, memgraph::storage::View view, int expected_pull_count) {
-    auto scan_all = MakeScanAll(storage, symbol_table, "n", nullptr, view);
-    ASSERT_EQ(expected_pull_count, PullCountAuthorized(scan_all, user));
+    auto scan_all = MakeScanAll(this->storage, this->symbol_table, "n", nullptr, view);
+    ASSERT_EQ(expected_pull_count, this->PullCountAuthorized(scan_all, user));
 
-    scan_all = MakeScanAll(storage, symbol_table, "n", nullptr, view);
-    ASSERT_EQ(expected_pull_count, PullCountAuthorized(scan_all, user));
+    scan_all = MakeScanAll(this->storage, this->symbol_table, "n", nullptr, view);
+    ASSERT_EQ(expected_pull_count, this->PullCountAuthorized(scan_all, user));
   };
 
   {
@@ -205,9 +211,18 @@ TEST_F(MatchReturnFixture, ScanAllWithAuthChecker) {
 }
 #endif
 
-TEST(QueryPlan, MatchReturnCartesian) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+template <typename StorageType>
+class QueryPlan : public testing::Test {
+ public:
+  std::unique_ptr<memgraph::storage::Storage> db{new StorageType()};
+};
+
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+// using StorageTypes = ::testing::Types<memgraph::storage::DiskStorage>;
+TYPED_TEST_CASE(QueryPlan, StorageTypes);
+
+TYPED_TEST(QueryPlan, MatchReturnCartesian) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   ASSERT_TRUE(dba.InsertVertex().AddLabel(dba.NameToLabel("l1")).HasValue());
@@ -231,9 +246,8 @@ TEST(QueryPlan, MatchReturnCartesian) {
   EXPECT_NE(results[0][1].ValueVertex(), results[1][1].ValueVertex());
 }
 
-TEST(QueryPlan, StandaloneReturn) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlan, StandaloneReturn) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // add a few nodes to the database
@@ -255,9 +269,8 @@ TEST(QueryPlan, StandaloneReturn) {
   EXPECT_EQ(results[0][0].ValueInt(), 42);
 }
 
-TEST(QueryPlan, NodeFilterLabelsAndProperties) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlan, NodeFilterLabelsAndProperties) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // add a few nodes to the database
@@ -309,9 +322,8 @@ TEST(QueryPlan, NodeFilterLabelsAndProperties) {
   EXPECT_EQ(2, PullAll(*produce, &context));
 }
 
-TEST(QueryPlan, NodeFilterMultipleLabels) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlan, NodeFilterMultipleLabels) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // add a few nodes to the database
@@ -356,9 +368,8 @@ TEST(QueryPlan, NodeFilterMultipleLabels) {
   EXPECT_EQ(results.size(), 2);
 }
 
-TEST(QueryPlan, Cartesian) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlan, Cartesian) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto add_vertex = [&dba](std::string label) {
@@ -395,9 +406,8 @@ TEST(QueryPlan, Cartesian) {
   }
 }
 
-TEST(QueryPlan, CartesianEmptySet) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlan, CartesianEmptySet) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   AstStorage storage;
@@ -418,9 +428,8 @@ TEST(QueryPlan, CartesianEmptySet) {
   EXPECT_EQ(results.size(), 0);
 }
 
-TEST(QueryPlan, CartesianThreeWay) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlan, CartesianThreeWay) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto add_vertex = [&dba](std::string label) {
     auto vertex = dba.InsertVertex();
@@ -2625,9 +2634,8 @@ TEST_F(QueryPlanExpandAllShortestPaths, BasicWithFineGrainedFiltering) {
 }
 #endif
 
-TEST(QueryPlan, ExpandOptional) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlan, ExpandOptional) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   AstStorage storage;
@@ -2678,9 +2686,8 @@ TEST(QueryPlan, ExpandOptional) {
   EXPECT_EQ(2, v1_is_n_count);
 }
 
-TEST(QueryPlan, OptionalMatchEmptyDB) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlan, OptionalMatchEmptyDB) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   AstStorage storage;
@@ -2698,9 +2705,8 @@ TEST(QueryPlan, OptionalMatchEmptyDB) {
   EXPECT_EQ(results[0][0].type(), TypedValue::Type::Null);
 }
 
-TEST(QueryPlan, OptionalMatchEmptyDBExpandFromNode) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlan, OptionalMatchEmptyDBExpandFromNode) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   AstStorage storage;
   SymbolTable symbol_table;
@@ -2723,9 +2729,8 @@ TEST(QueryPlan, OptionalMatchEmptyDBExpandFromNode) {
   EXPECT_EQ(0, results.size());
 }
 
-TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Make a graph with 2 connected, unlabeled nodes.
   auto v1 = dba.InsertVertex();
@@ -2769,9 +2774,8 @@ TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
   EXPECT_EQ(0, results.size());
 }
 
-TEST(QueryPlan, ExpandExistingNode) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlan, ExpandExistingNode) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // make a graph (v1)->(v2) that
@@ -2807,11 +2811,10 @@ TEST(QueryPlan, ExpandExistingNode) {
   test_existing(false, 2);
 }
 
-TEST(QueryPlan, ExpandBothCycleEdgeCase) {
+TYPED_TEST(QueryPlan, ExpandBothCycleEdgeCase) {
   // we're testing that expanding on BOTH
   // does only one expansion for a cycle
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto v = dba.InsertVertex();
@@ -2828,9 +2831,8 @@ TEST(QueryPlan, ExpandBothCycleEdgeCase) {
   EXPECT_EQ(1, PullAll(*r_.op_, &context));
 }
 
-TEST(QueryPlan, EdgeFilter) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlan, EdgeFilter) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // make an N-star expanding from (v1)
@@ -2890,9 +2892,8 @@ TEST(QueryPlan, EdgeFilter) {
   EXPECT_EQ(3, test_filter());
 }
 
-TEST(QueryPlan, EdgeFilterMultipleTypes) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlan, EdgeFilterMultipleTypes) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto v1 = dba.InsertVertex();
@@ -2922,9 +2923,8 @@ TEST(QueryPlan, EdgeFilterMultipleTypes) {
   EXPECT_EQ(results.size(), 2);
 }
 
-TEST(QueryPlan, Filter) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlan, Filter) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // add a 6 nodes with property 'prop', 2 have true as value
@@ -2948,9 +2948,8 @@ TEST(QueryPlan, Filter) {
   EXPECT_EQ(CollectProduce(*produce, &context).size(), 2);
 }
 
-TEST(QueryPlan, EdgeUniquenessFilter) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlan, EdgeUniquenessFilter) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // make a graph that has (v1)->(v2) and a recursive edge (v1)->(v1)
@@ -2982,12 +2981,11 @@ TEST(QueryPlan, EdgeUniquenessFilter) {
   EXPECT_EQ(1, check_expand_results(true));
 }
 
-TEST(QueryPlan, Distinct) {
+TYPED_TEST(QueryPlan, Distinct) {
   // test queries like
   // UNWIND [1, 2, 3, 3] AS x RETURN DISTINCT x
 
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access();
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   AstStorage storage;
   SymbolTable symbol_table;
@@ -3029,11 +3027,10 @@ TEST(QueryPlan, Distinct) {
       {TypedValue(3), TypedValue("two"), TypedValue(), TypedValue(true), TypedValue(false), TypedValue("TWO")}, false);
 }
 
-TEST(QueryPlan, ScanAllByLabel) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto label = db->NameToLabel("label");
-  [[maybe_unused]] auto _ = db->CreateIndex(label);
-  auto storage_dba = db->Access();
+TYPED_TEST(QueryPlan, ScanAllByLabel) {
+  auto label = this->db->NameToLabel("label");
+  [[maybe_unused]] auto _ = this->db->CreateIndex(label);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Add a vertex with a label and one without.
   auto labeled_vertex = dba.InsertVertex();
@@ -3056,11 +3053,10 @@ TEST(QueryPlan, ScanAllByLabel) {
   EXPECT_EQ(result_row[0].ValueVertex(), labeled_vertex);
 }
 
-TEST(QueryPlan, ScanAllByLabelProperty) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+TYPED_TEST(QueryPlan, ScanAllByLabelProperty) {
   // Add 5 vertices with same label, but with different property values.
-  auto label = db->NameToLabel("label");
-  auto prop = db->NameToProperty("prop");
+  auto label = this->db->NameToLabel("label");
+  auto prop = this->db->NameToProperty("prop");
   // vertex property values that will be stored into the DB
   std::vector<memgraph::storage::PropertyValue> values{
       memgraph::storage::PropertyValue(true),
@@ -3081,7 +3077,7 @@ TEST(QueryPlan, ScanAllByLabelProperty) {
       memgraph::storage::PropertyValue(
           std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(2)})};
   {
-    auto storage_dba = db->Access();
+    auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     for (const auto &value : values) {
       auto vertex = dba.InsertVertex();
@@ -3090,9 +3086,9 @@ TEST(QueryPlan, ScanAllByLabelProperty) {
     }
     ASSERT_FALSE(dba.Commit().HasError());
   }
-  [[maybe_unused]] auto _ = db->CreateIndex(label, prop);
+  [[maybe_unused]] auto _ = this->db->CreateIndex(label, prop);
 
-  auto storage_dba = db->Access();
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   ASSERT_EQ(14, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
 
@@ -3167,14 +3163,13 @@ TEST(QueryPlan, ScanAllByLabelProperty) {
                QueryRuntimeException);
 }
 
-TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+TYPED_TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
   // Add 2 vertices with same label, but with property values that cannot be
   // compared. On the other hand, equality works fine.
-  auto label = db->NameToLabel("label");
-  auto prop = db->NameToProperty("prop");
+  auto label = this->db->NameToLabel("label");
+  auto prop = this->db->NameToProperty("prop");
   {
-    auto storage_dba = db->Access();
+    auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto number_vertex = dba.InsertVertex();
     ASSERT_TRUE(number_vertex.AddLabel(label).HasValue());
@@ -3184,9 +3179,9 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
     ASSERT_TRUE(string_vertex.SetProperty(prop, memgraph::storage::PropertyValue("string")).HasValue());
     ASSERT_FALSE(dba.Commit().HasError());
   }
-  [[maybe_unused]] auto _ = db->CreateIndex(label, prop);
+  [[maybe_unused]] auto _ = this->db->CreateIndex(label, prop);
 
-  auto storage_dba = db->Access();
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   EXPECT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
   // MATCH (n :label {prop: 42})
@@ -3207,12 +3202,11 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
   EXPECT_TRUE(eq(value, TypedValue(42)));
 }
 
-TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto label = db->NameToLabel("label");
-  auto prop = db->NameToProperty("prop");
+TYPED_TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
+  auto label = this->db->NameToLabel("label");
+  auto prop = this->db->NameToProperty("prop");
   {
-    auto storage_dba = db->Access();
+    auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     for (int i = 0; i < 2; ++i) {
       auto vertex = dba.InsertVertex();
@@ -3221,9 +3215,9 @@ TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
     }
     ASSERT_FALSE(dba.Commit().HasError());
   }
-  [[maybe_unused]] auto _ = db->CreateIndex(label, prop);
+  [[maybe_unused]] auto _ = this->db->CreateIndex(label, prop);
 
-  auto storage_dba = db->Access();
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   EXPECT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
   // MATCH (m), (n :label {prop: m})
@@ -3238,12 +3232,11 @@ TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
   EXPECT_THROW(PullAll(*scan_index.op_, &context), QueryRuntimeException);
 }
 
-TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto label = db->NameToLabel("label");
-  auto prop = db->NameToProperty("prop");
+TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
+  auto label = this->db->NameToLabel("label");
+  auto prop = this->db->NameToProperty("prop");
   {
-    auto storage_dba = db->Access();
+    auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     for (int i = 0; i < 2; ++i) {
       auto vertex = dba.InsertVertex();
@@ -3252,9 +3245,9 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
     }
     ASSERT_FALSE(dba.Commit().HasError());
   }
-  [[maybe_unused]] auto _ = db->CreateIndex(label, prop);
+  [[maybe_unused]] auto _ = this->db->CreateIndex(label, prop);
 
-  auto storage_dba = db->Access();
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   EXPECT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
   // MATCH (m), (n :label {prop: m})
@@ -3288,15 +3281,14 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
   }
 }
 
-TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+TYPED_TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
   // Add 2 vertices with the same label, but one has a property value while
   // the other does not. Checking if the value is equal to null, should
   // yield no results.
-  auto label = db->NameToLabel("label");
-  auto prop = db->NameToProperty("prop");
+  auto label = this->db->NameToLabel("label");
+  auto prop = this->db->NameToProperty("prop");
   {
-    auto storage_dba = db->Access();
+    auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto vertex = dba.InsertVertex();
     ASSERT_TRUE(vertex.AddLabel(label).HasValue());
@@ -3305,9 +3297,9 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
     ASSERT_TRUE(vertex_with_prop.SetProperty(prop, memgraph::storage::PropertyValue(42)).HasValue());
     ASSERT_FALSE(dba.Commit().HasError());
   }
-  [[maybe_unused]] auto _ = db->CreateIndex(label, prop);
+  [[maybe_unused]] auto _ = this->db->CreateIndex(label, prop);
 
-  auto storage_dba = db->Access();
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   EXPECT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
   // MATCH (n :label {prop: 42})
@@ -3323,15 +3315,14 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
   EXPECT_EQ(results.size(), 0);
 }
 
-TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
   // Add 2 vertices with the same label, but one has a property value while
   // the other does not. Checking if the value is between nulls, should
   // yield no results.
-  auto label = db->NameToLabel("label");
-  auto prop = db->NameToProperty("prop");
+  auto label = this->db->NameToLabel("label");
+  auto prop = this->db->NameToProperty("prop");
   {
-    auto storage_dba = db->Access();
+    auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto vertex = dba.InsertVertex();
     ASSERT_TRUE(vertex.AddLabel(label).HasValue());
@@ -3340,9 +3331,9 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
     ASSERT_TRUE(vertex_with_prop.SetProperty(prop, memgraph::storage::PropertyValue(42)).HasValue());
     ASSERT_FALSE(dba.Commit().HasError());
   }
-  [[maybe_unused]] auto _ = db->CreateIndex(label, prop);
+  [[maybe_unused]] auto _ = this->db->CreateIndex(label, prop);
 
-  auto storage_dba = db->Access();
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   EXPECT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
   // MATCH (n :label) WHERE null <= n.prop < null
@@ -3359,21 +3350,20 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
   EXPECT_EQ(results.size(), 0);
 }
 
-TEST(QueryPlan, ScanAllByLabelPropertyNoValueInIndexContinuation) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto label = db->NameToLabel("label");
-  auto prop = db->NameToProperty("prop");
+TYPED_TEST(QueryPlan, ScanAllByLabelPropertyNoValueInIndexContinuation) {
+  auto label = this->db->NameToLabel("label");
+  auto prop = this->db->NameToProperty("prop");
   {
-    auto storage_dba = db->Access();
+    auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto v = dba.InsertVertex();
     ASSERT_TRUE(v.AddLabel(label).HasValue());
     ASSERT_TRUE(v.SetProperty(prop, memgraph::storage::PropertyValue(2)).HasValue());
     ASSERT_FALSE(dba.Commit().HasError());
   }
-  [[maybe_unused]] auto _ = db->CreateIndex(label, prop);
+  [[maybe_unused]] auto _ = this->db->CreateIndex(label, prop);
 
-  auto storage_dba = db->Access();
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
 
@@ -3394,17 +3384,16 @@ TEST(QueryPlan, ScanAllByLabelPropertyNoValueInIndexContinuation) {
   EXPECT_EQ(PullAll(*scan_all.op_, &context), 1);
 }
 
-TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
-  auto db = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
-  auto label = db->NameToLabel("label");
-  auto prop = db->NameToProperty("prop");
+TYPED_TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
+  auto label = this->db->NameToLabel("label");
+  auto prop = this->db->NameToProperty("prop");
 
   // Insert vertices
   const int vertex_count = 300, vertex_prop_count = 50;
   const int prop_value1 = 42, prop_value2 = 69;
 
   for (int i = 0; i < vertex_count; ++i) {
-    auto storage_dba = db->Access();
+    auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto v = dba.InsertVertex();
     ASSERT_TRUE(v.AddLabel(label).HasValue());
@@ -3413,20 +3402,20 @@ TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
     ASSERT_FALSE(dba.Commit().HasError());
   }
 
-  [[maybe_unused]] auto _ = db->CreateIndex(label, prop);
+  [[maybe_unused]] auto _ = this->db->CreateIndex(label, prop);
 
   // Make sure there are `vertex_count` vertices
   {
-    auto storage_dba = db->Access();
+    auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     EXPECT_EQ(vertex_count, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
   }
 
   // Make sure there are `vertex_prop_count` results when using index
-  auto count_with_index = [&db, &label, &prop](int prop_value, int prop_count) {
+  auto count_with_index = [this, &label, &prop](int prop_value, int prop_count) {
     AstStorage storage;
     SymbolTable symbol_table;
-    auto storage_dba = db->Access();
+    auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto scan_all_by_label_property_value =
         MakeScanAllByLabelPropertyValue(storage, symbol_table, "n", label, prop, "prop", LITERAL(prop_value));
@@ -3438,10 +3427,10 @@ TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
   };
 
   // Make sure there are `vertex_count` results when using scan all
-  auto count_with_scan_all = [&db, &prop](int prop_value, int prop_count) {
+  auto count_with_scan_all = [this, &prop](int prop_value, int prop_count) {
     AstStorage storage;
     SymbolTable symbol_table;
-    auto storage_dba = db->Access();
+    auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto scan_all = MakeScanAll(storage, symbol_table, "n");
     auto e = PROPERTY_LOOKUP(IDENT("n")->MapTo(scan_all.sym_), std::make_pair("prop", prop));

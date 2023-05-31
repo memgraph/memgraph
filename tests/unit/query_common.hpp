@@ -513,7 +513,7 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
 #define WHERE(expr) storage.Create<memgraph::query::Where>((expr))
 #define CREATE(...) \
   memgraph::query::test_common::GetWithPatterns(storage.Create<memgraph::query::Create>(), {__VA_ARGS__})
-#define IDENT(...) storage.Create<memgraph::query::Identifier>(__VA_ARGS__)
+#define IDENT(...) storage.template Create<memgraph::query::Identifier>(__VA_ARGS__)
 #define LITERAL(val) storage.template Create<memgraph::query::PrimitiveLiteral>((val))
 #define LIST(...) \
   storage.template Create<memgraph::query::ListLiteral>(std::vector<memgraph::query::Expression *>{__VA_ARGS__})
@@ -523,7 +523,7 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
 #define PROPERTY_PAIR(property_name) std::make_pair(property_name, dba.NameToProperty(property_name))
 #define PROPERTY_LOOKUP(...) memgraph::query::test_common::GetPropertyLookup(storage, dba, __VA_ARGS__)
 #define PARAMETER_LOOKUP(token_position) storage.Create<memgraph::query::ParameterLookup>((token_position))
-#define NEXPR(name, expr) storage.Create<memgraph::query::NamedExpression>((name), (expr))
+#define NEXPR(name, expr) storage.template Create<memgraph::query::NamedExpression>((name), (expr))
 // AS is alternative to NEXPR which does not initialize NamedExpression with
 // Expression. It should be used with RETURN or WITH. For example:
 // RETURN(IDENT("n"), AS("n")) vs. RETURN(NEXPR("n", IDENT("n"))).

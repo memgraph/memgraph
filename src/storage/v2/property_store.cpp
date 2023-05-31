@@ -1253,6 +1253,10 @@ std::string PropertyStore::StringBuffer() const {
 }
 
 void PropertyStore::SetBuffer(const std::string_view buffer) {
+  if (buffer.empty()) {
+    return;
+  }
+
   uint64_t size = 0;
   uint8_t *data = nullptr;
   if (buffer.size() == sizeof(buffer_) - 1) {  // use local buffer

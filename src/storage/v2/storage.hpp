@@ -108,27 +108,27 @@ class Storage {
 
     /// Return approximate number of all vertices in the database.
     /// Note that this is always an over-estimate and never an under-estimate.
-    virtual int64_t ApproximateVertexCount() const = 0;
+    virtual uint64_t ApproximateVertexCount() const = 0;
 
     /// Return approximate number of vertices with the given label.
     /// Note that this is always an over-estimate and never an under-estimate.
-    virtual int64_t ApproximateVertexCount(LabelId label) const = 0;
+    virtual uint64_t ApproximateVertexCount(LabelId label) const = 0;
 
     /// Return approximate number of vertices with the given label and property.
     /// Note that this is always an over-estimate and never an under-estimate.
-    virtual int64_t ApproximateVertexCount(LabelId label, PropertyId property) const = 0;
+    virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property) const = 0;
 
     /// Return approximate number of vertices with the given label and the given
     /// value for the given property. Note that this is always an over-estimate
     /// and never an under-estimate.
-    virtual int64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const = 0;
+    virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const = 0;
 
     /// Return approximate number of vertices with the given label and value for
     /// the given property in the range defined by provided upper and lower
     /// bounds.
-    virtual int64_t ApproximateVertexCount(LabelId label, PropertyId property,
-                                           const std::optional<utils::Bound<PropertyValue>> &lower,
-                                           const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
+    virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property,
+                                            const std::optional<utils::Bound<PropertyValue>> &lower,
+                                            const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
 
     virtual std::optional<storage::IndexStats> GetIndexStats(const storage::LabelId &label,
                                                              const storage::PropertyId &property) const = 0;

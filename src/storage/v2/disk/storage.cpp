@@ -418,9 +418,13 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   throw utils::NotYetImplemented("DiskStorage::DiskAccessor::Vertices(label, property, lower_bound, upper_bound)");
 }
 
-int64_t DiskStorage::DiskAccessor::ApproximateVertexCount() const {
+uint64_t DiskStorage::DiskAccessor::ApproximateVertexCount() const {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  return disk_storage->kvstore_->ApproximateVertexCount();
+  auto estimatedCount = disk_storage->kvstore_->ApproximateVertexCount();
+  if (estimatedCount == 0) {
+    estimatedCount = vertices_.size();
+  }
+  return estimatedCount;
 }
 
 VertexAccessor DiskStorage::DiskAccessor::CreateVertex() {
@@ -481,7 +485,7 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex(storage::Gid gid) {
 /// TODO(andi): This method is the duplicate of CreateVertex(storage::Gid gid), the only thing that is different is
 /// delta creation How to remove this duplication?
 VertexAccessor DiskStorage::DiskAccessor::CreateVertex(utils::SkipList<Vertex>::Accessor &accessor, storage::Gid gid,
-                                                       uint64_t vertex_commit_ts, std::vector<LabelId> label_ids,
+                                                       uint64_t vertex_commit_ts, const std::vector<LabelId> &label_ids,
                                                        std::string_view properties) {
   OOMExceptionEnabler oom_exception;
   // NOTE: When we update the next `vertex_id_` here we perform a RMW

@@ -76,20 +76,20 @@ class InMemoryStorage final : public Storage {
 
     /// Return approximate number of all vertices in the database.
     /// Note that this is always an over-estimate and never an under-estimate.
-    int64_t ApproximateVertexCount() const override {
+    uint64_t ApproximateVertexCount() const override {
       auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
       return mem_storage->vertices_.size();
     }
 
     /// Return approximate number of vertices with the given label.
     /// Note that this is always an over-estimate and never an under-estimate.
-    int64_t ApproximateVertexCount(LabelId label) const override {
+    uint64_t ApproximateVertexCount(LabelId label) const override {
       return static_cast<InMemoryStorage *>(storage_)->indices_.label_index_->ApproximateVertexCount(label);
     }
 
     /// Return approximate number of vertices with the given label and property.
     /// Note that this is always an over-estimate and never an under-estimate.
-    int64_t ApproximateVertexCount(LabelId label, PropertyId property) const override {
+    uint64_t ApproximateVertexCount(LabelId label, PropertyId property) const override {
       return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index_->ApproximateVertexCount(label,
                                                                                                               property);
     }
@@ -97,7 +97,7 @@ class InMemoryStorage final : public Storage {
     /// Return approximate number of vertices with the given label and the given
     /// value for the given property. Note that this is always an over-estimate
     /// and never an under-estimate.
-    int64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const override {
+    uint64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const override {
       return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index_->ApproximateVertexCount(
           label, property, value);
     }
@@ -105,9 +105,9 @@ class InMemoryStorage final : public Storage {
     /// Return approximate number of vertices with the given label and value for
     /// the given property in the range defined by provided upper and lower
     /// bounds.
-    int64_t ApproximateVertexCount(LabelId label, PropertyId property,
-                                   const std::optional<utils::Bound<PropertyValue>> &lower,
-                                   const std::optional<utils::Bound<PropertyValue>> &upper) const override {
+    uint64_t ApproximateVertexCount(LabelId label, PropertyId property,
+                                    const std::optional<utils::Bound<PropertyValue>> &lower,
+                                    const std::optional<utils::Bound<PropertyValue>> &upper) const override {
       return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index_->ApproximateVertexCount(
           label, property, lower, upper);
     }
