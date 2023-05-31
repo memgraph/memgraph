@@ -513,17 +513,17 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
 #define WHERE(expr) storage.Create<memgraph::query::Where>((expr))
 #define CREATE(...) \
   memgraph::query::test_common::GetWithPatterns(storage.Create<memgraph::query::Create>(), {__VA_ARGS__})
-#define IDENT(...) storage.template Create<memgraph::query::Identifier>(__VA_ARGS__)
-#define LITERAL(val) storage.template Create<memgraph::query::PrimitiveLiteral>((val))
+#define IDENT(...) this->storage.template Create<memgraph::query::Identifier>(__VA_ARGS__)
+#define LITERAL(val) this->storage.template Create<memgraph::query::PrimitiveLiteral>((val))
 #define LIST(...) \
-  storage.template Create<memgraph::query::ListLiteral>(std::vector<memgraph::query::Expression *>{__VA_ARGS__})
-#define MAP(...)                               \
-  storage.Create<memgraph::query::MapLiteral>( \
+  this->storage.template Create<memgraph::query::ListLiteral>(std::vector<memgraph::query::Expression *>{__VA_ARGS__})
+#define MAP(...)                                              \
+  this->storage.template Create<memgraph::query::MapLiteral>( \
       std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>{__VA_ARGS__})
 #define PROPERTY_PAIR(property_name) std::make_pair(property_name, dba.NameToProperty(property_name))
-#define PROPERTY_LOOKUP(...) memgraph::query::test_common::GetPropertyLookup(storage, dba, __VA_ARGS__)
+#define PROPERTY_LOOKUP(...) memgraph::query::test_common::GetPropertyLookup(this->storage, this->dba, __VA_ARGS__)
 #define PARAMETER_LOOKUP(token_position) storage.Create<memgraph::query::ParameterLookup>((token_position))
-#define NEXPR(name, expr) storage.template Create<memgraph::query::NamedExpression>((name), (expr))
+#define NEXPR(name, expr) this->storage.template Create<memgraph::query::NamedExpression>((name), (expr))
 // AS is alternative to NEXPR which does not initialize NamedExpression with
 // Expression. It should be used with RETURN or WITH. For example:
 // RETURN(IDENT("n"), AS("n")) vs. RETURN(NEXPR("n", IDENT("n"))).
@@ -564,7 +564,7 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
 #define UPLUS(expr) storage.Create<memgraph::query::UnaryPlusOperator>((expr))
 #define UMINUS(expr) storage.Create<memgraph::query::UnaryMinusOperator>((expr))
 #define IS_NULL(expr) storage.Create<memgraph::query::IsNullOperator>((expr))
-#define ADD(expr1, expr2) storage.Create<memgraph::query::AdditionOperator>((expr1), (expr2))
+#define ADD(expr1, expr2) this->storage.template Create<memgraph::query::AdditionOperator>((expr1), (expr2))
 #define LESS(expr1, expr2) storage.Create<memgraph::query::LessOperator>((expr1), (expr2))
 #define LESS_EQ(expr1, expr2) storage.Create<memgraph::query::LessEqualOperator>((expr1), (expr2))
 #define GREATER(expr1, expr2) storage.Create<memgraph::query::GreaterOperator>((expr1), (expr2))
@@ -578,7 +578,7 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
 #define COLLECT_LIST(expr, distinct)                                                                            \
   storage.Create<memgraph::query::Aggregation>((expr), nullptr, memgraph::query::Aggregation::Op::COLLECT_LIST, \
                                                (distinct))
-#define EQ(expr1, expr2) storage.Create<memgraph::query::EqualOperator>((expr1), (expr2))
+#define EQ(expr1, expr2) this->storage.template Create<memgraph::query::EqualOperator>((expr1), (expr2))
 #define NEQ(expr1, expr2) storage.Create<memgraph::query::NotEqualOperator>((expr1), (expr2))
 #define AND(expr1, expr2) storage.Create<memgraph::query::AndOperator>((expr1), (expr2))
 #define OR(expr1, expr2) storage.Create<memgraph::query::OrOperator>((expr1), (expr2))
