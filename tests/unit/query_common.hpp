@@ -585,9 +585,9 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
 #define IN_LIST(expr1, expr2) storage.Create<memgraph::query::InListOperator>((expr1), (expr2))
 #define IF(cond, then, else) storage.Create<memgraph::query::IfOperator>((cond), (then), (else))
 // Function call
-#define FN(function_name, ...)                                                                    \
-  storage.template Create<memgraph::query::Function>(memgraph::utils::ToUpperCase(function_name), \
-                                                     std::vector<memgraph::query::Expression *>{__VA_ARGS__})
+#define FN(function_name, ...)                                                                          \
+  this->storage.template Create<memgraph::query::Function>(memgraph::utils::ToUpperCase(function_name), \
+                                                           std::vector<memgraph::query::Expression *>{__VA_ARGS__})
 // List slicing
 #define SLICE(list, lower_bound, upper_bound) \
   storage.Create<memgraph::query::ListSlicingOperator>(list, lower_bound, upper_bound)
@@ -604,7 +604,7 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
   storage.Create<memgraph::query::Reduce>(storage.Create<memgraph::query::Identifier>(accumulator), initializer, \
                                           storage.Create<memgraph::query::Identifier>(variable), list, expr)
 #define COALESCE(...) \
-  storage.template Create<memgraph::query::Coalesce>(std::vector<memgraph::query::Expression *>{__VA_ARGS__})
+  this->storage.template Create<memgraph::query::Coalesce>(std::vector<memgraph::query::Expression *>{__VA_ARGS__})
 #define EXTRACT(variable, list, expr) \
   storage.Create<memgraph::query::Extract>(storage.Create<memgraph::query::Identifier>(variable), list, expr)
 #define EXISTS(pattern) storage.Create<memgraph::query::Exists>(pattern)

@@ -738,7 +738,7 @@ TYPED_TEST(ExpressionEvaluatorTest, ParameterLookup) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAll1) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *all = ALL("x", this->LIST(this->LITERAL(1), this->LITERAL(1)), WHERE(EQ(ident_x, this->LITERAL(1))));
+  auto *all = ALL("x", LIST(LITERAL(1), LITERAL(1)), WHERE(EQ(ident_x, LITERAL(1))));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   all->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -750,7 +750,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionAll1) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAll2) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *all = ALL("x", this->LIST(this->LITERAL(1), this->LITERAL(2)), WHERE(EQ(ident_x, this->LITERAL(1))));
+  auto *all = ALL("x", LIST(LITERAL(1), LITERAL(2)), WHERE(EQ(ident_x, LITERAL(1))));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   all->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -761,7 +761,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionAll2) {
 
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAllNullList) {
   AstStorage storage;
-  auto *all = ALL("x", this->LITERAL(memgraph::storage::PropertyValue()), WHERE(this->LITERAL(true)));
+  auto *all = ALL("x", LITERAL(memgraph::storage::PropertyValue()), WHERE(LITERAL(true)));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   all->identifier_->MapTo(x_sym);
   auto value = this->Eval(all);
@@ -771,8 +771,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionAllNullList) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAllNullElementInList1) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *all = ALL("x", this->LIST(this->LITERAL(1), this->LITERAL(memgraph::storage::PropertyValue())),
-                  WHERE(EQ(ident_x, this->LITERAL(1))));
+  auto *all = ALL("x", LIST(LITERAL(1), LITERAL(memgraph::storage::PropertyValue())), WHERE(EQ(ident_x, LITERAL(1))));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   all->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -784,8 +783,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionAllNullElementInList1) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAllNullElementInList2) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *all = ALL("x", this->LIST(this->LITERAL(2), this->LITERAL(memgraph::storage::PropertyValue())),
-                  WHERE(EQ(ident_x, this->LITERAL(1))));
+  auto *all = ALL("x", LIST(LITERAL(2), LITERAL(memgraph::storage::PropertyValue())), WHERE(EQ(ident_x, LITERAL(1))));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   all->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -796,7 +794,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionAllNullElementInList2) {
 
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAllWhereWrongType) {
   AstStorage storage;
-  auto *all = ALL("x", this->LIST(this->LITERAL(1)), WHERE(this->LITERAL(2)));
+  auto *all = ALL("x", LIST(LITERAL(1)), WHERE(LITERAL(2)));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   all->identifier_->MapTo(x_sym);
   EXPECT_THROW(this->Eval(all), QueryRuntimeException);
@@ -805,7 +803,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionAllWhereWrongType) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionSingle1) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *single = SINGLE("x", this->LIST(this->LITERAL(1), this->LITERAL(2)), WHERE(EQ(ident_x, this->LITERAL(1))));
+  auto *single = SINGLE("x", LIST(LITERAL(1), LITERAL(2)), WHERE(EQ(ident_x, LITERAL(1))));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   single->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -817,7 +815,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionSingle1) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionSingle2) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *single = SINGLE("x", this->LIST(this->LITERAL(1), this->LITERAL(2)), WHERE(GREATER(ident_x, this->LITERAL(0))));
+  auto *single = SINGLE("x", LIST(LITERAL(1), LITERAL(2)), WHERE(GREATER(ident_x, LITERAL(0))));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   single->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -828,7 +826,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionSingle2) {
 
 TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullList) {
   AstStorage storage;
-  auto *single = SINGLE("x", this->LITERAL(memgraph::storage::PropertyValue()), WHERE(this->LITERAL(true)));
+  auto *single = SINGLE("x", LITERAL(memgraph::storage::PropertyValue()), WHERE(LITERAL(true)));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   single->identifier_->MapTo(x_sym);
   auto value = this->Eval(single);
@@ -838,8 +836,8 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullList) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullElementInList1) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *single = SINGLE("x", this->LIST(this->LITERAL(1), this->LITERAL(memgraph::storage::PropertyValue())),
-                        WHERE(EQ(ident_x, this->LITERAL(1))));
+  auto *single =
+      SINGLE("x", LIST(LITERAL(1), LITERAL(memgraph::storage::PropertyValue())), WHERE(EQ(ident_x, LITERAL(1))));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   single->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -851,8 +849,8 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullElementInList1) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullElementInList2) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *single = SINGLE("x", this->LIST(this->LITERAL(2), this->LITERAL(memgraph::storage::PropertyValue())),
-                        WHERE(EQ(ident_x, this->LITERAL(1))));
+  auto *single =
+      SINGLE("x", LIST(LITERAL(2), LITERAL(memgraph::storage::PropertyValue())), WHERE(EQ(ident_x, LITERAL(1))));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   single->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -864,7 +862,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullElementInList2) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAny1) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *any = ANY("x", this->LIST(this->LITERAL(1), this->LITERAL(2)), WHERE(EQ(ident_x, this->LITERAL(1))));
+  auto *any = ANY("x", LIST(LITERAL(1), LITERAL(2)), WHERE(EQ(ident_x, LITERAL(1))));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   any->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -876,7 +874,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionAny1) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAny2) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *any = ANY("x", this->LIST(this->LITERAL(1), this->LITERAL(2)), WHERE(EQ(ident_x, this->LITERAL(0))));
+  auto *any = ANY("x", LIST(LITERAL(1), LITERAL(2)), WHERE(EQ(ident_x, LITERAL(0))));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   any->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -887,7 +885,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionAny2) {
 
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAnyNullList) {
   AstStorage storage;
-  auto *any = ANY("x", this->LITERAL(memgraph::storage::PropertyValue()), WHERE(this->LITERAL(true)));
+  auto *any = ANY("x", LITERAL(memgraph::storage::PropertyValue()), WHERE(LITERAL(true)));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   any->identifier_->MapTo(x_sym);
   auto value = this->Eval(any);
@@ -897,8 +895,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionAnyNullList) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAnyNullElementInList1) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *any = ANY("x", this->LIST(this->LITERAL(0), this->LITERAL(memgraph::storage::PropertyValue())),
-                  WHERE(EQ(ident_x, this->LITERAL(0))));
+  auto *any = ANY("x", LIST(LITERAL(0), LITERAL(memgraph::storage::PropertyValue())), WHERE(EQ(ident_x, LITERAL(0))));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   any->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -909,8 +906,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionAnyNullElementInList1) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAnyNullElementInList2) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *any = ANY("x", this->LIST(this->LITERAL(1), this->LITERAL(memgraph::storage::PropertyValue())),
-                  WHERE(EQ(ident_x, this->LITERAL(0))));
+  auto *any = ANY("x", LIST(LITERAL(1), LITERAL(memgraph::storage::PropertyValue())), WHERE(EQ(ident_x, LITERAL(0))));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   any->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -920,7 +916,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionAnyNullElementInList2) {
 
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAnyWhereWrongType) {
   AstStorage storage;
-  auto *any = ANY("x", this->LIST(this->LITERAL(1)), WHERE(this->LITERAL(2)));
+  auto *any = ANY("x", LIST(LITERAL(1)), WHERE(LITERAL(2)));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   any->identifier_->MapTo(x_sym);
   EXPECT_THROW(this->Eval(any), QueryRuntimeException);
@@ -929,7 +925,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionAnyWhereWrongType) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionNone1) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *none = NONE("x", this->LIST(this->LITERAL(1), this->LITERAL(2)), WHERE(EQ(ident_x, this->LITERAL(0))));
+  auto *none = NONE("x", LIST(LITERAL(1), LITERAL(2)), WHERE(EQ(ident_x, LITERAL(0))));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   none->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -941,7 +937,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionNone1) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionNone2) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *none = NONE("x", this->LIST(this->LITERAL(1), this->LITERAL(2)), WHERE(EQ(ident_x, this->LITERAL(1))));
+  auto *none = NONE("x", LIST(LITERAL(1), LITERAL(2)), WHERE(EQ(ident_x, LITERAL(1))));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   none->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -952,7 +948,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionNone2) {
 
 TYPED_TEST(ExpressionEvaluatorTest, FunctionNoneNullList) {
   AstStorage storage;
-  auto *none = NONE("x", this->LITERAL(memgraph::storage::PropertyValue()), WHERE(this->LITERAL(true)));
+  auto *none = NONE("x", LITERAL(memgraph::storage::PropertyValue()), WHERE(LITERAL(true)));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   none->identifier_->MapTo(x_sym);
   auto value = this->Eval(none);
@@ -962,8 +958,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionNoneNullList) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionNoneNullElementInList1) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *any = NONE("x", this->LIST(this->LITERAL(1), this->LITERAL(memgraph::storage::PropertyValue())),
-                   WHERE(EQ(ident_x, this->LITERAL(0))));
+  auto *any = NONE("x", LIST(LITERAL(1), LITERAL(memgraph::storage::PropertyValue())), WHERE(EQ(ident_x, LITERAL(0))));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   any->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -974,8 +969,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionNoneNullElementInList1) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionNoneNullElementInList2) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *none = NONE("x", this->LIST(this->LITERAL(0), this->LITERAL(memgraph::storage::PropertyValue())),
-                    WHERE(EQ(ident_x, this->LITERAL(0))));
+  auto *none = NONE("x", LIST(LITERAL(0), LITERAL(memgraph::storage::PropertyValue())), WHERE(EQ(ident_x, LITERAL(0))));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   none->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -985,7 +979,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionNoneNullElementInList2) {
 
 TYPED_TEST(ExpressionEvaluatorTest, FunctionNoneWhereWrongType) {
   AstStorage storage;
-  auto *none = NONE("x", this->LIST(this->LITERAL(1)), WHERE(this->LITERAL(2)));
+  auto *none = NONE("x", LIST(LITERAL(1)), WHERE(LITERAL(2)));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   none->identifier_->MapTo(x_sym);
   EXPECT_THROW(this->Eval(none), QueryRuntimeException);
@@ -995,8 +989,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionReduce) {
   AstStorage storage;
   auto *ident_sum = IDENT("sum");
   auto *ident_x = IDENT("x");
-  auto *reduce =
-      REDUCE("sum", this->LITERAL(0), "x", this->LIST(this->LITERAL(1), this->LITERAL(2)), ADD(ident_sum, ident_x));
+  auto *reduce = REDUCE("sum", LITERAL(0), "x", LIST(LITERAL(1), LITERAL(2)), ADD(ident_sum, ident_x));
   const auto sum_sym = this->symbol_table.CreateSymbol("sum", true);
   reduce->accumulator_->MapTo(sum_sym);
   ident_sum->MapTo(sum_sym);
@@ -1012,8 +1005,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionExtract) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
   auto *extract =
-      EXTRACT("x", this->LIST(this->LITERAL(1), this->LITERAL(2), this->LITERAL(memgraph::storage::PropertyValue())),
-              ADD(ident_x, this->LITERAL(1)));
+      EXTRACT("x", LIST(LITERAL(1), LITERAL(2), LITERAL(memgraph::storage::PropertyValue())), ADD(ident_x, LITERAL(1)));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   extract->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -1029,7 +1021,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionExtract) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionExtractNull) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *extract = EXTRACT("x", this->LITERAL(memgraph::storage::PropertyValue()), ADD(ident_x, this->LITERAL(1)));
+  auto *extract = EXTRACT("x", LITERAL(memgraph::storage::PropertyValue()), ADD(ident_x, LITERAL(1)));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   extract->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -1040,7 +1032,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionExtractNull) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionExtractExceptions) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *extract = EXTRACT("x", this->LITERAL("bla"), ADD(ident_x, this->LITERAL(1)));
+  auto *extract = EXTRACT("x", LITERAL("bla"), ADD(ident_x, LITERAL(1)));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   extract->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -1049,63 +1041,49 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionExtractExceptions) {
 
 TYPED_TEST(ExpressionEvaluatorTest, Coalesce) {
   // coalesce()
-  EXPECT_THROW(this->Eval(this->COALESCE()), QueryRuntimeException);
+  EXPECT_THROW(this->Eval(COALESCE()), QueryRuntimeException);
 
   // coalesce(null, null)
-  EXPECT_TRUE(this->Eval(this->COALESCE(this->LITERAL(TypedValue()), this->LITERAL(TypedValue()))).IsNull());
+  EXPECT_TRUE(this->Eval(COALESCE(LITERAL(TypedValue()), LITERAL(TypedValue()))).IsNull());
 
   // coalesce(null, 2, 3)
-  EXPECT_EQ(this->Eval(this->COALESCE(this->LITERAL(TypedValue()), this->LITERAL(2), this->LITERAL(3))).ValueInt(), 2);
+  EXPECT_EQ(this->Eval(COALESCE(LITERAL(TypedValue()), LITERAL(2), LITERAL(3))).ValueInt(), 2);
 
   // coalesce(null, 2, assert(false), 3)
-  EXPECT_EQ(this->Eval(this->COALESCE(this->LITERAL(TypedValue()), this->LITERAL(2),
-                                      this->FN("ASSERT", this->LITERAL(false)), this->LITERAL(3)))
-                .ValueInt(),
-            2);
+  EXPECT_EQ(
+      this->Eval(COALESCE(LITERAL(TypedValue()), LITERAL(2), FN("ASSERT", LITERAL(false)), LITERAL(3))).ValueInt(), 2);
 
   // (null, assert(false))
-  EXPECT_THROW(this->Eval(this->COALESCE(this->LITERAL(TypedValue()), this->FN("ASSERT", this->LITERAL(false)))),
-               QueryRuntimeException);
+  EXPECT_THROW(this->Eval(COALESCE(LITERAL(TypedValue()), FN("ASSERT", LITERAL(false)))), QueryRuntimeException);
 
   // coalesce([null, null])
-  EXPECT_FALSE(
-      this->Eval(this->COALESCE(this->LITERAL(TypedValue(std::vector<TypedValue>{TypedValue(), TypedValue()}))))
-          .IsNull());
+  EXPECT_FALSE(this->Eval(COALESCE(LITERAL(TypedValue(std::vector<TypedValue>{TypedValue(), TypedValue()})))).IsNull());
 }
 
 TYPED_TEST(ExpressionEvaluatorTest, RegexMatchInvalidArguments) {
-  EXPECT_TRUE(this->Eval(this->storage.template Create<RegexMatch>(this->LITERAL(TypedValue()), this->LITERAL("regex")))
-                  .IsNull());
-  EXPECT_TRUE(this->Eval(this->storage.template Create<RegexMatch>(this->LITERAL(3), this->LITERAL("regex"))).IsNull());
+  EXPECT_TRUE(this->Eval(this->storage.template Create<RegexMatch>(LITERAL(TypedValue()), LITERAL("regex"))).IsNull());
+  EXPECT_TRUE(this->Eval(this->storage.template Create<RegexMatch>(LITERAL(3), LITERAL("regex"))).IsNull());
   EXPECT_TRUE(
-      this->Eval(this->storage.template Create<RegexMatch>(this->LIST(this->LITERAL("string")), this->LITERAL("regex")))
-          .IsNull());
-  EXPECT_TRUE(
-      this->Eval(this->storage.template Create<RegexMatch>(this->LITERAL("string"), this->LITERAL(TypedValue())))
-          .IsNull());
-  EXPECT_THROW(this->Eval(this->storage.template Create<RegexMatch>(this->LITERAL("string"), this->LITERAL(42))),
+      this->Eval(this->storage.template Create<RegexMatch>(LIST(LITERAL("string")), LITERAL("regex"))).IsNull());
+  EXPECT_TRUE(this->Eval(this->storage.template Create<RegexMatch>(LITERAL("string"), LITERAL(TypedValue()))).IsNull());
+  EXPECT_THROW(this->Eval(this->storage.template Create<RegexMatch>(LITERAL("string"), LITERAL(42))),
                QueryRuntimeException);
-  EXPECT_THROW(this->Eval(this->storage.template Create<RegexMatch>(this->LITERAL("string"),
-                                                                    this->LIST(this->LITERAL("regex")))),
+  EXPECT_THROW(this->Eval(this->storage.template Create<RegexMatch>(LITERAL("string"), LIST(LITERAL("regex")))),
                QueryRuntimeException);
 }
 
 TYPED_TEST(ExpressionEvaluatorTest, RegexMatchInvalidRegex) {
-  EXPECT_THROW(this->Eval(this->storage.template Create<RegexMatch>(this->LITERAL("text"), this->LITERAL("*ext"))),
+  EXPECT_THROW(this->Eval(this->storage.template Create<RegexMatch>(LITERAL("text"), LITERAL("*ext"))),
                QueryRuntimeException);
-  EXPECT_THROW(this->Eval(this->storage.template Create<RegexMatch>(this->LITERAL("text"), this->LITERAL("[ext"))),
+  EXPECT_THROW(this->Eval(this->storage.template Create<RegexMatch>(LITERAL("text"), LITERAL("[ext"))),
                QueryRuntimeException);
 }
 
 TYPED_TEST(ExpressionEvaluatorTest, RegexMatch) {
-  EXPECT_FALSE(
-      this->Eval(this->storage.template Create<RegexMatch>(this->LITERAL("text"), this->LITERAL(".*ex"))).ValueBool());
-  EXPECT_TRUE(
-      this->Eval(this->storage.template Create<RegexMatch>(this->LITERAL("text"), this->LITERAL(".*ext"))).ValueBool());
-  EXPECT_FALSE(
-      this->Eval(this->storage.template Create<RegexMatch>(this->LITERAL("text"), this->LITERAL("[ext]"))).ValueBool());
-  EXPECT_TRUE(this->Eval(this->storage.template Create<RegexMatch>(this->LITERAL("text"), this->LITERAL(".+[ext]")))
-                  .ValueBool());
+  EXPECT_FALSE(this->Eval(this->storage.template Create<RegexMatch>(LITERAL("text"), LITERAL(".*ex"))).ValueBool());
+  EXPECT_TRUE(this->Eval(this->storage.template Create<RegexMatch>(LITERAL("text"), LITERAL(".*ext"))).ValueBool());
+  EXPECT_FALSE(this->Eval(this->storage.template Create<RegexMatch>(LITERAL("text"), LITERAL("[ext]"))).ValueBool());
+  EXPECT_TRUE(this->Eval(this->storage.template Create<RegexMatch>(LITERAL("text"), LITERAL(".+[ext]"))).ValueBool());
 }
 
 template <typename StorageType>
