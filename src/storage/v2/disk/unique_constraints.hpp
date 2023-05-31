@@ -11,18 +11,16 @@
 
 #pragma once
 
-#include <set>
-
 #include "storage/v2/constraints/unique_constraints.hpp"
-
 namespace memgraph::storage {
 
 class DiskUniqueConstraints : public UniqueConstraints {
  public:
-  void UpdateBeforeCommit(const Vertex *vertex, const Transaction &tx) override;
+  explicit DiskUniqueConstraints();
 
-  utils::BasicResult<ConstraintViolation, CreationStatus> CreateConstraint(
-      LabelId label, const std::set<PropertyId> &properties, utils::SkipList<Vertex>::Accessor vertices) override;
+  bool CheckIfConstraintCanBeCreated(LabelId label, const std::set<PropertyId> &properties) const;
+
+  void InsertConstraint(LabelId label, const std::set<PropertyId> &properties);
 
   DeletionStatus DropConstraint(LabelId label, const std::set<PropertyId> &properties) override;
 
@@ -33,9 +31,10 @@ class DiskUniqueConstraints : public UniqueConstraints {
 
   std::vector<std::pair<LabelId, std::set<PropertyId>>> ListConstraints() const override;
 
-  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) override;
-
   void Clear() override;
+
+ private:
+  std::set<std::pair<LabelId, std::set<PropertyId>>> constraints_;
 };
 
 }  // namespace memgraph::storage

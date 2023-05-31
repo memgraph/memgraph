@@ -614,6 +614,8 @@ utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemory
 
     {
       std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
+      auto *mem_unique_constraints =
+          static_cast<InMemoryUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
       commit_timestamp_.emplace(mem_storage->CommitTimestamp(desired_commit_timestamp));
 
       // Before committing and validating vertices against unique constraints,
@@ -625,7 +627,7 @@ utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemory
         if (prev.type != PreviousPtr::Type::VERTEX) {
           continue;
         }
-        storage_->constraints_.unique_constraints_->UpdateBeforeCommit(prev.vertex, transaction_);
+        mem_unique_constraints->UpdateBeforeCommit(prev.vertex, transaction_);
       }
 
       // Validate that unique constraints are satisfied for all modified
@@ -1013,7 +1015,8 @@ utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::Cr
 InMemoryStorage::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
                                         const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  auto ret = constraints_.unique_constraints_->CreateConstraint(label, properties, vertices_.access());
+  auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints_.unique_constraints_.get());
+  auto ret = mem_unique_constraints->CreateConstraint(label, properties, vertices_.access());
   if (ret.HasError()) {
     return StorageUniqueConstraintDefinitionError{ret.GetError()};
   }
@@ -1306,7 +1309,8 @@ void InMemoryStorage::CollectGarbage() {
     // This operation is very expensive as it traverses through all of the items
     // in every index every time.
     indices_.RemoveObsoleteEntries(oldest_active_start_timestamp);
-    constraints_.unique_constraints_->RemoveObsoleteEntries(oldest_active_start_timestamp);
+    auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints_.unique_constraints_.get());
+    mem_unique_constraints->RemoveObsoleteEntries(oldest_active_start_timestamp);
   }
 
   {

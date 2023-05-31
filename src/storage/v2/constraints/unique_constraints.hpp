@@ -20,6 +20,9 @@
 
 namespace memgraph::storage {
 
+// NOLINTNEXTLINE(misc-definitions-in-headers)
+const size_t kUniqueConstraintsMaxProperties = 32;
+
 class UniqueConstraints {
  public:
   UniqueConstraints() = default;
@@ -43,11 +46,6 @@ class UniqueConstraints {
     PROPERTIES_SIZE_LIMIT_EXCEEDED,
   };
 
-  virtual void UpdateBeforeCommit(const Vertex *vertex, const Transaction &tx) = 0;
-
-  virtual utils::BasicResult<ConstraintViolation, CreationStatus> CreateConstraint(
-      LabelId label, const std::set<PropertyId> &properties, utils::SkipList<Vertex>::Accessor vertices) = 0;
-
   virtual DeletionStatus DropConstraint(LabelId label, const std::set<PropertyId> &properties) = 0;
 
   virtual bool ConstraintExists(LabelId label, const std::set<PropertyId> &properties) const = 0;
@@ -57,9 +55,18 @@ class UniqueConstraints {
 
   virtual std::vector<std::pair<LabelId, std::set<PropertyId>>> ListConstraints() const = 0;
 
-  virtual void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) = 0;
-
   virtual void Clear() = 0;
+
+ protected:
+  static DeletionStatus CheckPropertiesBeforeDeletion(const std::set<PropertyId> &properties) {
+    if (properties.empty()) {
+      return UniqueConstraints::DeletionStatus::EMPTY_PROPERTIES;
+    }
+    if (properties.size() > kUniqueConstraintsMaxProperties) {
+      return UniqueConstraints::DeletionStatus::PROPERTIES_SIZE_LIMIT_EXCEEDED;
+    }
+    return UniqueConstraints::DeletionStatus::SUCCESS;
+  }
 };
 
 }  // namespace memgraph::storage

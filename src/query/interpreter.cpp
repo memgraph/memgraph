@@ -2496,7 +2496,8 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
             if (maybe_constraint_error.HasError()) {
               const auto &error = maybe_constraint_error.GetError();
               std::visit(
-                  [&interpreter_context, &label_name, &properties_stringified]<typename T>(T &&arg) {
+                  [&interpreter_context, &label_name, &properties_stringified,
+                   &constraint_notification]<typename T>(T &&arg) {
                     using ErrorType = std::remove_cvref_t<T>;
                     if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
                       auto &violation = arg;
@@ -2510,6 +2511,11 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                           "Unable to create unique constraint :{}({}), because an "
                           "existing node violates it.",
                           violation_label_name, property_names_stream.str());
+                    } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintDefinitionError>) {
+                      constraint_notification.code = NotificationCode::EXISTENT_CONSTRAINT;
+                      constraint_notification.title =
+                          fmt::format("Constraint UNIQUE on label {} and properties {} couldn't be created.",
+                                      label_name, properties_stringified);
                     } else if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
                       throw ReplicationException(fmt::format(
                           "At least one SYNC replica has not confirmed the creation of the UNIQUE constraint: {}({}).",

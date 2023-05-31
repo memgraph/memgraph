@@ -35,7 +35,8 @@ using StorageExistenceConstraintDefinitionError =
 
 using StorageExistenceConstraintDroppingError = std::variant<ConstraintDefinitionError, ReplicationError>;
 
-using StorageUniqueConstraintDefinitionError = std::variant<ConstraintViolation, ReplicationError>;
+using StorageUniqueConstraintDefinitionError =
+    std::variant<ConstraintViolation, ConstraintDefinitionError, ReplicationError>;
 
 using StorageUniqueConstraintDroppingError = std::variant<ReplicationError>;
 

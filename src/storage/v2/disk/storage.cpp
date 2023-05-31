@@ -18,6 +18,7 @@
 #include <rocksdb/utilities/transaction_db.h>
 
 #include "storage/v2/disk/storage.hpp"
+#include "storage/v2/disk/unique_constraints.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/paths.hpp"
@@ -1019,15 +1020,17 @@ bool DiskStorage::DiskAccessor::DeleteEdgeFromDisk(const std::string &edge) {
 }
 
 [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void>
-DiskStorage::DiskAccessor::CheckExistenceConstraintsAndFlushMainMemoryCache() {
+DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
   /// Flush vertex cache.
   auto vertex_acc = vertices_.access();
   uint64_t num_ser_edges = 0;
 
   for (Vertex &vertex : vertex_acc) {
-    if (auto validation_result = storage_->constraints_.existence_constraints_->Validate(vertex);
-        validation_result.has_value()) {
-      return StorageDataManipulationError{validation_result.value()};
+    if (auto existence_constraint_validation_result = storage_->constraints_.existence_constraints_->Validate(vertex);
+        // auto unique_constraint_validation_result = storage_->constraints_.unique_constraints_->Validate(vertex);
+        // unique_constraint_validation_result.has_value() ||
+        existence_constraint_validation_result.has_value()) {
+      return StorageDataManipulationError{existence_constraint_validation_result.value()};
     }
 
     if (vertex.deleted) {
@@ -1080,7 +1083,7 @@ DiskStorage::DiskAccessor::CheckExistenceConstraintsAndFlushMainMemoryCache() {
 }
 
 [[nodiscard]] std::optional<ConstraintViolation> DiskStorage::CheckExistingVerticesBeforeCreatingExistenceConstraint(
-    LabelId label, PropertyId property) {
+    LabelId label, PropertyId property) const {
   rocksdb::ReadOptions ro;
   std::string strTs = utils::StringTimestamp(std::numeric_limits<uint64_t>::max());
   rocksdb::Slice ts(strTs);
@@ -1096,6 +1099,11 @@ DiskStorage::DiskAccessor::CheckExistenceConstraintsAndFlushMainMemoryCache() {
       return ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label, std::set<PropertyId>{property}};
     }
   }
+  return std::nullopt;
+}
+
+[[nodiscard]] std::optional<ConstraintViolation> DiskStorage::CheckExistingVerticesBeforeCreatingUniqueConstraint(
+    LabelId label, const std::set<PropertyId> &properties) const {
   return std::nullopt;
 }
 
@@ -1127,36 +1135,6 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
     {
       std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
       commit_timestamp_.emplace(disk_storage->CommitTimestamp(desired_commit_timestamp));
-
-      // Before committing and validating vertices against unique constraints,
-      // we have to update unique constraints with the vertices that are going
-      // to be validated/committed.
-      for (const auto &delta : transaction_.deltas) {
-        auto prev = delta.prev.Get();
-        MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-        if (prev.type != PreviousPtr::Type::VERTEX) {
-          continue;
-        }
-        storage_->constraints_.unique_constraints_->UpdateBeforeCommit(prev.vertex, transaction_);
-      }
-
-      // Validate that unique constraints are satisfied for all modified
-      // vertices.
-      for (const auto &delta : transaction_.deltas) {
-        auto prev = delta.prev.Get();
-        MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-        if (prev.type != PreviousPtr::Type::VERTEX) {
-          continue;
-        }
-
-        // No need to take any locks here because we modified this vertex and no
-        // one else can touch it until we commit.
-        unique_constraint_violation =
-            storage_->constraints_.unique_constraints_->Validate(*prev.vertex, transaction_, *commit_timestamp_);
-        if (unique_constraint_violation) {
-          break;
-        }
-      }
 
       if (!unique_constraint_violation) {
         // Write transaction to WAL while holding the engine lock to make sure
@@ -1198,12 +1176,7 @@ utils::BasicResult<StorageDataManipulationError, void> DiskStorage::DiskAccessor
       }
     }
 
-    if (unique_constraint_violation) {
-      Abort();
-      return StorageDataManipulationError{*unique_constraint_violation};
-    }
-
-    if (auto res = CheckExistenceConstraintsAndFlushMainMemoryCache(); res.HasError()) {
+    if (auto res = CheckConstraintsAndFlushMainMemoryCache(); res.HasError()) {
       Abort();
       return res;
     }
@@ -1506,7 +1479,6 @@ IndicesInfo DiskStorage::ListAllIndices() const {
   return {indices_.label_index_->ListIndices(), indices_.label_property_index_->ListIndices()};
 }
 
-// this should be handled on an above level of abstraction
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void> DiskStorage::CreateExistenceConstraint(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   OOMExceptionEnabler oom_exception;
@@ -1536,7 +1508,7 @@ utils::BasicResult<StorageExistenceConstraintDefinitionError, void> DiskStorage:
   return StorageExistenceConstraintDefinitionError{ReplicationError{}};
 }
 
-// this should be handled on an above level of abstraction
+/// TODO: andi Possible to move on abstract level
 utils::BasicResult<StorageExistenceConstraintDroppingError, void> DiskStorage::DropExistenceConstraint(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   if (!constraints_.existence_constraints_->DropConstraint(label, property)) {
@@ -1552,24 +1524,64 @@ utils::BasicResult<StorageExistenceConstraintDroppingError, void> DiskStorage::D
     return {};
   }
 
+  /// TODO: andi We don't support but return replication error. Refactor everything related to replication.
   return StorageExistenceConstraintDroppingError{ReplicationError{}};
 }
 
-// this should be handled on an above level of abstraction
 utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
 DiskStorage::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
                                     const std::optional<uint64_t> desired_commit_timestamp) {
-  throw utils::NotYetImplemented("CreateUniqueConstraint");
+  OOMExceptionEnabler oom_exception;
+  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+
+  auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(constraints_.unique_constraints_.get());
+
+  if (disk_unique_constraints->CheckIfConstraintCanBeCreated(label, properties)) {
+    return StorageUniqueConstraintDefinitionError{ConstraintDefinitionError{}};
+  }
+
+  if (auto check = CheckExistingVerticesBeforeCreatingUniqueConstraint(label, properties); check.has_value()) {
+    return StorageExistenceConstraintDefinitionError{check.value()};
+  }
+
+  disk_unique_constraints->InsertConstraint(label, properties);
+
+  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
+  auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE, label,
+                                           properties, commit_timestamp);
+  commit_log_->MarkFinished(commit_timestamp);
+  last_commit_timestamp_ = commit_timestamp;
+
+  if (success) {
+    return UniqueConstraints::CreationStatus::SUCCESS;
+  }
+  /// TODO: andi Remove replication error.
+  return StorageUniqueConstraintDefinitionError{ReplicationError{}};
 }
 
-// this should be handled on an above level of abstraction
+/// TODO: andi Possible to move on abstract level
 utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus>
 DiskStorage::DropUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
                                   const std::optional<uint64_t> desired_commit_timestamp) {
-  throw utils::NotYetImplemented("DropUniqueConstraint");
+  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+  auto ret = constraints_.unique_constraints_->DropConstraint(label, properties);
+  if (ret != UniqueConstraints::DeletionStatus::SUCCESS) {
+    return ret;
+  }
+  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
+  auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP, label,
+                                           properties, commit_timestamp);
+  commit_log_->MarkFinished(commit_timestamp);
+  last_commit_timestamp_ = commit_timestamp;
+
+  if (success) {
+    return UniqueConstraints::DeletionStatus::SUCCESS;
+  }
+
+  return StorageUniqueConstraintDroppingError{ReplicationError{}};
 }
 
-// this should be handled on an above level of abstraction
+/// TODO: andi this should be handled on an above level of abstraction
 ConstraintsInfo DiskStorage::ListAllConstraints() const {
   std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
   return {constraints_.existence_constraints_->ListConstraints(), constraints_.unique_constraints_->ListConstraints()};
@@ -1774,17 +1786,6 @@ void DiskStorage::CollectGarbage() {
       unlinked_undo_buffers.emplace_back(0, std::move(transaction->deltas));
       committed_transactions.pop_front();
     });
-  }
-
-  // After unlinking deltas from vertices, we refresh the indices. That way
-  // we're sure that none of the vertices from `current_deleted_vertices`
-  // appears in an index, and we can safely remove the from the main storage
-  // after the last currently active transaction is finished.
-  if (run_index_cleanup) {
-    // This operation is very expensive as it traverses through all of the items
-    // in every index every time.
-    // RemoveObsoleteEntries(&indices_, oldest_active_start_timestamp);
-    constraints_.unique_constraints_->RemoveObsoleteEntries(oldest_active_start_timestamp);
   }
 
   {

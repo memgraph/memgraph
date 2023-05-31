@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/storage.hpp"
@@ -194,8 +195,7 @@ class DiskStorage final : public Storage {
     /// Flushes vertices and edges to the disk with the commit timestamp.
     /// At the time of calling, the commit_timestamp_ must already exist.
     /// After this method, the vertex and edge caches are cleared.
-    [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void>
-    CheckExistenceConstraintsAndFlushMainMemoryCache();
+    [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> CheckConstraintsAndFlushMainMemoryCache();
 
     bool WriteVertexToDisk(const Vertex &vertex);
     bool WriteEdgeToDisk(const Edge *edgePtr, const std::string &serializedEdgeKey);
@@ -329,7 +329,10 @@ class DiskStorage final : public Storage {
 
  private:
   [[nodiscard]] std::optional<ConstraintViolation> CheckExistingVerticesBeforeCreatingExistenceConstraint(
-      LabelId label, PropertyId property);
+      LabelId label, PropertyId property) const;
+
+  [[nodiscard]] std::optional<ConstraintViolation> CheckExistingVerticesBeforeCreatingUniqueConstraint(
+      LabelId label, const std::set<PropertyId> &properties) const;
 
   /// The force parameter determines the behaviour of the garbage collector.
   /// If it's set to true, it will behave as a global operation, i.e. it can't

@@ -325,11 +325,9 @@ InMemoryUniqueConstraints::CreateConstraint(LabelId label, const std::set<Proper
 
 InMemoryUniqueConstraints::DeletionStatus InMemoryUniqueConstraints::DropConstraint(
     LabelId label, const std::set<PropertyId> &properties) {
-  if (properties.empty()) {
-    return UniqueConstraints::DeletionStatus::EMPTY_PROPERTIES;
-  }
-  if (properties.size() > kUniqueConstraintsMaxProperties) {
-    return UniqueConstraints::DeletionStatus::PROPERTIES_SIZE_LIMIT_EXCEEDED;
+  if (auto drop_properties_check_result = UniqueConstraints::CheckPropertiesBeforeDeletion(properties);
+      drop_properties_check_result != UniqueConstraints::DeletionStatus::SUCCESS) {
+    return drop_properties_check_result;
   }
   if (constraints_.erase({label, properties}) > 0) {
     return UniqueConstraints::DeletionStatus::SUCCESS;

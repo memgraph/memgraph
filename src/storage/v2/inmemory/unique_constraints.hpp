@@ -15,9 +15,6 @@
 
 namespace memgraph::storage {
 
-// NOLINTNEXTLINE(misc-definitions-in-headers)
-const size_t kUniqueConstraintsMaxProperties = 32;
-
 /// Utility class to store data in a fixed size array. The array is used
 /// instead of `std::vector` to avoid `std::bad_alloc` exception where not
 /// necessary.
@@ -52,7 +49,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   /// This method should be called before committing and validating vertices
   /// against unique constraints.
   /// @throw std::bad_alloc
-  void UpdateBeforeCommit(const Vertex *vertex, const Transaction &tx) override;
+  void UpdateBeforeCommit(const Vertex *vertex, const Transaction &tx);
 
   /// Creates unique constraint on the given `label` and a list of `properties`.
   /// Returns constraint violation if there are multiple vertices with the same
@@ -63,8 +60,9 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   /// exceeds the maximum allowed number of properties, and
   /// `CreationStatus::SUCCESS` on success.
   /// @throw std::bad_alloc
-  utils::BasicResult<ConstraintViolation, CreationStatus> CreateConstraint(
-      LabelId label, const std::set<PropertyId> &properties, utils::SkipList<Vertex>::Accessor vertices) override;
+  utils::BasicResult<ConstraintViolation, CreationStatus> CreateConstraint(LabelId label,
+                                                                           const std::set<PropertyId> &properties,
+                                                                           utils::SkipList<Vertex>::Accessor vertices);
 
   /// Deletes the specified constraint. Returns `DeletionStatus::NOT_FOUND` if
   /// there is not such constraint in the storage,
@@ -86,7 +84,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   std::vector<std::pair<LabelId, std::set<PropertyId>>> ListConstraints() const override;
 
   /// GC method that removes outdated entries from constraints' storages.
-  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) override;
+  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp);
 
   void Clear() override;
 
