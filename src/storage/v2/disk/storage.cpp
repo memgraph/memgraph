@@ -567,7 +567,6 @@ DiskStorage::DiskAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
             "VertexAccessor must be from the same transaction as the storage "
             "accessor when deleting a vertex!");
   auto *vertex_ptr = vertex->vertex_;
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
 
   std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
   std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;

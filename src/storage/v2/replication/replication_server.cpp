@@ -20,6 +20,7 @@
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/replication_server.hpp"
 #include "storage/v2/transaction.hpp"
@@ -168,7 +169,7 @@ void InMemoryStorage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader
   storage_->edges_.clear();
 
   storage_->constraints_.existence_constraints_ = std::make_unique<ExistenceConstraints>();
-  storage_->constraints_.unique_constraints_ = std::make_unique<UniqueConstraints>();
+  storage_->constraints_.unique_constraints_ = std::make_unique<InMemoryUniqueConstraints>();
   storage_->indices_.label_index_ =
       std::make_unique<InMemoryLabelIndex>(&storage_->indices_, &storage_->constraints_, storage_->config_);
   storage_->indices_.label_property_index_ =

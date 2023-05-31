@@ -35,9 +35,6 @@ struct Indices {
     });
   }
 
-  // Disable copy and move because members hold pointer to `this`.
-  explicit Indices() : label_index_(nullptr), label_property_index_(nullptr) {}
-
   Indices(const Indices &) = delete;
   Indices(Indices &&) = delete;
   Indices &operator=(const Indices &) = delete;

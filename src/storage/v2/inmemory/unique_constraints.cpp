@@ -9,26 +9,17 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/constraints/constraints.hpp"
-
-#include <algorithm>
-#include <atomic>
-#include <cstring>
-#include <map>
-#include <memory>
-#include <optional>
-
-#include "storage/v2/mvcc.hpp"
-#include "utils/logging.hpp"
+#include "storage/v2/inmemory/unique_constraints.hpp"
 
 namespace memgraph::storage {
+
 namespace {
 
 /// Helper function that determines position of the given `property` in the
 /// sorted `property_array` using binary search. In the case that `property`
 /// cannot be found, `std::nullopt` is returned.
 std::optional<size_t> FindPropertyPosition(const PropertyIdArray &property_array, PropertyId property) {
-  auto it = std::lower_bound(property_array.values, property_array.values + property_array.size, property);
+  const auto *it = std::lower_bound(property_array.values, property_array.values + property_array.size, property);
   if (it == property_array.values + property_array.size || *it != property) {
     return std::nullopt;
   }
@@ -130,6 +121,23 @@ bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, c
   return !deleted && has_label;
 }
 
+/// Helper function that, given the set of `properties`, extracts corresponding
+/// property values from the `vertex`.
+/// @throw std::bad_alloc
+std::optional<std::vector<PropertyValue>> ExtractPropertyValues(const Vertex &vertex,
+                                                                const std::set<PropertyId> &properties) {
+  std::vector<PropertyValue> value_array;
+  value_array.reserve(properties.size());
+  for (const auto &prop : properties) {
+    auto value = vertex.properties.GetProperty(prop);
+    if (value.IsNull()) {
+      return std::nullopt;
+    }
+    value_array.emplace_back(std::move(value));
+  }
+  return std::move(value_array);
+}
+
 /// Helper function for unique constraint garbage collection. Returns true if
 /// there's a reachable version of the vertex that has the given label and
 /// property values.
@@ -229,30 +237,9 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
   return false;
 }
 
-/// Helper function that, given the set of `properties`, extracts corresponding
-/// property values from the `vertex`.
-/// @throw std::bad_alloc
-std::optional<std::vector<PropertyValue>> ExtractPropertyValues(const Vertex &vertex,
-                                                                const std::set<PropertyId> &properties) {
-  std::vector<PropertyValue> value_array;
-  value_array.reserve(properties.size());
-  for (const auto &prop : properties) {
-    auto value = vertex.properties.GetProperty(prop);
-    if (value.IsNull()) {
-      return std::nullopt;
-    }
-    value_array.emplace_back(std::move(value));
-  }
-  return std::move(value_array);
-}
-
 }  // namespace
 
-bool operator==(const ConstraintViolation &lhs, const ConstraintViolation &rhs) {
-  return lhs.type == rhs.type && lhs.label == rhs.label && lhs.properties == rhs.properties;
-}
-
-bool UniqueConstraints::Entry::operator<(const Entry &rhs) const {
+bool InMemoryUniqueConstraints::Entry::operator<(const Entry &rhs) const {
   if (values < rhs.values) {
     return true;
   }
@@ -262,15 +249,15 @@ bool UniqueConstraints::Entry::operator<(const Entry &rhs) const {
   return std::make_tuple(vertex, timestamp) < std::make_tuple(rhs.vertex, rhs.timestamp);
 }
 
-bool UniqueConstraints::Entry::operator==(const Entry &rhs) const {
+bool InMemoryUniqueConstraints::Entry::operator==(const Entry &rhs) const {
   return values == rhs.values && vertex == rhs.vertex && timestamp == rhs.timestamp;
 }
 
-bool UniqueConstraints::Entry::operator<(const std::vector<PropertyValue> &rhs) const { return values < rhs; }
+bool InMemoryUniqueConstraints::Entry::operator<(const std::vector<PropertyValue> &rhs) const { return values < rhs; }
 
-bool UniqueConstraints::Entry::operator==(const std::vector<PropertyValue> &rhs) const { return values == rhs; }
+bool InMemoryUniqueConstraints::Entry::operator==(const std::vector<PropertyValue> &rhs) const { return values == rhs; }
 
-void UniqueConstraints::UpdateBeforeCommit(const Vertex *vertex, const Transaction &tx) {
+void InMemoryUniqueConstraints::UpdateBeforeCommit(const Vertex *vertex, const Transaction &tx) {
   for (auto &[label_props, storage] : constraints_) {
     if (!utils::Contains(vertex->labels, label_props.first)) {
       continue;
@@ -283,8 +270,9 @@ void UniqueConstraints::UpdateBeforeCommit(const Vertex *vertex, const Transacti
   }
 }
 
-utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus> UniqueConstraints::CreateConstraint(
-    LabelId label, const std::set<PropertyId> &properties, utils::SkipList<Vertex>::Accessor vertices) {
+utils::BasicResult<ConstraintViolation, InMemoryUniqueConstraints::CreationStatus>
+InMemoryUniqueConstraints::CreateConstraint(LabelId label, const std::set<PropertyId> &properties,
+                                            utils::SkipList<Vertex>::Accessor vertices) {
   if (properties.empty()) {
     return CreationStatus::EMPTY_PROPERTIES;
   }
@@ -335,8 +323,8 @@ utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus> Uniqu
   return CreationStatus::SUCCESS;
 }
 
-UniqueConstraints::DeletionStatus UniqueConstraints::DropConstraint(LabelId label,
-                                                                    const std::set<PropertyId> &properties) {
+InMemoryUniqueConstraints::DeletionStatus InMemoryUniqueConstraints::DropConstraint(
+    LabelId label, const std::set<PropertyId> &properties) {
   if (properties.empty()) {
     return UniqueConstraints::DeletionStatus::EMPTY_PROPERTIES;
   }
@@ -349,12 +337,12 @@ UniqueConstraints::DeletionStatus UniqueConstraints::DropConstraint(LabelId labe
   return UniqueConstraints::DeletionStatus::NOT_FOUND;
 }
 
-bool UniqueConstraints::ConstraintExists(LabelId label, const std::set<PropertyId> &properties) const {
+bool InMemoryUniqueConstraints::ConstraintExists(LabelId label, const std::set<PropertyId> &properties) const {
   return constraints_.find({label, properties}) != constraints_.end();
 }
 
-std::optional<ConstraintViolation> UniqueConstraints::Validate(const Vertex &vertex, const Transaction &tx,
-                                                               uint64_t commit_timestamp) const {
+std::optional<ConstraintViolation> InMemoryUniqueConstraints::Validate(const Vertex &vertex, const Transaction &tx,
+                                                                       uint64_t commit_timestamp) const {
   if (vertex.deleted) {
     return std::nullopt;
   }
@@ -389,7 +377,7 @@ std::optional<ConstraintViolation> UniqueConstraints::Validate(const Vertex &ver
   return std::nullopt;
 }
 
-std::vector<std::pair<LabelId, std::set<PropertyId>>> UniqueConstraints::ListConstraints() const {
+std::vector<std::pair<LabelId, std::set<PropertyId>>> InMemoryUniqueConstraints::ListConstraints() const {
   std::vector<std::pair<LabelId, std::set<PropertyId>>> ret;
   ret.reserve(constraints_.size());
   for (const auto &[label_props, _] : constraints_) {
@@ -398,7 +386,7 @@ std::vector<std::pair<LabelId, std::set<PropertyId>>> UniqueConstraints::ListCon
   return ret;
 }
 
-void UniqueConstraints::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) {
+void InMemoryUniqueConstraints::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) {
   for (auto &[label_props, storage] : constraints_) {
     auto acc = storage.access();
     for (auto it = acc.begin(); it != acc.end();) {
@@ -420,39 +408,6 @@ void UniqueConstraints::RemoveObsoleteEntries(uint64_t oldest_active_start_times
   }
 }
 
-void UniqueConstraints::Clear() { constraints_.clear(); }
-
-bool ExistenceConstraints::ConstraintExists(LabelId label, PropertyId property) const {
-  return utils::Contains(constraints_, std::make_pair(label, property));
-}
-
-void ExistenceConstraints::InsertConstraint(LabelId label, PropertyId property) {
-  constraints_.emplace_back(label, property);
-}
-
-bool ExistenceConstraints::DropConstraint(LabelId label, PropertyId property) {
-  auto it = std::find(constraints_.begin(), constraints_.end(), std::make_pair(label, property));
-  if (it == constraints_.end()) {
-    return false;
-  }
-  constraints_.erase(it);
-  return true;
-}
-
-std::vector<std::pair<LabelId, PropertyId>> ExistenceConstraints::ListConstraints() const { return constraints_; }
-
-[[nodiscard]] std::optional<ConstraintViolation> ExistenceConstraints::Validate(const Vertex &vertex) {
-  for (const auto &[label, property] : constraints_) {
-    if (auto violation = ValidateVertexOnConstraint(vertex, label, property); violation.has_value()) {
-      return violation;
-    }
-  }
-  return std::nullopt;
-}
-
-Constraints::Constraints() {
-  existence_constraints_ = std::make_unique<ExistenceConstraints>();
-  unique_constraints_ = std::make_unique<UniqueConstraints>();
-}
+void InMemoryUniqueConstraints::Clear() { constraints_.clear(); }
 
 }  // namespace memgraph::storage
