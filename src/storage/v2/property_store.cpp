@@ -987,6 +987,24 @@ bool PropertyStore::HasProperty(PropertyId property) const {
   return FindSpecificProperty(&reader, property, nullptr) == DecodeExpectedPropertyStatus::EQUAL;
 }
 
+bool PropertyStore::HasAllProperties(const std::set<PropertyId> &properties) const {
+  return std::all_of(properties.begin(), properties.end(), [this](const auto &prop) { return HasProperty(prop); });
+}
+
+std::optional<std::vector<PropertyValue>> PropertyStore::ExtractPropertyValues(
+    const std::set<PropertyId> &properties) const {
+  std::vector<PropertyValue> value_array;
+  value_array.reserve(properties.size());
+  for (const auto &prop : properties) {
+    auto value = GetProperty(prop);
+    if (value.IsNull()) {
+      return std::nullopt;
+    }
+    value_array.emplace_back(std::move(value));
+  }
+  return std::move(value_array);
+}
+
 bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &value) const {
   uint64_t size;
   const uint8_t *data;

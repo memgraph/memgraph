@@ -28,6 +28,7 @@ DiskLabelIndex::DiskLabelIndex(Indices *indices, Constraints *constraints, const
                                                             config.disk.label_index_directory, &kvstore_->db_));
 }
 
+/// TODO: andi Timestamp yes/no?
 bool DiskLabelIndex::CreateIndex(LabelId label, const std::vector<std::pair<std::string, std::string>> &vertices) {
   index_.emplace(label);
   rocksdb::WriteOptions wo;

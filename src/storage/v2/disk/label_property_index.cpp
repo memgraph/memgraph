@@ -27,6 +27,7 @@ DiskLabelPropertyIndex::DiskLabelPropertyIndex(Indices *indices, Constraints *co
       kvstore_->options_, rocksdb::TransactionDBOptions(), config.disk.label_property_index_directory, &kvstore_->db_));
 }
 
+/// TODO: andi Timestamp yes/no?
 bool DiskLabelPropertyIndex::CreateIndex(LabelId label, PropertyId property,
                                          const std::vector<std::pair<std::string, std::string>> &vertices) {
   index_.emplace(label, property);

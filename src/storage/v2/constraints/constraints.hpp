@@ -11,16 +11,24 @@
 
 #pragma once
 
+#include "storage/v2/config.hpp"
 #include "storage/v2/constraints/existence_constraints.hpp"
+#include "storage/v2/disk/unique_constraints.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
 
 namespace memgraph::storage {
 
 struct Constraints {
-  /// TODO: andi Pass storage mode here
-  Constraints()
-      : existence_constraints_(std::make_unique<ExistenceConstraints>()),
-        unique_constraints_(std::make_unique<InMemoryUniqueConstraints>()) {}
+  Constraints(const Config &config, StorageMode storage_mode) {
+    std::invoke([this, config, storage_mode]() {
+      existence_constraints_ = std::make_unique<ExistenceConstraints>();
+      if (storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL || storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
+        unique_constraints_ = std::make_unique<InMemoryUniqueConstraints>();
+      } else {
+        unique_constraints_ = std::make_unique<DiskUniqueConstraints>(config);
+      }
+    });
+  }
 
   Constraints(const Constraints &) = delete;
   Constraints(Constraints &&) = delete;

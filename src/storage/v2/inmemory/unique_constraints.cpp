@@ -121,23 +121,6 @@ bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, c
   return !deleted && has_label;
 }
 
-/// Helper function that, given the set of `properties`, extracts corresponding
-/// property values from the `vertex`.
-/// @throw std::bad_alloc
-std::optional<std::vector<PropertyValue>> ExtractPropertyValues(const Vertex &vertex,
-                                                                const std::set<PropertyId> &properties) {
-  std::vector<PropertyValue> value_array;
-  value_array.reserve(properties.size());
-  for (const auto &prop : properties) {
-    auto value = vertex.properties.GetProperty(prop);
-    if (value.IsNull()) {
-      return std::nullopt;
-    }
-    value_array.emplace_back(std::move(value));
-  }
-  return std::move(value_array);
-}
-
 /// Helper function for unique constraint garbage collection. Returns true if
 /// there's a reachable version of the vertex that has the given label and
 /// property values.
@@ -262,7 +245,7 @@ void InMemoryUniqueConstraints::UpdateBeforeCommit(const Vertex *vertex, const T
     if (!utils::Contains(vertex->labels, label_props.first)) {
       continue;
     }
-    auto values = ExtractPropertyValues(*vertex, label_props.second);
+    auto values = vertex->properties.ExtractPropertyValues(label_props.second);
     if (values) {
       auto acc = storage.access();
       acc.insert(Entry{std::move(*values), vertex, tx.start_timestamp});
@@ -297,7 +280,7 @@ InMemoryUniqueConstraints::CreateConstraint(LabelId label, const std::set<Proper
       if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
         continue;
       }
-      auto values = ExtractPropertyValues(vertex, properties);
+      auto values = vertex.properties.ExtractPropertyValues(properties);
       if (!values) {
         continue;
       }
@@ -351,7 +334,7 @@ std::optional<ConstraintViolation> InMemoryUniqueConstraints::Validate(const Ver
       continue;
     }
 
-    auto value_array = ExtractPropertyValues(vertex, properties);
+    auto value_array = vertex.properties.ExtractPropertyValues(properties);
     if (!value_array) {
       continue;
     }

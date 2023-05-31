@@ -24,6 +24,7 @@
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/string.hpp"
 
 namespace memgraph::utils {
@@ -43,42 +44,56 @@ inline auto DeserializeIdType(const std::string &str) { return storage::Gid::Fro
 
 inline std::string SerializeTimestamp(const uint64_t ts) { return std::to_string(ts); }
 
-inline std::string SerializeLabels(const std::vector<storage::LabelId> &labels) {
+inline std::string SerializeLabels(const std::vector<std::string> &labels) {
   if (labels.empty()) {
     return "";
   }
-  std::string result = std::to_string(labels[0].AsUint());
-  std::string ser_labels = std::accumulate(
-      std::next(labels.begin()), labels.end(), result,
-      [](const std::string &join, const auto &label_id) { return join + "," + std::to_string(label_id.AsUint()); });
+  std::string result = labels[0];
+  std::string ser_labels =
+      std::accumulate(std::next(labels.begin()), labels.end(), result,
+                      [](const std::string &join, const auto &label_id) { return join + "," + label_id; });
   return ser_labels;
 }
 
 inline bool SerializedVertexHasLabels(const std::string &labels) { return !labels.empty(); }
 
-inline std::vector<storage::LabelId> TransformStringLabels(const std::vector<std::string> &labels) {
-  std::vector<storage::LabelId> labels_id;
-  std::transform(labels.begin(), labels.end(), std::back_inserter(labels_id),
+template <typename Collection>
+inline std::vector<std::string> TransformIDsToString(const Collection &labels) {
+  std::vector<std::string> transformed_labels;
+  std::transform(labels.begin(), labels.end(), std::back_inserter(transformed_labels),
+                 [](const auto &label) { return SerializeIdType(label); });
+  return transformed_labels;
+}
+
+inline std::vector<storage::LabelId> TransformFromStringLabels(const std::vector<std::string> &labels) {
+  std::vector<storage::LabelId> transformed_labels;
+  std::transform(labels.begin(), labels.end(), std::back_inserter(transformed_labels),
                  [](const auto &label) { return storage::LabelId::FromUint(std::stoull(label)); });
-  return labels_id;
+  return transformed_labels;
 }
 
 inline std::vector<storage::LabelId> DeserializeLabelsFromMainDiskStorage(const std::string &labels_str) {
   if (SerializedVertexHasLabels(labels_str)) {
-    return TransformStringLabels(utils::Split(labels_str, ","));
+    return TransformFromStringLabels(utils::Split(labels_str, ","));
   }
   return {};
 }
 
-inline std::vector<storage::LabelId> DeserializeLabelsFromLabelIndexStorage(const std::string &labels_str) {
-  return TransformStringLabels(utils::Split(labels_str, ","));
+inline std::vector<storage::LabelId> DeserializeLabelsFromLabelIndexStorage(const std::string &key) {
+  return TransformFromStringLabels(utils::Split(key, ","));
 }
 
-inline std::vector<storage::LabelId> DeserializeLabelsFromLabelPropertyIndexStorage(const std::string &labels_str) {
-  std::vector<std::string> index_key = utils::Split(labels_str, ",");
+inline std::vector<storage::LabelId> DeserializeLabelsFromLabelPropertyIndexStorage(const std::string &key) {
+  std::vector<std::string> index_key = utils::Split(key, ",");
   auto property_it = index_key.begin() + 1;
   index_key.erase(property_it);
-  return TransformStringLabels(index_key);
+  return TransformFromStringLabels(index_key);
+}
+
+inline std::vector<storage::LabelId> DeserializeLabelsFromUniqueConstraintStorage(const std::string &key) {
+  std::vector<std::string> index_key = utils::Split(key, "|");
+  std::vector<std::string> label_key = utils::Split(index_key[1], ",");
+  return TransformFromStringLabels(label_key);
 }
 
 inline std::string SerializeProperties(const storage::PropertyStore &properties) { return properties.StringBuffer(); }
@@ -86,19 +101,23 @@ inline std::string SerializeProperties(const storage::PropertyStore &properties)
 /// Serialize vertex to string as a key in KV store
 /// label1, label2 | GID | commit_timestamp
 inline std::string SerializeVertex(const storage::Result<std::vector<storage::LabelId>> &labels, storage::Gid gid) {
-  std::string result = labels.HasError() ? "" : utils::SerializeLabels(*labels) + "|";
+  std::string result = labels.HasError() ? "" : utils::SerializeLabels(TransformIDsToString(*labels)) + "|";
   result += utils::SerializeIdType(gid);
   return result;
 }
 
-/// Serialize vertex to string as a key in KV store
+/// Serialize vertex to string as a key in KV store.
 /// label1, label2 | GID | commit_timestamp
+/// TODO: is it now commit timestamp
 inline std::string SerializeVertex(const storage::Vertex &vertex) {
-  std::string result = utils::SerializeLabels(vertex.labels) + "|";
+  std::string result = utils::SerializeLabels(TransformIDsToString(vertex.labels)) + "|";
   result += utils::SerializeIdType(vertex.gid);
   return result;
 }
 
+/// Serialize vertex to string as a key in label index KV store.
+/// target_label | label_1 | label_2 | ... | GID | commit_timestamp
+/// TODO: is it now commit timestamp
 inline std::string SerializeVertexForLabelIndex(const std::string &indexing_label,
                                                 const std::vector<std::string> &labels, const std::string &gid) {
   auto indexed_labels = PutIndexingLabelFirst(indexing_label, labels);
@@ -123,24 +142,56 @@ inline std::string PutIndexingLabelFirst(const std::string &indexing_label, cons
   return result;
 }
 
+/// Serialize vertex to string as a key in label property index KV store.
+/// target_label,target_property,label_1,label_2,... | GID | commit_timestamp
+/// TODO: is it now commit timestamp
 inline std::string SerializeVertexForLabelPropertyIndex(const std::string &indexing_label,
                                                         const std::string &indexing_property,
-                                                        const std::vector<std::string> &labels,
+                                                        const std::vector<std::string> &vertex_labels,
                                                         const std::string &gid) {
-  auto key_for_indexing = PutIndexingLabelAndPropertyFirst(indexing_label, indexing_property, labels);
+  auto key_for_indexing = PutIndexingLabelAndPropertyFirst(indexing_label, indexing_property, vertex_labels);
   return key_for_indexing + "|" + gid;
 }
 
+/// TODO: andi Probably it is better to add delimiter between label,property and the rest of labels
+/// TODO: reuse PutIndexingLabelAndPropertiesFirst
 inline std::string PutIndexingLabelAndPropertyFirst(const std::string &indexing_label,
                                                     const std::string &indexing_property,
-                                                    const std::vector<std::string> &labels) {
+                                                    const std::vector<std::string> &vertex_labels) {
   std::string result = indexing_label + "," + indexing_property;
-  for (const auto &label : labels) {
+  for (const auto &label : vertex_labels) {
     if (label != indexing_label) {
       result += "," + label;
     }
   }
   return result;
+}
+
+inline std::string PutIndexingLabelAndPropertiesFirst(const std::string &target_label,
+                                                      const std::vector<std::string> &target_properties,
+                                                      const std::vector<std::string> &vertex_labels) {
+  std::string result = target_label;
+  for (const auto &target_property : target_properties) {
+    result += "," + target_property;
+  }
+  std::vector<std::string> labels_without_target;
+  std::copy_if(vertex_labels.begin(), vertex_labels.end(), std::back_inserter(labels_without_target),
+               [&target_label](const auto &label) { return label != target_label; });
+  result += "|" + SerializeLabels(vertex_labels);
+  return result;
+}
+
+/// Serialize vertex to string as a key in unique constraint index KV store.
+/// target_label, target_property_1, target_property_2, ... | label_1, label_2, ..., target_label | GID |
+/// commit_timestamp
+inline std::string SerializeVertexForUniqueConstraint(const storage::LabelId &constraint_label,
+                                                      const std::set<storage::PropertyId> &constraint_properties,
+                                                      const std::vector<storage::LabelId> &vertex_labels,
+                                                      const std::string &gid) {
+  auto key_for_indexing =
+      PutIndexingLabelAndPropertiesFirst(SerializeIdType(constraint_label), TransformIDsToString(constraint_properties),
+                                         TransformIDsToString(vertex_labels));
+  return key_for_indexing + "|" + gid;
 }
 
 /// Serialize edge as two KV entries

@@ -69,7 +69,6 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
   std::unique_ptr<rocksdb::Iterator> CreateRocksDBIterator();
 
  private:
-  /// TODO: andi Optimize by using unordered_set
   std::set<std::pair<LabelId, PropertyId>> index_;
   std::map<std::pair<LabelId, PropertyId>, storage::IndexStats> stats_;
   std::unique_ptr<RocksDBStorage> kvstore_;

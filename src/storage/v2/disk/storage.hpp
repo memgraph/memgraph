@@ -14,6 +14,7 @@
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/property_store.hpp"
 #include "storage/v2/storage.hpp"
 
 /// ROCKSDB
@@ -331,8 +332,8 @@ class DiskStorage final : public Storage {
   [[nodiscard]] std::optional<ConstraintViolation> CheckExistingVerticesBeforeCreatingExistenceConstraint(
       LabelId label, PropertyId property) const;
 
-  [[nodiscard]] std::optional<ConstraintViolation> CheckExistingVerticesBeforeCreatingUniqueConstraint(
-      LabelId label, const std::set<PropertyId> &properties) const;
+  [[nodiscard]] utils::BasicResult<ConstraintViolation, std::vector<std::pair<std::string, std::string>>>
+  CheckExistingVerticesBeforeCreatingUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) const;
 
   /// The force parameter determines the behaviour of the garbage collector.
   /// If it's set to true, it will behave as a global operation, i.e. it can't
@@ -367,9 +368,6 @@ class DiskStorage final : public Storage {
 
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};
-
-  IsolationLevel isolation_level_;
-  StorageMode storage_mode_;
 
   // TODO: This isn't really a commit log, it doesn't even care if a
   // transaction commited or aborted. We could probably combine this with

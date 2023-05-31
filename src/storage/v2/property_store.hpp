@@ -12,6 +12,7 @@
 #pragma once
 
 #include <map>
+#include <set>
 
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
@@ -47,6 +48,14 @@ class PropertyStore {
   /// Checks whether the property `property` exists in the store. The time
   /// complexity of this function is O(n).
   bool HasProperty(PropertyId property) const;
+
+  /// Checks whether all properties in the set `properties` exist in the store. The time
+  /// complexity of this function is O(n^2).
+  bool HasAllProperties(const std::set<PropertyId> &properties) const;
+
+  /// Extracts property values for all property ids in the set `properties`. The time
+  /// complexity of this function is O(n^2).
+  std::optional<std::vector<PropertyValue>> ExtractPropertyValues(const std::set<PropertyId> &properties) const;
 
   /// Checks whether the property `property` is equal to the specified value
   /// `value`. This function doesn't perform any memory allocations while

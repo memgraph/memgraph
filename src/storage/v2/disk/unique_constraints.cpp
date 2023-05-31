@@ -11,13 +11,29 @@
 
 #include "storage/v2/disk/unique_constraints.hpp"
 #include "storage/v2/constraints/unique_constraints.hpp"
+#include "utils/algorithm.hpp"
+#include "utils/file.hpp"
 
 namespace memgraph::storage {
 
-DiskUniqueConstraints::DiskUniqueConstraints() {}
+DiskUniqueConstraints::DiskUniqueConstraints(const Config &config) {
+  kvstore_ = std::make_unique<RocksDBStorage>();
+  utils::EnsureDirOrDie(config.disk.unique_constraints_directory);
+  kvstore_->options_.create_if_missing = true;
+  kvstore_->options_.comparator = new ComparatorWithU64TsImpl();
+  logging::AssertRocksDBStatus(rocksdb::TransactionDB::Open(kvstore_->options_, rocksdb::TransactionDBOptions(),
+                                                            config.disk.unique_constraints_directory, &kvstore_->db_));
+}
 
-void DiskUniqueConstraints::InsertConstraint(LabelId label, const std::set<PropertyId> &properties) {
+/// TODO: andi Timestamp yes/no?
+void DiskUniqueConstraints::InsertConstraint(
+    LabelId label, const std::set<PropertyId> &properties,
+    const std::vector<std::pair<std::string, std::string>> &vertices_under_constraint) {
   constraints_.insert(std::make_pair(label, properties));
+  rocksdb::WriteOptions wo;
+  for (const auto &[key, value] : vertices_under_constraint) {
+    kvstore_->db_->Put(wo, key, value);
+  }
 }
 
 bool DiskUniqueConstraints::CheckIfConstraintCanBeCreated(LabelId label, const std::set<PropertyId> &properties) const {
@@ -43,6 +59,12 @@ bool DiskUniqueConstraints::ConstraintExists(LabelId label, const std::set<Prope
 
 std::optional<ConstraintViolation> DiskUniqueConstraints::Validate(const Vertex &vertex, const Transaction &tx,
                                                                    uint64_t commit_timestamp) const {
+  for (const auto &[label, properties] : constraints_) {
+    if (utils::Contains(vertex.labels, label) && vertex.properties.HasAllProperties(properties)) {
+      /// TODO: go to RocksDB, check if there is another vertex with the same property values. Make use of prefix search
+      /// to speed up the process.
+    }
+  }
   return std::nullopt;
 }
 

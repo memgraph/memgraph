@@ -45,10 +45,7 @@ std::string RegisterReplicaErrorToString(InMemoryStorage::RegisterReplicaError e
 }
 }  // namespace
 
-InMemoryStorage::InMemoryStorage(Config config)
-    : Storage(config, &constraints_, StorageMode::IN_MEMORY_TRANSACTIONAL),
-      isolation_level_(config.transaction.isolation_level),
-      storage_mode_(StorageMode::IN_MEMORY_TRANSACTIONAL) {
+InMemoryStorage::InMemoryStorage(Config config) : Storage(config, StorageMode::IN_MEMORY_TRANSACTIONAL) {
   if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED &&
       replication_role_ == ReplicationRole::MAIN) {
     spdlog::warn(
@@ -224,7 +221,7 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex() {
   if (delta) {
     delta->prev.Set(&*it);
   }
-  return {&*it, &transaction_, &storage_->indices_, &mem_storage->constraints_, config_};
+  return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
 }
 
 VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex(storage::Gid gid) {
@@ -247,7 +244,7 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex(storage::Gid gid)
   if (delta) {
     delta->prev.Set(&*it);
   }
-  return {&*it, &transaction_, &storage_->indices_, &mem_storage->constraints_, config_};
+  return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
 }
 
 std::optional<VertexAccessor> InMemoryStorage::InMemoryAccessor::FindVertex(Gid gid, View view) {
@@ -255,7 +252,7 @@ std::optional<VertexAccessor> InMemoryStorage::InMemoryAccessor::FindVertex(Gid 
   auto acc = mem_storage->vertices_.access();
   auto it = acc.find(gid);
   if (it == acc.end()) return std::nullopt;
-  return VertexAccessor::Create(&*it, &transaction_, &storage_->indices_, &mem_storage->constraints_, config_, view);
+  return VertexAccessor::Create(&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_, view);
 }
 
 Result<std::optional<VertexAccessor>> InMemoryStorage::InMemoryAccessor::DeleteVertex(VertexAccessor *vertex) {
@@ -277,8 +274,7 @@ Result<std::optional<VertexAccessor>> InMemoryStorage::InMemoryAccessor::DeleteV
   CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
   vertex_ptr->deleted = true;
 
-  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-  return std::make_optional<VertexAccessor>(vertex_ptr, &transaction_, &storage_->indices_, &mem_storage->constraints_,
+  return std::make_optional<VertexAccessor>(vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_,
                                             config_, true);
 }
 
@@ -306,11 +302,10 @@ InMemoryStorage::InMemoryAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
   }
 
   std::vector<EdgeAccessor> deleted_edges;
-  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   for (const auto &item : in_edges) {
     auto [edge_type, from_vertex, edge] = item;
     EdgeAccessor e(edge, edge_type, from_vertex, vertex_ptr, &transaction_, &storage_->indices_,
-                   &mem_storage->constraints_, config_);
+                   &storage_->constraints_, config_);
     auto ret = DeleteEdge(&e);
     if (ret.HasError()) {
       MG_ASSERT(ret.GetError() == Error::SERIALIZATION_ERROR, "Invalid database state!");
@@ -323,8 +318,8 @@ InMemoryStorage::InMemoryAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
   }
   for (const auto &item : out_edges) {
     auto [edge_type, to_vertex, edge] = item;
-    EdgeAccessor e(edge, edge_type, vertex_ptr, to_vertex, &transaction_, &storage_->indices_,
-                   &mem_storage->constraints_, config_);
+    EdgeAccessor e(edge, edge_type, vertex_ptr, to_vertex, &transaction_, &storage_->indices_, &storage_->constraints_,
+                   config_);
     auto ret = DeleteEdge(&e);
     if (ret.HasError()) {
       MG_ASSERT(ret.GetError() == Error::SERIALIZATION_ERROR, "Invalid database state!");
@@ -350,7 +345,7 @@ InMemoryStorage::InMemoryAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
   vertex_ptr->deleted = true;
 
   return std::make_optional<ReturnType>(
-      VertexAccessor{vertex_ptr, &transaction_, &storage_->indices_, &mem_storage->constraints_, config_, true},
+      VertexAccessor{vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_, config_, true},
       std::move(deleted_edges));
 }
 
@@ -414,7 +409,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
-                      &mem_storage->constraints_, config_);
+                      &storage_->constraints_, config_);
 }
 
 Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccessor *from, VertexAccessor *to,
@@ -486,7 +481,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
-                      &mem_storage->constraints_, config_);
+                      &storage_->constraints_, config_);
 }
 
 Result<std::optional<EdgeAccessor>> InMemoryStorage::InMemoryAccessor::DeleteEdge(EdgeAccessor *edge) {

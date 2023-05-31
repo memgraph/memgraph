@@ -357,10 +357,6 @@ class InMemoryStorage final : public Storage {
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};
 
-  // Specific per storage engine
-  IsolationLevel isolation_level_;
-  StorageMode storage_mode_;
-
   // TODO: This isn't really a commit log, it doesn't even care if a
   // transaction commited or aborted. We could probably combine this with
   // `timestamp_` in a sensible unit, something like TransactionClock or

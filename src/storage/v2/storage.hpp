@@ -67,7 +67,7 @@ struct StorageInfo {
 
 class Storage {
  public:
-  Storage(Config config, Constraints *constraints, StorageMode storage_mode);
+  Storage(Config config, StorageMode storage_mode);
 
   Storage(const Storage &) = delete;
   Storage(Storage &&) = delete;
@@ -449,6 +449,9 @@ class Storage {
   std::filesystem::path lock_file_path_;
   utils::OutputFile lock_file_handle_;
   std::unique_ptr<kvstore::KVStore> storage_;
+
+  IsolationLevel isolation_level_;
+  StorageMode storage_mode_;
 
   Indices indices_;
   Constraints constraints_;

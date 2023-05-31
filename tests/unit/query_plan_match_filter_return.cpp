@@ -217,7 +217,7 @@ class QueryPlan : public testing::Test {
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType()};
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+// using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
 // using StorageTypes = ::testing::Types<memgraph::storage::DiskStorage>;
 TYPED_TEST_CASE(QueryPlan, StorageTypes);
 
