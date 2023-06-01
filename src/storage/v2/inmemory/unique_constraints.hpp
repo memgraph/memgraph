@@ -74,6 +74,9 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
 
   bool ConstraintExists(LabelId label, const std::set<PropertyId> &properties) const override;
 
+  void UpdateOnRemoveLabel(LabelId removed_label, const Vertex &vertex_before_update,
+                           const uint64_t transaction_start_timestamp) override {}
+
   /// Validates the given vertex against unique constraints before committing.
   /// This method should be called while commit lock is active with
   /// `commit_timestamp` being a potential commit timestamp of the transaction.

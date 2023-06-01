@@ -14,7 +14,9 @@
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints/unique_constraints.hpp"
 #include "storage/v2/disk/rocksdb_storage.hpp"
+#include "storage/v2/transaction.hpp"
 #include "utils/rocksdb_serialization.hpp"
+#include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
 
@@ -30,21 +32,29 @@ class DiskUniqueConstraints : public UniqueConstraints {
   std::optional<ConstraintViolation> Validate(const Vertex &vertex,
                                               std::vector<std::vector<PropertyValue>> &unique_storage) const;
 
+  void ClearEntriesScheduledForDeletion(uint64_t transaction_id);
+
+  [[maybe_unused]] bool SyncVertexToUniqueConstraintsStorage(const Vertex &vertex) const;
+
   DeletionStatus DropConstraint(LabelId label, const std::set<PropertyId> &properties) override;
 
   bool ConstraintExists(LabelId label, const std::set<PropertyId> &properties) const override;
+
+  void UpdateOnRemoveLabel(LabelId removed_label, const Vertex &vertex_before_update,
+                           uint64_t transaction_start_timestamp) override;
 
   std::vector<std::pair<LabelId, std::set<PropertyId>>> ListConstraints() const override;
 
   void Clear() override;
 
  private:
+  utils::Synchronized<std::map<uint64_t, std::vector<std::string>>> entries_for_deletion;
   std::set<std::pair<LabelId, std::set<PropertyId>>> constraints_;
   std::unique_ptr<RocksDBStorage> kvstore_;
 
-  bool DifferentVertexExistsWithPropertyValues(std::vector<PropertyValue> property_values,
-                                               const std::vector<std::vector<PropertyValue>> &unique_storage,
-                                               const Gid &gid) const;
+  bool DifferentVertexExistsWithSameLabelAndPropertyValues(
+      std::vector<PropertyValue> property_values, const std::vector<std::vector<PropertyValue>> &unique_storage,
+      const LabelId &constraint_label, const Gid &gid) const;
 };
 
 }  // namespace memgraph::storage

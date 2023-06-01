@@ -90,10 +90,25 @@ inline std::vector<storage::LabelId> DeserializeLabelsFromLabelPropertyIndexStor
   return TransformFromStringLabels(index_key);
 }
 
-inline std::vector<storage::LabelId> DeserializeLabelsFromUniqueConstraintStorage(const std::string &key) {
-  std::vector<std::string> index_key = utils::Split(key, "|");
-  std::vector<std::string> label_key = utils::Split(index_key[1], ",");
-  return TransformFromStringLabels(label_key);
+/// TODO: maybe it can be deleted
+inline std::vector<storage::LabelId> DeserializeLabelsFromUniqueConstraintStorage(const std::string &key,
+                                                                                  const std::string &value) {
+  /// TODO: extract this to private method to get all labels except the constraint label from the value
+  std::vector<std::string> value_vector = utils::Split(value, "|");
+  std::vector<std::string> labels_str = utils::Split(value_vector[0], ",");
+  auto labels = TransformFromStringLabels(labels_str);
+  std::vector<std::string> key_vector = utils::Split(key, "|");
+  std::vector<std::string> constraint_key = utils::Split(key_vector[0], ",");
+  labels.emplace_back(storage::LabelId::FromUint(std::stoull(constraint_key[0])));
+  return labels;
+}
+
+/// TODO: andi Change that all method accept key-value named parameters to indicate that they are called from RocksDB
+inline storage::LabelId DeserializeConstraintLabelFromUniqueConstraintStorage(const std::string &key) {
+  std::vector<std::string> key_vector = utils::Split(key, "|");
+  std::vector<std::string> constraint_key = utils::Split(key_vector[0], ",");
+  /// TODO: andi Change this to deserialization method directly into the LabelId class
+  return storage::LabelId::FromUint(std::stoull(constraint_key[0]));
 }
 
 inline std::string SerializeProperties(const storage::PropertyStore &properties) { return properties.StringBuffer(); }
@@ -168,30 +183,33 @@ inline std::string PutIndexingLabelAndPropertyFirst(const std::string &indexing_
 }
 
 inline std::string PutIndexingLabelAndPropertiesFirst(const std::string &target_label,
-                                                      const std::vector<std::string> &target_properties,
-                                                      const std::vector<std::string> &vertex_labels) {
+                                                      const std::vector<std::string> &target_properties) {
   std::string result = target_label;
   for (const auto &target_property : target_properties) {
     result += "," + target_property;
   }
-  std::vector<std::string> labels_without_target;
-  std::copy_if(vertex_labels.begin(), vertex_labels.end(), std::back_inserter(labels_without_target),
-               [&target_label](const auto &label) { return label != target_label; });
-  result += "|" + SerializeLabels(vertex_labels);
   return result;
 }
 
 /// Serialize vertex to string as a key in unique constraint index KV store.
-/// target_label, target_property_1, target_property_2, ... | label_1, label_2, ..., target_label | GID |
+/// target_label, target_property_1, target_property_2, ... GID |
 /// commit_timestamp
-inline std::string SerializeVertexForUniqueConstraint(const storage::LabelId &constraint_label,
-                                                      const std::set<storage::PropertyId> &constraint_properties,
-                                                      const std::vector<storage::LabelId> &vertex_labels,
-                                                      const std::string &gid) {
-  auto key_for_indexing =
-      PutIndexingLabelAndPropertiesFirst(SerializeIdType(constraint_label), TransformIDsToString(constraint_properties),
-                                         TransformIDsToString(vertex_labels));
+inline std::string SerializeVertexAsKeyForUniqueConstraint(const storage::LabelId &constraint_label,
+                                                           const std::set<storage::PropertyId> &constraint_properties,
+                                                           const std::string &gid) {
+  auto key_for_indexing = PutIndexingLabelAndPropertiesFirst(SerializeIdType(constraint_label),
+                                                             TransformIDsToString(constraint_properties));
   return key_for_indexing + "|" + gid;
+}
+
+inline std::string SerializeVertexAsValueForUniqueConstraint(const storage::LabelId &constraint_label,
+                                                             const std::vector<storage::LabelId> &vertex_labels,
+                                                             const storage::PropertyStore &property_store) {
+  std::vector<storage::LabelId> labels_without_target;
+  std::copy_if(vertex_labels.begin(), vertex_labels.end(), std::back_inserter(labels_without_target),
+               [&constraint_label](const auto &label) { return label != constraint_label; });
+  std::string result = SerializeLabels(TransformIDsToString(vertex_labels)) + "|";
+  return result + SerializeProperties(property_store);
 }
 
 /// Serialize edge as two KV entries

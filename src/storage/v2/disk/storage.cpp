@@ -1042,9 +1042,12 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
     if (vertex.deleted) {
       continue;
     }
+
     if (!WriteVertexToDisk(vertex)) {
       return StorageDataManipulationError{SerializationError{}};
     }
+
+    disk_unique_constraints->SyncVertexToUniqueConstraintsStorage(vertex);
 
     spdlog::debug("rocksdb: Saved vertex with key {} and ts {}", utils::SerializeVertex(vertex), *commit_timestamp_);
 
@@ -1066,19 +1069,20 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
     }
   }
 
-  // Delete vertices that were deleted in the current transaction.
   for (const auto &vertex_to_delete : vertices_to_delete_) {
     if (!DeleteVertexFromDisk(vertex_to_delete)) {
       return StorageDataManipulationError{SerializationError{}};
     }
   }
 
-  // Delete edges that were deleted in the current transaction.
   for (const auto &edge_to_delete : edges_to_delete_) {
     if (!DeleteEdgeFromDisk(edge_to_delete)) {
       return StorageDataManipulationError{SerializationError{}};
     }
   }
+
+  disk_unique_constraints->ClearEntriesScheduledForDeletion(transaction_.start_timestamp);
+
   logging::AssertRocksDBStatus(disk_transaction_->SetCommitTimestamp(*commit_timestamp_));
   auto commitStatus = disk_transaction_->Commit();
   if (!commitStatus.ok()) {
@@ -1131,7 +1135,8 @@ DiskStorage::CheckExistingVerticesBeforeCreatingUniqueConstraint(LabelId label,
           target_property_values.has_value() && !utils::Contains(unique_storage, *target_property_values)) {
         unique_storage.insert(*target_property_values);
         vertices_for_constraints.emplace_back(
-            utils::SerializeVertexForUniqueConstraint(label, properties, labels_id, gid), it->value().ToString());
+            utils::SerializeVertexAsKeyForUniqueConstraint(label, properties, gid),
+            utils::SerializeVertexAsValueForUniqueConstraint(label, labels_id, property_store));
       } else {
         return ConstraintViolation{ConstraintViolation::Type::UNIQUE, label, properties};
       }

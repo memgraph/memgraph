@@ -50,6 +50,9 @@ class UniqueConstraints {
 
   virtual bool ConstraintExists(LabelId label, const std::set<PropertyId> &properties) const = 0;
 
+  virtual void UpdateOnRemoveLabel(LabelId removed_label, const Vertex &vertex_before_update,
+                                   uint64_t transaction_start_timestamp) = 0;
+
   virtual std::vector<std::pair<LabelId, std::set<PropertyId>>> ListConstraints() const = 0;
 
   virtual void Clear() = 0;

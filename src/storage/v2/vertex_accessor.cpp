@@ -104,6 +104,8 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   auto it = std::find(vertex_->labels.begin(), vertex_->labels.end(), label);
   if (it == vertex_->labels.end()) return false;
 
+  constraints_->unique_constraints_->UpdateOnRemoveLabel(label, *vertex_, transaction_->start_timestamp);
+
   CreateAndLinkDelta(transaction_, vertex_, Delta::AddLabelTag(), label);
 
   std::swap(*it, *vertex_->labels.rbegin());
