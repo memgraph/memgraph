@@ -1015,6 +1015,7 @@ bool DiskStorage::DiskAccessor::DeleteEdgeFromDisk(const std::string &edge) {
   return true;
 }
 
+/// TODO: add the comment about the storage lock you should take for correctly operating on this method
 [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void>
 DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
   /// Flush vertex cache.

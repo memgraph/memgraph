@@ -27,7 +27,7 @@ DiskUniqueConstraints::DiskUniqueConstraints(const Config &config) {
                                                             config.disk.unique_constraints_directory, &kvstore_->db_));
 }
 
-/// TODO: andi Timestamp yes/no?
+/// TODO: andi Timestamp yes/no? and transaction support
 void DiskUniqueConstraints::InsertConstraint(
     LabelId label, const std::set<PropertyId> &properties,
     const std::vector<std::pair<std::string, std::string>> &vertices_under_constraint) {
