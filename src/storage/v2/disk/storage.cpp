@@ -1021,12 +1021,21 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
   auto vertex_acc = vertices_.access();
   uint64_t num_ser_edges = 0;
 
+  /// TODO: andi process currently in the function to avoid iterating twice over changed vertices but needs refactoring
+  std::vector<std::vector<PropertyValue>> unique_storage;
+  auto *disk_unique_constraints =
+      static_cast<DiskUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
+
+  /// TODO: andi I don't like that std::optional is used for checking errors but that's how it was before, refactor!
   for (Vertex &vertex : vertex_acc) {
+    /// TODO: refactor this check, it is unreadable
     if (auto existence_constraint_validation_result = storage_->constraints_.existence_constraints_->Validate(vertex);
-        // auto unique_constraint_validation_result = storage_->constraints_.unique_constraints_->Validate(vertex);
-        // unique_constraint_validation_result.has_value() ||
         existence_constraint_validation_result.has_value()) {
       return StorageDataManipulationError{existence_constraint_validation_result.value()};
+    }
+    if (auto unique_constraint_validation_result = disk_unique_constraints->Validate(vertex, unique_storage);
+        unique_constraint_validation_result.has_value()) {
+      return StorageDataManipulationError{unique_constraint_validation_result.value()};
     }
 
     if (vertex.deleted) {
@@ -1560,8 +1569,9 @@ DiskStorage::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &p
 
   auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(constraints_.unique_constraints_.get());
 
-  if (disk_unique_constraints->CheckIfConstraintCanBeCreated(label, properties)) {
-    return StorageUniqueConstraintDefinitionError{ConstraintDefinitionError{}};
+  if (auto constraint_check = disk_unique_constraints->CheckIfConstraintCanBeCreated(label, properties);
+      constraint_check != UniqueConstraints::CreationStatus::SUCCESS) {
+    return constraint_check;
   }
 
   if (auto check = CheckExistingVerticesBeforeCreatingUniqueConstraint(label, properties); check.HasError()) {

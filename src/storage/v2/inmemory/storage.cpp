@@ -636,8 +636,7 @@ utils::BasicResult<StorageDataManipulationError, void> InMemoryStorage::InMemory
 
         // No need to take any locks here because we modified this vertex and no
         // one else can touch it until we commit.
-        unique_constraint_violation =
-            storage_->constraints_.unique_constraints_->Validate(*prev.vertex, transaction_, *commit_timestamp_);
+        unique_constraint_violation = mem_unique_constraints->Validate(*prev.vertex, transaction_, *commit_timestamp_);
         if (unique_constraint_violation) {
           break;
         }

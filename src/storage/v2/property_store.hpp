@@ -53,6 +53,11 @@ class PropertyStore {
   /// complexity of this function is O(n^2).
   bool HasAllProperties(const std::set<PropertyId> &properties) const;
 
+  /// Checks whether all property values in the vector `property_values` exist in the store. The time
+  /// complexity of this function is O(n^2).
+  /// TODO: andi Not so sure it is quadratic complexity
+  bool HasAllPropertyValues(const std::vector<PropertyValue> &property_values) const;
+
   /// Extracts property values for all property ids in the set `properties`. The time
   /// complexity of this function is O(n^2).
   std::optional<std::vector<PropertyValue>> ExtractPropertyValues(const std::set<PropertyId> &properties) const;

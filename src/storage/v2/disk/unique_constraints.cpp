@@ -11,8 +11,10 @@
 
 #include "storage/v2/disk/unique_constraints.hpp"
 #include "storage/v2/constraints/unique_constraints.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/file.hpp"
+#include "utils/rocksdb_serialization.hpp"
 
 namespace memgraph::storage {
 
@@ -31,14 +33,24 @@ void DiskUniqueConstraints::InsertConstraint(
     const std::vector<std::pair<std::string, std::string>> &vertices_under_constraint) {
   constraints_.insert(std::make_pair(label, properties));
   rocksdb::WriteOptions wo;
+  /// TODO: foreach
   for (const auto &[key, value] : vertices_under_constraint) {
     kvstore_->db_->Put(wo, key, value);
   }
 }
 
-bool DiskUniqueConstraints::CheckIfConstraintCanBeCreated(LabelId label, const std::set<PropertyId> &properties) const {
-  return !(properties.empty() || properties.size() > kUniqueConstraintsMaxProperties ||
-           constraints_.find(std::make_pair(label, properties)) != constraints_.end());
+DiskUniqueConstraints::CreationStatus DiskUniqueConstraints::CheckIfConstraintCanBeCreated(
+    LabelId label, const std::set<PropertyId> &properties) const {
+  if (properties.empty()) {
+    return CreationStatus::EMPTY_PROPERTIES;
+  }
+  if (properties.size() > kUniqueConstraintsMaxProperties) {
+    return CreationStatus::PROPERTIES_SIZE_LIMIT_EXCEEDED;
+  }
+  if (constraints_.find(std::make_pair(label, properties)) != constraints_.end()) {
+    return CreationStatus::ALREADY_EXISTS;
+  }
+  return CreationStatus::SUCCESS;
 };
 
 DiskUniqueConstraints::DeletionStatus DiskUniqueConstraints::DropConstraint(LabelId label,
@@ -57,12 +69,19 @@ bool DiskUniqueConstraints::ConstraintExists(LabelId label, const std::set<Prope
   return constraints_.find({label, properties}) != constraints_.end();
 }
 
-std::optional<ConstraintViolation> DiskUniqueConstraints::Validate(const Vertex &vertex, const Transaction &tx,
-                                                                   uint64_t commit_timestamp) const {
+std::optional<ConstraintViolation> DiskUniqueConstraints::Validate(
+    const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage) const {
   for (const auto &[label, properties] : constraints_) {
+    /// TODO: andi Make use of prefix search to speed up the process.
+    /// TODO: ugly check ,refactor this to make it more readable
     if (utils::Contains(vertex.labels, label) && vertex.properties.HasAllProperties(properties)) {
-      /// TODO: go to RocksDB, check if there is another vertex with the same property values. Make use of prefix search
-      /// to speed up the process.
+      if (auto property_values = vertex.properties.ExtractPropertyValues(properties);
+          property_values.has_value() &&
+          DifferentVertexExistsWithPropertyValues(*property_values, unique_storage, vertex.gid)) {
+        return ConstraintViolation{ConstraintViolation::Type::UNIQUE, label, properties};
+      } else {
+        unique_storage.emplace_back(std::move(*property_values));
+      }
     }
   }
   return std::nullopt;
@@ -74,5 +93,32 @@ std::vector<std::pair<LabelId, std::set<PropertyId>>> DiskUniqueConstraints::Lis
 
 /// TODO: andi. Clear RocksDB instance.
 void DiskUniqueConstraints::Clear() { constraints_.clear(); }
+
+/// TODO: andi finish the implementation. Three parameters sent which is not great, refactor
+bool DiskUniqueConstraints::DifferentVertexExistsWithPropertyValues(
+    const std::vector<PropertyValue> property_values, const std::vector<std::vector<PropertyValue>> &unique_storage,
+    const Gid &gid) const {
+  /// TODO: function does too many things, refactor
+  if (std::find(unique_storage.begin(), unique_storage.end(), property_values) != unique_storage.end()) {
+    return true;
+  }
+  rocksdb::ReadOptions ro;
+  std::string strTs = utils::StringTimestamp(std::numeric_limits<uint64_t>::max());
+  rocksdb::Slice ts(strTs);
+  ro.timestamp = &ts;
+  auto it = std::unique_ptr<rocksdb::Iterator>(kvstore_->db_->NewIterator(ro, kvstore_->vertex_chandle));
+  for (it->SeekToFirst(); it->Valid(); it->Next()) {
+    const std::vector<std::string> vertex_parts = utils::Split(it->key().ToStringView(), "|");
+    if (std::string local_gid = vertex_parts[1]; local_gid == utils::SerializeIdType(gid)) {
+      continue;
+    }
+    PropertyStore property_store;
+    property_store.SetBuffer(it->value().ToStringView());
+    if (property_store.HasAllPropertyValues(property_values)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 }  // namespace memgraph::storage

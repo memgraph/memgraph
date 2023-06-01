@@ -11,6 +11,7 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <filesystem>
 #include <variant>
 
 #include "storage/v2/disk/storage.hpp"
@@ -29,10 +30,11 @@ template <typename StorageType>
 class ConstraintsTest : public testing::Test {
  public:
   ConstraintsTest() {
-    /// TODO: andi How to make this better?
+    /// TODO: andi How to make this better? Because currentlly for every test changed you need to create a configuration
     config_ = {.disk = {.main_storage_directory{"rocksdb_test_db"},
                         .label_index_directory{"rocksdb_test_label_index"},
-                        .label_property_index_directory{"rocksdb_test_label_property_index"}}};
+                        .label_property_index_directory{"rocksdb_test_label_property_index"},
+                        .unique_constraints_directory{"rocksdb_test_unique_constraints"}}};
     storage = std::make_unique<StorageType>(config_);
     prop1 = storage->NameToProperty("prop1");
     prop2 = storage->NameToProperty("prop2");
@@ -42,9 +44,11 @@ class ConstraintsTest : public testing::Test {
 
   void TearDown() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
+      /// TODO: extract this into some method
       std::filesystem::remove_all(config_.disk.main_storage_directory);
       std::filesystem::remove_all(config_.disk.label_index_directory);
       std::filesystem::remove_all(config_.disk.label_property_index_directory);
+      std::filesystem::remove_all(config_.disk.unique_constraints_directory);
     }
     storage.reset(nullptr);
   }
@@ -504,6 +508,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsViolationOnCommit1) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
+/// TODO: andi consistency problems
 TYPED_TEST(ConstraintsTest, UniqueConstraintsViolationOnCommit2) {
   {
     auto res = this->storage->CreateUniqueConstraint(this->label1, {this->prop1});
@@ -547,6 +552,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsViolationOnCommit2) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
+/// TODO: andi consistency problems
 TYPED_TEST(ConstraintsTest, UniqueConstraintsViolationOnCommit3) {
   {
     auto res = this->storage->CreateUniqueConstraint(this->label1, {this->prop1});
@@ -755,6 +761,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsPropertySetSize) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
+/// TODO: andi consistency problems
 TYPED_TEST(ConstraintsTest, UniqueConstraintsMultipleProperties) {
   {
     auto res = this->storage->CreateUniqueConstraint(this->label1, {this->prop1, this->prop2});
@@ -815,6 +822,7 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsMultipleProperties) {
   }
 }
 
+/// TODO: andi Test passes when ran alone but fails when all tests are run
 TYPED_TEST(ConstraintsTest, UniqueConstraintsInsertAbortInsert) {
   {
     auto res = this->storage->CreateUniqueConstraint(this->label1, {this->prop1, this->prop2});

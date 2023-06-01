@@ -79,7 +79,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   /// `commit_timestamp` being a potential commit timestamp of the transaction.
   /// @throw std::bad_alloc
   std::optional<ConstraintViolation> Validate(const Vertex &vertex, const Transaction &tx,
-                                              uint64_t commit_timestamp) const override;
+                                              uint64_t commit_timestamp) const;
 
   std::vector<std::pair<LabelId, std::set<PropertyId>>> ListConstraints() const override;
 

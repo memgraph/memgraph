@@ -14,6 +14,7 @@
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints/unique_constraints.hpp"
 #include "storage/v2/disk/rocksdb_storage.hpp"
+#include "utils/rocksdb_serialization.hpp"
 
 namespace memgraph::storage {
 
@@ -21,17 +22,17 @@ class DiskUniqueConstraints : public UniqueConstraints {
  public:
   explicit DiskUniqueConstraints(const Config &config);
 
-  bool CheckIfConstraintCanBeCreated(LabelId label, const std::set<PropertyId> &properties) const;
+  CreationStatus CheckIfConstraintCanBeCreated(LabelId label, const std::set<PropertyId> &properties) const;
 
   void InsertConstraint(LabelId label, const std::set<PropertyId> &properties,
                         const std::vector<std::pair<std::string, std::string>> &vertices_under_constraint);
 
+  std::optional<ConstraintViolation> Validate(const Vertex &vertex,
+                                              std::vector<std::vector<PropertyValue>> &unique_storage) const;
+
   DeletionStatus DropConstraint(LabelId label, const std::set<PropertyId> &properties) override;
 
   bool ConstraintExists(LabelId label, const std::set<PropertyId> &properties) const override;
-
-  std::optional<ConstraintViolation> Validate(const Vertex &vertex, const Transaction &tx,
-                                              uint64_t commit_timestamp) const override;
 
   std::vector<std::pair<LabelId, std::set<PropertyId>>> ListConstraints() const override;
 
@@ -40,6 +41,10 @@ class DiskUniqueConstraints : public UniqueConstraints {
  private:
   std::set<std::pair<LabelId, std::set<PropertyId>>> constraints_;
   std::unique_ptr<RocksDBStorage> kvstore_;
+
+  bool DifferentVertexExistsWithPropertyValues(std::vector<PropertyValue> property_values,
+                                               const std::vector<std::vector<PropertyValue>> &unique_storage,
+                                               const Gid &gid) const;
 };
 
 }  // namespace memgraph::storage

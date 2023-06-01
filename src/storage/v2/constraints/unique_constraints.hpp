@@ -50,9 +50,6 @@ class UniqueConstraints {
 
   virtual bool ConstraintExists(LabelId label, const std::set<PropertyId> &properties) const = 0;
 
-  virtual std::optional<ConstraintViolation> Validate(const Vertex &vertex, const Transaction &tx,
-                                                      uint64_t commit_timestamp) const = 0;
-
   virtual std::vector<std::pair<LabelId, std::set<PropertyId>>> ListConstraints() const = 0;
 
   virtual void Clear() = 0;
