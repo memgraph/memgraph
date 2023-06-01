@@ -19,7 +19,9 @@
 #include "communication/exceptions.hpp"
 #include "utils/logging.hpp"
 
+using memgraph::communication::bolt::ChunkedEncoderBuffer;
 using memgraph::communication::bolt::ClientError;
+using memgraph::communication::bolt::Encoder;
 using memgraph::communication::bolt::Session;
 using memgraph::communication::bolt::SessionException;
 using memgraph::communication::bolt::State;
@@ -33,16 +35,15 @@ static const char *kQueryEmpty = "no results";
 
 class TestSessionData {};
 
-class TestSession : public Session<TestInputStream, TestOutputStream> {
+class TestImpl {
  public:
-  using Session<TestInputStream, TestOutputStream>::TEncoder;
+  using TEncoder = Encoder<ChunkedEncoderBuffer<TestOutputStream>>;
 
-  TestSession(TestSessionData *data, TestInputStream *input_stream, TestOutputStream *output_stream)
-      : Session<TestInputStream, TestOutputStream>(input_stream, output_stream) {}
+  TestImpl(TestSessionData *data) {}
 
-  std::pair<std::vector<std::string>, std::optional<int>> Interpret(
-      const std::string &query, const std::map<std::string, Value> &params,
-      const std::map<std::string, Value> &metadata) override {
+  std::pair<std::vector<std::string>, std::optional<int>> Interpret(const std::string &query,
+                                                                    const std::map<std::string, Value> &params,
+                                                                    const std::map<std::string, Value> &metadata) {
     if (!metadata.empty()) md_ = metadata;
     if (query == kQueryReturn42 || query == kQueryEmpty || query == kQueryReturnMultiple) {
       query_ = query;
@@ -59,7 +60,7 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
     }
   }
 
-  std::map<std::string, Value> Pull(TEncoder *encoder, std::optional<int> n, std::optional<int> qid) override {
+  std::map<std::string, Value> Pull(TEncoder *encoder, std::optional<int> n, std::optional<int> qid) {
     if (query_ == kQueryReturn42) {
       encoder->MessageRecord(std::vector<Value>{Value(42)});
       return {};
@@ -89,30 +90,33 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
     }
   }
 
-  std::map<std::string, Value> Discard(std::optional<int>, std::optional<int>) override { return {}; }
+  std::map<std::string, Value> Discard(std::optional<int>, std::optional<int>) { return {}; }
 
-  void BeginTransaction(const std::map<std::string, Value> &metadata) override { md_ = metadata; }
-  void CommitTransaction() override { md_.clear(); }
-  void RollbackTransaction() override { md_.clear(); }
+  void BeginTransaction(const std::map<std::string, Value> &metadata) { md_ = metadata; }
+  void CommitTransaction() { md_.clear(); }
+  void RollbackTransaction() { md_.clear(); }
 
-  void Abort() override { md_.clear(); }
+  void Abort() { md_.clear(); }
 
-  bool Authenticate(const std::string &username, const std::string &password) override { return true; }
+  bool Authenticate(const std::string &username, const std::string &password) { return true; }
 
-  std::optional<std::string> GetServerNameForInit() override { return std::nullopt; }
+  std::optional<std::string> GetServerNameForInit() { return std::nullopt; }
 
  private:
   std::string query_;
   std::map<std::string, Value> md_;
 };
 
+using TestSession = Session<TestInputStream, TestOutputStream, TestImpl>;
+
 // TODO: This could be done in fixture.
 // Shortcuts for writing variable initializations in tests
-#define INIT_VARS                                                    \
-  TestInputStream input_stream;                                      \
-  TestOutputStream output_stream;                                    \
-  TestSessionData session_data;                                      \
-  TestSession session(&session_data, &input_stream, &output_stream); \
+#define INIT_VARS                                            \
+  TestInputStream input_stream;                              \
+  TestOutputStream output_stream;                            \
+  TestSessionData session_data;                              \
+  TestImpl impl(&session_data);                              \
+  TestSession session(&input_stream, &output_stream, &impl); \
   std::vector<uint8_t> &output = output_stream.output;
 
 // Sample testdata that has correct inputs and outputs.

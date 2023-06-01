@@ -12,6 +12,8 @@
 #pragma once
 
 #include <unordered_map>
+
+#include "constants.hpp"
 #include "interp_handler.hpp"
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
@@ -29,12 +31,19 @@ class SessionDataHandler {
  public:
 #if MG_ENTERPRISE
   SessionDataHandler(memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
-                     memgraph::audit::Log *audit_log)
-      : run_id_(utils::GenerateUUID()), auth_(auth), audit_log_(audit_log) {}
+                     memgraph::audit::Log *audit_log, config_type configs)
+      : default_configs_(configs), run_id_(utils::GenerateUUID()), auth_(auth), audit_log_(audit_log) {
+    // Always create the default DB
+    New(kDefaultDB);
+  }
 #else
   explicit SessionDataHandler(
-      memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth)
-      : run_id_(utils::GenerateUUID()), auth_(auth) {}
+      memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
+      config_type configs)
+      : default_configs_(configs), run_id_(utils::GenerateUUID()), auth_(auth) {
+    // Always create the default DB
+    New(kDefaultDB);
+  }
 #endif
 
   // TODO: Think about what New returns. Maybe it's easier to return false on error (because how are we suppose to
@@ -61,13 +70,6 @@ class SessionDataHandler {
     return {};
   }
 
-  std::optional<SessionData> New(std::string_view name) {
-    if (default_configs_) {
-      return New(name, default_configs_->first, default_configs_->second);
-    }
-    return {};
-  }
-
   std::optional<SessionData> New(std::string_view name, std::filesystem::path storage_subdir) {
     if (default_configs_) {
       auto storage = default_configs_->first;
@@ -77,21 +79,9 @@ class SessionDataHandler {
     return {};
   }
 
-  std::optional<SessionData> Get(std::string_view name) {
-    auto storage = storage_handler_.Get(name);
-    if (storage) {
-      auto interp = interp_handler_.Get(name);
-      if (interp) {
-#if MG_ENTERPRISE
-        return {*storage, *interp, auth_, audit_log_, run_id_};
-#else
-        return {*storage, *interp, auth_, run_id_};
-#endif
-      }
-    }
-    return {};
-  }
+  std::optional<SessionData> New(std::string_view name) { return New(name, name); }
 
+  // Can throw
   SessionData *GetPtr(const std::string &name) { return &session_data_.at(name); }
 
   bool Delete(std::string_view name) {
