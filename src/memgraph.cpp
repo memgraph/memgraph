@@ -93,6 +93,7 @@
 #include "communication/init.hpp"
 #include "communication/v2/server.hpp"
 #include "communication/v2/session.hpp"
+#include "dbms/session_data_handler.hpp"
 #include "glue/communication.hpp"
 
 #include "auth/auth.hpp"
@@ -439,36 +440,6 @@ DEFINE_HIDDEN_string(license_key, "", "License key for Memgraph Enterprise.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_HIDDEN_string(organization_name, "", "Organization name.");
 
-/// Encapsulates Dbms and Interpreter that are passed through the network server
-/// and worker to the session.
-struct SessionData {
-  // Explicit constructor here to ensure that pointers to all objects are
-  // supplied.
-#if MG_ENTERPRISE
-
-  SessionData(memgraph::storage::Storage *db, memgraph::query::InterpreterContext *interpreter_context,
-              memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
-              memgraph::audit::Log *audit_log)
-      : db(db), interpreter_context(interpreter_context), auth(auth), audit_log(audit_log) {}
-  memgraph::storage::Storage *db;
-  memgraph::query::InterpreterContext *interpreter_context;
-  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth;
-  memgraph::audit::Log *audit_log;
-
-#else
-
-  SessionData(memgraph::storage::Storage *db, memgraph::query::InterpreterContext *interpreter_context,
-              memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth)
-      : db(db), interpreter_context(interpreter_context), auth(auth) {}
-  memgraph::storage::Storage *db;
-  memgraph::query::InterpreterContext *interpreter_context;
-  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth;
-
-#endif
-  // NOTE: run_id should be const but that complicates code a lot.
-  std::optional<std::string> run_id;
-};
-
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(auth_user_or_role_name_regex, memgraph::glue::kDefaultUserRoleRegex.data(),
               "Set to the regular expression that each user or role name must fulfill.");
@@ -507,11 +478,29 @@ extern const Event ActiveBoltSessions;
 class BoltSession final : public memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                                         memgraph::communication::v2::OutputStream> {
  public:
-  BoltSession(SessionData *data, const memgraph::communication::v2::ServerEndpoint &endpoint,
+  BoltSession(memgraph::dbms::SessionData *data, const memgraph::communication::v2::ServerEndpoint &endpoint,
               memgraph::communication::v2::InputStream *input_stream,
               memgraph::communication::v2::OutputStream *output_stream)
       : memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                memgraph::communication::v2::OutputStream>(input_stream, output_stream),
+        db_(data->db),
+        interpreter_context_(data->interpreter_context),
+        interpreter_(data->interpreter_context),
+        auth_(data->auth),
+#if MG_ENTERPRISE
+        audit_log_(data->audit_log),
+#endif
+        endpoint_(endpoint),
+        run_id_(data->run_id) {
+    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveBoltSessions);
+    interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.insert(&interpreter_); });
+  }
+
+  BoltSession(memgraph::dbms::SessionData *data, const memgraph::communication::v2::ServerEndpoint &endpoint,
+              const memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
+                                                           memgraph::communication::v2::OutputStream> &current_session)
+      : memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
+                                               memgraph::communication::v2::OutputStream>(current_session),
         db_(data->db),
         interpreter_context_(data->interpreter_context),
         interpreter_(data->interpreter_context),
@@ -698,9 +687,10 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
   std::optional<std::string> run_id_;
 };
 
-using ServerT = memgraph::communication::v2::Server<BoltSession, SessionData>;
+using ServerT = memgraph::communication::v2::Server<BoltSession, memgraph::dbms::SessionDataHandler</*default*/>>;
 using MonitoringServerT =
-    memgraph::communication::http::Server<memgraph::http::MetricsRequestHandler<SessionData>, SessionData>;
+    memgraph::communication::http::Server<memgraph::http::MetricsRequestHandler<memgraph::dbms::SessionData>,
+                                          memgraph::dbms::SessionData>;
 using memgraph::communication::ServerContext;
 
 // Needed to correctly handle memgraph destruction from a signal handler.
@@ -918,22 +908,30 @@ int main(int argc, char **argv) {
     }
     db_config.durability.snapshot_interval = std::chrono::seconds(FLAGS_storage_snapshot_interval_sec);
   }
-  memgraph::storage::Storage db(db_config);
 
-  memgraph::query::InterpreterContext interpreter_context{
-      &db,
-      {.query = {.allow_load_csv = FLAGS_allow_load_csv},
-       .execution_timeout_sec = FLAGS_query_execution_timeout_sec,
-       .replication_replica_check_frequency = std::chrono::seconds(FLAGS_replication_replica_check_frequency_sec),
-       .default_kafka_bootstrap_servers = FLAGS_kafka_bootstrap_servers,
-       .default_pulsar_service_url = FLAGS_pulsar_service_url,
-       .stream_transaction_conflict_retries = FLAGS_stream_transaction_conflict_retries,
-       .stream_transaction_retry_interval = std::chrono::milliseconds(FLAGS_stream_transaction_retry_interval)},
-      FLAGS_data_directory};
+  // memgraph::storage::Storage db(db_config);
+
+  // memgraph::query::InterpreterContext interpreter_context{
+  // &db,
+  memgraph::query::InterpreterConfig interp_config{
+      .query = {.allow_load_csv = FLAGS_allow_load_csv},
+      .execution_timeout_sec = FLAGS_query_execution_timeout_sec,
+      .replication_replica_check_frequency = std::chrono::seconds(FLAGS_replication_replica_check_frequency_sec),
+      .default_kafka_bootstrap_servers = FLAGS_kafka_bootstrap_servers,
+      .default_pulsar_service_url = FLAGS_pulsar_service_url,
+      .stream_transaction_conflict_retries = FLAGS_stream_transaction_conflict_retries,
+      .stream_transaction_retry_interval = std::chrono::milliseconds(FLAGS_stream_transaction_retry_interval)};
+  // FLAGS_data_directory};
 #ifdef MG_ENTERPRISE
-  SessionData session_data{&db, &interpreter_context, &auth, &audit_log};
+  // memgraph::dbms::SessionData session_data{&db, &interpreter_context, &auth, &audit_log};
+  memgraph::dbms::SessionDataHandler<> sd_handler(&auth, &audit_log);
+  sd_handler.SetDefaultConfigs({db_config, interp_config});
+  // Just for current support...
+  auto session_data = *sd_handler.New("0", db_config, interp_config);
+  auto &interpreter_context = *session_data.interpreter_context;
+  auto &db = *session_data.db;
 #else
-  SessionData session_data{&db, &interpreter_context, &auth};
+  // memgraph::dbms::SessionData session_data{&db, &interpreter_context, &auth};
 #endif
 
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories, FLAGS_data_directory);
@@ -989,15 +987,15 @@ int main(int argc, char **argv) {
     spdlog::warn(
         memgraph::utils::MessageWithLink("Using non-secure Bolt connection (without SSL).", "https://memgr.ph/ssl"));
   }
-
   auto server_endpoint = memgraph::communication::v2::ServerEndpoint{
       boost::asio::ip::address::from_string(FLAGS_bolt_address), static_cast<uint16_t>(FLAGS_bolt_port)};
-  ServerT server(server_endpoint, &session_data, &context, FLAGS_bolt_session_inactivity_timeout, service_name,
+  ServerT server(server_endpoint, &sd_handler, &context, FLAGS_bolt_session_inactivity_timeout, service_name,
                  FLAGS_bolt_num_workers);
 
-  const auto run_id = memgraph::utils::GenerateUUID();
+  // const auto run_id = memgraph::utils::GenerateUUID();
   const auto machine_id = memgraph::utils::GetMachineId();
-  session_data.run_id = run_id;
+  // session_data.run_id = run_id;
+  const auto run_id = *session_data.run_id;  // For current compatibility
 
   // Setup telemetry
   static constexpr auto telemetry_server{"https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/"};

@@ -57,6 +57,21 @@ class Session {
 
   virtual ~Session() {}
 
+ protected:
+  // Used to create a new session with the same undelying communication session (TODO better...)
+  Session(const Session &in)
+      : input_stream_(in.input_stream_),
+        output_stream_(in.output_stream_),
+        encoder_buffer_{output_stream_},
+        encoder_{encoder_buffer_},
+        decoder_buffer_{input_stream_},
+        decoder_{decoder_buffer_},
+        handshake_done_(in.handshake_done_),
+        state_(in.state_),
+        version_(in.version_),
+        db_name(in.db_name) {}
+
+ public:
   /**
    * Process the given `query` with `params`.
    * @return A pair which contains list of headers and qid which is set only
@@ -178,6 +193,9 @@ class Session {
   };
 
   Version version_;
+
+  // TODO: REMOVE
+  std::string db_name{"0"};
 
  private:
   void ClientFailureInvalidData() {
