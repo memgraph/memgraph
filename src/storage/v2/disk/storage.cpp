@@ -244,7 +244,10 @@ DiskStorage::DiskAccessor::~DiskAccessor() {
   }
 
   FinalizeTransaction();
-  delete disk_transaction_;
+  if (disk_transaction_) {
+    delete disk_transaction_;
+    disk_transaction_ = nullptr;
+  }
 }
 
 std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToMainMemoryCache(
@@ -1396,6 +1399,13 @@ void DiskStorage::DiskAccessor::Abort() {
   }
 
   disk_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
+  disk_transaction_->Rollback();
+  // On abort we need to delete disk transaction because after storage remove we couldn't remove
+  // disk_transaction correctly in destructor.
+  // This happens in tests when we create and remove storage in one test. For example, in
+  // query_plan_accumulate_aggregate.cpp
+  delete disk_transaction_;
+  disk_transaction_ = nullptr;
   is_transaction_active_ = false;
 }
 
