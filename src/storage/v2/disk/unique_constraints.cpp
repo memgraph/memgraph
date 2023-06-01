@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/disk/unique_constraints.hpp"
+#include <sstream>
 #include "storage/v2/constraints/unique_constraints.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
@@ -78,11 +79,19 @@ void DiskUniqueConstraints::ClearEntriesScheduledForDeletion(uint64_t transactio
     if (utils::Contains(vertex.labels, constraint_label) && vertex.properties.HasAllProperties(constraint_properties)) {
       /// TODO: andi This serialization metrhod accepts too many arguments, refactor it
       /// TODO: change to transaction db usage
-      auto status = kvstore_->db_->Put(
-          rocksdb::WriteOptions(),
-          utils::SerializeVertexAsKeyForUniqueConstraint(constraint_label, constraint_properties,
-                                                         utils::SerializeIdType(vertex.gid)),
-          utils::SerializeVertexAsValueForUniqueConstraint(constraint_label, vertex.labels, vertex.properties));
+      auto key = utils::SerializeVertexAsKeyForUniqueConstraint(constraint_label, constraint_properties,
+                                                                utils::SerializeIdType(vertex.gid));
+      auto value = utils::SerializeVertexAsValueForUniqueConstraint(constraint_label, vertex.labels, vertex.properties);
+      auto status = kvstore_->db_->Put(rocksdb::WriteOptions(), key, value);
+
+      std::stringstream ss;
+      ss << "{";
+      for (const auto &[property_id, property_value] : vertex.properties.Properties()) {
+        ss << property_id.AsUint() << ": " << property_value;
+      }
+      ss << "}";
+      spdlog::debug("Written vertex to unique constraints storage with key: {} and properties: {}", key, ss.str());
+
       if (!status.ok()) {
         return false;
       }
