@@ -32,7 +32,8 @@ class SessionDataHandler {
                      memgraph::audit::Log *audit_log)
       : run_id_(utils::GenerateUUID()), auth_(auth), audit_log_(audit_log) {}
 #else
-  SessionDataHandler(memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth)
+  explicit SessionDataHandler(
+      memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth)
       : run_id_(utils::GenerateUUID()), auth_(auth) {}
 #endif
 
@@ -45,7 +46,11 @@ class SessionDataHandler {
       auto new_interp =
           interp_handler_.New(name, *new_storage, inter_config, storage_config.durability.storage_directory);
       if (new_interp) {
+#if MG_ENTERPRISE
         SessionData sd{*new_storage, *new_interp, auth_, audit_log_};
+#else
+        SessionData sd{*new_storage, *new_interp, auth_};
+#endif
         sd.run_id = run_id_;
         session_data_.emplace(name, sd);
         return sd;
@@ -77,7 +82,11 @@ class SessionDataHandler {
     if (storage) {
       auto interp = interp_handler_.Get(name);
       if (interp) {
+#if MG_ENTERPRISE
         return {*storage, *interp, auth_, audit_log_, run_id_};
+#else
+        return {*storage, *interp, auth_, run_id_};
+#endif
       }
     }
     return {};
@@ -104,7 +113,9 @@ class SessionDataHandler {
   std::optional<config_type> default_configs_;
   const std::string run_id_;
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth_;
+#if MG_ENTERPRISE
   memgraph::audit::Log *audit_log_;
+#endif
 };
 
 }  // namespace memgraph::dbms

@@ -925,14 +925,15 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
   // memgraph::dbms::SessionData session_data{&db, &interpreter_context, &auth, &audit_log};
   memgraph::dbms::SessionDataHandler<> sd_handler(&auth, &audit_log);
+#else
+  // memgraph::dbms::SessionData session_data{&db, &interpreter_context, &auth};
+  memgraph::dbms::SessionDataHandler<> sd_handler(&auth);
+#endif
   sd_handler.SetDefaultConfigs({db_config, interp_config});
   // Just for current support...
   auto session_data = *sd_handler.New("0", db_config, interp_config);
   auto &interpreter_context = *session_data.interpreter_context;
   auto &db = *session_data.db;
-#else
-  // memgraph::dbms::SessionData session_data{&db, &interpreter_context, &auth};
-#endif
 
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories, FLAGS_data_directory);
   memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
