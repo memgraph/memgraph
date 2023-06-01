@@ -904,14 +904,13 @@ int main(int argc, char **argv) {
   // FLAGS_data_directory};
 #ifdef MG_ENTERPRISE
   // memgraph::dbms::SessionData session_data{&db, &interpreter_context, &auth, &audit_log};
-  memgraph::dbms::SessionDataHandler<> sd_handler(&auth, &audit_log);
+  memgraph::dbms::SessionDataHandler</*default*/> sd_handler(&auth, &audit_log, {db_config, interp_config});
 #else
   // memgraph::dbms::SessionData session_data{&db, &interpreter_context, &auth};
-  memgraph::dbms::SessionDataHandler<> sd_handler(&auth);
+  memgraph::dbms::SessionDataHandler</*default*/> sd_handler(&auth, {db_config, interp_config});
 #endif
-  sd_handler.SetDefaultConfigs({db_config, interp_config});
   // Just for current support...
-  auto session_data = *sd_handler.New("0", db_config, interp_config);
+  auto session_data = *sd_handler.GetPtr(memgraph::dbms::kDefaultDB);
   auto &interpreter_context = *session_data.interpreter_context;
   auto &db = *session_data.db;
 

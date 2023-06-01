@@ -25,6 +25,7 @@
 #include "communication/bolt/v1/states/executing.hpp"
 #include "communication/bolt/v1/states/handshake.hpp"
 #include "communication/bolt/v1/states/init.hpp"
+#include "dbms/constants.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
@@ -207,7 +208,7 @@ class Session {
   Version version_;
 
   // TODO: REMOVE
-  std::string db_name{"0"};
+  std::string db_name{memgraph::dbms::kDefaultDB};
 
  private:
   void ClientFailureInvalidData() {

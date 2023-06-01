@@ -155,8 +155,9 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
   // Take ownership of the socket
   explicit WebsocketSession(tcp::socket &&socket, TSessionData *data, tcp::endpoint endpoint,
                             std::string_view service_name)
-      : WebsocketSession(std::make_unique<typename TSession::impl_type>(data->GetPtr("0"), endpoint),
-                         std::forward<tcp::socket>(socket), data, endpoint, service_name) {}
+      : WebsocketSession(
+            std::make_unique<typename TSession::impl_type>(data->GetPtr(memgraph::dbms::kDefaultDB), endpoint),
+            std::forward<tcp::socket>(socket), data, endpoint, service_name) {}
 
   explicit WebsocketSession(std::unique_ptr<typename TSession::impl_type> impl, tcp::socket &&socket,
                             TSessionData *data, tcp::endpoint endpoint, std::string_view service_name)
@@ -346,7 +347,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   explicit Session(tcp::socket &&socket, TSessionData *data, ServerContext &server_context, tcp::endpoint endpoint,
                    const std::chrono::seconds inactivity_timeout_sec, std::string_view service_name)
       // TODO: GetPtr(default) has to always work
-      : Session(std::make_unique<typename TSession::impl_type>(data->GetPtr("0"), endpoint),
+      : Session(std::make_unique<typename TSession::impl_type>(data->GetPtr(memgraph::dbms::kDefaultDB), endpoint),
                 std::forward<tcp::socket>(socket), data, server_context, endpoint, inactivity_timeout_sec,
                 service_name) {}
 
@@ -363,7 +364,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
         service_name_{service_name},
         timeout_seconds_(inactivity_timeout_sec),
         timeout_timer_(GetExecutor()) {
-    sessions_.emplace("0", std::move(pimpl));
+    sessions_.emplace(memgraph::dbms::kDefaultDB, std::move(pimpl));
     ExecuteForSocket([](auto &&socket) {
       socket.lowest_layer().set_option(tcp::no_delay(true));                         // enable PSH
       socket.lowest_layer().set_option(boost::asio::socket_base::keep_alive(true));  // enable SO_KEEPALIVE
@@ -575,6 +576,6 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   bool has_received_msg_{false};
 
   // TODO: REMOVE
-  std::string db_name{"0"};
+  std::string db_name{memgraph::dbms::kDefaultDB};
 };
 }  // namespace memgraph::communication::v2

@@ -33,21 +33,23 @@ struct SessionData {
               memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
               memgraph::audit::Log *audit_log)
       : db(db), interpreter_context(interpreter_context), auth(auth), audit_log(audit_log) {}
-  memgraph::storage::Storage *db;
-  memgraph::query::InterpreterContext *interpreter_context;
-  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth;
-  memgraph::audit::Log *audit_log;
 
 #else
 
   SessionData(memgraph::storage::Storage *db, memgraph::query::InterpreterContext *interpreter_context,
               memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth)
       : db(db), interpreter_context(interpreter_context), auth(auth) {}
+
+#endif
+
   memgraph::storage::Storage *db;
   memgraph::query::InterpreterContext *interpreter_context;
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth;
 
+#if MG_ENTERPRISE
+  memgraph::audit::Log *audit_log;
 #endif
+
   // NOTE: run_id should be const but that complicates code a lot.
   std::optional<std::string> run_id;
 };
