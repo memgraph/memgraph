@@ -475,15 +475,10 @@ namespace memgraph::metrics {
 extern const Event ActiveBoltSessions;
 }  // namespace memgraph::metrics
 
-class BoltSession final : public memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
-                                                                        memgraph::communication::v2::OutputStream> {
+class BoltSession final {
  public:
-  BoltSession(memgraph::dbms::SessionData *data, const memgraph::communication::v2::ServerEndpoint &endpoint,
-              memgraph::communication::v2::InputStream *input_stream,
-              memgraph::communication::v2::OutputStream *output_stream)
-      : memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
-                                               memgraph::communication::v2::OutputStream>(input_stream, output_stream),
-        db_(data->db),
+  BoltSession(memgraph::dbms::SessionData *data, const memgraph::communication::v2::ServerEndpoint &endpoint)
+      : db_(data->db),
         interpreter_context_(data->interpreter_context),
         interpreter_(data->interpreter_context),
         auth_(data->auth),
@@ -496,33 +491,17 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
     interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.insert(&interpreter_); });
   }
 
-  BoltSession(memgraph::dbms::SessionData *data, const memgraph::communication::v2::ServerEndpoint &endpoint,
-              const memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
-                                                           memgraph::communication::v2::OutputStream> &current_session)
-      : memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
-                                               memgraph::communication::v2::OutputStream>(current_session),
-        db_(data->db),
-        interpreter_context_(data->interpreter_context),
-        interpreter_(data->interpreter_context),
-        auth_(data->auth),
-#if MG_ENTERPRISE
-        audit_log_(data->audit_log),
-#endif
-        endpoint_(endpoint),
-        run_id_(data->run_id) {
-    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveBoltSessions);
-    interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.insert(&interpreter_); });
-  }
-
-  ~BoltSession() override {
+  ~BoltSession() {
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveBoltSessions);
     interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.erase(&interpreter_); });
   }
 
-  using memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
-                                               memgraph::communication::v2::OutputStream>::TEncoder;
+  // TODO rule of 5
 
-  void BeginTransaction(const std::map<std::string, memgraph::communication::bolt::Value> &metadata) override {
+  using TEncoder = memgraph::communication::bolt::Encoder<
+      memgraph::communication::bolt::ChunkedEncoderBuffer<memgraph::communication::v2::OutputStream>>;
+
+  void BeginTransaction(const std::map<std::string, memgraph::communication::bolt::Value> &metadata) {
     std::map<std::string, memgraph::storage::PropertyValue> metadata_pv;
     for (const auto &[key, bolt_value] : metadata) {
       metadata_pv.emplace(key, memgraph::glue::ToPropertyValue(bolt_value));
@@ -530,13 +509,13 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
     interpreter_.BeginTransaction(metadata_pv);
   }
 
-  void CommitTransaction() override { interpreter_.CommitTransaction(); }
+  void CommitTransaction() { interpreter_.CommitTransaction(); }
 
-  void RollbackTransaction() override { interpreter_.RollbackTransaction(); }
+  void RollbackTransaction() { interpreter_.RollbackTransaction(); }
 
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(
       const std::string &query, const std::map<std::string, memgraph::communication::bolt::Value> &params,
-      const std::map<std::string, memgraph::communication::bolt::Value> &metadata) override {
+      const std::map<std::string, memgraph::communication::bolt::Value> &metadata) {
     std::map<std::string, memgraph::storage::PropertyValue> params_pv;
     std::map<std::string, memgraph::storage::PropertyValue> metadata_pv;
     for (const auto &[key, bolt_param] : params) {
@@ -575,20 +554,19 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
   }
 
   std::map<std::string, memgraph::communication::bolt::Value> Pull(TEncoder *encoder, std::optional<int> n,
-                                                                   std::optional<int> qid) override {
+                                                                   std::optional<int> qid) {
     TypedValueResultStream stream(encoder, db_);
     return PullResults(stream, n, qid);
   }
 
-  std::map<std::string, memgraph::communication::bolt::Value> Discard(std::optional<int> n,
-                                                                      std::optional<int> qid) override {
+  std::map<std::string, memgraph::communication::bolt::Value> Discard(std::optional<int> n, std::optional<int> qid) {
     memgraph::query::DiscardValueResultStream stream;
     return PullResults(stream, n, qid);
   }
 
-  void Abort() override { interpreter_.Abort(); }
+  void Abort() { interpreter_.Abort(); }
 
-  bool Authenticate(const std::string &username, const std::string &password) override {
+  bool Authenticate(const std::string &username, const std::string &password) {
     auto locked_auth = auth_->Lock();
     if (!locked_auth->HasUsers()) {
       return true;
@@ -597,7 +575,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
     return user_.has_value();
   }
 
-  std::optional<std::string> GetServerNameForInit() override {
+  std::optional<std::string> GetServerNameForInit() {
     if (FLAGS_bolt_server_name_for_init.empty()) return std::nullopt;
     return FLAGS_bolt_server_name_for_init;
   }
@@ -687,7 +665,9 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
   std::optional<std::string> run_id_;
 };
 
-using ServerT = memgraph::communication::v2::Server<BoltSession, memgraph::dbms::SessionDataHandler</*default*/>>;
+using SessionT = memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
+                                                        memgraph::communication::v2::OutputStream, BoltSession>;
+using ServerT = memgraph::communication::v2::Server<SessionT, memgraph::dbms::SessionDataHandler</*default*/>>;
 using MonitoringServerT =
     memgraph::communication::http::Server<memgraph::http::MetricsRequestHandler<memgraph::dbms::SessionData>,
                                           memgraph::dbms::SessionData>;

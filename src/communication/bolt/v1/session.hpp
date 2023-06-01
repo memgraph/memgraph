@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <concepts>
 #include <optional>
 #include <thread>
 
@@ -28,6 +29,19 @@
 #include "utils/logging.hpp"
 
 namespace memgraph::communication::bolt {
+
+template <typename T, typename TEncoder>
+concept hl_impl = requires(T v) {
+  { v.Interpret({}, {}, {}) } -> std::same_as<std::pair<std::vector<std::string>, std::optional<int>>>;
+  { v.Pull({}, {}, {}) } -> std::same_as<std::map<std::string, Value>>;
+  { v.Discard({}, {}) } -> std::same_as<std::map<std::string, Value>>;
+  { v.BeginTransaction({}) } -> std::same_as<void>;
+  { v.CommitTransaction() } -> std::same_as<void>;
+  { v.RollbackTransaction() } -> std::same_as<void>;
+  { v.Abort() } -> std::same_as<void>;
+  { v.Authenticate({}, {}) } -> std::same_as<bool>;
+  { v.GetServerNameForInit() } -> std::same_as<std::optional<std::string>>;
+};
 
 /**
  * Bolt Session Exception
@@ -47,39 +61,31 @@ class SessionException : public utils::BasicException {
  * @tparam TInputStream type of input stream that will be used
  * @tparam TOutputStream type of output stream that will be used
  */
-template <typename TInputStream, typename TOutputStream>
+template <typename TInputStream, typename TOutputStream, hl_impl<Encoder<ChunkedEncoderBuffer<TOutputStream>>> TSession>
 class Session {
  public:
   using TEncoder = Encoder<ChunkedEncoderBuffer<TOutputStream>>;
+  using impl_type = TSession;
 
-  Session(TInputStream *input_stream, TOutputStream *output_stream)
-      : input_stream_(*input_stream), output_stream_(*output_stream) {}
+  Session(TInputStream *input_stream, TOutputStream *output_stream, TSession *impl)
+      : input_stream_(*input_stream), output_stream_(*output_stream), pimpl_(impl) {}
 
-  virtual ~Session() {}
+  /**
+   * Sets the underlying implementation used. Allows us to switch hl objects while remaining on the same comm
+   * connection.
+   */
+  void SetImpl(TSession *impl) { pimpl_ = impl; }
 
- protected:
-  // Used to create a new session with the same undelying communication session (TODO better...)
-  Session(const Session &in)
-      : input_stream_(in.input_stream_),
-        output_stream_(in.output_stream_),
-        encoder_buffer_{output_stream_},
-        encoder_{encoder_buffer_},
-        decoder_buffer_{input_stream_},
-        decoder_{decoder_buffer_},
-        handshake_done_(in.handshake_done_),
-        state_(in.state_),
-        version_(in.version_),
-        db_name(in.db_name) {}
-
- public:
   /**
    * Process the given `query` with `params`.
    * @return A pair which contains list of headers and qid which is set only
    * if an explicit transaction was started.
    */
-  virtual std::pair<std::vector<std::string>, std::optional<int>> Interpret(
+  std::pair<std::vector<std::string>, std::optional<int>> Interpret(
       const std::string &query, const std::map<std::string, Value> &params,
-      const std::map<std::string, memgraph::communication::bolt::Value> &metadata) = 0;
+      const std::map<std::string, memgraph::communication::bolt::Value> &metadata) {
+    return pimpl_->Interpret(query, params, metadata);
+  }
 
   /**
    * Put results of the processed query in the `encoder`.
@@ -89,7 +95,9 @@ class Session {
    * @param q If set, defines from which query to pull the results,
    * otherwise the last query is used.
    */
-  virtual std::map<std::string, Value> Pull(TEncoder *encoder, std::optional<int> n, std::optional<int> qid) = 0;
+  std::map<std::string, Value> Pull(TEncoder *encoder, std::optional<int> n, std::optional<int> qid) {
+    return pimpl_->Pull(encoder, n, qid);
+  }
 
   /**
    * Discard results of the processed query.
@@ -99,21 +107,25 @@ class Session {
    * @param q If set, defines from which query to discard the results,
    * otherwise the last query is used.
    */
-  virtual std::map<std::string, Value> Discard(std::optional<int> n, std::optional<int> qid) = 0;
+  std::map<std::string, Value> Discard(std::optional<int> n, std::optional<int> qid) { return pimpl_->Discard(n, qid); }
 
-  virtual void BeginTransaction(const std::map<std::string, memgraph::communication::bolt::Value> &) = 0;
-  virtual void CommitTransaction() = 0;
-  virtual void RollbackTransaction() = 0;
+  void BeginTransaction(const std::map<std::string, memgraph::communication::bolt::Value> &params) {
+    pimpl_->BeginTransaction(params);
+  }
+  void CommitTransaction() { pimpl_->CommitTransaction(); }
+  void RollbackTransaction() { pimpl_->RollbackTransaction(); }
 
   /** Aborts currently running query. */
-  virtual void Abort() = 0;
+  void Abort() { pimpl_->Abort(); }
 
   /** Return `true` if the user was successfully authenticated. */
-  virtual bool Authenticate(const std::string &username, const std::string &password) = 0;
+  bool Authenticate(const std::string &username, const std::string &password) {
+    return pimpl_->Authenticate(username, password);
+  }
 
   /** Return the name of the server that should be used for the Bolt INIT
    * message. */
-  virtual std::optional<std::string> GetServerNameForInit() = 0;
+  std::optional<std::string> GetServerNameForInit() { return pimpl_->GetServerNameForInit(); }
 
   /**
    * Executes the session after data has been read into the buffer.
@@ -212,6 +224,8 @@ class Session {
     // of the session to trigger session cleanup and socket close.
     throw SessionException("Something went wrong during session execution!");
   }
+
+  TSession *pimpl_;
 };
 
 }  // namespace memgraph::communication::bolt

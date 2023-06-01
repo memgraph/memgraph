@@ -155,10 +155,16 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
   // Take ownership of the socket
   explicit WebsocketSession(tcp::socket &&socket, TSessionData *data, tcp::endpoint endpoint,
                             std::string_view service_name)
+      : WebsocketSession(std::make_unique<typename TSession::impl_type>(data->GetPtr("0"), endpoint),
+                         std::forward<tcp::socket>(socket), data, endpoint, service_name) {}
+
+  explicit WebsocketSession(std::unique_ptr<typename TSession::impl_type> impl, tcp::socket &&socket,
+                            TSessionData *data, tcp::endpoint endpoint, std::string_view service_name)
       : ws_(std::move(socket)),
         strand_{boost::asio::make_strand(ws_.get_executor())},
         output_stream_([this](const uint8_t *data, size_t len, bool /*have_more*/) { return Write(data, len); }),
-        session_(data->GetPtr("0"), endpoint, input_buffer_.read_end(), &output_stream_),
+        impl_(std::move(impl)),
+        session_(input_buffer_.read_end(), &output_stream_, impl_.get()),
         endpoint_{endpoint},
         remote_endpoint_{ws_.next_layer().socket().remote_endpoint()},
         service_name_{service_name} {}
@@ -243,6 +249,7 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
 
   communication::Buffer input_buffer_;
   OutputStream output_stream_;
+  std::unique_ptr<typename TSession::impl_type> impl_;
   TSession session_;
   tcp::endpoint endpoint_;
   tcp::endpoint remote_endpoint_;
@@ -338,21 +345,25 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
  private:
   explicit Session(tcp::socket &&socket, TSessionData *data, ServerContext &server_context, tcp::endpoint endpoint,
                    const std::chrono::seconds inactivity_timeout_sec, std::string_view service_name)
+      // TODO: GetPtr(default) has to always work
+      : Session(std::make_unique<typename TSession::impl_type>(data->GetPtr("0"), endpoint),
+                std::forward<tcp::socket>(socket), data, server_context, endpoint, inactivity_timeout_sec,
+                service_name) {}
+
+  explicit Session(std::unique_ptr<typename TSession::impl_type> pimpl, tcp::socket &&socket, TSessionData *data,
+                   ServerContext &server_context, tcp::endpoint endpoint,
+                   const std::chrono::seconds inactivity_timeout_sec, std::string_view service_name)
       : socket_(CreateSocket(std::move(socket), server_context)),
         strand_{boost::asio::make_strand(GetExecutor())},
         output_stream_([this](const uint8_t *data, size_t len, bool have_more) { return Write(data, len, have_more); }),
-        // sessions_({{"0", std::make_unique<TSession>(data->GetPtr("0"), endpoint, input_buffer_.read_end(),
-        // &output_stream_)}}), session_(sessions_["0"].get()),
+        session_{input_buffer_.read_end(), &output_stream_, pimpl.get()},
         data_{data},
         endpoint_{endpoint},
         remote_endpoint_{GetRemoteEndpoint()},
         service_name_{service_name},
         timeout_seconds_(inactivity_timeout_sec),
         timeout_timer_(GetExecutor()) {
-    sessions_.emplace(
-        "0", std::make_unique<TSession>(data->GetPtr("0"), endpoint, input_buffer_.read_end(), &output_stream_));
-    session_ = sessions_["0"].get();
-    // TODO: GetPtr(default) has to always work
+    sessions_.emplace("0", std::move(pimpl));
     ExecuteForSocket([](auto &&socket) {
       socket.lowest_layer().set_option(tcp::no_delay(true));                         // enable PSH
       socket.lowest_layer().set_option(boost::asio::socket_base::keep_alive(true));  // enable SO_KEEPALIVE
@@ -414,17 +425,17 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     }
 
     try {
-      session_->Execute();
-      if (session_->state_ == memgraph::communication::bolt::State::Idle && session_->db_name != db_name) {
+      session_.Execute();
+      if (session_.state_ == memgraph::communication::bolt::State::Idle && session_.db_name != db_name) {
         // todo a 1000 checks
-        db_name = session_->db_name;
+        db_name = session_.db_name;
         data_->New(db_name, db_name);
         auto &ptr = sessions_[db_name];
         if (ptr == nullptr) {
-          ptr = std::make_unique<TSession>(data_->GetPtr(db_name), endpoint_, *session_);
+          ptr = std::make_unique<typename TSession::impl_type>(data_->GetPtr(db_name), endpoint_);
         }
-        session_ = ptr.get();
-        session_->db_name = db_name;
+        session_.SetImpl(ptr.get());
+        session_.db_name = db_name;
       }
       DoRead();
     } catch (const SessionClosedException &e) {
@@ -552,8 +563,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
   communication::Buffer input_buffer_;
   OutputStream output_stream_;
-  std::unordered_map<std::string, std::unique_ptr<TSession>> sessions_;
-  TSession *session_;
+  std::unordered_map<std::string, std::unique_ptr<typename TSession::impl_type>> sessions_;
+  TSession session_;
   TSessionData *data_;
   tcp::endpoint endpoint_;
   tcp::endpoint remote_endpoint_;
