@@ -42,10 +42,11 @@ template <typename StorageType>
 class QueryPlanTest : public testing::Test {
  public:
   std::unique_ptr<memgraph::storage::Storage> db = std::make_unique<StorageType>();
+  AstStorage storage;
 };
 
-// using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-using StorageTypes = ::testing::Types<memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+// using StorageTypes = ::testing::Types<memgraph::storage::DiskStorage>;
 TYPED_TEST_CASE(QueryPlanTest, StorageTypes);
 
 TYPED_TEST(QueryPlanTest, CreateNodeWithAttributes) {
@@ -53,11 +54,9 @@ TYPED_TEST(QueryPlanTest, CreateNodeWithAttributes) {
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   memgraph::storage::LabelId label = dba.NameToLabel("Person");
-  auto property = PROPERTY_PAIR("prop");
+  auto property = PROPERTY_PAIR(dba, "prop");
 
-  AstStorage storage;
   SymbolTable symbol_table;
-
   NodeCreationInfo node;
   node.symbol = symbol_table.CreateSymbol("n", true);
   node.labels.emplace_back(label);
@@ -65,7 +64,7 @@ TYPED_TEST(QueryPlanTest, CreateNodeWithAttributes) {
       .emplace_back(property.second, LITERAL(42));
 
   auto create = std::make_shared<CreateNode>(nullptr, node);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   PullAll(*create, &context);
   dba.AdvanceCommand();
 
@@ -94,7 +93,6 @@ TYPED_TEST(QueryPlanTest, CreateNodeWithAttributes) {
 #ifdef MG_ENTERPRISE
 TYPED_TEST(QueryPlanTest, FineGrainedCreateNodeWithAttributes) {
   memgraph::license::global_license_checker.EnableTesting();
-  memgraph::query::AstStorage ast;
   memgraph::query::SymbolTable symbol_table;
   auto dba = this->db->Access();
   DbAccessor execution_dba(dba.get());
@@ -103,14 +101,14 @@ TYPED_TEST(QueryPlanTest, FineGrainedCreateNodeWithAttributes) {
 
   memgraph::query::plan::NodeCreationInfo node;
   std::get<std::vector<std::pair<memgraph::storage::PropertyId, Expression *>>>(node.properties)
-      .emplace_back(property, ast.Create<PrimitiveLiteral>(42));
+      .emplace_back(property, this->storage.template Create<PrimitiveLiteral>(42));
 
   node.symbol = symbol_table.CreateSymbol("n", true);
   node.labels.emplace_back(label);
 
   const auto test_create = [&](memgraph::auth::User &user) {
     memgraph::glue::FineGrainedAuthChecker auth_checker{user, &execution_dba};
-    auto context = MakeContextWithFineGrainedChecker(ast, symbol_table, &execution_dba, &auth_checker);
+    auto context = MakeContextWithFineGrainedChecker(this->storage, symbol_table, &execution_dba, &auth_checker);
     auto create = std::make_shared<CreateNode>(nullptr, node);
 
     return PullAll(*create, &context);
@@ -140,11 +138,9 @@ TYPED_TEST(QueryPlanTest, CreateReturn) {
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   memgraph::storage::LabelId label = dba.NameToLabel("Person");
-  auto property = PROPERTY_PAIR("property");
+  auto property = PROPERTY_PAIR(dba, "property");
 
-  AstStorage storage;
   SymbolTable symbol_table;
-
   NodeCreationInfo node;
   node.symbol = symbol_table.CreateSymbol("n", true);
   node.labels.emplace_back(label);
@@ -154,11 +150,11 @@ TYPED_TEST(QueryPlanTest, CreateReturn) {
   auto create = std::make_shared<CreateNode>(nullptr, node);
   auto named_expr_n =
       NEXPR("n", IDENT("n")->MapTo(node.symbol))->MapTo(symbol_table.CreateSymbol("named_expr_n", true));
-  auto prop_lookup = PROPERTY_LOOKUP(IDENT("n")->MapTo(node.symbol), property);
+  auto prop_lookup = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(node.symbol), property);
   auto named_expr_n_p = NEXPR("n", prop_lookup)->MapTo(symbol_table.CreateSymbol("named_expr_n_p", true));
 
   auto produce = MakeProduce(create, named_expr_n, named_expr_n_p);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(1, results.size());
   EXPECT_EQ(2, results[0].size());
@@ -182,11 +178,9 @@ TYPED_TEST(QueryPlanTest, FineGrainedCreateReturn) {
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   const auto label = dba.NameToLabel("label");
-  const auto property = PROPERTY_PAIR("property");
+  const auto property = PROPERTY_PAIR(dba, "property");
 
-  AstStorage storage;
   SymbolTable symbol_table;
-
   NodeCreationInfo node;
   node.symbol = symbol_table.CreateSymbol("n", true);
   node.labels.emplace_back(label);
@@ -196,7 +190,7 @@ TYPED_TEST(QueryPlanTest, FineGrainedCreateReturn) {
   auto create = std::make_shared<CreateNode>(nullptr, node);
   auto named_expr_n =
       NEXPR("n", IDENT("n")->MapTo(node.symbol))->MapTo(symbol_table.CreateSymbol("named_expr_n", true));
-  auto prop_lookup = PROPERTY_LOOKUP(IDENT("n")->MapTo(node.symbol), property);
+  auto prop_lookup = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(node.symbol), property);
   auto named_expr_n_p = NEXPR("n", prop_lookup)->MapTo(symbol_table.CreateSymbol("named_expr_n_p", true));
 
   auto produce = MakeProduce(create, named_expr_n, named_expr_n_p);
@@ -207,7 +201,7 @@ TYPED_TEST(QueryPlanTest, FineGrainedCreateReturn) {
     user.fine_grained_access_handler().label_permissions().Grant("label",
                                                                  memgraph::auth::FineGrainedPermission::CREATE_DELETE);
     memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
-    auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+    auto context = MakeContextWithFineGrainedChecker(this->storage, symbol_table, &dba, &auth_checker);
     auto results = CollectProduce(*produce, &context);
     EXPECT_EQ(1, results.size());
     EXPECT_EQ(2, results[0].size());
@@ -228,7 +222,7 @@ TYPED_TEST(QueryPlanTest, FineGrainedCreateReturn) {
     user.fine_grained_access_handler().label_permissions().Grant("label",
                                                                  memgraph::auth::FineGrainedPermission::UPDATE);
     memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
-    auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+    auto context = MakeContextWithFineGrainedChecker(this->storage, symbol_table, &dba, &auth_checker);
     ASSERT_THROW(CollectProduce(*produce, &context), QueryRuntimeException);
   }
 }
@@ -240,11 +234,10 @@ TYPED_TEST(QueryPlanTest, CreateExpand) {
 
   memgraph::storage::LabelId label_node_1 = dba.NameToLabel("Node1");
   memgraph::storage::LabelId label_node_2 = dba.NameToLabel("Node2");
-  auto property = PROPERTY_PAIR("property");
+  auto property = PROPERTY_PAIR(dba, "property");
   memgraph::storage::EdgeTypeId edge_type = dba.NameToEdgeType("edge_type");
 
   SymbolTable symbol_table;
-  AstStorage storage;
 
   auto test_create_path = [&](bool cycle, int expected_nodes_created, int expected_edges_created) {
     int before_v = CountIterable(dba.Vertices(memgraph::storage::View::OLD));
@@ -271,7 +264,7 @@ TYPED_TEST(QueryPlanTest, CreateExpand) {
 
     auto create_op = std::make_shared<CreateNode>(nullptr, n);
     auto create_expand = std::make_shared<CreateExpand>(m, r, create_op, n.symbol, cycle);
-    auto context = MakeContext(storage, symbol_table, &dba);
+    auto context = MakeContext(this->storage, symbol_table, &dba);
     PullAll(*create_expand, &context);
     dba.AdvanceCommand();
 
@@ -317,7 +310,6 @@ class CreateExpandWithAuthFixture : public QueryPlanTest<StorageType> {
  protected:
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{this->db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
-  AstStorage storage;
   SymbolTable symbol_table;
 
   void SetUp() override { memgraph::license::global_license_checker.EnableTesting(); }
@@ -325,7 +317,7 @@ class CreateExpandWithAuthFixture : public QueryPlanTest<StorageType> {
   void ExecuteCreateExpand(bool cycle, memgraph::auth::User &user) {
     const auto label_node_1 = dba.NameToLabel("Node1");
     const auto label_node_2 = dba.NameToLabel("Node2");
-    const auto property = PROPERTY_PAIR("property");
+    const auto property = PROPERTY_PAIR(dba, "property");
     const auto edge_type = dba.NameToEdgeType("edge_type");
 
     // data for the first node
@@ -350,7 +342,7 @@ class CreateExpandWithAuthFixture : public QueryPlanTest<StorageType> {
     auto create_op = std::make_shared<CreateNode>(nullptr, n);
     auto create_expand = std::make_shared<CreateExpand>(m, r, create_op, n.symbol, cycle);
     memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
-    auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+    auto context = MakeContextWithFineGrainedChecker(this->storage, symbol_table, &dba, &auth_checker);
     PullAll(*create_expand, &context);
     dba.AdvanceCommand();
   }
@@ -456,10 +448,8 @@ TYPED_TEST(QueryPlanTest, MatchCreateNode) {
   dba.AdvanceCommand();
 
   SymbolTable symbol_table;
-  AstStorage storage;
-
   // first node
-  auto n_scan_all = MakeScanAll(storage, symbol_table, "n");
+  auto n_scan_all = MakeScanAll(this->storage, symbol_table, "n");
   // second node
   NodeCreationInfo m;
   m.symbol = symbol_table.CreateSymbol("m", true);
@@ -467,7 +457,7 @@ TYPED_TEST(QueryPlanTest, MatchCreateNode) {
   auto create_node = std::make_shared<CreateNode>(n_scan_all.op_, m);
 
   EXPECT_EQ(CountIterable(dba.Vertices(memgraph::storage::View::OLD)), 3);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   PullAll(*create_node, &context);
   dba.AdvanceCommand();
   EXPECT_EQ(CountIterable(dba.Vertices(memgraph::storage::View::OLD)), 6);
@@ -478,7 +468,6 @@ class MatchCreateNodeWithAuthFixture : public QueryPlanTest<StorageType> {
  protected:
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{this->db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
-  AstStorage storage;
   SymbolTable symbol_table;
 
   void SetUp() override { memgraph::license::global_license_checker.EnableTesting(); }
@@ -495,7 +484,7 @@ class MatchCreateNodeWithAuthFixture : public QueryPlanTest<StorageType> {
   }
 
   void ExecuteMatchCreate(memgraph::auth::User &user) {
-    auto n_scan_all = MakeScanAll(storage, symbol_table, "n");
+    auto n_scan_all = MakeScanAll(this->storage, symbol_table, "n");
     // second node
     NodeCreationInfo m{};
 
@@ -505,7 +494,7 @@ class MatchCreateNodeWithAuthFixture : public QueryPlanTest<StorageType> {
     // creation op
     auto create_node = std::make_shared<CreateNode>(n_scan_all.op_, m);
     memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
-    auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+    auto context = MakeContextWithFineGrainedChecker(this->storage, symbol_table, &dba, &auth_checker);
 
     PullAll(*create_node, &context);
     dba.AdvanceCommand();
@@ -570,16 +559,14 @@ TYPED_TEST(QueryPlanTest, MatchCreateExpand) {
   //  memgraph::storage::LabelId label_node_2 = dba.NameToLabel("Node2");
   //  memgraph::storage::PropertyId property = dba.NameToLabel("prop");
   memgraph::storage::EdgeTypeId edge_type = dba.NameToEdgeType("edge_type");
-
   SymbolTable symbol_table;
-  AstStorage storage;
 
   auto test_create_path = [&](bool cycle, int expected_nodes_created, int expected_edges_created) {
     int before_v = CountIterable(dba.Vertices(memgraph::storage::View::OLD));
     int before_e = CountEdges(&dba, memgraph::storage::View::OLD);
 
     // data for the first node
-    auto n_scan_all = MakeScanAll(storage, symbol_table, "n");
+    auto n_scan_all = MakeScanAll(this->storage, symbol_table, "n");
 
     // data for the second node
     NodeCreationInfo m;
@@ -591,7 +578,7 @@ TYPED_TEST(QueryPlanTest, MatchCreateExpand) {
     r.edge_type = edge_type;
 
     auto create_expand = std::make_shared<CreateExpand>(m, r, n_scan_all.op_, n_scan_all.sym_, cycle);
-    auto context = MakeContext(storage, symbol_table, &dba);
+    auto context = MakeContext(this->storage, symbol_table, &dba);
     PullAll(*create_expand, &context);
     dba.AdvanceCommand();
 
@@ -609,7 +596,6 @@ class MatchCreateExpandWithAuthFixture : public QueryPlanTest<StorageType> {
  protected:
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{this->db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
-  AstStorage storage;
   SymbolTable symbol_table;
 
   void SetUp() override { memgraph::license::global_license_checker.EnableTesting(); }
@@ -628,7 +614,7 @@ class MatchCreateExpandWithAuthFixture : public QueryPlanTest<StorageType> {
 
   void ExecuteMatchCreateExpand(memgraph::auth::User &user, bool cycle) {
     // data for the first node
-    auto n_scan_all = MakeScanAll(storage, symbol_table, "n");
+    auto n_scan_all = MakeScanAll(this->storage, symbol_table, "n");
 
     // data for the second node
     NodeCreationInfo m;
@@ -644,7 +630,7 @@ class MatchCreateExpandWithAuthFixture : public QueryPlanTest<StorageType> {
 
     auto create_expand = std::make_shared<CreateExpand>(m, r, n_scan_all.op_, n_scan_all.sym_, cycle);
     memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
-    auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+    auto context = MakeContextWithFineGrainedChecker(this->storage, symbol_table, &dba, &auth_checker);
     PullAll(*create_expand, &context);
     dba.AdvanceCommand();
   }
@@ -767,15 +753,13 @@ TYPED_TEST(QueryPlanTest, Delete) {
   EXPECT_EQ(4, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
   EXPECT_EQ(6, CountEdges(&dba, memgraph::storage::View::OLD));
 
-  AstStorage storage;
   SymbolTable symbol_table;
-
   // attempt to delete a vertex, and fail
   {
-    auto n = MakeScanAll(storage, symbol_table, "n");
-    auto n_get = storage.Create<Identifier>("n")->MapTo(n.sym_);
+    auto n = MakeScanAll(this->storage, symbol_table, "n");
+    auto n_get = this->storage.template Create<Identifier>("n")->MapTo(n.sym_);
     auto delete_op = std::make_shared<plan::Delete>(n.op_, std::vector<Expression *>{n_get}, false);
-    auto context = MakeContext(storage, symbol_table, &dba);
+    auto context = MakeContext(this->storage, symbol_table, &dba);
     EXPECT_THROW(PullAll(*delete_op, &context), QueryRuntimeException);
     dba.AdvanceCommand();
     EXPECT_EQ(4, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
@@ -784,11 +768,11 @@ TYPED_TEST(QueryPlanTest, Delete) {
 
   // detach delete a single vertex
   {
-    auto n = MakeScanAll(storage, symbol_table, "n");
-    auto n_get = storage.Create<Identifier>("n")->MapTo(n.sym_);
+    auto n = MakeScanAll(this->storage, symbol_table, "n");
+    auto n_get = this->storage.template Create<Identifier>("n")->MapTo(n.sym_);
     auto delete_op = std::make_shared<plan::Delete>(n.op_, std::vector<Expression *>{n_get}, true);
     Frame frame(symbol_table.max_position());
-    auto context = MakeContext(storage, symbol_table, &dba);
+    auto context = MakeContext(this->storage, symbol_table, &dba);
     delete_op->MakeCursor(memgraph::utils::NewDeleteResource())->Pull(frame, context);
     dba.AdvanceCommand();
     EXPECT_EQ(3, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
@@ -797,12 +781,12 @@ TYPED_TEST(QueryPlanTest, Delete) {
 
   // delete all remaining edges
   {
-    auto n = MakeScanAll(storage, symbol_table, "n");
-    auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {}, "m", false,
+    auto n = MakeScanAll(this->storage, symbol_table, "n");
+    auto r_m = MakeExpand(this->storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {}, "m", false,
                           memgraph::storage::View::NEW);
-    auto r_get = storage.Create<Identifier>("r")->MapTo(r_m.edge_sym_);
+    auto r_get = this->storage.template Create<Identifier>("r")->MapTo(r_m.edge_sym_);
     auto delete_op = std::make_shared<plan::Delete>(r_m.op_, std::vector<Expression *>{r_get}, false);
-    auto context = MakeContext(storage, symbol_table, &dba);
+    auto context = MakeContext(this->storage, symbol_table, &dba);
     PullAll(*delete_op, &context);
     dba.AdvanceCommand();
     EXPECT_EQ(3, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
@@ -811,10 +795,10 @@ TYPED_TEST(QueryPlanTest, Delete) {
 
   // delete all remaining vertices
   {
-    auto n = MakeScanAll(storage, symbol_table, "n");
-    auto n_get = storage.Create<Identifier>("n")->MapTo(n.sym_);
+    auto n = MakeScanAll(this->storage, symbol_table, "n");
+    auto n_get = this->storage.template Create<Identifier>("n")->MapTo(n.sym_);
     auto delete_op = std::make_shared<plan::Delete>(n.op_, std::vector<Expression *>{n_get}, false);
-    auto context = MakeContext(storage, symbol_table, &dba);
+    auto context = MakeContext(this->storage, symbol_table, &dba);
     PullAll(*delete_op, &context);
     dba.AdvanceCommand();
     EXPECT_EQ(0, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
@@ -828,7 +812,6 @@ class DeleteOperatorWithAuthFixture : public QueryPlanTest<StorageType> {
  protected:
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{this->db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
-  AstStorage storage;
   SymbolTable symbol_table;
 
   void SetUp() override { memgraph::license::global_license_checker.EnableTesting(); }
@@ -857,11 +840,11 @@ class DeleteOperatorWithAuthFixture : public QueryPlanTest<StorageType> {
   };
 
   void DeleteAllNodes(memgraph::auth::User &user) {
-    auto n = MakeScanAll(storage, symbol_table, "n");
-    auto n_get = storage.Create<Identifier>("n")->MapTo(n.sym_);
+    auto n = MakeScanAll(this->storage, symbol_table, "n");
+    auto n_get = this->storage.template Create<Identifier>("n")->MapTo(n.sym_);
     Frame frame(symbol_table.max_position());
     memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
-    auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+    auto context = MakeContextWithFineGrainedChecker(this->storage, symbol_table, &dba, &auth_checker);
     auto delete_op = std::make_shared<plan::Delete>(n.op_, std::vector<Expression *>{n_get}, true);
     PullAll(*delete_op, &context);
     dba.AdvanceCommand();
@@ -879,13 +862,13 @@ class DeleteOperatorWithAuthFixture : public QueryPlanTest<StorageType> {
   };
 
   void DeleteAllEdges(memgraph::auth::User &user) {
-    auto n = MakeScanAll(storage, symbol_table, "n");
-    auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {}, "m", false,
+    auto n = MakeScanAll(this->storage, symbol_table, "n");
+    auto r_m = MakeExpand(this->storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {}, "m", false,
                           memgraph::storage::View::NEW);
-    auto r_get = storage.Create<Identifier>("r")->MapTo(r_m.edge_sym_);
+    auto r_get = this->storage.template Create<Identifier>("r")->MapTo(r_m.edge_sym_);
     auto delete_op = std::make_shared<plan::Delete>(r_m.op_, std::vector<Expression *>{r_get}, false);
     memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
-    auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+    auto context = MakeContextWithFineGrainedChecker(this->storage, symbol_table, &dba, &auth_checker);
     PullAll(*delete_op, &context);
     dba.AdvanceCommand();
   };
@@ -997,20 +980,19 @@ TYPED_TEST(QueryPlanTest, DeleteTwiceDeleteBlockingEdge) {
     EXPECT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
     EXPECT_EQ(1, CountEdges(&dba, memgraph::storage::View::OLD));
 
-    AstStorage storage;
     SymbolTable symbol_table;
 
-    auto n = MakeScanAll(storage, symbol_table, "n");
-    auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::BOTH, {}, "m", false,
+    auto n = MakeScanAll(this->storage, symbol_table, "n");
+    auto r_m = MakeExpand(this->storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::BOTH, {}, "m", false,
                           memgraph::storage::View::OLD);
 
     // getter expressions for deletion
-    auto n_get = storage.Create<Identifier>("n")->MapTo(n.sym_);
-    auto r_get = storage.Create<Identifier>("r")->MapTo(r_m.edge_sym_);
-    auto m_get = storage.Create<Identifier>("m")->MapTo(r_m.node_sym_);
+    auto n_get = this->storage.template Create<Identifier>("n")->MapTo(n.sym_);
+    auto r_get = this->storage.template Create<Identifier>("r")->MapTo(r_m.edge_sym_);
+    auto m_get = this->storage.template Create<Identifier>("m")->MapTo(r_m.node_sym_);
 
     auto delete_op = std::make_shared<plan::Delete>(r_m.op_, std::vector<Expression *>{n_get, r_get, m_get}, detach);
-    auto context = MakeContext(storage, symbol_table, &dba);
+    auto context = MakeContext(this->storage, symbol_table, &dba);
     EXPECT_EQ(2, PullAll(*delete_op, &context));
     dba.AdvanceCommand();
     EXPECT_EQ(0, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
@@ -1026,7 +1008,7 @@ TYPED_TEST(QueryPlanTest, DeleteReturn) {
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // make a fully-connected (one-direction, no cycles) with 4 nodes
-  auto prop = PROPERTY_PAIR("property");
+  auto prop = PROPERTY_PAIR(dba, "property");
   for (int i = 0; i < 4; ++i) {
     auto va = dba.InsertVertex();
     ASSERT_TRUE(va.SetProperty(prop.second, memgraph::storage::PropertyValue(42)).HasValue());
@@ -1036,19 +1018,19 @@ TYPED_TEST(QueryPlanTest, DeleteReturn) {
   EXPECT_EQ(4, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
   EXPECT_EQ(0, CountEdges(&dba, memgraph::storage::View::OLD));
 
-  AstStorage storage;
   SymbolTable symbol_table;
 
-  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
 
-  auto n_get = storage.Create<Identifier>("n")->MapTo(n.sym_);
+  auto n_get = this->storage.template Create<Identifier>("n")->MapTo(n.sym_);
   auto delete_op = std::make_shared<plan::Delete>(n.op_, std::vector<Expression *>{n_get}, true);
 
-  auto prop_lookup = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop);
-  auto n_p = storage.Create<NamedExpression>("n", prop_lookup)->MapTo(symbol_table.CreateSymbol("bla", true));
+  auto prop_lookup = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop);
+  auto n_p =
+      this->storage.template Create<NamedExpression>("n", prop_lookup)->MapTo(symbol_table.CreateSymbol("bla", true));
   auto produce = MakeProduce(delete_op, n_p);
 
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   ASSERT_THROW(CollectProduce(*produce, &context), QueryRuntimeException);
 }
 
@@ -1056,12 +1038,11 @@ TYPED_TEST(QueryPlanTest, DeleteNull) {
   // test (simplified) WITH Null as x delete x
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
-  AstStorage storage;
   SymbolTable symbol_table;
 
   auto once = std::make_shared<Once>();
   auto delete_op = std::make_shared<plan::Delete>(once, std::vector<Expression *>{LITERAL(TypedValue())}, false);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_EQ(1, PullAll(*delete_op, &context));
 }
 
@@ -1071,11 +1052,10 @@ TYPED_TEST(QueryPlanTest, DeleteAdvance) {
   // MATCH (n) DELETE n WITH n ...
   // this fails only if the deleted record `n` is actually used in subsequent
   // clauses, which is compatible with Neo's behavior.
-  AstStorage storage;
   SymbolTable symbol_table;
 
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  auto n_get = storage.Create<Identifier>("n")->MapTo(n.sym_);
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto n_get = this->storage.template Create<Identifier>("n")->MapTo(n.sym_);
   auto delete_op = std::make_shared<plan::Delete>(n.op_, std::vector<Expression *>{n_get}, false);
   auto advance = std::make_shared<Accumulate>(delete_op, std::vector<Symbol>{n.sym_}, true);
   auto res_sym = symbol_table.CreateSymbol("res", true);
@@ -1085,7 +1065,7 @@ TYPED_TEST(QueryPlanTest, DeleteAdvance) {
     dba.InsertVertex();
     dba.AdvanceCommand();
     auto produce = MakeProduce(advance, NEXPR("res", LITERAL(42))->MapTo(res_sym));
-    auto context = MakeContext(storage, symbol_table, &dba);
+    auto context = MakeContext(this->storage, symbol_table, &dba);
     EXPECT_EQ(1, PullAll(*produce, &context));
   }
   {
@@ -1093,9 +1073,9 @@ TYPED_TEST(QueryPlanTest, DeleteAdvance) {
     memgraph::query::DbAccessor dba(storage_dba.get());
     dba.InsertVertex();
     dba.AdvanceCommand();
-    auto n_prop = PROPERTY_LOOKUP(n_get, dba.NameToProperty("prop"));
+    auto n_prop = PROPERTY_LOOKUP(dba, n_get, dba.NameToProperty("prop"));
     auto produce = MakeProduce(advance, NEXPR("res", n_prop)->MapTo(res_sym));
-    auto context = MakeContext(storage, symbol_table, &dba);
+    auto context = MakeContext(this->storage, symbol_table, &dba);
     EXPECT_THROW(PullAll(*produce, &context), QueryRuntimeException);
   }
 }
@@ -1116,24 +1096,23 @@ TYPED_TEST(QueryPlanTest, SetProperty) {
   ASSERT_TRUE(dba.InsertEdge(&v2, &v4, edge_type).HasValue());
   dba.AdvanceCommand();
 
-  AstStorage storage;
   SymbolTable symbol_table;
 
   // scan (n)-[r]->(m)
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {}, "m", false,
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto r_m = MakeExpand(this->storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {}, "m", false,
                         memgraph::storage::View::OLD);
 
   // set prop1 to 42 on n and r
   auto prop1 = dba.NameToProperty("prop1");
   auto literal = LITERAL(42);
 
-  auto n_p = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop1);
+  auto n_p = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop1);
   auto set_n_p = std::make_shared<plan::SetProperty>(r_m.op_, prop1, n_p, literal);
 
-  auto r_p = PROPERTY_LOOKUP(IDENT("r")->MapTo(r_m.edge_sym_), prop1);
+  auto r_p = PROPERTY_LOOKUP(dba, IDENT("r")->MapTo(r_m.edge_sym_), prop1);
   auto set_r_p = std::make_shared<plan::SetProperty>(set_n_p, prop1, r_p, literal);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_EQ(2, PullAll(*set_r_p, &context));
   dba.AdvanceCommand();
 
@@ -1174,12 +1153,11 @@ TYPED_TEST(QueryPlanTest, SetProperties) {
     ASSERT_TRUE(v2.SetProperty(prop_c, memgraph::storage::PropertyValue(2)).HasValue());
     dba.AdvanceCommand();
 
-    AstStorage storage;
     SymbolTable symbol_table;
 
     // scan (n)-[r]->(m)
-    auto n = MakeScanAll(storage, symbol_table, "n");
-    auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {}, "m", false,
+    auto n = MakeScanAll(this->storage, symbol_table, "n");
+    auto r_m = MakeExpand(this->storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {}, "m", false,
                           memgraph::storage::View::OLD);
 
     auto op = update ? plan::SetProperties::Op::UPDATE : plan::SetProperties::Op::REPLACE;
@@ -1189,7 +1167,7 @@ TYPED_TEST(QueryPlanTest, SetProperties) {
     auto m_ident = IDENT("m")->MapTo(r_m.node_sym_);
     auto set_r_to_n = std::make_shared<plan::SetProperties>(r_m.op_, n.sym_, r_ident, op);
     auto set_m_to_r = std::make_shared<plan::SetProperties>(set_r_to_n, r_m.edge_sym_, m_ident, op);
-    auto context = MakeContext(storage, symbol_table, &dba);
+    auto context = MakeContext(this->storage, symbol_table, &dba);
     EXPECT_EQ(1, PullAll(*set_m_to_r, &context));
     dba.AdvanceCommand();
 
@@ -1244,13 +1222,12 @@ TYPED_TEST(QueryPlanTest, SetLabels) {
   ASSERT_TRUE(dba.InsertVertex().AddLabel(label1).HasValue());
   dba.AdvanceCommand();
 
-  AstStorage storage;
   SymbolTable symbol_table;
 
-  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
   auto label_set =
       std::make_shared<plan::SetLabels>(n.op_, n.sym_, std::vector<memgraph::storage::LabelId>{label2, label3});
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_EQ(2, PullAll(*label_set, &context));
 
   for (auto vertex : dba.Vertices(memgraph::storage::View::OLD)) {
@@ -1269,14 +1246,13 @@ TYPED_TEST(QueryPlanTest, SetLabelsWithFineGrained) {
     ASSERT_TRUE(dba.InsertVertex().AddLabel(labels[0]).HasValue());
     dba.AdvanceCommand();
 
-    AstStorage storage;
     SymbolTable symbol_table;
 
-    auto n = MakeScanAll(storage, symbol_table, "n");
+    auto n = MakeScanAll(this->storage, symbol_table, "n");
     auto label_set =
         std::make_shared<plan::SetLabels>(n.op_, n.sym_, std::vector<memgraph::storage::LabelId>{labels[1], labels[2]});
     memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
-    auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+    auto context = MakeContextWithFineGrainedChecker(this->storage, symbol_table, &dba, &auth_checker);
 
     PullAll(*label_set, &context);
   };
@@ -1360,20 +1336,19 @@ TYPED_TEST(QueryPlanTest, RemoveProperty) {
   ASSERT_TRUE(v2.SetProperty(prop2, memgraph::storage::PropertyValue(0)).HasValue());
   dba.AdvanceCommand();
 
-  AstStorage storage;
   SymbolTable symbol_table;
 
   // scan (n)-[r]->(m)
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {}, "m", false,
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto r_m = MakeExpand(this->storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {}, "m", false,
                         memgraph::storage::View::OLD);
 
-  auto n_p = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop1);
+  auto n_p = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop1);
   auto set_n_p = std::make_shared<plan::RemoveProperty>(r_m.op_, prop1, n_p);
 
-  auto r_p = PROPERTY_LOOKUP(IDENT("r")->MapTo(r_m.edge_sym_), prop1);
+  auto r_p = PROPERTY_LOOKUP(dba, IDENT("r")->MapTo(r_m.edge_sym_), prop1);
   auto set_r_p = std::make_shared<plan::RemoveProperty>(set_n_p, prop1, r_p);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_EQ(2, PullAll(*set_r_p, &context));
   dba.AdvanceCommand();
 
@@ -1413,13 +1388,12 @@ TYPED_TEST(QueryPlanTest, RemoveLabels) {
   ASSERT_TRUE(v2.AddLabel(label3).HasValue());
   dba.AdvanceCommand();
 
-  AstStorage storage;
   SymbolTable symbol_table;
 
-  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
   auto label_remove =
       std::make_shared<plan::RemoveLabels>(n.op_, n.sym_, std::vector<memgraph::storage::LabelId>{label1, label2});
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_EQ(2, PullAll(*label_remove, &context));
 
   for (auto vertex : dba.Vertices(memgraph::storage::View::OLD)) {
@@ -1443,15 +1417,14 @@ TYPED_TEST(QueryPlanTest, RemoveLabelsFineGrainedFiltering) {
     ASSERT_TRUE(v2.AddLabel(labels[2]).HasValue());
     dba.AdvanceCommand();
 
-    AstStorage storage;
     SymbolTable symbol_table;
 
-    auto n = MakeScanAll(storage, symbol_table, "n");
+    auto n = MakeScanAll(this->storage, symbol_table, "n");
     auto label_remove = std::make_shared<plan::RemoveLabels>(
         n.op_, n.sym_, std::vector<memgraph::storage::LabelId>{labels[0], labels[1]});
     memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
 
-    auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+    auto context = MakeContextWithFineGrainedChecker(this->storage, symbol_table, &dba, &auth_checker);
 
     PullAll(*label_remove, &context);
   };
@@ -1513,7 +1486,7 @@ TYPED_TEST(QueryPlanTest, NodeFilterSet) {
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Create a graph such that (v1 {prop: 42}) is connected to v2 and v3.
   auto v1 = dba.InsertVertex();
-  auto prop = PROPERTY_PAIR("property");
+  auto prop = PROPERTY_PAIR(dba, "property");
   ASSERT_TRUE(v1.SetProperty(prop.second, memgraph::storage::PropertyValue(42)).HasValue());
   auto v2 = dba.InsertVertex();
   auto v3 = dba.InsertVertex();
@@ -1524,21 +1497,21 @@ TYPED_TEST(QueryPlanTest, NodeFilterSet) {
   // Create operations which match (v1 {prop: 42}) -- (v) and increment the
   // v1.prop. The expected result is two incremenentations, since v1 is matched
   // twice for 2 edges it has.
-  AstStorage storage;
   SymbolTable symbol_table;
   // MATCH (n {prop: 42}) -[r]- (m)
-  auto scan_all = MakeScanAll(storage, symbol_table, "n");
-  std::get<0>(scan_all.node_->properties_)[storage.GetPropertyIx(prop.first)] = LITERAL(42);
-  auto expand = MakeExpand(storage, symbol_table, scan_all.op_, scan_all.sym_, "r", EdgeAtom::Direction::BOTH, {}, "m",
-                           false, memgraph::storage::View::OLD);
-  auto *filter_expr =
-      EQ(storage.Create<PropertyLookup>(scan_all.node_->identifier_, storage.GetPropertyIx(prop.first)), LITERAL(42));
+  auto scan_all = MakeScanAll(this->storage, symbol_table, "n");
+  std::get<0>(scan_all.node_->properties_)[this->storage.GetPropertyIx(prop.first)] = LITERAL(42);
+  auto expand = MakeExpand(this->storage, symbol_table, scan_all.op_, scan_all.sym_, "r", EdgeAtom::Direction::BOTH, {},
+                           "m", false, memgraph::storage::View::OLD);
+  auto *filter_expr = EQ(this->storage.template Create<PropertyLookup>(scan_all.node_->identifier_,
+                                                                       this->storage.GetPropertyIx(prop.first)),
+                         LITERAL(42));
   auto node_filter = std::make_shared<Filter>(expand.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
   // SET n.prop = n.prop + 1
-  auto set_prop = PROPERTY_LOOKUP(IDENT("n")->MapTo(scan_all.sym_), prop);
+  auto set_prop = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(scan_all.sym_), prop);
   auto add = ADD(set_prop, LITERAL(1));
   auto set = std::make_shared<plan::SetProperty>(node_filter, prop.second, set_prop, add);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_EQ(2, PullAll(*set, &context));
   dba.AdvanceCommand();
   auto prop_eq = TypedValue(*v1.GetProperty(memgraph::storage::View::OLD, prop.second)) == TypedValue(42 + 2);
@@ -1551,7 +1524,7 @@ TYPED_TEST(QueryPlanTest, FilterRemove) {
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Create a graph such that (v1 {prop: 42}) is connected to v2 and v3.
   auto v1 = dba.InsertVertex();
-  auto prop = PROPERTY_PAIR("property");
+  auto prop = PROPERTY_PAIR(dba, "property");
   ASSERT_TRUE(v1.SetProperty(prop.second, memgraph::storage::PropertyValue(42)).HasValue());
   auto v2 = dba.InsertVertex();
   auto v3 = dba.InsertVertex();
@@ -1561,20 +1534,19 @@ TYPED_TEST(QueryPlanTest, FilterRemove) {
   dba.AdvanceCommand();
   // Create operations which match (v1 {prop: 42}) -- (v) and remove v1.prop.
   // The expected result is two matches, for each edge of v1.
-  AstStorage storage;
   SymbolTable symbol_table;
   // MATCH (n) -[r]- (m) WHERE n.prop < 43
-  auto scan_all = MakeScanAll(storage, symbol_table, "n");
-  std::get<0>(scan_all.node_->properties_)[storage.GetPropertyIx(prop.first)] = LITERAL(42);
-  auto expand = MakeExpand(storage, symbol_table, scan_all.op_, scan_all.sym_, "r", EdgeAtom::Direction::BOTH, {}, "m",
-                           false, memgraph::storage::View::OLD);
-  auto filter_prop = PROPERTY_LOOKUP(IDENT("n")->MapTo(scan_all.sym_), prop);
+  auto scan_all = MakeScanAll(this->storage, symbol_table, "n");
+  std::get<0>(scan_all.node_->properties_)[this->storage.GetPropertyIx(prop.first)] = LITERAL(42);
+  auto expand = MakeExpand(this->storage, symbol_table, scan_all.op_, scan_all.sym_, "r", EdgeAtom::Direction::BOTH, {},
+                           "m", false, memgraph::storage::View::OLD);
+  auto filter_prop = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(scan_all.sym_), prop);
   auto filter = std::make_shared<Filter>(expand.op_, std::vector<std::shared_ptr<LogicalOperator>>{},
                                          LESS(filter_prop, LITERAL(43)));
   // REMOVE n.prop
-  auto rem_prop = PROPERTY_LOOKUP(IDENT("n")->MapTo(scan_all.sym_), prop);
+  auto rem_prop = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(scan_all.sym_), prop);
   auto rem = std::make_shared<plan::RemoveProperty>(filter, prop.second, rem_prop);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_EQ(2, PullAll(*rem, &context));
   dba.AdvanceCommand();
   EXPECT_EQ(v1.GetProperty(memgraph::storage::View::OLD, prop.second)->type(),
@@ -1590,15 +1562,14 @@ TYPED_TEST(QueryPlanTest, SetRemove) {
   dba.AdvanceCommand();
   // Create operations which match (v) and set and remove v :label.
   // The expected result is single (v) as it was at the start.
-  AstStorage storage;
   SymbolTable symbol_table;
   // MATCH (n) SET n :label1 :label2 REMOVE n :label1 :label2
-  auto scan_all = MakeScanAll(storage, symbol_table, "n");
+  auto scan_all = MakeScanAll(this->storage, symbol_table, "n");
   auto set = std::make_shared<plan::SetLabels>(scan_all.op_, scan_all.sym_,
                                                std::vector<memgraph::storage::LabelId>{label1, label2});
   auto rem =
       std::make_shared<plan::RemoveLabels>(set, scan_all.sym_, std::vector<memgraph::storage::LabelId>{label1, label2});
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_EQ(1, PullAll(*rem, &context));
   dba.AdvanceCommand();
   EXPECT_FALSE(*v.HasLabel(memgraph::storage::View::OLD, label1));
@@ -1620,24 +1591,23 @@ TYPED_TEST(QueryPlanTest, Merge) {
   auto v3 = dba.InsertVertex();
   dba.AdvanceCommand();
 
-  AstStorage storage;
   SymbolTable symbol_table;
 
-  auto prop = PROPERTY_PAIR("property");
-  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto prop = PROPERTY_PAIR(dba, "property");
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
 
   // merge_match branch
-  auto r_m = MakeExpand(storage, symbol_table, std::make_shared<Once>(), n.sym_, "r", EdgeAtom::Direction::BOTH, {},
-                        "m", false, memgraph::storage::View::OLD);
-  auto m_p = PROPERTY_LOOKUP(IDENT("m")->MapTo(r_m.node_sym_), prop);
+  auto r_m = MakeExpand(this->storage, symbol_table, std::make_shared<Once>(), n.sym_, "r", EdgeAtom::Direction::BOTH,
+                        {}, "m", false, memgraph::storage::View::OLD);
+  auto m_p = PROPERTY_LOOKUP(dba, IDENT("m")->MapTo(r_m.node_sym_), prop);
   auto m_set = std::make_shared<plan::SetProperty>(r_m.op_, prop.second, m_p, LITERAL(1));
 
   // merge_create branch
-  auto n_p = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop);
+  auto n_p = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop);
   auto n_set = std::make_shared<plan::SetProperty>(std::make_shared<Once>(), prop.second, n_p, LITERAL(2));
 
   auto merge = std::make_shared<plan::Merge>(n.op_, m_set, n_set);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   ASSERT_EQ(3, PullAll(*merge, &context));
   dba.AdvanceCommand();
 
@@ -1657,7 +1627,6 @@ TYPED_TEST(QueryPlanTest, MergeNoInput) {
 
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
-  AstStorage storage;
   SymbolTable symbol_table;
 
   NodeCreationInfo node;
@@ -1666,7 +1635,7 @@ TYPED_TEST(QueryPlanTest, MergeNoInput) {
   auto merge = std::make_shared<plan::Merge>(nullptr, create, create);
 
   EXPECT_EQ(0, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_EQ(1, PullAll(*merge, &context));
   dba.AdvanceCommand();
   EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
@@ -1676,15 +1645,14 @@ TYPED_TEST(QueryPlanTest, SetPropertyOnNull) {
   // SET (Null).prop = 42
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
-  AstStorage storage;
   SymbolTable symbol_table;
-  auto prop = PROPERTY_PAIR("property");
+  auto prop = PROPERTY_PAIR(dba, "property");
   auto null = LITERAL(TypedValue());
   auto literal = LITERAL(42);
-  auto n_prop = PROPERTY_LOOKUP(null, prop);
+  auto n_prop = PROPERTY_LOOKUP(dba, null, prop);
   auto once = std::make_shared<Once>();
   auto set_op = std::make_shared<plan::SetProperty>(once, prop.second, n_prop, literal);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_EQ(1, PullAll(*set_op, &context));
 }
 
@@ -1692,14 +1660,13 @@ TYPED_TEST(QueryPlanTest, SetPropertiesOnNull) {
   // OPTIONAL MATCH (n) SET n = n
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
-  AstStorage storage;
   SymbolTable symbol_table;
-  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
   auto n_ident = IDENT("n")->MapTo(n.sym_);
   auto optional = std::make_shared<plan::Optional>(nullptr, n.op_, std::vector<Symbol>{n.sym_});
   auto set_op = std::make_shared<plan::SetProperties>(optional, n.sym_, n_ident, plan::SetProperties::Op::REPLACE);
   EXPECT_EQ(0, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_EQ(1, PullAll(*set_op, &context));
 }
 
@@ -1708,13 +1675,12 @@ TYPED_TEST(QueryPlanTest, SetLabelsOnNull) {
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto label = dba.NameToLabel("label");
-  AstStorage storage;
   SymbolTable symbol_table;
-  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
   auto optional = std::make_shared<plan::Optional>(nullptr, n.op_, std::vector<Symbol>{n.sym_});
   auto set_op = std::make_shared<plan::SetLabels>(optional, n.sym_, std::vector<memgraph::storage::LabelId>{label});
   EXPECT_EQ(0, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_EQ(1, PullAll(*set_op, &context));
 }
 
@@ -1722,14 +1688,13 @@ TYPED_TEST(QueryPlanTest, RemovePropertyOnNull) {
   // REMOVE (Null).prop
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
-  AstStorage storage;
   SymbolTable symbol_table;
-  auto prop = PROPERTY_PAIR("property");
+  auto prop = PROPERTY_PAIR(dba, "property");
   auto null = LITERAL(TypedValue());
-  auto n_prop = PROPERTY_LOOKUP(null, prop);
+  auto n_prop = PROPERTY_LOOKUP(dba, null, prop);
   auto once = std::make_shared<Once>();
   auto remove_op = std::make_shared<plan::RemoveProperty>(once, prop.second, n_prop);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_EQ(1, PullAll(*remove_op, &context));
 }
 
@@ -1738,14 +1703,13 @@ TYPED_TEST(QueryPlanTest, RemoveLabelsOnNull) {
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto label = dba.NameToLabel("label");
-  AstStorage storage;
   SymbolTable symbol_table;
-  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
   auto optional = std::make_shared<plan::Optional>(nullptr, n.op_, std::vector<Symbol>{n.sym_});
   auto remove_op =
       std::make_shared<plan::RemoveLabels>(optional, n.sym_, std::vector<memgraph::storage::LabelId>{label});
   EXPECT_EQ(0, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_EQ(1, PullAll(*remove_op, &context));
 }
 
@@ -1756,16 +1720,15 @@ TYPED_TEST(QueryPlanTest, DeleteSetProperty) {
   dba.InsertVertex();
   dba.AdvanceCommand();
   EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
-  AstStorage storage;
   SymbolTable symbol_table;
   // MATCH (n) DELETE n SET n.property = 42
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  auto n_get = storage.Create<Identifier>("n")->MapTo(n.sym_);
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto n_get = this->storage.template Create<Identifier>("n")->MapTo(n.sym_);
   auto delete_op = std::make_shared<plan::Delete>(n.op_, std::vector<Expression *>{n_get}, false);
-  auto prop = PROPERTY_PAIR("property");
-  auto n_prop = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop);
+  auto prop = PROPERTY_PAIR(dba, "property");
+  auto n_prop = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop);
   auto set_op = std::make_shared<plan::SetProperty>(delete_op, prop.second, n_prop, LITERAL(42));
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_THROW(PullAll(*set_op, &context), QueryRuntimeException);
 }
 
@@ -1776,19 +1739,18 @@ TYPED_TEST(QueryPlanTest, DeleteSetPropertiesFromMap) {
   dba.InsertVertex();
   dba.AdvanceCommand();
   EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
-  AstStorage storage;
   SymbolTable symbol_table;
   // MATCH (n) DELETE n SET n = {property: 42}
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  auto n_get = storage.Create<Identifier>("n")->MapTo(n.sym_);
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto n_get = this->storage.template Create<Identifier>("n")->MapTo(n.sym_);
   auto delete_op = std::make_shared<plan::Delete>(n.op_, std::vector<Expression *>{n_get}, false);
-  auto prop = PROPERTY_PAIR("property");
+  auto prop = PROPERTY_PAIR(dba, "property");
   std::unordered_map<PropertyIx, Expression *> prop_map;
-  prop_map.emplace(storage.GetPropertyIx(prop.first), LITERAL(42));
-  auto *rhs = storage.Create<MapLiteral>(prop_map);
+  prop_map.emplace(this->storage.GetPropertyIx(prop.first), LITERAL(42));
+  auto *rhs = this->storage.template Create<MapLiteral>(prop_map);
   for (auto op_type : {plan::SetProperties::Op::REPLACE, plan::SetProperties::Op::UPDATE}) {
     auto set_op = std::make_shared<plan::SetProperties>(delete_op, n.sym_, rhs, op_type);
-    auto context = MakeContext(storage, symbol_table, &dba);
+    auto context = MakeContext(this->storage, symbol_table, &dba);
     EXPECT_THROW(PullAll(*set_op, &context), QueryRuntimeException);
   }
 }
@@ -1803,16 +1765,15 @@ TYPED_TEST(QueryPlanTest, DeleteSetPropertiesFrom) {
   }
   dba.AdvanceCommand();
   EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
-  AstStorage storage;
   SymbolTable symbol_table;
   // MATCH (n) DELETE n SET n = n
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  auto n_get = storage.Create<Identifier>("n")->MapTo(n.sym_);
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto n_get = this->storage.template Create<Identifier>("n")->MapTo(n.sym_);
   auto delete_op = std::make_shared<plan::Delete>(n.op_, std::vector<Expression *>{n_get}, false);
   auto *rhs = IDENT("n")->MapTo(n.sym_);
   for (auto op_type : {plan::SetProperties::Op::REPLACE, plan::SetProperties::Op::UPDATE}) {
     auto set_op = std::make_shared<plan::SetProperties>(delete_op, n.sym_, rhs, op_type);
-    auto context = MakeContext(storage, symbol_table, &dba);
+    auto context = MakeContext(this->storage, symbol_table, &dba);
     EXPECT_THROW(PullAll(*set_op, &context), QueryRuntimeException);
   }
 }
@@ -1824,15 +1785,14 @@ TYPED_TEST(QueryPlanTest, DeleteRemoveLabels) {
   dba.InsertVertex();
   dba.AdvanceCommand();
   EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
-  AstStorage storage;
   SymbolTable symbol_table;
   // MATCH (n) DELETE n REMOVE n :label
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  auto n_get = storage.Create<Identifier>("n")->MapTo(n.sym_);
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto n_get = this->storage.template Create<Identifier>("n")->MapTo(n.sym_);
   auto delete_op = std::make_shared<plan::Delete>(n.op_, std::vector<Expression *>{n_get}, false);
   std::vector<memgraph::storage::LabelId> labels{dba.NameToLabel("label")};
   auto rem_op = std::make_shared<plan::RemoveLabels>(delete_op, n.sym_, labels);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_THROW(PullAll(*rem_op, &context), QueryRuntimeException);
 }
 
@@ -1843,16 +1803,15 @@ TYPED_TEST(QueryPlanTest, DeleteRemoveProperty) {
   dba.InsertVertex();
   dba.AdvanceCommand();
   EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
-  AstStorage storage;
   SymbolTable symbol_table;
   // MATCH (n) DELETE n REMOVE n.property
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  auto n_get = storage.Create<Identifier>("n")->MapTo(n.sym_);
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto n_get = this->storage.template Create<Identifier>("n")->MapTo(n.sym_);
   auto delete_op = std::make_shared<plan::Delete>(n.op_, std::vector<Expression *>{n_get}, false);
-  auto prop = PROPERTY_PAIR("property");
-  auto n_prop = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop);
+  auto prop = PROPERTY_PAIR(dba, "property");
+  auto n_prop = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop);
   auto rem_op = std::make_shared<plan::RemoveProperty>(delete_op, prop.second, n_prop);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_THROW(PullAll(*rem_op, &context), QueryRuntimeException);
 }
 
@@ -1865,7 +1824,6 @@ class UpdatePropertiesWithAuthFixture : public QueryPlanTest<StorageType> {
  protected:
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{this->db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
-  AstStorage storage;
   SymbolTable symbol_table;
 
   const std::string vertex_label_name = "l1";
@@ -1896,10 +1854,10 @@ class UpdatePropertiesWithAuthFixture : public QueryPlanTest<StorageType> {
 
   void ExecuteSetPropertyOnVertex(memgraph::auth::User user, int new_property_value) {
     // MATCH (n) SET n.prop = 2
-    auto scan_all = MakeScanAll(storage, symbol_table, "n");
+    auto scan_all = MakeScanAll(this->storage, symbol_table, "n");
 
     auto literal = LITERAL(new_property_value);
-    auto n_p = PROPERTY_LOOKUP(IDENT("n")->MapTo(scan_all.sym_), entity_prop);
+    auto n_p = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(scan_all.sym_), entity_prop);
     auto set_property = std::make_shared<plan::SetProperty>(scan_all.op_, entity_prop, n_p, literal);
 
     // produce the node
@@ -1908,7 +1866,7 @@ class UpdatePropertiesWithAuthFixture : public QueryPlanTest<StorageType> {
     auto produce = MakeProduce(set_property, output);
 
     memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
-    auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+    auto context = MakeContextWithFineGrainedChecker(this->storage, symbol_table, &dba, &auth_checker);
 
     PullAll(*produce, &context);
     dba.AdvanceCommand();
@@ -1916,16 +1874,16 @@ class UpdatePropertiesWithAuthFixture : public QueryPlanTest<StorageType> {
 
   void ExecuteSetPropertyOnEdge(memgraph::auth::User user, int new_property_value) {
     // MATCH (n)-[r]->(m) SET r.prop = 2
-    auto scan_all = MakeScanAll(storage, symbol_table, "n");
-    auto expand = MakeExpand(storage, symbol_table, scan_all.op_, scan_all.sym_, "r", EdgeAtom::Direction::OUT, {}, "m",
-                             false, memgraph::storage::View::OLD);
+    auto scan_all = MakeScanAll(this->storage, symbol_table, "n");
+    auto expand = MakeExpand(this->storage, symbol_table, scan_all.op_, scan_all.sym_, "r", EdgeAtom::Direction::OUT,
+                             {}, "m", false, memgraph::storage::View::OLD);
     // set property to 2 on n
     auto literal = LITERAL(new_property_value);
-    auto n_p = PROPERTY_LOOKUP(IDENT("r")->MapTo(expand.edge_sym_), entity_prop);
+    auto n_p = PROPERTY_LOOKUP(dba, IDENT("r")->MapTo(expand.edge_sym_), entity_prop);
     auto set_property = std::make_shared<plan::SetProperty>(expand.op_, entity_prop, n_p, literal);
 
     memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
-    auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+    auto context = MakeContextWithFineGrainedChecker(this->storage, symbol_table, &dba, &auth_checker);
 
     PullAll(*set_property, &context);
     dba.AdvanceCommand();
@@ -1933,12 +1891,12 @@ class UpdatePropertiesWithAuthFixture : public QueryPlanTest<StorageType> {
 
   void ExecuteSetPropertiesOnVertex(memgraph::auth::User user, int new_property_value) {
     // MATCH (n) SET n = {prop: 2};
-    auto scan_all = MakeScanAll(storage, symbol_table, "n");
+    auto scan_all = MakeScanAll(this->storage, symbol_table, "n");
 
-    auto prop = PROPERTY_PAIR(entity_prop_name);
+    auto prop = PROPERTY_PAIR(dba, entity_prop_name);
     std::unordered_map<PropertyIx, Expression *> prop_map;
-    prop_map.emplace(storage.GetPropertyIx(prop.first), LITERAL(new_property_value));
-    auto *rhs = storage.Create<MapLiteral>(prop_map);
+    prop_map.emplace(this->storage.GetPropertyIx(prop.first), LITERAL(new_property_value));
+    auto *rhs = this->storage.template Create<MapLiteral>(prop_map);
     auto set_properties =
         std::make_shared<plan::SetProperties>(scan_all.op_, scan_all.sym_, rhs, plan::SetProperties::Op::UPDATE);
 
@@ -1947,7 +1905,7 @@ class UpdatePropertiesWithAuthFixture : public QueryPlanTest<StorageType> {
     auto produce = MakeProduce(set_properties, output);
 
     memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
-    auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+    auto context = MakeContextWithFineGrainedChecker(this->storage, symbol_table, &dba, &auth_checker);
 
     PullAll(*produce, &context);
     dba.AdvanceCommand();
@@ -1955,14 +1913,14 @@ class UpdatePropertiesWithAuthFixture : public QueryPlanTest<StorageType> {
 
   void ExecuteSetPropertiesOnEdge(memgraph::auth::User user, int new_property_value) {
     // MATCH (n)-[r]->(m) SET r = {prop: 2};
-    auto scan_all = MakeScanAll(storage, symbol_table, "n");
-    auto expand = MakeExpand(storage, symbol_table, scan_all.op_, scan_all.sym_, "r", EdgeAtom::Direction::OUT, {}, "m",
-                             false, memgraph::storage::View::OLD);
+    auto scan_all = MakeScanAll(this->storage, symbol_table, "n");
+    auto expand = MakeExpand(this->storage, symbol_table, scan_all.op_, scan_all.sym_, "r", EdgeAtom::Direction::OUT,
+                             {}, "m", false, memgraph::storage::View::OLD);
 
-    auto prop = PROPERTY_PAIR(entity_prop_name);
+    auto prop = PROPERTY_PAIR(dba, entity_prop_name);
     std::unordered_map<PropertyIx, Expression *> prop_map;
-    prop_map.emplace(storage.GetPropertyIx(prop.first), LITERAL(new_property_value));
-    auto *rhs = storage.Create<MapLiteral>(prop_map);
+    prop_map.emplace(this->storage.GetPropertyIx(prop.first), LITERAL(new_property_value));
+    auto *rhs = this->storage.template Create<MapLiteral>(prop_map);
     auto set_properties =
         std::make_shared<plan::SetProperties>(expand.op_, expand.edge_sym_, rhs, plan::SetProperties::Op::UPDATE);
 
@@ -1971,7 +1929,7 @@ class UpdatePropertiesWithAuthFixture : public QueryPlanTest<StorageType> {
     auto produce = MakeProduce(set_properties, output);
 
     memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
-    auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+    auto context = MakeContextWithFineGrainedChecker(this->storage, symbol_table, &dba, &auth_checker);
 
     PullAll(*produce, &context);
     dba.AdvanceCommand();
@@ -1979,9 +1937,9 @@ class UpdatePropertiesWithAuthFixture : public QueryPlanTest<StorageType> {
 
   void ExecuteRemovePropertyOnVertex(memgraph::auth::User user) {
     // MATCH (n) REMOVE n.prop
-    auto scan_all = MakeScanAll(storage, symbol_table, "n");
+    auto scan_all = MakeScanAll(this->storage, symbol_table, "n");
 
-    auto n_p = PROPERTY_LOOKUP(IDENT("n")->MapTo(scan_all.sym_), entity_prop);
+    auto n_p = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(scan_all.sym_), entity_prop);
     auto remove_property = std::make_shared<plan::RemoveProperty>(scan_all.op_, entity_prop, n_p);
 
     // produce the node
@@ -1990,7 +1948,7 @@ class UpdatePropertiesWithAuthFixture : public QueryPlanTest<StorageType> {
     auto produce = MakeProduce(remove_property, output);
 
     memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
-    auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+    auto context = MakeContextWithFineGrainedChecker(this->storage, symbol_table, &dba, &auth_checker);
 
     PullAll(*produce, &context);
     dba.AdvanceCommand();
@@ -1998,15 +1956,15 @@ class UpdatePropertiesWithAuthFixture : public QueryPlanTest<StorageType> {
 
   void ExecuteRemovePropertyOnEdge(memgraph::auth::User user) {
     // MATCH (n)-[r]->(m) REMOVE r.prop
-    auto scan_all = MakeScanAll(storage, symbol_table, "n");
-    auto expand = MakeExpand(storage, symbol_table, scan_all.op_, scan_all.sym_, "r", EdgeAtom::Direction::OUT, {}, "m",
-                             false, memgraph::storage::View::OLD);
+    auto scan_all = MakeScanAll(this->storage, symbol_table, "n");
+    auto expand = MakeExpand(this->storage, symbol_table, scan_all.op_, scan_all.sym_, "r", EdgeAtom::Direction::OUT,
+                             {}, "m", false, memgraph::storage::View::OLD);
     // set property to 2 on n
-    auto n_p = PROPERTY_LOOKUP(IDENT("n")->MapTo(expand.edge_sym_), entity_prop);
+    auto n_p = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(expand.edge_sym_), entity_prop);
     auto remove_property = std::make_shared<plan::RemoveProperty>(expand.op_, entity_prop, n_p);
 
     memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
-    auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+    auto context = MakeContextWithFineGrainedChecker(this->storage, symbol_table, &dba, &auth_checker);
 
     PullAll(*remove_property, &context);
     dba.AdvanceCommand();
