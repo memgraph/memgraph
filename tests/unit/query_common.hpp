@@ -523,7 +523,8 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
       std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>{__VA_ARGS__})
 #define PROPERTY_PAIR(dba, property_name) std::make_pair(property_name, dba.NameToProperty(property_name))
 #define PROPERTY_LOOKUP(dba, ...) memgraph::query::test_common::GetPropertyLookup(this->storage, dba, __VA_ARGS__)
-#define PARAMETER_LOOKUP(token_position) storage.Create<memgraph::query::ParameterLookup>((token_position))
+#define PARAMETER_LOOKUP(token_position) \
+  this->storage.template Create<memgraph::query::ParameterLookup>((token_position))
 #define NEXPR(name, expr) this->storage.template Create<memgraph::query::NamedExpression>((name), (expr))
 // AS is alternative to NEXPR which does not initialize NamedExpression with
 // Expression. It should be used with RETURN or WITH. For example:
@@ -564,8 +565,8 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
 #define FOREACH(...) memgraph::query::test_common::GetForeach(this->storage, __VA_ARGS__)
 // Various operators
 #define NOT(expr) this->storage.template Create<memgraph::query::NotOperator>((expr))
-#define UPLUS(expr) storage.Create<memgraph::query::UnaryPlusOperator>((expr))
-#define UMINUS(expr) storage.Create<memgraph::query::UnaryMinusOperator>((expr))
+#define UPLUS(expr) this->storage.template Create<memgraph::query::UnaryPlusOperator>((expr))
+#define UMINUS(expr) this->storage.template Create<memgraph::query::UnaryMinusOperator>((expr))
 #define IS_NULL(expr) this->storage.template Create<memgraph::query::IsNullOperator>((expr))
 #define ADD(expr1, expr2) this->storage.template Create<memgraph::query::AdditionOperator>((expr1), (expr2))
 #define LESS(expr1, expr2) this->storage.template Create<memgraph::query::LessOperator>((expr1), (expr2))
@@ -606,9 +607,10 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
   storage.Create<memgraph::query::Any>(storage.Create<memgraph::query::Identifier>(variable), list, where)
 #define NONE(variable, list, where) \
   storage.Create<memgraph::query::None>(storage.Create<memgraph::query::Identifier>(variable), list, where)
-#define REDUCE(accumulator, initializer, variable, list, expr)                                                   \
-  storage.Create<memgraph::query::Reduce>(storage.Create<memgraph::query::Identifier>(accumulator), initializer, \
-                                          storage.Create<memgraph::query::Identifier>(variable), list, expr)
+#define REDUCE(accumulator, initializer, variable, list, expr)                              \
+  this->storage.template Create<memgraph::query::Reduce>(                                   \
+      this->storage.template Create<memgraph::query::Identifier>(accumulator), initializer, \
+      this->storage.template Create<memgraph::query::Identifier>(variable), list, expr)
 #define COALESCE(...) \
   this->storage.template Create<memgraph::query::Coalesce>(std::vector<memgraph::query::Expression *>{__VA_ARGS__})
 #define EXTRACT(variable, list, expr) \
