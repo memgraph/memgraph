@@ -85,7 +85,6 @@ template <class T>
 class TestPlanner : public ::testing::Test {
  public:
   AstStorage storage;
-  FakeDbAccessor dba;
 };
 
 using PlannerTypes = ::testing::Types<Planner>;
@@ -99,20 +98,22 @@ TYPED_TEST_CASE(TestPlanner, PlannerTypes);
 
 TYPED_TEST(TestPlanner, MatchNodeReturn) {
   // Test MATCH (n) RETURN n
+  FakeDbAccessor dba;
   auto *as_n = NEXPR("n", IDENT("n"));
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(as_n)));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, CreateNodeReturn) {
   // Test CREATE (n) RETURN n AS n
+  FakeDbAccessor dba;
   auto ident_n = IDENT("n");
   auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"))), RETURN(ident_n, AS("n"))));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(), acc, ExpectProduce());
 }
 
@@ -157,61 +158,66 @@ TYPED_TEST(TestPlanner, MatchCreateExpand) {
 
 TYPED_TEST(TestPlanner, MatchLabeledNodes) {
   // Test MATCH (n :label) RETURN n
+  FakeDbAccessor dba;
   auto label = "label";
   auto *as_n = NEXPR("n", IDENT("n"));
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label))), RETURN(as_n)));
   {
     // Without created label index
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
-    auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectProduce());
   }
   {
     // With created label index
-    this->dba.SetIndexCount(this->dba.Label(label), 0);
+    dba.SetIndexCount(dba.Label(label), 0);
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
-    auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(), ExpectProduce());
   }
 }
 
 TYPED_TEST(TestPlanner, MatchPathReturn) {
   // Test MATCH (n) -[r :relationship]- (m) RETURN n
+  FakeDbAccessor dba;
   auto relationship = "relationship";
   auto *as_n = NEXPR("n", IDENT("n"));
   auto *query = QUERY(
       SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", Direction::BOTH, {relationship}), NODE("m"))), RETURN(as_n)));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchNamedPatternReturn) {
   // Test MATCH p = (n) -[r :relationship]- (m) RETURN p
+  FakeDbAccessor dba;
   auto relationship = "relationship";
   auto *as_p = NEXPR("p", IDENT("p"));
   auto *query = QUERY(SINGLE_QUERY(
       MATCH(NAMED_PATTERN("p", NODE("n"), EDGE("r", Direction::BOTH, {relationship}), NODE("m"))), RETURN(as_p)));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectConstructNamedPath(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchNamedPatternWithPredicateReturn) {
   // Test MATCH p = (n) -[r :relationship]- (m) WHERE 2 = p RETURN p
+  FakeDbAccessor dba;
   auto relationship = "relationship";
   auto *as_p = NEXPR("p", IDENT("p"));
   auto *query =
       QUERY(SINGLE_QUERY(MATCH(NAMED_PATTERN("p", NODE("n"), EDGE("r", Direction::BOTH, {relationship}), NODE("m"))),
                          WHERE(EQ(LITERAL(2), IDENT("p"))), RETURN(as_p)));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectConstructNamedPath(), ExpectFilter(),
             ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, OptionalMatchNamedPatternReturn) {
   // Test OPTIONAL MATCH p = (n) -[r]- (m) RETURN p
+  FakeDbAccessor dba;
   auto node_n = NODE("n");
   auto edge = EDGE("r");
   auto node_m = NODE("m");
@@ -221,7 +227,7 @@ TYPED_TEST(TestPlanner, OptionalMatchNamedPatternReturn) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto get_symbol = [&symbol_table](const auto *ast_node) { return symbol_table.at(*ast_node->identifier_); };
   std::vector<Symbol> optional_symbols{get_symbol(pattern), get_symbol(node_n), get_symbol(edge), get_symbol(node_m)};
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   std::list<BaseOpChecker *> optional{new ExpectScanAll(), new ExpectExpand(), new ExpectConstructNamedPath()};
   CheckPlan(planner.plan(), symbol_table, ExpectOptional(optional_symbols, optional), ExpectProduce());
   DeleteListContent(&optional);
@@ -229,12 +235,13 @@ TYPED_TEST(TestPlanner, OptionalMatchNamedPatternReturn) {
 
 TYPED_TEST(TestPlanner, MatchWhereReturn) {
   // Test MATCH (n) WHERE n.property < 42 RETURN n
-  auto property = this->dba.Property("property");
+  FakeDbAccessor dba;
+  auto property = dba.Property("property");
   auto *as_n = NEXPR("n", IDENT("n"));
-  auto *query = QUERY(
-      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(LESS(PROPERTY_LOOKUP("n", property), LITERAL(42))), RETURN(as_n)));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   WHERE(LESS(PROPERTY_LOOKUP(dba, "n", property), LITERAL(42))), RETURN(as_n)));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectProduce());
 }
 
@@ -246,9 +253,10 @@ TYPED_TEST(TestPlanner, MatchDelete) {
 
 TYPED_TEST(TestPlanner, MatchNodeSet) {
   // Test MATCH (n) SET n.prop = 42, n = n, n :label
-  auto prop = this->dba.Property("prop");
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
   auto label = "label";
-  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), SET(PROPERTY_LOOKUP("n", prop), LITERAL(42)),
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), SET(PROPERTY_LOOKUP(dba, "n", prop), LITERAL(42)),
                                    SET("n", IDENT("n")), SET("n", {label})));
   CheckPlan<TypeParam>(query, this->storage, ExpectScanAll(), ExpectSetProperty(), ExpectSetProperties(),
                        ExpectSetLabels(), ExpectEmptyResult());
@@ -256,10 +264,11 @@ TYPED_TEST(TestPlanner, MatchNodeSet) {
 
 TYPED_TEST(TestPlanner, MatchRemove) {
   // Test MATCH (n) REMOVE n.prop REMOVE n :label
-  auto prop = this->dba.Property("prop");
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
   auto label = "label";
   auto *query =
-      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), REMOVE(PROPERTY_LOOKUP("n", prop)), REMOVE("n", {label})));
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), REMOVE(PROPERTY_LOOKUP(dba, "n", prop)), REMOVE("n", {label})));
   CheckPlan<TypeParam>(query, this->storage, ExpectScanAll(), ExpectRemoveProperty(), ExpectRemoveLabels(),
                        ExpectEmptyResult());
 }
@@ -295,6 +304,7 @@ TYPED_TEST(TestPlanner, MatchMultiPatternSameExpandStart) {
 
 TYPED_TEST(TestPlanner, MultiMatch) {
   // Test MATCH (n) -[r]- (m) MATCH (j) -[e]- (i) -[f]- (h) RETURN n
+  FakeDbAccessor dba;
   auto *node_n = NODE("n");
   auto *edge_r = EDGE("r");
   auto *node_m = NODE("m");
@@ -306,7 +316,7 @@ TYPED_TEST(TestPlanner, MultiMatch) {
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n, edge_r, node_m)),
                                    MATCH(PATTERN(node_j, edge_e, node_i, edge_f, node_h)), RETURN("n")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   // Multiple MATCH clauses form a Cartesian product, so the uniqueness should
   // not cross MATCH boundaries.
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectScanAll(), ExpectExpand(),
@@ -315,35 +325,38 @@ TYPED_TEST(TestPlanner, MultiMatch) {
 
 TYPED_TEST(TestPlanner, MultiMatchSameStart) {
   // Test MATCH (n) MATCH (n) -[r]- (m) RETURN n
+  FakeDbAccessor dba;
   auto *as_n = NEXPR("n", IDENT("n"));
   auto *query =
       QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))), RETURN(as_n)));
   // Similar to MatchMultiPatternSameStart, we expect only Expand from second
   // MATCH clause.
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchWithReturn) {
   // Test MATCH (old) WITH old AS new RETURN new
+  FakeDbAccessor dba;
   auto *as_new = NEXPR("new", IDENT("new"));
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))), WITH("old", AS("new")), RETURN(as_new)));
   // No accumulation since we only do reads.
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchWithWhereReturn) {
   // Test MATCH (old) WITH old AS new WHERE new.prop < 42 RETURN new
-  auto prop = this->dba.Property("prop");
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
   auto *as_new = NEXPR("new", IDENT("new"));
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))), WITH("old", AS("new")),
-                                   WHERE(LESS(PROPERTY_LOOKUP("new", prop), LITERAL(42))), RETURN(as_new)));
+                                   WHERE(LESS(PROPERTY_LOOKUP(dba, "new", prop), LITERAL(42))), RETURN(as_new)));
   // No accumulation since we only do reads.
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce(), ExpectFilter(), ExpectProduce());
 }
 
@@ -360,8 +373,9 @@ TYPED_TEST(TestPlanner, CreateMultiExpand) {
 TYPED_TEST(TestPlanner, MatchWithSumWhereReturn) {
   // Test MATCH (n) WITH SUM(n.prop) + 42 AS sum WHERE sum < 42
   //      RETURN sum AS result
-  auto prop = this->dba.Property("prop");
-  auto sum = SUM(PROPERTY_LOOKUP("n", prop), false);
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+  auto sum = SUM(PROPERTY_LOOKUP(dba, "n", prop), false);
   auto literal = LITERAL(42);
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH(ADD(sum, literal), AS("sum")),
                                    WHERE(LESS(IDENT("sum"), LITERAL(42))), RETURN("sum", AS("result"))));
@@ -371,28 +385,30 @@ TYPED_TEST(TestPlanner, MatchWithSumWhereReturn) {
 
 TYPED_TEST(TestPlanner, MatchReturnSum) {
   // Test MATCH (n) RETURN SUM(n.prop1) AS sum, n.prop2 AS group
-  auto prop1 = this->dba.Property("prop1");
-  auto prop2 = this->dba.Property("prop2");
-  auto sum = SUM(PROPERTY_LOOKUP("n", prop1), false);
-  auto n_prop2 = PROPERTY_LOOKUP("n", prop2);
+  FakeDbAccessor dba;
+  auto prop1 = dba.Property("prop1");
+  auto prop2 = dba.Property("prop2");
+  auto sum = SUM(PROPERTY_LOOKUP(dba, "n", prop1), false);
+  auto n_prop2 = PROPERTY_LOOKUP(dba, "n", prop2);
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(sum, AS("sum"), n_prop2, AS("group"))));
   auto aggr = ExpectAggregate({sum}, {n_prop2});
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), aggr, ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, CreateWithSum) {
   // Test CREATE (n) WITH SUM(n.prop) AS sum
-  auto prop = this->dba.Property("prop");
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
   auto ident_n = IDENT("n");
-  auto n_prop = PROPERTY_LOOKUP(ident_n, prop);
+  auto n_prop = PROPERTY_LOOKUP(dba, ident_n, prop);
   auto sum = SUM(n_prop, false);
   auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"))), WITH(sum, AS("sum"))));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
   auto aggr = ExpectAggregate({sum}, {});
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   // We expect both the accumulation and aggregation because the part before
   // WITH updates the database.
   CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(), acc, aggr, ExpectProduce());
@@ -401,8 +417,9 @@ TYPED_TEST(TestPlanner, CreateWithSum) {
 TYPED_TEST(TestPlanner, MatchWithSumWithDistinctWhereReturn) {
   // Test MATCH (n) WITH SUM(DISTINCT n.prop) + 42 AS sum WHERE sum < 42
   //      RETURN sum AS result
-  auto prop = this->dba.Property("prop");
-  auto sum = SUM(PROPERTY_LOOKUP("n", prop), true);
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+  auto sum = SUM(PROPERTY_LOOKUP(dba, "n", prop), true);
   auto literal = LITERAL(42);
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH(ADD(sum, literal), AS("sum")),
                                    WHERE(LESS(IDENT("sum"), LITERAL(42))), RETURN("sum", AS("result"))));
@@ -412,28 +429,30 @@ TYPED_TEST(TestPlanner, MatchWithSumWithDistinctWhereReturn) {
 
 TYPED_TEST(TestPlanner, MatchReturnSumWithDistinct) {
   // Test MATCH (n) RETURN SUM(DISTINCT n.prop1) AS sum, n.prop2 AS group
-  auto prop1 = this->dba.Property("prop1");
-  auto prop2 = this->dba.Property("prop2");
-  auto sum = SUM(PROPERTY_LOOKUP("n", prop1), true);
-  auto n_prop2 = PROPERTY_LOOKUP("n", prop2);
+  FakeDbAccessor dba;
+  auto prop1 = dba.Property("prop1");
+  auto prop2 = dba.Property("prop2");
+  auto sum = SUM(PROPERTY_LOOKUP(dba, "n", prop1), true);
+  auto n_prop2 = PROPERTY_LOOKUP(dba, "n", prop2);
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(sum, AS("sum"), n_prop2, AS("group"))));
   auto aggr = ExpectAggregate({sum}, {n_prop2});
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), aggr, ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, CreateWithSumWithDistinct) {
   // Test CREATE (n) WITH SUM(DISTINCT n.prop) AS sum
-  auto prop = this->dba.Property("prop");
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
   auto ident_n = IDENT("n");
-  auto n_prop = PROPERTY_LOOKUP(ident_n, prop);
+  auto n_prop = PROPERTY_LOOKUP(dba, ident_n, prop);
   auto sum = SUM(n_prop, true);
   auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"))), WITH(sum, AS("sum"))));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
   auto aggr = ExpectAggregate({sum}, {});
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   // We expect both the accumulation and aggregation because the part before
   // WITH updates the database.
   CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(), acc, aggr, ExpectProduce());
@@ -450,21 +469,23 @@ TYPED_TEST(TestPlanner, MatchWithCreate) {
 
 TYPED_TEST(TestPlanner, MatchReturnSkipLimit) {
   // Test MATCH (n) RETURN n SKIP 2 LIMIT 1
+  FakeDbAccessor dba;
   auto *as_n = NEXPR("n", IDENT("n"));
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(as_n, SKIP(LITERAL(2)), LIMIT(LITERAL(1)))));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce(), ExpectSkip(), ExpectLimit());
 }
 
 TYPED_TEST(TestPlanner, CreateWithSkipReturnLimit) {
   // Test CREATE (n) WITH n AS m SKIP 2 RETURN m LIMIT 1
+  FakeDbAccessor dba;
   auto ident_n = IDENT("n");
   auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"))), WITH(ident_n, AS("m"), SKIP(LITERAL(2))),
                                   RETURN("m", LIMIT(LITERAL(1)))));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   // Since we have a write query, we need to have Accumulate. This is a bit
   // different than Neo4j 3.0, which optimizes WITH followed by RETURN as a
   // single RETURN clause and then moves Skip and Limit before Accumulate.
@@ -476,57 +497,61 @@ TYPED_TEST(TestPlanner, CreateWithSkipReturnLimit) {
 
 TYPED_TEST(TestPlanner, CreateReturnSumSkipLimit) {
   // Test CREATE (n) RETURN SUM(n.prop) AS s SKIP 2 LIMIT 1
-  auto prop = this->dba.Property("prop");
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
   auto ident_n = IDENT("n");
-  auto n_prop = PROPERTY_LOOKUP(ident_n, prop);
+  auto n_prop = PROPERTY_LOOKUP(dba, ident_n, prop);
   auto sum = SUM(n_prop, false);
   auto query =
       QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"))), RETURN(sum, AS("s"), SKIP(LITERAL(2)), LIMIT(LITERAL(1)))));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
   auto aggr = ExpectAggregate({sum}, {});
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(), acc, aggr, ExpectProduce(), ExpectSkip(), ExpectLimit());
 }
 
 TYPED_TEST(TestPlanner, CreateReturnSumWithDistinctSkipLimit) {
   // Test CREATE (n) RETURN SUM(n.prop) AS s SKIP 2 LIMIT 1
-  auto prop = this->dba.Property("prop");
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
   auto ident_n = IDENT("n");
-  auto n_prop = PROPERTY_LOOKUP(ident_n, prop);
+  auto n_prop = PROPERTY_LOOKUP(dba, ident_n, prop);
   auto sum = SUM(n_prop, true);
   auto query =
       QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"))), RETURN(sum, AS("s"), SKIP(LITERAL(2)), LIMIT(LITERAL(1)))));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
   auto aggr = ExpectAggregate({sum}, {});
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(), acc, aggr, ExpectProduce(), ExpectSkip(), ExpectLimit());
 }
 
 TYPED_TEST(TestPlanner, MatchReturnOrderBy) {
   // Test MATCH (n) RETURN n AS m ORDER BY n.prop
-  auto prop = this->dba.Property("prop");
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
   auto *as_m = NEXPR("m", IDENT("n"));
   auto *node_n = NODE("n");
-  auto ret = RETURN(as_m, ORDER_BY(PROPERTY_LOOKUP("n", prop)));
+  auto ret = RETURN(as_m, ORDER_BY(PROPERTY_LOOKUP(dba, "n", prop)));
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n)), ret));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce(), ExpectOrderBy());
 }
 
 TYPED_TEST(TestPlanner, CreateWithOrderByWhere) {
   // Test CREATE (n) -[r :r]-> (m)
   //      WITH n AS new ORDER BY new.prop, r.prop WHERE m.prop < 42
-  auto prop = this->dba.Property("prop");
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
   auto r_type = "r";
   auto ident_n = IDENT("n");
   auto ident_r = IDENT("r");
   auto ident_m = IDENT("m");
-  auto new_prop = PROPERTY_LOOKUP("new", prop);
-  auto r_prop = PROPERTY_LOOKUP(ident_r, prop);
-  auto m_prop = PROPERTY_LOOKUP(ident_m, prop);
+  auto new_prop = PROPERTY_LOOKUP(dba, "new", prop);
+  auto r_prop = PROPERTY_LOOKUP(dba, ident_r, prop);
+  auto m_prop = PROPERTY_LOOKUP(dba, ident_m, prop);
   auto query =
       QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"), EDGE("r", Direction::OUT, {r_type}), NODE("m"))),
                          WITH(ident_n, AS("new"), ORDER_BY(new_prop, r_prop)), WHERE(LESS(m_prop, LITERAL(42)))));
@@ -537,7 +562,7 @@ TYPED_TEST(TestPlanner, CreateWithOrderByWhere) {
       symbol_table.at(*ident_r),  // `r` in ORDER BY
       symbol_table.at(*ident_m),  // `m` in WHERE
   });
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(), ExpectCreateExpand(), acc, ExpectProduce(),
             ExpectOrderBy(), ExpectFilter(), ExpectEmptyResult());
 }
@@ -564,20 +589,21 @@ TYPED_TEST(TestPlanner, MatchMerge) {
   // Test MATCH (n) MERGE (n) -[r :r]- (m)
   //      ON MATCH SET n.prop = 42 ON CREATE SET m = n
   //      RETURN n AS n
+  FakeDbAccessor dba;
   auto r_type = "r";
-  auto prop = this->dba.Property("prop");
+  auto prop = dba.Property("prop");
   auto ident_n = IDENT("n");
-  auto query =
-      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
-                         MERGE(PATTERN(NODE("n"), EDGE("r", Direction::BOTH, {r_type}), NODE("m")),
-                               ON_MATCH(SET(PROPERTY_LOOKUP("n", prop), LITERAL(42))), ON_CREATE(SET("m", IDENT("n")))),
-                         RETURN(ident_n, AS("n"))));
+  auto query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                   MERGE(PATTERN(NODE("n"), EDGE("r", Direction::BOTH, {r_type}), NODE("m")),
+                         ON_MATCH(SET(PROPERTY_LOOKUP(dba, "n", prop), LITERAL(42))), ON_CREATE(SET("m", IDENT("n")))),
+                   RETURN(ident_n, AS("n"))));
   std::list<BaseOpChecker *> on_match{new ExpectExpand(), new ExpectSetProperty()};
   std::list<BaseOpChecker *> on_create{new ExpectCreateExpand(), new ExpectSetProperties()};
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   // We expect Accumulate after Merge, because it is considered as a write.
   auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectMerge(on_match, on_create), acc, ExpectProduce());
   DeleteListContent(&on_match);
   DeleteListContent(&on_create);
@@ -585,9 +611,10 @@ TYPED_TEST(TestPlanner, MatchMerge) {
 
 TYPED_TEST(TestPlanner, MatchOptionalMatchWhereReturn) {
   // Test MATCH (n) OPTIONAL MATCH (n) -[r]- (m) WHERE m.prop < 42 RETURN r
-  auto prop = this->dba.Property("prop");
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), OPTIONAL_MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
-                                   WHERE(LESS(PROPERTY_LOOKUP("m", prop), LITERAL(42))), RETURN("r")));
+                                   WHERE(LESS(PROPERTY_LOOKUP(dba, "m", prop), LITERAL(42))), RETURN("r")));
   std::list<BaseOpChecker *> optional{new ExpectScanAll(), new ExpectExpand(), new ExpectFilter()};
   CheckPlan<TypeParam>(query, this->storage, ExpectScanAll(), ExpectOptional(optional), ExpectProduce());
   DeleteListContent(&optional);
@@ -595,20 +622,20 @@ TYPED_TEST(TestPlanner, MatchOptionalMatchWhereReturn) {
 
 TYPED_TEST(TestPlanner, MatchOptionalMatchNodePropertyWithIndex) {
   // Test MATCH (n:Label) OPTIONAL MATCH (m:Label) WHERE n.prop = m.prop RETURN n
-
+  FakeDbAccessor dba;
   const auto label_name = "label";
-  const auto label = this->dba.Label(label_name);
-  const auto property = PROPERTY_PAIR("prop");
-  this->dba.SetIndexCount(label, property.second, 0);
+  const auto label = dba.Label(label_name);
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(label, property.second, 0);
 
   auto *query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n", label_name))), OPTIONAL_MATCH(PATTERN(NODE("m", label_name))),
-      WHERE(EQ(PROPERTY_LOOKUP("n", property.second), PROPERTY_LOOKUP("m", property.second))), RETURN("n")));
+      WHERE(EQ(PROPERTY_LOOKUP(dba, "n", property.second), PROPERTY_LOOKUP(dba, "m", property.second))), RETURN("n")));
 
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  auto m_prop = PROPERTY_LOOKUP("m", property);
+  auto m_prop = PROPERTY_LOOKUP(dba, "m", property);
   std::list<BaseOpChecker *> optional{new ExpectScanAllByLabelPropertyValue(label, property, m_prop)};
 
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectOptional(optional), ExpectProduce());
@@ -617,12 +644,13 @@ TYPED_TEST(TestPlanner, MatchOptionalMatchNodePropertyWithIndex) {
 
 TYPED_TEST(TestPlanner, MatchUnwindReturn) {
   // Test MATCH (n) UNWIND [1,2,3] AS x RETURN n, x
+  FakeDbAccessor dba;
   auto *as_n = NEXPR("n", IDENT("n"));
   auto *as_x = NEXPR("x", IDENT("x"));
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), UNWIND(LIST(LITERAL(1), LITERAL(2), LITERAL(3)), AS("x")),
                                    RETURN(as_n, as_x)));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectUnwind(), ExpectProduce());
 }
 
@@ -636,27 +664,29 @@ TYPED_TEST(TestPlanner, ReturnDistinctOrderBySkipLimit) {
 
 TYPED_TEST(TestPlanner, CreateWithDistinctSumWhereReturn) {
   // Test CREATE (n) WITH DISTINCT SUM(n.prop) AS s WHERE s < 42 RETURN s
-  auto prop = this->dba.Property("prop");
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
   auto node_n = NODE("n");
-  auto sum = SUM(PROPERTY_LOOKUP("n", prop), false);
+  auto sum = SUM(PROPERTY_LOOKUP(dba, "n", prop), false);
   auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(node_n)), WITH_DISTINCT(sum, AS("s")),
                                   WHERE(LESS(IDENT("s"), LITERAL(42))), RETURN("s")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto acc = ExpectAccumulate({symbol_table.at(*node_n->identifier_)});
   auto aggr = ExpectAggregate({sum}, {});
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(), acc, aggr, ExpectProduce(), ExpectDistinct(),
             ExpectFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchCrossReferenceVariable) {
   // Test MATCH (n {prop: m.prop}), (m {prop: n.prop}) RETURN n
-  auto prop = PROPERTY_PAIR("prop");
+  FakeDbAccessor dba;
+  auto prop = PROPERTY_PAIR(dba, "prop");
   auto node_n = NODE("n");
-  auto m_prop = PROPERTY_LOOKUP("m", prop.second);
+  auto m_prop = PROPERTY_LOOKUP(dba, "m", prop.second);
   std::get<0>(node_n->properties_)[this->storage.GetPropertyIx(prop.first)] = m_prop;
   auto node_m = NODE("m");
-  auto n_prop = PROPERTY_LOOKUP("n", prop.second);
+  auto n_prop = PROPERTY_LOOKUP(dba, "n", prop.second);
   std::get<0>(node_m->properties_)[this->storage.GetPropertyIx(prop.first)] = n_prop;
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n), PATTERN(node_m)), RETURN("n")));
   // We expect both ScanAll to come before filters (2 are joined into one),
@@ -666,38 +696,41 @@ TYPED_TEST(TestPlanner, MatchCrossReferenceVariable) {
 
 TYPED_TEST(TestPlanner, MatchWhereBeforeExpand) {
   // Test MATCH (n) -[r]- (m) WHERE n.prop < 42 RETURN n
-  auto prop = this->dba.Property("prop");
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
   auto *as_n = NEXPR("n", IDENT("n"));
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
-                                   WHERE(LESS(PROPERTY_LOOKUP("n", prop), LITERAL(42))), RETURN(as_n)));
+                                   WHERE(LESS(PROPERTY_LOOKUP(dba, "n", prop), LITERAL(42))), RETURN(as_n)));
   // We expect Filter to come immediately after ScanAll, since it only uses `n`.
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectExpand(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchFilterPropIsNotNull) {
-  auto label = this->dba.Label("label");
-  auto prop = PROPERTY_PAIR("prop");
-  this->dba.SetIndexCount(label, 1);
-  this->dba.SetIndexCount(label, prop.second, 1);
+  FakeDbAccessor dba;
+  auto label = dba.Label("label");
+  auto prop = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, prop.second, 1);
 
   {
     // Test MATCH (n :label) -[r]- (m) WHERE n.prop IS NOT NULL RETURN n
     auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"), EDGE("r"), NODE("m"))),
-                                     WHERE(NOT(IS_NULL(PROPERTY_LOOKUP("n", prop)))), RETURN("n")));
+                                     WHERE(NOT(IS_NULL(PROPERTY_LOOKUP(dba, "n", prop)))), RETURN("n")));
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
-    auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     // We expect ScanAllByLabelProperty to come instead of ScanAll > Filter.
     CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelProperty(label, prop), ExpectExpand(), ExpectProduce());
   }
 
   {
     // Test MATCH (n :label) -[r]- (m) WHERE n.prop IS NOT NULL OR true RETURN n
-    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"), EDGE("r"), NODE("m"))),
-                                     WHERE(OR(NOT(IS_NULL(PROPERTY_LOOKUP("n", prop))), LITERAL(true))), RETURN("n")));
+    auto *query =
+        QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"), EDGE("r"), NODE("m"))),
+                           WHERE(OR(NOT(IS_NULL(PROPERTY_LOOKUP(dba, "n", prop))), LITERAL(true))), RETURN("n")));
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
-    auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     // We expect ScanAllBy > Filter because of the "or true" condition.
     CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectExpand(), ExpectProduce());
   }
@@ -705,13 +738,13 @@ TYPED_TEST(TestPlanner, MatchFilterPropIsNotNull) {
   {
     // Test MATCH (n :label) -[r]- (m)
     //      WHERE n.prop IS NOT NULL AND n.x = 2 RETURN n
-    auto prop_x = PROPERTY_PAIR("x");
-    auto *query = QUERY(
-        SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"), EDGE("r"), NODE("m"))),
-                     WHERE(AND(NOT(IS_NULL(PROPERTY_LOOKUP("n", prop))), EQ(PROPERTY_LOOKUP("n", prop_x), LITERAL(2)))),
-                     RETURN("n")));
+    auto prop_x = PROPERTY_PAIR(dba, "x");
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("n", "label"), EDGE("r"), NODE("m"))),
+        WHERE(AND(NOT(IS_NULL(PROPERTY_LOOKUP(dba, "n", prop))), EQ(PROPERTY_LOOKUP(dba, "n", prop_x), LITERAL(2)))),
+        RETURN("n")));
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
-    auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     // We expect ScanAllByLabelProperty > Filter
     // to come instead of ScanAll > Filter.
     CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelProperty(label, prop), ExpectFilter(), ExpectExpand(),
@@ -721,9 +754,10 @@ TYPED_TEST(TestPlanner, MatchFilterPropIsNotNull) {
 
 TYPED_TEST(TestPlanner, MultiMatchWhere) {
   // Test MATCH (n) -[r]- (m) MATCH (l) WHERE n.prop < 42 RETURN n
-  auto prop = this->dba.Property("prop");
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))), MATCH(PATTERN(NODE("l"))),
-                                   WHERE(LESS(PROPERTY_LOOKUP("n", prop), LITERAL(42))), RETURN("n")));
+                                   WHERE(LESS(PROPERTY_LOOKUP(dba, "n", prop), LITERAL(42))), RETURN("n")));
   // Even though WHERE is in the second MATCH clause, we expect Filter to come
   // before second ScanAll, since it only uses the value from first ScanAll.
   CheckPlan<TypeParam>(query, this->storage, ExpectScanAll(), ExpectFilter(), ExpectExpand(), ExpectScanAll(),
@@ -732,9 +766,10 @@ TYPED_TEST(TestPlanner, MultiMatchWhere) {
 
 TYPED_TEST(TestPlanner, MatchOptionalMatchWhere) {
   // Test MATCH (n) -[r]- (m) OPTIONAL MATCH (l) WHERE n.prop < 42 RETURN n
-  auto prop = this->dba.Property("prop");
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))), OPTIONAL_MATCH(PATTERN(NODE("l"))),
-                                   WHERE(LESS(PROPERTY_LOOKUP("n", prop), LITERAL(42))), RETURN("n")));
+                                   WHERE(LESS(PROPERTY_LOOKUP(dba, "n", prop), LITERAL(42))), RETURN("n")));
   // Even though WHERE is in the second MATCH clause, and it uses the value from
   // first ScanAll, it must remain part of the Optional. It should come before
   // optional ScanAll.
@@ -746,12 +781,13 @@ TYPED_TEST(TestPlanner, MatchOptionalMatchWhere) {
 
 TYPED_TEST(TestPlanner, MatchReturnAsterisk) {
   // Test MATCH (n) -[e]- (m) RETURN *, m.prop
-  auto prop = this->dba.Property("prop");
-  auto ret = RETURN(PROPERTY_LOOKUP("m", prop), AS("m.prop"));
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+  auto ret = RETURN(PROPERTY_LOOKUP(dba, "m", prop), AS("m.prop"));
   ret->body_.all_identifiers = true;
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("e"), NODE("m"))), ret));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectProduce());
   std::vector<std::string> output_names;
   for (const auto &output_symbol : planner.plan().OutputSymbols(symbol_table)) {
@@ -763,13 +799,14 @@ TYPED_TEST(TestPlanner, MatchReturnAsterisk) {
 
 TYPED_TEST(TestPlanner, MatchReturnAsteriskSum) {
   // Test MATCH (n) RETURN *, SUM(n.prop) AS s
-  auto prop = this->dba.Property("prop");
-  auto sum = SUM(PROPERTY_LOOKUP("n", prop), false);
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+  auto sum = SUM(PROPERTY_LOOKUP(dba, "n", prop), false);
   auto ret = RETURN(sum, AS("s"));
   ret->body_.all_identifiers = true;
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), ret));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   auto *produce = dynamic_cast<Produce *>(&planner.plan());
   ASSERT_TRUE(produce);
   const auto &named_expressions = produce->named_expressions_;
@@ -800,17 +837,18 @@ TYPED_TEST(TestPlanner, UnwindMergeNodeProperty) {
 
 TYPED_TEST(TestPlanner, UnwindMergeNodePropertyWithIndex) {
   // Test UNWIND [1] AS i MERGE (n :label {prop: i}) with label-property index
+  FakeDbAccessor dba;
   const auto label_name = "label";
-  const auto label = this->dba.Label(label_name);
-  const auto property = PROPERTY_PAIR("prop");
-  this->dba.SetIndexCount(label, property.second, 1);
+  const auto label = dba.Label(label_name);
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(label, property.second, 1);
   auto node_n = NODE("n", label_name);
   std::get<0>(node_n->properties_)[this->storage.GetPropertyIx(property.first)] = IDENT("i");
   auto *query = QUERY(SINGLE_QUERY(UNWIND(LIST(LITERAL(1)), AS("i")), MERGE(PATTERN(node_n))));
   std::list<BaseOpChecker *> on_match{new ExpectScanAllByLabelPropertyValue(label, property, IDENT("i"))};
   std::list<BaseOpChecker *> on_create{new ExpectCreateNode()};
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectUnwind(), ExpectMerge(on_match, on_create), ExpectEmptyResult());
   DeleteListContent(&on_match);
   DeleteListContent(&on_create);
@@ -919,72 +957,76 @@ TYPED_TEST(TestPlanner, MapWithAggregationAndGroupBy) {
 
 TYPED_TEST(TestPlanner, AtomIndexedLabelProperty) {
   // Test MATCH (n :label {property: 42, not_indexed: 0}) RETURN n
-  auto label = this->dba.Label("label");
-  auto property = PROPERTY_PAIR("property");
-  auto not_indexed = PROPERTY_PAIR("not_indexed");
-  this->dba.SetIndexCount(label, 1);
-  this->dba.SetIndexCount(label, property.second, 1);
+  FakeDbAccessor dba;
+  auto label = dba.Label("label");
+  auto property = PROPERTY_PAIR(dba, "property");
+  auto not_indexed = PROPERTY_PAIR(dba, "not_indexed");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, property.second, 1);
   auto node = NODE("n", "label");
   auto lit_42 = LITERAL(42);
   std::get<0>(node->properties_)[this->storage.GetPropertyIx(property.first)] = lit_42;
   std::get<0>(node->properties_)[this->storage.GetPropertyIx(not_indexed.first)] = LITERAL(0);
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), RETURN("n")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelPropertyValue(label, property, lit_42), ExpectFilter(),
             ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, AtomPropertyWhereLabelIndexing) {
   // Test MATCH (n {property: 42}) WHERE n.not_indexed AND n:label RETURN n
-  auto label = this->dba.Label("label");
-  auto property = PROPERTY_PAIR("property");
-  auto not_indexed = PROPERTY_PAIR("not_indexed");
-  this->dba.SetIndexCount(label, property.second, 0);
+  FakeDbAccessor dba;
+  auto label = dba.Label("label");
+  auto property = PROPERTY_PAIR(dba, "property");
+  auto not_indexed = PROPERTY_PAIR(dba, "not_indexed");
+  dba.SetIndexCount(label, property.second, 0);
   auto node = NODE("n");
   auto lit_42 = LITERAL(42);
   std::get<0>(node->properties_)[this->storage.GetPropertyIx(property.first)] = lit_42;
   auto *query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(node)),
-      WHERE(AND(PROPERTY_LOOKUP("n", not_indexed),
+      WHERE(AND(PROPERTY_LOOKUP(dba, "n", not_indexed),
                 this->storage.template Create<memgraph::query::LabelsTest>(
                     IDENT("n"), std::vector<memgraph::query::LabelIx>{this->storage.GetLabelIx("label")}))),
       RETURN("n")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelPropertyValue(label, property, lit_42), ExpectFilter(),
             ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, WhereIndexedLabelProperty) {
   // Test MATCH (n :label) WHERE n.property = 42 RETURN n
-  auto label = this->dba.Label("label");
-  auto property = PROPERTY_PAIR("property");
-  this->dba.SetIndexCount(label, property.second, 0);
+  FakeDbAccessor dba;
+  auto label = dba.Label("label");
+  auto property = PROPERTY_PAIR(dba, "property");
+  dba.SetIndexCount(label, property.second, 0);
   auto lit_42 = LITERAL(42);
-  auto *query = QUERY(
-      SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))), WHERE(EQ(PROPERTY_LOOKUP("n", property), lit_42)), RETURN("n")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))),
+                                   WHERE(EQ(PROPERTY_LOOKUP(dba, "n", property), lit_42)), RETURN("n")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelPropertyValue(label, property, lit_42), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, BestPropertyIndexed) {
   // Test MATCH (n :label) WHERE n.property = 1 AND n.better = 42 RETURN n
-  auto label = this->dba.Label("label");
-  auto property = this->dba.Property("property");
+  FakeDbAccessor dba;
+  auto label = dba.Label("label");
+  auto property = dba.Property("property");
   // Add a vertex with :label+property combination, so that the best
   // :label+better remains empty and thus better choice.
-  this->dba.SetIndexCount(label, property, 1);
-  auto better = PROPERTY_PAIR("better");
-  this->dba.SetIndexCount(label, better.second, 0);
+  dba.SetIndexCount(label, property, 1);
+  auto better = PROPERTY_PAIR(dba, "better");
+  dba.SetIndexCount(label, better.second, 0);
   auto lit_42 = LITERAL(42);
-  auto *query = QUERY(
-      SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))),
-                   WHERE(AND(EQ(PROPERTY_LOOKUP("n", property), LITERAL(1)), EQ(PROPERTY_LOOKUP("n", better), lit_42))),
-                   RETURN("n")));
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n", "label"))),
+      WHERE(AND(EQ(PROPERTY_LOOKUP(dba, "n", property), LITERAL(1)), EQ(PROPERTY_LOOKUP(dba, "n", better), lit_42))),
+      RETURN("n")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelPropertyValue(label, better, lit_42), ExpectFilter(),
             ExpectProduce());
 }
@@ -992,19 +1034,21 @@ TYPED_TEST(TestPlanner, BestPropertyIndexed) {
 TYPED_TEST(TestPlanner, MultiPropertyIndexScan) {
   // Test MATCH (n :label1), (m :label2) WHERE n.prop1 = 1 AND m.prop2 = 2
   //      RETURN n, m
-  auto label1 = this->dba.Label("label1");
-  auto label2 = this->dba.Label("label2");
-  auto prop1 = PROPERTY_PAIR("prop1");
-  auto prop2 = PROPERTY_PAIR("prop2");
-  this->dba.SetIndexCount(label1, prop1.second, 0);
-  this->dba.SetIndexCount(label2, prop2.second, 0);
+  FakeDbAccessor dba;
+  auto label1 = dba.Label("label1");
+  auto label2 = dba.Label("label2");
+  auto prop1 = PROPERTY_PAIR(dba, "prop1");
+  auto prop2 = PROPERTY_PAIR(dba, "prop2");
+  dba.SetIndexCount(label1, prop1.second, 0);
+  dba.SetIndexCount(label2, prop2.second, 0);
   auto lit_1 = LITERAL(1);
   auto lit_2 = LITERAL(2);
-  auto *query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n", "label1")), PATTERN(NODE("m", "label2"))),
-      WHERE(AND(EQ(PROPERTY_LOOKUP("n", prop1), lit_1), EQ(PROPERTY_LOOKUP("m", prop2), lit_2))), RETURN("n", "m")));
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label1")), PATTERN(NODE("m", "label2"))),
+                   WHERE(AND(EQ(PROPERTY_LOOKUP(dba, "n", prop1), lit_1), EQ(PROPERTY_LOOKUP(dba, "m", prop2), lit_2))),
+                   RETURN("n", "m")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelPropertyValue(label1, prop1, lit_1),
             ExpectScanAllByLabelPropertyValue(label2, prop2, lit_2), ExpectProduce());
 }
@@ -1012,18 +1056,19 @@ TYPED_TEST(TestPlanner, MultiPropertyIndexScan) {
 TYPED_TEST(TestPlanner, WhereIndexedLabelPropertyRange) {
   // Test MATCH (n :label) WHERE n.property REL_OP 42 RETURN n
   // REL_OP is one of: `<`, `<=`, `>`, `>=`
-  auto label = this->dba.Label("label");
-  auto property = this->dba.Property("property");
-  this->dba.SetIndexCount(label, property, 0);
+  FakeDbAccessor dba;
+  auto label = dba.Label("label");
+  auto property = dba.Property("property");
+  dba.SetIndexCount(label, property, 0);
   auto lit_42 = LITERAL(42);
-  auto n_prop = PROPERTY_LOOKUP("n", property);
-  auto check_planned_range = [this, &label, &property](const auto &rel_expr, auto lower_bound, auto upper_bound) {
+  auto n_prop = PROPERTY_LOOKUP(dba, "n", property);
+  auto check_planned_range = [&, this](const auto &rel_expr, auto lower_bound, auto upper_bound) {
     // Shadow the first this->storage, so that the query is created in this one.
     this->storage.GetLabelIx("label");
     this->storage.GetPropertyIx("property");
     auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))), WHERE(rel_expr), RETURN("n")));
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
-    auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     CheckPlan(planner.plan(), symbol_table,
               ExpectScanAllByLabelPropertyRange(label, property, lower_bound, upper_bound), ExpectProduce());
   };
@@ -1053,31 +1098,33 @@ TYPED_TEST(TestPlanner, WhereIndexedLabelPropertyRange) {
 
 TYPED_TEST(TestPlanner, WherePreferEqualityIndexOverRange) {
   // Test MATCH (n :label) WHERE n.property = 42 AND n.property > 0 RETURN n
-  auto label = this->dba.Label("label");
-  auto property = PROPERTY_PAIR("property");
-  this->dba.SetIndexCount(label, property.second, 0);
+  FakeDbAccessor dba;
+  auto label = dba.Label("label");
+  auto property = PROPERTY_PAIR(dba, "property");
+  dba.SetIndexCount(label, property.second, 0);
   auto lit_42 = LITERAL(42);
-  auto *query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("n", "label"))),
-      WHERE(AND(EQ(PROPERTY_LOOKUP("n", property), lit_42), GREATER(PROPERTY_LOOKUP("n", property), LITERAL(0)))),
-      RETURN("n")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))),
+                                   WHERE(AND(EQ(PROPERTY_LOOKUP(dba, "n", property), lit_42),
+                                             GREATER(PROPERTY_LOOKUP(dba, "n", property), LITERAL(0)))),
+                                   RETURN("n")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelPropertyValue(label, property, lit_42), ExpectFilter(),
             ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, UnableToUsePropertyIndex) {
   // Test MATCH (n: label) WHERE n.property = n.property RETURN n
-  auto label = this->dba.Label("label");
-  auto property = this->dba.Property("property");
-  this->dba.SetIndexCount(label, 0);
-  this->dba.SetIndexCount(label, property, 0);
-  auto *query =
-      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))),
-                         WHERE(EQ(PROPERTY_LOOKUP("n", property), PROPERTY_LOOKUP("n", property))), RETURN("n")));
+  FakeDbAccessor dba;
+  auto label = dba.Label("label");
+  auto property = dba.Property("property");
+  dba.SetIndexCount(label, 0);
+  dba.SetIndexCount(label, property, 0);
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))),
+                                   WHERE(EQ(PROPERTY_LOOKUP(dba, "n", property), PROPERTY_LOOKUP(dba, "n", property))),
+                                   RETURN("n")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   // We can only get ScanAllByLabelIndex, because we are comparing properties
   // with those on the same node.
   CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(), ExpectFilter(), ExpectProduce());
@@ -1085,16 +1132,17 @@ TYPED_TEST(TestPlanner, UnableToUsePropertyIndex) {
 
 TYPED_TEST(TestPlanner, SecondPropertyIndex) {
   // Test MATCH (n :label), (m :label) WHERE m.property = n.property RETURN n
-  auto label = this->dba.Label("label");
-  auto property = PROPERTY_PAIR("property");
-  this->dba.SetIndexCount(label, 0);
-  this->dba.SetIndexCount(label, this->dba.Property("property"), 0);
-  auto n_prop = PROPERTY_LOOKUP("n", property);
-  auto m_prop = PROPERTY_LOOKUP("m", property);
+  FakeDbAccessor dba;
+  auto label = dba.Label("label");
+  auto property = PROPERTY_PAIR(dba, "property");
+  dba.SetIndexCount(label, 0);
+  dba.SetIndexCount(label, dba.Property("property"), 0);
+  auto n_prop = PROPERTY_LOOKUP(dba, "n", property);
+  auto m_prop = PROPERTY_LOOKUP(dba, "m", property);
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label")), PATTERN(NODE("m", "label"))),
                                    WHERE(EQ(m_prop, n_prop)), RETURN("n")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(),
             // Note: We are scanning for m, therefore property should equal n_prop.
             ExpectScanAllByLabelPropertyValue(label, property, n_prop), ExpectProduce());
@@ -1126,8 +1174,9 @@ TYPED_TEST(TestPlanner, MatchExpandVariableNoBounds) {
 
 TYPED_TEST(TestPlanner, MatchExpandVariableInlinedFilter) {
   // Test MATCH (n) -[r :type * {prop: 42}]-> (m) RETURN r
+  FakeDbAccessor dba;
   auto type = "type";
-  auto prop = PROPERTY_PAIR("prop");
+  auto prop = PROPERTY_PAIR(dba, "prop");
   auto edge = EDGE_VARIABLE("r", Type::DEPTH_FIRST, Direction::BOTH, {type});
   std::get<0>(edge->properties_)[this->storage.GetPropertyIx(prop.first)] = LITERAL(42);
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
@@ -1138,10 +1187,12 @@ TYPED_TEST(TestPlanner, MatchExpandVariableInlinedFilter) {
 
 TYPED_TEST(TestPlanner, MatchExpandVariableNotInlinedFilter) {
   // Test MATCH (n) -[r :type * {prop: m.prop}]-> (m) RETURN r
+  FakeDbAccessor dba;
   auto type = "type";
-  auto prop = PROPERTY_PAIR("prop");
+  auto prop = PROPERTY_PAIR(dba, "prop");
   auto edge = EDGE_VARIABLE("r", Type::DEPTH_FIRST, Direction::BOTH, {type});
-  std::get<0>(edge->properties_)[this->storage.GetPropertyIx(prop.first)] = EQ(PROPERTY_LOOKUP("m", prop), LITERAL(42));
+  std::get<0>(edge->properties_)[this->storage.GetPropertyIx(prop.first)] =
+      EQ(PROPERTY_LOOKUP(dba, "m", prop), LITERAL(42));
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
   CheckPlan<TypeParam>(query, this->storage, ExpectScanAll(), ExpectExpandVariable(), ExpectFilter(), ExpectProduce());
 }
@@ -1149,12 +1200,12 @@ TYPED_TEST(TestPlanner, MatchExpandVariableNotInlinedFilter) {
 TYPED_TEST(TestPlanner, MatchExpandVariableTotalWeightSymbol) {
   // Test MATCH p = (a {id: 0})-[r* wShortest (e, v | 1) total_weight]->(b)
   // RETURN *
-
+  FakeDbAccessor dba;
   auto edge = EDGE_VARIABLE("r", Type::WEIGHTED_SHORTEST_PATH, Direction::BOTH, {}, nullptr, nullptr, nullptr, nullptr,
                             nullptr, IDENT("total_weight"));
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("*")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   auto *root = dynamic_cast<Produce *>(&planner.plan());
 
   ASSERT_TRUE(root);
@@ -1184,6 +1235,7 @@ TYPED_TEST(TestPlanner, UnwindMatchVariable) {
 
 TYPED_TEST(TestPlanner, MatchBfs) {
   // Test MATCH (n) -[r:type *..10 (r, n|n)]-> (m) RETURN r
+  FakeDbAccessor dba;
   auto edge_type = this->storage.GetEdgeTypeIx("type");
   auto *bfs = this->storage.template Create<memgraph::query::EdgeAtom>(
       IDENT("r"), memgraph::query::EdgeAtom::Type::BREADTH_FIRST, Direction::OUT,
@@ -1195,17 +1247,18 @@ TYPED_TEST(TestPlanner, MatchBfs) {
   auto *as_r = NEXPR("r", IDENT("r"));
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN(as_r)));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpandBfs(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchDoubleScanToExpandExisting) {
   // Test MATCH (n) -[r]- (m :label) RETURN r
+  FakeDbAccessor dba;
   auto label = "label";
-  this->dba.SetIndexCount(this->dba.Label(label), 0);
+  dba.SetIndexCount(dba.Label(label), 0);
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m", label))), RETURN("r")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   // We expect 2x ScanAll and then Expand, since we are guessing that is
   // faster (due to low label index vertex count).
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectScanAllByLabel(), ExpectExpand(), ExpectProduce());
@@ -1213,16 +1266,17 @@ TYPED_TEST(TestPlanner, MatchDoubleScanToExpandExisting) {
 
 TYPED_TEST(TestPlanner, MatchScanToExpand) {
   // Test MATCH (n) -[r]- (m :label {property: 1}) RETURN r
-  auto label = this->dba.Label("label");
-  auto property = this->dba.Property("property");
+  FakeDbAccessor dba;
+  auto label = dba.Label("label");
+  auto property = dba.Property("property");
   // Fill vertices to the max + 1.
-  this->dba.SetIndexCount(label, property, FLAGS_query_vertex_count_to_expand_existing + 1);
-  this->dba.SetIndexCount(label, FLAGS_query_vertex_count_to_expand_existing + 1);
+  dba.SetIndexCount(label, property, FLAGS_query_vertex_count_to_expand_existing + 1);
+  dba.SetIndexCount(label, FLAGS_query_vertex_count_to_expand_existing + 1);
   auto node_m = NODE("m", "label");
   std::get<0>(node_m->properties_)[this->storage.GetPropertyIx("property")] = LITERAL(1);
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), node_m)), RETURN("r")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   // We expect 1x ScanAll and then Expand, since we are guessing that
   // is faster (due to high label index vertex count).
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectFilter(), ExpectProduce());
@@ -1230,9 +1284,11 @@ TYPED_TEST(TestPlanner, MatchScanToExpand) {
 
 TYPED_TEST(TestPlanner, MatchWhereAndSplit) {
   // Test MATCH (n) -[r]- (m) WHERE n.prop AND r.prop RETURN m
-  auto prop = PROPERTY_PAIR("prop");
-  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
-                                   WHERE(AND(PROPERTY_LOOKUP("n", prop), PROPERTY_LOOKUP("r", prop))), RETURN("m")));
+  FakeDbAccessor dba;
+  auto prop = PROPERTY_PAIR(dba, "prop");
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+                         WHERE(AND(PROPERTY_LOOKUP(dba, "n", prop), PROPERTY_LOOKUP(dba, "r", prop))), RETURN("m")));
   // We expect `n.prop` filter right after scanning `n`.
   CheckPlan<TypeParam>(query, this->storage, ExpectScanAll(), ExpectFilter(), ExpectExpand(), ExpectFilter(),
                        ExpectProduce());
@@ -1240,6 +1296,7 @@ TYPED_TEST(TestPlanner, MatchWhereAndSplit) {
 
 TYPED_TEST(TestPlanner, ReturnAsteriskOmitsLambdaSymbols) {
   // Test MATCH (n) -[r* (ie, in | true)]- (m) RETURN *
+  FakeDbAccessor dba;
   auto edge = EDGE_VARIABLE("r", Type::DEPTH_FIRST, Direction::BOTH);
   edge->filter_lambda_.inner_edge = IDENT("ie");
   edge->filter_lambda_.inner_node = IDENT("in");
@@ -1248,7 +1305,7 @@ TYPED_TEST(TestPlanner, ReturnAsteriskOmitsLambdaSymbols) {
   ret->body_.all_identifiers = true;
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), ret));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   auto *produce = dynamic_cast<Produce *>(&planner.plan());
   ASSERT_TRUE(produce);
   std::vector<std::string> outputs;
@@ -1264,38 +1321,40 @@ TYPED_TEST(TestPlanner, ReturnAsteriskOmitsLambdaSymbols) {
 
 TYPED_TEST(TestPlanner, FilterRegexMatchIndex) {
   // Test MATCH (n :label) WHERE n.prop =~ "regex" RETURN n
-  auto prop = this->dba.Property("prop");
-  auto label = this->dba.Label("label");
-  this->dba.SetIndexCount(label, 0);
-  this->dba.SetIndexCount(label, prop, 0);
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+  auto label = dba.Label("label");
+  dba.SetIndexCount(label, 0);
+  dba.SetIndexCount(label, prop, 0);
   auto *regex_match =
-      this->storage.template Create<memgraph::query::RegexMatch>(PROPERTY_LOOKUP("n", prop), LITERAL("regex"));
+      this->storage.template Create<memgraph::query::RegexMatch>(PROPERTY_LOOKUP(dba, "n", prop), LITERAL("regex"));
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))), WHERE(regex_match), RETURN("n")));
   // We expect that we use index by property range where lower bound is an empty
   // string. Filter must still remain in place, because we don't have regex
   // based index.
   Bound lower_bound(LITERAL(""), Bound::Type::INCLUSIVE);
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelPropertyRange(label, prop, lower_bound, std::nullopt),
             ExpectFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, FilterRegexMatchPreferEqualityIndex) {
   // Test MATCH (n :label) WHERE n.prop =~ "regex" AND n.prop = 42 RETURN n
-  auto prop = PROPERTY_PAIR("prop");
-  auto label = this->dba.Label("label");
-  this->dba.SetIndexCount(label, 0);
-  this->dba.SetIndexCount(label, prop.second, 0);
+  FakeDbAccessor dba;
+  auto prop = PROPERTY_PAIR(dba, "prop");
+  auto label = dba.Label("label");
+  dba.SetIndexCount(label, 0);
+  dba.SetIndexCount(label, prop.second, 0);
   auto *regex_match =
-      this->storage.template Create<memgraph::query::RegexMatch>(PROPERTY_LOOKUP("n", prop), LITERAL("regex"));
+      this->storage.template Create<memgraph::query::RegexMatch>(PROPERTY_LOOKUP(dba, "n", prop), LITERAL("regex"));
   auto *lit_42 = LITERAL(42);
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))),
-                                   WHERE(AND(regex_match, EQ(PROPERTY_LOOKUP("n", prop), lit_42))), RETURN("n")));
+                                   WHERE(AND(regex_match, EQ(PROPERTY_LOOKUP(dba, "n", prop), lit_42))), RETURN("n")));
   // We expect that we use index by property value equal to 42, because that's
   // much better than property range for regex matching.
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelPropertyValue(label, prop, lit_42), ExpectFilter(),
             ExpectProduce());
 }
@@ -1303,47 +1362,51 @@ TYPED_TEST(TestPlanner, FilterRegexMatchPreferEqualityIndex) {
 TYPED_TEST(TestPlanner, FilterRegexMatchPreferEqualityIndex2) {
   // Test MATCH (n :label)
   // WHERE n.prop =~ "regex" AND n.prop = 42 AND n.prop > 0 RETURN n
-  auto prop = PROPERTY_PAIR("prop");
-  auto label = this->dba.Label("label");
-  this->dba.SetIndexCount(label, 0);
-  this->dba.SetIndexCount(label, prop.second, 0);
+  FakeDbAccessor dba;
+  auto prop = PROPERTY_PAIR(dba, "prop");
+  auto label = dba.Label("label");
+  dba.SetIndexCount(label, 0);
+  dba.SetIndexCount(label, prop.second, 0);
   auto *regex_match =
-      this->storage.template Create<memgraph::query::RegexMatch>(PROPERTY_LOOKUP("n", prop), LITERAL("regex"));
+      this->storage.template Create<memgraph::query::RegexMatch>(PROPERTY_LOOKUP(dba, "n", prop), LITERAL("regex"));
   auto *lit_42 = LITERAL(42);
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))),
-                                   WHERE(AND(AND(regex_match, EQ(PROPERTY_LOOKUP("n", prop), lit_42)),
-                                             GREATER(PROPERTY_LOOKUP("n", prop), LITERAL(0)))),
+                                   WHERE(AND(AND(regex_match, EQ(PROPERTY_LOOKUP(dba, "n", prop), lit_42)),
+                                             GREATER(PROPERTY_LOOKUP(dba, "n", prop), LITERAL(0)))),
                                    RETURN("n")));
   // We expect that we use index by property value equal to 42, because that's
   // much better than property range.
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelPropertyValue(label, prop, lit_42), ExpectFilter(),
             ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, FilterRegexMatchPreferRangeIndex) {
   // Test MATCH (n :label) WHERE n.prop =~ "regex" AND n.prop > 42 RETURN n
-  auto prop = this->dba.Property("prop");
-  auto label = this->dba.Label("label");
-  this->dba.SetIndexCount(label, 0);
-  this->dba.SetIndexCount(label, prop, 0);
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+  auto label = dba.Label("label");
+  dba.SetIndexCount(label, 0);
+  dba.SetIndexCount(label, prop, 0);
   auto *regex_match =
-      this->storage.template Create<memgraph::query::RegexMatch>(PROPERTY_LOOKUP("n", prop), LITERAL("regex"));
+      this->storage.template Create<memgraph::query::RegexMatch>(PROPERTY_LOOKUP(dba, "n", prop), LITERAL("regex"));
   auto *lit_42 = LITERAL(42);
-  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))),
-                                   WHERE(AND(regex_match, GREATER(PROPERTY_LOOKUP("n", prop), lit_42))), RETURN("n")));
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))),
+                         WHERE(AND(regex_match, GREATER(PROPERTY_LOOKUP(dba, "n", prop), lit_42))), RETURN("n")));
   // We expect that we use index by property range on a concrete value (42), as
   // it is much better than using a range from empty string for regex matching.
   Bound lower_bound(lit_42, Bound::Type::EXCLUSIVE);
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabelPropertyRange(label, prop, lower_bound, std::nullopt),
             ExpectFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, CallProcedureStandalone) {
   // Test CALL proc(1,2,3) YIELD field AS result
+  FakeDbAccessor dba;
   auto *ast_call = this->storage.template Create<memgraph::query::CallProcedure>();
   ast_call->procedure_name_ = "proc";
   ast_call->arguments_ = {LITERAL(1), LITERAL(2), LITERAL(3)};
@@ -1356,7 +1419,7 @@ TYPED_TEST(TestPlanner, CallProcedureStandalone) {
   for (const auto *ident : ast_call->result_identifiers_) {
     result_syms.push_back(symbol_table.at(*ident));
   }
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(
       planner.plan(), symbol_table,
       ExpectCallProcedure(ast_call->procedure_name_, ast_call->arguments_, ast_call->result_fields_, result_syms));
@@ -1364,6 +1427,7 @@ TYPED_TEST(TestPlanner, CallProcedureStandalone) {
 
 TYPED_TEST(TestPlanner, CallProcedureAfterScanAll) {
   // Test MATCH (n) CALL proc(n) YIELD field AS result RETURN result
+  FakeDbAccessor dba;
   auto *ast_call = this->storage.template Create<memgraph::query::CallProcedure>();
   ast_call->procedure_name_ = "proc";
   ast_call->arguments_ = {IDENT("n")};
@@ -1376,7 +1440,7 @@ TYPED_TEST(TestPlanner, CallProcedureAfterScanAll) {
   for (const auto *ident : ast_call->result_identifiers_) {
     result_syms.push_back(symbol_table.at(*ident));
   }
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(),
             ExpectCallProcedure(ast_call->procedure_name_, ast_call->arguments_, ast_call->result_fields_, result_syms),
             ExpectProduce());
@@ -1384,20 +1448,21 @@ TYPED_TEST(TestPlanner, CallProcedureAfterScanAll) {
 
 TYPED_TEST(TestPlanner, CallProcedureBeforeScanAll) {
   // Test CALL proc() YIELD field MATCH (n) WHERE n.prop = field RETURN n
+  FakeDbAccessor dba;
   auto *ast_call = this->storage.template Create<memgraph::query::CallProcedure>();
   ast_call->procedure_name_ = "proc";
   ast_call->result_fields_ = {"field"};
   ast_call->result_identifiers_ = {IDENT("field")};
-  auto property = this->dba.Property("prop");
+  auto property = dba.Property("prop");
   auto *query = QUERY(SINGLE_QUERY(ast_call, MATCH(PATTERN(NODE("n"))),
-                                   WHERE(EQ(PROPERTY_LOOKUP("n", property), IDENT("field"))), RETURN("n")));
+                                   WHERE(EQ(PROPERTY_LOOKUP(dba, "n", property), IDENT("field"))), RETURN("n")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   std::vector<Symbol> result_syms;
   result_syms.reserve(ast_call->result_identifiers_.size());
   for (const auto *ident : ast_call->result_identifiers_) {
     result_syms.push_back(symbol_table.at(*ident));
   }
-  auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table,
             ExpectCallProcedure(ast_call->procedure_name_, ast_call->arguments_, ast_call->result_fields_, result_syms),
             ExpectScanAll(), ExpectFilter(), ExpectProduce());
@@ -1431,26 +1496,27 @@ TYPED_TEST(TestPlanner, BfsToExisting) {
 
 TYPED_TEST(TestPlanner, LabelPropertyInListValidOptimization) {
   // Test MATCH (n:label) WHERE n.property IN ['a'] RETURN n
-  auto label = this->dba.Label("label");
-  auto property = PROPERTY_PAIR("property");
+  FakeDbAccessor dba;
+  auto label = dba.Label("label");
+  auto property = PROPERTY_PAIR(dba, "property");
   auto *lit_list_a = LIST(LITERAL('a'));
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))),
-                                   WHERE(IN_LIST(PROPERTY_LOOKUP("n", property), lit_list_a)), RETURN("n")));
+                                   WHERE(IN_LIST(PROPERTY_LOOKUP(dba, "n", property), lit_list_a)), RETURN("n")));
   {
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
-    auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectProduce());
   }
   {
-    this->dba.SetIndexCount(label, 1);
+    dba.SetIndexCount(label, 1);
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
-    auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(), ExpectFilter(), ExpectProduce());
   }
   {
-    this->dba.SetIndexCount(label, property.second, 1);
+    dba.SetIndexCount(label, property.second, 1);
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
-    auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     CheckPlan(planner.plan(), symbol_table, ExpectUnwind(),
               ExpectScanAllByLabelPropertyValue(label, property, lit_list_a), ExpectProduce());
   }
@@ -1458,46 +1524,49 @@ TYPED_TEST(TestPlanner, LabelPropertyInListValidOptimization) {
 
 TYPED_TEST(TestPlanner, LabelPropertyInListWhereLabelPropertyOnLeftNotListOnRight) {
   // Test MATCH (n:label) WHERE n.property IN 'a' RETURN n
-  auto label = this->dba.Label("label");
-  auto property = PROPERTY_PAIR("property");
+  FakeDbAccessor dba;
+  auto label = dba.Label("label");
+  auto property = PROPERTY_PAIR(dba, "property");
   auto *lit_a = LITERAL('a');
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))),
-                                   WHERE(IN_LIST(PROPERTY_LOOKUP("n", property), lit_a)), RETURN("n")));
+                                   WHERE(IN_LIST(PROPERTY_LOOKUP(dba, "n", property), lit_a)), RETURN("n")));
   {
-    this->dba.SetIndexCount(label, property.second, 1);
+    dba.SetIndexCount(label, property.second, 1);
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
-    auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectProduce());
   }
 }
 
 TYPED_TEST(TestPlanner, LabelPropertyInListWhereLabelPropertyOnRight) {
   // Test MATCH (n:label) WHERE ['a'] IN n.property RETURN n
-  auto label = this->dba.Label("label");
-  auto property = PROPERTY_PAIR("property");
+  FakeDbAccessor dba;
+  auto label = dba.Label("label");
+  auto property = PROPERTY_PAIR(dba, "property");
   auto *lit_list_a = LIST(LITERAL('a'));
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))),
-                                   WHERE(IN_LIST(lit_list_a, PROPERTY_LOOKUP("n", property))), RETURN("n")));
+                                   WHERE(IN_LIST(lit_list_a, PROPERTY_LOOKUP(dba, "n", property))), RETURN("n")));
   {
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
-    auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectProduce());
   }
   {
-    this->dba.SetIndexCount(label, 1);
+    dba.SetIndexCount(label, 1);
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
-    auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(), ExpectFilter(), ExpectProduce());
   }
   {
-    this->dba.SetIndexCount(label, property.second, 1);
+    dba.SetIndexCount(label, property.second, 1);
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
-    auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(), ExpectFilter(), ExpectProduce());
   }
 }
 
 TYPED_TEST(TestPlanner, Foreach) {
+  FakeDbAccessor dba;
   {
     auto *i = NEXPR("i", IDENT("i"));
     auto *query = QUERY(SINGLE_QUERY(FOREACH(i, {CREATE(PATTERN(NODE("n")))})));
@@ -1515,9 +1584,9 @@ TYPED_TEST(TestPlanner, Foreach) {
     CheckPlan<TypeParam>(query, this->storage, ExpectForeach({input}, updates), ExpectEmptyResult());
   }
   {
-    auto prop = this->dba.Property("prop");
+    auto prop = dba.Property("prop");
     auto *i = NEXPR("i", IDENT("i"));
-    auto *query = QUERY(SINGLE_QUERY(FOREACH(i, {SET(PROPERTY_LOOKUP("i", prop), LITERAL(10))})));
+    auto *query = QUERY(SINGLE_QUERY(FOREACH(i, {SET(PROPERTY_LOOKUP(dba, "i", prop), LITERAL(10))})));
     auto set_prop = ExpectSetProperty();
     std::list<BaseOpChecker *> updates{&set_prop};
     std::list<BaseOpChecker *> input;
@@ -1552,14 +1621,14 @@ TYPED_TEST(TestPlanner, Foreach) {
     // FOREACH with index
     // FOREACH (n in [...] | MERGE (v:Label));
     const auto label_name = "label";
-    const auto label = this->dba.Label(label_name);
-    this->dba.SetIndexCount(label, 0);
+    const auto label = dba.Label(label_name);
+    dba.SetIndexCount(label, 0);
 
     auto *n = NEXPR("n", IDENT("n"));
     auto *query = QUERY(SINGLE_QUERY(FOREACH(n, {MERGE(PATTERN(NODE("v", label_name)))})));
 
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
-    auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
     std::list<BaseOpChecker *> on_match{new ExpectScanAllByLabel()};
     std::list<BaseOpChecker *> on_create{new ExpectCreateNode()};
@@ -1576,6 +1645,7 @@ TYPED_TEST(TestPlanner, Foreach) {
 
 TYPED_TEST(TestPlanner, Exists) {
   // MATCH (n) WHERE exists((n)-[]-())
+  FakeDbAccessor dba;
   {
     auto *query = QUERY(SINGLE_QUERY(
         MATCH(PATTERN(NODE("n"))),
@@ -1584,7 +1654,7 @@ TYPED_TEST(TestPlanner, Exists) {
         RETURN("n")));
 
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
-    auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     std::list<BaseOpChecker *> pattern_filter{new ExpectExpand(), new ExpectLimit(), new ExpectEvaluatePatternFilter()};
 
     CheckPlan(planner.plan(), symbol_table, ExpectScanAll(),
@@ -1602,7 +1672,7 @@ TYPED_TEST(TestPlanner, Exists) {
         RETURN("n")));
 
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
-    auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     std::list<BaseOpChecker *> pattern_filter{new ExpectExpand(), new ExpectFilter(), new ExpectLimit(),
                                               new ExpectEvaluatePatternFilter()};
 
@@ -1623,7 +1693,7 @@ TYPED_TEST(TestPlanner, Exists) {
         RETURN("n")));
 
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
-    auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     std::list<BaseOpChecker *> pattern_filter_with_types{new ExpectExpand(), new ExpectFilter(), new ExpectLimit(),
                                                          new ExpectEvaluatePatternFilter()};
     std::list<BaseOpChecker *> pattern_filter_without_types{new ExpectExpand(), new ExpectLimit(),
@@ -1640,16 +1710,16 @@ TYPED_TEST(TestPlanner, Exists) {
 
   // MATCH (n) WHERE n.prop = 1 AND exists((n)-[:TYPE]-(:Two))
   {
-    auto property = this->dba.Property("prop");
+    auto property = dba.Property("prop");
     auto *query = QUERY(SINGLE_QUERY(
         MATCH(PATTERN(NODE("n"))),
         WHERE(AND(EXISTS(PATTERN(NODE("n"), EDGE("edge", memgraph::query::EdgeAtom::Direction::BOTH, {"TYPE"}, false),
                                  NODE("node", "Two", false))),
-                  PROPERTY_LOOKUP("n", property))),
+                  PROPERTY_LOOKUP(dba, "n", property))),
         RETURN("n")));
 
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
-    auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     std::list<BaseOpChecker *> pattern_filter{new ExpectExpand(), new ExpectFilter(), new ExpectLimit(),
                                               new ExpectEvaluatePatternFilter()};
 
@@ -1670,7 +1740,7 @@ TYPED_TEST(TestPlanner, Exists) {
         RETURN("n")));
 
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
-    auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     std::list<BaseOpChecker *> pattern_filter_with_types{new ExpectExpand(), new ExpectFilter(), new ExpectLimit(),
                                                          new ExpectEvaluatePatternFilter()};
     std::list<BaseOpChecker *> pattern_filter_without_types{new ExpectExpand(), new ExpectLimit(),
@@ -1688,12 +1758,13 @@ TYPED_TEST(TestPlanner, Exists) {
 
 TYPED_TEST(TestPlanner, Subqueries) {
   // MATCH (n) CALL { MATCH (m) RETURN (m) } RETURN n, m
+  FakeDbAccessor dba;
   {
     auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n"));
     auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), CALL_SUBQUERY(subquery), RETURN("m", "n")));
 
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
-    auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     std::list<BaseOpChecker *> subquery_plan{new ExpectScanAll(), new ExpectProduce()};
 
     CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectApply(subquery_plan), ExpectProduce());
@@ -1707,7 +1778,7 @@ TYPED_TEST(TestPlanner, Subqueries) {
     auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), CALL_SUBQUERY(subquery), RETURN("m", "n")));
 
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
-    auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     std::list<BaseOpChecker *> subquery_plan{new ExpectScanAll(), new ExpectExpand(), new ExpectProduce()};
 
     CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectApply(subquery_plan), ExpectProduce());
@@ -1717,13 +1788,13 @@ TYPED_TEST(TestPlanner, Subqueries) {
 
   // MATCH (n) CALL { MATCH (p)-[r]->(s) WHERE s.prop = 2 RETURN (p) } RETURN n, p
   {
-    auto property = this->dba.Property("prop");
+    auto property = dba.Property("prop");
     auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("p"), EDGE("r", Direction::OUT), NODE("s"))),
-                                  WHERE(EQ(PROPERTY_LOOKUP("s", property), LITERAL(2))), RETURN("p"));
+                                  WHERE(EQ(PROPERTY_LOOKUP(dba, "s", property), LITERAL(2))), RETURN("p"));
     auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CALL_SUBQUERY(subquery), RETURN("n", "p")));
 
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
-    auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     std::list<BaseOpChecker *> subquery_plan{new ExpectScanAll(), new ExpectExpand(), new ExpectFilter(),
                                              new ExpectProduce()};
 
@@ -1739,7 +1810,7 @@ TYPED_TEST(TestPlanner, Subqueries) {
     auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), CALL_SUBQUERY(subquery), RETURN("m", "n", "o")));
 
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
-    auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     std::list<BaseOpChecker *> subquery_inside_subquery_plan{new ExpectScanAll(), new ExpectProduce()};
     std::list<BaseOpChecker *> subquery_plan{new ExpectScanAll(), new ExpectApply(subquery_inside_subquery_plan),
                                              new ExpectProduce()};
@@ -1757,7 +1828,7 @@ TYPED_TEST(TestPlanner, Subqueries) {
     auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), CALL_SUBQUERY(subquery), RETURN("m", "n")));
 
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
-    auto planner = MakePlanner<TypeParam>(&this->dba, this->storage, symbol_table, query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
     std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAll(), new ExpectProduce()};
     std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAll(), new ExpectProduce()};
