@@ -141,6 +141,7 @@ query : cypherQuery
       | showConfigQuery
       | transactionQueueQuery
       | multiDatabaseQuery
+      | showDatabases
       ;
 
 authQuery : createRole
@@ -452,3 +453,5 @@ createDatabase : CREATE DATABASE databaseName ;
 useDatabase : USE DATABASE databaseName ;
 
 dropDatabase : DROP DATABASE databaseName ;
+
+showDatabases: SHOW DATABASES ;

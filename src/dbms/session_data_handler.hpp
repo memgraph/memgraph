@@ -150,6 +150,21 @@ class SessionDataHandler {
   void SetDefaultConfigs(config_type configs) { default_configs_ = configs; }
   std::optional<config_type> GetDefaultConfigs() { return default_configs_; }
 
+  std::vector<std::string> All() {
+    std::vector<std::string> names;
+    names.reserve(session_data_.size());
+    for (const auto &sd : session_data_) {
+      names.emplace_back(sd.first);
+    }
+    return names;
+  }
+
+  std::string Current(const std::string &uuid) {
+    auto &current = using_[uuid];
+    if (current.empty()) current = kDefaultDB;  // TODO better initialization....
+    return current;
+  }
+
  private:
   // Are storage objects ever deleted?
   // shared_ptr and custom destructor if we are destroying it

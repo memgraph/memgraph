@@ -51,6 +51,7 @@ CSV                     : C S V ;
 DATA                    : D A T A ;
 DELIMITER               : D E L I M I T E R ;
 DATABASE                : D A T A B A S E ;
+DATABASES               : D A T A B A S E S ;
 DENY                    : D E N Y ;
 DIRECTORY               : D I R E C T O R Y ;
 DROP                    : D R O P ;

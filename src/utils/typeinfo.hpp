@@ -185,6 +185,7 @@ enum class TypeId : uint64_t {
   AST_EXISTS,
   AST_CALL_SUBQUERY,
   AST_MULTI_DATABASE_QUERY,
+  AST_SHOW_DATABASES,
   // Symbol
   SYMBOL,
 };

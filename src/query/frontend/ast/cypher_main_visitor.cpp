@@ -2673,4 +2673,9 @@ antlrcpp::Any CypherMainVisitor::visitDropDatabase(MemgraphCypher::DropDatabaseC
   return mdb_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitShowDatabases(MemgraphCypher::ShowDatabasesContext *ctx) {
+  query_ = storage_->Create<ShowDatabasesQuery>();
+  return query_;
+}
+
 }  // namespace memgraph::query::frontend

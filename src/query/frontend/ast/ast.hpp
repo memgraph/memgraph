@@ -3461,5 +3461,18 @@ class MultiDatabaseQuery : public memgraph::query::Query {
   }
 };
 
+class ShowDatabasesQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  ShowDatabasesQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<ShowDatabasesQuery>();
+    return object;
+  }
+};
+
 }  // namespace query
 }  // namespace memgraph

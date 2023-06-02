@@ -89,7 +89,13 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(VersionQuery & /*version_query*/) override { AddPrivilege(AuthQuery::Privilege::STATS); }
 
-  void Visit(MultiDatabaseQuery & /*mdb query*/) override { /*TODO*/
+  void Visit(MultiDatabaseQuery & /*mdb query*/) override {
+    // TODO
+    AddPrivilege(AuthQuery::Privilege::CONFIG);
+  }
+
+  void Visit(ShowDatabasesQuery & /*mdb query*/) override {
+    // TODO
     AddPrivilege(AuthQuery::Privilege::CONFIG);
   }
 

@@ -2837,6 +2837,31 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
                        RWType::NONE};
 }
 
+PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
+                                        const std::string &session_uuid) {
+  return PreparedQuery{{"Name", "Current"},
+                       std::move(parsed_query.required_privileges),
+                       [interpreter_context, session_uuid](AnyStream *stream,
+                                                           std::optional<int> n) -> std::optional<QueryHandlerResult> {
+                         std::vector<std::vector<TypedValue>> status;
+
+                         auto all = interpreter_context->sd_handler_->All();
+                         const auto in_use = interpreter_context->sd_handler_->Current(session_uuid);
+                         std::sort(all.begin(), all.end());
+                         status.reserve(all.size());
+                         for (const auto &name : all) {
+                           status.push_back({TypedValue(name), (name == in_use) ? TypedValue("*") : TypedValue("")});
+                         }
+
+                         auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
+                         if (pull_plan->Pull(stream, n)) {
+                           return QueryHandlerResult::COMMIT;
+                         }
+                         return std::nullopt;
+                       },
+                       RWType::NONE};
+}
+
 std::optional<uint64_t> Interpreter::GetTransactionId() const {
   if (db_accessor_) {
     return db_accessor_->GetTransactionId();
@@ -3047,6 +3072,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<MultiDatabaseQuery>(parsed_query.query)) {
       prepared_query = PrepareMultiDatabaseQuery(std::move(parsed_query), in_explicit_transaction_,
                                                  interpreter_context_, session_uuid);
+    } else if (utils::Downcast<ShowDatabasesQuery>(parsed_query.query)) {
+      prepared_query = PrepareShowDatabasesQuery(std::move(parsed_query), interpreter_context_, session_uuid);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }
