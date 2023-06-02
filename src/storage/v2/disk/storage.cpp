@@ -1033,8 +1033,7 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
         existence_constraint_validation_result.has_value()) {
       return StorageDataManipulationError{existence_constraint_validation_result.value()};
     }
-    if (auto unique_constraint_validation_result =
-            disk_unique_constraints->Validate(vertex, unique_storage, transaction_.start_timestamp);
+    if (auto unique_constraint_validation_result = disk_unique_constraints->Validate(vertex, unique_storage);
         unique_constraint_validation_result.has_value()) {
       return StorageDataManipulationError{unique_constraint_validation_result.value()};
     }
@@ -1597,11 +1596,13 @@ DiskStorage::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &p
     return constraint_check;
   }
 
-  if (auto check = CheckExistingVerticesBeforeCreatingUniqueConstraint(label, properties); check.HasError()) {
-    return StorageExistenceConstraintDefinitionError{check.GetError()};
-  } else {
-    /// TODO: andi remove that
-    disk_unique_constraints->InsertConstraint(label, properties, check.GetValue(), 0);
+  auto check = CheckExistingVerticesBeforeCreatingUniqueConstraint(label, properties);
+  if (check.HasError()) {
+    return StorageUniqueConstraintDefinitionError{check.GetError()};
+  }
+
+  if (!disk_unique_constraints->InsertConstraint(label, properties, check.GetValue())) {
+    return StorageUniqueConstraintDefinitionError{ConstraintDefinitionError{}};
   }
 
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
