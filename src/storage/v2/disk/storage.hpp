@@ -209,7 +209,7 @@ class DiskStorage final : public Storage {
     utils::SkipList<storage::Edge> edges_;
     Config::Items config_;
     std::vector<std::string> edges_to_delete_;
-    std::vector<std::string> vertices_to_delete_;
+    std::vector<std::pair<std::string, std::string>> vertices_to_delete_;
     rocksdb::Transaction *disk_transaction_;
   };
 

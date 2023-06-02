@@ -34,7 +34,10 @@ class DiskUniqueConstraints : public UniqueConstraints {
                                               std::vector<std::vector<PropertyValue>> &unique_storage,
                                               uint64_t transaction_start_timestamp) const;
 
-  void ClearEntriesScheduledForDeletion(uint64_t transaction_start_timestamp, uint64_t transaction_commit_timestamp);
+  bool ClearDeletedVertex(std::string_view gid, uint64_t transaction_commit_timestamp) const;
+
+  void DeleteVerticesWithRemovedConstraintLabel(uint64_t transaction_start_timestamp,
+                                                uint64_t transaction_commit_timestamp);
 
   [[maybe_unused]] bool SyncVertexToUniqueConstraintsStorage(const Vertex &vertex, uint64_t commit_timestamp) const;
 

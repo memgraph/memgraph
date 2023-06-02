@@ -32,6 +32,8 @@ namespace memgraph::utils {
 constexpr const char *outEdgeDirection = "0";
 constexpr const char *inEdgeDirection = "1";
 
+/// TODO: try to move this to hpp files so that we can follow jump on readings
+
 inline std::string PutIndexingLabelFirst(const std::string &indexing_label, const std::vector<std::string> &labels);
 
 inline std::string PutIndexingLabelAndPropertyFirst(const std::string &indexing_label,
@@ -101,6 +103,11 @@ inline std::vector<storage::LabelId> DeserializeLabelsFromUniqueConstraintStorag
   std::vector<std::string> constraint_key = utils::Split(key_vector[0], ",");
   labels.emplace_back(storage::LabelId::FromUint(std::stoull(constraint_key[0])));
   return labels;
+}
+
+inline std::string ExtractGidFromUniqueConstraintStorage(const std::string &key) {
+  std::vector<std::string> key_vector = utils::Split(key, "|");
+  return key_vector[1];
 }
 
 /// TODO: andi Change that all method accept key-value named parameters to indicate that they are called from RocksDB

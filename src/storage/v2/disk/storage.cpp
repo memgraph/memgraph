@@ -552,7 +552,7 @@ Result<std::optional<VertexAccessor>> DiskStorage::DiskAccessor::DeleteVertex(Ve
 
   CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
   vertex_ptr->deleted = true;
-  vertices_to_delete_.emplace_back(utils::SerializeVertex(*vertex_ptr));
+  vertices_to_delete_.emplace_back(utils::SerializeIdType(vertex_ptr->gid), utils::SerializeVertex(*vertex_ptr));
 
   return std::make_optional<VertexAccessor>(vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_,
                                             config_, true);
@@ -622,7 +622,7 @@ DiskStorage::DiskAccessor::DetachDeleteVertex(VertexAccessor *vertex) {
 
   CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
   vertex_ptr->deleted = true;
-  vertices_to_delete_.emplace_back(utils::SerializeVertex(*vertex_ptr));
+  vertices_to_delete_.emplace_back(utils::SerializeIdType(vertex_ptr->gid), utils::SerializeVertex(*vertex_ptr));
 
   return std::make_optional<ReturnType>(
       VertexAccessor{vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_, config_, true},
@@ -1077,8 +1077,9 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
     }
   }
 
-  for (const auto &vertex_to_delete : vertices_to_delete_) {
-    if (!DeleteVertexFromDisk(vertex_to_delete)) {
+  for (const auto &[vertex_gid, serialized_vertex_to_delete] : vertices_to_delete_) {
+    if (!DeleteVertexFromDisk(serialized_vertex_to_delete) ||
+        !disk_unique_constraints->ClearDeletedVertex(vertex_gid, *commit_timestamp_)) {
       return StorageDataManipulationError{SerializationError{}};
     }
   }
@@ -1089,7 +1090,7 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
     }
   }
 
-  disk_unique_constraints->ClearEntriesScheduledForDeletion(transaction_.start_timestamp, *commit_timestamp_);
+  disk_unique_constraints->DeleteVerticesWithRemovedConstraintLabel(transaction_.start_timestamp, *commit_timestamp_);
   spdlog::debug("");
 
   logging::AssertRocksDBStatus(disk_transaction_->SetCommitTimestamp(*commit_timestamp_));

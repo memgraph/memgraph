@@ -82,8 +82,38 @@ std::optional<ConstraintViolation> DiskUniqueConstraints::Validate(
   return std::nullopt;
 }
 
-void DiskUniqueConstraints::ClearEntriesScheduledForDeletion(uint64_t transaction_start_timestamp,
-                                                             uint64_t transaction_commit_timestamp) {
+bool DiskUniqueConstraints::ClearDeletedVertex(const std::string_view gid,
+                                               uint64_t transaction_commit_timestamp) const {
+  /// TODO: andi check whether we need to use transaction here and in CheckDifferentVertex.
+  rocksdb::Transaction *disk_transaction =
+      kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions());
+  disk_transaction->SetReadTimestampForValidation(std::numeric_limits<uint64_t>::max());
+
+  rocksdb::ReadOptions ro;
+  std::string strTs = utils::StringTimestamp(std::numeric_limits<uint64_t>::max());
+  rocksdb::Slice ts(strTs);
+  ro.timestamp = &ts;
+  auto it = std::unique_ptr<rocksdb::Iterator>(disk_transaction->GetIterator(ro));
+  for (it->SeekToFirst(); it->Valid(); it->Next()) {
+    spdlog::debug("Found vertex with key: {} when clearing deleted vertex with gid: {}", it->key().ToString(), gid);
+    if (std::string key = it->key().ToString(); gid == utils::ExtractGidFromUniqueConstraintStorage(key)) {
+      if (!disk_transaction->Delete(key).ok()) {
+        delete disk_transaction;
+        return false;
+      }
+    }
+  }
+  disk_transaction->SetCommitTimestamp(transaction_commit_timestamp);
+  if (!disk_transaction->Commit().ok()) {
+    delete disk_transaction;
+    return false;
+  }
+  delete disk_transaction;
+  return true;
+}
+
+void DiskUniqueConstraints::DeleteVerticesWithRemovedConstraintLabel(uint64_t transaction_start_timestamp,
+                                                                     uint64_t transaction_commit_timestamp) {
   /// TODO: andi Unique_ptr instead of raw
   rocksdb::Transaction *disk_transaction =
       kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions());
