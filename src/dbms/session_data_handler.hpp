@@ -23,6 +23,11 @@
 
 namespace memgraph::dbms {
 
+template <typename T>
+concept get_uuid = requires(T v) {
+  { v.UUID() } -> std::same_as<std::string>;
+};
+
 template <typename TStorage = storage::Storage, typename TStorageConfig = storage::Config,
           typename TInterp = query::InterpreterContext, typename TInterpConfig = query::InterpreterConfig>
 class SessionDataHandler {
@@ -53,7 +58,7 @@ class SessionDataHandler {
     if (new_storage) {
       // storage config can be something else if storage already exists, or return false or reread config
       auto new_interp =
-          interp_handler_.New(name, *new_storage, inter_config, storage_config.durability.storage_directory);
+          interp_handler_.New(name, *new_storage, inter_config, storage_config.durability.storage_directory, *this);
       if (new_interp) {
 #if MG_ENTERPRISE
         SessionData sd{*new_storage, *new_interp, auth_, audit_log_};
@@ -84,6 +89,31 @@ class SessionDataHandler {
   // Can throw
   SessionData *GetPtr(const std::string &name) { return &session_data_.at(name); }
 
+  // Can throw
+  bool SetFor(const std::string &uuid, const std::string &db_name) {
+    // if (const auto found = session_data_.find(uuid); found != session_data_.end()) {
+    const auto *ptr = GetPtr(db_name);
+    auto &current = using_[uuid];
+    if (current.empty()) current = kDefaultDB;  // TODO better initialization....
+    if (ptr && current != db_name) {
+      current = db_name;
+      pending_change_[uuid] = true;
+      return true;
+    }
+    return false;
+  }
+
+  template <get_uuid T>
+  std::optional<std::string> ToUpdate(const T &session) {
+    const auto uuid = session.UUID();
+    auto &change = pending_change_[uuid];
+    if (change) {
+      change = false;
+      return using_[uuid];
+    }
+    return {};
+  }
+
   bool Delete(std::string_view name) {
     // TODO
     return false;
@@ -101,6 +131,9 @@ class SessionDataHandler {
   StorageHandler<TStorage, TStorageConfig> storage_handler_;
   InterpContextHandler<TInterp, TInterpConfig> interp_handler_;
   std::optional<config_type> default_configs_;
+  // TODO: Add a session registration to this (the using_ is kinda bad)
+  std::unordered_map<std::string, std::string> using_;
+  std::unordered_map<std::string, bool> pending_change_;
   const std::string run_id_;
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth_;
 #if MG_ENTERPRISE

@@ -11,13 +11,13 @@
 // TODO: Check if comment above is ok
 #pragma once
 
-#include "storage/v2/storage.hpp"
-
 #include <filesystem>
 #include <memory>
 #include <optional>
 #include <string_view>
 #include <unordered_map>
+
+#include "storage/v2/storage.hpp"
 
 namespace memgraph::dbms {
 

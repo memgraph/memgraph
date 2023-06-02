@@ -515,7 +515,7 @@ class BoltSession final {
 
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(
       const std::string &query, const std::map<std::string, memgraph::communication::bolt::Value> &params,
-      const std::map<std::string, memgraph::communication::bolt::Value> &metadata) {
+      const std::map<std::string, memgraph::communication::bolt::Value> &metadata, const std::string &session_uuid) {
     std::map<std::string, memgraph::storage::PropertyValue> params_pv;
     std::map<std::string, memgraph::storage::PropertyValue> metadata_pv;
     for (const auto &[key, bolt_param] : params) {
@@ -535,7 +535,7 @@ class BoltSession final {
     }
 #endif
     try {
-      auto result = interpreter_.Prepare(query, params_pv, username, metadata_pv);
+      auto result = interpreter_.Prepare(query, params_pv, username, metadata_pv, session_uuid);
       if (user_ && !memgraph::glue::AuthChecker::IsUserAuthorized(*user_, result.privileges)) {
         interpreter_.Abort();
         throw memgraph::communication::bolt::ClientError(

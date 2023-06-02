@@ -264,4 +264,10 @@ class TransactionQueueInMulticommandTxException : public QueryException {
       : QueryException("Transaction queue queries not allowed in multicommand transactions.") {}
 };
 
+class MutilDatabaseQueryInMulticommandTxException : public QueryException {
+ public:
+  MutilDatabaseQueryInMulticommandTxException()
+      : QueryException("Multi-database queries are not allowed in multicommand transactions.") {}
+};
+
 }  // namespace memgraph::query

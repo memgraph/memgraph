@@ -3441,5 +3441,25 @@ class CallSubquery : public memgraph::query::Clause {
   friend class AstStorage;
 };
 
+class MultiDatabaseQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  enum class Action { CREATE, USE };
+
+  memgraph::query::MultiDatabaseQuery::Action action_;
+  std::string db_name_;
+
+  MultiDatabaseQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<MultiDatabaseQuery>();
+    object->action_ = action_;
+    object->db_name_ = db_name_;
+    return object;
+  }
+};
+
 }  // namespace query
 }  // namespace memgraph

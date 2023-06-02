@@ -427,16 +427,14 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
     try {
       session_.Execute();
-      if (session_.state_ == memgraph::communication::bolt::State::Idle && session_.db_name != db_name) {
-        // todo a 1000 checks
-        db_name = session_.db_name;
-        data_->New(db_name, db_name);
-        auto &ptr = sessions_[db_name];
+      if (auto new_db = data_->ToUpdate(session_);
+          session_.state_ == memgraph::communication::bolt::State::Idle && new_db) {
+        // TODO a 1000 checks
+        auto &ptr = sessions_[*new_db];
         if (ptr == nullptr) {
-          ptr = std::make_unique<typename TSession::impl_type>(data_->GetPtr(db_name), endpoint_);
+          ptr = std::make_unique<typename TSession::impl_type>(data_->GetPtr(*new_db), endpoint_);
         }
         session_.SetImpl(ptr.get());
-        session_.db_name = db_name;
       }
       DoRead();
     } catch (const SessionClosedException &e) {
@@ -574,8 +572,5 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   boost::asio::steady_timer timeout_timer_;
   bool execution_active_{false};
   bool has_received_msg_{false};
-
-  // TODO: REMOVE
-  std::string db_name{memgraph::dbms::kDefaultDB};
 };
 }  // namespace memgraph::communication::v2

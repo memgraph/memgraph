@@ -11,15 +11,20 @@
 // TODO: Check if comment above is ok
 #pragma once
 
-#include "query/config.hpp"
-#include "query/interpreter.hpp"
-
 #include <filesystem>
 #include <memory>
 #include <optional>
 #include <string_view>
 #include <unordered_map>
 
+#include "query/config.hpp"
+#include "query/interpreter.hpp"
+#include "storage/v2/storage.hpp"
+
+// TODO: Fix this
+namespace memgraph::query {
+struct InterpreterContext;
+}
 namespace memgraph::dbms {
 
 template <typename TContext = query::InterpreterContext, typename TConfig = query::InterpreterConfig>
@@ -28,26 +33,26 @@ class InterpContextHandler {
   InterpContextHandler() {}
 
   std::optional<TContext *> New(std::string_view name, storage::Storage *db, const TConfig &config,
-                                const std::filesystem::path &data_directory) {
+                                const std::filesystem::path &data_directory, auto &sd_handler) {
     // Control that the new configuration does not conflict with the previous ones
     if (false) {  // TODO: Is there anything that can conflict
       // LOG
       return {};
     }
     // Create storage
-    auto [itr, _] =
-        storage_.emplace(name, std::make_pair(std::make_unique<TContext>(db, config, data_directory), config));
+    auto [itr, _] = storage_.emplace(
+        name, std::make_pair(std::make_unique<TContext>(db, config, data_directory, &sd_handler), config));
     return itr->second.first.get();
     // TODO: Handle errors and return {}?
   }
 
-  std::optional<TContext *> New(std::string_view name, storage::Storage *db,
-                                const std::filesystem::path &data_directory) {
-    if (default_config_) {
-      return New(name, db, *default_config_, data_directory);
-    }
-    return {};
-  }
+  // std::optional<TContext *> New(std::string_view name, storage::Storage *db,
+  //                               const std::filesystem::path &data_directory) {
+  //   if (default_config_) {
+  //     return New(name, db, *default_config_, data_directory);
+  //   }
+  //   return {};
+  // }
 
   std::optional<TContext *> Get(std::string_view name) {
     if (auto search = storage_.find(name); search != storage_.end()) {

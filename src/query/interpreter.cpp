@@ -29,6 +29,7 @@
 #include <variant>
 
 #include "auth/models.hpp"
+#include "dbms/session_data_handler.hpp"
 #include "glue/communication.hpp"
 #include "license/license.hpp"
 #include "memory/memory_control.hpp"
@@ -1186,8 +1187,13 @@ using RWType = plan::ReadWriteTypeChecker::RWType;
 }  // namespace
 
 InterpreterContext::InterpreterContext(storage::Storage *db, const InterpreterConfig config,
-                                       const std::filesystem::path &data_directory)
-    : db(db), trigger_store(data_directory / "triggers"), config(config), streams{this, data_directory / "streams"} {}
+                                       const std::filesystem::path &data_directory,
+                                       dbms::SessionDataHandler<> *sd_handler)
+    : db(db),
+      trigger_store(data_directory / "triggers"),
+      config(config),
+      streams{this, data_directory / "streams"},
+      sd_handler_{sd_handler} {}
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
@@ -2763,6 +2769,55 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                        RWType::NONE};
 }
 
+PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                                        InterpreterContext *interpreter_context, const std::string &session_uuid) {
+  // TODO Pass session instead of just the UUID?
+  if (in_explicit_transaction) {
+    throw MutilDatabaseQueryInMulticommandTxException();
+  }
+
+  auto *query = utils::Downcast<MultiDatabaseQuery>(parsed_query.query);
+
+  return PreparedQuery{{"STATUS"},
+                       std::move(parsed_query.required_privileges),
+                       [interpreter_context, db_name = query->db_name_, action = query->action_, session_uuid](
+                           AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+                         std::vector<std::vector<TypedValue>> status;
+                         std::string res;
+
+                         switch (action) {
+                           case MultiDatabaseQuery::Action::CREATE: {
+                             const auto success = interpreter_context->sd_handler_->New(db_name);
+                             // if (!success) [[unlikely]] {
+                             // throw QueryRuntimeException("Failed to create database " + db_name);
+                             // }
+                             // TODO How to handle errors
+                             res = (success == std::nullopt) ? ("Failed while creating database " + db_name)
+                                                             : ("Successfully created database " + db_name);
+                             break;
+                           }
+                           case MultiDatabaseQuery::Action::USE: {
+                             try {
+                               // const auto db = interpreter_context->sd_handler_->GetPtr(db_name);
+                               const auto success = interpreter_context->sd_handler_->SetFor(session_uuid, db_name);
+                               res = success ? "Successfully using " + db_name : "Failed to use " + db_name;
+                             } catch (...) {
+                               res = db_name + " doesn't exist.";
+                             }
+                             break;
+                           }
+                         }
+
+                         status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
+                         auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
+                         if (pull_plan->Pull(stream, n)) {
+                           return QueryHandlerResult::COMMIT;
+                         }
+                         return std::nullopt;
+                       },
+                       RWType::NONE};
+}
+
 std::optional<uint64_t> Interpreter::GetTransactionId() const {
   if (db_accessor_) {
     return db_accessor_->GetTransactionId();
@@ -2792,7 +2847,8 @@ void Interpreter::RollbackTransaction() {
 Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                                 const std::map<std::string, storage::PropertyValue> &params,
                                                 const std::string *username,
-                                                const std::map<std::string, storage::PropertyValue> &metadata) {
+                                                const std::map<std::string, storage::PropertyValue> &metadata,
+                                                const std::string &session_uuid) {
   if (!in_explicit_transaction_) {
     query_executions_.clear();
     transaction_queries_->clear();
@@ -2969,6 +3025,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<TransactionQueueQuery>(parsed_query.query)) {
       prepared_query = PrepareTransactionQueueQuery(std::move(parsed_query), username_, in_explicit_transaction_,
                                                     interpreter_context_, &*execution_db_accessor_);
+    } else if (utils::Downcast<MultiDatabaseQuery>(parsed_query.query)) {
+      prepared_query = PrepareMultiDatabaseQuery(std::move(parsed_query), in_explicit_transaction_,
+                                                 interpreter_context_, session_uuid);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }

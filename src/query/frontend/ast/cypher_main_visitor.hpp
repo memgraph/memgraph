@@ -935,6 +935,16 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    */
   antlrcpp::Any visitCallSubquery(MemgraphCypher::CallSubqueryContext *ctx) override;
 
+  /**
+   * @return MultiDatabaseQuery*
+   */
+  antlrcpp::Any visitCreateDatabase(MemgraphCypher::CreateDatabaseContext *ctx) override;
+
+  /**
+   * @return MultiDatabaseQuery*
+   */
+  antlrcpp::Any visitUseDatabase(MemgraphCypher::UseDatabaseContext *ctx) override;
+
  public:
   Query *query() { return query_; }
   const static std::string kAnonPrefix;

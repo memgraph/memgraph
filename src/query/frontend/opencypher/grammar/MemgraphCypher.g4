@@ -106,6 +106,7 @@ memgraphCypherKeyword : cypherKeyword
                       | UNCOMMITTED
                       | UNLOCK
                       | UPDATE
+                      | USE
                       | USER
                       | USERS
                       | VERSION
@@ -139,6 +140,7 @@ query : cypherQuery
       | versionQuery
       | showConfigQuery
       | transactionQueueQuery
+      | multiDatabaseQuery
       ;
 
 authQuery : createRole
@@ -437,3 +439,13 @@ versionQuery : SHOW VERSION ;
 transactionIdList : transactionId ( ',' transactionId )* ;
 
 transactionId : literal ;
+
+multiDatabaseQuery : createDatabase
+                   | useDatabase
+                   ;
+
+databaseName : symbolicName ;
+
+createDatabase : CREATE DATABASE databaseName ;
+
+useDatabase : USE DATABASE databaseName ;

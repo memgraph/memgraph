@@ -184,6 +184,7 @@ enum class TypeId : uint64_t {
   AST_TRANSACTION_QUEUE_QUERY,
   AST_EXISTS,
   AST_CALL_SUBQUERY,
+  AST_MULTI_DATABASE_QUERY,
   // Symbol
   SYMBOL,
 };

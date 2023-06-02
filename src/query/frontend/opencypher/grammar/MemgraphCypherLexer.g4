@@ -127,6 +127,7 @@ TRIGGERS                : T R I G G E R S ;
 UNCOMMITTED             : U N C O M M I T T E D ;
 UNLOCK                  : U N L O C K ;
 UPDATE                  : U P D A T E ;
+USE                     : U S E ;
 USER                    : U S E R ;
 USERS                   : U S E R S ;
 VERSION                 : V E R S I O N ;

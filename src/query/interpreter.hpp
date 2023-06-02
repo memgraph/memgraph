@@ -15,6 +15,7 @@
 
 #include <gflags/gflags.h>
 
+#include "dbms/session_data_handler.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/context.hpp"
@@ -210,7 +211,8 @@ class Interpreter;
  */
 struct InterpreterContext {
   explicit InterpreterContext(storage::Storage *db, InterpreterConfig config,
-                              const std::filesystem::path &data_directory);
+                              const std::filesystem::path &data_directory,
+                              dbms::SessionDataHandler<> *sd_handler = nullptr);
 
   storage::Storage *db;
 
@@ -237,6 +239,8 @@ struct InterpreterContext {
 
   query::stream::Streams streams;
   utils::Synchronized<std::unordered_set<Interpreter *>, utils::SpinLock> interpreters;
+
+  dbms::SessionDataHandler<> *sd_handler_;
 };
 
 /// Function that is used to tell all active interpreters that they should stop
@@ -272,8 +276,8 @@ class Interpreter final {
    * @throw query::QueryException
    */
   PrepareResult Prepare(const std::string &query, const std::map<std::string, storage::PropertyValue> &params,
-                        const std::string *username,
-                        const std::map<std::string, storage::PropertyValue> &metadata = {});
+                        const std::string *username, const std::map<std::string, storage::PropertyValue> &metadata = {},
+                        const std::string &sd_handler = {});
 
   /**
    * Execute the last prepared query and stream *all* of the results into the

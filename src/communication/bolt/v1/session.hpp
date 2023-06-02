@@ -28,12 +28,13 @@
 #include "dbms/constants.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
+#include "utils/uuid.hpp"
 
 namespace memgraph::communication::bolt {
 
 template <typename T, typename TEncoder>
 concept hl_impl = requires(T v) {
-  { v.Interpret({}, {}, {}) } -> std::same_as<std::pair<std::vector<std::string>, std::optional<int>>>;
+  { v.Interpret({}, {}, {}, {}) } -> std::same_as<std::pair<std::vector<std::string>, std::optional<int>>>;
   { v.Pull({}, {}, {}) } -> std::same_as<std::map<std::string, Value>>;
   { v.Discard({}, {}) } -> std::same_as<std::map<std::string, Value>>;
   { v.BeginTransaction({}) } -> std::same_as<void>;
@@ -69,7 +70,10 @@ class Session {
   using impl_type = TSession;
 
   Session(TInputStream *input_stream, TOutputStream *output_stream, TSession *impl)
-      : input_stream_(*input_stream), output_stream_(*output_stream), pimpl_(impl) {}
+      : input_stream_(*input_stream),
+        output_stream_(*output_stream),
+        pimpl_(impl),
+        session_uuid_(utils::GenerateUUID()) {}
 
   /**
    * Sets the underlying implementation used. Allows us to switch hl objects while remaining on the same comm
@@ -85,7 +89,7 @@ class Session {
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(
       const std::string &query, const std::map<std::string, Value> &params,
       const std::map<std::string, memgraph::communication::bolt::Value> &metadata) {
-    return pimpl_->Interpret(query, params, metadata);
+    return pimpl_->Interpret(query, params, metadata, session_uuid_);
   }
 
   /**
@@ -186,6 +190,8 @@ class Session {
     }
   }
 
+  std::string UUID() const { return session_uuid_; }
+
   // TODO: Rethink if there is a way to hide some members. At the momement all
   // of them are public.
   TInputStream &input_stream_;
@@ -227,6 +233,7 @@ class Session {
   }
 
   TSession *pimpl_;
+  const std::string session_uuid_;
 };
 
 }  // namespace memgraph::communication::bolt
