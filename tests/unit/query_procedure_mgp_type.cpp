@@ -17,11 +17,21 @@
 
 #include "query/procedure/cypher_types.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
+#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
 #include "test_utils.hpp"
 
-TEST(CypherType, PresentableNameSimpleTypes) {
+template <typename StorageType>
+class CypherType : public testing::Test {
+ public:
+  std::unique_ptr<memgraph::storage::Storage> db{new StorageType()};
+};
+
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+TYPED_TEST_CASE(CypherType, StorageTypes);
+
+TYPED_TEST(CypherType, PresentableNameSimpleTypes) {
   EXPECT_EQ(EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any)->impl->GetPresentableName(), "ANY");
   EXPECT_EQ(EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_bool)->impl->GetPresentableName(), "BOOLEAN");
   EXPECT_EQ(EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_string)->impl->GetPresentableName(), "STRING");
@@ -34,7 +44,7 @@ TEST(CypherType, PresentableNameSimpleTypes) {
   EXPECT_EQ(EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_path)->impl->GetPresentableName(), "PATH");
 }
 
-TEST(CypherType, PresentableNameCompositeTypes) {
+TYPED_TEST(CypherType, PresentableNameCompositeTypes) {
   mgp_type *any_type = EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any);
   {
     auto *nullable_any = EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_nullable, any_type);
@@ -83,7 +93,7 @@ TEST(CypherType, PresentableNameCompositeTypes) {
   }
 }
 
-TEST(CypherType, NullSatisfiesType) {
+TYPED_TEST(CypherType, NullSatisfiesType) {
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
   {
     auto *mgp_null = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_null, &memory);
@@ -135,7 +145,7 @@ static void CheckNotSatisfiesTypesAndListAndNullable(const mgp_value *mgp_val, c
   }
 }
 
-TEST(CypherType, BoolSatisfiesType) {
+TYPED_TEST(CypherType, BoolSatisfiesType) {
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
   auto *mgp_bool = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_bool, 1, &memory);
   const memgraph::query::TypedValue tv_bool(true);
@@ -151,7 +161,7 @@ TEST(CypherType, BoolSatisfiesType) {
   mgp_value_destroy(mgp_bool);
 }
 
-TEST(CypherType, IntSatisfiesType) {
+TYPED_TEST(CypherType, IntSatisfiesType) {
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
   auto *mgp_int = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_int, 42, &memory);
   const memgraph::query::TypedValue tv_int(42);
@@ -168,7 +178,7 @@ TEST(CypherType, IntSatisfiesType) {
   mgp_value_destroy(mgp_int);
 }
 
-TEST(CypherType, DoubleSatisfiesType) {
+TYPED_TEST(CypherType, DoubleSatisfiesType) {
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
   auto *mgp_double = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_double, 42, &memory);
   const memgraph::query::TypedValue tv_double(42.0);
@@ -185,7 +195,7 @@ TEST(CypherType, DoubleSatisfiesType) {
   mgp_value_destroy(mgp_double);
 }
 
-TEST(CypherType, StringSatisfiesType) {
+TYPED_TEST(CypherType, StringSatisfiesType) {
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
   auto *mgp_string = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_string, "text", &memory);
   const memgraph::query::TypedValue tv_string("text");
@@ -201,7 +211,7 @@ TEST(CypherType, StringSatisfiesType) {
   mgp_value_destroy(mgp_string);
 }
 
-TEST(CypherType, MapSatisfiesType) {
+TYPED_TEST(CypherType, MapSatisfiesType) {
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
   auto *map = EXPECT_MGP_NO_ERROR(mgp_map *, mgp_map_make_empty, &memory);
   EXPECT_EQ(
@@ -224,9 +234,8 @@ TEST(CypherType, MapSatisfiesType) {
   mgp_value_destroy(mgp_map_v);
 }
 
-TEST(CypherType, VertexSatisfiesType) {
-  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
-  auto storage_dba = db->Access();
+TYPED_TEST(CypherType, VertexSatisfiesType) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto vertex = dba.InsertVertex();
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
@@ -248,9 +257,8 @@ TEST(CypherType, VertexSatisfiesType) {
   mgp_value_destroy(mgp_vertex_v);
 }
 
-TEST(CypherType, EdgeSatisfiesType) {
-  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
-  auto storage_dba = db->Access();
+TYPED_TEST(CypherType, EdgeSatisfiesType) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
@@ -273,9 +281,8 @@ TEST(CypherType, EdgeSatisfiesType) {
   mgp_value_destroy(mgp_edge_v);
 }
 
-TEST(CypherType, PathSatisfiesType) {
-  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
-  auto storage_dba = db->Access();
+TYPED_TEST(CypherType, PathSatisfiesType) {
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
@@ -315,7 +322,7 @@ static std::vector<mgp_type *> MakeListTypes(const std::vector<mgp_type *> &elem
   return list_types;
 }
 
-TEST(CypherType, EmptyListSatisfiesType) {
+TYPED_TEST(CypherType, EmptyListSatisfiesType) {
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
   auto *list = EXPECT_MGP_NO_ERROR(mgp_list *, mgp_list_make_empty, 0, &memory);
   auto *mgp_list_v = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_list, list);
@@ -333,7 +340,7 @@ TEST(CypherType, EmptyListSatisfiesType) {
   mgp_value_destroy(mgp_list_v);
 }
 
-TEST(CypherType, ListOfIntSatisfiesType) {
+TYPED_TEST(CypherType, ListOfIntSatisfiesType) {
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
   static constexpr int64_t elem_count = 3;
   auto *list = EXPECT_MGP_NO_ERROR(mgp_list *, mgp_list_make_empty, elem_count, &memory);
@@ -361,7 +368,7 @@ TEST(CypherType, ListOfIntSatisfiesType) {
   mgp_value_destroy(mgp_list_v);
 }
 
-TEST(CypherType, ListOfIntAndBoolSatisfiesType) {
+TYPED_TEST(CypherType, ListOfIntAndBoolSatisfiesType) {
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
   static constexpr int64_t elem_count = 2;
   auto *list = EXPECT_MGP_NO_ERROR(mgp_list *, mgp_list_make_empty, elem_count, &memory);
@@ -395,7 +402,7 @@ TEST(CypherType, ListOfIntAndBoolSatisfiesType) {
   mgp_value_destroy(mgp_list_v);
 }
 
-TEST(CypherType, ListOfNullSatisfiesType) {
+TYPED_TEST(CypherType, ListOfNullSatisfiesType) {
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
   auto *list = EXPECT_MGP_NO_ERROR(mgp_list *, mgp_list_make_empty, 1, &memory);
   auto *mgp_list_v = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_list, list);
