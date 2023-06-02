@@ -27,14 +27,16 @@ class DiskUniqueConstraints : public UniqueConstraints {
   CreationStatus CheckIfConstraintCanBeCreated(LabelId label, const std::set<PropertyId> &properties) const;
 
   void InsertConstraint(LabelId label, const std::set<PropertyId> &properties,
-                        const std::vector<std::pair<std::string, std::string>> &vertices_under_constraint);
+                        const std::vector<std::pair<std::string, std::string>> &vertices_under_constraint,
+                        uint64_t transaction_start_timestamp);
 
   std::optional<ConstraintViolation> Validate(const Vertex &vertex,
-                                              std::vector<std::vector<PropertyValue>> &unique_storage) const;
+                                              std::vector<std::vector<PropertyValue>> &unique_storage,
+                                              uint64_t transaction_start_timestamp) const;
 
   void ClearEntriesScheduledForDeletion(uint64_t transaction_id);
 
-  [[maybe_unused]] bool SyncVertexToUniqueConstraintsStorage(const Vertex &vertex) const;
+  [[maybe_unused]] bool SyncVertexToUniqueConstraintsStorage(const Vertex &vertex, uint64_t commit_timestamp) const;
 
   DeletionStatus DropConstraint(LabelId label, const std::set<PropertyId> &properties) override;
 
@@ -54,7 +56,7 @@ class DiskUniqueConstraints : public UniqueConstraints {
 
   bool DifferentVertexExistsWithSameLabelAndPropertyValues(
       std::vector<PropertyValue> property_values, const std::vector<std::vector<PropertyValue>> &unique_storage,
-      const LabelId &constraint_label, const Gid &gid) const;
+      const LabelId &constraint_label, const Gid &gid, uint64_t transaction_start_timestamp) const;
 };
 
 }  // namespace memgraph::storage

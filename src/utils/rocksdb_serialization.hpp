@@ -111,6 +111,12 @@ inline storage::LabelId DeserializeConstraintLabelFromUniqueConstraintStorage(co
   return storage::LabelId::FromUint(std::stoull(constraint_key[0]));
 }
 
+inline storage::PropertyStore DeserializePropertiesFromUniqueConstraintStorage(const std::string &value) {
+  std::vector<std::string> value_vector = utils::Split(value, "|");
+  std::string properties_str = value_vector[1];
+  return storage::PropertyStore::CreateFromBuffer(properties_str);
+}
+
 inline std::string SerializeProperties(const storage::PropertyStore &properties) { return properties.StringBuffer(); }
 
 /// Serialize vertex to string as a key in KV store

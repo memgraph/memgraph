@@ -10,8 +10,14 @@
 // licenses/APL.txt.
 
 #include "storage/v2/disk/unique_constraints.hpp"
+#include <rocksdb/options.h>
+#include <rocksdb/utilities/transaction_db.h>
+#include <cstdint>
+#include <limits>
 #include <sstream>
+#include "spdlog/spdlog.h"
 #include "storage/v2/constraints/unique_constraints.hpp"
+#include "storage/v2/delta.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/algorithm.hpp"
@@ -29,28 +35,40 @@ DiskUniqueConstraints::DiskUniqueConstraints(const Config &config) {
                                                             config.disk.unique_constraints_directory, &kvstore_->db_));
 }
 
-/// TODO: andi Timestamp yes/no? and transaction support
+/// TODO: andi Timestamp yes/no?
+/// TODO: unit test for this method: it must perform check before constraint is created
 void DiskUniqueConstraints::InsertConstraint(
     LabelId label, const std::set<PropertyId> &properties,
-    const std::vector<std::pair<std::string, std::string>> &vertices_under_constraint) {
+    const std::vector<std::pair<std::string, std::string>> &vertices_under_constraint,
+    uint64_t transaction_start_timestamp) {
   constraints_.insert(std::make_pair(label, properties));
-  rocksdb::WriteOptions wo;
+  /// TODO: andi Unique_ptr instead of raw
+  rocksdb::Transaction *disk_transaction_ =
+      kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions());
   /// TODO: foreach
   for (const auto &[key, value] : vertices_under_constraint) {
-    kvstore_->db_->Put(wo, key, value);
+    spdlog::debug("Written vertex to unique constraints storage with key: {} in insert constraint method", key);
+    disk_transaction_->Put(key, value);
   }
+  /// TODO: how to better handle this?
+  if (!disk_transaction_->Commit().ok()) {
+    spdlog::debug("Commit failed in insert constraint...");
+  }
+  delete disk_transaction_;
 }
 
 std::optional<ConstraintViolation> DiskUniqueConstraints::Validate(
-    const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage) const {
+    const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage,
+    uint64_t transaction_start_timestamp) const {
   for (const auto &[constraint_label, constraint_property_ids] : constraints_) {
     /// TODO: andi Make use of prefix search to speed up the process.
     /// TODO: ugly check ,refactor this to make it more readable
     if (utils::Contains(vertex.labels, constraint_label) &&
         vertex.properties.HasAllProperties(constraint_property_ids)) {
       if (auto property_values = vertex.properties.ExtractPropertyValues(constraint_property_ids);
-          property_values.has_value() && DifferentVertexExistsWithSameLabelAndPropertyValues(
-                                             *property_values, unique_storage, constraint_label, vertex.gid)) {
+          property_values.has_value() &&
+          DifferentVertexExistsWithSameLabelAndPropertyValues(*property_values, unique_storage, constraint_label,
+                                                              vertex.gid, transaction_start_timestamp)) {
         return ConstraintViolation{ConstraintViolation::Type::UNIQUE, constraint_label, constraint_property_ids};
       } else {
         unique_storage.emplace_back(std::move(*property_values));
@@ -61,19 +79,35 @@ std::optional<ConstraintViolation> DiskUniqueConstraints::Validate(
 }
 
 void DiskUniqueConstraints::ClearEntriesScheduledForDeletion(uint64_t transaction_id) {
-  entries_for_deletion.WithLock([transaction_id, this](auto &tx_to_entries_for_deletion) {
+  /// TODO: andi Unique_ptr instead of raw
+  rocksdb::Transaction *disk_transaction =
+      kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions());
+  disk_transaction->SetReadTimestampForValidation(std::numeric_limits<uint64_t>::max());
+
+  rocksdb::ReadOptions ro;
+  std::string strTs = utils::StringTimestamp(std::numeric_limits<uint64_t>::max());
+  rocksdb::Slice ts(strTs);
+  ro.timestamp = &ts;
+  entries_for_deletion.WithLock([transaction_id, disk_transaction](auto &tx_to_entries_for_deletion) {
     if (auto it = tx_to_entries_for_deletion.find(transaction_id); it != tx_to_entries_for_deletion.end()) {
       for (const auto &key : it->second) {
-        /// TODO: andi change this to transaction db usage
-        kvstore_->db_->Delete(rocksdb::WriteOptions(), key);
+        spdlog::debug("Deleted vertex from unique constraints storage with key: {} and properties", key);
+        disk_transaction->Delete(key);
       }
       tx_to_entries_for_deletion.erase(it);
     }
   });
+  /// TODO: how to handle this failure
+  if (!disk_transaction->Commit().ok()) {
+    spdlog::debug("Commit failed in clear entries method...");
+  }
+  delete disk_transaction;
 }
 
-[[maybe_unused]] bool DiskUniqueConstraints::SyncVertexToUniqueConstraintsStorage(const Vertex &vertex) const {
-  /// TODO: replace by using for each construct
+[[maybe_unused]] bool DiskUniqueConstraints::SyncVertexToUniqueConstraintsStorage(const Vertex &vertex,
+                                                                                  uint64_t commit_timestamp) const {
+  rocksdb::Transaction *disk_transaction =
+      kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions());
   for (const auto &[constraint_label, constraint_properties] : constraints_) {
     /// TODO: do this check in a private method, it is to detailed here
     if (utils::Contains(vertex.labels, constraint_label) && vertex.properties.HasAllProperties(constraint_properties)) {
@@ -82,7 +116,7 @@ void DiskUniqueConstraints::ClearEntriesScheduledForDeletion(uint64_t transactio
       auto key = utils::SerializeVertexAsKeyForUniqueConstraint(constraint_label, constraint_properties,
                                                                 utils::SerializeIdType(vertex.gid));
       auto value = utils::SerializeVertexAsValueForUniqueConstraint(constraint_label, vertex.labels, vertex.properties);
-      auto status = kvstore_->db_->Put(rocksdb::WriteOptions(), key, value);
+      auto status = disk_transaction->Put(key, value);
 
       std::stringstream ss;
       ss << "{";
@@ -90,13 +124,21 @@ void DiskUniqueConstraints::ClearEntriesScheduledForDeletion(uint64_t transactio
         ss << property_id.AsUint() << ": " << property_value;
       }
       ss << "}";
-      spdlog::debug("Written vertex to unique constraints storage with key: {} and properties: {}", key, ss.str());
 
       if (!status.ok()) {
+        delete disk_transaction;
         return false;
       }
+      spdlog::debug("Written vertex to unique constraints storage with key: {} and properties: {} in sync method", key,
+                    ss.str());
     }
   }
+  disk_transaction->SetCommitTimestamp(commit_timestamp);
+  /// TODO: andi Handle this failure
+  if (auto s = disk_transaction->Commit(); !s.ok()) {
+    spdlog::debug("Commit failed in sync method... {}", s.getState());
+  }
+  delete disk_transaction;
   return true;
 }
 
@@ -162,18 +204,24 @@ void DiskUniqueConstraints::Clear() { constraints_.clear(); }
 /// TODO: andi finish the implementation. FOur parameters sent which is not great, refactor
 bool DiskUniqueConstraints::DifferentVertexExistsWithSameLabelAndPropertyValues(
     const std::vector<PropertyValue> property_values, const std::vector<std::vector<PropertyValue>> &unique_storage,
-    const LabelId &constraint_label, const Gid &gid) const {
+    const LabelId &constraint_label, const Gid &gid, uint64_t transaction_start_timestamp) const {
   /// TODO: function does too many things, refactor
   if (std::find(unique_storage.begin(), unique_storage.end(), property_values) != unique_storage.end()) {
     return true;
   }
+  /// make_unique
+  rocksdb::Transaction *disk_transaction =
+      kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions());
+  disk_transaction->SetReadTimestampForValidation(std::numeric_limits<uint64_t>::max());
+
   rocksdb::ReadOptions ro;
   std::string strTs = utils::StringTimestamp(std::numeric_limits<uint64_t>::max());
   rocksdb::Slice ts(strTs);
   ro.timestamp = &ts;
-  auto it = std::unique_ptr<rocksdb::Iterator>(kvstore_->db_->NewIterator(ro));
+  auto it = std::unique_ptr<rocksdb::Iterator>(disk_transaction->GetIterator(ro));
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     const std::string key = it->key().ToString();
+    spdlog::debug("Found vertex with key: {} in unique constraints storage", key);
     const std::vector<std::string> vertex_parts = utils::Split(key, "|");
     if (std::string local_gid = vertex_parts[1]; local_gid == utils::SerializeIdType(gid)) {
       continue;
@@ -183,12 +231,13 @@ bool DiskUniqueConstraints::DifferentVertexExistsWithSameLabelAndPropertyValues(
       continue;
     }
 
-    PropertyStore property_store;
-    property_store.SetBuffer(it->value().ToStringView());
+    PropertyStore property_store = utils::DeserializePropertiesFromUniqueConstraintStorage(it->value().ToString());
     if (property_store.HasAllPropertyValues(property_values)) {
+      delete disk_transaction;
       return true;
     }
   }
+  delete disk_transaction;
   return false;
 }
 

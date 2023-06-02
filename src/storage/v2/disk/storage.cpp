@@ -53,10 +53,10 @@ constexpr const char *defaultHandle = "default";
 bool VertexExistsInCache(const utils::SkipList<Vertex>::Accessor &accessor, Gid gid) {
   OOMExceptionEnabler oom_exception;
   if (accessor.find(gid) != accessor.end()) {
-    spdlog::debug("Vertex with gid {} already exists in the cache!", gid.AsUint());
+    // spdlog::debug("Vertex with gid {} already exists in the cache!", gid.AsUint());
     return true;
   }
-  spdlog::debug("Vertex with gid {} doesn't exist in the cache!", gid.AsUint());
+  // spdlog::debug("Vertex with gid {} doesn't exist in the cache!", gid.AsUint());
   return false;
 }
 
@@ -305,10 +305,10 @@ std::optional<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const roc
   auto edge_acc = edges_.access();
   auto res = edge_acc.find(edge_gid);
   if (res != edge_acc.end()) {
-    spdlog::debug("Edge with gid {} already exists in the cache!", edge_parts[4]);
+    // spdlog::debug("Edge with gid {} already exists in the cache!", edge_parts[4]);
     return std::nullopt;
   }
-  spdlog::debug("Edge with gid {} doesn't exist in the cache!", edge_parts[4]);
+  // spdlog::debug("Edge with gid {} doesn't exist in the cache!", edge_parts[4]);
 
   auto [from_gid, to_gid] = std::invoke(
       [&](const auto &edge_parts) {
@@ -459,7 +459,7 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex(storage::Gid gid) {
   // that runs single-threadedly and while this instance is set-up to apply
   // threads (it is the replica), it is guaranteed that no other writes are
   // possible.
-  spdlog::debug("Vertex with gid {} doesn't exist in the cache, creating it!", gid.AsUint());
+  // spdlog::debug("Vertex with gid {} doesn't exist in the cache, creating it!", gid.AsUint());
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   auto acc = vertices_.access();
   disk_storage->vertex_id_.store(std::max(disk_storage->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
@@ -511,11 +511,11 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid
   auto acc = vertices_.access();
   auto vertex_it = acc.find(gid);
   if (vertex_it != acc.end()) {
-    spdlog::debug("Vertex with gid {} found in the cache!", gid.AsUint());
+    // spdlog::debug("Vertex with gid {} found in the cache!", gid.AsUint());
     return VertexAccessor::Create(&*vertex_it, &transaction_, &storage_->indices_, &storage_->constraints_, config_,
                                   view);
   }
-  spdlog::debug("Vertex with gid {} not found in the cache!", gid.AsUint());
+  // spdlog::debug("Vertex with gid {} not found in the cache!", gid.AsUint());
   /// If not in the memory, check whether it exists in RocksDB.
   rocksdb::ReadOptions read_opts;
   auto strTs = utils::StringTimestamp(transaction_.start_timestamp);
@@ -1033,7 +1033,8 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
         existence_constraint_validation_result.has_value()) {
       return StorageDataManipulationError{existence_constraint_validation_result.value()};
     }
-    if (auto unique_constraint_validation_result = disk_unique_constraints->Validate(vertex, unique_storage);
+    if (auto unique_constraint_validation_result =
+            disk_unique_constraints->Validate(vertex, unique_storage, transaction_.start_timestamp);
         unique_constraint_validation_result.has_value()) {
       return StorageDataManipulationError{unique_constraint_validation_result.value()};
     }
@@ -1046,11 +1047,19 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
       return StorageDataManipulationError{SerializationError{}};
     }
 
-    disk_unique_constraints->SyncVertexToUniqueConstraintsStorage(vertex);
+    std::stringstream ss;
+    ss << "{";
+    for (const auto &[property_id, property_value] : vertex.properties.Properties()) {
+      ss << property_id.AsUint() << ": " << property_value;
+    }
+    ss << "}";
+    spdlog::debug("Written vertex to main storage with key: {} and properties: {} in transaction: {}",
+                  utils::SerializeVertex(vertex), ss.str(), transaction_.start_timestamp);
+
+    disk_unique_constraints->SyncVertexToUniqueConstraintsStorage(vertex, *commit_timestamp_);
 
     spdlog::debug("rocksdb: Saved vertex with key {} and ts {}", utils::SerializeVertex(vertex), *commit_timestamp_);
 
-    spdlog::debug("Vertex {} has {} out edges", vertex.gid.AsUint(), vertex.out_edges.size());
     for (auto &edge_entry : vertex.out_edges) {
       Edge *edge_ptr = std::get<2>(edge_entry).ptr;
       auto [src_dest_key, dest_src_key] =
@@ -1438,7 +1447,6 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
     if (const std::vector<std::string> labels = utils::Split(vertex_parts[0], ",");
         std::find(labels.begin(), labels.end(), utils::SerializeIdType(label)) != labels.end()) {
       std::string gid = vertex_parts[1];
-      spdlog::debug("Found vertex with gid {} for index creation", gid);
       vertices_to_be_indexed.emplace_back(
           utils::SerializeVertexForLabelIndex(utils::SerializeIdType(label), labels, gid), it->value().ToString());
     }
@@ -1483,7 +1491,6 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
         std::find(labels.begin(), labels.end(), utils::SerializeIdType(label)) != labels.end() &&
         properties.HasProperty(property)) {
       std::string gid = vertex_parts[1];
-      spdlog::debug("Found vertex with gid {} for index creation", gid);
       vertices_to_be_indexed.emplace_back(
           utils::SerializeVertexForLabelPropertyIndex(utils::SerializeIdType(label), utils::SerializeIdType(property),
                                                       labels, gid),
@@ -1591,7 +1598,8 @@ DiskStorage::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &p
   if (auto check = CheckExistingVerticesBeforeCreatingUniqueConstraint(label, properties); check.HasError()) {
     return StorageExistenceConstraintDefinitionError{check.GetError()};
   } else {
-    disk_unique_constraints->InsertConstraint(label, properties, check.GetValue());
+    /// TODO: andi remove that
+    disk_unique_constraints->InsertConstraint(label, properties, check.GetValue(), 0);
   }
 
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
