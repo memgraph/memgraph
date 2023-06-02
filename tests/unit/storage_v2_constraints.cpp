@@ -61,9 +61,9 @@ class ConstraintsTest : public testing::Test {
   LabelId label2;
 };
 
-// using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
 // using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
-using StorageTypes = ::testing::Types<memgraph::storage::DiskStorage>;
+// using StorageTypes = ::testing::Types<memgraph::storage::DiskStorage>;
 TYPED_TEST_CASE(ConstraintsTest, StorageTypes);
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)

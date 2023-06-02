@@ -64,16 +64,15 @@ void DiskUniqueConstraints::InsertConstraint(
 std::optional<ConstraintViolation> DiskUniqueConstraints::Validate(
     const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage,
     uint64_t transaction_start_timestamp) const {
-  for (const auto &[constraint_label, constraint_property_ids] : constraints_) {
+  for (const auto &[constraint_label, constraint_properties] : constraints_) {
     /// TODO: andi Make use of prefix search to speed up the process.
     /// TODO: ugly check ,refactor this to make it more readable
-    if (utils::Contains(vertex.labels, constraint_label) &&
-        vertex.properties.HasAllProperties(constraint_property_ids)) {
-      if (auto property_values = vertex.properties.ExtractPropertyValues(constraint_property_ids);
-          property_values.has_value() &&
-          DifferentVertexExistsWithSameLabelAndPropertyValues(*property_values, unique_storage, constraint_label,
-                                                              vertex.gid, transaction_start_timestamp)) {
-        return ConstraintViolation{ConstraintViolation::Type::UNIQUE, constraint_label, constraint_property_ids};
+    if (utils::Contains(vertex.labels, constraint_label) && vertex.properties.HasAllProperties(constraint_properties)) {
+      if (auto property_values = vertex.properties.ExtractPropertyValues(constraint_properties);
+          property_values.has_value() && DifferentVertexExistsWithSameLabelAndPropertyValues(
+                                             *property_values, unique_storage, constraint_label, constraint_properties,
+                                             vertex.gid, transaction_start_timestamp)) {
+        return ConstraintViolation{ConstraintViolation::Type::UNIQUE, constraint_label, constraint_properties};
       } else {
         unique_storage.emplace_back(std::move(*property_values));
       }
@@ -259,7 +258,8 @@ void DiskUniqueConstraints::Clear() { constraints_.clear(); }
 /// TODO: andi finish the implementation. FOur parameters sent which is not great, refactor
 bool DiskUniqueConstraints::DifferentVertexExistsWithSameLabelAndPropertyValues(
     const std::vector<PropertyValue> property_values, const std::vector<std::vector<PropertyValue>> &unique_storage,
-    const LabelId &constraint_label, const Gid &gid, uint64_t transaction_start_timestamp) const {
+    const LabelId &constraint_label, const std::set<PropertyId> &constraint_properties, const Gid &gid,
+    uint64_t transaction_start_timestamp) const {
   /// TODO: function does too many things, refactor
   if (std::find(unique_storage.begin(), unique_storage.end(), property_values) != unique_storage.end()) {
     return true;
@@ -288,7 +288,7 @@ bool DiskUniqueConstraints::DifferentVertexExistsWithSameLabelAndPropertyValues(
     }
 
     PropertyStore property_store = utils::DeserializePropertiesFromUniqueConstraintStorage(it->value().ToString());
-    if (property_store.HasAllPropertyValues(property_values)) {
+    if (property_store.ExtractPropertyValues(constraint_properties) == property_values) {
       delete disk_transaction;
       return true;
     }

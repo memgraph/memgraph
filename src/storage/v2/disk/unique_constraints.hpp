@@ -14,6 +14,7 @@
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints/unique_constraints.hpp"
 #include "storage/v2/disk/rocksdb_storage.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/rocksdb_serialization.hpp"
 #include "utils/synchronized.hpp"
@@ -63,7 +64,8 @@ class DiskUniqueConstraints : public UniqueConstraints {
 
   bool DifferentVertexExistsWithSameLabelAndPropertyValues(
       std::vector<PropertyValue> property_values, const std::vector<std::vector<PropertyValue>> &unique_storage,
-      const LabelId &constraint_label, const Gid &gid, uint64_t transaction_start_timestamp) const;
+      const LabelId &constraint_label, const std::set<PropertyId> &constraint_properties, const Gid &gid,
+      uint64_t transaction_start_timestamp) const;
 };
 
 }  // namespace memgraph::storage
