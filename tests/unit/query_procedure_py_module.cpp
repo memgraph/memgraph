@@ -16,10 +16,20 @@
 
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/py_module.hpp"
+#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "test_utils.hpp"
 
-TEST(PyModule, MgpValueToPyObject) {
+template <typename StorageType>
+class PyModule : public testing::Test {
+ public:
+  std::unique_ptr<memgraph::storage::Storage> db{new StorageType()};
+};
+
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+TYPED_TEST_CASE(PyModule, StorageTypes);
+
+TYPED_TEST(PyModule, MgpValueToPyObject) {
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
   auto *list = EXPECT_MGP_NO_ERROR(mgp_list *, mgp_list_make_empty, 42, &memory);
   {
@@ -94,11 +104,10 @@ static void AssertPickleAndCopyAreNotSupported(PyObject *py_obj) {
   ASSERT_TRUE(memgraph::py::FetchError());
 }
 
-TEST(PyModule, PyVertex) {
+TYPED_TEST(PyModule, PyVertex) {
   // Initialize the database with 2 vertices and 1 edge.
-  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
   {
-    auto dba = db->Access();
+    auto dba = this->db->Access();
     auto v1 = dba->CreateVertex();
     auto v2 = dba->CreateVertex();
 
@@ -111,7 +120,7 @@ TEST(PyModule, PyVertex) {
     ASSERT_FALSE(dba->Commit().HasError());
   }
   // Get the first vertex as an mgp_value.
-  auto storage_dba = db->Access();
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
   mgp_graph graph{&dba, memgraph::storage::View::OLD};
@@ -144,11 +153,10 @@ TEST(PyModule, PyVertex) {
   ASSERT_FALSE(dba.Commit().HasError());
 }
 
-TEST(PyModule, PyEdge) {
+TYPED_TEST(PyModule, PyEdge) {
   // Initialize the database with 2 vertices and 1 edge.
-  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
   {
-    auto dba = db->Access();
+    auto dba = this->db->Access();
     auto v1 = dba->CreateVertex();
     auto v2 = dba->CreateVertex();
 
@@ -162,7 +170,7 @@ TEST(PyModule, PyEdge) {
     ASSERT_FALSE(dba->Commit().HasError());
   }
   // Get the edge as an mgp_value.
-  auto storage_dba = db->Access();
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
   mgp_graph graph{&dba, memgraph::storage::View::OLD};
@@ -200,16 +208,15 @@ TEST(PyModule, PyEdge) {
   ASSERT_FALSE(dba.Commit().HasError());
 }
 
-TEST(PyModule, PyPath) {
-  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+TYPED_TEST(PyModule, PyPath) {
   {
-    auto dba = db->Access();
+    auto dba = this->db->Access();
     auto v1 = dba->CreateVertex();
     auto v2 = dba->CreateVertex();
     ASSERT_TRUE(dba->CreateEdge(&v1, &v2, dba->NameToEdgeType("type")).HasValue());
     ASSERT_FALSE(dba->Commit().HasError());
   }
-  auto storage_dba = db->Access();
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
   mgp_graph graph{&dba, memgraph::storage::View::OLD};
@@ -248,7 +255,7 @@ TEST(PyModule, PyPath) {
   ASSERT_FALSE(dba.Commit().HasError());
 }
 
-TEST(PyModule, PyObjectToMgpValue) {
+TYPED_TEST(PyModule, PyObjectToMgpValue) {
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
   auto gil = memgraph::py::EnsureGIL();
   memgraph::py::Object py_value{
