@@ -15,11 +15,20 @@
 
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/operator.hpp"
+#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
-TEST(QueryPlan, CreateNodeWithAttributes) {
-  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
-  auto dba = db->Access();
+template <typename StorageType>
+class QueryPlan : public testing::Test {
+ public:
+  std::unique_ptr<memgraph::storage::Storage> db = std::make_unique<StorageType>();
+};
+
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+TYPED_TEST_CASE(QueryPlan, StorageTypes);
+
+TYPED_TEST(QueryPlan, CreateNodeWithAttributes) {
+  auto dba = this->db->Access();
 
   auto label = memgraph::storage::LabelId::FromInt(42);
   auto property = memgraph::storage::PropertyId::FromInt(1);
@@ -56,11 +65,10 @@ TEST(QueryPlan, CreateNodeWithAttributes) {
   EXPECT_EQ(count, 1);
 }
 
-TEST(QueryPlan, ScanAllEmpty) {
+TYPED_TEST(QueryPlan, ScanAllEmpty) {
   memgraph::query::AstStorage ast;
   memgraph::query::SymbolTable symbol_table;
-  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
-  auto dba = db->Access();
+  auto dba = this->db->Access();
   DbAccessor execution_dba(dba.get());
   auto node_symbol = symbol_table.CreateSymbol("n", true);
   {
@@ -83,16 +91,15 @@ TEST(QueryPlan, ScanAllEmpty) {
   }
 }
 
-TEST(QueryPlan, ScanAll) {
-  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+TYPED_TEST(QueryPlan, ScanAll) {
   {
-    auto dba = db->Access();
+    auto dba = this->db->Access();
     for (int i = 0; i < 42; ++i) dba->CreateVertex();
     EXPECT_FALSE(dba->Commit().HasError());
   }
   memgraph::query::AstStorage ast;
   memgraph::query::SymbolTable symbol_table;
-  auto dba = db->Access();
+  auto dba = this->db->Access();
   DbAccessor execution_dba(dba.get());
   auto node_symbol = symbol_table.CreateSymbol("n", true);
   memgraph::query::plan::ScanAll scan_all(nullptr, node_symbol);
@@ -104,12 +111,11 @@ TEST(QueryPlan, ScanAll) {
   EXPECT_EQ(count, 42);
 }
 
-TEST(QueryPlan, ScanAllByLabel) {
-  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
-  auto label = db->NameToLabel("label");
-  ASSERT_FALSE(db->CreateIndex(label).HasError());
+TYPED_TEST(QueryPlan, ScanAllByLabel) {
+  auto label = this->db->NameToLabel("label");
+  ASSERT_FALSE(this->db->CreateIndex(label).HasError());
   {
-    auto dba = db->Access();
+    auto dba = this->db->Access();
     // Add some unlabeled vertices
     for (int i = 0; i < 12; ++i) dba->CreateVertex();
     // Add labeled vertices
@@ -119,7 +125,7 @@ TEST(QueryPlan, ScanAllByLabel) {
     }
     EXPECT_FALSE(dba->Commit().HasError());
   }
-  auto dba = db->Access();
+  auto dba = this->db->Access();
   memgraph::query::AstStorage ast;
   memgraph::query::SymbolTable symbol_table;
   auto node_symbol = symbol_table.CreateSymbol("n", true);
