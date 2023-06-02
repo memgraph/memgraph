@@ -17,44 +17,45 @@
 #include <string_view>
 #include <unordered_map>
 
+#include "global.hpp"
 #include "storage/v2/storage.hpp"
+#include "utils/result.hpp"
 
 namespace memgraph::dbms {
 
 template <typename TStorage = memgraph::storage::Storage, typename TConfig = memgraph::storage::Config>
 class StorageHandler {
  public:
+  using NewResult = utils::BasicResult<NewError, TStorage *>;
+
   StorageHandler() {}
 
-  std::optional<TStorage *> New(std::string_view name, const TConfig &config) {
+  NewResult New(std::string_view name, const TConfig &config) {
     // Control that no one is using the same data directory
+    // TODO better check
     if (std::any_of(storage_.begin(), storage_.end(), [&](const auto &elem) {
           return elem.second.second.durability.storage_directory == config.durability.storage_directory;
         })) {
       // LOG
-      return {};
+      return NewError::EXISTS;
     }
     // Create storage
-    auto [itr, _] = storage_.emplace(name, std::make_pair(std::make_unique<TStorage>(config), config));
-    return itr->second.first.get();
+    auto [itr, success] = storage_.emplace(name, std::make_pair(std::make_unique<TStorage>(config), config));
+    if (success) return itr->second.first.get();
     // TODO: Handle errors and return {}?
+    return NewError::EXISTS;
   }
 
-  std::optional<TStorage *> New(std::string_view name) {
-    if (default_config_) {
-      return New(name, *default_config_);
-    }
-    return {};
-  }
-
-  std::optional<TStorage *> New(std::string_view name, std::filesystem::path storage_subdir) {
+  NewResult New(std::string_view name, std::filesystem::path storage_subdir) {
     if (default_config_) {
       auto config = default_config_;
       config->durability.storage_directory /= storage_subdir;
       return New(name, *default_config_);
     }
-    return {};
+    return NewError::NO_CONFIGS;
   }
+
+  NewResult New(std::string_view name) { return New(name, name); }
 
   std::optional<TStorage *> Get(std::string_view name) {
     if (auto search = storage_.find(name); search != storage_.end()) {

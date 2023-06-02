@@ -14,6 +14,7 @@
 #include <unordered_map>
 
 #include "constants.hpp"
+#include "global.hpp"
 #include "interp_handler.hpp"
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
@@ -29,18 +30,13 @@ concept WithUUID = requires(T v) {
   { v.UUID() } -> std::same_as<std::string>;
 };
 
-enum class DeleteError : uint8_t {
-  DEFAULT_DB,
-  USING,
-  NON_EXISTENT,
-};
-
 using DeleteResult = utils::BasicResult<DeleteError>;
 
 template <typename TStorage = storage::Storage, typename TStorageConfig = storage::Config,
           typename TInterp = query::InterpreterContext, typename TInterpConfig = query::InterpreterConfig>
 class SessionDataHandler {
   using config_type = std::pair<TStorageConfig, TInterpConfig>;
+  using NewResult = utils::BasicResult<NewError, SessionData>;
 
  public:
 #if MG_ENTERPRISE
@@ -62,38 +58,38 @@ class SessionDataHandler {
 
   // TODO: Think about what New returns. Maybe it's easier to return false on error (because how are we suppose to
   // handle errors if we don't know if they happened)
-  std::optional<SessionData> New(std::string_view name, TStorageConfig &storage_config, TInterpConfig &inter_config) {
+  NewResult New(std::string_view name, TStorageConfig &storage_config, TInterpConfig &inter_config) {
     auto new_storage = storage_handler_.New(name, storage_config);
-    if (new_storage) {
+    if (new_storage.HasValue()) {
       // storage config can be something else if storage already exists, or return false or reread config
-      auto new_interp =
-          interp_handler_.New(name, *new_storage, inter_config, storage_config.durability.storage_directory, *this);
-      if (new_interp) {
+      auto new_interp = interp_handler_.New(name, new_storage.GetValue(), inter_config,
+                                            storage_config.durability.storage_directory, *this);
+      if (new_interp.HasValue()) {
 #if MG_ENTERPRISE
         SessionData sd{*new_storage, *new_interp, auth_, audit_log_};
 #else
-        SessionData sd{*new_storage, *new_interp, auth_};
+        SessionData sd{*new_storage, new_interp.GetValue(), auth_};
 #endif
         sd.run_id = run_id_;
         session_data_.emplace(name, sd);
         return sd;
       }
       // TODO: Storage succeeded, but interpreter failed... How to handle?
-      return {};
+      return new_interp.GetError();
     }
-    return {};
+    return new_storage.GetError();
   }
 
-  std::optional<SessionData> New(std::string_view name, std::filesystem::path storage_subdir) {
+  NewResult New(std::string_view name, std::filesystem::path storage_subdir) {
     if (default_configs_) {
       auto storage = default_configs_->first;
       storage.durability.storage_directory /= storage_subdir;
       return New(name, storage, default_configs_->second);
     }
-    return {};
+    return NewError::NO_CONFIGS;
   }
 
-  std::optional<SessionData> New(std::string_view name) { return New(name, name); }
+  NewResult New(std::string_view name) { return New(name, name); }
 
   // Can throw
   SessionData *GetPtr(const std::string &name) { return &session_data_.at(name); }
@@ -104,9 +100,11 @@ class SessionDataHandler {
     const auto *ptr = GetPtr(db_name);
     auto &current = using_[uuid];
     if (current.empty()) current = kDefaultDB;  // TODO better initialization....
-    if (ptr && current != db_name) {
-      current = db_name;
-      pending_change_[uuid] = true;
+    if (ptr) {
+      if (current != db_name) {
+        current = db_name;
+        pending_change_[uuid] = true;
+      }
       return true;
     }
     return false;

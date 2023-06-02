@@ -2788,19 +2788,28 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
                          switch (action) {
                            case MultiDatabaseQuery::Action::CREATE: {
                              const auto success = interpreter_context->sd_handler_->New(db_name);
-                             // if (!success) [[unlikely]] {
-                             // throw QueryRuntimeException("Failed to create database " + db_name);
-                             // }
-                             // TODO How to handle errors
-                             res = (success == std::nullopt) ? ("Failed while creating database " + db_name)
-                                                             : ("Successfully created database " + db_name);
+                             if (success.HasError()) {
+                               switch (success.GetError()) {
+                                 case dbms::NewError::EXISTS:
+                                   res = db_name + " already exists.";
+                                   break;
+                                 case dbms::NewError::GENERIC:
+                                   res = "Failed while creating " + db_name;
+                                   break;
+                                 case dbms::NewError::NO_CONFIGS:
+                                   res = "No configuration found while trying to create " + db_name;
+                                   break;
+                               }
+                             } else {
+                               res = "Successfully created database " + db_name;
+                             }
                              break;
                            }
                            case MultiDatabaseQuery::Action::USE: {
                              try {
                                // const auto db = interpreter_context->sd_handler_->GetPtr(db_name);
                                const auto success = interpreter_context->sd_handler_->SetFor(session_uuid, db_name);
-                               res = success ? "Successfully using " + db_name : "Failed to use " + db_name;
+                               res = success ? "Using " + db_name : "Failed to use " + db_name;
                              } catch (...) {
                                res = db_name + " doesn't exist.";
                              }

@@ -17,6 +17,7 @@
 #include <string_view>
 #include <unordered_map>
 
+#include "global.hpp"
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
 #include "storage/v2/storage.hpp"
@@ -30,20 +31,20 @@ namespace memgraph::dbms {
 template <typename TContext = query::InterpreterContext, typename TConfig = query::InterpreterConfig>
 class InterpContextHandler {
  public:
+  using NewResult = utils::BasicResult<NewError, TContext *>;
+
   InterpContextHandler() {}
 
-  std::optional<TContext *> New(std::string_view name, storage::Storage *db, const TConfig &config,
-                                const std::filesystem::path &data_directory, auto &sd_handler) {
+  NewResult New(std::string_view name, storage::Storage *db, const TConfig &config,
+                const std::filesystem::path &data_directory, auto &sd_handler) {
     // Control that the new configuration does not conflict with the previous ones
-    if (false) {  // TODO: Is there anything that can conflict
-      // LOG
-      return {};
-    }
+    // TODO: Is there anything that can conflict
     // Create storage
-    auto [itr, _] = storage_.emplace(
+    auto [itr, success] = storage_.emplace(
         name, std::make_pair(std::make_unique<TContext>(db, config, data_directory, &sd_handler), config));
-    return itr->second.first.get();
+    if (success) return itr->second.first.get();
     // TODO: Handle errors and return {}?
+    return NewError::EXISTS;
   }
 
   // std::optional<TContext *> New(std::string_view name, storage::Storage *db,
