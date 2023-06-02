@@ -559,7 +559,8 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
 #define QUERY(...) memgraph::query::test_common::GetQuery(this->storage, __VA_ARGS__)
 #define SINGLE_QUERY(...) \
   memgraph::query::test_common::GetSingleQuery(this->storage.template Create<SingleQuery>(), __VA_ARGS__)
-#define UNION(...) memgraph::query::test_common::GetCypherUnion(storage.Create<CypherUnion>(true), __VA_ARGS__)
+#define UNION(...) \
+  memgraph::query::test_common::GetCypherUnion(this->storage.template Create<CypherUnion>(true), __VA_ARGS__)
 #define UNION_ALL(...) \
   memgraph::query::test_common::GetCypherUnion(this->storage.template Create<CypherUnion>(false), __VA_ARGS__)
 #define FOREACH(...) memgraph::query::test_common::GetForeach(this->storage, __VA_ARGS__)
@@ -601,8 +602,9 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
 #define ALL(variable, list, where)                     \
   this->storage.template Create<memgraph::query::All>( \
       this->storage.template Create<memgraph::query::Identifier>(variable), list, where)
-#define SINGLE(variable, list, where) \
-  storage.Create<memgraph::query::Single>(storage.Create<memgraph::query::Identifier>(variable), list, where)
+#define SINGLE(variable, list, where)                     \
+  this->storage.template Create<memgraph::query::Single>( \
+      this->storage.template Create<memgraph::query::Identifier>(variable), list, where)
 #define ANY(variable, list, where) \
   storage.Create<memgraph::query::Any>(storage.Create<memgraph::query::Identifier>(variable), list, where)
 #define NONE(variable, list, where) \
@@ -613,8 +615,9 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
       this->storage.template Create<memgraph::query::Identifier>(variable), list, expr)
 #define COALESCE(...) \
   this->storage.template Create<memgraph::query::Coalesce>(std::vector<memgraph::query::Expression *>{__VA_ARGS__})
-#define EXTRACT(variable, list, expr) \
-  storage.Create<memgraph::query::Extract>(storage.Create<memgraph::query::Identifier>(variable), list, expr)
+#define EXTRACT(variable, list, expr)                      \
+  this->storage.template Create<memgraph::query::Extract>( \
+      this->storage.template Create<memgraph::query::Identifier>(variable), list, expr)
 #define EXISTS(pattern) this->storage.template Create<memgraph::query::Exists>(pattern)
 #define AUTH_QUERY(action, user, role, user_or_role, password, privileges, labels, edgeTypes)                  \
   storage.Create<memgraph::query::AuthQuery>((action), (user), (role), (user_or_role), password, (privileges), \
