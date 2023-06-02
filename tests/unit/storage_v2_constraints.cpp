@@ -622,6 +622,9 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsLabelAlteration) {
     gid1 = vertex1.Gid();
     gid2 = vertex2.Gid();
 
+    spdlog::debug("Vertex1 gid: {} Vertex2 gid: {}\n", memgraph::utils::SerializeIdType(gid1),
+                  memgraph::utils::SerializeIdType(gid2));
+
     ASSERT_NO_ERROR(vertex1.AddLabel(this->label2));
     ASSERT_NO_ERROR(vertex1.SetProperty(this->prop1, PropertyValue(1)));
     ASSERT_NO_ERROR(vertex2.AddLabel(this->label1));

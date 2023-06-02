@@ -1089,7 +1089,8 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
     }
   }
 
-  disk_unique_constraints->ClearEntriesScheduledForDeletion(transaction_.start_timestamp);
+  disk_unique_constraints->ClearEntriesScheduledForDeletion(transaction_.start_timestamp, *commit_timestamp_);
+  spdlog::debug("");
 
   logging::AssertRocksDBStatus(disk_transaction_->SetCommitTimestamp(*commit_timestamp_));
   auto commitStatus = disk_transaction_->Commit();

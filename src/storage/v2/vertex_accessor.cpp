@@ -85,6 +85,8 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
 
   if (std::find(vertex_->labels.begin(), vertex_->labels.end(), label) != vertex_->labels.end()) return false;
 
+  constraints_->unique_constraints_->UpdateOnAddLabel(label, *vertex_, transaction_->start_timestamp);
+
   CreateAndLinkDelta(transaction_, vertex_, Delta::RemoveLabelTag(), label);
 
   vertex_->labels.push_back(label);

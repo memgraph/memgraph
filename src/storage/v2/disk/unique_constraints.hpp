@@ -34,7 +34,7 @@ class DiskUniqueConstraints : public UniqueConstraints {
                                               std::vector<std::vector<PropertyValue>> &unique_storage,
                                               uint64_t transaction_start_timestamp) const;
 
-  void ClearEntriesScheduledForDeletion(uint64_t transaction_id);
+  void ClearEntriesScheduledForDeletion(uint64_t transaction_start_timestamp, uint64_t transaction_commit_timestamp);
 
   [[maybe_unused]] bool SyncVertexToUniqueConstraintsStorage(const Vertex &vertex, uint64_t commit_timestamp) const;
 
@@ -45,12 +45,16 @@ class DiskUniqueConstraints : public UniqueConstraints {
   void UpdateOnRemoveLabel(LabelId removed_label, const Vertex &vertex_before_update,
                            uint64_t transaction_start_timestamp) override;
 
+  void UpdateOnAddLabel(LabelId added_label, const Vertex &vertex_before_update,
+                        uint64_t transaction_start_timestamp) override;
+
   std::vector<std::pair<LabelId, std::set<PropertyId>>> ListConstraints() const override;
 
   void Clear() override;
 
  private:
-  utils::Synchronized<std::map<uint64_t, std::vector<std::string>>> entries_for_deletion;
+  utils::Synchronized<std::map<uint64_t, std::map<Gid, std::set<std::pair<LabelId, std::set<PropertyId>>>>>>
+      entries_for_deletion;
   std::set<std::pair<LabelId, std::set<PropertyId>>> constraints_;
   std::unique_ptr<RocksDBStorage> kvstore_;
 

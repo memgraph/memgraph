@@ -15,6 +15,8 @@
 #include <cstdint>
 #include <limits>
 #include <sstream>
+#include <tuple>
+#include <utility>
 #include "spdlog/spdlog.h"
 #include "storage/v2/constraints/unique_constraints.hpp"
 #include "storage/v2/delta.hpp"
@@ -25,6 +27,8 @@
 #include "utils/rocksdb_serialization.hpp"
 
 namespace memgraph::storage {
+
+/// TODO: if remove label is called multiple times on one vertex => unnecessary writes to disk
 
 DiskUniqueConstraints::DiskUniqueConstraints(const Config &config) {
   kvstore_ = std::make_unique<RocksDBStorage>();
@@ -78,7 +82,8 @@ std::optional<ConstraintViolation> DiskUniqueConstraints::Validate(
   return std::nullopt;
 }
 
-void DiskUniqueConstraints::ClearEntriesScheduledForDeletion(uint64_t transaction_id) {
+void DiskUniqueConstraints::ClearEntriesScheduledForDeletion(uint64_t transaction_start_timestamp,
+                                                             uint64_t transaction_commit_timestamp) {
   /// TODO: andi Unique_ptr instead of raw
   rocksdb::Transaction *disk_transaction =
       kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions());
@@ -88,18 +93,24 @@ void DiskUniqueConstraints::ClearEntriesScheduledForDeletion(uint64_t transactio
   std::string strTs = utils::StringTimestamp(std::numeric_limits<uint64_t>::max());
   rocksdb::Slice ts(strTs);
   ro.timestamp = &ts;
-  entries_for_deletion.WithLock([transaction_id, disk_transaction](auto &tx_to_entries_for_deletion) {
-    if (auto it = tx_to_entries_for_deletion.find(transaction_id); it != tx_to_entries_for_deletion.end()) {
-      for (const auto &key : it->second) {
-        spdlog::debug("Deleted vertex from unique constraints storage with key: {} and properties", key);
-        disk_transaction->Delete(key);
+  entries_for_deletion.WithLock([transaction_start_timestamp, disk_transaction](auto &tx_to_entries_for_deletion) {
+    if (auto tx_it = tx_to_entries_for_deletion.find(transaction_start_timestamp);
+        tx_it != tx_to_entries_for_deletion.end()) {
+      for (const auto &[vertex_gid, constraints] : tx_it->second) {
+        for (const auto &[constraint_label, constraint_properties] : constraints) {
+          auto key_to_delete = utils::SerializeVertexAsKeyForUniqueConstraint(constraint_label, constraint_properties,
+                                                                              utils::SerializeIdType(vertex_gid));
+          spdlog::debug("Deleted vertex from unique constraints storage with key: {}", key_to_delete);
+          disk_transaction->Delete(key_to_delete);
+        }
       }
-      tx_to_entries_for_deletion.erase(it);
+      tx_to_entries_for_deletion.erase(tx_it);
     }
   });
+  disk_transaction->SetCommitTimestamp(transaction_commit_timestamp);
   /// TODO: how to handle this failure
-  if (!disk_transaction->Commit().ok()) {
-    spdlog::debug("Commit failed in clear entries method...");
+  if (auto status = disk_transaction->Commit(); !status.ok()) {
+    spdlog::debug("Commit failed in clear entries method: {}", status.getState());
   }
   delete disk_transaction;
 }
@@ -175,23 +186,37 @@ bool DiskUniqueConstraints::ConstraintExists(LabelId label, const std::set<Prope
 /// TODO: optimize by saving vertices instead of serializing them at the moment of label removal
 void DiskUniqueConstraints::UpdateOnRemoveLabel(LabelId removed_label, const Vertex &vertex_before_update,
                                                 uint64_t transaction_start_timestamp) {
+  /// TODO: clean this code
   for (const auto &constraint : constraints_) {
     if (constraint.first == removed_label) {
       entries_for_deletion.WithLock(
           [&constraint, transaction_start_timestamp, &vertex_before_update](auto &tx_to_entries_for_deletion) {
             const auto &[constraint_label, constraint_properties] = constraint;
-            if (auto it = tx_to_entries_for_deletion.find(transaction_start_timestamp);
-                it == tx_to_entries_for_deletion.end()) {
-              tx_to_entries_for_deletion.emplace(transaction_start_timestamp, std::vector<std::string>());
-              it->second.emplace_back(utils::SerializeVertexAsKeyForUniqueConstraint(
-                  constraint_label, constraint_properties, utils::SerializeIdType(vertex_before_update.gid)));
-            } else {
-              it->second.emplace_back(utils::SerializeVertexAsKeyForUniqueConstraint(
-                  constraint_label, constraint_properties, utils::SerializeIdType(vertex_before_update.gid)));
-            }
+            auto [it, _] = tx_to_entries_for_deletion.emplace(
+                std::piecewise_construct, std::forward_as_tuple(transaction_start_timestamp), std::forward_as_tuple());
+            auto &vertex_map_store = it->second;
+            auto [it_vertex_map_store, emplaced] = vertex_map_store.emplace(
+                std::piecewise_construct, std::forward_as_tuple(vertex_before_update.gid), std::forward_as_tuple());
+            it_vertex_map_store->second.emplace(constraint_label, constraint_properties);
           });
     }
   }
+}
+
+void DiskUniqueConstraints::UpdateOnAddLabel(LabelId added_label, const Vertex &vertex_before_update,
+                                             uint64_t transaction_start_timestamp) {
+  /// TODO: andi clean this code
+  entries_for_deletion.WithLock(
+      [transaction_start_timestamp, &vertex_before_update, added_label](auto &tx_to_entries_for_deletion) {
+        if (auto tx_it = tx_to_entries_for_deletion.find(transaction_start_timestamp);
+            tx_it != tx_to_entries_for_deletion.end()) {
+          if (auto vertex_constraints_it = tx_it->second.find(vertex_before_update.gid);
+              vertex_constraints_it != tx_it->second.end()) {
+            std::erase_if(vertex_constraints_it->second,
+                          [added_label](const auto &constraint) { return constraint.first == added_label; });
+          }
+        }
+      });
 }
 
 std::vector<std::pair<LabelId, std::set<PropertyId>>> DiskUniqueConstraints::ListConstraints() const {
@@ -219,6 +244,7 @@ bool DiskUniqueConstraints::DifferentVertexExistsWithSameLabelAndPropertyValues(
   rocksdb::Slice ts(strTs);
   ro.timestamp = &ts;
   auto it = std::unique_ptr<rocksdb::Iterator>(disk_transaction->GetIterator(ro));
+  spdlog::debug("Checking whether there is different vertex from the one with gid: {}", utils::SerializeIdType(gid));
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     const std::string key = it->key().ToString();
     spdlog::debug("Found vertex with key: {} in unique constraints storage", key);
