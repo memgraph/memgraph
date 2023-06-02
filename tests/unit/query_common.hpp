@@ -586,7 +586,7 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
   storage.Create<memgraph::query::Aggregation>((expr), nullptr, memgraph::query::Aggregation::Op::COLLECT_LIST, \
                                                (distinct))
 #define EQ(expr1, expr2) this->storage.template Create<memgraph::query::EqualOperator>((expr1), (expr2))
-#define NEQ(expr1, expr2) storage.Create<memgraph::query::NotEqualOperator>((expr1), (expr2))
+#define NEQ(expr1, expr2) this->storage.template Create<memgraph::query::NotEqualOperator>((expr1), (expr2))
 #define AND(expr1, expr2) this->storage.template Create<memgraph::query::AndOperator>((expr1), (expr2))
 #define OR(expr1, expr2) this->storage.template Create<memgraph::query::OrOperator>((expr1), (expr2))
 #define IN_LIST(expr1, expr2) this->storage.template Create<memgraph::query::InListOperator>((expr1), (expr2))
