@@ -244,10 +244,6 @@ DiskStorage::DiskAccessor::~DiskAccessor() {
   }
 
   FinalizeTransaction();
-  if (disk_transaction_) {
-    delete disk_transaction_;
-    disk_transaction_ = nullptr;
-  }
 }
 
 std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToMainMemoryCache(
@@ -1088,6 +1084,8 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
 
   logging::AssertRocksDBStatus(disk_transaction_->SetCommitTimestamp(*commit_timestamp_));
   auto commitStatus = disk_transaction_->Commit();
+  delete disk_transaction_;
+  disk_transaction_ = nullptr;
   if (!commitStatus.ok()) {
     spdlog::error("rocksdb: Commit failed with status {}", commitStatus.ToString());
     return StorageDataManipulationError{SerializationError{}};
