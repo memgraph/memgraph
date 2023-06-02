@@ -1052,6 +1052,7 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
       ss << property_id.AsUint() << ": " << property_value;
     }
     ss << "}";
+
     spdlog::debug("Written vertex to main storage with key: {} and properties: {} in transaction: {}",
                   utils::SerializeVertex(vertex), ss.str(), transaction_.start_timestamp);
 
@@ -1089,8 +1090,10 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
     }
   }
 
-  disk_unique_constraints->DeleteVerticesWithRemovedConstraintLabel(transaction_.start_timestamp, *commit_timestamp_);
-  spdlog::debug("");
+  if (!disk_unique_constraints->DeleteVerticesWithRemovedConstraintLabel(transaction_.start_timestamp,
+                                                                         *commit_timestamp_)) {
+    return StorageDataManipulationError{SerializationError{}};
+  }
 
   logging::AssertRocksDBStatus(disk_transaction_->SetCommitTimestamp(*commit_timestamp_));
   auto commitStatus = disk_transaction_->Commit();

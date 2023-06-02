@@ -35,16 +35,16 @@ class DiskUniqueConstraints : public UniqueConstraints {
   std::optional<ConstraintViolation> Validate(const Vertex &vertex,
                                               std::vector<std::vector<PropertyValue>> &unique_storage) const;
 
-  bool ClearDeletedVertex(std::string_view gid, uint64_t transaction_commit_timestamp) const;
+  [[nodiscard]] bool ClearDeletedVertex(std::string_view gid, uint64_t transaction_commit_timestamp) const;
 
-  void DeleteVerticesWithRemovedConstraintLabel(uint64_t transaction_start_timestamp,
-                                                uint64_t transaction_commit_timestamp);
+  [[nodiscard]] bool DeleteVerticesWithRemovedConstraintLabel(uint64_t transaction_start_timestamp,
+                                                              uint64_t transaction_commit_timestamp);
 
   [[maybe_unused]] bool SyncVertexToUniqueConstraintsStorage(const Vertex &vertex, uint64_t commit_timestamp) const;
 
   DeletionStatus DropConstraint(LabelId label, const std::set<PropertyId> &properties) override;
 
-  bool ConstraintExists(LabelId label, const std::set<PropertyId> &properties) const override;
+  [[nodiscard]] bool ConstraintExists(LabelId label, const std::set<PropertyId> &properties) const override;
 
   void UpdateOnRemoveLabel(LabelId removed_label, const Vertex &vertex_before_update,
                            uint64_t transaction_start_timestamp) override;
@@ -62,19 +62,13 @@ class DiskUniqueConstraints : public UniqueConstraints {
   std::set<std::pair<LabelId, std::set<PropertyId>>> constraints_;
   std::unique_ptr<RocksDBStorage> kvstore_;
 
-  [[nodiscard]] std::optional<ConstraintViolation> ProcessVertexUnderUniqueConstraintOnDisk(
+  [[nodiscard]] std::optional<ConstraintViolation> TestIfVertexSatisifiesUniqueConstraint(
       const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage, const LabelId &constraint_label,
       const std::set<PropertyId> &constraint_properties) const;
 
-  [[nodiscard]] bool TestUniqueConstraintConditionOnDiskForVertex(
-      const std::optional<std::vector<PropertyValue>> &property_values,
-      const std::vector<std::vector<PropertyValue>> &unique_storage, const LabelId &constraint_label,
-      const std::set<PropertyId> &constraint_properties, const Gid &gid) const;
-
-  /// TODO: too many arguments, refactor
   bool DifferentVertexExistsWithSameLabelAndPropertyValues(
-      std::vector<PropertyValue> property_values, const std::vector<std::vector<PropertyValue>> &unique_storage,
-      const LabelId &constraint_label, const std::set<PropertyId> &constraint_properties, const Gid &gid) const;
+      const std::vector<PropertyValue> &property_values, const std::vector<std::vector<PropertyValue>> &unique_storage,
+      const LabelId &constraint_label, const std::set<PropertyId> &constraint_properties, Gid gid) const;
 };
 
 }  // namespace memgraph::storage
