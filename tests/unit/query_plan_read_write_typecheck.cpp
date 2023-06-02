@@ -45,8 +45,8 @@ class ReadWriteTypeCheckTest : public ::testing::Test {
   }
 };
 
-// using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-using StorageTypes = ::testing::Types<memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+// using StorageTypes = ::testing::Types<memgraph::storage::DiskStorage>;
 TYPED_TEST_CASE(ReadWriteTypeCheckTest, StorageTypes);
 
 TYPED_TEST(ReadWriteTypeCheckTest, NONEOps) {
@@ -67,7 +67,7 @@ TYPED_TEST(ReadWriteTypeCheckTest, Filter) {
   std::shared_ptr<LogicalOperator> scan_all = std::make_shared<ScanAll>(nullptr, this->GetSymbol("node1"));
   std::shared_ptr<LogicalOperator> filter =
       std::make_shared<Filter>(scan_all, std::vector<std::shared_ptr<LogicalOperator>>{},
-                               EQ(PROPERTY_LOOKUP("node1", this->dba.NameToProperty("prop")), LITERAL(0)));
+                               EQ(PROPERTY_LOOKUP(this->dba, "node1", this->dba.NameToProperty("prop")), LITERAL(0)));
 
   this->CheckPlanType(filter.get(), RWType::R);
 }
@@ -98,9 +98,10 @@ TYPED_TEST(ReadWriteTypeCheckTest, OrderByAndLimit) {
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<Once>();
   last_op = std::make_shared<ScanAllByLabel>(last_op, node_sym, label);
   last_op = std::make_shared<Filter>(last_op, std::vector<std::shared_ptr<LogicalOperator>>{},
-                                     EQ(PROPERTY_LOOKUP("node", prop), LITERAL(5)));
+                                     EQ(PROPERTY_LOOKUP(this->dba, "node", prop), LITERAL(5)));
   last_op = std::make_shared<Produce>(last_op, std::vector<NamedExpression *>{NEXPR("n", IDENT("n"))});
-  last_op = std::make_shared<OrderBy>(last_op, std::vector<SortItem>{{Ordering::DESC, PROPERTY_LOOKUP("node", prop)}},
+  last_op = std::make_shared<OrderBy>(last_op,
+                                      std::vector<SortItem>{{Ordering::DESC, PROPERTY_LOOKUP(this->dba, "node", prop)}},
                                       std::vector<Symbol>{node_sym});
   last_op = std::make_shared<Limit>(last_op, LITERAL(10));
 
@@ -131,7 +132,7 @@ TYPED_TEST(ReadWriteTypeCheckTest, ExpandVariable) {
                                                  this->dba.NameToEdgeType("EdgeType2")},
       false, LITERAL(2), LITERAL(5), false,
       ExpansionLambda{this->GetSymbol("inner_node"), this->GetSymbol("inner_edge"),
-                      PROPERTY_LOOKUP("inner_node", this->dba.NameToProperty("unblocked"))},
+                      PROPERTY_LOOKUP(this->dba, "inner_node", this->dba.NameToProperty("unblocked"))},
       std::nullopt, std::nullopt);
 
   this->CheckPlanType(last_op.get(), RWType::R);
@@ -162,10 +163,10 @@ TYPED_TEST(ReadWriteTypeCheckTest, SetRemovePropertiesLabels) {
   memgraph::storage::PropertyId prop = this->dba.NameToProperty("prop");
 
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, this->GetSymbol("node"));
-  last_op = std::make_shared<plan::SetProperty>(last_op, prop, PROPERTY_LOOKUP("node", prop),
-                                                ADD(PROPERTY_LOOKUP("node", prop), LITERAL(1)));
-  last_op = std::make_shared<plan::RemoveProperty>(last_op, this->dba.NameToProperty("prop"),
-                                                   PROPERTY_LOOKUP("node", this->dba.NameToProperty("prop")));
+  last_op = std::make_shared<plan::SetProperty>(last_op, prop, PROPERTY_LOOKUP(this->dba, "node", prop),
+                                                ADD(PROPERTY_LOOKUP(this->dba, "node", prop), LITERAL(1)));
+  last_op = std::make_shared<plan::RemoveProperty>(
+      last_op, this->dba.NameToProperty("prop"), PROPERTY_LOOKUP(this->dba, "node", this->dba.NameToProperty("prop")));
   last_op = std::make_shared<plan::SetProperties>(
       last_op, node_sym,
       MAP({{this->storage.GetPropertyIx("prop1"), LITERAL(1)},

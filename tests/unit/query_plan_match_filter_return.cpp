@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include "query/frontend/ast/ast.hpp"
 #include "query_plan_common.hpp"
 
 #include <iterator>
@@ -75,8 +76,8 @@ class MatchReturnFixture : public testing::Test {
   }
 };
 
-// using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-using StorageTypes = ::testing::Types<memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+// using StorageTypes = ::testing::Types<memgraph::storage::DiskStorage>;
 TYPED_TEST_CASE(MatchReturnFixture, StorageTypes);
 
 TYPED_TEST(MatchReturnFixture, MatchReturn) {
@@ -85,7 +86,7 @@ TYPED_TEST(MatchReturnFixture, MatchReturn) {
 
   auto test_pull_count = [&](memgraph::storage::View view) {
     auto scan_all = MakeScanAll(this->storage, this->symbol_table, "n", nullptr, view);
-    auto output = this->NEXPR("n", this->IDENT("n")->MapTo(scan_all.sym_))
+    auto output = NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))
                       ->MapTo(this->symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(scan_all.op_, output);
     auto context = MakeContext(this->storage, this->symbol_table, &this->dba);
@@ -108,8 +109,8 @@ TYPED_TEST(MatchReturnFixture, MatchReturnPath) {
   auto scan_all = MakeScanAll(this->storage, this->symbol_table, "n", nullptr);
   Symbol path_sym = this->symbol_table.CreateSymbol("path", true);
   auto make_path = std::make_shared<ConstructNamedPath>(scan_all.op_, path_sym, std::vector<Symbol>{scan_all.sym_});
-  auto output = this->NEXPR("path", this->IDENT("path")->MapTo(path_sym))
-                    ->MapTo(this->symbol_table.CreateSymbol("named_expression_1", true));
+  auto output =
+      NEXPR("path", IDENT("path")->MapTo(path_sym))->MapTo(this->symbol_table.CreateSymbol("named_expression_1", true));
   auto produce = MakeProduce(make_path, output);
   auto results = this->PathResults(produce);
   ASSERT_EQ(results.size(), 2);
@@ -215,6 +216,7 @@ template <typename StorageType>
 class QueryPlan : public testing::Test {
  public:
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType()};
+  AstStorage storage;
 };
 
 // using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
@@ -229,15 +231,14 @@ TYPED_TEST(QueryPlan, MatchReturnCartesian) {
   ASSERT_TRUE(dba.InsertVertex().AddLabel(dba.NameToLabel("l2")).HasValue());
   dba.AdvanceCommand();
 
-  AstStorage storage;
   SymbolTable symbol_table;
 
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  auto m = MakeScanAll(storage, symbol_table, "m", n.op_);
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto m = MakeScanAll(this->storage, symbol_table, "m", n.op_);
   auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
   auto return_m = NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
   auto produce = MakeProduce(m.op_, return_n, return_m);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 4);
   // ensure the result ordering is OK:
@@ -255,14 +256,13 @@ TYPED_TEST(QueryPlan, StandaloneReturn) {
   dba.InsertVertex();
   dba.AdvanceCommand();
 
-  AstStorage storage;
   SymbolTable symbol_table;
 
   auto output = NEXPR("n", LITERAL(42));
   auto produce = MakeProduce(std::shared_ptr<LogicalOperator>(nullptr), output);
   output->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
 
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 1);
   EXPECT_EQ(results[0].size(), 1);
@@ -275,7 +275,7 @@ TYPED_TEST(QueryPlan, NodeFilterLabelsAndProperties) {
 
   // add a few nodes to the database
   memgraph::storage::LabelId label = dba.NameToLabel("Label");
-  auto property = PROPERTY_PAIR("Property");
+  auto property = PROPERTY_PAIR(dba, "Property");
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
   auto v3 = dba.InsertVertex();
@@ -295,24 +295,23 @@ TYPED_TEST(QueryPlan, NodeFilterLabelsAndProperties) {
   ASSERT_TRUE(v5.SetProperty(property.second, memgraph::storage::PropertyValue(1)).HasValue());
   dba.AdvanceCommand();
 
-  AstStorage storage;
   SymbolTable symbol_table;
 
   // make a scan all
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  n.node_->labels_.emplace_back(storage.GetLabelIx(dba.LabelToName(label)));
-  std::get<0>(n.node_->properties_)[storage.GetPropertyIx(property.first)] = LITERAL(42);
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  n.node_->labels_.emplace_back(this->storage.GetLabelIx(dba.LabelToName(label)));
+  std::get<0>(n.node_->properties_)[this->storage.GetPropertyIx(property.first)] = LITERAL(42);
 
   // node filtering
-  auto *filter_expr = AND(storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_),
-                          EQ(PROPERTY_LOOKUP(n.node_->identifier_, property), LITERAL(42)));
+  auto *filter_expr = AND(this->storage.template Create<LabelsTest>(n.node_->identifier_, n.node_->labels_),
+                          EQ(PROPERTY_LOOKUP(dba, n.node_->identifier_, property), LITERAL(42)));
   auto node_filter = std::make_shared<Filter>(n.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
 
   // make a named expression and a produce
   auto output = NEXPR("x", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
   auto produce = MakeProduce(node_filter, output);
 
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_EQ(1, PullAll(*produce, &context));
 
   //  test that filtering works with old records
@@ -347,23 +346,22 @@ TYPED_TEST(QueryPlan, NodeFilterMultipleLabels) {
   ASSERT_TRUE(v3.AddLabel(label3).HasValue());
   dba.AdvanceCommand();
 
-  AstStorage storage;
   SymbolTable symbol_table;
 
   // make a scan all
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  n.node_->labels_.emplace_back(storage.GetLabelIx(dba.LabelToName(label1)));
-  n.node_->labels_.emplace_back(storage.GetLabelIx(dba.LabelToName(label2)));
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  n.node_->labels_.emplace_back(this->storage.GetLabelIx(dba.LabelToName(label1)));
+  n.node_->labels_.emplace_back(this->storage.GetLabelIx(dba.LabelToName(label2)));
 
   // node filtering
-  auto *filter_expr = storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_);
+  auto *filter_expr = this->storage.template Create<LabelsTest>(n.node_->identifier_, n.node_->labels_);
   auto node_filter = std::make_shared<Filter>(n.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
 
   // make a named expression and a produce
   auto output = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
   auto produce = MakeProduce(node_filter, output);
 
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 2);
 }
@@ -381,11 +379,10 @@ TYPED_TEST(QueryPlan, Cartesian) {
   std::vector<memgraph::query::VertexAccessor> vertices{add_vertex("v1"), add_vertex("v2"), add_vertex("v3")};
   dba.AdvanceCommand();
 
-  AstStorage storage;
   SymbolTable symbol_table;
 
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  auto m = MakeScanAll(storage, symbol_table, "m");
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto m = MakeScanAll(this->storage, symbol_table, "m");
   auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
   auto return_m = NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
 
@@ -395,7 +392,7 @@ TYPED_TEST(QueryPlan, Cartesian) {
 
   auto produce = MakeProduce(cartesian_op, return_n, return_m);
 
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 9);
   for (int i = 0; i < 3; ++i) {
@@ -409,12 +406,10 @@ TYPED_TEST(QueryPlan, Cartesian) {
 TYPED_TEST(QueryPlan, CartesianEmptySet) {
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
-
-  AstStorage storage;
   SymbolTable symbol_table;
 
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  auto m = MakeScanAll(storage, symbol_table, "m");
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto m = MakeScanAll(this->storage, symbol_table, "m");
   auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
   auto return_m = NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
 
@@ -423,7 +418,7 @@ TYPED_TEST(QueryPlan, CartesianEmptySet) {
   auto cartesian_op = std::make_shared<Cartesian>(n.op_, left_symbols, m.op_, right_symbols);
 
   auto produce = MakeProduce(cartesian_op, return_n, return_m);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 0);
 }
@@ -440,12 +435,11 @@ TYPED_TEST(QueryPlan, CartesianThreeWay) {
   std::vector<memgraph::query::VertexAccessor> vertices{add_vertex("v1"), add_vertex("v2"), add_vertex("v3")};
   dba.AdvanceCommand();
 
-  AstStorage storage;
   SymbolTable symbol_table;
 
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  auto m = MakeScanAll(storage, symbol_table, "m");
-  auto l = MakeScanAll(storage, symbol_table, "l");
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto m = MakeScanAll(this->storage, symbol_table, "m");
+  auto l = MakeScanAll(this->storage, symbol_table, "l");
   auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
   auto return_m = NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
   auto return_l = NEXPR("l", IDENT("l")->MapTo(l.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_3", true));
@@ -459,7 +453,7 @@ TYPED_TEST(QueryPlan, CartesianThreeWay) {
   auto cartesian_op_2 = std::make_shared<Cartesian>(cartesian_op_1, n_m_symbols, l.op_, l_symbols);
 
   auto produce = MakeProduce(cartesian_op_2, return_n, return_m, return_l);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 27);
   int id = 0;
@@ -480,8 +474,8 @@ class ExpandFixture : public testing::Test {
   std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
-  AstStorage storage;
   SymbolTable symbol_table;
+  AstStorage storage;
 
   // make a V-graph (v3)<-[r2]-(v1)-[r1]->(v2)
   memgraph::query::VertexAccessor v1{dba.InsertVertex()};
@@ -503,14 +497,14 @@ class ExpandFixture : public testing::Test {
 
 TEST_F(ExpandFixture, Expand) {
   auto test_expand = [&](EdgeAtom::Direction direction, memgraph::storage::View view) {
-    auto n = MakeScanAll(storage, symbol_table, "n");
-    auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", direction, {}, "m", false, view);
+    auto n = MakeScanAll(this->storage, symbol_table, "n");
+    auto r_m = MakeExpand(this->storage, symbol_table, n.op_, n.sym_, "r", direction, {}, "m", false, view);
 
     // make a named expression and a produce
     auto output =
         NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(r_m.op_, output);
-    auto context = MakeContext(storage, symbol_table, &dba);
+    auto context = MakeContext(this->storage, symbol_table, &dba);
     return PullAll(*produce, &context);
   };
 
@@ -1765,7 +1759,7 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
   std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
-  std::pair<std::string, memgraph::storage::PropertyId> prop = PROPERTY_PAIR("property");
+  std::pair<std::string, memgraph::storage::PropertyId> prop = PROPERTY_PAIR(dba, "property");
   memgraph::storage::EdgeTypeId edge_type = dba.NameToEdgeType("edge_type");
 
   // make 5 vertices because we'll need to compare against them exactly
@@ -1824,7 +1818,7 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
     auto last_op = n.op_;
     if (node_id) {
       last_op = std::make_shared<Filter>(last_op, std::vector<std::shared_ptr<LogicalOperator>>{},
-                                         EQ(PROPERTY_LOOKUP(n.node_->identifier_, prop), LITERAL(*node_id)));
+                                         EQ(PROPERTY_LOOKUP(dba, n.node_->identifier_, prop), LITERAL(*node_id)));
     }
 
     auto ident_e = IDENT("e");
@@ -1837,7 +1831,7 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
         last_op, n.sym_, node_sym, edge_list_sym, EdgeAtom::Type::WEIGHTED_SHORTEST_PATH, direction,
         std::vector<memgraph::storage::EdgeTypeId>{}, false, nullptr, max_depth ? LITERAL(max_depth.value()) : nullptr,
         existing_node_input != nullptr, ExpansionLambda{filter_edge, filter_node, where},
-        ExpansionLambda{weight_edge, weight_node, PROPERTY_LOOKUP(ident_e, prop)}, total_weight);
+        ExpansionLambda{weight_edge, weight_node, PROPERTY_LOOKUP(dba, ident_e, prop)}, total_weight);
 
     Frame frame(symbol_table.max_position());
     auto cursor = last_op->MakeCursor(memgraph::utils::NewDeleteResource());
@@ -1875,7 +1869,7 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
   Expression *PropNe(Symbol symbol, int value) {
     auto ident = IDENT("inner_element");
     ident->MapTo(symbol);
-    return NEQ(PROPERTY_LOOKUP(ident, prop), LITERAL(value));
+    return NEQ(PROPERTY_LOOKUP(dba, ident, prop), LITERAL(value));
   }
 };
 
@@ -1980,7 +1974,7 @@ TEST_F(QueryPlanExpandWeightedShortestPath, ExistingNode) {
     if (preceeding_node_id) {
       auto filter =
           std::make_shared<Filter>(n0.op_, std::vector<std::shared_ptr<LogicalOperator>>{},
-                                   EQ(PROPERTY_LOOKUP(n0.node_->identifier_, prop), LITERAL(*preceeding_node_id)));
+                                   EQ(PROPERTY_LOOKUP(dba, n0.node_->identifier_, prop), LITERAL(*preceeding_node_id)));
       // inject the filter op into the ScanAllTuple. that way the filter
       // op can be passed into the ExpandWShortest function without too
       // much refactor
@@ -2197,7 +2191,7 @@ class QueryPlanExpandAllShortestPaths : public testing::Test {
   std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
-  std::pair<std::string, memgraph::storage::PropertyId> prop = PROPERTY_PAIR("property");
+  std::pair<std::string, memgraph::storage::PropertyId> prop = PROPERTY_PAIR(dba, "property");
   memgraph::storage::EdgeTypeId edge_type = dba.NameToEdgeType("edge_type");
 
   // make 5 vertices because we'll need to compare against them exactly
@@ -2256,7 +2250,7 @@ class QueryPlanExpandAllShortestPaths : public testing::Test {
     auto last_op = n.op_;
     if (node_id) {
       last_op = std::make_shared<Filter>(last_op, std::vector<std::shared_ptr<LogicalOperator>>{},
-                                         EQ(PROPERTY_LOOKUP(n.node_->identifier_, prop), LITERAL(*node_id)));
+                                         EQ(PROPERTY_LOOKUP(dba, n.node_->identifier_, prop), LITERAL(*node_id)));
     }
 
     auto ident_e = IDENT("e");
@@ -2269,7 +2263,7 @@ class QueryPlanExpandAllShortestPaths : public testing::Test {
         last_op, n.sym_, node_sym, edge_list_sym, EdgeAtom::Type::ALL_SHORTEST_PATHS, direction,
         std::vector<memgraph::storage::EdgeTypeId>{}, false, nullptr, max_depth ? LITERAL(max_depth.value()) : nullptr,
         existing_node_input != nullptr, ExpansionLambda{filter_edge, filter_node, where},
-        ExpansionLambda{weight_edge, weight_node, PROPERTY_LOOKUP(ident_e, prop)}, total_weight);
+        ExpansionLambda{weight_edge, weight_node, PROPERTY_LOOKUP(dba, ident_e, prop)}, total_weight);
 
     Frame frame(symbol_table.max_position());
     auto cursor = last_op->MakeCursor(memgraph::utils::NewDeleteResource());
@@ -2306,7 +2300,7 @@ class QueryPlanExpandAllShortestPaths : public testing::Test {
   Expression *PropNe(Symbol symbol, int value) {
     auto ident = IDENT("inner_element");
     ident->MapTo(symbol);
-    return NEQ(PROPERTY_LOOKUP(ident, prop), LITERAL(value));
+    return NEQ(PROPERTY_LOOKUP(dba, ident, prop), LITERAL(value));
   }
 };
 
@@ -2638,7 +2632,6 @@ TYPED_TEST(QueryPlan, ExpandOptional) {
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
-  AstStorage storage;
   SymbolTable symbol_table;
 
   // graph (v2 {p: 2})<-[:T]-(v1 {p: 1})-[:T]->(v3 {p: 2})
@@ -2655,8 +2648,8 @@ TYPED_TEST(QueryPlan, ExpandOptional) {
   dba.AdvanceCommand();
 
   // MATCH (n) OPTIONAL MATCH (n)-[r]->(m)
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  auto r_m = MakeExpand(storage, symbol_table, nullptr, n.sym_, "r", EdgeAtom::Direction::OUT, {}, "m", false,
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto r_m = MakeExpand(this->storage, symbol_table, nullptr, n.sym_, "r", EdgeAtom::Direction::OUT, {}, "m", false,
                         memgraph::storage::View::OLD);
   auto optional = std::make_shared<plan::Optional>(n.op_, r_m.op_, std::vector<Symbol>{r_m.edge_sym_, r_m.node_sym_});
 
@@ -2665,7 +2658,7 @@ TYPED_TEST(QueryPlan, ExpandOptional) {
   auto r_ne = NEXPR("r", IDENT("r")->MapTo(r_m.edge_sym_))->MapTo(symbol_table.CreateSymbol("r", true));
   auto m_ne = NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))->MapTo(symbol_table.CreateSymbol("m", true));
   auto produce = MakeProduce(optional, n_ne, r_ne, m_ne);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
   ASSERT_EQ(4, results.size());
   int v1_is_n_count = 0;
@@ -2689,17 +2682,15 @@ TYPED_TEST(QueryPlan, ExpandOptional) {
 TYPED_TEST(QueryPlan, OptionalMatchEmptyDB) {
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
-
-  AstStorage storage;
   SymbolTable symbol_table;
 
   // OPTIONAL MATCH (n)
-  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
   // RETURN n
   auto n_ne = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("n", true));
   auto optional = std::make_shared<plan::Optional>(nullptr, n.op_, std::vector<Symbol>{n.sym_});
   auto produce = MakeProduce(optional, n_ne);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
   ASSERT_EQ(1, results.size());
   EXPECT_EQ(results[0][0].type(), TypedValue::Type::Null);
@@ -2708,10 +2699,9 @@ TYPED_TEST(QueryPlan, OptionalMatchEmptyDB) {
 TYPED_TEST(QueryPlan, OptionalMatchEmptyDBExpandFromNode) {
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
-  AstStorage storage;
   SymbolTable symbol_table;
   // OPTIONAL MATCH (n)
-  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
   auto optional = std::make_shared<plan::Optional>(nullptr, n.op_, std::vector<Symbol>{n.sym_});
   // WITH n
   auto n_ne = NEXPR("n", IDENT("n")->MapTo(n.sym_));
@@ -2719,12 +2709,12 @@ TYPED_TEST(QueryPlan, OptionalMatchEmptyDBExpandFromNode) {
   n_ne->MapTo(with_n_sym);
   auto with = MakeProduce(optional, n_ne);
   // MATCH (n) -[r]-> (m)
-  auto r_m = MakeExpand(storage, symbol_table, with, with_n_sym, "r", EdgeAtom::Direction::OUT, {}, "m", false,
+  auto r_m = MakeExpand(this->storage, symbol_table, with, with_n_sym, "r", EdgeAtom::Direction::OUT, {}, "m", false,
                         memgraph::storage::View::OLD);
   // RETURN m
   auto m_ne = NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))->MapTo(symbol_table.CreateSymbol("m", true));
   auto produce = MakeProduce(r_m.op_, m_ne);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(0, results.size());
 }
@@ -2740,14 +2730,13 @@ TYPED_TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
   dba.AdvanceCommand();
   EXPECT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
   EXPECT_EQ(1, CountEdges(&dba, memgraph::storage::View::OLD));
-  AstStorage storage;
   SymbolTable symbol_table;
   // OPTIONAL MATCH (n :missing)
-  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
   auto label_missing = "missing";
-  n.node_->labels_.emplace_back(storage.GetLabelIx(label_missing));
+  n.node_->labels_.emplace_back(this->storage.GetLabelIx(label_missing));
 
-  auto *filter_expr = storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_);
+  auto *filter_expr = this->storage.template Create<LabelsTest>(n.node_->identifier_, n.node_->labels_);
   auto node_filter = std::make_shared<Filter>(n.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
   auto optional = std::make_shared<plan::Optional>(nullptr, node_filter, std::vector<Symbol>{n.sym_});
   // WITH n
@@ -2756,7 +2745,7 @@ TYPED_TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
   n_ne->MapTo(with_n_sym);
   auto with = MakeProduce(optional, n_ne);
   // MATCH (m) -[r]-> (n)
-  auto m = MakeScanAll(storage, symbol_table, "m", with);
+  auto m = MakeScanAll(this->storage, symbol_table, "m", with);
   auto edge_direction = EdgeAtom::Direction::OUT;
   auto edge = EDGE("r", edge_direction);
   auto edge_sym = symbol_table.CreateSymbol("r", true);
@@ -2769,7 +2758,7 @@ TYPED_TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
   // RETURN m
   auto m_ne = NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(symbol_table.CreateSymbol("m", true));
   auto produce = MakeProduce(expand, m_ne);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(0, results.size());
 }
@@ -2787,13 +2776,12 @@ TYPED_TEST(QueryPlan, ExpandExistingNode) {
   ASSERT_TRUE(dba.InsertEdge(&v1, &v2, edge_type).HasValue());
   dba.AdvanceCommand();
 
-  AstStorage storage;
   SymbolTable symbol_table;
 
   auto test_existing = [&](bool with_existing, int expected_result_count) {
-    auto n = MakeScanAll(storage, symbol_table, "n");
-    auto r_n = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {}, "n", with_existing,
-                          memgraph::storage::View::OLD);
+    auto n = MakeScanAll(this->storage, symbol_table, "n");
+    auto r_n = MakeExpand(this->storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {}, "n",
+                          with_existing, memgraph::storage::View::OLD);
     if (with_existing)
       r_n.op_ = std::make_shared<Expand>(n.op_, n.sym_, n.sym_, r_n.edge_sym_, r_n.edge_->direction_,
                                          std::vector<memgraph::storage::EdgeTypeId>{}, with_existing,
@@ -2802,7 +2790,7 @@ TYPED_TEST(QueryPlan, ExpandExistingNode) {
     // make a named expression and a produce
     auto output = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(r_n.op_, output);
-    auto context = MakeContext(storage, symbol_table, &dba);
+    auto context = MakeContext(this->storage, symbol_table, &dba);
     auto results = CollectProduce(*produce, &context);
     EXPECT_EQ(results.size(), expected_result_count);
   };
@@ -2821,13 +2809,12 @@ TYPED_TEST(QueryPlan, ExpandBothCycleEdgeCase) {
   ASSERT_TRUE(dba.InsertEdge(&v, &v, dba.NameToEdgeType("et")).HasValue());
   dba.AdvanceCommand();
 
-  AstStorage storage;
   SymbolTable symbol_table;
 
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  auto r_ = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::BOTH, {}, "_", false,
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto r_ = MakeExpand(this->storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::BOTH, {}, "_", false,
                        memgraph::storage::View::OLD);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_EQ(1, PullAll(*r_.op_, &context));
 }
 
@@ -2843,7 +2830,7 @@ TYPED_TEST(QueryPlan, EdgeFilter) {
   for (int j = 0; j < 2; ++j) edge_types.push_back(dba.NameToEdgeType("et" + std::to_string(j)));
   std::vector<memgraph::query::VertexAccessor> vertices;
   for (int i = 0; i < 7; ++i) vertices.push_back(dba.InsertVertex());
-  auto prop = PROPERTY_PAIR("property");
+  auto prop = PROPERTY_PAIR(dba, "property");
   std::vector<memgraph::query::EdgeAccessor> edges;
   for (int i = 0; i < 6; ++i) {
     edges.push_back(*dba.InsertEdge(&vertices[0], &vertices[i + 1], edge_types[i % 2]));
@@ -2860,27 +2847,26 @@ TYPED_TEST(QueryPlan, EdgeFilter) {
   }
   dba.AdvanceCommand();
 
-  AstStorage storage;
   SymbolTable symbol_table;
 
   auto test_filter = [&]() {
     // define an operator tree for query
     // MATCH (n)-[r :et0 {property: 42}]->(m) RETURN m
 
-    auto n = MakeScanAll(storage, symbol_table, "n");
+    auto n = MakeScanAll(this->storage, symbol_table, "n");
     const auto &edge_type = edge_types[0];
-    auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {edge_type}, "m", false,
-                          memgraph::storage::View::OLD);
-    r_m.edge_->edge_types_.push_back(storage.GetEdgeTypeIx(dba.EdgeTypeToName(edge_type)));
-    std::get<0>(r_m.edge_->properties_)[storage.GetPropertyIx(prop.first)] = LITERAL(42);
-    auto *filter_expr = EQ(PROPERTY_LOOKUP(r_m.edge_->identifier_, prop), LITERAL(42));
+    auto r_m = MakeExpand(this->storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {edge_type}, "m",
+                          false, memgraph::storage::View::OLD);
+    r_m.edge_->edge_types_.push_back(this->storage.GetEdgeTypeIx(dba.EdgeTypeToName(edge_type)));
+    std::get<0>(r_m.edge_->properties_)[this->storage.GetPropertyIx(prop.first)] = LITERAL(42);
+    auto *filter_expr = EQ(PROPERTY_LOOKUP(dba, r_m.edge_->identifier_, prop), LITERAL(42));
     auto edge_filter = std::make_shared<Filter>(r_m.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
 
     // make a named expression and a produce
     auto output =
         NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(edge_filter, output);
-    auto context = MakeContext(storage, symbol_table, &dba);
+    auto context = MakeContext(this->storage, symbol_table, &dba);
     return PullAll(*produce, &context);
   };
 
@@ -2906,19 +2892,18 @@ TYPED_TEST(QueryPlan, EdgeFilterMultipleTypes) {
   ASSERT_TRUE(dba.InsertEdge(&v1, &v2, type_3).HasValue());
   dba.AdvanceCommand();
 
-  AstStorage storage;
   SymbolTable symbol_table;
 
   // make a scan all
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {type_1, type_2}, "m",
-                        false, memgraph::storage::View::OLD);
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto r_m = MakeExpand(this->storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {type_1, type_2},
+                        "m", false, memgraph::storage::View::OLD);
 
   // make a named expression and a produce
   auto output =
       NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
   auto produce = MakeProduce(r_m.op_, output);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 2);
 }
@@ -2928,23 +2913,22 @@ TYPED_TEST(QueryPlan, Filter) {
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // add a 6 nodes with property 'prop', 2 have true as value
-  auto property = PROPERTY_PAIR("property");
+  auto property = PROPERTY_PAIR(dba, "property");
   for (int i = 0; i < 6; ++i)
     ASSERT_TRUE(
         dba.InsertVertex().SetProperty(property.second, memgraph::storage::PropertyValue(i % 3 == 0)).HasValue());
   dba.InsertVertex();  // prop not set, gives NULL
   dba.AdvanceCommand();
 
-  AstStorage storage;
   SymbolTable symbol_table;
 
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  auto e = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), property);
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto e = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), property);
   auto f = std::make_shared<Filter>(n.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, e);
 
   auto output = NEXPR("x", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
   auto produce = MakeProduce(f, output);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_EQ(CollectProduce(*produce, &context).size(), 2);
 }
 
@@ -2961,19 +2945,18 @@ TYPED_TEST(QueryPlan, EdgeUniquenessFilter) {
   dba.AdvanceCommand();
 
   auto check_expand_results = [&](bool edge_uniqueness) {
-    AstStorage storage;
     SymbolTable symbol_table;
 
-    auto n1 = MakeScanAll(storage, symbol_table, "n1");
-    auto r1_n2 = MakeExpand(storage, symbol_table, n1.op_, n1.sym_, "r1", EdgeAtom::Direction::OUT, {}, "n2", false,
-                            memgraph::storage::View::OLD);
-    std::shared_ptr<LogicalOperator> last_op = r1_n2.op_;
-    auto r2_n3 = MakeExpand(storage, symbol_table, last_op, r1_n2.node_sym_, "r2", EdgeAtom::Direction::OUT, {}, "n3",
+    auto n1 = MakeScanAll(this->storage, symbol_table, "n1");
+    auto r1_n2 = MakeExpand(this->storage, symbol_table, n1.op_, n1.sym_, "r1", EdgeAtom::Direction::OUT, {}, "n2",
                             false, memgraph::storage::View::OLD);
+    std::shared_ptr<LogicalOperator> last_op = r1_n2.op_;
+    auto r2_n3 = MakeExpand(this->storage, symbol_table, last_op, r1_n2.node_sym_, "r2", EdgeAtom::Direction::OUT, {},
+                            "n3", false, memgraph::storage::View::OLD);
     last_op = r2_n3.op_;
     if (edge_uniqueness)
       last_op = std::make_shared<EdgeUniquenessFilter>(last_op, r2_n3.edge_sym_, std::vector<Symbol>{r1_n2.edge_sym_});
-    auto context = MakeContext(storage, symbol_table, &dba);
+    auto context = MakeContext(this->storage, symbol_table, &dba);
     return PullAll(*last_op, &context);
   };
 
@@ -2987,7 +2970,6 @@ TYPED_TEST(QueryPlan, Distinct) {
 
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
-  AstStorage storage;
   SymbolTable symbol_table;
 
   auto check_distinct = [&](const std::vector<TypedValue> input, const std::vector<TypedValue> output,
@@ -3004,7 +2986,7 @@ TYPED_TEST(QueryPlan, Distinct) {
     auto x_ne = NEXPR("x", x_expr);
     x_ne->MapTo(symbol_table.CreateSymbol("x_ne", true));
     auto produce = MakeProduce(distinct, x_ne);
-    auto context = MakeContext(storage, symbol_table, &dba);
+    auto context = MakeContext(this->storage, symbol_table, &dba);
     auto results = CollectProduce(*produce, &context);
     ASSERT_EQ(output.size(), results.size());
     auto output_it = output.begin();
@@ -3039,13 +3021,12 @@ TYPED_TEST(QueryPlan, ScanAllByLabel) {
   dba.AdvanceCommand();
   EXPECT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
   // MATCH (n :label)
-  AstStorage storage;
   SymbolTable symbol_table;
-  auto scan_all_by_label = MakeScanAllByLabel(storage, symbol_table, "n", label);
+  auto scan_all_by_label = MakeScanAllByLabel(this->storage, symbol_table, "n", label);
   // RETURN n
   auto output = NEXPR("n", IDENT("n")->MapTo(scan_all_by_label.sym_))->MapTo(symbol_table.CreateSymbol("n", true));
   auto produce = MakeProduce(scan_all_by_label.op_, output);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
   ASSERT_EQ(results.size(), 1);
   auto result_row = results[0];
@@ -3094,15 +3075,14 @@ TYPED_TEST(QueryPlan, ScanAllByLabelProperty) {
 
   auto run_scan_all = [&](const TypedValue &lower, Bound::Type lower_type, const TypedValue &upper,
                           Bound::Type upper_type) {
-    AstStorage storage;
     SymbolTable symbol_table;
     auto scan_all =
-        MakeScanAllByLabelPropertyRange(storage, symbol_table, "n", label, prop, "prop",
+        MakeScanAllByLabelPropertyRange(this->storage, symbol_table, "n", label, prop, "prop",
                                         Bound{LITERAL(lower), lower_type}, Bound{LITERAL(upper), upper_type});
     // RETURN n
     auto output = NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("n", true));
     auto produce = MakeProduce(scan_all.op_, output);
-    auto context = MakeContext(storage, symbol_table, &dba);
+    auto context = MakeContext(this->storage, symbol_table, &dba);
     return CollectProduce(*produce, &context);
   };
 
@@ -3185,13 +3165,12 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
   memgraph::query::DbAccessor dba(storage_dba.get());
   EXPECT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
   // MATCH (n :label {prop: 42})
-  AstStorage storage;
   SymbolTable symbol_table;
-  auto scan_all = MakeScanAllByLabelPropertyValue(storage, symbol_table, "n", label, prop, "prop", LITERAL(42));
+  auto scan_all = MakeScanAllByLabelPropertyValue(this->storage, symbol_table, "n", label, prop, "prop", LITERAL(42));
   // RETURN n
   auto output = NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("n", true));
   auto produce = MakeProduce(scan_all.op_, output);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
   ASSERT_EQ(results.size(), 1);
   const auto &row = results[0];
@@ -3221,14 +3200,13 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
   memgraph::query::DbAccessor dba(storage_dba.get());
   EXPECT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
   // MATCH (m), (n :label {prop: m})
-  AstStorage storage;
   SymbolTable symbol_table;
-  auto scan_all = MakeScanAll(storage, symbol_table, "m");
+  auto scan_all = MakeScanAll(this->storage, symbol_table, "m");
   auto *ident_m = IDENT("m");
   ident_m->MapTo(scan_all.sym_);
   auto scan_index =
-      MakeScanAllByLabelPropertyValue(storage, symbol_table, "n", label, prop, "prop", ident_m, scan_all.op_);
-  auto context = MakeContext(storage, symbol_table, &dba);
+      MakeScanAllByLabelPropertyValue(this->storage, symbol_table, "n", label, prop, "prop", ident_m, scan_all.op_);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_THROW(PullAll(*scan_index.op_, &context), QueryRuntimeException);
 }
 
@@ -3251,32 +3229,32 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
   memgraph::query::DbAccessor dba(storage_dba.get());
   EXPECT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
   // MATCH (m), (n :label {prop: m})
-  AstStorage storage;
   SymbolTable symbol_table;
-  auto scan_all = MakeScanAll(storage, symbol_table, "m");
+  auto scan_all = MakeScanAll(this->storage, symbol_table, "m");
   auto *ident_m = IDENT("m");
   ident_m->MapTo(scan_all.sym_);
   {
     // Lower bound isn't property value
     auto scan_index =
-        MakeScanAllByLabelPropertyRange(storage, symbol_table, "n", label, prop, "prop",
+        MakeScanAllByLabelPropertyRange(this->storage, symbol_table, "n", label, prop, "prop",
                                         Bound{ident_m, Bound::Type::INCLUSIVE}, std::nullopt, scan_all.op_);
-    auto context = MakeContext(storage, symbol_table, &dba);
+    auto context = MakeContext(this->storage, symbol_table, &dba);
     EXPECT_THROW(PullAll(*scan_index.op_, &context), QueryRuntimeException);
   }
   {
     // Upper bound isn't property value
-    auto scan_index = MakeScanAllByLabelPropertyRange(storage, symbol_table, "n", label, prop, "prop", std::nullopt,
-                                                      Bound{ident_m, Bound::Type::INCLUSIVE}, scan_all.op_);
-    auto context = MakeContext(storage, symbol_table, &dba);
+    auto scan_index =
+        MakeScanAllByLabelPropertyRange(this->storage, symbol_table, "n", label, prop, "prop", std::nullopt,
+                                        Bound{ident_m, Bound::Type::INCLUSIVE}, scan_all.op_);
+    auto context = MakeContext(this->storage, symbol_table, &dba);
     EXPECT_THROW(PullAll(*scan_index.op_, &context), QueryRuntimeException);
   }
   {
     // Both bounds aren't property value
-    auto scan_index = MakeScanAllByLabelPropertyRange(storage, symbol_table, "n", label, prop, "prop",
+    auto scan_index = MakeScanAllByLabelPropertyRange(this->storage, symbol_table, "n", label, prop, "prop",
                                                       Bound{ident_m, Bound::Type::INCLUSIVE},
                                                       Bound{ident_m, Bound::Type::INCLUSIVE}, scan_all.op_);
-    auto context = MakeContext(storage, symbol_table, &dba);
+    auto context = MakeContext(this->storage, symbol_table, &dba);
     EXPECT_THROW(PullAll(*scan_index.op_, &context), QueryRuntimeException);
   }
 }
@@ -3303,14 +3281,13 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
   memgraph::query::DbAccessor dba(storage_dba.get());
   EXPECT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
   // MATCH (n :label {prop: 42})
-  AstStorage storage;
   SymbolTable symbol_table;
   auto scan_all =
-      MakeScanAllByLabelPropertyValue(storage, symbol_table, "n", label, prop, "prop", LITERAL(TypedValue()));
+      MakeScanAllByLabelPropertyValue(this->storage, symbol_table, "n", label, prop, "prop", LITERAL(TypedValue()));
   // RETURN n
   auto output = NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("n", true));
   auto produce = MakeProduce(scan_all.op_, output);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 0);
 }
@@ -3337,15 +3314,14 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
   memgraph::query::DbAccessor dba(storage_dba.get());
   EXPECT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
   // MATCH (n :label) WHERE null <= n.prop < null
-  AstStorage storage;
   SymbolTable symbol_table;
-  auto scan_all = MakeScanAllByLabelPropertyRange(storage, symbol_table, "n", label, prop, "prop",
+  auto scan_all = MakeScanAllByLabelPropertyRange(this->storage, symbol_table, "n", label, prop, "prop",
                                                   Bound{LITERAL(TypedValue()), Bound::Type::INCLUSIVE},
                                                   Bound{LITERAL(TypedValue()), Bound::Type::EXCLUSIVE});
   // RETURN n
   auto output = NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("n", true));
   auto produce = MakeProduce(scan_all.op_, output);
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 0);
 }
@@ -3367,7 +3343,6 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyNoValueInIndexContinuation) {
   memgraph::query::DbAccessor dba(storage_dba.get());
   EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
 
-  AstStorage storage;
   SymbolTable symbol_table;
 
   // UNWIND [1, 2, 3] as x
@@ -3378,9 +3353,10 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyNoValueInIndexContinuation) {
   x_expr->MapTo(x);
 
   // MATCH (n :label {prop: x})
-  auto scan_all = MakeScanAllByLabelPropertyValue(storage, symbol_table, "n", label, prop, "prop", x_expr, unwind);
+  auto scan_all =
+      MakeScanAllByLabelPropertyValue(this->storage, symbol_table, "n", label, prop, "prop", x_expr, unwind);
 
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_EQ(PullAll(*scan_all.op_, &context), 1);
 }
 
@@ -3413,33 +3389,31 @@ TYPED_TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
 
   // Make sure there are `vertex_prop_count` results when using index
   auto count_with_index = [this, &label, &prop](int prop_value, int prop_count) {
-    AstStorage storage;
     SymbolTable symbol_table;
     auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto scan_all_by_label_property_value =
-        MakeScanAllByLabelPropertyValue(storage, symbol_table, "n", label, prop, "prop", LITERAL(prop_value));
+        MakeScanAllByLabelPropertyValue(this->storage, symbol_table, "n", label, prop, "prop", LITERAL(prop_value));
     auto output = NEXPR("n", IDENT("n")->MapTo(scan_all_by_label_property_value.sym_))
                       ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(scan_all_by_label_property_value.op_, output);
-    auto context = MakeContext(storage, symbol_table, &dba);
+    auto context = MakeContext(this->storage, symbol_table, &dba);
     EXPECT_EQ(PullAll(*produce, &context), prop_count);
   };
 
   // Make sure there are `vertex_count` results when using scan all
   auto count_with_scan_all = [this, &prop](int prop_value, int prop_count) {
-    AstStorage storage;
     SymbolTable symbol_table;
     auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
-    auto scan_all = MakeScanAll(storage, symbol_table, "n");
-    auto e = PROPERTY_LOOKUP(IDENT("n")->MapTo(scan_all.sym_), std::make_pair("prop", prop));
+    auto scan_all = MakeScanAll(this->storage, symbol_table, "n");
+    auto e = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(scan_all.sym_), std::make_pair("prop", prop));
     auto filter = std::make_shared<Filter>(scan_all.op_, std::vector<std::shared_ptr<LogicalOperator>>{},
                                            EQ(e, LITERAL(prop_value)));
     auto output =
         NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(filter, output);
-    auto context = MakeContext(storage, symbol_table, &dba);
+    auto context = MakeContext(this->storage, symbol_table, &dba);
     EXPECT_EQ(PullAll(*produce, &context), prop_count);
   };
 
@@ -3458,7 +3432,7 @@ class ExistsFixture : public testing::Test {
   AstStorage storage;
   SymbolTable symbol_table;
 
-  std::pair<std::string, memgraph::storage::PropertyId> prop = PROPERTY_PAIR("property");
+  std::pair<std::string, memgraph::storage::PropertyId> prop = PROPERTY_PAIR(dba, "property");
 
   memgraph::query::VertexAccessor v1{dba.InsertVertex()};
   memgraph::query::VertexAccessor v2{dba.InsertVertex()};
@@ -3534,13 +3508,13 @@ class ExistsFixture : public testing::Test {
 
       if (destination_prop.has_value()) {
         auto prop_expr = static_cast<Expression *>(
-            EQ(PROPERTY_LOOKUP(destination_node->identifier_, prop), LITERAL(destination_prop.value())));
+            EQ(PROPERTY_LOOKUP(dba, destination_node->identifier_, prop), LITERAL(destination_prop.value())));
         filter_expr = filter_expr ? AND(filter_expr, prop_expr) : prop_expr;
       }
 
       if (edge_prop.has_value()) {
         auto prop_expr = static_cast<Expression *>(
-            EQ(PROPERTY_LOOKUP(expansion_edge->identifier_, prop), LITERAL(edge_prop.value())));
+            EQ(PROPERTY_LOOKUP(dba, expansion_edge->identifier_, prop), LITERAL(edge_prop.value())));
         filter_expr = filter_expr ? AND(filter_expr, prop_expr) : prop_expr;
       }
 
@@ -3675,7 +3649,7 @@ class SubqueriesFeature : public testing::Test {
   AstStorage storage;
   SymbolTable symbol_table;
 
-  std::pair<std::string, memgraph::storage::PropertyId> prop = PROPERTY_PAIR("property");
+  std::pair<std::string, memgraph::storage::PropertyId> prop = PROPERTY_PAIR(dba, "property");
 
   memgraph::query::VertexAccessor v1{dba.InsertVertex()};
   memgraph::query::VertexAccessor v2{dba.InsertVertex()};
@@ -3721,7 +3695,7 @@ TEST_F(SubqueriesFeature, BasicCartesianWithFilter) {
 
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto *filter_expr = AND(storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_),
-                          EQ(PROPERTY_LOOKUP(n.node_->identifier_, prop), LITERAL(2)));
+                          EQ(PROPERTY_LOOKUP(dba, n.node_->identifier_, prop), LITERAL(2)));
   auto filter = std::make_shared<Filter>(n.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
 
   auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
@@ -3747,7 +3721,7 @@ TEST_F(SubqueriesFeature, BasicCartesianWithFilterInsideSubquery) {
 
   auto m = MakeScanAll(storage, symbol_table, "m");
   auto *filter_expr = AND(storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_),
-                          EQ(PROPERTY_LOOKUP(n.node_->identifier_, prop), LITERAL(2)));
+                          EQ(PROPERTY_LOOKUP(dba, n.node_->identifier_, prop), LITERAL(2)));
   auto filter = std::make_shared<Filter>(m.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
 
   auto return_m = NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
@@ -3767,7 +3741,7 @@ TEST_F(SubqueriesFeature, BasicCartesianWithFilterNoResults) {
 
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto *filter_expr = AND(storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_),
-                          EQ(PROPERTY_LOOKUP(n.node_->identifier_, prop), LITERAL(3)));
+                          EQ(PROPERTY_LOOKUP(dba, n.node_->identifier_, prop), LITERAL(3)));
   auto filter = std::make_shared<Filter>(n.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
 
   auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
