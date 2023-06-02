@@ -33,7 +33,7 @@
 namespace memgraph::communication::bolt {
 
 template <typename T, typename TEncoder>
-concept hl_impl = requires(T v) {
+concept HLImpl = requires(T v) {
   { v.Interpret({}, {}, {}, {}) } -> std::same_as<std::pair<std::vector<std::string>, std::optional<int>>>;
   { v.Pull({}, {}, {}) } -> std::same_as<std::map<std::string, Value>>;
   { v.Discard({}, {}) } -> std::same_as<std::map<std::string, Value>>;
@@ -63,7 +63,7 @@ class SessionException : public utils::BasicException {
  * @tparam TInputStream type of input stream that will be used
  * @tparam TOutputStream type of output stream that will be used
  */
-template <typename TInputStream, typename TOutputStream, hl_impl<Encoder<ChunkedEncoderBuffer<TOutputStream>>> TSession>
+template <typename TInputStream, typename TOutputStream, HLImpl<Encoder<ChunkedEncoderBuffer<TOutputStream>>> TSession>
 class Session {
  public:
   using TEncoder = Encoder<ChunkedEncoderBuffer<TOutputStream>>;
@@ -212,9 +212,6 @@ class Session {
   };
 
   Version version_;
-
-  // TODO: REMOVE
-  std::string db_name{memgraph::dbms::kDefaultDB};
 
  private:
   void ClientFailureInvalidData() {

@@ -19,14 +19,23 @@
 #include "query/interpreter.hpp"
 #include "session_data.hpp"
 #include "storage_handler.hpp"
+#include "utils/result.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::dbms {
 
 template <typename T>
-concept get_uuid = requires(T v) {
+concept WithUUID = requires(T v) {
   { v.UUID() } -> std::same_as<std::string>;
 };
+
+enum class DeleteError : uint8_t {
+  DEFAULT_DB,
+  USING,
+  NON_EXISTENT,
+};
+
+using DeleteResult = utils::BasicResult<DeleteError>;
 
 template <typename TStorage = storage::Storage, typename TStorageConfig = storage::Config,
           typename TInterp = query::InterpreterContext, typename TInterpConfig = query::InterpreterConfig>
@@ -103,7 +112,7 @@ class SessionDataHandler {
     return false;
   }
 
-  template <get_uuid T>
+  template <WithUUID T>
   std::optional<std::string> ToUpdate(const T &session) {
     const auto uuid = session.UUID();
     auto &change = pending_change_[uuid];
@@ -114,9 +123,28 @@ class SessionDataHandler {
     return {};
   }
 
-  bool Delete(std::string_view name) {
-    // TODO
-    return false;
+  DeleteResult Delete(const std::string &db_name) {
+    // TODO better
+    if (db_name == kDefaultDB) {
+      // MSG cannot delete the default db
+      return DeleteError::DEFAULT_DB;
+    }
+    try {
+      const auto *ptr = GetPtr(db_name);
+      if (ptr) {
+        for (const auto &use : using_) {
+          if (use.second == db_name) {
+            // At least one session is using the db
+            return DeleteError::USING;
+          }
+        }
+        session_data_.erase(db_name);
+        return {};  // Success
+      }
+      return DeleteError::NON_EXISTENT;
+    } catch (...) {
+      return DeleteError::NON_EXISTENT;
+    }
   }
 
   void SetDefaultConfigs(config_type configs) { default_configs_ = configs; }

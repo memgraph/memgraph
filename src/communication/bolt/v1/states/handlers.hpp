@@ -79,15 +79,11 @@ namespace helpers {
  * NOTE: In order to avoid a copy, the metadata in moved.
  * TODO: Update if extra field is used for anything else.
  */
-inline std::map<std::string, Value> ConsumeMetadata(Value &extra, std::string &name) {
+inline std::map<std::string, Value> ConsumeMetadata(Value &extra) {
   std::map<std::string, Value> md;
   auto &md_tv = extra.ValueMap()["tx_metadata"];
   if (md_tv.IsMap()) {
     md = std::move(md_tv.ValueMap());
-  }
-  const auto db = md["db"];
-  if (db.IsString()) {
-    name = db.ValueString();
   }
   return md;
 }
@@ -291,7 +287,7 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
   try {
     // Interpret can throw.
     const auto [header, qid] =
-        session.Interpret(query.ValueString(), params.ValueMap(), helpers::ConsumeMetadata(extra, session.db_name));
+        session.Interpret(query.ValueString(), params.ValueMap(), helpers::ConsumeMetadata(extra));
     // Convert std::string to Value
     std::vector<Value> vec;
     std::map<std::string, Value> data;
@@ -385,7 +381,7 @@ State HandleBegin(TSession &session, const State state, const Marker marker) {
   }
 
   try {
-    session.BeginTransaction(helpers::ConsumeMetadata(extra, session.db_name));
+    session.BeginTransaction(helpers::ConsumeMetadata(extra));
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
   }

@@ -2806,6 +2806,25 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, bool in_explic
                              }
                              break;
                            }
+                           case MultiDatabaseQuery::Action::DROP: {
+                             const auto success = interpreter_context->sd_handler_->Delete(db_name);
+                             if (success.HasError()) {
+                               switch (success.GetError()) {
+                                 case dbms::DeleteError::DEFAULT_DB:
+                                   res = "Cannot delete the default database.";
+                                   break;
+                                 case dbms::DeleteError::NON_EXISTENT:
+                                   res = db_name + " does not exist.";
+                                   break;
+                                 case dbms::DeleteError::USING:
+                                   res = "Cannot delete " + db_name + ", it is currently being used.";
+                                   break;
+                               }
+                             } else {
+                               res = "Successfully deleted " + db_name;
+                             }
+                             break;
+                           }
                          }
 
                          status.emplace_back(std::vector<TypedValue>{TypedValue(res)});

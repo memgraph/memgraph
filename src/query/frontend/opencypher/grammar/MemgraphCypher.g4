@@ -442,6 +442,7 @@ transactionId : literal ;
 
 multiDatabaseQuery : createDatabase
                    | useDatabase
+                   | dropDatabase
                    ;
 
 databaseName : symbolicName ;
@@ -449,3 +450,5 @@ databaseName : symbolicName ;
 createDatabase : CREATE DATABASE databaseName ;
 
 useDatabase : USE DATABASE databaseName ;
+
+dropDatabase : DROP DATABASE databaseName ;
