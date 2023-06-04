@@ -53,7 +53,7 @@ MEMGRAPH_BUILD_DEPS=(
     libcurl4-openssl-dev # mg-requests
     sbcl # for custom Lisp C++ preprocessing
     doxygen graphviz # source documentation generators
-    mono-runtime mono-mcs zip unzip default-jdk-headless # for driver tests
+    mono-runtime mono-mcs zip unzip default-jdk-headless openjdk-17-jdk-headless # for driver tests
     dotnet-sdk-3.1 golang nodejs npm
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
@@ -61,6 +61,10 @@ MEMGRAPH_BUILD_DEPS=(
 
 MEMGRAPH_RUN_DEPS=(
     logrotate openssl python3 libseccomp2
+)
+
+NEW_DEPS=(
+    wget openjdk-17-jdk-headless
 )
 
 list() {
@@ -73,7 +77,8 @@ check() {
 
 install() {
     cd "$DIR"
-    apt update
+    apt update -y && DEBIAN_FRONTEND=noninteractive
+    apt install -y wget
     # If GitHub Actions runner is installed, append LANG to the environment.
     # Python related tests doesn't work the LANG export.
     if [ -d "/home/gh/actions-runner" ]; then
@@ -81,7 +86,6 @@ install() {
     else
         echo "NOTE: export LANG=en_US.utf8"
     fi
-    apt install -y wget
     for pkg in $1; do
         if [ "$pkg" == dotnet-sdk-3.1 ]; then
             if ! dpkg -s dotnet-sdk-3.1 2>/dev/null >/dev/null; then

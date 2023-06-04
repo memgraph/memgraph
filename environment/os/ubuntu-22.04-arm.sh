@@ -53,7 +53,7 @@ MEMGRAPH_BUILD_DEPS=(
     libcurl4-openssl-dev # mg-requests
     sbcl # for custom Lisp C++ preprocessing
     doxygen graphviz # source documentation generators
-    mono-runtime mono-mcs zip unzip default-jdk-headless # for driver tests
+    mono-runtime mono-mcs zip unzip default-jdk-headless openjdk-17-jdk-headless # for driver tests
     dotnet-sdk-6.0 golang nodejs npm
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
@@ -61,6 +61,10 @@ MEMGRAPH_BUILD_DEPS=(
 
 MEMGRAPH_RUN_DEPS=(
     logrotate openssl python3 libseccomp2
+)
+
+NEW_DEPS=(
+    wget
 )
 
 list() {

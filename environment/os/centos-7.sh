@@ -56,13 +56,17 @@ MEMGRAPH_BUILD_DEPS=(
     sbcl # for custom Lisp C++ preprocessing
     rpm-build rpmlint # for RPM package building
     doxygen graphviz # source documentation generators
-    which mono-complete dotnet-sdk-3.1 golang nodejs zip unzip java-11-openjdk-devel # for driver tests
+    which mono-complete dotnet-sdk-3.1 golang nodejs zip unzip java-11-openjdk-devel jdk-17 # for driver tests
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
 )
 
 MEMGRAPH_RUN_DEPS=(
     logrotate openssl python3 libseccomp
+)
+
+NEW_DEPS=(
+    wget
 )
 
 list() {
@@ -114,7 +118,13 @@ install() {
     yum update -y
     yum install -y wget python3 python3-pip
     yum install -y git
+
     for pkg in $1; do
+        if [ "$pkg" == jdk-17 ]; then
+            wget https://download.oracle.com/java/17/latest/jdk-17_linux-x64_bin.rpm
+            rpm -ivh jdk-17_linux-x64_bin.rpm
+            continue
+        fi
         if [ "$pkg" == libipt ]; then
             if ! yum list installed libipt >/dev/null 2>/dev/null; then
                 yum install -y http://repo.okay.com.mx/centos/8/x86_64/release/libipt-1.6.1-8.el8.x86_64.rpm

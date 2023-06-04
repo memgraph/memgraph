@@ -53,13 +53,17 @@ MEMGRAPH_BUILD_DEPS=(
     libcurl4-openssl-dev # mg-requests
     sbcl # custom Lisp C++ preprocessing
     doxygen graphviz # source documentation generators
-    mono-runtime mono-mcs nodejs zip unzip default-jdk-headless # driver tests
+    mono-runtime mono-mcs nodejs zip unzip default-jdk-headless openjdk-17-jdk-headless # driver tests
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
 )
 
 MEMGRAPH_RUN_DEPS=(
     logrotate openssl python3 libseccomp2
+)
+
+NEW_DEPS=(
+    wget
 )
 
 list() {
@@ -71,6 +75,7 @@ check() {
 }
 
 install() {
+    apt update -y
     apt install -y $1
 }
 

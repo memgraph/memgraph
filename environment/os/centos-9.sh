@@ -56,7 +56,7 @@ MEMGRAPH_BUILD_DEPS=(
     libcurl-devel # mg-requests
     rpm-build rpmlint # for RPM package building
     doxygen graphviz # source documentation generators
-    which nodejs golang zip unzip java-11-openjdk-devel # for driver tests
+    which nodejs golang zip unzip java-11-openjdk-devel java-17-openjdk java-17-openjdk-devel # for driver tests
     sbcl # for custom Lisp C++ preprocessing
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
@@ -64,6 +64,10 @@ MEMGRAPH_BUILD_DEPS=(
 
 MEMGRAPH_RUN_DEPS=(
     logrotate openssl python3 libseccomp
+)
+
+NEW_DEPS=(
+    wget
 )
 
 list() {

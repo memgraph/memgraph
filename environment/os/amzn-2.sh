@@ -57,13 +57,17 @@ MEMGRAPH_BUILD_DEPS=(
     libcurl-devel # mg-requests
     rpm-build rpmlint # for RPM package building
     doxygen graphviz # source documentation generators
-    which nodejs golang zip unzip java-11-openjdk-devel # for driver tests
+    which nodejs golang zip unzip java-11-openjdk-devel openjdk-17 # for driver tests
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
 )
 
 MEMGRAPH_RUN_DEPS=(
     logrotate openssl python3 libseccomp
+)
+
+NEW_DEPS=(
+    wget
 )
 
 list() {
@@ -109,6 +113,11 @@ install() {
     fi
     yum update -y
     for pkg in $1; do
+        if [ "$pkg" == openjdk-17 ]; then
+          wget --no-check-certificate -c --header "Cookie: oraclelicense=accept-securebackup-cookie" https://download.oracle.com/java/17/latest/jdk-17_linux-x64_bin.rpm
+          rpm -Uvh jdk-17_linux-x64_bin.rpm
+          continue
+        fi
         if [ "$pkg" == libipt ]; then
             if ! yum list installed libipt >/dev/null 2>/dev/null; then
                 yum install -y http://repo.okay.com.mx/centos/8/x86_64/release/libipt-1.6.1-8.el8.x86_64.rpm
