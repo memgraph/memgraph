@@ -277,8 +277,7 @@ class DumpTest : public ::testing::Test {
   std::unique_ptr<memgraph::storage::Storage> db = std::make_unique<StorageType>();
 };
 
-// using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-using StorageTypes = ::testing::Types<memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
 TYPED_TEST_CASE(DumpTest, StorageTypes);
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -630,7 +629,7 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
     ASSERT_FALSE(dba->Commit().HasError());
   }
 
-  auto db_dump = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto db_dump = std::unique_ptr<memgraph::storage::Storage>(new TypeParam());
   {
     ResultStreamFaker stream(this->db.get());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
@@ -707,7 +706,7 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
                    .HasError());
 
   const auto &db_initial_state = GetState(this->db.get());
-  auto db_dump = std::unique_ptr<memgraph::storage::Storage>(new memgraph::storage::InMemoryStorage());
+  auto db_dump = std::unique_ptr<memgraph::storage::Storage>(new TypeParam());
   {
     ResultStreamFaker stream(this->db.get());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
