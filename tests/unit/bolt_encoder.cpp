@@ -11,13 +11,16 @@
 
 #include <array>
 #include <bit>
+#include <memory>
 
 #include "bolt_common.hpp"
 #include "bolt_testdata.hpp"
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/encoder/encoder.hpp"
 #include "glue/communication.hpp"
+#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/storage.hpp"
 #include "utils/temporal.hpp"
 using memgraph::communication::bolt::Value;
 
@@ -174,11 +177,10 @@ TEST_F(BoltEncoder, Map) {
   CheckOutput(output, nullptr, 0);
 }
 
-TEST_F(BoltEncoder, VertexAndEdge) {
+void TestVertexAndEdgeWithDifferentStorages(std::unique_ptr<memgraph::storage::Storage> &&db) {
   output.clear();
 
   // create vertex
-  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
   auto dba = db->Access();
   auto va1 = dba->CreateVertex();
   auto va2 = dba->CreateVertex();
@@ -223,6 +225,16 @@ TEST_F(BoltEncoder, VertexAndEdge) {
   CheckInt(output, va1.Gid().AsInt());
   CheckInt(output, va2.Gid().AsInt());
   CheckOutput(output, vertexedge_encoded + 48, 26);
+}
+
+TEST_F(BoltEncoder, VertexAndEdgeInMemoryStorage) {
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  TestVertexAndEdgeWithDifferentStorages(std::move(db));
+}
+
+TEST_F(BoltEncoder, VertexAndEdgeOnDiskStorage) {
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::DiskStorage()};
+  TestVertexAndEdgeWithDifferentStorages(std::move(db));
 }
 
 TEST_F(BoltEncoder, BoltV1ExampleMessages) {
