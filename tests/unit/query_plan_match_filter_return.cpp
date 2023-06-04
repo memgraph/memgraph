@@ -77,7 +77,6 @@ class MatchReturnFixture : public testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-// using StorageTypes = ::testing::Types<memgraph::storage::DiskStorage>;
 TYPED_TEST_CASE(MatchReturnFixture, StorageTypes);
 
 TYPED_TEST(MatchReturnFixture, MatchReturn) {
@@ -469,9 +468,10 @@ TYPED_TEST(QueryPlan, CartesianThreeWay) {
   }
 }
 
+template <typename StorageType>
 class ExpandFixture : public testing::Test {
  protected:
-  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  std::unique_ptr<memgraph::storage::Storage> db{new StorageType()};
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   SymbolTable symbol_table;
@@ -495,46 +495,49 @@ class ExpandFixture : public testing::Test {
   }
 };
 
-TEST_F(ExpandFixture, Expand) {
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+TYPED_TEST_CASE(ExpandFixture, StorageTypes);
+
+TYPED_TEST(ExpandFixture, Expand) {
   auto test_expand = [&](EdgeAtom::Direction direction, memgraph::storage::View view) {
-    auto n = MakeScanAll(this->storage, symbol_table, "n");
-    auto r_m = MakeExpand(this->storage, symbol_table, n.op_, n.sym_, "r", direction, {}, "m", false, view);
+    auto n = MakeScanAll(this->storage, this->symbol_table, "n");
+    auto r_m = MakeExpand(this->storage, this->symbol_table, n.op_, n.sym_, "r", direction, {}, "m", false, view);
 
     // make a named expression and a produce
-    auto output =
-        NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+    auto output = NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))
+                      ->MapTo(this->symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(r_m.op_, output);
-    auto context = MakeContext(this->storage, symbol_table, &dba);
+    auto context = MakeContext(this->storage, this->symbol_table, &this->dba);
     return PullAll(*produce, &context);
   };
 
   // test that expand works well for both old and new graph state
-  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, edge_type).HasValue());
-  ASSERT_TRUE(dba.InsertEdge(&v1, &v3, edge_type).HasValue());
+  ASSERT_TRUE(this->dba.InsertEdge(&this->v1, &this->v2, this->edge_type).HasValue());
+  ASSERT_TRUE(this->dba.InsertEdge(&this->v1, &this->v3, this->edge_type).HasValue());
   EXPECT_EQ(2, test_expand(EdgeAtom::Direction::OUT, memgraph::storage::View::OLD));
   EXPECT_EQ(2, test_expand(EdgeAtom::Direction::IN, memgraph::storage::View::OLD));
   EXPECT_EQ(4, test_expand(EdgeAtom::Direction::BOTH, memgraph::storage::View::OLD));
   EXPECT_EQ(4, test_expand(EdgeAtom::Direction::OUT, memgraph::storage::View::NEW));
   EXPECT_EQ(4, test_expand(EdgeAtom::Direction::IN, memgraph::storage::View::NEW));
   EXPECT_EQ(8, test_expand(EdgeAtom::Direction::BOTH, memgraph::storage::View::NEW));
-  dba.AdvanceCommand();
+  this->dba.AdvanceCommand();
   EXPECT_EQ(4, test_expand(EdgeAtom::Direction::OUT, memgraph::storage::View::OLD));
   EXPECT_EQ(4, test_expand(EdgeAtom::Direction::IN, memgraph::storage::View::OLD));
   EXPECT_EQ(8, test_expand(EdgeAtom::Direction::BOTH, memgraph::storage::View::OLD));
 }
 
 #ifdef MG_ENTERPRISE
-TEST_F(ExpandFixture, ExpandWithEdgeFiltering) {
+TYPED_TEST(ExpandFixture, ExpandWithEdgeFiltering) {
   auto test_expand = [&](memgraph::auth::User user, EdgeAtom::Direction direction, memgraph::storage::View view) {
-    auto n = MakeScanAll(storage, symbol_table, "n");
-    auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", direction, {}, "m", false, view);
+    auto n = MakeScanAll(this->storage, this->symbol_table, "n");
+    auto r_m = MakeExpand(this->storage, this->symbol_table, n.op_, n.sym_, "r", direction, {}, "m", false, view);
 
     // make a named expression and a produce
-    auto output =
-        NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+    auto output = NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))
+                      ->MapTo(this->symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(r_m.op_, output);
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
-    auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+    auto context = MakeContextWithFineGrainedChecker(this->storage, this->symbol_table, &this->dba, &auth_checker);
     return PullAll(*produce, &context);
   };
 
@@ -546,10 +549,10 @@ TEST_F(ExpandFixture, ExpandWithEdgeFiltering) {
                                                                    memgraph::auth::FineGrainedPermission::NOTHING);
   user.fine_grained_access_handler().label_permissions().Grant("*",
                                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-  memgraph::storage::EdgeTypeId edge_type_test{db->NameToEdgeType("edge_type_test")};
+  memgraph::storage::EdgeTypeId edge_type_test{this->db->NameToEdgeType("edge_type_test")};
 
-  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, edge_type_test).HasValue());
-  ASSERT_TRUE(dba.InsertEdge(&v1, &v3, edge_type_test).HasValue());
+  ASSERT_TRUE(this->dba.InsertEdge(&this->v1, &this->v2, edge_type_test).HasValue());
+  ASSERT_TRUE(this->dba.InsertEdge(&this->v1, &this->v3, edge_type_test).HasValue());
   // test that expand works well for both old and new graph state
   EXPECT_EQ(2, test_expand(user, EdgeAtom::Direction::OUT, memgraph::storage::View::OLD));
   EXPECT_EQ(2, test_expand(user, EdgeAtom::Direction::IN, memgraph::storage::View::OLD));
@@ -558,7 +561,7 @@ TEST_F(ExpandFixture, ExpandWithEdgeFiltering) {
   EXPECT_EQ(2, test_expand(user, EdgeAtom::Direction::IN, memgraph::storage::View::NEW));
   EXPECT_EQ(4, test_expand(user, EdgeAtom::Direction::BOTH, memgraph::storage::View::NEW));
 
-  dba.AdvanceCommand();
+  this->dba.AdvanceCommand();
 
   EXPECT_EQ(2, test_expand(user, EdgeAtom::Direction::OUT, memgraph::storage::View::OLD));
   EXPECT_EQ(2, test_expand(user, EdgeAtom::Direction::IN, memgraph::storage::View::OLD));
@@ -580,20 +583,20 @@ TEST_F(ExpandFixture, ExpandWithEdgeFiltering) {
 }
 #endif
 
-TEST_F(ExpandFixture, ExpandPath) {
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {}, "m", false,
+TYPED_TEST(ExpandFixture, ExpandPath) {
+  auto n = MakeScanAll(this->storage, this->symbol_table, "n");
+  auto r_m = MakeExpand(this->storage, this->symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {}, "m", false,
                         memgraph::storage::View::OLD);
-  Symbol path_sym = symbol_table.CreateSymbol("path", true);
+  Symbol path_sym = this->symbol_table.CreateSymbol("path", true);
   auto path = std::make_shared<ConstructNamedPath>(r_m.op_, path_sym,
                                                    std::vector<Symbol>{n.sym_, r_m.edge_sym_, r_m.node_sym_});
   auto output =
-      NEXPR("path", IDENT("path")->MapTo(path_sym))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+      NEXPR("path", IDENT("path")->MapTo(path_sym))->MapTo(this->symbol_table.CreateSymbol("named_expression_1", true));
   auto produce = MakeProduce(path, output);
 
-  std::vector<memgraph::query::Path> expected_paths{memgraph::query::Path(v1, r2, v3),
-                                                    memgraph::query::Path(v1, r1, v2)};
-  auto context = MakeContext(storage, symbol_table, &dba);
+  std::vector<memgraph::query::Path> expected_paths{memgraph::query::Path(this->v1, this->r2, this->v3),
+                                                    memgraph::query::Path(this->v1, this->r1, this->v2)};
+  auto context = MakeContext(this->storage, this->symbol_table, &this->dba);
   auto results = CollectProduce(*produce, &context);
   ASSERT_EQ(results.size(), 2);
   std::vector<memgraph::query::Path> results_paths;
@@ -613,13 +616,15 @@ TEST_F(ExpandFixture, ExpandPath) {
  * member in this class). Edges have properties set that
  * indicate origin and destination vertex for debugging.
  */
+using map_int = std::unordered_map<int, int>;
+
+template <typename StorageType>
 class QueryPlanExpandVariable : public testing::Test {
  protected:
   // type returned by the GetEdgeListSizes function, used
   // a lot below in test declaration
-  using map_int = std::unordered_map<int, int>;
 
-  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  std::unique_ptr<memgraph::storage::Storage> db{new StorageType()};
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   // labels for layers in the double chain
@@ -777,13 +782,17 @@ class QueryPlanExpandVariable : public testing::Test {
   }
 };
 
-TEST_F(QueryPlanExpandVariable, OneVariableExpansion) {
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+TYPED_TEST_CASE(QueryPlanExpandVariable, StorageTypes);
+
+TYPED_TEST(QueryPlanExpandVariable, OneVariableExpansion) {
   auto test_expand = [&](int layer, EdgeAtom::Direction direction, std::optional<size_t> lower,
                          std::optional<size_t> upper, bool reverse) {
-    auto e = Edge("r", direction);
-    return GetEdgeListSizes(AddMatch<ExpandVariable>(nullptr, "n", layer, direction, {}, lower, upper, e, "m",
-                                                     memgraph::storage::View::OLD, reverse),
-                            e);
+    auto e = this->Edge("r", direction);
+    return this->GetEdgeListSizes(
+        this->template AddMatch<ExpandVariable>(nullptr, "n", layer, direction, {}, lower, upper, e, "m",
+                                                memgraph::storage::View::OLD, reverse),
+        e);
   };
 
   for (int reverse = 0; reverse < 2; ++reverse) {
@@ -804,23 +813,24 @@ TEST_F(QueryPlanExpandVariable, OneVariableExpansion) {
     EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 4, 4, reverse), (map_int{{4, 24}}));
 
     // default bound values (lower default is 1, upper default is inf)
-    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, nullopt, 0, reverse), (map_int{}));
-    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, nullopt, 1, reverse), (map_int{{1, 4}}));
-    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, nullopt, 2, reverse), (map_int{{1, 4}, {2, 8}}));
-    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 7, nullopt, reverse), (map_int{{7, 24}, {8, 24}}));
-    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 8, nullopt, reverse), (map_int{{8, 24}}));
-    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 9, nullopt, reverse), (map_int{}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, this->nullopt, 0, reverse), (map_int{}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, this->nullopt, 1, reverse), (map_int{{1, 4}}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, this->nullopt, 2, reverse), (map_int{{1, 4}, {2, 8}}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 7, this->nullopt, reverse), (map_int{{7, 24}, {8, 24}}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 8, this->nullopt, reverse), (map_int{{8, 24}}));
+    EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 9, this->nullopt, reverse), (map_int{}));
   }
 }
 
 #ifdef MG_ENTERPRISE
-TEST_F(QueryPlanExpandVariable, FineGrainedOneVariableExpansion) {
+TYPED_TEST(QueryPlanExpandVariable, FineGrainedOneVariableExpansion) {
   auto test_expand = [&](int layer, EdgeAtom::Direction direction, std::optional<size_t> lower,
                          std::optional<size_t> upper, bool reverse, memgraph::auth::User &user) {
-    auto e = Edge("r", direction);
-    return GetEdgeListSizes(AddMatch<ExpandVariable>(nullptr, "n", layer, direction, {}, lower, upper, e, "m",
-                                                     memgraph::storage::View::OLD, reverse),
-                            e, &user);
+    auto e = this->Edge("r", direction);
+    return this->GetEdgeListSizes(
+        this->template AddMatch<ExpandVariable>(nullptr, "n", layer, direction, {}, lower, upper, e, "m",
+                                                memgraph::storage::View::OLD, reverse),
+        e, &user);
   };
 
   // All labels, All edge types granted
@@ -847,12 +857,13 @@ TEST_F(QueryPlanExpandVariable, FineGrainedOneVariableExpansion) {
       EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 4, 4, reverse, user), (map_int{{4, 24}}));
 
       // default bound values (lower default is 1, upper default is inf)
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, nullopt, 0, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, nullopt, 1, reverse, user), (map_int{{1, 4}}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, nullopt, 2, reverse, user), (map_int{{1, 4}, {2, 8}}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 7, nullopt, reverse, user), (map_int{{7, 24}, {8, 24}}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 8, nullopt, reverse, user), (map_int{{8, 24}}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 9, nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, this->nullopt, 0, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, this->nullopt, 1, reverse, user), (map_int{{1, 4}}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, this->nullopt, 2, reverse, user), (map_int{{1, 4}, {2, 8}}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 7, this->nullopt, reverse, user),
+                (map_int{{7, 24}, {8, 24}}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 8, this->nullopt, reverse, user), (map_int{{8, 24}}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 9, this->nullopt, reverse, user), (map_int{}));
     }
   }
 
@@ -863,12 +874,12 @@ TEST_F(QueryPlanExpandVariable, FineGrainedOneVariableExpansion) {
                                                                      memgraph::auth::FineGrainedPermission::NOTHING);
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::NOTHING);
     for (auto reverse : {false, true}) {
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 1, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 1, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 1, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 1, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 1, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 1, nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 1, this->nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 1, this->nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 1, this->nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 1, this->nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 1, this->nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 1, this->nullopt, reverse, user), (map_int{}));
     }
   }
 
@@ -879,18 +890,18 @@ TEST_F(QueryPlanExpandVariable, FineGrainedOneVariableExpansion) {
                                                                      memgraph::auth::FineGrainedPermission::NOTHING);
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
     for (auto reverse : {false, true}) {
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 0, nullopt, reverse, user), (map_int{{0, 2}}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 0, nullopt, reverse, user), (map_int{{0, 2}}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 0, nullopt, reverse, user), (map_int{{0, 2}}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 0, nullopt, reverse, user), (map_int{{0, 2}}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 0, nullopt, reverse, user), (map_int{{0, 2}}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 0, nullopt, reverse, user), (map_int{{0, 2}}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 1, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 1, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 1, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 1, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 1, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 1, nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 0, this->nullopt, reverse, user), (map_int{{0, 2}}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 0, this->nullopt, reverse, user), (map_int{{0, 2}}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 0, this->nullopt, reverse, user), (map_int{{0, 2}}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 0, this->nullopt, reverse, user), (map_int{{0, 2}}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 0, this->nullopt, reverse, user), (map_int{{0, 2}}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 0, this->nullopt, reverse, user), (map_int{{0, 2}}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 1, this->nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 1, this->nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 1, this->nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 1, this->nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 1, this->nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 1, this->nullopt, reverse, user), (map_int{}));
     }
   }
 
@@ -900,12 +911,12 @@ TEST_F(QueryPlanExpandVariable, FineGrainedOneVariableExpansion) {
     user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::NOTHING);
     for (auto reverse : {false, true}) {
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 1, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 1, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 1, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 1, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 1, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 1, nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 1, this->nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 1, this->nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 1, this->nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 1, this->nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 1, this->nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 1, this->nullopt, reverse, user), (map_int{}));
     }
   }
 
@@ -918,18 +929,18 @@ TEST_F(QueryPlanExpandVariable, FineGrainedOneVariableExpansion) {
     user.fine_grained_access_handler().label_permissions().Grant("1", memgraph::auth::FineGrainedPermission::NOTHING);
 
     for (auto reverse : {false, true}) {
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 0, nullopt, reverse, user), (map_int{{0, 2}}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 0, nullopt, reverse, user), (map_int{{0, 2}}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 0, nullopt, reverse, user), (map_int{{0, 2}}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 0, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 0, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 0, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 2, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 2, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 2, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 1, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 1, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 1, nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 0, this->nullopt, reverse, user), (map_int{{0, 2}}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 0, this->nullopt, reverse, user), (map_int{{0, 2}}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 0, this->nullopt, reverse, user), (map_int{{0, 2}}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 0, this->nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 0, this->nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 0, this->nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 2, this->nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 2, this->nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 2, this->nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 1, this->nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 1, this->nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 1, this->nullopt, reverse, user), (map_int{}));
     }
   }
 
@@ -943,20 +954,20 @@ TEST_F(QueryPlanExpandVariable, FineGrainedOneVariableExpansion) {
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
 
     for (auto reverse : {false, true}) {
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 0, nullopt, reverse, user), (map_int{{0, 2}}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 0, nullopt, reverse, user), (map_int{{0, 2}}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 0, nullopt, reverse, user), (map_int{{0, 2}}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 0, nullopt, reverse, user), (map_int{{0, 2}}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 0, nullopt, reverse, user), (map_int{{1, 4}, {0, 2}}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 0, nullopt, reverse, user),
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 0, this->nullopt, reverse, user), (map_int{{0, 2}}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 0, this->nullopt, reverse, user), (map_int{{0, 2}}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 0, this->nullopt, reverse, user), (map_int{{0, 2}}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 0, this->nullopt, reverse, user), (map_int{{0, 2}}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 0, this->nullopt, reverse, user), (map_int{{1, 4}, {0, 2}}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 0, this->nullopt, reverse, user),
                 (map_int{{4, 4}, {3, 4}, {2, 4}, {1, 4}, {0, 2}}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 1, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 1, nullopt, reverse, user), (map_int{{1, 4}}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 1, nullopt, reverse, user),
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 1, this->nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 1, this->nullopt, reverse, user), (map_int{{1, 4}}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 1, this->nullopt, reverse, user),
                 (map_int{{1, 4}, {2, 4}, {3, 4}, {4, 4}}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 1, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 1, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 1, nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 1, this->nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 1, this->nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 1, this->nullopt, reverse, user), (map_int{}));
     }
   }
 
@@ -969,21 +980,21 @@ TEST_F(QueryPlanExpandVariable, FineGrainedOneVariableExpansion) {
     user.fine_grained_access_handler().label_permissions().Grant("2", memgraph::auth::FineGrainedPermission::NOTHING);
 
     for (auto reverse : {false, true}) {
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 0, nullopt, reverse, user), (map_int{{0, 2}}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 0, nullopt, reverse, user), (map_int{{0, 2}, {1, 4}}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 0, nullopt, reverse, user),
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 0, this->nullopt, reverse, user), (map_int{{0, 2}}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 0, this->nullopt, reverse, user), (map_int{{0, 2}, {1, 4}}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 0, this->nullopt, reverse, user),
                 (map_int{{4, 4}, {3, 4}, {2, 4}, {1, 4}, {0, 2}}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 0, nullopt, reverse, user), (map_int{{1, 4}, {0, 2}}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 0, nullopt, reverse, user), (map_int{{0, 2}}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 0, nullopt, reverse, user),
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 0, this->nullopt, reverse, user), (map_int{{1, 4}, {0, 2}}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 0, this->nullopt, reverse, user), (map_int{{0, 2}}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 0, this->nullopt, reverse, user),
                 (map_int{{4, 4}, {3, 4}, {2, 4}, {1, 4}, {0, 2}}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 1, nullopt, reverse, user), (map_int{{1, 4}}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 1, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 1, nullopt, reverse, user),
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 1, this->nullopt, reverse, user), (map_int{{1, 4}}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 1, this->nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 1, this->nullopt, reverse, user),
                 (map_int{{1, 4}, {2, 4}, {3, 4}, {4, 4}}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 1, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 1, nullopt, reverse, user), (map_int{{1, 4}}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 1, nullopt, reverse, user),
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 1, this->nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 1, this->nullopt, reverse, user), (map_int{{1, 4}}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 1, this->nullopt, reverse, user),
                 (map_int{{4, 4}, {3, 4}, {2, 4}, {1, 4}}));
     }
   }
@@ -998,48 +1009,48 @@ TEST_F(QueryPlanExpandVariable, FineGrainedOneVariableExpansion) {
                                                                      memgraph::auth::FineGrainedPermission::NOTHING);
 
     for (auto reverse : {false, true}) {
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 0, nullopt, reverse, user), (map_int{{0, 2}}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 0, nullopt, reverse, user), (map_int{{1, 4}, {0, 2}}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 0, nullopt, reverse, user),
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 0, this->nullopt, reverse, user), (map_int{{0, 2}}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 0, this->nullopt, reverse, user), (map_int{{1, 4}, {0, 2}}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 0, this->nullopt, reverse, user),
                 (map_int{{4, 4}, {3, 4}, {2, 4}, {1, 4}, {0, 2}}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 0, nullopt, reverse, user), (map_int{{1, 4}, {0, 2}}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 0, nullopt, reverse, user), (map_int{{0, 2}}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 0, nullopt, reverse, user),
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 0, this->nullopt, reverse, user), (map_int{{1, 4}, {0, 2}}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 0, this->nullopt, reverse, user), (map_int{{0, 2}}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 0, this->nullopt, reverse, user),
                 (map_int{{4, 4}, {3, 4}, {2, 4}, {1, 4}, {0, 2}}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 1, nullopt, reverse, user), (map_int{{1, 4}}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 1, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 1, nullopt, reverse, user),
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 1, this->nullopt, reverse, user), (map_int{{1, 4}}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 1, this->nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 1, this->nullopt, reverse, user),
                 (map_int{{1, 4}, {2, 4}, {3, 4}, {4, 4}}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 1, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 1, nullopt, reverse, user), (map_int{{1, 4}}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 1, nullopt, reverse, user),
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 1, this->nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 1, this->nullopt, reverse, user), (map_int{{1, 4}}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 1, this->nullopt, reverse, user),
                 (map_int{{4, 4}, {3, 4}, {2, 4}, {1, 4}}));
     }
   }
 }
 #endif
 
-TEST_F(QueryPlanExpandVariable, EdgeUniquenessSingleAndVariableExpansion) {
+TYPED_TEST(QueryPlanExpandVariable, EdgeUniquenessSingleAndVariableExpansion) {
   auto test_expand = [&](int layer, EdgeAtom::Direction direction, std::optional<size_t> lower,
                          std::optional<size_t> upper, bool single_expansion_before, bool add_uniqueness_check) {
     std::shared_ptr<LogicalOperator> last_op{nullptr};
     std::vector<Symbol> symbols;
 
     if (single_expansion_before) {
-      symbols.push_back(Edge("r0", direction));
-      last_op = AddMatch<Expand>(last_op, "n0", layer, direction, {}, lower, upper, symbols.back(), "m0",
-                                 memgraph::storage::View::OLD);
+      symbols.push_back(this->Edge("r0", direction));
+      last_op = this->template AddMatch<Expand>(last_op, "n0", layer, direction, {}, lower, upper, symbols.back(), "m0",
+                                                memgraph::storage::View::OLD);
     }
 
-    auto var_length_sym = Edge("r1", direction);
+    auto var_length_sym = this->Edge("r1", direction);
     symbols.push_back(var_length_sym);
-    last_op = AddMatch<ExpandVariable>(last_op, "n1", layer, direction, {}, lower, upper, var_length_sym, "m1",
-                                       memgraph::storage::View::OLD);
+    last_op = this->template AddMatch<ExpandVariable>(last_op, "n1", layer, direction, {}, lower, upper, var_length_sym,
+                                                      "m1", memgraph::storage::View::OLD);
 
     if (!single_expansion_before) {
-      symbols.push_back(Edge("r2", direction));
-      last_op = AddMatch<Expand>(last_op, "n2", layer, direction, {}, lower, upper, symbols.back(), "m2",
-                                 memgraph::storage::View::OLD);
+      symbols.push_back(this->Edge("r2", direction));
+      last_op = this->template AddMatch<Expand>(last_op, "n2", layer, direction, {}, lower, upper, symbols.back(), "m2",
+                                                memgraph::storage::View::OLD);
     }
 
     if (add_uniqueness_check) {
@@ -1048,7 +1059,7 @@ TEST_F(QueryPlanExpandVariable, EdgeUniquenessSingleAndVariableExpansion) {
       last_op = std::make_shared<EdgeUniquenessFilter>(last_op, last_symbol, symbols);
     }
 
-    return GetEdgeListSizes(last_op, var_length_sym);
+    return this->GetEdgeListSizes(last_op, var_length_sym);
   };
 
   // no uniqueness between variable and single expansion
@@ -1058,20 +1069,20 @@ TEST_F(QueryPlanExpandVariable, EdgeUniquenessSingleAndVariableExpansion) {
   EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 3, false, true), (map_int{{2, 3 * 8}}));
 }
 
-TEST_F(QueryPlanExpandVariable, EdgeUniquenessTwoVariableExpansions) {
+TYPED_TEST(QueryPlanExpandVariable, EdgeUniquenessTwoVariableExpansions) {
   auto test_expand = [&](int layer, EdgeAtom::Direction direction, std::optional<size_t> lower,
                          std::optional<size_t> upper, bool add_uniqueness_check) {
-    auto e1 = Edge("r1", direction);
-    auto first = AddMatch<ExpandVariable>(nullptr, "n1", layer, direction, {}, lower, upper, e1, "m1",
-                                          memgraph::storage::View::OLD);
-    auto e2 = Edge("r2", direction);
-    auto last_op = AddMatch<ExpandVariable>(first, "n2", layer, direction, {}, lower, upper, e2, "m2",
-                                            memgraph::storage::View::OLD);
+    auto e1 = this->Edge("r1", direction);
+    auto first = this->template AddMatch<ExpandVariable>(nullptr, "n1", layer, direction, {}, lower, upper, e1, "m1",
+                                                         memgraph::storage::View::OLD);
+    auto e2 = this->Edge("r2", direction);
+    auto last_op = this->template AddMatch<ExpandVariable>(first, "n2", layer, direction, {}, lower, upper, e2, "m2",
+                                                           memgraph::storage::View::OLD);
     if (add_uniqueness_check) {
       last_op = std::make_shared<EdgeUniquenessFilter>(last_op, e2, std::vector<Symbol>{e1});
     }
 
-    return GetEdgeListSizes(last_op, e2);
+    return this->GetEdgeListSizes(last_op, e2);
   };
 
   EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 2, false), (map_int{{2, 8 * 8}}));
@@ -1079,20 +1090,20 @@ TEST_F(QueryPlanExpandVariable, EdgeUniquenessTwoVariableExpansions) {
 }
 
 #ifdef MG_ENTERPRISE
-TEST_F(QueryPlanExpandVariable, FineGrainedEdgeUniquenessTwoVariableExpansions) {
+TYPED_TEST(QueryPlanExpandVariable, FineGrainedEdgeUniquenessTwoVariableExpansions) {
   auto test_expand = [&](int layer, EdgeAtom::Direction direction, std::optional<size_t> lower,
                          std::optional<size_t> upper, bool add_uniqueness_check, memgraph::auth::User &user) {
-    auto e1 = Edge("r1", direction);
-    auto first = AddMatch<ExpandVariable>(nullptr, "n1", layer, direction, {}, lower, upper, e1, "m1",
-                                          memgraph::storage::View::OLD);
-    auto e2 = Edge("r2", direction);
-    auto last_op = AddMatch<ExpandVariable>(first, "n2", layer, direction, {}, lower, upper, e2, "m2",
-                                            memgraph::storage::View::OLD);
+    auto e1 = this->Edge("r1", direction);
+    auto first = this->template AddMatch<ExpandVariable>(nullptr, "n1", layer, direction, {}, lower, upper, e1, "m1",
+                                                         memgraph::storage::View::OLD);
+    auto e2 = this->Edge("r2", direction);
+    auto last_op = this->template AddMatch<ExpandVariable>(first, "n2", layer, direction, {}, lower, upper, e2, "m2",
+                                                           memgraph::storage::View::OLD);
     if (add_uniqueness_check) {
       last_op = std::make_shared<EdgeUniquenessFilter>(last_op, e2, std::vector<Symbol>{e1});
     }
 
-    return GetEdgeListSizes(last_op, e2, &user);
+    return this->GetEdgeListSizes(last_op, e2, &user);
   };
 
   // All labels granted, All edge types granted
@@ -1172,23 +1183,23 @@ TEST_F(QueryPlanExpandVariable, FineGrainedEdgeUniquenessTwoVariableExpansions) 
 }
 #endif
 
-TEST_F(QueryPlanExpandVariable, NamedPath) {
-  auto e = Edge("r", EdgeAtom::Direction::OUT);
-  auto expand = AddMatch<ExpandVariable>(nullptr, "n", 0, EdgeAtom::Direction::OUT, {}, 2, 2, e, "m",
-                                         memgraph::storage::View::OLD);
+TYPED_TEST(QueryPlanExpandVariable, NamedPath) {
+  auto e = this->Edge("r", EdgeAtom::Direction::OUT);
+  auto expand = this->template AddMatch<ExpandVariable>(nullptr, "n", 0, EdgeAtom::Direction::OUT, {}, 2, 2, e, "m",
+                                                        memgraph::storage::View::OLD);
   auto find_symbol = [this](const std::string &name) {
-    for (const auto &sym : symbol_table.table())
+    for (const auto &sym : this->symbol_table.table())
       if (sym.second.name() == name) return sym.second;
     throw std::runtime_error("Symbol not found");
   };
 
-  auto path_symbol = symbol_table.CreateSymbol("path", true, Symbol::Type::PATH);
+  auto path_symbol = this->symbol_table.CreateSymbol("path", true, Symbol::Type::PATH);
   auto create_path = std::make_shared<ConstructNamedPath>(expand, path_symbol,
                                                           std::vector<Symbol>{find_symbol("n"), e, find_symbol("m")});
 
   std::vector<memgraph::query::Path> expected_paths;
-  for (const auto &v : dba.Vertices(memgraph::storage::View::OLD)) {
-    if (!*v.HasLabel(memgraph::storage::View::OLD, labels[0])) continue;
+  for (const auto &v : this->dba.Vertices(memgraph::storage::View::OLD)) {
+    if (!*v.HasLabel(memgraph::storage::View::OLD, this->labels[0])) continue;
     auto maybe_edges1 = v.OutEdges(memgraph::storage::View::OLD);
     for (const auto &e1 : *maybe_edges1) {
       auto maybe_edges2 = e1.To().OutEdges(memgraph::storage::View::OLD);
@@ -1199,23 +1210,23 @@ TEST_F(QueryPlanExpandVariable, NamedPath) {
   }
   ASSERT_EQ(expected_paths.size(), 8);
 
-  auto results = GetPathResults(create_path, path_symbol);
+  auto results = this->GetPathResults(create_path, path_symbol);
   ASSERT_EQ(results.size(), 8);
   EXPECT_TRUE(std::is_permutation(results.begin(), results.end(), expected_paths.begin()));
 }
 
 #ifdef MG_ENTERPRISE
-TEST_F(QueryPlanExpandVariable, FineGrainedFilterNamedPath) {
-  auto e = Edge("r", EdgeAtom::Direction::OUT);
-  auto expand = AddMatch<ExpandVariable>(nullptr, "n", 0, EdgeAtom::Direction::OUT, {}, 0, 2, e, "m",
-                                         memgraph::storage::View::OLD);
+TYPED_TEST(QueryPlanExpandVariable, FineGrainedFilterNamedPath) {
+  auto e = this->Edge("r", EdgeAtom::Direction::OUT);
+  auto expand = this->template AddMatch<ExpandVariable>(nullptr, "n", 0, EdgeAtom::Direction::OUT, {}, 0, 2, e, "m",
+                                                        memgraph::storage::View::OLD);
   auto find_symbol = [this](const std::string &name) {
-    for (const auto &sym : symbol_table.table())
+    for (const auto &sym : this->symbol_table.table())
       if (sym.second.name() == name) return sym.second;
     throw std::runtime_error("Symbol not found");
   };
 
-  auto path_symbol = symbol_table.CreateSymbol("path", true, Symbol::Type::PATH);
+  auto path_symbol = this->symbol_table.CreateSymbol("path", true, Symbol::Type::PATH);
   auto create_path = std::make_shared<ConstructNamedPath>(expand, path_symbol,
                                                           std::vector<Symbol>{find_symbol("n"), e, find_symbol("m")});
 
@@ -1224,7 +1235,7 @@ TEST_F(QueryPlanExpandVariable, FineGrainedFilterNamedPath) {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
-    auto results = GetPathResults(create_path, path_symbol, &user);
+    auto results = this->GetPathResults(create_path, path_symbol, &user);
     ASSERT_EQ(results.size(), 14);
   }
 
@@ -1235,7 +1246,7 @@ TEST_F(QueryPlanExpandVariable, FineGrainedFilterNamedPath) {
                                                                      memgraph::auth::FineGrainedPermission::NOTHING);
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::NOTHING);
 
-    auto results = GetPathResults(create_path, path_symbol, &user);
+    auto results = this->GetPathResults(create_path, path_symbol, &user);
     ASSERT_EQ(results.size(), 0);
   }
 
@@ -1245,7 +1256,7 @@ TEST_F(QueryPlanExpandVariable, FineGrainedFilterNamedPath) {
     user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::NOTHING);
 
-    auto results = GetPathResults(create_path, path_symbol, &user);
+    auto results = this->GetPathResults(create_path, path_symbol, &user);
     ASSERT_EQ(results.size(), 0);
   }
 
@@ -1256,7 +1267,7 @@ TEST_F(QueryPlanExpandVariable, FineGrainedFilterNamedPath) {
                                                                      memgraph::auth::FineGrainedPermission::NOTHING);
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
 
-    auto results = GetPathResults(create_path, path_symbol, &user);
+    auto results = this->GetPathResults(create_path, path_symbol, &user);
     ASSERT_EQ(results.size(), 2);
   }
 
@@ -1268,7 +1279,7 @@ TEST_F(QueryPlanExpandVariable, FineGrainedFilterNamedPath) {
     user.fine_grained_access_handler().label_permissions().Grant("1", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().label_permissions().Grant("2", memgraph::auth::FineGrainedPermission::READ);
 
-    auto results = GetPathResults(create_path, path_symbol, &user);
+    auto results = this->GetPathResults(create_path, path_symbol, &user);
     ASSERT_EQ(results.size(), 0);
   }
 
@@ -1280,7 +1291,7 @@ TEST_F(QueryPlanExpandVariable, FineGrainedFilterNamedPath) {
     user.fine_grained_access_handler().label_permissions().Grant("1", memgraph::auth::FineGrainedPermission::NOTHING);
     user.fine_grained_access_handler().label_permissions().Grant("2", memgraph::auth::FineGrainedPermission::READ);
 
-    auto results = GetPathResults(create_path, path_symbol, &user);
+    auto results = this->GetPathResults(create_path, path_symbol, &user);
     ASSERT_EQ(results.size(), 2);
   }
 
@@ -1292,12 +1303,12 @@ TEST_F(QueryPlanExpandVariable, FineGrainedFilterNamedPath) {
     user.fine_grained_access_handler().label_permissions().Grant("1", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().label_permissions().Grant("2", memgraph::auth::FineGrainedPermission::NOTHING);
 
-    auto results = GetPathResults(create_path, path_symbol, &user);
+    auto results = this->GetPathResults(create_path, path_symbol, &user);
     ASSERT_EQ(results.size(), 6);
 
     std::vector<memgraph::query::Path> expected_paths;
-    for (const auto &v : dba.Vertices(memgraph::storage::View::OLD)) {
-      if (!*v.HasLabel(memgraph::storage::View::OLD, labels[0])) continue;
+    for (const auto &v : this->dba.Vertices(memgraph::storage::View::OLD)) {
+      if (!*v.HasLabel(memgraph::storage::View::OLD, this->labels[0])) continue;
       expected_paths.emplace_back(v);
       auto maybe_edges1 = v.OutEdges(memgraph::storage::View::OLD);
       for (const auto &e1 : *maybe_edges1) {
@@ -1316,7 +1327,7 @@ TEST_F(QueryPlanExpandVariable, FineGrainedFilterNamedPath) {
                                                                      memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
 
-    auto results = GetPathResults(create_path, path_symbol, &user);
+    auto results = this->GetPathResults(create_path, path_symbol, &user);
     ASSERT_EQ(results.size(), 2);
   }
 
@@ -1329,12 +1340,12 @@ TEST_F(QueryPlanExpandVariable, FineGrainedFilterNamedPath) {
                                                                      memgraph::auth::FineGrainedPermission::NOTHING);
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
 
-    auto results = GetPathResults(create_path, path_symbol, &user);
+    auto results = this->GetPathResults(create_path, path_symbol, &user);
     ASSERT_EQ(results.size(), 6);
 
     std::vector<memgraph::query::Path> expected_paths;
-    for (const auto &v : dba.Vertices(memgraph::storage::View::OLD)) {
-      if (!*v.HasLabel(memgraph::storage::View::OLD, labels[0])) continue;
+    for (const auto &v : this->dba.Vertices(memgraph::storage::View::OLD)) {
+      if (!*v.HasLabel(memgraph::storage::View::OLD, this->labels[0])) continue;
       expected_paths.emplace_back(v);
       auto maybe_edges1 = v.OutEdges(memgraph::storage::View::OLD);
       for (const auto &e1 : *maybe_edges1) {
@@ -1347,35 +1358,37 @@ TEST_F(QueryPlanExpandVariable, FineGrainedFilterNamedPath) {
 }
 #endif
 
-TEST_F(QueryPlanExpandVariable, ExpandToSameSymbol) {
+TYPED_TEST(QueryPlanExpandVariable, ExpandToSameSymbol) {
   auto test_expand = [&](int layer, EdgeAtom::Direction direction, std::optional<size_t> lower,
                          std::optional<size_t> upper, bool reverse) {
-    auto e = Edge("r", direction);
+    auto e = this->Edge("r", direction);
 
     auto node = NODE("n");
-    auto symbol = symbol_table.CreateSymbol("n", true);
+    auto symbol = this->symbol_table.CreateSymbol("n", true);
     node->identifier_->MapTo(symbol);
     auto logical_op = std::make_shared<ScanAll>(nullptr, symbol, memgraph::storage::View::OLD);
     auto n_from = ScanAllTuple{node, logical_op, symbol};
 
     auto filter_op = std::make_shared<Filter>(
         n_from.op_, std::vector<std::shared_ptr<LogicalOperator>>{},
-        storage.Create<memgraph::query::LabelsTest>(
-            n_from.node_->identifier_, std::vector<LabelIx>{storage.GetLabelIx(dba.LabelToName(labels[layer]))}));
+        this->storage.template Create<memgraph::query::LabelsTest>(
+            n_from.node_->identifier_,
+            std::vector<LabelIx>{this->storage.GetLabelIx(this->dba.LabelToName(this->labels[layer]))}));
 
     // convert optional ints to optional expressions
     auto convert = [this](std::optional<size_t> bound) {
       return bound ? LITERAL(static_cast<int64_t>(bound.value())) : nullptr;
     };
 
-    return GetEdgeListSizes(std::make_shared<ExpandVariable>(
-                                filter_op, symbol, symbol, e, EdgeAtom::Type::DEPTH_FIRST, direction,
-                                std::vector<memgraph::storage::EdgeTypeId>{}, reverse, convert(lower), convert(upper),
-                                /* existing = */ true,
-                                ExpansionLambda{symbol_table.CreateSymbol("inner_edge", false),
-                                                symbol_table.CreateSymbol("inner_node", false), nullptr},
-                                std::nullopt, std::nullopt),
-                            e);
+    return this->GetEdgeListSizes(
+        std::make_shared<ExpandVariable>(filter_op, symbol, symbol, e, EdgeAtom::Type::DEPTH_FIRST, direction,
+                                         std::vector<memgraph::storage::EdgeTypeId>{}, reverse, convert(lower),
+                                         convert(upper),
+                                         /* existing = */ true,
+                                         ExpansionLambda{this->symbol_table.CreateSymbol("inner_edge", false),
+                                                         this->symbol_table.CreateSymbol("inner_node", false), nullptr},
+                                         std::nullopt, std::nullopt),
+        e);
   };
 
   // The graph is a double chain:
@@ -1538,35 +1551,37 @@ TEST_F(QueryPlanExpandVariable, ExpandToSameSymbol) {
 }
 
 #ifdef MG_ENTERPRISE
-TEST_F(QueryPlanExpandVariable, FineGrainedExpandToSameSymbol) {
+TYPED_TEST(QueryPlanExpandVariable, FineGrainedExpandToSameSymbol) {
   auto test_expand = [&](int layer, EdgeAtom::Direction direction, std::optional<size_t> lower,
                          std::optional<size_t> upper, bool reverse, memgraph::auth::User &user) {
-    auto e = Edge("r", direction);
+    auto e = this->Edge("r", direction);
 
     auto node = NODE("n");
-    auto symbol = symbol_table.CreateSymbol("n", true);
+    auto symbol = this->symbol_table.CreateSymbol("n", true);
     node->identifier_->MapTo(symbol);
     auto logical_op = std::make_shared<ScanAll>(nullptr, symbol, memgraph::storage::View::OLD);
     auto n_from = ScanAllTuple{node, logical_op, symbol};
 
     auto filter_op = std::make_shared<Filter>(
         n_from.op_, std::vector<std::shared_ptr<LogicalOperator>>{},
-        storage.Create<memgraph::query::LabelsTest>(
-            n_from.node_->identifier_, std::vector<LabelIx>{storage.GetLabelIx(dba.LabelToName(labels[layer]))}));
+        this->storage.template Create<memgraph::query::LabelsTest>(
+            n_from.node_->identifier_,
+            std::vector<LabelIx>{this->storage.GetLabelIx(this->dba.LabelToName(this->labels[layer]))}));
 
     // convert optional ints to optional expressions
     auto convert = [this](std::optional<size_t> bound) {
       return bound ? LITERAL(static_cast<int64_t>(bound.value())) : nullptr;
     };
 
-    return GetEdgeListSizes(std::make_shared<ExpandVariable>(
-                                filter_op, symbol, symbol, e, EdgeAtom::Type::DEPTH_FIRST, direction,
-                                std::vector<memgraph::storage::EdgeTypeId>{}, reverse, convert(lower), convert(upper),
-                                /* existing = */ true,
-                                ExpansionLambda{symbol_table.CreateSymbol("inner_edge", false),
-                                                symbol_table.CreateSymbol("inner_node", false), nullptr},
-                                std::nullopt, std::nullopt),
-                            e, &user);
+    return this->GetEdgeListSizes(
+        std::make_shared<ExpandVariable>(filter_op, symbol, symbol, e, EdgeAtom::Type::DEPTH_FIRST, direction,
+                                         std::vector<memgraph::storage::EdgeTypeId>{}, reverse, convert(lower),
+                                         convert(upper),
+                                         /* existing = */ true,
+                                         ExpansionLambda{this->symbol_table.CreateSymbol("inner_edge", false),
+                                                         this->symbol_table.CreateSymbol("inner_node", false), nullptr},
+                                         std::nullopt, std::nullopt),
+        e, &user);
   };
 
   // All labels granted, All edge types granted
@@ -1747,6 +1762,7 @@ struct hash<std::pair<int, int>> {
 }  // namespace std
 
 /** A test fixture for weighted shortest path expansion */
+template <typename StorageType>
 class QueryPlanExpandWeightedShortestPath : public testing::Test {
  public:
   struct ResultType {
@@ -1756,7 +1772,7 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
   };
 
  protected:
-  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  std::unique_ptr<memgraph::storage::Storage> db{new StorageType()};
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   std::pair<std::string, memgraph::storage::PropertyId> prop = PROPERTY_PAIR(dba, "property");
@@ -1873,6 +1889,9 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
   }
 };
 
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+TYPED_TEST_CASE(QueryPlanExpandWeightedShortestPath, StorageTypes);
+
 // Testing weighted shortest path on this graph:
 //
 //      5            5
@@ -1885,221 +1904,222 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
 //      \->[2]->-[3]->/
 //      3      3     3
 
-TEST_F(QueryPlanExpandWeightedShortestPath, Basic) {
-  auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true));
+TYPED_TEST(QueryPlanExpandWeightedShortestPath, Basic) {
+  auto results = this->ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true));
 
   ASSERT_EQ(results.size(), 4);
 
   // check end nodes
-  EXPECT_EQ(GetProp(results[0].vertex), 2);
-  EXPECT_EQ(GetProp(results[1].vertex), 1);
-  EXPECT_EQ(GetProp(results[2].vertex), 3);
-  EXPECT_EQ(GetProp(results[3].vertex), 4);
+  EXPECT_EQ(this->GetProp(results[0].vertex), 2);
+  EXPECT_EQ(this->GetProp(results[1].vertex), 1);
+  EXPECT_EQ(this->GetProp(results[2].vertex), 3);
+  EXPECT_EQ(this->GetProp(results[3].vertex), 4);
 
   // check paths and total weights
   EXPECT_EQ(results[0].path.size(), 1);
-  EXPECT_EQ(GetDoubleProp(results[0].path[0]), 3);
+  EXPECT_EQ(this->GetDoubleProp(results[0].path[0]), 3);
   EXPECT_EQ(results[0].total_weight, 3);
 
   EXPECT_EQ(results[1].path.size(), 1);
-  EXPECT_EQ(GetDoubleProp(results[1].path[0]), 5);
+  EXPECT_EQ(this->GetDoubleProp(results[1].path[0]), 5);
   EXPECT_EQ(results[1].total_weight, 5);
 
   EXPECT_EQ(results[2].path.size(), 2);
-  EXPECT_EQ(GetDoubleProp(results[2].path[0]), 3);
-  EXPECT_EQ(GetDoubleProp(results[2].path[1]), 3);
+  EXPECT_EQ(this->GetDoubleProp(results[2].path[0]), 3);
+  EXPECT_EQ(this->GetDoubleProp(results[2].path[1]), 3);
   EXPECT_EQ(results[2].total_weight, 6);
 
   EXPECT_EQ(results[3].path.size(), 3);
-  EXPECT_EQ(GetDoubleProp(results[3].path[0]), 3);
-  EXPECT_EQ(GetDoubleProp(results[3].path[1]), 3);
-  EXPECT_EQ(GetDoubleProp(results[3].path[2]), 3);
+  EXPECT_EQ(this->GetDoubleProp(results[3].path[0]), 3);
+  EXPECT_EQ(this->GetDoubleProp(results[3].path[1]), 3);
+  EXPECT_EQ(this->GetDoubleProp(results[3].path[2]), 3);
   EXPECT_EQ(results[3].total_weight, 9);
 }
 
-TEST_F(QueryPlanExpandWeightedShortestPath, EdgeDirection) {
+TYPED_TEST(QueryPlanExpandWeightedShortestPath, EdgeDirection) {
   {
-    auto results = ExpandWShortest(EdgeAtom::Direction::OUT, 1000, LITERAL(true));
+    auto results = this->ExpandWShortest(EdgeAtom::Direction::OUT, 1000, LITERAL(true));
     ASSERT_EQ(results.size(), 4);
-    EXPECT_EQ(GetProp(results[0].vertex), 2);
+    EXPECT_EQ(this->GetProp(results[0].vertex), 2);
     EXPECT_EQ(results[0].total_weight, 3);
-    EXPECT_EQ(GetProp(results[1].vertex), 1);
+    EXPECT_EQ(this->GetProp(results[1].vertex), 1);
     EXPECT_EQ(results[1].total_weight, 5);
-    EXPECT_EQ(GetProp(results[2].vertex), 3);
+    EXPECT_EQ(this->GetProp(results[2].vertex), 3);
     EXPECT_EQ(results[2].total_weight, 6);
-    EXPECT_EQ(GetProp(results[3].vertex), 4);
+    EXPECT_EQ(this->GetProp(results[3].vertex), 4);
     EXPECT_EQ(results[3].total_weight, 9);
   }
   {
-    auto results = ExpandWShortest(EdgeAtom::Direction::IN, 1000, LITERAL(true));
+    auto results = this->ExpandWShortest(EdgeAtom::Direction::IN, 1000, LITERAL(true));
     ASSERT_EQ(results.size(), 4);
-    EXPECT_EQ(GetProp(results[0].vertex), 4);
+    EXPECT_EQ(this->GetProp(results[0].vertex), 4);
     EXPECT_EQ(results[0].total_weight, 12);
-    EXPECT_EQ(GetProp(results[1].vertex), 3);
+    EXPECT_EQ(this->GetProp(results[1].vertex), 3);
     EXPECT_EQ(results[1].total_weight, 15);
-    EXPECT_EQ(GetProp(results[2].vertex), 1);
+    EXPECT_EQ(this->GetProp(results[2].vertex), 1);
     EXPECT_EQ(results[2].total_weight, 17);
-    EXPECT_EQ(GetProp(results[3].vertex), 2);
+    EXPECT_EQ(this->GetProp(results[3].vertex), 2);
     EXPECT_EQ(results[3].total_weight, 18);
   }
 }
 
-TEST_F(QueryPlanExpandWeightedShortestPath, Where) {
+TYPED_TEST(QueryPlanExpandWeightedShortestPath, Where) {
   {
-    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, PropNe(filter_node, 2));
+    auto results = this->ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, this->PropNe(this->filter_node, 2));
     ASSERT_EQ(results.size(), 3);
-    EXPECT_EQ(GetProp(results[0].vertex), 1);
+    EXPECT_EQ(this->GetProp(results[0].vertex), 1);
     EXPECT_EQ(results[0].total_weight, 5);
-    EXPECT_EQ(GetProp(results[1].vertex), 4);
+    EXPECT_EQ(this->GetProp(results[1].vertex), 4);
     EXPECT_EQ(results[1].total_weight, 10);
-    EXPECT_EQ(GetProp(results[2].vertex), 3);
+    EXPECT_EQ(this->GetProp(results[2].vertex), 3);
     EXPECT_EQ(results[2].total_weight, 13);
   }
   {
-    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, PropNe(filter_node, 1));
+    auto results = this->ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, this->PropNe(this->filter_node, 1));
     ASSERT_EQ(results.size(), 3);
-    EXPECT_EQ(GetProp(results[0].vertex), 2);
+    EXPECT_EQ(this->GetProp(results[0].vertex), 2);
     EXPECT_EQ(results[0].total_weight, 3);
-    EXPECT_EQ(GetProp(results[1].vertex), 3);
+    EXPECT_EQ(this->GetProp(results[1].vertex), 3);
     EXPECT_EQ(results[1].total_weight, 6);
-    EXPECT_EQ(GetProp(results[2].vertex), 4);
+    EXPECT_EQ(this->GetProp(results[2].vertex), 4);
     EXPECT_EQ(results[2].total_weight, 9);
   }
 }
 
-TEST_F(QueryPlanExpandWeightedShortestPath, ExistingNode) {
+TYPED_TEST(QueryPlanExpandWeightedShortestPath, ExistingNode) {
   auto ExpandPreceeding = [this](std::optional<int> preceeding_node_id) {
     // scan the nodes optionally filtering on property value
-    auto n0 = MakeScanAll(storage, symbol_table, "n0");
+    auto n0 = MakeScanAll(this->storage, this->symbol_table, "n0");
     if (preceeding_node_id) {
-      auto filter =
-          std::make_shared<Filter>(n0.op_, std::vector<std::shared_ptr<LogicalOperator>>{},
-                                   EQ(PROPERTY_LOOKUP(dba, n0.node_->identifier_, prop), LITERAL(*preceeding_node_id)));
+      auto filter = std::make_shared<Filter>(
+          n0.op_, std::vector<std::shared_ptr<LogicalOperator>>{},
+          EQ(PROPERTY_LOOKUP(this->dba, n0.node_->identifier_, this->prop), LITERAL(*preceeding_node_id)));
       // inject the filter op into the ScanAllTuple. that way the filter
       // op can be passed into the ExpandWShortest function without too
       // much refactor
       n0.op_ = filter;
     }
 
-    return ExpandWShortest(EdgeAtom::Direction::OUT, 1000, LITERAL(true), std::nullopt, &n0);
+    return this->ExpandWShortest(EdgeAtom::Direction::OUT, 1000, LITERAL(true), std::nullopt, &n0);
   };
 
   EXPECT_EQ(ExpandPreceeding(std::nullopt).size(), 20);
   {
     auto results = ExpandPreceeding(3);
     ASSERT_EQ(results.size(), 4);
-    for (int i = 0; i < 4; i++) EXPECT_EQ(GetProp(results[i].vertex), 3);
+    for (int i = 0; i < 4; i++) EXPECT_EQ(this->GetProp(results[i].vertex), 3);
   }
 }
 
-TEST_F(QueryPlanExpandWeightedShortestPath, UpperBound) {
+TYPED_TEST(QueryPlanExpandWeightedShortestPath, UpperBound) {
   {
-    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, std::nullopt, LITERAL(true));
+    auto results = this->ExpandWShortest(EdgeAtom::Direction::BOTH, std::nullopt, LITERAL(true));
     ASSERT_EQ(results.size(), 4);
-    EXPECT_EQ(GetProp(results[0].vertex), 2);
+    EXPECT_EQ(this->GetProp(results[0].vertex), 2);
     EXPECT_EQ(results[0].total_weight, 3);
-    EXPECT_EQ(GetProp(results[1].vertex), 1);
+    EXPECT_EQ(this->GetProp(results[1].vertex), 1);
     EXPECT_EQ(results[1].total_weight, 5);
-    EXPECT_EQ(GetProp(results[2].vertex), 3);
+    EXPECT_EQ(this->GetProp(results[2].vertex), 3);
     EXPECT_EQ(results[2].total_weight, 6);
-    EXPECT_EQ(GetProp(results[3].vertex), 4);
+    EXPECT_EQ(this->GetProp(results[3].vertex), 4);
     EXPECT_EQ(results[3].total_weight, 9);
   }
   {
-    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 2, LITERAL(true));
+    auto results = this->ExpandWShortest(EdgeAtom::Direction::BOTH, 2, LITERAL(true));
     ASSERT_EQ(results.size(), 4);
-    EXPECT_EQ(GetProp(results[0].vertex), 2);
+    EXPECT_EQ(this->GetProp(results[0].vertex), 2);
     EXPECT_EQ(results[0].total_weight, 3);
-    EXPECT_EQ(GetProp(results[1].vertex), 1);
+    EXPECT_EQ(this->GetProp(results[1].vertex), 1);
     EXPECT_EQ(results[1].total_weight, 5);
-    EXPECT_EQ(GetProp(results[2].vertex), 3);
+    EXPECT_EQ(this->GetProp(results[2].vertex), 3);
     EXPECT_EQ(results[2].total_weight, 6);
-    EXPECT_EQ(GetProp(results[3].vertex), 4);
+    EXPECT_EQ(this->GetProp(results[3].vertex), 4);
     EXPECT_EQ(results[3].total_weight, 10);
   }
   {
-    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1, LITERAL(true));
+    auto results = this->ExpandWShortest(EdgeAtom::Direction::BOTH, 1, LITERAL(true));
     ASSERT_EQ(results.size(), 3);
-    EXPECT_EQ(GetProp(results[0].vertex), 2);
+    EXPECT_EQ(this->GetProp(results[0].vertex), 2);
     EXPECT_EQ(results[0].total_weight, 3);
-    EXPECT_EQ(GetProp(results[1].vertex), 1);
+    EXPECT_EQ(this->GetProp(results[1].vertex), 1);
     EXPECT_EQ(results[1].total_weight, 5);
-    EXPECT_EQ(GetProp(results[2].vertex), 4);
+    EXPECT_EQ(this->GetProp(results[2].vertex), 4);
     EXPECT_EQ(results[2].total_weight, 12);
   }
   {
-    auto new_vertex = dba.InsertVertex();
-    ASSERT_TRUE(new_vertex.SetProperty(prop.second, memgraph::storage::PropertyValue(5)).HasValue());
-    auto edge = dba.InsertEdge(&v[4], &new_vertex, edge_type);
+    auto new_vertex = this->dba.InsertVertex();
+    ASSERT_TRUE(new_vertex.SetProperty(this->prop.second, memgraph::storage::PropertyValue(5)).HasValue());
+    auto edge = this->dba.InsertEdge(&this->v[4], &new_vertex, this->edge_type);
     ASSERT_TRUE(edge.HasValue());
-    ASSERT_TRUE(edge->SetProperty(prop.second, memgraph::storage::PropertyValue(2)).HasValue());
-    dba.AdvanceCommand();
+    ASSERT_TRUE(edge->SetProperty(this->prop.second, memgraph::storage::PropertyValue(2)).HasValue());
+    this->dba.AdvanceCommand();
 
-    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 3, LITERAL(true));
+    auto results = this->ExpandWShortest(EdgeAtom::Direction::BOTH, 3, LITERAL(true));
 
     ASSERT_EQ(results.size(), 5);
-    EXPECT_EQ(GetProp(results[0].vertex), 2);
+    EXPECT_EQ(this->GetProp(results[0].vertex), 2);
     EXPECT_EQ(results[0].total_weight, 3);
-    EXPECT_EQ(GetProp(results[1].vertex), 1);
+    EXPECT_EQ(this->GetProp(results[1].vertex), 1);
     EXPECT_EQ(results[1].total_weight, 5);
-    EXPECT_EQ(GetProp(results[2].vertex), 3);
+    EXPECT_EQ(this->GetProp(results[2].vertex), 3);
     EXPECT_EQ(results[2].total_weight, 6);
-    EXPECT_EQ(GetProp(results[3].vertex), 4);
+    EXPECT_EQ(this->GetProp(results[3].vertex), 4);
     EXPECT_EQ(results[3].total_weight, 9);
-    EXPECT_EQ(GetProp(results[4].vertex), 5);
+    EXPECT_EQ(this->GetProp(results[4].vertex), 5);
     EXPECT_EQ(results[4].total_weight, 12);
   }
 }
 
-TEST_F(QueryPlanExpandWeightedShortestPath, NonNumericWeight) {
-  auto new_vertex = dba.InsertVertex();
-  ASSERT_TRUE(new_vertex.SetProperty(prop.second, memgraph::storage::PropertyValue(5)).HasValue());
-  auto edge = dba.InsertEdge(&v[4], &new_vertex, edge_type);
+TYPED_TEST(QueryPlanExpandWeightedShortestPath, NonNumericWeight) {
+  auto new_vertex = this->dba.InsertVertex();
+  ASSERT_TRUE(new_vertex.SetProperty(this->prop.second, memgraph::storage::PropertyValue(5)).HasValue());
+  auto edge = this->dba.InsertEdge(&this->v[4], &new_vertex, this->edge_type);
   ASSERT_TRUE(edge.HasValue());
-  ASSERT_TRUE(edge->SetProperty(prop.second, memgraph::storage::PropertyValue("not a number")).HasValue());
-  dba.AdvanceCommand();
-  EXPECT_THROW(ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true)), QueryRuntimeException);
+  ASSERT_TRUE(edge->SetProperty(this->prop.second, memgraph::storage::PropertyValue("not a number")).HasValue());
+  this->dba.AdvanceCommand();
+  EXPECT_THROW(this->ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true)), QueryRuntimeException);
 }
 
-TEST_F(QueryPlanExpandWeightedShortestPath, NegativeWeight) {
-  auto new_vertex = dba.InsertVertex();
-  ASSERT_TRUE(new_vertex.SetProperty(prop.second, memgraph::storage::PropertyValue(5)).HasValue());
-  auto edge = dba.InsertEdge(&v[4], &new_vertex, edge_type);
+TYPED_TEST(QueryPlanExpandWeightedShortestPath, NegativeWeight) {
+  auto new_vertex = this->dba.InsertVertex();
+  ASSERT_TRUE(new_vertex.SetProperty(this->prop.second, memgraph::storage::PropertyValue(5)).HasValue());
+  auto edge = this->dba.InsertEdge(&this->v[4], &new_vertex, this->edge_type);
   ASSERT_TRUE(edge.HasValue());
-  ASSERT_TRUE(edge->SetProperty(prop.second, memgraph::storage::PropertyValue(-10)).HasValue());  // negative weight
-  dba.AdvanceCommand();
-  EXPECT_THROW(ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true)), QueryRuntimeException);
+  ASSERT_TRUE(
+      edge->SetProperty(this->prop.second, memgraph::storage::PropertyValue(-10)).HasValue());  // negative weight
+  this->dba.AdvanceCommand();
+  EXPECT_THROW(this->ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true)), QueryRuntimeException);
 }
 
-TEST_F(QueryPlanExpandWeightedShortestPath, NegativeUpperBound) {
-  EXPECT_THROW(ExpandWShortest(EdgeAtom::Direction::BOTH, -1, LITERAL(true)), QueryRuntimeException);
+TYPED_TEST(QueryPlanExpandWeightedShortestPath, NegativeUpperBound) {
+  EXPECT_THROW(this->ExpandWShortest(EdgeAtom::Direction::BOTH, -1, LITERAL(true)), QueryRuntimeException);
 }
 
 #if MG_ENTERPRISE
-TEST_F(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
+TYPED_TEST(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
   // All edge_types and labels allowed
   {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
-    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    auto results = this->ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
     EXPECT_EQ(results[0].path.size(), 1);
-    EXPECT_EQ(GetDoubleProp(results[0].path[0]), 3);
+    EXPECT_EQ(this->GetDoubleProp(results[0].path[0]), 3);
     EXPECT_EQ(results[0].total_weight, 3);
 
     EXPECT_EQ(results[1].path.size(), 1);
-    EXPECT_EQ(GetDoubleProp(results[1].path[0]), 5);
+    EXPECT_EQ(this->GetDoubleProp(results[1].path[0]), 5);
     EXPECT_EQ(results[1].total_weight, 5);
 
     EXPECT_EQ(results[2].path.size(), 2);
-    EXPECT_EQ(GetDoubleProp(results[2].path[0]), 3);
-    EXPECT_EQ(GetDoubleProp(results[2].path[1]), 3);
+    EXPECT_EQ(this->GetDoubleProp(results[2].path[0]), 3);
+    EXPECT_EQ(this->GetDoubleProp(results[2].path[1]), 3);
     EXPECT_EQ(results[2].total_weight, 6);
 
     EXPECT_EQ(results[3].path.size(), 3);
-    EXPECT_EQ(GetDoubleProp(results[3].path[0]), 3);
-    EXPECT_EQ(GetDoubleProp(results[3].path[1]), 3);
-    EXPECT_EQ(GetDoubleProp(results[3].path[2]), 3);
+    EXPECT_EQ(this->GetDoubleProp(results[3].path[0]), 3);
+    EXPECT_EQ(this->GetDoubleProp(results[3].path[1]), 3);
+    EXPECT_EQ(this->GetDoubleProp(results[3].path[2]), 3);
     EXPECT_EQ(results[3].total_weight, 9);
   }
 
@@ -2108,7 +2128,7 @@ TEST_F(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::NOTHING);
     user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
-    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    auto results = this->ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
     ASSERT_EQ(results.size(), 0);
   }
 
@@ -2118,7 +2138,7 @@ TEST_F(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().Grant("*",
                                                                      memgraph::auth::FineGrainedPermission::NOTHING);
-    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    auto results = this->ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
     ASSERT_EQ(results.size(), 0);
   }
 
@@ -2128,7 +2148,7 @@ TEST_F(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
     user.fine_grained_access_handler().label_permissions().Grant("l0", memgraph::auth::FineGrainedPermission::NOTHING);
     user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
 
-    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    auto results = this->ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
     ASSERT_EQ(results.size(), 0);
   }
 
@@ -2142,43 +2162,44 @@ TEST_F(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
     user.fine_grained_access_handler().label_permissions().Grant("l4", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
 
-    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    auto results = this->ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
     ASSERT_EQ(results.size(), 4);
 
     user.fine_grained_access_handler().label_permissions().Grant("l2", memgraph::auth::FineGrainedPermission::NOTHING);
-    auto filtered_results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    auto filtered_results = this->ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
     ASSERT_EQ(filtered_results.size(), 3);
   }
 
   // Deny edge type (created vertex 5 and edge vertex 4 to vertex 5)
   {
-    v.push_back(dba.InsertVertex());
-    ASSERT_TRUE(v.back().SetProperty(prop.second, memgraph::storage::PropertyValue(5)).HasValue());
-    ASSERT_TRUE(v.back().AddLabel(db->NameToLabel("l5")).HasValue());
-    dba.AdvanceCommand();
-    memgraph::storage::EdgeTypeId edge_type_filter = dba.NameToEdgeType("edge_type_filter");
-    auto edge = dba.InsertEdge(&v[4], &v[5], edge_type_filter);
-    ASSERT_TRUE(edge->SetProperty(prop.second, memgraph::storage::PropertyValue(1)).HasValue());
-    e.emplace(std::make_pair(4, 5), *edge);
-    dba.AdvanceCommand();
+    this->v.push_back(this->dba.InsertVertex());
+    ASSERT_TRUE(this->v.back().SetProperty(this->prop.second, memgraph::storage::PropertyValue(5)).HasValue());
+    ASSERT_TRUE(this->v.back().AddLabel(this->db->NameToLabel("l5")).HasValue());
+    this->dba.AdvanceCommand();
+    memgraph::storage::EdgeTypeId edge_type_filter = this->dba.NameToEdgeType("edge_type_filter");
+    auto edge = this->dba.InsertEdge(&this->v[4], &this->v[5], edge_type_filter);
+    ASSERT_TRUE(edge->SetProperty(this->prop.second, memgraph::storage::PropertyValue(1)).HasValue());
+    this->e.emplace(std::make_pair(4, 5), *edge);
+    this->dba.AdvanceCommand();
 
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
-    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    auto results = this->ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
     ASSERT_EQ(results.size(), 5);
 
     user.fine_grained_access_handler().edge_type_permissions().Grant("edge_type",
                                                                      memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().Grant("edge_type_filter",
                                                                      memgraph::auth::FineGrainedPermission::NOTHING);
-    auto filtered_results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    auto filtered_results = this->ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
     ASSERT_EQ(filtered_results.size(), 4);
   }
 }
 #endif
 
 /** A test fixture for all shortest paths expansion */
+template <typename StorageType>
 class QueryPlanExpandAllShortestPaths : public testing::Test {
  public:
   struct ResultType {
@@ -2188,7 +2209,7 @@ class QueryPlanExpandAllShortestPaths : public testing::Test {
   };
 
  protected:
-  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  std::unique_ptr<memgraph::storage::Storage> db{new StorageType()};
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   std::pair<std::string, memgraph::storage::PropertyId> prop = PROPERTY_PAIR(dba, "property");
@@ -2304,8 +2325,12 @@ class QueryPlanExpandAllShortestPaths : public testing::Test {
   }
 };
 
-bool compareResultType(const QueryPlanExpandAllShortestPaths::ResultType &a,
-                       const QueryPlanExpandAllShortestPaths::ResultType &b) {
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+TYPED_TEST_CASE(QueryPlanExpandAllShortestPaths, StorageTypes);
+
+template <typename StorageType>
+bool compareResultType(const typename QueryPlanExpandAllShortestPaths<StorageType>::ResultType &a,
+                       const typename QueryPlanExpandAllShortestPaths<StorageType>::ResultType &b) {
   return a.total_weight < b.total_weight;
 }
 
@@ -2321,175 +2346,176 @@ bool compareResultType(const QueryPlanExpandAllShortestPaths::ResultType &a,
 //      \->[2]->-[3]->/
 //      3      3     3
 
-TEST_F(QueryPlanExpandAllShortestPaths, Basic) {
-  auto results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true));
-  sort(results.begin(), results.end(), compareResultType);
+TYPED_TEST(QueryPlanExpandAllShortestPaths, Basic) {
+  auto results = this->ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true));
+  sort(results.begin(), results.end(), compareResultType<TypeParam>);
 
   ASSERT_EQ(results.size(), 4);
 
   // check end nodes
-  EXPECT_EQ(GetProp(results[0].vertex), 2);
-  EXPECT_EQ(GetProp(results[1].vertex), 1);
-  EXPECT_EQ(GetProp(results[2].vertex), 3);
-  EXPECT_EQ(GetProp(results[3].vertex), 4);
+  EXPECT_EQ(this->GetProp(results[0].vertex), 2);
+  EXPECT_EQ(this->GetProp(results[1].vertex), 1);
+  EXPECT_EQ(this->GetProp(results[2].vertex), 3);
+  EXPECT_EQ(this->GetProp(results[3].vertex), 4);
 
   // check paths and total weights
   EXPECT_EQ(results[0].path.size(), 1);
-  EXPECT_EQ(GetDoubleProp(results[0].path[0]), 3);
+  EXPECT_EQ(this->GetDoubleProp(results[0].path[0]), 3);
   EXPECT_EQ(results[0].total_weight, 3);
 
   EXPECT_EQ(results[1].path.size(), 1);
-  EXPECT_EQ(GetDoubleProp(results[1].path[0]), 5);
+  EXPECT_EQ(this->GetDoubleProp(results[1].path[0]), 5);
   EXPECT_EQ(results[1].total_weight, 5);
 
   EXPECT_EQ(results[2].path.size(), 2);
-  EXPECT_EQ(GetDoubleProp(results[2].path[0]), 3);
-  EXPECT_EQ(GetDoubleProp(results[2].path[1]), 3);
+  EXPECT_EQ(this->GetDoubleProp(results[2].path[0]), 3);
+  EXPECT_EQ(this->GetDoubleProp(results[2].path[1]), 3);
   EXPECT_EQ(results[2].total_weight, 6);
 
   EXPECT_EQ(results[3].path.size(), 3);
-  EXPECT_EQ(GetDoubleProp(results[3].path[0]), 3);
-  EXPECT_EQ(GetDoubleProp(results[3].path[1]), 3);
-  EXPECT_EQ(GetDoubleProp(results[3].path[2]), 3);
+  EXPECT_EQ(this->GetDoubleProp(results[3].path[0]), 3);
+  EXPECT_EQ(this->GetDoubleProp(results[3].path[1]), 3);
+  EXPECT_EQ(this->GetDoubleProp(results[3].path[2]), 3);
   EXPECT_EQ(results[3].total_weight, 9);
 }
 
-TEST_F(QueryPlanExpandAllShortestPaths, EdgeDirection) {
+TYPED_TEST(QueryPlanExpandAllShortestPaths, EdgeDirection) {
   {
-    auto results = ExpandAllShortest(EdgeAtom::Direction::OUT, 1000, LITERAL(true));
-    sort(results.begin(), results.end(), compareResultType);
+    auto results = this->ExpandAllShortest(EdgeAtom::Direction::OUT, 1000, LITERAL(true));
+    sort(results.begin(), results.end(), compareResultType<TypeParam>);
     ASSERT_EQ(results.size(), 4);
-    EXPECT_EQ(GetProp(results[0].vertex), 2);
+    EXPECT_EQ(this->GetProp(results[0].vertex), 2);
     EXPECT_EQ(results[0].total_weight, 3);
-    EXPECT_EQ(GetProp(results[1].vertex), 1);
+    EXPECT_EQ(this->GetProp(results[1].vertex), 1);
     EXPECT_EQ(results[1].total_weight, 5);
-    EXPECT_EQ(GetProp(results[2].vertex), 3);
+    EXPECT_EQ(this->GetProp(results[2].vertex), 3);
     EXPECT_EQ(results[2].total_weight, 6);
-    EXPECT_EQ(GetProp(results[3].vertex), 4);
+    EXPECT_EQ(this->GetProp(results[3].vertex), 4);
     EXPECT_EQ(results[3].total_weight, 9);
   }
   {
-    auto results = ExpandAllShortest(EdgeAtom::Direction::IN, 1000, LITERAL(true));
-    sort(results.begin(), results.end(), compareResultType);
+    auto results = this->ExpandAllShortest(EdgeAtom::Direction::IN, 1000, LITERAL(true));
+    sort(results.begin(), results.end(), compareResultType<TypeParam>);
     ASSERT_EQ(results.size(), 4);
-    EXPECT_EQ(GetProp(results[0].vertex), 4);
+    EXPECT_EQ(this->GetProp(results[0].vertex), 4);
     EXPECT_EQ(results[0].total_weight, 12);
-    EXPECT_EQ(GetProp(results[1].vertex), 3);
+    EXPECT_EQ(this->GetProp(results[1].vertex), 3);
     EXPECT_EQ(results[1].total_weight, 15);
-    EXPECT_EQ(GetProp(results[2].vertex), 1);
+    EXPECT_EQ(this->GetProp(results[2].vertex), 1);
     EXPECT_EQ(results[2].total_weight, 17);
-    EXPECT_EQ(GetProp(results[3].vertex), 2);
+    EXPECT_EQ(this->GetProp(results[3].vertex), 2);
     EXPECT_EQ(results[3].total_weight, 18);
   }
 }
 
-TEST_F(QueryPlanExpandAllShortestPaths, Where) {
+TYPED_TEST(QueryPlanExpandAllShortestPaths, Where) {
   {
-    auto results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, PropNe(filter_node, 2));
+    auto results = this->ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, this->PropNe(this->filter_node, 2));
     ASSERT_EQ(results.size(), 3);
-    EXPECT_EQ(GetProp(results[0].vertex), 1);
+    EXPECT_EQ(this->GetProp(results[0].vertex), 1);
     EXPECT_EQ(results[0].total_weight, 5);
-    EXPECT_EQ(GetProp(results[1].vertex), 4);
+    EXPECT_EQ(this->GetProp(results[1].vertex), 4);
     EXPECT_EQ(results[1].total_weight, 10);
-    EXPECT_EQ(GetProp(results[2].vertex), 3);
+    EXPECT_EQ(this->GetProp(results[2].vertex), 3);
     EXPECT_EQ(results[2].total_weight, 13);
   }
   {
-    auto results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, PropNe(filter_node, 1));
+    auto results = this->ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, this->PropNe(this->filter_node, 1));
     ASSERT_EQ(results.size(), 3);
-    EXPECT_EQ(GetProp(results[0].vertex), 2);
+    EXPECT_EQ(this->GetProp(results[0].vertex), 2);
     EXPECT_EQ(results[0].total_weight, 3);
-    EXPECT_EQ(GetProp(results[1].vertex), 3);
+    EXPECT_EQ(this->GetProp(results[1].vertex), 3);
     EXPECT_EQ(results[1].total_weight, 6);
-    EXPECT_EQ(GetProp(results[2].vertex), 4);
+    EXPECT_EQ(this->GetProp(results[2].vertex), 4);
     EXPECT_EQ(results[2].total_weight, 9);
   }
 }
 
-TEST_F(QueryPlanExpandAllShortestPaths, UpperBound) {
+TYPED_TEST(QueryPlanExpandAllShortestPaths, UpperBound) {
   {
-    auto results = ExpandAllShortest(EdgeAtom::Direction::BOTH, std::nullopt, LITERAL(true));
-    std::sort(results.begin(), results.end(), compareResultType);
+    auto results = this->ExpandAllShortest(EdgeAtom::Direction::BOTH, std::nullopt, LITERAL(true));
+    std::sort(results.begin(), results.end(), compareResultType<TypeParam>);
     ASSERT_EQ(results.size(), 4);
-    EXPECT_EQ(GetProp(results[0].vertex), 2);
+    EXPECT_EQ(this->GetProp(results[0].vertex), 2);
     EXPECT_EQ(results[0].total_weight, 3);
-    EXPECT_EQ(GetProp(results[1].vertex), 1);
+    EXPECT_EQ(this->GetProp(results[1].vertex), 1);
     EXPECT_EQ(results[1].total_weight, 5);
-    EXPECT_EQ(GetProp(results[2].vertex), 3);
+    EXPECT_EQ(this->GetProp(results[2].vertex), 3);
     EXPECT_EQ(results[2].total_weight, 6);
-    EXPECT_EQ(GetProp(results[3].vertex), 4);
+    EXPECT_EQ(this->GetProp(results[3].vertex), 4);
     EXPECT_EQ(results[3].total_weight, 9);
   }
   {
-    auto results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 2, LITERAL(true));
-    std::sort(results.begin(), results.end(), compareResultType);
+    auto results = this->ExpandAllShortest(EdgeAtom::Direction::BOTH, 2, LITERAL(true));
+    std::sort(results.begin(), results.end(), compareResultType<TypeParam>);
     ASSERT_EQ(results.size(), 4);
-    EXPECT_EQ(GetProp(results[0].vertex), 2);
+    EXPECT_EQ(this->GetProp(results[0].vertex), 2);
     EXPECT_EQ(results[0].total_weight, 3);
-    EXPECT_EQ(GetProp(results[1].vertex), 1);
+    EXPECT_EQ(this->GetProp(results[1].vertex), 1);
     EXPECT_EQ(results[1].total_weight, 5);
-    EXPECT_EQ(GetProp(results[2].vertex), 3);
+    EXPECT_EQ(this->GetProp(results[2].vertex), 3);
     EXPECT_EQ(results[2].total_weight, 6);
-    EXPECT_EQ(GetProp(results[3].vertex), 4);
+    EXPECT_EQ(this->GetProp(results[3].vertex), 4);
     EXPECT_EQ(results[3].total_weight, 10);
   }
   {
-    auto results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 1, LITERAL(true));
-    std::sort(results.begin(), results.end(), compareResultType);
+    auto results = this->ExpandAllShortest(EdgeAtom::Direction::BOTH, 1, LITERAL(true));
+    std::sort(results.begin(), results.end(), compareResultType<TypeParam>);
     ASSERT_EQ(results.size(), 3);
-    EXPECT_EQ(GetProp(results[0].vertex), 2);
+    EXPECT_EQ(this->GetProp(results[0].vertex), 2);
     EXPECT_EQ(results[0].total_weight, 3);
-    EXPECT_EQ(GetProp(results[1].vertex), 1);
+    EXPECT_EQ(this->GetProp(results[1].vertex), 1);
     EXPECT_EQ(results[1].total_weight, 5);
-    EXPECT_EQ(GetProp(results[2].vertex), 4);
+    EXPECT_EQ(this->GetProp(results[2].vertex), 4);
     EXPECT_EQ(results[2].total_weight, 12);
   }
   {
-    auto new_vertex = dba.InsertVertex();
-    ASSERT_TRUE(new_vertex.SetProperty(prop.second, memgraph::storage::PropertyValue(5)).HasValue());
-    auto edge = dba.InsertEdge(&v[4], &new_vertex, edge_type);
+    auto new_vertex = this->dba.InsertVertex();
+    ASSERT_TRUE(new_vertex.SetProperty(this->prop.second, memgraph::storage::PropertyValue(5)).HasValue());
+    auto edge = this->dba.InsertEdge(&this->v[4], &new_vertex, this->edge_type);
     ASSERT_TRUE(edge.HasValue());
-    ASSERT_TRUE(edge->SetProperty(prop.second, memgraph::storage::PropertyValue(2)).HasValue());
-    dba.AdvanceCommand();
+    ASSERT_TRUE(edge->SetProperty(this->prop.second, memgraph::storage::PropertyValue(2)).HasValue());
+    this->dba.AdvanceCommand();
 
-    auto results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 3, LITERAL(true));
-    std::sort(results.begin(), results.end(), compareResultType);
+    auto results = this->ExpandAllShortest(EdgeAtom::Direction::BOTH, 3, LITERAL(true));
+    std::sort(results.begin(), results.end(), compareResultType<TypeParam>);
     ASSERT_EQ(results.size(), 5);
-    EXPECT_EQ(GetProp(results[0].vertex), 2);
+    EXPECT_EQ(this->GetProp(results[0].vertex), 2);
     EXPECT_EQ(results[0].total_weight, 3);
-    EXPECT_EQ(GetProp(results[1].vertex), 1);
+    EXPECT_EQ(this->GetProp(results[1].vertex), 1);
     EXPECT_EQ(results[1].total_weight, 5);
-    EXPECT_EQ(GetProp(results[2].vertex), 3);
+    EXPECT_EQ(this->GetProp(results[2].vertex), 3);
     EXPECT_EQ(results[2].total_weight, 6);
-    EXPECT_EQ(GetProp(results[3].vertex), 4);
+    EXPECT_EQ(this->GetProp(results[3].vertex), 4);
     EXPECT_EQ(results[3].total_weight, 9);
-    EXPECT_EQ(GetProp(results[4].vertex), 5);
+    EXPECT_EQ(this->GetProp(results[4].vertex), 5);
     EXPECT_EQ(results[4].total_weight, 12);
   }
 }
 
-TEST_F(QueryPlanExpandAllShortestPaths, NonNumericWeight) {
-  auto new_vertex = dba.InsertVertex();
-  ASSERT_TRUE(new_vertex.SetProperty(prop.second, memgraph::storage::PropertyValue(5)).HasValue());
-  auto edge = dba.InsertEdge(&v[4], &new_vertex, edge_type);
+TYPED_TEST(QueryPlanExpandAllShortestPaths, NonNumericWeight) {
+  auto new_vertex = this->dba.InsertVertex();
+  ASSERT_TRUE(new_vertex.SetProperty(this->prop.second, memgraph::storage::PropertyValue(5)).HasValue());
+  auto edge = this->dba.InsertEdge(&this->v[4], &new_vertex, this->edge_type);
   ASSERT_TRUE(edge.HasValue());
-  ASSERT_TRUE(edge->SetProperty(prop.second, memgraph::storage::PropertyValue("not a number")).HasValue());
-  dba.AdvanceCommand();
-  EXPECT_THROW(ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true)), QueryRuntimeException);
+  ASSERT_TRUE(edge->SetProperty(this->prop.second, memgraph::storage::PropertyValue("not a number")).HasValue());
+  this->dba.AdvanceCommand();
+  EXPECT_THROW(this->ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true)), QueryRuntimeException);
 }
 
-TEST_F(QueryPlanExpandAllShortestPaths, NegativeWeight) {
-  auto new_vertex = dba.InsertVertex();
-  ASSERT_TRUE(new_vertex.SetProperty(prop.second, memgraph::storage::PropertyValue(5)).HasValue());
-  auto edge = dba.InsertEdge(&v[4], &new_vertex, edge_type);
+TYPED_TEST(QueryPlanExpandAllShortestPaths, NegativeWeight) {
+  auto new_vertex = this->dba.InsertVertex();
+  ASSERT_TRUE(new_vertex.SetProperty(this->prop.second, memgraph::storage::PropertyValue(5)).HasValue());
+  auto edge = this->dba.InsertEdge(&this->v[4], &new_vertex, this->edge_type);
   ASSERT_TRUE(edge.HasValue());
-  ASSERT_TRUE(edge->SetProperty(prop.second, memgraph::storage::PropertyValue(-10)).HasValue());  // negative weight
-  dba.AdvanceCommand();
-  EXPECT_THROW(ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true)), QueryRuntimeException);
+  ASSERT_TRUE(
+      edge->SetProperty(this->prop.second, memgraph::storage::PropertyValue(-10)).HasValue());  // negative weight
+  this->dba.AdvanceCommand();
+  EXPECT_THROW(this->ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true)), QueryRuntimeException);
 }
 
-TEST_F(QueryPlanExpandAllShortestPaths, NegativeUpperBound) {
-  EXPECT_THROW(ExpandAllShortest(EdgeAtom::Direction::BOTH, -1, LITERAL(true)), QueryRuntimeException);
+TYPED_TEST(QueryPlanExpandAllShortestPaths, NegativeUpperBound) {
+  EXPECT_THROW(this->ExpandAllShortest(EdgeAtom::Direction::BOTH, -1, LITERAL(true)), QueryRuntimeException);
 }
 
 // MultiplePaths testing on this graph:
@@ -2501,65 +2527,65 @@ TEST_F(QueryPlanExpandAllShortestPaths, NegativeUpperBound) {
 //  [2]-->--[3]->
 //       3       3
 
-TEST_F(QueryPlanExpandAllShortestPaths, MultiplePaths) {
-  auto new_vertex = dba.InsertVertex();
-  ASSERT_TRUE(new_vertex.SetProperty(prop.second, memgraph::storage::PropertyValue(6)).HasValue());
+TYPED_TEST(QueryPlanExpandAllShortestPaths, MultiplePaths) {
+  auto new_vertex = this->dba.InsertVertex();
+  ASSERT_TRUE(new_vertex.SetProperty(this->prop.second, memgraph::storage::PropertyValue(6)).HasValue());
 
-  auto edge = dba.InsertEdge(&v[4], &new_vertex, edge_type);
+  auto edge = this->dba.InsertEdge(&this->v[4], &new_vertex, this->edge_type);
   ASSERT_TRUE(edge.HasValue());
-  ASSERT_TRUE(edge->SetProperty(prop.second, memgraph::storage::PropertyValue(1)).HasValue());
-  dba.AdvanceCommand();
+  ASSERT_TRUE(edge->SetProperty(this->prop.second, memgraph::storage::PropertyValue(1)).HasValue());
+  this->dba.AdvanceCommand();
 
-  auto edge2 = dba.InsertEdge(&v[1], &new_vertex, edge_type);
+  auto edge2 = this->dba.InsertEdge(&this->v[1], &new_vertex, this->edge_type);
   ASSERT_TRUE(edge2.HasValue());
-  ASSERT_TRUE(edge2->SetProperty(prop.second, memgraph::storage::PropertyValue(5)).HasValue());
-  dba.AdvanceCommand();
+  ASSERT_TRUE(edge2->SetProperty(this->prop.second, memgraph::storage::PropertyValue(5)).HasValue());
+  this->dba.AdvanceCommand();
 
-  auto results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true));
-  std::sort(results.begin(), results.end(), compareResultType);
+  auto results = this->ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true));
+  std::sort(results.begin(), results.end(), compareResultType<TypeParam>);
   ASSERT_EQ(results.size(), 6);
-  EXPECT_EQ(GetProp(results[4].vertex), 6);
+  EXPECT_EQ(this->GetProp(results[4].vertex), 6);
   EXPECT_EQ(results[4].total_weight, 10);
-  EXPECT_EQ(GetProp(results[5].vertex), 6);
+  EXPECT_EQ(this->GetProp(results[5].vertex), 6);
   EXPECT_EQ(results[5].total_weight, 10);
 }
 
 // Uses graph from Basic test, with double edge 2->-3 and 3->-4
-TEST_F(QueryPlanExpandAllShortestPaths, MultiEdge) {
-  auto edge = dba.InsertEdge(&v[2], &v[3], edge_type);
+TYPED_TEST(QueryPlanExpandAllShortestPaths, MultiEdge) {
+  auto edge = this->dba.InsertEdge(&this->v[2], &this->v[3], this->edge_type);
   ASSERT_TRUE(edge.HasValue());
-  ASSERT_TRUE(edge->SetProperty(prop.second, memgraph::storage::PropertyValue(3)).HasValue());
-  dba.AdvanceCommand();
+  ASSERT_TRUE(edge->SetProperty(this->prop.second, memgraph::storage::PropertyValue(3)).HasValue());
+  this->dba.AdvanceCommand();
 
-  auto edge2 = dba.InsertEdge(&v[3], &v[4], edge_type);
+  auto edge2 = this->dba.InsertEdge(&this->v[3], &this->v[4], this->edge_type);
   ASSERT_TRUE(edge2.HasValue());
-  ASSERT_TRUE(edge2->SetProperty(prop.second, memgraph::storage::PropertyValue(3)).HasValue());
-  dba.AdvanceCommand();
+  ASSERT_TRUE(edge2->SetProperty(this->prop.second, memgraph::storage::PropertyValue(3)).HasValue());
+  this->dba.AdvanceCommand();
 
-  auto results = ExpandAllShortest(EdgeAtom::Direction::OUT, 1000, LITERAL(true));
-  std::sort(results.begin(), results.end(), compareResultType);
+  auto results = this->ExpandAllShortest(EdgeAtom::Direction::OUT, 1000, LITERAL(true));
+  std::sort(results.begin(), results.end(), compareResultType<TypeParam>);
   ASSERT_EQ(results.size(), 8);
-  EXPECT_EQ(GetProp(results[6].vertex), 4);
+  EXPECT_EQ(this->GetProp(results[6].vertex), 4);
   EXPECT_EQ(results[4].total_weight, 9);
-  EXPECT_EQ(GetProp(results[7].vertex), 4);
+  EXPECT_EQ(this->GetProp(results[7].vertex), 4);
   EXPECT_EQ(results[5].total_weight, 9);
 }
 
 #ifdef MG_ENTERPRISE
-TEST_F(QueryPlanExpandAllShortestPaths, BasicWithFineGrainedFiltering) {
+TYPED_TEST(QueryPlanExpandAllShortestPaths, BasicWithFineGrainedFiltering) {
   // All edge_types and labels allowed
   {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
-    auto results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true));
-    sort(results.begin(), results.end(), compareResultType);
+    auto results = this->ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true));
+    sort(results.begin(), results.end(), compareResultType<TypeParam>);
 
     EXPECT_EQ(results[0].path.size(), 1);
     EXPECT_EQ(results[1].path.size(), 1);
     EXPECT_EQ(results[2].path.size(), 2);
 
-    EXPECT_EQ(GetDoubleProp(results[3].path[2]), 3);
+    EXPECT_EQ(this->GetDoubleProp(results[3].path[2]), 3);
   }
   // Denied all labels
   {
@@ -2567,7 +2593,7 @@ TEST_F(QueryPlanExpandAllShortestPaths, BasicWithFineGrainedFiltering) {
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().Grant("*",
                                                                      memgraph::auth::FineGrainedPermission::NOTHING);
-    auto results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    auto results = this->ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
     ASSERT_EQ(results.size(), 0);
   }
 
@@ -2576,7 +2602,7 @@ TEST_F(QueryPlanExpandAllShortestPaths, BasicWithFineGrainedFiltering) {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().label_permissions().Grant("l0", memgraph::auth::FineGrainedPermission::NOTHING);
     user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
-    auto results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    auto results = this->ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
 
     ASSERT_EQ(results.size(), 0);
   }
@@ -2591,37 +2617,37 @@ TEST_F(QueryPlanExpandAllShortestPaths, BasicWithFineGrainedFiltering) {
     user.fine_grained_access_handler().label_permissions().Grant("l4", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
 
-    auto results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    auto results = this->ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
     ASSERT_EQ(results.size(), 4);
     user.fine_grained_access_handler().label_permissions().Grant("l2", memgraph::auth::FineGrainedPermission::NOTHING);
-    auto filtered_results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    auto filtered_results = this->ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
 
     ASSERT_EQ(filtered_results.size(), 3);
   }
 
   // Deny edge type (created vertex 5 and edge vertex 4 to vertex 5)
   {
-    v.push_back(dba.InsertVertex());
-    ASSERT_TRUE(v.back().SetProperty(prop.second, memgraph::storage::PropertyValue(5)).HasValue());
-    ASSERT_TRUE(v.back().AddLabel(db->NameToLabel("l5")).HasValue());
-    dba.AdvanceCommand();
-    memgraph::storage::EdgeTypeId edge_type_filter = dba.NameToEdgeType("edge_type_filter");
-    auto edge = dba.InsertEdge(&v[4], &v[5], edge_type_filter);
-    ASSERT_TRUE(edge->SetProperty(prop.second, memgraph::storage::PropertyValue(1)).HasValue());
-    e.emplace(std::make_pair(4, 5), *edge);
-    dba.AdvanceCommand();
+    this->v.push_back(this->dba.InsertVertex());
+    ASSERT_TRUE(this->v.back().SetProperty(this->prop.second, memgraph::storage::PropertyValue(5)).HasValue());
+    ASSERT_TRUE(this->v.back().AddLabel(this->db->NameToLabel("l5")).HasValue());
+    this->dba.AdvanceCommand();
+    memgraph::storage::EdgeTypeId edge_type_filter = this->dba.NameToEdgeType("edge_type_filter");
+    auto edge = this->dba.InsertEdge(&this->v[4], &this->v[5], edge_type_filter);
+    ASSERT_TRUE(edge->SetProperty(this->prop.second, memgraph::storage::PropertyValue(1)).HasValue());
+    this->e.emplace(std::make_pair(4, 5), *edge);
+    this->dba.AdvanceCommand();
 
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
-    auto results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    auto results = this->ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
     ASSERT_EQ(results.size(), 5);
 
     user.fine_grained_access_handler().edge_type_permissions().Grant("edge_type",
                                                                      memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().Grant("edge_type_filter",
                                                                      memgraph::auth::FineGrainedPermission::NOTHING);
-    auto filtered_results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    auto filtered_results = this->ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
 
     ASSERT_EQ(filtered_results.size(), 4);
   }
@@ -3424,9 +3450,10 @@ TYPED_TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
   count_with_scan_all(prop_value2, vertex_count - vertex_prop_count);
 }
 
+template <typename StorageType>
 class ExistsFixture : public testing::Test {
  protected:
-  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  std::unique_ptr<memgraph::storage::Storage> db{new StorageType()};
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   AstStorage storage;
@@ -3609,41 +3636,45 @@ class ExistsFixture : public testing::Test {
   }
 };
 
-TEST_F(ExistsFixture, BasicExists) {
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+TYPED_TEST_CASE(ExistsFixture, StorageTypes);
+
+TYPED_TEST(ExistsFixture, BasicExists) {
   std::vector<memgraph::storage::EdgeTypeId> known_edge_types;
-  known_edge_types.push_back(edge_type);
+  known_edge_types.push_back(this->edge_type);
   std::vector<memgraph::storage::EdgeTypeId> unknown_edge_types;
-  unknown_edge_types.push_back(edge_type_unknown);
+  unknown_edge_types.push_back(this->edge_type_unknown);
 
-  EXPECT_EQ(1, TestExists("l1", EdgeAtom::Direction::OUT, {}));
-  EXPECT_EQ(1, TestExists("l1", EdgeAtom::Direction::BOTH, {}));
-  EXPECT_EQ(0, TestExists("l1", EdgeAtom::Direction::IN, {}));
-  EXPECT_EQ(1, TestExists("l1", EdgeAtom::Direction::OUT, known_edge_types));
-  EXPECT_EQ(0, TestExists("l1", EdgeAtom::Direction::OUT, unknown_edge_types));
+  EXPECT_EQ(1, this->TestExists("l1", EdgeAtom::Direction::OUT, {}));
+  EXPECT_EQ(1, this->TestExists("l1", EdgeAtom::Direction::BOTH, {}));
+  EXPECT_EQ(0, this->TestExists("l1", EdgeAtom::Direction::IN, {}));
+  EXPECT_EQ(1, this->TestExists("l1", EdgeAtom::Direction::OUT, known_edge_types));
+  EXPECT_EQ(0, this->TestExists("l1", EdgeAtom::Direction::OUT, unknown_edge_types));
 }
 
-TEST_F(ExistsFixture, ExistsWithFiltering) {
-  EXPECT_EQ(1, TestExists("l1", EdgeAtom::Direction::BOTH, {}, "l2"));
-  EXPECT_EQ(0, TestExists("l1", EdgeAtom::Direction::BOTH, {}, "l3"));
+TYPED_TEST(ExistsFixture, ExistsWithFiltering) {
+  EXPECT_EQ(1, this->TestExists("l1", EdgeAtom::Direction::BOTH, {}, "l2"));
+  EXPECT_EQ(0, this->TestExists("l1", EdgeAtom::Direction::BOTH, {}, "l3"));
 
-  EXPECT_EQ(1, TestExists("l1", EdgeAtom::Direction::BOTH, {}, "l2", 2));
-  EXPECT_EQ(0, TestExists("l1", EdgeAtom::Direction::BOTH, {}, "l2", 1));
+  EXPECT_EQ(1, this->TestExists("l1", EdgeAtom::Direction::BOTH, {}, "l2", 2));
+  EXPECT_EQ(0, this->TestExists("l1", EdgeAtom::Direction::BOTH, {}, "l2", 1));
 
-  EXPECT_EQ(1, TestExists("l1", EdgeAtom::Direction::BOTH, {}, "l2", std::nullopt, 1));
-  EXPECT_EQ(0, TestExists("l1", EdgeAtom::Direction::BOTH, {}, "l2", std::nullopt, 2));
+  EXPECT_EQ(1, this->TestExists("l1", EdgeAtom::Direction::BOTH, {}, "l2", std::nullopt, 1));
+  EXPECT_EQ(0, this->TestExists("l1", EdgeAtom::Direction::BOTH, {}, "l2", std::nullopt, 2));
 
-  EXPECT_EQ(1, TestExists("l1", EdgeAtom::Direction::BOTH, {}, "l2", 2, 1));
-  EXPECT_EQ(0, TestExists("l1", EdgeAtom::Direction::BOTH, {}, "l2", 1, 1));
+  EXPECT_EQ(1, this->TestExists("l1", EdgeAtom::Direction::BOTH, {}, "l2", 2, 1));
+  EXPECT_EQ(0, this->TestExists("l1", EdgeAtom::Direction::BOTH, {}, "l2", 1, 1));
 }
 
-TEST_F(ExistsFixture, DoubleFilters) {
-  EXPECT_EQ(1, TestDoubleExists("l1", EdgeAtom::Direction::BOTH, {}, {}, true));
-  EXPECT_EQ(1, TestDoubleExists("l1", EdgeAtom::Direction::BOTH, {}, {}, false));
+TYPED_TEST(ExistsFixture, DoubleFilters) {
+  EXPECT_EQ(1, this->TestDoubleExists("l1", EdgeAtom::Direction::BOTH, {}, {}, true));
+  EXPECT_EQ(1, this->TestDoubleExists("l1", EdgeAtom::Direction::BOTH, {}, {}, false));
 }
 
+template <typename StorageType>
 class SubqueriesFeature : public testing::Test {
  protected:
-  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  std::unique_ptr<memgraph::storage::Storage> db{new StorageType()};
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   AstStorage storage;
@@ -3671,105 +3702,119 @@ class SubqueriesFeature : public testing::Test {
   }
 };
 
-TEST_F(SubqueriesFeature, BasicCartesian) {
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+TYPED_TEST_CASE(SubqueriesFeature, StorageTypes);
+
+TYPED_TEST(SubqueriesFeature, BasicCartesian) {
   // MATCH (n) CALL { MATCH (m) RETURN m } RETURN n, m
 
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+  auto n = MakeScanAll(this->storage, this->symbol_table, "n");
+  auto return_n =
+      NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(this->symbol_table.CreateSymbol("named_expression_1", true));
 
-  auto m = MakeScanAll(storage, symbol_table, "m");
-  auto return_m = NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
+  auto m = MakeScanAll(this->storage, this->symbol_table, "m");
+  auto return_m =
+      NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(this->symbol_table.CreateSymbol("named_expression_2", true));
   auto produce_subquery = MakeProduce(m.op_, return_m);
 
   auto apply = std::make_shared<Apply>(n.op_, produce_subquery, true);
 
   auto produce = MakeProduce(apply, return_n, return_m);
 
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, this->symbol_table, &this->dba);
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 4);
 }
 
-TEST_F(SubqueriesFeature, BasicCartesianWithFilter) {
+TYPED_TEST(SubqueriesFeature, BasicCartesianWithFilter) {
   // MATCH (n) WHERE n.prop = 2 CALL { MATCH (m) RETURN m } RETURN n, m
 
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  auto *filter_expr = AND(storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_),
-                          EQ(PROPERTY_LOOKUP(dba, n.node_->identifier_, prop), LITERAL(2)));
+  auto n = MakeScanAll(this->storage, this->symbol_table, "n");
+  auto *filter_expr = AND(this->storage.template Create<LabelsTest>(n.node_->identifier_, n.node_->labels_),
+                          EQ(PROPERTY_LOOKUP(this->dba, n.node_->identifier_, this->prop), LITERAL(2)));
   auto filter = std::make_shared<Filter>(n.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
 
-  auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+  auto return_n =
+      NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(this->symbol_table.CreateSymbol("named_expression_1", true));
 
-  auto m = MakeScanAll(storage, symbol_table, "m");
-  auto return_m = NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
+  auto m = MakeScanAll(this->storage, this->symbol_table, "m");
+  auto return_m =
+      NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(this->symbol_table.CreateSymbol("named_expression_2", true));
   auto produce_subquery = MakeProduce(m.op_, return_m);
 
   auto apply = std::make_shared<Apply>(filter, produce_subquery, true);
 
   auto produce = MakeProduce(apply, return_n, return_m);
 
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, this->symbol_table, &this->dba);
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 2);
 }
 
-TEST_F(SubqueriesFeature, BasicCartesianWithFilterInsideSubquery) {
+TYPED_TEST(SubqueriesFeature, BasicCartesianWithFilterInsideSubquery) {
   // MATCH (n) CALL { MATCH (m) WHERE m.prop = 2 RETURN m } RETURN n, m
 
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+  auto n = MakeScanAll(this->storage, this->symbol_table, "n");
+  auto return_n =
+      NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(this->symbol_table.CreateSymbol("named_expression_1", true));
 
-  auto m = MakeScanAll(storage, symbol_table, "m");
-  auto *filter_expr = AND(storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_),
-                          EQ(PROPERTY_LOOKUP(dba, n.node_->identifier_, prop), LITERAL(2)));
+  auto m = MakeScanAll(this->storage, this->symbol_table, "m");
+  auto *filter_expr = AND(this->storage.template Create<LabelsTest>(n.node_->identifier_, n.node_->labels_),
+                          EQ(PROPERTY_LOOKUP(this->dba, n.node_->identifier_, this->prop), LITERAL(2)));
   auto filter = std::make_shared<Filter>(m.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
 
-  auto return_m = NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
+  auto return_m =
+      NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(this->symbol_table.CreateSymbol("named_expression_2", true));
   auto produce_subquery = MakeProduce(filter, return_m);
 
   auto apply = std::make_shared<Apply>(n.op_, produce_subquery, true);
 
   auto produce = MakeProduce(apply, return_n, return_m);
 
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, this->symbol_table, &this->dba);
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 2);
 }
 
-TEST_F(SubqueriesFeature, BasicCartesianWithFilterNoResults) {
+TYPED_TEST(SubqueriesFeature, BasicCartesianWithFilterNoResults) {
   // MATCH (n) WHERE n.prop = 3 CALL { MATCH (m) RETURN m } RETURN n, m
 
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  auto *filter_expr = AND(storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_),
-                          EQ(PROPERTY_LOOKUP(dba, n.node_->identifier_, prop), LITERAL(3)));
+  auto n = MakeScanAll(this->storage, this->symbol_table, "n");
+  auto *filter_expr = AND(this->storage.template Create<LabelsTest>(n.node_->identifier_, n.node_->labels_),
+                          EQ(PROPERTY_LOOKUP(this->dba, n.node_->identifier_, this->prop), LITERAL(3)));
   auto filter = std::make_shared<Filter>(n.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
 
-  auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+  auto return_n =
+      NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(this->symbol_table.CreateSymbol("named_expression_1", true));
 
-  auto m = MakeScanAll(storage, symbol_table, "m");
-  auto return_m = NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
+  auto m = MakeScanAll(this->storage, this->symbol_table, "m");
+  auto return_m =
+      NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(this->symbol_table.CreateSymbol("named_expression_2", true));
   auto produce_subquery = MakeProduce(m.op_, return_m);
 
   auto apply = std::make_shared<Apply>(filter, produce_subquery, true);
 
   auto produce = MakeProduce(apply, return_n, return_m);
 
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, this->symbol_table, &this->dba);
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 0);
 }
 
-TEST_F(SubqueriesFeature, SubqueryInsideSubqueryCartesian) {
+TYPED_TEST(SubqueriesFeature, SubqueryInsideSubqueryCartesian) {
   // MATCH (n) CALL { MATCH (m) CALL { MATCH (o) RETURN o} RETURN m, o } RETURN n, m, o
 
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+  auto n = MakeScanAll(this->storage, this->symbol_table, "n");
+  auto return_n =
+      NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(this->symbol_table.CreateSymbol("named_expression_1", true));
 
-  auto m = MakeScanAll(storage, symbol_table, "m");
-  auto return_m = NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
+  auto m = MakeScanAll(this->storage, this->symbol_table, "m");
+  auto return_m =
+      NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(this->symbol_table.CreateSymbol("named_expression_2", true));
 
-  auto o = MakeScanAll(storage, symbol_table, "o");
-  auto return_o = NEXPR("o", IDENT("o")->MapTo(o.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_3", true));
+  auto o = MakeScanAll(this->storage, this->symbol_table, "o");
+  auto return_o =
+      NEXPR("o", IDENT("o")->MapTo(o.sym_))->MapTo(this->symbol_table.CreateSymbol("named_expression_3", true));
   auto produce_nested_subquery = MakeProduce(o.op_, return_o);
 
   auto inner_apply = std::make_shared<Apply>(m.op_, produce_nested_subquery, true);
@@ -3778,126 +3823,132 @@ TEST_F(SubqueriesFeature, SubqueryInsideSubqueryCartesian) {
   auto outer_apply = std::make_shared<Apply>(n.op_, produce_subquery, true);
   auto produce = MakeProduce(outer_apply, return_n, return_m, return_o);
 
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, this->symbol_table, &this->dba);
   auto results = CollectProduce(*produce, &context);
 
   EXPECT_EQ(results.size(), 8);
 }
 
-TEST_F(SubqueriesFeature, UnitSubquery) {
+TYPED_TEST(SubqueriesFeature, UnitSubquery) {
   // CALL { MATCH (m) RETURN m } RETURN m
 
   auto once = std::make_shared<Once>();
 
-  auto o = MakeScanAll(storage, symbol_table, "o");
-  auto return_o = NEXPR("o", IDENT("o")->MapTo(o.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_3", true));
+  auto o = MakeScanAll(this->storage, this->symbol_table, "o");
+  auto return_o =
+      NEXPR("o", IDENT("o")->MapTo(o.sym_))->MapTo(this->symbol_table.CreateSymbol("named_expression_3", true));
   auto produce_subquery = MakeProduce(o.op_, return_o);
 
   auto apply = std::make_shared<Apply>(once, produce_subquery, true);
   auto produce = MakeProduce(apply, return_o);
 
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, this->symbol_table, &this->dba);
   auto results = CollectProduce(*produce, &context);
 
   EXPECT_EQ(results.size(), 2);
 }
 
-TEST_F(SubqueriesFeature, SubqueryWithBoundedSymbol) {
+TYPED_TEST(SubqueriesFeature, SubqueryWithBoundedSymbol) {
   // MATCH (n) CALL { WITH n MATCH (n)-[]->(m) RETURN m } RETURN n, m
 
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+  auto n = MakeScanAll(this->storage, this->symbol_table, "n");
+  auto return_n =
+      NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(this->symbol_table.CreateSymbol("named_expression_1", true));
 
   auto once = std::make_shared<Once>();
   auto produce_with = MakeProduce(once, return_n);
-  auto expand = MakeExpand(storage, symbol_table, produce_with, n.sym_, "r", EdgeAtom::Direction::OUT, {}, "m", false,
-                           memgraph::storage::View::OLD);
-  auto return_m =
-      NEXPR("m", IDENT("m")->MapTo(expand.node_sym_))->MapTo(symbol_table.CreateSymbol("named_expression_3", true));
+  auto expand = MakeExpand(this->storage, this->symbol_table, produce_with, n.sym_, "r", EdgeAtom::Direction::OUT, {},
+                           "m", false, memgraph::storage::View::OLD);
+  auto return_m = NEXPR("m", IDENT("m")->MapTo(expand.node_sym_))
+                      ->MapTo(this->symbol_table.CreateSymbol("named_expression_3", true));
   auto produce_subquery = MakeProduce(expand.op_, return_m);
 
   auto apply = std::make_shared<Apply>(n.op_, produce_subquery, true);
   auto produce = MakeProduce(apply, return_n, return_m);
 
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, this->symbol_table, &this->dba);
   auto results = CollectProduce(*produce, &context);
 
   EXPECT_EQ(results.size(), 1);
 }
 
-TEST_F(SubqueriesFeature, SubqueryWithUnionAll) {
+TYPED_TEST(SubqueriesFeature, SubqueryWithUnionAll) {
   // MATCH (n) CALL { MATCH (m) RETURN m UNION ALL MATCH (m) RETURN m } RETURN n, m
 
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+  auto n = MakeScanAll(this->storage, this->symbol_table, "n");
+  auto return_n =
+      NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(this->symbol_table.CreateSymbol("named_expression_1", true));
 
-  auto m1 = MakeScanAll(storage, symbol_table, "m");
-  auto return_m = NEXPR("m", IDENT("m")->MapTo(m1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
+  auto m1 = MakeScanAll(this->storage, this->symbol_table, "m");
+  auto return_m =
+      NEXPR("m", IDENT("m")->MapTo(m1.sym_))->MapTo(this->symbol_table.CreateSymbol("named_expression_2", true));
   auto produce_left_union_subquery = MakeProduce(m1.op_, return_m);
 
-  auto m2 = MakeScanAll(storage, symbol_table, "m");
+  auto m2 = MakeScanAll(this->storage, this->symbol_table, "m");
   auto produce_right_union_subquery = MakeProduce(m2.op_, return_m);
 
   auto union_operator =
       std::make_shared<Union>(produce_left_union_subquery, produce_right_union_subquery, std::vector<Symbol>{m1.sym_},
-                              produce_left_union_subquery->OutputSymbols(symbol_table),
-                              produce_right_union_subquery->OutputSymbols(symbol_table));
+                              produce_left_union_subquery->OutputSymbols(this->symbol_table),
+                              produce_right_union_subquery->OutputSymbols(this->symbol_table));
 
   auto apply = std::make_shared<Apply>(n.op_, union_operator, true);
 
   auto produce = MakeProduce(apply, return_n, return_m);
 
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, this->symbol_table, &this->dba);
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 8);
 }
 
-TEST_F(SubqueriesFeature, SubqueryWithUnion) {
+TYPED_TEST(SubqueriesFeature, SubqueryWithUnion) {
   // MATCH (n) CALL { MATCH (m) RETURN m UNION MATCH (m) RETURN m } RETURN n, m
 
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+  auto n = MakeScanAll(this->storage, this->symbol_table, "n");
+  auto return_n =
+      NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(this->symbol_table.CreateSymbol("named_expression_1", true));
 
-  auto m1 = MakeScanAll(storage, symbol_table, "m");
+  auto m1 = MakeScanAll(this->storage, this->symbol_table, "m");
 
-  auto subquery_return_symbol = symbol_table.CreateSymbol("named_expression_2", true);
+  auto subquery_return_symbol = this->symbol_table.CreateSymbol("named_expression_2", true);
   auto return_m = NEXPR("m", IDENT("m")->MapTo(m1.sym_))->MapTo(subquery_return_symbol);
 
   auto produce_left_union_subquery = MakeProduce(m1.op_, return_m);
 
-  auto m2 = MakeScanAll(storage, symbol_table, "m");
+  auto m2 = MakeScanAll(this->storage, this->symbol_table, "m");
   auto produce_right_union_subquery = MakeProduce(m2.op_, return_m);
 
   auto union_operator = std::make_shared<Union>(produce_left_union_subquery, produce_right_union_subquery,
                                                 std::vector<Symbol>{subquery_return_symbol},
-                                                produce_left_union_subquery->OutputSymbols(symbol_table),
-                                                produce_right_union_subquery->OutputSymbols(symbol_table));
+                                                produce_left_union_subquery->OutputSymbols(this->symbol_table),
+                                                produce_right_union_subquery->OutputSymbols(this->symbol_table));
 
-  auto union_output_symbols = union_operator->OutputSymbols(symbol_table);
+  auto union_output_symbols = union_operator->OutputSymbols(this->symbol_table);
   auto distinct = std::make_shared<Distinct>(union_operator, std::vector<Symbol>{union_output_symbols});
 
   auto apply = std::make_shared<Apply>(n.op_, distinct, true);
 
   auto produce = MakeProduce(apply, return_n);
 
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, this->symbol_table, &this->dba);
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 4);
 }
 
-TEST_F(SubqueriesFeature, SubqueriesWithForeach) {
+TYPED_TEST(SubqueriesFeature, SubqueriesWithForeach) {
   // MATCH (n) CALL { FOREACH (i in range(1, 5) | CREATE (n)) } RETURN n
 
-  auto n = MakeScanAll(storage, symbol_table, "n");
-  auto return_n = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+  auto n = MakeScanAll(this->storage, this->symbol_table, "n");
+  auto return_n =
+      NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(this->symbol_table.CreateSymbol("named_expression_1", true));
 
   auto once_create = std::make_shared<Once>();
   NodeCreationInfo node_creation_info;
-  node_creation_info.symbol = symbol_table.CreateSymbol("n", true);
+  node_creation_info.symbol = this->symbol_table.CreateSymbol("n", true);
   auto create = std::make_shared<plan::CreateNode>(once_create, node_creation_info);
 
   auto once_foreach = std::make_shared<Once>();
-  auto iteration_symbol = symbol_table.CreateSymbol("i", true);
+  auto iteration_symbol = this->symbol_table.CreateSymbol("i", true);
   auto iterating_list = LIST(LITERAL(1), LITERAL(2), LITERAL(3), LITERAL(4), LITERAL(5));
   auto foreach = std::make_shared<plan::Foreach>(once_foreach, create, iterating_list, iteration_symbol);
   auto empty_result = std::make_shared<EmptyResult>(foreach);
@@ -3906,7 +3957,7 @@ TEST_F(SubqueriesFeature, SubqueriesWithForeach) {
 
   auto produce = MakeProduce(apply, return_n);
 
-  auto context = MakeContext(storage, symbol_table, &dba);
+  auto context = MakeContext(this->storage, this->symbol_table, &this->dba);
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 2);
 }
