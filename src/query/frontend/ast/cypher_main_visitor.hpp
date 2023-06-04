@@ -15,8 +15,6 @@
 #include <unordered_set>
 #include <utility>
 
-#include <antlr4-runtime.h>
-
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/opencypher/generated/MemgraphCypherBaseVisitor.h"
 #include "utils/exceptions.hpp"
@@ -262,6 +260,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return IsolationLevelQuery*
    */
   antlrcpp::Any visitIsolationLevelQuery(MemgraphCypher::IsolationLevelQueryContext *ctx) override;
+
+  /**
+   * @return StorageModeQuery*
+   */
+  antlrcpp::Any visitStorageModeQuery(MemgraphCypher::StorageModeQueryContext *ctx) override;
 
   /**
    * @return CreateSnapshotQuery*
@@ -602,6 +605,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return map<std::string, Expression*>
    */
   antlrcpp::Any visitMapLiteral(MemgraphCypher::MapLiteralContext *ctx) override;
+
+  /**
+   * @return MapProjectionData
+   */
+  antlrcpp::Any visitMapProjectionLiteral(MemgraphCypher::MapProjectionLiteralContext *ctx) override;
 
   /**
    * @return vector<Expression*>

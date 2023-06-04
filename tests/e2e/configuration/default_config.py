@@ -92,12 +92,23 @@ startup_config_dict = {
         "1024",
         "Memory warning threshold, in MB. If Memgraph detects there is less available RAM it will log a warning. Set to 0 to disable.",
     ),
+    "metrics_address": (
+        "0.0.0.0",
+        "0.0.0.0",
+        "IP address on which the Memgraph server for exposing metrics should listen.",
+    ),
+    "metrics_port": ("9091", "9091", "Port on which the Memgraph server for exposing metrics should listen."),
     "monitoring_address": (
         "0.0.0.0",
         "0.0.0.0",
         "IP address on which the websocket server for Memgraph monitoring should listen.",
     ),
     "monitoring_port": ("7444", "7444", "Port on which the websocket server for Memgraph monitoring should listen."),
+    "storage_parallel_index_recovery": (
+        "false",
+        "false",
+        "Controls whether the index creation can be done in a multithreaded fashion.",
+    ),
     "password_encryption_algorithm": ("bcrypt", "bcrypt", "The password encryption algorithm used for authentication."),
     "pulsar_service_url": ("", "", "Default URL used while connecting to Pulsar brokers."),
     "query_execution_timeout_sec": (
@@ -116,12 +127,18 @@ startup_config_dict = {
         "The time duration between two replica checks/pings. If < 1, replicas will NOT be checked at all. NOTE: The MAIN instance allocates a new thread for each REPLICA.",
     ),
     "storage_gc_cycle_sec": ("30", "30", "Storage garbage collector interval (in seconds)."),
+    "storage_items_per_batch": (
+        "1000000",
+        "1000000",
+        "The number of edges and vertices stored in a batch in a snapshot file.",
+    ),
     "storage_properties_on_edges": ("false", "true", "Controls whether edges have properties."),
     "storage_recover_on_startup": (
         "false",
         "false",
         "Controls whether the storage recovers persisted data on startup.",
     ),
+    "storage_recovery_thread_count": ("12", "12", "The number of threads used to recover persisted data from disk."),
     "storage_snapshot_interval_sec": (
         "0",
         "300",

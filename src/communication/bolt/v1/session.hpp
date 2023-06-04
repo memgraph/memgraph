@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -63,7 +63,8 @@ class Session {
    * if an explicit transaction was started.
    */
   virtual std::pair<std::vector<std::string>, std::optional<int>> Interpret(
-      const std::string &query, const std::map<std::string, Value> &params) = 0;
+      const std::string &query, const std::map<std::string, Value> &params,
+      const std::map<std::string, memgraph::communication::bolt::Value> &metadata) = 0;
 
   /**
    * Put results of the processed query in the `encoder`.
@@ -85,7 +86,7 @@ class Session {
    */
   virtual std::map<std::string, Value> Discard(std::optional<int> n, std::optional<int> qid) = 0;
 
-  virtual void BeginTransaction() = 0;
+  virtual void BeginTransaction(const std::map<std::string, memgraph::communication::bolt::Value> &) = 0;
   virtual void CommitTransaction() = 0;
   virtual void RollbackTransaction() = 0;
 
