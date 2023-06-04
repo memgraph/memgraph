@@ -18,9 +18,11 @@
 
 #include "mgp.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
+#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/view.hpp"
 
+template <typename StorageType>
 struct CppApiTestFixture : public ::testing::Test {
  protected:
   virtual void SetUp() { mgp::memory = &memory; }
@@ -36,7 +38,7 @@ struct CppApiTestFixture : public ::testing::Test {
     return db_accessors_.back();
   }
 
-  std::unique_ptr<memgraph::storage::Storage> storage{new memgraph::storage::InMemoryStorage()};
+  std::unique_ptr<memgraph::storage::Storage> storage{new StorageType()};
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
 
  private:
@@ -45,8 +47,11 @@ struct CppApiTestFixture : public ::testing::Test {
   std::unique_ptr<memgraph::query::ExecutionContext> ctx_ = std::make_unique<memgraph::query::ExecutionContext>();
 };
 
-TEST_F(CppApiTestFixture, TestGraph) {
-  mgp_graph raw_graph = CreateGraph();
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+TYPED_TEST_CASE(CppApiTestFixture, StorageTypes);
+
+TYPED_TEST(CppApiTestFixture, TestGraph) {
+  mgp_graph raw_graph = this->CreateGraph();
   auto graph = mgp::Graph(&raw_graph);
 
   auto node_1 = graph.CreateNode();
@@ -86,7 +91,7 @@ TEST_F(CppApiTestFixture, TestGraph) {
   ASSERT_EQ(n_rels, 3);
 }
 
-TEST_F(CppApiTestFixture, TestId) {
+TYPED_TEST(CppApiTestFixture, TestId) {
   int64_t int_1 = 8;
   uint64_t int_2 = 8;
   int64_t int_3 = 7;
@@ -117,7 +122,7 @@ TEST_F(CppApiTestFixture, TestId) {
   ASSERT_NE(id_2, id_4);
 }
 
-TEST_F(CppApiTestFixture, TestList) {
+TYPED_TEST(CppApiTestFixture, TestList) {
   auto list_1 = mgp::List();
 
   ASSERT_EQ(list_1.Size(), 0);
@@ -155,7 +160,7 @@ TEST_F(CppApiTestFixture, TestList) {
   auto value_y = mgp::Value(mgp::List());
 }
 
-TEST_F(CppApiTestFixture, TestMap) {
+TYPED_TEST(CppApiTestFixture, TestMap) {
   auto map_1 = mgp::Map();
 
   std::map<std::string_view, mgp::Value> map_1a;
@@ -197,8 +202,8 @@ TEST_F(CppApiTestFixture, TestMap) {
   auto value_z = value_x;
 }
 
-TEST_F(CppApiTestFixture, TestNode) {
-  mgp_graph raw_graph = CreateGraph();
+TYPED_TEST(CppApiTestFixture, TestNode) {
+  mgp_graph raw_graph = this->CreateGraph();
   auto graph = mgp::Graph(&raw_graph);
 
   auto node_1 = graph.CreateNode();
@@ -244,8 +249,8 @@ TEST_F(CppApiTestFixture, TestNode) {
   auto value_y = mgp::Value(graph.CreateNode());
 }
 
-TEST_F(CppApiTestFixture, TestNodeWithNeighbors) {
-  mgp_graph raw_graph = CreateGraph();
+TYPED_TEST(CppApiTestFixture, TestNodeWithNeighbors) {
+  mgp_graph raw_graph = this->CreateGraph();
   auto graph = mgp::Graph(&raw_graph);
 
   auto node_1 = graph.CreateNode();
@@ -271,8 +276,8 @@ TEST_F(CppApiTestFixture, TestNodeWithNeighbors) {
   ASSERT_EQ(count_in_relationships, 2);
 }
 
-TEST_F(CppApiTestFixture, TestRelationship) {
-  mgp_graph raw_graph = CreateGraph();
+TYPED_TEST(CppApiTestFixture, TestRelationship) {
+  mgp_graph raw_graph = this->CreateGraph();
   auto graph = mgp::Graph(&raw_graph);
 
   auto node_1 = graph.CreateNode();
@@ -298,8 +303,8 @@ TEST_F(CppApiTestFixture, TestRelationship) {
   auto value_y = mgp::Value(graph.CreateRelationship(node_2, node_1, "edge_type"));
 }
 
-TEST_F(CppApiTestFixture, TestPath) {
-  mgp_graph raw_graph = CreateGraph();
+TYPED_TEST(CppApiTestFixture, TestPath) {
+  mgp_graph raw_graph = this->CreateGraph();
   auto graph = mgp::Graph(&raw_graph);
 
   auto node_1 = graph.CreateNode();
@@ -331,7 +336,7 @@ TEST_F(CppApiTestFixture, TestPath) {
   auto value_y = mgp::Value(mgp::Path(node_0));
 }
 
-TEST_F(CppApiTestFixture, TestDate) {
+TYPED_TEST(CppApiTestFixture, TestDate) {
   auto date_1 = mgp::Date("2022-04-09");
   auto date_2 = mgp::Date(2022, 4, 9);
 
@@ -358,7 +363,7 @@ TEST_F(CppApiTestFixture, TestDate) {
   auto value_y = mgp::Value(mgp::Date("2022-04-09"));
 }
 
-TEST_F(CppApiTestFixture, TestLocalTime) {
+TYPED_TEST(CppApiTestFixture, TestLocalTime) {
   auto lt_1 = mgp::LocalTime("09:15:00");
   auto lt_2 = mgp::LocalTime(9, 15, 0, 0, 0);
   auto lt_3 = mgp::LocalTime::Now();
@@ -386,7 +391,7 @@ TEST_F(CppApiTestFixture, TestLocalTime) {
   auto value_y = mgp::Value(mgp::LocalTime("09:15:00"));
 }
 
-TEST_F(CppApiTestFixture, TestLocalDateTime) {
+TYPED_TEST(CppApiTestFixture, TestLocalDateTime) {
   auto ldt_1 = mgp::LocalDateTime("2021-10-05T14:15:00");
   auto ldt_2 = mgp::LocalDateTime(2021, 10, 5, 14, 15, 0, 0, 0);
 
@@ -419,7 +424,7 @@ TEST_F(CppApiTestFixture, TestLocalDateTime) {
   auto value_y = mgp::Value(mgp::LocalDateTime("2021-10-05T14:15:00"));
 }
 
-TEST_F(CppApiTestFixture, TestDuration) {
+TYPED_TEST(CppApiTestFixture, TestDuration) {
   auto duration_1 = mgp::Duration("PT2M2.33S");
   auto duration_2 = mgp::Duration(1465355);
   auto duration_3 = mgp::Duration(5, 14, 15, 0, 0, 0);
@@ -441,8 +446,8 @@ TEST_F(CppApiTestFixture, TestDuration) {
   auto value_y = mgp::Value(mgp::Duration("PT2M2.33S"));
 }
 
-TEST_F(CppApiTestFixture, TestNodeProperties) {
-  mgp_graph raw_graph = CreateGraph(memgraph::storage::View::NEW);
+TYPED_TEST(CppApiTestFixture, TestNodeProperties) {
+  mgp_graph raw_graph = this->CreateGraph(memgraph::storage::View::NEW);
   auto graph = mgp::Graph(&raw_graph);
 
   auto node_1 = graph.CreateNode();
