@@ -23,6 +23,7 @@ Storage::Storage(Config config, StorageMode storage_mode)
       snapshot_directory_(config.durability.storage_directory / durability::kSnapshotDirectory),
       wal_directory_(config.durability.storage_directory / durability::kWalDirectory),
       lock_file_path_(config.durability.storage_directory / durability::kLockFile),
+      isolation_level_(config.transaction.isolation_level),
       storage_mode_(storage_mode),
       indices_(&constraints_, config, storage_mode),
       constraints_(config, storage_mode),
