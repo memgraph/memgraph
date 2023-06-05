@@ -323,16 +323,24 @@ TYPED_TEST(IndexTest, LabelIndexBasic) {
   }
 
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::OLD), View::OLD), UnorderedElementsAre(1, 3, 5, 7, 9));
+  acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, View::OLD), View::OLD), UnorderedElementsAre(0, 2, 4, 6, 8));
+  acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::NEW), View::NEW), IsEmpty());
+  acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, View::NEW), View::NEW), IsEmpty());
+  acc->PrepareForNextIndexQuery();
 
   acc->AdvanceCommand();
 
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::OLD), View::OLD), IsEmpty());
+  acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, View::OLD), View::OLD), IsEmpty());
+  acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::NEW), View::NEW), IsEmpty());
+  acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, View::NEW), View::NEW), IsEmpty());
+  acc->PrepareForNextIndexQuery();
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)

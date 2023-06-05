@@ -32,6 +32,7 @@
 #include "storage/v2/result.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_error.hpp"
+#include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/exceptions.hpp"
@@ -60,6 +61,49 @@ bool VertexExistsInCache(const utils::SkipList<Vertex>::Accessor &accessor, Gid 
   }
   // spdlog::debug("Vertex with gid {} doesn't exist in the cache!", gid.AsUint());
   return false;
+}
+
+bool VertexHasLabel(const Vertex &vertex, LabelId label, Transaction *transaction, View view) {
+  bool deleted = false;
+  bool has_label = false;
+  Delta *delta = nullptr;
+  {
+    std::lock_guard<utils::SpinLock> guard(vertex.lock);
+    deleted = vertex.deleted;
+    has_label = std::find(vertex.labels.begin(), vertex.labels.end(), label) != vertex.labels.end();
+    delta = vertex.delta;
+  }
+  ApplyDeltasForRead(transaction, delta, view, [&deleted, &has_label, label](const Delta &delta) {
+    switch (delta.action) {
+      case Delta::Action::REMOVE_LABEL: {
+        if (delta.label == label) {
+          MG_ASSERT(has_label, "Invalid database state!");
+          has_label = false;
+        }
+        break;
+      }
+      case Delta::Action::ADD_LABEL: {
+        if (delta.label == label) {
+          MG_ASSERT(!has_label, "Invalid database state!");
+          has_label = true;
+        }
+        break;
+      }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+      case Delta::Action::DELETE_OBJECT:
+      case Delta::Action::RECREATE_OBJECT: {
+        deleted = false;
+        break;
+      }
+      case Delta::Action::SET_PROPERTY:
+      case Delta::Action::ADD_IN_EDGE:
+      case Delta::Action::ADD_OUT_EDGE:
+      case Delta::Action::REMOVE_IN_EDGE:
+      case Delta::Action::REMOVE_OUT_EDGE:
+        break;
+    }
+  });
+  return has_label && !deleted;
 }
 
 }  // namespace
@@ -376,7 +420,8 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
   auto main_cache_acc = vertices_.access();
   for (const auto &vertex : main_cache_acc) {
     /// TODO: you have method for that in namespace in label_index.cpp
-    if (std::find(vertex.labels.begin(), vertex.labels.end(), label) != vertex.labels.end()) {
+    if (VertexHasLabel(vertex, label, &transaction_, view)) {
+      // if (std::find(vertex.labels.begin(), vertex.labels.end(), label) != vertex.labels.end()) {
       spdlog::debug("Loaded vertex with gid {} from main cache to index cache", utils::SerializeIdType(vertex.gid));
       /// TODO: change this delta
       auto *delta = CreateDeleteDeserializedObjectDelta(&transaction_, transaction_.transaction_id);
