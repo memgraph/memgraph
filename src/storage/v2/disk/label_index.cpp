@@ -28,17 +28,31 @@ DiskLabelIndex::DiskLabelIndex(Indices *indices, Constraints *constraints, const
                                                             config.disk.label_index_directory, &kvstore_->db_));
 }
 
-/// TODO: andi Timestamp yes/no?
 bool DiskLabelIndex::CreateIndex(LabelId label, const std::vector<std::pair<std::string, std::string>> &vertices) {
   index_.emplace(label);
-  rocksdb::WriteOptions wo;
+  /// How to remove duplication
+  auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
+      kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
   for (const auto &[key, value] : vertices) {
-    kvstore_->db_->Put(wo, key, value);
+    disk_transaction->Put(key, value);
   }
-  return true;
+  /// TODO: figure out a better way to handle this since it is a duplicate of InsertConstraint
+  disk_transaction->SetCommitTimestamp(0);
+  auto status = disk_transaction->Commit();
+  if (!status.ok()) {
+    spdlog::error("rocksdb: {}", status.getState());
+  } else {
+    uint64_t estimate_num_keys = 0;
+    kvstore_->db_->GetIntProperty("rocksdb.estimate-num-keys", &estimate_num_keys);
+    spdlog::debug("Creating index committed, approx size: {}", estimate_num_keys);
+  }
+  return status.ok();
 }
 
 std::unique_ptr<rocksdb::Iterator> DiskLabelIndex::CreateRocksDBIterator() {
+  uint64_t estimate_num_keys = 0;
+  kvstore_->db_->GetIntProperty("rocksdb.estimate-num-keys", &estimate_num_keys);
+  spdlog::debug("Approx size before reading indexed vertices: {}", estimate_num_keys);
   return std::unique_ptr<rocksdb::Iterator>(kvstore_->db_->NewIterator(rocksdb::ReadOptions()));
 }
 

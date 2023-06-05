@@ -64,14 +64,15 @@ bool DiskUniqueConstraints::InsertConstraint(
     const std::vector<std::pair<std::string, std::string>> &vertices_under_constraint) {
   constraints_.insert(std::make_pair(label, properties));
 
-  auto disk_transaction_ = std::unique_ptr<rocksdb::Transaction>(
+  auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
       kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
   for (const auto &[key, value] : vertices_under_constraint) {
-    disk_transaction_->Put(key, value);
+    disk_transaction->Put(key, value);
   }
 
-  disk_transaction_->SetCommitTimestamp(0);
-  auto status = disk_transaction_->Commit();
+  /// TODO: figure out a better way to handle this
+  disk_transaction->SetCommitTimestamp(0);
+  auto status = disk_transaction->Commit();
   if (!status.ok()) {
     spdlog::error("rocksdb: {}", status.getState());
   }

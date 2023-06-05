@@ -1447,6 +1447,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
   std::vector<std::pair<std::string, std::string>> vertices_to_be_indexed;
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     const auto &key = it->key();
+    spdlog::debug("Found vertex for label indexing with key: {}", key.ToStringView());
     const auto vertex_parts = utils::Split(key.ToStringView(), "|");
     if (const std::vector<std::string> labels = utils::Split(vertex_parts[0], ",");
         std::find(labels.begin(), labels.end(), utils::SerializeIdType(label)) != labels.end()) {
