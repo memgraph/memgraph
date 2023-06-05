@@ -539,6 +539,14 @@ void AddMatching(const Match &match, SymbolTable &symbol_table, AstStorage &stor
   }
 }
 
+PatternFilterVisitor::PatternFilterVisitor(SymbolTable &symbol_table, AstStorage &storage)
+    : symbol_table_(symbol_table), storage_(storage) {}
+
+PatternFilterVisitor::~PatternFilterVisitor() = default;
+
+PatternFilterVisitor::PatternFilterVisitor(const PatternFilterVisitor &) = default;
+PatternFilterVisitor::PatternFilterVisitor(PatternFilterVisitor &&) noexcept = default;
+
 void PatternFilterVisitor::Visit(Exists &op) {
   std::vector<Pattern *> patterns;
   patterns.push_back(op.pattern_);
@@ -551,6 +559,8 @@ void PatternFilterVisitor::Visit(Exists &op) {
 
   matchings_.push_back(std::move(filter_matching));
 }
+
+std::vector<FilterMatching> PatternFilterVisitor::getMatchings() { return matchings_; }
 
 static void ParseForeach(query::Foreach &foreach, SingleQueryPart &query_part, AstStorage &storage,
                          SymbolTable &symbol_table) {
@@ -622,5 +632,16 @@ QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, Cyp
   }
   return QueryParts{query_parts, distinct};
 }
+
+FilterInfo::FilterInfo() = default;
+FilterInfo::~FilterInfo() = default;
+
+FilterInfo::FilterInfo(const FilterInfo &) = default;
+FilterInfo &FilterInfo::operator=(const FilterInfo &) = default;
+FilterInfo::FilterInfo(FilterInfo &&) noexcept = default;
+FilterInfo &FilterInfo::operator=(FilterInfo &&) noexcept = default;
+
+FilterInfo::FilterInfo(Type type, Expression *expression, std::unordered_set<Symbol> used_symbols)
+    : type(type), expression(expression), used_symbols(used_symbols) {}
 
 }  // namespace memgraph::query::plan
