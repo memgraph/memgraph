@@ -279,6 +279,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   Session(Session &&) = delete;
   Session &operator=(const Session &) = delete;
   Session &operator=(Session &&) = delete;
+
   ~Session() { data_->Delete(session_); }
 
   bool Start() {

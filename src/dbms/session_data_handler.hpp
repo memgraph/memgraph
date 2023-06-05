@@ -114,10 +114,11 @@ class SessionDataHandler {
     // if (const auto found = session_data_.find(uuid); found != session_data_.end()) {
     const auto *ptr = GetPtr(db_name);
     if (ptr) {
-      const auto &current = get_db_name_.at(uuid)();
-      if (current != db_name) {
+      auto name_locked = get_db_name_.ReadLock();
+      const auto &name = name_locked->at(uuid)();
+      if (name != db_name) {
         // todo checks
-        return on_change_cb_.at(uuid)(db_name);
+        return on_change_cb_.ReadLock()->at(uuid)(db_name);
       }
       return true;
     }
@@ -126,14 +127,14 @@ class SessionDataHandler {
 
   template <WithUUID T>
   bool RegisterOnChange(const T &session, std::function<bool(const std::string &)> cb) {
-    on_change_cb_[session.UUID()] = cb;
+    on_change_cb_.Lock()->emplace(session.UUID(), cb);
     return true;
     // todo checks
   }
 
   template <WithUUID T>
   bool RegisterGetDB(const T &session, std::function<std::string()> cb) {
-    get_db_name_[session.UUID()] = cb;
+    get_db_name_.Lock()->emplace(session.UUID(), cb);
     return true;
     // todo checks
   }
@@ -141,12 +142,11 @@ class SessionDataHandler {
   template <WithUUID T>
   void Delete(const T &session) {
     const auto &uuid = session.UUID();
-    on_change_cb_.erase(uuid);
-    get_db_name_.erase(uuid);
+    auto locked_get = get_db_name_.Lock();
+    locked_get->erase(uuid);
+    auto locked_oc = on_change_cb_.Lock();
+    locked_oc->erase(uuid);
   }
-
-  std::unordered_map<std::string, std::function<bool(const std::string &)>> on_change_cb_;
-  std::unordered_map<std::string, std::function<std::string()>> get_db_name_;
 
   DeleteResult Delete(const std::string &db_name) {
     // TODO better
@@ -157,7 +157,8 @@ class SessionDataHandler {
     try {
       const auto *ptr = GetPtr(db_name);
       if (ptr) {
-        for (const auto &itr : get_db_name_) {
+        auto name_locked = get_db_name_.ReadLock();
+        for (const auto &itr : *name_locked) {
           const auto &db = itr.second();
           if (db == db_name) {
             // At least one session is using the db
@@ -186,7 +187,7 @@ class SessionDataHandler {
   }
 
   // can throw
-  std::string Current(const std::string &uuid) { return get_db_name_.at(uuid)(); }
+  std::string Current(const std::string &uuid) { return get_db_name_.ReadLock()->at(uuid)(); }
 
  private:
   SessionDataHandler() : run_id_(utils::GenerateUUID()) {}
@@ -205,6 +206,12 @@ class SessionDataHandler {
 #if MG_ENTERPRISE
   memgraph::audit::Log *audit_log_;
 #endif
+  memgraph::utils::Synchronized<std::unordered_map<std::string, std::function<bool(const std::string &)>>,
+                                memgraph::utils::WritePrioritizedRWLock>
+      on_change_cb_;
+  memgraph::utils::Synchronized<std::unordered_map<std::string, std::function<std::string()>>,
+                                memgraph::utils::WritePrioritizedRWLock>
+      get_db_name_;
 };
 
 }  // namespace memgraph::dbms
