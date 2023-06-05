@@ -11,14 +11,29 @@
 
 #include "bfs_common.hpp"
 
+#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
 using namespace memgraph::query;
 using namespace memgraph::query::plan;
 
+template <typename StorageType>
 class SingleNodeDb : public Database {
  public:
-  SingleNodeDb() : db_(new memgraph::storage::InMemoryStorage()) {}
+  SingleNodeDb() {
+    config_ = {.disk = {.main_storage_directory{"rocksdb_test_db"},
+                        .label_index_directory{"rocksdb_test_label_index"},
+                        .label_property_index_directory{"rocksdb_test_label_property_index"}}};
+    db_ = std::make_unique<StorageType>(config_);
+  }
+
+  ~SingleNodeDb() override {
+    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
+      std::filesystem::remove_all(config_.disk.main_storage_directory);
+      std::filesystem::remove_all(config_.disk.label_index_directory);
+      std::filesystem::remove_all(config_.disk.label_property_index_directory);
+    }
+  }
 
   std::unique_ptr<memgraph::storage::Storage::Accessor> Access() override { return db_->Access(); }
 
@@ -63,21 +78,23 @@ class SingleNodeDb : public Database {
   }
 
  protected:
+  memgraph::storage::Config config_;
   std::unique_ptr<memgraph::storage::Storage> db_;
 };
 
-class SingleNodeBfsTest
+class SingleNodeBfsTestInMemory
     : public ::testing::TestWithParam<
           std::tuple<int, int, EdgeAtom::Direction, std::vector<std::string>, bool, FilterLambdaType>> {
  public:
-  static void SetUpTestCase() { db_ = std::make_unique<SingleNodeDb>(); }
+  using StorageType = memgraph::storage::InMemoryStorage;
+  static void SetUpTestCase() { db_ = std::make_unique<SingleNodeDb<StorageType>>(); }
   static void TearDownTestCase() { db_ = nullptr; }
 
  protected:
-  static std::unique_ptr<SingleNodeDb> db_;
+  static std::unique_ptr<SingleNodeDb<StorageType>> db_;
 };
 
-TEST_P(SingleNodeBfsTest, All) {
+TEST_P(SingleNodeBfsTestInMemory, All) {
   int lower_bound;
   int upper_bound;
   EdgeAtom::Direction direction;
@@ -85,12 +102,12 @@ TEST_P(SingleNodeBfsTest, All) {
   bool known_sink;
   FilterLambdaType filter_lambda_type;
   std::tie(lower_bound, upper_bound, direction, edge_types, known_sink, filter_lambda_type) = GetParam();
-  BfsTest(db_.get(), lower_bound, upper_bound, direction, edge_types, known_sink, filter_lambda_type);
+  this->db_->BfsTest(db_.get(), lower_bound, upper_bound, direction, edge_types, known_sink, filter_lambda_type);
 }
 
-std::unique_ptr<SingleNodeDb> SingleNodeBfsTest::db_{nullptr};
+std::unique_ptr<SingleNodeDb<SingleNodeBfsTestInMemory::StorageType>> SingleNodeBfsTestInMemory::db_{nullptr};
 
-INSTANTIATE_TEST_CASE_P(DirectionAndExpansionDepth, SingleNodeBfsTest,
+INSTANTIATE_TEST_CASE_P(DirectionAndExpansionDepth, SingleNodeBfsTestInMemory,
                         testing::Combine(testing::Range(-1, kVertexCount), testing::Range(-1, kVertexCount),
                                          testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN,
                                                          EdgeAtom::Direction::BOTH),
@@ -98,14 +115,63 @@ INSTANTIATE_TEST_CASE_P(DirectionAndExpansionDepth, SingleNodeBfsTest,
                                          testing::Values(FilterLambdaType::NONE)));
 
 INSTANTIATE_TEST_CASE_P(
-    EdgeType, SingleNodeBfsTest,
+    EdgeType, SingleNodeBfsTestInMemory,
     testing::Combine(testing::Values(-1), testing::Values(-1),
                      testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN, EdgeAtom::Direction::BOTH),
                      testing::Values(std::vector<std::string>{}, std::vector<std::string>{"a"},
                                      std::vector<std::string>{"b"}, std::vector<std::string>{"a", "b"}),
                      testing::Bool(), testing::Values(FilterLambdaType::NONE)));
 
-INSTANTIATE_TEST_CASE_P(FilterLambda, SingleNodeBfsTest,
+INSTANTIATE_TEST_CASE_P(FilterLambda, SingleNodeBfsTestInMemory,
+                        testing::Combine(testing::Values(-1), testing::Values(-1),
+                                         testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN,
+                                                         EdgeAtom::Direction::BOTH),
+                                         testing::Values(std::vector<std::string>{}), testing::Bool(),
+                                         testing::Values(FilterLambdaType::NONE, FilterLambdaType::USE_FRAME,
+                                                         FilterLambdaType::USE_FRAME_NULL, FilterLambdaType::USE_CTX,
+                                                         FilterLambdaType::ERROR)));
+
+class SingleNodeBfsTestOnDisk
+    : public ::testing::TestWithParam<
+          std::tuple<int, int, EdgeAtom::Direction, std::vector<std::string>, bool, FilterLambdaType>> {
+ public:
+  using StorageType = memgraph::storage::DiskStorage;
+  static void SetUpTestCase() { db_ = std::make_unique<SingleNodeDb<StorageType>>(); }
+  static void TearDownTestCase() { db_ = nullptr; }
+
+ protected:
+  static std::unique_ptr<SingleNodeDb<StorageType>> db_;
+};
+
+TEST_P(SingleNodeBfsTestOnDisk, All) {
+  int lower_bound;
+  int upper_bound;
+  EdgeAtom::Direction direction;
+  std::vector<std::string> edge_types;
+  bool known_sink;
+  FilterLambdaType filter_lambda_type;
+  std::tie(lower_bound, upper_bound, direction, edge_types, known_sink, filter_lambda_type) = GetParam();
+  this->db_->BfsTest(db_.get(), lower_bound, upper_bound, direction, edge_types, known_sink, filter_lambda_type);
+}
+
+std::unique_ptr<SingleNodeDb<SingleNodeBfsTestOnDisk::StorageType>> SingleNodeBfsTestOnDisk::db_{nullptr};
+
+INSTANTIATE_TEST_CASE_P(DirectionAndExpansionDepth, SingleNodeBfsTestOnDisk,
+                        testing::Combine(testing::Range(-1, kVertexCount), testing::Range(-1, kVertexCount),
+                                         testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN,
+                                                         EdgeAtom::Direction::BOTH),
+                                         testing::Values(std::vector<std::string>{}), testing::Bool(),
+                                         testing::Values(FilterLambdaType::NONE)));
+
+INSTANTIATE_TEST_CASE_P(
+    EdgeType, SingleNodeBfsTestOnDisk,
+    testing::Combine(testing::Values(-1), testing::Values(-1),
+                     testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN, EdgeAtom::Direction::BOTH),
+                     testing::Values(std::vector<std::string>{}, std::vector<std::string>{"a"},
+                                     std::vector<std::string>{"b"}, std::vector<std::string>{"a", "b"}),
+                     testing::Bool(), testing::Values(FilterLambdaType::NONE)));
+
+INSTANTIATE_TEST_CASE_P(FilterLambda, SingleNodeBfsTestOnDisk,
                         testing::Combine(testing::Values(-1), testing::Values(-1),
                                          testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN,
                                                          EdgeAtom::Direction::BOTH),
