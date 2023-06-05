@@ -26,6 +26,7 @@
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
@@ -261,11 +262,12 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToMa
   /// TODO: andi This is probably wrong but will be changed
   // uint64_t vertex_commit_ts = utils::ExtractTimestampFromDeserializedUserKey(key);
   uint64_t vertex_commit_ts = transaction_.transaction_id;
-  return CreateVertex(main_storage_accessor, gid, vertex_commit_ts, labels_id, value.ToStringView());
+  auto *delta = CreateDeleteDeserializedObjectDelta(&transaction_, vertex_commit_ts);
+  return CreateVertex(main_storage_accessor, gid, vertex_commit_ts, labels_id, value.ToStringView(), delta);
 }
 
 std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLabelIndexCache(
-    const rocksdb::Slice &key, const rocksdb::Slice &value) {
+    const rocksdb::Slice &key, const rocksdb::Slice &value, Delta *delta) {
   OOMExceptionEnabler oom_exception;
   auto index_accessor = indexed_vertices_.access();
   const std::vector<std::string> vertex_parts = utils::Split(key.ToStringView(), "|");
@@ -279,7 +281,7 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLa
   /// TODO: andi This is probably wrong but will be changed
   // uint64_t vertex_commit_ts = utils::ExtractTimestampFromDeserializedUserKey(key);
   uint64_t vertex_commit_ts = transaction_.transaction_id;
-  return CreateVertex(index_accessor, gid, vertex_commit_ts, labels_id, value.ToStringView());
+  return CreateVertex(index_accessor, gid, vertex_commit_ts, labels_id, value.ToStringView(), delta);
 }
 
 std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLabelPropertyIndexCache(
@@ -296,7 +298,8 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLa
   /// TODO: andi This is probably wrong but will be changed
   // uint64_t vertex_commit_ts = utils::ExtractTimestampFromDeserializedUserKey(key);
   uint64_t vertex_commit_ts = transaction_.transaction_id;
-  return CreateVertex(index_accessor, gid, vertex_commit_ts, labels_id, value.ToStringView());
+  auto *delta = CreateDeleteDeserializedObjectDelta(&transaction_, vertex_commit_ts);
+  return CreateVertex(index_accessor, gid, vertex_commit_ts, labels_id, value.ToStringView(), delta);
 }
 
 std::optional<EdgeAccessor> DiskStorage::DiskAccessor::DeserializeEdge(const rocksdb::Slice &key,
@@ -369,17 +372,20 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
 
   //// This has to go before index iterator
   spdlog::debug("Reading from main disk transaction");
-  if (view == View::NEW) {
-    auto main_cache_acc = vertices_.access();
-    for (const auto &vertex : main_cache_acc) {
-      /// TODO: you have method for that in namespace in label_index.cpp
-      if (std::find(vertex.labels.begin(), vertex.labels.end(), label) != vertex.labels.end()) {
-        spdlog::debug("Loaded vertex with gid {} from main cache to index cache", utils::SerializeIdType(vertex.gid));
-        LoadVertexToLabelIndexCache(utils::SerializeVertexForLabelIndex(label, vertex.labels, vertex.gid),
-                                    utils::SerializeProperties(vertex.properties));
-      }
+  // if (view == View::NEW) {
+  auto main_cache_acc = vertices_.access();
+  for (const auto &vertex : main_cache_acc) {
+    /// TODO: you have method for that in namespace in label_index.cpp
+    if (std::find(vertex.labels.begin(), vertex.labels.end(), label) != vertex.labels.end()) {
+      spdlog::debug("Loaded vertex with gid {} from main cache to index cache", utils::SerializeIdType(vertex.gid));
+      /// TODO: change this delta
+      auto *delta = CreateDeleteDeserializedObjectDelta(&transaction_, transaction_.transaction_id);
+      delta->command_id++;
+      LoadVertexToLabelIndexCache(utils::SerializeVertexForLabelIndex(label, vertex.labels, vertex.gid),
+                                  utils::SerializeProperties(vertex.properties), delta);
     }
   }
+  // }
 
   spdlog::debug("Reading from label index");
   for (index_it->SeekToFirst(); index_it->Valid(); index_it->Next()) {
@@ -387,7 +393,9 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
     // TODO: andi this will be optimized bla bla
     if (key.starts_with(utils::SerializeIdType(label))) {
       spdlog::debug("Loaded vertex with gid {} from disk label index", utils::ExtractGidFromLabelIndexStorage(key));
-      LoadVertexToLabelIndexCache(index_it->key(), index_it->value());
+      /// TODO: against every law of programming
+      LoadVertexToLabelIndexCache(index_it->key(), index_it->value(),
+                                  CreateDeleteDeserializedObjectDelta(&transaction_, transaction_.transaction_id));
     }
     // load vertex with gid 1
   }
@@ -511,7 +519,7 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex(storage::Gid gid) {
 /// delta creation How to remove this duplication?
 VertexAccessor DiskStorage::DiskAccessor::CreateVertex(utils::SkipList<Vertex>::Accessor &accessor, storage::Gid gid,
                                                        uint64_t vertex_commit_ts, const std::vector<LabelId> &label_ids,
-                                                       std::string_view properties) {
+                                                       std::string_view properties, Delta *delta) {
   OOMExceptionEnabler oom_exception;
   // NOTE: When we update the next `vertex_id_` here we perform a RMW
   // (read-modify-write) operation that ISN'T atomic! But, that isn't an issue
@@ -522,7 +530,7 @@ VertexAccessor DiskStorage::DiskAccessor::CreateVertex(utils::SkipList<Vertex>::
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   disk_storage->vertex_id_.store(std::max(disk_storage->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
                                  std::memory_order_release);
-  auto *delta = CreateDeleteDeserializedObjectDelta(&transaction_, vertex_commit_ts);
+  // auto *delta = CreateDeleteDeserializedObjectDelta(&transaction_, vertex_commit_ts);
   auto [it, inserted] = accessor.insert(Vertex{gid, delta});
   // NOTE: If the vertex with the given gid doesn't exist on the disk, it must be inserted here.
   MG_ASSERT(inserted, "The vertex must be inserted here!");

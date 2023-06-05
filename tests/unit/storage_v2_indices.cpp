@@ -104,6 +104,7 @@ TYPED_TEST(IndexTest, LabelIndexCreate) {
   {
     auto acc = this->storage->Access();
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::OLD), View::OLD), UnorderedElementsAre(1, 3, 5, 7, 9));
+    acc->PrepareForNextIndexQuery();
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(1, 3, 5, 7, 9));
   }
 
@@ -116,15 +117,19 @@ TYPED_TEST(IndexTest, LabelIndexCreate) {
 
     /// Vertices needs to go to label index rocksdb
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::OLD), View::OLD), UnorderedElementsAre(1, 3, 5, 7, 9));
+    acc->PrepareForNextIndexQuery();
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::NEW), View::NEW),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 11, 13, 15, 17, 19));
+    acc->PrepareForNextIndexQuery();
 
     acc->AdvanceCommand();
 
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::OLD), View::NEW),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 11, 13, 15, 17, 19));
+    acc->PrepareForNextIndexQuery();
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::NEW), View::NEW),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 11, 13, 15, 17, 19));
+    acc->PrepareForNextIndexQuery();
 
     acc->Abort();
   }
@@ -137,15 +142,19 @@ TYPED_TEST(IndexTest, LabelIndexCreate) {
     }
 
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::OLD), View::OLD), UnorderedElementsAre(1, 3, 5, 7, 9));
+    acc->PrepareForNextIndexQuery();
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::NEW), View::NEW),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
+    acc->PrepareForNextIndexQuery();
 
     acc->AdvanceCommand();
 
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::OLD), View::NEW),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
+    acc->PrepareForNextIndexQuery();
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::NEW), View::NEW),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
+    acc->PrepareForNextIndexQuery();
 
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -154,15 +163,19 @@ TYPED_TEST(IndexTest, LabelIndexCreate) {
     auto acc = this->storage->Access();
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::OLD), View::OLD),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
+    acc->PrepareForNextIndexQuery();
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::NEW), View::NEW),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
+    acc->PrepareForNextIndexQuery();
 
     acc->AdvanceCommand();
 
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::OLD), View::NEW),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
+    acc->PrepareForNextIndexQuery();
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::NEW), View::NEW),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
+    acc->PrepareForNextIndexQuery();
 
     ASSERT_NO_ERROR(acc->Commit());
   }
@@ -265,18 +278,24 @@ TYPED_TEST(IndexTest, LabelIndexBasic) {
   }
 
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::OLD), View::OLD), IsEmpty());
+  acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, View::OLD), View::OLD), IsEmpty());
+  acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(1, 3, 5, 7, 9));
   /// TODO: this should be handled somehow better
   acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, View::NEW), View::NEW), UnorderedElementsAre(0, 2, 4, 6, 8));
+  acc->PrepareForNextIndexQuery();
 
   acc->AdvanceCommand();
-  acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::OLD), View::OLD), UnorderedElementsAre(1, 3, 5, 7, 9));
+  acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, View::OLD), View::OLD), UnorderedElementsAre(0, 2, 4, 6, 8));
+  acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(1, 3, 5, 7, 9));
+  acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, View::NEW), View::NEW), UnorderedElementsAre(0, 2, 4, 6, 8));
+  acc->PrepareForNextIndexQuery();
 
   for (auto vertex : acc->Vertices(View::OLD)) {
     int64_t id = vertex.GetProperty(this->prop_id, View::OLD)->ValueInt();
@@ -288,9 +307,13 @@ TYPED_TEST(IndexTest, LabelIndexBasic) {
   }
 
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::OLD), View::OLD), UnorderedElementsAre(1, 3, 5, 7, 9));
+  acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, View::OLD), View::OLD), UnorderedElementsAre(0, 2, 4, 6, 8));
+  acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 2, 4, 6, 8));
+  acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, View::NEW), View::NEW), UnorderedElementsAre(0, 2, 4, 6, 8));
+  acc->PrepareForNextIndexQuery();
 
   for (auto vertex : acc->Vertices(View::OLD)) {
     int64_t id = vertex.GetProperty(this->prop_id, View::OLD)->ValueInt();
@@ -341,6 +364,7 @@ TYPED_TEST(IndexTest, LabelIndexDuplicateVersions) {
     }
 
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::OLD), View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4));
+    acc->PrepareForNextIndexQuery();
     /// Again the same issue with OLD and NEW views
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::NEW), View::NEW), IsEmpty());
 

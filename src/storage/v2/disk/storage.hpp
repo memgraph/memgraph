@@ -159,7 +159,7 @@ class DiskStorage final : public Storage {
     void PrepareForNextIndexQuery() override { indexed_vertices_.clear(); }
 
     std::optional<storage::VertexAccessor> LoadVertexToLabelIndexCache(const rocksdb::Slice &key,
-                                                                       const rocksdb::Slice &value);
+                                                                       const rocksdb::Slice &value, Delta *delta);
 
     std::optional<storage::VertexAccessor> LoadVertexToMainMemoryCache(const rocksdb::Slice &key,
                                                                        const rocksdb::Slice &value);
@@ -181,7 +181,7 @@ class DiskStorage final : public Storage {
     /// TODO(andi): Consolidate this vertex creation methods and find from in-memory version where are they used.
     VertexAccessor CreateVertex(utils::SkipList<Vertex>::Accessor &accessor, storage::Gid gid,
                                 uint64_t vertex_commit_ts, const std::vector<LabelId> &label_ids,
-                                std::string_view properties);
+                                std::string_view properties, Delta *delta);
 
     void PrefetchEdges(const auto &prefetch_edge_filter);
 
