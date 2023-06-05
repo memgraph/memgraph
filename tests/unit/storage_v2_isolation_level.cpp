@@ -11,6 +11,7 @@
 
 #include <gtest/gtest.h>
 
+#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
 
@@ -47,14 +48,10 @@ class StorageIsolationLevelTest : public ::testing::TestWithParam<memgraph::stor
       return std::string(IsolationLevelToString(static_cast<memgraph::storage::IsolationLevel>(info.param)));
     }
   };
-};
 
-TEST_P(StorageIsolationLevelTest, Visibility) {
-  const auto default_isolation_level = GetParam();
-
-  for (const auto override_isolation_level : isolation_levels) {
-    std::unique_ptr<memgraph::storage::Storage> storage(new memgraph::storage::InMemoryStorage(
-        {memgraph::storage::Config{.transaction = {.isolation_level = default_isolation_level}}}));
+  void TestVisibility(std::unique_ptr<memgraph::storage::Storage> &storage,
+                      const memgraph::storage::IsolationLevel &default_isolation_level,
+                      const memgraph::storage::IsolationLevel &override_isolation_level) {
     auto creator = storage->Access();
     auto default_isolation_level_reader = storage->Access();
     auto override_isolation_level_reader = storage->Access(override_isolation_level);
@@ -103,6 +100,26 @@ TEST_P(StorageIsolationLevelTest, Visibility) {
     auto verifier = storage->Access();
     ASSERT_EQ(VerticesCount(verifier.get()), iteration_count);
     ASSERT_FALSE(verifier->Commit().HasError());
+  }
+};
+
+TEST_P(StorageIsolationLevelTest, VisibilityInMemoryStorage) {
+  const auto default_isolation_level = GetParam();
+
+  for (const auto override_isolation_level : isolation_levels) {
+    std::unique_ptr<memgraph::storage::Storage> storage(new memgraph::storage::InMemoryStorage(
+        {memgraph::storage::Config{.transaction = {.isolation_level = default_isolation_level}}}));
+    this->TestVisibility(storage, default_isolation_level, override_isolation_level);
+  }
+}
+
+TEST_P(StorageIsolationLevelTest, VisibilityOnDiskStorage) {
+  const auto default_isolation_level = GetParam();
+
+  for (const auto override_isolation_level : isolation_levels) {
+    std::unique_ptr<memgraph::storage::Storage> storage(new memgraph::storage::DiskStorage(
+        {memgraph::storage::Config{.transaction = {.isolation_level = default_isolation_level}}}));
+    this->TestVisibility(storage, default_isolation_level, override_isolation_level);
   }
 }
 
