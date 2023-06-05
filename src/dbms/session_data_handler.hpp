@@ -44,6 +44,7 @@ class SessionDataHandler {
                      memgraph::audit::Log *audit_log, config_type configs)
       : default_configs_(configs), run_id_(utils::GenerateUUID()), auth_(auth), audit_log_(audit_log) {
     // Always create the default DB
+    // todo check return
     New(kDefaultDB);
   }
 #else
@@ -98,12 +99,11 @@ class SessionDataHandler {
   bool SetFor(const std::string &uuid, const std::string &db_name) {
     // if (const auto found = session_data_.find(uuid); found != session_data_.end()) {
     const auto *ptr = GetPtr(db_name);
-    auto &current = using_[uuid];
-    if (current.empty()) current = kDefaultDB;  // TODO better initialization....
     if (ptr) {
+      const auto &current = get_db_name_.at(uuid)();
       if (current != db_name) {
-        current = db_name;
-        pending_change_[uuid] = true;
+        // todo checks
+        return on_change_cb_.at(uuid)(db_name);
       }
       return true;
     }
@@ -111,15 +111,28 @@ class SessionDataHandler {
   }
 
   template <WithUUID T>
-  std::optional<std::string> ToUpdate(const T &session) {
-    const auto uuid = session.UUID();
-    auto &change = pending_change_[uuid];
-    if (change) {
-      change = false;
-      return using_[uuid];
-    }
-    return {};
+  bool RegisterOnChange(const T &session, std::function<bool(const std::string &)> cb) {
+    on_change_cb_[session.UUID()] = cb;
+    return true;
+    // todo checks
   }
+
+  template <WithUUID T>
+  bool RegisterGetDB(const T &session, std::function<std::string()> cb) {
+    get_db_name_[session.UUID()] = cb;
+    return true;
+    // todo checks
+  }
+
+  template <WithUUID T>
+  void Delete(const T &session) {
+    const auto &uuid = session.UUID();
+    on_change_cb_.erase(uuid);
+    get_db_name_.erase(uuid);
+  }
+
+  std::unordered_map<std::string, std::function<bool(const std::string &)>> on_change_cb_;
+  std::unordered_map<std::string, std::function<std::string()>> get_db_name_;
 
   DeleteResult Delete(const std::string &db_name) {
     // TODO better
@@ -130,8 +143,9 @@ class SessionDataHandler {
     try {
       const auto *ptr = GetPtr(db_name);
       if (ptr) {
-        for (const auto &use : using_) {
-          if (use.second == db_name) {
+        for (const auto &itr : get_db_name_) {
+          const auto &db = itr.second();
+          if (db == db_name) {
             // At least one session is using the db
             return DeleteError::USING;
           }
@@ -157,11 +171,8 @@ class SessionDataHandler {
     return names;
   }
 
-  std::string Current(const std::string &uuid) {
-    auto &current = using_[uuid];
-    if (current.empty()) current = kDefaultDB;  // TODO better initialization....
-    return current;
-  }
+  // can throw
+  std::string Current(const std::string &uuid) { return get_db_name_.at(uuid)(); }
 
  private:
   // Are storage objects ever deleted?
@@ -172,9 +183,6 @@ class SessionDataHandler {
   StorageHandler<TStorage, TStorageConfig> storage_handler_;
   InterpContextHandler<TInterp, TInterpConfig> interp_handler_;
   std::optional<config_type> default_configs_;
-  // TODO: Add a session registration to this (the using_ is kinda bad)
-  std::unordered_map<std::string, std::string> using_;
-  std::unordered_map<std::string, bool> pending_change_;
   const std::string run_id_;
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth_;
 #if MG_ENTERPRISE

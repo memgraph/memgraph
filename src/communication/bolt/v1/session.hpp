@@ -12,6 +12,7 @@
 #pragma once
 
 #include <concepts>
+#include <cstddef>
 #include <optional>
 #include <thread>
 
@@ -32,7 +33,7 @@
 
 namespace memgraph::communication::bolt {
 
-template <typename T, typename TEncoder>
+template <typename T>
 concept HLImpl = requires(T v) {
   { v.Interpret({}, {}, {}, {}) } -> std::same_as<std::pair<std::vector<std::string>, std::optional<int>>>;
   { v.Pull({}, {}, {}) } -> std::same_as<std::map<std::string, Value>>;
@@ -63,7 +64,7 @@ class SessionException : public utils::BasicException {
  * @tparam TInputStream type of input stream that will be used
  * @tparam TOutputStream type of output stream that will be used
  */
-template <typename TInputStream, typename TOutputStream, HLImpl<Encoder<ChunkedEncoderBuffer<TOutputStream>>> TSession>
+template <typename TInputStream, typename TOutputStream, HLImpl TSession>
 class Session {
  public:
   using TEncoder = Encoder<ChunkedEncoderBuffer<TOutputStream>>;
@@ -79,7 +80,13 @@ class Session {
    * Sets the underlying implementation used. Allows us to switch hl objects while remaining on the same comm
    * connection.
    */
-  void SetImpl(TSession *impl) { pimpl_ = impl; }
+  bool SetImpl(TSession *impl) {
+    if (impl == nullptr || pimpl_ == impl) {
+      return false;
+    }
+    pimpl_ = impl;
+    return true;
+  }
 
   /**
    * Process the given `query` with `params`.
