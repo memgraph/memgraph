@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <rocksdb/iterator.h>
+#include <rocksdb/utilities/transaction.h>
 
 #include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/indices/label_index.hpp"
@@ -27,7 +28,9 @@ class DiskLabelIndex : public storage::LabelIndex {
   /// Optimize by using prefixed Bloom filters
   bool CreateIndex(LabelId label, const std::vector<std::pair<std::string, std::string>> &vertices);
 
-  std::unique_ptr<rocksdb::Iterator> CreateRocksDBIterator();
+  std::unique_ptr<rocksdb::Transaction> CreateRocksDBTransaction();
+
+  [[nodiscard]] bool SyncVertexToLabelIndexStorage(const Vertex &vertex, uint64_t commit_timestamp) const;
 
   /// @throw std::bad_alloc
   void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) override;

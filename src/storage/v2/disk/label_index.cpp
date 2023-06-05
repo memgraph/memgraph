@@ -10,13 +10,23 @@
 // licenses/APL.txt.
 
 #include <rocksdb/options.h>
+#include <rocksdb/utilities/transaction.h>
 
 #include "storage/v2/disk/label_index.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/indices_utils.hpp"
 #include "utils/file.hpp"
 #include "utils/rocksdb_serialization.hpp"
 
 namespace memgraph::storage {
+
+namespace {
+
+bool VertexHasLabel(const Vertex &vertex, LabelId label) {
+  return std::find(vertex.labels.begin(), vertex.labels.end(), label) != vertex.labels.end();
+}
+
+}  // namespace
 
 DiskLabelIndex::DiskLabelIndex(Indices *indices, Constraints *constraints, const Config &config)
     : LabelIndex(indices, constraints, config) {
@@ -49,11 +59,31 @@ bool DiskLabelIndex::CreateIndex(LabelId label, const std::vector<std::pair<std:
   return status.ok();
 }
 
-std::unique_ptr<rocksdb::Iterator> DiskLabelIndex::CreateRocksDBIterator() {
+std::unique_ptr<rocksdb::Transaction> DiskLabelIndex::CreateRocksDBTransaction() {
   uint64_t estimate_num_keys = 0;
   kvstore_->db_->GetIntProperty("rocksdb.estimate-num-keys", &estimate_num_keys);
   spdlog::debug("Approx size before reading indexed vertices: {}", estimate_num_keys);
-  return std::unique_ptr<rocksdb::Iterator>(kvstore_->db_->NewIterator(rocksdb::ReadOptions()));
+  return std::unique_ptr<rocksdb::Transaction>(
+      kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
+  // return std::unique_ptr<rocksdb::Iterator>(kvstore_->db_->NewIterator(rocksdb::ReadOptions()));
+}
+
+bool DiskLabelIndex::SyncVertexToLabelIndexStorage(const Vertex &vertex, uint64_t commit_timestamp) const {
+  auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
+      kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
+  for (const LabelId index_label : index_) {
+    if (VertexHasLabel(vertex, index_label)) {
+      /// TODO: andi, probably no need to transfer separately labels and gid
+      disk_transaction->Put(utils::SerializeVertexForLabelIndex(index_label, vertex.labels, vertex.gid),
+                            utils::SerializeProperties(vertex.properties));
+    }
+  }
+  disk_transaction->SetCommitTimestamp(commit_timestamp);
+  auto status = disk_transaction->Commit();
+  if (!status.ok()) {
+    spdlog::error("rocksdb: {}", status.getState());
+  }
+  return status.ok();
 }
 
 /// TODO: andi if the vertex is already indexed, we should update the entry, not create a new one.

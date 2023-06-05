@@ -32,6 +32,7 @@
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/vertex_accessor.hpp"
+#include "storage/v2/view.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/message.hpp"
@@ -270,6 +271,7 @@ std::optional<storage::VertexAccessor> DiskStorage::DiskAccessor::LoadVertexToLa
   const std::vector<std::string> vertex_parts = utils::Split(key.ToStringView(), "|");
   storage::Gid gid = storage::Gid::FromUint(std::stoull(vertex_parts[1]));
   if (VertexExistsInCache(index_accessor, gid)) {
+    spdlog::debug("Vertex with gid {} already exists in the index cache...", utils::SerializeIdType(gid));
     return std::nullopt;
   }
   std::string index_key = vertex_parts[0];
@@ -354,16 +356,41 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
   OOMExceptionEnabler oom_exception;
+
   auto *disk_label_index = static_cast<DiskLabelIndex *>(storage_->indices_.label_index_.get());
-  auto it = disk_label_index->CreateRocksDBIterator();
-  for (it->SeekToFirst(); it->Valid(); it->Next()) {
-    std::string key = it->key().ToString();
-    // TODO: andi this will be optimized bla bla
-    if (key.starts_with(utils::SerializeIdType(label))) {
-      LoadVertexToLabelIndexCache(it->key(), it->value());
+
+  auto disk_index_transaction = disk_label_index->CreateRocksDBTransaction();
+  disk_index_transaction->SetReadTimestampForValidation(transaction_.start_timestamp);
+  rocksdb::ReadOptions ro;
+  std::string strTs = utils::StringTimestamp(transaction_.start_timestamp);
+  rocksdb::Slice ts(strTs);
+  ro.timestamp = &ts;
+  auto index_it = std::unique_ptr<rocksdb::Iterator>(disk_index_transaction->GetIterator(ro));
+
+  //// This has to go before index iterator
+  spdlog::debug("Reading from main disk transaction");
+  if (view == View::NEW) {
+    auto main_cache_acc = vertices_.access();
+    for (const auto &vertex : main_cache_acc) {
+      if (std::find(vertex.labels.begin(), vertex.labels.end(), label) != vertex.labels.end()) {
+        spdlog::debug("Loaded vertex with gid {} from main cache to index cache", utils::SerializeIdType(vertex.gid));
+        LoadVertexToLabelIndexCache(utils::SerializeVertexForLabelIndex(label, vertex.labels, vertex.gid),
+                                    utils::SerializeProperties(vertex.properties));
+      }
     }
   }
-  // TODO: andi. If the current version stays like this no need for two new iterators inside the storage
+
+  spdlog::debug("Reading from label index");
+  for (index_it->SeekToFirst(); index_it->Valid(); index_it->Next()) {
+    std::string key = index_it->key().ToString();
+    // TODO: andi this will be optimized bla bla
+    if (key.starts_with(utils::SerializeIdType(label))) {
+      LoadVertexToLabelIndexCache(index_it->key(), index_it->value());
+    }
+    // load vertex with gid 1
+  }
+
+  /// TODO: andi. If the current version stays like this no need for two new iterators inside the storage
   return VerticesIterable(AllVerticesIterable(indexed_vertices_.access(), &transaction_, view, &storage_->indices_,
                                               &storage_->constraints_, storage_->config_.items));
 }
@@ -1025,6 +1052,7 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
   std::vector<std::vector<PropertyValue>> unique_storage;
   auto *disk_unique_constraints =
       static_cast<DiskUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
+  auto *disk_label_index = static_cast<DiskLabelIndex *>(storage_->indices_.label_index_.get());
 
   /// TODO: andi I don't like that std::optional is used for checking errors but that's how it was before, refactor!
   for (Vertex &vertex : vertex_acc) {
@@ -1056,7 +1084,9 @@ DiskStorage::DiskAccessor::CheckConstraintsAndFlushMainMemoryCache() {
     spdlog::debug("Written vertex to main storage with key: {} and properties: {} in transaction: {}",
                   utils::SerializeVertex(vertex), ss.str(), transaction_.start_timestamp);
 
+    /// TODO: andi don't ignore the return value
     disk_unique_constraints->SyncVertexToUniqueConstraintsStorage(vertex, *commit_timestamp_);
+    disk_label_index->SyncVertexToLabelIndexStorage(vertex, *commit_timestamp_);
 
     spdlog::debug("rocksdb: Saved vertex with key {} and ts {}", utils::SerializeVertex(vertex), *commit_timestamp_);
 

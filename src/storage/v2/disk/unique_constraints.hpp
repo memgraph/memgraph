@@ -40,7 +40,7 @@ class DiskUniqueConstraints : public UniqueConstraints {
   [[nodiscard]] bool DeleteVerticesWithRemovedConstraintLabel(uint64_t transaction_start_timestamp,
                                                               uint64_t transaction_commit_timestamp);
 
-  [[maybe_unused]] bool SyncVertexToUniqueConstraintsStorage(const Vertex &vertex, uint64_t commit_timestamp) const;
+  [[nodiscard]] bool SyncVertexToUniqueConstraintsStorage(const Vertex &vertex, uint64_t commit_timestamp) const;
 
   DeletionStatus DropConstraint(LabelId label, const std::set<PropertyId> &properties) override;
 
