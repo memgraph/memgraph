@@ -1552,9 +1552,24 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::CreateIndex(
   return StorageIndexDefinitionError{ReplicationError{}};
 }
 
+/// TODO: extract at the higher level
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DropIndex(
     LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
-  throw utils::NotYetImplemented("DropIndex");
+  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+  if (!indices_.label_index_->DropIndex(label)) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
+  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
+  auto success =
+      AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_INDEX_DROP, label, {}, commit_timestamp);
+  commit_log_->MarkFinished(commit_timestamp);
+  last_commit_timestamp_ = commit_timestamp;
+
+  if (success) {
+    return {};
+  }
+
+  return StorageIndexDefinitionError{ReplicationError{}};
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DropIndex(

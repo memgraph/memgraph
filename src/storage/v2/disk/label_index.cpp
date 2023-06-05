@@ -98,7 +98,33 @@ void DiskLabelIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Trans
 }
 
 /// TODO: andi Here will come Bloom filter deletion
-bool DiskLabelIndex::DropIndex(LabelId label) { return index_.erase(label) > 0; }
+bool DiskLabelIndex::DropIndex(LabelId label) {
+  if (!index_.erase(label) > 0) {
+    return false;
+  }
+  auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
+      kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
+  disk_transaction->SetReadTimestampForValidation(std::numeric_limits<uint64_t>::max());
+
+  rocksdb::ReadOptions ro;
+  std::string strTs = utils::StringTimestamp(std::numeric_limits<uint64_t>::max());
+  rocksdb::Slice ts(strTs);
+  ro.timestamp = &ts;
+  auto it = std::unique_ptr<rocksdb::Iterator>(disk_transaction->GetIterator(ro));
+  for (it->SeekToFirst(); it->Valid(); it->Next()) {
+    std::string key = it->key().ToString();
+    if (key.starts_with(utils::SerializeIdType(label))) {
+      disk_transaction->Delete(it->key().ToString());
+    }
+  }
+
+  disk_transaction->SetCommitTimestamp(0);
+  auto status = disk_transaction->Commit();
+  if (!status.ok()) {
+    spdlog::error("rocksdb: {}", status.getState());
+  }
+  return status.ok();
+}
 
 bool DiskLabelIndex::IndexExists(LabelId label) const { return index_.find(label) != index_.end(); }
 
@@ -113,7 +139,28 @@ uint64_t DiskLabelIndex::ApproximateVertexCount(LabelId /*label*/) const {
   return 10;
 }
 
-void DiskLabelIndex::Clear() { index_.clear(); }
+/// TODO: delete everything
+void DiskLabelIndex::Clear() {
+  index_.clear();
+  auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
+      kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
+  disk_transaction->SetReadTimestampForValidation(std::numeric_limits<uint64_t>::max());
+
+  rocksdb::ReadOptions ro;
+  std::string strTs = utils::StringTimestamp(std::numeric_limits<uint64_t>::max());
+  rocksdb::Slice ts(strTs);
+  ro.timestamp = &ts;
+  auto it = std::unique_ptr<rocksdb::Iterator>(disk_transaction->GetIterator(ro));
+  for (it->SeekToFirst(); it->Valid(); it->Next()) {
+    disk_transaction->Delete(it->key().ToString());
+  }
+
+  disk_transaction->SetCommitTimestamp(0);
+  auto status = disk_transaction->Commit();
+  if (!status.ok()) {
+    spdlog::error("rocksdb: {}", status.getState());
+  }
+}
 
 void DiskLabelIndex::RunGC() {
   // throw utils::NotYetImplemented("DiskLabelIndex::RunGC");
