@@ -346,7 +346,6 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
  private:
   explicit Session(tcp::socket &&socket, TSessionData *data, ServerContext &server_context, tcp::endpoint endpoint,
                    const std::chrono::seconds inactivity_timeout_sec, std::string_view service_name)
-      // TODO: GetPtr(default) has to always work
       : Session(std::make_unique<typename TSession::impl_type>(data->GetPtr(memgraph::dbms::kDefaultDB), endpoint),
                 std::forward<tcp::socket>(socket), data, server_context, endpoint, inactivity_timeout_sec,
                 service_name) {}

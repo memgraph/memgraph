@@ -11,6 +11,7 @@
 // TODO: Check if comment above is ok
 #pragma once
 
+#include <memory>
 #include <unordered_map>
 
 #include "constants.hpp"
@@ -32,39 +33,52 @@ concept WithUUID = requires(T v) {
 
 using DeleteResult = utils::BasicResult<DeleteError>;
 
-template <typename TStorage = storage::Storage, typename TStorageConfig = storage::Config,
-          typename TInterp = query::InterpreterContext, typename TInterpConfig = query::InterpreterConfig>
 class SessionDataHandler {
-  using config_type = std::pair<TStorageConfig, TInterpConfig>;
-  using NewResult = utils::BasicResult<NewError, SessionData>;
-
  public:
+  using StorageT = storage::Storage;
+  using StorageConfigT = storage::Config;
+  using InterpT = query::InterpreterContext;
+  using InterpConfigT = query::InterpreterConfig;
+  using config_type = std::pair<StorageConfigT, InterpConfigT>;
+  using NewResultT = utils::BasicResult<NewError, SessionData>;
+
+  SessionDataHandler(const SessionDataHandler &) = delete;
+  SessionDataHandler &operator=(const SessionDataHandler &) = delete;
+  SessionDataHandler(SessionDataHandler &&) = delete;
+  SessionDataHandler &operator=(SessionDataHandler &&) = delete;
+
+  static SessionDataHandler &get() {
+    static SessionDataHandler sd;
+    return sd;
+  }
+
 #if MG_ENTERPRISE
-  SessionDataHandler(memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
-                     memgraph::audit::Log *audit_log, config_type configs)
-      : default_configs_(configs), run_id_(utils::GenerateUUID()), auth_(auth), audit_log_(audit_log) {
+  void Init(memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
+            memgraph::audit::Log *audit_log, config_type configs) {
+    default_configs_ = configs;
+    auth_ = auth;
+    audit_log_ = audit_log;
     // Always create the default DB
-    // todo check return
-    New(kDefaultDB);
+    MG_ASSERT(!New(kDefaultDB).HasError(), "Failed while creating the default DB.");
   }
 #else
-  explicit SessionDataHandler(
-      memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
-      config_type configs)
-      : default_configs_(configs), run_id_(utils::GenerateUUID()), auth_(auth) {
+  static void Init(memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
+                   config_type configs) {
+    default_configs_ = configs;
+    auth_ = auth;
     // Always create the default DB
-    New(kDefaultDB);
+    MG_ASSERT(!New(kDefaultDB).HasError(), "Failed while creating the default DB.");
   }
 #endif
 
   // TODO: Think about what New returns. Maybe it's easier to return false on error (because how are we suppose to
   // handle errors if we don't know if they happened)
-  NewResult New(std::string_view name, TStorageConfig &storage_config, TInterpConfig &inter_config) {
+  NewResultT New(std::string_view name, StorageConfigT &storage_config, InterpConfigT &inter_config) {
     auto new_storage = storage_handler_.New(name, storage_config);
     if (new_storage.HasValue()) {
       // storage config can be something else if storage already exists, or return false or reread config
-      auto new_interp = interp_handler_.New(name, new_storage.GetValue(), inter_config,
-                                            storage_config.durability.storage_directory, *this);
+      auto new_interp =
+          interp_handler_.New(name, new_storage.GetValue(), inter_config, storage_config.durability.storage_directory);
       if (new_interp.HasValue()) {
 #if MG_ENTERPRISE
         SessionData sd{*new_storage, *new_interp, auth_, audit_log_};
@@ -81,7 +95,7 @@ class SessionDataHandler {
     return new_storage.GetError();
   }
 
-  NewResult New(std::string_view name, std::filesystem::path storage_subdir) {
+  NewResultT New(std::string_view name, std::filesystem::path storage_subdir) {
     if (default_configs_) {
       auto storage = default_configs_->first;
       storage.durability.storage_directory /= storage_subdir;
@@ -90,7 +104,7 @@ class SessionDataHandler {
     return NewError::NO_CONFIGS;
   }
 
-  NewResult New(std::string_view name) { return New(name, name); }
+  NewResultT New(std::string_view name) { return New(name, name); }
 
   // Can throw
   SessionData *GetPtr(const std::string &name) { return &session_data_.at(name); }
@@ -175,13 +189,16 @@ class SessionDataHandler {
   std::string Current(const std::string &uuid) { return get_db_name_.at(uuid)(); }
 
  private:
+  SessionDataHandler() : run_id_(utils::GenerateUUID()) {}
+  ~SessionDataHandler() {}
+
   // Are storage objects ever deleted?
   // shared_ptr and custom destructor if we are destroying it
   // unique and raw ptrs if we are not destroying it
   // Create drop and create with same name?
   std::unordered_map<std::string, SessionData> session_data_;
-  StorageHandler<TStorage, TStorageConfig> storage_handler_;
-  InterpContextHandler<TInterp, TInterpConfig> interp_handler_;
+  StorageHandler<StorageT, StorageConfigT> storage_handler_;
+  InterpContextHandler<InterpT, InterpConfigT> interp_handler_;
   std::optional<config_type> default_configs_;
   const std::string run_id_;
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth_;

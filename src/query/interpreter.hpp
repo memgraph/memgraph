@@ -211,8 +211,7 @@ class Interpreter;
  */
 struct InterpreterContext {
   explicit InterpreterContext(storage::Storage *db, InterpreterConfig config,
-                              const std::filesystem::path &data_directory,
-                              dbms::SessionDataHandler<> *sd_handler = nullptr);
+                              const std::filesystem::path &data_directory);
 
   storage::Storage *db;
 
@@ -239,8 +238,6 @@ struct InterpreterContext {
 
   query::stream::Streams streams;
   utils::Synchronized<std::unordered_set<Interpreter *>, utils::SpinLock> interpreters;
-
-  dbms::SessionDataHandler<> *sd_handler_;
 };
 
 /// Function that is used to tell all active interpreters that they should stop

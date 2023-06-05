@@ -496,7 +496,10 @@ class BoltSession final {
     interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.erase(&interpreter_); });
   }
 
-  // TODO rule of 5
+  BoltSession(const BoltSession &) = delete;
+  BoltSession &operator=(const BoltSession &) = delete;
+  BoltSession(BoltSession &&) = delete;
+  BoltSession &operator=(BoltSession &&) = delete;
 
   using TEncoder = memgraph::communication::bolt::Encoder<
       memgraph::communication::bolt::ChunkedEncoderBuffer<memgraph::communication::v2::OutputStream>>;
@@ -667,7 +670,7 @@ class BoltSession final {
 
 using SessionT = memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                         memgraph::communication::v2::OutputStream, BoltSession>;
-using ServerT = memgraph::communication::v2::Server<SessionT, memgraph::dbms::SessionDataHandler</*default*/>>;
+using ServerT = memgraph::communication::v2::Server<SessionT, memgraph::dbms::SessionDataHandler>;
 using MonitoringServerT =
     memgraph::communication::http::Server<memgraph::http::MetricsRequestHandler<memgraph::dbms::SessionData>,
                                           memgraph::dbms::SessionData>;
@@ -904,10 +907,12 @@ int main(int argc, char **argv) {
   // FLAGS_data_directory};
 #ifdef MG_ENTERPRISE
   // memgraph::dbms::SessionData session_data{&db, &interpreter_context, &auth, &audit_log};
-  memgraph::dbms::SessionDataHandler</*default*/> sd_handler(&auth, &audit_log, {db_config, interp_config});
+  auto &sd_handler = memgraph::dbms::SessionDataHandler::get();
+  sd_handler.Init(&auth, &audit_log, {db_config, interp_config});
 #else
   // memgraph::dbms::SessionData session_data{&db, &interpreter_context, &auth};
-  memgraph::dbms::SessionDataHandler</*default*/> sd_handler(&auth, {db_config, interp_config});
+  auto &sd_handler = memgraph::dbms::SessionDataHandler::get();
+  sd_handler.Init(&auth, {db_config, interp_config});
 #endif
   // Just for current support...
   auto session_data = *sd_handler.GetPtr(memgraph::dbms::kDefaultDB);

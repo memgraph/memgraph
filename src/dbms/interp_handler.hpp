@@ -36,12 +36,12 @@ class InterpContextHandler {
   InterpContextHandler() {}
 
   NewResult New(std::string_view name, storage::Storage *db, const TConfig &config,
-                const std::filesystem::path &data_directory, auto &sd_handler) {
+                const std::filesystem::path &data_directory) {
     // Control that the new configuration does not conflict with the previous ones
     // TODO: Is there anything that can conflict
     // Create storage
-    auto [itr, success] = storage_.emplace(
-        name, std::make_pair(std::make_unique<TContext>(db, config, data_directory, &sd_handler), config));
+    auto [itr, success] =
+        storage_.emplace(name, std::make_pair(std::make_unique<TContext>(db, config, data_directory), config));
     if (success) return itr->second.first.get();
     // TODO: Handle errors and return {}?
     return NewError::EXISTS;
