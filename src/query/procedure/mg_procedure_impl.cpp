@@ -2744,6 +2744,20 @@ mgp_proc *mgp_module_add_procedure(mgp_module *module, const char *name, mgp_pro
   // May throw std::bad_alloc, std::length_error
   return &module->procedures.emplace(name, mgp_proc(name, cb, memory, procedure_info)).first->second;
 }
+
+mgp_proc *mgp_module_add_batch_procedure(mgp_module *module, const char *name, mgp_proc_cb cb_batch,
+                                         std::function<void()> dtor, const ProcedureInfo &procedure_info) {
+  if (!IsValidIdentifierName(name)) {
+    throw std::invalid_argument{fmt::format("Invalid procedure name: {}", name)};
+  }
+  if (module->procedures.find(name) != module->procedures.end()) {
+    throw std::logic_error{fmt::format("Procedure already exists with name '{}'", name)};
+  };
+  auto *memory = module->procedures.get_allocator().GetMemoryResource();
+  // May throw std::bad_alloc, std::length_error
+  return &module->procedures.emplace(name, mgp_proc(name, cb_batch, dtor, memory, procedure_info)).first->second;
+}
+
 }  // namespace
 
 mgp_error mgp_module_add_read_procedure(mgp_module *module, const char *name, mgp_proc_cb cb, mgp_proc **result) {
@@ -2752,6 +2766,26 @@ mgp_error mgp_module_add_read_procedure(mgp_module *module, const char *name, mg
 
 mgp_error mgp_module_add_write_procedure(mgp_module *module, const char *name, mgp_proc_cb cb, mgp_proc **result) {
   return WrapExceptions([=] { return mgp_module_add_procedure(module, name, cb, {.is_write = true}); }, result);
+}
+
+mgp_error mgp_module_add_batch_read_procedure(mgp_module *module, const char *name, mgp_proc_cb cb_batch,
+                                              std::function<void()> dtor, const int batch_size, mgp_proc **result) {
+  return WrapExceptions(
+      [=] {
+        return mgp_module_add_batch_procedure(module, name, cb_batch, dtor,
+                                              {.is_write = false, .batch_info = BatchInfo{.batch_size = batch_size}});
+      },
+      result);
+}
+
+mgp_error mgp_module_add_batch_write_procedure(mgp_module *module, const char *name, mgp_proc_cb cb_batch,
+                                               std::function<void()> dtor, const int batch_size, mgp_proc **result) {
+  return WrapExceptions(
+      [=] {
+        return mgp_module_add_batch_procedure(module, name, cb_batch, dtor,
+                                              {.is_write = true, .batch_info = BatchInfo{.batch_size = batch_size}});
+      },
+      result);
 }
 
 namespace {

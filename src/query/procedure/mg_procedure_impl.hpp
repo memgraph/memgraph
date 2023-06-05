@@ -728,8 +728,12 @@ struct mgp_type {
   memgraph::query::procedure::CypherTypePtr impl;
 };
 
+struct BatchInfo {
+  int batch_size;
+};
 struct ProcedureInfo {
   bool is_write = false;
+  std::optional<BatchInfo> batch_info = std::nullopt;
   std::optional<memgraph::query::AuthQuery::Privilege> required_privilege = std::nullopt;
 };
 struct mgp_proc {
@@ -739,6 +743,18 @@ struct mgp_proc {
   /// @throw std::length_error
   mgp_proc(const char *name, mgp_proc_cb cb, memgraph::utils::MemoryResource *memory, const ProcedureInfo &info = {})
       : name(name, memory), cb(cb), args(memory), opt_args(memory), results(memory), info(info) {}
+
+  /// @throw std::bad_alloc
+  /// @throw std::length_error
+  mgp_proc(const char *name, mgp_proc_cb cb, mgp_proc_dtor dtor, memgraph::utils::MemoryResource *memory,
+           const ProcedureInfo &info = {})
+      : name(name, memory), cb(cb), dtor(dtor), args(memory), opt_args(memory), results(memory), info(info) {}
+
+  /// @throw std::bad_alloc
+  /// @throw std::length_error
+  mgp_proc(const char *name, std::function<void(mgp_list *, mgp_graph *, mgp_result *, mgp_memory *)> cb,
+           std::function<void()> dtor, memgraph::utils::MemoryResource *memory, const ProcedureInfo &info = {})
+      : name(name, memory), cb(cb), dtor(dtor), args(memory), opt_args(memory), results(memory), info(info) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
@@ -757,6 +773,7 @@ struct mgp_proc {
   mgp_proc(const mgp_proc &other, memgraph::utils::MemoryResource *memory)
       : name(other.name, memory),
         cb(other.cb),
+        dtor(other.dtor),
         args(other.args, memory),
         opt_args(other.opt_args, memory),
         results(other.results, memory),
@@ -765,6 +782,7 @@ struct mgp_proc {
   mgp_proc(mgp_proc &&other, memgraph::utils::MemoryResource *memory)
       : name(std::move(other.name), memory),
         cb(std::move(other.cb)),
+        dtor(other.dtor),
         args(std::move(other.args), memory),
         opt_args(std::move(other.opt_args), memory),
         results(std::move(other.results), memory),
@@ -782,6 +800,10 @@ struct mgp_proc {
   memgraph::utils::pmr::string name;
   /// Entry-point for the procedure.
   std::function<void(mgp_list *, mgp_graph *, mgp_result *, mgp_memory *)> cb;
+
+  /// Dtor for batched procedure.
+  std::optional<std::function<void()>> dtor;
+
   /// Required, positional arguments as a (name, type) pair.
   memgraph::utils::pmr::vector<std::pair<memgraph::utils::pmr::string, const memgraph::query::procedure::CypherType *>>
       args;

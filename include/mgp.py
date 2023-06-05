@@ -1673,6 +1673,57 @@ def write_proc(func: typing.Callable[..., Record]):
     return _register_proc(func, True)
 
 
+def _register_batch_proc(func: typing.Callable[..., Record], dtor: typing.Callable, is_write: bool):
+    raise_if_does_not_meet_requirements(func)
+    register_func = _mgp.Module.add_batch_read_procedure if is_write else _mgp.Module.add_batch_write_procedure
+    sig = inspect.signature(func)
+    params = tuple(sig.parameters.values())
+    if params and params[0].annotation is ProcCtx:
+
+        @wraps(func)
+        def wrapper(graph, args):
+            return func(ProcCtx(graph), *args)
+
+        params = params[1:]
+        mgp_proc = register_func(_mgp._MODULE, wrapper, dtor)
+    else:
+
+        @wraps(func)
+        def wrapper(graph, args):
+            return func(*args)
+
+        mgp_proc = register_func(_mgp._MODULE, wrapper, dtor)
+    for param in params:
+        name = param.name
+        type_ = param.annotation
+        if type_ is param.empty:
+            type_ = object
+        cypher_type = _typing_to_cypher_type(type_)
+        if param.default is param.empty:
+            mgp_proc.add_arg(name, cypher_type)
+        else:
+            mgp_proc.add_opt_arg(name, cypher_type, param.default)
+    if sig.return_annotation is not sig.empty:
+        record = sig.return_annotation
+        if not isinstance(record, Record):
+            raise TypeError("Expected '{}' to return 'mgp.Record', got '{}'".format(func.__name__, type(record)))
+        for name, type_ in record.fields.items():
+            if isinstance(type_, Deprecated):
+                cypher_type = _typing_to_cypher_type(type_.field_type)
+                mgp_proc.add_deprecated_result(name, cypher_type)
+            else:
+                mgp_proc.add_result(name, _typing_to_cypher_type(type_))
+    return func
+
+
+def batch_write_proc(func: typing.Callable[..., Record], dtor: typing.Callable):
+    return _register_batch_proc(func, dtor, False)
+
+
+def batch_read_proc(func: typing.Callable[..., Record], dtor: typing.Callable):
+    return _register_batch_proc(func, dtor, True)
+
+
 class InvalidMessageError(Exception):
     """
     Signals using a message instance outside of the registered transformation.

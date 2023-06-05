@@ -945,6 +945,23 @@ std::optional<py::ExceptionInfo> AddMultipleRecordsFromPython(mgp_result *result
   return std::nullopt;
 }
 
+std::optional<py::ExceptionInfo> AddMultipleBatchRecordsFromPython(mgp_result *result, py::Object py_seq,
+                                                                   mgp_memory *memory) {
+  Py_ssize_t len = PySequence_Size(py_seq.Ptr());
+  if (len == -1) return py::FetchError();
+  result->rows.reserve(len);
+
+  for (Py_ssize_t i = 0; i < len; ++i) {
+    py::Object py_record(PySequence_GetItem(py_seq.Ptr(), i));
+    if (!py_record) return py::FetchError();
+    auto maybe_exc = AddRecordFromPython(result, py_record, memory);
+    if (maybe_exc) return maybe_exc;
+  }
+  // Clear at the end what left
+  PySequence_DelSlice(py_seq.Ptr(), 0, PySequence_Size(py_seq.Ptr()));
+  return std::nullopt;
+}
+
 std::function<void()> PyObjectCleanup(py::Object &py_object) {
   return [py_object]() {
     // Run `gc.collect` (reference cycle-detection) explicitly, so that we are
@@ -1021,6 +1038,63 @@ void CallPythonProcedure(const py::Object &py_cb, mgp_list *args, mgp_graph *gra
   if (maybe_msg) {
     static_cast<void>(mgp_result_set_error_msg(result, maybe_msg->c_str()));
   }
+}
+
+void CallPythonBatchProcedure(const py::Object &py_cb, mgp_list *args, mgp_graph *graph, mgp_result *result,
+                              mgp_memory *memory) {
+  // memory should be dedicated to memory for procedure
+  auto gil = py::EnsureGIL();
+
+  auto error_to_msg = [](const std::optional<py::ExceptionInfo> &exc_info) -> std::optional<std::string> {
+    if (!exc_info) return std::nullopt;
+    // Here we tell the traceback formatter to skip the first line of the
+    // traceback because that line will always be our wrapper function in our
+    // internal `mgp.py` file. With that line skipped, the user will always
+    // get only the relevant traceback that happened in his Python code.
+    return py::FormatException(*exc_info, /* skip_first_line = */ true);
+  };
+
+  auto call = [&](py::Object py_graph) -> std::optional<py::ExceptionInfo> {
+    py::Object py_args(MgpListToPyTuple(args, py_graph.Ptr()));
+    if (!py_args) return py::FetchError();
+    auto py_res = py_cb.Call(py_graph, py_args);
+    if (!py_res) return py::FetchError();
+    if (PySequence_Check(py_res.Ptr())) {
+      return AddMultipleBatchRecordsFromPython(result, py_res, memory);
+    } else {
+      return AddRecordFromPython(result, py_res, memory);
+    }
+  };
+
+  // It is *VERY IMPORTANT* to note that this code takes great care not to keep
+  // any extra references to any `_mgp` instances (except for `_mgp.Graph`), so
+  // as not to introduce extra reference counts and prevent their deallocation.
+  // In particular, the `ExceptionInfo` object has a `traceback` field that
+  // contains references to the Python frames and their arguments, and therefore
+  // our `_mgp` instances as well. Within this code we ensure not to keep the
+  // `ExceptionInfo` object alive so that no extra reference counts are
+  // introduced. We only fetch the error message and immediately destroy the
+  // object.
+  std::optional<std::string> maybe_msg;
+  {
+    py::Object py_graph(MakePyGraph(graph, memory));
+    utils::OnScopeExit clean_up(PyObjectCleanup(py_graph));
+    if (py_graph) {
+      maybe_msg = error_to_msg(call(py_graph));
+    } else {
+      maybe_msg = error_to_msg(py::FetchError());
+    }
+  }
+
+  if (maybe_msg) {
+    static_cast<void>(mgp_result_set_error_msg(result, maybe_msg->c_str()));
+  }
+}
+
+void CallPythonDtor(const py::Object &py_dtor) {
+  auto gil = py::EnsureGIL();
+
+  py_dtor.Call();
 }
 
 void CallPythonTransformation(const py::Object &py_cb, mgp_messages *msgs, mgp_graph *graph, mgp_result *result,
@@ -1160,6 +1234,41 @@ PyObject *PyQueryModuleAddProcedure(PyQueryModule *self, PyObject *cb, bool is_w
   py_proc->callable = &proc_it->second;
   return reinterpret_cast<PyObject *>(py_proc);
 }
+
+PyObject *PyQueryModuleAddBatchProcedure(PyQueryModule *self, PyObject *cb, PyObject *dtor, bool is_write_procedure) {
+  MG_ASSERT(self->module);
+  if (!PyCallable_Check(cb)) {
+    PyErr_SetString(PyExc_TypeError, "Expected a callable object.");
+    return nullptr;
+  }
+  auto py_cb = py::Object::FromBorrow(cb);
+  auto py_dtor = py::Object::FromBorrow(dtor);
+  py::Object py_name(py_cb.GetAttr("__name__"));
+  const auto *name = PyUnicode_AsUTF8(py_name.Ptr());
+  if (!name) return nullptr;
+  if (!IsValidIdentifierName(name)) {
+    PyErr_SetString(PyExc_ValueError, "Procedure name is not a valid identifier");
+    return nullptr;
+  }
+  auto *memory = self->module->procedures.get_allocator().GetMemoryResource();
+  mgp_proc proc(
+      name,
+      [py_cb](mgp_list *args, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
+        CallPythonBatchProcedure(py_cb, args, graph, result, memory);
+      },
+      [py_dtor]() { CallPythonDtor(py_dtor); }, memory,
+      {.is_write = is_write_procedure, .batch_info = BatchInfo{.batch_size = 1000}});
+  const auto &[proc_it, did_insert] = self->module->procedures.emplace(name, std::move(proc));
+  if (!did_insert) {
+    PyErr_SetString(PyExc_ValueError, "Already registered a procedure with the same name.");
+    return nullptr;
+  }
+  auto *py_proc = PyObject_New(PyQueryProc, &PyQueryProcType);  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+  if (!py_proc) return nullptr;
+  py_proc->callable = &proc_it->second;
+  return reinterpret_cast<PyObject *>(py_proc);
+}
+
 }  // namespace
 
 PyObject *PyQueryModuleAddReadProcedure(PyQueryModule *self, PyObject *cb) {
@@ -1168,6 +1277,14 @@ PyObject *PyQueryModuleAddReadProcedure(PyQueryModule *self, PyObject *cb) {
 
 PyObject *PyQueryModuleAddWriteProcedure(PyQueryModule *self, PyObject *cb) {
   return PyQueryModuleAddProcedure(self, cb, true);
+}
+
+PyObject *PyQueryModuleAddBatchReadProcedure(PyQueryModule *self, PyObject *cb, PyObject *dtor) {
+  return PyQueryModuleAddBatchProcedure(self, cb, dtor, false);
+}
+
+PyObject *PyQueryModuleAddBatchWriteProcedure(PyQueryModule *self, PyObject *cb, PyObject *dtor) {
+  return PyQueryModuleAddBatchProcedure(self, cb, dtor, true);
 }
 
 PyObject *PyQueryModuleAddTransformation(PyQueryModule *self, PyObject *cb) {
@@ -1238,6 +1355,10 @@ static PyMethodDef PyQueryModuleMethods[] = {
      "Register a read-only procedure with this module."},
     {"add_write_procedure", reinterpret_cast<PyCFunction>(PyQueryModuleAddWriteProcedure), METH_O,
      "Register a writeable procedure with this module."},
+    {"add_batch_read_procedure", reinterpret_cast<PyCFunction>(PyQueryModuleAddBatchReadProcedure), METH_O,
+     "Register a read-only batch procedure with this module."},
+    {"add_batch_write_procedure", reinterpret_cast<PyCFunction>(PyQueryModuleAddBatchWriteProcedure), METH_O,
+     "Register a writeable batched procedure with this module."},
     {"add_transformation", reinterpret_cast<PyCFunction>(PyQueryModuleAddTransformation), METH_O,
      "Register a transformation with this module."},
     {"add_function", reinterpret_cast<PyCFunction>(PyQueryModuleAddFunction), METH_O,

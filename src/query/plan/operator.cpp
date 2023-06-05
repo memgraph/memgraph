@@ -4527,7 +4527,7 @@ class CallProcedureCursor : public Cursor {
         // result_ needs to live throughout multiple Pull evaluations, until all
         // rows are produced. Therefore, we use the memory dedicated for the
         // whole execution.
-        result_(nullptr, mem) {
+        result_(nullptr, self->memory_resource) {
     MG_ASSERT(self_->result_fields_.size() == self_->result_symbols_.size(), "Incorrectly constructed CallProcedure");
   }
 
@@ -4543,9 +4543,12 @@ class CallProcedureCursor : public Cursor {
     // This `while` loop will skip over empty results.
     while (result_row_it_ == result_.rows.end()) {
       if (!input_cursor_->Pull(frame, context)) return false;
-      result_.signature = nullptr;
-      result_.rows.clear();
-      result_.error_msg.reset();
+
+      // cleaning of old resources
+      result_.~mgp_result();
+      self_->monotonic_memory.Release();
+      result_ = std::move(mgp_result(nullptr, self_->memory_resource));
+
       // It might be a good idea to resolve the procedure name once, at the
       // start. Unfortunately, this could deadlock if we tried to invoke a
       // procedure from a module (read lock) and reload a module (write lock)
@@ -4574,7 +4577,7 @@ class CallProcedureCursor : public Cursor {
       // evaluation of an expression.
       // TODO: This will probably need to be changed when we add support for
       // generator like procedures which yield a new result on each invocation.
-      auto *memory = context.evaluation_context.memory;
+      auto *memory = self_->memory_resource;
       auto memory_limit = EvaluateMemoryLimit(&evaluator, self_->memory_limit_, self_->memory_scale_);
       auto graph = mgp_graph::WritableGraph(*context.db_accessor, graph_view, context);
       CallCustomProcedure(self_->procedure_name_, *proc, self_->arguments_, graph, &evaluator, memory, memory_limit,
