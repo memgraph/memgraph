@@ -16,6 +16,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
+#include "utils/rocksdb_serialization.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
@@ -106,6 +107,7 @@ TYPED_TEST(IndexTest, LabelIndexCreate) {
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::OLD), View::OLD), UnorderedElementsAre(1, 3, 5, 7, 9));
     acc->PrepareForNextIndexQuery();
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(1, 3, 5, 7, 9));
+    acc->PrepareForNextIndexQuery();
   }
 
   {
@@ -268,12 +270,17 @@ TYPED_TEST(IndexTest, LabelIndexBasic) {
   auto acc = this->storage->Access();
   EXPECT_THAT(this->storage->ListAllIndices().label, UnorderedElementsAre(this->label1, this->label2));
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::OLD), View::OLD), IsEmpty());
+  acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, View::OLD), View::OLD), IsEmpty());
+  acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::NEW), View::NEW), IsEmpty());
+  acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, View::NEW), View::NEW), IsEmpty());
+  acc->PrepareForNextIndexQuery();
 
   for (int i = 0; i < 10; ++i) {
     auto vertex = this->CreateVertex(acc.get());
+    spdlog::debug("Created vertex with gid: {}", memgraph::utils::SerializeIdType(vertex.Gid()));
     ASSERT_NO_ERROR(vertex.AddLabel(i % 2 ? this->label1 : this->label2));
   }
 
@@ -282,7 +289,6 @@ TYPED_TEST(IndexTest, LabelIndexBasic) {
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, View::OLD), View::OLD), IsEmpty());
   acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(1, 3, 5, 7, 9));
-  /// TODO: this should be handled somehow better
   acc->PrepareForNextIndexQuery();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, View::NEW), View::NEW), UnorderedElementsAre(0, 2, 4, 6, 8));
   acc->PrepareForNextIndexQuery();
