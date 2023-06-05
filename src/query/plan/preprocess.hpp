@@ -128,8 +128,13 @@ enum class PatternFilterType { EXISTS };
 /// Collects matchings from filters that include patterns
 class PatternFilterVisitor : public ExpressionVisitor<void> {
  public:
-  explicit PatternFilterVisitor(SymbolTable &symbol_table, AstStorage &storage)
-      : symbol_table_(symbol_table), storage_(storage) {}
+  explicit PatternFilterVisitor(SymbolTable &symbol_table, AstStorage &storage);
+  ~PatternFilterVisitor() override;
+
+  PatternFilterVisitor(const PatternFilterVisitor &);
+  PatternFilterVisitor &operator=(const PatternFilterVisitor &) = delete;
+  PatternFilterVisitor(PatternFilterVisitor &&) noexcept;
+  PatternFilterVisitor &operator=(PatternFilterVisitor &&) noexcept = delete;
 
   using ExpressionVisitor<void>::Visit;
 
@@ -200,7 +205,7 @@ class PatternFilterVisitor : public ExpressionVisitor<void> {
   void Visit(NamedExpression &op) override{};
   void Visit(RegexMatch &op) override{};
 
-  std::vector<FilterMatching> getMatchings() { return matchings_; }
+  std::vector<FilterMatching> getMatchings();
 
   SymbolTable &symbol_table_;
   AstStorage &storage_;
@@ -265,6 +270,17 @@ struct FilterInfo {
   /// information which can be used to produce indexed scans of graph
   /// elements.
   enum class Type { Generic, Label, Property, Id, Pattern };
+
+  FilterInfo();
+  ~FilterInfo();
+
+  FilterInfo(const FilterInfo &);
+  FilterInfo &operator=(const FilterInfo &);
+  FilterInfo(FilterInfo &&) noexcept;
+  FilterInfo &operator=(FilterInfo &&) noexcept;
+
+  // Back-compatibility in tests
+  FilterInfo(Type type, Expression *expression, std::unordered_set<Symbol> used_symbols);
 
   Type type;
   /// The original filter expression which must be satisfied.
