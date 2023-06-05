@@ -99,7 +99,7 @@ void DiskLabelIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Trans
 
 /// TODO: andi Here will come Bloom filter deletion
 bool DiskLabelIndex::DropIndex(LabelId label) {
-  if (!index_.erase(label) > 0) {
+  if (!(index_.erase(label) > 0)) {
     return false;
   }
   auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(

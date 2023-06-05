@@ -193,7 +193,7 @@ class InMemoryStorage final : public Storage {
 
     void FinalizeTransaction() override;
 
-    void PrepareForNextQuery() override {}
+    void PrepareForNextIndexQuery() override {}
 
    private:
     /// @throw std::bad_alloc

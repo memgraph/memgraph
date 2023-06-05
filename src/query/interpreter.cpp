@@ -2688,7 +2688,7 @@ void Interpreter::RollbackTransaction() {
 
 void Interpreter::PrepareStorageForNextQuery() {
   if (db_accessor_) {
-    db_accessor_->PrepareForNextQuery();
+    db_accessor_->PrepareForNextIndexQuery();
   }
 }
 

@@ -81,6 +81,15 @@ inline std::vector<storage::LabelId> DeserializeLabelsFromMainDiskStorage(const 
   return {};
 }
 
+inline std::string ExtractGidFromMainDiskStorage(const std::string &key) {
+  std::vector<std::string> key_vector = utils::Split(key, "|");
+  return key_vector[1];
+}
+
+inline std::string ExtractGidFromLabelIndexStorage(const std::string &key) {
+  return ExtractGidFromMainDiskStorage(key);
+}
+
 inline std::vector<storage::LabelId> DeserializeLabelsFromLabelIndexStorage(const std::string &key) {
   return TransformFromStringLabels(utils::Split(key, ","));
 }
@@ -105,6 +114,7 @@ inline std::vector<storage::LabelId> DeserializeLabelsFromUniqueConstraintStorag
   return labels;
 }
 
+/// TODO: change to call ExtractGidFromMainDiskStorage
 inline std::string ExtractGidFromUniqueConstraintStorage(const std::string &key) {
   std::vector<std::string> key_vector = utils::Split(key, "|");
   return key_vector[1];

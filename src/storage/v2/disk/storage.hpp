@@ -156,7 +156,7 @@ class DiskStorage final : public Storage {
     /// Currently, it does everything the same as in-memory version.
     void FinalizeTransaction() override;
 
-    void PrepareForNextQuery() override { indexed_vertices_.clear(); }
+    void PrepareForNextIndexQuery() override { indexed_vertices_.clear(); }
 
     std::optional<storage::VertexAccessor> LoadVertexToLabelIndexCache(const rocksdb::Slice &key,
                                                                        const rocksdb::Slice &value);

@@ -372,6 +372,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
   if (view == View::NEW) {
     auto main_cache_acc = vertices_.access();
     for (const auto &vertex : main_cache_acc) {
+      /// TODO: you have method for that in namespace in label_index.cpp
       if (std::find(vertex.labels.begin(), vertex.labels.end(), label) != vertex.labels.end()) {
         spdlog::debug("Loaded vertex with gid {} from main cache to index cache", utils::SerializeIdType(vertex.gid));
         LoadVertexToLabelIndexCache(utils::SerializeVertexForLabelIndex(label, vertex.labels, vertex.gid),
@@ -385,6 +386,7 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
     std::string key = index_it->key().ToString();
     // TODO: andi this will be optimized bla bla
     if (key.starts_with(utils::SerializeIdType(label))) {
+      spdlog::debug("Loaded vertex with gid {} from disk label index", utils::ExtractGidFromLabelIndexStorage(key));
       LoadVertexToLabelIndexCache(index_it->key(), index_it->value());
     }
     // load vertex with gid 1
@@ -415,6 +417,8 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, const PropertyValue &value,
                                                      View view) {
+  OOMExceptionEnabler oom_exception;
+
   auto *disk_label_property_index =
       static_cast<DiskLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
   auto it = disk_label_property_index->CreateRocksDBIterator();
